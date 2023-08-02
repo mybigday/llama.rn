@@ -1,5 +1,9 @@
 # llama.rn
 
+[![Actions Status](https://github.com/mybigday/llama.rn/workflows/CI/badge.svg)](https://github.com/mybigday/llama.rn/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![npm](https://img.shields.io/npm/v/llama.rn.svg)](https://www.npmjs.com/package/llama.rn/)
+
 React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp). Currently only supported iOS.
 
 ⚠️ Currently this library is not recommended for production use. In our cases, we only use it on device like M1 ~ M2 iPad/Mac for the time being, with Llama-2-7b-chat q2_k ~ q4_k models. ⚠️
@@ -29,6 +33,9 @@ yarn example ios --mode Release
 
 ## TODO
 
+- [ ] Documenation: Obtain the model
+- [ ] Example: Custom params in the UI
+- [ ] Example: Pure text completion playground
 - [ ] Expose tokenize / embedding functions as util
 - [ ] Android support
 
