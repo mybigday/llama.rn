@@ -198,9 +198,29 @@
     llama_print_timings(llama->ctx);
     self->is_predicting = false;
 
+    const auto timings = llama_get_timings(self->llama->ctx);
     return @{
         @"text": [NSString stringWithUTF8String:self->llama->generated_text.c_str()],
-        @"completion_probabilities": [self tokenProbsToDict:self->llama->generated_token_probs]
+        @"completion_probabilities": [self tokenProbsToDict:self->llama->generated_token_probs],
+        @"tokens_predicted": @(self->llama->num_tokens_predicted),
+        @"tokens_evaluated": @(self->llama->num_prompt_tokens),
+        @"truncated": @(self->llama->truncated),
+        @"stopped_eos": @(self->llama->stopped_eos),
+        @"stopped_word": @(self->llama->stopped_word),
+        @"stopped_limit": @(self->llama->stopped_limit),
+        @"stopping_word": [NSString stringWithUTF8String:self->llama->stopping_word.c_str()],
+        @"tokens_cached": @(self->llama->n_past),
+        @"timings": @{
+            @"prompt_n": @(timings.n_eval),
+            @"prompt_ms": @(timings.t_p_eval_ms),
+            @"prompt_per_token_ms": @(timings.t_p_eval_ms / timings.n_p_eval),
+            @"prompt_per_second": @(1e3 / timings.t_p_eval_ms * timings.n_p_eval),
+
+            @"predicted_n": @(timings.n_eval),
+            @"predicted_ms": @(timings.t_eval_ms),
+            @"predicted_per_token_ms": @(timings.t_eval_ms / timings.n_eval),
+            @"predicted_per_second": @(1e3 / timings.t_eval_ms * timings.n_eval),
+        }
     };
 }
 

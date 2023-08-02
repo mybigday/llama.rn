@@ -61,8 +61,30 @@ export type NativeCompletionTokenProb = {
   probs: Array<NativeCompletionTokenProbItem>
 }
 
+export type NativeCompletionResultTimings = {
+  prompt_n: number
+  prompt_ms: number
+  prompt_per_token_ms: number
+  prompt_per_second: number
+  predicted_n: number
+  predicted_ms: number
+  predicted_per_token_ms: number
+  predicted_per_second: number
+}
+
 export type NativeCompletionResult = {
   text: string
+
+  tokens_predicted: number
+  tokens_evaluated: number
+  truncated: boolean
+  stopped_eos: boolean
+  stopped_word: string
+  stopped_limit: number
+  stopping_word: string
+  tokens_cached: number
+  timings: NativeCompletionResultTimings
+
   completion_probabilities?: Array<NativeCompletionTokenProb>
 }
 
