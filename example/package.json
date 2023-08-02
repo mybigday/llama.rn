@@ -1,0 +1,29 @@
+{
+  "name": "RNLlamaExample",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "ios": "react-native run-ios",
+    "start": "react-native start",
+    "pods": "pod-install --quiet"
+  },
+  "dependencies": {
+    "@flyerhq/react-native-chat-ui": "^1.4.3",
+    "react": "18.2.0",
+    "react-native": "0.72.3",
+    "react-native-document-picker": "^9.0.1",
+    "react-native-safe-area-context": "^4.7.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@babel/preset-env": "^7.20.0",
+    "@babel/runtime": "^7.20.0",
+    "@react-native/eslint-config": "^0.72.2",
+    "@react-native/metro-config": "^0.72.9",
+    "babel-plugin-module-resolver": "^5.0.0",
+    "metro-react-native-babel-preset": "0.76.7"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
