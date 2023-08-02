@@ -1,6 +1,6 @@
 {
   "name": "llama.rn",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "React Native binding of llama.cpp",
   "main": "lib/commonjs/index",
   "module": "lib/module/index",
@@ -159,7 +159,16 @@
               "tsx": "never"
             }
           ],
-          "react/jsx-filename-extension": [1, { "extensions": [".js", ".jsx", ".tsx"] }]
+          "react/jsx-filename-extension": [
+            1,
+            {
+              "extensions": [
+                ".js",
+                ".jsx",
+                ".tsx"
+              ]
+            }
+          ]
         }
       }
     ],
@@ -188,7 +197,7 @@
     "semi": false,
     "singleQuote": true,
     "printWidth": 80
-  },  
+  },
   "react-native-builder-bob": {
     "source": "src",
     "output": "lib",
