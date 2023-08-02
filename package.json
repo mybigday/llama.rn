@@ -11,7 +11,7 @@
     "src",
     "lib",
     "ios",
-    "cpp",
+    "cpp/*.*",
     "*.podspec",
     "!lib/typescript/example",
     "!ios/build",
