@@ -64,6 +64,14 @@ yarn example ios --mode Release
 
 this example used [react-native-document-picker](https://github.com/rnmods/react-native-document-picker) to select model. You can move the model to iOS Simulator, or iCloud for real device.
 
+## Mock `llama.rn`
+
+We have provided a mock version of `llama.rn` for testing purpose you can use on Jest:
+
+```js
+jest.mock('llama.rn', () => require('llama.rn/jest/mock'))
+```
+
 ## TODO
 
 - [ ] Example: Custom params in the UI

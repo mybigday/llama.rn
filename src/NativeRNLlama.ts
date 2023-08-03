@@ -99,4 +99,4 @@ export interface Spec extends TurboModule {
   releaseAllContexts(): Promise<void>;
 }
 
-export default TurboModuleRegistry.get<Spec>('Llama') as Spec;
+export default TurboModuleRegistry.get<Spec>('RNLlama') as Spec;
