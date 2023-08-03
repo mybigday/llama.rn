@@ -40,7 +40,7 @@ python3 convert.py models/7B/ --outtype f16
 # Build the quantize tool
 make quantize
 
-# quantize the model to 4-bits (using q2_k method)
+# quantize the model to 2-bits (using q2_k method)
 ./quantize ./models/7B/ggml-model-f16.bin ./models/7B/ggml-model-q2_k.bin q2_k
 
 # quantize the model to 4-bits (using q4_0 method)
@@ -56,7 +56,7 @@ Run the example:
 yarn && yarn bootstrap
 
 yarn example ios
-# Use devoce
+# Use device
 yarn example ios --device "<device name>"
 # With release mode
 yarn example ios --mode Release
