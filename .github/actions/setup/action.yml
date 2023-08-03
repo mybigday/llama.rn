@@ -26,3 +26,6 @@ runs:
         yarn install --cwd example --frozen-lockfile
         yarn install --frozen-lockfile
       shell: bash
+
+    - name: Bootstrap & Prepack
+      run: yarn bootstrap && yarn prepack
