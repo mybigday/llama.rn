@@ -178,7 +178,7 @@ export default function App() {
           mirostat: 0, // 0/1/2
           mirostat_tau: 5, // target entropy
           mirostat_eta: 0.1, // learning rate
-          n_probs: 2,
+          n_probs: 0, // Show probabilities
           stop: ['</s>', 'llama:', 'User:'],
           // n_threads: 4,
           // logit_bias: [[15043,1.0]],
