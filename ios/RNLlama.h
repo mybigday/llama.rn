@@ -6,6 +6,6 @@
 #import <React/RCTBridgeModule.h>
 
 // TODO: Use RNLlamaSpec (Need to refactor NSDictionary usage)
-@interface Llama : RCTEventEmitter <RCTBridgeModule>
+@interface RNLlama : RCTEventEmitter <RCTBridgeModule>
 
 @end

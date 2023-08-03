@@ -5,10 +5,10 @@
 #import "RNLlamaSpec.h"
 #endif
 
-@implementation Llama
+@implementation RNLlama
 
-NSMutableDictionary *contexts;
-double context_limit = 1;
+NSMutableDictionary *llamaContexts;
+double llamaContextLimit = 1;
 
 RCT_EXPORT_MODULE()
 
@@ -16,7 +16,7 @@ RCT_EXPORT_METHOD(setContextLimit:(double)limit
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
-    context_limit = limit;
+    llamaContextLimit = limit;
     resolve(nil);
 }
 
@@ -24,11 +24,11 @@ RCT_EXPORT_METHOD(initContext:(NSDictionary *)contextParams
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
-    if (contexts == nil) {
-        contexts = [[NSMutableDictionary alloc] init];
+    if (llamaContexts == nil) {
+        llamaContexts = [[NSMutableDictionary alloc] init];
     }
 
-    if (context_limit > 0 && [contexts count] >= context_limit) {
+    if (llamaContextLimit > 0 && [llamaContexts count] >= llamaContextLimit) {
         reject(@"llama_error", @"Context limit reached", nil);
         return;
     }
@@ -42,7 +42,7 @@ RCT_EXPORT_METHOD(initContext:(NSDictionary *)contextParams
     double contextId = (double) arc4random_uniform(1000000);
 
     NSNumber *contextIdNumber = [NSNumber numberWithDouble:contextId];
-    [contexts setObject:context forKey:contextIdNumber];
+    [llamaContexts setObject:context forKey:contextIdNumber];
 
     resolve(contextIdNumber);
 }
@@ -58,7 +58,7 @@ RCT_EXPORT_METHOD(completion:(double)contextId
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
-    RNLlamaContext *context = contexts[[NSNumber numberWithDouble:contextId]];
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
     if (context == nil) {
         reject(@"llama_error", @"Context not found", nil);
         return;
@@ -93,7 +93,7 @@ RCT_EXPORT_METHOD(stopCompletion:(double)contextId
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
-    RNLlamaContext *context = contexts[[NSNumber numberWithDouble:contextId]];
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
     if (context == nil) {
         reject(@"llama_error", @"Context not found", nil);
         return;
@@ -106,14 +106,14 @@ RCT_EXPORT_METHOD(releaseContext:(double)contextId
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
-    RNLlamaContext *context = contexts[[NSNumber numberWithDouble:contextId]];
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
     if (context == nil) {
         reject(@"llama_error", @"Context not found", nil);
         return;
     }
     [context stopCompletion];
     [context invalidate];
-    [contexts removeObjectForKey:[NSNumber numberWithDouble:contextId]];
+    [llamaContexts removeObjectForKey:[NSNumber numberWithDouble:contextId]];
     resolve(nil);
 }
 
@@ -126,17 +126,17 @@ RCT_EXPORT_METHOD(releaseAllContexts:(RCTPromiseResolveBlock)resolve
 
 
 - (void)invalidate {
-    if (contexts == nil) {
+    if (llamaContexts == nil) {
         return;
     }
 
-    for (NSNumber *contextId in contexts) {
-        RNLlamaContext *context = contexts[contextId];
+    for (NSNumber *contextId in llamaContexts) {
+        RNLlamaContext *context = llamaContexts[contextId];
         [context invalidate];
     }
 
-    [contexts removeAllObjects];
-    contexts = nil;
+    [llamaContexts removeAllObjects];
+    llamaContexts = nil;
 
     [super invalidate];
 }
