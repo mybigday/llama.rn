@@ -29,3 +29,4 @@ runs:
 
     - name: Bootstrap & Prepack
       run: yarn bootstrap && yarn prepack
+      shell: bash
