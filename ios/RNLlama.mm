@@ -84,6 +84,7 @@ RCT_EXPORT_METHOD(completion:(double)contextId
             resolve(completionResult);
         } @catch (NSException *exception) {
             reject(@"llama_cpp_error", exception.reason, nil);
+            [context stopCompletion];
         }
     });
     
