@@ -91,7 +91,7 @@ export default function App() {
     initLlama({
       model: file.uri,
       use_mlock: true,
-      // n_gpu_layers: 1, // Enable Metal
+      n_gpu_layers: 0, // > 0: enable metal
     })
       .then((ctx) => {
         setContext(ctx)
@@ -103,7 +103,7 @@ export default function App() {
         )
       })
       .catch((err) => {
-        addSystemMessage(`Context initialization failed: ${err}`)
+        addSystemMessage(`Context initialization failed: ${err.message}`)
       })
   }
 
@@ -215,6 +215,11 @@ export default function App() {
       .then((completionResult) => {
         console.log('completionResult: ', completionResult)
         setInferencing(false)
+      })
+      .catch(e => {
+        console.log('completion error: ', e)
+        setInferencing(false)
+        addSystemMessage(`Completion failed: ${e.message}`)
       })
   }
 
