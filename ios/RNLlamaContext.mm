@@ -33,8 +33,7 @@
     int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : 0;
     const int maxThreads = (int) [[NSProcessInfo processInfo] processorCount];
     // Use 2 threads by default on 4-core devices, 4 threads on more cores
-    const int defaultNThreads = nThreads == 4 ? 2 : MIN(4, nThreads);
-
+    const int defaultNThreads = nThreads == 4 ? 2 : MIN(4, maxThreads);
     defaultParams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
 
     RNLlamaContext *context = [[RNLlamaContext alloc] init];
@@ -91,7 +90,13 @@
 
     if (params[@"temperature"]) self->llama->params.temp = [params[@"temperature"] doubleValue];
 
-    if (params[@"n_threads"]) self->llama->params.n_threads = [params[@"n_threads"] intValue];
+    if (params[@"n_threads"]) {
+        int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : self->llama->params.n_threads;
+        const int maxThreads = (int) [[NSProcessInfo processInfo] processorCount];
+        // Use 2 threads by default on 4-core devices, 4 threads on more cores
+        const int defaultNThreads = nThreads == 4 ? 2 : MIN(4, maxThreads);
+        self->llama->params.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
+    }
     if (params[@"n_predict"]) self->llama->params.n_predict = [params[@"n_predict"] intValue];
     if (params[@"n_probs"]) self->llama->params.n_probs = [params[@"n_probs"] intValue];
 
