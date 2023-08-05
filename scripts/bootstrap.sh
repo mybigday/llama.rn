@@ -18,7 +18,10 @@ cp ./llama.cpp/k_quants.c ./cpp/k_quants.c
 cp ./llama.cpp/examples/common.h ./cpp/common.h
 cp ./llama.cpp/examples/common.cpp ./cpp/common.cpp
 
+
 yarn example
 
 # Apply patch
 patch -p0 -d ./cpp < ./scripts/ggml-metal.m.patch
+
+rm cpp/ggml-metal.m.orig || true
