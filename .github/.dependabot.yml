@@ -1,0 +1,16 @@
+version: 2
+updates:
+- package-ecosystem: npm
+  directory: "/example"
+  schedule:
+    interval: daily
+    time: "02:00"
+    timezone: Asia/Taipei
+  open-pull-requests-limit: 15
+- package-ecosystem: github-actions
+  directory: "/"
+  schedule:
+    interval: daily
+    time: "02:00"
+    timezone: Asia/Taipei
+  open-pull-requests-limit: 15
