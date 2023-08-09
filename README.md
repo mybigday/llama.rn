@@ -82,7 +82,7 @@ jest.mock('llama.rn', () => require('llama.rn/jest/mock'))
 ## NOTE
 
 - The [Extended Virtual Addressing](https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_developer_kernel_extended-virtual-addressing) capability is recommended to enable on iOS project.
-- Currently we got some iOS devices crash by enable Metal ('params.n_gpu_layers > 0'), to avoid this problem, we're recommended to check [Metal 3 supported devices](https://support.apple.com/en-us/HT205073). But currently the cause is still unclear and we are giving this issue a low priority.
+- We have tested to know some devices is not able to use Metal ('params.n_gpu_layers > 0') due to llama.cpp used SIMD-scoped operation, you can check if your device is supported in [Metal feature set tables](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf), Apple7 GPU will be the minimum requirement.
 - We can use the ggml tensor allocor (See [llama.cpp#2411](https://github.com/ggerganov/llama.cpp/pull/2411)) by use `RNLLAMA_DISABLE_METAL=1` env on pod install, which reduces the memory usage. If you only want to use CPU, this is very useful.
 
 ## Contributing
