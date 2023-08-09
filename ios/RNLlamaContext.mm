@@ -1,4 +1,5 @@
 #import "RNLlamaContext.h"
+#import <Metal/Metal.h>
 
 @implementation RNLlamaContext
 
@@ -14,7 +15,35 @@
     
     if (params[@"n_ctx"]) defaultParams.n_ctx = [params[@"n_ctx"] intValue];
     if (params[@"use_mlock"]) defaultParams.use_mlock = [params[@"use_mlock"]boolValue];
-    if (params[@"n_gpu_layers"]) defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
+
+    BOOL isMetalEnabled = false;
+    NSString *reasonNoMetal = @"";
+    defaultParams.n_gpu_layers = 0;
+    if (params[@"n_gpu_layers"]) {
+        // Check ggml-metal availability
+        NSError * error = nil;
+        id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+        id<MTLLibrary> library = [device
+            newLibraryWithSource:@"#include <metal_stdlib>\n"
+                                    "using namespace metal;"
+                                    "kernel void test() { simd_sum(0); }"
+            options:nil
+            error:&error
+        ];
+        if (error) {
+            reasonNoMetal = [error localizedDescription];
+        } else {
+            id<MTLFunction> kernel = [library newFunctionWithName:@"test"];
+            id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:kernel error:&error];
+            if (pipeline == nil) {
+                reasonNoMetal = [error localizedDescription];
+            } else {
+                defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
+                isMetalEnabled = true;
+            }
+        }
+        device = nil;
+    }
     if (params[@"n_batch"]) defaultParams.n_batch = [params[@"n_batch"] intValue];
     if (params[@"use_mmap"]) defaultParams.use_mmap = [params[@"use_mmap"] boolValue];
     if (params[@"memory_f16"]) defaultParams.memory_f16 = [params[@"memory_f16"] boolValue];
@@ -41,7 +70,17 @@
         context->llama = new rnllama::llama_rn_context();
     }
     context->is_model_loaded = context->llama->loadModel(defaultParams);
+    context->is_metal_enabled = isMetalEnabled;
+    context->reason_no_metal = reasonNoMetal;
     return context;
+}
+
+- (bool)isMetalEnabled {
+    return self->is_metal_enabled;
+}
+
+- (NSString *)reasonNoMetal {
+    return self->reason_no_metal;
 }
 
 - (bool)isModelLoaded {

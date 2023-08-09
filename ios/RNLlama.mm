@@ -44,7 +44,11 @@ RCT_EXPORT_METHOD(initContext:(NSDictionary *)contextParams
     NSNumber *contextIdNumber = [NSNumber numberWithDouble:contextId];
     [llamaContexts setObject:context forKey:contextIdNumber];
 
-    resolve(contextIdNumber);
+    resolve(@{
+        @"contextId": contextIdNumber,
+        @"isMetalEnabled": @([context isMetalEnabled]),
+        @"reasonNoMetal": [context reasonNoMetal],
+    });
 }
 
 - (NSArray *)supportedEvents {

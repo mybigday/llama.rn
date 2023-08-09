@@ -91,12 +91,13 @@ export default function App() {
     initLlama({
       model: file.uri,
       use_mlock: true,
-      n_gpu_layers: 0, // > 0: enable metal
+      n_gpu_layers: 1, // > 0: enable metal
     })
       .then((ctx) => {
         setContext(ctx)
         addSystemMessage(
-          'Context initialized! You can use the following commands:\n\n' +
+          `Context initialized! \n\nMetal: ${ctx.isMetalEnabled ? 'YES' : 'NO'} (${ctx.reasonNoMetal})\n\n` +
+            'You can use the following commands:\n\n' +
             '- /release: release the context\n' +
             '- /stop: stop the current completion\n' +
             '- /reset: reset the conversation',
@@ -216,7 +217,7 @@ export default function App() {
         console.log('completionResult: ', completionResult)
         setInferencing(false)
       })
-      .catch(e => {
+      .catch((e) => {
         console.log('completion error: ', e)
         setInferencing(false)
         addSystemMessage(`Completion failed: ${e.message}`)

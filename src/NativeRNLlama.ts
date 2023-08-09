@@ -88,9 +88,15 @@ export type NativeCompletionResult = {
   completion_probabilities?: Array<NativeCompletionTokenProb>
 }
 
+export type NativeLlamaContext = {
+  contextId: number
+  isMetalEnabled: boolean
+  reasonNoMetal: string
+}
+
 export interface Spec extends TurboModule {
   setContextLimit(limit: number): Promise<void>;
-  initContext(params: NativeContextParams): Promise<number>;
+  initContext(params: NativeContextParams): Promise<NativeLlamaContext>;
 
   completion(contextId: number, params: NativeCompletionParams): Promise<NativeCompletionResult>;
   stopCompletion(contextId: number): Promise<void>;
