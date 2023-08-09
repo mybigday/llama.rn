@@ -2,7 +2,11 @@ const { NativeModules, DeviceEventEmitter } = require('react-native')
 
 if (!NativeModules.RNLlama) {
   NativeModules.RNLlama = {
-    initContext: jest.fn(() => Promise.resolve(1)),
+    initContext: jest.fn(() => Promise.resolve({
+      contextId: 1,
+      isUsedMetal: false,
+      reasonNoMetal: 'Test',
+    })),
 
     completion: jest.fn(async (contextId, jobId) => {
       const testResult = {
