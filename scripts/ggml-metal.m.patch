@@ -1,6 +1,50 @@
---- ggml-metal-orig.m	2023-07-25 08:38:51
-+++ ggml-metal.m	2023-07-25 08:34:40
-@@ -194,13 +194,13 @@
+--- ggml-metal-orig.m	2023-08-11 07:13:35
++++ ggml-metal.m	2023-08-11 07:10:19
+@@ -126,7 +126,7 @@
+         ctx->library = [ctx->device newLibraryWithSource:msl_library_source options:nil error:&error];
+         if (error) {
+             fprintf(stderr, "%s: error: %s\n", __func__, [[error description] UTF8String]);
+-            exit(1);
++            return NULL;
+         }
+     }
+ #else
+@@ -144,7 +144,7 @@
+         NSString * src  = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&error];
+         if (error) {
+             fprintf(stderr, "%s: error: %s\n", __func__, [[error description] UTF8String]);
+-            exit(1);
++            return NULL;
+         }
+ 
+ #ifdef LM_GGML_QKK_64
+@@ -156,17 +156,22 @@
+ #endif
+         if (error) {
+             fprintf(stderr, "%s: error: %s\n", __func__, [[error description] UTF8String]);
+-            exit(1);
++            return NULL;
+         }
+     }
+ #endif
+ 
+     // load kernels
+     {
++        NSError * error = nil;
+ #define LM_GGML_METAL_ADD_KERNEL(name) \
+         ctx->function_##name = [ctx->library newFunctionWithName:@"kernel_"#name]; \
+-        ctx->pipeline_##name = [ctx->device newComputePipelineStateWithFunction:ctx->function_##name error:nil]; \
+-        fprintf(stderr, "%s: loaded %-32s %16p\n", __func__, "kernel_"#name, (void *) ctx->pipeline_##name);
++        ctx->pipeline_##name = [ctx->device newComputePipelineStateWithFunction:ctx->function_##name error:&error]; \
++        fprintf(stderr, "%s: loaded %-32s %16p\n", __func__, "kernel_"#name, (void *) ctx->pipeline_##name); \
++        if (error) { \
++            fprintf(stderr, "%s: load pipeline error: %s\n", __func__, [[error description] UTF8String]); \
++            return NULL; \
++        }
+ 
+         LM_GGML_METAL_ADD_KERNEL(add);
+         LM_GGML_METAL_ADD_KERNEL(add_row);
+@@ -205,13 +210,13 @@
  #undef LM_GGML_METAL_ADD_KERNEL
      }
  
@@ -20,7 +64,7 @@
  
      return ctx;
  }
-@@ -319,15 +319,15 @@
+@@ -337,15 +342,15 @@
              }
          }
  
