@@ -20,6 +20,7 @@
     NSString *reasonNoMetal = @"";
     defaultParams.n_gpu_layers = 0;
     if (params[@"n_gpu_layers"] && [params[@"n_gpu_layers"] intValue] > 0) {
+#ifdef LM_GGML_USE_METAL
         // Check ggml-metal availability
         NSError * error = nil;
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
@@ -43,6 +44,10 @@
             }
         }
         device = nil;
+#else
+        reasonNoMetal = @"Metal is not enabled in this build";
+        isMetalEnabled = false;
+#endif
     }
     if (params[@"n_batch"]) defaultParams.n_batch = [params[@"n_batch"] intValue];
     if (params[@"use_mmap"]) defaultParams.use_mmap = [params[@"use_mmap"] boolValue];
