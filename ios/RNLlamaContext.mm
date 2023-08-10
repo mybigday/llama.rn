@@ -19,7 +19,7 @@
     BOOL isMetalEnabled = false;
     NSString *reasonNoMetal = @"";
     defaultParams.n_gpu_layers = 0;
-    if (params[@"n_gpu_layers"]) {
+    if (params[@"n_gpu_layers"] && [params[@"n_gpu_layers"] intValue] > 0) {
         // Check ggml-metal availability
         NSError * error = nil;
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
