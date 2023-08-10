@@ -18,6 +18,29 @@ cp ./llama.cpp/k_quants.c ./cpp/k_quants.c
 cp ./llama.cpp/examples/common.h ./cpp/common.h
 cp ./llama.cpp/examples/common.cpp ./cpp/common.cpp
 
+# Add prefix to avoid redefinition with other libraries using ggml like whisper.rn
+sed -i '' 's/GGML_/LM_GGML_/g' ./cpp/ggml.h
+sed -i '' 's/ggml_/lm_ggml_/g' ./cpp/ggml.h
+sed -i '' 's/GGML_/LM_GGML_/g' ./cpp/ggml.c
+sed -i '' 's/ggml_/lm_ggml_/g' ./cpp/ggml.c
+sed -i '' 's/GGML_/LM_GGML_/g' ./cpp/ggml-metal.h
+sed -i '' 's/ggml_/lm_ggml_/g' ./cpp/ggml-metal.h
+sed -i '' 's/GGML_/LM_GGML_/g' ./cpp/ggml-metal.m
+sed -i '' 's/ggml_/lm_ggml_/g' ./cpp/ggml-metal.m
+sed -i '' 's/GGML_/LM_GGML_/g' ./cpp/llama.h
+sed -i '' 's/ggml_/lm_ggml_/g' ./cpp/llama.h
+sed -i '' 's/GGML_/LM_GGML_/g' ./cpp/llama.cpp
+sed -i '' 's/ggml_/lm_ggml_/g' ./cpp/llama.cpp
+sed -i '' 's/GGML_/LM_GGML_/g' ./cpp/llama-util.h
+sed -i '' 's/ggml_/lm_ggml_/g' ./cpp/llama-util.h
+sed -i '' 's/GGML_/LM_GGML_/g' ./cpp/k_quants.h
+sed -i '' 's/ggml_/lm_ggml_/g' ./cpp/k_quants.h
+sed -i '' 's/GGML_/LM_GGML_/g' ./cpp/k_quants.c
+sed -i '' 's/ggml_/lm_ggml_/g' ./cpp/k_quants.c
+sed -i '' 's/GGML_/LM_GGML_/g' ./cpp/ggml-alloc.h
+sed -i '' 's/ggml_/lm_ggml_/g' ./cpp/ggml-alloc.h
+sed -i '' 's/GGML_/LM_GGML_/g' ./cpp/ggml-alloc.c
+sed -i '' 's/ggml_/lm_ggml_/g' ./cpp/ggml-alloc.c
 
 yarn example
 

@@ -1,7 +1,7 @@
 --- ggml-metal-orig.m	2023-07-25 08:38:51
 +++ ggml-metal.m	2023-07-25 08:34:40
 @@ -194,13 +194,13 @@
- #undef GGML_METAL_ADD_KERNEL
+ #undef LM_GGML_METAL_ADD_KERNEL
      }
  
 -    fprintf(stderr, "%s: recommendedMaxWorkingSetSize = %8.2f MB\n", __func__, ctx->device.recommendedMaxWorkingSetSize / 1024.0 / 1024.0);
