@@ -5,6 +5,7 @@
 #include <iostream>
 #include "common.h"
 #include "llama.h"
+#include "grammar-parser.h"
 
 namespace rnllama {
 
@@ -141,6 +142,9 @@ struct llama_rn_context
     llama_context *ctx = nullptr;
     gpt_params params;
 
+    grammar_parser::parse_state parsed_grammar;
+    llama_grammar *grammar = nullptr;
+
     bool truncated = false;
     bool stopped_eos = false;
     bool stopped_word = false;
@@ -165,6 +169,7 @@ struct llama_rn_context
     void rewind()
     {
         params.antiprompt.clear();
+        params.grammar.clear();
         num_prompt_tokens = 0;
         num_tokens_predicted = 0;
         generated_text = "";
@@ -176,9 +181,13 @@ struct llama_rn_context
         stopped_limit = false;
         stopping_word = "";
         multibyte_pending = 0;
-
         n_remain = 0;
         n_past = 0;
+
+        if (grammar != nullptr) {
+            llama_grammar_free(grammar);
+            grammar = nullptr;
+        }
     }
 
     bool loadModel(gpt_params &params_)
@@ -193,6 +202,31 @@ struct llama_rn_context
 
         last_n_tokens.resize(params.n_ctx);
         std::fill(last_n_tokens.begin(), last_n_tokens.end(), 0);
+        return true;
+    }
+
+    bool loadGrammar()
+    {
+        if (!params.grammar.empty()) {
+            parsed_grammar = grammar_parser::parse(params.grammar.c_str());
+            // will be empty (default) if there are parse errors
+            if (parsed_grammar.rules.empty()) {
+                LOG_ERROR("grammar parse error, grammar: %s", params.grammar.c_str());
+                return false;
+            }
+            grammar_parser::print_grammar(stderr, parsed_grammar);
+
+            {
+                auto it = params.logit_bias.find(llama_token_eos());
+                if (it != params.logit_bias.end() && it->second == -INFINITY) {
+                    LOG_WARNING("EOS token is disabled, which will cause most grammars to fail");
+                }
+            }
+
+            std::vector<const llama_grammar_element *> grammar_rules(parsed_grammar.c_rules());
+            grammar = llama_grammar_init(
+                grammar_rules.data(), grammar_rules.size(), parsed_grammar.symbol_ids.at("root"));
+        }
         return true;
     }
 
@@ -355,6 +389,10 @@ struct llama_rn_context
                 logits[llama_token_nl()] = nl_logit;
             }
 
+            if (grammar != nullptr) {
+                llama_sample_grammar(ctx, &candidates_p, grammar);
+            }
+
             if (temp <= 0)
             {
                 // Greedy sampling
@@ -390,6 +428,10 @@ struct llama_rn_context
                     llama_sample_temperature(ctx, &candidates_p, temp);
                     result.tok = llama_sample_token(ctx, &candidates_p);
                 }
+            }
+
+            if (grammar != nullptr) {
+                llama_grammar_accept_token(ctx, grammar, result.tok);
             }
 
             for (size_t i = 0; i < std::min(candidates_p.size, (size_t)n_probs); ++i)

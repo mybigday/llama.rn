@@ -132,6 +132,10 @@
 
     self->llama->params.prompt = [prompt UTF8String];
 
+    if (params[@"grammar"]) {
+        self->llama->params.grammar = [params[@"grammar"] UTF8String];
+    }
+
     if (params[@"temperature"]) self->llama->params.temp = [params[@"temperature"] doubleValue];
 
     if (params[@"n_threads"]) {
@@ -187,6 +191,10 @@
                 }
             }
         }
+    }
+
+    if (!self->llama->loadGrammar()) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to load grammar" userInfo:nil];
     }
     
     self->llama->loadPrompt();
@@ -278,6 +286,9 @@
 }
 
 - (void)invalidate {
+    if (self->llama->grammar != nullptr) {
+        llama_grammar_free(self->llama->grammar);
+    }
     delete self->llama;
 
     // llama_backend_free();
