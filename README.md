@@ -72,13 +72,6 @@ We have provided a mock version of `llama.rn` for testing purpose you can use on
 jest.mock('llama.rn', () => require('llama.rn/jest/mock'))
 ```
 
-## TODO
-
-- [ ] Example: Custom params in the UI
-- [ ] Example: Pure text completion playground
-- [ ] Expose tokenize / embedding functions as util
-- [ ] Android support
-
 ## NOTE
 
 - The [Extended Virtual Addressing](https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_developer_kernel_extended-virtual-addressing) capability is recommended to enable on iOS project.
