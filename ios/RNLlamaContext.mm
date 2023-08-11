@@ -260,7 +260,7 @@
         @"stopping_word": [NSString stringWithUTF8String:self->llama->stopping_word.c_str()],
         @"tokens_cached": @(self->llama->n_past),
         @"timings": @{
-            @"prompt_n": @(timings.n_eval),
+            @"prompt_n": @(timings.n_p_eval),
             @"prompt_ms": @(timings.t_p_eval_ms),
             @"prompt_per_token_ms": @(timings.t_p_eval_ms / timings.n_p_eval),
             @"prompt_per_second": @(1e3 / timings.t_p_eval_ms * timings.n_p_eval),
