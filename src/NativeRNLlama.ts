@@ -27,6 +27,7 @@ export type NativeContextParams = {
 
 export type NativeCompletionParams = {
   prompt: string
+  grammar?: string
   stop?: Array<string> // -> antiprompt
 
   n_predict?: number

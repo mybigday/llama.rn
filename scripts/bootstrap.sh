@@ -17,6 +17,8 @@ cp ./llama.cpp/k_quants.h ./cpp/k_quants.h
 cp ./llama.cpp/k_quants.c ./cpp/k_quants.c
 cp ./llama.cpp/examples/common.h ./cpp/common.h
 cp ./llama.cpp/examples/common.cpp ./cpp/common.cpp
+cp ./llama.cpp/examples/grammar-parser.h ./cpp/grammar-parser.h
+cp ./llama.cpp/examples/grammar-parser.cpp ./cpp/grammar-parser.cpp
 
 # List of files to process
 files=(
