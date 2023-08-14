@@ -92,11 +92,14 @@ export default function App() {
       model: file.uri,
       use_mlock: true,
       n_gpu_layers: 0, // > 0: enable metal
+      // embedding: true,
     })
       .then((ctx) => {
         setContext(ctx)
         addSystemMessage(
-          `Context initialized! \n\nMetal: ${ctx.isMetalEnabled ? 'YES' : 'NO'} (${ctx.reasonNoMetal})\n\n` +
+          `Context initialized! \n\nMetal: ${
+            ctx.isMetalEnabled ? 'YES' : 'NO'
+          } (${ctx.reasonNoMetal})\n\n` +
             'You can use the following commands:\n\n' +
             '- /release: release the context\n' +
             '- /stop: stop the current completion\n' +
@@ -157,15 +160,34 @@ export default function App() {
 
     const id = randId()
     const createdAt = Date.now()
-    const prompt = generateChatPrompt(context, conversationIdRef.current, [
-      textMessage,
-      ...messages,
-    ])
+    let prompt =
+      generateChatPrompt(context, conversationIdRef.current, [
+        textMessage,
+        ...messages,
+      ])
+    prompt += `\nllama:`
+
+    {
+      // Test tokenize
+      const { tokens } = await context?.tokenize(prompt) || {}
+      console.log(
+        'Prompt:',
+        prompt,
+        '\nTokenize:',
+        tokens,
+        `(${tokens?.length} tokens)`,
+      )
+
+      // Test embedding
+      // await context?.embedding(prompt).then((result) => {
+      //   console.log('Embedding:', result)
+      // })
+    }
 
     context
       ?.completion(
         {
-          prompt: `${prompt}\nllama:`,
+          prompt,
           n_predict: 400,
           temperature: 0.7,
           repeat_last_n: 256, // 0 = disable penalty, -1 = context size

@@ -91,7 +91,7 @@ RCT_EXPORT_METHOD(completion:(double)contextId
             [context stopCompletion];
         }
     });
-    
+
 }
 
 RCT_EXPORT_METHOD(stopCompletion:(double)contextId
@@ -105,6 +105,40 @@ RCT_EXPORT_METHOD(stopCompletion:(double)contextId
     }
     [context stopCompletion];
     resolve(nil);
+}
+
+RCT_EXPORT_METHOD(tokenize:(double)contextId
+                  text:(NSString *)text
+                  withResolver:(RCTPromiseResolveBlock)resolve
+                  withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+    resolve(@{
+        @"tokens": [context tokenize:text]
+    });
+}
+
+RCT_EXPORT_METHOD(embedding:(double)contextId
+                  text:(NSString *)text
+                  withResolver:(RCTPromiseResolveBlock)resolve
+                  withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+    @try {
+        resolve(@{
+            @"embedding": [context embedding:text]
+        });
+    } @catch (NSException *exception) {
+        reject(@"llama_cpp_error", exception.reason, nil);
+    }
 }
 
 RCT_EXPORT_METHOD(releaseContext:(double)contextId

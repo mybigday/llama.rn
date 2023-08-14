@@ -5,6 +5,8 @@ export type NativeContextParams = {
   model: string
   is_model_asset?: boolean
 
+  embedding?: boolean
+
   n_ctx?: number
   n_batch?: number
 
@@ -89,6 +91,14 @@ export type NativeCompletionResult = {
   completion_probabilities?: Array<NativeCompletionTokenProb>
 }
 
+export type NativeTokenizeResult = {
+  tokens: Array<number>
+}
+
+export type NativeEmbeddingResult = {
+  embedding: Array<number>
+}
+
 export type NativeLlamaContext = {
   contextId: number
   isMetalEnabled: boolean
@@ -101,6 +111,8 @@ export interface Spec extends TurboModule {
 
   completion(contextId: number, params: NativeCompletionParams): Promise<NativeCompletionResult>;
   stopCompletion(contextId: number): Promise<void>;
+  tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>;
+  embedding(contextId: number, text: string): Promise<NativeEmbeddingResult>;
   releaseContext(contextId: number): Promise<void>;
 
   releaseAllContexts(): Promise<void>;

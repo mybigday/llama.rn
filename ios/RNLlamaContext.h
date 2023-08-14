@@ -21,6 +21,7 @@
 - (bool)isPredicting;
 - (NSDictionary *)completion:(NSDictionary *)params onToken:(void (^)(NSDictionary *tokenResult))onToken;
 - (void)stopCompletion;
+- (NSArray *)tokenize:(NSString *)text;
 
 - (void)invalidate;
 

@@ -6,6 +6,8 @@ import type {
   NativeLlamaContext,
   NativeCompletionParams,
   NativeCompletionTokenProb,
+  NativeTokenizeResult,
+  NativeEmbeddingResult,
 } from './NativeRNLlama'
 
 const EVENT_ON_TOKEN = '@RNLlama_onToken'
@@ -73,6 +75,14 @@ export class LlamaContext {
 
   stopCompletion(): Promise<void> {
     return RNLlama.stopCompletion(this.id)
+  }
+
+  tokenize(text: string): Promise<NativeTokenizeResult> {
+    return RNLlama.tokenize(this.id, text)
+  }
+
+  embedding(text: string): Promise<NativeEmbeddingResult> {
+    return RNLlama.embedding(this.id, text)
   }
 
   async release(): Promise<void> {

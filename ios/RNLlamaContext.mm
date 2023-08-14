@@ -12,7 +12,11 @@
     NSString *path = modelPath;
     if (isAsset) path = [[NSBundle mainBundle] pathForResource:modelPath ofType:nil];
     defaultParams.model = [path UTF8String];
-    
+
+    if (params[@"embedding"] && [params[@"embedding"] boolValue]) {
+        defaultParams.embedding = true;
+    }
+
     if (params[@"n_ctx"]) defaultParams.n_ctx = [params[@"n_ctx"] intValue];
     if (params[@"use_mlock"]) defaultParams.use_mlock = [params[@"use_mlock"]boolValue];
 
@@ -123,7 +127,7 @@
 {
     self->is_predicting = true;
     self->is_interrupted = false;
-    
+
     self->llama->rewind();
 
     llama_reset_timings(self->llama->ctx);
@@ -196,7 +200,7 @@
     if (!self->llama->loadGrammar()) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to load grammar" userInfo:nil];
     }
-    
+
     self->llama->loadPrompt();
     self->llama->beginCompletion();
 
@@ -283,6 +287,46 @@
 
 - (void)stopCompletion {
     self->is_interrupted = true;
+}
+
+- (NSArray *)tokenize:(NSString *)text {
+    const std::vector<llama_token> toks = llama_tokenize(self->llama->ctx, [text UTF8String], false);
+    NSMutableArray *result = [[NSMutableArray alloc] init];
+    for (llama_token tok : toks) {
+      printf("%d\n", tok);
+        [result addObject:@(tok)];
+    }
+    return result;
+}
+
+- (NSArray *)embedding:(NSString *)text {
+    if (self->llama->params.embedding != true) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding not enabled" userInfo:nil];
+    }
+
+    self->is_predicting = true;
+    self->is_interrupted = false;
+
+    self->llama->rewind();
+
+    llama_reset_timings(self->llama->ctx);
+
+    self->llama->params.prompt = [text UTF8String];
+
+    self->llama->params.n_predict = 0;
+    self->llama->loadPrompt();
+    self->llama->beginCompletion();
+    self->llama->doCompletion();
+
+    std::vector<float> result = self->llama->getEmbedding();
+
+    NSMutableArray *embeddingResult = [[NSMutableArray alloc] init];
+    for (float f : result) {
+        [embeddingResult addObject:@(f)];
+    }
+
+    self->is_predicting = false;
+    return embeddingResult;
 }
 
 - (void)invalidate {
