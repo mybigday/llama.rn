@@ -9,6 +9,9 @@ import type {
   NativeTokenizeResult,
   NativeEmbeddingResult,
 } from './NativeRNLlama'
+import { SchemaGrammarConverter, convertJsonSchemaToGrammar } from './grammar'
+
+export { SchemaGrammarConverter, convertJsonSchemaToGrammar }
 
 const EVENT_ON_TOKEN = '@RNLlama_onToken'
 

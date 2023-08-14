@@ -5,7 +5,7 @@ import type { DocumentPickerResponse } from 'react-native-document-picker'
 import { Chat, darkTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 // eslint-disable-next-line import/no-unresolved
-import { initLlama, LlamaContext } from 'llama.rn'
+import { initLlama, LlamaContext, convertJsonSchemaToGrammar } from 'llama.rn'
 
 const randId = () => Math.random().toString(36).substr(2, 9)
 
@@ -184,6 +184,48 @@ export default function App() {
       // })
     }
 
+    let grammar
+    {
+      // Test JSON Schema -> grammar
+      const schema = {
+        oneOf: [
+          {
+            type: 'object',
+            properties: {
+              function: { const: 'create_event' },
+              arguments: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string' },
+                  date: { type: 'string' },
+                  time: { type: 'string' },
+                },
+              },
+            },
+          },
+          {
+            type: 'object',
+            properties: {
+              function: { const: 'image_search' },
+              arguments: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string' },
+                },
+              },
+            },
+          },
+        ],
+      }
+
+      const converted = convertJsonSchemaToGrammar({ schema, propOrder: { function: 0, arguments: 1 } })
+      // @ts-ignore
+      if (false) console.log('Converted grammar:', converted)
+      grammar = undefined
+      // Uncomment to test:
+      // grammar = converted
+    }
+
     context
       ?.completion(
         {
@@ -203,6 +245,7 @@ export default function App() {
           mirostat_eta: 0.1, // learning rate
           n_probs: 0, // Show probabilities
           stop: ['</s>', 'llama:', 'User:'],
+          grammar,
           // n_threads: 4,
           // logit_bias: [[15043,1.0]],
         },
