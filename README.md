@@ -78,7 +78,6 @@ jest.mock('llama.rn', () => require('llama.rn/jest/mock'))
 - Metal:
   - We have tested to know some devices is not able to use Metal ('params.n_gpu_layers > 0') due to llama.cpp used SIMD-scoped operation, you can check if your device is supported in [Metal feature set tables](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf), Apple7 GPU will be the minimum requirement.
   - It's also not supported in iOS simulator due to [this limitation](https://developer.apple.com/documentation/metal/developing_metal_apps_that_run_in_simulator#3241609), we used constant buffers more than 14.
-- We can use the ggml tensor allocor (See [llama.cpp#2411](https://github.com/ggerganov/llama.cpp/pull/2411)) by use `RNLLAMA_DISABLE_METAL=1` env on pod install, which reduces the memory usage. If you only want to use CPU, this is very useful.
 
 ## Contributing
 
