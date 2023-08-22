@@ -112,7 +112,7 @@ export default function App() {
   }
 
   const handlePickModel = async () => {
-    DocumentPicker.pick({ type: ['public.archive'] })
+    DocumentPicker.pick() // TODO: Is there a way to filter gguf model files?
       .then(async (res) => {
         const [file] = res
         if (file) handleInitContext(file)
