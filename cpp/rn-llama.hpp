@@ -102,8 +102,9 @@ static size_t find_partial_stop_string(const std::string &stop,
 static std::string tokens_to_output_formatted_string(const llama_context *ctx, const llama_token token)
 {
     std::string out = token == -1 ? "" : llama_token_to_str(ctx, token);
-    // if first bit is 1, meaning it's a partial character
-    if (out.size() > 0 && (out[0] & 0x80) == 0x80)
+    // if the size is 1 and first bit is 1, meaning it's a partial character
+    //   (size > 1 meaning it's already a known token)
+    if (out.size() == 1 && (out[0] & 0x80) == 0x80)
     {
         std::stringstream ss;
         ss << std::hex << (out[0] & 0xff);
@@ -304,7 +305,7 @@ struct llama_rn_context
             embd = new_tokens;
             n_past = params.n_keep;
             truncated = true;
-            LOG_VERBOSE("input truncated, n_ctx: %d, n_keep: %d, n_left: %d, new_tokens: %s", 
+            LOG_VERBOSE("input truncated, n_ctx: %d, n_keep: %d, n_left: %d, new_tokens: %s",
                 params.n_ctx,
                 params.n_keep,
                 n_left,
