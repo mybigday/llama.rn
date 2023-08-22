@@ -63,8 +63,6 @@
     }
     if (params[@"lora_base"]) defaultParams.lora_base = [params[@"lora_base"] UTF8String];
 
-//    if (params[@"n_gqa"]) defaultParams.n_gqa = [params[@"n_gqa"] intValue];
-//    if (params[@"rms_norm_eps"]) defaultParams.rms_norm_eps = [params[@"rms_norm_eps"] floatValue];
     if (params[@"rope_freq_base"]) defaultParams.rope_freq_base = [params[@"rope_freq_base"] floatValue];
     if (params[@"rope_freq_scale"]) defaultParams.rope_freq_scale = [params[@"rope_freq_scale"] floatValue];
 
