@@ -10,25 +10,24 @@ cp ./llama.cpp/ggml-metal.m ./cpp/ggml-metal.m
 cp ./llama.cpp/ggml-metal.metal ./cpp/ggml-metal.metal
 cp ./llama.cpp/ggml-alloc.h ./cpp/ggml-alloc.h
 cp ./llama.cpp/ggml-alloc.c ./cpp/ggml-alloc.c
-cp ./llama.cpp/llama-util.h ./cpp/llama-util.h
 cp ./llama.cpp/llama.h ./cpp/llama.h
 cp ./llama.cpp/llama.cpp ./cpp/llama.cpp
 cp ./llama.cpp/k_quants.h ./cpp/k_quants.h
 cp ./llama.cpp/k_quants.c ./cpp/k_quants.c
-cp ./llama.cpp/examples/common.h ./cpp/common.h
-cp ./llama.cpp/examples/common.cpp ./cpp/common.cpp
-cp ./llama.cpp/examples/grammar-parser.h ./cpp/grammar-parser.h
-cp ./llama.cpp/examples/grammar-parser.cpp ./cpp/grammar-parser.cpp
+cp ./llama.cpp/common/common.h ./cpp/common.h
+cp ./llama.cpp/common/common.cpp ./cpp/common.cpp
+cp ./llama.cpp/common/grammar-parser.h ./cpp/grammar-parser.h
+cp ./llama.cpp/common/grammar-parser.cpp ./cpp/grammar-parser.cpp
 
 # List of files to process
 files=(
   "./cpp/ggml.h"
   "./cpp/ggml.c"
+  "./cpp/common.cpp"
   "./cpp/ggml-metal.h"
   "./cpp/ggml-metal.m"
   "./cpp/llama.h"
   "./cpp/llama.cpp"
-  "./cpp/llama-util.h"
   "./cpp/k_quants.h"
   "./cpp/k_quants.c"
   "./cpp/ggml-alloc.h"
