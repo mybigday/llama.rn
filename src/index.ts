@@ -36,18 +36,18 @@ export type CompletionParams = NativeCompletionParams
 export class LlamaContext {
   id: number
 
-  isMetalEnabled: boolean = false
+  gpu: boolean = false
 
-  reasonNoMetal: string = ''
+  reasonNoGPU: string = ''
 
   constructor({
     contextId,
-    isMetalEnabled,
-    reasonNoMetal,
+    gpu,
+    reasonNoGPU,
   }: NativeLlamaContext) {
     this.id = contextId
-    this.isMetalEnabled = isMetalEnabled
-    this.reasonNoMetal = reasonNoMetal
+    this.gpu = gpu
+    this.reasonNoGPU = reasonNoGPU
   }
 
   async completion(
@@ -104,13 +104,13 @@ export async function initLlama({
 }: ContextParams): Promise<LlamaContext> {
   let path = model
   if (path.startsWith('file://')) path = path.slice(7)
-  const { contextId, isMetalEnabled, reasonNoMetal } =
+  const { contextId, gpu, reasonNoGPU } =
     await RNLlama.initContext({
       model: path,
       is_model_asset: !!isModelAsset,
       ...rest,
     })
-  return new LlamaContext({ contextId, isMetalEnabled, reasonNoMetal })
+  return new LlamaContext({ contextId, gpu, reasonNoGPU })
 }
 
 export async function releaseAllLlama(): Promise<void> {

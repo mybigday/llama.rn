@@ -1,6 +1,9 @@
 RNLLAMA_LIB_DIR := $(LOCAL_PATH)/../../../../../cpp
 LOCAL_LDLIBS    := -landroid -llog
 
+LOCAL_CFLAGS += -DLM_GGML_USE_K_QUANTS
+LOCAL_CPPFLAGS += -DLM_GGML_USE_K_QUANTS
+
 # NOTE: If you want to debug the native code, you can uncomment ifneq and endif
 # ifneq ($(APP_OPTIM),debug)
 
@@ -8,12 +11,16 @@ LOCAL_LDLIBS    := -landroid -llog
 LOCAL_CFLAGS += -Ofast -DNDEBUG
 LOCAL_CFLAGS += -fvisibility=hidden -fvisibility-inlines-hidden
 LOCAL_CFLAGS += -ffunction-sections -fdata-sections
-LOCAL_CPP_FEATURES += exceptions
+LOCAL_CPPFLAGS += -Ofast -DNDEBUG
+LOCAL_CPPFLAGS += -fvisibility=hidden -fvisibility-inlines-hidden
+LOCAL_CPPFLAGS += -ffunction-sections -fdata-sections
 LOCAL_LDFLAGS += -Wl,--gc-sections
 LOCAL_LDFLAGS += -Wl,--exclude-libs,ALL
 LOCAL_LDFLAGS += -flto
 
 # endif
+
+LOCAL_CPP_FEATURES += exceptions
 
 LOCAL_CFLAGS    += -DSTDC_HEADERS -std=c11 -I $(RNLLAMA_LIB_DIR)
 LOCAL_CPPFLAGS  += -std=c++11 -I $(RNLLAMA_LIB_DIR)

@@ -26,15 +26,49 @@ public class LlamaContext {
   private int jobId = -1;
   private DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
 
-  public LlamaContext(int id, ReactApplicationContext reactContext, long context) {
+  public LlamaContext(int id, ReactApplicationContext reactContext, ReadableMap params) {
+    if (!params.hasKey("model")) {
+      throw new IllegalArgumentException("Missing required parameter: model");
+    }
     this.id = id;
-    this.context = context;
+    this.context = initContext(
+      // String model,
+      params.getString("model"),
+      // boolean embedding,
+      params.hasKey("embedding") ? params.getBoolean("embedding") : false,
+      // int n_ctx,
+      params.hasKey("n_ctx") ? params.getInt("n_ctx") : 512,
+      // int n_batch,
+      params.hasKey("n_batch") ? params.getInt("n_batch") : 512,
+      // int n_threads,
+      params.hasKey("n_threads") ? params.getInt("n_threads") : 0,
+      // int n_gpu_layers, // TODO: Support this
+      params.hasKey("n_gpu_layers") ? params.getInt("n_gpu_layers") : 0,
+      // boolean use_mlock,
+      params.hasKey("use_mlock") ? params.getBoolean("use_mlock") : true,
+      // boolean use_mmap,
+      params.hasKey("use_mmap") ? params.getBoolean("use_mmap") : true,
+      // boolean memory_f16,
+      params.hasKey("memory_f16") ? params.getBoolean("memory_f16") : true,
+      // String lora,
+      params.hasKey("lora") ? params.getString("lora") : null,
+      // String lora_base,
+      params.hasKey("lora_base") ? params.getString("lora_base") : null,
+      // float rope_freq_base,
+      params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 10000.0f,
+      // float rope_freq_scale
+      params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 1.0f
+    );
     this.reactContext = reactContext;
     eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
   }
 
   private void rewind() {
 
+  }
+
+  public long getContext() {
+    return context;
   }
 
 
@@ -106,6 +140,20 @@ public class LlamaContext {
     }
   }
 
-  protected static native long initContext(String modelPath);
+  protected static native long initContext(
+    String model,
+    boolean embedding,
+    int n_ctx,
+    int n_batch,
+    int n_threads,
+    int n_gpu_layers, // TODO: Support this
+    boolean use_mlock,
+    boolean use_mmap,
+    boolean memory_f16,
+    String lora,
+    String lora_base,
+    float rope_freq_base,
+    float rope_freq_scale
+  );
   protected static native void freeContext(long contextPtr);
 }

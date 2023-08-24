@@ -46,8 +46,8 @@ RCT_EXPORT_METHOD(initContext:(NSDictionary *)contextParams
 
     resolve(@{
         @"contextId": contextIdNumber,
-        @"isMetalEnabled": @([context isMetalEnabled]),
-        @"reasonNoMetal": [context reasonNoMetal],
+        @"gpu": @([context isMetalEnabled]),
+        @"reasonNoGPU": [context reasonNoMetal],
     });
 }
 

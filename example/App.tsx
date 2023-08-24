@@ -71,7 +71,7 @@ export default function App() {
     addMessage(textMessage)
   }
 
-  const handleReleaseCont = async () => {
+  const handleReleaseContext = async () => {
     if (!context) return
     addSystemMessage('Releasing context...')
     context
@@ -86,20 +86,20 @@ export default function App() {
   }
 
   const handleInitContext = async (file: DocumentPickerResponse) => {
-    await handleReleaseCont()
+    await handleReleaseContext()
     addSystemMessage('Initializing context...')
     initLlama({
       model: file.uri,
       use_mlock: true,
-      n_gpu_layers: 0, // > 0: enable metal
+      n_gpu_layers: 0, // > 0: enable GPU
       // embedding: true,
     })
       .then((ctx) => {
         setContext(ctx)
         addSystemMessage(
-          `Context initialized! \n\nMetal: ${
-            ctx.isMetalEnabled ? 'YES' : 'NO'
-          } (${ctx.reasonNoMetal})\n\n` +
+          `Context initialized! \n\nGPU: ${
+            ctx.gpu ? 'YES' : 'NO'
+          } (${ctx.reasonNoGPU})\n\n` +
             'You can use the following commands:\n\n' +
             '- /release: release the context\n' +
             '- /stop: stop the current completion\n' +
@@ -126,7 +126,7 @@ export default function App() {
     if (context) {
       switch (message.text) {
         case '/release':
-          await handleReleaseCont()
+          await handleReleaseContext()
           return
         case '/stop':
           if (inferencing) context.stopCompletion()

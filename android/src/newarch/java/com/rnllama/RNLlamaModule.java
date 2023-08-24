@@ -12,6 +12,7 @@ import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.bridge.Arguments;
 import com.facebook.react.module.annotations.ReactModule;
 
 import java.util.HashMap;
@@ -40,25 +41,33 @@ public class RNLlamaModule extends NativeRNLlamaSpec implements LifecycleEventLi
 
   private HashMap<Integer, LlamaContext> contexts = new HashMap<>();
 
+  private int llamaContextLimit = 1;
+
   @ReactMethod
-  public void initContext(final ReadableMap options, final Promise promise) {
-    new AsyncTask<Void, Void, Integer>() {
+  public void setContextLimit(double limit, Promise promise) {
+    llamaContextLimit = (int) limit;
+    promise.resolve(null);
+  }
+
+  @ReactMethod
+  public void initContext(final ReadableMap params, final Promise promise) {
+    new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
 
       @Override
-      protected Integer doInBackground(Void... voids) {
+      protected WritableMap doInBackground(Void... voids) {
         try {
-          String modelPath = options.getString("filePath");
-          String modelFilePath = modelPath;
-
-          long context = LlamaContext.initContext(modelFilePath);
-          if (context == 0) {
+          int id = Math.abs(new Random().nextInt());
+          LlamaContext llamaContext = new LlamaContext(id, reactContext, params);
+          if (llamaContext.getContext() == 0) {
             throw new Exception("Failed to initialize context");
           }
-          int id = Math.abs(new Random().nextInt());
-          LlamaContext llamaContext = new LlamaContext(id, reactContext, context);
           contexts.put(id, llamaContext);
-          return id;
+          WritableMap result = Arguments.createMap();
+          result.putInt("contextId", id);
+          result.putBoolean("gpu", false);
+          result.putString("reasonNoGPU", "Currently not supported");
+          return result;
         } catch (Exception e) {
           exception = e;
           return null;
@@ -66,7 +75,7 @@ public class RNLlamaModule extends NativeRNLlamaSpec implements LifecycleEventLi
       }
 
       @Override
-      protected void onPostExecute(Integer id) {
+      protected void onPostExecute(WritableMap id) {
         if (exception != null) {
           promise.reject(exception);
           return;
@@ -74,12 +83,6 @@ public class RNLlamaModule extends NativeRNLlamaSpec implements LifecycleEventLi
         promise.resolve(id);
       }
     }.execute();
-  }
-
-
-  @ReactMethod
-  public void setContextLimit(double limit, Promise promise) {
-    // TODO: implement
   }
 
   @ReactMethod
