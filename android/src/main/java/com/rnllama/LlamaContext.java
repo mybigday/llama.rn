@@ -31,7 +31,7 @@ public class LlamaContext {
       throw new IllegalArgumentException("Missing required parameter: model");
     }
     this.id = id;
-    this.context = initContext(
+    WritableMap initResult = initContext(
       // String model,
       params.getString("model"),
       // boolean embedding,
@@ -59,6 +59,7 @@ public class LlamaContext {
       // float rope_freq_scale
       params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 1.0f
     );
+    this.context = (long) initResult.getDouble("context_ptr");
     this.reactContext = reactContext;
     eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
   }
@@ -140,7 +141,7 @@ public class LlamaContext {
     }
   }
 
-  protected static native long initContext(
+  protected static native WritableMap initContext(
     String model,
     boolean embedding,
     int n_ctx,

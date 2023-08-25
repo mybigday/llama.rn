@@ -23,9 +23,49 @@ static inline int min(int a, int b) {
 
 extern "C" {
 
+// Method to create WritableMap
+static inline jobject createWriteableMap(JNIEnv *env) {
+    jclass mapClass = env->FindClass("com/facebook/react/bridge/Arguments");
+    jmethodID init = env->GetStaticMethodID(mapClass, "createMap", "()Lcom/facebook/react/bridge/WritableMap;");
+    jobject map = env->CallStaticObjectMethod(mapClass, init);
+    return map;
+}
+
+// Method to put string into WritableMap
+static inline void putString(JNIEnv *env, jobject map, const char *key, const char *value) {
+    jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableMap");
+    jmethodID putString = env->GetMethodID(mapClass, "putString", "(Ljava/lang/String;Ljava/lang/String;)V");
+
+    jstring jKey = env->NewStringUTF(key);
+    jstring jValue = env->NewStringUTF(value);
+
+    env->CallVoidMethod(map, putString, jKey, jValue);
+}
+
+// Method to put double into WritableMap
+static inline void putDouble(JNIEnv *env, jobject map, const char *key, double value) {
+    jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableMap");
+    jmethodID putDouble = env->GetMethodID(mapClass, "putDouble", "(Ljava/lang/String;D)V");
+
+    jstring jKey = env->NewStringUTF(key);
+
+    env->CallVoidMethod(map, putDouble, jKey, value);
+}
+
+// Method to put WriteableMap into WritableMap
+static inline void putMap(JNIEnv *env, jobject map, const char *key, jobject value) {
+    jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableMap");
+    jmethodID putMap = env->GetMethodID(mapClass, "putMap", "(Ljava/lang/String;Lcom/facebook/react/bridge/WritableMap;)V");
+
+    jstring jKey = env->NewStringUTF(key);
+
+    env->CallVoidMethod(map, putMap, jKey, value);
+}
+
+
 std::unordered_map<long, rnllama::llama_rn_context *> context_map;
 
-JNIEXPORT jlong JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_initContext(
     JNIEnv *env,
     jobject thiz,
@@ -95,10 +135,10 @@ Java_com_rnllama_LlamaContext_initContext(
     // if (lora_base_str != nullptr) {
     //     env->ReleaseStringUTFChars(lora_base, lora_base_str);
     // }
-    if (llama->ctx == nullptr) {
-        return 0;
-    }
-    return reinterpret_cast<jlong>(llama->ctx);
+
+    auto result = createWriteableMap(env);
+    putDouble(env, result, "context_ptr", (long) llama->ctx);
+    return reinterpret_cast<jobject>(result);
 }
 
 
