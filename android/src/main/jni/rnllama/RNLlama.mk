@@ -11,9 +11,8 @@ LOCAL_CPPFLAGS += -DLM_GGML_USE_K_QUANTS
 LOCAL_CFLAGS += -Ofast -DNDEBUG
 LOCAL_CFLAGS += -fvisibility=hidden -fvisibility-inlines-hidden
 LOCAL_CFLAGS += -ffunction-sections -fdata-sections
-LOCAL_CPPFLAGS += -Ofast -DNDEBUG
-LOCAL_CPPFLAGS += -fvisibility=hidden -fvisibility-inlines-hidden
-LOCAL_CPPFLAGS += -ffunction-sections -fdata-sections
+LOCAL_CFLAGS += -pthread
+LOCAL_CPPFLAGS += -pthread
 LOCAL_LDFLAGS += -Wl,--gc-sections
 LOCAL_LDFLAGS += -Wl,--exclude-libs,ALL
 LOCAL_LDFLAGS += -flto

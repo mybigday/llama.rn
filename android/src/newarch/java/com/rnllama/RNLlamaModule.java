@@ -86,8 +86,35 @@ public class RNLlamaModule extends NativeRNLlamaSpec implements LifecycleEventLi
   }
 
   @ReactMethod
-  public void completion(double contextId, final ReadableMap options, final Promise promise) {
-    // TODO: implement
+  public void completion(double id, final ReadableMap params, final Promise promise) {
+    final int contextId = (int) id;
+    new AsyncTask<Void, Void, WritableMap>() {
+      private Exception exception;
+
+      @Override
+      protected WritableMap doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context " + id + " not found");
+          }
+          WritableMap result = context.completion(params);
+          promise.resolve(result);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(WritableMap result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+      }
+    }.execute();
   }
 
   @ReactMethod

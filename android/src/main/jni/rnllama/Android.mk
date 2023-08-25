@@ -16,11 +16,10 @@ include $(LOCAL_PATH)/RNLlama.mk
 
 ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
 	include $(CLEAR_VARS)
-	LOCAL_MODULE    := librnllama_v8fp16_va
+	LOCAL_MODULE    := librnllama_arm64
 	include $(LOCAL_PATH)/RNLlama.mk
-	# Allow building NEON FMA code.
-	# https://android.googlesource.com/platform/ndk/+/master/sources/android/cpufeatures/cpu-features.h
-	LOCAL_CFLAGS += -march=armv8.2-a+fp16
+	LOCAL_CFLAGS += -mcpu=native
+  LOCAL_CPPFLAGS += -mcpu=native
 	include $(BUILD_SHARED_LIBRARY)
 endif
 
