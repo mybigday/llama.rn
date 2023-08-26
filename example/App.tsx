@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react'
+import { Platform } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import DocumentPicker from 'react-native-document-picker'
 import type { DocumentPickerResponse } from 'react-native-document-picker'
@@ -89,7 +90,7 @@ export default function App() {
     await handleReleaseContext()
     addSystemMessage('Initializing context...')
     initLlama({
-      model: file.uri,
+      model: file.fileCopyUri || file.uri,
       use_mlock: true,
       n_gpu_layers: 0, // > 0: enable GPU
       // embedding: true,
@@ -112,7 +113,10 @@ export default function App() {
   }
 
   const handlePickModel = async () => {
-    DocumentPicker.pick() // TODO: Is there a way to filter gguf model files?
+    DocumentPicker.pick({
+      copyTo: Platform.OS === 'android' ? 'cachesDirectory' : undefined,
+      // TODO: Is there a way to filter GGUF model files?
+    })
       .then(async (res) => {
         const [file] = res
         if (file) handleInitContext(file)
