@@ -293,7 +293,7 @@
 
 - (NSArray *)embedding:(NSString *)text {
     if (llama->params.embedding != true) {
-        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding not enabled" userInfo:nil];
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not enabled" userInfo:nil];
     }
 
     llama->rewind();

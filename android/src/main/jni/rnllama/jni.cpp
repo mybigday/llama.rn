@@ -424,6 +424,15 @@ Java_com_rnllama_LlamaContext_tokenize(
     return result;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_rnllama_LlamaContext_isEmbeddingEnabled(
+        JNIEnv *env, jobject thiz, jlong context_ptr) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    return llama->params.embedding;
+}
+
 JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_embedding(
         JNIEnv *env, jobject thiz, jlong context_ptr, jstring text) {
