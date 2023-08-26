@@ -287,18 +287,14 @@ Java_com_rnllama_LlamaContext_doCompletion(
     size_t sent_count = 0;
     size_t sent_token_probs_index = 0;
 
-    LOGI("1: %d\n", llama->has_next_token);
-
-    while (llama->has_next_token) {
+    while (llama->has_next_token && !llama->is_interrupted) {
         const rnllama::completion_token_output token_with_probs = llama->doCompletion();
-        LOGI("2: ");
         const std::string token_text = token_with_probs.tok == -1 ? "" : llama_token_to_str(llama->ctx, token_with_probs.tok);
         if (llama->multibyte_pending > 0) {
             continue;
         }
 
         size_t pos = std::min(sent_count, llama->generated_text.size());
-        LOGI("token_text: %s", token_text.c_str());
 
         const std::string str_test = llama->generated_text.substr(pos);
         size_t stop_pos =
@@ -338,11 +334,6 @@ Java_com_rnllama_LlamaContext_doCompletion(
         jclass cb_class = env->GetObjectClass(partial_completion_callback);
         jmethodID onPartialCompletion = env->GetMethodID(cb_class, "onPartialCompletion", "(Lcom/facebook/react/bridge/WritableMap;)V");
         env->CallVoidMethod(partial_completion_callback, onPartialCompletion, tokenResult);
-
-        // TODO: move is_interrupted to rnllama::llama_rn_context (also for iOS)
-        // if (>is_interrupted) {
-        //     break;
-        // }
     }
 
     llama_print_timings(llama->ctx);

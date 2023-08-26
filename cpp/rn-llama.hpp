@@ -127,6 +127,8 @@ static std::string tokens_to_str(llama_context *ctx, Iter begin, Iter end)
 
 struct llama_rn_context
 {
+    bool is_predicting = false;
+    bool is_interrupted = false;
     bool has_next_token = false;
     std::string generated_text;
     std::vector<completion_token_output> generated_token_probs;
@@ -169,6 +171,7 @@ struct llama_rn_context
 
     void rewind()
     {
+        is_interrupted = false;
         params.antiprompt.clear();
         params.grammar.clear();
         num_prompt_tokens = 0;
@@ -288,6 +291,8 @@ struct llama_rn_context
         // number of tokens to keep when resetting context
         n_remain = params.n_predict;
         llama_set_rng_seed(ctx, params.seed);
+
+        is_predicting = true;
     }
 
     completion_token_output nextToken()

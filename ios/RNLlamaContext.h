@@ -8,8 +8,6 @@
     bool is_metal_enabled;
     NSString * reason_no_metal;
     bool is_model_loaded;
-    bool is_predicting;
-    bool is_interrupted;
 
     rnllama::llama_rn_context * llama;
 }
