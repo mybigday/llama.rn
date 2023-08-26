@@ -183,10 +183,35 @@ public class RNLlamaModule extends NativeRNLlamaSpec implements LifecycleEventLi
   }
 
   @ReactMethod
-  public void embedding(double contextId, final String text, final Promise promise) {
-    // TODO: implement
-  }
+  public void embedding(double id, final String text, final Promise promise) {
+    final int contextId = (int) id;
+    new AsyncTask<Void, Void, WritableMap>() {
+      private Exception exception;
 
+      @Override
+      protected WritableMap doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          return context.embedding(text);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(WritableMap result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+      }
+    }.execute();
+  }
 
   @ReactMethod
   public void releaseContext(double id, Promise promise) {

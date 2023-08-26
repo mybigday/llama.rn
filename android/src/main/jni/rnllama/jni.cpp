@@ -88,6 +88,13 @@ static inline void pushInt(JNIEnv *env, jobject arr, int value) {
     env->CallVoidMethod(arr, pushIntMethod, value);
 }
 
+// Method to push double into WritableArray
+static inline void pushDouble(JNIEnv *env, jobject arr, double value) {
+    jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableArray");
+    jmethodID pushDoubleMethod = env->GetMethodID(mapClass, "pushDouble", "(D)V");
+
+    env->CallVoidMethod(arr, pushDoubleMethod, value);
+}
 
 // Method to push WritableMap into WritableArray
 static inline void pushMap(JNIEnv *env, jobject arr, jobject value) {
@@ -411,6 +418,37 @@ Java_com_rnllama_LlamaContext_tokenize(
     jobject result = createWritableArray(env);
     for (const auto &tok : toks) {
       pushInt(env, result, tok);
+    }
+
+    env->ReleaseStringUTFChars(text, text_chars);
+    return result;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_embedding(
+        JNIEnv *env, jobject thiz, jlong context_ptr, jstring text) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *text_chars = env->GetStringUTFChars(text, nullptr);
+
+    llama->rewind();
+
+    llama_reset_timings(llama->ctx);
+
+    llama->params.prompt = text_chars;
+
+    llama->params.n_predict = 0;
+    llama->loadPrompt();
+    llama->beginCompletion();
+    llama->doCompletion();
+
+    std::vector<float> embedding = llama->getEmbedding();
+
+    jobject result = createWritableArray(env);
+
+    for (const auto &val : embedding) {
+      pushDouble(env, result, (double) val);
     }
 
     env->ReleaseStringUTFChars(text, text_chars);

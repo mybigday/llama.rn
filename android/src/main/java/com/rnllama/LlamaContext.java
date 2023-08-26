@@ -148,8 +148,13 @@ public class LlamaContext {
 
   public WritableMap tokenize(String text) {
     WritableMap result = Arguments.createMap();
-    WritableArray tokens = tokenize(this.context, text);
-    result.putArray("tokens", tokens);
+    result.putArray("tokens", tokenize(this.context, text));
+    return result;
+  }
+
+  public WritableMap embedding(String text) {
+    WritableMap result = Arguments.createMap();
+    result.putArray("embedding", embedding(this.context, text));
     return result;
   }
 
@@ -262,5 +267,6 @@ public class LlamaContext {
   protected static native void stopCompletion(long contextPtr);
   protected static native boolean isPredicting(long contextPtr);
   protected static native WritableArray tokenize(long contextPtr, String text);
+  protected static native WritableArray embedding(long contextPtr, String text);
   protected static native void freeContext(long contextPtr);
 }
