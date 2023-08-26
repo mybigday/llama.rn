@@ -286,7 +286,6 @@
     const std::vector<llama_token> toks = llama_tokenize(llama->ctx, [text UTF8String], false);
     NSMutableArray *result = [[NSMutableArray alloc] init];
     for (llama_token tok : toks) {
-      printf("%d\n", tok);
         [result addObject:@(tok)];
     }
     return result;

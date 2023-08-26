@@ -80,6 +80,15 @@ static inline jobject createWritableArray(JNIEnv *env) {
     return map;
 }
 
+// Method to push int into WritableArray
+static inline void pushInt(JNIEnv *env, jobject arr, int value) {
+    jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableArray");
+    jmethodID pushIntMethod = env->GetMethodID(mapClass, "pushInt", "(I)V");
+
+    env->CallVoidMethod(arr, pushIntMethod, value);
+}
+
+
 // Method to push WritableMap into WritableArray
 static inline void pushMap(JNIEnv *env, jobject arr, jobject value) {
     jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableArray");
@@ -337,6 +346,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     }
 
     llama_print_timings(llama->ctx);
+    llama->is_predicting = false;
 
     auto result = createWriteableMap(env);
     putString(env, result, "text", llama->generated_text.c_str());
@@ -364,6 +374,47 @@ Java_com_rnllama_LlamaContext_doCompletion(
     putMap(env, result, "timings", timingsResult);
 
     return reinterpret_cast<jobject>(result);
+}
+
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_stopCompletion(
+        JNIEnv *env, jobject thiz, jlong context_ptr) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    llama->is_interrupted = true;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_rnllama_LlamaContext_isPredicting(
+        JNIEnv *env, jobject thiz, jlong context_ptr) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    return llama->is_predicting;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_tokenize(
+        JNIEnv *env, jobject thiz, jlong context_ptr, jstring text) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *text_chars = env->GetStringUTFChars(text, nullptr);
+
+    const std::vector<llama_token> toks = llama_tokenize(
+        llama->ctx,
+        text_chars,
+        false
+    );
+
+    jobject result = createWritableArray(env);
+    for (const auto &tok : toks) {
+      pushInt(env, result, tok);
+    }
+
+    env->ReleaseStringUTFChars(text, text_chars);
+    return result;
 }
 
 JNIEXPORT void JNICALL

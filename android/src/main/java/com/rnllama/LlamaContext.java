@@ -26,9 +26,6 @@ public class LlamaContext {
   private int jobId = -1;
   private DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
 
-  private boolean isPredicting = false;
-  private boolean isInterrupted = false;
-
   public LlamaContext(int id, ReactApplicationContext reactContext, ReadableMap params) {
     if (!params.hasKey("model")) {
       throw new IllegalArgumentException("Missing required parameter: model");
@@ -90,16 +87,11 @@ public class LlamaContext {
   }
 
   public WritableMap completion(ReadableMap params) {
-
-    Log.i(NAME, "completion: " + this.context);
-
-    isPredicting = true;
-    isInterrupted = false;
     if (!params.hasKey("prompt")) {
       throw new IllegalArgumentException("Missing required parameter: prompt");
     }
 
-    WritableMap result = doCompletion(
+    return doCompletion(
       this.context,
       // String prompt,
       params.getString("prompt"),
@@ -144,12 +136,22 @@ public class LlamaContext {
       // PartialCompletionCallback partial_completion_callback
       new PartialCompletionCallback(this)
     );
-
-    isPredicting = false;
-
-    return result;
   }
 
+  public void stopCompletion() {
+    stopCompletion(this.context);
+  }
+
+  public boolean isPredicting() {
+    return isPredicting(this.context);
+  }
+
+  public WritableMap tokenize(String text) {
+    WritableMap result = Arguments.createMap();
+    WritableArray tokens = tokenize(this.context, text);
+    result.putArray("tokens", tokens);
+    return result;
+  }
 
   public void release() {
     freeContext(context);
@@ -257,5 +259,8 @@ public class LlamaContext {
     int[][] logit_bias,
     PartialCompletionCallback partial_completion_callback
   );
+  protected static native void stopCompletion(long contextPtr);
+  protected static native boolean isPredicting(long contextPtr);
+  protected static native WritableArray tokenize(long contextPtr, String text);
   protected static native void freeContext(long contextPtr);
 }
