@@ -27,6 +27,9 @@ public class LlamaContext {
   private DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
 
   public LlamaContext(int id, ReactApplicationContext reactContext, ReadableMap params) {
+    if (LlamaContext.isArmeabiV8a() == false) {
+      throw new IllegalStateException("Only arm64-v8a is supported");
+    }
     if (!params.hasKey("model")) {
       throw new IllegalArgumentException("Missing required parameter: model");
     }
@@ -167,44 +170,10 @@ public class LlamaContext {
 
   static {
     Log.d(NAME, "Primary ABI: " + Build.SUPPORTED_ABIS[0]);
-    boolean loadVfpv4 = false;
-    boolean loadV8fp16 = false;
-    if (isArmeabiV7a()) {
-      // armeabi-v7a needs runtime detection support
-      String cpuInfo = cpuInfo();
-      if (cpuInfo != null) {
-        Log.d(NAME, "CPU info: " + cpuInfo);
-        if (cpuInfo.contains("vfpv4")) {
-          Log.d(NAME, "CPU supports vfpv4");
-          loadVfpv4 = true;
-        }
-      }
-    } else if (isArmeabiV8a()) {
-      // ARMv8.2a needs runtime detection support
-      String cpuInfo = cpuInfo();
-      if (cpuInfo != null) {
-        Log.d(NAME, "CPU info: " + cpuInfo);
-        if (cpuInfo.contains("fphp")) {
-          Log.d(NAME, "CPU supports fp16 arithmetic");
-          loadV8fp16 = true;
-        }
-      }
-    }
-
-    if (loadVfpv4) {
-      Log.d(NAME, "Loading librnllama_vfpv4.so");
-      System.loadLibrary("rnllama_vfpv4");
-    } else if (loadV8fp16) {
-      Log.d(NAME, "Loading librnllama_v8fp16_va.so");
+    if (isArmeabiV8a()) {
+      Log.d(NAME, "Loading librnllama_arm64.so");
       System.loadLibrary("rnllama_arm64");
-    } else {
-      Log.d(NAME, "Loading librnllama.so");
-      System.loadLibrary("rnllama");
     }
-  }
-
-  private static boolean isArmeabiV7a() {
-    return Build.SUPPORTED_ABIS[0].equals("armeabi-v7a");
   }
 
   private static boolean isArmeabiV8a() {
