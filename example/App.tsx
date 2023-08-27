@@ -91,7 +91,7 @@ export default function App() {
     initLlama({
       model: file.uri,
       use_mlock: true,
-      n_gpu_layers: 0, // > 0: enable metal
+      n_gpu_layers: 1, // > 0: enable metal
       // embedding: true,
     })
       .then((ctx) => {

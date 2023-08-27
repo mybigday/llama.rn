@@ -25,32 +25,7 @@
     defaultParams.n_gpu_layers = 0;
     if (params[@"n_gpu_layers"] && [params[@"n_gpu_layers"] intValue] > 0) {
 #ifdef LM_GGML_USE_METAL
-        // Check ggml-metal availability
-        NSError * error = nil;
-        id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-        id<MTLLibrary> library = [device
-            newLibraryWithSource:@"#include <metal_stdlib>\n"
-                                    "using namespace metal;"
-                                    "kernel void test() { simd_sum(0); }"
-            options:nil
-            error:&error
-        ];
-        if (error) {
-            reasonNoMetal = [error localizedDescription];
-        } else {
-            id<MTLFunction> kernel = [library newFunctionWithName:@"test"];
-            id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:kernel error:&error];
-            if (pipeline == nil) {
-                reasonNoMetal = [error localizedDescription];
-            } else {
-                defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
-                isMetalEnabled = true;
-            }
-        }
-        device = nil;
-#else
-        reasonNoMetal = @"Metal is not enabled in this build";
-        isMetalEnabled = false;
+         defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
 #endif
     }
     if (params[@"n_batch"]) defaultParams.n_batch = [params[@"n_batch"] intValue];
