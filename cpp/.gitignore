@@ -4,4 +4,5 @@
 *.m
 *.mm
 *.metal
+!ggml-metal-qk_no_simd.metal
 !rn-llama*
