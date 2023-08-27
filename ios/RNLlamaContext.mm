@@ -24,9 +24,8 @@
     NSString *reasonNoMetal = @"";
     defaultParams.n_gpu_layers = 0;
     if (params[@"n_gpu_layers"] && [params[@"n_gpu_layers"] intValue] > 0) {
-#ifdef LM_GGML_USE_METAL
-         defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
-#endif
+        defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
+        isMetalEnabled = true;
     }
     if (params[@"n_batch"]) defaultParams.n_batch = [params[@"n_batch"] intValue];
     if (params[@"use_mmap"]) defaultParams.use_mmap = [params[@"use_mmap"] boolValue];
