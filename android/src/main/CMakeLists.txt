@@ -28,7 +28,7 @@ add_library(
 )
 
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-    target_compile_options(${RNLLAMA_LIBRARY_NAME} PRIVATE -mcpu=native)
+    # target_compile_options(${RNLLAMA_LIBRARY_NAME} PRIVATE -mcpu=native)
 endif ()
 
 target_link_libraries(${RNLLAMA_LIBRARY_NAME} log android)
