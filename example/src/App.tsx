@@ -1,11 +1,15 @@
 import React, { useState, useRef } from 'react'
+import type { ReactNode } from 'react'
+import { Platform } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import DocumentPicker from 'react-native-document-picker'
 import type { DocumentPickerResponse } from 'react-native-document-picker'
 import { Chat, darkTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
+import ReactNativeBlobUtil from 'react-native-blob-util'
 // eslint-disable-next-line import/no-unresolved
 import { initLlama, LlamaContext, convertJsonSchemaToGrammar } from 'llama.rn'
+import { Bubble } from './Bubble'
 
 const randId = () => Math.random().toString(36).substr(2, 9)
 
@@ -42,6 +46,22 @@ const generateChatPrompt = (
 
 const defaultConversationId = 'default'
 
+const renderBubble = ({
+  child,
+  message,
+  nextMessageInGroup,
+}: {
+  child: ReactNode
+  message: MessageType.Any
+  nextMessageInGroup: boolean
+}) => (
+  <Bubble
+    child={child}
+    message={message}
+    nextMessageInGroup={nextMessageInGroup}
+  />
+)
+
 export default function App() {
   const [context, setContext] = useState<LlamaContext | undefined>(undefined)
 
@@ -71,7 +91,7 @@ export default function App() {
     addMessage(textMessage)
   }
 
-  const handleReleaseCont = async () => {
+  const handleReleaseContext = async () => {
     if (!context) return
     addSystemMessage('Releasing context...')
     context
@@ -86,20 +106,20 @@ export default function App() {
   }
 
   const handleInitContext = async (file: DocumentPickerResponse) => {
-    await handleReleaseCont()
+    await handleReleaseContext()
     addSystemMessage('Initializing context...')
     initLlama({
       model: file.uri,
       use_mlock: true,
-      n_gpu_layers: 0, // > 0: enable metal
+      n_gpu_layers: 0, // > 0: enable GPU
       // embedding: true,
     })
       .then((ctx) => {
         setContext(ctx)
         addSystemMessage(
-          `Context initialized! \n\nMetal: ${
-            ctx.isMetalEnabled ? 'YES' : 'NO'
-          } (${ctx.reasonNoMetal})\n\n` +
+          `Context initialized! \n\nGPU: ${ctx.gpu ? 'YES' : 'NO'} (${
+            ctx.reasonNoGPU
+          })\n\n` +
             'You can use the following commands:\n\n' +
             '- /release: release the context\n' +
             '- /stop: stop the current completion\n' +
@@ -112,21 +132,36 @@ export default function App() {
   }
 
   const handlePickModel = async () => {
-    DocumentPicker.pick() // TODO: Is there a way to filter gguf model files?
+    DocumentPicker.pick() // TODO: Is there a way to filter GGUF model files?
       .then(async (res) => {
-        const [file] = res
-        if (file) handleInitContext(file)
+        let [file] = res
+        if (file) {
+          if (Platform.OS === 'android' && file.uri.startsWith('content://')) {
+            const filename = `${file.uri.split('/').pop() || 'model'}.gguf`
+            const filepath = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/${filename}`
+            if (await ReactNativeBlobUtil.fs.exists(filepath)) {
+              handleInitContext({ uri: filepath } as DocumentPickerResponse)
+              return
+            }
+            addSystemMessage('Copying model to internal storage...')
+            await ReactNativeBlobUtil.MediaCollection.copyToInternal(
+              file.uri,
+              filepath,
+            )
+            addSystemMessage('Model copied!')
+            file = { uri: filepath } as DocumentPickerResponse
+          }
+          handleInitContext(file)
+        }
       })
-      .catch(() => {
-        console.log('No file picked')
-      })
+      .catch((e) => console.log('No file picked, error: ', e.message))
   }
 
   const handleSendPress = async (message: MessageType.PartialText) => {
     if (context) {
       switch (message.text) {
         case '/release':
-          await handleReleaseCont()
+          await handleReleaseContext()
           return
         case '/stop':
           if (inferencing) context.stopCompletion()
@@ -160,22 +195,23 @@ export default function App() {
 
     const id = randId()
     const createdAt = Date.now()
-    let prompt =
-      generateChatPrompt(context, conversationIdRef.current, [
-        textMessage,
-        ...messages,
-      ])
+    let prompt = generateChatPrompt(context, conversationIdRef.current, [
+      textMessage,
+      ...messages,
+    ])
     prompt += `\nllama:`
 
     {
       // Test tokenize
-      const { tokens } = await context?.tokenize(prompt) || {}
+      const t0 = Date.now()
+      const { tokens } = (await context?.tokenize(prompt)) || {}
+      const t1 = Date.now()
       console.log(
         'Prompt:',
         prompt,
         '\nTokenize:',
         tokens,
-        `(${tokens?.length} tokens)`,
+        `(${tokens?.length} tokens, ${t1 - t0}ms})`,
       )
 
       // Test embedding
@@ -218,7 +254,10 @@ export default function App() {
         ],
       }
 
-      const converted = convertJsonSchemaToGrammar({ schema, propOrder: { function: 0, arguments: 1 } })
+      const converted = convertJsonSchemaToGrammar({
+        schema,
+        propOrder: { function: 0, arguments: 1 },
+      })
       // @ts-ignore
       if (false) console.log('Converted grammar:', converted)
       grammar = undefined
@@ -280,6 +319,27 @@ export default function App() {
       )
       .then((completionResult) => {
         console.log('completionResult: ', completionResult)
+        const timings = `${completionResult.timings.predicted_per_token_ms.toFixed()}ms per token, ${completionResult.timings.predicted_per_second.toFixed(
+          2,
+        )} tokens per second`
+        setMessages((msgs) => {
+          const index = msgs.findIndex((msg) => msg.id === id)
+          if (index >= 0) {
+            return msgs.map((msg, i) => {
+              if (msg.type == 'text' && i === index) {
+                return {
+                  ...msg,
+                  metadata: {
+                    ...msg.metadata,
+                    timings,
+                  },
+                }
+              }
+              return msg
+            })
+          }
+          return msgs
+        })
         setInferencing(false)
       })
       .catch((e) => {
@@ -292,6 +352,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <Chat
+        renderBubble={renderBubble}
         theme={darkTheme}
         messages={messages}
         onSendPress={handleSendPress}

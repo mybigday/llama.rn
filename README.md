@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![npm](https://img.shields.io/npm/v/llama.rn.svg)](https://www.npmjs.com/package/llama.rn/)
 
-React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp). Currently only supported iOS.
+React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp).
 
 ⚠️ Currently this library is not recommended for production use. In our cases, we only use it on device like M1 ~ M2 iPad/Mac for the time being, with Llama-2-7b-chat q2_k ~ q4_k models. ⚠️
 
@@ -15,6 +15,8 @@ npm install llama.rn
 ```
 
 For iOS, please re-run `npx pod-install` again.
+
+For Android, it's recommended to use `ndkVersion = "24.0.8215888"` (or above) in your root project build configuration for Apple Silicon Macs.
 
 ## Obtain the model
 
@@ -47,6 +49,8 @@ make quantize
 ./quantize ./models/7B/ggml-model-f16.gguf ./models/7B/ggml-model-q4_0.gguf q4_0
 ```
 
+You can also search the available models in HuggingFace (Keyword: [`GGUF`](https://huggingface.co/search/full-text?q=GGUF&type=model)).
+
 ## Usage
 
 Documentation is WIP. Currently you can visit the [example](example) to see how to use it.
@@ -55,14 +59,23 @@ Run the example:
 ```bash
 yarn && yarn bootstrap
 
+# iOS
 yarn example ios
 # Use device
 yarn example ios --device "<device name>"
 # With release mode
 yarn example ios --mode Release
+
+# Android
+yarn example android
+# With release mode
+yarn example android --mode release
 ```
 
-this example used [react-native-document-picker](https://github.com/rnmods/react-native-document-picker) to select model. You can move the model to iOS Simulator, or iCloud for real device.
+This example used [react-native-document-picker](https://github.com/rnmods/react-native-document-picker) for select model.
+
+- iOS: You can move the model to iOS Simulator, or iCloud for real device.
+- Android: Selected file will be copied or downloaded to document directory so it may be slow.
 
 ## Mock `llama.rn`
 
@@ -74,10 +87,14 @@ jest.mock('llama.rn', () => require('llama.rn/jest/mock'))
 
 ## NOTE
 
+iOS:
 - The [Extended Virtual Addressing](https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_developer_kernel_extended-virtual-addressing) capability is recommended to enable on iOS project.
 - Metal:
   - We have tested to know some devices is not able to use Metal ('params.n_gpu_layers > 0') due to llama.cpp used SIMD-scoped operation, you can check if your device is supported in [Metal feature set tables](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf), Apple7 GPU will be the minimum requirement.
   - It's also not supported in iOS simulator due to [this limitation](https://developer.apple.com/documentation/metal/developing_metal_apps_that_run_in_simulator#3241609), we used constant buffers more than 14.
+
+Android:
+- Currently only supported arm64-v8a platform, this means you can't initialize a context on another platforms.
 
 ## Contributing
 

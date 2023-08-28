@@ -99,8 +99,8 @@ export type NativeEmbeddingResult = {
 
 export type NativeLlamaContext = {
   contextId: number
-  isMetalEnabled: boolean
-  reasonNoMetal: string
+  gpu: boolean
+  reasonNoGPU: string
 }
 
 export interface Spec extends TurboModule {
