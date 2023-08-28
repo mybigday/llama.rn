@@ -54,9 +54,9 @@ public class LlamaContext {
       // boolean memory_f16,
       params.hasKey("memory_f16") ? params.getBoolean("memory_f16") : true,
       // String lora,
-      params.hasKey("lora") ? params.getString("lora") : null,
+      params.hasKey("lora") ? params.getString("lora") : "",
       // String lora_base,
-      params.hasKey("lora_base") ? params.getString("lora_base") : null,
+      params.hasKey("lora_base") ? params.getString("lora_base") : "",
       // float rope_freq_base,
       params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 10000.0f,
       // float rope_freq_scale

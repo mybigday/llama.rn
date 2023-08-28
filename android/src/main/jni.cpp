@@ -130,16 +130,16 @@ Java_com_rnllama_LlamaContext_initContext(
     jboolean use_mlock,
     jboolean use_mmap,
     jboolean memory_f16,
-    jstring lora,
-    jstring lora_base,
+    jstring lora_str,
+    jstring lora_base_str,
     jfloat rope_freq_base,
     jfloat rope_freq_scale
 ) {
     UNUSED(thiz);
-    const char *model_path_chars = env->GetStringUTFChars(model_path_str, nullptr);
 
     gpt_params defaultParams;
 
+    const char *model_path_chars = env->GetStringUTFChars(model_path_str, nullptr);
     defaultParams.model = model_path_chars;
 
     defaultParams.embedding = embedding;
@@ -159,18 +159,17 @@ Java_com_rnllama_LlamaContext_initContext(
 
     defaultParams.memory_f16 = memory_f16;
 
-    // auto lora_str = lora != nullptr ? env->GetStringUTFChars(lora, nullptr) : nullptr;
-    // auto lora_base_str = lora_base != nullptr ? env->GetStringUTFChars(lora_base, nullptr) : nullptr;
+    const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
+    defaultParams.lora_adapter = lora_chars;
 
-    // defaultParams.lora_adapter = lora_str;
-    // defaultParams.lora_base = lora_base_str;
+    const char *lora_base_chars = env->GetStringUTFChars(lora_base_str, nullptr);
+    defaultParams.lora_base = lora_base_chars;
 
     defaultParams.rope_freq_base = rope_freq_base;
     defaultParams.rope_freq_scale = rope_freq_scale;
 
     auto llama = new rnllama::llama_rn_context();
     bool is_model_loaded = llama->loadModel(defaultParams);
-
 
     LOGI("[RNLlama] is_model_loaded %s", (is_model_loaded ? "true" : "false"));
     if (is_model_loaded) {
@@ -180,12 +179,8 @@ Java_com_rnllama_LlamaContext_initContext(
     }
 
     env->ReleaseStringUTFChars(model_path_str, model_path_chars);
-    // if (lora_str != nullptr) {
-    //     env->ReleaseStringUTFChars(lora, lora_str);
-    // }
-    // if (lora_base_str != nullptr) {
-    //     env->ReleaseStringUTFChars(lora_base, lora_base_str);
-    // }
+    env->ReleaseStringUTFChars(lora_str, lora_chars);
+    env->ReleaseStringUTFChars(lora_base_str, lora_base_chars);
 
     return reinterpret_cast<jlong>(llama->ctx);
 }
