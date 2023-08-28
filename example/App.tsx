@@ -5,6 +5,7 @@ import DocumentPicker from 'react-native-document-picker'
 import type { DocumentPickerResponse } from 'react-native-document-picker'
 import { Chat, darkTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
+import ReactNativeBlobUtil from 'react-native-blob-util'
 // eslint-disable-next-line import/no-unresolved
 import { initLlama, LlamaContext, convertJsonSchemaToGrammar } from 'llama.rn'
 
@@ -90,7 +91,7 @@ export default function App() {
     await handleReleaseContext()
     addSystemMessage('Initializing context...')
     initLlama({
-      model: file.fileCopyUri || file.uri,
+      model: file.uri,
       use_mlock: true,
       n_gpu_layers: 0, // > 0: enable GPU
       // embedding: true,
@@ -113,17 +114,26 @@ export default function App() {
   }
 
   const handlePickModel = async () => {
-    DocumentPicker.pick({
-      copyTo: Platform.OS === 'android' ? 'cachesDirectory' : undefined,
-      // TODO: Is there a way to filter GGUF model files?
-    })
+    DocumentPicker.pick() // TODO: Is there a way to filter GGUF model files?
       .then(async (res) => {
-        const [file] = res
-        if (file) handleInitContext(file)
+        let [file] = res
+        if (file) {
+          if (Platform.OS === 'android' && file.uri.startsWith('content://')) {
+            const filename = `${file.uri.split('/').pop() || 'model'}.gguf`
+            const filepath = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/${filename}`
+            if (await ReactNativeBlobUtil.fs.exists(filepath)) {
+              handleInitContext({ uri: filepath } as DocumentPickerResponse)
+              return
+            }
+            addSystemMessage('Copying model to internal storage...')
+            await ReactNativeBlobUtil.MediaCollection.copyToInternal(file.uri, filepath)
+            addSystemMessage('Model copied!')
+            file = { uri: filepath } as DocumentPickerResponse
+          }
+          handleInitContext(file)
+        }
       })
-      .catch(() => {
-        console.log('No file picked')
-      })
+      .catch((e) => console.log('No file picked, error: ', e.message))
   }
 
   const handleSendPress = async (message: MessageType.PartialText) => {
@@ -251,7 +261,7 @@ export default function App() {
           stop: ['</s>', 'llama:', 'User:'],
           grammar,
           // n_threads: 4,
-          // logit_bias: [[15043,1.0]],
+          logit_bias: [[15043,1.0]],
         },
         (data) => {
           const { token } = data
