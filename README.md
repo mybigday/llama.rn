@@ -75,7 +75,7 @@ yarn example android --mode release
 This example used [react-native-document-picker](https://github.com/rnmods/react-native-document-picker) for select model.
 
 - iOS: You can move the model to iOS Simulator, or iCloud for real device.
-- Android: Selected file will be copied or downloaded to cache directory so it may be slow.
+- Android: Selected file will be copied or downloaded to document directory so it may be slow.
 
 ## Mock `llama.rn`
 
