@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react'
+import type { ReactNode } from 'react'
 import { Platform } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import DocumentPicker from 'react-native-document-picker'
@@ -8,6 +9,7 @@ import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import ReactNativeBlobUtil from 'react-native-blob-util'
 // eslint-disable-next-line import/no-unresolved
 import { initLlama, LlamaContext, convertJsonSchemaToGrammar } from 'llama.rn'
+import { Bubble } from './Bubble'
 
 const randId = () => Math.random().toString(36).substr(2, 9)
 
@@ -43,6 +45,22 @@ const generateChatPrompt = (
 }
 
 const defaultConversationId = 'default'
+
+const renderBubble = ({
+  child,
+  message,
+  nextMessageInGroup,
+}: {
+  child: ReactNode
+  message: MessageType.Any
+  nextMessageInGroup: boolean
+}) => (
+  <Bubble
+    child={child}
+    message={message}
+    nextMessageInGroup={nextMessageInGroup}
+  />
+)
 
 export default function App() {
   const [context, setContext] = useState<LlamaContext | undefined>(undefined)
@@ -99,9 +117,9 @@ export default function App() {
       .then((ctx) => {
         setContext(ctx)
         addSystemMessage(
-          `Context initialized! \n\nGPU: ${
-            ctx.gpu ? 'YES' : 'NO'
-          } (${ctx.reasonNoGPU})\n\n` +
+          `Context initialized! \n\nGPU: ${ctx.gpu ? 'YES' : 'NO'} (${
+            ctx.reasonNoGPU
+          })\n\n` +
             'You can use the following commands:\n\n' +
             '- /release: release the context\n' +
             '- /stop: stop the current completion\n' +
@@ -126,7 +144,10 @@ export default function App() {
               return
             }
             addSystemMessage('Copying model to internal storage...')
-            await ReactNativeBlobUtil.MediaCollection.copyToInternal(file.uri, filepath)
+            await ReactNativeBlobUtil.MediaCollection.copyToInternal(
+              file.uri,
+              filepath,
+            )
             addSystemMessage('Model copied!')
             file = { uri: filepath } as DocumentPickerResponse
           }
@@ -174,22 +195,23 @@ export default function App() {
 
     const id = randId()
     const createdAt = Date.now()
-    let prompt =
-      generateChatPrompt(context, conversationIdRef.current, [
-        textMessage,
-        ...messages,
-      ])
+    let prompt = generateChatPrompt(context, conversationIdRef.current, [
+      textMessage,
+      ...messages,
+    ])
     prompt += `\nllama:`
 
     {
       // Test tokenize
-      const { tokens } = await context?.tokenize(prompt) || {}
+      const t0 = Date.now()
+      const { tokens } = (await context?.tokenize(prompt)) || {}
+      const t1 = Date.now()
       console.log(
         'Prompt:',
         prompt,
         '\nTokenize:',
         tokens,
-        `(${tokens?.length} tokens)`,
+        `(${tokens?.length} tokens, ${t1 - t0}ms})`,
       )
 
       // Test embedding
@@ -232,7 +254,10 @@ export default function App() {
         ],
       }
 
-      const converted = convertJsonSchemaToGrammar({ schema, propOrder: { function: 0, arguments: 1 } })
+      const converted = convertJsonSchemaToGrammar({
+        schema,
+        propOrder: { function: 0, arguments: 1 },
+      })
       // @ts-ignore
       if (false) console.log('Converted grammar:', converted)
       grammar = undefined
@@ -261,7 +286,7 @@ export default function App() {
           stop: ['</s>', 'llama:', 'User:'],
           grammar,
           // n_threads: 4,
-          logit_bias: [[15043,1.0]],
+          // logit_bias: [[15043,1.0]],
         },
         (data) => {
           const { token } = data
@@ -294,6 +319,27 @@ export default function App() {
       )
       .then((completionResult) => {
         console.log('completionResult: ', completionResult)
+        const timings = `${completionResult.timings.predicted_per_token_ms.toFixed()}ms per token, ${completionResult.timings.predicted_per_second.toFixed(
+          2,
+        )} tokens per second`
+        setMessages((msgs) => {
+          const index = msgs.findIndex((msg) => msg.id === id)
+          if (index >= 0) {
+            return msgs.map((msg, i) => {
+              if (msg.type == 'text' && i === index) {
+                return {
+                  ...msg,
+                  metadata: {
+                    ...msg.metadata,
+                    timings,
+                  },
+                }
+              }
+              return msg
+            })
+          }
+          return msgs
+        })
         setInferencing(false)
       })
       .catch((e) => {
@@ -306,6 +352,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <Chat
+        renderBubble={renderBubble}
         theme={darkTheme}
         messages={messages}
         onSendPress={handleSendPress}
