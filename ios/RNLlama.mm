@@ -73,19 +73,22 @@ RCT_EXPORT_METHOD(completion:(double)contextId
     }
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
-            NSDictionary* completionResult = [context completion:completionParams
-                onToken:^(NSDictionary *tokenResult) {
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        [self sendEventWithName:@"@RNLlama_onToken"
-                            body:@{
-                                @"contextId": [NSNumber numberWithDouble:contextId],
-                                @"tokenResult": tokenResult
-                            }
-                        ];
-                    });
-                }
-            ];
-            resolve(completionResult);
+            @autoreleasepool {
+                NSMutableDictionary* completionResult = [context completion:completionParams
+                    onToken:^(NSMutableDictionary *tokenResult) {
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            [self sendEventWithName:@"@RNLlama_onToken"
+                                body:@{
+                                    @"contextId": [NSNumber numberWithDouble:contextId],
+                                    @"tokenResult": tokenResult
+                                }
+                            ];
+                            [tokenResult release];
+                        });
+                    }
+                ];
+                resolve(completionResult);
+            }
         } @catch (NSException *exception) {
             reject(@"llama_cpp_error", exception.reason, nil);
             [context stopCompletion];
@@ -117,9 +120,9 @@ RCT_EXPORT_METHOD(tokenize:(double)contextId
         reject(@"llama_error", @"Context not found", nil);
         return;
     }
-    resolve(@{
-        @"tokens": [context tokenize:text]
-    });
+    NSMutableArray *tokens = [context tokenize:text];
+    resolve(@{ @"tokens": tokens });
+    [tokens release];
 }
 
 RCT_EXPORT_METHOD(embedding:(double)contextId
@@ -133,9 +136,9 @@ RCT_EXPORT_METHOD(embedding:(double)contextId
         return;
     }
     @try {
-        resolve(@{
-            @"embedding": [context embedding:text]
-        });
+        NSMutableArray *embedding = [context embedding:text];
+        resolve(@{ @"embedding": embedding });
+        [embedding release];
     } @catch (NSException *exception) {
         reject(@"llama_cpp_error", exception.reason, nil);
     }
@@ -175,6 +178,7 @@ RCT_EXPORT_METHOD(releaseAllContexts:(RCTPromiseResolveBlock)resolve
     }
 
     [llamaContexts removeAllObjects];
+    [llamaContexts release];
     llamaContexts = nil;
 
     [super invalidate];

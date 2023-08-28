@@ -121,7 +121,7 @@
 }
 
 - (NSDictionary *)completion:(NSDictionary *)params
-    onToken:(void (^)(NSDictionary * tokenResult))onToken
+    onToken:(void (^)(NSMutableDictionary * tokenResult))onToken
 {
     self->is_predicting = true;
     self->is_interrupted = false;

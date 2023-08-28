@@ -19,7 +19,7 @@
 - (NSString *)reasonNoMetal;
 - (bool)isModelLoaded;
 - (bool)isPredicting;
-- (NSDictionary *)completion:(NSDictionary *)params onToken:(void (^)(NSDictionary *tokenResult))onToken;
+- (NSDictionary *)completion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *tokenResult))onToken;
 - (void)stopCompletion;
 - (NSArray *)tokenize:(NSString *)text;
 
