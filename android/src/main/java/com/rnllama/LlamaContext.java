@@ -4,6 +4,7 @@ import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 
@@ -94,6 +95,19 @@ public class LlamaContext {
       throw new IllegalArgumentException("Missing required parameter: prompt");
     }
 
+    double[][] logit_bias = new double[0][0];
+    if (params.hasKey("logit_bias")) {
+      ReadableArray logit_bias_array = params.getArray("logit_bias");
+      logit_bias = new double[logit_bias_array.size()][];
+      for (int i = 0; i < logit_bias_array.size(); i++) {
+        ReadableArray logit_bias_row = logit_bias_array.getArray(i);
+        logit_bias[i] = new double[logit_bias_row.size()];
+        for (int j = 0; j < logit_bias_row.size(); j++) {
+          logit_bias[i][j] = logit_bias_row.getDouble(j);
+        }
+      }
+    }
+
     return doCompletion(
       this.context,
       // String prompt,
@@ -134,8 +148,8 @@ public class LlamaContext {
       params.hasKey("stop") ? params.getArray("stop").toArrayList().toArray(new String[0]) : new String[0],
       // boolean ignore_eos,
       params.hasKey("ignore_eos") ? params.getBoolean("ignore_eos") : false,
-      // int[][] logit_bias,
-      params.hasKey("logit_bias") ? params.getArray("logit_bias").toArrayList().toArray(new int[0][0]) : new int[0][0],
+      // double[][] logit_bias,
+      logit_bias,
       // PartialCompletionCallback partial_completion_callback
       new PartialCompletionCallback(this)
     );
@@ -233,7 +247,7 @@ public class LlamaContext {
     float typical_p,
     String[] stop,
     boolean ignore_eos,
-    int[][] logit_bias,
+    double[][] logit_bias,
     PartialCompletionCallback partial_completion_callback
   );
   protected static native void stopCompletion(long contextPtr);

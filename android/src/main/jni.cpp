@@ -233,7 +233,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jfloat typical_p,
     jobjectArray stop,
     jboolean ignore_eos,
-    jintArray logit_bias,
+    jobjectArray logit_bias,
     jobject partial_completion_callback
 ) {
     UNUSED(thiz);
@@ -281,10 +281,27 @@ Java_com_rnllama_LlamaContext_doCompletion(
         llama->params.logit_bias[llama_token_eos(llama->ctx)] = -INFINITY;
     }
 
-    // TODO: logit_bias
-    // auto logit_bias_len = env->GetArrayLength(logit_bias);
-    // if (logit_bias_len > 0) {
-    // }
+    const int n_vocab = llama_n_vocab(llama->ctx);
+    jsize logit_bias_len = env->GetArrayLength(logit_bias);
+
+    for (jsize i = 0; i < logit_bias_len; i++) {
+        jdoubleArray el = (jdoubleArray) env->GetObjectArrayElement(logit_bias, i);
+        if (el && env->GetArrayLength(el) == 2) {
+            jdouble* doubleArray = env->GetDoubleArrayElements(el, 0);
+
+            llama_token tok = static_cast<llama_token>(doubleArray[0]);
+            if (tok >= 0 && tok < n_vocab) {
+                if (doubleArray[1] != 0) {  // If the second element is not false (0)
+                    llama->params.logit_bias[tok] = doubleArray[1];
+                } else {
+                    llama->params.logit_bias[tok] = -INFINITY;
+                }
+            }
+
+            env->ReleaseDoubleArrayElements(el, doubleArray, 0);
+        }
+        env->DeleteLocalRef(el);
+    }
 
     if (!llama->loadGrammar()) {
         auto result = createWriteableMap(env);
