@@ -140,6 +140,10 @@ if (!NativeModules.RNLlama) {
 
     stopCompletion: jest.fn(),
 
+    tokenize: jest.fn(async () => []),
+    detokenize: jest.fn(async () => ''),
+    embedding: jest.fn(async () => []),
+
     releaseContext: jest.fn(() => Promise.resolve()),
     releaseAllContexts: jest.fn(() => Promise.resolve()),
 

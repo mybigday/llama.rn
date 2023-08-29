@@ -20,6 +20,8 @@
 - (NSDictionary *)completion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *tokenResult))onToken;
 - (void)stopCompletion;
 - (NSArray *)tokenize:(NSString *)text;
+- (NSString *)detokenize:(NSArray *)tokens;
+- (NSArray *)embedding:(NSString *)text;
 
 - (void)invalidate;
 

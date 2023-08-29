@@ -444,6 +444,26 @@ Java_com_rnllama_LlamaContext_tokenize(
     return result;
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_rnllama_LlamaContext_detokenize(
+        JNIEnv *env, jobject thiz, jlong context_ptr, jintArray tokens) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    jsize tokens_len = env->GetArrayLength(tokens);
+    jint *tokens_ptr = env->GetIntArrayElements(tokens, 0);
+    std::vector<llama_token> toks;
+    for (int i = 0; i < tokens_len; i++) {
+        toks.push_back(tokens_ptr[i]);
+    }
+
+    auto text = rnllama::tokens_to_str(llama->ctx, toks.cbegin(), toks.cend());
+
+    env->ReleaseIntArrayElements(tokens, tokens_ptr, 0);
+
+    return env->NewStringUTF(text.c_str());
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_rnllama_LlamaContext_isEmbeddingEnabled(
         JNIEnv *env, jobject thiz, jlong context_ptr) {
