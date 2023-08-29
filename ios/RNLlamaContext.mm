@@ -207,7 +207,7 @@
         if (token_with_probs.tok == -1 || llama->multibyte_pending > 0) {
             continue;
         }
-        const std::string token_text = llama_token_to_str(llama->ctx, token_with_probs.tok);
+        const std::string token_text = llama_token_to_piece(llama->ctx, token_with_probs.tok);
 
         size_t pos = std::min(sent_count, llama->generated_text.size());
 
