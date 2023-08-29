@@ -4,8 +4,8 @@ if (!NativeModules.RNLlama) {
   NativeModules.RNLlama = {
     initContext: jest.fn(() => Promise.resolve({
       contextId: 1,
-      isUsedMetal: false,
-      reasonNoMetal: 'Test',
+      gpu: false,
+      reasonNoGPU: 'Test',
     })),
 
     completion: jest.fn(async (contextId, jobId) => {
