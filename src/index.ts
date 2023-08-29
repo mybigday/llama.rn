@@ -84,6 +84,10 @@ export class LlamaContext {
     return RNLlama.tokenize(this.id, text)
   }
 
+  detokenize(tokens: number[]): Promise<string> {
+    return RNLlama.detokenize(this.id, tokens)
+  }
+
   embedding(text: string): Promise<NativeEmbeddingResult> {
     return RNLlama.embedding(this.id, text)
   }

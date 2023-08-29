@@ -169,6 +169,14 @@ public class LlamaContext {
     return result;
   }
 
+  public String detokenize(ReadableArray tokens) {
+    int[] toks = new int[tokens.size()];
+    for (int i = 0; i < tokens.size(); i++) {
+      toks[i] = (int) tokens.getDouble(i);
+    }
+    return detokenize(this.context, toks);
+  }
+
   public WritableMap embedding(String text) {
     if (isEmbeddingEnabled(this.context) == false) {
       throw new IllegalStateException("Embedding is not enabled");
@@ -253,6 +261,7 @@ public class LlamaContext {
   protected static native void stopCompletion(long contextPtr);
   protected static native boolean isPredicting(long contextPtr);
   protected static native WritableArray tokenize(long contextPtr, String text);
+  protected static native String detokenize(long contextPtr, int[] tokens);
   protected static native boolean isEmbeddingEnabled(long contextPtr);
   protected static native WritableArray embedding(long contextPtr, String text);
   protected static native void freeContext(long contextPtr);

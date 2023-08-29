@@ -222,6 +222,11 @@ export default function App() {
       // await context?.embedding(prompt).then((result) => {
       //   console.log('Embedding:', result)
       // })
+
+      // Test detokenize
+      // await context?.detokenize(tokens).then((result) => {
+      //   console.log('Detokenize:', result)
+      // })
     }
 
     let grammar
