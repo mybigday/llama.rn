@@ -12,6 +12,7 @@
     "lib",
     "jest",
     "ios",
+    "android",
     "cpp/*.*",
     "*.podspec",
     "!lib/typescript/example",
