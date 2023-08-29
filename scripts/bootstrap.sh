@@ -3,6 +3,11 @@
 git submodule init
 git submodule update --recursive
 
+cd llama.cpp
+./scripts/build-info.sh > build-info.h
+cd -
+
+cp ./llama.cpp/build-info.h ./cpp/build-info.h
 cp ./llama.cpp/ggml.h ./cpp/ggml.h
 cp ./llama.cpp/ggml.c ./cpp/ggml.c
 cp ./llama.cpp/ggml-metal.h ./cpp/ggml-metal.h
@@ -10,7 +15,6 @@ cp ./llama.cpp/ggml-metal.m ./cpp/ggml-metal.m
 cp ./llama.cpp/ggml-metal.metal ./cpp/ggml-metal.metal
 cp ./llama.cpp/ggml-alloc.h ./cpp/ggml-alloc.h
 cp ./llama.cpp/ggml-alloc.c ./cpp/ggml-alloc.c
-cp ./llama.cpp/build-info.h ./cpp/build-info.h
 cp ./llama.cpp/llama.h ./cpp/llama.h
 cp ./llama.cpp/llama.cpp ./cpp/llama.cpp
 cp ./llama.cpp/k_quants.h ./cpp/k_quants.h
