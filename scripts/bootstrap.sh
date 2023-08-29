@@ -3,6 +3,11 @@
 git submodule init
 git submodule update --recursive
 
+cd llama.cpp
+./scripts/build-info.sh > build-info.h
+cd -
+
+cp ./llama.cpp/build-info.h ./cpp/build-info.h
 cp ./llama.cpp/ggml.h ./cpp/ggml.h
 cp ./llama.cpp/ggml.c ./cpp/ggml.c
 cp ./llama.cpp/ggml-metal.h ./cpp/ggml-metal.h

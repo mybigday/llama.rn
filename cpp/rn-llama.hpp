@@ -101,7 +101,7 @@ static size_t find_partial_stop_string(const std::string &stop,
 // format incomplete utf-8 multibyte character for output
 static std::string tokens_to_output_formatted_string(const llama_context *ctx, const llama_token token)
 {
-    std::string out = token == -1 ? "" : llama_token_to_str(ctx, token);
+    std::string out = token == -1 ? "" : llama_token_to_piece(ctx, token);
     // if the size is 1 and first bit is 1, meaning it's a partial character
     //   (size > 1 meaning it's already a known token)
     if (out.size() == 1 && (out[0] & 0x80) == 0x80)
@@ -120,7 +120,7 @@ static std::string tokens_to_str(llama_context *ctx, Iter begin, Iter end)
     std::string ret;
     for (; begin != end; ++begin)
     {
-        ret += llama_token_to_str(ctx, *begin);
+        ret += llama_token_to_piece(ctx, *begin);
     }
     return ret;
 }
@@ -456,7 +456,7 @@ struct llama_rn_context
 
         if (!embd.empty() && embd.back() == llama_token_eos(ctx))
         {
-            // stopping_word = llama_token_to_str(ctx, embd.back());
+            // stopping_word = llama_token_to_piece(ctx, embd.back());
             has_next_token = false;
             stopped_eos = true;
             LOG_VERBOSE("eos token found", "");
@@ -503,7 +503,7 @@ struct llama_rn_context
     {
         const completion_token_output token_with_probs = nextToken();
 
-        const std::string token_text = token_with_probs.tok == -1 ? "" : llama_token_to_str(ctx, token_with_probs.tok);
+        const std::string token_text = token_with_probs.tok == -1 ? "" : llama_token_to_piece(ctx, token_with_probs.tok);
         generated_text += token_text;
 
         if (params.n_probs > 0)
@@ -551,7 +551,7 @@ struct llama_rn_context
         }
 
         LOG_VERBOSE("next token, token: %s, token_text: %s, has_next_token: %d, n_remain: %d, num_tokens_predicted: %d, stopped_eos: %d, stopped_word: %d, stopped_limit: %d, stopping_word: %s",
-            llama_token_to_str(ctx, token_with_probs.tok),
+            llama_token_to_piece(ctx, token_with_probs.tok),
             tokens_to_output_formatted_string(ctx, token_with_probs.tok).c_str(),
             has_next_token,
             n_remain,
