@@ -137,11 +137,15 @@ export default function App() {
         let [file] = res
         if (file) {
           if (Platform.OS === 'android' && file.uri.startsWith('content://')) {
-            const filename = `${file.uri.split('/').pop() || 'model'}.gguf`
-            const filepath = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/${filename}`
+            const dir = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/models`
+            if (!(await ReactNativeBlobUtil.fs.isDir(dir))) await ReactNativeBlobUtil.fs.mkdir(dir)
+
+            const filepath = `${dir}/${file.uri.split('/').pop() || 'model'}.gguf`
             if (await ReactNativeBlobUtil.fs.exists(filepath)) {
               handleInitContext({ uri: filepath } as DocumentPickerResponse)
               return
+            } else {
+              await ReactNativeBlobUtil.fs.unlink(dir) // Clean up old files in models
             }
             addSystemMessage('Copying model to internal storage...')
             await ReactNativeBlobUtil.MediaCollection.copyToInternal(
