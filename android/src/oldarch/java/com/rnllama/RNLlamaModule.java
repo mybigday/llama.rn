@@ -12,6 +12,7 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.module.annotations.ReactModule;
@@ -174,6 +175,37 @@ public class RNLlamaModule extends ReactContextBaseJavaModule implements Lifecyc
 
       @Override
       protected void onPostExecute(WritableMap result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+      }
+    }.execute();
+  }
+
+  @ReactMethod
+  public void detokenize(double id, final ReadableArray tokens, final Promise promise) {
+    final int contextId = (int) id;
+    new AsyncTask<Void, Void, String>() {
+      private Exception exception;
+
+      @Override
+      protected String doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          return context.detokenize(tokens);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(String result) {
         if (exception != null) {
           promise.reject(exception);
           return;

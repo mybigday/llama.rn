@@ -299,6 +299,15 @@
     return result;
 }
 
+- (NSString *)detokenize:(NSArray *)tokens {
+    std::vector<llama_token> toks;
+    for (NSNumber *tok in tokens) {
+        toks.push_back([tok intValue]);
+    }
+    const std::string text = rnllama::tokens_to_str(llama->ctx, toks.cbegin(), toks.cend());
+    return [NSString stringWithUTF8String:text.c_str()];
+}
+
 - (NSArray *)embedding:(NSString *)text {
     if (llama->params.embedding != true) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not enabled" userInfo:nil];

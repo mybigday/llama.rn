@@ -125,6 +125,19 @@ RCT_EXPORT_METHOD(tokenize:(double)contextId
     [tokens release];
 }
 
+RCT_EXPORT_METHOD(detokenize:(double)contextId
+                  tokens:(NSArray *)tokens
+                  withResolver:(RCTPromiseResolveBlock)resolve
+                  withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+    resolve([context detokenize:tokens]);
+}
+
 RCT_EXPORT_METHOD(embedding:(double)contextId
                   text:(NSString *)text
                   withResolver:(RCTPromiseResolveBlock)resolve
