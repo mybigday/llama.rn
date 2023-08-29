@@ -6,6 +6,8 @@
 
 React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp).
 
+[llama.cpp](https://github.com/ggerganov/llama.cpp): Inference of [LLaMA](https://arxiv.org/abs/2302.13971) model in pure C/C++
+
 ⚠️ Currently this library is not recommended for production use. In our cases, we only use it on device like M1 ~ M2 iPad/Mac for the time being, with Llama-2-7b-chat q2_k ~ q4_k models. ⚠️
 
 ## Installation
