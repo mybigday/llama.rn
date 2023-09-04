@@ -96,7 +96,7 @@ iOS:
   - It's also not supported in iOS simulator due to [this limitation](https://developer.apple.com/documentation/metal/developing_metal_apps_that_run_in_simulator#3241609), we used constant buffers more than 14.
 
 Android:
-- Currently only supported arm64-v8a platform, this means you can't initialize a context on another platforms.
+- Currently only supported arm64-v8a / x86_64 platform, this means you can't initialize a context on another platforms. The 64-bit platform are recommended because it can allocate more memory for the model.
 
 ## Contributing
 

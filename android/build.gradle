@@ -30,6 +30,12 @@ def getExtOrIntegerDefault(name) {
   return rootProject.ext.has(name) ? rootProject.ext.get(name) : (project.properties["RNLlama_" + name]).toInteger()
 }
 
+def reactNativeArchitectures() {
+  def value = project.getProperties().get("reactNativeArchitectures")
+  def archs = value ? value.split(",") : ["x86_64", "arm64-v8a"]
+  return archs.findAll { it != "armeabi-v7a" && it != "x86" } // Not building for 32-bit architectures
+}
+
 android {
   ndkVersion getExtOrDefault("ndkVersion")
   compileSdkVersion getExtOrIntegerDefault("compileSdkVersion")
@@ -38,9 +44,10 @@ android {
     minSdkVersion getExtOrIntegerDefault("minSdkVersion")
     targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
     buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
-
-    ndk {
-      abiFilters 'arm64-v8a' // , 'armeabi-v7a'
+    externalNativeBuild {
+      cmake {
+        abiFilters (*reactNativeArchitectures())
+      }
     }
   }
   externalNativeBuild {
