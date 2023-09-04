@@ -28,7 +28,7 @@ public class LlamaContext {
   private DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
 
   public LlamaContext(int id, ReactApplicationContext reactContext, ReadableMap params) {
-    if (LlamaContext.isArm64V8a() == false || LlamaContext.isX86_64() == false) {
+    if (LlamaContext.isArm64V8a() == false && LlamaContext.isX86_64() == false) {
       throw new IllegalStateException("Only 64-bit architectures are supported");
     }
     if (!params.hasKey("model")) {
