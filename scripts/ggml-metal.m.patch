@@ -1,5 +1,24 @@
 --- ggml-metal-orig.m	2023-09-04 09:16:25
-+++ ggml-metal.m	2023-09-04 09:17:46
++++ ggml-metal.m	2023-09-04 10:09:46
+@@ -118,13 +118,13 @@
+     metal_printf("%s: allocating\n", __func__);
+ 
+     // Show all the Metal device instances in the system
+-    NSArray * devices = MTLCopyAllDevices();
++    // NSArray * devices = MTLCopyAllDevices();
+     id <MTLDevice> device;
+     NSString * s;
+-    for (device in devices) {
+-        s = [device name];
+-        metal_printf("%s: found device: %s\n", __func__, [s UTF8String]);
+-    }
++    // for (device in devices) {
++    //     s = [device name];
++    //     metal_printf("%s: found device: %s\n", __func__, [s UTF8String]);
++    // }
+ 
+     // Pick and show default Metal device
+     device = MTLCreateSystemDefaultDevice();
 @@ -247,13 +247,13 @@
  #undef LM_GGML_METAL_ADD_KERNEL
      }
