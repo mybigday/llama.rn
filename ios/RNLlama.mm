@@ -74,9 +74,9 @@ RCT_EXPORT_METHOD(completion:(double)contextId
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
             @autoreleasepool {
-                NSMutableDictionary* completionResult = [context completion:completionParams
+                NSDictionary* completionResult = [context completion:completionParams
                     onToken:^(NSMutableDictionary *tokenResult) {
-                        if (completionParams[@"emit_partial_completion"] == false) return;
+                        if (![completionParams[@"emit_partial_completion"] boolValue]) return;
                         dispatch_async(dispatch_get_main_queue(), ^{
                             [self sendEventWithName:@"@RNLlama_onToken"
                                 body:@{
