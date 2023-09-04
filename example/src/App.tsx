@@ -49,16 +49,13 @@ const defaultConversationId = 'default'
 const renderBubble = ({
   child,
   message,
-  nextMessageInGroup,
 }: {
   child: ReactNode
   message: MessageType.Any
-  nextMessageInGroup: boolean
 }) => (
   <Bubble
     child={child}
     message={message}
-    nextMessageInGroup={nextMessageInGroup}
   />
 )
 

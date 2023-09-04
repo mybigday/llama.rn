@@ -1,46 +1,66 @@
---- ggml-metal-orig.m	2023-08-29 10:32:31
-+++ ggml-metal.m	2023-08-29 10:32:32
-@@ -230,13 +230,13 @@
+--- ggml-metal-orig.m	2023-09-04 09:16:25
++++ ggml-metal.m	2023-09-04 10:09:46
+@@ -118,13 +118,13 @@
+     metal_printf("%s: allocating\n", __func__);
+ 
+     // Show all the Metal device instances in the system
+-    NSArray * devices = MTLCopyAllDevices();
++    // NSArray * devices = MTLCopyAllDevices();
+     id <MTLDevice> device;
+     NSString * s;
+-    for (device in devices) {
+-        s = [device name];
+-        metal_printf("%s: found device: %s\n", __func__, [s UTF8String]);
+-    }
++    // for (device in devices) {
++    //     s = [device name];
++    //     metal_printf("%s: found device: %s\n", __func__, [s UTF8String]);
++    // }
+ 
+     // Pick and show default Metal device
+     device = MTLCreateSystemDefaultDevice();
+@@ -247,13 +247,13 @@
  #undef LM_GGML_METAL_ADD_KERNEL
      }
-
--    fprintf(stderr, "%s: recommendedMaxWorkingSetSize  = %8.2f MB\n", __func__, ctx->device.recommendedMaxWorkingSetSize / 1024.0 / 1024.0);
-+    // fprintf(stderr, "%s: recommendedMaxWorkingSetSize  = %8.2f MB\n", __func__, ctx->device.recommendedMaxWorkingSetSize / 1024.0 / 1024.0);
-     fprintf(stderr, "%s: hasUnifiedMemory              = %s\n",       __func__, ctx->device.hasUnifiedMemory ? "true" : "false");
+ 
+-    metal_printf("%s: recommendedMaxWorkingSetSize  = %8.2f MB\n", __func__, ctx->device.recommendedMaxWorkingSetSize / 1024.0 / 1024.0);
+-    metal_printf("%s: hasUnifiedMemory              = %s\n",       __func__, ctx->device.hasUnifiedMemory ? "true" : "false");
 -    if (ctx->device.maxTransferRate != 0) {
--        fprintf(stderr, "%s: maxTransferRate               = %8.2f MB/s\n", __func__, ctx->device.maxTransferRate / 1024.0 / 1024.0);
+-        metal_printf("%s: maxTransferRate               = %8.2f MB/s\n", __func__, ctx->device.maxTransferRate / 1024.0 / 1024.0);
 -    } else {
--        fprintf(stderr, "%s: maxTransferRate               = built-in GPU\n", __func__);
+-        metal_printf("%s: maxTransferRate               = built-in GPU\n", __func__);
 -    }
++    // metal_printf("%s: recommendedMaxWorkingSetSize  = %8.2f MB\n", __func__, ctx->device.recommendedMaxWorkingSetSize / 1024.0 / 1024.0);
++    // metal_printf("%s: hasUnifiedMemory              = %s\n",       __func__, ctx->device.hasUnifiedMemory ? "true" : "false");
 +    // if (ctx->device.maxTransferRate != 0) {
-+    //     fprintf(stderr, "%s: maxTransferRate               = %8.2f MB/s\n", __func__, ctx->device.maxTransferRate / 1024.0 / 1024.0);
++    //     metal_printf("%s: maxTransferRate               = %8.2f MB/s\n", __func__, ctx->device.maxTransferRate / 1024.0 / 1024.0);
 +    // } else {
-+    //     fprintf(stderr, "%s: maxTransferRate               = built-in GPU\n", __func__);
++    //     metal_printf("%s: maxTransferRate               = built-in GPU\n", __func__);
 +    // }
-
+ 
      return ctx;
  }
-@@ -436,15 +436,15 @@
+@@ -454,15 +454,15 @@
              }
          }
-
--        fprintf(stderr, ", (%8.2f / %8.2f)",
+ 
+-        metal_printf(", (%8.2f / %8.2f)",
 -                ctx->device.currentAllocatedSize / 1024.0 / 1024.0,
 -                ctx->device.recommendedMaxWorkingSetSize / 1024.0 / 1024.0);
-+        // fprintf(stderr, ", (%8.2f / %8.2f)",
++        // metal_printf(", (%8.2f / %8.2f)",
 +        //         ctx->device.currentAllocatedSize / 1024.0 / 1024.0,
 +        //         ctx->device.recommendedMaxWorkingSetSize / 1024.0 / 1024.0);
-
+ 
 -        if (ctx->device.currentAllocatedSize > ctx->device.recommendedMaxWorkingSetSize) {
--            fprintf(stderr, ", warning: current allocated size is greater than the recommended max working set size\n");
+-            metal_printf(", warning: current allocated size is greater than the recommended max working set size\n");
 -        } else {
--            fprintf(stderr, "\n");
+-            metal_printf("\n");
 -        }
 +        // if (ctx->device.currentAllocatedSize > ctx->device.recommendedMaxWorkingSetSize) {
-+        //     fprintf(stderr, ", warning: current allocated size is greater than the recommended max working set size\n");
++        //     metal_printf(", warning: current allocated size is greater than the recommended max working set size\n");
 +        // } else {
-+        //     fprintf(stderr, "\n");
++        //     metal_printf("\n");
 +        // }
      }
-
+ 
      return true;
