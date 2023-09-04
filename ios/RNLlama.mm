@@ -76,6 +76,7 @@ RCT_EXPORT_METHOD(completion:(double)contextId
             @autoreleasepool {
                 NSMutableDictionary* completionResult = [context completion:completionParams
                     onToken:^(NSMutableDictionary *tokenResult) {
+                        if (completionParams[@"emit_partial_completion"] == false) return;
                         dispatch_async(dispatch_get_main_queue(), ^{
                             [self sendEventWithName:@"@RNLlama_onToken"
                                 body:@{

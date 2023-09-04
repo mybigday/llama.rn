@@ -50,6 +50,8 @@ export type NativeCompletionParams = {
 
   ignore_eos?: boolean
   logit_bias?: Array<Array<number>>
+
+  emit_partial_completion: boolean
 }
 
 export type NativeCompletionTokenProbItem = {
