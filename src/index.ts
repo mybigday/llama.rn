@@ -31,7 +31,7 @@ type TokenNativeEvent = {
 
 export type ContextParams = NativeContextParams
 
-export type CompletionParams = Omit<NativeCompletionParams, 'emit_partial_response'>
+export type CompletionParams = Omit<NativeCompletionParams, 'emit_partial_completion'>
 
 export class LlamaContext {
   id: number
