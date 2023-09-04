@@ -17,9 +17,7 @@ set(
     ${CMAKE_SOURCE_DIR}/jni.cpp
 )
 
-if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-    set(RNLLAMA_LIBRARY_NAME rnllama_arm64)
-endif ()
+set(RNLLAMA_LIBRARY_NAME rnllama)
 
 add_library(
     ${RNLLAMA_LIBRARY_NAME}
@@ -27,11 +25,9 @@ add_library(
     ${SOURCE_FILES}
 )
 
-if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-    # target_compile_options(${RNLLAMA_LIBRARY_NAME} PRIVATE -mcpu=native)
-endif ()
+find_library(LOG_LIB log)
 
-target_link_libraries(${RNLLAMA_LIBRARY_NAME} log android)
+target_link_libraries(${RNLLAMA_LIBRARY_NAME} ${LOG_LIB} android)
 include_directories(${RNLLAMA_LIB_DIR})
 
 target_compile_options(${RNLLAMA_LIBRARY_NAME} PRIVATE -DLM_GGML_USE_K_QUANTS -pthread)

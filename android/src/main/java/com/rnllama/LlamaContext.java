@@ -28,8 +28,8 @@ public class LlamaContext {
   private DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
 
   public LlamaContext(int id, ReactApplicationContext reactContext, ReadableMap params) {
-    if (LlamaContext.isArmeabiV8a() == false) {
-      throw new IllegalStateException("Only arm64-v8a is supported");
+    if (LlamaContext.isArm64V8a() == false || LlamaContext.isX86_64() == false) {
+      throw new IllegalStateException("Only 64-bit architectures are supported");
     }
     if (!params.hasKey("model")) {
       throw new IllegalArgumentException("Missing required parameter: model");
@@ -191,15 +191,17 @@ public class LlamaContext {
   }
 
   static {
-    Log.d(NAME, "Primary ABI: " + Build.SUPPORTED_ABIS[0]);
-    if (isArmeabiV8a()) {
-      Log.d(NAME, "Loading librnllama_arm64.so");
-      System.loadLibrary("rnllama_arm64");
+    if (LlamaContext.isArm64V8a() == true || LlamaContext.isX86_64() == true) {
+      System.loadLibrary("rnllama");
     }
   }
 
-  private static boolean isArmeabiV8a() {
+  private static boolean isArm64V8a() {
     return Build.SUPPORTED_ABIS[0].equals("arm64-v8a");
+  }
+
+  private static boolean isX86_64() {
+    return Build.SUPPORTED_ABIS[0].equals("x86_64");
   }
 
   private static String cpuInfo() {
