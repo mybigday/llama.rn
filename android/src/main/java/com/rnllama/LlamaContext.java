@@ -80,12 +80,15 @@ public class LlamaContext {
 
   private static class PartialCompletionCallback {
     LlamaContext context;
+    boolean emitNeeded;
 
-    public PartialCompletionCallback(LlamaContext context) {
+    public PartialCompletionCallback(LlamaContext context, boolean emitNeeded) {
       this.context = context;
+      this.emitNeeded = emitNeeded;
     }
 
     void onPartialCompletion(WritableMap tokenResult) {
+      if (!emitNeeded) return;
       context.emitPartialCompletion(tokenResult);
     }
   }
@@ -151,7 +154,10 @@ public class LlamaContext {
       // double[][] logit_bias,
       logit_bias,
       // PartialCompletionCallback partial_completion_callback
-      new PartialCompletionCallback(this)
+      new PartialCompletionCallback(
+        this,
+        params.hasKey("emit_partial_completion") ? params.getBoolean("emit_partial_completion") : false
+      )
     );
   }
 

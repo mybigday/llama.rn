@@ -31,7 +31,7 @@ type TokenNativeEvent = {
 
 export type ContextParams = NativeContextParams
 
-export type CompletionParams = NativeCompletionParams
+export type CompletionParams = Omit<NativeCompletionParams, 'emit_partial_completion'>
 
 export class LlamaContext {
   id: number
@@ -52,9 +52,9 @@ export class LlamaContext {
 
   async completion(
     params: CompletionParams,
-    callback: (data: TokenData) => void,
+    callback?: (data: TokenData) => void,
   ) {
-    let tokenListener: any = EventEmitter.addListener(
+    let tokenListener: any = callback && EventEmitter.addListener(
       EVENT_ON_TOKEN,
       (evt: TokenNativeEvent) => {
         const { contextId, tokenResult } = evt
@@ -62,15 +62,18 @@ export class LlamaContext {
         callback(tokenResult)
       },
     )
-    const promise = RNLlama.completion(this.id, params)
+    const promise = RNLlama.completion(this.id, {
+      ...params,
+      emit_partial_completion: !!callback,
+    })
     return promise
       .then((completionResult) => {
-        tokenListener.remove()
+        tokenListener?.remove()
         tokenListener = null
         return completionResult
       })
       .catch((err: any) => {
-        tokenListener.remove()
+        tokenListener?.remove()
         tokenListener = null
         throw err
       })
