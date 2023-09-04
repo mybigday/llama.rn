@@ -7,16 +7,13 @@ import type { MessageType } from '@flyerhq/react-native-chat-ui'
 export const Bubble = ({
   child,
   message,
-  nextMessageInGroup,
 }: {
   child: ReactNode
   message: MessageType.Any
-  nextMessageInGroup: boolean
 }) => {
   const theme = useContext(ThemeContext)
   const user = useContext(UserContext)
   const currentUserIsAuthor = user?.id === message.author.id
-  const roundBorder = nextMessageInGroup ? theme.borders.messageBorderRadius : 0
   return (
     <View
       style={{
@@ -24,9 +21,11 @@ export const Bubble = ({
           !currentUserIsAuthor || message.type === 'image'
             ? theme.colors.secondary
             : theme.colors.primary,
-        borderBottomLeftRadius: currentUserIsAuthor ? roundBorder : 0,
+        borderBottomLeftRadius: currentUserIsAuthor
+          ? theme.borders.messageBorderRadius
+          : 0,
         borderBottomRightRadius: currentUserIsAuthor
-          ? roundBorder
+          ? 0
           : theme.borders.messageBorderRadius,
         borderColor: 'transparent',
         borderRadius: theme.borders.messageBorderRadius,
