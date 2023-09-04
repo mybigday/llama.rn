@@ -191,7 +191,9 @@ public class LlamaContext {
   }
 
   static {
-    System.loadLibrary("rnllama");
+    if (LlamaContext.isArm64V8a() == true || LlamaContext.isX86_64() == true) {
+      System.loadLibrary("rnllama");
+    }
   }
 
   private static boolean isArm64V8a() {
