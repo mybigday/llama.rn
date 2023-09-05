@@ -1,7 +1,0 @@
-*.c
-*.h
-*.cpp
-*.m
-*.mm
-*.metal
-!rn-llama*
