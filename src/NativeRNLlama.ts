@@ -16,7 +16,7 @@ export type NativeContextParams = {
   use_mlock?: boolean
   use_mmap?: boolean
 
-  memory_f16?: number
+  memory_f16?: boolean
 
   lora?: string // lora_adaptor
   lora_base?: string
