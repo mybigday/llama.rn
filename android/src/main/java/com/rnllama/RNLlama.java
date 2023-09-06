@@ -63,12 +63,12 @@ public class RNLlama implements LifecycleEventListener {
       }
 
       @Override
-      protected void onPostExecute(WritableMap id) {
+      protected void onPostExecute(WritableMap result) {
         if (exception != null) {
           promise.reject(exception);
           return;
         }
-        promise.resolve(id);
+        promise.resolve(result);
       }
     }.execute();
   }
