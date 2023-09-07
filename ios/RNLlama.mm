@@ -199,6 +199,8 @@ RCT_EXPORT_METHOD(releaseAllContexts:(RCTPromiseResolveBlock)resolve
     [llamaContexts release];
     llamaContexts = nil;
 
+    dispatch_release(llamaDQueue);
+
     [super invalidate];
 }
 
