@@ -1,4 +1,4 @@
-import { NativeEventEmitter } from 'react-native'
+import { NativeEventEmitter, DeviceEventEmitter, Platform } from 'react-native'
 import type { DeviceEventEmitterStatic } from 'react-native'
 import RNLlama from './NativeRNLlama'
 import type {
@@ -15,9 +15,14 @@ export { SchemaGrammarConverter, convertJsonSchemaToGrammar }
 
 const EVENT_ON_TOKEN = '@RNLlama_onToken'
 
-const EventEmitter: NativeEventEmitter | DeviceEventEmitterStatic =
+let EventEmitter: NativeEventEmitter | DeviceEventEmitterStatic
+if (Platform.OS === 'ios') {
   // @ts-ignore
-  new NativeEventEmitter(RNLlama)
+  EventEmitter = new NativeEventEmitter(RNLlama)
+}
+if (Platform.OS === 'android') {
+  EventEmitter = DeviceEventEmitter
+}
 
 export type TokenData = {
   token: string
