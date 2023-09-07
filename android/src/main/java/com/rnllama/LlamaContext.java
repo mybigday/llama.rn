@@ -210,23 +210,6 @@ public class LlamaContext {
     return Build.SUPPORTED_ABIS[0].equals("x86_64");
   }
 
-  private static String cpuInfo() {
-    File file = new File("/proc/cpuinfo");
-    StringBuilder stringBuilder = new StringBuilder();
-    try {
-      BufferedReader bufferedReader = new BufferedReader(new FileReader(file));
-      String line;
-      while ((line = bufferedReader.readLine()) != null) {
-          stringBuilder.append(line);
-      }
-      bufferedReader.close();
-      return stringBuilder.toString();
-    } catch (IOException e) {
-      Log.w(NAME, "Couldn't read /proc/cpuinfo", e);
-      return null;
-    }
-  }
-
   protected static native long initContext(
     String model,
     boolean embedding,
