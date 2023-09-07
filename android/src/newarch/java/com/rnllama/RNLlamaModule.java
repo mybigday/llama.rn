@@ -15,9 +15,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.PushbackInputStream;
 
-@ReactModule(name = RNLlamaModule.NAME)
+@ReactModule(name = RNLlama.NAME)
 public class RNLlamaModule extends NativeRNLlamaSpec {
-  public static final String NAME = "RNLlama";
+  public static final String NAME = RNLlama.NAME;
 
   private RNLlama rnllama = null;
 

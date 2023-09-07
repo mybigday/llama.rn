@@ -9,6 +9,7 @@
 
 NSMutableDictionary *llamaContexts;
 double llamaContextLimit = 1;
+dispatch_queue_t llamaDQueue = dispatch_queue_create("com.rnllama", DISPATCH_QUEUE_SERIAL);
 
 RCT_EXPORT_MODULE()
 
@@ -71,7 +72,7 @@ RCT_EXPORT_METHOD(completion:(double)contextId
         reject(@"llama_error", @"Context is busy", nil);
         return;
     }
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    dispatch_async(llamaDQueue, ^{
         @try {
             @autoreleasepool {
                 NSDictionary* completionResult = [context completion:completionParams
@@ -168,6 +169,7 @@ RCT_EXPORT_METHOD(releaseContext:(double)contextId
         return;
     }
     [context stopCompletion];
+    dispatch_barrier_sync(llamaDQueue, ^{});
     [context invalidate];
     [llamaContexts removeObjectForKey:[NSNumber numberWithDouble:contextId]];
     resolve(nil);
@@ -188,6 +190,8 @@ RCT_EXPORT_METHOD(releaseAllContexts:(RCTPromiseResolveBlock)resolve
 
     for (NSNumber *contextId in llamaContexts) {
         RNLlamaContext *context = llamaContexts[contextId];
+        [context stopCompletion];
+        dispatch_barrier_sync(llamaDQueue, ^{});
         [context invalidate];
     }
 

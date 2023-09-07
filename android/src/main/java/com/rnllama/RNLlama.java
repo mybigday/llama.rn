@@ -22,12 +22,16 @@ import java.io.FileInputStream;
 import java.io.PushbackInputStream;
 
 public class RNLlama implements LifecycleEventListener {
+  public static final String NAME = "RNLlama";
+
   private ReactApplicationContext reactContext;
 
   public RNLlama(ReactApplicationContext reactContext) {
     reactContext.addLifecycleEventListener(this);
     this.reactContext = reactContext;
   }
+
+  private HashMap<AsyncTask, String> tasks = new HashMap<>();
 
   private HashMap<Integer, LlamaContext> contexts = new HashMap<>();
 
@@ -39,7 +43,7 @@ public class RNLlama implements LifecycleEventListener {
   }
 
   public void initContext(final ReadableMap params, final Promise promise) {
-    new AsyncTask<Void, Void, WritableMap>() {
+    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
 
       @Override
@@ -69,13 +73,15 @@ public class RNLlama implements LifecycleEventListener {
           return;
         }
         promise.resolve(result);
+        tasks.remove(this);
       }
     }.execute();
+    tasks.put(task, "initContext");
   }
 
   public void completion(double id, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    new AsyncTask<Void, Void, WritableMap>() {
+    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
 
       @Override
@@ -103,13 +109,15 @@ public class RNLlama implements LifecycleEventListener {
           return;
         }
         promise.resolve(result);
+        tasks.remove(this);
       }
     }.execute();
+    tasks.put(task, "completion-" + contextId);
   }
 
   public void stopCompletion(double id, final Promise promise) {
     final int contextId = (int) id;
-    new AsyncTask<Void, Void, Void>() {
+    AsyncTask task = new AsyncTask<Void, Void, Void>() {
       private Exception exception;
 
       @Override
@@ -120,6 +128,13 @@ public class RNLlama implements LifecycleEventListener {
             throw new Exception("Context not found");
           }
           context.stopCompletion();
+          AsyncTask completionTask = null;
+          for (AsyncTask task : tasks.keySet()) {
+            if (tasks.get(task).equals("completion-" + contextId)) {
+              task.get();
+              break;
+            }
+          }
         } catch (Exception e) {
           exception = e;
         }
@@ -133,13 +148,15 @@ public class RNLlama implements LifecycleEventListener {
           return;
         }
         promise.resolve(result);
+        tasks.remove(this);
       }
     }.execute();
+    tasks.put(task, "stopCompletion-" + contextId);
   }
 
   public void tokenize(double id, final String text, final Promise promise) {
     final int contextId = (int) id;
-    new AsyncTask<Void, Void, WritableMap>() {
+    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
 
       @Override
@@ -163,13 +180,15 @@ public class RNLlama implements LifecycleEventListener {
           return;
         }
         promise.resolve(result);
+        tasks.remove(this);
       }
     }.execute();
+    tasks.put(task, "tokenize-" + contextId);
   }
 
   public void detokenize(double id, final ReadableArray tokens, final Promise promise) {
     final int contextId = (int) id;
-    new AsyncTask<Void, Void, String>() {
+    AsyncTask task = new AsyncTask<Void, Void, String>() {
       private Exception exception;
 
       @Override
@@ -193,13 +212,15 @@ public class RNLlama implements LifecycleEventListener {
           return;
         }
         promise.resolve(result);
+        tasks.remove(this);
       }
     }.execute();
+    tasks.put(task, "detokenize-" + contextId);
   }
 
   public void embedding(double id, final String text, final Promise promise) {
     final int contextId = (int) id;
-    new AsyncTask<Void, Void, WritableMap>() {
+    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
 
       @Override
@@ -223,13 +244,15 @@ public class RNLlama implements LifecycleEventListener {
           return;
         }
         promise.resolve(result);
+        tasks.remove(this);
       }
     }.execute();
+    tasks.put(task, "embedding-" + contextId);
   }
 
   public void releaseContext(double id, Promise promise) {
     final int contextId = (int) id;
-    new AsyncTask<Void, Void, Void>() {
+    AsyncTask task = new AsyncTask<Void, Void, Void>() {
       private Exception exception;
 
       @Override
@@ -238,6 +261,14 @@ public class RNLlama implements LifecycleEventListener {
           LlamaContext context = contexts.get(contextId);
           if (context == null) {
             throw new Exception("Context " + id + " not found");
+          }
+          context.stopCompletion();
+          AsyncTask completionTask = null;
+          for (AsyncTask task : tasks.keySet()) {
+            if (tasks.get(task).equals("completion-" + contextId)) {
+              task.get();
+              break;
+            }
           }
           context.release();
           contexts.remove(contextId);
@@ -254,12 +285,14 @@ public class RNLlama implements LifecycleEventListener {
           return;
         }
         promise.resolve(null);
+        tasks.remove(this);
       }
     }.execute();
+    tasks.put(task, "releaseContext-" + contextId);
   }
 
   public void releaseAllContexts(Promise promise) {
-    new AsyncTask<Void, Void, Void>() {
+    AsyncTask task = new AsyncTask<Void, Void, Void>() {
       private Exception exception;
 
       @Override
@@ -279,8 +312,10 @@ public class RNLlama implements LifecycleEventListener {
           return;
         }
         promise.resolve(null);
+        tasks.remove(this);
       }
     }.execute();
+    tasks.put(task, "releaseAllContexts");
   }
 
   @Override
@@ -293,6 +328,17 @@ public class RNLlama implements LifecycleEventListener {
 
   @Override
   public void onHostDestroy() {
+    for (LlamaContext context : contexts.values()) {
+      context.stopCompletion();
+    }
+    for (AsyncTask task : tasks.keySet()) {
+      try {
+        task.get();
+      } catch (Exception e) {
+        Log.e(NAME, "Failed to wait for task", e);
+      }
+    }
+    tasks.clear();
     for (LlamaContext context : contexts.values()) {
       context.release();
     }
