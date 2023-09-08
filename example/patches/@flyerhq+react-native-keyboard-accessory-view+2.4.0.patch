@@ -1,0 +1,33 @@
+diff --git a/node_modules/@flyerhq/react-native-keyboard-accessory-view/lib/hooks/useKeyboardDimensions.js b/node_modules/@flyerhq/react-native-keyboard-accessory-view/lib/hooks/useKeyboardDimensions.js
+index 23cb7c2..9007475 100644
+--- a/node_modules/@flyerhq/react-native-keyboard-accessory-view/lib/hooks/useKeyboardDimensions.js
++++ b/node_modules/@flyerhq/react-native-keyboard-accessory-view/lib/hooks/useKeyboardDimensions.js
+@@ -25,7 +25,17 @@ export const useKeyboardDimensions = (useListenersOnAndroid) => {
+             keyboardEndPositionY: height,
+             keyboardHeight: 0,
+         });
+-        const updateKeyboardDimensions = (event) => setState((current) => {
++        const updateKeyboardDimensions = (event) => {
++          // NOTE: Simple check the keyboard is floating
++          if (event.endCoordinates.width !== Dimensions.get('screen').width) {
++            setState({
++              keyboardEndPositionY: height,
++              keyboardHeight: 0,
++            })
++            return
++          }
++
++          setState((current) => {
+             const { screenY: keyboardEndPositionY } = event.endCoordinates;
+             const keyboardHeight = height - keyboardEndPositionY;
+             if (keyboardHeight === current.keyboardHeight) {
+@@ -48,7 +58,8 @@ export const useKeyboardDimensions = (useListenersOnAndroid) => {
+                 keyboardEndPositionY,
+                 keyboardHeight,
+             };
+-        });
++          })
++        };
+         const dimensionsListener = Dimensions.addEventListener('change', handleDimensionsChange);
+         const keyboardListeners = [];
+         if (Platform.OS === 'android' && useListenersOnAndroid) {
