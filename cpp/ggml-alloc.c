@@ -138,7 +138,7 @@ static bool lm_ggml_allocr_is_own(struct lm_ggml_allocr * alloc, const struct lm
 
 void lm_ggml_allocr_alloc(struct lm_ggml_allocr * alloc, struct lm_ggml_tensor * tensor) {
 #ifdef LM_GGML_ALLOCATOR_DEBUG
-    LM_GGML_ASSERT(lm_ggml_is_view(tensor) == false); // views generally get data pointer from one of their sources
+    LM_GGML_ASSERT(!lm_ggml_is_view(tensor)); // views generally get data pointer from one of their sources
     LM_GGML_ASSERT(tensor->data == NULL); // avoid allocating tensor which already has memory allocated
 #endif
     size_t size = lm_ggml_allocr_get_alloc_size(alloc, tensor);
@@ -165,14 +165,14 @@ void lm_ggml_allocr_alloc(struct lm_ggml_allocr * alloc, struct lm_ggml_tensor *
     if (best_fit_block == -1) {
         // the last block is our last resort
         struct free_block * block = &alloc->free_blocks[alloc->n_free_blocks - 1];
+        max_avail = MAX(max_avail, block->size);
         if (block->size >= size) {
             best_fit_block = alloc->n_free_blocks - 1;
-            max_avail = MAX(max_avail, block->size);
         } else {
             fprintf(stderr, "%s: not enough space in the buffer (needed %zu, largest block available %zu)\n",
                     __func__, size, max_avail);
             LM_GGML_ASSERT(!"not enough space in the buffer");
-        return;
+            return;
         }
     }
     struct free_block * block = &alloc->free_blocks[best_fit_block];
@@ -316,7 +316,11 @@ static void * alloc_vmem(size_t size) {
 #if defined(_WIN32)
     return VirtualAlloc(NULL, size, MEM_RESERVE, PAGE_NOACCESS);
 #elif defined(_POSIX_MAPPED_FILES)
-    return mmap(NULL, size, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    void * ptr = mmap(NULL, size, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (ptr == MAP_FAILED) {
+        return NULL;
+    }
+    return ptr;
 #else
     // use a fixed address for other platforms
     uintptr_t base_addr = (uintptr_t)-size - 0x100;

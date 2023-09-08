@@ -104,6 +104,9 @@ typedef void * thread_ret_t;
 #include <unistd.h>
 
 #endif
+#ifdef LM_GGML_USE_CPU_HBM
+#include <hbwmalloc.h>
+#endif
 
 // __FMA__ and __F16C__ are not defined in MSVC, however they are implied with AVX2/AVX512
 #if defined(_MSC_VER) && (defined(__AVX2__) || defined(__AVX512F__))
@@ -192,9 +195,15 @@ typedef void * thread_ret_t;
 #define LM_GGML_ALIGNED_FREE(ptr)    _aligned_free(ptr)
 #else
 inline static void * lm_ggml_aligned_malloc(size_t size) {
+    if (size == 0) {
+        LM_GGML_PRINT("WARNING: Behavior may be unexpected when allocating 0 bytes for lm_ggml_aligned_malloc!\n");
+        return NULL;
+    }
     void * aligned_memory = NULL;
-#ifdef LM_GGML_USE_METAL
-    int result = posix_memalign(&aligned_memory, getpagesize(), size);
+#ifdef LM_GGML_USE_CPU_HBM
+    int result = hbw_posix_memalign(&aligned_memory, 16, size);
+#elif LM_GGML_USE_METAL
+    int result = posix_memalign(&aligned_memory, sysconf(_SC_PAGESIZE), size);
 #else
     int result = posix_memalign(&aligned_memory, LM_GGML_MEM_ALIGN, size);
 #endif
@@ -215,7 +224,11 @@ inline static void * lm_ggml_aligned_malloc(size_t size) {
     return aligned_memory;
 }
 #define LM_GGML_ALIGNED_MALLOC(size) lm_ggml_aligned_malloc(size)
+#ifdef LM_GGML_USE_CPU_HBM
+#define LM_GGML_ALIGNED_FREE(ptr)    if(NULL != ptr) hbw_free(ptr)
+#else
 #define LM_GGML_ALIGNED_FREE(ptr)    free(ptr)
+#endif
 #endif
 
 #define UNUSED LM_GGML_UNUSED
@@ -4566,6 +4579,11 @@ struct lm_ggml_context * lm_ggml_init(struct lm_ggml_init_params params) {
         return NULL;
     }
 
+    // allow to call lm_ggml_init with 0 size
+    if (params.mem_size == 0) {
+        params.mem_size = LM_GGML_MEM_ALIGN;
+    }
+
     const size_t mem_size = params.mem_buffer ? params.mem_size : LM_GGML_PAD(params.mem_size, LM_GGML_MEM_ALIGN);
 
     *ctx = (struct lm_ggml_context) {
@@ -4768,7 +4786,7 @@ static struct lm_ggml_tensor * lm_ggml_new_tensor_impl(
 
     size_t obj_alloc_size = 0;
 
-    if (view_src == NULL && ctx->no_alloc == false) {
+    if (view_src == NULL && !ctx->no_alloc) {
         if (ctx->scratch.data != NULL) {
             // allocate tensor data in the scratch buffer
             if (ctx->scratch.offs + data_size > ctx->scratch.size) {
@@ -5469,7 +5487,7 @@ static struct lm_ggml_tensor * lm_ggml_mul_impl(
     }
 
     if (inplace) {
-        LM_GGML_ASSERT(is_node == false);
+        LM_GGML_ASSERT(!is_node);
     }
 
     struct lm_ggml_tensor * result = inplace ? lm_ggml_view_tensor(ctx, a) : lm_ggml_dup_tensor(ctx, a);
@@ -5512,7 +5530,7 @@ static struct lm_ggml_tensor * lm_ggml_div_impl(
     }
 
     if (inplace) {
-        LM_GGML_ASSERT(is_node == false);
+        LM_GGML_ASSERT(!is_node);
     }
 
     struct lm_ggml_tensor * result = inplace ? lm_ggml_view_tensor(ctx, a) : lm_ggml_dup_tensor(ctx, a);
@@ -19957,7 +19975,7 @@ struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_p
 
         struct lm_ggml_tensor * data = NULL;
 
-        if (params.no_alloc == false) {
+        if (!params.no_alloc) {
             data = lm_ggml_new_tensor_1d(ctx_data, LM_GGML_TYPE_I8, ctx->size);
 
             ok = ok && data != NULL;
@@ -19998,7 +20016,7 @@ struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_p
             }
 
             // point the data member to the appropriate location in the binary blob using the tensor infos
-            if (params.no_alloc == false) {
+            if (!params.no_alloc) {
               //cur->data = (char *) data->data + ctx->infos[i].offset - ctx->offset; // offset from start of file
                 cur->data = (char *) data->data + ctx->infos[i].offset;               // offset from data
             }

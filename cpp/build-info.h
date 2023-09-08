@@ -1,6 +1,6 @@
 #ifndef BUILD_INFO_H
 #define BUILD_INFO_H
 
-#define BUILD_NUMBER 1171
-#define BUILD_COMMIT "cf9b084"
+#define BUILD_NUMBER 1198
+#define BUILD_COMMIT "ebc9608"
 #endif // BUILD_INFO_H

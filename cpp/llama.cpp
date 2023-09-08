@@ -126,6 +126,9 @@ void replace_all(std::string & s, const std::string & search, const std::string 
     }
     s = std::move(result);
 }
+#ifdef LM_GGML_USE_CPU_HBM
+#include <hbwmalloc.h>
+#endif
 
 static void zeros(std::ofstream & file, size_t n) {
     char zero = 0;
@@ -450,6 +453,9 @@ static void lm_ggml_graph_compute_helper(std::vector<uint8_t> & buf, lm_ggml_cgr
 #elif LM_GGML_USE_METAL
 #   define llama_host_malloc(n)  lm_ggml_metal_host_malloc(n)
 #   define llama_host_free(data) lm_ggml_metal_host_free(data)
+#elif LM_GGML_USE_CPU_HBM
+#   define llama_host_malloc(n)  hbw_malloc(n)
+#   define llama_host_free(data) if (data != NULL) hbw_free(data)
 #else
 #   define llama_host_malloc(n)  malloc(n)
 #   define llama_host_free(data) free(data)
@@ -1489,7 +1495,11 @@ struct llama_model_loader {
             // allocate temp buffer if not using mmap
             if (!use_mmap && cur->data == NULL) {
                 LM_GGML_ASSERT(cur->backend != LM_GGML_BACKEND_CPU);
-                cur->data = malloc(lm_ggml_nbytes(cur));
+                #ifdef LM_GGML_USE_CPU_HBM
+                cur->data = (uint8_t*)hbw_malloc(lm_ggml_nbytes(cur));
+                #else
+                cur->data = (uint8_t*)malloc(lm_ggml_nbytes(cur));
+                #endif
             }
 
             load_data_for(cur);
@@ -2942,7 +2952,12 @@ static bool llama_eval_internal(
 
     // for big prompts, if BLAS is enabled, it is better to use only one thread
     // otherwise, the threads are spin-lock waiting for the BLAS calls and are degrading the performance
-    n_threads = N >= 32 && lm_ggml_cpu_has_blas() && !lm_ggml_cpu_has_gpublas() ? 1 : n_threads;
+    // TODO: this is mostly important for Apple Silicon where CBLAS is still performing very well
+    //       we still need some threads to process all non-mul_mat ops, but not too much to avoid interfering
+    //       with the BLAS calls. need a better solution
+    if (N >= 32 && lm_ggml_cpu_has_blas() && !lm_ggml_cpu_has_gpublas()) {
+        n_threads = std::min(4, n_threads);
+    }
 
     struct lm_ggml_tensor * res        = gf->nodes[gf->n_nodes - 1];
     struct lm_ggml_tensor * embeddings = gf->nodes[gf->n_nodes - 2];
@@ -3047,31 +3062,8 @@ static bool llama_is_control_token(const llama_vocab & vocab, llama_token id) {
     return vocab.id_to_token[id].type == LLAMA_TOKEN_TYPE_CONTROL;
 }
 
-static bool llama_is_user_defined_token(const llama_vocab & vocab, llama_token id) {
-    return vocab.id_to_token[id].type == LLAMA_TOKEN_TYPE_USER_DEFINED;
-}
-
-static bool llama_is_unused_token(const llama_vocab & vocab, llama_token id) {
-    return vocab.id_to_token[id].type == LLAMA_TOKEN_TYPE_UNUSED;
-}
-
 static bool llama_is_byte_token(const llama_vocab & vocab, llama_token id) {
     return vocab.id_to_token[id].type == LLAMA_TOKEN_TYPE_BYTE;
-}
-
-static bool llama_is_bos_token(const llama_vocab & vocab, llama_token id) {
-    LM_GGML_ASSERT(llama_is_control_token(vocab, id));
-    return id == vocab.special_bos_id;
-}
-
-static bool llama_is_eos_token(const llama_vocab & vocab, llama_token id ) {
-    LM_GGML_ASSERT(llama_is_control_token(vocab, id));
-    return id == vocab.special_eos_id;
-}
-
-static bool llama_is_pad_token(const llama_vocab & vocab, llama_token id ) {
-    LM_GGML_ASSERT(id < 0 || llama_is_control_token(vocab, id));
-    return id == vocab.special_pad_id;
 }
 
 static uint8_t llama_token_to_byte(const llama_vocab & vocab, llama_token id) {
@@ -3848,6 +3840,25 @@ struct llama_grammar * llama_grammar_init(
 
 void llama_grammar_free(struct llama_grammar * grammar) {
     delete grammar;
+}
+
+struct llama_grammar * llama_grammar_copy(const struct llama_grammar * grammar) {
+    llama_grammar * result = new llama_grammar{ grammar->rules, grammar->stacks, grammar->partial_utf8 };
+
+    // redirect elements in stacks to point to new rules
+    for (size_t is = 0; is < result->stacks.size(); is++) {
+        for (size_t ie = 0; ie < result->stacks[is].size(); ie++) {
+            for (size_t ir0 = 0; ir0 < grammar->rules.size(); ir0++) {
+                for (size_t ir1 = 0; ir1 < grammar->rules[ir0].size(); ir1++) {
+                    if (grammar->stacks[is][ie] == &grammar->rules[ir0][ir1]) {
+                         result->stacks[is][ie]  =  &result->rules[ir0][ir1];
+                    }
+                }
+            }
+        }
+    }
+
+    return result;
 }
 
 //
@@ -4776,9 +4787,11 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
     std::vector<std::thread> workers;
     std::mutex mutex;
 
+#ifdef LM_GGML_USE_K_QUANTS
     auto use_more_bits = [] (int i_layer, int num_layers) -> bool {
         return i_layer < num_layers/8 || i_layer >= 7*num_layers/8 || (i_layer - num_layers/8)%3 == 2;
     };
+#endif
 
     int idx = 0;
 
@@ -5340,7 +5353,7 @@ struct llama_context_params llama_context_default_params() {
         /*.seed                        =*/ LLAMA_DEFAULT_SEED,
         /*.n_ctx                       =*/ 512,
         /*.n_batch                     =*/ 512,
-        /*.gpu_layers                  =*/ 0,
+        /*.n_gpu_layers                =*/ 0,
         /*.main_gpu                    =*/ 0,
         /*.tensor_split                =*/ nullptr,
         /*.rope_freq_base              =*/ 10000.0f,
@@ -5356,6 +5369,10 @@ struct llama_context_params llama_context_default_params() {
         /*.use_mlock                   =*/ false,
         /*.embedding                   =*/ false,
     };
+
+#ifdef LM_GGML_USE_METAL
+    result.n_gpu_layers = 1;
+#endif
 
     return result;
 }
@@ -5549,43 +5566,43 @@ struct llama_context * llama_new_context_with_model(
             }
 #endif
         }
-    }
 
 #ifdef LM_GGML_USE_METAL
-    if (params.n_gpu_layers > 0) {
-        // this allocates all Metal resources and memory buffers
+        if (params.n_gpu_layers > 0) {
+            // this allocates all Metal resources and memory buffers
 
-        void * data_ptr  = NULL;
-        size_t data_size = 0;
+            void * data_ptr  = NULL;
+            size_t data_size = 0;
 
-        if (params.use_mmap) {
-            data_ptr  = ctx->model.mapping->addr;
-            data_size = ctx->model.mapping->size;
-        } else {
-            data_ptr  = lm_ggml_get_mem_buffer(ctx->model.ctx);
-            data_size = lm_ggml_get_mem_size  (ctx->model.ctx);
-        }
+            if (params.use_mmap) {
+                data_ptr  = ctx->model.mapping->addr;
+                data_size = ctx->model.mapping->size;
+            } else {
+                data_ptr  = lm_ggml_get_mem_buffer(ctx->model.ctx);
+                data_size = lm_ggml_get_mem_size  (ctx->model.ctx);
+            }
 
-        const size_t max_size = lm_ggml_get_max_tensor_size(ctx->model.ctx);
+            const size_t max_size = lm_ggml_get_max_tensor_size(ctx->model.ctx);
 
-        LLAMA_LOG_INFO("%s: max tensor size = %8.2f MB\n", __func__, max_size/1024.0/1024.0);
+            LLAMA_LOG_INFO("%s: max tensor size = %8.2f MB\n", __func__, max_size/1024.0/1024.0);
 
 #define LLAMA_METAL_CHECK_BUF(result)                            \
-    if (!(result)) {                                             \
-        LLAMA_LOG_ERROR("%s: failed to add buffer\n", __func__); \
-        llama_free(ctx);                                         \
-        return NULL;                                             \
-    }
+            if (!(result)) {                                             \
+                LLAMA_LOG_ERROR("%s: failed to add buffer\n", __func__); \
+                llama_free(ctx);                                         \
+                return NULL;                                             \
+            }
 
-        LLAMA_METAL_CHECK_BUF(lm_ggml_metal_add_buffer(ctx->ctx_metal, "data", data_ptr, data_size, max_size));
+            LLAMA_METAL_CHECK_BUF(lm_ggml_metal_add_buffer(ctx->ctx_metal, "data", data_ptr, data_size, max_size));
 
-        LLAMA_METAL_CHECK_BUF(lm_ggml_metal_add_buffer(ctx->ctx_metal, "eval", ctx->buf_compute.data, ctx->buf_compute.size, 0));
-        LLAMA_METAL_CHECK_BUF(lm_ggml_metal_add_buffer(ctx->ctx_metal, "kv",   ctx->kv_self.buf.data, ctx->kv_self.buf.size, 0));
+            LLAMA_METAL_CHECK_BUF(lm_ggml_metal_add_buffer(ctx->ctx_metal, "eval", ctx->buf_compute.data, ctx->buf_compute.size, 0));
+            LLAMA_METAL_CHECK_BUF(lm_ggml_metal_add_buffer(ctx->ctx_metal, "kv",   ctx->kv_self.buf.data, ctx->kv_self.buf.size, 0));
 
-        LLAMA_METAL_CHECK_BUF(lm_ggml_metal_add_buffer(ctx->ctx_metal, "alloc", ctx->buf_alloc.data, ctx->buf_alloc.size, 0));
+            LLAMA_METAL_CHECK_BUF(lm_ggml_metal_add_buffer(ctx->ctx_metal, "alloc", ctx->buf_alloc.data, ctx->buf_alloc.size, 0));
 #undef LLAMA_METAL_CHECK_BUF
-    }
+        }
 #endif
+    }
 
 #ifdef LM_GGML_USE_MPI
     ctx->ctx_mpi = lm_ggml_mpi_init();
@@ -5919,7 +5936,7 @@ size_t llama_set_state_data(struct llama_context * ctx, uint8_t * src) {
         rng_ss.str(std::string(&rng_buf[0], rng_size));
         rng_ss >> ctx->rng;
 
-        LM_GGML_ASSERT(rng_ss.fail() == false);
+        LM_GGML_ASSERT(!rng_ss.fail());
     }
 
     // set logits
