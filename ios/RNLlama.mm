@@ -9,7 +9,7 @@
 
 NSMutableDictionary *llamaContexts;
 double llamaContextLimit = 1;
-dispatch_queue_t llamaDQueue = dispatch_queue_create("com.rnllama", DISPATCH_QUEUE_SERIAL);
+dispatch_queue_t llamaDQueue;
 
 RCT_EXPORT_MODULE()
 
@@ -25,6 +25,10 @@ RCT_EXPORT_METHOD(initContext:(NSDictionary *)contextParams
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
+    if (llamaDQueue == nil) {
+      llamaDQueue = dispatch_queue_create("com.rnllama", DISPATCH_QUEUE_SERIAL);
+    }
+
     if (llamaContexts == nil) {
         llamaContexts = [[NSMutableDictionary alloc] init];
     }
@@ -199,7 +203,10 @@ RCT_EXPORT_METHOD(releaseAllContexts:(RCTPromiseResolveBlock)resolve
     [llamaContexts release];
     llamaContexts = nil;
 
-    dispatch_release(llamaDQueue);
+    if (llamaDQueue != nil) {
+        dispatch_release(llamaDQueue);
+        llamaDQueue = nil;
+    }
 
     [super invalidate];
 }
