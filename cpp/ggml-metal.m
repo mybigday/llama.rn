@@ -144,13 +144,13 @@ struct lm_ggml_metal_context * lm_ggml_metal_init(int n_cb) {
 
     ctx->d_queue = dispatch_queue_create("llama.cpp", DISPATCH_QUEUE_CONCURRENT);
 
-#ifdef LM_GGML_SWIFT
+#ifdef LM_GGML_POD
     // load the default.metallib file
     {
         NSError * error = nil;
 
         NSBundle * bundle = [NSBundle bundleForClass:[GGMLMetalClass class]];
-        NSString * llamaBundlePath = [bundle pathForResource:@"llama_llama" ofType:@"bundle"];
+        NSString * llamaBundlePath = [bundle pathForResource:@"MetalRNLlamaKernal" ofType:@"bundle"];
         NSBundle * llamaBundle = [NSBundle bundleWithPath:llamaBundlePath];
         NSString * libPath = [llamaBundle pathForResource:@"default" ofType:@"metallib"];
         NSURL * libURL = [NSURL fileURLWithPath:libPath];
