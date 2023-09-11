@@ -58,5 +58,4 @@ echo "Replacement completed successfully!"
 yarn example
 
 # Apply patch
-patch -p0 -d ./cpp < ./scripts/ggml-metal.m.patch
 patch -p0 -d ./cpp < ./scripts/llama.cpp.patch

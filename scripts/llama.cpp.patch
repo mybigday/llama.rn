@@ -1,7 +1,7 @@
---- llama-orig.cpp	2023-09-08 11:12:51
-+++ llama.cpp	2023-09-08 11:12:32
-@@ -612,16 +612,16 @@
- 
+--- llama.cpp.orig	2023-09-11 13:50:18
++++ llama.cpp	2023-09-11 13:50:19
+@@ -607,16 +607,16 @@
+
          if (prefetch > 0) {
              // Advise the kernel to preload the mapped memory
 -            if (posix_madvise(addr, std::min(file->size, prefetch), POSIX_MADV_WILLNEED)) {
