@@ -2,7 +2,7 @@ require "json"
 
 package = JSON.parse(File.read(File.join(__dir__, "package.json")))
 base_ld_flags = "-framework Accelerate -framework Foundation -framework Metal -framework MetalKit"
-base_compiler_flags = "-fno-objc-arc -DLM_GGML_USE_ACCELERATE -DLM_GGML_USE_K_QUANTS -Wno-shorten-64-to-32"
+base_compiler_flags = "-fno-objc-arc -DLM_GGML_POD -DLM_GGML_USE_ACCELERATE -DLM_GGML_USE_K_QUANTS -Wno-shorten-64-to-32"
 folly_compiler_flags = "-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -Wno-comma"
 
 if ENV["RNLLAMA_DISABLE_METAL"] != "1" then
@@ -21,11 +21,11 @@ Pod::Spec.new do |s|
   s.license      = package["license"]
   s.authors      = package["author"]
 
-  s.platforms    = { :ios => "11.0", :tvos => "11.0" }
+  s.platforms    = { :ios => "14.0", :tvos => "14.0" }
   s.source       = { :git => "https://github.com/mybigday/llama.rn.git", :tag => "#{s.version}" }
 
-  s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,m,mm}"
-  s.resources = "cpp/**/*.{metal}"
+  s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,m,mm,metal}"
+  s.resource_bundle = { 'MetalRNLlamaKernal' => ['cpp/CocoaPodsBundledResourcePlaceholder'] }
 
   s.dependency "React-Core"
 
@@ -33,8 +33,10 @@ Pod::Spec.new do |s|
   s.pod_target_xcconfig = {
     "OTHER_LDFLAGS" => base_ld_flags,
     "OTHER_CFLAGS" => base_optimizer_flags,
-    "OTHER_CPLUSPLUSFLAGS" => base_optimizer_flags
+    "OTHER_CPLUSPLUSFLAGS" => base_optimizer_flags,
+    'METAL_LIBRARY_OUTPUT_DIR' => '${TARGET_BUILD_DIR}/MetalRNLlamaKernal.bundle/'
   }
+  s.weak_frameworks = 'Metal'
 
   # Don't install the dependencies when we run `pod install` in the old architecture.
   if ENV['RCT_NEW_ARCH_ENABLED'] == '1' then
@@ -45,7 +47,8 @@ Pod::Spec.new do |s|
       "HEADER_SEARCH_PATHS" => "\"$(PODS_ROOT)/boost\"",
       "OTHER_LDFLAGS" => "-framework Accelerate",
       "OTHER_CFLAGS" => base_optimizer_flags,
-      "OTHER_CPLUSPLUSFLAGS" => new_arch_cpp_flags + " " + base_optimizer_flags
+      "OTHER_CPLUSPLUSFLAGS" => new_arch_cpp_flags + " " + base_optimizer_flags,
+      'METAL_LIBRARY_OUTPUT_DIR' => '${TARGET_BUILD_DIR}/MetalRNLlamaKernal.bundle/'
     }
     s.dependency "React-Codegen"
     s.dependency "RCT-Folly"
