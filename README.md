@@ -16,9 +16,20 @@ React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp).
 npm install llama.rn
 ```
 
-For iOS, please re-run `npx pod-install` again.
+#### iOS
 
-For Android, it's recommended to use `ndkVersion = "24.0.8215888"` (or above) in your root project build configuration for Apple Silicon Macs.
+Please re-run `npx pod-install` again.
+
+#### Android
+
+It's recommended to use `ndkVersion = "24.0.8215888"` (or above) in your root project build configuration for Apple Silicon Macs.
+
+Don't forget to add proguard rule if it's enabled in project (android/app/proguard-rules.pro):
+
+```proguard
+# llama.rn
+-keep class com.rnllama.** { *; }
+```
 
 ## Obtain the model
 
