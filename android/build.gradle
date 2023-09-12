@@ -38,6 +38,10 @@ def reactNativeArchitectures() {
 
 android {
   ndkVersion getExtOrDefault("ndkVersion")
+  def ndkVersionMajor = ndkVersion.split("\\.")[0].toInteger()
+  if (ndkVersionMajor < 24) {
+    ndkVersion = project.properties["RNLlama_ndkversion"]
+  }
   compileSdkVersion getExtOrIntegerDefault("compileSdkVersion")
 
   defaultConfig {

@@ -22,9 +22,7 @@ Please re-run `npx pod-install` again.
 
 #### Android
 
-It's recommended to use `ndkVersion = "24.0.8215888"` (or above) in your root project build configuration for Apple Silicon Macs.
-
-Don't forget to add proguard rule if it's enabled in project (android/app/proguard-rules.pro):
+Add proguard rule if it's enabled in project (android/app/proguard-rules.pro):
 
 ```proguard
 # llama.rn
