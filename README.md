@@ -129,7 +129,7 @@ This example used [react-native-document-picker](https://github.com/rnmods/react
 - iOS: You can move the model to iOS Simulator, or iCloud for real device.
 - Android: Selected file will be copied or downloaded to cache directory so it may be slow.
 
-## Grammar sampling
+## Grammar Sampling
 
 GBNF (GGML BNF) is a format for defining [formal grammars](https://en.wikipedia.org/wiki/Formal_grammar) to constrain model outputs in `llama.cpp`. For example, you can use it to force the model to generate valid JSON, or speak only in emojis.
 
@@ -159,7 +159,7 @@ const { text } = await context.completion({
 })
 console.log('Result:', text)
 // Example output:
-// {"function": "create_event","arguments" :{"date": "Aug 14th 2023", "time": "8pm", "title": "Birthday Party"}}
+// {"function": "create_event","arguments":{"date": "Aug 14th 2023", "time": "8pm", "title": "Birthday Party"}}
 ```
 
 <details>
@@ -242,6 +242,29 @@ console.log('Result:', text)
     },
   ],
 }
+```
+</details>
+
+<details>
+<summary>Converted GBNF looks like</summary>
+
+```bnf
+space ::= " "?
+0-function ::= "\"get_current_weather\""
+string ::=  "\"" (
+        [^"\\] |
+        "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
+      )* "\"" space
+0-arguments-unit ::= "\"celsius\"" | "\"fahrenheit\""
+0-arguments ::= "{" space "\"location\"" space ":" space string "," space "\"unit\"" space ":" space 0-arguments-unit "}" space
+0 ::= "{" space "\"function\"" space ":" space 0-function "," space "\"arguments\"" space ":" space 0-arguments "}" space
+1-function ::= "\"create_event\""
+1-arguments ::= "{" space "\"date\"" space ":" space string "," space "\"time\"" space ":" space string "," space "\"title\"" space ":" space string "}" space
+1 ::= "{" space "\"function\"" space ":" space 1-function "," space "\"arguments\"" space ":" space 1-arguments "}" space
+2-function ::= "\"image_search\""
+2-arguments ::= "{" space "\"query\"" space ":" space string "}" space
+2 ::= "{" space "\"function\"" space ":" space 2-function "," space "\"arguments\"" space ":" space 2-arguments "}" space
+root ::= 0 | 1 | 2
 ```
 </details>
 
