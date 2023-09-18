@@ -6,6 +6,7 @@ import type {
   NativeLlamaContext,
   NativeCompletionParams,
   NativeCompletionTokenProb,
+  NativeCompletionResult,
   NativeTokenizeResult,
   NativeEmbeddingResult,
 } from './NativeRNLlama'
@@ -58,7 +59,7 @@ export class LlamaContext {
   async completion(
     params: CompletionParams,
     callback?: (data: TokenData) => void,
-  ) {
+  ): Promise<NativeCompletionResult> {
     let tokenListener: any = callback && EventEmitter.addListener(
       EVENT_ON_TOKEN,
       (evt: TokenNativeEvent) => {
