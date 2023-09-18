@@ -131,6 +131,10 @@ static bool lm_ggml_allocr_is_own(struct lm_ggml_allocr * alloc, const struct lm
     return ptr >= alloc->data && (char *)ptr < (char *)alloc->data + alloc->max_size;
 }
 
+static bool lm_ggml_is_view(struct lm_ggml_tensor * t) {
+    return t->view_src != NULL;
+}
+
 void lm_ggml_allocr_alloc(struct lm_ggml_allocr * alloc, struct lm_ggml_tensor * tensor) {
 #ifdef LM_GGML_ALLOCATOR_DEBUG
     LM_GGML_ASSERT(!lm_ggml_is_view(tensor)); // views generally get data pointer from one of their sources
@@ -338,8 +342,8 @@ static void free_vmem(void * base_addr, size_t size) {
 
 // allocate uncommitted virtual memory to measure the size of the graph
 static void alloc_measure_vmem(void ** base_addr, size_t * size) {
-    // 1TB for 64-bit, 1GB for 32-bit
-    *size = sizeof(void *) == 4 ? 1ULL<<30 : 1ULL<<40;
+    // 128GB for 64-bit, 1GB for 32-bit
+    *size = sizeof(void *) == 4 ? 1ULL<<30 : 1ULL<<37;
     do {
         *base_addr = alloc_vmem(*size);
         if (*base_addr != NULL) {
@@ -398,10 +402,6 @@ bool lm_ggml_allocr_is_measure(struct lm_ggml_allocr * alloc) {
 }
 
 //////////// compute graph allocator
-
-static bool lm_ggml_is_view(struct lm_ggml_tensor * t) {
-    return t->view_src != NULL;
-}
 
 static bool lm_ggml_are_same_layout(const struct lm_ggml_tensor * a, const struct lm_ggml_tensor * b) {
     if (a->type != b->type) {
