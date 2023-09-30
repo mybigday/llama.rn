@@ -336,7 +336,7 @@ struct llama_rn_context
             {
                 n_eval = params.n_batch;
             }
-            if (llama_decode(ctx, llama_batch_get_one(&embd[n_past], n_eval, n_past, 0), params.n_threads))
+            if (llama_decode(ctx, llama_batch_get_one(&embd[n_past], n_eval, n_past, 0)))
             {
                 LOG_ERROR("failed to eval, n_eval: %d, n_past: %d, n_threads: %d, embd: %s",
                     n_eval,
@@ -359,7 +359,7 @@ struct llama_rn_context
 
         // out of user input, sample next token
         const float temp = params.temp;
-        const int32_t top_k = params.top_k <= 0 ? llama_n_vocab(ctx) : params.top_k;
+        const int32_t top_k = params.top_k <= 0 ? llama_n_vocab(llama_get_model(ctx)) : params.top_k;
         const float top_p = params.top_p;
         const float tfs_z = params.tfs_z;
         const float typical_p = params.typical_p;
@@ -375,7 +375,7 @@ struct llama_rn_context
 
         {
             auto *logits = llama_get_logits(ctx);
-            auto n_vocab = llama_n_vocab(ctx);
+            auto n_vocab = llama_n_vocab(llama_get_model(ctx));
 
             // Apply params.logit_bias map
             for (const auto &it : params.logit_bias)
@@ -577,7 +577,7 @@ struct llama_rn_context
 
     std::vector<float> getEmbedding()
     {
-        static const int n_embd = llama_n_embd(ctx);
+        static const int n_embd = llama_n_embd(llama_get_model(ctx));
         if (!params.embedding)
         {
             LOG_WARNING("embedding disabled, embedding: %s", params.embedding);
