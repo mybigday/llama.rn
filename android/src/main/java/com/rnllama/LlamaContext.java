@@ -56,6 +56,8 @@ public class LlamaContext {
       params.hasKey("memory_f16") ? params.getBoolean("memory_f16") : true,
       // String lora,
       params.hasKey("lora") ? params.getString("lora") : "",
+      // float lora_scaled,
+      params.hasKey("lora_scaled") ? (float) params.getDouble("lora_scaled") : 1.0f,
       // String lora_base,
       params.hasKey("lora_base") ? params.getString("lora_base") : "",
       // float rope_freq_base,
@@ -221,6 +223,7 @@ public class LlamaContext {
     boolean use_mmap,
     boolean memory_f16,
     String lora,
+    float lora_scaled,
     String lora_base,
     float rope_freq_base,
     float rope_freq_scale

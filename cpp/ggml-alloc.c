@@ -77,7 +77,7 @@ struct free_block {
     size_t size;
 };
 
-#define MAX_FREE_BLOCKS 128
+#define MAX_FREE_BLOCKS 256
 
 struct lm_ggml_allocr {
     void * data;
@@ -187,6 +187,7 @@ void lm_ggml_allocr_alloc(struct lm_ggml_allocr * alloc, struct lm_ggml_tensor *
     }
 
     tensor->data = addr;
+    AT_PRINTF("%s: allocated data at %p\n", __func__, tensor->data);
 
 #ifdef LM_GGML_ALLOCATOR_DEBUG
     add_allocated_tensor(alloc, tensor);
@@ -218,7 +219,8 @@ static void lm_ggml_allocr_free_tensor(struct lm_ggml_allocr * alloc, struct lm_
 
     size_t size = lm_ggml_allocr_get_alloc_size(alloc, tensor);
     size = aligned_offset(NULL, size, alloc->alignment);
-    AT_PRINTF("%s: freeing %s (%zu bytes) - n_free_blocks = %d\n", __func__, tensor->name, size, alloc->n_free_blocks);
+    AT_PRINTF("%s: freeing %s at %p (%zu bytes) - n_free_blocks = %d\n", __func__, tensor->name, ptr, size, alloc->n_free_blocks);
+    AT_PRINTF("%s: alloc->data = %p alloc->data+alloc->size = %p alloc->data+alloc->max_size = %p\n", __func__, alloc->data, (char*)alloc->data + alloc->size, (char*)alloc->data + alloc->max_size);
 
 #ifdef LM_GGML_ALLOCATOR_DEBUG
     remove_allocated_tensor(alloc, tensor);
@@ -630,4 +632,8 @@ static size_t lm_ggml_allocr_alloc_graph_tensors_n(
 
 size_t lm_ggml_allocr_alloc_graph(struct lm_ggml_allocr * alloc, struct lm_ggml_cgraph * graph) {
     return lm_ggml_allocr_alloc_graph_tensors_n(alloc, &graph, 1, NULL, NULL);
+}
+
+size_t lm_ggml_allocr_max_size(struct lm_ggml_allocr * alloc) {
+    return alloc->max_size;
 }

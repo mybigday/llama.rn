@@ -30,7 +30,7 @@ llama.rn
 
 #### Defined in
 
-[index.ts:40](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L40)
+[index.ts:40](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L40)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 #### Defined in
 
-[index.ts:38](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L38)
+[index.ts:38](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L38)
 
 ___
 
@@ -57,7 +57,7 @@ ___
 
 #### Defined in
 
-[index.ts:28](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L28)
+[index.ts:28](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L28)
 
 ## Functions
 
@@ -79,7 +79,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:134](https://github.com/mybigday/llama.rn/blob/50235c2/src/grammar.ts#L134)
+[grammar.ts:134](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/grammar.ts#L134)
 
 ___
 
@@ -99,7 +99,7 @@ ___
 
 #### Defined in
 
-[index.ts:113](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L113)
+[index.ts:113](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L113)
 
 ___
 
@@ -113,7 +113,7 @@ ___
 
 #### Defined in
 
-[index.ts:129](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L129)
+[index.ts:129](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L129)
 
 ___
 
@@ -133,4 +133,4 @@ ___
 
 #### Defined in
 
-[index.ts:109](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L109)
+[index.ts:109](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L109)

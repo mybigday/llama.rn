@@ -58,7 +58,9 @@
     if (params[@"memory_f16"]) defaultParams.memory_f16 = [params[@"memory_f16"] boolValue];
 
     if (params[@"lora"]) {
-        defaultParams.lora_adapter = [params[@"lora"] UTF8String];
+        float lora_scaled = 1.0f;
+        if (params[@"lora_scaled"]) lora_scaled = [params[@"lora_scaled"] floatValue];
+        defaultParams.lora_adapter.push_back({[params[@"lora"] UTF8String], lora_scaled});
         defaultParams.use_mmap = false;
     }
     if (params[@"lora_base"]) defaultParams.lora_base = [params[@"lora_base"] UTF8String];
@@ -176,7 +178,7 @@
     }
 
     if (params[@"logit_bias"] && [params[@"logit_bias"] isKindOfClass:[NSArray class]]) {
-        const int n_vocab = llama_n_vocab(llama->ctx);
+        const int n_vocab = llama_n_vocab(llama_get_model(llama->ctx));
         NSArray *logit_bias = params[@"logit_bias"];
         for (NSArray *el in logit_bias) {
             if ([el isKindOfClass:[NSArray class]] && [el count] == 2) {

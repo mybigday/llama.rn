@@ -37,7 +37,7 @@
 
 #### Defined in
 
-[index.ts:49](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L49)
+[index.ts:49](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L49)
 
 ## Properties
 
@@ -47,7 +47,7 @@
 
 #### Defined in
 
-[index.ts:45](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L45)
+[index.ts:45](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L45)
 
 ___
 
@@ -57,7 +57,7 @@ ___
 
 #### Defined in
 
-[index.ts:43](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L43)
+[index.ts:43](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L43)
 
 ___
 
@@ -67,7 +67,7 @@ ___
 
 #### Defined in
 
-[index.ts:47](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L47)
+[index.ts:47](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L47)
 
 ## Methods
 
@@ -88,7 +88,7 @@ ___
 
 #### Defined in
 
-[index.ts:59](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L59)
+[index.ts:59](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L59)
 
 ___
 
@@ -108,7 +108,7 @@ ___
 
 #### Defined in
 
-[index.ts:96](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L96)
+[index.ts:96](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L96)
 
 ___
 
@@ -128,7 +128,7 @@ ___
 
 #### Defined in
 
-[index.ts:100](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L100)
+[index.ts:100](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L100)
 
 ___
 
@@ -142,7 +142,7 @@ ___
 
 #### Defined in
 
-[index.ts:104](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L104)
+[index.ts:104](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L104)
 
 ___
 
@@ -156,7 +156,7 @@ ___
 
 #### Defined in
 
-[index.ts:88](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L88)
+[index.ts:88](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L88)
 
 ___
 
@@ -176,4 +176,4 @@ ___
 
 #### Defined in
 
-[index.ts:92](https://github.com/mybigday/llama.rn/blob/50235c2/src/index.ts#L92)
+[index.ts:92](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L92)

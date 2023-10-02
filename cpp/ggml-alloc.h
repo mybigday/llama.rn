@@ -19,6 +19,7 @@ LM_GGML_API bool   lm_ggml_allocr_is_measure(struct lm_ggml_allocr * alloc);
 LM_GGML_API void   lm_ggml_allocr_reset(struct lm_ggml_allocr * alloc);
 LM_GGML_API void   lm_ggml_allocr_alloc(struct lm_ggml_allocr * alloc, struct lm_ggml_tensor * tensor);
 LM_GGML_API size_t lm_ggml_allocr_alloc_graph(struct lm_ggml_allocr * alloc, struct lm_ggml_cgraph * graph);
+LM_GGML_API size_t lm_ggml_allocr_max_size(struct lm_ggml_allocr * alloc);
 
 
 #ifdef  __cplusplus
