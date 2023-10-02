@@ -131,6 +131,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jboolean use_mmap,
     jboolean memory_f16,
     jstring lora_str,
+    jfloat lora_scaled,
     jstring lora_base_str,
     jfloat rope_freq_base,
     jfloat rope_freq_scale
@@ -160,10 +161,14 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.memory_f16 = memory_f16;
 
     const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
-    defaultParams.lora_adapter.push_back({lora_chars, 1.0f});
+    if (lora_chars != nullptr) {
+        defaultParams.lora_adapter.push_back({lora_chars, lora_scaled});
 
-    const char *lora_base_chars = env->GetStringUTFChars(lora_base_str, nullptr);
-    defaultParams.lora_base = lora_base_chars;
+        const char *lora_base_chars = env->GetStringUTFChars(lora_base_str, nullptr);
+        defaultParams.lora_base = lora_base_chars;
+
+        defaultParams.use_mmap = false;
+    }
 
     defaultParams.rope_freq_base = rope_freq_base;
     defaultParams.rope_freq_scale = rope_freq_scale;

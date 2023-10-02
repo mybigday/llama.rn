@@ -58,7 +58,9 @@
     if (params[@"memory_f16"]) defaultParams.memory_f16 = [params[@"memory_f16"] boolValue];
 
     if (params[@"lora"]) {
-        defaultParams.lora_adapter.push_back({[params[@"lora"] UTF8String], 1.0f});
+        float lora_scaled = 1.0f;
+        if (params[@"lora_scaled"]) lora_scaled = [params[@"lora_scaled"] floatValue];
+        defaultParams.lora_adapter.push_back({[params[@"lora"] UTF8String], lora_scaled});
         defaultParams.use_mmap = false;
     }
     if (params[@"lora_base"]) defaultParams.lora_base = [params[@"lora_base"] UTF8String];
