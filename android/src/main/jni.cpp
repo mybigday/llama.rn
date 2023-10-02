@@ -161,12 +161,10 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.memory_f16 = memory_f16;
 
     const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
-    if (lora_chars != nullptr) {
+    const char *lora_base_chars = env->GetStringUTFChars(lora_base_str, nullptr);
+    if (!lora_chars) {
         defaultParams.lora_adapter.push_back({lora_chars, lora_scaled});
-
-        const char *lora_base_chars = env->GetStringUTFChars(lora_base_str, nullptr);
         defaultParams.lora_base = lora_base_chars;
-
         defaultParams.use_mmap = false;
     }
 

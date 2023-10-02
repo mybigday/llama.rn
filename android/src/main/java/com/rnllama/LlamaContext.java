@@ -57,7 +57,7 @@ public class LlamaContext {
       // String lora,
       params.hasKey("lora") ? params.getString("lora") : "",
       // float lora_scaled,
-      params.hasKey("lora_scaled") ? (float) params.getDouble("lora_scaled") : 1.0f
+      params.hasKey("lora_scaled") ? (float) params.getDouble("lora_scaled") : 1.0f,
       // String lora_base,
       params.hasKey("lora_base") ? params.getString("lora_base") : "",
       // float rope_freq_base,
