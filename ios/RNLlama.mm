@@ -56,6 +56,58 @@ RCT_EXPORT_METHOD(initContext:(NSDictionary *)contextParams
     });
 }
 
+RCT_EXPORT_METHOD(loadSession:(double)contextId
+                 withFilePath:(NSString *)filePath
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+    if ([context isPredicting]) {
+        reject(@"llama_error", @"Context is busy", nil);
+        return;
+    }
+    dispatch_async(llamaDQueue, ^{
+        @try {
+            @autoreleasepool {
+                int count = [context loadSession:filePath];
+                resolve(@(count));
+            }
+        } @catch (NSException *exception) {
+            reject(@"llama_cpp_error", exception.reason, nil);
+        }
+    });
+}
+
+RCT_EXPORT_METHOD(saveSession:(double)contextId
+                 withFilePath:(NSString *)filePath
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+    if ([context isPredicting]) {
+        reject(@"llama_error", @"Context is busy", nil);
+        return;
+    }
+    dispatch_async(llamaDQueue, ^{
+        @try {
+            @autoreleasepool {
+                int count = [context saveSession:filePath];
+                resolve(@(count));
+            }
+        } @catch (NSException *exception) {
+            reject(@"llama_cpp_error", exception.reason, nil);
+        }
+    });
+}
+
 - (NSArray *)supportedEvents {
   return@[
     @"@RNLlama_onToken",

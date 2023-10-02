@@ -110,6 +110,8 @@ export interface Spec extends TurboModule {
   setContextLimit(limit: number): Promise<void>;
   initContext(params: NativeContextParams): Promise<NativeLlamaContext>;
 
+  loadSession(contextId: number, filepath: string): Promise<number>;
+  saveSession(contextId: number, filepath: string): Promise<number>;
   completion(contextId: number, params: NativeCompletionParams): Promise<NativeCompletionResult>;
   stopCompletion(contextId: number): Promise<void>;
   tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>;
