@@ -95,8 +95,12 @@ public class LlamaContext {
     }
   }
 
-  public int loadSession(String path) {
-    return loadSession(this.context, path);
+  public WritableMap loadSession(String path) {
+    WritableMap result = loadSession(this.context, path);
+    if (result.hasKey("error")) {
+      throw new IllegalStateException(result.getString("error"));
+    }
+    return result;
   }
 
   public int saveSession(String path) {
@@ -236,7 +240,7 @@ public class LlamaContext {
     float rope_freq_base,
     float rope_freq_scale
   );
-  protected static native int loadSession(
+  protected static native WritableMap loadSession(
     long contextPtr,
     String path
   );

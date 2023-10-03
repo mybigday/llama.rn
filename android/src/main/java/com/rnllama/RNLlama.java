@@ -81,26 +81,26 @@ public class RNLlama implements LifecycleEventListener {
 
   public void loadSession(double id, final String path, Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Integer>() {
+    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
 
       @Override
-      protected Integer doInBackground(Void... voids) {
+      protected WritableMap doInBackground(Void... voids) {
         try {
           LlamaContext context = contexts.get(contextId);
           if (context == null) {
             throw new Exception("Context not found");
           }
-          Integer count = context.loadSession(path);
-          return count;
+          WritableMap result = context.loadSession(path);
+          return result;
         } catch (Exception e) {
           exception = e;
         }
-        return -1;
+        return null;
       }
 
       @Override
-      protected void onPostExecute(Integer result) {
+      protected void onPostExecute(WritableMap result) {
         if (exception != null) {
           promise.reject(exception);
           return;

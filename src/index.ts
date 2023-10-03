@@ -9,6 +9,7 @@ import type {
   NativeCompletionResult,
   NativeTokenizeResult,
   NativeEmbeddingResult,
+  NativeSessionLoadResult,
 } from './NativeRNLlama'
 import { SchemaGrammarConverter, convertJsonSchemaToGrammar } from './grammar'
 
@@ -59,7 +60,7 @@ export class LlamaContext {
   /**
    * Load cached prompt & completion state from a file.
    */
-  async loadSession(filepath: string): Promise<number> {
+  async loadSession(filepath: string): Promise<NativeSessionLoadResult> {
     return RNLlama.loadSession(this.id, filepath)
   }
 

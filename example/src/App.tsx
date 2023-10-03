@@ -184,7 +184,7 @@ export default function App() {
           await context.saveSession(`${dirs.DocumentDir}/llama-session.bin`)
           return
         case '/load-session':
-          await context.loadSession(`${dirs.DocumentDir}/llama-session.bin`)
+          console.log('Session loaded:', await context.loadSession(`${dirs.DocumentDir}/llama-session.bin`))
           return
       }
     }

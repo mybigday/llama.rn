@@ -73,8 +73,7 @@ RCT_EXPORT_METHOD(loadSession:(double)contextId
     dispatch_async(llamaDQueue, ^{
         @try {
             @autoreleasepool {
-                int count = [context loadSession:filePath];
-                resolve(@(count));
+                resolve([context loadSession:filePath]);
             }
         } @catch (NSException *exception) {
             reject(@"llama_cpp_error", exception.reason, nil);
