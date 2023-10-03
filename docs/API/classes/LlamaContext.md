@@ -19,7 +19,9 @@
 - [completion](LlamaContext.md#completion)
 - [detokenize](LlamaContext.md#detokenize)
 - [embedding](LlamaContext.md#embedding)
+- [loadSession](LlamaContext.md#loadsession)
 - [release](LlamaContext.md#release)
+- [saveSession](LlamaContext.md#savesession)
 - [stopCompletion](LlamaContext.md#stopcompletion)
 - [tokenize](LlamaContext.md#tokenize)
 
@@ -37,7 +39,7 @@
 
 #### Defined in
 
-[index.ts:49](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L49)
+[index.ts:49](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L49)
 
 ## Properties
 
@@ -47,7 +49,7 @@
 
 #### Defined in
 
-[index.ts:45](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L45)
+[index.ts:45](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L45)
 
 ___
 
@@ -57,7 +59,7 @@ ___
 
 #### Defined in
 
-[index.ts:43](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L43)
+[index.ts:43](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L43)
 
 ___
 
@@ -67,7 +69,7 @@ ___
 
 #### Defined in
 
-[index.ts:47](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L47)
+[index.ts:47](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L47)
 
 ## Methods
 
@@ -88,7 +90,7 @@ ___
 
 #### Defined in
 
-[index.ts:59](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L59)
+[index.ts:73](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L73)
 
 ___
 
@@ -108,7 +110,7 @@ ___
 
 #### Defined in
 
-[index.ts:96](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L96)
+[index.ts:110](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L110)
 
 ___
 
@@ -128,7 +130,29 @@ ___
 
 #### Defined in
 
-[index.ts:100](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L100)
+[index.ts:114](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L114)
+
+___
+
+### loadSession
+
+▸ **loadSession**(`filepath`): `Promise`<`number`\>
+
+Load cached prompt & completion state from a file.
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `filepath` | `string` |
+
+#### Returns
+
+`Promise`<`number`\>
+
+#### Defined in
+
+[index.ts:62](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L62)
 
 ___
 
@@ -142,7 +166,29 @@ ___
 
 #### Defined in
 
-[index.ts:104](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L104)
+[index.ts:118](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L118)
+
+___
+
+### saveSession
+
+▸ **saveSession**(`filepath`): `Promise`<`number`\>
+
+Save current cached prompt & completion state to a file.
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `filepath` | `string` |
+
+#### Returns
+
+`Promise`<`number`\>
+
+#### Defined in
+
+[index.ts:69](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L69)
 
 ___
 
@@ -156,7 +202,7 @@ ___
 
 #### Defined in
 
-[index.ts:88](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L88)
+[index.ts:102](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L102)
 
 ___
 
@@ -176,4 +222,4 @@ ___
 
 #### Defined in
 
-[index.ts:92](https://github.com/mybigday/llama.rn/blob/acfc7ab/src/index.ts#L92)
+[index.ts:106](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L106)

@@ -100,6 +100,8 @@ The binding’s deisgn inspired by [server.cpp](https://github.com/ggerganov/lla
 - `/detokenize`: `context.detokenize(tokens)`
 - `/embedding`: `context.embedding(content)`
 - Other methods
+  - `context.loadSession(path)`
+  - `context.saveSession(path)`
   - `context.stopCompletion()`
   - `context.release()`
 
