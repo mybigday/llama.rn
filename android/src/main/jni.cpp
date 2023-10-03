@@ -188,6 +188,51 @@ Java_com_rnllama_LlamaContext_initContext(
     return reinterpret_cast<jlong>(llama->ctx);
 }
 
+JNIEXPORT jint JNICALL
+Java_com_rnllama_LlamaContext_loadSession(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring path
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *path_chars = env->GetStringUTFChars(path, nullptr);
+
+    std::vector<llama_token> session_tokens;
+    size_t n_token_count_out = 0;
+    if (!llama_load_session_file(llama->ctx, path_chars, session_tokens.data(), session_tokens.capacity(), &n_token_count_out)) {
+      env->ReleaseStringUTFChars(path, path_chars);
+      return -1;
+    }
+
+    env->ReleaseStringUTFChars(path, path_chars);
+    return n_token_count_out;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_rnllama_LlamaContext_saveSession(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring path
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *path_chars = env->GetStringUTFChars(path, nullptr);
+
+    std::vector<llama_token> session_tokens = llama->embd;
+    if (!llama_save_session_file(llama->ctx, path_chars, session_tokens.data(), session_tokens.size())) {
+      env->ReleaseStringUTFChars(path, path_chars);
+      return -1;
+    }
+
+    env->ReleaseStringUTFChars(path, path_chars);
+    return session_tokens.size();
+}
+
 static inline jobject tokenProbsToMap(
   JNIEnv *env,
   rnllama::llama_rn_context *llama,

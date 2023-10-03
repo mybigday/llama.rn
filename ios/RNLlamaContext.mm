@@ -343,7 +343,6 @@
     if (!llama_load_session_file(llama->ctx, [path UTF8String], session_tokens.data(), session_tokens.capacity(), &n_token_count_out)) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to load session" userInfo:nil];
     }
-    session_tokens.resize(n_token_count_out);
     return n_token_count_out;
 }
 

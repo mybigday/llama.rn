@@ -79,6 +79,72 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "initContext");
   }
 
+  public void loadSession(double id, final String path, Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, Integer>() {
+      private Exception exception;
+
+      @Override
+      protected Integer doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          Integer count = context.loadSession(path);
+          return count;
+        } catch (Exception e) {
+          exception = e;
+        }
+        return -1;
+      }
+
+      @Override
+      protected void onPostExecute(Integer result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.execute();
+    tasks.put(task, "loadSession-" + contextId);
+  }
+
+  public void saveSession(double id, final String path, Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, Integer>() {
+      private Exception exception;
+
+      @Override
+      protected Integer doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          Integer count = context.saveSession(path);
+          return count;
+        } catch (Exception e) {
+          exception = e;
+        }
+        return -1;
+      }
+
+      @Override
+      protected void onPostExecute(Integer result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.execute();
+    tasks.put(task, "saveSession-" + contextId);
+  }
+
   public void completion(double id, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {

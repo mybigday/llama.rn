@@ -44,6 +44,16 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
+  public void loadSession(double id, String path, Promise promise) {
+    rnllama.loadSession(id, path, promise);
+  }
+
+  @ReactMethod
+  public void saveSession(double id, String path, Promise promise) {
+    rnllama.saveSession(id, path, promise);
+  }
+
+  @ReactMethod
   public void completion(double id, final ReadableMap params, final Promise promise) {
     rnllama.completion(id, params, promise);
   }
