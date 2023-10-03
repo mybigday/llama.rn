@@ -11,6 +11,8 @@ import ReactNativeBlobUtil from 'react-native-blob-util'
 import { initLlama, LlamaContext, convertJsonSchemaToGrammar } from 'llama.rn'
 import { Bubble } from './Bubble'
 
+const { dirs } = ReactNativeBlobUtil.fs
+
 const randId = () => Math.random().toString(36).substr(2, 9)
 
 const user = { id: 'y9d7f8pgn' }
@@ -177,6 +179,12 @@ export default function App() {
             type: 'text',
             metadata: { system: true },
           })
+          return
+        case '/save-session':
+          await context.saveSession(`${dirs.DocumentDir}/llama-session.bin`)
+          return
+        case '/load-session':
+          await context.loadSession(`${dirs.DocumentDir}/llama-session.bin`)
           return
       }
     }

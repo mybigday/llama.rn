@@ -56,6 +56,14 @@ export class LlamaContext {
     this.reasonNoGPU = reasonNoGPU
   }
 
+  async loadSession(filepath: string): Promise<number> {
+    return RNLlama.loadSession(this.id, filepath)
+  }
+
+  async saveSession(filepath: string): Promise<number> {
+    return RNLlama.saveSession(this.id, filepath)
+  }
+
   async completion(
     params: CompletionParams,
     callback?: (data: TokenData) => void,
