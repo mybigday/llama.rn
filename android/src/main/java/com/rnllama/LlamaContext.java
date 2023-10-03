@@ -61,9 +61,9 @@ public class LlamaContext {
       // String lora_base,
       params.hasKey("lora_base") ? params.getString("lora_base") : "",
       // float rope_freq_base,
-      params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 10000.0f,
+      params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 0.0f,
       // float rope_freq_scale
-      params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 1.0f
+      params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 0.0f
     );
     this.reactContext = reactContext;
     eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
