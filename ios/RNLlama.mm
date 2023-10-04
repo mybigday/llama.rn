@@ -70,7 +70,7 @@ RCT_EXPORT_METHOD(loadSession:(double)contextId
         reject(@"llama_error", @"Context is busy", nil);
         return;
     }
-    dispatch_async(llamaDQueue, ^{
+    dispatch_async(dispatch_get_main_queue(), ^{ // TODO: Fix for use in llamaDQueue
         @try {
             @autoreleasepool {
                 resolve([context loadSession:filePath]);
@@ -95,7 +95,7 @@ RCT_EXPORT_METHOD(saveSession:(double)contextId
         reject(@"llama_error", @"Context is busy", nil);
         return;
     }
-    dispatch_async(llamaDQueue, ^{
+    dispatch_async(dispatch_get_main_queue(), ^{ // TODO: Fix for use in llamaDQue
         @try {
             @autoreleasepool {
                 int count = [context saveSession:filePath];
