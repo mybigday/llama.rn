@@ -337,6 +337,28 @@
     return embeddingResult;
 }
 
+- (NSDictionary *)loadSession:(NSString *)path {
+    size_t n_token_count_out = 0;
+    llama->embd.resize(llama->params.n_ctx);
+    if (!llama_load_session_file(llama->ctx, [path UTF8String], llama->embd.data(), llama->embd.capacity(), &n_token_count_out)) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to load session" userInfo:nil];
+    }
+    llama->embd.resize(n_token_count_out);
+    const std::string text = rnllama::tokens_to_str(llama->ctx, llama->embd.cbegin(), llama->embd.cend());
+    return @{
+        @"tokens_loaded": @(n_token_count_out),
+        @"prompt": [NSString stringWithUTF8String:text.c_str()]
+    };
+}
+
+- (int)saveSession:(NSString *)path {
+    std::vector<llama_token> session_tokens = llama->embd;
+    if (!llama_save_session_file(llama->ctx, [path UTF8String], session_tokens.data(), session_tokens.size())) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to save session" userInfo:nil];
+    }
+    return session_tokens.size();
+}
+
 - (void)invalidate {
     if (llama->grammar != nullptr) {
         llama_grammar_free(llama->grammar);

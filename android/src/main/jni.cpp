@@ -188,6 +188,57 @@ Java_com_rnllama_LlamaContext_initContext(
     return reinterpret_cast<jlong>(llama->ctx);
 }
 
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_loadSession(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring path
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    const char *path_chars = env->GetStringUTFChars(path, nullptr);
+
+    auto result = createWriteableMap(env);
+    size_t n_token_count_out = 0;
+    llama->embd.resize(llama->params.n_ctx);
+    if (!llama_load_session_file(llama->ctx, path_chars, llama->embd.data(), llama->embd.capacity(), &n_token_count_out)) {
+      env->ReleaseStringUTFChars(path, path_chars);
+
+      putString(env, result, "error", "Failed to load session");
+      return reinterpret_cast<jobject>(result);
+    }
+    llama->embd.resize(n_token_count_out);
+    env->ReleaseStringUTFChars(path, path_chars);
+
+    const std::string text = rnllama::tokens_to_str(llama->ctx, llama->embd.cbegin(), llama->embd.cend());
+    putInt(env, result, "tokens_loaded", n_token_count_out);
+    putString(env, result, "prompt", text.c_str());
+    return reinterpret_cast<jobject>(result);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_rnllama_LlamaContext_saveSession(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring path
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *path_chars = env->GetStringUTFChars(path, nullptr);
+
+    std::vector<llama_token> session_tokens = llama->embd;
+    if (!llama_save_session_file(llama->ctx, path_chars, session_tokens.data(), session_tokens.size())) {
+      env->ReleaseStringUTFChars(path, path_chars);
+      return -1;
+    }
+
+    env->ReleaseStringUTFChars(path, path_chars);
+    return session_tokens.size();
+}
+
 static inline jobject tokenProbsToMap(
   JNIEnv *env,
   rnllama::llama_rn_context *llama,

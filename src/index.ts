@@ -9,6 +9,7 @@ import type {
   NativeCompletionResult,
   NativeTokenizeResult,
   NativeEmbeddingResult,
+  NativeSessionLoadResult,
 } from './NativeRNLlama'
 import { SchemaGrammarConverter, convertJsonSchemaToGrammar } from './grammar'
 
@@ -54,6 +55,20 @@ export class LlamaContext {
     this.id = contextId
     this.gpu = gpu
     this.reasonNoGPU = reasonNoGPU
+  }
+
+  /**
+   * Load cached prompt & completion state from a file.
+   */
+  async loadSession(filepath: string): Promise<NativeSessionLoadResult> {
+    return RNLlama.loadSession(this.id, filepath)
+  }
+
+  /**
+   * Save current cached prompt & completion state to a file.
+   */
+  async saveSession(filepath: string): Promise<number> {
+    return RNLlama.saveSession(this.id, filepath)
   }
 
   async completion(

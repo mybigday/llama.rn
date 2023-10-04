@@ -95,6 +95,18 @@ public class LlamaContext {
     }
   }
 
+  public WritableMap loadSession(String path) {
+    WritableMap result = loadSession(this.context, path);
+    if (result.hasKey("error")) {
+      throw new IllegalStateException(result.getString("error"));
+    }
+    return result;
+  }
+
+  public int saveSession(String path) {
+    return saveSession(this.context, path);
+  }
+
   public WritableMap completion(ReadableMap params) {
     if (!params.hasKey("prompt")) {
       throw new IllegalArgumentException("Missing required parameter: prompt");
@@ -227,6 +239,14 @@ public class LlamaContext {
     String lora_base,
     float rope_freq_base,
     float rope_freq_scale
+  );
+  protected static native WritableMap loadSession(
+    long contextPtr,
+    String path
+  );
+  protected static native int saveSession(
+    long contextPtr,
+    String path
   );
   protected static native WritableMap doCompletion(
     long context_ptr,

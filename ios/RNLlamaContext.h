@@ -22,6 +22,8 @@
 - (NSArray *)tokenize:(NSString *)text;
 - (NSString *)detokenize:(NSArray *)tokens;
 - (NSArray *)embedding:(NSString *)text;
+- (NSDictionary *)loadSession:(NSString *)path;
+- (int)saveSession:(NSString *)path;
 
 - (void)invalidate;
 

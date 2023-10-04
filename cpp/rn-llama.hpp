@@ -272,7 +272,7 @@ struct llama_rn_context
         n_past = common_part(embd, prompt_tokens);
 
         // since #3228 we now have to manually manage the KV cache
-        llama_kv_cache_seq_rm(ctx, 0, n_past, params.n_ctx);
+        llama_kv_cache_seq_rm(ctx, 0, n_past, -1);
 
         embd = prompt_tokens;
         if (n_past == num_prompt_tokens)
