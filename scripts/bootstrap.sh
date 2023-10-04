@@ -19,6 +19,7 @@ cp ./llama.cpp/llama.h ./cpp/llama.h
 cp ./llama.cpp/llama.cpp ./cpp/llama.cpp
 cp ./llama.cpp/k_quants.h ./cpp/k_quants.h
 cp ./llama.cpp/k_quants.c ./cpp/k_quants.c
+cp ./llama.cpp/unicode.h ./cpp/unicode.h
 cp ./llama.cpp/common/log.h ./cpp/log.h
 cp ./llama.cpp/common/common.h ./cpp/common.h
 cp ./llama.cpp/common/common.cpp ./cpp/common.cpp
