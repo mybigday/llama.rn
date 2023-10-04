@@ -201,12 +201,14 @@ Java_com_rnllama_LlamaContext_loadSession(
 
     auto result = createWriteableMap(env);
     size_t n_token_count_out = 0;
+    llama->embd.resize(llama->params.n_ctx);
     if (!llama_load_session_file(llama->ctx, path_chars, llama->embd.data(), llama->embd.capacity(), &n_token_count_out)) {
       env->ReleaseStringUTFChars(path, path_chars);
 
       putString(env, result, "error", "Failed to load session");
       return reinterpret_cast<jobject>(result);
     }
+    llama->embd.resize(n_token_count_out);
     env->ReleaseStringUTFChars(path, path_chars);
 
     const std::string text = rnllama::tokens_to_str(llama->ctx, llama->embd.cbegin(), llama->embd.cend());

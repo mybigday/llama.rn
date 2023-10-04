@@ -339,6 +339,7 @@
 
 - (NSDictionary *)loadSession:(NSString *)path {
     size_t n_token_count_out = 0;
+    llama->embd.resize(llama->params.n_ctx);
     if (!llama_load_session_file(llama->ctx, [path UTF8String], llama->embd.data(), llama->embd.capacity(), &n_token_count_out)) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to load session" userInfo:nil];
     }
