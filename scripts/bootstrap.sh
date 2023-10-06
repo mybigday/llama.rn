@@ -60,3 +60,4 @@ yarn example
 
 # Apply patch
 patch -p0 -d ./cpp < ./scripts/llama.cpp.patch
+patch -p0 -d ./cpp < ./scripts/common.cpp.patch
