@@ -401,9 +401,13 @@ extern "C" {
         LM_GGML_OP_CLAMP,
         LM_GGML_OP_CONV_1D,
         LM_GGML_OP_CONV_2D,
+        LM_GGML_OP_CONV_TRANSPOSE_1D,
         LM_GGML_OP_CONV_TRANSPOSE_2D,
         LM_GGML_OP_POOL_1D,
         LM_GGML_OP_POOL_2D,
+
+        LM_GGML_OP_CONV_1D_STAGE_0,  // internal
+        LM_GGML_OP_CONV_1D_STAGE_1,  // internal
 
         LM_GGML_OP_UPSCALE, // nearest interpolate
 
@@ -1386,6 +1390,14 @@ extern "C" {
             int                   s,
             int                   d);
 
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_transpose_1d(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b,
+            int                   s0,
+            int                   p0,
+            int                   d0);
+
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_2d(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
@@ -1759,6 +1771,7 @@ extern "C" {
         LM_GGML_OPT_NO_CONTEXT,
         LM_GGML_OPT_INVALID_WOLFE,
         LM_GGML_OPT_FAIL,
+        LM_GGML_OPT_CANCEL,
 
         LM_GGML_LINESEARCH_FAIL = -128,
         LM_GGML_LINESEARCH_MINIMUM_STEP,

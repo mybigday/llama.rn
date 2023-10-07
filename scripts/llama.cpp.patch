@@ -1,6 +1,6 @@
---- llama.cpp.orig	2023-10-04 08:41:11
-+++ llama.cpp	2023-10-04 08:41:12
-@@ -649,16 +649,16 @@
+--- llama.cpp.orig	2023-10-07 10:01:30
++++ llama.cpp	2023-10-07 10:01:32
+@@ -689,16 +689,16 @@
 
          if (prefetch > 0) {
              // Advise the kernel to preload the mapped memory
