@@ -167,6 +167,8 @@ bool gpt_params_parse(int argc, char ** argv, gpt_params & params) {
                 invalid_param = true;
                 break;
             }
+            // store the external file name in params
+            params.prompt_file = argv[i];
             std::copy(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>(), back_inserter(params.prompt));
             if (params.prompt.back() == '\n') {
                 params.prompt.pop_back();
@@ -361,7 +363,7 @@ bool gpt_params_parse(int argc, char ** argv, gpt_params & params) {
                 invalid_param = true;
                 break;
             }
-            params.lora_adapter.push_back({argv[i], 1.0f});
+            params.lora_adapter.push_back(std::make_tuple(argv[i], 1.0f));
             params.use_mmap = false;
         } else if (arg == "--lora-scaled") {
             if (++i >= argc) {
@@ -373,7 +375,7 @@ bool gpt_params_parse(int argc, char ** argv, gpt_params & params) {
                 invalid_param = true;
                 break;
             }
-            params.lora_adapter.push_back({lora_adapter, std::stof(argv[i])});
+            params.lora_adapter.push_back(std::make_tuple(lora_adapter, std::stof(argv[i])));
             params.use_mmap = false;
         } else if (arg == "--lora-base") {
             if (++i >= argc) {
@@ -616,6 +618,9 @@ bool gpt_params_parse(int argc, char ** argv, gpt_params & params) {
         process_escapes(params.prompt);
         process_escapes(params.input_prefix);
         process_escapes(params.input_suffix);
+        for (auto & antiprompt : params.antiprompt) {
+            process_escapes(antiprompt);
+        }
     }
 
     return true;
