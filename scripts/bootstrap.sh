@@ -15,6 +15,8 @@ cp ./llama.cpp/ggml-metal.m ./cpp/ggml-metal.m
 cp ./llama.cpp/ggml-metal.metal ./cpp/ggml-metal.metal
 cp ./llama.cpp/ggml-alloc.h ./cpp/ggml-alloc.h
 cp ./llama.cpp/ggml-alloc.c ./cpp/ggml-alloc.c
+cp ./llama.cpp/ggml-backend.h ./cpp/ggml-backend.h
+cp ./llama.cpp/ggml-backend.c ./cpp/ggml-backend.c
 cp ./llama.cpp/llama.h ./cpp/llama.h
 cp ./llama.cpp/llama.cpp ./cpp/llama.cpp
 cp ./llama.cpp/k_quants.h ./cpp/k_quants.h
@@ -39,6 +41,8 @@ files=(
   "./cpp/k_quants.c"
   "./cpp/ggml-alloc.h"
   "./cpp/ggml-alloc.c"
+  "./cpp/ggml-backend.h"
+  "./cpp/ggml-backend.c"
 )
 
 # Loop through each file and run the sed commands

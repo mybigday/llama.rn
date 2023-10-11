@@ -20,6 +20,7 @@
 #pragma once
 
 #include "ggml.h"
+#include "ggml-backend.h"
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -35,9 +36,14 @@ struct lm_ggml_cgraph;
 extern "C" {
 #endif
 
-void lm_ggml_metal_log_set_callback(lm_ggml_log_callback log_callback, void * user_data);
+//
+// internal API
+// temporary exposed to user-code
+//
 
 struct lm_ggml_metal_context;
+
+void lm_ggml_metal_log_set_callback(lm_ggml_log_callback log_callback, void * user_data);
 
 // number of command buffers to use
 struct lm_ggml_metal_context * lm_ggml_metal_init(int n_cb);
@@ -82,6 +88,17 @@ int * lm_ggml_metal_get_concur_list(struct lm_ggml_metal_context * ctx);
 // same as lm_ggml_graph_compute but uses Metal
 // creates gf->n_threads command buffers in parallel
 void lm_ggml_metal_graph_compute(struct lm_ggml_metal_context * ctx, struct lm_ggml_cgraph * gf);
+
+//
+// backend API
+// user-code should use only these functions
+//
+
+LM_GGML_API lm_ggml_backend_t lm_ggml_backend_metal_init(void);
+
+LM_GGML_API bool lm_ggml_backend_is_metal(lm_ggml_backend_t backend);
+
+LM_GGML_API void lm_ggml_backend_metal_set_n_cb(lm_ggml_backend_t backend, int n_cb);
 
 #ifdef __cplusplus
 }

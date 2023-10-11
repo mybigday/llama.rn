@@ -8,6 +8,7 @@ set(RNLLAMA_LIB_DIR ${CMAKE_SOURCE_DIR}/../../../cpp)
 set(
     SOURCE_FILES
     ${RNLLAMA_LIB_DIR}/ggml-alloc.c
+    ${RNLLAMA_LIB_DIR}/ggml-backend.c
     ${RNLLAMA_LIB_DIR}/ggml.c
     ${RNLLAMA_LIB_DIR}/k_quants.c
     ${RNLLAMA_LIB_DIR}/common.cpp

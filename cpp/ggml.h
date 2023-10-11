@@ -326,7 +326,7 @@ extern "C" {
         LM_GGML_TYPE_COUNT,
     };
 
-    enum lm_ggml_backend {
+    enum lm_ggml_backend_type {
         LM_GGML_BACKEND_CPU = 0,
         LM_GGML_BACKEND_GPU = 10,
         LM_GGML_BACKEND_GPU_SPLIT = 20,
@@ -479,8 +479,10 @@ extern "C" {
 
     // n-dimensional tensor
     struct lm_ggml_tensor {
-        enum lm_ggml_type    type;
-        enum lm_ggml_backend backend;
+        enum lm_ggml_type         type;
+        enum lm_ggml_backend_type backend;
+
+        struct lm_ggml_backend_buffer * buffer;
 
         int     n_dims;
         int64_t ne[LM_GGML_MAX_DIMS]; // number of elements
@@ -514,7 +516,7 @@ extern "C" {
 
         void * extra; // extra things e.g. for ggml-cuda.cu
 
-        char padding[4];
+        char padding[12];
     };
 
     static const size_t LM_GGML_TENSOR_SIZE = sizeof(struct lm_ggml_tensor);
@@ -1358,7 +1360,7 @@ extern "C" {
 
     // alibi position embedding
     // in-place, returns view(a)
-    struct lm_ggml_tensor * lm_ggml_alibi(
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_alibi(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             int                   n_past,
@@ -1367,7 +1369,7 @@ extern "C" {
 
     // clamp
     // in-place, returns view(a)
-    struct lm_ggml_tensor * lm_ggml_clamp(
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_clamp(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             float                 min,
@@ -2102,7 +2104,7 @@ extern "C" {
         enum lm_ggml_type    vec_dot_type;
     } lm_ggml_type_traits_t;
 
-    lm_ggml_type_traits_t lm_ggml_internal_get_type_traits(enum lm_ggml_type type);
+    LM_GGML_API lm_ggml_type_traits_t lm_ggml_internal_get_type_traits(enum lm_ggml_type type);
 
 #ifdef  __cplusplus
 }
