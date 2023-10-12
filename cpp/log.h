@@ -313,6 +313,19 @@ enum LogTriState
     #define LOG_TEELN(str, ...) LOG_TEE_IMPL("%s" str, "", __VA_ARGS__, "\n")
 #endif
 
+#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
+#include <android/log.h>
+#define LLAMA_ANDROID_LOG_TAG "RNLLAMA_LOG_ANDROID"
+#undef LOG
+#undef LOG_TEE
+#undef LOGLN
+#undef LOG_TEELN
+#define LOG(...) __android_log_print(ANDROID_LOG_INFO, LLAMA_ANDROID_LOG_TAG, __VA_ARGS__)
+#define LOG_TEE(...) __android_log_print(ANDROID_LOG_INFO, LLAMA_ANDROID_LOG_TAG, __VA_ARGS__)
+#define LOGLN(...) __android_log_print(ANDROID_LOG_INFO, LLAMA_ANDROID_LOG_TAG, __VA_ARGS__)
+#define LOG_TEELN(...) __android_log_print(ANDROID_LOG_INFO, LLAMA_ANDROID_LOG_TAG, __VA_ARGS__)
+#endif
+
 // INTERNAL, DO NOT USE
 inline FILE *log_handler1_impl(bool change = false, LogTriState disable = LogTriStateSame, const std::string & filename = LOG_DEFAULT_FILE_NAME, FILE *target = nullptr)
 {

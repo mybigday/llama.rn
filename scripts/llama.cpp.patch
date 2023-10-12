@@ -1,7 +1,25 @@
---- llama.cpp.orig	2023-10-11 11:00:04
-+++ llama.cpp	2023-10-11 11:00:05
-@@ -736,16 +736,16 @@
- 
+--- llama.cpp.orig	2023-10-12 09:34:44
++++ llama.cpp	2023-10-12 09:36:38
+@@ -102,6 +102,17 @@
+ #define LLAMA_LOG_WARN(...)  llama_log_internal(LM_GGML_LOG_LEVEL_WARN , __VA_ARGS__)
+ #define LLAMA_LOG_ERROR(...) llama_log_internal(LM_GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
+
++#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
++#include <android/log.h>
++#define LLAMA_ANDROID_TAG "RNLLAMA_LOG_ANDROID"
++#undef LLAMA_LOG_INFO
++#undef LLAMA_LOG_WARN
++#undef LLAMA_LOG_ERROR
++#define LLAMA_LOG_INFO(...)  __android_log_print(ANDROID_LOG_INFO , LLAMA_ANDROID_TAG, __VA_ARGS__)
++#define LLAMA_LOG_WARN(...)  __android_log_print(ANDROID_LOG_WARN , LLAMA_ANDROID_TAG, __VA_ARGS__)
++#define LLAMA_LOG_ERROR(...) __android_log_print(ANDROID_LOG_ERROR, LLAMA_ANDROID_TAG, __VA_ARGS__)
++#endif // __ANDROID__
++
+ //
+ // helpers
+ //
+@@ -736,16 +747,16 @@
+
          if (prefetch > 0) {
              // Advise the kernel to preload the mapped memory
 -            if (posix_madvise(addr, std::min(file->size, prefetch), POSIX_MADV_WILLNEED)) {

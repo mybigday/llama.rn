@@ -102,6 +102,17 @@ static void llama_log_callback_default(lm_ggml_log_level level, const char * tex
 #define LLAMA_LOG_WARN(...)  llama_log_internal(LM_GGML_LOG_LEVEL_WARN , __VA_ARGS__)
 #define LLAMA_LOG_ERROR(...) llama_log_internal(LM_GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
 
+#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
+#include <android/log.h>
+#define LLAMA_ANDROID_TAG "RNLLAMA_LOG_ANDROID"
+#undef LLAMA_LOG_INFO
+#undef LLAMA_LOG_WARN
+#undef LLAMA_LOG_ERROR
+#define LLAMA_LOG_INFO(...)  __android_log_print(ANDROID_LOG_INFO , LLAMA_ANDROID_TAG, __VA_ARGS__)
+#define LLAMA_LOG_WARN(...)  __android_log_print(ANDROID_LOG_WARN , LLAMA_ANDROID_TAG, __VA_ARGS__)
+#define LLAMA_LOG_ERROR(...) __android_log_print(ANDROID_LOG_ERROR, LLAMA_ANDROID_TAG, __VA_ARGS__)
+#endif // __ANDROID__
+
 //
 // helpers
 //
