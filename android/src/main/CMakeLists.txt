@@ -33,7 +33,7 @@ include_directories(${RNLLAMA_LIB_DIR})
 
 target_compile_options(${RNLLAMA_LIBRARY_NAME} PRIVATE -DLM_GGML_USE_K_QUANTS -pthread)
 
-if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
     target_compile_options(${RNLLAMA_LIBRARY_NAME} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
 endif ()
 
