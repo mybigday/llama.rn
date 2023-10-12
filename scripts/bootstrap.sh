@@ -63,4 +63,5 @@ echo "Replacement completed successfully!"
 yarn example
 
 # Apply patch
+patch -p0 -d ./cpp < ./scripts/log.h.patch
 patch -p0 -d ./cpp < ./scripts/llama.cpp.patch
