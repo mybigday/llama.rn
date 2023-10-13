@@ -299,7 +299,6 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     llama->params.prompt = env->GetStringUTFChars(prompt, nullptr);
     llama->params.grammar = env->GetStringUTFChars(grammar, nullptr);
-    llama->params.temp = temperature;
 
     int max_threads = std::thread::hardware_concurrency();
     // Use 2 threads by default on 4-core devices, 4 threads on more cores
@@ -307,32 +306,26 @@ Java_com_rnllama_LlamaContext_doCompletion(
     llama->params.n_threads = n_threads > 0 ? n_threads : default_n_threads;
 
     llama->params.n_predict = n_predict;
-    llama->params.n_probs = n_probs;
-    llama->params.repeat_last_n = repeat_last_n;
-    llama->params.repeat_penalty = repeat_penalty;
-    llama->params.presence_penalty = presence_penalty;
-    llama->params.frequency_penalty = frequency_penalty;
-    llama->params.mirostat = mirostat;
-    llama->params.mirostat_tau = mirostat_tau;
-    llama->params.mirostat_eta = mirostat_eta;
-    llama->params.top_k = top_k;
-    llama->params.top_p = top_p;
-    llama->params.tfs_z = tfs_z;
-    llama->params.typical_p = typical_p;
     llama->params.ignore_eos = ignore_eos;
 
-    llama->params.antiprompt.clear();
-    int stop_len = env->GetArrayLength(stop);
-    for (int i = 0; i < stop_len; i++) {
-        jstring stop_str = (jstring) env->GetObjectArrayElement(stop, i);
-        const char *stop_chars = env->GetStringUTFChars(stop_str, nullptr);
-        llama->params.antiprompt.push_back(stop_chars);
-        env->ReleaseStringUTFChars(stop_str, stop_chars);
-    }
+    auto & sparams = llama->params.sampling_params;
+    sparams.temp = temperature;
+    sparams.repeat_last_n = repeat_last_n;
+    sparams.repeat_penalty = repeat_penalty;
+    sparams.presence_penalty = presence_penalty;
+    sparams.frequency_penalty = frequency_penalty;
+    sparams.mirostat = mirostat;
+    sparams.mirostat_tau = mirostat_tau;
+    sparams.mirostat_eta = mirostat_eta;
+    sparams.top_k = top_k;
+    sparams.top_p = top_p;
+    sparams.tfs_z = tfs_z;
+    sparams.typical_p = typical_p;
+    sparams.n_probs = n_probs;
 
-    llama->params.logit_bias.clear();
+    sparams.logit_bias.clear();
     if (ignore_eos) {
-        llama->params.logit_bias[llama_token_eos(llama->ctx)] = -INFINITY;
+        sparams.logit_bias[llama_token_eos(llama->ctx)] = -INFINITY;
     }
 
     const int n_vocab = llama_n_vocab(llama_get_model(llama->ctx));
@@ -346,15 +339,24 @@ Java_com_rnllama_LlamaContext_doCompletion(
             llama_token tok = static_cast<llama_token>(doubleArray[0]);
             if (tok >= 0 && tok < n_vocab) {
                 if (doubleArray[1] != 0) {  // If the second element is not false (0)
-                    llama->params.logit_bias[tok] = doubleArray[1];
+                    sparams.logit_bias[tok] = doubleArray[1];
                 } else {
-                    llama->params.logit_bias[tok] = -INFINITY;
+                    sparams.logit_bias[tok] = -INFINITY;
                 }
             }
 
             env->ReleaseDoubleArrayElements(el, doubleArray, 0);
         }
         env->DeleteLocalRef(el);
+    }
+
+    llama->params.antiprompt.clear();
+    int stop_len = env->GetArrayLength(stop);
+    for (int i = 0; i < stop_len; i++) {
+        jstring stop_str = (jstring) env->GetObjectArrayElement(stop, i);
+        const char *stop_chars = env->GetStringUTFChars(stop_str, nullptr);
+        llama->params.antiprompt.push_back(stop_chars);
+        env->ReleaseStringUTFChars(stop_str, stop_chars);
     }
 
     if (!llama->loadGrammar()) {
@@ -408,7 +410,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
             auto tokenResult = createWriteableMap(env);
             putString(env, tokenResult, "token", to_send.c_str());
 
-            if (llama->params.n_probs > 0) {
+            if (llama->params.sampling_params.n_probs > 0) {
               const std::vector<llama_token> to_send_toks = llama_tokenize(llama->ctx, to_send, false);
               size_t probs_pos = std::min(sent_token_probs_index, llama->generated_token_probs.size());
               size_t probs_stop_pos = std::min(sent_token_probs_index + to_send_toks.size(), llama->generated_token_probs.size());
