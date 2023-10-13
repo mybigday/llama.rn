@@ -121,9 +121,9 @@ struct lm_ggml_metal_context {
 static NSString * const msl_library_source = @"see metal.metal";
 
 // Here to assist with NSBundle Path Hack
-@interface GGMLMetalClass : NSObject
+@interface LMGGMLMetalClass : NSObject
 @end
-@implementation GGMLMetalClass
+@implementation LMGGMLMetalClass
 @end
 
 lm_ggml_log_callback lm_ggml_metal_log_callback = NULL;
@@ -191,7 +191,7 @@ struct lm_ggml_metal_context * lm_ggml_metal_init(int n_cb) {
 #ifdef SWIFT_PACKAGE
         bundle = SWIFTPM_MODULE_BUNDLE;
 #else
-        bundle = [NSBundle bundleForClass:[GGMLMetalClass class]];
+        bundle = [NSBundle bundleForClass:[LMGGMLMetalClass class]];
 #endif
         NSError * error = nil;
         NSString * libPath = [bundle pathForResource:@"default" ofType:@"metallib"];
