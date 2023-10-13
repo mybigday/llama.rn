@@ -52,9 +52,11 @@ for file in "${files[@]}"; do
   if [ "$OS" = "Darwin" ]; then
     sed -i '' 's/GGML_/LM_GGML_/g' $file
     sed -i '' 's/ggml_/lm_ggml_/g' $file
+    sed -i '' 's/GGMLMetalClass/LMGGMLMetalClass/g' $file
   else
     sed -i 's/GGML_/LM_GGML_/g' $file
     sed -i 's/ggml_/lm_ggml_/g' $file
+    sed -i 's/GGMLMetalClass/LMGGMLMetalClass/g' $file
   fi
 done
 
