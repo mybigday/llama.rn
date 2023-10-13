@@ -137,8 +137,6 @@
         llama->params.grammar = [params[@"grammar"] UTF8String];
     }
 
-    if (params[@"temperature"]) llama->params.temp = [params[@"temperature"] doubleValue];
-
     if (params[@"n_threads"]) {
         int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : llama->params.n_threads;
         const int maxThreads = (int) [[NSProcessInfo processInfo] processorCount];
@@ -147,22 +145,27 @@
         llama->params.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
     }
     if (params[@"n_predict"]) llama->params.n_predict = [params[@"n_predict"] intValue];
-    if (params[@"n_probs"]) llama->params.n_probs = [params[@"n_probs"] intValue];
 
-    if (params[@"repeat_last_n"]) llama->params.repeat_last_n = [params[@"repeat_last_n"] intValue];
-    if (params[@"repeat_penalty"]) llama->params.repeat_penalty = [params[@"repeat_penalty"] doubleValue];
-    if (params[@"presence_penalty"]) llama->params.presence_penalty = [params[@"presence_penalty"] doubleValue];
-    if (params[@"frequency_penalty"]) llama->params.frequency_penalty = [params[@"frequency_penalty"] doubleValue];
+    auto & sparams = llama->params.sampling_params;
 
-    if (params[@"mirostat"]) llama->params.mirostat = [params[@"mirostat"] intValue];
-    if (params[@"mirostat_tau"]) llama->params.mirostat_tau = [params[@"mirostat_tau"] doubleValue];
-    if (params[@"mirostat_eta"]) llama->params.mirostat_eta = [params[@"mirostat_eta"] doubleValue];
+    if (params[@"temperature"]) sparams.temp = [params[@"temperature"] doubleValue];
 
-    if (params[@"top_k"]) llama->params.top_k = [params[@"top_k"] intValue];
-    if (params[@"top_p"]) llama->params.top_p = [params[@"top_p"] doubleValue];
-    if (params[@"tfs_z"]) llama->params.tfs_z = [params[@"tfs_z"] doubleValue];
+    if (params[@"n_probs"]) sparams.n_probs = [params[@"n_probs"] intValue];
 
-    if (params[@"typical_p"]) llama->params.typical_p = [params[@"typical_p"] doubleValue];
+    if (params[@"repeat_last_n"]) sparams.repeat_last_n = [params[@"repeat_last_n"] intValue];
+    if (params[@"repeat_penalty"]) sparams.repeat_penalty = [params[@"repeat_penalty"] doubleValue];
+    if (params[@"presence_penalty"]) sparams.presence_penalty = [params[@"presence_penalty"] doubleValue];
+    if (params[@"frequency_penalty"]) sparams.frequency_penalty = [params[@"frequency_penalty"] doubleValue];
+
+    if (params[@"mirostat"]) sparams.mirostat = [params[@"mirostat"] intValue];
+    if (params[@"mirostat_tau"]) sparams.mirostat_tau = [params[@"mirostat_tau"] doubleValue];
+    if (params[@"mirostat_eta"]) sparams.mirostat_eta = [params[@"mirostat_eta"] doubleValue];
+
+    if (params[@"top_k"]) sparams.top_k = [params[@"top_k"] intValue];
+    if (params[@"top_p"]) sparams.top_p = [params[@"top_p"] doubleValue];
+    if (params[@"tfs_z"]) sparams.tfs_z = [params[@"tfs_z"] doubleValue];
+
+    if (params[@"typical_p"]) sparams.typical_p = [params[@"typical_p"] doubleValue];
 
     llama->params.antiprompt.clear();
     if (params[@"stop"]) {
@@ -172,9 +175,9 @@
         }
     }
 
-    llama->params.logit_bias.clear();
+    sparams.logit_bias.clear();
     if (params[@"ignore_eos"] && [params[@"ignore_eos"] boolValue]) {
-        llama->params.logit_bias[llama_token_eos(llama->ctx)] = -INFINITY;
+        sparams.logit_bias[llama_token_eos(llama->ctx)] = -INFINITY;
     }
 
     if (params[@"logit_bias"] && [params[@"logit_bias"] isKindOfClass:[NSArray class]]) {
@@ -185,9 +188,9 @@
                 llama_token tok = [el[0] intValue];
                 if (tok >= 0 && tok < n_vocab) {
                     if ([el[1] isKindOfClass:[NSNumber class]]) {
-                        llama->params.logit_bias[tok] = [el[1] doubleValue];
+                        sparams.logit_bias[tok] = [el[1] doubleValue];
                     } else if ([el[1] isKindOfClass:[NSNumber class]] && ![el[1] boolValue]) {
-                        llama->params.logit_bias[tok] = -INFINITY;
+                        sparams.logit_bias[tok] = -INFINITY;
                     }
                 }
             }
@@ -243,7 +246,7 @@
             NSMutableDictionary *tokenResult = [[NSMutableDictionary alloc] init];
             tokenResult[@"token"] = [NSString stringWithUTF8String:to_send.c_str()];
 
-            if (llama->params.n_probs > 0) {
+            if (llama->params.sampling_params.n_probs > 0) {
                 const std::vector<llama_token> to_send_toks = llama_tokenize(llama->ctx, to_send, false);
                 size_t probs_pos = std::min(sent_token_probs_index, llama->generated_token_probs.size());
                 size_t probs_stop_pos = std::min(sent_token_probs_index + to_send_toks.size(), llama->generated_token_probs.size());

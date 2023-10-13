@@ -27,6 +27,8 @@ cp ./llama.cpp/common/common.h ./cpp/common.h
 cp ./llama.cpp/common/common.cpp ./cpp/common.cpp
 cp ./llama.cpp/common/grammar-parser.h ./cpp/grammar-parser.h
 cp ./llama.cpp/common/grammar-parser.cpp ./cpp/grammar-parser.cpp
+cp ./llama.cpp/common/sampling.h ./cpp/sampling.h
+cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
 
 # List of files to process
 files=(

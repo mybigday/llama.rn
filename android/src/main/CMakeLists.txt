@@ -13,6 +13,7 @@ set(
     ${RNLLAMA_LIB_DIR}/k_quants.c
     ${RNLLAMA_LIB_DIR}/common.cpp
     ${RNLLAMA_LIB_DIR}/grammar-parser.cpp
+    ${RNLLAMA_LIB_DIR}/sampling.cpp
     ${RNLLAMA_LIB_DIR}/llama.cpp
     ${RNLLAMA_LIB_DIR}/rn-llama.hpp
     ${CMAKE_SOURCE_DIR}/jni.cpp

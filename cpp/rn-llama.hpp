@@ -144,6 +144,7 @@ struct llama_rn_context
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
     gpt_params params;
+    llama_sampling_context ctx_sampling;
 
     grammar_parser::parse_state parsed_grammar;
     llama_grammar *grammar = nullptr;
@@ -191,6 +192,7 @@ struct llama_rn_context
         if (grammar != nullptr) {
             llama_grammar_free(grammar);
             grammar = nullptr;
+            ctx_sampling = llama_sampling_context_init(params, NULL);
         }
     }
 
@@ -221,8 +223,8 @@ struct llama_rn_context
             grammar_parser::print_grammar(stderr, parsed_grammar);
 
             {
-                auto it = params.logit_bias.find(llama_token_eos(ctx));
-                if (it != params.logit_bias.end() && it->second == -INFINITY) {
+                auto it = params.sampling_params.logit_bias.find(llama_token_eos(ctx));
+                if (it != params.sampling_params.logit_bias.end() && it->second == -INFINITY) {
                     LOG_WARNING("EOS token is disabled, which will cause most grammars to fail");
                 }
             }
@@ -231,6 +233,7 @@ struct llama_rn_context
             grammar = llama_grammar_init(
                 grammar_rules.data(), grammar_rules.size(), parsed_grammar.symbol_ids.at("root"));
         }
+        ctx_sampling = llama_sampling_context_init(params, grammar);
         return true;
     }
 
@@ -271,15 +274,15 @@ struct llama_rn_context
         // compare the evaluated prompt with the new prompt
         n_past = common_part(embd, prompt_tokens);
 
-        // since #3228 we now have to manually manage the KV cache
-        llama_kv_cache_seq_rm(ctx, 0, n_past, -1);
-
         embd = prompt_tokens;
         if (n_past == num_prompt_tokens)
         {
             // we have to evaluate at least 1 token to generate logits.
             n_past--;
         }
+
+        // since #3228 we now have to manually manage the KV cache
+        llama_kv_cache_seq_rm(ctx, 0, n_past, -1);
 
         LOG_VERBOSE("prompt ingested, n_past: %d, cached: %s, to_eval: %s",
             n_past,
@@ -364,12 +367,12 @@ struct llama_rn_context
             std::vector<llama_token_data> candidates;
             candidates.reserve(llama_n_vocab(model));
 
-            result.tok = llama_sample_token(ctx, NULL, grammar, params, last_n_tokens, candidates);
+            result.tok = llama_sampling_sample(ctx, NULL, ctx_sampling, last_n_tokens, candidates);
 
             llama_token_data_array candidates_p = { candidates.data(), candidates.size(), false };
 
-            const int32_t n_probs = params.n_probs;
-            if (params.temp <= 0 && n_probs > 0)
+            const int32_t n_probs = params.sampling_params.n_probs;
+            if (params.sampling_params.temp <= 0 && n_probs > 0)
             {
                 // For llama_sample_token_greedy we need to sort candidates
                 llama_sample_softmax(ctx, &candidates_p);
@@ -443,7 +446,7 @@ struct llama_rn_context
         const std::string token_text = token_with_probs.tok == -1 ? "" : llama_token_to_piece(ctx, token_with_probs.tok);
         generated_text += token_text;
 
-        if (params.n_probs > 0)
+        if (params.sampling_params.n_probs > 0)
         {
             generated_token_probs.push_back(token_with_probs);
         }
