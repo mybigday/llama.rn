@@ -34,6 +34,11 @@ include_directories(${RNLLAMA_LIB_DIR})
 
 target_compile_options(${RNLLAMA_LIBRARY_NAME} PRIVATE -DLM_GGML_USE_K_QUANTS -pthread)
 
+# TODO: split library
+if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+    target_compile_options(${RNLLAMA_LIBRARY_NAME} PRIVATE -march=armv8.2-a+fp16+dotprod)
+endif ()
+
 if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
     target_compile_options(${RNLLAMA_LIBRARY_NAME} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
 endif ()
