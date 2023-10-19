@@ -363,11 +363,7 @@
 }
 
 - (void)invalidate {
-    if (llama->grammar != nullptr) {
-        llama_grammar_free(llama->grammar);
-    }
     delete llama;
-
     // llama_backend_free();
 }
 

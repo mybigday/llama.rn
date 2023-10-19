@@ -5494,6 +5494,39 @@ struct lm_ggml_tensor * lm_ggml_view_tensor(
     return result;
 }
 
+struct lm_ggml_tensor * lm_ggml_get_first_tensor(struct lm_ggml_context * ctx) {
+    struct lm_ggml_object * obj = ctx->objects_begin;
+
+    char * const mem_buffer = ctx->mem_buffer;
+
+    while (obj != NULL) {
+        if (obj->type == LM_GGML_OBJECT_TENSOR) {
+            return (struct lm_ggml_tensor *)(mem_buffer + obj->offs);
+        }
+
+        obj = obj->next;
+    }
+
+    return NULL;
+}
+
+struct lm_ggml_tensor * lm_ggml_get_next_tensor(struct lm_ggml_context * ctx, struct lm_ggml_tensor * tensor) {
+    struct lm_ggml_object * obj = (struct lm_ggml_object *) ((char *)tensor - LM_GGML_OBJECT_SIZE);
+    obj = obj->next;
+
+    char * const mem_buffer = ctx->mem_buffer;
+
+    while (obj != NULL) {
+        if (obj->type == LM_GGML_OBJECT_TENSOR) {
+            return (struct lm_ggml_tensor *)(mem_buffer + obj->offs);
+        }
+
+        obj = obj->next;
+    }
+
+    return NULL;
+}
+
 struct lm_ggml_tensor * lm_ggml_get_tensor(struct lm_ggml_context * ctx, const char * name) {
     struct lm_ggml_object * obj = ctx->objects_begin;
 
@@ -8647,6 +8680,7 @@ void lm_ggml_set_param(
 
     LM_GGML_ASSERT(tensor->grad == NULL);
     tensor->grad = lm_ggml_dup_tensor(ctx, tensor);
+    lm_ggml_format_name(tensor->grad, "%s (grad)", tensor->name);
 }
 
 // lm_ggml_compute_forward_dup

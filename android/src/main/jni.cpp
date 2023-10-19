@@ -572,6 +572,10 @@ Java_com_rnllama_LlamaContext_freeContext(
     if (llama->ctx) {
         llama_free(llama->ctx);
     }
+    if (llama->ctx_sampling != nullptr)
+    {
+        llama_sampling_free(llama->ctx_sampling);
+    }
     context_map.erase((long) llama->ctx);
 }
 

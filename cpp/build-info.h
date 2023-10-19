@@ -1,8 +1,8 @@
 #ifndef BUILD_INFO_H
 #define BUILD_INFO_H
 
-#define BUILD_NUMBER 1378
-#define BUILD_COMMIT "1e0e873"
+#define BUILD_NUMBER 1399
+#define BUILD_COMMIT "004797f"
 #define BUILD_COMPILER ""
 #define BUILD_TARGET "unknown"
 
