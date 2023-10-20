@@ -193,11 +193,12 @@ struct llama_rn_context
         params.sparams.n_prev = n_ctx;
     }
 
-    void initSampling() {
+    bool initSampling() {
         if (ctx_sampling != nullptr) {
             llama_sampling_free(ctx_sampling);
         }
         ctx_sampling = llama_sampling_init(params.sparams);
+        return ctx_sampling != nullptr;
     }
 
     bool loadModel(gpt_params &params_)

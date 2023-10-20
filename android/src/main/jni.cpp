@@ -362,7 +362,11 @@ Java_com_rnllama_LlamaContext_doCompletion(
         env->ReleaseStringUTFChars(stop_str, stop_chars);
     }
 
-    llama->initSampling();
+    if (!llama->initSampling()) {
+        auto result = createWriteableMap(env);
+        putString(env, result, "error", "Failed to initialize sampling");
+        return reinterpret_cast<jobject>(result);
+    }
     llama->loadPrompt();
     llama->beginCompletion();
 

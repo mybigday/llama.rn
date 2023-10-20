@@ -197,7 +197,9 @@
         }
     }
 
-    llama->initSampling();
+    if (!llama->initSampling()) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
+    }
     llama->loadPrompt();
     llama->beginCompletion();
 
