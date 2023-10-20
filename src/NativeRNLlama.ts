@@ -37,10 +37,10 @@ export type NativeCompletionParams = {
 
   temperature?: number // -> temp
 
-  repeat_last_n?: number
-  repeat_penalty?: number
-  presence_penalty?: number
-  frequency_penalty?: number
+  penalty_last_n?: number
+  penalty_repeat?: number
+  penalty_freq?: number
+  penalty_present?: number
   mirostat?: number
   mirostat_tau?: number
   mirostat_eta?: number
