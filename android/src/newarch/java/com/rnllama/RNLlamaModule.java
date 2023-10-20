@@ -48,8 +48,8 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
-  public void saveSession(double id, String path, Promise promise) {
-    rnllama.saveSession(id, path, promise);
+  public void saveSession(double id, String path, double size, Promise promise) {
+    rnllama.saveSession(id, path, size, promise);
   }
 
   @ReactMethod

@@ -354,9 +354,11 @@
     };
 }
 
-- (int)saveSession:(NSString *)path {
+- (int)saveSession:(NSString *)path size:(int)size {
     std::vector<llama_token> session_tokens = llama->embd;
-    if (!llama_save_session_file(llama->ctx, [path UTF8String], session_tokens.data(), session_tokens.size())) {
+    int default_size = session_tokens.size();
+    int save_size = size > 0 && size <= default_size ? size : default_size;
+    if (!llama_save_session_file(llama->ctx, [path UTF8String], session_tokens.data(), save_size)) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to save session" userInfo:nil];
     }
     return session_tokens.size();

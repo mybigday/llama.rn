@@ -222,7 +222,8 @@ Java_com_rnllama_LlamaContext_saveSession(
     JNIEnv *env,
     jobject thiz,
     jlong context_ptr,
-    jstring path
+    jstring path,
+    jint size
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
@@ -230,7 +231,9 @@ Java_com_rnllama_LlamaContext_saveSession(
     const char *path_chars = env->GetStringUTFChars(path, nullptr);
 
     std::vector<llama_token> session_tokens = llama->embd;
-    if (!llama_save_session_file(llama->ctx, path_chars, session_tokens.data(), session_tokens.size())) {
+    int default_size = session_tokens.size();
+    int save_size = size > 0 && size <= default_size ? size : default_size;
+    if (!llama_save_session_file(llama->ctx, path_chars, session_tokens.data(), save_size)) {
       env->ReleaseStringUTFChars(path, path_chars);
       return -1;
     }
