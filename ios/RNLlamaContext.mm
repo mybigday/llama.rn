@@ -341,6 +341,13 @@
 }
 
 - (NSDictionary *)loadSession:(NSString *)path {
+    if (!path || [path length] == 0) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Session path is empty" userInfo:nil];
+    }
+    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Session file does not exist" userInfo:nil];
+    }
+
     size_t n_token_count_out = 0;
     llama->embd.resize(llama->params.n_ctx);
     if (!llama_load_session_file(llama->ctx, [path UTF8String], llama->embd.data(), llama->embd.capacity(), &n_token_count_out)) {
@@ -355,6 +362,9 @@
 }
 
 - (int)saveSession:(NSString *)path size:(int)size {
+    if (!path || [path length] == 0) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Session path is empty" userInfo:nil];
+    }
     std::vector<llama_token> session_tokens = llama->embd;
     int default_size = session_tokens.size();
     int save_size = size > 0 && size <= default_size ? size : default_size;

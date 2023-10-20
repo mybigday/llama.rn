@@ -96,6 +96,13 @@ public class LlamaContext {
   }
 
   public WritableMap loadSession(String path) {
+    if (path == null || path.isEmpty()) {
+      throw new IllegalArgumentException("File path is empty");
+    }
+    File file = new File(path);
+    if (!file.exists()) {
+      throw new IllegalArgumentException("File does not exist: " + path);
+    }
     WritableMap result = loadSession(this.context, path);
     if (result.hasKey("error")) {
       throw new IllegalStateException(result.getString("error"));
@@ -104,6 +111,9 @@ public class LlamaContext {
   }
 
   public int saveSession(String path, int size) {
+    if (path == null || path.isEmpty()) {
+      throw new IllegalArgumentException("File path is empty");
+    }
     return saveSession(this.context, path, size);
   }
 
