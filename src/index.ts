@@ -67,8 +67,8 @@ export class LlamaContext {
   /**
    * Save current cached prompt & completion state to a file.
    */
-  async saveSession(filepath: string): Promise<number> {
-    return RNLlama.saveSession(this.id, filepath)
+  async saveSession(filepath: string, options?: { tokenSize: number }): Promise<number> {
+    return RNLlama.saveSession(this.id, filepath, options?.tokenSize || -1)
   }
 
   async completion(

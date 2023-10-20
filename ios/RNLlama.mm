@@ -83,6 +83,7 @@ RCT_EXPORT_METHOD(loadSession:(double)contextId
 
 RCT_EXPORT_METHOD(saveSession:(double)contextId
                  withFilePath:(NSString *)filePath
+                 withSize:(double)size
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -98,7 +99,7 @@ RCT_EXPORT_METHOD(saveSession:(double)contextId
     dispatch_async(dispatch_get_main_queue(), ^{ // TODO: Fix for use in llamaDQue
         @try {
             @autoreleasepool {
-                int count = [context saveSession:filePath];
+                int count = [context saveSession:filePath size:(int)size];
                 resolve(@(count));
             }
         } @catch (NSException *exception) {

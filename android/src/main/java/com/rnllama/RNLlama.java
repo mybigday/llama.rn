@@ -112,7 +112,7 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "loadSession-" + contextId);
   }
 
-  public void saveSession(double id, final String path, Promise promise) {
+  public void saveSession(double id, final String path, double size, Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, Integer>() {
       private Exception exception;
@@ -124,7 +124,7 @@ public class RNLlama implements LifecycleEventListener {
           if (context == null) {
             throw new Exception("Context not found");
           }
-          Integer count = context.saveSession(path);
+          Integer count = context.saveSession(path, (int) size);
           return count;
         } catch (Exception e) {
           exception = e;

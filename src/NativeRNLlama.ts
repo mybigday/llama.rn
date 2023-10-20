@@ -116,7 +116,7 @@ export interface Spec extends TurboModule {
   initContext(params: NativeContextParams): Promise<NativeLlamaContext>;
 
   loadSession(contextId: number, filepath: string): Promise<NativeSessionLoadResult>;
-  saveSession(contextId: number, filepath: string): Promise<number>;
+  saveSession(contextId: number, filepath: string, size: number): Promise<number>;
   completion(contextId: number, params: NativeCompletionParams): Promise<NativeCompletionResult>;
   stopCompletion(contextId: number): Promise<void>;
   tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>;

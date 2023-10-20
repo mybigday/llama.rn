@@ -103,8 +103,8 @@ public class LlamaContext {
     return result;
   }
 
-  public int saveSession(String path) {
-    return saveSession(this.context, path);
+  public int saveSession(String path, int size) {
+    return saveSession(this.context, path, size);
   }
 
   public WritableMap completion(ReadableMap params) {
@@ -286,7 +286,8 @@ public class LlamaContext {
   );
   protected static native int saveSession(
     long contextPtr,
-    String path
+    String path,
+    int size
   );
   protected static native WritableMap doCompletion(
     long context_ptr,
