@@ -144,6 +144,12 @@ if (!NativeModules.RNLlama) {
     detokenize: jest.fn(async () => ''),
     embedding: jest.fn(async () => []),
 
+    loadSession: jest.fn(async () => ({
+      tokens_loaded: 1,
+      prompt: 'Hello',
+    })),
+    saveSession: jest.fn(async () => 1),
+
     releaseContext: jest.fn(() => Promise.resolve()),
     releaseAllContexts: jest.fn(() => Promise.resolve()),
 
