@@ -285,14 +285,14 @@ export default function App() {
           prompt,
           n_predict: 400,
           temperature: 0.7,
-          repeat_last_n: 256, // 0 = disable penalty, -1 = context size
-          repeat_penalty: 1.18, // 1.0 = disabled
           top_k: 40, // <= 0 to use vocab size
           top_p: 0.5, // 1.0 = disabled
           tfs_z: 1.0, // 1.0 = disabled
           typical_p: 1.0, // 1.0 = disabled
-          presence_penalty: 0.0, // 0.0 = disabled
-          frequency_penalty: 0.0, // 0.0 = disabled
+          penalty_last_n: 256, // 0 = disable penalty, -1 = context size
+          penalty_repeat: 1.18, // 1.0 = disabled
+          penalty_freq: 0.0, // 0.0 = disabled
+          penalty_present: 0.0, // 0.0 = disabled
           mirostat: 0, // 0/1/2
           mirostat_tau: 5, // target entropy
           mirostat_eta: 0.1, // learning rate

@@ -277,10 +277,10 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jint n_threads,
     jint n_predict,
     jint n_probs,
-    jint repeat_last_n,
-    jfloat repeat_penalty,
-    jfloat presence_penalty,
-    jfloat frequency_penalty,
+    jint penalty_last_n,
+    jfloat penalty_repeat,
+    jfloat penalty_freq,
+    jfloat penalty_present,
     jfloat mirostat,
     jfloat mirostat_tau,
     jfloat mirostat_eta,
@@ -301,7 +301,6 @@ Java_com_rnllama_LlamaContext_doCompletion(
     llama_reset_timings(llama->ctx);
 
     llama->params.prompt = env->GetStringUTFChars(prompt, nullptr);
-    llama->params.grammar = env->GetStringUTFChars(grammar, nullptr);
 
     int max_threads = std::thread::hardware_concurrency();
     // Use 2 threads by default on 4-core devices, 4 threads on more cores
@@ -311,12 +310,12 @@ Java_com_rnllama_LlamaContext_doCompletion(
     llama->params.n_predict = n_predict;
     llama->params.ignore_eos = ignore_eos;
 
-    auto & sparams = llama->params.sampling_params;
+    auto & sparams = llama->params.sparams;
     sparams.temp = temperature;
-    sparams.repeat_last_n = repeat_last_n;
-    sparams.repeat_penalty = repeat_penalty;
-    sparams.presence_penalty = presence_penalty;
-    sparams.frequency_penalty = frequency_penalty;
+    sparams.penalty_last_n = penalty_last_n;
+    sparams.penalty_repeat = penalty_repeat;
+    sparams.penalty_freq = penalty_freq;
+    sparams.penalty_present = penalty_present;
     sparams.mirostat = mirostat;
     sparams.mirostat_tau = mirostat_tau;
     sparams.mirostat_eta = mirostat_eta;
@@ -325,6 +324,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     sparams.tfs_z = tfs_z;
     sparams.typical_p = typical_p;
     sparams.n_probs = n_probs;
+    sparams.grammar = env->GetStringUTFChars(grammar, nullptr);
 
     sparams.logit_bias.clear();
     if (ignore_eos) {
@@ -362,12 +362,11 @@ Java_com_rnllama_LlamaContext_doCompletion(
         env->ReleaseStringUTFChars(stop_str, stop_chars);
     }
 
-    if (!llama->loadGrammar()) {
+    if (!llama->initSampling()) {
         auto result = createWriteableMap(env);
-        putString(env, result, "error", "Failed to load grammar");
+        putString(env, result, "error", "Failed to initialize sampling");
         return reinterpret_cast<jobject>(result);
     }
-
     llama->loadPrompt();
     llama->beginCompletion();
 
@@ -413,7 +412,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
             auto tokenResult = createWriteableMap(env);
             putString(env, tokenResult, "token", to_send.c_str());
 
-            if (llama->params.sampling_params.n_probs > 0) {
+            if (llama->params.sparams.n_probs > 0) {
               const std::vector<llama_token> to_send_toks = llama_tokenize(llama->ctx, to_send, false);
               size_t probs_pos = std::min(sent_token_probs_index, llama->generated_token_probs.size());
               size_t probs_stop_pos = std::min(sent_token_probs_index + to_send_toks.size(), llama->generated_token_probs.size());

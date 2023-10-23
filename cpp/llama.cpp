@@ -986,14 +986,15 @@ static void llama_nop(struct lm_ggml_tensor * tensor) { // don't offload by defa
     (void) tensor;
 }
 
-static std::string llama_token_to_str(const struct llama_context * ctx, llama_token token) {
+static std::string llama_token_to_piece(const struct llama_context * ctx, llama_token token) {
     std::vector<char> result(8, 0);
     const int n_tokens = llama_token_to_piece(llama_get_model(ctx), token, result.data(), result.size());
     if (n_tokens < 0) {
         result.resize(-n_tokens);
         int check = llama_token_to_piece(llama_get_model(ctx), token, result.data(), result.size());
         LM_GGML_ASSERT(check == -n_tokens);
-    } else {
+    }
+    else {
         result.resize(n_tokens);
     }
 
@@ -1029,8 +1030,8 @@ enum e_model {
 };
 
 static const size_t kB = 1024;
-static const size_t MB = kB*kB;
-static const size_t GB = kB*kB*kB;
+static const size_t MB = 1024*kB;
+static const size_t GB = 1024*MB;
 
 struct llama_hparams {
     bool     vocab_only;
@@ -1053,21 +1054,21 @@ struct llama_hparams {
     float f_max_alibi_bias;
 
     bool operator!=(const llama_hparams & other) const {
-        if (this->vocab_only != other.vocab_only) return true;
-        if (this->n_vocab != other.n_vocab) return true;
+        if (this->vocab_only  != other.vocab_only)  return true;
+        if (this->n_vocab     != other.n_vocab)     return true;
         if (this->n_ctx_train != other.n_ctx_train) return true;
-        if (this->n_embd != other.n_embd) return true;
-        if (this->n_head != other.n_head) return true;
-        if (this->n_head_kv != other.n_head_kv) return true;
-        if (this->n_layer != other.n_layer) return true;
-        if (this->n_rot != other.n_rot) return true;
-        if (this->n_ff != other.n_ff) return true;
+        if (this->n_embd      != other.n_embd)      return true;
+        if (this->n_head      != other.n_head)      return true;
+        if (this->n_head_kv   != other.n_head_kv)   return true;
+        if (this->n_layer     != other.n_layer)     return true;
+        if (this->n_rot       != other.n_rot)       return true;
+        if (this->n_ff        != other.n_ff)        return true;
 
         const float EPSILON = 1e-9;
 
-        if (!is_float_close(this->f_norm_eps, other.f_norm_eps, EPSILON)) return true;
-        if (!is_float_close(this->f_norm_rms_eps, other.f_norm_rms_eps, EPSILON)) return true;
-        if (!is_float_close(this->rope_freq_base_train, other.rope_freq_base_train, EPSILON)) return true;
+        if (!is_float_close(this->f_norm_eps,            other.f_norm_eps,            EPSILON)) return true;
+        if (!is_float_close(this->f_norm_rms_eps,        other.f_norm_rms_eps,        EPSILON)) return true;
+        if (!is_float_close(this->rope_freq_base_train,  other.rope_freq_base_train,  EPSILON)) return true;
         if (!is_float_close(this->rope_freq_scale_train, other.rope_freq_scale_train, EPSILON)) return true;
 
         return false;
@@ -1206,17 +1207,17 @@ struct llama_vocab {
     id special_sep_id = -1;
     id special_pad_id = -1;
 
-    id linefeed_id = 13;
+    id linefeed_id       = 13;
     id special_prefix_id = 32007;
     id special_middle_id = 32009;
     id special_suffix_id = 32008;
-    id special_eot_id = 32010;
+    id special_eot_id    = 32010;
 
     int find_bpe_rank(std::string token_left, std::string token_right) const {
-        replace_all(token_left,  " ",  "\u0120");
-        replace_all(token_left,  "\n", "\u010A");
-        replace_all(token_right, " ",  "\u0120");
-        replace_all(token_right, "\n", "\u010A");
+        LM_GGML_ASSERT(token_left.find(" ") == std::string::npos);
+        LM_GGML_ASSERT(token_left.find("\n") == std::string::npos);
+        LM_GGML_ASSERT(token_right.find(" ") == std::string::npos);
+        LM_GGML_ASSERT(token_right.find("\n") == std::string::npos);
 
         auto it = bpe_ranks.find(std::make_pair(token_left, token_right));
         if (it == bpe_ranks.end()) {
@@ -1370,10 +1371,7 @@ static bool llama_kv_cache_init(
     cache.cells.clear();
     cache.cells.resize(n_ctx);
 
-    // TODO: this should be:
-    //       cache.buf.resize(2u*n_elements*lm_ggml_type_size(wtype) + 2u*lm_ggml_tensor_overhead());
-    //       change it and test that it works
-    cache.buf.resize(2u*n_elements*lm_ggml_type_size(wtype) + 2u*MB);
+    cache.buf.resize(2u*n_elements*lm_ggml_type_size(wtype) + 2u*lm_ggml_tensor_overhead());
     memset(cache.buf.data, 0, cache.buf.size);
 
     struct lm_ggml_init_params params;
@@ -2252,15 +2250,35 @@ static void llm_load_vocab(
     if (vocab.type == LLAMA_VOCAB_TYPE_SPM) {
         vocab.linefeed_id = llama_byte_to_token(vocab, '\n');
     } else {
-        vocab.linefeed_id = llama_tokenize_internal(vocab, "\u010A", false)[0];
+        const std::vector<int> ids = llama_tokenize_internal(vocab, "\u010A", false);
+        LM_GGML_ASSERT(!ids.empty() && "model vocab missing newline token");
+        vocab.linefeed_id = ids[0];
     }
 
     // special tokens
-    GGUF_GET_KEY(ctx, vocab.special_bos_id, gguf_get_val_u32, GGUF_TYPE_UINT32, false, kv(LLM_KV_TOKENIZER_BOS_ID));
-    GGUF_GET_KEY(ctx, vocab.special_eos_id, gguf_get_val_u32, GGUF_TYPE_UINT32, false, kv(LLM_KV_TOKENIZER_EOS_ID));
-    GGUF_GET_KEY(ctx, vocab.special_unk_id, gguf_get_val_u32, GGUF_TYPE_UINT32, false, kv(LLM_KV_TOKENIZER_UNK_ID));
-    GGUF_GET_KEY(ctx, vocab.special_sep_id, gguf_get_val_u32, GGUF_TYPE_UINT32, false, kv(LLM_KV_TOKENIZER_SEP_ID));
-    GGUF_GET_KEY(ctx, vocab.special_pad_id, gguf_get_val_u32, GGUF_TYPE_UINT32, false, kv(LLM_KV_TOKENIZER_PAD_ID));
+    {
+        const std::vector<std::pair<enum llm_kv, int32_t &>> special_token_types = {
+            { LLM_KV_TOKENIZER_BOS_ID, vocab.special_bos_id },
+            { LLM_KV_TOKENIZER_EOS_ID, vocab.special_eos_id },
+            { LLM_KV_TOKENIZER_UNK_ID, vocab.special_unk_id },
+            { LLM_KV_TOKENIZER_SEP_ID, vocab.special_sep_id },
+            { LLM_KV_TOKENIZER_PAD_ID, vocab.special_pad_id },
+        };
+        for (const auto & it : special_token_types) {
+            const std::string & key = kv(std::get<0>(it));
+            int32_t & id = std::get<1>(it), old_id = id;
+
+            GGUF_GET_KEY(ctx, id, gguf_get_val_u32, GGUF_TYPE_UINT32, false, key);
+            // Must be >= -1 and < vocab size. Since the key is unsigned, -1
+            // can only come from the default value, so there's no point in
+            // validating that.
+            if (size_t(id + 1) > vocab.id_to_token.size()) {
+                LLAMA_LOG_WARN("%s: bad special token: '%s' = %d, using default id %d\n",
+                    __func__, key.c_str(), id, old_id);
+                id = old_id;
+            }
+        }
+    }
 
     // build special tokens cache
     {
@@ -6117,11 +6135,10 @@ static uint8_t llama_token_to_byte(const llama_vocab& vocab, llama_token id) {
 }
 
 static llama_token llama_byte_to_token(const llama_vocab & vocab, uint8_t ch) {
+    static const char * hex = "0123456789ABCDEF";
     switch (llama_vocab_get_type(vocab)) {
     case LLAMA_VOCAB_TYPE_SPM: {
-        char buf[7];
-        int result = snprintf(buf, sizeof(buf), "<0x%02X>", ch);
-        LM_GGML_ASSERT(0 <= result && result < 7);
+        const char buf[7] = { '<', '0', 'x', hex[ch >> 4], hex[ch & 15], '>', 0 };
         return vocab.token_to_id.at(buf);
     }
     case LLAMA_VOCAB_TYPE_BPE: {
@@ -6335,7 +6352,6 @@ struct llm_tokenizer_bpe {
                 llm_symbol sym;
                 size_t char_len = std::min(word.size() - offset, (size_t) ::utf8_len(word[offset]));
                 sym.text = word.c_str() + offset;
-                sym.n = 1;
                 sym.n = char_len;
                 offset += sym.n;
                 sym.prev = index - 1;
@@ -7065,7 +7081,7 @@ static std::vector<llama_grammar_candidate> llama_grammar_reject_candidates_for_
     std::vector<llama_grammar_candidate> rejects;
 
     if (stack.empty()) {
-        for (auto tok : candidates) {
+        for (const auto & tok : candidates) {
             if (*tok.code_points != 0 || tok.partial_utf8.n_remain != 0) {
                 rejects.push_back(tok);
             }
@@ -7076,7 +7092,7 @@ static std::vector<llama_grammar_candidate> llama_grammar_reject_candidates_for_
     const llama_grammar_element * stack_pos = stack.back();
 
     std::vector<llama_grammar_candidate> next_candidates;
-    for (auto tok : candidates) {
+    for (const auto & tok : candidates) {
         if (*tok.code_points == 0) {
             // reached end of full codepoints in token, reject iff it ended in a partial sequence
             // that cannot satisfy this position in grammar
@@ -7102,7 +7118,7 @@ static std::vector<llama_grammar_candidate> llama_grammar_reject_candidates_for_
     llama_grammar_advance_stack(rules, stack_after, next_stacks);
 
     auto next_rejects = llama_grammar_reject_candidates(rules, next_stacks, next_candidates);
-    for (auto tok : next_rejects) {
+    for (const auto & tok : next_rejects) {
         rejects.push_back({ tok.index, tok.code_points - 1, tok.partial_utf8 });
     }
 
@@ -7429,37 +7445,15 @@ void llama_sample_temperature(struct llama_context * ctx, llama_token_data_array
     llama_sample_temp(ctx, candidates_p, temp);
 }
 
-void llama_sample_repetition_penalty(struct llama_context * ctx, llama_token_data_array * candidates, const llama_token * last_tokens, size_t last_tokens_size, float penalty) {
-    if (last_tokens_size == 0 || penalty == 1.0f) {
-        return;
-    }
-
-    const int64_t t_start_sample_us = lm_ggml_time_us();
-
-    for (size_t i = 0; i < candidates->size; ++i) {
-        const auto * token_iter = std::find(last_tokens, last_tokens + last_tokens_size, candidates->data[i].id);
-        if (token_iter == last_tokens + last_tokens_size) {
-            continue;
-        }
-
-        // The academic publication that described this technique actually just only divided, but that would cause tokens with negative logits to become more likely, which is obviously wrong.
-        // This is common fix for this problem, which is to multiply by the penalty instead of dividing.
-        if (candidates->data[i].logit <= 0) {
-            candidates->data[i].logit *= penalty;
-        } else {
-            candidates->data[i].logit /= penalty;
-        }
-    }
-
-    candidates->sorted = false;
-
-    if (ctx) {
-        ctx->t_sample_us += lm_ggml_time_us() - t_start_sample_us;
-    }
-}
-
-void llama_sample_frequency_and_presence_penalties(struct llama_context * ctx, llama_token_data_array * candidates, const llama_token * last_tokens_p, size_t last_tokens_size, float alpha_frequency, float alpha_presence) {
-    if (last_tokens_size == 0 || (alpha_frequency == 0.0f && alpha_presence == 0.0f)) {
+void llama_sample_repetition_penalties(
+            struct llama_context * ctx,
+          llama_token_data_array * candidates,
+               const llama_token * last_tokens,
+                          size_t   penalty_last_n,
+                           float   penalty_repeat,
+                           float   penalty_freq,
+                           float   penalty_present) {
+    if (penalty_last_n == 0 || (penalty_repeat == 1.0f && penalty_freq == 0.0f && penalty_present == 0.0f)) {
         return;
     }
 
@@ -7467,19 +7461,28 @@ void llama_sample_frequency_and_presence_penalties(struct llama_context * ctx, l
 
     // Create a frequency map to count occurrences of each token in last_tokens
     std::unordered_map<llama_token, int> token_count;
-    for (size_t i = 0; i < last_tokens_size; ++i) {
-        token_count[last_tokens_p[i]]++;
+    for (size_t i = 0; i < penalty_last_n; ++i) {
+        token_count[last_tokens[i]]++;
     }
 
     // Apply frequency and presence penalties to the candidates
     for (size_t i = 0; i < candidates->size; ++i) {
-        auto token_iter = token_count.find(candidates->data[i].id);
+        const auto token_iter = token_count.find(candidates->data[i].id);
         if (token_iter == token_count.end()) {
             continue;
         }
 
-        int count = token_iter->second;
-        candidates->data[i].logit -= float(count) * alpha_frequency + float(count > 0) * alpha_presence;
+        const int count = token_iter->second;
+
+        // The academic publication that described this technique actually just only divided, but that would cause tokens with negative logits to become more likely, which is obviously wrong.
+        // This is common fix for this problem, which is to multiply by the penalty instead of dividing.
+        if (candidates->data[i].logit <= 0) {
+            candidates->data[i].logit *= penalty_repeat;
+        } else {
+            candidates->data[i].logit /= penalty_repeat;
+        }
+
+        candidates->data[i].logit -= float(count) * penalty_freq + float(count > 0) * penalty_present;
     }
 
     candidates->sorted = false;
@@ -7508,7 +7511,7 @@ void llama_sample_grammar(struct llama_context * ctx, llama_token_data_array * c
 
     for (size_t i = 0; i < candidates->size; ++i) {
         const llama_token id    = candidates->data[i].id;
-        const std::string piece = llama_token_to_str(ctx, id);
+        const std::string piece = llama_token_to_piece(ctx, id);
         if (id == eos) {
             if (!allow_eos) {
                 candidates->data[i].logit = -INFINITY;
@@ -7720,7 +7723,7 @@ void llama_grammar_accept_token(struct llama_context * ctx, struct llama_grammar
         LM_GGML_ASSERT(false);
     }
 
-    const std::string piece = llama_token_to_str(ctx, token);
+    const std::string piece = llama_token_to_piece(ctx, token);
 
     // Note terminating 0 in decoded string
     const auto   decoded     = decode_utf8(piece.c_str(), grammar->partial_utf8);
