@@ -208,7 +208,7 @@ struct lm_ggml_metal_context * lm_ggml_metal_init(int n_cb) {
         } else {
             LM_GGML_METAL_LOG_INFO("%s: default.metallib not found, loading from source\n", __func__);
 
-            NSString * sourcePath = [bundle pathForResource:@"ggml-metal" ofType:@"metal"];
+            NSString * sourcePath = [bundle pathForResource:@"ggml-metal-llama" ofType:@"metal"];
             LM_GGML_METAL_LOG_INFO("%s: loading '%s'\n", __func__, [sourcePath UTF8String]);
             NSString * src = [NSString stringWithContentsOfFile:sourcePath encoding:NSUTF8StringEncoding error:&error];
             if (error) {
