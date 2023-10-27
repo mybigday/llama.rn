@@ -328,7 +328,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     sparams.logit_bias.clear();
     if (ignore_eos) {
-        sparams.logit_bias[llama_token_eos(llama->ctx)] = -INFINITY;
+        sparams.logit_bias[llama_token_eos(llama->model)] = -INFINITY;
     }
 
     const int n_vocab = llama_n_vocab(llama_get_model(llama->ctx));

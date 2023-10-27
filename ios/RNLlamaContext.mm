@@ -177,7 +177,7 @@
 
     sparams.logit_bias.clear();
     if (params[@"ignore_eos"] && [params[@"ignore_eos"] boolValue]) {
-        sparams.logit_bias[llama_token_eos(llama->ctx)] = -INFINITY;
+        sparams.logit_bias[llama_token_eos(llama->model)] = -INFINITY;
     }
 
     if (params[@"logit_bias"] && [params[@"logit_bias"] isKindOfClass:[NSArray class]]) {

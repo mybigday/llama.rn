@@ -1,6 +1,6 @@
---- ggml-metal.m.orig	2023-10-25 10:31:15
-+++ ggml-metal.m	2023-10-25 10:31:37
-@@ -208,7 +208,7 @@
+--- ggml-metal.m.orig	2023-10-27 12:54:53
++++ ggml-metal.m	2023-10-27 12:54:54
+@@ -209,7 +209,7 @@
          } else {
              LM_GGML_METAL_LOG_INFO("%s: default.metallib not found, loading from source\n", __func__);
  

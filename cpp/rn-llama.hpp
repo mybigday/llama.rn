@@ -349,7 +349,7 @@ struct llama_rn_context
         if (params.n_predict == 0)
         {
             has_next_token = false;
-            result.tok = llama_token_eos(ctx);
+            result.tok = llama_token_eos(model);
             return result;
         }
 
@@ -384,7 +384,7 @@ struct llama_rn_context
         // decrement remaining sampling budget
         --n_remain;
 
-        if (!embd.empty() && embd.back() == llama_token_eos(ctx))
+        if (!embd.empty() && embd.back() == llama_token_eos(model))
         {
             // stopping_word = llama_token_to_piece(ctx, embd.back());
             has_next_token = false;

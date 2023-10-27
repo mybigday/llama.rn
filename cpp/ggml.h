@@ -401,14 +401,15 @@ extern "C" {
         LM_GGML_OP_ALIBI,
         LM_GGML_OP_CLAMP,
         LM_GGML_OP_CONV_1D,
-        LM_GGML_OP_CONV_2D,
+        LM_GGML_OP_CONV_1D_STAGE_0,  // internal
+        LM_GGML_OP_CONV_1D_STAGE_1,  // internal
         LM_GGML_OP_CONV_TRANSPOSE_1D,
+        LM_GGML_OP_CONV_2D,
+        LM_GGML_OP_CONV_2D_STAGE_0, // internal
+        LM_GGML_OP_CONV_2D_STAGE_1, // internal
         LM_GGML_OP_CONV_TRANSPOSE_2D,
         LM_GGML_OP_POOL_1D,
         LM_GGML_OP_POOL_2D,
-
-        LM_GGML_OP_CONV_1D_STAGE_0,  // internal
-        LM_GGML_OP_CONV_1D_STAGE_1,  // internal
 
         LM_GGML_OP_UPSCALE, // nearest interpolate
 
@@ -1020,9 +1021,9 @@ extern "C" {
             struct lm_ggml_tensor  * b,
             float                 eps);
 
-    // A: n columns, m rows
-    // B: n columns, p rows  (i.e. we transpose it internally)
-    // result is m columns, p rows
+    // A: k columns, n rows => [ne03, ne02, n, k]
+    // B: k columns, m rows  (i.e. we transpose it internally) => [ne03 * x, ne02 * y, m, k]
+    // result is n columns, m rows => [ne03 * x, ne02 * y, m, n]
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_mul_mat(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,

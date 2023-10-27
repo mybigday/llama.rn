@@ -62,6 +62,7 @@ struct lm_ggml_metal_context {
     LM_GGML_METAL_DECL_KERNEL(mul);
     LM_GGML_METAL_DECL_KERNEL(mul_row); // TODO: avoid this extra kernel, instead extend the "mul" kernel to support broadcast
     LM_GGML_METAL_DECL_KERNEL(scale);
+    LM_GGML_METAL_DECL_KERNEL(scale_4);
     LM_GGML_METAL_DECL_KERNEL(silu);
     LM_GGML_METAL_DECL_KERNEL(relu);
     LM_GGML_METAL_DECL_KERNEL(gelu);
@@ -249,6 +250,7 @@ struct lm_ggml_metal_context * lm_ggml_metal_init(int n_cb) {
         LM_GGML_METAL_ADD_KERNEL(mul);
         LM_GGML_METAL_ADD_KERNEL(mul_row);
         LM_GGML_METAL_ADD_KERNEL(scale);
+        LM_GGML_METAL_ADD_KERNEL(scale_4);
         LM_GGML_METAL_ADD_KERNEL(silu);
         LM_GGML_METAL_ADD_KERNEL(relu);
         LM_GGML_METAL_ADD_KERNEL(gelu);
@@ -347,6 +349,7 @@ void lm_ggml_metal_free(struct lm_ggml_metal_context * ctx) {
     LM_GGML_METAL_DEL_KERNEL(mul);
     LM_GGML_METAL_DEL_KERNEL(mul_row);
     LM_GGML_METAL_DEL_KERNEL(scale);
+    LM_GGML_METAL_DEL_KERNEL(scale_4);
     LM_GGML_METAL_DEL_KERNEL(silu);
     LM_GGML_METAL_DEL_KERNEL(relu);
     LM_GGML_METAL_DEL_KERNEL(gelu);
@@ -923,15 +926,20 @@ void lm_ggml_metal_graph_compute(
 
                             const float scale = *(const float *) src1->data;
 
-                            [encoder setComputePipelineState:ctx->pipeline_scale];
+                            int64_t n = lm_ggml_nelements(dst);
+
+                            if (n % 4 == 0) {
+                                n /= 4;
+                                [encoder setComputePipelineState:ctx->pipeline_scale_4];
+                            } else {
+                                [encoder setComputePipelineState:ctx->pipeline_scale];
+                            }
+
                             [encoder setBuffer:id_src0 offset:offs_src0 atIndex:0];
                             [encoder setBuffer:id_dst  offset:offs_dst  atIndex:1];
                             [encoder setBytes:&scale length:sizeof(scale) atIndex:2];
 
-                            const int64_t n = lm_ggml_nelements(dst);
-                            LM_GGML_ASSERT(n % 4 == 0);
-
-                            [encoder dispatchThreadgroups:MTLSizeMake(n/4, 1, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+                            [encoder dispatchThreadgroups:MTLSizeMake(n, 1, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
                         } break;
                     case LM_GGML_OP_UNARY:
                         switch (lm_ggml_get_unary_op(gf->nodes[i])) {
