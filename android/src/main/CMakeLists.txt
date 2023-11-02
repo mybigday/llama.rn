@@ -12,7 +12,7 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml-alloc.c
     ${RNLLAMA_LIB_DIR}/ggml-backend.c
     ${RNLLAMA_LIB_DIR}/ggml.c
-    ${RNLLAMA_LIB_DIR}/k_quants.c
+    ${RNLLAMA_LIB_DIR}/ggml-quants.c
     ${RNLLAMA_LIB_DIR}/common.cpp
     ${RNLLAMA_LIB_DIR}/grammar-parser.cpp
     ${RNLLAMA_LIB_DIR}/sampling.cpp
@@ -36,7 +36,7 @@ function(build_library target_name)
         target_compile_options(${target_name} PRIVATE -march=armv8.2-a+fp16+dotprod)
     endif ()
 
-    target_compile_options(${target_name} PRIVATE -DLM_GGML_USE_K_QUANTS -pthread)
+    target_compile_options(${target_name} PRIVATE -pthread)
 
     if (${target_name} STREQUAL "rnllama_v8fp16_va")
         target_compile_options(${target_name} PRIVATE -march=armv8.2-a+fp16+dotprod)
