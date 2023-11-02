@@ -49,7 +49,7 @@ function(build_library target_name)
     # NOTE: If you want to debug the native code, you can uncomment if and endif
     # if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
 
-    target_compile_options(${target_name} PRIVATE -Ofast -DNDEBUG)
+    target_compile_options(${target_name} PRIVATE -O3 -DNDEBUG)
     target_compile_options(${target_name} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
     target_compile_options(${target_name} PRIVATE -ffunction-sections -fdata-sections)
 

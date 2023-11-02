@@ -11,7 +11,7 @@ end
 
 # Use base_optimizer_flags = "" for debug builds
 # base_optimizer_flags = ""
-base_optimizer_flags = "-Ofast -DNDEBUG"
+base_optimizer_flags = "-O3 -DNDEBUG"
 
 Pod::Spec.new do |s|
   s.name         = "llama-rn"
