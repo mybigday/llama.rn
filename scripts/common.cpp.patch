@@ -1,0 +1,11 @@
+--- common.cpp.orig	2023-11-03 14:51:27
++++ common.cpp	2023-11-03 14:51:30
+@@ -1198,8 +1198,6 @@
+                                const std::string & timestamp, const std::vector<int> & prompt_tokens, const char * model_desc) {
+     const llama_sampling_params & sparams = params.sparams;
+ 
+-    fprintf(stream, "build_commit: %s\n",        LLAMA_COMMIT);
+-    fprintf(stream, "build_number: %d\n",        LLAMA_BUILD_NUMBER);
+     fprintf(stream, "cpu_has_arm_fma: %s\n",     lm_ggml_cpu_has_arm_fma()     ? "true" : "false");
+     fprintf(stream, "cpu_has_avx: %s\n",         lm_ggml_cpu_has_avx()         ? "true" : "false");
+     fprintf(stream, "cpu_has_avx2: %s\n",        lm_ggml_cpu_has_avx2()        ? "true" : "false");
