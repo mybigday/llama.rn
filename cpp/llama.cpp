@@ -5175,11 +5175,12 @@ static int llama_decode_internal(
 
     // If all tensors can be run on the GPU then using more than 1 thread is detrimental.
     const bool full_offload_supported =
-        model.arch == LLM_ARCH_LLAMA    ||
-        model.arch == LLM_ARCH_BAICHUAN ||
-        model.arch == LLM_ARCH_FALCON   ||
-        model.arch == LLM_ARCH_REFACT   ||
-        model.arch == LLM_ARCH_MPT;
+        model.arch == LLM_ARCH_LLAMA      ||
+        model.arch == LLM_ARCH_BAICHUAN   ||
+        model.arch == LLM_ARCH_FALCON     ||
+        model.arch == LLM_ARCH_REFACT     ||
+        model.arch == LLM_ARCH_MPT        ||
+        model.arch == LLM_ARCH_STARCODER;
 
     const bool fully_offloaded = model.n_gpu_layers >= (int) hparams.n_layer + 3;
     if (lm_ggml_cpu_has_cublas() && full_offload_supported && fully_offloaded) {
@@ -7993,7 +7994,7 @@ struct llama_context_params llama_context_default_params() {
         /*.rope_scaling_type           =*/ LLAMA_ROPE_SCALING_UNSPECIFIED,
         /*.rope_freq_base              =*/ 0.0f,
         /*.rope_freq_scale             =*/ 0.0f,
-        /*.yarn_ext_factor             =*/ NAN,
+        /*.yarn_ext_factor             =*/ -1.0f,
         /*.yarn_attn_factor            =*/ 1.0f,
         /*.yarn_beta_fast              =*/ 32.0f,
         /*.yarn_beta_slow              =*/ 1.0f,
@@ -8136,7 +8137,7 @@ struct llama_context * llama_new_context_with_model(
         cparams.rope_freq_scale = 1.0f; // never scale if scaling type is none
     }
 
-    if (std::isnan(cparams.yarn_ext_factor)) { // NaN indicates 'not set'
+    if (cparams.yarn_ext_factor < 0.0f) { // negative indicates 'not set'
         cparams.yarn_ext_factor = rope_scaling_type == LLAMA_ROPE_SCALING_YARN ? 1.0f : 0.0f;
     }
 
