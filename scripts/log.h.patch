@@ -1,6 +1,6 @@
---- log.h.orig	2023-10-27 12:54:53
-+++ log.h	2023-10-27 12:54:54
-@@ -314,6 +314,19 @@
+--- log.h.orig	2023-11-02 10:45:07
++++ log.h	2023-11-02 10:45:08
+@@ -323,6 +323,19 @@
      #define LOG_TEELN(str, ...) LOG_TEE_IMPL("%s" str, "", __VA_ARGS__, "\n")
  #endif
  
@@ -18,5 +18,5 @@
 +#endif
 +
  // INTERNAL, DO NOT USE
- inline FILE *log_handler1_impl(bool change = false, LogTriState disable = LogTriStateSame, const std::string & filename = LOG_DEFAULT_FILE_NAME, FILE *target = nullptr)
+ inline FILE *log_handler1_impl(bool change = false, LogTriState append = LogTriStateSame, LogTriState disable = LogTriStateSame, const std::string & filename = LOG_DEFAULT_FILE_NAME, FILE *target = nullptr)
  {

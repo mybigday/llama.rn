@@ -2,7 +2,7 @@ require "json"
 
 package = JSON.parse(File.read(File.join(__dir__, "package.json")))
 base_ld_flags = "-framework Accelerate -framework Foundation -framework Metal -framework MetalKit"
-base_compiler_flags = "-fno-objc-arc -DLM_GGML_USE_ACCELERATE -DLM_GGML_USE_K_QUANTS -Wno-shorten-64-to-32"
+base_compiler_flags = "-fno-objc-arc -DLM_GGML_USE_ACCELERATE -Wno-shorten-64-to-32"
 folly_compiler_flags = "-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -Wno-comma"
 
 if ENV["RNLLAMA_DISABLE_METAL"] != "1" then
@@ -11,7 +11,7 @@ end
 
 # Use base_optimizer_flags = "" for debug builds
 # base_optimizer_flags = ""
-base_optimizer_flags = "-Ofast -DNDEBUG"
+base_optimizer_flags = "-O3 -DNDEBUG"
 
 Pod::Spec.new do |s|
   s.name         = "llama-rn"

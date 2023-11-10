@@ -219,7 +219,7 @@
 #define LM_GGML_MAX_CONTEXTS      64
 #define LM_GGML_MAX_SRC           6
 #define LM_GGML_MAX_NAME          64
-#define LM_GGML_MAX_OP_PARAMS     32
+#define LM_GGML_MAX_OP_PARAMS     64
 #define LM_GGML_DEFAULT_N_THREADS 4
 
 #if UINTPTR_MAX == 0xFFFFFFFF
@@ -709,7 +709,7 @@ extern "C" {
     // Context tensor enumeration and lookup
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_first_tensor(struct lm_ggml_context * ctx);
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_next_tensor (struct lm_ggml_context * ctx, struct lm_ggml_tensor * tensor);
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_tensor(struct lm_ggml_context * ctx, const char * name);
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_tensor      (struct lm_ggml_context * ctx, const char * name);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_set_zero(struct lm_ggml_tensor * tensor);
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_set_i32 (struct lm_ggml_tensor * tensor, int32_t value);
@@ -1326,8 +1326,13 @@ extern "C" {
             int                   n_dims,
             int                   mode,
             int                   n_ctx,
+            int                   n_orig_ctx,
             float                 freq_base,
-            float                 freq_scale);
+            float                 freq_scale,
+            float                 ext_factor,
+            float                 attn_factor,
+            float                 beta_fast,
+            float                 beta_slow);
 
     // in-place, returns view(a)
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_rope_custom_inplace(
@@ -1337,8 +1342,17 @@ extern "C" {
             int                   n_dims,
             int                   mode,
             int                   n_ctx,
+            int                   n_orig_ctx,
             float                 freq_base,
-            float                 freq_scale);
+            float                 freq_scale,
+            float                 ext_factor,
+            float                 attn_factor,
+            float                 beta_fast,
+            float                 beta_slow);
+
+    // compute correction dims for YaRN RoPE scaling
+    void lm_ggml_rope_yarn_corr_dims(
+        int n_dims, int n_orig_ctx, float freq_base, float beta_fast, float beta_slow, float dims[2]);
 
     // xPos RoPE, in-place, returns view(a)
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_rope_xpos_inplace(
@@ -1358,8 +1372,13 @@ extern "C" {
             int                   n_dims,
             int                   mode,
             int                   n_ctx,
+            int                   n_orig_ctx,
             float                 freq_base,
             float                 freq_scale,
+            float                 ext_factor,
+            float                 attn_factor,
+            float                 beta_fast,
+            float                 beta_slow,
             float                 xpos_base,
             bool                  xpos_down);
 
@@ -1930,11 +1949,18 @@ extern "C" {
     // quantization
     //
 
+    // TODO: these would probably get removed in favor of the more general lm_ggml_quantize_chunk
     LM_GGML_API size_t lm_ggml_quantize_q4_0(const float * src, void * dst, int n, int k, int64_t * hist);
     LM_GGML_API size_t lm_ggml_quantize_q4_1(const float * src, void * dst, int n, int k, int64_t * hist);
     LM_GGML_API size_t lm_ggml_quantize_q5_0(const float * src, void * dst, int n, int k, int64_t * hist);
     LM_GGML_API size_t lm_ggml_quantize_q5_1(const float * src, void * dst, int n, int k, int64_t * hist);
     LM_GGML_API size_t lm_ggml_quantize_q8_0(const float * src, void * dst, int n, int k, int64_t * hist);
+
+    LM_GGML_API size_t lm_ggml_quantize_q2_K(const float * src, void * dst, int n, int k, int64_t * hist);
+    LM_GGML_API size_t lm_ggml_quantize_q3_K(const float * src, void * dst, int n, int k, int64_t * hist);
+    LM_GGML_API size_t lm_ggml_quantize_q4_K(const float * src, void * dst, int n, int k, int64_t * hist);
+    LM_GGML_API size_t lm_ggml_quantize_q5_K(const float * src, void * dst, int n, int k, int64_t * hist);
+    LM_GGML_API size_t lm_ggml_quantize_q6_K(const float * src, void * dst, int n, int k, int64_t * hist);
 
     LM_GGML_API size_t lm_ggml_quantize_chunk(enum lm_ggml_type type, const float * src, void * dst, int start, int n, int64_t * hist);
 

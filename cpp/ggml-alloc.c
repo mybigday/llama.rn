@@ -378,9 +378,13 @@ static bool lm_ggml_op_can_inplace(enum lm_ggml_op op) {
     }
 }
 
-static void init_view(struct lm_ggml_allocr * alloc, struct lm_ggml_tensor * view) {
+static void init_view(struct lm_ggml_allocr * alloc, struct lm_ggml_tensor * view, bool update_backend) {
     assert(view->view_src != NULL && view->view_src->data != NULL);
-    view->backend = view->view_src->backend;
+
+    if (update_backend) {
+        view->backend = view->view_src->backend;
+    }
+
     view->buffer  = view->view_src->buffer;
     view->data    = (char *)view->view_src->data + view->view_offs;
 
@@ -394,7 +398,7 @@ static void allocate_node(struct lm_ggml_allocr * alloc, struct lm_ggml_tensor *
     struct hash_node * ht = alloc->hash_table;
     if (node->data == NULL) {
         if (lm_ggml_is_view(node)) {
-            init_view(alloc, node);
+            init_view(alloc, node, true);
         } else {
             // see if we can reuse a parent's buffer (inplace)
             if (lm_ggml_op_can_inplace(node->op)) {
@@ -424,15 +428,14 @@ static void allocate_node(struct lm_ggml_allocr * alloc, struct lm_ggml_tensor *
                                 AT_PRINTF("reusing view parent %s (%s) for %s\n", parent->name, view_src->name, node->name);
                                 node->view_src = view_src;
                                 view_src_hn->n_views += 1;
-                                init_view(alloc, node);
+                                init_view(alloc, node, false);
                                 return;
                             }
-                        }
-                        else {
+                        } else {
                             AT_PRINTF("reusing parent %s for %s\n", parent->name, node->name);
                             node->view_src = parent;
                             p_hn->n_views += 1;
-                            init_view(alloc, node);
+                            init_view(alloc, node, false);
                             return;
                         }
                     }
@@ -463,7 +466,7 @@ size_t lm_ggml_allocr_alloc_graph_n(
                 hash_get(ht, view_src)->n_views += 1;
                 if (node->buffer == NULL && node->data != NULL) {
                     // view of a pre-allocated tensor, didn't call init_view() yet
-                    init_view(alloc, node);
+                    init_view(alloc, node, true);
                 }
             }
 
@@ -474,7 +477,7 @@ size_t lm_ggml_allocr_alloc_graph_n(
                 }
                 hash_get(ht, parent)->n_children += 1;
                 if (lm_ggml_is_view(parent) && parent->buffer == NULL && parent->data != NULL) {
-                    init_view(alloc, parent);
+                    init_view(alloc, parent, true);
                 }
             }
         }
