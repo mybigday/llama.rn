@@ -32,14 +32,10 @@ function(build_library target_name)
 
     target_link_libraries(${target_name} ${LOG_LIB} android)
 
-    if (${target_name} STREQUAL "rnllama_v8fp16_va")
-        target_compile_options(${target_name} PRIVATE -march=armv8.2-a+fp16+dotprod)
-    endif ()
-
     target_compile_options(${target_name} PRIVATE -DLM_GGML_USE_K_QUANTS -pthread)
 
     if (${target_name} STREQUAL "rnllama_v8fp16_va")
-        target_compile_options(${target_name} PRIVATE -march=armv8.2-a+fp16+dotprod)
+        target_compile_options(${target_name} PRIVATE -march=armv8.4-a+fp16+dotprod)
     endif ()
 
     if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
@@ -49,7 +45,7 @@ function(build_library target_name)
     # NOTE: If you want to debug the native code, you can uncomment if and endif
     # if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
 
-    target_compile_options(${target_name} PRIVATE -Ofast -DNDEBUG)
+    target_compile_options(${target_name} PRIVATE -O3 -DNDEBUG)
     target_compile_options(${target_name} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
     target_compile_options(${target_name} PRIVATE -ffunction-sections -fdata-sections)
 
