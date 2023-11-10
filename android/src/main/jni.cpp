@@ -450,11 +450,11 @@ Java_com_rnllama_LlamaContext_doCompletion(
     putInt(env, timingsResult, "prompt_n", timings.n_p_eval);
     putInt(env, timingsResult, "prompt_ms", timings.t_p_eval_ms);
     putInt(env, timingsResult, "prompt_per_token_ms", timings.t_p_eval_ms / timings.n_p_eval);
-    putInt(env, timingsResult, "prompt_per_second", 1e3 / timings.t_p_eval_ms * timings.n_p_eval);
+    putDouble(env, timingsResult, "prompt_per_second", 1e3 / timings.t_p_eval_ms * timings.n_p_eval);
     putInt(env, timingsResult, "predicted_n", timings.n_eval);
     putInt(env, timingsResult, "predicted_ms", timings.t_eval_ms);
     putInt(env, timingsResult, "predicted_per_token_ms", timings.t_eval_ms / timings.n_eval);
-    putInt(env, timingsResult, "predicted_per_second", 1e3 / timings.t_eval_ms * timings.n_eval);
+    putDouble(env, timingsResult, "predicted_per_second", 1e3 / timings.t_eval_ms * timings.n_eval);
 
     putMap(env, result, "timings", timingsResult);
 
