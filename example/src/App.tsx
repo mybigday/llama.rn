@@ -131,7 +131,7 @@ export default function App() {
   }
 
   const handlePickModel = async () => {
-    DocumentPicker.pick() // TODO: Is there a way to filter GGUF model files?
+    DocumentPicker.pick({type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream'})
       .then(async (res) => {
         let [file] = res
         if (file) {

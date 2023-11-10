@@ -32,14 +32,10 @@ function(build_library target_name)
 
     target_link_libraries(${target_name} ${LOG_LIB} android)
 
-    if (${target_name} STREQUAL "rnllama_v8fp16_va")
-        target_compile_options(${target_name} PRIVATE -march=armv8.2-a+fp16+dotprod)
-    endif ()
-
     target_compile_options(${target_name} PRIVATE -pthread)
 
     if (${target_name} STREQUAL "rnllama_v8fp16_va")
-        target_compile_options(${target_name} PRIVATE -march=armv8.2-a+fp16+dotprod)
+        target_compile_options(${target_name} PRIVATE -march=armv8.4-a+fp16+dotprod)
     endif ()
 
     if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
