@@ -286,6 +286,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jfloat mirostat_eta,
     jint top_k,
     jfloat top_p,
+    jfloat min_p,
     jfloat tfs_z,
     jfloat typical_p,
     jobjectArray stop,
@@ -321,6 +322,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     sparams.mirostat_eta = mirostat_eta;
     sparams.top_k = top_k;
     sparams.top_p = top_p;
+    sparams.min_p = min_p;
     sparams.tfs_z = tfs_z;
     sparams.typical_p = typical_p;
     sparams.n_probs = n_probs;

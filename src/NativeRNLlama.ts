@@ -46,6 +46,7 @@ export type NativeCompletionParams = {
   mirostat_eta?: number
   top_k?: number
   top_p?: number
+  min_p?: number
   tfs_z?: number
   typical_p?: number
 

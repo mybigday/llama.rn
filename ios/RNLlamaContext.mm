@@ -159,6 +159,7 @@
 
     if (params[@"top_k"]) sparams.top_k = [params[@"top_k"] intValue];
     if (params[@"top_p"]) sparams.top_p = [params[@"top_p"] doubleValue];
+    if (params[@"min_p"]) sparams.min_p = [params[@"min_p"] doubleValue];
     if (params[@"tfs_z"]) sparams.tfs_z = [params[@"tfs_z"] doubleValue];
 
     if (params[@"typical_p"]) sparams.typical_p = [params[@"typical_p"] doubleValue];
