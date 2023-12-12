@@ -1,11 +1,11 @@
---- ggml-metal.m.orig	2023-11-02 10:42:43
-+++ ggml-metal.m	2023-11-02 10:43:38
-@@ -209,7 +209,7 @@
-         } else {
-             LM_GGML_METAL_LOG_INFO("%s: default.metallib not found, loading from source\n", __func__);
- 
--            NSString * sourcePath = [bundle pathForResource:@"ggml-metal" ofType:@"metal"];
-+            NSString * sourcePath = [bundle pathForResource:@"ggml-metal-llama" ofType:@"metal"];
+--- ggml-metal.m.orig	2023-12-12 10:46:04
++++ ggml-metal.m	2023-12-12 10:46:43
+@@ -241,7 +241,7 @@
+             if (ggmlMetalPathResources) {
+                 sourcePath = [ggmlMetalPathResources stringByAppendingPathComponent:@"ggml-metal.metal"];
+             } else {
+-                sourcePath = [bundle pathForResource:@"ggml-metal" ofType:@"metal"];
++                sourcePath = [bundle pathForResource:@"ggml-metal-llama" ofType:@"metal"];
+             }
              if (sourcePath == nil) {
                  LM_GGML_METAL_LOG_WARN("%s: error: could not use bundle path to find ggml-metal.metal, falling back to trying cwd\n", __func__);
-                 sourcePath = @"ggml-metal.metal";

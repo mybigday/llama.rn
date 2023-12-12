@@ -52,8 +52,6 @@ public class LlamaContext {
       params.hasKey("use_mlock") ? params.getBoolean("use_mlock") : true,
       // boolean use_mmap,
       params.hasKey("use_mmap") ? params.getBoolean("use_mmap") : true,
-      // boolean memory_f16,
-      params.hasKey("memory_f16") ? params.getBoolean("memory_f16") : true,
       // String lora,
       params.hasKey("lora") ? params.getString("lora") : "",
       // float lora_scaled,
@@ -285,7 +283,6 @@ public class LlamaContext {
     int n_gpu_layers, // TODO: Support this
     boolean use_mlock,
     boolean use_mmap,
-    boolean memory_f16,
     String lora,
     float lora_scaled,
     String lora_base,

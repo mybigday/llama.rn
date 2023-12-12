@@ -129,7 +129,6 @@ Java_com_rnllama_LlamaContext_initContext(
     jint n_gpu_layers, // TODO: Support this
     jboolean use_mlock,
     jboolean use_mmap,
-    jboolean memory_f16,
     jstring lora_str,
     jfloat lora_scaled,
     jstring lora_base_str,
@@ -157,8 +156,6 @@ Java_com_rnllama_LlamaContext_initContext(
 
     defaultParams.use_mlock = use_mlock;
     defaultParams.use_mmap = use_mmap;
-
-    defaultParams.memory_f16 = memory_f16;
 
     const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
     const char *lora_base_chars = env->GetStringUTFChars(lora_base_str, nullptr);

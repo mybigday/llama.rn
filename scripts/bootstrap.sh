@@ -12,6 +12,7 @@ cp ./llama.cpp/ggml-alloc.h ./cpp/ggml-alloc.h
 cp ./llama.cpp/ggml-alloc.c ./cpp/ggml-alloc.c
 cp ./llama.cpp/ggml-backend.h ./cpp/ggml-backend.h
 cp ./llama.cpp/ggml-backend.c ./cpp/ggml-backend.c
+cp ./llama.cpp/ggml-backend-impl.h ./cpp/ggml-backend-impl.h
 cp ./llama.cpp/ggml-impl.h ./cpp/ggml-impl.h
 cp ./llama.cpp/llama.h ./cpp/llama.h
 cp ./llama.cpp/llama.cpp ./cpp/llama.cpp
@@ -41,6 +42,7 @@ files=(
   "./cpp/ggml-alloc.c"
   "./cpp/ggml-backend.h"
   "./cpp/ggml-backend.c"
+  "./cpp/ggml-backend-impl.h"
   "./cpp/ggml-impl.h"
 )
 
