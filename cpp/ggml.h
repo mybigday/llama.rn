@@ -58,7 +58,8 @@
 //   {
 //       ...
 //
-//       struct lm_ggml_cgraph gf = lm_ggml_build_forward(f);
+//       struct lm_ggml_cgraph * gf = lm_ggml_new_graph(ctx);
+//       lm_ggml_build_forward_expand(gf, f);
 //
 //       // set the input variable and parameter values
 //       lm_ggml_set_f32(x, 2.0f);
@@ -213,15 +214,14 @@
 #define LM_GGML_QNT_VERSION        2    // bump this on quantization format changes
 #define LM_GGML_QNT_VERSION_FACTOR 1000 // do not change this
 
-#define LM_GGML_MAX_DIMS          4
-#define LM_GGML_MAX_NODES         16384
-#define LM_GGML_MAX_PARAMS        1024
-#define LM_GGML_MAX_CONTEXTS      64
-#define LM_GGML_MAX_SRC           6
-#define LM_GGML_MAX_NAME          64
-#define LM_GGML_MAX_OP_PARAMS     64
-#define LM_GGML_DEFAULT_N_THREADS 4
-
+#define LM_GGML_MAX_DIMS           4
+#define LM_GGML_MAX_PARAMS         1024
+#define LM_GGML_MAX_CONTEXTS       64
+#define LM_GGML_MAX_SRC            6
+#define LM_GGML_MAX_NAME           64
+#define LM_GGML_MAX_OP_PARAMS      64
+#define LM_GGML_DEFAULT_N_THREADS  4
+#define LM_GGML_DEFAULT_GRAPH_SIZE 2048
 #if UINTPTR_MAX == 0xFFFFFFFF
     #define LM_GGML_MEM_ALIGN 4
 #else
@@ -244,7 +244,9 @@
 #define LM_GGML_ASSERT(x) \
     do { \
         if (!(x)) { \
+            fflush(stdout); \
             fprintf(stderr, "LM_GGML_ASSERT: %s:%d: %s\n", __FILE__, __LINE__, #x); \
+            lm_ggml_print_backtrace(); \
             abort(); \
         } \
     } while (0)
@@ -280,6 +282,20 @@
     LM_GGML_TENSOR_LOCALS_3  (type, prefix, pointer, array) \
     const type prefix##3 = (pointer)->array[3]; \
     LM_GGML_UNUSED(prefix##3);
+
+#define LM_GGML_TENSOR_UNARY_OP_LOCALS \
+    LM_GGML_TENSOR_LOCALS(int64_t, ne0, src0, ne) \
+    LM_GGML_TENSOR_LOCALS(size_t,  nb0, src0, nb) \
+    LM_GGML_TENSOR_LOCALS(int64_t, ne,  dst,  ne) \
+    LM_GGML_TENSOR_LOCALS(size_t,  nb,  dst,  nb)
+
+#define LM_GGML_TENSOR_BINARY_OP_LOCALS \
+    LM_GGML_TENSOR_LOCALS(int64_t, ne0, src0, ne) \
+    LM_GGML_TENSOR_LOCALS(size_t,  nb0, src0, nb) \
+    LM_GGML_TENSOR_LOCALS(int64_t, ne1, src1, ne) \
+    LM_GGML_TENSOR_LOCALS(size_t,  nb1, src1, nb) \
+    LM_GGML_TENSOR_LOCALS(int64_t, ne,  dst,  ne) \
+    LM_GGML_TENSOR_LOCALS(size_t,  nb,  dst,  nb)
 
 #ifdef  __cplusplus
 extern "C" {
@@ -379,6 +395,7 @@ extern "C" {
         LM_GGML_OP_GROUP_NORM,
 
         LM_GGML_OP_MUL_MAT,
+        LM_GGML_OP_MUL_MAT_ID,
         LM_GGML_OP_OUT_PROD,
 
         LM_GGML_OP_SCALE,
@@ -400,18 +417,13 @@ extern "C" {
         LM_GGML_OP_ROPE_BACK,
         LM_GGML_OP_ALIBI,
         LM_GGML_OP_CLAMP,
-        LM_GGML_OP_CONV_1D,
-        LM_GGML_OP_CONV_1D_STAGE_0,  // internal
-        LM_GGML_OP_CONV_1D_STAGE_1,  // internal
         LM_GGML_OP_CONV_TRANSPOSE_1D,
-        LM_GGML_OP_CONV_2D,
-        LM_GGML_OP_CONV_2D_STAGE_0, // internal
-        LM_GGML_OP_CONV_2D_STAGE_1, // internal
+        LM_GGML_OP_IM2COL,
         LM_GGML_OP_CONV_TRANSPOSE_2D,
         LM_GGML_OP_POOL_1D,
         LM_GGML_OP_POOL_2D,
-
         LM_GGML_OP_UPSCALE, // nearest interpolate
+        LM_GGML_OP_ARGSORT,
 
         LM_GGML_OP_FLASH_ATTN,
         LM_GGML_OP_FLASH_FF,
@@ -451,6 +463,9 @@ extern "C" {
         LM_GGML_UNARY_OP_GELU,
         LM_GGML_UNARY_OP_GELU_QUICK,
         LM_GGML_UNARY_OP_SILU,
+        LM_GGML_UNARY_OP_LEAKY,
+
+        LM_GGML_UNARY_OP_COUNT,
     };
 
     enum lm_ggml_object_type {
@@ -531,20 +546,10 @@ extern "C" {
 
         int n_threads;
 
-        // the `n_tasks` of nodes, 1:1 mapping to cgraph nodes
-        int n_tasks[LM_GGML_MAX_NODES];
-
         // abort lm_ggml_graph_compute when true
         bool (*abort_callback)(void * data);
         void * abort_callback_data;
     };
-
-    // next prime after LM_GGML_MAX_NODES
-    // #define LM_GGML_GRAPH_HASHTABLE_SIZE 4099
-    // next prime after LM_GGML_MAX_NODES * 2 (nodes + leafs)
-    // #define LM_GGML_GRAPH_HASHTABLE_SIZE 8273
-    // #define LM_GGML_GRAPH_HASHTABLE_SIZE 16411
-    #define LM_GGML_GRAPH_HASHTABLE_SIZE 32771
 
     enum lm_ggml_cgraph_eval_order {
         LM_GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT = 0,
@@ -552,16 +557,22 @@ extern "C" {
         LM_GGML_CGRAPH_EVAL_ORDER_COUNT
     };
 
+    struct lm_ggml_hash_set {
+        size_t size;
+        struct lm_ggml_tensor ** keys;
+    };
+
     // computation graph
     struct lm_ggml_cgraph {
+        int size;
         int n_nodes;
         int n_leafs;
 
-        struct lm_ggml_tensor * nodes[LM_GGML_MAX_NODES];
-        struct lm_ggml_tensor * grads[LM_GGML_MAX_NODES];
-        struct lm_ggml_tensor * leafs[LM_GGML_MAX_NODES];
+        struct lm_ggml_tensor ** nodes;
+        struct lm_ggml_tensor ** grads;
+        struct lm_ggml_tensor ** leafs;
 
-        void * visited_hash_table[LM_GGML_GRAPH_HASHTABLE_SIZE];
+        struct lm_ggml_hash_set visited_hash_table;
 
         enum lm_ggml_cgraph_eval_order order;
 
@@ -570,8 +581,6 @@ extern "C" {
         int64_t perf_cycles;
         int64_t perf_time_us;
     };
-
-    static const size_t LM_GGML_GRAPH_SIZE = sizeof(struct lm_ggml_cgraph);
 
     // scratch buffer
     struct lm_ggml_scratch {
@@ -617,6 +626,8 @@ extern "C" {
     LM_GGML_API int64_t lm_ggml_cycles(void);
     LM_GGML_API int64_t lm_ggml_cycles_per_ms(void);
 
+    LM_GGML_API void    lm_ggml_print_backtrace(void);
+
     LM_GGML_API void    lm_ggml_numa_init(void); // call once for better performance on NUMA systems
     LM_GGML_API bool    lm_ggml_is_numa(void); // true if init detected that system has >1 NUMA node
 
@@ -636,6 +647,9 @@ extern "C" {
     LM_GGML_API const char * lm_ggml_type_name(enum lm_ggml_type type);
     LM_GGML_API const char * lm_ggml_op_name  (enum lm_ggml_op   op);
     LM_GGML_API const char * lm_ggml_op_symbol(enum lm_ggml_op   op);
+
+    LM_GGML_API const char * lm_ggml_unary_op_name(enum lm_ggml_unary_op op);
+    LM_GGML_API const char * lm_ggml_op_desc(const struct lm_ggml_tensor * t); // unary or op name
 
     LM_GGML_API size_t  lm_ggml_element_size(const struct lm_ggml_tensor * tensor);
 
@@ -709,7 +723,7 @@ extern "C" {
     // Context tensor enumeration and lookup
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_first_tensor(struct lm_ggml_context * ctx);
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_next_tensor (struct lm_ggml_context * ctx, struct lm_ggml_tensor * tensor);
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_tensor      (struct lm_ggml_context * ctx, const char * name);
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_tensor(struct lm_ggml_context * ctx, const char * name);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_set_zero(struct lm_ggml_tensor * tensor);
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_set_i32 (struct lm_ggml_tensor * tensor, int32_t value);
@@ -943,6 +957,10 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
 
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_leaky(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_relu_inplace(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
@@ -1027,6 +1045,15 @@ extern "C" {
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_mul_mat(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b);
+
+    // indirect matrix multiplication
+    //  lm_ggml_mul_mat_id(ctx, as, ids, id, b) ~= lm_ggml_mul_mat(as[ids[id]], b)
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_mul_mat_id(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * as[],
+            struct lm_ggml_tensor  * ids,
+            int                   id,
             struct lm_ggml_tensor  * b);
 
     // A: m columns, n rows,
@@ -1284,6 +1311,14 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
 
+    // fused soft_max(a*scale + mask)
+    // mask is optional
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_soft_max_ext(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * mask,
+            float                 scale);
+
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_soft_max_back(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
@@ -1399,6 +1434,18 @@ extern "C" {
             float                 min,
             float                 max);
 
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_im2col(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b,
+            int                  s0,
+            int                  s1,
+            int                  p0,
+            int                  p1,
+            int                  d0,
+            int                  d1,
+            bool                 is_2D);
+
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_1d(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
@@ -1482,6 +1529,8 @@ extern "C" {
             int                   s0, // stride
             int                   p0); // padding
 
+    // the result will have 2*p0 padding for the first dimension
+    // and 2*p1 padding for the second dimension
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_pool_2d(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
@@ -1490,8 +1539,8 @@ extern "C" {
             int                   k1,
             int                   s0,
             int                   s1,
-            int                   p0,
-            int                   p1);
+            float                 p0,
+            float                 p1);
 
     // nearest interpolate
     // used in stable-diffusion
@@ -1499,6 +1548,23 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             int                   scale_factor);
+
+    // sort rows
+    enum lm_ggml_sort_order {
+        LM_GGML_SORT_ASC,
+        LM_GGML_SORT_DESC,
+    };
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_argsort(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            enum lm_ggml_sort_order  order);
+
+    // top k elements per row
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_top_k(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            int                   k);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_flash_attn(
             struct lm_ggml_context * ctx,
@@ -1561,7 +1627,6 @@ extern "C" {
             int                   kh);
 
     // used in sam
-
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_add_rel_pos(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
@@ -1732,19 +1797,22 @@ extern "C" {
     LM_GGML_API void lm_ggml_build_forward_expand (struct lm_ggml_cgraph * cgraph, struct lm_ggml_tensor * tensor);
     LM_GGML_API void lm_ggml_build_backward_expand(struct lm_ggml_context * ctx, struct lm_ggml_cgraph * gf, struct lm_ggml_cgraph * gb, bool keep);
 
-    LM_GGML_API struct lm_ggml_cgraph lm_ggml_build_forward (struct lm_ggml_tensor * tensor);
-    LM_GGML_API struct lm_ggml_cgraph lm_ggml_build_backward(struct lm_ggml_context * ctx, struct lm_ggml_cgraph * gf, bool keep);
-
     // graph allocation in a context
-    LM_GGML_API struct lm_ggml_cgraph * lm_ggml_new_graph        (struct lm_ggml_context * ctx);
-    LM_GGML_API struct lm_ggml_cgraph * lm_ggml_build_forward_ctx(struct lm_ggml_context * ctx, struct lm_ggml_tensor * tensor);
+    LM_GGML_API struct lm_ggml_cgraph * lm_ggml_new_graph         (struct lm_ggml_context * ctx); // size = LM_GGML_DEFAULT_GRAPH_SIZE, grads = false
+    LM_GGML_API struct lm_ggml_cgraph * lm_ggml_new_graph_custom  (struct lm_ggml_context * ctx, size_t size, bool grads);
+    LM_GGML_API struct lm_ggml_cgraph * lm_ggml_graph_dup         (struct lm_ggml_context * ctx, struct lm_ggml_cgraph * cgraph);
+    LM_GGML_API struct lm_ggml_cgraph   lm_ggml_graph_view        (struct lm_ggml_cgraph * cgraph, int i0, int i1);
+    LM_GGML_API void                 lm_ggml_graph_cpy         (struct lm_ggml_cgraph * src, struct lm_ggml_cgraph * dst);
+    LM_GGML_API void                 lm_ggml_graph_reset       (struct lm_ggml_cgraph * cgraph);  // zero grads
+    LM_GGML_API void                 lm_ggml_graph_clear       (struct lm_ggml_cgraph * cgraph);
+
     LM_GGML_API size_t lm_ggml_graph_overhead(void);
+    LM_GGML_API size_t lm_ggml_graph_overhead_custom(size_t size, bool grads);
 
     // lm_ggml_graph_plan() has to be called before lm_ggml_graph_compute()
     // when plan.work_size > 0, caller must allocate memory for plan.work_data
     LM_GGML_API struct lm_ggml_cplan lm_ggml_graph_plan   (struct lm_ggml_cgraph * cgraph, int n_threads /*= LM_GGML_DEFAULT_N_THREADS*/);
-    LM_GGML_API               int lm_ggml_graph_compute(struct lm_ggml_cgraph * cgraph, struct lm_ggml_cplan * cplan);
-    LM_GGML_API              void lm_ggml_graph_reset  (struct lm_ggml_cgraph * cgraph);
+    LM_GGML_API int               lm_ggml_graph_compute(struct lm_ggml_cgraph * cgraph, struct lm_ggml_cplan * cplan);
 
     // same as lm_ggml_graph_compute() but the work data is allocated as a part of the context
     // note: the drawback of this API is that you must have ensured that the context has enough memory for the work data
@@ -1752,8 +1820,8 @@ extern "C" {
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_graph_get_tensor(struct lm_ggml_cgraph * cgraph, const char * name);
 
-    LM_GGML_API void               lm_ggml_graph_export(const struct lm_ggml_cgraph * cgraph, const char * fname);
-    LM_GGML_API struct lm_ggml_cgraph lm_ggml_graph_import(const char * fname, struct lm_ggml_context ** ctx_data, struct lm_ggml_context ** ctx_eval);
+    LM_GGML_API void                 lm_ggml_graph_export(const struct lm_ggml_cgraph * cgraph, const char * fname);
+    LM_GGML_API struct lm_ggml_cgraph * lm_ggml_graph_import(const char * fname, struct lm_ggml_context ** ctx_data, struct lm_ggml_context ** ctx_eval);
 
     // print info and performance information for the graph
     LM_GGML_API void lm_ggml_graph_print(const struct lm_ggml_cgraph * cgraph);
@@ -1815,6 +1883,8 @@ extern "C" {
     //
     struct lm_ggml_opt_params {
         enum lm_ggml_opt_type type;
+
+        size_t graph_size;
 
         int n_threads;
 
@@ -2027,6 +2097,7 @@ extern "C" {
     LM_GGML_API double       lm_gguf_get_val_f64 (const struct lm_gguf_context * ctx, int key_id);
     LM_GGML_API bool         lm_gguf_get_val_bool(const struct lm_gguf_context * ctx, int key_id);
     LM_GGML_API const char * lm_gguf_get_val_str (const struct lm_gguf_context * ctx, int key_id);
+    LM_GGML_API const void * lm_gguf_get_val_data(const struct lm_gguf_context * ctx, int key_id);
     LM_GGML_API int          lm_gguf_get_arr_n   (const struct lm_gguf_context * ctx, int key_id);
     LM_GGML_API const void * lm_gguf_get_arr_data(const struct lm_gguf_context * ctx, int key_id);
     LM_GGML_API const char * lm_gguf_get_arr_str (const struct lm_gguf_context * ctx, int key_id, int i);

@@ -1,6 +1,6 @@
---- common.cpp.orig	2023-11-07 10:50:44
-+++ common.cpp	2023-11-07 10:50:46
-@@ -1225,8 +1225,6 @@
+--- common.cpp.orig	2023-12-12 10:50:18
++++ common.cpp	2023-12-12 10:50:19
+@@ -1385,8 +1385,6 @@
                                 const std::string & timestamp, const std::vector<int> & prompt_tokens, const char * model_desc) {
      const llama_sampling_params & sparams = params.sparams;
  
