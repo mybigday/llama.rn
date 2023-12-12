@@ -159,7 +159,7 @@ Java_com_rnllama_LlamaContext_initContext(
 
     const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
     const char *lora_base_chars = env->GetStringUTFChars(lora_base_str, nullptr);
-    if (lora_chars) {
+    if (lora_chars != nullptr && lora_chars[0] != '\0') {
         defaultParams.lora_adapter.push_back({lora_chars, lora_scaled});
         defaultParams.lora_base = lora_base_chars;
         defaultParams.use_mmap = false;
