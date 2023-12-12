@@ -55,7 +55,6 @@
     }
     if (params[@"n_batch"]) defaultParams.n_batch = [params[@"n_batch"] intValue];
     if (params[@"use_mmap"]) defaultParams.use_mmap = [params[@"use_mmap"] boolValue];
-    if (params[@"memory_f16"]) defaultParams.memory_f16 = [params[@"memory_f16"] boolValue];
 
     if (params[@"lora"]) {
         float lora_scaled = 1.0f;
