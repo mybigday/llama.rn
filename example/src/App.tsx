@@ -173,6 +173,7 @@ export default function App() {
             addSystemMessage('Heat up time is too long, please try again.')
             return
           }
+          addSystemMessage(`Heat up time: ${tHeat}ms`)
 
           addSystemMessage('Benchmarking the model...')
           const result = await context.bench(512, 128, 1, 3)
