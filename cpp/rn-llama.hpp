@@ -586,11 +586,11 @@ struct llama_rn_context
 
             llama_kv_cache_clear(ctx);
 
-            const double t_pp = (double)(t_pp_end - t_pp_start) / 1000000.0;
-            const double t_tg = (double)(t_tg_end - t_tg_start) / 1000000.0;
+            const double t_pp = (t_pp_end - t_pp_start) / 1000000.0;
+            const double t_tg = (t_tg_end - t_tg_start) / 1000000.0;
 
-            const double speed_pp = (double)pp / t_pp;
-            const double speed_tg = (double)(pl * tg) / t_tg;
+            const double speed_pp = pp / t_pp;
+            const double speed_tg = (pl * tg) / t_tg;
 
             pp_avg += speed_pp;
             tg_avg += speed_tg;
