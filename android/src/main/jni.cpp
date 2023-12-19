@@ -561,6 +561,22 @@ Java_com_rnllama_LlamaContext_embedding(
     return result;
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_rnllama_LlamaContext_bench(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jint pp,
+    jint tg,
+    jint pl,
+    jint nr
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    std::string result = llama->bench(pp, tg, pl, nr);
+    return env->NewStringUTF(result.c_str());
+}
+
 JNIEXPORT void JNICALL
 Java_com_rnllama_LlamaContext_freeContext(
         JNIEnv *env, jobject thiz, jlong context_ptr) {

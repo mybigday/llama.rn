@@ -216,6 +216,10 @@ public class LlamaContext {
     return result;
   }
 
+  public String bench(int pp, int tg, int pl, int nr) {
+    return bench(this.context, pp, tg, pl, nr);
+  }
+
   public void release() {
     freeContext(context);
   }
@@ -329,5 +333,6 @@ public class LlamaContext {
   protected static native String detokenize(long contextPtr, int[] tokens);
   protected static native boolean isEmbeddingEnabled(long contextPtr);
   protected static native WritableArray embedding(long contextPtr, String text);
+  protected static native String bench(long contextPtr, int pp, int tg, int pl, int nr);
   protected static native void freeContext(long contextPtr);
 }

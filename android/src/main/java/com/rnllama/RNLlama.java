@@ -316,6 +316,38 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "embedding-" + contextId);
   }
 
+  public void bench(double id, final double pp, final double tg, final double pl, final double nr, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, String>() {
+      private Exception exception;
+
+      @Override
+      protected String doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          return context.bench((int) pp, (int) tg, (int) pl, (int) nr);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(String result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.execute();
+    tasks.put(task, "bench-" + contextId);
+  }
+
   public void releaseContext(double id, Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, Void>() {

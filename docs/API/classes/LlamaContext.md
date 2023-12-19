@@ -16,6 +16,7 @@
 
 ### Methods
 
+- [bench](LlamaContext.md#bench)
 - [completion](LlamaContext.md#completion)
 - [detokenize](LlamaContext.md#detokenize)
 - [embedding](LlamaContext.md#embedding)
@@ -39,7 +40,7 @@
 
 #### Defined in
 
-[index.ts:49](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L49)
+[index.ts:60](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L60)
 
 ## Properties
 
@@ -49,7 +50,7 @@
 
 #### Defined in
 
-[index.ts:45](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L45)
+[index.ts:56](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L56)
 
 ___
 
@@ -59,7 +60,7 @@ ___
 
 #### Defined in
 
-[index.ts:43](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L43)
+[index.ts:54](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L54)
 
 ___
 
@@ -69,9 +70,32 @@ ___
 
 #### Defined in
 
-[index.ts:47](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L47)
+[index.ts:58](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L58)
 
 ## Methods
+
+### bench
+
+▸ **bench**(`pp`, `tg`, `pl`, `nr`): `Promise`<[`BenchResult`](../README.md#benchresult)\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `pp` | `number` |
+| `tg` | `number` |
+| `pl` | `number` |
+| `nr` | `number` |
+
+#### Returns
+
+`Promise`<[`BenchResult`](../README.md#benchresult)\>
+
+#### Defined in
+
+[index.ts:129](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L129)
+
+___
 
 ### completion
 
@@ -90,7 +114,7 @@ ___
 
 #### Defined in
 
-[index.ts:73](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L73)
+[index.ts:84](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L84)
 
 ___
 
@@ -110,7 +134,7 @@ ___
 
 #### Defined in
 
-[index.ts:110](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L110)
+[index.ts:121](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L121)
 
 ___
 
@@ -130,13 +154,13 @@ ___
 
 #### Defined in
 
-[index.ts:114](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L114)
+[index.ts:125](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L125)
 
 ___
 
 ### loadSession
 
-▸ **loadSession**(`filepath`): `Promise`<`number`\>
+▸ **loadSession**(`filepath`): `Promise`<`NativeSessionLoadResult`\>
 
 Load cached prompt & completion state from a file.
 
@@ -148,11 +172,11 @@ Load cached prompt & completion state from a file.
 
 #### Returns
 
-`Promise`<`number`\>
+`Promise`<`NativeSessionLoadResult`\>
 
 #### Defined in
 
-[index.ts:62](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L62)
+[index.ts:73](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L73)
 
 ___
 
@@ -166,13 +190,13 @@ ___
 
 #### Defined in
 
-[index.ts:118](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L118)
+[index.ts:151](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L151)
 
 ___
 
 ### saveSession
 
-▸ **saveSession**(`filepath`): `Promise`<`number`\>
+▸ **saveSession**(`filepath`, `options?`): `Promise`<`number`\>
 
 Save current cached prompt & completion state to a file.
 
@@ -181,6 +205,8 @@ Save current cached prompt & completion state to a file.
 | Name | Type |
 | :------ | :------ |
 | `filepath` | `string` |
+| `options?` | `Object` |
+| `options.tokenSize` | `number` |
 
 #### Returns
 
@@ -188,7 +214,7 @@ Save current cached prompt & completion state to a file.
 
 #### Defined in
 
-[index.ts:69](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L69)
+[index.ts:80](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L80)
 
 ___
 
@@ -202,7 +228,7 @@ ___
 
 #### Defined in
 
-[index.ts:102](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L102)
+[index.ts:113](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L113)
 
 ___
 
@@ -222,4 +248,4 @@ ___
 
 #### Defined in
 
-[index.ts:106](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L106)
+[index.ts:117](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L117)

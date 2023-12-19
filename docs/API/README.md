@@ -11,6 +11,7 @@ llama.rn
 
 ### Type Aliases
 
+- [BenchResult](README.md#benchresult)
 - [CompletionParams](README.md#completionparams)
 - [ContextParams](README.md#contextparams)
 - [TokenData](README.md#tokendata)
@@ -24,13 +25,35 @@ llama.rn
 
 ## Type Aliases
 
+### BenchResult
+
+Ƭ **BenchResult**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `modelDesc` | `string` |
+| `modelNParams` | `number` |
+| `modelSize` | `number` |
+| `ppAvg` | `number` |
+| `ppStd` | `number` |
+| `tgAvg` | `number` |
+| `tgStd` | `number` |
+
+#### Defined in
+
+[index.ts:43](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L43)
+
+___
+
 ### CompletionParams
 
 Ƭ **CompletionParams**: `Omit`<`NativeCompletionParams`, ``"emit_partial_completion"``\>
 
 #### Defined in
 
-[index.ts:40](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L40)
+[index.ts:41](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L41)
 
 ___
 
@@ -40,7 +63,7 @@ ___
 
 #### Defined in
 
-[index.ts:38](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L38)
+[index.ts:39](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L39)
 
 ___
 
@@ -57,7 +80,7 @@ ___
 
 #### Defined in
 
-[index.ts:28](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L28)
+[index.ts:29](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L29)
 
 ## Functions
 
@@ -79,7 +102,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:134](https://github.com/mybigday/llama.rn/blob/8738c99/src/grammar.ts#L134)
+[grammar.ts:134](https://github.com/mybigday/llama.rn/blob/427a856/src/grammar.ts#L134)
 
 ___
 
@@ -99,7 +122,7 @@ ___
 
 #### Defined in
 
-[index.ts:127](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L127)
+[index.ts:160](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L160)
 
 ___
 
@@ -113,7 +136,7 @@ ___
 
 #### Defined in
 
-[index.ts:143](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L143)
+[index.ts:176](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L176)
 
 ___
 
@@ -133,4 +156,4 @@ ___
 
 #### Defined in
 
-[index.ts:123](https://github.com/mybigday/llama.rn/blob/8738c99/src/index.ts#L123)
+[index.ts:156](https://github.com/mybigday/llama.rn/blob/427a856/src/index.ts#L156)

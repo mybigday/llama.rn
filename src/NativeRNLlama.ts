@@ -121,6 +121,8 @@ export interface Spec extends TurboModule {
   tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>;
   detokenize(contextId: number, tokens: number[]): Promise<string>;
   embedding(contextId: number, text: string): Promise<NativeEmbeddingResult>;
+  bench(contextId: number, pp: number, tg: number, pl: number, nr: number): Promise<string>;
+
   releaseContext(contextId: number): Promise<void>;
 
   releaseAllContexts(): Promise<void>;

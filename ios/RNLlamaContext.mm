@@ -373,6 +373,10 @@
     return session_tokens.size();
 }
 
+- (NSString *)bench:(int)pp tg:(int)tg pl:(int)pl nr:(int)nr {
+    return [NSString stringWithUTF8String:llama->bench(pp, tg, pl, nr).c_str()];
+}
+
 - (void)invalidate {
     delete llama;
     // llama_backend_free();
