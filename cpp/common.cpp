@@ -42,6 +42,12 @@
 #pragma warning(disable: 4244 4267) // possible loss of data
 #endif
 
+// build info
+int LLAMA_BUILD_NUMBER = 0;
+char const *LLAMA_COMMIT = "unknown";
+char const *LLAMA_COMPILER = "unknown";
+char const *LLAMA_BUILD_TARGET = "unknown";
+
 int32_t get_num_physical_cores() {
 #ifdef __linux__
     // enumerate the set of thread siblings, num entries is num cores
@@ -656,6 +662,10 @@ bool gpt_params_parse_ex(int argc, char ** argv, gpt_params & params) {
         } else if (arg == "-h" || arg == "--help") {
             return false;
 
+        } else if (arg == "--version") {
+            fprintf(stderr, "version: %d (%s)\n", LLAMA_BUILD_NUMBER, LLAMA_COMMIT);
+            fprintf(stderr, "built with %s for %s\n", LLAMA_COMPILER, LLAMA_BUILD_TARGET);
+            exit(0);
         } else if (arg == "--random-prompt") {
             params.random_prompt = true;
         } else if (arg == "--in-prefix-bos") {
@@ -794,6 +804,7 @@ void gpt_print_usage(int /*argc*/, char ** argv, const gpt_params & params) {
     printf("\n");
     printf("options:\n");
     printf("  -h, --help            show this help message and exit\n");
+    printf("      --version         show version and build info\n");
     printf("  -i, --interactive     run in interactive mode\n");
     printf("  --interactive-first   run in interactive mode and wait for input right away\n");
     printf("  -ins, --instruct      run in instruction mode (use with Alpaca models)\n");
@@ -1385,6 +1396,8 @@ void dump_non_result_info_yaml(FILE * stream, const gpt_params & params, const l
                                const std::string & timestamp, const std::vector<int> & prompt_tokens, const char * model_desc) {
     const llama_sampling_params & sparams = params.sparams;
 
+    fprintf(stream, "build_commit: %s\n",        LLAMA_COMMIT);
+    fprintf(stream, "build_number: %d\n",        LLAMA_BUILD_NUMBER);
     fprintf(stream, "cpu_has_arm_fma: %s\n",     lm_ggml_cpu_has_arm_fma()     ? "true" : "false");
     fprintf(stream, "cpu_has_avx: %s\n",         lm_ggml_cpu_has_avx()         ? "true" : "false");
     fprintf(stream, "cpu_has_avx2: %s\n",        lm_ggml_cpu_has_avx2()        ? "true" : "false");

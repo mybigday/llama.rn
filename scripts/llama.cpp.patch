@@ -1,6 +1,6 @@
---- llama.cpp.orig	2023-12-12 10:46:04
-+++ llama.cpp	2023-12-12 10:46:05
-@@ -105,6 +105,17 @@
+--- llama.cpp.orig	2023-12-19 07:48:34
++++ llama.cpp	2023-12-19 07:48:35
+@@ -106,6 +106,17 @@
  #define LLAMA_LOG_WARN(...)  llama_log_internal(LM_GGML_LOG_LEVEL_WARN , __VA_ARGS__)
  #define LLAMA_LOG_ERROR(...) llama_log_internal(LM_GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
  
@@ -18,7 +18,7 @@
  //
  // helpers
  //
-@@ -863,16 +874,16 @@
+@@ -895,16 +906,16 @@
  
          if (prefetch > 0) {
              // Advise the kernel to preload the mapped memory
