@@ -1,8 +1,9 @@
 import React, { useContext } from 'react'
 import type { ReactNode } from 'react'
-import { View, Text } from 'react-native'
+import { View, Text, TouchableOpacity } from 'react-native'
 import { ThemeContext, UserContext } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
+import Clipboard from '@react-native-clipboard/clipboard';
 
 export const Bubble = ({
   child,
@@ -14,8 +15,11 @@ export const Bubble = ({
   const theme = useContext(ThemeContext)
   const user = useContext(UserContext)
   const currentUserIsAuthor = user?.id === message.author.id
+  const { copyable, timings } = message.metadata || {}
+
+  const Container: React.ComponentClass<any> = copyable ? TouchableOpacity : View
   return (
-    <View
+    <Container
       style={{
         backgroundColor:
           !currentUserIsAuthor || message.type === 'image'
@@ -31,9 +35,13 @@ export const Bubble = ({
         borderRadius: theme.borders.messageBorderRadius,
         overflow: 'hidden',
       }}
+      onPress={() => {
+        if (message.type !== 'text') return
+        Clipboard.setString(message.text);
+      }}
     >
       {child}
-      {message.metadata?.timings && (
+      {timings && (
         <Text
           style={{
             textAlign: 'right',
@@ -44,9 +52,9 @@ export const Bubble = ({
             fontSize: 10,
           }}
         >
-          {message.metadata.timings}
+          {timings}
         </Text>
       )}
-    </View>
+    </Container>
   )
 }

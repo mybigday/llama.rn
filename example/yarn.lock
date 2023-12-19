@@ -1333,6 +1333,11 @@
     "@nodelib/fs.scandir" "2.1.5"
     fastq "^1.6.0"
 
+"@react-native-clipboard/clipboard@^1.13.1":
+  version "1.13.1"
+  resolved "https://registry.yarnpkg.com/@react-native-clipboard/clipboard/-/clipboard-1.13.1.tgz#e313110aa487c510acb9f810637a41d1d0511857"
+  integrity sha512-sXWYgjPOK9lDLJQ2AebYY4t19UKh0JLNzX/KTnNulS9XL7Hd4mFZPwPfL4ysF6/SiGJaP6QlEFQbOZA+x4SIPg==
+
 "@react-native-community/cli-clean@11.3.5":
   version "11.3.5"
   resolved "https://registry.yarnpkg.com/@react-native-community/cli-clean/-/cli-clean-11.3.5.tgz#07c8a01e433ea6c6e32eb647908be48952888cdd"

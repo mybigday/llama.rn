@@ -73,14 +73,14 @@ export default function App() {
     }
   }
 
-  const addSystemMessage = (text: string) => {
+  const addSystemMessage = (text: string, metadata = {} ) => {
     const textMessage: MessageType.Text = {
       author: system,
       createdAt: Date.now(),
       id: randId(),
       text,
       type: 'text',
-      metadata: { system: true },
+      metadata: { system: true, ...metadata },
     }
     addMessage(textMessage)
   }
@@ -187,15 +187,14 @@ export default function App() {
             tgStd,
           ] = JSON.parse(result)
 
-          const size = `${modelSize / 1024.0 / 1024.0 / 1024.0} GiB`
-          const nParams = `${modelNParams / 1e9}B`
+          const size = `${(modelSize / 1024.0 / 1024.0 / 1024.0).toFixed(2)} GiB`
+          const nParams = `${(modelNParams / 1e9).toFixed(2)}B`
           const md =
             '| model | size | params | test | t/s |\n' +
-            '| --- | --- | --- | --- | --- | --- |\n' +
-            `| ${modelDesc} | ${size} | ${nParams} | pp 512 | ${ppAvg} ± ${ppStd} | |\n` +
-            `| ${modelDesc} | ${size} | ${nParams} | tg 128 | ${tgAvg} ± ${tgStd} | |\n`
-
-          addSystemMessage(md)
+            '| --- | --- | --- | --- | --- |\n' +
+            `| ${modelDesc} | ${size} | ${nParams} | pp 512 | ${ppAvg.toFixed(2)} ± ${ppStd.toFixed(2)} |\n` +
+            `| ${modelDesc} | ${size} | ${nParams} | tg 128 | ${tgAvg.toFixed(2)} ± ${tgStd.toFixed(2)}`
+          addSystemMessage(md, { copyable: true })
           return
         case '/release':
           await handleReleaseContext()
