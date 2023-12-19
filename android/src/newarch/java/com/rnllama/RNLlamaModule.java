@@ -78,6 +78,11 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
+  public void bench(double id, final double pp, final double tg, final double pl, final double nr, final Promise promise) {
+    rnllama.bench(id, pp, tg, pl, nr, promise);
+  }
+
+  @ReactMethod
   public void releaseContext(double id, Promise promise) {
     rnllama.releaseContext(id, promise);
   }

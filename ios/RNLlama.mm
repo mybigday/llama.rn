@@ -215,6 +215,27 @@ RCT_EXPORT_METHOD(embedding:(double)contextId
     }
 }
 
+RCT_EXPORT_METHOD(bench:(double)contextId
+                  pp:(int)pp
+                  tg:(int)tg
+                  pl:(int)pl
+                  nr:(int)nr
+                  withResolver:(RCTPromiseResolveBlock)resolve
+                  withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+    @try {
+        NSString *benchResults = [context bench:pp tg:tg pl:pl nr:nr];
+        resolve(benchResults);
+    } @catch (NSException *exception) {
+        reject(@"llama_cpp_error", exception.reason, nil);
+    }
+}
+
 RCT_EXPORT_METHOD(releaseContext:(double)contextId
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)

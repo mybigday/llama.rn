@@ -116,6 +116,10 @@ export class LlamaContext {
     return RNLlama.embedding(this.id, text)
   }
 
+  bench(pp: number, tg: number, pl: number, nr: number): Promise<string> {
+    return RNLlama.bench(this.id, pp, tg, pl, nr)
+  }
+
   async release(): Promise<void> {
     return RNLlama.releaseContext(this.id)
   }
