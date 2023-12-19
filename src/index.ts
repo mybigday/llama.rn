@@ -40,6 +40,16 @@ export type ContextParams = NativeContextParams
 
 export type CompletionParams = Omit<NativeCompletionParams, 'emit_partial_completion'>
 
+export type BenchResult = {
+  modelDesc: string
+  modelSize: number
+  modelNParams: number
+  ppAvg: number
+  ppStd: number
+  tgAvg: number
+  tgStd: number
+}
+
 export class LlamaContext {
   id: number
 
@@ -116,8 +126,26 @@ export class LlamaContext {
     return RNLlama.embedding(this.id, text)
   }
 
-  bench(pp: number, tg: number, pl: number, nr: number): Promise<string> {
-    return RNLlama.bench(this.id, pp, tg, pl, nr)
+  async bench(pp: number, tg: number, pl: number, nr: number): Promise<BenchResult> {
+    const result = await RNLlama.bench(this.id, pp, tg, pl, nr)
+    const [
+      modelDesc,
+      modelSize,
+      modelNParams,
+      ppAvg,
+      ppStd,
+      tgAvg,
+      tgStd,
+    ] = JSON.parse(result)
+    return {
+      modelDesc,
+      modelSize,
+      modelNParams,
+      ppAvg,
+      ppStd,
+      tgAvg,
+      tgStd,
+    }
   }
 
   async release(): Promise<void> {

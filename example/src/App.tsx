@@ -176,9 +176,7 @@ export default function App() {
           addSystemMessage(`Heat up time: ${tHeat}ms`)
 
           addSystemMessage('Benchmarking the model...')
-          const result = await context.bench(512, 128, 1, 3)
-
-          const [
+          const {
             modelDesc,
             modelSize,
             modelNParams,
@@ -186,7 +184,7 @@ export default function App() {
             ppStd,
             tgAvg,
             tgStd,
-          ] = JSON.parse(result)
+           } = await context.bench(512, 128, 1, 3)
 
           const size = `${(modelSize / 1024.0 / 1024.0 / 1024.0).toFixed(2)} GiB`
           const nParams = `${(modelNParams / 1e9).toFixed(2)}B`
@@ -209,7 +207,7 @@ export default function App() {
           return
         case '/save-session':
           context.saveSession(`${dirs.DocumentDir}/llama-session.bin`).then(tokensSaved => {
-            console.log('Session saved:', result)
+            console.log('Session tokens saved:', tokensSaved)
             addSystemMessage(`Session saved! ${tokensSaved} tokens saved.`)
           }).catch(e => {
             console.log('Session save failed:', e)
