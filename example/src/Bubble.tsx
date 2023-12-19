@@ -1,9 +1,9 @@
 import React, { useContext } from 'react'
 import type { ReactNode } from 'react'
 import { View, Text, TouchableOpacity } from 'react-native'
+import Clipboard from '@react-native-clipboard/clipboard'
 import { ThemeContext, UserContext } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
-import Clipboard from '@react-native-clipboard/clipboard';
 
 export const Bubble = ({
   child,
