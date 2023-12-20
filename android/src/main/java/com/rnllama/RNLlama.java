@@ -75,7 +75,7 @@ public class RNLlama implements LifecycleEventListener {
         promise.resolve(result);
         tasks.remove(this);
       }
-    }.execute();
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "initContext");
   }
 
@@ -108,7 +108,7 @@ public class RNLlama implements LifecycleEventListener {
         promise.resolve(result);
         tasks.remove(this);
       }
-    }.execute();
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "loadSession-" + contextId);
   }
 
@@ -141,7 +141,7 @@ public class RNLlama implements LifecycleEventListener {
         promise.resolve(result);
         tasks.remove(this);
       }
-    }.execute();
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "saveSession-" + contextId);
   }
 
@@ -177,7 +177,7 @@ public class RNLlama implements LifecycleEventListener {
         promise.resolve(result);
         tasks.remove(this);
       }
-    }.execute();
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "completion-" + contextId);
   }
 
@@ -216,7 +216,7 @@ public class RNLlama implements LifecycleEventListener {
         promise.resolve(result);
         tasks.remove(this);
       }
-    }.execute();
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "stopCompletion-" + contextId);
   }
 
@@ -248,7 +248,7 @@ public class RNLlama implements LifecycleEventListener {
         promise.resolve(result);
         tasks.remove(this);
       }
-    }.execute();
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "tokenize-" + contextId);
   }
 
@@ -280,7 +280,7 @@ public class RNLlama implements LifecycleEventListener {
         promise.resolve(result);
         tasks.remove(this);
       }
-    }.execute();
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "detokenize-" + contextId);
   }
 
@@ -312,7 +312,7 @@ public class RNLlama implements LifecycleEventListener {
         promise.resolve(result);
         tasks.remove(this);
       }
-    }.execute();
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "embedding-" + contextId);
   }
 
@@ -344,7 +344,7 @@ public class RNLlama implements LifecycleEventListener {
         promise.resolve(result);
         tasks.remove(this);
       }
-    }.execute();
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "bench-" + contextId);
   }
 
@@ -385,7 +385,7 @@ public class RNLlama implements LifecycleEventListener {
         promise.resolve(null);
         tasks.remove(this);
       }
-    }.execute();
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "releaseContext-" + contextId);
   }
 
@@ -412,7 +412,7 @@ public class RNLlama implements LifecycleEventListener {
         promise.resolve(null);
         tasks.remove(this);
       }
-    }.execute();
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "releaseAllContexts");
   }
 
