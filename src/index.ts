@@ -128,7 +128,6 @@ export class LlamaContext {
 
   async bench(pp: number, tg: number, pl: number, nr: number): Promise<BenchResult> {
     const result = await RNLlama.bench(this.id, pp, tg, pl, nr)
-    console.log(result)
     const [
       modelDesc,
       modelSize,
