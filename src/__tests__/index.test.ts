@@ -17,7 +17,9 @@ test('Mock', async () => {
     events.push(data)
   })
   expect(events).toMatchSnapshot()
-  expect(completionResult).toMatchSnapshot()
+  expect(completionResult).toMatchSnapshot('completion result')
+
+  expect(await context.bench(512, 128, 1, 3)).toMatchSnapshot('bench')
 
   await context.release()
   await releaseAllLlama()

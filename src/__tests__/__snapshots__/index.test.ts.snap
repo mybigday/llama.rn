@@ -90,7 +90,19 @@ Array [
 ]
 `;
 
-exports[`Mock 2`] = `
+exports[`Mock: bench 1`] = `
+Object {
+  "modelDesc": "test 3B Q4_0",
+  "modelNParams": 2779683840,
+  "modelSize": 1600655360,
+  "ppAvg": 16.211304,
+  "ppStd": 0.021748,
+  "tgAvg": 38.570646,
+  "tgStd": 1.1958,
+}
+`;
+
+exports[`Mock: completion result 1`] = `
 Object {
   "completion_probabilities": Array [
     Object {
