@@ -17,19 +17,31 @@ extern "C" {
     //
 
     // buffer type
-    LM_GGML_API lm_ggml_backend_buffer_t lm_ggml_backend_buft_alloc_buffer(lm_ggml_backend_buffer_type_t buft, size_t size);
-    LM_GGML_API size_t lm_ggml_backend_buft_get_alignment (lm_ggml_backend_buffer_type_t buft);
-    LM_GGML_API size_t lm_ggml_backend_buft_get_alloc_size(lm_ggml_backend_buffer_type_t buft, struct lm_ggml_tensor * tensor);
-    LM_GGML_API bool lm_ggml_backend_buft_supports_backend(lm_ggml_backend_buffer_type_t buft, lm_ggml_backend_t backend);
+    LM_GGML_API const char *          lm_ggml_backend_buft_name            (lm_ggml_backend_buffer_type_t buft);
+    LM_GGML_API lm_ggml_backend_buffer_t lm_ggml_backend_buft_alloc_buffer    (lm_ggml_backend_buffer_type_t buft, size_t size);
+    LM_GGML_API size_t                lm_ggml_backend_buft_get_alignment   (lm_ggml_backend_buffer_type_t buft);
+    LM_GGML_API size_t                lm_ggml_backend_buft_get_alloc_size  (lm_ggml_backend_buffer_type_t buft, struct lm_ggml_tensor * tensor);
+    LM_GGML_API bool                  lm_ggml_backend_buft_supports_backend(lm_ggml_backend_buffer_type_t buft, lm_ggml_backend_t backend);
+    LM_GGML_API bool                  lm_ggml_backend_buft_is_host         (lm_ggml_backend_buffer_type_t buft);
 
     // buffer
-    LM_GGML_API void   lm_ggml_backend_buffer_free          (lm_ggml_backend_buffer_t buffer);
-    LM_GGML_API void * lm_ggml_backend_buffer_get_base      (lm_ggml_backend_buffer_t buffer);
-    LM_GGML_API size_t lm_ggml_backend_buffer_get_size      (lm_ggml_backend_buffer_t buffer);
-    LM_GGML_API void   lm_ggml_backend_buffer_init_tensor   (lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor);
-    LM_GGML_API size_t lm_ggml_backend_buffer_get_alignment (lm_ggml_backend_buffer_t buffer);
-    LM_GGML_API size_t lm_ggml_backend_buffer_get_alloc_size(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor);
-    LM_GGML_API lm_ggml_backend_buffer_type_t lm_ggml_backend_buffer_type(lm_ggml_backend_buffer_t buffer);
+    enum lm_ggml_backend_buffer_usage {
+        LM_GGML_BACKEND_BUFFER_USAGE_ANY = 0,
+        LM_GGML_BACKEND_BUFFER_USAGE_WEIGHTS = 1,
+    };
+
+    LM_GGML_API const char *               lm_ggml_backend_buffer_name          (lm_ggml_backend_buffer_t buffer);
+    LM_GGML_API void                       lm_ggml_backend_buffer_free          (lm_ggml_backend_buffer_t buffer);
+    LM_GGML_API void *                     lm_ggml_backend_buffer_get_base      (lm_ggml_backend_buffer_t buffer);
+    LM_GGML_API size_t                     lm_ggml_backend_buffer_get_size      (lm_ggml_backend_buffer_t buffer);
+    LM_GGML_API void                       lm_ggml_backend_buffer_init_tensor   (lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor);
+    LM_GGML_API size_t                     lm_ggml_backend_buffer_get_alignment (lm_ggml_backend_buffer_t buffer);
+    LM_GGML_API size_t                     lm_ggml_backend_buffer_get_alloc_size(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor);
+    LM_GGML_API void                       lm_ggml_backend_buffer_clear         (lm_ggml_backend_buffer_t buffer, uint8_t value);
+    LM_GGML_API bool                       lm_ggml_backend_buffer_is_host       (lm_ggml_backend_buffer_t buffer);
+    LM_GGML_API void                       lm_ggml_backend_buffer_set_usage     (lm_ggml_backend_buffer_t buffer, enum lm_ggml_backend_buffer_usage usage);
+    LM_GGML_API lm_ggml_backend_buffer_type_t lm_ggml_backend_buffer_get_type      (lm_ggml_backend_buffer_t buffer);
+    LM_GGML_API void                       lm_ggml_backend_buffer_reset         (lm_ggml_backend_buffer_t buffer);
 
     //
     // Backend
@@ -55,7 +67,7 @@ extern "C" {
 
     LM_GGML_API void lm_ggml_backend_graph_plan_free   (lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan);
     LM_GGML_API void lm_ggml_backend_graph_plan_compute(lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan);
-    LM_GGML_API void lm_ggml_backend_graph_compute     (lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph);
+    LM_GGML_API bool lm_ggml_backend_graph_compute     (lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph);
     LM_GGML_API bool lm_ggml_backend_supports_op       (lm_ggml_backend_t backend, const struct lm_ggml_tensor * op);
 
     // tensor copy between different backends
@@ -75,6 +87,10 @@ extern "C" {
     LM_GGML_API lm_ggml_backend_buffer_t lm_ggml_backend_cpu_buffer_from_ptr(void * ptr, size_t size);
 
     LM_GGML_API lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_buffer_type(void);
+
+#ifdef LM_GGML_USE_CPU_HBM
+    LM_GGML_API lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_hbm_buffer_type(void);
+#endif
 
     //
     // Backend registry
@@ -133,23 +149,24 @@ extern "C" {
     typedef struct lm_ggml_backend_sched * lm_ggml_backend_sched_t;
 
     // Initialize a backend scheduler
-    LM_GGML_API lm_ggml_backend_sched_t lm_ggml_backend_sched_new(lm_ggml_backend_t * backends, int n_backends);
-
-    LM_GGML_API void lm_ggml_backend_sched_free(lm_ggml_backend_sched_t sched);
-
+    LM_GGML_API lm_ggml_backend_sched_t  lm_ggml_backend_sched_new(lm_ggml_backend_t * backends, lm_ggml_backend_buffer_type_t * bufts, int n_backends, size_t graph_size);
+    LM_GGML_API void                  lm_ggml_backend_sched_free(lm_ggml_backend_sched_t sched);
     // Initialize backend buffers from a measure graph
-    LM_GGML_API void lm_ggml_backend_sched_init_measure(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * measure_graph);
+    LM_GGML_API void                  lm_ggml_backend_sched_init_measure(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * measure_graph);
+    // Get the number of splits of the last graph
+    LM_GGML_API int                   lm_ggml_backend_sched_get_n_splits(lm_ggml_backend_sched_t sched);
 
     LM_GGML_API lm_ggml_tallocr_t        lm_ggml_backend_sched_get_tallocr(lm_ggml_backend_sched_t sched, lm_ggml_backend_t backend);
     LM_GGML_API lm_ggml_backend_buffer_t lm_ggml_backend_sched_get_buffer (lm_ggml_backend_sched_t sched, lm_ggml_backend_t backend);
 
-    LM_GGML_API void lm_ggml_backend_sched_set_node_backend(lm_ggml_backend_sched_t sched, struct lm_ggml_tensor * node, lm_ggml_backend_t backend);
+    LM_GGML_API void                  lm_ggml_backend_sched_set_node_backend(lm_ggml_backend_sched_t sched, struct lm_ggml_tensor * node, lm_ggml_backend_t backend);
+    LM_GGML_API lm_ggml_backend_t        lm_ggml_backend_sched_get_node_backend(lm_ggml_backend_sched_t sched, struct lm_ggml_tensor * node);
 
-    // Allocate a graph on the backend scheduler
-    LM_GGML_API void lm_ggml_backend_sched_graph_compute(
-            lm_ggml_backend_sched_t sched,
-            struct lm_ggml_cgraph * graph);
+    // Allocate and compute graph on the backend scheduler
+    LM_GGML_API void                  lm_ggml_backend_sched_graph_compute(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph);
 
+    // Reset all assignments and allocators - must be called before using the sched allocators to allocate inputs
+    LM_GGML_API void                  lm_ggml_backend_sched_reset(lm_ggml_backend_sched_t sched);
 
     //
     // Utils
@@ -169,7 +186,7 @@ extern "C" {
     typedef bool (*lm_ggml_backend_eval_callback)(int node_index, struct lm_ggml_tensor * t1, struct lm_ggml_tensor * t2, void * user_data);
 
     // Compare the output of two backends
-    LM_GGML_API void lm_ggml_backend_compare_graph_backend(lm_ggml_backend_t backend1, lm_ggml_backend_t backend2, struct lm_ggml_cgraph * graph, lm_ggml_backend_eval_callback callback, void * user_data);
+    LM_GGML_API bool lm_ggml_backend_compare_graph_backend(lm_ggml_backend_t backend1, lm_ggml_backend_t backend2, struct lm_ggml_cgraph * graph, lm_ggml_backend_eval_callback callback, void * user_data);
 
     // Tensor initialization
     LM_GGML_API void lm_ggml_backend_tensor_alloc(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor, void * addr);

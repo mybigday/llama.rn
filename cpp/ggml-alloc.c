@@ -72,7 +72,7 @@ static void remove_allocated_tensor(lm_ggml_tallocr_t alloc, struct lm_ggml_tens
 
 // check if a tensor is allocated by this buffer
 static bool lm_ggml_tallocr_is_own(lm_ggml_tallocr_t alloc, const struct lm_ggml_tensor * tensor) {
-    return tensor->buffer == alloc->buffer;
+    return tensor->buffer == alloc->buffer && (!tensor->view_src || tensor->view_src->buffer == alloc->buffer);
 }
 
 static bool lm_ggml_is_view(struct lm_ggml_tensor * t) {
@@ -102,8 +102,6 @@ void lm_ggml_tallocr_alloc(lm_ggml_tallocr_t alloc, struct lm_ggml_tensor * tens
         }
     }
 
-    AT_PRINTF("block %d\n", best_fit_block);
-
     if (best_fit_block == -1) {
         // the last block is our last resort
         struct free_block * block = &alloc->free_blocks[alloc->n_free_blocks - 1];
@@ -117,6 +115,7 @@ void lm_ggml_tallocr_alloc(lm_ggml_tallocr_t alloc, struct lm_ggml_tensor * tens
             return;
         }
     }
+
     struct free_block * block = &alloc->free_blocks[best_fit_block];
     void * addr = block->addr;
     block->addr = (char*)block->addr + size;
@@ -128,6 +127,8 @@ void lm_ggml_tallocr_alloc(lm_ggml_tallocr_t alloc, struct lm_ggml_tensor * tens
             alloc->free_blocks[j] = alloc->free_blocks[j+1];
         }
     }
+
+    AT_PRINTF("block %d, addr %p\n", best_fit_block, addr);
 
     tensor->data = addr;
     tensor->buffer = alloc->buffer;
@@ -229,6 +230,7 @@ void lm_ggml_tallocr_reset(lm_ggml_tallocr_t alloc) {
         alloc->free_blocks[0].size = SIZE_MAX/2; // restrict maximum size of a measure allocator to half size_t max to avoid overflows
     } else {
         alloc->free_blocks[0].size = lm_ggml_backend_buffer_get_size(alloc->buffer) - align_offset;
+        lm_ggml_backend_buffer_reset(alloc->buffer);
     }
 }
 
@@ -263,9 +265,9 @@ lm_ggml_tallocr_t lm_ggml_tallocr_new_measure(size_t alignment) {
     return alloc;
 }
 
-lm_ggml_tallocr_t lm_ggml_tallocr_new_measure_from_backend(struct lm_ggml_backend * backend) {
+lm_ggml_tallocr_t lm_ggml_tallocr_new_measure_from_buft(struct lm_ggml_backend_buffer_type * buft) {
     // create a backend buffer to get the correct tensor allocation sizes
-    lm_ggml_backend_buffer_t buffer = lm_ggml_backend_alloc_buffer(backend, 1);
+    lm_ggml_backend_buffer_t buffer = lm_ggml_backend_buft_alloc_buffer(buft, 1);
 
     // TODO: move alloc initialization to a common lm_ggml_tallocr_new_impl function
     lm_ggml_tallocr_t alloc = lm_ggml_tallocr_new_from_buffer(buffer);
@@ -275,11 +277,20 @@ lm_ggml_tallocr_t lm_ggml_tallocr_new_measure_from_backend(struct lm_ggml_backen
     return alloc;
 }
 
-lm_ggml_tallocr_t lm_ggml_tallocr_new_from_backend(struct lm_ggml_backend * backend, size_t size) {
-    lm_ggml_backend_buffer_t buffer = lm_ggml_backend_alloc_buffer(backend, size);
+lm_ggml_tallocr_t lm_ggml_tallocr_new_measure_from_backend(struct lm_ggml_backend * backend) {
+    return lm_ggml_tallocr_new_measure_from_buft(lm_ggml_backend_get_default_buffer_type(backend));
+}
+
+lm_ggml_tallocr_t lm_ggml_tallocr_new_from_buft(struct lm_ggml_backend_buffer_type * buft, size_t size) {
+    // create a backend buffer to get the correct tensor allocation sizes
+    lm_ggml_backend_buffer_t buffer = lm_ggml_backend_buft_alloc_buffer(buft, size);
     lm_ggml_tallocr_t alloc = lm_ggml_tallocr_new_from_buffer(buffer);
     alloc->buffer_owned = true;
     return alloc;
+}
+
+lm_ggml_tallocr_t lm_ggml_tallocr_new_from_backend(struct lm_ggml_backend * backend, size_t size) {
+    return lm_ggml_tallocr_new_from_buft(lm_ggml_backend_get_default_buffer_type(backend), size);
 }
 
 lm_ggml_tallocr_t lm_ggml_tallocr_new_from_buffer(struct lm_ggml_backend_buffer * buffer) {
@@ -449,11 +460,10 @@ static void init_view(lm_ggml_gallocr_t galloc, struct lm_ggml_tensor * view, bo
     if (update_backend) {
         view->backend = view->view_src->backend;
     }
-    view->buffer  = view->view_src->buffer;
+    // views are initialized in the alloc buffer rather than the view_src buffer
+    view->buffer  = alloc->buffer;
     view->data    = (char *)view->view_src->data + view->view_offs;
 
-    // FIXME: the view should be initialized by the owning buffer, but currently this breaks the CUDA backend
-    // due to the lm_ggml_tensor_extra_gpu ring buffer overwriting the KV cache extras
     assert(lm_ggml_tallocr_is_measure(alloc) || !view->buffer || view->buffer->buft == alloc->buffer->buft);
 
     if (!alloc->measure) {
@@ -736,6 +746,10 @@ void lm_ggml_allocr_set_parse_seq(lm_ggml_allocr_t alloc, const int * list, int 
 }
 
 void lm_ggml_allocr_free(lm_ggml_allocr_t alloc) {
+    if (alloc == NULL) {
+        return;
+    }
+
     lm_ggml_gallocr_free(alloc->galloc);
     lm_ggml_tallocr_free(alloc->talloc);
     free(alloc);
@@ -775,11 +789,22 @@ lm_ggml_backend_buffer_t lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_g
     }
 
     if (nbytes == 0) {
-        fprintf(stderr, "%s: no tensors to allocate\n", __func__);
+        // all the tensors in the context are already allocated
+#ifndef NDEBUG
+        fprintf(stderr, "%s: all tensors in the context are already allocated\n", __func__);
+#endif
         return NULL;
     }
 
     lm_ggml_backend_buffer_t buffer = lm_ggml_backend_buft_alloc_buffer(buft, nbytes);
+    if (buffer == NULL) {
+        // failed to allocate buffer
+#ifndef NDEBUG
+        fprintf(stderr, "%s: failed to allocate buffer\n", __func__);
+#endif
+        return NULL;
+    }
+
     lm_ggml_tallocr_t tallocr = lm_ggml_tallocr_new_from_buffer(buffer);
 
     for (struct lm_ggml_tensor * t = lm_ggml_get_first_tensor(ctx); t != NULL; t = lm_ggml_get_next_tensor(ctx, t)) {
@@ -787,6 +812,11 @@ lm_ggml_backend_buffer_t lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_g
             if (t->view_src == NULL) {
                 lm_ggml_tallocr_alloc(tallocr, t);
             } else {
+                lm_ggml_backend_view_init(buffer, t);
+            }
+        } else {
+            if (t->view_src != NULL) {
+                // view of a pre-allocated tensor
                 lm_ggml_backend_view_init(buffer, t);
             }
         }

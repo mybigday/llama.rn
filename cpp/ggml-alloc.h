@@ -52,8 +52,10 @@ typedef struct lm_ggml_tallocr * lm_ggml_tallocr_t;
 
 LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new(void * data, size_t size, size_t alignment);
 LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_measure(size_t alignment);
-LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_from_buffer(struct lm_ggml_backend_buffer * buffer);
+LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_from_buft(struct lm_ggml_backend_buffer_type * buft, size_t size);
 LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_from_backend(struct lm_ggml_backend * backend, size_t size); // allocates an owned buffer
+LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_from_buffer(struct lm_ggml_backend_buffer * buffer);
+LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_measure_from_buft(struct lm_ggml_backend_buffer_type * buft);
 LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_measure_from_backend(struct lm_ggml_backend * backend);
 
 LM_GGML_API struct lm_ggml_backend_buffer * lm_ggml_tallocr_get_buffer(lm_ggml_tallocr_t talloc);

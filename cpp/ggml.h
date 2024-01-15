@@ -218,7 +218,9 @@
 #define LM_GGML_MAX_PARAMS         2048
 #define LM_GGML_MAX_CONTEXTS       64
 #define LM_GGML_MAX_SRC            10
+#ifndef LM_GGML_MAX_NAME
 #define LM_GGML_MAX_NAME           64
+#endif
 #define LM_GGML_MAX_OP_PARAMS      64
 #define LM_GGML_DEFAULT_N_THREADS  4
 #define LM_GGML_DEFAULT_GRAPH_SIZE 2048
@@ -255,6 +257,8 @@
 #define LM_GGML_UNREACHABLE() LM_GGML_ASSERT(!"statement should not be reached")
 #elif defined(__GNUC__)
 #define LM_GGML_UNREACHABLE() __builtin_unreachable()
+#elif defined(_MSC_VER)
+#define LM_GGML_UNREACHABLE() __assume(0)
 #else
 #define LM_GGML_UNREACHABLE() ((void) 0)
 #endif
@@ -303,7 +307,7 @@ extern "C" {
 
 #if defined(__ARM_NEON) && defined(__CUDACC__)
     typedef half lm_ggml_fp16_t;
-#elif defined(__ARM_NEON)
+#elif defined(__ARM_NEON) && !defined(_MSC_VER)
     typedef __fp16 lm_ggml_fp16_t;
 #else
     typedef uint16_t lm_ggml_fp16_t;
@@ -337,6 +341,8 @@ extern "C" {
         LM_GGML_TYPE_Q5_K = 13,
         LM_GGML_TYPE_Q6_K = 14,
         LM_GGML_TYPE_Q8_K = 15,
+        LM_GGML_TYPE_IQ2_XXS = 16,
+        LM_GGML_TYPE_IQ2_XS  = 17,
         LM_GGML_TYPE_I8,
         LM_GGML_TYPE_I16,
         LM_GGML_TYPE_I32,
@@ -371,6 +377,8 @@ extern "C" {
         LM_GGML_FTYPE_MOSTLY_Q4_K = 12, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_Q5_K = 13, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_Q6_K = 14, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_IQ2_XXS = 15, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_IQ2_XS  = 16, // except 1d tensors
     };
 
     // available tensor operations:
@@ -484,7 +492,8 @@ extern "C" {
     enum lm_ggml_log_level {
         LM_GGML_LOG_LEVEL_ERROR = 2,
         LM_GGML_LOG_LEVEL_WARN = 3,
-        LM_GGML_LOG_LEVEL_INFO = 4
+        LM_GGML_LOG_LEVEL_INFO = 4,
+        LM_GGML_LOG_LEVEL_DEBUG = 5
     };
 
     // ggml object
@@ -735,8 +744,8 @@ extern "C" {
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_view_tensor(struct lm_ggml_context * ctx, struct lm_ggml_tensor * src);
 
     // Context tensor enumeration and lookup
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_first_tensor(struct lm_ggml_context * ctx);
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_next_tensor (struct lm_ggml_context * ctx, struct lm_ggml_tensor * tensor);
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_first_tensor(const struct lm_ggml_context * ctx);
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_next_tensor (const struct lm_ggml_context * ctx, struct lm_ggml_tensor * tensor);
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_tensor(struct lm_ggml_context * ctx, const char * name);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_set_zero(struct lm_ggml_tensor * tensor);
@@ -1094,13 +1103,13 @@ extern "C" {
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_scale(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
-            struct lm_ggml_tensor  * b);
+            float                 s);
 
     // in-place, returns view(a)
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_scale_inplace(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
-            struct lm_ggml_tensor  * b);
+            float                 s);
 
     // b -> view(a,offset,nb1,nb2,3), return modified a
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_set(
@@ -1156,19 +1165,13 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * b);
 
-    // a -> b, in-place, return view(b)
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_cpy_inplace(
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_cast(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
-            struct lm_ggml_tensor  * b);
+            enum   lm_ggml_type      type);
 
     // make contiguous
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_cont(
-            struct lm_ggml_context * ctx,
-            struct lm_ggml_tensor  * a);
-
-    // make contiguous, in-place
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_cont_inplace(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
 
@@ -1844,8 +1847,8 @@ extern "C" {
 
     // lm_ggml_graph_plan() has to be called before lm_ggml_graph_compute()
     // when plan.work_size > 0, caller must allocate memory for plan.work_data
-    LM_GGML_API struct lm_ggml_cplan lm_ggml_graph_plan   (struct lm_ggml_cgraph * cgraph, int n_threads /*= LM_GGML_DEFAULT_N_THREADS*/);
-    LM_GGML_API int               lm_ggml_graph_compute(struct lm_ggml_cgraph * cgraph, struct lm_ggml_cplan * cplan);
+    LM_GGML_API struct lm_ggml_cplan lm_ggml_graph_plan   (const struct lm_ggml_cgraph * cgraph, int n_threads /*= LM_GGML_DEFAULT_N_THREADS*/);
+    LM_GGML_API int               lm_ggml_graph_compute(      struct lm_ggml_cgraph * cgraph, struct lm_ggml_cplan * cplan);
 
     // same as lm_ggml_graph_compute() but the work data is allocated as a part of the context
     // note: the drawback of this API is that you must have ensured that the context has enough memory for the work data
@@ -2065,7 +2068,18 @@ extern "C" {
     LM_GGML_API size_t lm_ggml_quantize_q5_K(const float * src, void * dst, int n, int k, int64_t * hist);
     LM_GGML_API size_t lm_ggml_quantize_q6_K(const float * src, void * dst, int n, int k, int64_t * hist);
 
-    LM_GGML_API size_t lm_ggml_quantize_chunk(enum lm_ggml_type type, const float * src, void * dst, int start, int n, int64_t * hist);
+    LM_GGML_API size_t lm_ggml_quantize_chunk(enum lm_ggml_type type, const float * src, void * dst,
+            int start, int nrows, int n_per_row, int64_t * hist, const float * imatrix);
+
+    // These are needed for IQ2_XS and IQ2_XXS quantizations
+    LM_GGML_API void lm_ggml_init_iq2_quantization(enum lm_ggml_type type);
+    LM_GGML_API void lm_ggml_deinit_iq2_quantization(enum lm_ggml_type type);
+
+    //
+    // Importance matrix
+    //
+    typedef void(*lm_ggml_collect_imatrix_t)(const struct lm_ggml_tensor * src0, const struct lm_ggml_tensor * src1);
+    LM_GGML_API void lm_ggml_set_imatrix_collection(lm_ggml_collect_imatrix_t imatrix_collect);
 
     //
     // gguf
@@ -2135,10 +2149,11 @@ extern "C" {
     LM_GGML_API const void * lm_gguf_get_arr_data(const struct lm_gguf_context * ctx, int key_id);
     LM_GGML_API const char * lm_gguf_get_arr_str (const struct lm_gguf_context * ctx, int key_id, int i);
 
-    LM_GGML_API int    lm_gguf_get_n_tensors    (const struct lm_gguf_context * ctx);
-    LM_GGML_API int    lm_gguf_find_tensor      (const struct lm_gguf_context * ctx, const char * name);
-    LM_GGML_API size_t lm_gguf_get_tensor_offset(const struct lm_gguf_context * ctx, int i);
-    LM_GGML_API char * lm_gguf_get_tensor_name  (const struct lm_gguf_context * ctx, int i);
+    LM_GGML_API int            lm_gguf_get_n_tensors    (const struct lm_gguf_context * ctx);
+    LM_GGML_API int            lm_gguf_find_tensor      (const struct lm_gguf_context * ctx, const char * name);
+    LM_GGML_API size_t         lm_gguf_get_tensor_offset(const struct lm_gguf_context * ctx, int i);
+    LM_GGML_API char *         lm_gguf_get_tensor_name  (const struct lm_gguf_context * ctx, int i);
+    LM_GGML_API enum lm_ggml_type lm_gguf_get_tensor_type  (const struct lm_gguf_context * ctx, int i);
 
     // overrides existing values or adds a new one
     LM_GGML_API void lm_gguf_set_val_u8  (struct lm_gguf_context * ctx, const char * key, uint8_t  val);
@@ -2194,6 +2209,7 @@ extern "C" {
     //
 
     LM_GGML_API int lm_ggml_cpu_has_avx        (void);
+    LM_GGML_API int lm_ggml_cpu_has_avx_vnni   (void);
     LM_GGML_API int lm_ggml_cpu_has_avx2       (void);
     LM_GGML_API int lm_ggml_cpu_has_avx512     (void);
     LM_GGML_API int lm_ggml_cpu_has_avx512_vbmi(void);
