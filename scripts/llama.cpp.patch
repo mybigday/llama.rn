@@ -1,9 +1,9 @@
---- llama.cpp.orig	2023-12-19 07:48:34
-+++ llama.cpp	2023-12-19 07:48:35
-@@ -106,6 +106,17 @@
+--- llama.cpp.orig	2024-01-15 12:27:16
++++ llama.cpp	2024-01-15 12:26:12
+@@ -107,6 +107,17 @@
  #define LLAMA_LOG_WARN(...)  llama_log_internal(LM_GGML_LOG_LEVEL_WARN , __VA_ARGS__)
  #define LLAMA_LOG_ERROR(...) llama_log_internal(LM_GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
- 
+
 +#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
 +#include <android/log.h>
 +#define LLAMA_ANDROID_TAG "RNLLAMA_LOG_ANDROID"
@@ -18,12 +18,12 @@
  //
  // helpers
  //
-@@ -895,16 +906,16 @@
- 
+@@ -876,16 +887,16 @@
+
          if (prefetch > 0) {
-             // Advise the kernel to preload the mapped memory
+             // advise the kernel to preload the mapped memory
 -            if (posix_madvise(addr, std::min(file->size, prefetch), POSIX_MADV_WILLNEED)) {
--                fprintf(stderr, "warning: posix_madvise(.., POSIX_MADV_WILLNEED) failed: %s\n",
+-                LLAMA_LOG_WARN("warning: posix_madvise(.., POSIX_MADV_WILLNEED) failed: %s\n",
 +            if (madvise(addr, std::min(file->size, prefetch), MADV_WILLNEED)) {
 +                fprintf(stderr, "warning: madvise(.., MADV_WILLNEED) failed: %s\n",
                          strerror(errno));
@@ -33,7 +33,7 @@
              // advise the kernel not to use readahead
              // (because the next page might not belong on the same node)
 -            if (posix_madvise(addr, file->size, POSIX_MADV_RANDOM)) {
--                fprintf(stderr, "warning: posix_madvise(.., POSIX_MADV_RANDOM) failed: %s\n",
+-                LLAMA_LOG_WARN("warning: posix_madvise(.., POSIX_MADV_RANDOM) failed: %s\n",
 +            if (madvise(addr, file->size, MADV_RANDOM)) {
 +                fprintf(stderr, "warning: madvise(.., MADV_RANDOM) failed: %s\n",
                          strerror(errno));
