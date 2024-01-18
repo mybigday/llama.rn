@@ -1,6 +1,6 @@
---- ggml-metal.m.orig	2024-01-15 12:36:32
-+++ ggml-metal.m	2024-01-15 12:36:33
-@@ -293,7 +293,7 @@
+--- ggml-metal.m.orig	2024-01-18 11:47:27
++++ ggml-metal.m	2024-01-18 11:47:29
+@@ -290,7 +290,7 @@
              if (ggmlMetalPathResources) {
                  sourcePath = [ggmlMetalPathResources stringByAppendingPathComponent:@"ggml-metal.metal"];
              } else {

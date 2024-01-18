@@ -27,7 +27,6 @@
 
 // max memory buffers that can be mapped to the device
 #define LM_GGML_METAL_MAX_BUFFERS 64
-#define LM_GGML_METAL_MAX_COMMAND_BUFFERS 32
 
 struct lm_ggml_tensor;
 struct lm_ggml_cgraph;
@@ -47,11 +46,11 @@ LM_GGML_API lm_ggml_backend_t lm_ggml_backend_metal_init(void);
 
 LM_GGML_API bool lm_ggml_backend_is_metal(lm_ggml_backend_t backend);
 
-LM_GGML_API lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_from_ptr(void * data, size_t size, size_t max_size);
+LM_GGML_API LM_GGML_CALL lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_from_ptr(void * data, size_t size, size_t max_size);
 
 LM_GGML_API void lm_ggml_backend_metal_set_n_cb(lm_ggml_backend_t backend, int n_cb);
 
-LM_GGML_API lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_type(void);
+LM_GGML_API LM_GGML_CALL lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_type(void);
 
 // helper to check if the device supports a specific family
 // ideally, the user code should be doing these checks
