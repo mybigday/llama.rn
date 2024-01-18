@@ -8,8 +8,6 @@ React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp).
 
 [llama.cpp](https://github.com/ggerganov/llama.cpp): Inference of [LLaMA](https://arxiv.org/abs/2302.13971) model in pure C/C++
 
-⚠️ Currently this library is not recommended for production use. In our cases, we only use it on device like M1 ~ M2 iPad/Mac for the time being, with Llama-2-7b-chat q2_k ~ q4_k models. ⚠️
-
 ## Installation
 
 ```sh
@@ -30,6 +28,10 @@ Add proguard rule if it's enabled in project (android/app/proguard-rules.pro):
 ```
 
 ## Obtain the model
+
+You can search HuggingFace for available models (Keyword: [`GGUF`](https://huggingface.co/search/full-text?q=GGUF&type=model)).
+
+For create a GGUF model manually, for example in Llama 2:
 
 Download the Llama 2 model
 1. Request access from [here](https://ai.meta.com/llama)
@@ -59,8 +61,6 @@ make quantize
 # quantize the model to 4-bits (using q4_0 method)
 ./quantize ./models/7B/ggml-model-f16.gguf ./models/7B/ggml-model-q4_0.gguf q4_0
 ```
-
-You can also search the available models in HuggingFace (Keyword: [`GGUF`](https://huggingface.co/search/full-text?q=GGUF&type=model)).
 
 ## Usage
 
