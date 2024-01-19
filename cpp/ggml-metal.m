@@ -238,21 +238,19 @@ static void * lm_ggml_metal_host_malloc(size_t n) {
 static struct lm_ggml_metal_context * lm_ggml_metal_init(int n_cb) {
     LM_GGML_METAL_LOG_INFO("%s: allocating\n", __func__);
 
-    id<MTLDevice> device;
-    NSString * s;
-
-#if TARGET_OS_OSX
+#if TARGET_OS_OSX && !LM_GGML_METAL_NDEBUG
     // Show all the Metal device instances in the system
     NSArray * devices = MTLCopyAllDevices();
-    for (device in devices) {
-        s = [device name];
+    for (id<MTLDevice> device in devices) {
+        NSString * s = [device name];
         LM_GGML_METAL_LOG_INFO("%s: found device: %s\n", __func__, [s UTF8String]);
     }
+    [devices release]; // since it was created by a *Copy* C method
 #endif
 
     // Pick and show default Metal device
-    device = MTLCreateSystemDefaultDevice();
-    s = [device name];
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    NSString * s = [device name];
     LM_GGML_METAL_LOG_INFO("%s: picking default device: %s\n", __func__, [s UTF8String]);
 
     // Configure context
@@ -712,7 +710,6 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_metal_context * ctx, 
 static bool lm_ggml_metal_graph_compute(
         struct lm_ggml_metal_context * ctx,
                struct lm_ggml_cgraph * gf) {
-    @autoreleasepool {
 
     MTLComputePassDescriptor * edesc = MTLComputePassDescriptor.computePassDescriptor;
     edesc.dispatchType = MTLDispatchTypeSerial;
@@ -2255,7 +2252,6 @@ static bool lm_ggml_metal_graph_compute(
     }
 
     return true;
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
