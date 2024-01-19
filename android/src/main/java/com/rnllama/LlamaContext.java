@@ -20,7 +20,6 @@ import java.io.IOException;
 
 public class LlamaContext {
   public static final String NAME = "RNLlamaContext";
-  private static final int LLAMA_DEFAULT_SEED = 0xFFFFFFFF;
 
   private int id;
   private ReactApplicationContext reactContext;
@@ -175,7 +174,7 @@ public class LlamaContext {
       // float typical_p,
       params.hasKey("typical_p") ? (float) params.getDouble("typical_p") : 1.00f,
       // int seed,
-      params.hasKey("seed") ? params.getInt("seed") : LLAMA_DEFAULT_SEED,
+      params.hasKey("seed") ? params.getInt("seed") : -1,
       // String[] stop,
       params.hasKey("stop") ? params.getArray("stop").toArrayList().toArray(new String[0]) : new String[0],
       // boolean ignore_eos,

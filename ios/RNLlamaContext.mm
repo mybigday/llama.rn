@@ -164,7 +164,7 @@
 
     if (params[@"typical_p"]) sparams.typical_p = [params[@"typical_p"] doubleValue];
 
-    llama_set_rng_seed(llama->ctx, params[@"seed"] ? [params[@"seed"] intValue] : LLAMA_DEFAULT_SEED);
+    llama_set_rng_seed(llama->ctx, params[@"seed"] ? [params[@"seed"] intValue] : -1);
 
     if (params[@"grammar"]) {
         sparams.grammar = [params[@"grammar"] UTF8String];
