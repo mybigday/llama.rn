@@ -20,6 +20,7 @@ import java.io.IOException;
 
 public class LlamaContext {
   public static final String NAME = "RNLlamaContext";
+  private static final int LLAMA_DEFAULT_SEED = 0xFFFFFFFF;
 
   private int id;
   private ReactApplicationContext reactContext;
@@ -161,6 +162,8 @@ public class LlamaContext {
       params.hasKey("mirostat_tau") ? (float) params.getDouble("mirostat_tau") : 5.00f,
       // float mirostat_eta,
       params.hasKey("mirostat_eta") ? (float) params.getDouble("mirostat_eta") : 0.10f,
+      // boolean penalize_nl,
+      params.hasKey("penalize_nl") ? params.getBoolean("penalize_nl") : true,
       // int top_k,
       params.hasKey("top_k") ? params.getInt("top_k") : 40,
       // float top_p,
@@ -171,6 +174,8 @@ public class LlamaContext {
       params.hasKey("tfs_z") ? (float) params.getDouble("tfs_z") : 1.00f,
       // float typical_p,
       params.hasKey("typical_p") ? (float) params.getDouble("typical_p") : 1.00f,
+      // int seed,
+      params.hasKey("seed") ? params.getInt("seed") : LLAMA_DEFAULT_SEED,
       // String[] stop,
       params.hasKey("stop") ? params.getArray("stop").toArrayList().toArray(new String[0]) : new String[0],
       // boolean ignore_eos,
@@ -317,11 +322,13 @@ public class LlamaContext {
     float mirostat,
     float mirostat_tau,
     float mirostat_eta,
+    boolean penalize_nl,
     int top_k,
     float top_p,
     float min_p,
     float tfs_z,
     float typical_p,
+    int seed,
     String[] stop,
     boolean ignore_eos,
     double[][] logit_bias,

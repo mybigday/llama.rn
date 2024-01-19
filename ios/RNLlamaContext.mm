@@ -155,6 +155,7 @@
     if (params[@"mirostat"]) sparams.mirostat = [params[@"mirostat"] intValue];
     if (params[@"mirostat_tau"]) sparams.mirostat_tau = [params[@"mirostat_tau"] doubleValue];
     if (params[@"mirostat_eta"]) sparams.mirostat_eta = [params[@"mirostat_eta"] doubleValue];
+    if (params[@"penalize_nl"]) sparams.penalize_nl = [params[@"penalize_nl"] boolValue];
 
     if (params[@"top_k"]) sparams.top_k = [params[@"top_k"] intValue];
     if (params[@"top_p"]) sparams.top_p = [params[@"top_p"] doubleValue];
@@ -162,6 +163,8 @@
     if (params[@"tfs_z"]) sparams.tfs_z = [params[@"tfs_z"] doubleValue];
 
     if (params[@"typical_p"]) sparams.typical_p = [params[@"typical_p"] doubleValue];
+
+    llama_set_rng_seed(llama->ctx, params[@"seed"] ? [params[@"seed"] intValue] : LLAMA_DEFAULT_SEED);
 
     if (params[@"grammar"]) {
         sparams.grammar = [params[@"grammar"] UTF8String];

@@ -29,12 +29,15 @@ export type NativeCompletionParams = {
   grammar?: string
   stop?: Array<string> // -> antiprompt
 
-  n_predict?: number
   n_threads?: number
+  n_predict?: number
   n_probs?: number
-
+  top_k?: number
+  top_p?: number
+  min_p?: number
+  tfs_z?: number
+  typical_p?: number
   temperature?: number // -> temp
-
   penalty_last_n?: number
   penalty_repeat?: number
   penalty_freq?: number
@@ -42,11 +45,8 @@ export type NativeCompletionParams = {
   mirostat?: number
   mirostat_tau?: number
   mirostat_eta?: number
-  top_k?: number
-  top_p?: number
-  min_p?: number
-  tfs_z?: number
-  typical_p?: number
+  penalize_nl?: boolean
+  seed?: number
 
   ignore_eos?: boolean
   logit_bias?: Array<Array<number>>
