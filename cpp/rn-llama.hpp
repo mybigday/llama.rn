@@ -253,7 +253,6 @@ struct llama_rn_context
 
     void loadPrompt()
     {
-        params.prompt.insert(0, 1, ' '); // always add a first space
         std::vector<llama_token> prompt_tokens = ::llama_tokenize(ctx, params.prompt, true);
         num_prompt_tokens = prompt_tokens.size();
 
