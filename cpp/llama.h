@@ -3,12 +3,7 @@
 
 #include "ggml.h"
 #include "ggml-backend.h"
-#ifdef LM_GGML_USE_CUBLAS
-#include "ggml-cuda.h"
-#define LLAMA_MAX_DEVICES LM_GGML_CUDA_MAX_DEVICES
-#else
-#define LLAMA_MAX_DEVICES 1
-#endif // LM_GGML_USE_CUBLAS
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -46,11 +41,6 @@
 #define LLAMA_SESSION_MAGIC   LLAMA_FILE_MAGIC_GGSN
 #define LLAMA_SESSION_VERSION 4
 
-#if defined(LM_GGML_USE_CUBLAS) || defined(LM_GGML_USE_CLBLAST) || defined(LM_GGML_USE_METAL)
-// Defined when llama.cpp is compiled with support for offloading model layers to GPU.
-#define LLAMA_SUPPORTS_GPU_OFFLOAD
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -71,6 +61,7 @@ extern "C" {
     enum llama_vocab_type {
         LLAMA_VOCAB_TYPE_SPM = 0, // SentencePiece
         LLAMA_VOCAB_TYPE_BPE = 1, // Byte Pair Encoding
+        LLAMA_VOCAB_TYPE_WPM = 2, // WordPiece
     };
 
     enum llama_token_type {
@@ -107,6 +98,10 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_IQ2_XXS       = 19, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_IQ2_XS        = 20, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_Q2_K_S        = 21, // except 1d tensors
+        LLAMA_FTYPE_MOSTLY_Q3_K_XS       = 22, // except 1d tensors
+        LLAMA_FTYPE_MOSTLY_IQ3_XXS       = 23, // except 1d tensors
+        LLAMA_FTYPE_MOSTLY_IQ1_S         = 24, // except 1d tensors
+        LLAMA_FTYPE_MOSTLY_IQ4_NL        = 25, // except 1d tensors
 
         LLAMA_FTYPE_GUESSED = 1024, // not specified in the model file
     };
@@ -117,6 +112,12 @@ extern "C" {
         LLAMA_ROPE_SCALING_LINEAR      = 1,
         LLAMA_ROPE_SCALING_YARN        = 2,
         LLAMA_ROPE_SCALING_MAX_VALUE   = LLAMA_ROPE_SCALING_YARN,
+    };
+
+    enum llama_pooling_type {
+        LLAMA_POOLING_NONE = 0,
+        LLAMA_POOLING_MEAN = 1,
+        LLAMA_POOLING_CLS  = 2,
     };
 
     enum llama_split_mode {
@@ -195,7 +196,7 @@ extern "C" {
         // LLAMA_SPLIT_LAYER: ignored
         int32_t main_gpu;
 
-        // proportion of the model (layers or rows) to offload to each GPU, size: LLAMA_MAX_DEVICES
+        // proportion of the model (layers or rows) to offload to each GPU, size: llama_max_devices()
         const float * tensor_split;
 
         // Called with a progress value between 0.0 and 1.0. Pass NULL to disable.
@@ -221,7 +222,7 @@ extern "C" {
         uint32_t n_batch;           // prompt processing maximum batch size
         uint32_t n_threads;         // number of threads to use for generation
         uint32_t n_threads_batch;   // number of threads to use for batch processing
-        int8_t   rope_scaling_type; // RoPE scaling type, from `enum llama_rope_scaling_type`
+        int32_t  rope_scaling_type; // RoPE scaling type, from `enum llama_rope_scaling_type`
 
         // ref: https://github.com/ggerganov/llama.cpp/pull/2054
         float    rope_freq_base;   // RoPE base frequency, 0 = from model
@@ -243,6 +244,7 @@ extern "C" {
         bool logits_all;  // the llama_eval() call computes all logits, not just the last one (DEPRECATED - set llama_batch.logits instead)
         bool embedding;   // embedding mode only
         bool offload_kqv; // whether to offload the KQV ops (including the KV cache) to GPU
+        bool do_pooling;  // whether to pool (sum) embedding results by sequence id (ignored if no pooling layer)
     };
 
     // model quantization parameters
@@ -304,6 +306,12 @@ extern "C" {
         int32_t n_eval;
     };
 
+    // used in chat template
+    typedef struct llama_chat_message {
+        const char * role;
+        const char * content;
+    } llama_chat_message;
+
     // Helpers for getting default parameters
     LLAMA_API struct llama_model_params llama_model_default_params(void);
     LLAMA_API struct llama_context_params llama_context_default_params(void);
@@ -312,7 +320,10 @@ extern "C" {
     // Initialize the llama + ggml backend
     // If numa is true, use NUMA optimizations
     // Call once at the start of the program
-    LLAMA_API void llama_backend_init(bool numa);
+    LLAMA_API void llama_backend_init(void);
+
+    //optional:
+    LLAMA_API void llama_numa_init(enum lm_ggml_numa_strategy numa);
 
     // Call once at the end of the program - currently only used for MPI
     LLAMA_API void llama_backend_free(void);
@@ -332,9 +343,14 @@ extern "C" {
 
     LLAMA_API int64_t llama_time_us(void);
 
-    LLAMA_API int32_t  llama_max_devices(void);
-    LLAMA_API bool llama_mmap_supported (void);
-    LLAMA_API bool llama_mlock_supported(void);
+    LLAMA_API size_t llama_max_devices(void);
+
+    LLAMA_API bool llama_supports_mmap       (void);
+    LLAMA_API bool llama_supports_mlock      (void);
+    LLAMA_API bool llama_supports_gpu_offload(void);
+
+    LLAMA_API DEPRECATED(bool llama_mmap_supported (void), "use llama_supports_mmap() instead");
+    LLAMA_API DEPRECATED(bool llama_mlock_supported(void), "use llama_supports_mlock() instead");
 
     LLAMA_API const struct llama_model * llama_get_model(const struct llama_context * ctx);
 
@@ -630,6 +646,10 @@ extern "C" {
     // shape: [n_embd] (1-dimensional)
     LLAMA_API float * llama_get_embeddings(struct llama_context * ctx);
 
+    // Get the embeddings for the ith sequence
+    // llama_get_embeddings(ctx) + i*n_embd
+    LLAMA_API float * llama_get_embeddings_ith(struct llama_context * ctx, int32_t i);
+
     //
     // Vocab
     //
@@ -683,6 +703,25 @@ extern "C" {
     LLAMA_API int32_t llama_token_to_piece(
               const struct llama_model * model,
                            llama_token   token,
+                                  char * buf,
+                               int32_t   length);
+
+    /// Apply chat template. Inspired by hf apply_chat_template() on python.
+    /// Both "model" and "custom_template" are optional, but at least one is required. "custom_template" has higher precedence than "model"
+    /// NOTE: This function does not use a jinja parser. It only support a pre-defined list of template. See more: https://github.com/ggerganov/llama.cpp/wiki/Templates-supported-by-llama_chat_apply_template
+    /// @param tmpl A Jinja template to use for this chat. If this is nullptr, the model’s default chat template will be used instead.
+    /// @param chat Pointer to a list of multiple llama_chat_message
+    /// @param n_msg Number of llama_chat_message in this chat
+    /// @param add_ass Whether to end the prompt with the token(s) that indicate the start of an assistant message.
+    /// @param buf A buffer to hold the output formatted prompt. The recommended alloc size is 2 * (total number of characters of all messages)
+    /// @param length The size of the allocated buffer
+    /// @return The total number of bytes of the formatted prompt. If is it larger than the size of buffer, you may need to re-alloc it and then re-apply the template.
+    LLAMA_API int32_t llama_chat_apply_template(
+              const struct llama_model * model,
+                            const char * tmpl,
+       const struct llama_chat_message * chat,
+                                size_t   n_msg,
+                                  bool   add_ass,
                                   char * buf,
                                int32_t   length);
 
@@ -773,6 +812,14 @@ extern "C" {
           llama_token_data_array * candidates,
                            float   p,
                           size_t   min_keep);
+
+    /// @details Dynamic temperature implementation described in the paper https://arxiv.org/abs/2309.02772.
+    LLAMA_API void llama_sample_entropy(
+            struct llama_context * ctx,
+          llama_token_data_array * candidates_p,
+                           float   min_temp,
+                           float   max_temp,
+                           float   exponent_val);
 
     LLAMA_API void llama_sample_temp(
             struct llama_context * ctx,

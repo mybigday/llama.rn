@@ -1,5 +1,5 @@
---- common.cpp.orig	2023-12-19 08:18:55
-+++ common.cpp	2023-12-19 08:18:26
+--- common.cpp.orig	2024-02-22 12:19:15
++++ common.cpp	2024-02-22 12:19:17
 @@ -41,6 +41,12 @@
  #if defined(_MSC_VER)
  #pragma warning(disable: 4244 4267) // possible loss of data
@@ -10,6 +10,6 @@
 +char const *LLAMA_COMMIT = "unknown";
 +char const *LLAMA_COMPILER = "unknown";
 +char const *LLAMA_BUILD_TARGET = "unknown";
- 
- int32_t get_num_physical_cores() {
- #ifdef __linux__
+
+ #if (defined(LM_GGML_USE_CUBLAS) || defined(LM_GGML_USE_SYCL))
+ #define LM_GGML_USE_CUBLAS_SYCL

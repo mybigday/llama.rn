@@ -31,6 +31,7 @@ cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
 files=(
   "./cpp/ggml.h"
   "./cpp/ggml.c"
+  "./cpp/common.h"
   "./cpp/common.cpp"
   "./cpp/ggml-metal.h"
   "./cpp/ggml-metal.m"

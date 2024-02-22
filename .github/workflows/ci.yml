@@ -54,6 +54,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pods-
 
+      - name: Upgrade CocoaPods to version 1.15.2
+        run: |
+          gem uninstall cocoapods --ignore-dependencies
+          gem install cocoapods -v 1.15.2
+
       - name: Install cocoapods
         run: |
           yarn example pods

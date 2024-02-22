@@ -27,10 +27,20 @@ size_t lm_ggml_backend_buft_get_alignment(lm_ggml_backend_buffer_type_t buft) {
     return buft->iface.get_alignment(buft);
 }
 
+size_t lm_ggml_backend_buft_get_max_size(lm_ggml_backend_buffer_type_t buft) {
+    // get_max_size is optional, defaults to SIZE_MAX
+    if (buft->iface.get_max_size) {
+        return buft->iface.get_max_size(buft);
+    }
+    return SIZE_MAX;
+}
+
 LM_GGML_CALL size_t lm_ggml_backend_buft_get_alloc_size(lm_ggml_backend_buffer_type_t buft, struct lm_ggml_tensor * tensor) {
     // get_alloc_size is optional, defaults to lm_ggml_nbytes
     if (buft->iface.get_alloc_size) {
-        return buft->iface.get_alloc_size(buft, tensor);
+        size_t size = buft->iface.get_alloc_size(buft, tensor);
+        assert(size >= lm_ggml_nbytes(tensor));
+        return size;
     }
     return lm_ggml_nbytes(tensor);
 }
@@ -54,8 +64,6 @@ LM_GGML_CALL lm_ggml_backend_buffer_t lm_ggml_backend_buffer_init(
                lm_ggml_backend_buffer_context_t   context,
                size_t                          size) {
     lm_ggml_backend_buffer_t buffer = malloc(sizeof(struct lm_ggml_backend_buffer));
-
-    LM_GGML_ASSERT(iface.get_base != NULL);
 
     (*buffer) = (struct lm_ggml_backend_buffer) {
         /* .interface = */ iface,
@@ -106,6 +114,10 @@ size_t lm_ggml_backend_buffer_get_alignment (lm_ggml_backend_buffer_t buffer) {
     return lm_ggml_backend_buft_get_alignment(lm_ggml_backend_buffer_get_type(buffer));
 }
 
+size_t lm_ggml_backend_buffer_get_max_size(lm_ggml_backend_buffer_t buffer) {
+    return lm_ggml_backend_buft_get_max_size(lm_ggml_backend_buffer_get_type(buffer));
+}
+
 size_t lm_ggml_backend_buffer_get_alloc_size(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor) {
     return lm_ggml_backend_buft_get_alloc_size(lm_ggml_backend_buffer_get_type(buffer), tensor);
 }
@@ -120,6 +132,11 @@ bool lm_ggml_backend_buffer_is_host(lm_ggml_backend_buffer_t buffer) {
 
 void lm_ggml_backend_buffer_set_usage(lm_ggml_backend_buffer_t buffer, enum lm_ggml_backend_buffer_usage usage) {
     buffer->usage = usage;
+
+    // FIXME: add a generic callback to the buffer interface
+    if (lm_ggml_backend_buffer_is_multi_buffer(buffer)) {
+        lm_ggml_backend_multi_buffer_set_usage(buffer, usage);
+    }
 }
 
 lm_ggml_backend_buffer_type_t lm_ggml_backend_buffer_get_type(lm_ggml_backend_buffer_t buffer) {
@@ -169,6 +186,10 @@ size_t lm_ggml_backend_get_alignment(lm_ggml_backend_t backend) {
     return lm_ggml_backend_buft_get_alignment(lm_ggml_backend_get_default_buffer_type(backend));
 }
 
+size_t lm_ggml_backend_get_max_size(lm_ggml_backend_t backend) {
+    return lm_ggml_backend_buft_get_max_size(lm_ggml_backend_get_default_buffer_type(backend));
+}
+
 void lm_ggml_backend_tensor_set_async(lm_ggml_backend_t backend, struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
     LM_GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
     LM_GGML_ASSERT(offset + size <= lm_ggml_nbytes(tensor) && "tensor write out of bounds");
@@ -198,6 +219,10 @@ LM_GGML_CALL void lm_ggml_backend_tensor_set(struct lm_ggml_tensor * tensor, con
     LM_GGML_ASSERT(buf != NULL && "tensor buffer not set");
     LM_GGML_ASSERT(offset + size <= lm_ggml_nbytes(tensor) && "tensor write out of bounds");
 
+    if (!size) {
+        return;
+    }
+
     tensor->buffer->iface.set_tensor(buf, tensor, data, offset, size);
 }
 
@@ -207,6 +232,10 @@ LM_GGML_CALL void lm_ggml_backend_tensor_get(const struct lm_ggml_tensor * tenso
     LM_GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
     LM_GGML_ASSERT(tensor->buffer != NULL && "tensor buffer not set");
     LM_GGML_ASSERT(offset + size <= lm_ggml_nbytes(tensor) && "tensor read out of bounds");
+
+    if (!size) {
+        return;
+    }
 
     tensor->buffer->iface.get_tensor(buf, tensor, data, offset, size);
 }
@@ -337,10 +366,25 @@ LM_GGML_CALL static void lm_ggml_backend_registry_init(void) {
     lm_ggml_backend_cuda_reg_devices();
 #endif
 
+#ifdef LM_GGML_USE_SYCL
+    extern void lm_ggml_backend_sycl_reg_devices(void);
+    lm_ggml_backend_sycl_reg_devices();
+#endif
+
 #ifdef LM_GGML_USE_METAL
     extern LM_GGML_CALL lm_ggml_backend_t lm_ggml_backend_reg_metal_init(const char * params, void * user_data);
     extern LM_GGML_CALL lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_type(void);
     lm_ggml_backend_register("Metal", lm_ggml_backend_reg_metal_init, lm_ggml_backend_metal_buffer_type(), NULL);
+#endif
+
+#ifdef LM_GGML_USE_VULKAN
+    extern LM_GGML_CALL int lm_ggml_backend_vk_reg_devices(void);
+    lm_ggml_backend_vk_reg_devices();
+#endif
+
+#ifdef LM_GGML_USE_KOMPUTE
+    extern LM_GGML_CALL void lm_ggml_backend_kompute_reg_devices(void);
+    lm_ggml_backend_kompute_reg_devices();
 #endif
 }
 
@@ -439,6 +483,8 @@ lm_ggml_backend_buffer_t lm_ggml_backend_reg_alloc_buffer(size_t i, size_t size)
 
 // backend CPU
 
+static const size_t TENSOR_ALIGNMENT = 32; // required for mmap as gguf only guarantees 32-byte alignment
+
 LM_GGML_CALL static const char * lm_ggml_backend_cpu_buffer_name(lm_ggml_backend_buffer_t buffer) {
     return "CPU";
 
@@ -446,7 +492,14 @@ LM_GGML_CALL static const char * lm_ggml_backend_cpu_buffer_name(lm_ggml_backend
 }
 
 LM_GGML_CALL static void * lm_ggml_backend_cpu_buffer_get_base(lm_ggml_backend_buffer_t buffer) {
-    return (void *)buffer->context;
+    uintptr_t data = (uintptr_t)buffer->context;
+
+    // align the buffer
+    if (data % TENSOR_ALIGNMENT != 0) {
+        data = LM_GGML_PAD(data, TENSOR_ALIGNMENT);
+    }
+
+    return (void *)data;
 }
 
 LM_GGML_CALL static void lm_ggml_backend_cpu_buffer_free_buffer(lm_ggml_backend_buffer_t buffer) {
@@ -504,8 +557,6 @@ static struct lm_ggml_backend_buffer_i cpu_backend_buffer_i_from_ptr = {
     /* .reset           = */ NULL,
 };
 
-static const size_t TENSOR_ALIGNMENT = 64; // should be enough for AVX 512
-
 LM_GGML_CALL static const char * lm_ggml_backend_cpu_buffer_type_get_name(lm_ggml_backend_buffer_type_t buft) {
     return "CPU";
 
@@ -514,9 +565,11 @@ LM_GGML_CALL static const char * lm_ggml_backend_cpu_buffer_type_get_name(lm_ggm
 
 LM_GGML_CALL static lm_ggml_backend_buffer_t lm_ggml_backend_cpu_buffer_type_alloc_buffer(lm_ggml_backend_buffer_type_t buft, size_t size) {
     size += TENSOR_ALIGNMENT;   // malloc may return an address that is not aligned
-    void * data = malloc(size); // TODO: maybe use LM_GGML_ALIGNED_MALLOC?
-
-    LM_GGML_ASSERT(data != NULL && "failed to allocate buffer");
+    void * data = malloc(size); // TODO: use LM_GGML_ALIGNED_MALLOC (move to ggml-impl.h)
+    if (data == NULL) {
+        fprintf(stderr, "%s: failed to allocate buffer of size %zu\n", __func__, size);
+        return NULL;
+    }
 
     return lm_ggml_backend_buffer_init(buft, cpu_backend_buffer_i, data, size);
 }
@@ -545,6 +598,7 @@ LM_GGML_CALL lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_buffer_type(void)
             /* .get_name         = */ lm_ggml_backend_cpu_buffer_type_get_name,
             /* .alloc_buffer     = */ lm_ggml_backend_cpu_buffer_type_alloc_buffer,
             /* .get_alignment    = */ lm_ggml_backend_cpu_buffer_type_get_alignment,
+            /* .get_max_size     = */ NULL, // defaults to SIZE_MAX
             /* .get_alloc_size   = */ NULL, // defaults to lm_ggml_nbytes
             /* .supports_backend = */ lm_ggml_backend_cpu_buffer_type_supports_backend,
             /* .is_host          = */ lm_ggml_backend_cpu_buffer_type_is_host,
@@ -600,6 +654,7 @@ lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_hbm_buffer_type(void) {
             /* .get_name         = */ lm_ggml_backend_cpu_hbm_buffer_type_get_name,
             /* .alloc_buffer     = */ lm_ggml_backend_cpu_hbm_buffer_type_alloc_buffer,
             /* .get_alignment    = */ lm_ggml_backend_cpu_buffer_type_get_alignment,
+            /* .get_max_size     = */ NULL, // defaults to SIZE_MAX
             /* .get_alloc_size   = */ NULL, // defaults to lm_ggml_nbytes
             /* .supports_backend = */ lm_ggml_backend_cpu_buffer_type_supports_backend,
             /* .is_host          = */ lm_ggml_backend_cpu_buffer_type_is_host,
@@ -615,6 +670,9 @@ struct lm_ggml_backend_cpu_context {
     int n_threads;
     void * work_data;
     size_t work_size;
+
+    lm_ggml_abort_callback abort_callback;
+    void *              abort_callback_data;
 };
 
 LM_GGML_CALL static const char * lm_ggml_backend_cpu_name(lm_ggml_backend_t backend) {
@@ -653,6 +711,9 @@ LM_GGML_CALL static lm_ggml_backend_graph_plan_t lm_ggml_backend_cpu_graph_plan_
         cpu_plan->cplan.work_data = malloc(cpu_plan->cplan.work_size);
     }
 
+    cpu_plan->cplan.abort_callback      = cpu_ctx->abort_callback;
+    cpu_plan->cplan.abort_callback_data = cpu_ctx->abort_callback_data;
+
     return cpu_plan;
 }
 
@@ -683,8 +744,10 @@ LM_GGML_CALL static bool lm_ggml_backend_cpu_graph_compute(lm_ggml_backend_t bac
         cpu_ctx->work_data = realloc(cpu_ctx->work_data, cplan.work_size);
         cpu_ctx->work_size = cplan.work_size;
     }
-
     cplan.work_data = cpu_ctx->work_data;
+
+    cplan.abort_callback      = cpu_ctx->abort_callback;
+    cplan.abort_callback_data = cpu_ctx->abort_callback_data;
 
     lm_ggml_graph_compute(cgraph, &cplan);
     return true;
@@ -693,7 +756,7 @@ LM_GGML_CALL static bool lm_ggml_backend_cpu_graph_compute(lm_ggml_backend_t bac
 LM_GGML_CALL static bool lm_ggml_backend_cpu_supports_op(lm_ggml_backend_t backend, const struct lm_ggml_tensor * op) {
     switch (op->op) {
         case LM_GGML_OP_CPY:
-            return op->type != LM_GGML_TYPE_IQ2_XXS && op->type != LM_GGML_TYPE_IQ2_XS; // missing type_traits.from_float
+            return op->type != LM_GGML_TYPE_IQ2_XXS && op->type != LM_GGML_TYPE_IQ2_XS && op->type != LM_GGML_TYPE_IQ1_S; // missing type_traits.from_float
         case LM_GGML_OP_MUL_MAT:
             return op->src[1]->type == LM_GGML_TYPE_F32 || op->src[1]->type == lm_ggml_internal_get_type_traits(op->src[0]->type).vec_dot_type;
         default:
@@ -720,12 +783,21 @@ static struct lm_ggml_backend_i cpu_backend_i = {
 
 lm_ggml_backend_t lm_ggml_backend_cpu_init(void) {
     struct lm_ggml_backend_cpu_context * ctx = malloc(sizeof(struct lm_ggml_backend_cpu_context));
+    if (ctx == NULL) {
+        return NULL;
+    }
 
-    ctx->n_threads = LM_GGML_DEFAULT_N_THREADS;
-    ctx->work_data = NULL;
-    ctx->work_size = 0;
+    ctx->n_threads           = LM_GGML_DEFAULT_N_THREADS;
+    ctx->work_data           = NULL;
+    ctx->work_size           = 0;
+    ctx->abort_callback      = NULL;
+    ctx->abort_callback_data = NULL;
 
     lm_ggml_backend_t cpu_backend = malloc(sizeof(struct lm_ggml_backend));
+    if (cpu_backend == NULL) {
+        free(ctx);
+        return NULL;
+    }
 
     *cpu_backend = (struct lm_ggml_backend) {
         /* .interface = */ cpu_backend_i,
@@ -745,7 +817,16 @@ void lm_ggml_backend_cpu_set_n_threads(lm_ggml_backend_t backend_cpu, int n_thre
     ctx->n_threads = n_threads;
 }
 
+void lm_ggml_backend_cpu_set_abort_callback(lm_ggml_backend_t backend_cpu, lm_ggml_abort_callback abort_callback, void * abort_callback_data) {
+    LM_GGML_ASSERT(lm_ggml_backend_is_cpu(backend_cpu));
+
+    struct lm_ggml_backend_cpu_context * ctx = (struct lm_ggml_backend_cpu_context *)backend_cpu->context;
+    ctx->abort_callback = abort_callback;
+    ctx->abort_callback_data = abort_callback_data;
+}
+
 LM_GGML_CALL lm_ggml_backend_buffer_t lm_ggml_backend_cpu_buffer_from_ptr(void * ptr, size_t size) {
+    LM_GGML_ASSERT((uintptr_t)ptr % TENSOR_ALIGNMENT == 0 && "buffer pointer must be aligned");
     return lm_ggml_backend_buffer_init(lm_ggml_backend_cpu_buffer_type(), cpu_backend_buffer_i_from_ptr, ptr, size);
 }
 
@@ -756,6 +837,94 @@ LM_GGML_CALL static lm_ggml_backend_t lm_ggml_backend_reg_cpu_init(const char * 
     LM_GGML_UNUSED(user_data);
 }
 
+// multi-buffer buffer
+
+struct lm_ggml_backend_multi_buffer_context {
+    lm_ggml_backend_buffer_t * buffers;
+    size_t n_buffers;
+};
+
+typedef struct lm_ggml_backend_multi_buffer_context * lm_ggml_backend_multi_buffer_context_t;
+
+LM_GGML_CALL static const char * lm_ggml_backend_multi_buffer_get_name(lm_ggml_backend_buffer_t buffer) {
+    lm_ggml_backend_multi_buffer_context_t ctx = (lm_ggml_backend_multi_buffer_context_t) buffer->context;
+
+    return ctx->buffers[0]->iface.get_name(ctx->buffers[0]);
+}
+
+LM_GGML_CALL static void lm_ggml_backend_multi_buffer_free_buffer(lm_ggml_backend_buffer_t buffer) {
+    lm_ggml_backend_multi_buffer_context_t ctx = (lm_ggml_backend_multi_buffer_context_t) buffer->context;
+    for (size_t i = 0; i < ctx->n_buffers; i++) {
+        lm_ggml_backend_buffer_free(ctx->buffers[i]);
+    }
+
+    free(ctx->buffers);
+    free(ctx);
+}
+
+LM_GGML_CALL static void lm_ggml_backend_multi_buffer_clear(lm_ggml_backend_buffer_t buffer, uint8_t value) {
+    lm_ggml_backend_multi_buffer_context_t ctx = (lm_ggml_backend_multi_buffer_context_t) buffer->context;
+    for (size_t i = 0; i < ctx->n_buffers; i++) {
+        lm_ggml_backend_buffer_clear(ctx->buffers[i], value);
+    }
+}
+
+static struct lm_ggml_backend_buffer_i lm_ggml_backend_multi_buffer_context_interface(void) {
+    static struct lm_ggml_backend_buffer_i multi_backend_buffer_i = {
+        /* .get_name        = */ lm_ggml_backend_multi_buffer_get_name,
+        /* .free_buffer     = */ lm_ggml_backend_multi_buffer_free_buffer,
+        /* .get_base        = */ NULL,
+        /* .init_tensor     = */ NULL,
+        /* .set_tensor      = */ NULL,
+        /* .get_tensor      = */ NULL,
+        /* .cpy_tensor      = */ NULL,
+        /* .clear           = */ lm_ggml_backend_multi_buffer_clear,
+        /* .reset           = */ NULL,
+    };
+
+    return multi_backend_buffer_i;
+}
+
+LM_GGML_CALL lm_ggml_backend_buffer_t lm_ggml_backend_multi_buffer_alloc_buffer(lm_ggml_backend_buffer_t * buffers, size_t n_buffers) {
+    lm_ggml_backend_multi_buffer_context_t ctx = (lm_ggml_backend_multi_buffer_context_t) malloc(sizeof(struct lm_ggml_backend_multi_buffer_context));
+    ctx->n_buffers = n_buffers;
+    ctx->buffers = (lm_ggml_backend_buffer_t *) malloc(n_buffers * sizeof(lm_ggml_backend_buffer_t));
+
+    LM_GGML_ASSERT(ctx->buffers != NULL);
+
+    size_t total_size = 0;
+    for (size_t i = 0; i < n_buffers; i++) {
+        ctx->buffers[i] = buffers[i];
+        total_size += lm_ggml_backend_buffer_get_size(buffers[i]);
+    }
+
+    return lm_ggml_backend_buffer_init(buffers[0]->buft, lm_ggml_backend_multi_buffer_context_interface(), ctx, total_size);
+}
+
+LM_GGML_CALL bool lm_ggml_backend_buffer_is_multi_buffer(lm_ggml_backend_buffer_t buffer) {
+    return buffer->iface.get_name == lm_ggml_backend_multi_buffer_get_name;
+}
+
+LM_GGML_CALL void lm_ggml_backend_multi_buffer_set_usage(lm_ggml_backend_buffer_t buffer, enum lm_ggml_backend_buffer_usage usage) {
+    LM_GGML_ASSERT(lm_ggml_backend_buffer_is_multi_buffer(buffer));
+    lm_ggml_backend_multi_buffer_context_t ctx = (lm_ggml_backend_multi_buffer_context_t) buffer->context;
+    for (size_t i = 0; i < ctx->n_buffers; i++) {
+        lm_ggml_backend_buffer_set_usage(ctx->buffers[i], usage);
+    }
+}
+
+// creates a copy of the tensor with the same memory layout
+static struct lm_ggml_tensor * lm_ggml_dup_tensor_layout(struct lm_ggml_context * ctx, const struct lm_ggml_tensor * tensor) {
+    struct lm_ggml_tensor * dup = lm_ggml_dup_tensor(ctx, tensor);
+    for (int i = 0; i < LM_GGML_MAX_DIMS; i++) {
+        dup->nb[i] = tensor->nb[i];
+    }
+    return dup;
+}
+
+static bool lm_ggml_is_view_op(enum lm_ggml_op op) {
+    return op == LM_GGML_OP_VIEW || op == LM_GGML_OP_RESHAPE || op == LM_GGML_OP_PERMUTE || op == LM_GGML_OP_TRANSPOSE;
+}
 
 // scheduler
 
@@ -764,7 +933,7 @@ LM_GGML_CALL static lm_ggml_backend_t lm_ggml_backend_reg_cpu_init(const char * 
 #define LM_GGML_MAX_SPLIT_INPUTS 16
 
 struct lm_ggml_backend_sched_split {
-    lm_ggml_tallocr_t tallocr;
+    int backend_id;
     int i_start;
     int i_end;
     struct lm_ggml_tensor * inputs[LM_GGML_MAX_SPLIT_INPUTS];
@@ -779,15 +948,17 @@ struct lm_ggml_backend_sched {
     int n_backends;
     lm_ggml_backend_t backends[LM_GGML_MAX_BACKENDS];
     lm_ggml_backend_buffer_type_t bufts[LM_GGML_MAX_BACKENDS];
-    lm_ggml_tallocr_t  tallocs[LM_GGML_MAX_BACKENDS];
 
     lm_ggml_gallocr_t galloc;
 
     // hash keys of the nodes in the graph
     struct lm_ggml_hash_set    hash_set;
-    // hash values (arrays of [hash_set.size])
-    lm_ggml_tallocr_t *        node_talloc;                     // tallocr assigned to each node (indirectly this is the backend)
-    struct lm_ggml_tensor * (* node_copies)[LM_GGML_MAX_BACKENDS]; // copies of each node for each destination backend
+    // hash values
+    int * tensor_backend_id;
+    struct lm_ggml_tensor * (* tensor_copies)[LM_GGML_MAX_BACKENDS];
+
+    int * node_backend_ids; // [n_nodes]
+    int n_nodes;
 
     // copy of the graph with modified inputs
     struct lm_ggml_cgraph * graph;
@@ -797,75 +968,45 @@ struct lm_ggml_backend_sched {
 
     struct lm_ggml_context * ctx;
 
+    lm_ggml_backend_sched_eval_callback callback_eval;
+    void * callback_eval_user_data;
+
     // align context_buffer to LM_GGML_MEM_ALIGN
     #ifdef _MSC_VER
     __declspec(align(LM_GGML_MEM_ALIGN))
     #else
     __attribute__((aligned(LM_GGML_MEM_ALIGN)))
     #endif
-    char context_buffer[LM_GGML_MAX_SPLITS*LM_GGML_MAX_SPLIT_INPUTS*sizeof(struct lm_ggml_tensor) + sizeof(struct lm_ggml_cgraph)];
-
-    lm_ggml_backend_sched_eval_callback callback_eval;
-    void * callback_eval_user_data;
+    char context_buffer[LM_GGML_MAX_SPLITS*LM_GGML_MAX_SPLIT_INPUTS*2*sizeof(struct lm_ggml_tensor) + sizeof(struct lm_ggml_cgraph)];
 };
 
 #define hash_id(node) lm_ggml_hash_find_or_insert(sched->hash_set, node)
-#define node_allocr(node) sched->node_talloc[hash_id(node)]
+#define tensor_backend_id(node) sched->tensor_backend_id[hash_id(node)]
+#define tensor_backend(node) (tensor_backend_id(node) == -1 ? NULL : sched->backends[tensor_backend_id(node)])
 
-static bool lm_ggml_is_view_op(enum lm_ggml_op op) {
-    return op == LM_GGML_OP_VIEW || op == LM_GGML_OP_RESHAPE || op == LM_GGML_OP_PERMUTE || op == LM_GGML_OP_TRANSPOSE;
-}
-
-// returns the priority of the backend, lower is better
-static int sched_backend_prio(lm_ggml_backend_sched_t sched, lm_ggml_backend_t backend) {
+// returns the priority of the backend, lower id is higher priority
+static int lm_ggml_backend_sched_backend_id(lm_ggml_backend_sched_t sched, lm_ggml_backend_t backend) {
     for (int i = 0; i < sched->n_backends; i++) {
         if (sched->backends[i] == backend) {
             return i;
         }
     }
-    return INT_MAX;
+    return -1;
 }
 
-static int sched_allocr_prio(lm_ggml_backend_sched_t sched, lm_ggml_tallocr_t allocr) {
-    for (int i = 0; i < sched->n_backends; i++) {
-        if (sched->tallocs[i] == allocr) {
-            return i;
-        }
-    }
-    return INT_MAX;
-}
-
-static lm_ggml_tallocr_t sched_allocr_from_buffer(lm_ggml_backend_sched_t sched, lm_ggml_backend_buffer_t buffer) {
+static int lm_ggml_backend_sched_backend_from_buffer(lm_ggml_backend_sched_t sched, lm_ggml_backend_buffer_t buffer) {
     if (buffer == NULL) {
-        return NULL;
-    }
-
-    // check if this is already allocate in a allocr buffer (from user manual allocations)
-    for (int i = 0; i < sched->n_backends; i++) {
-        if (lm_ggml_tallocr_get_buffer(sched->tallocs[i]) == buffer) {
-            return sched->tallocs[i];
-        }
+        return -1;
     }
 
     // find highest prio backend that supports the buffer type
     for (int i = 0; i < sched->n_backends; i++) {
         if (lm_ggml_backend_buft_supports_backend(buffer->buft, sched->backends[i])) {
-            return sched->tallocs[i];
+            return i;
         }
     }
     LM_GGML_ASSERT(false && "tensor buffer type not supported by any backend");
-}
-
-static lm_ggml_backend_t get_allocr_backend(lm_ggml_backend_sched_t sched, lm_ggml_tallocr_t allocr) {
-    if (allocr == NULL) {
-        return NULL;
-    }
-    for (int i = 0; i < sched->n_backends; i++) {
-        if (sched->tallocs[i] == allocr) {
-            return sched->backends[i];
-        }
-    }
-    LM_GGML_UNREACHABLE();
+    return -1; // silence warning
 }
 
 #if 0
@@ -878,37 +1019,39 @@ static char causes[LM_GGML_DEFAULT_GRAPH_SIZE*16 + LM_GGML_MAX_SPLITS*LM_GGML_MA
 #endif
 
 // returns the backend that should be used for the node based on the current locations
-static lm_ggml_tallocr_t sched_allocr_from_cur(lm_ggml_backend_sched_t sched, struct lm_ggml_tensor * node) {
+static int lm_ggml_backend_sched_backend_id_from_cur(lm_ggml_backend_sched_t sched, struct lm_ggml_tensor * tensor) {
+    // TODO: use supports_op to check if the backend supports the op
+
     // assign pre-allocated nodes to their backend
     // dst
-    lm_ggml_tallocr_t cur_allocr = sched_allocr_from_buffer(sched, node->buffer);
-    if (cur_allocr != NULL) {
+    int cur_backend = lm_ggml_backend_sched_backend_from_buffer(sched, tensor->buffer);
+    if (cur_backend != -1) {
         SET_CAUSE(node, "1.dst");
-        return cur_allocr;
+        return cur_backend;
     }
     // view_src
-    if (node->view_src != NULL) {
-        cur_allocr = sched_allocr_from_buffer(sched, node->view_src->buffer);
-        if (cur_allocr != NULL) {
+    if (tensor->view_src != NULL) {
+        cur_backend = lm_ggml_backend_sched_backend_from_buffer(sched, tensor->view_src->buffer);
+        if (cur_backend != -1) {
             SET_CAUSE(node, "1.vsrc");
-            return cur_allocr;
+            return cur_backend;
         }
     }
     // assign nodes that use weights to the backend of the weights
     for (int i = 0; i < LM_GGML_MAX_SRC; i++) {
-        const struct lm_ggml_tensor * src = node->src[i];
+        const struct lm_ggml_tensor * src = tensor->src[i];
         if (src == NULL) {
-            break;
+            continue;
         }
         if (src->buffer != NULL && src->buffer->usage == LM_GGML_BACKEND_BUFFER_USAGE_WEIGHTS) {
-            lm_ggml_tallocr_t src_allocr = sched_allocr_from_buffer(sched, src->buffer);
+            int src_backend = lm_ggml_backend_sched_backend_from_buffer(sched, src->buffer);
             // operations with weights are always run on the same backend as the weights
             SET_CAUSE(node, "1.wgt%d", i);
-            return src_allocr;
+            return src_backend;
         }
     }
 
-    return NULL;
+    return -1;
 }
 
 static char * fmt_size(size_t size) {
@@ -921,11 +1064,11 @@ static char * fmt_size(size_t size) {
     return buffer;
 }
 
-static void sched_print_assignments(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph) {
+static void lm_ggml_backend_sched_print_assignments(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph) {
     int cur_split = 0;
     for (int i = 0; i < graph->n_nodes; i++) {
         if (cur_split < sched->n_splits && i == sched->splits[cur_split].i_start) {
-            lm_ggml_backend_t split_backend = get_allocr_backend(sched, sched->splits[cur_split].tallocr);
+            lm_ggml_backend_t split_backend = sched->backends[sched->splits[cur_split].backend_id];
             fprintf(stderr, "\n## SPLIT #%d: %s # %d inputs: ", cur_split, lm_ggml_backend_name(split_backend),
                 sched->splits[cur_split].n_inputs);
             for (int j = 0; j < sched->splits[cur_split].n_inputs; j++) {
@@ -939,17 +1082,15 @@ static void sched_print_assignments(lm_ggml_backend_sched_t sched, struct lm_ggm
         if (lm_ggml_is_view_op(node->op)) {
             continue;
         }
-        lm_ggml_tallocr_t node_allocr = node_allocr(node);
-        lm_ggml_backend_t node_backend = node_allocr ? get_allocr_backend(sched, node_allocr) : NULL; // FIXME:
+        lm_ggml_backend_t tensor_backend = tensor_backend(node);
         fprintf(stderr, "node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s]:", i, lm_ggml_op_name(node->op), node->name,
-            fmt_size(lm_ggml_nbytes(node)), node_allocr ? lm_ggml_backend_name(node_backend) : "NULL", GET_CAUSE(node));
+            fmt_size(lm_ggml_nbytes(node)), tensor_backend ? lm_ggml_backend_name(tensor_backend) : "NULL", GET_CAUSE(node));
         for (int j = 0; j < LM_GGML_MAX_SRC; j++) {
             struct lm_ggml_tensor * src = node->src[j];
             if (src == NULL) {
-                break;
+                continue;
             }
-            lm_ggml_tallocr_t src_allocr = node_allocr(src);
-            lm_ggml_backend_t src_backend = src_allocr ? get_allocr_backend(sched, src_allocr) : NULL;
+            lm_ggml_backend_t src_backend = tensor_backend(src);
             fprintf(stderr, " %20.20s (%5.5s) [%5.5s %8.8s]", src->name,
                 fmt_size(lm_ggml_nbytes(src)), src_backend ? lm_ggml_backend_name(src_backend) : "NULL", GET_CAUSE(src));
         }
@@ -957,23 +1098,13 @@ static void sched_print_assignments(lm_ggml_backend_sched_t sched, struct lm_ggm
     }
 }
 
-// creates a copy of the tensor with the same memory layout
-static struct lm_ggml_tensor * lm_ggml_dup_tensor_layout(struct lm_ggml_context * ctx, const struct lm_ggml_tensor * tensor) {
-    struct lm_ggml_tensor * dup = lm_ggml_dup_tensor(ctx, tensor);
-    for (int i = 0; i < LM_GGML_MAX_DIMS; i++) {
-        dup->nb[i] = tensor->nb[i];
-    }
-    return dup;
-}
-
-
 //#define DEBUG_PASS1
 //#define DEBUG_PASS2
 //#define DEBUG_PASS3
 //#define DEBUG_PASS4
 
 // assigns backends to ops and splits the graph into subgraphs that can be computed on the same backend
-static void sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph) {
+static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph) {
     // reset splits
     sched->n_splits = 0;
     sched->is_reset = false;
@@ -995,28 +1126,28 @@ static void sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgra
     // pass 1: assign backends to ops with pre-allocated inputs
     for (int i = 0; i < graph->n_leafs; i++) {
         struct lm_ggml_tensor * leaf = graph->leafs[i];
-        if (node_allocr(leaf) != NULL) {
+        if (tensor_backend_id(leaf) != -1) {
             // do not overwrite user assignments
             continue;
         }
-        node_allocr(leaf) = sched_allocr_from_cur(sched, leaf);
+        tensor_backend_id(leaf) = lm_ggml_backend_sched_backend_id_from_cur(sched, leaf);
     }
 
     for (int i = 0; i < graph->n_nodes; i++) {
         struct lm_ggml_tensor * node = graph->nodes[i];
-        if (node_allocr(node) != NULL) {
+        if (tensor_backend_id(node) != -1) {
             // do not overwrite user assignments
             continue;
         }
-        node_allocr(node) = sched_allocr_from_cur(sched, node);
+        tensor_backend_id(node) = lm_ggml_backend_sched_backend_id_from_cur(sched, node);
         // src
         for (int j = 0; j < LM_GGML_MAX_SRC; j++) {
             struct lm_ggml_tensor * src = node->src[j];
             if (src == NULL) {
-                break;
+                continue;
             }
-            if (node_allocr(src) == NULL) {
-                node_allocr(src) = sched_allocr_from_cur(sched, src);
+            if (tensor_backend_id(src) == -1) {
+                tensor_backend_id(src) = lm_ggml_backend_sched_backend_id_from_cur(sched, src);
             }
         }
     }
@@ -1031,22 +1162,22 @@ static void sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgra
 
     // pass 2.1 expand gpu up
     {
-        lm_ggml_tallocr_t cur_allocr = NULL;
+        int cur_backend_id = -1;
         for (int i = graph->n_nodes - 1; i >= 0; i--) {
             struct lm_ggml_tensor * node = graph->nodes[i];
             if (lm_ggml_is_view_op(node->op)) {
                 continue;
             }
-            lm_ggml_tallocr_t node_allocr = node_allocr(node);
-            if (node_allocr != NULL) {
-                if (sched_allocr_prio(sched, node_allocr) == sched->n_backends - 1) {
+            int tensor_backend_id = tensor_backend_id(node);
+            if (tensor_backend_id != -1) {
+                if (tensor_backend_id == sched->n_backends - 1) {
                     // skip cpu (lowest prio backend)
-                    cur_allocr = NULL;
+                    cur_backend_id = -1;
                 } else {
-                    cur_allocr = node_allocr;
+                    cur_backend_id = tensor_backend_id;
                 }
             } else {
-                node_allocr(node) = cur_allocr;
+                tensor_backend_id(node) = cur_backend_id;
                 SET_CAUSE(node, "2.1");
             }
         }
@@ -1054,22 +1185,22 @@ static void sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgra
 
     // pass 2.2 expand gpu down
     {
-        lm_ggml_tallocr_t cur_allocr = NULL;
+        int cur_backend_id = -1;
         for (int i = 0; i < graph->n_nodes; i++) {
             struct lm_ggml_tensor * node = graph->nodes[i];
             if (lm_ggml_is_view_op(node->op)) {
                 continue;
             }
-            lm_ggml_tallocr_t node_allocr = node_allocr(node);
-            if (node_allocr != NULL) {
-                if (sched_allocr_prio(sched, node_allocr) == sched->n_backends - 1) {
+            int tensor_backend_id = tensor_backend_id(node);
+            if (tensor_backend_id != -1) {
+                if (tensor_backend_id == sched->n_backends - 1) {
                     // skip cpu (lowest prio backend)
-                    cur_allocr = NULL;
+                    cur_backend_id = -1;
                 } else {
-                    cur_allocr = node_allocr;
+                    cur_backend_id = tensor_backend_id;
                 }
             } else {
-                node_allocr(node) = cur_allocr;
+                tensor_backend_id(node) = cur_backend_id;
                 SET_CAUSE(node, "2.2");
             }
         }
@@ -1077,17 +1208,17 @@ static void sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgra
 
     // pass 2.3 expand rest up
     {
-        lm_ggml_tallocr_t cur_allocr = NULL;
+        int cur_backend_id = -1;
         for (int i = graph->n_nodes - 1; i >= 0; i--) {
             struct lm_ggml_tensor * node = graph->nodes[i];
             if (lm_ggml_is_view_op(node->op)) {
                 continue;
             }
-            lm_ggml_tallocr_t node_allocr = node_allocr(node);
-            if (node_allocr != NULL) {
-                cur_allocr = node_allocr;
+            int tensor_backend_id = tensor_backend_id(node);
+            if (tensor_backend_id != -1) {
+                cur_backend_id = tensor_backend_id;
             } else {
-                node_allocr(node) = cur_allocr;
+                tensor_backend_id(node) = cur_backend_id;
                 SET_CAUSE(node, "2.3");
             }
         }
@@ -1095,17 +1226,17 @@ static void sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgra
 
     // pass 2.4 expand rest down
     {
-        lm_ggml_tallocr_t cur_allocr = NULL;
+        int cur_backend_id = -1;
         for (int i = 0; i < graph->n_nodes; i++) {
             struct lm_ggml_tensor * node = graph->nodes[i];
             if (lm_ggml_is_view_op(node->op)) {
                 continue;
             }
-            lm_ggml_tallocr_t node_allocr = node_allocr(node);
-            if (node_allocr != NULL) {
-                cur_allocr = node_allocr;
+            int tensor_backend_id = tensor_backend_id(node);
+            if (tensor_backend_id != -1) {
+                cur_backend_id = tensor_backend_id;
             } else {
-                node_allocr(node) = cur_allocr;
+                tensor_backend_id(node) = cur_backend_id;
                 SET_CAUSE(node, "2.4");
             }
         }
@@ -1117,24 +1248,24 @@ static void sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgra
     // pass 3: assign backends to remaining src from dst and view_src
     for (int i = 0; i < graph->n_nodes; i++) {
         struct lm_ggml_tensor * node = graph->nodes[i];
-        lm_ggml_tallocr_t cur_allocr = node_allocr(node);
-        if (node->view_src != NULL && cur_allocr == NULL) {
-            cur_allocr = node_allocr(node) = node_allocr(node->view_src);
+        int cur_backend_id = tensor_backend_id(node);
+        if (node->view_src != NULL && cur_backend_id == -1) {
+            cur_backend_id = tensor_backend_id(node) = tensor_backend_id(node->view_src);
             SET_CAUSE(node, "3.vsrc");
         }
         for (int j = 0; j < LM_GGML_MAX_SRC; j++) {
             struct lm_ggml_tensor * src = node->src[j];
             if (src == NULL) {
-                break;
+                continue;
             }
-            lm_ggml_tallocr_t src_allocr = node_allocr(src);
-            if (src_allocr == NULL) {
+            int src_backend_id = tensor_backend_id(src);
+            if (src_backend_id == -1) {
                 if (src->view_src != NULL) {
                     // views are always on the same backend as the source
-                    node_allocr(src) = node_allocr(src->view_src);
+                    tensor_backend_id(src) = tensor_backend_id(src->view_src);
                     SET_CAUSE(src, "3.vsrc");
                 } else {
-                    node_allocr(src) = cur_allocr;
+                    tensor_backend_id(src) = cur_backend_id;
                     SET_CAUSE(src, "3.cur");
                 }
             }
@@ -1151,15 +1282,14 @@ static void sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgra
         for (int i = 0; i < graph->n_nodes; i++) {
             struct lm_ggml_tensor * node = graph->nodes[i];
             if (!lm_ggml_is_view_op(node->op)) {
-                sched->splits[0].tallocr = node_allocr(node);
+                sched->splits[0].backend_id = tensor_backend_id(node);
                 break;
             }
         }
         sched->splits[0].i_start = 0;
         sched->splits[0].n_inputs = 0;
         memset(sched->splits[0].inputs, 0, sizeof(sched->splits[0].inputs)); //HACK
-        lm_ggml_tallocr_t cur_allocr = sched->splits[0].tallocr;
-        size_t cur_backend_id = sched_allocr_prio(sched, cur_allocr);
+        int cur_backend_id = sched->splits[0].backend_id;
         for (int i = 0; i < graph->n_nodes; i++) {
             struct lm_ggml_tensor * node = graph->nodes[i];
 
@@ -1167,58 +1297,45 @@ static void sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgra
                 continue;
             }
 
-            lm_ggml_tallocr_t node_allocr = node_allocr(node);
+            int tensor_backend_id = tensor_backend_id(node);
 
-            LM_GGML_ASSERT(node_allocr != NULL); // all nodes should be assigned by now
+            LM_GGML_ASSERT(tensor_backend_id != -1); // all nodes should be assigned by now
 
-            if (node_allocr != cur_allocr) {
+            if (tensor_backend_id != cur_backend_id) {
                 sched->splits[cur_split].i_end = i;
                 cur_split++;
                 LM_GGML_ASSERT(cur_split < LM_GGML_MAX_SPLITS);
-                sched->splits[cur_split].tallocr = node_allocr;
+                sched->splits[cur_split].backend_id = tensor_backend_id;
                 sched->splits[cur_split].i_start = i;
                 sched->splits[cur_split].n_inputs = 0;
-                cur_allocr = node_allocr;
-                cur_backend_id = sched_allocr_prio(sched, cur_allocr);
+                cur_backend_id = tensor_backend_id;
             }
 
             // find inputs that are not on the same backend
             for (int j = 0; j < LM_GGML_MAX_SRC; j++) {
                 struct lm_ggml_tensor * src = node->src[j];
                 if (src == NULL) {
-                    break;
+                    continue;
                 }
-                lm_ggml_tallocr_t src_allocr = node_allocr(src);
-                LM_GGML_ASSERT(src_allocr != NULL); // all inputs should be assigned by now
-                if (src_allocr != node_allocr) {
-                    // check if the input is already in the split
-                    bool found = false;
-                    for (int k = 0; k < sched->splits[cur_split].n_inputs; k++) {
-                        if (sched->splits[cur_split].inputs[k] == src) {
-                            found = true;
-                            break;
-                        }
-                    }
-
-                    if (!found) {
-                        int n_inputs = sched->splits[cur_split].n_inputs++;
-                        //printf("split %d input %d: %s (%s)\n", cur_split, n_inputs, src->name, lm_ggml_backend_name(get_allocr_backend(sched, src_allocr)));
-                        LM_GGML_ASSERT(n_inputs < LM_GGML_MAX_SPLIT_INPUTS);
-                        sched->splits[cur_split].inputs[n_inputs] = src;
-                    }
-
+                int src_backend_id = tensor_backend_id(src);
+                assert(src_backend_id != -1); // all inputs should be assigned by now
+                if (src_backend_id != tensor_backend_id) {
                     // create a copy of the input in the split's backend
                     size_t id = hash_id(src);
-                    if (sched->node_copies[id][cur_backend_id] == NULL) {
-                        lm_ggml_backend_t backend = get_allocr_backend(sched, cur_allocr);
+                    if (sched->tensor_copies[id][cur_backend_id] == NULL) {
+                        lm_ggml_backend_t backend = sched->backends[cur_backend_id];
                         struct lm_ggml_tensor * tensor_copy = lm_ggml_dup_tensor_layout(sched->ctx, src);
                         lm_ggml_format_name(tensor_copy, "%s#%s", lm_ggml_backend_name(backend), src->name);
 
-                        sched->node_copies[id][cur_backend_id] = tensor_copy;
-                        node_allocr(tensor_copy) = cur_allocr;
+                        sched->tensor_copies[id][cur_backend_id] = tensor_copy;
+                        tensor_backend_id(tensor_copy) = cur_backend_id;
                         SET_CAUSE(tensor_copy, "4.cpy");
+
+                        int n_inputs = sched->splits[cur_split].n_inputs++;
+                        LM_GGML_ASSERT(n_inputs < LM_GGML_MAX_SPLIT_INPUTS);
+                        sched->splits[cur_split].inputs[n_inputs] = src;
                     }
-                    node->src[j] = sched->node_copies[id][cur_backend_id];
+                    node->src[j] = sched->tensor_copies[id][cur_backend_id];
                 }
             }
         }
@@ -1233,30 +1350,30 @@ static void sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgra
     // sanity check: all sources should have the same backend as the node
     for (int i = 0; i < graph->n_nodes; i++) {
         struct lm_ggml_tensor * node = graph->nodes[i];
-        lm_ggml_tallocr_t node_allocr = node_allocr(node);
-        if (node_allocr == NULL) {
+        lm_ggml_backend_t tensor_backend = tensor_backend(node);
+        if (tensor_backend == NULL) {
             fprintf(stderr, "!!!!!!! %s has no backend\n", node->name);
         }
-        if (node->view_src != NULL && node_allocr != node_allocr(node->view_src)) {
+        if (node->view_src != NULL && tensor_backend != tensor_backend(node->view_src)) {
             fprintf(stderr, "!!!!!!! %s has backend %s, view_src %s has backend %s\n",
-                node->name, node_allocr ? lm_ggml_backend_name(get_allocr_backend(sched, node_allocr)) : "NULL",
-                node->view_src->name, node_allocr(node->view_src) ? lm_ggml_backend_name(get_allocr_backend(sched, node_allocr(node->view_src))) : "NULL");
+                node->name, tensor_backend ? lm_ggml_backend_name(tensor_backend) : "NULL",
+                node->view_src->name, tensor_backend(node->view_src) ? lm_ggml_backend_name(tensor_backend(node->view_src)) : "NULL");
         }
         for (int j = 0; j < LM_GGML_MAX_SRC; j++) {
             struct lm_ggml_tensor * src = node->src[j];
             if (src == NULL) {
-                break;
+                continue;
             }
-            lm_ggml_tallocr_t src_allocr = node_allocr(src);
-            if (src_allocr != node_allocr /* && src_backend != NULL */) { // ignore nulls for now
+            lm_ggml_backend_t src_backend = tensor_backend(src);
+            if (src_backend != tensor_backend /* && src_backend != NULL */) {
                 fprintf(stderr, "!!!! %s has backend %s, src %d (%s) has backend %s\n",
-                    node->name, node_allocr ? lm_ggml_backend_name(get_allocr_backend(sched, node_allocr)) : "NULL",
-                    j, src->name, src_allocr ? lm_ggml_backend_name(get_allocr_backend(sched, src_allocr)) : "NULL");
+                    node->name, tensor_backend ? lm_ggml_backend_name(tensor_backend) : "NULL",
+                    j, src->name, src_backend ? lm_ggml_backend_name(src_backend) : "NULL");
             }
-            if (src->view_src != NULL && src_allocr != node_allocr(src->view_src)) {
+            if (src->view_src != NULL && src_backend != tensor_backend(src->view_src)) {
                 fprintf(stderr, "!!!!!!! [src] %s has backend %s, view_src %s has backend %s\n",
-                    src->name, src_allocr ? lm_ggml_backend_name(get_allocr_backend(sched, src_allocr)) : "NULL",
-                    src->view_src->name, node_allocr(src->view_src) ? lm_ggml_backend_name(get_allocr_backend(sched, node_allocr(src->view_src))) : "NULL");
+                    src->name, src_backend ? lm_ggml_backend_name(src_backend) : "NULL",
+                    src->view_src->name, tensor_backend(src->view_src) ? lm_ggml_backend_name(tensor_backend(src->view_src)) : "NULL");
             }
         }
     }
@@ -1270,32 +1387,45 @@ static void sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgra
         struct lm_ggml_backend_sched_split * split = &sched->splits[i];
         split->graph = lm_ggml_graph_view(graph, split->i_start, split->i_end);
 
-        // add inputs to the graph copy so that they are allocated by ggml-alloc at the start of the split
         for (int j = 0; j < split->n_inputs; j++) {
             struct lm_ggml_tensor * input = split->inputs[j];
-            struct lm_ggml_tensor * input_cpy = sched->node_copies[hash_id(input)][sched_allocr_prio(sched, split->tallocr)];
+            struct lm_ggml_tensor * input_cpy = sched->tensor_copies[hash_id(input)][split->backend_id];
+
             // add a dependency to the input source so that it is not freed before the copy is done
-            LM_GGML_ASSERT(input_cpy->src[0] == NULL || input_cpy->src[0] == input);
-            input_cpy->src[0] = input;
+            struct lm_ggml_tensor * input_dep = lm_ggml_view_tensor(sched->ctx, input);
+            sched->node_backend_ids[graph_copy->n_nodes] = tensor_backend_id(input);
+            graph_copy->nodes[graph_copy->n_nodes++] = input_dep;
+
+            // add a dependency to the input copy so that it is allocated at the start of the split
+            sched->node_backend_ids[graph_copy->n_nodes] = split->backend_id;
             graph_copy->nodes[graph_copy->n_nodes++] = input_cpy;
         }
 
         for (int j = split->i_start; j < split->i_end; j++) {
+            sched->node_backend_ids[graph_copy->n_nodes] = tensor_backend_id(graph->nodes[j]);
             graph_copy->nodes[graph_copy->n_nodes++] = graph->nodes[j];
         }
     }
     sched->graph = graph_copy;
 }
 
-static void sched_alloc_splits(lm_ggml_backend_sched_t sched) {
-    lm_ggml_gallocr_alloc_graph_n(
-        sched->galloc,
-        sched->graph,
-        sched->hash_set,
-        sched->node_talloc);
+static bool lm_ggml_backend_sched_alloc_splits(lm_ggml_backend_sched_t sched) {
+    // lm_ggml_gallocr_reserve_n(sched->galloc, sched->graph, sched->node_backend_ids);
+    if (!lm_ggml_gallocr_alloc_graph(sched->galloc, sched->graph)) {
+#ifndef NDEBUG
+        fprintf(stderr, "lm_ggml_backend_sched: failed to allocate graph, reserving\n");
+#endif
+        lm_ggml_gallocr_reserve_n(sched->galloc, sched->graph, sched->node_backend_ids);
+        if (!lm_ggml_gallocr_alloc_graph(sched->galloc, sched->graph)) {
+            fprintf(stderr, "lm_ggml_backend_sched: failed to allocate graph\n");
+            return false;
+        }
+    }
+
+    return true;
 }
 
-static void sched_compute_splits(lm_ggml_backend_sched_t sched) {
+static bool lm_ggml_backend_sched_compute_splits(lm_ggml_backend_sched_t sched) {
     uint64_t copy_us[LM_GGML_MAX_BACKENDS] = {0};
     uint64_t compute_us[LM_GGML_MAX_BACKENDS] = {0};
 
@@ -1303,20 +1433,18 @@ static void sched_compute_splits(lm_ggml_backend_sched_t sched) {
 
     for (int i = 0; i < sched->n_splits; i++) {
         struct lm_ggml_backend_sched_split * split = &splits[i];
-        lm_ggml_backend_t split_backend = get_allocr_backend(sched, split->tallocr);
-        int split_backend_id = sched_backend_prio(sched, split_backend);
+        int split_backend_id = split->backend_id;
+        lm_ggml_backend_t split_backend = sched->backends[split_backend_id];
 
         // copy the input tensors to the split backend
         uint64_t copy_start_us = lm_ggml_time_us();
         for (int j = 0; j < split->n_inputs; j++) {
             struct lm_ggml_tensor * input = split->inputs[j];
-            struct lm_ggml_tensor * input_cpy = sched->node_copies[hash_id(input)][split_backend_id];
+            struct lm_ggml_tensor * input_cpy = sched->tensor_copies[hash_id(input)][split_backend_id];
 
             LM_GGML_ASSERT(input->buffer != NULL);
             LM_GGML_ASSERT(input_cpy->buffer != NULL);
 
-            // TODO: avoid this copy if it was already copied in a previous split, and the input didn't change
-            // this is important to avoid copying constants such as KQ_mask and inp_pos multiple times
             lm_ggml_backend_tensor_copy_async(split_backend, input, input_cpy);
         }
         //lm_ggml_backend_synchronize(split_backend); // necessary to measure copy time
@@ -1332,8 +1460,10 @@ static void sched_compute_splits(lm_ggml_backend_sched_t sched) {
 
         uint64_t compute_start_us = lm_ggml_time_us();
         if (!sched->callback_eval) {
-            lm_ggml_backend_graph_compute(split_backend, &split->graph);
-          //lm_ggml_backend_synchronize(split_backend); // necessary to measure compute time
+            if (!lm_ggml_backend_graph_compute(split_backend, &split->graph)) {
+                return false;
+            }
+            //lm_ggml_backend_synchronize(split_backend); // necessary to measure compute time
         } else {
             // similar to lm_ggml_backend_compare_graph_backend
             for (int j0 = 0; j0 < split->graph.n_nodes; j0++) {
@@ -1352,7 +1482,9 @@ static void sched_compute_splits(lm_ggml_backend_sched_t sched) {
 
                 struct lm_ggml_cgraph gv = lm_ggml_graph_view(&split->graph, j0, j1 + 1);
 
-                lm_ggml_backend_graph_compute(split_backend, &gv);
+                if (!lm_ggml_backend_graph_compute(split_backend, &gv)) {
+                    return false;
+                }
 
                 if (need && !sched->callback_eval(t, false, sched->callback_eval_user_data)) {
                     break;
@@ -1374,19 +1506,8 @@ static void sched_compute_splits(lm_ggml_backend_sched_t sched) {
         }
     }
 #endif
-}
 
-static void sched_reset(lm_ggml_backend_sched_t sched) {
-    for (int i = 0; i < sched->n_backends; i++) {
-        lm_ggml_tallocr_reset(sched->tallocs[i]);
-    }
-    // reset state for the next run
-    size_t hash_size = sched->hash_set.size;
-    memset(sched->hash_set.keys, 0, sizeof(sched->hash_set.keys[0]) * hash_size);
-    memset(sched->node_talloc,   0, sizeof(sched->node_talloc[0])   * hash_size);
-    memset(sched->node_copies,   0, sizeof(sched->node_copies[0])   * hash_size);
-
-    sched->is_reset = true;
+    return true;
 }
 
 lm_ggml_backend_sched_t lm_ggml_backend_sched_new(lm_ggml_backend_t * backends, lm_ggml_backend_buffer_type_t * bufts, int n_backends, size_t graph_size) {
@@ -1396,9 +1517,10 @@ lm_ggml_backend_sched_t lm_ggml_backend_sched_new(lm_ggml_backend_t * backends, 
     struct lm_ggml_backend_sched * sched = calloc(sizeof(struct lm_ggml_backend_sched), 1);
 
     // initialize hash table
-    sched->hash_set    = lm_ggml_hash_set_new(graph_size + LM_GGML_MAX_SPLITS*LM_GGML_MAX_SPLIT_INPUTS);
-    sched->node_talloc = calloc(sizeof(sched->node_talloc[0]) * sched->hash_set.size, 1);
-    sched->node_copies = calloc(sizeof(sched->node_copies[0]) * sched->hash_set.size, 1);
+    sched->hash_set          = lm_ggml_hash_set_new(graph_size + LM_GGML_MAX_SPLITS*LM_GGML_MAX_SPLIT_INPUTS);
+    sched->tensor_backend_id = calloc(sizeof(sched->tensor_backend_id[0]), sched->hash_set.size);
+    sched->tensor_copies     = calloc(sizeof(sched->tensor_copies[0]), sched->hash_set.size);
+    sched->node_backend_ids  = calloc(sizeof(sched->node_backend_ids[0]), graph_size);
 
     sched->n_backends = n_backends;
     for (int i = 0; i < n_backends; i++) {
@@ -1406,14 +1528,9 @@ lm_ggml_backend_sched_t lm_ggml_backend_sched_new(lm_ggml_backend_t * backends, 
         sched->bufts[i] = bufts ? bufts[i] : lm_ggml_backend_get_default_buffer_type(backends[i]);
     }
 
-    sched->galloc = lm_ggml_gallocr_new();
+    sched->galloc = lm_ggml_gallocr_new_n(sched->bufts, n_backends);
 
-    // init measure allocs for each backend
-    for (int i = 0; i < n_backends; i++) {
-        sched->tallocs[i] = lm_ggml_tallocr_new_measure_from_buft(sched->bufts[i]);
-    }
-
-    sched_reset(sched);
+    lm_ggml_backend_sched_reset(sched);
 
     return sched;
 }
@@ -1422,49 +1539,54 @@ void lm_ggml_backend_sched_free(lm_ggml_backend_sched_t sched) {
     if (sched == NULL) {
         return;
     }
-    for (int i = 0; i < sched->n_backends; i++) {
-        lm_ggml_tallocr_free(sched->tallocs[i]);
-    }
     lm_ggml_gallocr_free(sched->galloc);
     lm_ggml_free(sched->ctx);
     free(sched->hash_set.keys);
-    free(sched->node_talloc);
-    free(sched->node_copies);
+    free(sched->tensor_backend_id);
+    free(sched->tensor_copies);
+    free(sched->node_backend_ids);
     free(sched);
 }
 
-void lm_ggml_backend_sched_init_measure(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * measure_graph) {
-    LM_GGML_ASSERT(lm_ggml_tallocr_is_measure(sched->tallocs[0])); // can only be initialized once
+void lm_ggml_backend_sched_reset(lm_ggml_backend_sched_t sched) {
+    // reset state for the next run
+    size_t hash_size = sched->hash_set.size;
+    memset(sched->hash_set.keys,      0, sizeof(sched->hash_set.keys[0])     * hash_size); // NOLINT
+    memset(sched->tensor_backend_id, -1, sizeof(sched->tensor_backend_id[0]) * hash_size);
+    memset(sched->tensor_copies,      0, sizeof(sched->tensor_copies[0])     * hash_size);
 
-    sched_split_graph(sched, measure_graph);
-    sched_alloc_splits(sched);
-
-    // allocate buffers and reset allocators
-    for (int i = 0; i < sched->n_backends; i++) {
-        size_t size = lm_ggml_tallocr_max_size(sched->tallocs[i]);
-        lm_ggml_tallocr_free(sched->tallocs[i]);
-        sched->tallocs[i] = lm_ggml_tallocr_new_from_buft(sched->bufts[i], size);
-    }
-
-    sched_reset(sched);
+    sched->is_reset = true;
 }
 
-void lm_ggml_backend_sched_graph_compute(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph) {
+bool lm_ggml_backend_sched_reserve(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * measure_graph) {
+    lm_ggml_backend_sched_split_graph(sched, measure_graph);
+
+    if (!lm_ggml_gallocr_reserve_n(sched->galloc, sched->graph, sched->node_backend_ids)) {
+        return false;
+    }
+
+    lm_ggml_backend_sched_reset(sched);
+    return true;
+}
+
+bool lm_ggml_backend_sched_graph_compute(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph) {
     LM_GGML_ASSERT((int)sched->hash_set.size >= graph->n_nodes + LM_GGML_MAX_SPLITS*LM_GGML_MAX_SPLIT_INPUTS);
 
     if (!sched->is_reset) {
-        sched_reset(sched);
+        lm_ggml_backend_sched_reset(sched);
     }
 
-    sched_split_graph(sched, graph);
-    sched_alloc_splits(sched);
-    sched_compute_splits(sched);
-}
+    lm_ggml_backend_sched_split_graph(sched, graph);
+    if (!lm_ggml_backend_sched_alloc_splits(sched)) {
+        return false;
+    }
 
-void lm_ggml_backend_sched_reset(lm_ggml_backend_sched_t sched) {
-    sched_reset(sched);
-}
+    if (!lm_ggml_backend_sched_compute_splits(sched)) {
+        return false;
+    }
 
+    return true;
+}
 
 void lm_ggml_backend_sched_set_eval_callback(lm_ggml_backend_sched_t sched, lm_ggml_backend_sched_eval_callback callback, void * user_data) {
     sched->callback_eval = callback;
@@ -1475,37 +1597,30 @@ int lm_ggml_backend_sched_get_n_splits(lm_ggml_backend_sched_t sched) {
     return sched->n_splits;
 }
 
-lm_ggml_tallocr_t lm_ggml_backend_sched_get_tallocr(lm_ggml_backend_sched_t sched, lm_ggml_backend_t backend) {
-    int backend_index = sched_backend_prio(sched, backend);
+size_t lm_ggml_backend_sched_get_buffer_size(lm_ggml_backend_sched_t sched, lm_ggml_backend_t backend) {
+    int backend_index = lm_ggml_backend_sched_backend_id(sched, backend);
     LM_GGML_ASSERT(backend_index >= 0 && backend_index < sched->n_backends);
-    return sched->tallocs[backend_index];
-}
-
-lm_ggml_backend_buffer_t lm_ggml_backend_sched_get_buffer(lm_ggml_backend_sched_t sched, lm_ggml_backend_t backend) {
-    int backend_index = sched_backend_prio(sched, backend);
-    LM_GGML_ASSERT(backend_index >= 0 && backend_index < sched->n_backends);
-    return lm_ggml_tallocr_get_buffer(sched->tallocs[backend_index]);
+    return lm_ggml_gallocr_get_buffer_size(sched->galloc, backend_index);
 }
 
 void lm_ggml_backend_sched_set_node_backend(lm_ggml_backend_sched_t sched, struct lm_ggml_tensor * node, lm_ggml_backend_t backend) {
-    int backend_index = sched_backend_prio(sched, backend);
+    int backend_index = lm_ggml_backend_sched_backend_id(sched, backend);
     LM_GGML_ASSERT(backend_index >= 0 && backend_index < sched->n_backends);
-    node_allocr(node) = sched->tallocs[backend_index];
+    tensor_backend_id(node) = backend_index;
 }
 
 lm_ggml_backend_t lm_ggml_backend_sched_get_node_backend(lm_ggml_backend_sched_t sched, struct lm_ggml_tensor * node) {
-    lm_ggml_tallocr_t allocr = node_allocr(node);
-    if (allocr == NULL) {
+    int backend_index = tensor_backend_id(node);
+    if (backend_index == -1) {
         return NULL;
     }
-    return get_allocr_backend(sched, allocr);
+    return sched->backends[backend_index];
 }
 
 // utils
 
 void lm_ggml_backend_view_init(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor) {
     LM_GGML_ASSERT(tensor->buffer == NULL);
-    //LM_GGML_ASSERT(tensor->data == NULL); // views of pre-allocated tensors may have the data set in lm_ggml_new_tensor, but still need to be initialized by the backend
     LM_GGML_ASSERT(tensor->view_src != NULL);
     LM_GGML_ASSERT(tensor->view_src->buffer != NULL);
     LM_GGML_ASSERT(tensor->view_src->data != NULL);
@@ -1529,7 +1644,7 @@ void lm_ggml_backend_tensor_alloc(lm_ggml_backend_buffer_t buffer, struct lm_ggm
     lm_ggml_backend_buffer_init_tensor(buffer, tensor);
 }
 
-static struct lm_ggml_tensor * graph_dup_tensor(struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor ** node_copies,
+static struct lm_ggml_tensor * graph_copy_dup_tensor(struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor ** node_copies,
     struct lm_ggml_context * ctx_allocated, struct lm_ggml_context * ctx_unallocated, struct lm_ggml_tensor * src) {
 
     LM_GGML_ASSERT(src != NULL);
@@ -1542,7 +1657,7 @@ static struct lm_ggml_tensor * graph_dup_tensor(struct lm_ggml_hash_set hash_set
 
     struct lm_ggml_tensor * dst = lm_ggml_dup_tensor_layout(src->data && !src->view_src ? ctx_allocated : ctx_unallocated, src);
     if (src->view_src != NULL) {
-        dst->view_src = graph_dup_tensor(hash_set, node_copies, ctx_allocated, ctx_unallocated, src->view_src);
+        dst->view_src = graph_copy_dup_tensor(hash_set, node_copies, ctx_allocated, ctx_unallocated, src->view_src);
         dst->view_offs = src->view_offs;
     }
     dst->op = src->op;
@@ -1553,16 +1668,16 @@ static struct lm_ggml_tensor * graph_dup_tensor(struct lm_ggml_hash_set hash_set
     for (int i = 0; i < LM_GGML_MAX_SRC; i++) {
         struct lm_ggml_tensor * s = src->src[i];
         if (s == NULL) {
-            break;
+            continue;
         }
-        dst->src[i] = graph_dup_tensor(hash_set, node_copies, ctx_allocated, ctx_unallocated, s);
+        dst->src[i] = graph_copy_dup_tensor(hash_set, node_copies, ctx_allocated, ctx_unallocated, s);
     }
 
     node_copies[id] = dst;
     return dst;
 }
 
-static void graph_init_tensor(struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor ** node_copies, bool * node_init, struct lm_ggml_tensor * src) {
+static void graph_copy_init_tensor(struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor ** node_copies, bool * node_init, struct lm_ggml_tensor * src) {
     size_t id = lm_ggml_hash_find(hash_set, src);
     if (node_init[id]) {
         return;
@@ -1571,7 +1686,7 @@ static void graph_init_tensor(struct lm_ggml_hash_set hash_set, struct lm_ggml_t
 
     struct lm_ggml_tensor * dst = node_copies[id];
     if (dst->view_src != NULL) {
-        graph_init_tensor(hash_set, node_copies, node_init, src->view_src);
+        graph_copy_init_tensor(hash_set, node_copies, node_init, src->view_src);
         lm_ggml_backend_view_init(dst->view_src->buffer, dst);
     }
     else {
@@ -1582,19 +1697,19 @@ static void graph_init_tensor(struct lm_ggml_hash_set hash_set, struct lm_ggml_t
     for (int i = 0; i < LM_GGML_MAX_SRC; i++) {
         struct lm_ggml_tensor * s = src->src[i];
         if (s == NULL) {
-            break;
+            continue;
         }
-        graph_init_tensor(hash_set, node_copies, node_init, s);
+        graph_copy_init_tensor(hash_set, node_copies, node_init, s);
     }
 }
 
 struct lm_ggml_backend_graph_copy lm_ggml_backend_graph_copy(lm_ggml_backend_t backend, struct lm_ggml_cgraph * graph) {
     struct lm_ggml_hash_set hash_set = {
         /* .size = */ graph->visited_hash_table.size,
-        /* .keys = */ calloc(sizeof(hash_set.keys[0]) * graph->visited_hash_table.size, 1)
+        /* .keys = */ calloc(sizeof(hash_set.keys[0]), graph->visited_hash_table.size) // NOLINT
     };
-    struct lm_ggml_tensor ** node_copies = calloc(sizeof(node_copies[0]) * hash_set.size, 1);
-    bool * node_init = calloc(sizeof(node_init[0]) * hash_set.size, 1);
+    struct lm_ggml_tensor ** node_copies = calloc(sizeof(node_copies[0]), hash_set.size); // NOLINT
+    bool * node_init = calloc(sizeof(node_init[0]), hash_set.size);
 
     struct lm_ggml_init_params params = {
         /* .mem_size   = */ lm_ggml_tensor_overhead()*hash_set.size + lm_ggml_graph_overhead_custom(graph->size, false),
@@ -1623,7 +1738,7 @@ struct lm_ggml_backend_graph_copy lm_ggml_backend_graph_copy(lm_ggml_backend_t b
     // dup nodes
     for (int i = 0; i < graph->n_nodes; i++) {
         struct lm_ggml_tensor * node = graph->nodes[i];
-        graph_dup_tensor(hash_set, node_copies, ctx_allocated, ctx_unallocated, node);
+        graph_copy_dup_tensor(hash_set, node_copies, ctx_allocated, ctx_unallocated, node);
     }
 
     // allocate nodes
@@ -1648,7 +1763,7 @@ struct lm_ggml_backend_graph_copy lm_ggml_backend_graph_copy(lm_ggml_backend_t b
     // copy data and init views
     for (int i = 0; i < graph->n_nodes; i++) {
         struct lm_ggml_tensor * node = graph->nodes[i];
-        graph_init_tensor(hash_set, node_copies, node_init, node);
+        graph_copy_init_tensor(hash_set, node_copies, node_init, node);
     }
 
     // build graph copy
