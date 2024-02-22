@@ -19,6 +19,7 @@ extern "C" {
         const char *          (*LM_GGML_CALL get_name)        (lm_ggml_backend_buffer_type_t buft);
         lm_ggml_backend_buffer_t (*LM_GGML_CALL alloc_buffer)    (lm_ggml_backend_buffer_type_t buft, size_t size);
         size_t                (*LM_GGML_CALL get_alignment)   (lm_ggml_backend_buffer_type_t buft); // tensor alignment
+        size_t                (*LM_GGML_CALL get_max_size)    (lm_ggml_backend_buffer_type_t buft); // allocation max size
         size_t                (*LM_GGML_CALL get_alloc_size)  (lm_ggml_backend_buffer_type_t buft, const struct lm_ggml_tensor * tensor); // data size needed to allocate the tensor, including padding
         bool                  (*LM_GGML_CALL supports_backend)(lm_ggml_backend_buffer_type_t buft, lm_ggml_backend_t backend); // check if the buffer type is usable by the backend
         // check if tensor data is in host memory
@@ -62,6 +63,11 @@ extern "C" {
 
     // do not use directly, use lm_ggml_backend_tensor_copy instead
     bool lm_ggml_backend_buffer_copy_tensor(const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
+
+    // buffer that contains a collection of buffers
+    LM_GGML_CALL lm_ggml_backend_buffer_t lm_ggml_backend_multi_buffer_alloc_buffer(lm_ggml_backend_buffer_t * buffers, size_t n_buffers);
+    LM_GGML_CALL bool                  lm_ggml_backend_buffer_is_multi_buffer(lm_ggml_backend_buffer_t buffer);
+    LM_GGML_CALL void                  lm_ggml_backend_multi_buffer_set_usage(lm_ggml_backend_buffer_t buffer, enum lm_ggml_backend_buffer_usage usage);
 
     //
     // Backend

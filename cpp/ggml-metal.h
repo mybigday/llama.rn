@@ -57,6 +57,9 @@ LM_GGML_API LM_GGML_CALL lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buf
 // ref: https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf
 LM_GGML_API bool lm_ggml_backend_metal_supports_family(lm_ggml_backend_t backend, int family);
 
+// capture all command buffers committed the next time `lm_ggml_backend_graph_compute` is called
+LM_GGML_API void lm_ggml_backend_metal_capture_next_compute(lm_ggml_backend_t backend);
+
 #ifdef __cplusplus
 }
 #endif

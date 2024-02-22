@@ -353,6 +353,9 @@ extern "C" {
         LM_GGML_TYPE_Q8_K = 15,
         LM_GGML_TYPE_IQ2_XXS = 16,
         LM_GGML_TYPE_IQ2_XS  = 17,
+        LM_GGML_TYPE_IQ3_XXS = 18,
+        LM_GGML_TYPE_IQ1_S   = 19,
+        LM_GGML_TYPE_IQ4_NL  = 20,
         LM_GGML_TYPE_I8,
         LM_GGML_TYPE_I16,
         LM_GGML_TYPE_I32,
@@ -389,6 +392,9 @@ extern "C" {
         LM_GGML_FTYPE_MOSTLY_Q6_K = 14, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_IQ2_XXS = 15, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_IQ2_XS  = 16, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_IQ3_XXS = 17, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_IQ1_S   = 18, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_IQ4_NL  = 19, // except 1d tensors
     };
 
     // available tensor operations:
@@ -489,6 +495,8 @@ extern "C" {
         LM_GGML_UNARY_OP_GELU,
         LM_GGML_UNARY_OP_GELU_QUICK,
         LM_GGML_UNARY_OP_SILU,
+        LM_GGML_UNARY_OP_HARDSWISH,
+        LM_GGML_UNARY_OP_HARDSIGMOID,
 
         LM_GGML_UNARY_OP_COUNT,
     };
@@ -501,9 +509,15 @@ extern "C" {
 
     enum lm_ggml_log_level {
         LM_GGML_LOG_LEVEL_ERROR = 2,
-        LM_GGML_LOG_LEVEL_WARN = 3,
-        LM_GGML_LOG_LEVEL_INFO = 4,
+        LM_GGML_LOG_LEVEL_WARN  = 3,
+        LM_GGML_LOG_LEVEL_INFO  = 4,
         LM_GGML_LOG_LEVEL_DEBUG = 5
+    };
+
+    enum lm_ggml_tensor_flag {
+        LM_GGML_TENSOR_FLAG_INPUT  = 1,
+        LM_GGML_TENSOR_FLAG_OUTPUT = 2,
+        LM_GGML_TENSOR_FLAG_PARAM  = 4,
     };
 
     // ggml object
@@ -539,7 +553,7 @@ extern "C" {
         // op params - allocated as int32_t for alignment
         int32_t op_params[LM_GGML_MAX_OP_PARAMS / sizeof(int32_t)];
 
-        bool is_param;
+        int32_t flags;
 
         struct lm_ggml_tensor * grad;
         struct lm_ggml_tensor * src[LM_GGML_MAX_SRC];
@@ -563,6 +577,11 @@ extern "C" {
 
     static const size_t LM_GGML_TENSOR_SIZE = sizeof(struct lm_ggml_tensor);
 
+    // Abort callback
+    // If not NULL, called before ggml computation
+    // If it returns true, the computation is aborted
+    typedef bool (*lm_ggml_abort_callback)(void * data);
+
     // the compute plan that needs to be prepared for lm_ggml_graph_compute()
     // since https://github.com/ggerganov/ggml/issues/287
     struct lm_ggml_cplan {
@@ -572,8 +591,8 @@ extern "C" {
         int n_threads;
 
         // abort lm_ggml_graph_compute when true
-        bool (*abort_callback)(void * data);
-        void * abort_callback_data;
+        lm_ggml_abort_callback abort_callback;
+        void *              abort_callback_data;
     };
 
     enum lm_ggml_cgraph_eval_order {
@@ -643,6 +662,16 @@ extern "C" {
         void * wdata;
     };
 
+    // numa strategies
+    enum lm_ggml_numa_strategy {
+        LM_GGML_NUMA_STRATEGY_DISABLED   = 0,
+        LM_GGML_NUMA_STRATEGY_DISTRIBUTE = 1,
+        LM_GGML_NUMA_STRATEGY_ISOLATE    = 2,
+        LM_GGML_NUMA_STRATEGY_NUMACTL    = 3,
+        LM_GGML_NUMA_STRATEGY_MIRROR     = 4,
+        LM_GGML_NUMA_STRATEGY_COUNT
+    };
+
     // misc
 
     LM_GGML_API void    lm_ggml_time_init(void); // call this once at the beginning of the program
@@ -653,7 +682,7 @@ extern "C" {
 
     LM_GGML_API void    lm_ggml_print_backtrace(void);
 
-    LM_GGML_API void    lm_ggml_numa_init(void); // call once for better performance on NUMA systems
+    LM_GGML_API void    lm_ggml_numa_init(enum lm_ggml_numa_strategy numa); // call once for better performance on NUMA systems
     LM_GGML_API bool    lm_ggml_is_numa(void); // true if init detected that system has >1 NUMA node
 
     LM_GGML_API void    lm_ggml_print_object (const struct lm_ggml_object * obj);
@@ -1032,6 +1061,16 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * b);
 
+    // hardswish(x) = x * relu6(x + 3) / 6
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_hardswish(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    // hardsigmoid(x) = relu6(x + 3) / 6
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_hardsigmoid(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
     // normalize along rows
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_norm(
             struct lm_ggml_context * ctx,
@@ -1348,13 +1387,17 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
 
-    // fused soft_max(a*scale + mask)
+    // fused soft_max(a*scale + mask + pos[i]*(ALiBi slope))
     // mask is optional
+    // pos is required when max_bias > 0.0f
+    // max_bias = 0.0f for no ALiBi
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_soft_max_ext(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * mask,
-            float                 scale);
+            struct lm_ggml_tensor  * pos,
+            float                 scale,
+            float                 max_bias);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_soft_max_back(
             struct lm_ggml_context * ctx,
@@ -1456,12 +1499,13 @@ extern "C" {
 
     // alibi position embedding
     // in-place, returns view(a)
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_alibi(
+    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_alibi(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             int                   n_past,
             int                   n_head,
-            float                 bias_max);
+            float                 bias_max),
+        "use lm_ggml_soft_max_ext instead (will be removed in Mar 2024)");
 
     // clamp
     // in-place, returns view(a)
@@ -1481,7 +1525,19 @@ extern "C" {
             int                  p1,
             int                  d0,
             int                  d1,
-            bool                 is_2D);
+            bool                 is_2D,
+            enum lm_ggml_type       dst_type);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_depthwise_2d(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b,
+            int                  s0,
+            int                  s1,
+            int                  p0,
+            int                  p1,
+            int                  d0,
+            int                  d1);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_1d(
             struct lm_ggml_context * ctx,
@@ -2062,6 +2118,12 @@ extern "C" {
             void * callback_data);
 
     //
+    // tensor flags
+    //
+    LM_GGML_API void lm_ggml_set_input(struct lm_ggml_tensor * tensor);
+    LM_GGML_API void lm_ggml_set_output(struct lm_ggml_tensor * tensor);
+
+    //
     // quantization
     //
 
@@ -2240,10 +2302,14 @@ extern "C" {
     LM_GGML_API int lm_ggml_cpu_has_blas       (void);
     LM_GGML_API int lm_ggml_cpu_has_cublas     (void);
     LM_GGML_API int lm_ggml_cpu_has_clblast    (void);
+    LM_GGML_API int lm_ggml_cpu_has_vulkan     (void);
+    LM_GGML_API int lm_ggml_cpu_has_kompute    (void);
     LM_GGML_API int lm_ggml_cpu_has_gpublas    (void);
     LM_GGML_API int lm_ggml_cpu_has_sse3       (void);
     LM_GGML_API int lm_ggml_cpu_has_ssse3      (void);
+    LM_GGML_API int lm_ggml_cpu_has_sycl       (void);
     LM_GGML_API int lm_ggml_cpu_has_vsx        (void);
+    LM_GGML_API int lm_ggml_cpu_has_matmul_int8(void);
 
     //
     // Internal types and functions exposed for tests and benchmarks
@@ -2257,7 +2323,8 @@ extern "C" {
 #endif
     typedef void (*lm_ggml_to_float_t)  (const void  * LM_GGML_RESTRICT x, float * LM_GGML_RESTRICT y, int k);
     typedef void (*lm_ggml_from_float_t)(const float * LM_GGML_RESTRICT x, void  * LM_GGML_RESTRICT y, int k);
-    typedef void (*lm_ggml_vec_dot_t)   (const int n, float * LM_GGML_RESTRICT s, const void * LM_GGML_RESTRICT x, const void * LM_GGML_RESTRICT y);
+    typedef void (*lm_ggml_vec_dot_t)   (int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT x, size_t bx,
+                                      const void * LM_GGML_RESTRICT y, size_t by, int nrc);
 
     typedef struct {
         const char      * type_name;
@@ -2269,6 +2336,7 @@ extern "C" {
         lm_ggml_from_float_t from_float_reference;
         lm_ggml_vec_dot_t    vec_dot;
         enum lm_ggml_type    vec_dot_type;
+        int64_t           nrows; // number of rows to process simultaneously;
     } lm_ggml_type_traits_t;
 
     LM_GGML_API lm_ggml_type_traits_t lm_ggml_internal_get_type_traits(enum lm_ggml_type type);

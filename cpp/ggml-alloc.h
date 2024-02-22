@@ -6,88 +6,62 @@
 extern "C" {
 #endif
 
-struct lm_ggml_backend;
-struct lm_ggml_backend_buffer;
-struct lm_ggml_backend_buffer_type;
-
-//
-// Legacy API
-//
-
-typedef struct lm_ggml_allocr * lm_ggml_allocr_t;
-
-// initialize allocator for use with CPU backend only
-LM_GGML_API lm_ggml_allocr_t lm_ggml_allocr_new(void * data, size_t size, size_t alignment);
-LM_GGML_API lm_ggml_allocr_t lm_ggml_allocr_new_measure(size_t alignment);
-
-// initialize allocator for use with ggml-backend
-LM_GGML_API lm_ggml_allocr_t lm_ggml_allocr_new_from_buffer(struct lm_ggml_backend_buffer * buffer);
-LM_GGML_API lm_ggml_allocr_t lm_ggml_allocr_new_from_backend(struct lm_ggml_backend * backend, size_t size); // allocates an owned buffer
-LM_GGML_API lm_ggml_allocr_t lm_ggml_allocr_new_measure_from_backend(struct lm_ggml_backend * backend);
-
-LM_GGML_API struct lm_ggml_backend_buffer * lm_ggml_allocr_get_buffer(lm_ggml_allocr_t alloc);
-
-// tell the allocator to parse nodes following the order described in the list
-// you should call this if your graph are optimized to execute out-of-order
-LM_GGML_API void   lm_ggml_allocr_set_parse_seq(lm_ggml_allocr_t alloc, const int * list, int n);
-
-LM_GGML_API void   lm_ggml_allocr_free       (lm_ggml_allocr_t alloc);
-LM_GGML_API bool   lm_ggml_allocr_is_measure (lm_ggml_allocr_t alloc);
-LM_GGML_API void   lm_ggml_allocr_reset      (lm_ggml_allocr_t alloc);
-LM_GGML_API void   lm_ggml_allocr_alloc      (lm_ggml_allocr_t alloc, struct lm_ggml_tensor * tensor);
-LM_GGML_API size_t lm_ggml_allocr_max_size   (lm_ggml_allocr_t alloc);
-
-LM_GGML_API size_t lm_ggml_allocr_alloc_graph(lm_ggml_allocr_t alloc, struct lm_ggml_cgraph * graph);
-
-//
-// ggml-backend v2 API
-//
-
-// Separate tensor and graph allocator objects
-// This is necessary for multi-backend allocation because the graph allocator needs to use multiple tensor allocators
-// The original API is kept as a wrapper around the new API
+typedef struct lm_ggml_backend_buffer_type * lm_ggml_backend_buffer_type_t;
+typedef struct lm_ggml_backend_buffer * lm_ggml_backend_buffer_t;
+typedef struct lm_ggml_backend * lm_ggml_backend_t;
 
 // Tensor allocator
 typedef struct lm_ggml_tallocr * lm_ggml_tallocr_t;
 
-LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new(void * data, size_t size, size_t alignment);
-LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_measure(size_t alignment);
-LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_from_buft(struct lm_ggml_backend_buffer_type * buft, size_t size);
-LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_from_backend(struct lm_ggml_backend * backend, size_t size); // allocates an owned buffer
-LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_from_buffer(struct lm_ggml_backend_buffer * buffer);
-LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_measure_from_buft(struct lm_ggml_backend_buffer_type * buft);
-LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new_measure_from_backend(struct lm_ggml_backend * backend);
-
-LM_GGML_API struct lm_ggml_backend_buffer * lm_ggml_tallocr_get_buffer(lm_ggml_tallocr_t talloc);
-
-LM_GGML_API void   lm_ggml_tallocr_free       (lm_ggml_tallocr_t talloc);
-LM_GGML_API bool   lm_ggml_tallocr_is_measure (lm_ggml_tallocr_t talloc);
-LM_GGML_API void   lm_ggml_tallocr_reset      (lm_ggml_tallocr_t talloc);
-LM_GGML_API void   lm_ggml_tallocr_alloc      (lm_ggml_tallocr_t talloc, struct lm_ggml_tensor * tensor);
-LM_GGML_API size_t lm_ggml_tallocr_max_size   (lm_ggml_tallocr_t talloc);
-
+LM_GGML_API lm_ggml_tallocr_t lm_ggml_tallocr_new(lm_ggml_backend_buffer_t buffer);
+LM_GGML_API void           lm_ggml_tallocr_free(lm_ggml_tallocr_t talloc);
+LM_GGML_API void           lm_ggml_tallocr_alloc(lm_ggml_tallocr_t talloc, struct lm_ggml_tensor * tensor);
 
 // Graph allocator
+/*
+  Example usage:
+    lm_ggml_gallocr_t galloc = lm_ggml_gallocr_new(lm_ggml_bacckend_cpu_buffer_type());
+
+    // optional: create a worst-case graph and reserve the buffers to avoid reallocations
+    lm_ggml_gallocr_reserve(galloc, build_graph(max_batch));
+
+    // allocate the graph
+    struct lm_ggml_cgraph * graph = build_graph(batch);
+    lm_ggml_gallocr_alloc_graph(galloc, graph);
+
+    printf("compute buffer size: %zu bytes\n", lm_ggml_gallocr_get_buffer_size(galloc, 0));
+
+    // evaluate the graph
+    lm_ggml_backend_graph_compute(backend, graph);
+*/
+
+// special tensor flags for use with the graph allocator:
+//   lm_ggml_set_input(): all input tensors are allocated at the beginning of the graph in non-overlapping addresses
+//   lm_ggml_set_output(): output tensors are never freed and never overwritten
+
 typedef struct lm_ggml_gallocr * lm_ggml_gallocr_t;
 
-LM_GGML_API lm_ggml_gallocr_t lm_ggml_gallocr_new(void);
-LM_GGML_API void   lm_ggml_gallocr_free(lm_ggml_gallocr_t galloc);
+LM_GGML_API lm_ggml_gallocr_t lm_ggml_gallocr_new(lm_ggml_backend_buffer_type_t buft);
+LM_GGML_API lm_ggml_gallocr_t lm_ggml_gallocr_new_n(lm_ggml_backend_buffer_type_t * bufts, int n_bufs);
+LM_GGML_API void           lm_ggml_gallocr_free(lm_ggml_gallocr_t galloc);
 
-LM_GGML_API void   lm_ggml_gallocr_set_parse_seq(lm_ggml_gallocr_t galloc, const int * list, int n);
-LM_GGML_API size_t lm_ggml_gallocr_alloc_graph(lm_ggml_gallocr_t galloc, lm_ggml_tallocr_t talloc, struct lm_ggml_cgraph * graph);
+// pre-allocate buffers from a measure graph - does not allocate or modify the graph
+// call with a worst-case graph to avoid buffer reallocations
+// not strictly required for single buffer usage: lm_ggml_gallocr_alloc_graph will reallocate the buffers automatically if needed
+// returns false if the buffer allocation failed
+LM_GGML_API bool lm_ggml_gallocr_reserve(lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph * graph);
+LM_GGML_API bool lm_ggml_gallocr_reserve_n(lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph * graph, const int * node_buffer_ids);
 
-// Allocate tensors from the allocators given by the hash table
-LM_GGML_API void   lm_ggml_gallocr_alloc_graph_n(
-                    lm_ggml_gallocr_t galloc,
-                    struct lm_ggml_cgraph * graph,
-                    struct lm_ggml_hash_set hash_set,
-                    lm_ggml_tallocr_t * hash_node_talloc);
+// automatic reallocation if the topology changes when using a single buffer
+// returns false if using multiple buffers and a re-allocation is needed (call lm_ggml_gallocr_reserve_n first to set the node buffers)
+LM_GGML_API bool lm_ggml_gallocr_alloc_graph(lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph * graph);
 
+LM_GGML_API size_t lm_ggml_gallocr_get_buffer_size(lm_ggml_gallocr_t galloc, int buffer_id);
 
 // Utils
 // Create a buffer and allocate all the tensors in a lm_ggml_context
-LM_GGML_API struct lm_ggml_backend_buffer * lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_ggml_context * ctx, struct lm_ggml_backend_buffer_type * buft);
-LM_GGML_API struct lm_ggml_backend_buffer * lm_ggml_backend_alloc_ctx_tensors(struct lm_ggml_context * ctx, struct lm_ggml_backend * backend);
+LM_GGML_API struct lm_ggml_backend_buffer * lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_ggml_context * ctx, lm_ggml_backend_buffer_type_t buft);
+LM_GGML_API struct lm_ggml_backend_buffer * lm_ggml_backend_alloc_ctx_tensors(struct lm_ggml_context * ctx, lm_ggml_backend_t backend);
 
 #ifdef  __cplusplus
 }
