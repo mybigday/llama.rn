@@ -315,13 +315,7 @@
 extern "C" {
 #endif
 
-#if defined(__ARM_NEON) && defined(__CUDACC__)
-    typedef half lm_ggml_fp16_t;
-#elif defined(__ARM_NEON) && !defined(_MSC_VER)
-    typedef __fp16 lm_ggml_fp16_t;
-#else
     typedef uint16_t lm_ggml_fp16_t;
-#endif
 
     // convert FP16 <-> FP32
     LM_GGML_API float       lm_ggml_fp16_to_fp32(lm_ggml_fp16_t x);
