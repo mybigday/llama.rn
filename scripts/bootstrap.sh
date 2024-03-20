@@ -47,6 +47,7 @@ files=(
   "./cpp/ggml-backend.c"
   "./cpp/ggml-backend-impl.h"
   "./cpp/ggml-impl.h"
+  "./cpp/ggml-common.h"
 )
 
 # Loop through each file and run the sed commands
