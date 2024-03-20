@@ -25,7 +25,7 @@ Pod::Spec.new do |s|
   s.source       = { :git => "https://github.com/mybigday/llama.rn.git", :tag => "#{s.version}" }
 
   s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,m,mm}"
-  s.resources = "cpp/**/*.{metal}"
+  s.resources = "cpp/**/*.{metallib}"
 
   s.dependency "React-Core"
 

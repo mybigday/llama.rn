@@ -7,7 +7,6 @@ cp ./llama.cpp/ggml.h ./cpp/ggml.h
 cp ./llama.cpp/ggml.c ./cpp/ggml.c
 cp ./llama.cpp/ggml-metal.h ./cpp/ggml-metal.h
 cp ./llama.cpp/ggml-metal.m ./cpp/ggml-metal.m
-cp ./llama.cpp/ggml-metal.metal ./cpp/ggml-metal-llama.metal
 cp ./llama.cpp/ggml-alloc.h ./cpp/ggml-alloc.h
 cp ./llama.cpp/ggml-alloc.c ./cpp/ggml-alloc.c
 cp ./llama.cpp/ggml-backend.h ./cpp/ggml-backend.h
@@ -79,3 +78,12 @@ patch -p0 -d ./cpp < ./scripts/common.cpp.patch
 patch -p0 -d ./cpp < ./scripts/log.h.patch
 patch -p0 -d ./cpp < ./scripts/llama.cpp.patch
 patch -p0 -d ./cpp < ./scripts/ggml-metal.m.patch
+
+# Build metallib (~1.4MB)
+if [ "$OS" = "Darwin" ]; then
+  cd llama.cpp
+  xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air
+  xcrun --sdk iphoneos metallib ggml-metal.air   -o ggml-llama.metallib
+  rm ggml-metal.air
+  cp ./ggml-llama.metallib ../cpp/ggml-llama.metallib
+fi

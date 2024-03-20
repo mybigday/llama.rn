@@ -1,14 +1,11 @@
---- ggml-metal.m.orig	2024-03-20 12:34:08
-+++ ggml-metal.m	2024-03-20 12:35:42
-@@ -329,9 +329,9 @@
-             LM_GGML_METAL_LOG_INFO("%s: LM_GGML_METAL_PATH_RESOURCES = %s\n", __func__, path_resource ? [path_resource UTF8String] : "nil");
+--- ggml-metal.m.orig	2024-03-20 13:48:14
++++ ggml-metal.m	2024-03-20 13:46:42
+@@ -301,7 +301,7 @@
+         const bool try_metallib = true;
+ #endif
 
-             if (path_resource) {
--                path_source = [path_resource stringByAppendingPathComponent:@"ggml-metal.metal"];
-+                path_source = [path_resource stringByAppendingPathComponent:@"ggml-metal-llama.metal"];
-             } else {
--                path_source = [bundle pathForResource:@"ggml-metal" ofType:@"metal"];
-+                path_source = [bundle pathForResource:@"ggml-metal-llama" ofType:@"metal"];
-             }
-
-             if (path_source == nil) {
+-        NSString * path_lib = [bundle pathForResource:@"default" ofType:@"metallib"];
++        NSString * path_lib = [bundle pathForResource:@"ggml-llama" ofType:@"metallib"];
+         if (try_metallib && path_lib != nil) {
+             // pre-compiled library found
+             NSURL * libURL = [NSURL fileURLWithPath:path_lib];

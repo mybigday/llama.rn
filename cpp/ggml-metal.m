@@ -301,7 +301,7 @@ static struct lm_ggml_metal_context * lm_ggml_metal_init(int n_cb) {
         const bool try_metallib = true;
 #endif
 
-        NSString * path_lib = [bundle pathForResource:@"default" ofType:@"metallib"];
+        NSString * path_lib = [bundle pathForResource:@"ggml-llama" ofType:@"metallib"];
         if (try_metallib && path_lib != nil) {
             // pre-compiled library found
             NSURL * libURL = [NSURL fileURLWithPath:path_lib];
@@ -329,9 +329,9 @@ static struct lm_ggml_metal_context * lm_ggml_metal_init(int n_cb) {
             LM_GGML_METAL_LOG_INFO("%s: LM_GGML_METAL_PATH_RESOURCES = %s\n", __func__, path_resource ? [path_resource UTF8String] : "nil");
 
             if (path_resource) {
-                path_source = [path_resource stringByAppendingPathComponent:@"ggml-metal-llama.metal"];
+                path_source = [path_resource stringByAppendingPathComponent:@"ggml-metal.metal"];
             } else {
-                path_source = [bundle pathForResource:@"ggml-metal-llama" ofType:@"metal"];
+                path_source = [bundle pathForResource:@"ggml-metal" ofType:@"metal"];
             }
 
             if (path_source == nil) {
