@@ -14,11 +14,13 @@ cp ./llama.cpp/ggml-backend.h ./cpp/ggml-backend.h
 cp ./llama.cpp/ggml-backend.c ./cpp/ggml-backend.c
 cp ./llama.cpp/ggml-backend-impl.h ./cpp/ggml-backend-impl.h
 cp ./llama.cpp/ggml-impl.h ./cpp/ggml-impl.h
+cp ./llama.cpp/ggml-common.h ./cpp/ggml-common.h
 cp ./llama.cpp/llama.h ./cpp/llama.h
 cp ./llama.cpp/llama.cpp ./cpp/llama.cpp
 cp ./llama.cpp/ggml-quants.h ./cpp/ggml-quants.h
 cp ./llama.cpp/ggml-quants.c ./cpp/ggml-quants.c
 cp ./llama.cpp/unicode.h ./cpp/unicode.h
+cp ./llama.cpp/unicode.cpp ./cpp/unicode.cpp
 cp ./llama.cpp/common/log.h ./cpp/log.h
 cp ./llama.cpp/common/common.h ./cpp/common.h
 cp ./llama.cpp/common/common.cpp ./cpp/common.cpp

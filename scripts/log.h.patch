@@ -1,9 +1,9 @@
---- log.h.orig	2023-11-02 10:45:07
-+++ log.h	2023-11-02 10:45:08
+--- log.h.orig	2024-03-20 12:34:08
++++ log.h	2024-03-20 12:34:16
 @@ -323,6 +323,19 @@
-     #define LOG_TEELN(str, ...) LOG_TEE_IMPL("%s" str, "", __VA_ARGS__, "\n")
+     #define LOG_TEELN(str, ...) LOG_TEE_IMPL("%s" str, "", ##__VA_ARGS__, "\n")
  #endif
- 
+
 +#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
 +#include <android/log.h>
 +#define LLAMA_ANDROID_LOG_TAG "RNLLAMA_LOG_ANDROID"

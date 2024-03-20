@@ -1,11 +1,14 @@
---- ggml-metal.m.orig	2024-02-22 12:19:15
-+++ ggml-metal.m	2024-02-22 12:19:17
-@@ -300,7 +300,7 @@
-             if (ggmlMetalPathResources) {
-                 sourcePath = [ggmlMetalPathResources stringByAppendingPathComponent:@"ggml-metal.metal"];
+--- ggml-metal.m.orig	2024-03-20 12:34:08
++++ ggml-metal.m	2024-03-20 12:35:42
+@@ -329,9 +329,9 @@
+             LM_GGML_METAL_LOG_INFO("%s: LM_GGML_METAL_PATH_RESOURCES = %s\n", __func__, path_resource ? [path_resource UTF8String] : "nil");
+
+             if (path_resource) {
+-                path_source = [path_resource stringByAppendingPathComponent:@"ggml-metal.metal"];
++                path_source = [path_resource stringByAppendingPathComponent:@"ggml-metal-llama.metal"];
              } else {
--                sourcePath = [bundle pathForResource:@"ggml-metal" ofType:@"metal"];
-+                sourcePath = [bundle pathForResource:@"ggml-metal-llama" ofType:@"metal"];
+-                path_source = [bundle pathForResource:@"ggml-metal" ofType:@"metal"];
++                path_source = [bundle pathForResource:@"ggml-metal-llama" ofType:@"metal"];
              }
-             if (sourcePath == nil) {
-                 LM_GGML_METAL_LOG_WARN("%s: error: could not use bundle path to find ggml-metal.metal, falling back to trying cwd\n", __func__);
+
+             if (path_source == nil) {

@@ -86,27 +86,46 @@ extern "C" {
         // (optional) asynchronous tensor data access
         void (*LM_GGML_CALL set_tensor_async)(lm_ggml_backend_t backend,       struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size);
         void (*LM_GGML_CALL get_tensor_async)(lm_ggml_backend_t backend, const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size);
-        bool (*LM_GGML_CALL cpy_tensor_async)(lm_ggml_backend_t backend, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
+        bool (*LM_GGML_CALL cpy_tensor_async)(lm_ggml_backend_t backend_src, lm_ggml_backend_t backend_dst, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
 
         // (optional) complete all pending operations
         void (*LM_GGML_CALL synchronize)(lm_ggml_backend_t backend);
 
-        // compute graph with a plan
+        // compute graph with a plan (not used currently)
         lm_ggml_backend_graph_plan_t (*LM_GGML_CALL graph_plan_create) (lm_ggml_backend_t backend, const struct lm_ggml_cgraph * cgraph);
         void                      (*LM_GGML_CALL graph_plan_free)   (lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan);
-        void                      (*LM_GGML_CALL graph_plan_compute)(lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan);
 
+        // compute graph with a plan
+        enum lm_ggml_status (*LM_GGML_CALL graph_plan_compute)(lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan);
         // compute graph without a plan (async)
-        bool (*LM_GGML_CALL graph_compute)(lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph);
+        enum lm_ggml_status (*LM_GGML_CALL graph_compute)     (lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph);
 
         // check if the backend supports an operation
         bool (*LM_GGML_CALL supports_op)(lm_ggml_backend_t backend, const struct lm_ggml_tensor * op);
+
+        // check if the backend wants to run an operation, even if the weights are allocated in a CPU buffer
+        // these should be expensive operations with large batch sizes that may benefit from running on this backend
+        // even if the weight has to be copied from the CPU temporarily
+        bool (*LM_GGML_CALL offload_op)(lm_ggml_backend_t backend, const struct lm_ggml_tensor * op);
+
+        // (optional) event synchronization
+        lm_ggml_backend_event_t (*LM_GGML_CALL event_new)         (lm_ggml_backend_t backend);
+        void                 (*LM_GGML_CALL event_free)        (lm_ggml_backend_event_t event);
+        void                 (*LM_GGML_CALL event_record)      (lm_ggml_backend_event_t event);
+        void                 (*LM_GGML_CALL event_wait)        (lm_ggml_backend_t backend, lm_ggml_backend_event_t event);
+        void                 (*LM_GGML_CALL event_synchronize) (lm_ggml_backend_event_t event);
     };
 
     struct lm_ggml_backend {
-        struct lm_ggml_backend_i iface;
+        lm_ggml_guid_t guid;
 
+        struct lm_ggml_backend_i iface;
         lm_ggml_backend_context_t context;
+    };
+
+    struct lm_ggml_backend_event {
+        lm_ggml_backend_t backend;
+        void * context;
     };
 
     //
