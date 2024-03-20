@@ -70,3 +70,6 @@ android/keystores/debug.keystore
 lib/
 
 docs/API/.nojekyll
+
+*.metallib
+.xocde.env.local

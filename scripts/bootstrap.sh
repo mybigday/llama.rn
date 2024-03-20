@@ -7,18 +7,19 @@ cp ./llama.cpp/ggml.h ./cpp/ggml.h
 cp ./llama.cpp/ggml.c ./cpp/ggml.c
 cp ./llama.cpp/ggml-metal.h ./cpp/ggml-metal.h
 cp ./llama.cpp/ggml-metal.m ./cpp/ggml-metal.m
-cp ./llama.cpp/ggml-metal.metal ./cpp/ggml-metal-llama.metal
 cp ./llama.cpp/ggml-alloc.h ./cpp/ggml-alloc.h
 cp ./llama.cpp/ggml-alloc.c ./cpp/ggml-alloc.c
 cp ./llama.cpp/ggml-backend.h ./cpp/ggml-backend.h
 cp ./llama.cpp/ggml-backend.c ./cpp/ggml-backend.c
 cp ./llama.cpp/ggml-backend-impl.h ./cpp/ggml-backend-impl.h
 cp ./llama.cpp/ggml-impl.h ./cpp/ggml-impl.h
+cp ./llama.cpp/ggml-common.h ./cpp/ggml-common.h
 cp ./llama.cpp/llama.h ./cpp/llama.h
 cp ./llama.cpp/llama.cpp ./cpp/llama.cpp
 cp ./llama.cpp/ggml-quants.h ./cpp/ggml-quants.h
 cp ./llama.cpp/ggml-quants.c ./cpp/ggml-quants.c
 cp ./llama.cpp/unicode.h ./cpp/unicode.h
+cp ./llama.cpp/unicode.cpp ./cpp/unicode.cpp
 cp ./llama.cpp/common/log.h ./cpp/log.h
 cp ./llama.cpp/common/common.h ./cpp/common.h
 cp ./llama.cpp/common/common.cpp ./cpp/common.cpp
@@ -45,6 +46,7 @@ files=(
   "./cpp/ggml-backend.c"
   "./cpp/ggml-backend-impl.h"
   "./cpp/ggml-impl.h"
+  "./cpp/ggml-common.h"
 )
 
 # Loop through each file and run the sed commands
@@ -76,3 +78,19 @@ patch -p0 -d ./cpp < ./scripts/common.cpp.patch
 patch -p0 -d ./cpp < ./scripts/log.h.patch
 patch -p0 -d ./cpp < ./scripts/llama.cpp.patch
 patch -p0 -d ./cpp < ./scripts/ggml-metal.m.patch
+
+
+if [ "$OS" = "Darwin" ]; then
+  # Build metallib (~1.4MB)
+  cd llama.cpp
+  xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air
+  xcrun --sdk iphoneos metallib ggml-metal.air   -o ggml-llama.metallib
+  rm ggml-metal.air
+  cp ./ggml-llama.metallib ../cpp/ggml-llama.metallib
+
+  cd -
+
+  # Generate .xcode.env.local in iOS example
+  cd example/ios
+  echo export NODE_BINARY=$(command -v node) > .xcode.env.local
+fi

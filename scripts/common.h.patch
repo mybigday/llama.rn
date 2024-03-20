@@ -1,20 +1,20 @@
---- common.h.orig	2023-12-19 08:16:26
-+++ common.h	2023-12-19 08:17:16
-@@ -26,17 +26,6 @@
- #define die(msg)          do { fputs("error: " msg "\n", stderr);                exit(1); } while (0)
- #define die_fmt(fmt, ...) do { fprintf(stderr, "error: " fmt "\n", __VA_ARGS__); exit(1); } while (0)
- 
--#define print_build_info() do {                                                                     \
--    fprintf(stderr, "%s: build = %d (%s)\n", __func__, LLAMA_BUILD_NUMBER, LLAMA_COMMIT);           \
--    fprintf(stderr, "%s: built with %s for %s\n", __func__, LLAMA_COMPILER, LLAMA_BUILD_TARGET);    \
--} while(0)
--
--// build info
--extern int LLAMA_BUILD_NUMBER;
--extern char const *LLAMA_COMMIT;
--extern char const *LLAMA_COMPILER;
--extern char const *LLAMA_BUILD_TARGET;
--
+--- common.h.orig	2024-03-20 12:34:08
++++ common.h	2024-03-20 12:34:16
+@@ -41,6 +41,17 @@
+
+ int32_t get_num_physical_cores();
+
++#define print_build_info() do {                                                                     \
++    fprintf(stderr, "%s: build = %d (%s)\n", __func__, LLAMA_BUILD_NUMBER, LLAMA_COMMIT);           \
++    fprintf(stderr, "%s: built with %s for %s\n", __func__, LLAMA_COMPILER, LLAMA_BUILD_TARGET);    \
++} while(0)
++
++// build info
++extern int LLAMA_BUILD_NUMBER;
++extern char const *LLAMA_COMMIT;
++extern char const *LLAMA_COMPILER;
++extern char const *LLAMA_BUILD_TARGET;
++
  //
  // CLI argument parsing
  //

@@ -315,6 +315,16 @@
 extern "C" {
 #endif
 
+    enum lm_ggml_status {
+        LM_GGML_STATUS_ALLOC_FAILED = -2,
+        LM_GGML_STATUS_FAILED = -1,
+        LM_GGML_STATUS_SUCCESS = 0,
+        LM_GGML_STATUS_ABORTED = 1,
+    };
+
+    // get lm_ggml_status name string
+    LM_GGML_API LM_GGML_CALL const char * lm_ggml_status_to_string(enum lm_ggml_status status);
+
     typedef uint16_t lm_ggml_fp16_t;
 
     // convert FP16 <-> FP32
@@ -327,32 +337,37 @@ extern "C" {
     struct lm_ggml_object;
     struct lm_ggml_context;
 
+    // NOTE: always add types at the end of the enum to keep backward compatibility
     enum lm_ggml_type {
-        LM_GGML_TYPE_F32  = 0,
-        LM_GGML_TYPE_F16  = 1,
-        LM_GGML_TYPE_Q4_0 = 2,
-        LM_GGML_TYPE_Q4_1 = 3,
+        LM_GGML_TYPE_F32     = 0,
+        LM_GGML_TYPE_F16     = 1,
+        LM_GGML_TYPE_Q4_0    = 2,
+        LM_GGML_TYPE_Q4_1    = 3,
         // LM_GGML_TYPE_Q4_2 = 4, support has been removed
-        // LM_GGML_TYPE_Q4_3 (5) support has been removed
-        LM_GGML_TYPE_Q5_0 = 6,
-        LM_GGML_TYPE_Q5_1 = 7,
-        LM_GGML_TYPE_Q8_0 = 8,
-        LM_GGML_TYPE_Q8_1 = 9,
-        // k-quantizations
-        LM_GGML_TYPE_Q2_K = 10,
-        LM_GGML_TYPE_Q3_K = 11,
-        LM_GGML_TYPE_Q4_K = 12,
-        LM_GGML_TYPE_Q5_K = 13,
-        LM_GGML_TYPE_Q6_K = 14,
-        LM_GGML_TYPE_Q8_K = 15,
+        // LM_GGML_TYPE_Q4_3 = 5, support has been removed
+        LM_GGML_TYPE_Q5_0    = 6,
+        LM_GGML_TYPE_Q5_1    = 7,
+        LM_GGML_TYPE_Q8_0    = 8,
+        LM_GGML_TYPE_Q8_1    = 9,
+        LM_GGML_TYPE_Q2_K    = 10,
+        LM_GGML_TYPE_Q3_K    = 11,
+        LM_GGML_TYPE_Q4_K    = 12,
+        LM_GGML_TYPE_Q5_K    = 13,
+        LM_GGML_TYPE_Q6_K    = 14,
+        LM_GGML_TYPE_Q8_K    = 15,
         LM_GGML_TYPE_IQ2_XXS = 16,
         LM_GGML_TYPE_IQ2_XS  = 17,
         LM_GGML_TYPE_IQ3_XXS = 18,
         LM_GGML_TYPE_IQ1_S   = 19,
         LM_GGML_TYPE_IQ4_NL  = 20,
-        LM_GGML_TYPE_I8,
-        LM_GGML_TYPE_I16,
-        LM_GGML_TYPE_I32,
+        LM_GGML_TYPE_IQ3_S   = 21,
+        LM_GGML_TYPE_IQ2_S   = 22,
+        LM_GGML_TYPE_IQ4_XS  = 23,
+        LM_GGML_TYPE_I8      = 24,
+        LM_GGML_TYPE_I16     = 25,
+        LM_GGML_TYPE_I32     = 26,
+        LM_GGML_TYPE_I64     = 27,
+        LM_GGML_TYPE_F64     = 28,
         LM_GGML_TYPE_COUNT,
     };
 
@@ -363,32 +378,35 @@ extern "C" {
     };
 
     enum lm_ggml_backend_type {
-        LM_GGML_BACKEND_CPU = 0,
-        LM_GGML_BACKEND_GPU = 10,
-        LM_GGML_BACKEND_GPU_SPLIT = 20,
+        LM_GGML_BACKEND_TYPE_CPU = 0,
+        LM_GGML_BACKEND_TYPE_GPU = 10,
+        LM_GGML_BACKEND_TYPE_GPU_SPLIT = 20,
     };
 
     // model file types
     enum lm_ggml_ftype {
-        LM_GGML_FTYPE_UNKNOWN     = -1,
-        LM_GGML_FTYPE_ALL_F32     = 0,
-        LM_GGML_FTYPE_MOSTLY_F16  = 1,  // except 1d tensors
-        LM_GGML_FTYPE_MOSTLY_Q4_0 = 2,  // except 1d tensors
-        LM_GGML_FTYPE_MOSTLY_Q4_1 = 3,  // except 1d tensors
+        LM_GGML_FTYPE_UNKNOWN        = -1,
+        LM_GGML_FTYPE_ALL_F32        = 0,
+        LM_GGML_FTYPE_MOSTLY_F16     = 1,  // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_Q4_0    = 2,  // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_Q4_1    = 3,  // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_Q4_1_SOME_F16 = 4, // tok_embeddings.weight and output.weight are F16
-        LM_GGML_FTYPE_MOSTLY_Q8_0 = 7,  // except 1d tensors
-        LM_GGML_FTYPE_MOSTLY_Q5_0 = 8,  // except 1d tensors
-        LM_GGML_FTYPE_MOSTLY_Q5_1 = 9,  // except 1d tensors
-        LM_GGML_FTYPE_MOSTLY_Q2_K = 10, // except 1d tensors
-        LM_GGML_FTYPE_MOSTLY_Q3_K = 11, // except 1d tensors
-        LM_GGML_FTYPE_MOSTLY_Q4_K = 12, // except 1d tensors
-        LM_GGML_FTYPE_MOSTLY_Q5_K = 13, // except 1d tensors
-        LM_GGML_FTYPE_MOSTLY_Q6_K = 14, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_Q8_0    = 7,  // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_Q5_0    = 8,  // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_Q5_1    = 9,  // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_Q2_K    = 10, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_Q3_K    = 11, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_Q4_K    = 12, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_Q5_K    = 13, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_Q6_K    = 14, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_IQ2_XXS = 15, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_IQ2_XS  = 16, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_IQ3_XXS = 17, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_IQ1_S   = 18, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_IQ4_NL  = 19, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_IQ3_S   = 20, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_IQ2_S   = 21, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_IQ4_XS  = 22, // except 1d tensors
     };
 
     // available tensor operations:
@@ -448,12 +466,16 @@ extern "C" {
         LM_GGML_OP_POOL_2D,
         LM_GGML_OP_UPSCALE, // nearest interpolate
         LM_GGML_OP_PAD,
+        LM_GGML_OP_ARANGE,
+        LM_GGML_OP_TIMESTEP_EMBEDDING,
         LM_GGML_OP_ARGSORT,
         LM_GGML_OP_LEAKY_RELU,
 
         LM_GGML_OP_FLASH_ATTN,
         LM_GGML_OP_FLASH_FF,
         LM_GGML_OP_FLASH_ATTN_BACK,
+        LM_GGML_OP_SSM_CONV,
+        LM_GGML_OP_SSM_SCAN,
         LM_GGML_OP_WIN_PART,
         LM_GGML_OP_WIN_UNPART,
         LM_GGML_OP_GET_REL_POS,
@@ -496,9 +518,9 @@ extern "C" {
     };
 
     enum lm_ggml_object_type {
-        LM_GGML_OBJECT_TENSOR,
-        LM_GGML_OBJECT_GRAPH,
-        LM_GGML_OBJECT_WORK_BUFFER
+        LM_GGML_OBJECT_TYPE_TENSOR,
+        LM_GGML_OBJECT_TYPE_GRAPH,
+        LM_GGML_OBJECT_TYPE_WORK_BUFFER
     };
 
     enum lm_ggml_log_level {
@@ -640,9 +662,9 @@ extern "C" {
     // NOTE: the INIT or FINALIZE pass is not scheduled unless explicitly enabled.
     // This behavior was changed since https://github.com/ggerganov/llama.cpp/pull/1995.
     enum lm_ggml_task_type {
-        LM_GGML_TASK_INIT = 0,
-        LM_GGML_TASK_COMPUTE,
-        LM_GGML_TASK_FINALIZE,
+        LM_GGML_TASK_TYPE_INIT = 0,
+        LM_GGML_TASK_TYPE_COMPUTE,
+        LM_GGML_TASK_TYPE_FINALIZE,
     };
 
     struct lm_ggml_compute_params {
@@ -665,6 +687,16 @@ extern "C" {
         LM_GGML_NUMA_STRATEGY_MIRROR     = 4,
         LM_GGML_NUMA_STRATEGY_COUNT
     };
+
+    //
+    // GUID
+    //
+
+    // GUID types
+    typedef uint8_t lm_ggml_guid[16];
+    typedef lm_ggml_guid * lm_ggml_guid_t;
+
+    LM_GGML_API bool lm_ggml_guid_matches(lm_ggml_guid_t guid_a, lm_ggml_guid_t guid_b);
 
     // misc
 
@@ -1645,16 +1677,31 @@ extern "C" {
             int                  p2,
             int                  p3);
 
+    // Ref: https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/diffusionmodules/util.py#L151
+    // timesteps: [N,]
+    // return: [N, dim]
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_timestep_embedding(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * timesteps,
+            int                   dim,
+            int                   max_period);
+
     // sort rows
     enum lm_ggml_sort_order {
-        LM_GGML_SORT_ASC,
-        LM_GGML_SORT_DESC,
+        LM_GGML_SORT_ORDER_ASC,
+        LM_GGML_SORT_ORDER_DESC,
     };
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_argsort(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             enum lm_ggml_sort_order  order);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_arange(
+            struct lm_ggml_context * ctx,
+            float                 start,
+            float                 stop,
+            float                 step);
 
     // top k elements per row
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_top_k(
@@ -1684,6 +1731,23 @@ extern "C" {
             struct lm_ggml_tensor  * b1,
             struct lm_ggml_tensor  * c0,
             struct lm_ggml_tensor  * c1);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_ssm_conv(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * s,
+            struct lm_ggml_tensor  * x,
+            struct lm_ggml_tensor  * c,
+            struct lm_ggml_tensor  * sq);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_ssm_scan(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * s,
+            struct lm_ggml_tensor  * x,
+            struct lm_ggml_tensor  * dt,
+            struct lm_ggml_tensor  * A,
+            struct lm_ggml_tensor  * B,
+            struct lm_ggml_tensor  * C,
+            struct lm_ggml_tensor  * sq);
 
     // partition into non-overlapping windows with padding if needed
     // example:
@@ -1907,12 +1971,11 @@ extern "C" {
 
     // lm_ggml_graph_plan() has to be called before lm_ggml_graph_compute()
     // when plan.work_size > 0, caller must allocate memory for plan.work_data
-    LM_GGML_API struct lm_ggml_cplan lm_ggml_graph_plan   (const struct lm_ggml_cgraph * cgraph, int n_threads /*= LM_GGML_DEFAULT_N_THREADS*/);
-    LM_GGML_API int               lm_ggml_graph_compute(      struct lm_ggml_cgraph * cgraph, struct lm_ggml_cplan * cplan);
-
+    LM_GGML_API struct lm_ggml_cplan lm_ggml_graph_plan            (const struct lm_ggml_cgraph * cgraph, int n_threads /*= LM_GGML_DEFAULT_N_THREADS*/);
+    LM_GGML_API enum lm_ggml_status  lm_ggml_graph_compute         (      struct lm_ggml_cgraph * cgraph, struct lm_ggml_cplan * cplan);
     // same as lm_ggml_graph_compute() but the work data is allocated as a part of the context
     // note: the drawback of this API is that you must have ensured that the context has enough memory for the work data
-    LM_GGML_API void lm_ggml_graph_compute_with_ctx(struct lm_ggml_context * ctx, struct lm_ggml_cgraph * cgraph, int n_threads);
+    LM_GGML_API enum lm_ggml_status  lm_ggml_graph_compute_with_ctx(struct lm_ggml_context * ctx, struct lm_ggml_cgraph * cgraph, int n_threads);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_graph_get_tensor(struct lm_ggml_cgraph * cgraph, const char * name);
 
@@ -1941,8 +2004,8 @@ extern "C" {
 
     // optimization methods
     enum lm_ggml_opt_type {
-        LM_GGML_OPT_ADAM,
-        LM_GGML_OPT_LBFGS,
+        LM_GGML_OPT_TYPE_ADAM,
+        LM_GGML_OPT_TYPE_LBFGS,
     };
 
     // linesearch methods
@@ -1956,12 +2019,12 @@ extern "C" {
 
     // optimization return values
     enum lm_ggml_opt_result {
-        LM_GGML_OPT_OK = 0,
-        LM_GGML_OPT_DID_NOT_CONVERGE,
-        LM_GGML_OPT_NO_CONTEXT,
-        LM_GGML_OPT_INVALID_WOLFE,
-        LM_GGML_OPT_FAIL,
-        LM_GGML_OPT_CANCEL,
+        LM_GGML_OPT_RESULT_OK = 0,
+        LM_GGML_OPT_RESULT_DID_NOT_CONVERGE,
+        LM_GGML_OPT_RESULT_NO_CONTEXT,
+        LM_GGML_OPT_RESULT_INVALID_WOLFE,
+        LM_GGML_OPT_RESULT_FAIL,
+        LM_GGML_OPT_RESULT_CANCEL,
 
         LM_GGML_LINESEARCH_FAIL = -128,
         LM_GGML_LINESEARCH_MINIMUM_STEP,
@@ -2133,25 +2196,18 @@ extern "C" {
     LM_GGML_API void lm_ggml_quantize_init(enum lm_ggml_type type);
     LM_GGML_API void lm_ggml_quantize_free(void);
 
-    // TODO: these would probably get removed in favor of the more general lm_ggml_quantize_chunk
-    LM_GGML_API size_t lm_ggml_quantize_q4_0(const float * src, void * dst, int n, int k, int64_t * hist);
-    LM_GGML_API size_t lm_ggml_quantize_q4_1(const float * src, void * dst, int n, int k, int64_t * hist);
-    LM_GGML_API size_t lm_ggml_quantize_q5_0(const float * src, void * dst, int n, int k, int64_t * hist);
-    LM_GGML_API size_t lm_ggml_quantize_q5_1(const float * src, void * dst, int n, int k, int64_t * hist);
-    LM_GGML_API size_t lm_ggml_quantize_q8_0(const float * src, void * dst, int n, int k, int64_t * hist);
-
-    LM_GGML_API size_t lm_ggml_quantize_q2_K(const float * src, void * dst, int n, int k, int64_t * hist);
-    LM_GGML_API size_t lm_ggml_quantize_q3_K(const float * src, void * dst, int n, int k, int64_t * hist);
-    LM_GGML_API size_t lm_ggml_quantize_q4_K(const float * src, void * dst, int n, int k, int64_t * hist);
-    LM_GGML_API size_t lm_ggml_quantize_q5_K(const float * src, void * dst, int n, int k, int64_t * hist);
-    LM_GGML_API size_t lm_ggml_quantize_q6_K(const float * src, void * dst, int n, int k, int64_t * hist);
-
     // some quantization type cannot be used without an importance matrix
     LM_GGML_API bool lm_ggml_quantize_requires_imatrix(enum lm_ggml_type type);
 
     // calls lm_ggml_quantize_init internally (i.e. can allocate memory)
-    LM_GGML_API size_t lm_ggml_quantize_chunk(enum lm_ggml_type type, const float * src, void * dst,
-            int start, int nrows, int n_per_row, int64_t * hist, const float * imatrix);
+    LM_GGML_API size_t lm_ggml_quantize_chunk(
+            enum lm_ggml_type   type,
+               const float * src,
+                      void * dst,
+                       int   start,
+                       int   nrows,
+                       int   n_per_row,
+               const float * imatrix);
 
     //
     // gguf
