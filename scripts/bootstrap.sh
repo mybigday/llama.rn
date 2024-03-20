@@ -79,11 +79,18 @@ patch -p0 -d ./cpp < ./scripts/log.h.patch
 patch -p0 -d ./cpp < ./scripts/llama.cpp.patch
 patch -p0 -d ./cpp < ./scripts/ggml-metal.m.patch
 
-# Build metallib (~1.4MB)
+
 if [ "$OS" = "Darwin" ]; then
+  # Build metallib (~1.4MB)
   cd llama.cpp
   xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air
   xcrun --sdk iphoneos metallib ggml-metal.air   -o ggml-llama.metallib
   rm ggml-metal.air
   cp ./ggml-llama.metallib ../cpp/ggml-llama.metallib
+
+  cd -
+
+  # Generate .xcode.env.local in iOS example
+  cd example/ios
+  echo export NODE_BINARY=$(command -v node) > .xcode.env.local
 fi
