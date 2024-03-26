@@ -1,7 +1,8 @@
+/* eslint-disable no-restricted-syntax */
 /* eslint-disable no-underscore-dangle */
 const SPACE_RULE = '" "?'
 
-const PRIMITIVE_RULES = {
+const PRIMITIVE_RULES: { [key: string]: string } = {
   boolean: '("true" | "false") space',
   number:
     '("-"? ([0-9] | [1-9] [0-9]*)) ("." [0-9]+)? ([eE] [-+]? [0-9]+)? space',
@@ -10,12 +11,9 @@ const PRIMITIVE_RULES = {
   object:
     '"{" space ( string ":" space value ("," space string ":" space value)* )? "}" space',
   array: '"[" space ( value ("," space value)* )? "]" space',
-  uuid:
-    '"\\"" ' +
-    [8, 4, 4, 4, 12]
-      .map((n) => [...new Array(n)].map((_) => '[0-9a-fA-F]').join(''))
-      .join(' "-" ') +
-    ' "\\"" space',
+  uuid: `"\\"" ${[8, 4, 4, 4, 12]
+    .map((n) => [...new Array(n)].map((_) => '[0-9a-fA-F]').join(''))
+    .join(' "-" ')} "\\"" space`,
   string: ` "\\"" (
         [^"\\\\] |
         "\\\\" (["\\\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
@@ -46,8 +44,7 @@ const RESERVED_NAMES = { root: true, ...PRIMITIVE_RULES, ...DATE_RULES }
 
 const INVALID_RULE_CHARS_RE = /[^\dA-Za-z-]+/g
 const GRAMMAR_LITERAL_ESCAPE_RE = /[\n\r"]/g
-const GRAMMAR_RANGE_LITERAL_ESCAPE_RE = /[\n\r"\]\-\\]/g
-const GRAMMAR_LITERAL_ESCAPES = {
+const GRAMMAR_LITERAL_ESCAPES: any = {
   '\r': '\\r',
   '\n': '\\n',
   '"': '\\"',
@@ -65,6 +62,9 @@ const formatLiteral = (literal: string): string => {
   )
   return `"${escaped}"`
 }
+
+const generateConstantRule = (value: any): string =>
+  formatLiteral(JSON.stringify(value))
 
 interface PropOrder {
   [key: string]: number
@@ -95,7 +95,11 @@ export class SchemaGrammarConverter {
 
   private _dotall: boolean
 
-  private _rules: Map<string, string>
+  private _rules: { [key: string]: string }
+
+  private _refs: { [key: string]: any }
+
+  private _refsBeingResolved: Set<string>
 
   constructor(options: {
     prop_order?: PropOrder
@@ -105,22 +109,13 @@ export class SchemaGrammarConverter {
     this._propOrder = options.prop_order || {}
     this._allowFetch = options.allow_fetch || false
     this._dotall = options.dotall || false
-    this._rules = { 'space': SPACE_RULE };
+    this._rules = { space: SPACE_RULE }
     this._refs = {}
     this._refsBeingResolved = new Set()
   }
 
-  _formatRangeChar(literal) {
-    return JSON.stringify(literal)
-      .slice(1, -1)
-      .replace(
-        GRAMMAR_RANGE_LITERAL_ESCAPE_RE,
-        (m) => GRAMMAR_LITERAL_ESCAPES[m],
-      )
-  }
-
-  _addRule(name, rule) {
-    let escName = name.replace(INVALID_RULE_CHARS_RE, '-')
+  _addRule(name: string, rule: string): string {
+    const escName = name.replace(INVALID_RULE_CHARS_RE, '-')
     let key = escName
 
     if (escName in this._rules) {
@@ -142,8 +137,8 @@ export class SchemaGrammarConverter {
     return key
   }
 
-  async resolveRefs(schema, url) {
-    const visit = async (n) => {
+  async resolveRefs(schema: any, url: string): Promise<any> {
+    const visit: any = async (n: any) => {
       if (Array.isArray(n)) {
         return Promise.all(n.map(visit))
       } else if (typeof n === 'object' && n !== null) {
@@ -156,7 +151,6 @@ export class SchemaGrammarConverter {
                 'Fetching remote schemas is not allowed (use --allow-fetch for force)',
               )
             }
-            const fetch = (await import('node-fetch')).default
 
             const fragSplit = ref.split('#')
             const baseUrl = fragSplit[0]
@@ -208,7 +202,7 @@ export class SchemaGrammarConverter {
     return visit(schema)
   }
 
-  _generateUnionRule(name, altSchemas) {
+  _generateUnionRule(name: string, altSchemas: any[]): string {
     return altSchemas
       .map((altSchema, i) =>
         this.visit(
@@ -219,15 +213,15 @@ export class SchemaGrammarConverter {
       .join(' | ')
   }
 
-  _visitPattern(pattern, name) {
+  _visitPattern(pattern: string, name: string): string {
     if (!pattern.startsWith('^') || !pattern.endsWith('$')) {
       throw new Error('Pattern must start with "^" and end with "$"')
     }
     pattern = pattern.slice(1, -1)
-    const subRuleIds = {}
+    const subRuleIds: { [key: string]: string } = {}
 
     let i = 0
-    const {length} = pattern
+    const { length } = pattern
 
     const getDot = () => {
       let rule
@@ -240,7 +234,8 @@ export class SchemaGrammarConverter {
       return this._addRule('dot', rule)
     }
 
-    const toRule = ([s, isLiteral]) => (isLiteral ? `"${  s  }"` : s)
+    const toRule = ([s, isLiteral]: [string, boolean]) =>
+      isLiteral ? `"${s}"` : s
 
     const transform = () => {
       const start = i
@@ -248,7 +243,7 @@ export class SchemaGrammarConverter {
       // We only need a flat structure here to apply repetition operators to the last item, and
       // to merge literals at the and (we're parsing grouped ( sequences ) recursively and don't treat '|' specially
       // (GBNF's syntax is luckily very close to regular expressions!)
-      const seq = []
+      const seq: Array<[string, boolean]> = []
 
       const joinSeq = () => {
         const ret = []
@@ -312,7 +307,10 @@ export class SchemaGrammarConverter {
           seq.push(['|', false])
           i += 1
         } else if (c === '*' || c === '+' || c === '?') {
-          seq[seq.length - 1] = [toRule(seq[seq.length - 1]) + c, false]
+          seq[seq.length - 1] = [
+            toRule(seq[seq.length - 1] || ['', false]) + c,
+            false,
+          ]
           i += 1
         } else if (c === '{') {
           let curlyBrackets = c
@@ -332,9 +330,10 @@ export class SchemaGrammarConverter {
             .slice(1, -1)
             .split(',')
             .map((s) => s.trim())
-          let minTimes; let maxTimes
+          let minTimes: number
+          let maxTimes: number | undefined
           if (nums.length === 1) {
-            minTimes = parseInt(nums[0], 10)
+            minTimes = parseInt(nums[0] as string, 10)
             maxTimes = minTimes
           } else {
             if (nums.length !== 2) {
@@ -344,7 +343,8 @@ export class SchemaGrammarConverter {
             maxTimes = nums[1] ? parseInt(nums[1], 10) : Infinity
           }
 
-          let [sub, subIsLiteral] = seq[seq.length - 1]
+          let [sub] = seq[seq.length - 1] || ['', false]
+          const [, subIsLiteral] = seq[seq.length - 1] || ['', false]
 
           if (minTimes === 0 && maxTimes === Infinity) {
             seq[seq.length - 1] = [`${sub}*`, false]
@@ -382,7 +382,7 @@ export class SchemaGrammarConverter {
           while (i < length) {
             if (pattern[i] === '\\' && i < length - 1) {
               const next = pattern[i + 1]
-              if (ESCAPED_IN_REGEXPS_BUT_NOT_IN_LITERALS.has(next)) {
+              if (ESCAPED_IN_REGEXPS_BUT_NOT_IN_LITERALS.has(next || '')) {
                 i += 1
                 literal += pattern[i]
                 i += 1
@@ -394,11 +394,11 @@ export class SchemaGrammarConverter {
               literal += '\\"'
               i += 1
             } else if (
-              !NON_LITERAL_SET.has(pattern[i]) &&
+              !NON_LITERAL_SET.has(pattern[i] || '') &&
               (i === length - 1 ||
                 literal === '' ||
                 pattern[i + 1] === '.' ||
-                !NON_LITERAL_SET.has(pattern[i + 1]))
+                !NON_LITERAL_SET.has(pattern[i + 1] || ''))
             ) {
               literal += pattern[i]
               i += 1
@@ -415,11 +415,11 @@ export class SchemaGrammarConverter {
       return joinSeq()
     }
 
-    return this._addRule(name, `"\\"" ${  toRule(transform())  } "\\"" space`)
+    return this._addRule(name, `"\\"" ${toRule(transform())} "\\"" space`)
   }
 
-  _resolveRef(ref) {
-    let refName = ref.split('/').pop()
+  _resolveRef(ref: string): string {
+    let refName = ref.split('/').pop() || ''
     if (!(refName in this._rules) && !this._refsBeingResolved.has(ref)) {
       this._refsBeingResolved.add(ref)
       const resolved = this._refs[ref]
@@ -429,15 +429,11 @@ export class SchemaGrammarConverter {
     return refName
   }
 
-  _generateConstantRule(value) {
-    return formatLiteral(JSON.stringify(value))
-  }
-
-  visit(schema, name) {
+  visit(schema: any, name: string): string {
     const schemaType = schema.type
     const schemaFormat = schema.format
-    const ruleName =
-      name in RESERVED_NAMES ? name + '-' : name == '' ? 'root' : name
+    const isRoot = name in RESERVED_NAMES ? `${name}-` : name == ''
+    const ruleName = isRoot ? 'root' : name
 
     const ref = schema.$ref
     if (ref !== undefined) {
@@ -456,10 +452,10 @@ export class SchemaGrammarConverter {
         ),
       )
     } else if ('const' in schema) {
-      return this._addRule(ruleName, this._generateConstantRule(schema.const))
+      return this._addRule(ruleName, generateConstantRule(schema.const))
     } else if ('enum' in schema) {
       const rule = schema.enum
-        .map((v) => this._generateConstantRule(v))
+        .map((v: any) => generateConstantRule(v))
         .join(' | ')
       return this._addRule(ruleName, rule)
     } else if (
@@ -468,7 +464,7 @@ export class SchemaGrammarConverter {
         ('additionalProperties' in schema &&
           schema.additionalProperties !== true))
     ) {
-      const required = new Set(schema.required || [])
+      const required: Set<string> = new Set(schema.required || [])
       const properties = Object.entries(schema.properties ?? {})
       return this._addRule(
         ruleName,
@@ -483,12 +479,11 @@ export class SchemaGrammarConverter {
       (schemaType === undefined || schemaType === 'object') &&
       'allOf' in schema
     ) {
-      const required = new Set()
-      const properties = []
-      const addComponent = (compSchema, isRequired) => {
-        const ref = compSchema.$ref
-        if (ref !== undefined) {
-          compSchema = this._refs[ref]
+      const required: Set<string> = new Set()
+      const properties: Array<[string, any]> = []
+      const addComponent = (compSchema: any, isRequired: boolean) => {
+        if (compSchema.$ref !== undefined) {
+          compSchema = this._refs[compSchema.$ref]
         }
 
         if ('properties' in compSchema) {
@@ -528,16 +523,12 @@ export class SchemaGrammarConverter {
     ) {
       const items = schema.items ?? schema.prefixItems
       if (Array.isArray(items)) {
-        return this._addRule(
-          ruleName,
-          '"[" space ' +
-            items
-              .map((item, i) =>
-                this.visit(item, `${name ?? ''}${name ? '-' : ''}tuple-${i}`),
-              )
-              .join(' "," space ') +
-            ' "]" space',
-        )
+        const rules = items
+          .map((item, i) =>
+            this.visit(item, `${name ?? ''}${name ? '-' : ''}tuple-${i}`),
+          )
+          .join(' "," space ')
+        return this._addRule(ruleName, `"[" space ${rules} "]" space`)
       } else {
         const itemRuleName = this.visit(
           items,
@@ -546,10 +537,10 @@ export class SchemaGrammarConverter {
         const listItemOperator = `( "," space ${itemRuleName} )`
         let successiveItems = ''
         let minItems = schema.minItems || 0
-        const maxItems = schema.maxItems
+        const { maxItems } = schema
         if (minItems > 0) {
           successiveItems = listItemOperator.repeat(minItems - 1)
-          minItems--
+          minItems -= 1
         }
         if (maxItems !== undefined && maxItems > minItems) {
           successiveItems += `${listItemOperator}?`.repeat(
@@ -575,7 +566,7 @@ export class SchemaGrammarConverter {
     ) {
       return this._addRule(
         ruleName === 'root' ? 'root' : schemaFormat,
-        PRIMITIVE_RULES['uuid'],
+        PRIMITIVE_RULES['uuid'] || '',
       )
     } else if (
       (schemaType === undefined || schemaType === 'string') &&
@@ -584,10 +575,10 @@ export class SchemaGrammarConverter {
       for (const [t, r] of Object.entries(DATE_RULES)) {
         this._addRule(t, r)
       }
-      return schemaFormat + '-string'
+      return `${schemaFormat}-string`
     } else if (schemaType === 'object' || Object.keys(schema).length === 0) {
       for (const n of OBJECT_RULE_NAMES) {
-        this._addRule(n, PRIMITIVE_RULES[n])
+        this._addRule(n, PRIMITIVE_RULES[n] || '')
       }
       return this._addRule(ruleName, 'object')
     } else {
@@ -597,12 +588,17 @@ export class SchemaGrammarConverter {
       // TODO: support minimum, maximum, exclusiveMinimum, exclusiveMaximum at least for zero
       return this._addRule(
         ruleName === 'root' ? 'root' : schemaType,
-        PRIMITIVE_RULES[schemaType],
+        PRIMITIVE_RULES[schemaType] || '',
       )
     }
   }
 
-  _buildObjectRule(properties, required, name, additionalProperties) {
+  _buildObjectRule(
+    properties: any[],
+    required: Set<string>,
+    name: string,
+    additionalProperties: any,
+  ) {
     const propOrder = this._propOrder
     // sort by position in prop_order (if specified) then by original order
     const sortedProps = properties
@@ -617,7 +613,7 @@ export class SchemaGrammarConverter {
         )
       })
 
-    const propKvRuleNames = {}
+    const propKvRuleNames: { [key: string]: string } = {}
     for (const [propName, propSchema] of properties) {
       const propRuleName = this.visit(
         propSchema,
@@ -646,7 +642,7 @@ export class SchemaGrammarConverter {
         `${subName}-kv`,
         `${this._addRule(
           'string',
-          PRIMITIVE_RULES['string'],
+          PRIMITIVE_RULES['string'] || '',
         )} ":" space ${valueRule}`,
       )
       optionalProps.push('*')
@@ -661,14 +657,14 @@ export class SchemaGrammarConverter {
         rule += ' "," space ( '
       }
 
-      const getRecursiveRefs = (ks, firstIsOptional) => {
+      const getRecursiveRefs = (ks: any[], firstIsOptional: boolean) => {
         const [k, ...rest] = ks
         const kvRuleName = propKvRuleNames[k]
         let res
         if (k === '*') {
           res = this._addRule(
             `${name ?? ''}${name ? '-' : ''}additional-kvs`,
-            `${kvRuleName} ( "," space ` + kvRuleName + ` )*`,
+            `${kvRuleName} ( "," space ${kvRuleName} )*`,
           )
         } else if (firstIsOptional) {
           res = `( "," space ${kvRuleName} )?`
@@ -676,18 +672,18 @@ export class SchemaGrammarConverter {
           res = kvRuleName
         }
         if (rest.length > 0) {
-          res +=
-            ' ' +
-            this._addRule(
-              `${name ?? ''}${name ? '-' : ''}${k}-rest`,
-              getRecursiveRefs(rest, true),
-            )
+          res += ` ${this._addRule(
+            `${name ?? ''}${name ? '-' : ''}${k}-rest`,
+            getRecursiveRefs(rest, true) || '',
+          )}`
         }
         return res
       }
 
       rule += optionalProps
-        .map((_, i) => getRecursiveRefs(optionalProps.slice(i), false))
+        .map((_: any, i: number) =>
+          getRecursiveRefs(optionalProps.slice(i), false),
+        )
         .join(' | ')
       if (requiredProps.length > 0) {
         rule += ' )'
