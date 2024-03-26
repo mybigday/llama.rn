@@ -15,6 +15,7 @@ const schema = {
           },
         },
       },
+      required: ['function', 'arguments'],
     },
     {
       type: 'object',
@@ -27,6 +28,7 @@ const schema = {
           },
         },
       },
+      required: ['function', 'arguments'],
     },
   ],
 }

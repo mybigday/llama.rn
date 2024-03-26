@@ -1,33 +1,53 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`with prop order 1`] = `
-"space ::= \\" \\"?
-0-function ::= \\"\\\\\\"create_event\\\\\\"\\"
+"alternative-0 ::= \\"{\\" space alternative-0-arguments-kv \\",\\" space alternative-0-function-kv \\"}\\" space
+alternative-0-arguments ::= \\"{\\" space  (alternative-0-arguments-title-kv alternative-0-arguments-title-rest | alternative-0-arguments-date-kv alternative-0-arguments-date-rest | alternative-0-arguments-time-kv )? \\"}\\" space
+alternative-0-arguments-date-kv ::= \\"\\\\\\"date\\\\\\"\\" space \\":\\" space string
+alternative-0-arguments-date-rest ::= ( \\",\\" space alternative-0-arguments-time-kv )?
+alternative-0-arguments-kv ::= \\"\\\\\\"arguments\\\\\\"\\" space \\":\\" space alternative-0-arguments
+alternative-0-arguments-time-kv ::= \\"\\\\\\"time\\\\\\"\\" space \\":\\" space string
+alternative-0-arguments-title-kv ::= \\"\\\\\\"title\\\\\\"\\" space \\":\\" space string
+alternative-0-arguments-title-rest ::= ( \\",\\" space alternative-0-arguments-date-kv )? alternative-0-arguments-date-rest
+alternative-0-function ::= \\"\\\\\\"create_event\\\\\\"\\"
+alternative-0-function-kv ::= \\"\\\\\\"function\\\\\\"\\" space \\":\\" space alternative-0-function
+alternative-1 ::= \\"{\\" space alternative-1-arguments-kv \\",\\" space alternative-1-function-kv \\"}\\" space
+alternative-1-arguments ::= \\"{\\" space  (alternative-1-arguments-query-kv )? \\"}\\" space
+alternative-1-arguments-kv ::= \\"\\\\\\"arguments\\\\\\"\\" space \\":\\" space alternative-1-arguments
+alternative-1-arguments-query-kv ::= \\"\\\\\\"query\\\\\\"\\" space \\":\\" space string
+alternative-1-function ::= \\"\\\\\\"image_search\\\\\\"\\"
+alternative-1-function-kv ::= \\"\\\\\\"function\\\\\\"\\" space \\":\\" space alternative-1-function
+root ::= alternative-0 | alternative-1
+space ::= \\" \\"?
 string ::=  \\"\\\\\\"\\" (
         [^\\"\\\\\\\\] |
         \\"\\\\\\\\\\" ([\\"\\\\\\\\/bfnrt] | \\"u\\" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
       )* \\"\\\\\\"\\" space
-0-arguments ::= \\"{\\" space \\"\\\\\\"date\\\\\\"\\" space \\":\\" space string \\",\\" space \\"\\\\\\"time\\\\\\"\\" space \\":\\" space string \\",\\" space \\"\\\\\\"title\\\\\\"\\" space \\":\\" space string \\"}\\" space
-0 ::= \\"{\\" space \\"\\\\\\"function\\\\\\"\\" space \\":\\" space 0-function \\",\\" space \\"\\\\\\"arguments\\\\\\"\\" space \\":\\" space 0-arguments \\"}\\" space
-1-function ::= \\"\\\\\\"image_search\\\\\\"\\"
-1-arguments ::= \\"{\\" space \\"\\\\\\"query\\\\\\"\\" space \\":\\" space string \\"}\\" space
-1 ::= \\"{\\" space \\"\\\\\\"function\\\\\\"\\" space \\":\\" space 1-function \\",\\" space \\"\\\\\\"arguments\\\\\\"\\" space \\":\\" space 1-arguments \\"}\\" space
-root ::= 0 | 1
 "
 `;
 
 exports[`without prop order 1`] = `
-"space ::= \\" \\"?
+"alternative-0 ::= \\"{\\" space alternative-0-function-kv \\",\\" space alternative-0-arguments-kv \\"}\\" space
+alternative-0-arguments ::= \\"{\\" space  (alternative-0-arguments-title-kv alternative-0-arguments-title-rest | alternative-0-arguments-date-kv alternative-0-arguments-date-rest | alternative-0-arguments-time-kv )? \\"}\\" space
+alternative-0-arguments-date-kv ::= \\"\\\\\\"date\\\\\\"\\" space \\":\\" space string
+alternative-0-arguments-date-rest ::= ( \\",\\" space alternative-0-arguments-time-kv )?
+alternative-0-arguments-kv ::= \\"\\\\\\"arguments\\\\\\"\\" space \\":\\" space alternative-0-arguments
+alternative-0-arguments-time-kv ::= \\"\\\\\\"time\\\\\\"\\" space \\":\\" space string
+alternative-0-arguments-title-kv ::= \\"\\\\\\"title\\\\\\"\\" space \\":\\" space string
+alternative-0-arguments-title-rest ::= ( \\",\\" space alternative-0-arguments-date-kv )? alternative-0-arguments-date-rest
+alternative-0-function ::= \\"\\\\\\"create_event\\\\\\"\\"
+alternative-0-function-kv ::= \\"\\\\\\"function\\\\\\"\\" space \\":\\" space alternative-0-function
+alternative-1 ::= \\"{\\" space alternative-1-function-kv \\",\\" space alternative-1-arguments-kv \\"}\\" space
+alternative-1-arguments ::= \\"{\\" space  (alternative-1-arguments-query-kv )? \\"}\\" space
+alternative-1-arguments-kv ::= \\"\\\\\\"arguments\\\\\\"\\" space \\":\\" space alternative-1-arguments
+alternative-1-arguments-query-kv ::= \\"\\\\\\"query\\\\\\"\\" space \\":\\" space string
+alternative-1-function ::= \\"\\\\\\"image_search\\\\\\"\\"
+alternative-1-function-kv ::= \\"\\\\\\"function\\\\\\"\\" space \\":\\" space alternative-1-function
+root ::= alternative-0 | alternative-1
+space ::= \\" \\"?
 string ::=  \\"\\\\\\"\\" (
         [^\\"\\\\\\\\] |
         \\"\\\\\\\\\\" ([\\"\\\\\\\\/bfnrt] | \\"u\\" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
       )* \\"\\\\\\"\\" space
-0-arguments ::= \\"{\\" space \\"\\\\\\"date\\\\\\"\\" space \\":\\" space string \\",\\" space \\"\\\\\\"time\\\\\\"\\" space \\":\\" space string \\",\\" space \\"\\\\\\"title\\\\\\"\\" space \\":\\" space string \\"}\\" space
-0-function ::= \\"\\\\\\"create_event\\\\\\"\\"
-0 ::= \\"{\\" space \\"\\\\\\"arguments\\\\\\"\\" space \\":\\" space 0-arguments \\",\\" space \\"\\\\\\"function\\\\\\"\\" space \\":\\" space 0-function \\"}\\" space
-1-arguments ::= \\"{\\" space \\"\\\\\\"query\\\\\\"\\" space \\":\\" space string \\"}\\" space
-1-function ::= \\"\\\\\\"image_search\\\\\\"\\"
-1 ::= \\"{\\" space \\"\\\\\\"arguments\\\\\\"\\" space \\":\\" space 1-arguments \\",\\" space \\"\\\\\\"function\\\\\\"\\" space \\":\\" space 1-function \\"}\\" space
-root ::= 0 | 1
 "
 `;
