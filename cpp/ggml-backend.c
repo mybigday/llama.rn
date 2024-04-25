@@ -420,7 +420,7 @@ LM_GGML_CALL static void lm_ggml_backend_registry_init(void) {
     lm_ggml_backend_register("CPU", lm_ggml_backend_reg_cpu_init, lm_ggml_backend_cpu_buffer_type(), NULL);
 
     // add forward decls here to avoid including the backend headers
-#ifdef LM_GGML_USE_CUBLAS
+#ifdef LM_GGML_USE_CUDA
     extern LM_GGML_CALL void lm_ggml_backend_cuda_reg_devices(void);
     lm_ggml_backend_cuda_reg_devices();
 #endif
@@ -822,7 +822,11 @@ LM_GGML_CALL static enum lm_ggml_status lm_ggml_backend_cpu_graph_compute(lm_ggm
 LM_GGML_CALL static bool lm_ggml_backend_cpu_supports_op(lm_ggml_backend_t backend, const struct lm_ggml_tensor * op) {
     switch (op->op) {
         case LM_GGML_OP_CPY:
-            return op->type != LM_GGML_TYPE_IQ2_XXS && op->type != LM_GGML_TYPE_IQ2_XS && op->type != LM_GGML_TYPE_IQ1_S; // missing type_traits.from_float
+            return
+                op->type != LM_GGML_TYPE_IQ2_XXS &&
+                op->type != LM_GGML_TYPE_IQ2_XS  &&
+                op->type != LM_GGML_TYPE_IQ1_S   &&
+                op->type != LM_GGML_TYPE_IQ1_M; // missing type_traits.from_float
         case LM_GGML_OP_MUL_MAT:
             return op->src[1]->type == LM_GGML_TYPE_F32 || op->src[1]->type == lm_ggml_internal_get_type_traits(op->src[0]->type).vec_dot_type;
         default:
@@ -1721,23 +1725,23 @@ lm_ggml_backend_sched_t lm_ggml_backend_sched_new(
     LM_GGML_ASSERT(n_backends <= LM_GGML_SCHED_MAX_BACKENDS);
     LM_GGML_ASSERT(lm_ggml_backend_is_cpu(backends[n_backends - 1])); // last backend must be CPU
 
-    struct lm_ggml_backend_sched * sched = calloc(sizeof(struct lm_ggml_backend_sched), 1);
+    struct lm_ggml_backend_sched * sched = calloc(1, sizeof(struct lm_ggml_backend_sched));
 
     // initialize hash table
     sched->hash_set          = lm_ggml_hash_set_new(graph_size);
-    sched->tensor_backend_id = calloc(sizeof(sched->tensor_backend_id[0]), sched->hash_set.size);
-    sched->tensor_copies     = calloc(sizeof(sched->tensor_copies[0]), sched->hash_set.size);
+    sched->tensor_backend_id = calloc(sched->hash_set.size, sizeof(sched->tensor_backend_id[0]));
+    sched->tensor_copies     = calloc(sched->hash_set.size, sizeof(sched->tensor_copies[0]));
 
     const size_t nodes_size = graph_size + LM_GGML_SCHED_MAX_SPLITS*LM_GGML_SCHED_MAX_SPLIT_INPUTS*2;
-    sched->node_backend_ids  = calloc(sizeof(sched->node_backend_ids[0]), nodes_size);
-    sched->leaf_backend_ids  = calloc(sizeof(sched->leaf_backend_ids[0]), nodes_size);
+    sched->node_backend_ids  = calloc(nodes_size, sizeof(sched->node_backend_ids[0]));
+    sched->leaf_backend_ids  = calloc(nodes_size, sizeof(sched->leaf_backend_ids[0]));
 
     sched->n_backends = n_backends;
 
     sched->n_copies = parallel ? LM_GGML_SCHED_MAX_COPIES : 1;
 
     const int initial_splits_capacity = 16;
-    sched->splits = calloc(sizeof(sched->splits[0]), initial_splits_capacity);
+    sched->splits = calloc(initial_splits_capacity, sizeof(sched->splits[0]));
     sched->splits_capacity = initial_splits_capacity;
 
     for (int b = 0; b < n_backends; b++) {
@@ -1968,10 +1972,10 @@ static void graph_copy_init_tensor(struct lm_ggml_hash_set hash_set, struct lm_g
 struct lm_ggml_backend_graph_copy lm_ggml_backend_graph_copy(lm_ggml_backend_t backend, struct lm_ggml_cgraph * graph) {
     struct lm_ggml_hash_set hash_set = {
         /* .size = */ graph->visited_hash_table.size,
-        /* .keys = */ calloc(sizeof(hash_set.keys[0]), graph->visited_hash_table.size) // NOLINT
+        /* .keys = */ calloc(graph->visited_hash_table.size, sizeof(hash_set.keys[0])) // NOLINT
     };
-    struct lm_ggml_tensor ** node_copies = calloc(sizeof(node_copies[0]), hash_set.size); // NOLINT
-    bool * node_init = calloc(sizeof(node_init[0]), hash_set.size);
+    struct lm_ggml_tensor ** node_copies = calloc(hash_set.size, sizeof(node_copies[0])); // NOLINT
+    bool * node_init = calloc(hash_set.size, sizeof(node_init[0]));
 
     struct lm_ggml_init_params params = {
         /* .mem_size   = */ lm_ggml_tensor_overhead()*hash_set.size + lm_ggml_graph_overhead_custom(graph->size, false),

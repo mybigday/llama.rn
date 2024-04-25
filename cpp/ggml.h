@@ -214,9 +214,10 @@
 #    define LM_GGML_ATTRIBUTE_FORMAT(...) __attribute__((format(printf, __VA_ARGS__)))
 #endif
 
-#include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
 
 #define LM_GGML_FILE_MAGIC   0x67676d6c // "ggml"
 #define LM_GGML_FILE_VERSION 1
@@ -331,8 +332,8 @@ extern "C" {
     LM_GGML_API float       lm_ggml_fp16_to_fp32(lm_ggml_fp16_t x);
     LM_GGML_API lm_ggml_fp16_t lm_ggml_fp32_to_fp16(float x);
 
-    LM_GGML_API void lm_ggml_fp16_to_fp32_row(const lm_ggml_fp16_t * x, float * y, int n);
-    LM_GGML_API void lm_ggml_fp32_to_fp16_row(const float * x, lm_ggml_fp16_t * y, int n);
+    LM_GGML_API void lm_ggml_fp16_to_fp32_row(const lm_ggml_fp16_t * x, float * y, int64_t n);
+    LM_GGML_API void lm_ggml_fp32_to_fp16_row(const float * x, lm_ggml_fp16_t * y, int64_t n);
 
     struct lm_ggml_object;
     struct lm_ggml_context;
@@ -368,6 +369,7 @@ extern "C" {
         LM_GGML_TYPE_I32     = 26,
         LM_GGML_TYPE_I64     = 27,
         LM_GGML_TYPE_F64     = 28,
+        LM_GGML_TYPE_IQ1_M   = 29,
         LM_GGML_TYPE_COUNT,
     };
 
@@ -407,6 +409,7 @@ extern "C" {
         LM_GGML_FTYPE_MOSTLY_IQ3_S   = 20, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_IQ2_S   = 21, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_IQ4_XS  = 22, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_IQ1_M   = 23, // except 1d tensors
     };
 
     // available tensor operations:
@@ -708,6 +711,9 @@ extern "C" {
 
     LM_GGML_API void    lm_ggml_print_backtrace(void);
 
+    // accepts a UTF-8 path, even on Windows
+    LM_GGML_API FILE *  lm_ggml_fopen(const char * fname, const char * mode);
+
     LM_GGML_API void    lm_ggml_numa_init(enum lm_ggml_numa_strategy numa); // call once for better performance on NUMA systems
     LM_GGML_API bool    lm_ggml_is_numa(void); // true if init detected that system has >1 NUMA node
 
@@ -744,6 +750,7 @@ extern "C" {
     LM_GGML_API LM_GGML_CALL bool lm_ggml_is_transposed(const struct lm_ggml_tensor * tensor);
     LM_GGML_API LM_GGML_CALL bool lm_ggml_is_contiguous(const struct lm_ggml_tensor * tensor);
     LM_GGML_API LM_GGML_CALL bool lm_ggml_is_permuted  (const struct lm_ggml_tensor * tensor);
+    LM_GGML_API LM_GGML_CALL bool lm_ggml_is_empty     (const struct lm_ggml_tensor * tensor);
     LM_GGML_API           bool lm_ggml_is_scalar    (const struct lm_ggml_tensor * tensor);
     LM_GGML_API           bool lm_ggml_is_vector    (const struct lm_ggml_tensor * tensor);
     LM_GGML_API           bool lm_ggml_is_matrix    (const struct lm_ggml_tensor * tensor);
@@ -1154,14 +1161,11 @@ extern "C" {
             enum lm_ggml_prec       prec);
 
     // indirect matrix multiplication
-    //  lm_ggml_mul_mat_id(ctx, as, ids, id, b) ~= lm_ggml_mul_mat(as[ids[id]], b)
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_mul_mat_id(
             struct lm_ggml_context * ctx,
-            struct lm_ggml_tensor  * const as[],
-            int                   n_as,
-            struct lm_ggml_tensor  * ids,
-            int                   id,
-            struct lm_ggml_tensor  * b);
+            struct lm_ggml_tensor  * as,
+            struct lm_ggml_tensor  * b,
+            struct lm_ggml_tensor  * ids);
 
     // A: m columns, n rows,
     // B: p columns, n rows,
@@ -2204,9 +2208,9 @@ extern "C" {
             enum lm_ggml_type   type,
                const float * src,
                       void * dst,
-                       int   start,
-                       int   nrows,
-                       int   n_per_row,
+                   int64_t   start,
+                   int64_t   nrows,
+                   int64_t   n_per_row,
                const float * imatrix);
 
     //
@@ -2283,6 +2287,9 @@ extern "C" {
     LM_GGML_API char *         lm_gguf_get_tensor_name  (const struct lm_gguf_context * ctx, int i);
     LM_GGML_API enum lm_ggml_type lm_gguf_get_tensor_type  (const struct lm_gguf_context * ctx, int i);
 
+    // removes key if it exists
+    LM_GGML_API void lm_gguf_remove_key(struct lm_gguf_context * ctx, const char * key);
+
     // overrides existing values or adds a new one
     LM_GGML_API void lm_gguf_set_val_u8  (struct lm_gguf_context * ctx, const char * key, uint8_t  val);
     LM_GGML_API void lm_gguf_set_val_i8  (struct lm_gguf_context * ctx, const char * key, int8_t   val);
@@ -2350,7 +2357,7 @@ extern "C" {
     LM_GGML_API int lm_ggml_cpu_has_fp16_va    (void);
     LM_GGML_API int lm_ggml_cpu_has_wasm_simd  (void);
     LM_GGML_API int lm_ggml_cpu_has_blas       (void);
-    LM_GGML_API int lm_ggml_cpu_has_cublas     (void);
+    LM_GGML_API int lm_ggml_cpu_has_cuda       (void);
     LM_GGML_API int lm_ggml_cpu_has_clblast    (void);
     LM_GGML_API int lm_ggml_cpu_has_vulkan     (void);
     LM_GGML_API int lm_ggml_cpu_has_kompute    (void);
@@ -2371,8 +2378,8 @@ extern "C" {
 #else
 #define LM_GGML_RESTRICT restrict
 #endif
-    typedef void (*lm_ggml_to_float_t)  (const void  * LM_GGML_RESTRICT x, float * LM_GGML_RESTRICT y, int k);
-    typedef void (*lm_ggml_from_float_t)(const float * LM_GGML_RESTRICT x, void  * LM_GGML_RESTRICT y, int k);
+    typedef void (*lm_ggml_to_float_t)  (const void  * LM_GGML_RESTRICT x, float * LM_GGML_RESTRICT y, int64_t k);
+    typedef void (*lm_ggml_from_float_t)(const float * LM_GGML_RESTRICT x, void  * LM_GGML_RESTRICT y, int64_t k);
     typedef void (*lm_ggml_vec_dot_t)   (int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT x, size_t bx,
                                       const void * LM_GGML_RESTRICT y, size_t by, int nrc);
 
