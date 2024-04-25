@@ -17,12 +17,10 @@ alternative-1-arguments-kv ::= \\"\\\\\\"arguments\\\\\\"\\" space \\":\\" space
 alternative-1-arguments-query-kv ::= \\"\\\\\\"query\\\\\\"\\" space \\":\\" space string
 alternative-1-function ::= \\"\\\\\\"image_search\\\\\\"\\"
 alternative-1-function-kv ::= \\"\\\\\\"function\\\\\\"\\" space \\":\\" space alternative-1-function
+char ::= [^\\"\\\\\\\\] | \\"\\\\\\\\\\" ([\\"\\\\\\\\/bfnrt] | \\"u\\" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
 root ::= alternative-0 | alternative-1
 space ::= \\" \\"?
-string ::=  \\"\\\\\\"\\" (
-        [^\\"\\\\\\\\] |
-        \\"\\\\\\\\\\" ([\\"\\\\\\\\/bfnrt] | \\"u\\" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
-      )* \\"\\\\\\"\\" space
+string ::= \\"\\\\\\"\\" char* \\"\\\\\\"\\" space
 "
 `;
 
@@ -43,11 +41,9 @@ alternative-1-arguments-kv ::= \\"\\\\\\"arguments\\\\\\"\\" space \\":\\" space
 alternative-1-arguments-query-kv ::= \\"\\\\\\"query\\\\\\"\\" space \\":\\" space string
 alternative-1-function ::= \\"\\\\\\"image_search\\\\\\"\\"
 alternative-1-function-kv ::= \\"\\\\\\"function\\\\\\"\\" space \\":\\" space alternative-1-function
+char ::= [^\\"\\\\\\\\] | \\"\\\\\\\\\\" ([\\"\\\\\\\\/bfnrt] | \\"u\\" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
 root ::= alternative-0 | alternative-1
 space ::= \\" \\"?
-string ::=  \\"\\\\\\"\\" (
-        [^\\"\\\\\\\\] |
-        \\"\\\\\\\\\\" ([\\"\\\\\\\\/bfnrt] | \\"u\\" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
-      )* \\"\\\\\\"\\" space
+string ::= \\"\\\\\\"\\" char* \\"\\\\\\"\\" space
 "
 `;
