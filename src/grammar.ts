@@ -831,12 +831,19 @@ export const convertJsonSchemaToGrammar = ({
   propOrder?: PropOrder
   dotall?: boolean
   allowFetch?: boolean
-}): string => {
+}): string | Promise<string> => {
   const converter = new SchemaGrammarConverter({
     prop_order: propOrder,
     dotall,
     allow_fetch: allowFetch,
   })
+
+  if (allowFetch) {
+    return converter.resolveRefs(schema, '').then(() => {
+      converter.visit(schema, '')
+      return converter.formatGrammar()
+    })
+  }
   converter.visit(schema, '')
   return converter.formatGrammar()
 }
