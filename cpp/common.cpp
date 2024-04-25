@@ -1,4 +1,6 @@
 #include "common.h"
+#include "json.hpp"
+#include "json-schema-to-grammar.h"
 #include "llama.h"
 
 #include <algorithm>
@@ -16,6 +18,7 @@
 #include <unordered_set>
 #include <vector>
 #include <cinttypes>
+#include <codecvt>
 
 #if defined(__APPLE__) && defined(__MACH__)
 #include <sys/types.h>
@@ -27,7 +30,6 @@
 #ifndef NOMINMAX
 #   define NOMINMAX
 #endif
-#include <codecvt>
 #include <locale>
 #include <windows.h>
 #include <fcntl.h>
@@ -39,10 +41,9 @@
 #endif
 #if defined(LLAMA_USE_CURL)
 #include <curl/curl.h>
-#endif
-
-#if defined(_MSC_VER)
-#pragma warning(disable: 4244 4267) // possible loss of data
+#include <curl/easy.h>
+#include <thread>
+#include <future>
 #endif
 
 // build info
@@ -51,12 +52,16 @@ char const *LLAMA_COMMIT = "unknown";
 char const *LLAMA_COMPILER = "unknown";
 char const *LLAMA_BUILD_TARGET = "unknown";
 
-#if (defined(LM_GGML_USE_CUBLAS) || defined(LM_GGML_USE_SYCL))
-#define LM_GGML_USE_CUBLAS_SYCL
+#if defined(_MSC_VER)
+#pragma warning(disable: 4244 4267) // possible loss of data
 #endif
 
-#if (defined(LM_GGML_USE_CUBLAS) || defined(LM_GGML_USE_SYCL)) || defined(LM_GGML_USE_VULKAN)
-#define LM_GGML_USE_CUBLAS_SYCL_VULKAN
+#if (defined(LM_GGML_USE_CUDA) || defined(LM_GGML_USE_SYCL))
+#define LM_GGML_USE_CUDA_SYCL
+#endif
+
+#if (defined(LM_GGML_USE_CUDA) || defined(LM_GGML_USE_SYCL)) || defined(LM_GGML_USE_VULKAN)
+#define LM_GGML_USE_CUDA_SYCL_VULKAN
 #endif
 
 #if defined(LLAMA_USE_CURL)
@@ -67,9 +72,11 @@ char const *LLAMA_BUILD_TARGET = "unknown";
 #else
 #include <sys/syslimits.h>
 #endif
-#define LLAMA_CURL_MAX_PATH_LENGTH PATH_MAX
+#define LLAMA_CURL_MAX_URL_LENGTH 2084 // Maximum URL Length in Chrome: 2083
 #define LLAMA_CURL_MAX_HEADER_LENGTH 256
 #endif // LLAMA_USE_CURL
+
+using json = nlohmann::ordered_json;
 
 int32_t get_num_physical_cores() {
 #ifdef __linux__
@@ -107,7 +114,80 @@ int32_t get_num_physical_cores() {
     return n_threads > 0 ? (n_threads <= 4 ? n_threads : n_threads / 2) : 4;
 }
 
-void process_escapes(std::string& input) {
+#if defined(__x86_64__) && defined(__linux__) && !defined(__ANDROID__)
+#include <pthread.h>
+
+static void cpuid(unsigned leaf, unsigned subleaf,
+                  unsigned *eax, unsigned *ebx, unsigned *ecx, unsigned *edx) {
+    __asm__("movq\t%%rbx,%%rsi\n\t"
+            "cpuid\n\t"
+            "xchgq\t%%rbx,%%rsi"
+            : "=a"(*eax), "=S"(*ebx), "=c"(*ecx), "=d"(*edx)
+            : "0"(leaf), "2"(subleaf));
+}
+
+static int pin_cpu(int cpu) {
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    CPU_SET(cpu, &mask);
+    return pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask);
+}
+
+static bool is_hybrid_cpu(void) {
+    unsigned eax, ebx, ecx, edx;
+    cpuid(7, 0, &eax, &ebx, &ecx, &edx);
+    return !!(edx & (1u << 15));
+}
+
+static bool is_running_on_efficiency_core(void) {
+    unsigned eax, ebx, ecx, edx;
+    cpuid(0x1a, 0, &eax, &ebx, &ecx, &edx);
+    int intel_atom = 0x20;
+    int core_type = (eax & 0xff000000u) >> 24;
+    return core_type == intel_atom;
+}
+
+static int count_math_cpus(int cpu_count) {
+    int result = 0;
+    for (int cpu = 0; cpu < cpu_count; ++cpu) {
+        if (pin_cpu(cpu)) {
+            return -1;
+        }
+        if (is_running_on_efficiency_core()) {
+            continue; // efficiency cores harm lockstep threading
+        }
+        ++cpu; // hyperthreading isn't useful for linear algebra
+        ++result;
+    }
+    return result;
+}
+
+#endif // __x86_64__ && __linux__
+
+/**
+ * Returns number of CPUs on system that are useful for math.
+ */
+int get_math_cpu_count() {
+#if defined(__x86_64__) && defined(__linux__) && !defined(__ANDROID__)
+    int cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
+    if (cpu_count < 1) {
+        return get_num_physical_cores();
+    }
+    if (is_hybrid_cpu()) {
+        cpu_set_t affinity;
+        if (!pthread_getaffinity_np(pthread_self(), sizeof(affinity), &affinity)) {
+            int result = count_math_cpus(cpu_count);
+            pthread_setaffinity_np(pthread_self(), sizeof(affinity), &affinity);
+            if (result > 0) {
+                return result;
+            }
+        }
+    }
+#endif
+    return get_num_physical_cores();
+}
+
+void process_escapes(std::string & input) {
     std::size_t input_len = input.length();
     std::size_t output_idx = 0;
 
@@ -160,8 +240,7 @@ bool gpt_params_parse(int argc, char ** argv, gpt_params & params) {
     return result;
 }
 
-static bool gpt_params_find_arg(int argc, char ** argv, gpt_params & params, int & i, bool & invalid_param) {
-    std::string arg = argv[i];
+bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_params & params, int & i, bool & invalid_param) {
     llama_sampling_params& sparams = params.sparams;
 
     if (arg == "-s" || arg == "--seed") {
@@ -169,7 +248,9 @@ static bool gpt_params_find_arg(int argc, char ** argv, gpt_params & params, int
             invalid_param = true;
             return true;
         }
+        // This is temporary, in the future the samplign state will be moved fully to llama_sampling_context.
         params.seed = std::stoul(argv[i]);
+        sparams.seed = std::stoul(argv[i]);
         return true;
     }
     if (arg == "-t" || arg == "--threads") {
@@ -654,14 +735,6 @@ static bool gpt_params_find_arg(int argc, char ** argv, gpt_params & params, int
         params.model = argv[i];
         return true;
     }
-    if (arg == "-mu" || arg == "--model-url") {
-        if (++i >= argc) {
-            invalid_param = true;
-            return true;
-        }
-        params.model_url = argv[i];
-        return true;
-    }
     if (arg == "-md" || arg == "--model-draft") {
         if (++i >= argc) {
             invalid_param = true;
@@ -676,6 +749,30 @@ static bool gpt_params_find_arg(int argc, char ** argv, gpt_params & params, int
             return true;
         }
         params.model_alias = argv[i];
+        return true;
+    }
+    if (arg == "-mu" || arg == "--model-url") {
+        if (++i >= argc) {
+            invalid_param = true;
+            return true;
+        }
+        params.model_url = argv[i];
+        return true;
+    }
+    if (arg == "-hfr" || arg == "--hf-repo") {
+        if (++i >= argc) {
+            invalid_param = true;
+            return true;
+        }
+        params.hf_repo = argv[i];
+        return true;
+    }
+    if (arg == "-hff" || arg == "--hf-file") {
+        if (++i >= argc) {
+            invalid_param = true;
+            return true;
+        }
+        params.hf_file = argv[i];
         return true;
     }
     if (arg == "--lora") {
@@ -849,9 +946,9 @@ static bool gpt_params_find_arg(int argc, char ** argv, gpt_params & params, int
             return true;
         }
         params.main_gpu = std::stoi(argv[i]);
-#ifndef LM_GGML_USE_CUBLAS_SYCL
-        fprintf(stderr, "warning: llama.cpp was compiled without cuBLAS/SYCL. Setting the main GPU has no effect.\n");
-#endif // LM_GGML_USE_CUBLAS_SYCL
+#ifndef LM_GGML_USE_CUDA_SYCL
+        fprintf(stderr, "warning: llama.cpp was compiled without CUDA/SYCL. Setting the main GPU has no effect.\n");
+#endif // LM_GGML_USE_CUDA_SYCL
         return true;
     }
     if (arg == "--split-mode" || arg == "-sm") {
@@ -877,9 +974,9 @@ static bool gpt_params_find_arg(int argc, char ** argv, gpt_params & params, int
             invalid_param = true;
             return true;
         }
-#ifndef LM_GGML_USE_CUBLAS_SYCL
-        fprintf(stderr, "warning: llama.cpp was compiled without cuBLAS/SYCL. Setting the split mode has no effect.\n");
-#endif // LM_GGML_USE_CUBLAS_SYCL
+#ifndef LM_GGML_USE_CUDA_SYCL
+        fprintf(stderr, "warning: llama.cpp was compiled without CUDA/SYCL. Setting the split mode has no effect.\n");
+#endif // LM_GGML_USE_CUDA_SYCL
         return true;
     }
     if (arg == "--tensor-split" || arg == "-ts") {
@@ -905,9 +1002,9 @@ static bool gpt_params_find_arg(int argc, char ** argv, gpt_params & params, int
                 params.tensor_split[i] = 0.0f;
             }
         }
-#ifndef LM_GGML_USE_CUBLAS_SYCL_VULKAN
-        fprintf(stderr, "warning: llama.cpp was compiled without cuBLAS/SYCL/Vulkan. Setting a tensor split has no effect.\n");
-#endif // LM_GGML_USE_CUBLAS_SYCL
+#ifndef LM_GGML_USE_CUDA_SYCL_VULKAN
+        fprintf(stderr, "warning: llama.cpp was compiled without CUDA/SYCL/Vulkan. Setting a tensor split has no effect.\n");
+#endif // LM_GGML_USE_CUDA_SYCL_VULKAN
         return true;
     }
     if (arg == "--no-mmap") {
@@ -952,6 +1049,22 @@ static bool gpt_params_find_arg(int argc, char ** argv, gpt_params & params, int
         if (params.logdir.back() != DIRECTORY_SEPARATOR) {
             params.logdir += DIRECTORY_SEPARATOR;
         }
+        return true;
+    }
+    if (arg == "-lcs" || arg == "--lookup-cache-static") {
+        if (++i >= argc) {
+            invalid_param = true;
+            return true;
+        }
+        params.lookup_cache_static = argv[i];
+        return true;
+    }
+    if (arg == "-lcd" || arg == "--lookup-cache-dynamic") {
+        if (++i >= argc) {
+            invalid_param = true;
+            return true;
+        }
+        params.lookup_cache_dynamic = argv[i];
         return true;
     }
     if (arg == "--save-all-logits" || arg == "--kl-divergence-base") {
@@ -1034,8 +1147,8 @@ static bool gpt_params_find_arg(int argc, char ** argv, gpt_params & params, int
         params.ignore_eos = true;
         return true;
     }
-    if (arg == "--no-penalize-nl") {
-        sparams.penalize_nl = false;
+    if (arg == "--penalize-nl") {
+        sparams.penalize_nl = true;
         return true;
     }
     if (arg == "-l" || arg == "--logit-bias") {
@@ -1118,6 +1231,14 @@ static bool gpt_params_find_arg(int argc, char ** argv, gpt_params & params, int
             std::istreambuf_iterator<char>(),
             std::back_inserter(sparams.grammar)
         );
+        return true;
+    }
+    if (arg == "-j" || arg == "--json-schema") {
+        if (++i >= argc) {
+            invalid_param = true;
+            return true;
+        }
+        sparams.grammar = json_schema_to_grammar(json::parse(argv[i]));
         return true;
     }
     if (arg == "--override-kv") {
@@ -1207,18 +1328,25 @@ bool gpt_params_parse_ex(int argc, char ** argv, gpt_params & params) {
             std::replace(arg.begin(), arg.end(), '_', '-');
         }
 
-        if (!gpt_params_find_arg(argc, argv, params, i, invalid_param)) {
+        if (!gpt_params_find_arg(argc, argv, arg, params, i, invalid_param)) {
             throw std::invalid_argument("error: unknown argument: " + arg);
         }
     }
+
     if (invalid_param) {
         throw std::invalid_argument("error: invalid parameter for argument: " + arg);
     }
+
     if (params.prompt_cache_all &&
             (params.interactive || params.interactive_first ||
              params.instruct)) {
 
         throw std::invalid_argument("error: --prompt-cache-all not supported in interactive mode yet\n");
+    }
+
+    // short-hand to avoid specifying --hf-file -> default it to --model
+    if (!params.hf_repo.empty() && params.hf_file.empty()) {
+        params.hf_file = params.model;
     }
 
     if (params.escape) {
@@ -1318,6 +1446,9 @@ void gpt_print_usage(int /*argc*/, char ** argv, const gpt_params & params) {
     printf("                        or `--logit-bias 15043-1` to decrease likelihood of token ' Hello'\n");
     printf("  --grammar GRAMMAR     BNF-like grammar to constrain generations (see samples in grammars/ dir)\n");
     printf("  --grammar-file FNAME  file to read grammar from\n");
+    printf("  -j SCHEMA, --json-schema SCHEMA\n");
+    printf("                        JSON schema to constrain generations (https://json-schema.org/), e.g. `{}` for any JSON object.\n");
+    printf("                        For schemas w/ external $refs, use --grammar + example/json_schema_to_grammar.py instead\n");
     printf("  --cfg-negative-prompt PROMPT\n");
     printf("                        negative prompt to use for guidance. (default: empty)\n");
     printf("  --cfg-negative-prompt-file FNAME\n");
@@ -1338,7 +1469,7 @@ void gpt_print_usage(int /*argc*/, char ** argv, const gpt_params & params) {
     printf("  -dt N, --defrag-thold N\n");
     printf("                        KV cache defragmentation threshold (default: %.1f, < 0 - disabled)\n", params.defrag_thold);
     printf("  --ignore-eos          ignore end of stream token and continue generating (implies --logit-bias 2-inf)\n");
-    printf("  --no-penalize-nl      do not penalize newline token\n");
+    printf("  --penalize-nl         penalize newline tokens\n");
     printf("  --temp N              temperature (default: %.1f)\n", (double)sparams.temp);
     printf("  --all-logits          return logits for all tokens in the batch (default: disabled)\n");
     printf("  --hellaswag           compute HellaSwag score over random tasks from datafile supplied with -f\n");
@@ -1410,12 +1541,20 @@ void gpt_print_usage(int /*argc*/, char ** argv, const gpt_params & params) {
     printf("                        layer range to apply the control vector(s) to, start and end inclusive\n");
     printf("  -m FNAME, --model FNAME\n");
     printf("                        model path (default: %s)\n", params.model.c_str());
-    printf("  -mu MODEL_URL, --model-url MODEL_URL\n");
-    printf("                        model download url (default: %s)\n", params.model_url.c_str());
     printf("  -md FNAME, --model-draft FNAME\n");
-    printf("                        draft model for speculative decoding\n");
+    printf("                        draft model for speculative decoding (default: unused)\n");
+    printf("  -mu MODEL_URL, --model-url MODEL_URL\n");
+    printf("                        model download url (default: unused)\n");
+    printf("  -hfr REPO, --hf-repo REPO\n");
+    printf("                        Hugging Face model repository (default: unused)\n");
+    printf("  -hff FILE, --hf-file FILE\n");
+    printf("                        Hugging Face model file (default: unused)\n");
     printf("  -ld LOGDIR, --logdir LOGDIR\n");
     printf("                        path under which to save YAML logs (no logging if unset)\n");
+    printf("  -lcs FNAME, --lookup-cache-static FNAME\n");
+    printf("                        path to static lookup cache to use for lookup decoding (not updated by generation)\n");
+    printf("  -lcd FNAME, --lookup-cache-dynamic FNAME\n");
+    printf("                        path to dynamic lookup cache to use for lookup decoding (updated by generation)\n");
     printf("  --override-kv KEY=TYPE:VALUE\n");
     printf("                        advanced option to override model metadata by key. may be specified multiple times.\n");
     printf("                        types: int, float, bool. example: --override-kv tokenizer.ggml.add_bos_token=bool:false\n");
@@ -1455,6 +1594,77 @@ std::string gpt_random_prompt(std::mt19937 & rng) {
     }
 
     LM_GGML_UNREACHABLE();
+}
+
+// Validate if a filename is safe to use
+// To validate a full path, split the path by the OS-specific path separator, and validate each part with this function
+bool validate_file_name(const std::string & filename) {
+    if (!filename.length()) {
+        // Empty filename invalid
+        return false;
+    }
+    if (filename.length() > 255) {
+        // Limit at common largest possible filename on Linux filesystems
+        // to avoid unnecessary further validation
+        // (On systems with smaller limits it will be caught by the OS)
+        return false;
+    }
+
+    std::u32string filename_utf32;
+    try {
+        std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
+        filename_utf32 = converter.from_bytes(filename);
+
+        // If the reverse conversion mismatches, it means overlong UTF-8 sequences were used,
+        // or invalid encodings were encountered. Reject such attempts
+        std::string filename_reencoded = converter.to_bytes(filename_utf32);
+        if (filename_reencoded != filename) {
+            return false;
+        }
+    } catch (const std::exception &) {
+        return false;
+    }
+
+    // Check for forbidden codepoints:
+    // - Control characters
+    // - Unicode equivalents of illegal characters
+    // - UTF-16 surrogate pairs
+    // - UTF-8 replacement character
+    // - Byte order mark (BOM)
+    // - Illegal characters: / \ : * ? " < > |
+    for (char32_t c : filename_utf32) {
+        if (c <= 0x1F // Control characters (C0)
+            || c == 0x7F // Control characters (DEL)
+            || (c >= 0x80 && c <= 0x9F) // Control characters (C1)
+            || c == 0xFF0E // Fullwidth Full Stop (period equivalent)
+            || c == 0x2215 // Division Slash (forward slash equivalent)
+            || c == 0x2216 // Set Minus (backslash equivalent)
+            || (c >= 0xD800 && c <= 0xDFFF) // UTF-16 surrogate pairs
+            || c == 0xFFFD // Replacement Character (UTF-8)
+            || c == 0xFEFF // Byte Order Mark (BOM)
+            || c == '/' || c == '\\' || c == ':' || c == '*' // Illegal characters
+            || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') {
+            return false;
+        }
+    }
+
+    // Reject any leading or trailing ' ', or any trailing '.', these are stripped on Windows and will cause a different filename
+    // Unicode and other whitespace is not affected, only 0x20 space
+    if (filename.front() == ' ' || filename.back() == ' ' || filename.back() == '.') {
+        return false;
+    }
+
+    // Reject any ".." (currently stricter than necessary, it should be fine to just check for == ".." instead)
+    if (filename.find("..") != std::string::npos) {
+        return false;
+    }
+
+    // Reject "."
+    if (filename == ".") {
+        return false;
+    }
+
+    return true;
 }
 
 //
@@ -1596,6 +1806,9 @@ static lm_ggml_type kv_cache_type_from_str(const std::string & s) {
     if (s == "q4_1") {
         return LM_GGML_TYPE_Q4_1;
     }
+    if (s == "iq4_nl") {
+        return LM_GGML_TYPE_IQ4_NL;
+    }
     if (s == "q5_0") {
         return LM_GGML_TYPE_Q5_0;
     }
@@ -1628,6 +1841,8 @@ struct llama_context_params llama_context_params_from_gpt_params(const gpt_param
     cparams.yarn_orig_ctx     = params.yarn_orig_ctx;
     cparams.pooling_type      = params.pooling_type;
     cparams.defrag_thold      = params.defrag_thold;
+    cparams.cb_eval           = params.cb_eval;
+    cparams.cb_eval_user_data = params.cb_eval_user_data;
     cparams.offload_kqv       = !params.no_kv_offload;
 
     cparams.type_k = kv_cache_type_from_str(params.cache_type_k);
@@ -1659,25 +1874,13 @@ void llama_batch_add(
 
 #ifdef LLAMA_USE_CURL
 
-struct llama_model * llama_load_model_from_url(const char * model_url, const char * path_model,
-                                              struct llama_model_params params) {
-    // Basic validation of the model_url
-    if (!model_url || strlen(model_url) == 0) {
-        fprintf(stderr, "%s: invalid model_url\n", __func__);
-        return NULL;
-    }
-
-    // Initialize libcurl globally
-    auto curl = curl_easy_init();
-
-    if (!curl) {
-        fprintf(stderr, "%s: error initializing libcurl\n", __func__);
-        return NULL;
-    }
+static bool llama_download_file(CURL * curl, const char * url, const char * path) {
+    bool force_download = false;
 
     // Set the URL, allow to follow http redirection
-    curl_easy_setopt(curl, CURLOPT_URL, model_url);
+    curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
 #if defined(_WIN32)
     // CURLSSLOPT_NATIVE_CA tells libcurl to use standard certificate store of
     //   operating system. Currently implemented under MS-Windows.
@@ -1686,16 +1889,16 @@ struct llama_model * llama_load_model_from_url(const char * model_url, const cha
 
     // Check if the file already exists locally
     struct stat model_file_info;
-    auto file_exists = (stat(path_model, &model_file_info) == 0);
+    auto file_exists = (stat(path, &model_file_info) == 0);
 
     // If the file exists, check for ${path_model}.etag or ${path_model}.lastModified files
     char etag[LLAMA_CURL_MAX_HEADER_LENGTH] = {0};
-    char etag_path[LLAMA_CURL_MAX_PATH_LENGTH] = {0};
-    snprintf(etag_path, sizeof(etag_path), "%s.etag", path_model);
+    char etag_path[PATH_MAX] = {0};
+    snprintf(etag_path, sizeof(etag_path), "%s.etag", path);
 
     char last_modified[LLAMA_CURL_MAX_HEADER_LENGTH] = {0};
-    char last_modified_path[LLAMA_CURL_MAX_PATH_LENGTH] = {0};
-    snprintf(last_modified_path, sizeof(last_modified_path), "%s.lastModified", path_model);
+    char last_modified_path[PATH_MAX] = {0};
+    snprintf(last_modified_path, sizeof(last_modified_path), "%s.lastModified", path);
 
     if (file_exists) {
         auto * f_etag = fopen(etag_path, "r");
@@ -1703,7 +1906,7 @@ struct llama_model * llama_load_model_from_url(const char * model_url, const cha
             if (!fgets(etag, sizeof(etag), f_etag)) {
                 fprintf(stderr, "%s: unable to read file %s\n", __func__, etag_path);
             } else {
-                fprintf(stderr, "%s: previous model file found %s: %s\n", __func__, etag_path, etag);
+                fprintf(stderr, "%s: previous file found %s: %s\n", __func__, etag_path, etag);
             }
             fclose(f_etag);
         }
@@ -1713,7 +1916,7 @@ struct llama_model * llama_load_model_from_url(const char * model_url, const cha
             if (!fgets(last_modified, sizeof(last_modified), f_last_modified)) {
                 fprintf(stderr, "%s: unable to read file %s\n", __func__, last_modified_path);
             } else {
-                fprintf(stderr, "%s: previous model file found %s: %s\n", __func__, last_modified_path,
+                fprintf(stderr, "%s: previous file found %s: %s\n", __func__, last_modified_path,
                         last_modified);
             }
             fclose(f_last_modified);
@@ -1730,6 +1933,11 @@ struct llama_model * llama_load_model_from_url(const char * model_url, const cha
         typedef size_t(*CURLOPT_HEADERFUNCTION_PTR)(char *, size_t, size_t, void *);
         auto header_callback = [](char * buffer, size_t /*size*/, size_t n_items, void * userdata) -> size_t {
             llama_load_model_from_url_headers *headers = (llama_load_model_from_url_headers *) userdata;
+
+            // Convert header field name to lowercase
+            for (size_t i = 0; i < n_items && buffer[i] != ':'; ++i) {
+                buffer[i] = tolower(buffer[i]);
+            }
 
             const char * etag_prefix = "etag: ";
             if (strncmp(buffer, etag_prefix, strlen(etag_prefix)) == 0) {
@@ -1753,7 +1961,7 @@ struct llama_model * llama_load_model_from_url(const char * model_url, const cha
         if (res != CURLE_OK) {
             curl_easy_cleanup(curl);
             fprintf(stderr, "%s: curl_easy_perform() failed: %s\n", __func__, curl_easy_strerror(res));
-            return NULL;
+            return false;
         }
 
         long http_code = 0;
@@ -1761,30 +1969,34 @@ struct llama_model * llama_load_model_from_url(const char * model_url, const cha
         if (http_code != 200) {
             // HEAD not supported, we don't know if the file has changed
             // force trigger downloading
-            file_exists = false;
+            force_download = true;
             fprintf(stderr, "%s: HEAD invalid http status code received: %ld\n", __func__, http_code);
         }
     }
 
     // If the ETag or the Last-Modified headers are different: trigger a new download
-    if (!file_exists || strcmp(etag, headers.etag) != 0 || strcmp(last_modified, headers.last_modified) != 0) {
-        char path_model_temporary[LLAMA_CURL_MAX_PATH_LENGTH] = {0};
-        snprintf(path_model_temporary, sizeof(path_model_temporary), "%s.downloadInProgress", path_model);
+    bool should_download = !file_exists
+        || force_download
+        || (strlen(headers.etag) > 0 && strcmp(etag, headers.etag) != 0)
+        || (strlen(headers.last_modified) > 0 && strcmp(last_modified, headers.last_modified) != 0);
+    if (should_download) {
+        char path_temporary[PATH_MAX] = {0};
+        snprintf(path_temporary, sizeof(path_temporary), "%s.downloadInProgress", path);
         if (file_exists) {
-            fprintf(stderr, "%s: deleting previous downloaded model file: %s\n", __func__, path_model);
-            if (remove(path_model) != 0) {
+            fprintf(stderr, "%s: deleting previous downloaded file: %s\n", __func__, path);
+            if (remove(path) != 0) {
                 curl_easy_cleanup(curl);
-                fprintf(stderr, "%s: unable to delete file: %s\n", __func__, path_model);
-                return NULL;
+                fprintf(stderr, "%s: unable to delete file: %s\n", __func__, path);
+                return false;
             }
         }
 
         // Set the output file
-        auto * outfile = fopen(path_model_temporary, "wb");
+        auto * outfile = fopen(path_temporary, "wb");
         if (!outfile) {
             curl_easy_cleanup(curl);
-            fprintf(stderr, "%s: error opening local file for writing: %s\n", __func__, path_model);
-            return NULL;
+            fprintf(stderr, "%s: error opening local file for writing: %s\n", __func__, path);
+            return false;
         }
 
         typedef size_t(*CURLOPT_WRITEFUNCTION_PTR)(void * data, size_t size, size_t nmemb, void * fd);
@@ -1798,15 +2010,30 @@ struct llama_model * llama_load_model_from_url(const char * model_url, const cha
         //  display download progress
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
+        // helper function to hide password in URL
+        auto llama_download_hide_password_in_url = [](const std::string & url) -> std::string {
+            std::size_t protocol_pos = url.find("://");
+            if (protocol_pos == std::string::npos) {
+                return url;  // Malformed URL
+            }
+
+            std::size_t at_pos = url.find('@', protocol_pos + 3);
+            if (at_pos == std::string::npos) {
+                return url;  // No password in URL
+            }
+
+            return url.substr(0, protocol_pos + 3) + "********" + url.substr(at_pos);
+        };
+
         // start the download
-        fprintf(stderr, "%s: downloading model from %s to %s (server_etag:%s, server_last_modified:%s)...\n", __func__,
-                model_url, path_model, headers.etag, headers.last_modified);
+        fprintf(stderr, "%s: downloading from %s to %s (server_etag:%s, server_last_modified:%s)...\n", __func__,
+                llama_download_hide_password_in_url(url).c_str(), path, headers.etag, headers.last_modified);
         auto res = curl_easy_perform(curl);
         if (res != CURLE_OK) {
             fclose(outfile);
             curl_easy_cleanup(curl);
             fprintf(stderr, "%s: curl_easy_perform() failed: %s\n", __func__, curl_easy_strerror(res));
-            return NULL;
+            return false;
         }
 
         long http_code = 0;
@@ -1815,7 +2042,7 @@ struct llama_model * llama_load_model_from_url(const char * model_url, const cha
             fclose(outfile);
             curl_easy_cleanup(curl);
             fprintf(stderr, "%s: invalid http status code received: %ld\n", __func__, http_code);
-            return NULL;
+            return false;
         }
 
         // Clean up
@@ -1827,7 +2054,7 @@ struct llama_model * llama_load_model_from_url(const char * model_url, const cha
             if (etag_file) {
                 fputs(headers.etag, etag_file);
                 fclose(etag_file);
-                fprintf(stderr, "%s: model etag saved %s: %s\n", __func__, etag_path, headers.etag);
+                fprintf(stderr, "%s: file etag saved %s: %s\n", __func__, etag_path, headers.etag);
             }
         }
 
@@ -1837,28 +2064,154 @@ struct llama_model * llama_load_model_from_url(const char * model_url, const cha
             if (last_modified_file) {
                 fputs(headers.last_modified, last_modified_file);
                 fclose(last_modified_file);
-                fprintf(stderr, "%s: model last modified saved %s: %s\n", __func__, last_modified_path,
+                fprintf(stderr, "%s: file last modified saved %s: %s\n", __func__, last_modified_path,
                         headers.last_modified);
             }
         }
 
-        if (rename(path_model_temporary, path_model) != 0) {
+        if (rename(path_temporary, path) != 0) {
             curl_easy_cleanup(curl);
-            fprintf(stderr, "%s: unable to rename file: %s to %s\n", __func__, path_model_temporary, path_model);
+            fprintf(stderr, "%s: unable to rename file: %s to %s\n", __func__, path_temporary, path);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+struct llama_model * llama_load_model_from_url(
+        const char * model_url,
+        const char * path_model,
+        const struct llama_model_params & params) {
+    // Basic validation of the model_url
+    if (!model_url || strlen(model_url) == 0) {
+        fprintf(stderr, "%s: invalid model_url\n", __func__);
+        return NULL;
+    }
+
+    // Initialize libcurl
+    auto * curl = curl_easy_init();
+
+    if (!curl) {
+        fprintf(stderr, "%s: error initializing libcurl\n", __func__);
+        return NULL;
+    }
+
+    if (!llama_download_file(curl, model_url, path_model)) {
+        return NULL;
+    }
+
+    // check for additional GGUFs split to download
+    int n_split = 0;
+    {
+        struct lm_gguf_init_params lm_gguf_params = {
+            /*.no_alloc = */ true,
+            /*.ctx      = */ NULL,
+        };
+        auto * ctx_gguf = lm_gguf_init_from_file(path_model, lm_gguf_params);
+        if (!ctx_gguf) {
+            fprintf(stderr, "\n%s:  failed to load input GGUF from %s\n", __func__, path_model);
+            curl_easy_cleanup(curl);
             return NULL;
         }
+
+        auto key_n_split = lm_gguf_find_key(ctx_gguf, LLM_KV_SPLIT_COUNT);
+        if (key_n_split >= 0) {
+            n_split = lm_gguf_get_val_u16(ctx_gguf, key_n_split);
+        }
+
+        lm_gguf_free(ctx_gguf);
     }
 
     curl_easy_cleanup(curl);
 
+    if (n_split > 1) {
+        char split_prefix[PATH_MAX] = {0};
+        char split_url_prefix[LLAMA_CURL_MAX_URL_LENGTH] = {0};
+
+        // Verify the first split file format
+        // and extract split URL and PATH prefixes
+        {
+            if (!llama_split_prefix(split_prefix, sizeof(split_prefix), path_model, 0, n_split)) {
+                fprintf(stderr, "\n%s: unexpected model file name: %s"
+                                " n_split=%d\n", __func__, path_model, n_split);
+                return NULL;
+            }
+
+            if (!llama_split_prefix(split_url_prefix, sizeof(split_url_prefix), model_url, 0, n_split)) {
+                fprintf(stderr, "\n%s: unexpected model url: %s"
+                                " n_split=%d\n", __func__, model_url, n_split);
+                return NULL;
+            }
+        }
+
+        // Prepare download in parallel
+        std::vector<std::future<bool>> futures_download;
+        for (int idx = 1; idx < n_split; idx++) {
+            futures_download.push_back(std::async(std::launch::async, [&split_prefix, &split_url_prefix, &n_split](int download_idx) -> bool {
+                char split_path[PATH_MAX] = {0};
+                llama_split_path(split_path, sizeof(split_path), split_prefix, download_idx, n_split);
+
+                char split_url[LLAMA_CURL_MAX_URL_LENGTH] = {0};
+                llama_split_path(split_url, sizeof(split_url), split_url_prefix, download_idx, n_split);
+
+                auto * curl = curl_easy_init();
+                bool res = llama_download_file(curl, split_url, split_path);
+                curl_easy_cleanup(curl);
+
+                return res;
+            }, idx));
+        }
+
+        // Wait for all downloads to complete
+        for (auto & f : futures_download) {
+            if (!f.get()) {
+                return NULL;
+            }
+        }
+    }
+
     return llama_load_model_from_file(path_model, params);
+}
+
+struct llama_model * llama_load_model_from_hf(
+        const char * repo,
+        const char * model,
+        const char * path_model,
+        const struct llama_model_params & params) {
+    // construct hugging face model url:
+    //
+    //  --repo ggml-org/models --file tinyllama-1.1b/ggml-model-f16.gguf
+    //    https://huggingface.co/ggml-org/models/resolve/main/tinyllama-1.1b/ggml-model-f16.gguf
+    //
+    //  --repo TheBloke/Mixtral-8x7B-v0.1-GGUF --file mixtral-8x7b-v0.1.Q4_K_M.gguf
+    //    https://huggingface.co/TheBloke/Mixtral-8x7B-v0.1-GGUF/resolve/main/mixtral-8x7b-v0.1.Q4_K_M.gguf
+    //
+
+    std::string model_url = "https://huggingface.co/";
+    model_url += repo;
+    model_url += "/resolve/main/";
+    model_url += model;
+
+    return llama_load_model_from_url(model_url.c_str(), path_model, params);
 }
 
 #else
 
-struct llama_model * llama_load_model_from_url(const char * /*model_url*/, const char * /*path_model*/,
-                                              struct llama_model_params /*params*/) {
+struct llama_model * llama_load_model_from_url(
+        const char * /*model_url*/,
+        const char * /*path_model*/,
+        const struct llama_model_params & /*params*/) {
     fprintf(stderr, "%s: llama.cpp built without libcurl, downloading from an url not supported.\n", __func__);
+    return nullptr;
+}
+
+struct llama_model * llama_load_model_from_hf(
+        const char * /*repo*/,
+        const char * /*model*/,
+        const char * /*path_model*/,
+        const struct llama_model_params & /*params*/) {
+    fprintf(stderr, "%s: llama.cpp built without libcurl, downloading from Hugging Face not supported.\n", __func__);
     return nullptr;
 }
 
@@ -1868,11 +2221,15 @@ std::tuple<struct llama_model *, struct llama_context *> llama_init_from_gpt_par
     auto mparams = llama_model_params_from_gpt_params(params);
 
     llama_model * model = nullptr;
-    if (!params.model_url.empty()) {
+
+    if (!params.hf_repo.empty() && !params.hf_file.empty()) {
+        model = llama_load_model_from_hf(params.hf_repo.c_str(), params.hf_file.c_str(), params.model.c_str(), mparams);
+    } else if (!params.model_url.empty()) {
         model = llama_load_model_from_url(params.model_url.c_str(), params.model.c_str(), mparams);
     } else {
         model = llama_load_model_from_file(params.model.c_str(), mparams);
     }
+
     if (model == NULL) {
         fprintf(stderr, "%s: error: failed to load model '%s'\n", __func__, params.model.c_str());
         return std::make_tuple(nullptr, nullptr);
@@ -1912,7 +2269,7 @@ std::tuple<struct llama_model *, struct llama_context *> llama_init_from_gpt_par
     }
 
     for (unsigned int i = 0; i < params.lora_adapter.size(); ++i) {
-        const std::string& lora_adapter = std::get<0>(params.lora_adapter[i]);
+        const std::string & lora_adapter = std::get<0>(params.lora_adapter[i]);
         float lora_scale = std::get<1>(params.lora_adapter[i]);
         int err = llama_model_apply_lora_from_file(model,
                                              lora_adapter.c_str(),
@@ -1933,7 +2290,7 @@ std::tuple<struct llama_model *, struct llama_context *> llama_init_from_gpt_par
         params.sparams.logit_bias[llama_token_eos(model)] = -INFINITY;
     }
 
-    {
+    if (params.warmup) {
         LOG("warming up the model with an empty run\n");
 
         std::vector<llama_token> tmp = { llama_token_bos(model), llama_token_eos(model), };
@@ -1953,23 +2310,23 @@ std::tuple<struct llama_model *, struct llama_context *> llama_init_from_gpt_par
 std::vector<llama_token> llama_tokenize(
   const struct llama_context * ctx,
            const std::string & text,
-                        bool   add_bos,
-                        bool   special) {
-    return llama_tokenize(llama_get_model(ctx), text, add_bos, special);
+                        bool   add_special,
+                        bool   parse_special) {
+    return llama_tokenize(llama_get_model(ctx), text, add_special, parse_special);
 }
 
 std::vector<llama_token> llama_tokenize(
     const struct llama_model * model,
            const std::string & text,
-                        bool   add_bos,
-                        bool   special) {
+                        bool   add_special,
+                        bool   parse_special) {
     // upper limit for the number of tokens
-    int n_tokens = text.length() + add_bos;
+    int n_tokens = text.length() + 2 * add_special;
     std::vector<llama_token> result(n_tokens);
-    n_tokens = llama_tokenize(model, text.data(), text.length(), result.data(), result.size(), add_bos, special);
+    n_tokens = llama_tokenize(model, text.data(), text.length(), result.data(), result.size(), add_special, parse_special);
     if (n_tokens < 0) {
         result.resize(-n_tokens);
-        int check = llama_tokenize(model, text.data(), text.length(), result.data(), result.size(), add_bos, special);
+        int check = llama_tokenize(model, text.data(), text.length(), result.data(), result.size(), add_special, parse_special);
         LM_GGML_ASSERT(check == -n_tokens);
     } else {
         result.resize(n_tokens);
@@ -1977,12 +2334,12 @@ std::vector<llama_token> llama_tokenize(
     return result;
 }
 
-std::string llama_token_to_piece(const struct llama_context * ctx, llama_token token) {
+std::string llama_token_to_piece(const struct llama_context * ctx, llama_token token, bool special) {
     std::vector<char> result(8, 0);
-    const int n_tokens = llama_token_to_piece(llama_get_model(ctx), token, result.data(), result.size());
+    const int n_tokens = llama_token_to_piece(llama_get_model(ctx), token, result.data(), result.size(), special);
     if (n_tokens < 0) {
         result.resize(-n_tokens);
-        int check = llama_token_to_piece(llama_get_model(ctx), token, result.data(), result.size());
+        int check = llama_token_to_piece(llama_get_model(ctx), token, result.data(), result.size(), special);
         LM_GGML_ASSERT(check == -n_tokens);
     } else {
         result.resize(n_tokens);
@@ -2194,7 +2551,7 @@ void dump_non_result_info_yaml(FILE * stream, const gpt_params & params, const l
     fprintf(stream, "cpu_has_avx512: %s\n",      lm_ggml_cpu_has_avx512()      ? "true" : "false");
     fprintf(stream, "cpu_has_avx512_vbmi: %s\n", lm_ggml_cpu_has_avx512_vbmi() ? "true" : "false");
     fprintf(stream, "cpu_has_avx512_vnni: %s\n", lm_ggml_cpu_has_avx512_vnni() ? "true" : "false");
-    fprintf(stream, "cpu_has_cublas: %s\n",      lm_ggml_cpu_has_cublas()      ? "true" : "false");
+    fprintf(stream, "cpu_has_cuda: %s\n",        lm_ggml_cpu_has_cuda()        ? "true" : "false");
     fprintf(stream, "cpu_has_vulkan: %s\n",      lm_ggml_cpu_has_vulkan()      ? "true" : "false");
     fprintf(stream, "cpu_has_clblast: %s\n",     lm_ggml_cpu_has_clblast()     ? "true" : "false");
     fprintf(stream, "cpu_has_kompute: %s\n",     lm_ggml_cpu_has_kompute()     ? "true" : "false");
@@ -2296,7 +2653,7 @@ void dump_non_result_info_yaml(FILE * stream, const gpt_params & params, const l
     fprintf(stream, "n_predict: %d # default: -1 (unlimited)\n", params.n_predict);
     fprintf(stream, "n_probs: %d # only used by server binary, default: 0\n", sparams.n_probs);
     fprintf(stream, "no_mmap: %s # default: false\n", !params.use_mmap ? "true" : "false");
-    fprintf(stream, "no_penalize_nl: %s # default: false\n", !sparams.penalize_nl ? "true" : "false");
+    fprintf(stream, "penalize_nl: %s # default: false\n", sparams.penalize_nl ? "true" : "false");
     fprintf(stream, "ppl_output_type: %d # default: 0\n", params.ppl_output_type);
     fprintf(stream, "ppl_stride: %d # default: 0\n", params.ppl_stride);
     fprintf(stream, "presence_penalty: %f # default: 0.0\n", sparams.penalty_present);
