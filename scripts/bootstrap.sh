@@ -20,11 +20,18 @@ cp ./llama.cpp/ggml-quants.h ./cpp/ggml-quants.h
 cp ./llama.cpp/ggml-quants.c ./cpp/ggml-quants.c
 cp ./llama.cpp/unicode.h ./cpp/unicode.h
 cp ./llama.cpp/unicode.cpp ./cpp/unicode.cpp
+cp ./llama.cpp/unicode-data.h ./cpp/unicode-data.h
+cp ./llama.cpp/unicode-data.cpp ./cpp/unicode-data.cpp
+cp ./llama.cpp/sgemm.h ./cpp/sgemm.h
+cp ./llama.cpp/sgemm.cpp ./cpp/sgemm.cpp
 cp ./llama.cpp/common/log.h ./cpp/log.h
 cp ./llama.cpp/common/common.h ./cpp/common.h
 cp ./llama.cpp/common/common.cpp ./cpp/common.cpp
 cp ./llama.cpp/common/grammar-parser.h ./cpp/grammar-parser.h
 cp ./llama.cpp/common/grammar-parser.cpp ./cpp/grammar-parser.cpp
+cp ./llama.cpp/common/json.hpp ./cpp/json.hpp
+cp ./llama.cpp/common/json-schema-to-grammar.h ./cpp/json-schema-to-grammar.h
+cp ./llama.cpp/common/json-schema-to-grammar.cpp ./cpp/json-schema-to-grammar.cpp
 cp ./llama.cpp/common/sampling.h ./cpp/sampling.h
 cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
 
@@ -38,6 +45,7 @@ files=(
   "./cpp/ggml-metal.m"
   "./cpp/llama.h"
   "./cpp/llama.cpp"
+  "./cpp/sampling.cpp"
   "./cpp/ggml-quants.h"
   "./cpp/ggml-quants.c"
   "./cpp/ggml-alloc.h"
@@ -47,6 +55,7 @@ files=(
   "./cpp/ggml-backend-impl.h"
   "./cpp/ggml-impl.h"
   "./cpp/ggml-common.h"
+  "./cpp/sgemm.cpp"
 )
 
 # Loop through each file and run the sed commands

@@ -187,7 +187,7 @@ static llama_token llama_sampling_sample_impl(
     std::vector<float> original_logits;
     auto cur_p = llama_sampling_prepare(ctx_sampling, ctx_main, ctx_cfg, idx, !is_resampling, &original_logits);
     if (!is_resampling) {
-        GGML_ASSERT(!original_logits.empty());
+        LM_GGML_ASSERT(!original_logits.empty());
     }
     llama_token id = 0;
     // Get a pointer to the logits
