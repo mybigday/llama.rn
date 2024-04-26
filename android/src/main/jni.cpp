@@ -231,7 +231,7 @@ Java_com_rnllama_LlamaContext_loadSession(
     auto result = createWriteableMap(env);
     size_t n_token_count_out = 0;
     llama->embd.resize(llama->params.n_ctx);
-    if (!llama_load_session_file(llama->ctx, path_chars, llama->embd.data(), llama->embd.capacity(), &n_token_count_out)) {
+    if (!llama_state_load_file(llama->ctx, path_chars, llama->embd.data(), llama->embd.capacity(), &n_token_count_out)) {
       env->ReleaseStringUTFChars(path, path_chars);
 
       putString(env, result, "error", "Failed to load session");
@@ -262,7 +262,7 @@ Java_com_rnllama_LlamaContext_saveSession(
     std::vector<llama_token> session_tokens = llama->embd;
     int default_size = session_tokens.size();
     int save_size = size > 0 && size <= default_size ? size : default_size;
-    if (!llama_save_session_file(llama->ctx, path_chars, session_tokens.data(), save_size)) {
+    if (!llama_state_save_file(llama->ctx, path_chars, session_tokens.data(), save_size)) {
       env->ReleaseStringUTFChars(path, path_chars);
       return -1;
     }

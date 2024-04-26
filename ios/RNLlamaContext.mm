@@ -390,7 +390,7 @@
 
     size_t n_token_count_out = 0;
     llama->embd.resize(llama->params.n_ctx);
-    if (!llama_load_session_file(llama->ctx, [path UTF8String], llama->embd.data(), llama->embd.capacity(), &n_token_count_out)) {
+    if (!llama_state_load_file(llama->ctx, [path UTF8String], llama->embd.data(), llama->embd.capacity(), &n_token_count_out)) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to load session" userInfo:nil];
     }
     llama->embd.resize(n_token_count_out);
@@ -408,7 +408,7 @@
     std::vector<llama_token> session_tokens = llama->embd;
     int default_size = session_tokens.size();
     int save_size = size > 0 && size <= default_size ? size : default_size;
-    if (!llama_save_session_file(llama->ctx, [path UTF8String], session_tokens.data(), save_size)) {
+    if (!llama_state_save_file(llama->ctx, [path UTF8String], session_tokens.data(), save_size)) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to save session" userInfo:nil];
     }
     return session_tokens.size();
