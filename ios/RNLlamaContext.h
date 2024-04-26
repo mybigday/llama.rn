@@ -10,7 +10,7 @@
     bool is_model_loaded;
     NSString * model_desc;
     uint64_t model_size;
-    int model_n_params;
+    uint64_t model_n_params;
     NSDictionary * metadata;
 
     rnllama::llama_rn_context * llama;
@@ -22,7 +22,7 @@
 - (NSDictionary *)metadata;
 - (NSString *)modelDesc;
 - (uint64_t)modelSize;
-- (int)modelNParams;
+- (uint64_t)modelNParams;
 - (bool)isModelLoaded;
 - (bool)isPredicting;
 - (NSDictionary *)completion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *tokenResult))onToken;

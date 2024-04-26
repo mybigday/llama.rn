@@ -122,11 +122,11 @@
     return model_desc;
 }
 
-- (size_t)modelSize {
+- (uint64_t)modelSize {
     return model_size;
 }
 
-- (size_t)modelNParams {
+- (uint64_t)modelNParams {
     return model_n_params;
 }
 

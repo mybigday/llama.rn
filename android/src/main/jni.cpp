@@ -209,9 +209,9 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
 
     char desc[1024];
     llama_model_desc(llama->model, desc, sizeof(desc));
-    putString(env, result, "model_desc", desc);
-    putDouble(env, result, "model_size", llama_model_size(llama->model));
-    putInt(env, result, "model_n_params", llama_model_n_params(llama->model));
+    putString(env, result, "desc", desc);
+    putDouble(env, result, "size", llama_model_size(llama->model));
+    putDouble(env, result, "nParams", llama_model_n_params(llama->model));
     putMap(env, result, "metadata", meta);
 
     return reinterpret_cast<jobject>(result);
