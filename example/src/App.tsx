@@ -119,6 +119,8 @@ export default function App() {
             '- /release: release the context\n' +
             '- /stop: stop the current completion\n' +
             '- /reset: reset the conversation',
+            '- /save-session: save the session tokens\n' +
+            '- /load-session: load the session tokens',
         )
       })
       .catch((err) => {
