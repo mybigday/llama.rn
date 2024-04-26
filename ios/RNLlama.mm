@@ -53,6 +53,12 @@ RCT_EXPORT_METHOD(initContext:(NSDictionary *)contextParams
         @"contextId": contextIdNumber,
         @"gpu": @([context isMetalEnabled]),
         @"reasonNoGPU": [context reasonNoMetal],
+        @"model": @{
+          @"desc": [context modelDesc],
+          @"size": @([context modelSize]),
+          @"nParams": @([context modelNParams]),
+          @"metadata": [context metadata],
+        }
     });
 }
 

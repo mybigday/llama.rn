@@ -82,6 +82,27 @@
     context->is_model_loaded = context->llama->loadModel(defaultParams);
     context->is_metal_enabled = isMetalEnabled;
     context->reason_no_metal = reasonNoMetal;
+
+    int count = llama_model_meta_count(context->llama->model);
+    NSDictionary *meta = [[NSMutableDictionary alloc] init];
+    for (int i = 0; i < count; i++) {
+        char key[256];
+        llama_model_meta_key_by_index(context->llama->model, i, key, sizeof(key));
+        char val[256];
+        llama_model_meta_val_str_by_index(context->llama->model, i, val, sizeof(val));
+
+        NSString *keyStr = [NSString stringWithUTF8String:key];
+        NSString *valStr = [NSString stringWithUTF8String:val];
+        [meta setValue:valStr forKey:keyStr];
+    }
+    context->metadata = meta;
+
+    char desc[1024];
+    llama_model_desc(context->llama->model, desc, sizeof(desc));
+    context->model_desc = [NSString stringWithUTF8String:desc];
+    context->model_size = llama_model_size(context->llama->model);
+    context->model_n_params = llama_model_n_params(context->llama->model);
+
     return context;
 }
 
@@ -91,6 +112,22 @@
 
 - (NSString *)reasonNoMetal {
     return reason_no_metal;
+}
+
+- (NSDictionary *)metadata {
+    return metadata;
+}
+
+- (NSString *)modelDesc {
+    return model_desc;
+}
+
+- (uint64_t)modelSize {
+    return model_size;
+}
+
+- (uint64_t)modelNParams {
+    return model_n_params;
 }
 
 - (bool)isModelLoaded {

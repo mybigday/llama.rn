@@ -57,14 +57,19 @@ export class LlamaContext {
 
   reasonNoGPU: string = ''
 
+  model: Object = {}
+
   constructor({
     contextId,
     gpu,
     reasonNoGPU,
+    model,
   }: NativeLlamaContext) {
     this.id = contextId
     this.gpu = gpu
     this.reasonNoGPU = reasonNoGPU
+    this.model = model
+    console.log(model)
   }
 
   /**
@@ -164,13 +169,13 @@ export async function initLlama({
 }: ContextParams): Promise<LlamaContext> {
   let path = model
   if (path.startsWith('file://')) path = path.slice(7)
-  const { contextId, gpu, reasonNoGPU } =
+  const { contextId, gpu, reasonNoGPU, model: modelDetails } =
     await RNLlama.initContext({
       model: path,
       is_model_asset: !!isModelAsset,
       ...rest,
     })
-  return new LlamaContext({ contextId, gpu, reasonNoGPU })
+  return new LlamaContext({ contextId, gpu, reasonNoGPU, model: modelDetails })
 }
 
 export async function releaseAllLlama(): Promise<void> {

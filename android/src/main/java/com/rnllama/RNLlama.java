@@ -59,6 +59,7 @@ public class RNLlama implements LifecycleEventListener {
           result.putInt("contextId", id);
           result.putBoolean("gpu", false);
           result.putString("reasonNoGPU", "Currently not supported");
+          result.putMap("model", llamaContext.getModelDetails());
           return result;
         } catch (Exception e) {
           exception = e;
