@@ -24,6 +24,7 @@ public class LlamaContext {
   private int id;
   private ReactApplicationContext reactContext;
   private long context;
+  private WritableMap modelDetails;
   private int jobId = -1;
   private DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
 
@@ -63,12 +64,17 @@ public class LlamaContext {
       // float rope_freq_scale
       params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 0.0f
     );
+    this.modelDetails = loadModelDetails(this.context);
     this.reactContext = reactContext;
     eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
   }
 
   public long getContext() {
     return context;
+  }
+
+  public WritableMap getModelDetails() {
+    return modelDetails;
   }
 
   private void emitPartialCompletion(WritableMap tokenResult) {
@@ -296,6 +302,9 @@ public class LlamaContext {
     String lora_base,
     float rope_freq_base,
     float rope_freq_scale
+  );
+  protected static native WritableMap loadModelDetails(
+    long contextPtr
   );
   protected static native WritableMap loadSession(
     long contextPtr,

@@ -103,6 +103,7 @@ export type NativeLlamaContext = {
   contextId: number
   gpu: boolean
   reasonNoGPU: string
+  model: Object
 }
 
 export type NativeSessionLoadResult = {

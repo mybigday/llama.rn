@@ -186,6 +186,38 @@ Java_com_rnllama_LlamaContext_initContext(
 }
 
 JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_loadModelDetails(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    int count = llama_model_meta_count(llama->model);
+    auto meta = createWriteableMap(env);
+    for (int i = 0; i < count; i++) {
+        char key[256];
+        llama_model_meta_key_by_index(llama->model, i, key, sizeof(key));
+        char val[256];
+        llama_model_meta_val_str_by_index(llama->model, i, val, sizeof(val));
+
+        putString(env, meta, key, val);
+    }
+
+    auto result = createWriteableMap(env);
+
+    char desc[1024];
+    llama_model_desc(llama->model, desc, sizeof(desc));
+    putString(env, result, "model_desc", desc);
+    putDouble(env, result, "model_size", llama_model_size(llama->model));
+    putInt(env, result, "model_n_params", llama_model_n_params(llama->model));
+    putMap(env, result, "metadata", meta);
+
+    return reinterpret_cast<jobject>(result);
+}
+
+JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_loadSession(
     JNIEnv *env,
     jobject thiz,
