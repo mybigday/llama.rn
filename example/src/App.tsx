@@ -110,7 +110,6 @@ export default function App() {
     })
       .then((ctx) => {
         setContext(ctx)
-        console.log(ctx)
         addSystemMessage(
           `Context initialized! \n\nGPU: ${ctx.gpu ? 'YES' : 'NO'} (${
             ctx.reasonNoGPU
