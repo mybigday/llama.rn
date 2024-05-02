@@ -69,7 +69,6 @@ export class LlamaContext {
     this.gpu = gpu
     this.reasonNoGPU = reasonNoGPU
     this.model = model
-    console.log(model)
   }
 
   /**
