@@ -1,6 +1,6 @@
---- common.h.orig	2024-04-25 11:10:50
-+++ common.h	2024-04-25 11:10:51
-@@ -42,6 +42,17 @@
+--- common.h.orig	2024-05-04 13:24:18
++++ common.h	2024-05-04 13:24:19
+@@ -44,6 +44,17 @@
  int get_math_cpu_count();
  int32_t get_num_physical_cores();
 

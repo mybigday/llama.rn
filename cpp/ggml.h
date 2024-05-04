@@ -475,6 +475,7 @@ extern "C" {
         LM_GGML_OP_LEAKY_RELU,
 
         LM_GGML_OP_FLASH_ATTN,
+        LM_GGML_OP_FLASH_ATTN_EXT,
         LM_GGML_OP_FLASH_FF,
         LM_GGML_OP_FLASH_ATTN_BACK,
         LM_GGML_OP_SSM_CONV,
@@ -761,6 +762,8 @@ extern "C" {
 
     // use this to compute the memory overhead of a tensor
     LM_GGML_API size_t lm_ggml_tensor_overhead(void);
+
+    LM_GGML_API bool lm_ggml_validate_row_data(enum lm_ggml_type type, const void * data, size_t nbytes);
 
     // main
 
@@ -1719,6 +1722,25 @@ extern "C" {
             struct lm_ggml_tensor  * k,
             struct lm_ggml_tensor  * v,
             bool                  masked);
+
+#define LM_GGML_KQ_MASK_PAD 32
+
+    // q:    [n_embd, n_batch,     n_head,    1]
+    // k:    [n_embd, n_kv,        n_head_kv, 1]
+    // v:    [n_embd, n_kv,        n_head_kv, 1] !! not transposed !!
+    // mask: [n_kv,   n_batch_pad, 1,         1] !! n_batch_pad = LM_GGML_PAD(n_batch, LM_GGML_KQ_MASK_PAD) !!
+    // res:  [n_embd, n_head,      n_batch,   1] !! permuted !!
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_flash_attn_ext(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * q,
+            struct lm_ggml_tensor  * k,
+            struct lm_ggml_tensor  * v,
+            struct lm_ggml_tensor  * mask,
+            float                 scale);
+
+    LM_GGML_API void lm_ggml_flash_attn_ext_set_prec(
+            struct lm_ggml_tensor * a,
+            enum lm_ggml_prec       prec);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_flash_attn_back(
            struct lm_ggml_context * ctx,

@@ -11,6 +11,12 @@
 #include <string.h> // memcpy
 #include <math.h>   // fabsf
 
+#undef MIN
+#undef MAX
+
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -307,7 +313,7 @@ inline static int32x4_t lm_ggml_vdotq_s32(int32x4_t acc, int8x16_t a, int8x16_t 
 
 #endif // defined(__ARM_NEON)
 
-#if defined(__ARM_NEON) && !defined(__MSC_VER)
+#if defined(__ARM_NEON) && !defined(_MSC_VER)
 
 #define LM_GGML_COMPUTE_FP16_TO_FP32(x) lm_ggml_compute_fp16_to_fp32(x)
 #define LM_GGML_COMPUTE_FP32_TO_FP16(x) lm_ggml_compute_fp32_to_fp16(x)
