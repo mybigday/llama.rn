@@ -1182,9 +1182,9 @@ static int lm_ggml_backend_sched_backend_id_from_cur(lm_ggml_backend_sched_t sch
 static char * fmt_size(size_t size) {
     static char buffer[128];
     if (size >= 1024*1024) {
-        sprintf(buffer, "%zuM", size/1024/1024);
+        snprintf(buffer, sizeof(buffer), "%zuM", size/1024/1024);
     } else {
-        sprintf(buffer, "%zuK", size/1024);
+        snprintf(buffer, sizeof(buffer), "%zuK", size/1024);
     }
     return buffer;
 }
@@ -1895,7 +1895,6 @@ void lm_ggml_backend_view_init(lm_ggml_backend_buffer_t buffer, struct lm_ggml_t
 
     tensor->buffer = buffer;
     tensor->data = (char *)tensor->view_src->data + tensor->view_offs;
-    tensor->backend = tensor->view_src->backend;
     lm_ggml_backend_buffer_init_tensor(buffer, tensor);
 }
 
