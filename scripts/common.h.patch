@@ -1,8 +1,8 @@
---- common.h.orig	2024-05-04 13:24:18
-+++ common.h	2024-05-04 13:24:19
-@@ -44,6 +44,17 @@
- int get_math_cpu_count();
- int32_t get_num_physical_cores();
+--- common.h.orig	2024-05-29 09:16:58
++++ common.h	2024-05-29 09:16:59
+@@ -41,6 +41,17 @@
+
+ struct llama_control_vector_load_info;
 
 +#define print_build_info() do {                                                                     \
 +    fprintf(stderr, "%s: build = %d (%s)\n", __func__, LLAMA_BUILD_NUMBER, LLAMA_COMMIT);           \
@@ -16,5 +16,5 @@
 +extern char const *LLAMA_BUILD_TARGET;
 +
  //
- // CLI argument parsing
+ // CPU utils
  //

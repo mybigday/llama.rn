@@ -1,6 +1,6 @@
---- ggml-metal.m.orig	2024-05-04 13:24:18
-+++ ggml-metal.m	2024-05-04 13:24:19
-@@ -321,7 +321,7 @@
+--- ggml-metal.m.orig	2024-05-29 09:16:58
++++ ggml-metal.m	2024-05-29 09:16:59
+@@ -334,7 +334,7 @@
          const bool try_metallib = true;
  #endif
 

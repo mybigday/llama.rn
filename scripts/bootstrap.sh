@@ -56,6 +56,7 @@ files=(
   "./cpp/ggml-impl.h"
   "./cpp/ggml-common.h"
   "./cpp/sgemm.cpp"
+  "./cpp/json-schema-to-grammar.h"
 )
 
 # Loop through each file and run the sed commands
