@@ -23,6 +23,59 @@ static inline int min(int a, int b) {
 
 extern "C" {
 
+// Helper method to convert UTF-8 to Modified UTF-8
+static jstring convertToModifiedUTF8(JNIEnv *env, const char *utf8Str) {
+    if (utf8Str == nullptr) {
+        return nullptr;
+    }
+
+    // Determine the length of the string
+    size_t utf8Length = strlen(utf8Str);
+    // Allocate a buffer for the modified UTF-8 string
+    jchar *modifiedUTF8 = new jchar[utf8Length];
+    size_t modifiedLength = 0;
+
+    // Convert UTF-8 to Modified UTF-8
+    for (size_t i = 0; i < utf8Length; i++) {
+        unsigned char c = static_cast<unsigned char>(utf8Str[i]);
+        if (c < 0x80) {
+            // 1-byte character, ASCII
+            modifiedUTF8[modifiedLength++] = c;
+        } else if (c < 0xC0) {
+            // Continuation byte, should not happen in valid UTF-8
+            delete[] modifiedUTF8;
+            return nullptr;
+        } else if (c < 0xE0) {
+            // 2-byte character
+            i += 1;
+            modifiedUTF8[modifiedLength++] = ((c & 0x1F) << 6) | (utf8Str[i] & 0x3F);
+        } else if (c < 0xF0) {
+            // 3-byte character
+            i += 1;
+            unsigned char c2 = utf8Str[i];
+            i += 1;
+            modifiedUTF8[modifiedLength++] = ((c & 0x0F) << 12) | ((c2 & 0x3F) << 6) | (utf8Str[i] & 0x3F);
+        } else {
+            // 4-byte character (past Plane 0: BMP), should be encoded in surrogate pairs
+            i += 1;
+            unsigned char c2 = utf8Str[i];
+            i += 1;
+            unsigned char c3 = utf8Str[i];
+            i += 1;
+            unsigned int codePoint = ((c & 0x07) << 18) | ((c2 & 0x3F) << 12) | ((c3 & 0x3F) << 6) | (utf8Str[i] & 0x3F);
+            codePoint -= 0x10000;
+            modifiedUTF8[modifiedLength++] = 0xD800 | (codePoint >> 10);
+            modifiedUTF8[modifiedLength++] = 0xDC00 | (codePoint & 0x3FF);
+        }
+    }
+
+    // Create a Java string from the modified UTF-8 characters
+    jstring result = env->NewString(modifiedUTF8, modifiedLength);
+    delete[] modifiedUTF8;
+    return result;
+}
+
+
 // Method to create WritableMap
 static inline jobject createWriteableMap(JNIEnv *env) {
     jclass mapClass = env->FindClass("com/facebook/react/bridge/Arguments");
@@ -36,8 +89,8 @@ static inline void putString(JNIEnv *env, jobject map, const char *key, const ch
     jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableMap");
     jmethodID putStringMethod = env->GetMethodID(mapClass, "putString", "(Ljava/lang/String;Ljava/lang/String;)V");
 
-    jstring jKey = env->NewStringUTF(key);
-    jstring jValue = env->NewStringUTF(value);
+    jstring jKey = convertToModifiedUTF8(env, key);
+    jstring jValue = convertToModifiedUTF8(env, value);
 
     env->CallVoidMethod(map, putStringMethod, jKey, jValue);
 }
@@ -47,7 +100,7 @@ static inline void putInt(JNIEnv *env, jobject map, const char *key, int value) 
     jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableMap");
     jmethodID putIntMethod = env->GetMethodID(mapClass, "putInt", "(Ljava/lang/String;I)V");
 
-    jstring jKey = env->NewStringUTF(key);
+    jstring jKey = convertToModifiedUTF8(env, key);
 
     env->CallVoidMethod(map, putIntMethod, jKey, value);
 }
@@ -57,7 +110,7 @@ static inline void putDouble(JNIEnv *env, jobject map, const char *key, double v
     jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableMap");
     jmethodID putDoubleMethod = env->GetMethodID(mapClass, "putDouble", "(Ljava/lang/String;D)V");
 
-    jstring jKey = env->NewStringUTF(key);
+    jstring jKey = convertToModifiedUTF8(env, key);
 
     env->CallVoidMethod(map, putDoubleMethod, jKey, value);
 }
@@ -67,7 +120,7 @@ static inline void putMap(JNIEnv *env, jobject map, const char *key, jobject val
     jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableMap");
     jmethodID putMapMethod = env->GetMethodID(mapClass, "putMap", "(Ljava/lang/String;Lcom/facebook/react/bridge/ReadableMap;)V");
 
-    jstring jKey = env->NewStringUTF(key);
+    jstring jKey = convertToModifiedUTF8(env, key);
 
     env->CallVoidMethod(map, putMapMethod, jKey, value);
 }
@@ -109,11 +162,10 @@ static inline void putArray(JNIEnv *env, jobject map, const char *key, jobject v
     jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableMap");
     jmethodID putArrayMethod = env->GetMethodID(mapClass, "putArray", "(Ljava/lang/String;Lcom/facebook/react/bridge/ReadableArray;)V");
 
-    jstring jKey = env->NewStringUTF(key);
+    jstring jKey = convertToModifiedUTF8(env, key);
 
     env->CallVoidMethod(map, putArrayMethod, jKey, value);
 }
-
 
 std::unordered_map<long, rnllama::llama_rn_context *> context_map;
 
