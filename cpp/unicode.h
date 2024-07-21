@@ -48,6 +48,7 @@ struct codepoint_flags {
 
 
 std::string unicode_cpt_to_utf8(uint32_t cp);
+uint32_t unicode_cpt_from_utf8(const std::string & utf8, size_t & offset);
 std::vector<uint32_t> unicode_cpts_from_utf8(const std::string & utf8);
 
 std::vector<uint32_t> unicode_cpts_normalize_nfd(const std::vector<uint32_t> & cpts);
@@ -58,6 +59,6 @@ codepoint_flags unicode_cpt_flags(const std::string & utf8);
 std::string unicode_byte_to_utf8(uint8_t byte);
 uint8_t unicode_utf8_to_byte(const std::string & utf8);
 
-char32_t unicode_tolower(char32_t cp);
+uint32_t unicode_tolower(uint32_t cp);
 
 std::vector<std::string> unicode_regex_split(const std::string & text, const std::vector<std::string> & regex_exprs);

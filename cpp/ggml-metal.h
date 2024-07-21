@@ -1,7 +1,7 @@
 // An interface allowing to compute lm_ggml_cgraph with Metal
 //
 // This is a fully functional interface that extends ggml with GPU support for Apple devices.
-// A similar interface can be created for other GPU backends (e.g. Vulkan, CUDA, OpenCL, etc.)
+// A similar interface can be created for other GPU backends (e.g. Vulkan, CUDA, etc.)
 //
 // How it works?
 //
@@ -63,4 +63,3 @@ LM_GGML_API void lm_ggml_backend_metal_capture_next_compute(lm_ggml_backend_t ba
 #ifdef __cplusplus
 }
 #endif
-

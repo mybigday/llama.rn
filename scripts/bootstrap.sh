@@ -3,27 +3,27 @@
 git submodule init
 git submodule update --recursive
 
-cp ./llama.cpp/ggml.h ./cpp/ggml.h
-cp ./llama.cpp/ggml.c ./cpp/ggml.c
-cp ./llama.cpp/ggml-metal.h ./cpp/ggml-metal.h
-cp ./llama.cpp/ggml-metal.m ./cpp/ggml-metal.m
-cp ./llama.cpp/ggml-alloc.h ./cpp/ggml-alloc.h
-cp ./llama.cpp/ggml-alloc.c ./cpp/ggml-alloc.c
-cp ./llama.cpp/ggml-backend.h ./cpp/ggml-backend.h
-cp ./llama.cpp/ggml-backend.c ./cpp/ggml-backend.c
-cp ./llama.cpp/ggml-backend-impl.h ./cpp/ggml-backend-impl.h
-cp ./llama.cpp/ggml-impl.h ./cpp/ggml-impl.h
-cp ./llama.cpp/ggml-common.h ./cpp/ggml-common.h
-cp ./llama.cpp/llama.h ./cpp/llama.h
-cp ./llama.cpp/llama.cpp ./cpp/llama.cpp
-cp ./llama.cpp/ggml-quants.h ./cpp/ggml-quants.h
-cp ./llama.cpp/ggml-quants.c ./cpp/ggml-quants.c
-cp ./llama.cpp/unicode.h ./cpp/unicode.h
-cp ./llama.cpp/unicode.cpp ./cpp/unicode.cpp
-cp ./llama.cpp/unicode-data.h ./cpp/unicode-data.h
-cp ./llama.cpp/unicode-data.cpp ./cpp/unicode-data.cpp
-cp ./llama.cpp/sgemm.h ./cpp/sgemm.h
-cp ./llama.cpp/sgemm.cpp ./cpp/sgemm.cpp
+cp ./llama.cpp/ggml/include/ggml.h ./cpp/ggml.h
+cp ./llama.cpp/ggml/src/ggml.c ./cpp/ggml.c
+cp ./llama.cpp/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
+cp ./llama.cpp/ggml/src/ggml-metal.m ./cpp/ggml-metal.m
+cp ./llama.cpp/ggml/include/ggml-alloc.h ./cpp/ggml-alloc.h
+cp ./llama.cpp/ggml/src/ggml-alloc.c ./cpp/ggml-alloc.c
+cp ./llama.cpp/ggml/include/ggml-backend.h ./cpp/ggml-backend.h
+cp ./llama.cpp/ggml/src/ggml-backend.c ./cpp/ggml-backend.c
+cp ./llama.cpp/ggml/src/ggml-backend-impl.h ./cpp/ggml-backend-impl.h
+cp ./llama.cpp/ggml/src/ggml-impl.h ./cpp/ggml-impl.h
+cp ./llama.cpp/ggml/src/ggml-common.h ./cpp/ggml-common.h
+cp ./llama.cpp/include/llama.h ./cpp/llama.h
+cp ./llama.cpp/src/llama.cpp ./cpp/llama.cpp
+cp ./llama.cpp/ggml/src/ggml-quants.h ./cpp/ggml-quants.h
+cp ./llama.cpp/ggml/src/ggml-quants.c ./cpp/ggml-quants.c
+cp ./llama.cpp/src/unicode.h ./cpp/unicode.h
+cp ./llama.cpp/src/unicode.cpp ./cpp/unicode.cpp
+cp ./llama.cpp/src/unicode-data.h ./cpp/unicode-data.h
+cp ./llama.cpp/src/unicode-data.cpp ./cpp/unicode-data.cpp
+cp ./llama.cpp/ggml/src/llamafile/sgemm.h ./cpp/sgemm.h
+cp ./llama.cpp/ggml/src/llamafile/sgemm.cpp ./cpp/sgemm.cpp
 cp ./llama.cpp/common/log.h ./cpp/log.h
 cp ./llama.cpp/common/common.h ./cpp/common.h
 cp ./llama.cpp/common/common.cpp ./cpp/common.cpp
@@ -34,6 +34,8 @@ cp ./llama.cpp/common/json-schema-to-grammar.h ./cpp/json-schema-to-grammar.h
 cp ./llama.cpp/common/json-schema-to-grammar.cpp ./cpp/json-schema-to-grammar.cpp
 cp ./llama.cpp/common/sampling.h ./cpp/sampling.h
 cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
+cp ./llama.cpp/ggml/src/ggml-aarch64.h ./cpp/ggml-aarch64.h
+cp ./llama.cpp/ggml/src/ggml-aarch64.c ./cpp/ggml-aarch64.c
 
 # List of files to process
 files=(
@@ -57,6 +59,8 @@ files=(
   "./cpp/ggml-common.h"
   "./cpp/sgemm.cpp"
   "./cpp/json-schema-to-grammar.h"
+  "./cpp/ggml-aarch64.h"
+  "./cpp/ggml-aarch64.c"
 )
 
 # Loop through each file and run the sed commands
@@ -80,7 +84,7 @@ done
 
 echo "Replacement completed successfully!"
 
-yarn example
+# yarn example
 
 # Apply patch
 patch -p0 -d ./cpp < ./scripts/common.h.patch
@@ -92,11 +96,11 @@ patch -p0 -d ./cpp < ./scripts/ggml-metal.m.patch
 
 if [ "$OS" = "Darwin" ]; then
   # Build metallib (~1.4MB)
-  cd llama.cpp
+  cd llama.cpp/ggml/src/
   xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air
   xcrun --sdk iphoneos metallib ggml-metal.air   -o ggml-llama.metallib
   rm ggml-metal.air
-  cp ./ggml-llama.metallib ../cpp/ggml-llama.metallib
+  cp ./ggml-llama.metallib ../../../cpp/ggml-llama.metallib
 
   cd -
 
