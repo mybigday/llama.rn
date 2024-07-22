@@ -84,7 +84,7 @@ done
 
 echo "Replacement completed successfully!"
 
-# yarn example
+yarn example
 
 # Apply patch
 patch -p0 -d ./cpp < ./scripts/common.h.patch
