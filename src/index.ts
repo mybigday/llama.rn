@@ -75,7 +75,9 @@ export class LlamaContext {
    * Load cached prompt & completion state from a file.
    */
   async loadSession(filepath: string): Promise<NativeSessionLoadResult> {
-    return RNLlama.loadSession(this.id, filepath)
+    let path = filepath
+    if (path.startsWith('file://')) path = path.slice(7)
+    return RNLlama.loadSession(this.id, path)
   }
 
   /**
