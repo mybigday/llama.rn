@@ -17,13 +17,15 @@ extern "C" {
 
     struct lm_ggml_backend_buffer_type_i {
         const char *          (*LM_GGML_CALL get_name)        (lm_ggml_backend_buffer_type_t buft);
+        // allocate a buffer of this type
         lm_ggml_backend_buffer_t (*LM_GGML_CALL alloc_buffer)    (lm_ggml_backend_buffer_type_t buft, size_t size);
-        size_t                (*LM_GGML_CALL get_alignment)   (lm_ggml_backend_buffer_type_t buft); // tensor alignment
-        size_t                (*LM_GGML_CALL get_max_size)    (lm_ggml_backend_buffer_type_t buft); // allocation max size
-        size_t                (*LM_GGML_CALL get_alloc_size)  (lm_ggml_backend_buffer_type_t buft, const struct lm_ggml_tensor * tensor); // data size needed to allocate the tensor, including padding
-        bool                  (*LM_GGML_CALL supports_backend)(lm_ggml_backend_buffer_type_t buft, lm_ggml_backend_t backend); // check if the buffer type is usable by the backend
+        // tensor alignment
+        size_t                (*LM_GGML_CALL get_alignment)   (lm_ggml_backend_buffer_type_t buft);
+        // max buffer size that can be allocated
+        size_t                (*LM_GGML_CALL get_max_size)    (lm_ggml_backend_buffer_type_t buft);
+        // data size needed to allocate the tensor, including padding
+        size_t                (*LM_GGML_CALL get_alloc_size)  (lm_ggml_backend_buffer_type_t buft, const struct lm_ggml_tensor * tensor);
         // check if tensor data is in host memory
-        // should be equivalent to supports_backend(buft, lm_ggml_backend_cpu_init())
         bool                  (*LM_GGML_CALL is_host)         (lm_ggml_backend_buffer_type_t buft);
     };
 
@@ -92,16 +94,22 @@ extern "C" {
         void (*LM_GGML_CALL synchronize)(lm_ggml_backend_t backend);
 
         // compute graph with a plan (not used currently)
+        // create a new plan for a graph
         lm_ggml_backend_graph_plan_t (*LM_GGML_CALL graph_plan_create) (lm_ggml_backend_t backend, const struct lm_ggml_cgraph * cgraph);
         void                      (*LM_GGML_CALL graph_plan_free)   (lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan);
+        // update the plan with a new graph - this should be faster than creating a new plan when the graph has the same topology
+        void                      (*LM_GGML_CALL graph_plan_update) (lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan, const struct lm_ggml_cgraph * cgraph);
+        // compute the graph with the plan
+        enum lm_ggml_status          (*LM_GGML_CALL graph_plan_compute)(lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan);
 
-        // compute graph with a plan
-        enum lm_ggml_status (*LM_GGML_CALL graph_plan_compute)(lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan);
         // compute graph without a plan (async)
         enum lm_ggml_status (*LM_GGML_CALL graph_compute)     (lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph);
 
-        // check if the backend supports an operation
+        // check if the backend can compute an operation
         bool (*LM_GGML_CALL supports_op)(lm_ggml_backend_t backend, const struct lm_ggml_tensor * op);
+
+        // check if the backend can use tensors allocated in a buffer type
+        bool (*LM_GGML_CALL supports_buft)(lm_ggml_backend_t backend, lm_ggml_backend_buffer_type_t buft);
 
         // check if the backend wants to run an operation, even if the weights are allocated in a CPU buffer
         // these should be expensive operations with large batch sizes that may benefit from running on this backend
@@ -109,10 +117,14 @@ extern "C" {
         bool (*LM_GGML_CALL offload_op)(lm_ggml_backend_t backend, const struct lm_ggml_tensor * op);
 
         // (optional) event synchronization
+        // create a new event that can record events on this backend instance
         lm_ggml_backend_event_t (*LM_GGML_CALL event_new)         (lm_ggml_backend_t backend);
         void                 (*LM_GGML_CALL event_free)        (lm_ggml_backend_event_t event);
+        // record an event on the backend instance that created it
         void                 (*LM_GGML_CALL event_record)      (lm_ggml_backend_event_t event);
+        // wait for an event on on a different backend instance
         void                 (*LM_GGML_CALL event_wait)        (lm_ggml_backend_t backend, lm_ggml_backend_event_t event);
+        // block until an event is recorded
         void                 (*LM_GGML_CALL event_synchronize) (lm_ggml_backend_event_t event);
     };
 

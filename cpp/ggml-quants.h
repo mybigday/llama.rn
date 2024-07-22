@@ -12,25 +12,25 @@ extern "C" {
 #endif
 
 // Quantization
-void quantize_row_q4_0_reference(const float * LM_GGML_RESTRICT x, block_q4_0 * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_q4_1_reference(const float * LM_GGML_RESTRICT x, block_q4_1 * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_q5_0_reference(const float * LM_GGML_RESTRICT x, block_q5_0 * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_q5_1_reference(const float * LM_GGML_RESTRICT x, block_q5_1 * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_q8_0_reference(const float * LM_GGML_RESTRICT x, block_q8_0 * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_q8_1_reference(const float * LM_GGML_RESTRICT x, block_q8_1 * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_q4_0_ref(const float * LM_GGML_RESTRICT x, block_q4_0 * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_q4_1_ref(const float * LM_GGML_RESTRICT x, block_q4_1 * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_q5_0_ref(const float * LM_GGML_RESTRICT x, block_q5_0 * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_q5_1_ref(const float * LM_GGML_RESTRICT x, block_q5_1 * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_q8_0_ref(const float * LM_GGML_RESTRICT x, block_q8_0 * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_q8_1_ref(const float * LM_GGML_RESTRICT x, block_q8_1 * LM_GGML_RESTRICT y, int64_t k);
 
-void quantize_row_q2_K_reference(const float * LM_GGML_RESTRICT x, block_q2_K * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_q3_K_reference(const float * LM_GGML_RESTRICT x, block_q3_K * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_q4_K_reference(const float * LM_GGML_RESTRICT x, block_q4_K * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_q5_K_reference(const float * LM_GGML_RESTRICT x, block_q5_K * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_q6_K_reference(const float * LM_GGML_RESTRICT x, block_q6_K * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_q8_K_reference(const float * LM_GGML_RESTRICT x, block_q8_K * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_q2_K_ref(const float * LM_GGML_RESTRICT x, block_q2_K * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_q3_K_ref(const float * LM_GGML_RESTRICT x, block_q3_K * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_q4_K_ref(const float * LM_GGML_RESTRICT x, block_q4_K * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_q5_K_ref(const float * LM_GGML_RESTRICT x, block_q5_K * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_q6_K_ref(const float * LM_GGML_RESTRICT x, block_q6_K * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_q8_K_ref(const float * LM_GGML_RESTRICT x, block_q8_K * LM_GGML_RESTRICT y, int64_t k);
 
-void quantize_row_iq3_xxs_reference(const float * LM_GGML_RESTRICT x, block_iq3_xxs * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_iq4_nl_reference (const float * LM_GGML_RESTRICT x, block_iq4_nl  * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_iq4_xs_reference (const float * LM_GGML_RESTRICT x, block_iq4_xs  * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_iq3_s_reference  (const float * LM_GGML_RESTRICT x, block_iq3_s   * LM_GGML_RESTRICT y, int64_t k);
-void quantize_row_iq2_s_reference  (const float * LM_GGML_RESTRICT x, block_iq2_s   * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_iq3_xxs_ref(const float * LM_GGML_RESTRICT x, block_iq3_xxs * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_iq4_nl_ref (const float * LM_GGML_RESTRICT x, block_iq4_nl  * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_iq4_xs_ref (const float * LM_GGML_RESTRICT x, block_iq4_xs  * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_iq3_s_ref  (const float * LM_GGML_RESTRICT x, block_iq3_s   * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_iq2_s_ref  (const float * LM_GGML_RESTRICT x, block_iq2_s   * LM_GGML_RESTRICT y, int64_t k);
 
 void quantize_row_q4_0(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
 void quantize_row_q4_1(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
@@ -130,4 +130,3 @@ void iq3xs_free_impl(int grid_size);
 #ifdef __cplusplus
 }
 #endif
-

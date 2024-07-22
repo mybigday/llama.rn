@@ -172,8 +172,10 @@ enum lm_ggml_metal_kernel_type {
     LM_GGML_METAL_KERNEL_TYPE_MUL_MM_ID_IQ1_M_F32,
     LM_GGML_METAL_KERNEL_TYPE_MUL_MM_ID_IQ4_NL_F32,
     LM_GGML_METAL_KERNEL_TYPE_MUL_MM_ID_IQ4_XS_F32,
-    LM_GGML_METAL_KERNEL_TYPE_ROPE_F32,
-    LM_GGML_METAL_KERNEL_TYPE_ROPE_F16,
+    LM_GGML_METAL_KERNEL_TYPE_ROPE_NORM_F32,
+    LM_GGML_METAL_KERNEL_TYPE_ROPE_NORM_F16,
+    LM_GGML_METAL_KERNEL_TYPE_ROPE_NEOX_F32,
+    LM_GGML_METAL_KERNEL_TYPE_ROPE_NEOX_F16,
     LM_GGML_METAL_KERNEL_TYPE_IM2COL_F16,
     LM_GGML_METAL_KERNEL_TYPE_IM2COL_F32,
     LM_GGML_METAL_KERNEL_TYPE_UPSCALE_F32,
@@ -191,16 +193,16 @@ enum lm_ggml_metal_kernel_type {
   //LM_GGML_METAL_KERNEL_TYPE_FLASH_ATTN_EXT_F16_H256,     // https://github.com/ggerganov/llama.cpp/issues/7261
     LM_GGML_METAL_KERNEL_TYPE_FLASH_ATTN_EXT_VEC_F16_H128,
   //LM_GGML_METAL_KERNEL_TYPE_FLASH_ATTN_EXT_VEC_F16_H256, // https://github.com/ggerganov/llama.cpp/issues/7261
-    LM_GGML_METAL_KERNEL_TYPE_CPY_F32_F16,
     LM_GGML_METAL_KERNEL_TYPE_CPY_F32_F32,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_F32_F16,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_F16_F16,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_F16_F32,
     LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q8_0,
     LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q4_0,
     LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q4_1,
     LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q5_0,
     LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q5_1,
     LM_GGML_METAL_KERNEL_TYPE_CPY_F32_IQ4_NL,
-    LM_GGML_METAL_KERNEL_TYPE_CPY_F16_F16,
-    LM_GGML_METAL_KERNEL_TYPE_CPY_F16_F32,
     LM_GGML_METAL_KERNEL_TYPE_CONCAT,
     LM_GGML_METAL_KERNEL_TYPE_SQR,
     LM_GGML_METAL_KERNEL_TYPE_SUM_ROWS,
@@ -626,8 +628,10 @@ static struct lm_ggml_metal_context * lm_ggml_metal_init(int n_cb) {
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_MUL_MM_ID_IQ1_M_F32,           mul_mm_id_iq1_m_f32,            ctx->support_simdgroup_mm);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_MUL_MM_ID_IQ4_NL_F32,          mul_mm_id_iq4_nl_f32,           ctx->support_simdgroup_mm);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_MUL_MM_ID_IQ4_XS_F32,          mul_mm_id_iq4_xs_f32,           ctx->support_simdgroup_mm);
-        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_ROPE_F32,                      rope_f32,                       true);
-        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_ROPE_F16,                      rope_f16,                       true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_ROPE_NORM_F32,                 rope_norm_f32,                  true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_ROPE_NORM_F16,                 rope_norm_f16,                  true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_ROPE_NEOX_F32,                 rope_neox_f32,                  true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_ROPE_NEOX_F16,                 rope_neox_f16,                  true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_IM2COL_F16,                    im2col_f16,                     true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_IM2COL_F32,                    im2col_f32,                     true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_UPSCALE_F32,                   upscale_f32,                    true);
@@ -647,14 +651,14 @@ static struct lm_ggml_metal_context * lm_ggml_metal_init(int n_cb) {
       //LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_FLASH_ATTN_EXT_VEC_F16_H256,   flash_attn_ext_vec_f16_h256,    ctx->support_simdgroup_reduction);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F32_F16,                   cpy_f32_f16,                    true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F32_F32,                   cpy_f32_f32,                    true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F16_F16,                   cpy_f16_f16,                    true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F16_F32,                   cpy_f16_f32,                    true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q8_0,                  cpy_f32_q8_0,                   true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q4_0,                  cpy_f32_q4_0,                   true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q4_1,                  cpy_f32_q4_1,                   true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q5_0,                  cpy_f32_q5_0,                   true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q5_1,                  cpy_f32_q5_1,                   true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F32_IQ4_NL,                cpy_f32_iq4_nl,                 true);
-        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F16_F16,                   cpy_f16_f16,                    true);
-        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F16_F32,                   cpy_f16_f32,                    true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CONCAT,                        concat,                         true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_SQR,                           sqr,                            true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_SUM_ROWS,                      sum_rows,                       true);
@@ -731,6 +735,12 @@ static id<MTLBuffer> lm_ggml_metal_get_buffer(struct lm_ggml_tensor * t, size_t 
 }
 
 static bool lm_ggml_metal_supports_op(const struct lm_ggml_metal_context * ctx, const struct lm_ggml_tensor * op) {
+    for (size_t i = 0, n = 3; i < n; ++i) {
+        if (op->src[i] != NULL && op->src[i]->type == LM_GGML_TYPE_BF16) {
+            return false;
+        }
+    }
+
     switch (op->op) {
         case LM_GGML_OP_UNARY:
             switch (lm_ggml_get_unary_op(op)) {
@@ -740,7 +750,7 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_metal_context * ctx, 
                 case LM_GGML_UNARY_OP_GELU:
                 case LM_GGML_UNARY_OP_GELU_QUICK:
                 case LM_GGML_UNARY_OP_SILU:
-                    return true;
+                    return lm_ggml_is_contiguous(op->src[0]);
                 default:
                     return false;
             }
@@ -779,6 +789,12 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_metal_context * ctx, 
         case LM_GGML_OP_LEAKY_RELU:
             return true;
         case LM_GGML_OP_FLASH_ATTN_EXT:
+            if (op->src[1]->type != LM_GGML_TYPE_F16) {
+                return false;
+            }
+            if (op->src[2]->type != LM_GGML_TYPE_F16) {
+                return false;
+            }
             if (op->src[0]->ne[0] == 256) {
                 return false;
             }
@@ -794,8 +810,8 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_metal_context * ctx, 
                 switch (op->src[0]->type) {
                     case LM_GGML_TYPE_F32:
                         switch (op->type) {
-                           case LM_GGML_TYPE_F16:
                            case LM_GGML_TYPE_F32:
+                           case LM_GGML_TYPE_F16:
                            case LM_GGML_TYPE_Q8_0:
                            case LM_GGML_TYPE_Q4_0:
                            case LM_GGML_TYPE_Q4_1:
@@ -808,8 +824,8 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_metal_context * ctx, 
                         }
                     case LM_GGML_TYPE_F16:
                         switch (op->type) {
-                           case LM_GGML_TYPE_F16:
                            case LM_GGML_TYPE_F32:
+                           case LM_GGML_TYPE_F16:
                                 return true;
                            default:
                                 return false;
@@ -821,7 +837,7 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_metal_context * ctx, 
         case LM_GGML_OP_DIAG_MASK_INF:
         case LM_GGML_OP_GET_ROWS:
             {
-                return op->src[0]->type != LM_GGML_TYPE_BF16 && op->ne[3] == 1;
+                return op->ne[3] == 1;
             }
         default:
             return false;
@@ -1519,7 +1535,6 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
                     {
                         LM_GGML_ASSERT(ne00 == ne10);
 
-                        // TODO: assert that dim2 and dim3 are contiguous
                         LM_GGML_ASSERT(ne12 % ne02 == 0);
                         LM_GGML_ASSERT(ne13 % ne03 == 0);
 
@@ -1565,8 +1580,8 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
                             // some Metal matrix data types require aligned pointers
                             // ref: https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf (Table 2.5)
                             switch (src0->type) {
-                                case LM_GGML_TYPE_F32: LM_GGML_ASSERT(nb01 % 16 == 0); break;
-                                case LM_GGML_TYPE_F16: LM_GGML_ASSERT(nb01 % 8  == 0); break;
+                                case LM_GGML_TYPE_F32:  LM_GGML_ASSERT(nb01 % 16 == 0); break;
+                                case LM_GGML_TYPE_F16:  LM_GGML_ASSERT(nb01 % 8  == 0); break;
                                 default: break;
                             }
 
@@ -1771,10 +1786,6 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
                                     }
                             };
 
-                            if (lm_ggml_is_quantized(src0t)) {
-                                LM_GGML_ASSERT(ne00 >= nth0*nth1);
-                            }
-
                             [encoder setComputePipelineState:pipeline];
                             [encoder setBuffer:id_src0 offset:offs_src0 atIndex:0];
                             [encoder setBuffer:id_src1 offset:offs_src1 atIndex:1];
@@ -1853,9 +1864,10 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
                         // ne21 = n_rows
                         const int dst_rows = ne20*ne21;
                         const int dst_rows_min = n_as;
+                        const int dst_rows_max = (ctx->device.maxThreadgroupMemoryLength - 32 - 8192)/4;
 
                         // max size of the rowids array in the kernel shared buffer
-                        LM_GGML_ASSERT(dst_rows <= 2048);
+                        LM_GGML_ASSERT(dst_rows <= dst_rows_max);
 
                         // for now the matrix-matrix multiplication kernel only works on A14+/M1+ SoCs
                         // AMD GPU and older A-chips will reuse matrix-vector multiplication kernel
@@ -2187,6 +2199,7 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
                 case LM_GGML_OP_RMS_NORM:
                     {
                         LM_GGML_ASSERT(ne00 % 4 == 0);
+                        LM_GGML_ASSERT(lm_ggml_is_contiguous_1(src0));
 
                         float eps;
                         memcpy(&eps, dst->op_params, sizeof(float));
@@ -2214,6 +2227,7 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
                 case LM_GGML_OP_GROUP_NORM:
                     {
                         LM_GGML_ASSERT(ne00 % 4 == 0);
+                        LM_GGML_ASSERT(lm_ggml_is_contiguous(src0));
 
                         //float eps;
                         //memcpy(&eps, dst->op_params, sizeof(float));
@@ -2247,6 +2261,8 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
                     } break;
                 case LM_GGML_OP_NORM:
                     {
+                        LM_GGML_ASSERT(lm_ggml_is_contiguous_1(src0));
+
                         float eps;
                         memcpy(&eps, dst->op_params, sizeof(float));
 
@@ -2276,7 +2292,7 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
                         const int n_dims     = ((int32_t *) dst->op_params)[1];
                         const int mode       = ((int32_t *) dst->op_params)[2];
                         // skip 3, n_ctx, used in GLM RoPE, unimplemented in metal
-                        const int n_orig_ctx = ((int32_t *) dst->op_params)[4];
+                        const int n_ctx_orig = ((int32_t *) dst->op_params)[4];
 
                         float freq_base;
                         float freq_scale;
@@ -2293,21 +2309,22 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
                         memcpy(&beta_slow,   (int32_t *) dst->op_params + 10, sizeof(float));
 
                         const bool is_neox = mode & 2;
-                        const bool is_glm  = mode & 4;
-
-                        LM_GGML_ASSERT(!is_glm && "GLM RoPE not implemented in Metal");
-
-                        if (!is_neox) {
-                            LM_GGML_ASSERT(id_src2 == nil && "TODO: freq_factors not implemented for !is_neox");
-                        }
 
                         id<MTLComputePipelineState> pipeline = nil;
 
-                        switch (src0->type) {
-                            case LM_GGML_TYPE_F32: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_ROPE_F32].pipeline; break;
-                            case LM_GGML_TYPE_F16: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_ROPE_F16].pipeline; break;
-                            default: LM_GGML_ASSERT(false);
-                        };
+                        if (!is_neox) {
+                            switch (src0->type) {
+                                case LM_GGML_TYPE_F32: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_ROPE_NORM_F32].pipeline; break;
+                                case LM_GGML_TYPE_F16: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_ROPE_NORM_F16].pipeline; break;
+                                default: LM_GGML_ASSERT(false);
+                            };
+                        } else {
+                            switch (src0->type) {
+                                case LM_GGML_TYPE_F32: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_ROPE_NEOX_F32].pipeline; break;
+                                case LM_GGML_TYPE_F16: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_ROPE_NEOX_F16].pipeline; break;
+                                default: LM_GGML_ASSERT(false);
+                            };
+                        }
 
                         [encoder setComputePipelineState:pipeline];
                         [encoder setBuffer:id_src0     offset:offs_src0        atIndex:0];
@@ -2336,14 +2353,13 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
                         [encoder setBytes:&nb3         length:sizeof(uint64_t) atIndex:19];
                         [encoder setBytes:&n_past      length:sizeof(     int) atIndex:20];
                         [encoder setBytes:&n_dims      length:sizeof(     int) atIndex:21];
-                        [encoder setBytes:&mode        length:sizeof(     int) atIndex:22];
-                        [encoder setBytes:&n_orig_ctx  length:sizeof(     int) atIndex:23];
-                        [encoder setBytes:&freq_base   length:sizeof(   float) atIndex:24];
-                        [encoder setBytes:&freq_scale  length:sizeof(   float) atIndex:25];
-                        [encoder setBytes:&ext_factor  length:sizeof(   float) atIndex:26];
-                        [encoder setBytes:&attn_factor length:sizeof(   float) atIndex:27];
-                        [encoder setBytes:&beta_fast   length:sizeof(   float) atIndex:28];
-                        [encoder setBytes:&beta_slow   length:sizeof(   float) atIndex:29];
+                        [encoder setBytes:&n_ctx_orig  length:sizeof(     int) atIndex:22];
+                        [encoder setBytes:&freq_base   length:sizeof(   float) atIndex:23];
+                        [encoder setBytes:&freq_scale  length:sizeof(   float) atIndex:24];
+                        [encoder setBytes:&ext_factor  length:sizeof(   float) atIndex:25];
+                        [encoder setBytes:&attn_factor length:sizeof(   float) atIndex:26];
+                        [encoder setBytes:&beta_fast   length:sizeof(   float) atIndex:27];
+                        [encoder setBytes:&beta_slow   length:sizeof(   float) atIndex:28];
 
                         [encoder dispatchThreadgroups:MTLSizeMake(ne01, ne02, ne03) threadsPerThreadgroup:MTLSizeMake(nth, 1, 1)];
                     } break;
@@ -2755,8 +2771,8 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
                                     LM_GGML_ASSERT(ne0 % lm_ggml_blck_size(dst->type) == 0);
 
                                     switch (dstt) {
-                                        case LM_GGML_TYPE_F16:    pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_F32_F16].pipeline;  break;
-                                        case LM_GGML_TYPE_F32:    pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_F32_F32].pipeline;  break;
+                                        case LM_GGML_TYPE_F32:    pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_F32_F32].pipeline; break;
+                                        case LM_GGML_TYPE_F16:    pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_F32_F16].pipeline; break;
                                         case LM_GGML_TYPE_Q8_0:   pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q8_0].pipeline; break;
                                         case LM_GGML_TYPE_Q4_0:   pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q4_0].pipeline; break;
                                         case LM_GGML_TYPE_Q4_1:   pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q4_1].pipeline; break;
@@ -2769,8 +2785,8 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
                             case LM_GGML_TYPE_F16:
                                 {
                                     switch (dstt) {
-                                        case LM_GGML_TYPE_F16: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_F16_F16].pipeline; break;
-                                        case LM_GGML_TYPE_F32: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_F16_F32].pipeline; break;
+                                        case LM_GGML_TYPE_F32:  pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_F16_F32].pipeline; break;
+                                        case LM_GGML_TYPE_F16:  pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_F16_F16].pipeline; break;
                                         default: LM_GGML_ASSERT(false && "not implemented");
                                     };
                                 } break;
@@ -3031,12 +3047,6 @@ LM_GGML_CALL static size_t lm_ggml_backend_metal_buffer_type_get_max_size(lm_ggm
     UNUSED(buft);
 }
 
-LM_GGML_CALL static bool lm_ggml_backend_metal_buffer_type_supports_backend(lm_ggml_backend_buffer_type_t buft, lm_ggml_backend_t backend) {
-    return lm_ggml_backend_is_metal(backend) || lm_ggml_backend_is_cpu(backend);
-
-    UNUSED(buft);
-}
-
 LM_GGML_CALL static bool lm_ggml_backend_metal_buffer_type_is_host(lm_ggml_backend_buffer_type_t buft) {
     return true;
 
@@ -3051,7 +3061,6 @@ LM_GGML_CALL lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_type(voi
             /* .get_alignment    = */ lm_ggml_backend_metal_buffer_type_get_alignment,
             /* .get_max_size     = */ lm_ggml_backend_metal_buffer_type_get_max_size,
             /* .get_alloc_size   = */ NULL, // defaults to lm_ggml_nbytes
-            /* .supports_backend = */ lm_ggml_backend_metal_buffer_type_supports_backend,
             /* .is_host          = */ lm_ggml_backend_metal_buffer_type_is_host,
         },
         /* .context = */ NULL,
@@ -3166,6 +3175,12 @@ LM_GGML_CALL static bool lm_ggml_backend_metal_supports_op(lm_ggml_backend_t bac
     return lm_ggml_metal_supports_op(metal_ctx, op);
 }
 
+LM_GGML_CALL static bool lm_ggml_backend_metal_supports_buft(lm_ggml_backend_t backend, lm_ggml_backend_buffer_type_t buft) {
+    return buft->iface.get_name == lm_ggml_backend_metal_buffer_type_get_name;
+
+    UNUSED(backend);
+}
+
 static struct lm_ggml_backend_i lm_ggml_backend_metal_i = {
     /* .get_name                = */ lm_ggml_backend_metal_name,
     /* .free                    = */ lm_ggml_backend_metal_free,
@@ -3176,9 +3191,11 @@ static struct lm_ggml_backend_i lm_ggml_backend_metal_i = {
     /* .synchronize             = */ NULL,
     /* .graph_plan_create       = */ NULL,
     /* .graph_plan_free         = */ NULL,
+    /* .graph_plan_update       = */ NULL,
     /* .graph_plan_compute      = */ NULL,
     /* .graph_compute           = */ lm_ggml_backend_metal_graph_compute,
     /* .supports_op             = */ lm_ggml_backend_metal_supports_op,
+    /* .supports_buft           = */ lm_ggml_backend_metal_supports_buft,
     /* .offload_op              = */ NULL,
     /* .event_new               = */ NULL,
     /* .event_free              = */ NULL,

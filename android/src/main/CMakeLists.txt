@@ -22,13 +22,14 @@ set(
     ${RNLLAMA_LIB_DIR}/unicode.cpp
     ${RNLLAMA_LIB_DIR}/llama.cpp
     ${RNLLAMA_LIB_DIR}/sgemm.cpp
+    ${RNLLAMA_LIB_DIR}/ggml-aarch64.c
     ${RNLLAMA_LIB_DIR}/rn-llama.hpp
     ${CMAKE_SOURCE_DIR}/jni.cpp
 )
 
 find_library(LOG_LIB log)
 
-function(build_library target_name)
+function(build_library target_name cpu_flags)
     add_library(
         ${target_name}
         SHARED
@@ -37,32 +38,34 @@ function(build_library target_name)
 
     target_link_libraries(${target_name} ${LOG_LIB} android)
 
-    target_compile_options(${target_name} PRIVATE -pthread)
-
-    if (${target_name} STREQUAL "rnllama_v8fp16_va")
-        target_compile_options(${target_name} PRIVATE -march=armv8.4-a+fp16+dotprod)
-    endif ()
+    target_compile_options(${target_name} PRIVATE -pthread ${cpu_flags})
 
     if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
         target_compile_options(${target_name} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
     endif ()
 
-    # NOTE: If you want to debug the native code, you can uncomment if and endif
-    # if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+    if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+        target_compile_options(${target_name} PRIVATE -O3 -DNDEBUG)
+        target_compile_options(${target_name} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
+        target_compile_options(${target_name} PRIVATE -ffunction-sections -fdata-sections)
 
-    target_compile_options(${target_name} PRIVATE -O3 -DNDEBUG)
-    target_compile_options(${target_name} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
-    target_compile_options(${target_name} PRIVATE -ffunction-sections -fdata-sections)
-
-    target_link_options(${target_name} PRIVATE -Wl,--gc-sections)
-    target_link_options(${target_name} PRIVATE -Wl,--exclude-libs,ALL)
-    target_link_options(${target_name} PRIVATE -flto)
-
-    # endif ()
+        target_link_options(${target_name} PRIVATE -Wl,--gc-sections)
+        target_link_options(${target_name} PRIVATE -Wl,--exclude-libs,ALL)
+        target_link_options(${target_name} PRIVATE -flto)
+    endif ()
 endfunction()
 
-build_library("rnllama") # Default target
+# Default target (no specific CPU features)
+build_library("rnllama" "")
 
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-    build_library("rnllama_v8fp16_va")
+    # ARM64 targets
+    build_library("rnllama_v8_4_fp16_dotprod" "-march=armv8.4-a+fp16+dotprod")
+    build_library("rnllama_v8_2_fp16_dotprod" "-march=armv8.2-a+fp16+dotprod")
+    build_library("rnllama_v8_2_fp16" "-march=armv8.2-a+fp16")
+    build_library("rnllama_v8" "-march=armv8-a")
+elseif (${ANDROID_ABI} STREQUAL "x86_64")
+    # x86_64 target
+    build_library("rnllama_x86_64" "-march=x86-64" "-mtune=intel" "-msse4.2" "-mpopcnt")
+
 endif ()
