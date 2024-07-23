@@ -4748,7 +4748,7 @@ void lm_ggml_vec_dot_q5_0_q8_0(int n, float * restrict s, size_t bs, const void 
 
         int sumi = __riscv_vmv_x_s_i32m1_i32(vs2);
 
-        sumf += (LM_GGML_FP16_TO_FP32(x[i].d)*LM_GGML_FP16_TO_FP32(y[i].d)) * sumi;
+        sumf += (LM_GGML_FP16_TO_FP32(x[ib].d)*LM_GGML_FP16_TO_FP32(y[ib].d)) * sumi;
     }
 
 #elif defined(__POWER9_VECTOR__)
