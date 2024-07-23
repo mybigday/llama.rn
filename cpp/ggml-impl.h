@@ -17,7 +17,7 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-#if defined(_WIN32)
+#if defined(_MSC_VER)
 
 #define m512bh(p) p
 #define m512i(p) p
@@ -608,6 +608,10 @@ static inline lm_ggml_fp16_t lm_ggml_compute_fp32_to_fp16(float f) {
 #endif // __F16C__
 
 #endif // defined(__ARM_NEON) && (!defined(__MSC_VER)
+
+#ifdef __ARM_FEATURE_SVE
+#include <arm_sve.h>
+#endif // __ARM_FEATURE_SVE
 
 // precomputed f32 table for f16 (256 KB)
 // defined in ggml.c, initialized in lm_ggml_init()

@@ -237,28 +237,32 @@ public class LlamaContext {
   static {
     Log.d(NAME, "Primary ABI: " + Build.SUPPORTED_ABIS[0]);
     if (LlamaContext.isArm64V8a()) {
-      boolean loadV8fp16 = false;
-      if (LlamaContext.isArm64V8a()) {
-        // ARMv8.2a needs runtime detection support
-        String cpuInfo = LlamaContext.cpuInfo();
-        if (cpuInfo != null) {
-          Log.d(NAME, "CPU info: " + cpuInfo);
-          if (cpuInfo.contains("fphp")) {
-            Log.d(NAME, "CPU supports fp16 arithmetic");
-            loadV8fp16 = true;
-          }
-        }
-      }
+      String cpuFeatures = LlamaContext.getCpuFeatures();
+      Log.d(NAME, "CPU features: " + cpuFeatures);
 
-      if (loadV8fp16) {
-        Log.d(NAME, "Loading librnllama_v8fp16_va.so");
-        System.loadLibrary("rnllama_v8fp16_va");
+      boolean hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp");
+      boolean hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp");
+      boolean isAtLeastArmV82 = cpuFeatures.contains("asimd") && cpuFeatures.contains("crc32") && cpuFeatures.contains("aes");
+      boolean isAtLeastArmV84 = cpuFeatures.contains("dcpop") && cpuFeatures.contains("uscat");
+
+      if (isAtLeastArmV84 && hasFp16 && hasDotProd) {
+        Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod.so");
+        System.loadLibrary("rnllama_v8_4_fp16_dotprod");
+      } else if (isAtLeastArmV82 && hasFp16 && hasDotProd) {
+        Log.d(NAME, "Loading librnllama_v8_2_fp16_dotprod.so");
+        System.loadLibrary("rnllama_v8_2_fp16_dotprod");
+      } else if (isAtLeastArmV82 && hasFp16) {
+        Log.d(NAME, "Loading librnllama_v8_2_fp16.so");
+        System.loadLibrary("rnllama_v8_2_fp16");
       } else {
-        Log.d(NAME, "Loading librnllama.so");
-        System.loadLibrary("rnllama");
+        Log.d(NAME, "Loading librnllama_v8.so");
+        System.loadLibrary("rnllama_v8");
       }
     } else if (LlamaContext.isX86_64()) {
-      Log.d(NAME, "Loading librnllama.so");
+      Log.d(NAME, "Loading librnllama_x86_64.so");
+      System.loadLibrary("rnllama_x86_64");
+    } else {
+      Log.d(NAME, "Loading default librnllama.so");
       System.loadLibrary("rnllama");
     }
   }
@@ -271,20 +275,23 @@ public class LlamaContext {
     return Build.SUPPORTED_ABIS[0].equals("x86_64");
   }
 
-  private static String cpuInfo() {
+  private static String getCpuFeatures() {
     File file = new File("/proc/cpuinfo");
     StringBuilder stringBuilder = new StringBuilder();
     try {
       BufferedReader bufferedReader = new BufferedReader(new FileReader(file));
       String line;
       while ((line = bufferedReader.readLine()) != null) {
+        if (line.startsWith("Features")) {
           stringBuilder.append(line);
+          break;
+        }
       }
       bufferedReader.close();
       return stringBuilder.toString();
     } catch (IOException e) {
       Log.w(NAME, "Couldn't read /proc/cpuinfo", e);
-      return null;
+      return "";
     }
   }
 

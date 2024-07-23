@@ -253,8 +253,16 @@ struct llama_rn_context
 
     void loadPrompt()
     {
-        std::vector<llama_token> prompt_tokens = ::llama_tokenize(ctx, params.prompt, true);
+        std::vector<llama_token> prompt_tokens = ::llama_tokenize(ctx, params.prompt, true, true);
         num_prompt_tokens = prompt_tokens.size();
+
+        // LOG tokens
+        std::stringstream ss;
+        ss << "\n" << __func__ << ": prompt_tokens = ";
+        for (auto& token : prompt_tokens) {
+            ss << token << " ";
+        }
+        LOG_INFO("%s\n", ss.str().c_str());
 
         if (params.n_keep < 0)
         {
