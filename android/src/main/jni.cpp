@@ -596,7 +596,7 @@ Java_com_rnllama_LlamaContext_embedding(
 
     auto embeddings = createWritableArray(env);
     for (const auto &val : embedding) {
-      pushDouble(env, result, (double) val);
+      pushDouble(env, embeddings, (double) val);
     }
     putArray(env, result, "embedding", embeddings);
 
