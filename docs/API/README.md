@@ -43,7 +43,7 @@ llama.rn
 
 #### Defined in
 
-[index.ts:43](https://github.com/mybigday/llama.rn/blob/a2b459e/src/index.ts#L43)
+[index.ts:43](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L43)
 
 ___
 
@@ -53,7 +53,7 @@ ___
 
 #### Defined in
 
-[index.ts:41](https://github.com/mybigday/llama.rn/blob/a2b459e/src/index.ts#L41)
+[index.ts:41](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L41)
 
 ___
 
@@ -63,7 +63,7 @@ ___
 
 #### Defined in
 
-[index.ts:39](https://github.com/mybigday/llama.rn/blob/a2b459e/src/index.ts#L39)
+[index.ts:39](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L39)
 
 ___
 
@@ -80,7 +80,7 @@ ___
 
 #### Defined in
 
-[index.ts:29](https://github.com/mybigday/llama.rn/blob/a2b459e/src/index.ts#L29)
+[index.ts:29](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L29)
 
 ## Functions
 
@@ -104,7 +104,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:824](https://github.com/mybigday/llama.rn/blob/a2b459e/src/grammar.ts#L824)
+[grammar.ts:824](https://github.com/mybigday/llama.rn/blob/f95f600/src/grammar.ts#L824)
 
 ___
 
@@ -124,7 +124,7 @@ ___
 
 #### Defined in
 
-[index.ts:165](https://github.com/mybigday/llama.rn/blob/a2b459e/src/index.ts#L165)
+[index.ts:166](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L166)
 
 ___
 
@@ -138,7 +138,7 @@ ___
 
 #### Defined in
 
-[index.ts:181](https://github.com/mybigday/llama.rn/blob/a2b459e/src/index.ts#L181)
+[index.ts:182](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L182)
 
 ___
 
@@ -158,4 +158,4 @@ ___
 
 #### Defined in
 
-[index.ts:161](https://github.com/mybigday/llama.rn/blob/a2b459e/src/index.ts#L161)
+[index.ts:162](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L162)

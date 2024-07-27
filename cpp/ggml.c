@@ -141,23 +141,25 @@ typedef pthread_t lm_ggml_thread_t;
 
 #include <sys/wait.h>
 
-void lm_ggml_print_backtrace(void) {
-    /*
-    #include <execinfo.h>
-    #include <dlfcn.h>
+#if defined(__linux__)
+#include <execinfo.h>
+static void lm_ggml_print_backtrace_symbols(void) {
+    // void * trace[100];
+    // int nptrs = backtrace(trace, sizeof(trace)/sizeof(trace[0]));
+    // backtrace_symbols_fd(trace, nptrs, STDERR_FILENO);
+}
+#else
+static void lm_ggml_print_backtrace_symbols(void) {
+    // platform not supported
+}
+#endif
 
-    void * trace[100];
-
-    int nptrs = backtrace(trace, sizeof(trace)/sizeof(trace[0]));
-
-    backtrace_symbols_fd(trace, nptrs, STDERR_FILENO);
-    */
-
-    // backtrack_symbols does not show line numbers, use gdb instead
+static void lm_ggml_print_backtrace(void) {
     char attach[32];
     snprintf(attach, sizeof(attach), "attach %d", getpid());
     int pid = fork();
     if (pid == 0) {
+        // try gdb
         execlp("gdb", "gdb", "--batch",
             "-ex", "set style enabled on",
             "-ex", attach,
@@ -165,15 +167,45 @@ void lm_ggml_print_backtrace(void) {
             "-ex", "detach",
             "-ex", "quit",
             (char *) NULL);
+        // try lldb
+        execlp("lldb", "lldb", "--batch",
+            "-o", "bt",
+            "-o", "quit",
+            "-p", attach,
+            (char *) NULL);
+        exit(EXIT_FAILURE);
     } else {
-        waitpid(pid, NULL, 0);
+        int wstatus;
+        waitpid(pid, &wstatus, 0);
+        if (WIFEXITED(wstatus)) {
+            if (WEXITSTATUS(wstatus) == EXIT_FAILURE) {
+                // gdb failed, fallback to backtrace_symbols
+                lm_ggml_print_backtrace_symbols();
+            }
+        }
     }
 }
 #else
-void lm_ggml_print_backtrace(void) {
+static void lm_ggml_print_backtrace(void) {
     // platform not supported
 }
 #endif
+
+void lm_ggml_abort(const char * file, int line, const char * fmt, ...) {
+    fflush(stdout);
+
+    fprintf(stderr, "%s:%d: ", file, line);
+
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+
+    fprintf(stderr, "\n");
+
+    lm_ggml_print_backtrace();
+    abort();
+}
 
 #define LM_GGML_DEBUG 0
 #define LM_GGML_GELU_FP16
@@ -246,7 +278,7 @@ inline static void * lm_ggml_aligned_malloc(size_t size) {
                 break;
         }
         LM_GGML_PRINT("%s: %s (attempted to allocate %6.2f MB)\n", __func__, error_desc, size/(1024.0*1024.0));
-        LM_GGML_ASSERT(false);
+        LM_GGML_ABORT("fatal error");
         return NULL;
     }
     return aligned_memory;
@@ -267,7 +299,7 @@ inline static void * lm_ggml_malloc(size_t size) {
     void * result = malloc(size);
     if (result == NULL) {
         LM_GGML_PRINT("%s: failed to allocate %6.2f MB\n", __func__, size/(1024.0*1024.0));
-        LM_GGML_ASSERT(false);
+        LM_GGML_ABORT("fatal error");
     }
     return result;
 }
@@ -281,7 +313,7 @@ inline static void * lm_ggml_calloc(size_t num, size_t size) {
     void * result = calloc(num, size);
     if (result == NULL) {
         LM_GGML_PRINT("%s: failed to allocate %6.2f MB\n", __func__, size/(1024.0*1024.0));
-        LM_GGML_ASSERT(false);
+        LM_GGML_ABORT("fatal error");
     }
     return result;
 }
@@ -3372,7 +3404,7 @@ static inline int lm_ggml_up(int n, int m) {
 }
 
 // assert that pointer is aligned to LM_GGML_MEM_ALIGN
-#define lm_ggml_assert_aligned(ptr) \
+#define LM_GGML_ASSERT_ALIGNED(ptr) \
     LM_GGML_ASSERT(((uintptr_t) (ptr))%LM_GGML_MEM_ALIGN == 0)
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -3473,7 +3505,7 @@ struct lm_ggml_context * lm_ggml_init(struct lm_ggml_init_params params) {
 
     LM_GGML_ASSERT(ctx->mem_buffer != NULL);
 
-    lm_ggml_assert_aligned(ctx->mem_buffer);
+    LM_GGML_ASSERT_ALIGNED(ctx->mem_buffer);
 
     LM_GGML_PRINT_DEBUG("%s: context initialized\n", __func__);
 
@@ -3605,7 +3637,7 @@ static struct lm_ggml_object * lm_ggml_new_object(struct lm_ggml_context * ctx, 
         .type = type,
     };
 
-    lm_ggml_assert_aligned(mem_buffer + obj_new->offs);
+    LM_GGML_ASSERT_ALIGNED(mem_buffer + obj_new->offs);
 
     if (obj_cur != NULL) {
         obj_cur->next = obj_new;
@@ -3706,7 +3738,7 @@ static struct lm_ggml_tensor * lm_ggml_new_tensor_impl(
 #endif
 
     // TODO: this should not be needed as long as we don't rely on aligned SIMD loads
-    //lm_ggml_assert_aligned(result->data);
+    //LM_GGML_ASSERT_ALIGNED(result->data);
 
     for (int i = 0; i < n_dims; i++) {
         result->ne[i] = ne[i];
@@ -3879,8 +3911,8 @@ struct lm_ggml_tensor * lm_ggml_set_i32 (struct lm_ggml_tensor * tensor, int32_t
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 
     return tensor;
@@ -3938,8 +3970,8 @@ struct lm_ggml_tensor * lm_ggml_set_f32(struct lm_ggml_tensor * tensor, float va
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 
     return tensor;
@@ -4008,11 +4040,9 @@ int32_t lm_ggml_get_i32_1d(const struct lm_ggml_tensor * tensor, int i) {
             }
         default:
             {
-                LM_GGML_ASSERT(false);
+                LM_GGML_ABORT("fatal error");
             }
     }
-
-    return 0.0f;
 }
 
 void lm_ggml_set_i32_1d(const struct lm_ggml_tensor * tensor, int i, int32_t value) {
@@ -4055,8 +4085,8 @@ void lm_ggml_set_i32_1d(const struct lm_ggml_tensor * tensor, int i, int32_t val
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -4076,10 +4106,8 @@ int32_t lm_ggml_get_i32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1,
         case LM_GGML_TYPE_F32:
             return ((float *) data)[0];
         default:
-            LM_GGML_ASSERT(false);
+            LM_GGML_ABORT("fatal error");
     }
-
-    return 0.0f;
 }
 
 void lm_ggml_set_i32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1, int i2, int i3, int32_t value) {
@@ -4111,8 +4139,8 @@ void lm_ggml_set_i32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1, in
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -4149,11 +4177,9 @@ float lm_ggml_get_f32_1d(const struct lm_ggml_tensor * tensor, int i) {
             }
         default:
             {
-                LM_GGML_ASSERT(false);
+                LM_GGML_ABORT("fatal error");
             }
     }
-
-    return 0.0f;
 }
 
 void lm_ggml_set_f32_1d(const struct lm_ggml_tensor * tensor, int i, float value) {
@@ -4190,8 +4216,8 @@ void lm_ggml_set_f32_1d(const struct lm_ggml_tensor * tensor, int i, float value
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -4211,10 +4237,8 @@ float lm_ggml_get_f32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1, i
         case LM_GGML_TYPE_F32:
             return ((float *) data)[0];
         default:
-            LM_GGML_ASSERT(false);
+            LM_GGML_ABORT("fatal error");
     }
-
-    return 0.0f;
 }
 
 void lm_ggml_set_f32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1, int i2, int i3, float value) {
@@ -4246,8 +4270,8 @@ void lm_ggml_set_f32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1, in
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -4270,8 +4294,11 @@ const char * lm_ggml_get_name(const struct lm_ggml_tensor * tensor) {
 }
 
 struct lm_ggml_tensor * lm_ggml_set_name(struct lm_ggml_tensor * tensor, const char * name) {
-    strncpy(tensor->name, name, sizeof(tensor->name) - 1);
-    tensor->name[sizeof(tensor->name) - 1] = '\0';
+    size_t i;
+    for (i = 0; i < sizeof(tensor->name) - 1 && name[i] != '\0'; i++) {
+        tensor->name[i] = name[i];
+    }
+    tensor->name[i] = '\0';
     return tensor;
 }
 
@@ -4842,7 +4869,7 @@ struct lm_ggml_tensor * lm_ggml_mean(
     bool is_node = false;
 
     if (a->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement
+        LM_GGML_ABORT("fatal error"); // TODO: implement
         is_node = true;
     }
 
@@ -4865,7 +4892,7 @@ struct lm_ggml_tensor * lm_ggml_argmax(
     bool is_node = false;
 
     if (a->grad) {
-        LM_GGML_ASSERT(false);
+        LM_GGML_ABORT("fatal error");
         is_node = true;
     }
 
@@ -5188,7 +5215,7 @@ static struct lm_ggml_tensor * lm_ggml_norm_impl(
     bool is_node = false;
 
     if (!inplace && (a->grad)) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -5291,7 +5318,7 @@ static struct lm_ggml_tensor * lm_ggml_group_norm_impl(
 
     bool is_node = false;
     if (!inplace && (a->grad)) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -5705,7 +5732,7 @@ struct lm_ggml_tensor * lm_ggml_reshape(
 
     if (b->grad) {
         // gradient propagation is not supported
-        //LM_GGML_ASSERT(false);
+        //LM_GGML_ABORT("fatal error");
     }
 
     struct lm_ggml_tensor * result = lm_ggml_new_tensor_impl(ctx, a->type, LM_GGML_MAX_DIMS, b->ne, a, 0);
@@ -6488,7 +6515,7 @@ struct lm_ggml_tensor * lm_ggml_clamp(
     bool is_node = false;
 
     if (a->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -6564,7 +6591,7 @@ LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_transpose_1d(
     bool is_node = false;
 
     if (a->grad || b->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -6636,7 +6663,7 @@ struct lm_ggml_tensor * lm_ggml_im2col(
     bool is_node = false;
 
     if (a->grad || b->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -6722,7 +6749,7 @@ struct lm_ggml_tensor * lm_ggml_conv_transpose_2d_p0(
     bool is_node = false;
 
     if (a->grad || b->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -6763,7 +6790,7 @@ struct lm_ggml_tensor * lm_ggml_pool_1d(
     bool is_node = false;
 
     if (a->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -6801,7 +6828,7 @@ struct lm_ggml_tensor * lm_ggml_pool_2d(
     bool is_node = false;
 
     if (a->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -6834,7 +6861,7 @@ static struct lm_ggml_tensor * lm_ggml_upscale_impl(
     bool is_node = false;
 
     if (a->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -6884,7 +6911,7 @@ struct lm_ggml_tensor * lm_ggml_pad(
     bool is_node = false;
 
     if (a->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -6933,7 +6960,7 @@ struct lm_ggml_tensor * lm_ggml_timestep_embedding(
     bool is_node = false;
 
     if (timesteps->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -7059,7 +7086,7 @@ struct lm_ggml_tensor * lm_ggml_flash_attn_back(
         struct lm_ggml_tensor  * v,
         struct lm_ggml_tensor  * d,
         bool                  masked) {
-    LM_GGML_ASSERT(false && "TODO: adapt to lm_ggml_flash_attn_ext() changes");
+    LM_GGML_ABORT("TODO: adapt to lm_ggml_flash_attn_ext() changes");
 
     LM_GGML_ASSERT(lm_ggml_can_mul_mat(k, q));
     // TODO: check if vT can be multiplied by (k*qT)
@@ -7158,7 +7185,7 @@ struct lm_ggml_tensor * lm_ggml_ssm_conv(
     bool is_node = false;
 
     if (s->grad || x->grad || c->grad || sq->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement
+        LM_GGML_ABORT("fatal error"); // TODO: implement
         is_node = true;
     }
 
@@ -7212,7 +7239,7 @@ struct lm_ggml_tensor * lm_ggml_ssm_scan(
     bool is_node = false;
 
     if (s->grad || x->grad || dt->grad || A->grad || B->grad || C->grad || sq->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement
+        LM_GGML_ABORT("fatal error"); // TODO: implement
         is_node = true;
     }
 
@@ -7244,7 +7271,7 @@ struct lm_ggml_tensor * lm_ggml_win_part(
     bool is_node = false;
 
     if (a->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -7282,7 +7309,7 @@ struct lm_ggml_tensor * lm_ggml_win_unpart(
     bool is_node = false;
 
     if (a->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -7312,7 +7339,7 @@ struct lm_ggml_tensor * lm_ggml_get_rel_pos(
     bool is_node = false;
 
     if (a->grad) {
-        LM_GGML_ASSERT(false); // TODO: implement backward
+        LM_GGML_ABORT("fatal error"); // TODO: implement backward
         is_node = true;
     }
 
@@ -8002,7 +8029,7 @@ static void lm_ggml_compute_forward_dup_f16(
                     }
                 }
             } else {
-                LM_GGML_ASSERT(false); // TODO: implement
+                LM_GGML_ABORT("fatal error"); // TODO: implement
             }
         } else {
             //printf("%s: this is not optimal - fix me\n", __func__);
@@ -8044,7 +8071,7 @@ static void lm_ggml_compute_forward_dup_f16(
                     }
                 }
             } else {
-                LM_GGML_ASSERT(false); // TODO: implement
+                LM_GGML_ABORT("fatal error"); // TODO: implement
             }
         }
         return;
@@ -8161,7 +8188,7 @@ static void lm_ggml_compute_forward_dup_f16(
             }
         }
     } else {
-        LM_GGML_ASSERT(false); // TODO: implement
+        LM_GGML_ABORT("fatal error"); // TODO: implement
     }
 }
 
@@ -8288,7 +8315,7 @@ static void lm_ggml_compute_forward_dup_bf16(
                     }
                 }
             } else {
-                LM_GGML_ASSERT(false); // TODO: implement
+                LM_GGML_ABORT("fatal error"); // TODO: implement
             }
         } else {
             //printf("%s: this is not optimal - fix me\n", __func__);
@@ -8348,7 +8375,7 @@ static void lm_ggml_compute_forward_dup_bf16(
                     }
                 }
             } else {
-                LM_GGML_ASSERT(false); // TODO: implement
+                LM_GGML_ABORT("fatal error"); // TODO: implement
             }
         }
         return;
@@ -8517,7 +8544,7 @@ static void lm_ggml_compute_forward_dup_bf16(
             }
         }
     } else {
-        LM_GGML_ASSERT(false); // TODO: implement
+        LM_GGML_ABORT("fatal error"); // TODO: implement
     }
 }
 
@@ -8603,7 +8630,7 @@ static void lm_ggml_compute_forward_dup_f32(
                     }
                 }
             } else {
-                LM_GGML_ASSERT(false); // TODO: implement
+                LM_GGML_ABORT("fatal error"); // TODO: implement
             }
         } else {
             //printf("%s: this is not optimal - fix me\n", __func__);
@@ -8663,7 +8690,7 @@ static void lm_ggml_compute_forward_dup_f32(
                     }
                 }
             } else {
-                LM_GGML_ASSERT(false); // TODO: implement
+                LM_GGML_ABORT("fatal error"); // TODO: implement
             }
         }
 
@@ -8834,7 +8861,7 @@ static void lm_ggml_compute_forward_dup_f32(
             }
         }
     } else {
-        LM_GGML_ASSERT(false); // TODO: implement
+        LM_GGML_ABORT("fatal error"); // TODO: implement
     }
 }
 
@@ -9012,8 +9039,8 @@ static void lm_ggml_compute_forward_dup(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -9165,7 +9192,7 @@ static void lm_ggml_compute_forward_add_f16_f32(
     }
     else {
         // src1 is not contiguous
-        LM_GGML_ASSERT(false);
+        LM_GGML_ABORT("fatal error");
     }
 }
 
@@ -9240,7 +9267,7 @@ static void lm_ggml_compute_forward_add_bf16_f32(
     }
     else {
         // src1 is not contiguous
-        LM_GGML_ASSERT(false);
+        LM_GGML_ABORT("fatal error");
     }
 }
 
@@ -9292,7 +9319,7 @@ static void lm_ggml_compute_forward_add_f16_f16(
     }
     else {
         // src1 is not contiguous
-        LM_GGML_ASSERT(false);
+        LM_GGML_ABORT("fatal error");
     }
 }
 
@@ -9344,7 +9371,7 @@ static void lm_ggml_compute_forward_add_bf16_bf16(
     }
     else {
         // src1 is not contiguous
-        LM_GGML_ASSERT(false);
+        LM_GGML_ABORT("fatal error");
     }
 }
 
@@ -9438,7 +9465,7 @@ static void lm_ggml_compute_forward_add(
                     lm_ggml_compute_forward_add_f32(params, dst);
                 }
                 else {
-                    LM_GGML_ASSERT(false);
+                    LM_GGML_ABORT("fatal error");
                 }
             } break;
         case LM_GGML_TYPE_F16:
@@ -9450,7 +9477,7 @@ static void lm_ggml_compute_forward_add(
                     lm_ggml_compute_forward_add_f16_f32(params, dst);
                 }
                 else {
-                    LM_GGML_ASSERT(false);
+                    LM_GGML_ABORT("fatal error");
                 }
             } break;
         case LM_GGML_TYPE_BF16:
@@ -9462,7 +9489,7 @@ static void lm_ggml_compute_forward_add(
                     lm_ggml_compute_forward_add_bf16_f32(params, dst);
                 }
                 else {
-                    LM_GGML_ASSERT(false);
+                    LM_GGML_ABORT("fatal error");
                 }
             } break;
         case LM_GGML_TYPE_Q4_0:
@@ -9492,8 +9519,8 @@ static void lm_ggml_compute_forward_add(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -9827,7 +9854,7 @@ static void lm_ggml_compute_forward_add1(
                     lm_ggml_compute_forward_add1_f16_f32(params, dst);
                 }
                 else {
-                    LM_GGML_ASSERT(false);
+                    LM_GGML_ABORT("fatal error");
                 }
             } break;
         case LM_GGML_TYPE_BF16:
@@ -9839,7 +9866,7 @@ static void lm_ggml_compute_forward_add1(
                     lm_ggml_compute_forward_add1_bf16_f32(params, dst);
                 }
                 else {
-                    LM_GGML_ASSERT(false);
+                    LM_GGML_ABORT("fatal error");
                 }
             } break;
         case LM_GGML_TYPE_Q4_0:
@@ -9870,8 +9897,8 @@ static void lm_ggml_compute_forward_add1(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -9995,8 +10022,8 @@ static void lm_ggml_compute_forward_acc(
         case LM_GGML_TYPE_Q4_0_8_8:
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10076,8 +10103,8 @@ static void lm_ggml_compute_forward_sub(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10170,8 +10197,8 @@ static void lm_ggml_compute_forward_mul(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10261,8 +10288,8 @@ static void lm_ggml_compute_forward_div(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10306,8 +10333,8 @@ static void lm_ggml_compute_forward_sqr(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10351,8 +10378,8 @@ static void lm_ggml_compute_forward_sqrt(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10396,8 +10423,8 @@ static void lm_ggml_compute_forward_log(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10525,8 +10552,8 @@ static void lm_ggml_compute_forward_sum(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10578,8 +10605,8 @@ static void lm_ggml_compute_forward_sum_rows(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10635,8 +10662,8 @@ static void lm_ggml_compute_forward_mean(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10683,8 +10710,8 @@ static void lm_ggml_compute_forward_argmax(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10801,8 +10828,8 @@ static void lm_ggml_compute_forward_repeat(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10879,8 +10906,8 @@ static void lm_ggml_compute_forward_repeat_back(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10948,8 +10975,8 @@ static void lm_ggml_compute_forward_concat(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -10992,8 +11019,8 @@ static void lm_ggml_compute_forward_abs(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11036,8 +11063,8 @@ static void lm_ggml_compute_forward_sgn(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11080,8 +11107,8 @@ static void lm_ggml_compute_forward_neg(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11124,8 +11151,8 @@ static void lm_ggml_compute_forward_step(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11168,8 +11195,8 @@ static void lm_ggml_compute_forward_tanh(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11212,8 +11239,8 @@ static void lm_ggml_compute_forward_elu(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11256,8 +11283,8 @@ static void lm_ggml_compute_forward_relu(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11300,8 +11327,8 @@ static void lm_ggml_compute_forward_sigmoid(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11359,8 +11386,8 @@ static void lm_ggml_compute_forward_gelu(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11418,8 +11445,8 @@ static void lm_ggml_compute_forward_gelu_quick(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11477,8 +11504,8 @@ static void lm_ggml_compute_forward_silu(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 // lm_ggml_compute_forward_leaky_relu
@@ -11526,8 +11553,8 @@ static void lm_ggml_compute_forward_leaky_relu(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11589,8 +11616,8 @@ static void lm_ggml_compute_forward_silu_back(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11631,8 +11658,8 @@ static void lm_ggml_compute_forward_hardswish(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11673,8 +11700,8 @@ static void lm_ggml_compute_forward_hardsigmoid(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11745,8 +11772,8 @@ static void lm_ggml_compute_forward_norm(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11813,8 +11840,8 @@ static void lm_ggml_compute_forward_rms_norm(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -11986,8 +12013,8 @@ static void lm_ggml_compute_forward_rms_norm_back(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -12080,8 +12107,8 @@ static void lm_ggml_compute_forward_group_norm(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -12839,17 +12866,17 @@ static void lm_ggml_compute_forward_out_prod(
             } break;
         case LM_GGML_TYPE_F16:
             {
-                LM_GGML_ASSERT(false); // todo
+                LM_GGML_ABORT("fatal error"); // todo
                 // lm_ggml_compute_forward_out_prod_f16_f32(params, dst);
-            } break;
+            }
         case LM_GGML_TYPE_F32:
             {
                 lm_ggml_compute_forward_out_prod_f32(params, dst);
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -12908,8 +12935,8 @@ static void lm_ggml_compute_forward_scale(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -13024,8 +13051,8 @@ static void lm_ggml_compute_forward_set(
         case LM_GGML_TYPE_Q4_0_8_8:
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -13302,8 +13329,8 @@ static void lm_ggml_compute_forward_get_rows(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 
     //static bool first = true;
@@ -13410,8 +13437,8 @@ static void lm_ggml_compute_forward_get_rows_back(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 
     //static bool first = true;
@@ -13488,8 +13515,8 @@ static void lm_ggml_compute_forward_diag(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -13558,8 +13585,8 @@ static void lm_ggml_compute_forward_diag_mask_inf(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -13576,8 +13603,8 @@ static void lm_ggml_compute_forward_diag_mask_zero(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -13694,8 +13721,8 @@ static void lm_ggml_compute_forward_soft_max(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -13790,8 +13817,8 @@ static void lm_ggml_compute_forward_soft_max_back(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -13881,8 +13908,8 @@ static void lm_ggml_compute_forward_clamp(
         case LM_GGML_TYPE_F64:
         case LM_GGML_TYPE_COUNT:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -14211,8 +14238,8 @@ static void lm_ggml_compute_forward_rope(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -14235,8 +14262,8 @@ static void lm_ggml_compute_forward_rope_back(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -14435,8 +14462,8 @@ static void lm_ggml_compute_forward_conv_transpose_1d(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -14607,8 +14634,8 @@ static void lm_ggml_compute_forward_im2col(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -14740,20 +14767,20 @@ static void lm_ggml_compute_forward_pool_1d_sk_p0(
             switch (op) {
                 case LM_GGML_OP_POOL_AVG:   drow[i] = 0;        break;
                 case LM_GGML_OP_POOL_MAX:   drow[i] = -FLT_MAX; break;
-                case LM_GGML_OP_POOL_COUNT: LM_GGML_ASSERT(false); break;
+                case LM_GGML_OP_POOL_COUNT: LM_GGML_ABORT("fatal error");
             }
             for (int ki = 0; ki < k; ++ki) {
                 switch (op) {
                     case LM_GGML_OP_POOL_AVG:                          drow[i] += srow[j]; break;
                     case LM_GGML_OP_POOL_MAX:   if (srow[j] > drow[i]) drow[i]  = srow[j]; break;
-                    case LM_GGML_OP_POOL_COUNT:                        LM_GGML_ASSERT(false); break;
+                    case LM_GGML_OP_POOL_COUNT:                        LM_GGML_ABORT("fatal error");
                 }
                 ++j;
             }
             switch (op) {
                 case LM_GGML_OP_POOL_AVG:         drow[i] /= k; break;
                 case LM_GGML_OP_POOL_MAX:                       break;
-                case LM_GGML_OP_POOL_COUNT: LM_GGML_ASSERT(false); break;
+                case LM_GGML_OP_POOL_COUNT: LM_GGML_ABORT("fatal error");
             }
         }
 
@@ -14822,7 +14849,7 @@ static void lm_ggml_compute_forward_pool_2d(
                 switch (op) {
                     case LM_GGML_OP_POOL_AVG:     *out = 0;        break;
                     case LM_GGML_OP_POOL_MAX:     *out = -FLT_MAX; break;
-                    case LM_GGML_OP_POOL_COUNT: LM_GGML_ASSERT(false); break;
+                    case LM_GGML_OP_POOL_COUNT: LM_GGML_ABORT("fatal error");
                 }
 
                 const int ix = offset0 + ox * s0;
@@ -14837,14 +14864,14 @@ static void lm_ggml_compute_forward_pool_2d(
                         switch (op) {
                             case LM_GGML_OP_POOL_AVG:                     *out += srow[j]; break;
                             case LM_GGML_OP_POOL_MAX: if (srow[j] > *out) *out  = srow[j]; break;
-                            case LM_GGML_OP_POOL_COUNT:                LM_GGML_ASSERT(false); break;
+                            case LM_GGML_OP_POOL_COUNT:                LM_GGML_ABORT("fatal error");
                         }
                     }
                 }
                 switch (op) {
                     case LM_GGML_OP_POOL_AVG:           *out /= ka; break;
                     case LM_GGML_OP_POOL_MAX:                       break;
-                    case LM_GGML_OP_POOL_COUNT: LM_GGML_ASSERT(false); break;
+                    case LM_GGML_OP_POOL_COUNT: LM_GGML_ABORT("fatal error");
                 }
             }
         }
@@ -14908,8 +14935,8 @@ static void lm_ggml_compute_forward_upscale(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -14966,8 +14993,8 @@ static void lm_ggml_compute_forward_pad(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -15007,8 +15034,8 @@ static void lm_ggml_compute_forward_arange(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -15058,8 +15085,8 @@ static void lm_ggml_compute_forward_timestep_embedding(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -15117,8 +15144,8 @@ static void lm_ggml_compute_forward_argsort(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -15340,8 +15367,8 @@ static void lm_ggml_compute_forward_flash_attn_ext(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -15676,8 +15703,8 @@ static void lm_ggml_compute_forward_flash_attn_back(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -15798,8 +15825,8 @@ static void lm_ggml_compute_forward_ssm_conv(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -15919,8 +15946,8 @@ static void lm_ggml_compute_forward_ssm_scan(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -15982,8 +16009,8 @@ static void lm_ggml_compute_forward_win_part(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -16043,8 +16070,8 @@ static void lm_ggml_compute_forward_win_unpart(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -16111,8 +16138,8 @@ static void lm_ggml_compute_forward_unary(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -16158,8 +16185,8 @@ static void lm_ggml_compute_forward_get_rel_pos(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -16239,8 +16266,8 @@ static void lm_ggml_compute_forward_add_rel_pos(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -16285,8 +16312,8 @@ static void lm_ggml_compute_forward_map_unary(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -16334,8 +16361,8 @@ static void lm_ggml_compute_forward_map_binary(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -16533,8 +16560,8 @@ static void lm_ggml_compute_forward_cross_entropy_loss(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -16620,8 +16647,8 @@ static void lm_ggml_compute_forward_cross_entropy_loss_back(
             } break;
         default:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
@@ -16956,14 +16983,32 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             } break;
         case LM_GGML_OP_COUNT:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static size_t lm_ggml_hash_size(size_t min_sz) {
+struct lm_ggml_hash_set lm_ggml_hash_set_new(size_t size) {
+    size = lm_ggml_hash_size(size);
+    struct lm_ggml_hash_set result;
+    result.size = size;
+    result.keys = LM_GGML_MALLOC(sizeof(struct lm_ggml_tensor *) * size);
+    result.used = LM_GGML_CALLOC(lm_ggml_bitset_size(size), sizeof(lm_ggml_bitset_t));
+    return result;
+}
+
+void lm_ggml_hash_set_reset(struct lm_ggml_hash_set * hash_set) {
+    memset(hash_set->used, 0, sizeof(lm_ggml_bitset_t) * lm_ggml_bitset_size(hash_set->size));
+}
+
+void lm_ggml_hash_set_free(struct lm_ggml_hash_set * hash_set) {
+    LM_GGML_FREE(hash_set->used);
+    LM_GGML_FREE(hash_set->keys);
+}
+
+size_t lm_ggml_hash_size(size_t min_sz) {
     // next primes after powers of two
     static const size_t primes[] = {
         2, 3, 5, 11, 17, 37, 67, 131, 257, 521, 1031,
@@ -16974,7 +17019,7 @@ static size_t lm_ggml_hash_size(size_t min_sz) {
     };
     static const size_t n_primes = sizeof(primes)/sizeof(primes[0]);
 
-    // find the smallest prime that is larger or equal to min_sz
+    // find the smallest prime that is larger or equal than min_sz
     size_t l = 0;
     size_t r = n_primes;
     while (l < r) {
@@ -16989,67 +17034,6 @@ static size_t lm_ggml_hash_size(size_t min_sz) {
     return sz;
 }
 
-static size_t lm_ggml_hash(const void * p) {
-    return (size_t)p;
-}
-
-size_t lm_ggml_hash_find(const struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor * key) {
-    size_t h = lm_ggml_hash(key) % hash_set.size;
-
-    // linear probing
-    size_t i = h;
-    while (hash_set.keys[i] != NULL && hash_set.keys[i] != key) {
-        i = (i + 1) % hash_set.size;
-        if (i == h) {
-            // visited all hash table entries -> not found
-            return LM_GGML_HASHTABLE_FULL;
-        }
-    }
-    return i;
-}
-
-bool lm_ggml_hash_contains(struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor * key) {
-    size_t i = lm_ggml_hash_find(hash_set, key);
-    return i != LM_GGML_HASHTABLE_FULL && hash_set.keys[i] == key;
-}
-
-size_t lm_ggml_hash_insert(struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor * key) {
-    size_t i = lm_ggml_hash_find(hash_set, key);
-
-    LM_GGML_ASSERT(i != LM_GGML_HASHTABLE_FULL);
-
-    if (hash_set.keys[i] == key) {
-        return LM_GGML_HASHTABLE_ALREADY_EXISTS;
-    }
-
-    // insert
-    LM_GGML_ASSERT(hash_set.keys[i] == NULL);
-    hash_set.keys[i] = key;
-    return i;
-}
-
-size_t lm_ggml_hash_find_or_insert(struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor * key) {
-    size_t i = lm_ggml_hash_find(hash_set, key);
-
-    LM_GGML_ASSERT(i != LM_GGML_HASHTABLE_FULL);
-
-    hash_set.keys[i] = key;
-    return i;
-}
-
-struct lm_ggml_hash_set lm_ggml_hash_set_new(size_t size) {
-    size = lm_ggml_hash_size(size);
-    struct lm_ggml_hash_set result;
-    result.size = size;
-    result.keys = LM_GGML_MALLOC(sizeof(struct lm_ggml_tensor *) * size);
-    memset(result.keys, 0, sizeof(struct lm_ggml_tensor *) * size);
-    return result;
-}
-
-static void lm_ggml_hash_set_free(struct lm_ggml_hash_set hash_set) {
-    LM_GGML_FREE(hash_set.keys);
-}
-
 struct hash_map {
     struct lm_ggml_hash_set set;
     struct lm_ggml_tensor ** vals;
@@ -17058,13 +17042,12 @@ struct hash_map {
 static struct hash_map * lm_ggml_new_hash_map(size_t size) {
     struct hash_map * result = LM_GGML_MALLOC(sizeof(struct hash_map));
     result->set = lm_ggml_hash_set_new(size);
-    result->vals = LM_GGML_MALLOC(sizeof(struct lm_ggml_tensor *) * result->set.size);
-    memset(result->vals, 0, sizeof(struct lm_ggml_tensor *) * result->set.size);
+    result->vals = LM_GGML_CALLOC(result->set.size, sizeof(struct lm_ggml_tensor *));
     return result;
 }
 
 static void lm_ggml_hash_map_free(struct hash_map * map) {
-    lm_ggml_hash_set_free(map->set);
+    lm_ggml_hash_set_free(&map->set);
     LM_GGML_FREE(map->vals);
     LM_GGML_FREE(map);
 }
@@ -17085,7 +17068,7 @@ static struct lm_ggml_tensor * lm_ggml_recompute_graph_node(
         return node;
     }
 
-    if (!lm_ggml_hash_contains(graph->visited_hash_table, node)) {
+    if (!lm_ggml_hash_contains(&graph->visited_hash_set, node)) {
         return node;
     }
 
@@ -17100,8 +17083,8 @@ static struct lm_ggml_tensor * lm_ggml_recompute_graph_node(
         return node;
     }
 
-    size_t i = lm_ggml_hash_find(replacements->set, node);
-    LM_GGML_ASSERT(i != LM_GGML_HASHTABLE_FULL); // assert that not full
+    size_t i = lm_ggml_hash_find(&replacements->set, node);
+    LM_GGML_ASSERT(i != LM_GGML_HASHSET_FULL); // assert that not full
     if (replacements->set.keys[i] == node) {
         return replacements->vals[i];
     }
@@ -17159,8 +17142,8 @@ void lm_ggml_build_backward_gradient_checkpointing(
 
     // insert checkpoints in replacements
     for (int i = 0; i < n_checkpoints; ++i) {
-        size_t k = lm_ggml_hash_find(replacements->set, checkpoints[i]);
-        LM_GGML_ASSERT(k != LM_GGML_HASHTABLE_FULL); // assert that not full
+        size_t k = lm_ggml_hash_find(&replacements->set, checkpoints[i]);
+        LM_GGML_ASSERT(k != LM_GGML_HASHSET_FULL); // assert that not full
         LM_GGML_ASSERT(replacements->set.keys[k] == NULL); // assert that we don't overwrite
         replacements->set.keys[k] = checkpoints[i];
         replacements->vals[k]     = checkpoints[i];
@@ -17188,7 +17171,7 @@ void lm_ggml_build_backward_gradient_checkpointing(
 
 // functions to change gradients considering the case that input a might be initial gradient with zero value
 
-static struct lm_ggml_tensor * lm_ggml_add_or_set(struct lm_ggml_context * ctx, struct lm_ggml_tensor * a, struct lm_ggml_tensor * b, struct lm_ggml_hash_set zero_table) {
+static struct lm_ggml_tensor * lm_ggml_add_or_set(struct lm_ggml_context * ctx, struct lm_ggml_tensor * a, struct lm_ggml_tensor * b, struct lm_ggml_hash_set * zero_table) {
     if (lm_ggml_hash_contains(zero_table, a)) {
         return b;
     } else {
@@ -17196,7 +17179,7 @@ static struct lm_ggml_tensor * lm_ggml_add_or_set(struct lm_ggml_context * ctx, 
     }
 }
 
-static struct lm_ggml_tensor * lm_ggml_acc_or_set(struct lm_ggml_context * ctx, struct lm_ggml_tensor * a, struct lm_ggml_tensor * b, size_t nb1, size_t nb2, size_t nb3, size_t offset, struct lm_ggml_hash_set zero_table) {
+static struct lm_ggml_tensor * lm_ggml_acc_or_set(struct lm_ggml_context * ctx, struct lm_ggml_tensor * a, struct lm_ggml_tensor * b, size_t nb1, size_t nb2, size_t nb3, size_t offset, struct lm_ggml_hash_set * zero_table) {
     if (lm_ggml_hash_contains(zero_table, a)) {
         struct lm_ggml_tensor * a_zero = lm_ggml_scale(ctx, a, 0.0f);
         return lm_ggml_acc_impl(ctx, a_zero, b, nb1, nb2, nb3, offset, false);
@@ -17205,7 +17188,7 @@ static struct lm_ggml_tensor * lm_ggml_acc_or_set(struct lm_ggml_context * ctx, 
     }
 }
 
-static struct lm_ggml_tensor * lm_ggml_add1_or_set(struct lm_ggml_context * ctx, struct lm_ggml_tensor * a, struct lm_ggml_tensor * b, struct lm_ggml_hash_set zero_table) {
+static struct lm_ggml_tensor * lm_ggml_add1_or_set(struct lm_ggml_context * ctx, struct lm_ggml_tensor * a, struct lm_ggml_tensor * b, struct lm_ggml_hash_set * zero_table) {
     if (lm_ggml_hash_contains(zero_table, a)) {
         return lm_ggml_repeat(ctx, b, a);
     } else {
@@ -17213,7 +17196,7 @@ static struct lm_ggml_tensor * lm_ggml_add1_or_set(struct lm_ggml_context * ctx,
     }
 }
 
-static struct lm_ggml_tensor * lm_ggml_sub_or_set(struct lm_ggml_context * ctx, struct lm_ggml_tensor * a, struct lm_ggml_tensor * b, struct lm_ggml_hash_set zero_table) {
+static struct lm_ggml_tensor * lm_ggml_sub_or_set(struct lm_ggml_context * ctx, struct lm_ggml_tensor * a, struct lm_ggml_tensor * b, struct lm_ggml_hash_set * zero_table) {
     if (lm_ggml_hash_contains(zero_table, a)) {
         return lm_ggml_neg(ctx, b);
     } else {
@@ -17221,7 +17204,7 @@ static struct lm_ggml_tensor * lm_ggml_sub_or_set(struct lm_ggml_context * ctx, 
     }
 }
 
-static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggml_tensor * tensor, struct lm_ggml_hash_set zero_table) {
+static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggml_tensor * tensor, struct lm_ggml_hash_set * zero_table) {
     struct lm_ggml_tensor * src0 = tensor->src[0];
     struct lm_ggml_tensor * src1 = tensor->src[1];
     struct lm_ggml_tensor * src2 = tensor->src[2];
@@ -17390,8 +17373,8 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
         case LM_GGML_OP_MEAN:
         case LM_GGML_OP_ARGMAX:
             {
-                LM_GGML_ASSERT(false); // TODO: implement
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: implement
+            }
         case LM_GGML_OP_REPEAT:
             {
                 // necessary for llama
@@ -17414,16 +17397,16 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
             } break;
         case LM_GGML_OP_CONCAT:
             {
-                LM_GGML_ASSERT(false); // TODO: implement
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: implement
+            }
         case LM_GGML_OP_SILU_BACK:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_NORM:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_RMS_NORM:
             {
                 // necessary for llama
@@ -17439,12 +17422,12 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
             } break;
         case LM_GGML_OP_RMS_NORM_BACK:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_GROUP_NORM:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_MUL_MAT:
             {
                 // https://cs231n.github.io/optimization-2/#staged
@@ -17505,12 +17488,12 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
             } break;
         case LM_GGML_OP_MUL_MAT_ID:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_OUT_PROD:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_SCALE:
             {
                 // necessary for llama
@@ -17686,12 +17669,12 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
             } break;
         case LM_GGML_OP_GET_ROWS_BACK:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_DIAG:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_DIAG_MASK_INF:
             {
                 // necessary for llama
@@ -17729,8 +17712,8 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
             } break;
         case LM_GGML_OP_SOFT_MAX_BACK:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_ROPE:
             {
                 // necessary for llama
@@ -17805,52 +17788,52 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
             } break;
         case LM_GGML_OP_CLAMP:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_CONV_TRANSPOSE_1D:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_IM2COL:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_CONV_TRANSPOSE_2D:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_POOL_1D:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_POOL_2D:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_UPSCALE:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_PAD:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_ARANGE:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_TIMESTEP_EMBEDDING:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_ARGSORT:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_LEAKY_RELU:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_FLASH_ATTN_EXT:
             {
                 struct lm_ggml_tensor * flash_grad = NULL;
@@ -17906,13 +17889,13 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
             } break;
         case LM_GGML_OP_FLASH_ATTN_BACK:
             {
-                LM_GGML_ASSERT(false); // not supported
-            } break;
+                LM_GGML_ABORT("fatal error"); // not supported
+            }
         case LM_GGML_OP_SSM_CONV:
         case LM_GGML_OP_SSM_SCAN:
             {
-                LM_GGML_ASSERT(false); // TODO: not implemented
-            } break;
+                LM_GGML_ABORT("fatal error"); // TODO: not implemented
+            }
         case LM_GGML_OP_WIN_PART:
         case LM_GGML_OP_WIN_UNPART:
         case LM_GGML_OP_UNARY:
@@ -17950,12 +17933,12 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
                         } break;
                     case LM_GGML_UNARY_OP_TANH:
                         {
-                            LM_GGML_ASSERT(false); // TODO: not implemented
-                        } break;
+                            LM_GGML_ABORT("fatal error"); // TODO: not implemented
+                        }
                     case LM_GGML_UNARY_OP_ELU:
                         {
-                            LM_GGML_ASSERT(false); // TODO: not implemented
-                        } break;
+                            LM_GGML_ABORT("fatal error"); // TODO: not implemented
+                        }
                     case LM_GGML_UNARY_OP_RELU:
                         {
                             if (src0->grad) {
@@ -17969,16 +17952,16 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
                         } break;
                     case LM_GGML_UNARY_OP_SIGMOID:
                         {
-                            LM_GGML_ASSERT(false); // TODO: not implemented
-                        } break;
+                            LM_GGML_ABORT("fatal error"); // TODO: not implemented
+                        }
                     case LM_GGML_UNARY_OP_GELU:
                         {
-                            LM_GGML_ASSERT(false); // TODO: not implemented
-                        } break;
+                            LM_GGML_ABORT("fatal error"); // TODO: not implemented
+                        }
                     case LM_GGML_UNARY_OP_GELU_QUICK:
                         {
-                            LM_GGML_ASSERT(false); // TODO: not implemented
-                        } break;
+                            LM_GGML_ABORT("fatal error"); // TODO: not implemented
+                        }
                     case LM_GGML_UNARY_OP_SILU:
                         {
                             // necessary for llama
@@ -17990,7 +17973,7 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
                             }
                         } break;
                     default:
-                        LM_GGML_ASSERT(false);
+                        LM_GGML_ABORT("fatal error");
                 }
             } break;
         case LM_GGML_OP_GET_REL_POS:
@@ -18004,8 +17987,8 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
         case LM_GGML_OP_MAP_CUSTOM2:
         case LM_GGML_OP_MAP_CUSTOM3:
             {
-                LM_GGML_ASSERT(false); // not supported
-            } break;
+                LM_GGML_ABORT("fatal error"); // not supported
+            }
         case LM_GGML_OP_CROSS_ENTROPY_LOSS:
             {
                 if (src0->grad) {
@@ -18020,16 +18003,16 @@ static void lm_ggml_compute_backward(struct lm_ggml_context * ctx, struct lm_ggm
             } break;
         case LM_GGML_OP_CROSS_ENTROPY_LOSS_BACK:
             {
-                LM_GGML_ASSERT(false); // not supported
-            } break;
+                LM_GGML_ABORT("fatal error"); // not supported
+            }
         case LM_GGML_OP_NONE:
             {
                 // nop
             } break;
         case LM_GGML_OP_COUNT:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 
     for (int i = 0; i < LM_GGML_MAX_SRC; ++i) {
@@ -18049,7 +18032,7 @@ static void lm_ggml_visit_parents(struct lm_ggml_cgraph * cgraph, struct lm_ggml
     }
 
     // check if already visited
-    if (lm_ggml_hash_insert(cgraph->visited_hash_table, node) == LM_GGML_HASHTABLE_ALREADY_EXISTS) {
+    if (lm_ggml_hash_insert(&cgraph->visited_hash_set, node) == LM_GGML_HASHSET_ALREADY_EXISTS) {
         return;
     }
 
@@ -18131,7 +18114,7 @@ void lm_ggml_build_backward_expand(struct lm_ggml_context * ctx, struct lm_ggml_
     struct lm_ggml_hash_set zero_table = lm_ggml_hash_set_new(gf->size);
     for (int i = 0; i < gf->n_nodes; i++) {
         if (gf->grads[i]) {
-            lm_ggml_hash_insert(zero_table, gf->grads[i]);
+            lm_ggml_hash_insert(&zero_table, gf->grads[i]);
         }
     }
 
@@ -18141,7 +18124,7 @@ void lm_ggml_build_backward_expand(struct lm_ggml_context * ctx, struct lm_ggml_
         // inplace operations to add gradients are not created by lm_ggml_compute_backward
         // use allocator to automatically make inplace operations
         if (node->grad) {
-            lm_ggml_compute_backward(ctx, node, zero_table);
+            lm_ggml_compute_backward(ctx, node, &zero_table);
         }
     }
 
@@ -18154,16 +18137,29 @@ void lm_ggml_build_backward_expand(struct lm_ggml_context * ctx, struct lm_ggml_
         }
     }
 
-    lm_ggml_hash_set_free(zero_table);
+    lm_ggml_hash_set_free(&zero_table);
+}
+
+static void * incr_ptr_aligned(void ** p, size_t size, size_t align) {
+    void * ptr = *p;
+    ptr = (void *) LM_GGML_PAD((uintptr_t) ptr, align);
+    *p = (void *) ((char *) ptr + size);
+    return ptr;
 }
 
 static size_t lm_ggml_graph_nbytes(size_t size, bool grads) {
-    size_t nbytes = sizeof(struct lm_ggml_cgraph);
-    nbytes += size * sizeof(struct lm_ggml_tensor *) * 2; // leafs + nodes
+    size_t hash_size = lm_ggml_hash_size(size * 2);
+    void * p = 0;
+    incr_ptr_aligned(&p, sizeof(struct lm_ggml_cgraph), 1);
+    incr_ptr_aligned(&p, size * sizeof(struct lm_ggml_tensor *), sizeof(struct lm_ggml_tensor *)); // nodes
+    incr_ptr_aligned(&p, size * sizeof(struct lm_ggml_tensor *), sizeof(struct lm_ggml_tensor *)); // leafs
+    incr_ptr_aligned(&p, hash_size * sizeof(struct lm_ggml_tensor *), sizeof(struct lm_ggml_tensor *)); // hash keys
     if (grads) {
-        nbytes += size * sizeof(struct lm_ggml_tensor *); // grads
+        incr_ptr_aligned(&p, size * sizeof(struct lm_ggml_tensor *), sizeof(struct lm_ggml_tensor *)); // grads
     }
-    nbytes += lm_ggml_hash_size(size * 2) * sizeof(struct lm_ggml_tensor *); // hash set
+    incr_ptr_aligned(&p, lm_ggml_bitset_size(hash_size) * sizeof(lm_ggml_bitset_t), sizeof(lm_ggml_bitset_t));
+
+    size_t nbytes = (size_t) p;
     return nbytes;
 }
 
@@ -18180,19 +18176,19 @@ struct lm_ggml_cgraph * lm_ggml_new_graph_custom(struct lm_ggml_context * ctx, s
     struct lm_ggml_object * obj = lm_ggml_new_object(ctx, LM_GGML_OBJECT_TYPE_GRAPH, obj_size);
     struct lm_ggml_cgraph * cgraph = (struct lm_ggml_cgraph *) ((char *) ctx->mem_buffer + obj->offs);
 
-    struct lm_ggml_tensor ** data_start = (struct lm_ggml_tensor **) (cgraph + 1);
-
+    // the size of the hash table is doubled since it needs to hold both nodes and leafs
     size_t hash_size = lm_ggml_hash_size(size * 2);
-    struct lm_ggml_tensor ** nodes_ptr = data_start;
-    struct lm_ggml_tensor ** leafs_ptr = nodes_ptr + size;
-    struct lm_ggml_tensor ** hash_keys_ptr = leafs_ptr + size;
-    struct lm_ggml_tensor ** grads_ptr = grads ? hash_keys_ptr + hash_size : NULL;
+
+    void * p = cgraph + 1;
+
+    struct lm_ggml_tensor ** nodes_ptr = incr_ptr_aligned(&p, size * sizeof(struct lm_ggml_tensor *), sizeof(struct lm_ggml_tensor *));
+    struct lm_ggml_tensor ** leafs_ptr = incr_ptr_aligned(&p, size * sizeof(struct lm_ggml_tensor *), sizeof(struct lm_ggml_tensor *));
+    struct lm_ggml_tensor ** hash_keys_ptr = incr_ptr_aligned(&p, hash_size * sizeof(struct lm_ggml_tensor *), sizeof(struct lm_ggml_tensor *));
+    struct lm_ggml_tensor ** grads_ptr = grads ? incr_ptr_aligned(&p, size * sizeof(struct lm_ggml_tensor *), sizeof(struct lm_ggml_tensor *)) : NULL;
+    lm_ggml_bitset_t * hash_used = incr_ptr_aligned(&p, lm_ggml_bitset_size(hash_size) * sizeof(lm_ggml_bitset_t), sizeof(lm_ggml_bitset_t));
 
     // check that we allocated the correct amount of memory
-    assert(obj_size == (size_t) (
-        (grads ? (char *)(grads_ptr + size) : (char *)(hash_keys_ptr + hash_size)) - (char *)cgraph));
-
-    memset(hash_keys_ptr, 0, hash_size * sizeof(struct lm_ggml_tensor *));
+    assert(obj_size == (size_t)((char *)p - (char *)cgraph));
 
     *cgraph = (struct lm_ggml_cgraph) {
         /*.size         =*/ size,
@@ -18201,9 +18197,11 @@ struct lm_ggml_cgraph * lm_ggml_new_graph_custom(struct lm_ggml_context * ctx, s
         /*.nodes        =*/ nodes_ptr,
         /*.grads        =*/ grads_ptr,
         /*.leafs        =*/ leafs_ptr,
-        /*.hash_table   =*/ { hash_size, hash_keys_ptr },
+        /*.hash_table   =*/ { hash_size, hash_used, hash_keys_ptr },
         /*.order        =*/ LM_GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT,
     };
+
+    lm_ggml_hash_set_reset(&cgraph->visited_hash_set);
 
     return cgraph;
 }
@@ -18220,7 +18218,7 @@ struct lm_ggml_cgraph lm_ggml_graph_view(struct lm_ggml_cgraph * cgraph0, int i0
         /*.nodes        =*/ cgraph0->nodes + i0,
         /*.grads        =*/ cgraph0->grads ? cgraph0->grads + i0 : NULL,
         /*.leafs        =*/ NULL,
-        /*.hash_table   =*/ { 0, NULL },
+        /*.hash_table   =*/ { 0, NULL, NULL },
         /*.order        =*/ cgraph0->order,
     };
 
@@ -18230,7 +18228,7 @@ struct lm_ggml_cgraph lm_ggml_graph_view(struct lm_ggml_cgraph * cgraph0, int i0
 void lm_ggml_graph_cpy(struct lm_ggml_cgraph * src, struct lm_ggml_cgraph * dst) {
     LM_GGML_ASSERT(dst->size >= src->n_leafs);
     LM_GGML_ASSERT(dst->size >= src->n_nodes);
-    LM_GGML_ASSERT(dst->visited_hash_table.size >= src->visited_hash_table.size);
+    LM_GGML_ASSERT(dst->visited_hash_set.size >= src->visited_hash_set.size);
 
     dst->n_leafs = src->n_leafs;
     dst->n_nodes = src->n_nodes;
@@ -18251,9 +18249,9 @@ void lm_ggml_graph_cpy(struct lm_ggml_cgraph * src, struct lm_ggml_cgraph * dst)
         }
     }
 
-    for (size_t i = 0; i < src->visited_hash_table.size; ++i) {
-        if (src->visited_hash_table.keys[i]) {
-            lm_ggml_hash_insert(dst->visited_hash_table, src->visited_hash_table.keys[i]);
+    for (size_t i = 0; i < src->visited_hash_set.size; ++i) {
+        if (src->visited_hash_set.keys[i]) {
+            lm_ggml_hash_insert(&dst->visited_hash_set, src->visited_hash_set.keys[i]);
         }
     }
 }
@@ -18279,7 +18277,7 @@ void lm_ggml_graph_reset(struct lm_ggml_cgraph * cgraph) {
 void lm_ggml_graph_clear(struct lm_ggml_cgraph * cgraph) {
     cgraph->n_leafs = 0;
     cgraph->n_nodes = 0;
-    memset(cgraph->visited_hash_table.keys, 0, cgraph->visited_hash_table.size * sizeof(struct lm_ggml_tensor *));
+    lm_ggml_hash_set_reset(&cgraph->visited_hash_set);
 }
 
 //
@@ -18471,7 +18469,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
                         n_tasks = n_threads;
                     } break;
                 default:
-                    LM_GGML_ASSERT(false);
+                    LM_GGML_ABORT("fatal error");
             }
             break;
         case LM_GGML_OP_SILU_BACK:
@@ -18598,8 +18596,8 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
             } break;
         case LM_GGML_OP_COUNT:
             {
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
         default:
             {
                 fprintf(stderr, "%s: op not implemented: ", __func__);
@@ -18608,8 +18606,8 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
                 } else {
                     fprintf(stderr, "%d\n", node->op);
                 }
-                LM_GGML_ASSERT(false);
-            } break;
+                LM_GGML_ABORT("fatal error");
+            }
     }
 
     assert(n_tasks > 0);
@@ -18719,7 +18717,7 @@ struct lm_ggml_cplan lm_ggml_graph_plan(const struct lm_ggml_cgraph * cgraph, in
                         cur += sizeof(float)*ne00*ne01*ne02;
                         cur += sizeof(float)*ne10*ne11;
                     } else {
-                        LM_GGML_ASSERT(false);
+                        LM_GGML_ABORT("fatal error");
                     }
                 } break;
             case LM_GGML_OP_CONV_TRANSPOSE_2D:
@@ -18765,8 +18763,8 @@ struct lm_ggml_cplan lm_ggml_graph_plan(const struct lm_ggml_cgraph * cgraph, in
                 } break;
             case LM_GGML_OP_COUNT:
                 {
-                    LM_GGML_ASSERT(false);
-                } break;
+                    LM_GGML_ABORT("fatal error");
+                }
             default:
                 break;
         }
@@ -20000,9 +19998,9 @@ static enum lm_ggml_opt_result linesearch_backtracking(
         (*step) *= width;
     }
 
-    LM_GGML_ASSERT(false && "line search failed");
+    LM_GGML_ABORT("line search failed");
 
-    return LM_GGML_LINESEARCH_FAIL;
+    //return LM_GGML_LINESEARCH_FAIL;
 }
 
 static enum lm_ggml_opt_result lm_ggml_opt_lbfgs(
@@ -20270,9 +20268,9 @@ static enum lm_ggml_opt_result lm_ggml_opt_lbfgs(
         step[0] = 1.0;
     }
 
-    LM_GGML_ASSERT(false && "lbfgs failed");
+    LM_GGML_ABORT("lbfgs failed");
 
-    return LM_GGML_OPT_RESULT_DID_NOT_CONVERGE;
+    //return LM_GGML_OPT_RESULT_DID_NOT_CONVERGE;
 }
 
 struct lm_ggml_opt_params lm_ggml_opt_default_params(enum lm_ggml_opt_type type) {
@@ -20967,10 +20965,10 @@ struct lm_gguf_context * lm_gguf_init_from_file(const char * fname, struct lm_gg
                                     }
                                 } break;
                             case LM_GGUF_TYPE_ARRAY:
-                            default: LM_GGML_ASSERT(false && "invalid type"); break;
+                            default: LM_GGML_ABORT("invalid type");
                         }
                     } break;
-                default: LM_GGML_ASSERT(false && "invalid type");
+                default: LM_GGML_ABORT("invalid type");
             }
 
             if (!ok) {
@@ -21096,6 +21094,12 @@ struct lm_gguf_context * lm_gguf_init_from_file(const char * fname, struct lm_gg
         };
 
         *params.ctx = lm_ggml_init(pdata);
+        if (*params.ctx == NULL) {
+            fprintf(stderr, "%s: failed to initialize context\n", __func__);
+            fclose(file);
+            lm_gguf_free(ctx);
+            return NULL;
+        }
 
         struct lm_ggml_context * ctx_data = *params.ctx;
 
@@ -21545,12 +21549,12 @@ void lm_gguf_set_kv(struct lm_gguf_context * ctx, struct lm_gguf_context * src) 
                         lm_gguf_set_arr_str(ctx, src->kv[i].key.data, data, src->kv[i].value.arr.n);
                         LM_GGML_FREE((void *)data);
                     } else if (src->kv[i].value.arr.type == LM_GGUF_TYPE_ARRAY) {
-                        LM_GGML_ASSERT(false && "nested arrays not supported");
+                        LM_GGML_ABORT("nested arrays not supported");
                     } else {
                         lm_gguf_set_arr_data(ctx, src->kv[i].key.data, src->kv[i].value.arr.type, src->kv[i].value.arr.data, src->kv[i].value.arr.n);
                     }
                 } break;
-            default: LM_GGML_ASSERT(false && "invalid type"); break;
+            default: LM_GGML_ABORT("invalid type");
         }
     }
 }
@@ -21559,7 +21563,7 @@ void lm_gguf_add_tensor(
              struct lm_gguf_context * ctx,
         const struct lm_ggml_tensor * tensor) {
     if (lm_gguf_find_tensor(ctx, tensor->name) != -1) {
-        LM_GGML_ASSERT(false && "duplicated tensor name");
+        LM_GGML_ABORT("duplicated tensor name");
     }
 
     const int idx = ctx->header.n_tensors;
@@ -21592,7 +21596,7 @@ void lm_gguf_add_tensor(
 void lm_gguf_set_tensor_type(struct lm_gguf_context * ctx, const char * name, enum lm_ggml_type type) {
     const int idx = lm_gguf_find_tensor(ctx, name);
     if (idx < 0) {
-        LM_GGML_ASSERT(false && "tensor not found");
+        LM_GGML_ABORT("tensor not found");
     }
 
     ctx->infos[idx].type = type;
@@ -21601,7 +21605,7 @@ void lm_gguf_set_tensor_type(struct lm_gguf_context * ctx, const char * name, en
 void lm_gguf_set_tensor_data(struct lm_gguf_context * ctx, const char * name, const void * data, size_t size) {
     const int idx = lm_gguf_find_tensor(ctx, name);
     if (idx < 0) {
-        LM_GGML_ASSERT(false && "tensor not found");
+        LM_GGML_ABORT("tensor not found");
     }
 
     ctx->infos[idx].data = data;
@@ -21730,10 +21734,10 @@ static void lm_gguf_write_to_buf(const struct lm_gguf_context * ctx, struct lm_g
                                 }
                             } break;
                         case LM_GGUF_TYPE_ARRAY:
-                        default: LM_GGML_ASSERT(false && "invalid type"); break;
+                        default: LM_GGML_ABORT("invalid type");
                     }
                 } break;
-            default: LM_GGML_ASSERT(false && "invalid type");
+            default: LM_GGML_ABORT("invalid type");
         }
     }
 
@@ -21794,7 +21798,7 @@ static void lm_gguf_write_to_buf(const struct lm_gguf_context * ctx, struct lm_g
 void lm_gguf_write_to_file(const struct lm_gguf_context * ctx, const char * fname, bool only_meta) {
     FILE * file = lm_ggml_fopen(fname, "wb");
     if (!file) {
-        LM_GGML_ASSERT(false && "failed to open file for writing");
+        LM_GGML_ABORT("failed to open file for writing");
     }
 
     struct lm_gguf_buf buf = lm_gguf_buf_init(16*1024);
@@ -21999,6 +22003,14 @@ int lm_ggml_cpu_has_rpc(void) {
 
 int lm_ggml_cpu_has_cann(void) {
 #if defined(LM_GGML_USE_CANN)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+int lm_ggml_cpu_has_llamafile(void) {
+#if defined(LM_GGML_USE_LLAMAFILE)
     return 1;
 #else
     return 0;

@@ -634,21 +634,121 @@ inline static float lm_ggml_lookup_fp16_to_fp32(lm_ggml_fp16_t f) {
 #define LM_GGML_FP32_TO_FP16(x) LM_GGML_COMPUTE_FP32_TO_FP16(x)
 #endif
 
-#define LM_GGML_HASHTABLE_FULL ((size_t)-1)
-#define LM_GGML_HASHTABLE_ALREADY_EXISTS ((size_t)-2)
+// bitset
+
+static_assert(sizeof(lm_ggml_bitset_t) == 4, "bitset_t constants must be updated");
+#define BITSET_SHR 5 // log2(sizeof(lm_ggml_bitset_t)*8)
+#define BITSET_MASK (sizeof(lm_ggml_bitset_t)*8 - 1)
+
+static size_t lm_ggml_bitset_size(size_t n) {
+    return (n + BITSET_MASK) >> BITSET_SHR;
+}
+
+static inline bool lm_ggml_bitset_get(const lm_ggml_bitset_t * bitset, size_t i) {
+    return !!(bitset[i >> BITSET_SHR] & (1u << (i & BITSET_MASK)));
+}
+
+static inline void lm_ggml_bitset_set(lm_ggml_bitset_t * bitset, size_t i) {
+    bitset[i >> BITSET_SHR] |= (1u << (i & BITSET_MASK));
+}
+
+static inline void lm_ggml_bitset_clear(lm_ggml_bitset_t * bitset, size_t i) {
+    bitset[i >> BITSET_SHR] &= ~(1u << (i & BITSET_MASK));
+}
+
+// hash set
+
+#define LM_GGML_HASHSET_FULL ((size_t)-1)
+#define LM_GGML_HASHSET_ALREADY_EXISTS ((size_t)-2)
 
 struct lm_ggml_hash_set lm_ggml_hash_set_new(size_t size);
+void                 lm_ggml_hash_set_free(struct lm_ggml_hash_set * hash_set);
 
-bool   lm_ggml_hash_contains      (const struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor * key);
+// returns the minimum size for a hash set that can hold min_sz elements
+size_t lm_ggml_hash_size(size_t min_sz);
 
-// returns LM_GGML_HASHTABLE_FULL if table is full, otherwise the current index of the key or where it should be inserted
-size_t lm_ggml_hash_find          (const struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor * key);
+// remove all elements from the hash set
+void lm_ggml_hash_set_reset(struct lm_ggml_hash_set * hash_set);
 
-// returns LM_GGML_HASHTABLE_ALREADY_EXISTS if key already exists, index otherwise, asserts if table is full
-size_t lm_ggml_hash_insert        (      struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor * key);
+// returns true if key is in the hash set
+static bool lm_ggml_hash_contains(const struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key);
+
+// returns LM_GGML_HASHSET_FULL if table is full, otherwise the current index of the key or where it should be inserted
+static size_t lm_ggml_hash_find(const struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key);
+
+// returns LM_GGML_HASHSET_ALREADY_EXISTS if key already exists, index otherwise, asserts if table is full
+static size_t lm_ggml_hash_insert(struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key);
 
 // return index, asserts if table is full
-size_t lm_ggml_hash_find_or_insert(      struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor * key);
+static size_t lm_ggml_hash_find_or_insert(struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key);
+
+// hash function for lm_ggml_tensor
+static inline size_t lm_ggml_hash(const struct lm_ggml_tensor * p) {
+    // the last 4 bits are always zero due to alignment
+    return (size_t)(uintptr_t)p >> 4;
+}
+
+static size_t lm_ggml_hash_find(const struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key) {
+    size_t h = lm_ggml_hash(key) % hash_set->size;
+
+    // linear probing
+    size_t i = h;
+    while (lm_ggml_bitset_get(hash_set->used, i) && hash_set->keys[i] != key) {
+        i = (i + 1) % hash_set->size;
+        if (i == h) {
+            // visited all hash table entries -> not found
+            return LM_GGML_HASHSET_FULL;
+        }
+    }
+    return i;
+}
+
+static bool lm_ggml_hash_contains(const struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key) {
+    size_t i = lm_ggml_hash_find(hash_set, key);
+    return i != LM_GGML_HASHSET_FULL && lm_ggml_bitset_get(hash_set->used, i);
+}
+
+static size_t lm_ggml_hash_insert(struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key) {
+    size_t h = lm_ggml_hash(key) % hash_set->size;
+
+    // linear probing
+    size_t i = h;
+    do {
+        if (!lm_ggml_bitset_get(hash_set->used, i)) {
+            lm_ggml_bitset_set(hash_set->used, i);
+            hash_set->keys[i] = key;
+            return i;
+        }
+        if (hash_set->keys[i] == key) {
+            return LM_GGML_HASHSET_ALREADY_EXISTS;
+        }
+        i = (i + 1) % hash_set->size;
+    } while (i != h);
+
+    // visited all hash table entries -> not found
+    LM_GGML_ABORT("fatal error");
+}
+
+static size_t lm_ggml_hash_find_or_insert(struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key) {
+    size_t h = lm_ggml_hash(key) % hash_set->size;
+
+    // linear probing
+    size_t i = h;
+    do {
+        if (!lm_ggml_bitset_get(hash_set->used, i)) {
+            lm_ggml_bitset_set(hash_set->used, i);
+            hash_set->keys[i] = key;
+            return i;
+        }
+        if (hash_set->keys[i] == key) {
+            return i;
+        }
+        i = (i + 1) % hash_set->size;
+    } while (i != h);
+
+    // visited all hash table entries -> not found
+    LM_GGML_ABORT("fatal error");
+}
 
 #ifdef __cplusplus
 }

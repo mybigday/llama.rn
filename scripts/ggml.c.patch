@@ -1,0 +1,15 @@
+--- ggml.c.orig	2024-07-27 14:24:52
++++ ggml.c	2024-07-27 14:25:09
+@@ -144,9 +144,9 @@
+ #if defined(__linux__)
+ #include <execinfo.h>
+ static void lm_ggml_print_backtrace_symbols(void) {
+-    void * trace[100];
+-    int nptrs = backtrace(trace, sizeof(trace)/sizeof(trace[0]));
+-    backtrace_symbols_fd(trace, nptrs, STDERR_FILENO);
++    // void * trace[100];
++    // int nptrs = backtrace(trace, sizeof(trace)/sizeof(trace[0]));
++    // backtrace_symbols_fd(trace, nptrs, STDERR_FILENO);
+ }
+ #else
+ static void lm_ggml_print_backtrace_symbols(void) {

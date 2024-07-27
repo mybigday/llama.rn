@@ -62,7 +62,6 @@
         defaultParams.lora_adapter.push_back({[params[@"lora"] UTF8String], lora_scaled});
         defaultParams.use_mmap = false;
     }
-    if (params[@"lora_base"]) defaultParams.lora_base = [params[@"lora_base"] UTF8String];
 
     if (params[@"rope_freq_base"]) defaultParams.rope_freq_base = [params[@"rope_freq_base"] floatValue];
     if (params[@"rope_freq_scale"]) defaultParams.rope_freq_scale = [params[@"rope_freq_scale"] floatValue];
