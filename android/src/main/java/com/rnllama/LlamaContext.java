@@ -57,8 +57,6 @@ public class LlamaContext {
       params.hasKey("lora") ? params.getString("lora") : "",
       // float lora_scaled,
       params.hasKey("lora_scaled") ? (float) params.getDouble("lora_scaled") : 1.0f,
-      // String lora_base,
-      params.hasKey("lora_base") ? params.getString("lora_base") : "",
       // float rope_freq_base,
       params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 0.0f,
       // float rope_freq_scale
@@ -306,7 +304,6 @@ public class LlamaContext {
     boolean use_mmap,
     String lora,
     float lora_scaled,
-    String lora_base,
     float rope_freq_base,
     float rope_freq_scale
   );

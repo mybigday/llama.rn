@@ -18,7 +18,6 @@ export type NativeContextParams = {
 
   lora?: string // lora_adaptor
   lora_scaled?: number
-  lora_base?: string
 
   rope_freq_base?: number
   rope_freq_scale?: number
