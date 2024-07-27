@@ -91,8 +91,7 @@ void lm_ggml_tallocr_alloc(struct lm_ggml_tallocr * talloc, struct lm_ggml_tenso
     if (talloc->offset + size > lm_ggml_backend_buffer_get_size(talloc->buffer)) {
         fprintf(stderr, "%s: not enough space in the buffer to allocate %s (needed %zu, available %zu)\n",
                 __func__, tensor->name, size, lm_ggml_backend_buffer_get_size(talloc->buffer) - talloc->offset);
-        LM_GGML_ASSERT(!"not enough space in the buffer");
-        return;
+        LM_GGML_ABORT("not enough space in the buffer");
     }
 
     void * addr = (char *)lm_ggml_backend_buffer_get_base(talloc->buffer) + talloc->offset;
@@ -133,7 +132,7 @@ static void add_allocated_tensor(struct lm_ggml_dyn_tallocr * alloc, size_t offs
             return;
         }
     }
-    LM_GGML_ASSERT(!"out of allocated_tensors");
+    LM_GGML_ABORT("out of allocated_tensors");
 }
 static void remove_allocated_tensor(struct lm_ggml_dyn_tallocr * alloc, size_t offset, const struct lm_ggml_tensor * tensor) {
     for (int i = 0; i < 1024; i++) {
@@ -142,8 +141,7 @@ static void remove_allocated_tensor(struct lm_ggml_dyn_tallocr * alloc, size_t o
             return;
         }
     }
-    fprintf(stderr, "tried to free tensor %s not found\n", tensor->name);
-    LM_GGML_ASSERT(!"tensor not found");
+    LM_GGML_ABORT("tried to free tensor %s not found\n", tensor->name);
 }
 #endif
 
@@ -176,8 +174,7 @@ static size_t lm_ggml_dyn_tallocr_alloc(struct lm_ggml_dyn_tallocr * alloc, size
             // this should never happen
             fprintf(stderr, "%s: not enough space in the buffer to allocate %zu bytes, largest block available %zu bytes\n",
                     __func__, size, max_avail);
-            LM_GGML_ASSERT(!"not enough space in the buffer");
-            LM_GGML_UNREACHABLE();
+            LM_GGML_ABORT("not enough space in the buffer");
         }
     }
 
@@ -443,7 +440,7 @@ void lm_ggml_gallocr_free(lm_ggml_gallocr_t galloc) {
         }
     }
 
-    free(galloc->hash_set.keys);
+    lm_ggml_hash_set_free(&galloc->hash_set);
     free(galloc->hash_values);
     free(galloc->bufts);
     free(galloc->buffers);
@@ -456,7 +453,7 @@ void lm_ggml_gallocr_free(lm_ggml_gallocr_t galloc) {
 typedef struct lm_ggml_gallocr * lm_ggml_gallocr_t;
 
 static struct hash_node * lm_ggml_gallocr_hash_get(lm_ggml_gallocr_t galloc, struct lm_ggml_tensor * t) {
-    size_t i = lm_ggml_hash_find_or_insert(galloc->hash_set, t);
+    size_t i = lm_ggml_hash_find_or_insert(&galloc->hash_set, t);
     return &galloc->hash_values[i];
 }
 
@@ -565,8 +562,8 @@ static int get_node_buffer_id(const int * node_buffer_ids, int i) {
 
 static void lm_ggml_gallocr_alloc_graph_impl(lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph * graph, const int * node_buffer_ids, const int * leaf_buffer_ids) {
     // clear hash tables
-    memset(galloc->hash_set.keys, 0, galloc->hash_set.size * sizeof(struct lm_ggml_tensor *));
-    memset(galloc->hash_values,   0, galloc->hash_set.size * sizeof(struct hash_node));
+    lm_ggml_hash_set_reset(&galloc->hash_set);
+    memset(galloc->hash_values, 0, sizeof(struct hash_node) * galloc->hash_set.size);
 
     // allocate leafs
     // these may be tensors that the application is not using in the graph, but may still want to allocate for other purposes
@@ -671,21 +668,19 @@ static void lm_ggml_gallocr_alloc_graph_impl(lm_ggml_gallocr_t galloc, struct lm
 }
 
 bool lm_ggml_gallocr_reserve_n(lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph * graph, const int * node_buffer_ids, const int * leaf_buffer_ids) {
-    size_t hash_size = graph->visited_hash_table.size;
+    size_t min_hash_size = graph->n_nodes + graph->n_leafs;
+    // add 25% margin to avoid hash collisions
+    min_hash_size += min_hash_size / 4;
 
     // initialize hash table
-    if (galloc->hash_set.size < hash_size) {
-        free(galloc->hash_set.keys);
-        free(galloc->hash_values);
-        galloc->hash_set.size = hash_size;
-        galloc->hash_set.keys = calloc(hash_size, sizeof(struct lm_ggml_tensor *));
-        galloc->hash_values   = calloc(hash_size, sizeof(struct hash_node));
+    if (galloc->hash_set.size < min_hash_size) {
+        lm_ggml_hash_set_free(&galloc->hash_set);
+        galloc->hash_set = lm_ggml_hash_set_new(min_hash_size);
         LM_GGML_ASSERT(galloc->hash_set.keys != NULL);
+
+        free(galloc->hash_values);
+        galloc->hash_values = malloc(sizeof(struct hash_node) * galloc->hash_set.size);
         LM_GGML_ASSERT(galloc->hash_values != NULL);
-    } else {
-        // reset hash table
-        memset(galloc->hash_set.keys, 0, sizeof(struct lm_ggml_tensor *) * galloc->hash_set.size);
-        memset(galloc->hash_values,   0, sizeof(struct hash_node) * galloc->hash_set.size);
     }
 
     // reset allocators
@@ -817,8 +812,7 @@ static void lm_ggml_gallocr_init_tensor(lm_ggml_gallocr_t galloc, struct lm_ggml
 }
 
 static bool lm_ggml_gallocr_node_needs_realloc(lm_ggml_gallocr_t galloc, struct lm_ggml_tensor * node, struct tensor_alloc * talloc) {
-    lm_ggml_backend_buffer_type_t buft = talloc->buffer_id != -1 ? galloc->bufts[talloc->buffer_id] : NULL;
-    size_t node_size = (node->data || node->view_src) ? 0 : lm_ggml_backend_buft_get_alloc_size(buft, node);
+    size_t node_size = (node->data || node->view_src) ? 0 : lm_ggml_backend_buft_get_alloc_size(galloc->bufts[talloc->buffer_id], node);
     return talloc->size_max >= node_size;
 }
 
