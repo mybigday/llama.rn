@@ -406,7 +406,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     while (llama->has_next_token && !llama->is_interrupted) {
         const rnllama::completion_token_output token_with_probs = llama->doCompletion();
-        if (token_with_probs.tok == -1 || llama->multibyte_pending > 0) {
+        if (token_with_probs.tok == -1 || llama->incomplete) {
             continue;
         }
         const std::string token_text = llama_token_to_piece(llama->ctx, token_with_probs.tok);

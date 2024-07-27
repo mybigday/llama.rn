@@ -167,7 +167,7 @@ struct llama_rn_context
     bool stopped_word = false;
     bool stopped_limit = false;
     std::string stopping_word;
-    int32_t multibyte_pending = 0;
+    bool incomplete = false;
 
     ~llama_rn_context()
     {
@@ -202,7 +202,7 @@ struct llama_rn_context
         stopped_word = false;
         stopped_limit = false;
         stopping_word = "";
-        multibyte_pending = 0;
+        incomplete = false;
         n_remain = 0;
         n_past = 0;
         params.sparams.n_prev = n_ctx;
@@ -463,35 +463,28 @@ struct llama_rn_context
             generated_token_probs.push_back(token_with_probs);
         }
 
-        if (multibyte_pending > 0)
-        {
-            multibyte_pending -= token_text.size();
-        }
-        else if (token_text.size() == 1)
-        {
-            const char c = token_text[0];
-            // 2-byte characters: 110xxxxx 10xxxxxx
-            if ((c & 0xE0) == 0xC0)
-            {
-                multibyte_pending = 1;
-                // 3-byte characters: 1110xxxx 10xxxxxx 10xxxxxx
+        // check if there is incomplete UTF-8 character at the end
+        for (unsigned i = 1; i < 5 && i <= generated_text.size(); ++i) {
+            unsigned char c = generated_text[generated_text.size() - i];
+            if ((c & 0xC0) == 0x80) {
+                // continuation byte: 10xxxxxx
+                continue;
             }
-            else if ((c & 0xF0) == 0xE0)
-            {
-                multibyte_pending = 2;
-                // 4-byte characters: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+            if ((c & 0xE0) == 0xC0) {
+                // 2-byte character: 110xxxxx ...
+                incomplete = i < 2;
+            } else if ((c & 0xF0) == 0xE0) {
+                // 3-byte character: 1110xxxx ...
+                incomplete = i < 3;
+            } else if ((c & 0xF8) == 0xF0) {
+                // 4-byte character: 11110xxx ...
+                incomplete = i < 4;
             }
-            else if ((c & 0xF8) == 0xF0)
-            {
-                multibyte_pending = 3;
-            }
-            else
-            {
-                multibyte_pending = 0;
-            }
+            // else 1-byte character or invalid byte
+            break;
         }
 
-        if (multibyte_pending > 0 && !has_next_token)
+        if (incomplete && !has_next_token)
         {
             has_next_token = true;
             n_remain++;
