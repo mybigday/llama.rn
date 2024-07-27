@@ -577,17 +577,24 @@ Java_com_rnllama_LlamaContext_embedding(
     llama->params.prompt = text_chars;
 
     llama->params.n_predict = 0;
+
+    auto result = createWriteableMap(env);
+    if (!llama->initSampling()) {
+        putString(env, result, "error", "Failed to initialize sampling");
+        return reinterpret_cast<jobject>(result);
+    }
+
     llama->beginCompletion();
     llama->loadPrompt();
     llama->doCompletion();
 
     std::vector<float> embedding = llama->getEmbedding();
 
-    jobject result = createWritableArray(env);
-
+    auto embeddings = createWritableArray(env);
     for (const auto &val : embedding) {
-      pushDouble(env, result, (double) val);
+      pushDouble(env, embeddings, (double) val);
     }
+    putArray(env, result, "embedding", embeddings);
 
     env->ReleaseStringUTFChars(text, text_chars);
     return result;

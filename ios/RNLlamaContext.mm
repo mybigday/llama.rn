@@ -364,8 +364,12 @@
     llama->params.prompt = [text UTF8String];
 
     llama->params.n_predict = 0;
-    llama->loadPrompt();
+
+    if (!llama->initSampling()) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
+    }
     llama->beginCompletion();
+    llama->loadPrompt();
     llama->doCompletion();
 
     std::vector<float> result = llama->getEmbedding();

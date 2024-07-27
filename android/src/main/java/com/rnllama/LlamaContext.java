@@ -137,7 +137,7 @@ public class LlamaContext {
       }
     }
 
-    return doCompletion(
+    WritableMap result = doCompletion(
       this.context,
       // String prompt,
       params.getString("prompt"),
@@ -191,6 +191,10 @@ public class LlamaContext {
         params.hasKey("emit_partial_completion") ? params.getBoolean("emit_partial_completion") : false
       )
     );
+    if (result.hasKey("error")) {
+      throw new IllegalStateException(result.getString("error"));
+    }
+    return result;
   }
 
   public void stopCompletion() {
@@ -215,12 +219,14 @@ public class LlamaContext {
     return detokenize(this.context, toks);
   }
 
-  public WritableMap embedding(String text) {
+  public WritableMap getEmbedding(String text) {
     if (isEmbeddingEnabled(this.context) == false) {
       throw new IllegalStateException("Embedding is not enabled");
     }
-    WritableMap result = Arguments.createMap();
-    result.putArray("embedding", embedding(this.context, text));
+    WritableMap result = embedding(this.context, text);
+    if (result.hasKey("error")) {
+      throw new IllegalStateException(result.getString("error"));
+    }
     return result;
   }
 
@@ -351,7 +357,7 @@ public class LlamaContext {
   protected static native WritableArray tokenize(long contextPtr, String text);
   protected static native String detokenize(long contextPtr, int[] tokens);
   protected static native boolean isEmbeddingEnabled(long contextPtr);
-  protected static native WritableArray embedding(long contextPtr, String text);
+  protected static native WritableMap embedding(long contextPtr, String text);
   protected static native String bench(long contextPtr, int pp, int tg, int pl, int nr);
   protected static native void freeContext(long contextPtr);
 }
