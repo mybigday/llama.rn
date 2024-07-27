@@ -297,7 +297,7 @@ public class RNLlama implements LifecycleEventListener {
           if (context == null) {
             throw new Exception("Context not found");
           }
-          return context.embedding(text);
+          return context.getEmbedding(text);
         } catch (Exception e) {
           exception = e;
         }
