@@ -225,6 +225,46 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
 }
 
 JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_getFormattedChat(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jobjectArray messages,
+    jstring chat_template
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    std::vector<llama_chat_msg> chat;
+
+    int messages_len = env->GetArrayLength(messages);
+    for (int i = 0; i < messages_len; i++) {
+        jobject msg = env->GetObjectArrayElement(messages, i);
+        jclass msgClass = env->GetObjectClass(msg);
+
+        jmethodID getRoleMethod = env->GetMethodID(msgClass, "getString", "(Ljava/lang/String;)Ljava/lang/String;");
+        jstring roleKey = env->NewStringUTF("role");
+        jstring contentKey = env->NewStringUTF("content");
+
+        jstring role_str = (jstring) env->CallObjectMethod(msg, getRoleMethod, roleKey);
+        jstring content_str = (jstring) env->CallObjectMethod(msg, getRoleMethod, contentKey);
+
+        const char *role = env->GetStringUTFChars(role_str, nullptr);
+        const char *content = env->GetStringUTFChars(content_str, nullptr);
+
+        chat.push_back({ role, content });
+
+        env->ReleaseStringUTFChars(role_str, role);
+        env->ReleaseStringUTFChars(content_str, content);
+    }
+
+    const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
+    std::string formatted_chat = llama_chat_apply_template(llama->model, tmpl_chars, chat, true);
+
+    return env->NewStringUTF(formatted_chat.c_str());
+}
+
+JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_loadSession(
     JNIEnv *env,
     jobject thiz,

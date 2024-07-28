@@ -43,17 +43,17 @@ llama.rn
 
 #### Defined in
 
-[index.ts:43](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L43)
+[index.ts:51](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L51)
 
 ___
 
 ### CompletionParams
 
-Ƭ **CompletionParams**: `Omit`<`NativeCompletionParams`, ``"emit_partial_completion"``\>
+Ƭ **CompletionParams**: `Omit`<`NativeCompletionParams`, ``"emit_partial_completion"`` \| ``"prompt"``\> & { `messages?`: `RNLlamaOAICompatibleMessage`[] ; `prompt?`: `string`  }
 
 #### Defined in
 
-[index.ts:41](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L41)
+[index.ts:43](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L43)
 
 ___
 
@@ -63,7 +63,7 @@ ___
 
 #### Defined in
 
-[index.ts:39](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L39)
+[index.ts:41](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L41)
 
 ___
 
@@ -80,7 +80,7 @@ ___
 
 #### Defined in
 
-[index.ts:29](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L29)
+[index.ts:31](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L31)
 
 ## Functions
 
@@ -104,7 +104,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:824](https://github.com/mybigday/llama.rn/blob/f95f600/src/grammar.ts#L824)
+[grammar.ts:824](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/grammar.ts#L824)
 
 ___
 
@@ -124,7 +124,7 @@ ___
 
 #### Defined in
 
-[index.ts:166](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L166)
+[index.ts:191](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L191)
 
 ___
 
@@ -138,7 +138,7 @@ ___
 
 #### Defined in
 
-[index.ts:182](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L182)
+[index.ts:211](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L211)
 
 ___
 
@@ -158,4 +158,4 @@ ___
 
 #### Defined in
 
-[index.ts:162](https://github.com/mybigday/llama.rn/blob/f95f600/src/index.ts#L162)
+[index.ts:187](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L187)

@@ -127,6 +127,20 @@
     return llama->is_predicting;
 }
 
+- (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate {
+  std::vector<llama_chat_msg> chat;
+
+  for (NSDictionary *msg in messages) {
+    std::string role = [[msg objectForKey:@"role"] UTF8String];
+    std::string content = [[msg objectForKey:@"content"] UTF8String];
+    chat.push_back({ role, content });
+  }
+
+  auto tmpl = chatTemplate == nil ? "" : [chatTemplate UTF8String];
+  auto formatted_chat = llama_chat_apply_template(llama->model, tmpl, chat, true);
+  return [NSString stringWithUTF8String:formatted_chat.c_str()];
+}
+
 - (NSArray *)tokenProbsToDict:(std::vector<rnllama::completion_token_output>)probs {
     NSMutableArray *out = [[NSMutableArray alloc] init];
     for (const auto &prob : probs)

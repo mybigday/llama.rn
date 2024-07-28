@@ -57,6 +57,20 @@ RCT_EXPORT_METHOD(initContext:(NSDictionary *)contextParams
     });
 }
 
+RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
+                 withMessages:(NSArray *)messages
+                 withTemplate:(NSString *)chatTemplate
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+    resolve([context getFormattedChat:messages withTemplate:chatTemplate]);
+}
+
 RCT_EXPORT_METHOD(loadSession:(double)contextId
                  withFilePath:(NSString *)filePath
                  withResolver:(RCTPromiseResolveBlock)resolve

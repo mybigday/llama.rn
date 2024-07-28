@@ -75,6 +75,14 @@ public class LlamaContext {
     return modelDetails;
   }
 
+  public String getFormattedChat(ReadableArray messages, String chatTemplate) {
+    ReadableMap[] msgs = new ReadableMap[messages.size()];
+    for (int i = 0; i < messages.size(); i++) {
+      msgs[i] = messages.getMap(i);
+    }
+    return getFormattedChat(this.context, msgs, chatTemplate == null ? "" : chatTemplate);
+  }
+
   private void emitPartialCompletion(WritableMap tokenResult) {
     WritableMap event = Arguments.createMap();
     event.putInt("contextId", LlamaContext.this.id);
@@ -315,6 +323,11 @@ public class LlamaContext {
   );
   protected static native WritableMap loadModelDetails(
     long contextPtr
+  );
+  protected static native String getFormattedChat(
+    long contextPtr,
+    ReadableMap[] messages,
+    String chatTemplate
   );
   protected static native WritableMap loadSession(
     long contextPtr,

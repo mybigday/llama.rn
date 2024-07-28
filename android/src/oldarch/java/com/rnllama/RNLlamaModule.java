@@ -44,6 +44,11 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
+  public void getFormattedChat(double id, ReadableArray messages, String chatTemplate, Promise promise) {
+    rnllama.getFormattedChat(id, messages, chatTemplate, promise);
+  }
+
+  @ReactMethod
   public void loadSession(double id, String path, Promise promise) {
     rnllama.loadSession(id, path, promise);
   }
