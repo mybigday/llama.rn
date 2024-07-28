@@ -62,6 +62,16 @@ static inline void putDouble(JNIEnv *env, jobject map, const char *key, double v
     env->CallVoidMethod(map, putDoubleMethod, jKey, value);
 }
 
+// Method to put boolean into WritableMap
+static inline void putBoolean(JNIEnv *env, jobject map, const char *key, bool value) {
+    jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableMap");
+    jmethodID putBooleanMethod = env->GetMethodID(mapClass, "putBoolean", "(Ljava/lang/String;Z)V");
+
+    jstring jKey = env->NewStringUTF(key);
+
+    env->CallVoidMethod(map, putBooleanMethod, jKey, value);
+}
+
 // Method to put WriteableMap into WritableMap
 static inline void putMap(JNIEnv *env, jobject map, const char *key, jobject value) {
     jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableMap");
@@ -208,6 +218,7 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
     putString(env, result, "desc", desc);
     putDouble(env, result, "size", llama_model_size(llama->model));
     putDouble(env, result, "nParams", llama_model_n_params(llama->model));
+    putBoolean(env, result, "isChatTemplateSupported", llama->validateModelChatTemplate());
     putMap(env, result, "metadata", meta);
 
     return reinterpret_cast<jobject>(result);

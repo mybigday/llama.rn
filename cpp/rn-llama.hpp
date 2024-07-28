@@ -229,6 +229,14 @@ struct llama_rn_context
         return true;
     }
 
+    bool validateModelChatTemplate() const {
+        llama_chat_message chat[] = {{"user", "test"}};
+
+        const int res = llama_chat_apply_template(model, nullptr, chat, 1, true, nullptr, 0);
+
+        return res > 0;
+    }
+
     void truncatePrompt(std::vector<llama_token> &prompt_tokens) {
         const int n_left = n_ctx - params.n_keep;
         const int n_block_size = n_left / 2;

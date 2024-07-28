@@ -12,6 +12,7 @@
   "dependencies": {
     "@flyerhq/react-native-chat-ui": "^1.4.3",
     "@react-native-clipboard/clipboard": "^1.13.1",
+    "json5": "^2.2.3",
     "react": "18.2.0",
     "react-native": "0.72.3",
     "react-native-blob-util": "^0.19.1",

@@ -6,6 +6,7 @@ import DocumentPicker from 'react-native-document-picker'
 import type { DocumentPickerResponse } from 'react-native-document-picker'
 import { Chat, darkTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
+import json5 from 'json5'
 import ReactNativeBlobUtil from 'react-native-blob-util'
 // eslint-disable-next-line import/no-unresolved
 import { initLlama, LlamaContext, convertJsonSchemaToGrammar } from 'llama.rn'
@@ -73,7 +74,7 @@ export default function App() {
     }
   }
 
-  const addSystemMessage = (text: string, metadata = {} ) => {
+  const addSystemMessage = (text: string, metadata = {}) => {
     const textMessage: MessageType.Text = {
       author: system,
       createdAt: Date.now(),
@@ -119,7 +120,7 @@ export default function App() {
             '- /release: release the context\n' +
             '- /stop: stop the current completion\n' +
             '- /reset: reset the conversation',
-            '- /save-session: save the session tokens\n' +
+          '- /save-session: save the session tokens\n' +
             '- /load-session: load the session tokens',
         )
       })
@@ -166,12 +167,18 @@ export default function App() {
   const handleSendPress = async (message: MessageType.PartialText) => {
     if (context) {
       switch (message.text) {
+        case '/info':
+          addSystemMessage(
+            `// Model Info\n${json5.stringify(context.model, null, 2)}`,
+            { copyable: true },
+          )
+          return
         case '/bench':
           addSystemMessage('Heating up the model...')
           const t0 = Date.now()
           await context.bench(8, 4, 1, 1)
           const tHeat = Date.now() - t0
-          if (tHeat > 1E4) {
+          if (tHeat > 1e4) {
             addSystemMessage('Heat up time is too long, please try again.')
             return
           }
@@ -186,15 +193,21 @@ export default function App() {
             ppStd,
             tgAvg,
             tgStd,
-           } = await context.bench(512, 128, 1, 3)
+          } = await context.bench(512, 128, 1, 3)
 
-          const size = `${(modelSize / 1024.0 / 1024.0 / 1024.0).toFixed(2)} GiB`
+          const size = `${(modelSize / 1024.0 / 1024.0 / 1024.0).toFixed(
+            2,
+          )} GiB`
           const nParams = `${(modelNParams / 1e9).toFixed(2)}B`
           const md =
             '| model | size | params | test | t/s |\n' +
             '| --- | --- | --- | --- | --- |\n' +
-            `| ${modelDesc} | ${size} | ${nParams} | pp 512 | ${ppAvg.toFixed(2)} ± ${ppStd.toFixed(2)} |\n` +
-            `| ${modelDesc} | ${size} | ${nParams} | tg 128 | ${tgAvg.toFixed(2)} ± ${tgStd.toFixed(2)}`
+            `| ${modelDesc} | ${size} | ${nParams} | pp 512 | ${ppAvg.toFixed(
+              2,
+            )} ± ${ppStd.toFixed(2)} |\n` +
+            `| ${modelDesc} | ${size} | ${nParams} | tg 128 | ${tgAvg.toFixed(
+              2,
+            )} ± ${tgStd.toFixed(2)}`
           addSystemMessage(md, { copyable: true })
           return
         case '/release':
@@ -208,22 +221,30 @@ export default function App() {
           addSystemMessage('Conversation reset!')
           return
         case '/save-session':
-          context.saveSession(`${dirs.DocumentDir}/llama-session.bin`).then(tokensSaved => {
-            console.log('Session tokens saved:', tokensSaved)
-            addSystemMessage(`Session saved! ${tokensSaved} tokens saved.`)
-          }).catch(e => {
-            console.log('Session save failed:', e)
-            addSystemMessage(`Session save failed: ${e.message}`)
-          })
+          context
+            .saveSession(`${dirs.DocumentDir}/llama-session.bin`)
+            .then((tokensSaved) => {
+              console.log('Session tokens saved:', tokensSaved)
+              addSystemMessage(`Session saved! ${tokensSaved} tokens saved.`)
+            })
+            .catch((e) => {
+              console.log('Session save failed:', e)
+              addSystemMessage(`Session save failed: ${e.message}`)
+            })
           return
         case '/load-session':
-          context.loadSession(`${dirs.DocumentDir}/llama-session.bin`).then(details => {
-            console.log('Session loaded:', details)
-            addSystemMessage(`Session loaded! ${details.tokens_loaded} tokens loaded.`)
-          }).catch(e => {
-            console.log('Session load failed:', e)
-            addSystemMessage(`Session load failed: ${e.message}`)
-          })
+          context
+            .loadSession(`${dirs.DocumentDir}/llama-session.bin`)
+            .then((details) => {
+              console.log('Session loaded:', details)
+              addSystemMessage(
+                `Session loaded! ${details.tokens_loaded} tokens loaded.`,
+              )
+            })
+            .catch((e) => {
+              console.log('Session load failed:', e)
+              addSystemMessage(`Session load failed: ${e.message}`)
+            })
           return
       }
     }
