@@ -42,8 +42,9 @@ export type ContextParams = NativeContextParams
 
 export type CompletionParams = Omit<
   NativeCompletionParams,
-  'emit_partial_completion'
+  'emit_partial_completion' | 'prompt'
 > & {
+  prompt?: string
   messages?: RNLlamaOAICompatibleMessage[]
 }
 
@@ -113,7 +114,6 @@ export class LlamaContext {
     let finalPrompt = params.prompt
     if (params.messages) { // messages always win
       finalPrompt = await this.getFormattedChat(params.messages)
-      console.log(finalPrompt)
     }
 
     let tokenListener: any =
@@ -124,6 +124,7 @@ export class LlamaContext {
         callback(tokenResult)
       })
 
+    if (!finalPrompt) throw new Error('Prompt is required')
     const promise = RNLlama.completion(this.id, {
       ...params,
       prompt: finalPrompt,
