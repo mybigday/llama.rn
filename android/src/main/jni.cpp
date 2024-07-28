@@ -131,7 +131,6 @@ Java_com_rnllama_LlamaContext_initContext(
     jboolean use_mmap,
     jstring lora_str,
     jfloat lora_scaled,
-    jstring lora_base_str,
     jfloat rope_freq_base,
     jfloat rope_freq_scale
 ) {
@@ -158,10 +157,8 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.use_mmap = use_mmap;
 
     const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
-    const char *lora_base_chars = env->GetStringUTFChars(lora_base_str, nullptr);
     if (lora_chars != nullptr && lora_chars[0] != '\0') {
         defaultParams.lora_adapter.push_back({lora_chars, lora_scaled});
-        defaultParams.lora_base = lora_base_chars;
         defaultParams.use_mmap = false;
     }
 
@@ -180,7 +177,6 @@ Java_com_rnllama_LlamaContext_initContext(
 
     env->ReleaseStringUTFChars(model_path_str, model_path_chars);
     env->ReleaseStringUTFChars(lora_str, lora_chars);
-    env->ReleaseStringUTFChars(lora_base_str, lora_base_chars);
 
     return reinterpret_cast<jlong>(llama->ctx);
 }
@@ -410,7 +406,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     while (llama->has_next_token && !llama->is_interrupted) {
         const rnllama::completion_token_output token_with_probs = llama->doCompletion();
-        if (token_with_probs.tok == -1 || llama->multibyte_pending > 0) {
+        if (token_with_probs.tok == -1 || llama->incomplete) {
             continue;
         }
         const std::string token_text = llama_token_to_piece(llama->ctx, token_with_probs.tok);
@@ -581,17 +577,24 @@ Java_com_rnllama_LlamaContext_embedding(
     llama->params.prompt = text_chars;
 
     llama->params.n_predict = 0;
+
+    auto result = createWriteableMap(env);
+    if (!llama->initSampling()) {
+        putString(env, result, "error", "Failed to initialize sampling");
+        return reinterpret_cast<jobject>(result);
+    }
+
     llama->beginCompletion();
     llama->loadPrompt();
     llama->doCompletion();
 
     std::vector<float> embedding = llama->getEmbedding();
 
-    jobject result = createWritableArray(env);
-
+    auto embeddings = createWritableArray(env);
     for (const auto &val : embedding) {
-      pushDouble(env, result, (double) val);
+      pushDouble(env, embeddings, (double) val);
     }
+    putArray(env, result, "embedding", embeddings);
 
     env->ReleaseStringUTFChars(text, text_chars);
     return result;

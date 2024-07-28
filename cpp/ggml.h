@@ -254,18 +254,8 @@
 
 #define LM_GGML_PAD(x, n) (((x) + (n) - 1) & ~((n) - 1))
 
-#define LM_GGML_ASSERT(x) \
-    do { \
-        if (!(x)) { \
-            fflush(stdout); \
-            fprintf(stderr, "LM_GGML_ASSERT: %s:%d: %s\n", __FILE__, __LINE__, #x); \
-            lm_ggml_print_backtrace(); \
-            abort(); \
-        } \
-    } while (0)
-
 #ifndef NDEBUG
-#define LM_GGML_UNREACHABLE() LM_GGML_ASSERT(!"statement should not be reached")
+#define LM_GGML_UNREACHABLE() do { fprintf(stderr, "statement should be unreachable\n"); abort(); } while(0)
 #elif defined(__GNUC__)
 #define LM_GGML_UNREACHABLE() __builtin_unreachable()
 #elif defined(_MSC_VER)
@@ -273,6 +263,17 @@
 #else
 #define LM_GGML_UNREACHABLE() ((void) 0)
 #endif
+
+#ifdef __cplusplus
+#define LM_GGML_NORETURN [[noreturn]]
+#elif defined(_MSC_VER)
+#define LM_GGML_NORETURN __declspec(noreturn)
+#else
+#define LM_GGML_NORETURN _Noreturn
+#endif
+
+#define LM_GGML_ABORT(...) lm_ggml_abort(__FILE__, __LINE__, __VA_ARGS__)
+#define LM_GGML_ASSERT(x) if (!(x)) LM_GGML_ABORT("LM_GGML_ASSERT(%s) failed", #x)
 
 // used to copy the number of elements and stride in bytes of tensors into local variables.
 // main purpose is to reduce code duplication and improve readability.
@@ -321,6 +322,9 @@
 #ifdef  __cplusplus
 extern "C" {
 #endif
+
+    LM_GGML_NORETURN LM_GGML_ATTRIBUTE_FORMAT(3, 4)
+    LM_GGML_API void lm_ggml_abort(const char * file, int line, const char * fmt, ...);
 
     enum lm_ggml_status {
         LM_GGML_STATUS_ALLOC_FAILED = -2,
@@ -636,8 +640,11 @@ extern "C" {
         LM_GGML_CGRAPH_EVAL_ORDER_COUNT
     };
 
+    typedef uint32_t lm_ggml_bitset_t;
+
     struct lm_ggml_hash_set {
         size_t size;
+        lm_ggml_bitset_t * used;
         struct lm_ggml_tensor ** keys;
     };
 
@@ -651,7 +658,7 @@ extern "C" {
         struct lm_ggml_tensor ** grads;
         struct lm_ggml_tensor ** leafs;
 
-        struct lm_ggml_hash_set visited_hash_table;
+        struct lm_ggml_hash_set visited_hash_set;
 
         enum lm_ggml_cgraph_eval_order order;
     };
@@ -697,8 +704,6 @@ extern "C" {
     LM_GGML_API int64_t lm_ggml_time_us(void);
     LM_GGML_API int64_t lm_ggml_cycles(void);
     LM_GGML_API int64_t lm_ggml_cycles_per_ms(void);
-
-    LM_GGML_API void    lm_ggml_print_backtrace(void);
 
     // accepts a UTF-8 path, even on Windows
     LM_GGML_API FILE *  lm_ggml_fopen(const char * fname, const char * mode);
@@ -2005,8 +2010,8 @@ extern "C" {
 
     // lm_ggml_graph_plan() has to be called before lm_ggml_graph_compute()
     // when plan.work_size > 0, caller must allocate memory for plan.work_data
-    LM_GGML_API struct lm_ggml_cplan lm_ggml_graph_plan            (const struct lm_ggml_cgraph * cgraph, int n_threads /*= LM_GGML_DEFAULT_N_THREADS*/);
-    LM_GGML_API enum lm_ggml_status  lm_ggml_graph_compute         (      struct lm_ggml_cgraph * cgraph, struct lm_ggml_cplan * cplan);
+    LM_GGML_API struct lm_ggml_cplan lm_ggml_graph_plan   (const struct lm_ggml_cgraph * cgraph, int n_threads /*= LM_GGML_DEFAULT_N_THREADS*/);
+    LM_GGML_API enum lm_ggml_status  lm_ggml_graph_compute(      struct lm_ggml_cgraph * cgraph, struct lm_ggml_cplan * cplan);
     // same as lm_ggml_graph_compute() but the work data is allocated as a part of the context
     // note: the drawback of this API is that you must have ensured that the context has enough memory for the work data
     LM_GGML_API enum lm_ggml_status  lm_ggml_graph_compute_with_ctx(struct lm_ggml_context * ctx, struct lm_ggml_cgraph * cgraph, int n_threads);
@@ -2400,6 +2405,7 @@ extern "C" {
     LM_GGML_API int lm_ggml_cpu_has_vsx        (void);
     LM_GGML_API int lm_ggml_cpu_has_matmul_int8(void);
     LM_GGML_API int lm_ggml_cpu_has_cann       (void);
+    LM_GGML_API int lm_ggml_cpu_has_llamafile  (void);
 
     //
     // Internal types and functions exposed for tests and benchmarks

@@ -62,7 +62,6 @@
         defaultParams.lora_adapter.push_back({[params[@"lora"] UTF8String], lora_scaled});
         defaultParams.use_mmap = false;
     }
-    if (params[@"lora_base"]) defaultParams.lora_base = [params[@"lora_base"] UTF8String];
 
     if (params[@"rope_freq_base"]) defaultParams.rope_freq_base = [params[@"rope_freq_base"] floatValue];
     if (params[@"rope_freq_scale"]) defaultParams.rope_freq_scale = [params[@"rope_freq_scale"] floatValue];
@@ -249,7 +248,7 @@
 
     while (llama->has_next_token && !llama->is_interrupted) {
         const rnllama::completion_token_output token_with_probs = llama->doCompletion();
-        if (token_with_probs.tok == -1 || llama->multibyte_pending > 0) {
+        if (token_with_probs.tok == -1 || llama->incomplete) {
             continue;
         }
         const std::string token_text = llama_token_to_piece(llama->ctx, token_with_probs.tok);
@@ -365,8 +364,12 @@
     llama->params.prompt = [text UTF8String];
 
     llama->params.n_predict = 0;
-    llama->loadPrompt();
+
+    if (!llama->initSampling()) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
+    }
     llama->beginCompletion();
+    llama->loadPrompt();
     llama->doCompletion();
 
     std::vector<float> result = llama->getEmbedding();

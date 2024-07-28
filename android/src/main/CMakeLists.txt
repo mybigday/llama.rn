@@ -21,6 +21,9 @@ set(
     ${RNLLAMA_LIB_DIR}/unicode-data.cpp
     ${RNLLAMA_LIB_DIR}/unicode.cpp
     ${RNLLAMA_LIB_DIR}/llama.cpp
+    ${RNLLAMA_LIB_DIR}/llama-vocab.cpp
+    ${RNLLAMA_LIB_DIR}/llama-sampling.cpp
+    ${RNLLAMA_LIB_DIR}/llama-grammar.cpp
     ${RNLLAMA_LIB_DIR}/sgemm.cpp
     ${RNLLAMA_LIB_DIR}/ggml-aarch64.c
     ${RNLLAMA_LIB_DIR}/rn-llama.hpp
@@ -44,7 +47,9 @@ function(build_library target_name cpu_flags)
         target_compile_options(${target_name} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
     endif ()
 
-    if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+    # NOTE: If you want to debug the native code, you can uncomment if and endif
+    # Note that it will be extremely slow
+    # if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
         target_compile_options(${target_name} PRIVATE -O3 -DNDEBUG)
         target_compile_options(${target_name} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
         target_compile_options(${target_name} PRIVATE -ffunction-sections -fdata-sections)
@@ -52,7 +57,7 @@ function(build_library target_name cpu_flags)
         target_link_options(${target_name} PRIVATE -Wl,--gc-sections)
         target_link_options(${target_name} PRIVATE -Wl,--exclude-libs,ALL)
         target_link_options(${target_name} PRIVATE -flto)
-    endif ()
+    # endif ()
 endfunction()
 
 # Default target (no specific CPU features)
