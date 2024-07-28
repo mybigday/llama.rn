@@ -43,7 +43,9 @@ export type ContextParams = NativeContextParams
 export type CompletionParams = Omit<
   NativeCompletionParams,
   'emit_partial_completion'
->
+> & {
+  messages?: RNLlamaOAICompatibleMessage[]
+}
 
 export type BenchResult = {
   modelDesc: string
@@ -103,12 +105,17 @@ export class LlamaContext {
     )
   }
 
-  // async chatCompletion() {} // TODO
-
   async completion(
     params: CompletionParams,
     callback?: (data: TokenData) => void,
   ): Promise<NativeCompletionResult> {
+
+    let finalPrompt = params.prompt
+    if (params.messages) { // messages always win
+      finalPrompt = await this.getFormattedChat(params.messages)
+      console.log(finalPrompt)
+    }
+
     let tokenListener: any =
       callback &&
       EventEmitter.addListener(EVENT_ON_TOKEN, (evt: TokenNativeEvent) => {
@@ -116,8 +123,10 @@ export class LlamaContext {
         if (contextId !== this.id) return
         callback(tokenResult)
       })
+
     const promise = RNLlama.completion(this.id, {
       ...params,
+      prompt: finalPrompt,
       emit_partial_completion: !!callback,
     })
     return promise
