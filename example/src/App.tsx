@@ -310,8 +310,10 @@ export default function App() {
                   date: { type: 'string' },
                   time: { type: 'string' },
                 },
+                required: ['title', 'date'],
               },
             },
+            required: ['function', 'arguments'],
           },
           {
             type: 'object',
@@ -322,6 +324,7 @@ export default function App() {
                 properties: {
                   query: { type: 'string' },
                 },
+                required: ['query'],
               },
             },
           },
