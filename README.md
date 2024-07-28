@@ -31,6 +31,7 @@ Add proguard rule if it's enabled in project (android/app/proguard-rules.pro):
 
 You can search HuggingFace for available models (Keyword: [`GGUF`](https://huggingface.co/search/full-text?q=GGUF&type=model)).
 
+<<<<<<< Updated upstream
 For create a GGUF model manually, for example in Llama 2:
 
 Download the Llama 2 model
@@ -61,6 +62,9 @@ make quantize
 # quantize the model to 4-bits (using q4_0 method)
 ./quantize ./models/7B/ggml-model-f16.gguf ./models/7B/ggml-model-q4_0.gguf q4_0
 ```
+=======
+For get a GGUF model or quantize manually, see [`Prepare and Quantize`](https://github.com/ggerganov/llama.cpp?tab=readme-ov-file#prepare-and-quantize) section in llama.cpp.
+>>>>>>> Stashed changes
 
 ## Usage
 
