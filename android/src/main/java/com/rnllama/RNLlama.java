@@ -80,6 +80,38 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "initContext");
   }
 
+  public void getFormattedChat(double id, final ReadableArray messages, final String chatTemplate, Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, String>() {
+      private Exception exception;
+
+      @Override
+      protected String doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          return context.getFormattedChat(messages, chatTemplate);
+        } catch (Exception e) {
+          exception = e;
+          return null;
+        }
+      }
+
+      @Override
+      protected void onPostExecute(String result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "getFormattedChat-" + contextId);
+  }
+
   public void loadSession(double id, final String path, Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {

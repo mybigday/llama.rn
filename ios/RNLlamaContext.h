@@ -23,6 +23,7 @@
 - (NSArray *)tokenize:(NSString *)text;
 - (NSString *)detokenize:(NSArray *)tokens;
 - (NSArray *)embedding:(NSString *)text;
+- (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate;
 - (NSDictionary *)loadSession:(NSString *)path;
 - (int)saveSession:(NSString *)path size:(int)size;
 - (NSString *)bench:(int)pp tg:(int)tg pl:(int)pl nr:(int)nr;

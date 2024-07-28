@@ -1,3 +1,5 @@
+import type { NativeLlamaChatMessage } from './NativeRNLlama'
+
 export type RNLlamaMessagePart = {
   text?: string
 }
@@ -7,15 +9,10 @@ export type RNLlamaOAICompatibleMessage = {
   content?: string | RNLlamaMessagePart[] | any // any for check invalid content type
 }
 
-export type RNLlamaChatMessage = {
-  role: string
-  content: string
-}
-
 export function formatChat(
   messages: RNLlamaOAICompatibleMessage[],
-): RNLlamaChatMessage[] {
-  const chat: RNLlamaChatMessage[] = []
+): NativeLlamaChatMessage[] {
+  const chat: NativeLlamaChatMessage[] = []
 
   messages.forEach((currMsg) => {
     const role: string = currMsg.role || ''
