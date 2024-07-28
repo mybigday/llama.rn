@@ -31,42 +31,7 @@ Add proguard rule if it's enabled in project (android/app/proguard-rules.pro):
 
 You can search HuggingFace for available models (Keyword: [`GGUF`](https://huggingface.co/search/full-text?q=GGUF&type=model)).
 
-<<<<<<< Updated upstream
-For create a GGUF model manually, for example in Llama 2:
-
-Download the Llama 2 model
-
-1. Request access from [here](https://ai.meta.com/llama)
-2. Download the model from HuggingFace [here](https://huggingface.co/meta-llama/Llama-2-7b-chat) (`Llama-2-7b-chat`)
-
-Convert the model to ggml format
-
-```bash
-# Start with submodule in this repo (or you can clone the repo https://github.com/ggerganov/llama.cpp.git)
-yarn && yarn bootstrap
-cd llama.cpp
-
-# install Python dependencies
-python3 -m pip install -r requirements.txt
-
-# Move the Llama model weights to the models folder
-mv <path to Llama-2-7b-chat> ./models/7B
-
-# convert the 7B model to ggml FP16 format
-python3 convert.py models/7B/ --outtype f16
-
-# Build the quantize tool
-make quantize
-
-# quantize the model to 2-bits (using q2_k method)
-./quantize ./models/7B/ggml-model-f16.gguf ./models/7B/ggml-model-q2_k.gguf q2_k
-
-# quantize the model to 4-bits (using q4_0 method)
-./quantize ./models/7B/ggml-model-f16.gguf ./models/7B/ggml-model-q4_0.gguf q4_0
-```
-=======
 For get a GGUF model or quantize manually, see [`Prepare and Quantize`](https://github.com/ggerganov/llama.cpp?tab=readme-ov-file#prepare-and-quantize) section in llama.cpp.
->>>>>>> Stashed changes
 
 ## Usage
 
