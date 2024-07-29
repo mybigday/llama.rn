@@ -10,6 +10,9 @@ if (!NativeModules.RNLlama) {
       }),
     ),
 
+    // TODO: Use jinja parser
+    getFormattedChat: jest.fn(() => ''),
+
     completion: jest.fn(async (contextId, jobId) => {
       const testResult = {
         text: '*giggles*',
