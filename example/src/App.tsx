@@ -6,6 +6,7 @@ import DocumentPicker from 'react-native-document-picker'
 import type { DocumentPickerResponse } from 'react-native-document-picker'
 import { Chat, darkTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
+import json5 from 'json5'
 import ReactNativeBlobUtil from 'react-native-blob-util'
 // eslint-disable-next-line import/no-unresolved
 import { initLlama, LlamaContext, convertJsonSchemaToGrammar } from 'llama.rn'
@@ -20,30 +21,10 @@ const user = { id: 'y9d7f8pgn' }
 const systemId = 'h3o3lc5xj'
 const system = { id: systemId }
 
-const initialChatPrompt =
-  'This is a conversation between user and llama, a friendly chatbot. respond in simple markdown.\n\n'
-
-const generateChatPrompt = (
-  context: LlamaContext | undefined,
-  conversationId: string,
-  messages: MessageType.Any[],
-) => {
-  const prompt = [...messages]
-    .reverse()
-    .map((msg) => {
-      if (
-        !msg.metadata?.system &&
-        msg.metadata?.conversationId === conversationId &&
-        msg.metadata?.contextId === context?.id &&
-        msg.type === 'text'
-      ) {
-        return `${msg.author.id === systemId ? 'llama' : 'User'}: ${msg.text}`
-      }
-      return ''
-    })
-    .filter(Boolean)
-    .join('\n')
-  return initialChatPrompt + prompt
+const systemMessage = {
+  role: 'system',
+  content:
+    'This is a conversation between user and assistant, a friendly chatbot.\n\n',
 }
 
 const defaultConversationId = 'default'
@@ -73,7 +54,7 @@ export default function App() {
     }
   }
 
-  const addSystemMessage = (text: string, metadata = {} ) => {
+  const addSystemMessage = (text: string, metadata = {}) => {
     const textMessage: MessageType.Text = {
       author: system,
       createdAt: Date.now(),
@@ -113,12 +94,15 @@ export default function App() {
         addSystemMessage(
           `Context initialized! \n\nGPU: ${ctx.gpu ? 'YES' : 'NO'} (${
             ctx.reasonNoGPU
-          })\n\n` +
+          })\nChat Template: ${
+            ctx.model.isChatTemplateSupported ? 'YES' : 'NO'
+          }\n\n` +
             'You can use the following commands:\n\n' +
+            '- /info: to get the model info\n' +
             '- /bench: to benchmark the model\n' +
             '- /release: release the context\n' +
             '- /stop: stop the current completion\n' +
-            '- /reset: reset the conversation',
+            '- /reset: reset the conversation' +
             '- /save-session: save the session tokens\n' +
             '- /load-session: load the session tokens',
         )
@@ -166,12 +150,18 @@ export default function App() {
   const handleSendPress = async (message: MessageType.PartialText) => {
     if (context) {
       switch (message.text) {
+        case '/info':
+          addSystemMessage(
+            `// Model Info\n${json5.stringify(context.model, null, 2)}`,
+            { copyable: true },
+          )
+          return
         case '/bench':
           addSystemMessage('Heating up the model...')
           const t0 = Date.now()
           await context.bench(8, 4, 1, 1)
           const tHeat = Date.now() - t0
-          if (tHeat > 1E4) {
+          if (tHeat > 1e4) {
             addSystemMessage('Heat up time is too long, please try again.')
             return
           }
@@ -186,15 +176,21 @@ export default function App() {
             ppStd,
             tgAvg,
             tgStd,
-           } = await context.bench(512, 128, 1, 3)
+          } = await context.bench(512, 128, 1, 3)
 
-          const size = `${(modelSize / 1024.0 / 1024.0 / 1024.0).toFixed(2)} GiB`
+          const size = `${(modelSize / 1024.0 / 1024.0 / 1024.0).toFixed(
+            2,
+          )} GiB`
           const nParams = `${(modelNParams / 1e9).toFixed(2)}B`
           const md =
             '| model | size | params | test | t/s |\n' +
             '| --- | --- | --- | --- | --- |\n' +
-            `| ${modelDesc} | ${size} | ${nParams} | pp 512 | ${ppAvg.toFixed(2)} ± ${ppStd.toFixed(2)} |\n` +
-            `| ${modelDesc} | ${size} | ${nParams} | tg 128 | ${tgAvg.toFixed(2)} ± ${tgStd.toFixed(2)}`
+            `| ${modelDesc} | ${size} | ${nParams} | pp 512 | ${ppAvg.toFixed(
+              2,
+            )} ± ${ppStd.toFixed(2)} |\n` +
+            `| ${modelDesc} | ${size} | ${nParams} | tg 128 | ${tgAvg.toFixed(
+              2,
+            )} ± ${tgStd.toFixed(2)}`
           addSystemMessage(md, { copyable: true })
           return
         case '/release':
@@ -208,22 +204,30 @@ export default function App() {
           addSystemMessage('Conversation reset!')
           return
         case '/save-session':
-          context.saveSession(`${dirs.DocumentDir}/llama-session.bin`).then(tokensSaved => {
-            console.log('Session tokens saved:', tokensSaved)
-            addSystemMessage(`Session saved! ${tokensSaved} tokens saved.`)
-          }).catch(e => {
-            console.log('Session save failed:', e)
-            addSystemMessage(`Session save failed: ${e.message}`)
-          })
+          context
+            .saveSession(`${dirs.DocumentDir}/llama-session.bin`)
+            .then((tokensSaved) => {
+              console.log('Session tokens saved:', tokensSaved)
+              addSystemMessage(`Session saved! ${tokensSaved} tokens saved.`)
+            })
+            .catch((e) => {
+              console.log('Session save failed:', e)
+              addSystemMessage(`Session save failed: ${e.message}`)
+            })
           return
         case '/load-session':
-          context.loadSession(`${dirs.DocumentDir}/llama-session.bin`).then(details => {
-            console.log('Session loaded:', details)
-            addSystemMessage(`Session loaded! ${details.tokens_loaded} tokens loaded.`)
-          }).catch(e => {
-            console.log('Session load failed:', e)
-            addSystemMessage(`Session load failed: ${e.message}`)
-          })
+          context
+            .loadSession(`${dirs.DocumentDir}/llama-session.bin`)
+            .then((details) => {
+              console.log('Session loaded:', details)
+              addSystemMessage(
+                `Session loaded! ${details.tokens_loaded} tokens loaded.`,
+              )
+            })
+            .catch((e) => {
+              console.log('Session load failed:', e)
+              addSystemMessage(`Session load failed: ${e.message}`)
+            })
           return
       }
     }
@@ -238,32 +242,50 @@ export default function App() {
         conversationId: conversationIdRef.current,
       },
     }
-    addMessage(textMessage)
-    setInferencing(true)
 
     const id = randId()
     const createdAt = Date.now()
-    let prompt = generateChatPrompt(context, conversationIdRef.current, [
-      textMessage,
-      ...messages,
-    ])
-    prompt += `\nllama:`
+    const msgs = [
+      systemMessage,
+      ...[...messages]
+        .reverse()
+        .map((msg) => {
+          if (
+            !msg.metadata?.system &&
+            msg.metadata?.conversationId === conversationIdRef.current &&
+            msg.metadata?.contextId === context?.id &&
+            msg.type === 'text'
+          ) {
+            return {
+              role: msg.author.id === systemId ? 'assistant' : 'user',
+              content: msg.text,
+            }
+          }
+          return { role: '', content: '' }
+        })
+        .filter((msg) => msg.role),
+      { role: 'user', content: message.text },
+    ]
+    addMessage(textMessage)
+    setInferencing(true)
 
+    // Test area
     {
       // Test tokenize
+      const formattedChat = (await context?.getFormattedChat(msgs)) || ''
       const t0 = Date.now()
-      const { tokens } = (await context?.tokenize(prompt)) || {}
+      const { tokens } = (await context?.tokenize(formattedChat)) || {}
       const t1 = Date.now()
       console.log(
-        'Prompt:',
-        prompt,
+        'Formatted:',
+        `"${formattedChat}"`,
         '\nTokenize:',
         tokens,
         `(${tokens?.length} tokens, ${t1 - t0}ms})`,
       )
 
       // Test embedding
-      // await context?.embedding(prompt).then((result) => {
+      // await context?.embedding(formattedChat).then((result) => {
       //   console.log('Embedding:', result)
       // })
 
@@ -289,8 +311,10 @@ export default function App() {
                   date: { type: 'string' },
                   time: { type: 'string' },
                 },
+                required: ['title', 'date'],
               },
             },
+            required: ['function', 'arguments'],
           },
           {
             type: 'object',
@@ -301,6 +325,7 @@ export default function App() {
                 properties: {
                   query: { type: 'string' },
                 },
+                required: ['query'],
               },
             },
           },
@@ -321,7 +346,7 @@ export default function App() {
     context
       ?.completion(
         {
-          prompt,
+          messages: msgs,
           n_predict: 400,
           temperature: 0.7,
           top_k: 40, // <= 0 to use vocab size
@@ -336,9 +361,19 @@ export default function App() {
           mirostat_tau: 5, // target entropy
           mirostat_eta: 0.1, // learning rate
           penalize_nl: false, // penalize newlines
-          seed: 1234, // random seed
+          seed: -1, // random seed
           n_probs: 0, // Show probabilities
-          stop: ['</s>', 'llama:', 'User:'],
+          stop: [
+            '</s>',
+            '<|end|>',
+            '<|eot_id|>',
+            '<|end_of_text|>',
+            '<|im_end|>',
+            '<|EOT|>',
+            '<|END_OF_TURN_TOKEN|>',
+            '<|end_of_turn|>',
+            '<|endoftext|>',
+          ],
           grammar,
           // n_threads: 4,
           // logit_bias: [[15043,1.0]],
@@ -365,7 +400,10 @@ export default function App() {
                 id,
                 text: token,
                 type: 'text',
-                metadata: { contextId: context?.id },
+                metadata: {
+                  contextId: context?.id,
+                  conversationId: conversationIdRef.current,
+                },
               },
               ...msgs,
             ]

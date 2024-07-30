@@ -82,26 +82,6 @@
     context->is_metal_enabled = isMetalEnabled;
     context->reason_no_metal = reasonNoMetal;
 
-    int count = llama_model_meta_count(context->llama->model);
-    NSDictionary *meta = [[NSMutableDictionary alloc] init];
-    for (int i = 0; i < count; i++) {
-        char key[256];
-        llama_model_meta_key_by_index(context->llama->model, i, key, sizeof(key));
-        char val[256];
-        llama_model_meta_val_str_by_index(context->llama->model, i, val, sizeof(val));
-
-        NSString *keyStr = [NSString stringWithUTF8String:key];
-        NSString *valStr = [NSString stringWithUTF8String:val];
-        [meta setValue:valStr forKey:keyStr];
-    }
-    context->metadata = meta;
-
-    char desc[1024];
-    llama_model_desc(context->llama->model, desc, sizeof(desc));
-    context->model_desc = [NSString stringWithUTF8String:desc];
-    context->model_size = llama_model_size(context->llama->model);
-    context->model_n_params = llama_model_n_params(context->llama->model);
-
     return context;
 }
 
@@ -113,20 +93,30 @@
     return reason_no_metal;
 }
 
-- (NSDictionary *)metadata {
-    return metadata;
-}
+- (NSDictionary *)modelInfo {
+    char desc[1024];
+    llama_model_desc(llama->model, desc, sizeof(desc));
 
-- (NSString *)modelDesc {
-    return model_desc;
-}
+    int count = llama_model_meta_count(llama->model);
+    NSDictionary *meta = [[NSMutableDictionary alloc] init];
+    for (int i = 0; i < count; i++) {
+        char key[256];
+        llama_model_meta_key_by_index(llama->model, i, key, sizeof(key));
+        char val[2048];
+        llama_model_meta_val_str_by_index(llama->model, i, val, sizeof(val));
 
-- (uint64_t)modelSize {
-    return model_size;
-}
+        NSString *keyStr = [NSString stringWithUTF8String:key];
+        NSString *valStr = [NSString stringWithUTF8String:val];
+        [meta setValue:valStr forKey:keyStr];
+    }
 
-- (uint64_t)modelNParams {
-    return model_n_params;
+    return @{
+        @"desc": [NSString stringWithUTF8String:desc],
+        @"size": @(llama_model_size(llama->model)),
+        @"nParams": @(llama_model_n_params(llama->model)),
+        @"isChatTemplateSupported": @(llama->validateModelChatTemplate()),
+        @"metadata": meta
+    };
 }
 
 - (bool)isModelLoaded {
@@ -135,6 +125,20 @@
 
 - (bool)isPredicting {
     return llama->is_predicting;
+}
+
+- (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate {
+  std::vector<llama_chat_msg> chat;
+
+  for (NSDictionary *msg in messages) {
+    std::string role = [[msg objectForKey:@"role"] UTF8String];
+    std::string content = [[msg objectForKey:@"content"] UTF8String];
+    chat.push_back({ role, content });
+  }
+
+  auto tmpl = chatTemplate == nil ? "" : [chatTemplate UTF8String];
+  auto formatted_chat = llama_chat_apply_template(llama->model, tmpl, chat, true);
+  return [NSString stringWithUTF8String:formatted_chat.c_str()];
 }
 
 - (NSArray *)tokenProbsToDict:(std::vector<rnllama::completion_token_output>)probs {

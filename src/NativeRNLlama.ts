@@ -1,5 +1,5 @@
-import type { TurboModule } from 'react-native';
-import { TurboModuleRegistry } from 'react-native';
+import type { TurboModule } from 'react-native'
+import { TurboModuleRegistry } from 'react-native'
 
 export type NativeContextParams = {
   model: string
@@ -110,22 +110,48 @@ export type NativeSessionLoadResult = {
   prompt: string
 }
 
-export interface Spec extends TurboModule {
-  setContextLimit(limit: number): Promise<void>;
-  initContext(params: NativeContextParams): Promise<NativeLlamaContext>;
-
-  loadSession(contextId: number, filepath: string): Promise<NativeSessionLoadResult>;
-  saveSession(contextId: number, filepath: string, size: number): Promise<number>;
-  completion(contextId: number, params: NativeCompletionParams): Promise<NativeCompletionResult>;
-  stopCompletion(contextId: number): Promise<void>;
-  tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>;
-  detokenize(contextId: number, tokens: number[]): Promise<string>;
-  embedding(contextId: number, text: string): Promise<NativeEmbeddingResult>;
-  bench(contextId: number, pp: number, tg: number, pl: number, nr: number): Promise<string>;
-
-  releaseContext(contextId: number): Promise<void>;
-
-  releaseAllContexts(): Promise<void>;
+export type NativeLlamaChatMessage = {
+  role: string
+  content: string
 }
 
-export default TurboModuleRegistry.get<Spec>('RNLlama') as Spec;
+export interface Spec extends TurboModule {
+  setContextLimit(limit: number): Promise<void>
+  initContext(params: NativeContextParams): Promise<NativeLlamaContext>
+
+  getFormattedChat(
+    contextId: number,
+    messages: NativeLlamaChatMessage[],
+    chatTemplate?: string,
+  ): Promise<string>
+  loadSession(
+    contextId: number,
+    filepath: string,
+  ): Promise<NativeSessionLoadResult>
+  saveSession(
+    contextId: number,
+    filepath: string,
+    size: number,
+  ): Promise<number>
+  completion(
+    contextId: number,
+    params: NativeCompletionParams,
+  ): Promise<NativeCompletionResult>
+  stopCompletion(contextId: number): Promise<void>
+  tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>
+  detokenize(contextId: number, tokens: number[]): Promise<string>
+  embedding(contextId: number, text: string): Promise<NativeEmbeddingResult>
+  bench(
+    contextId: number,
+    pp: number,
+    tg: number,
+    pl: number,
+    nr: number,
+  ): Promise<string>
+
+  releaseContext(contextId: number): Promise<void>
+
+  releaseAllContexts(): Promise<void>
+}
+
+export default TurboModuleRegistry.get<Spec>('RNLlama') as Spec

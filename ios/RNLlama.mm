@@ -53,13 +53,22 @@ RCT_EXPORT_METHOD(initContext:(NSDictionary *)contextParams
         @"contextId": contextIdNumber,
         @"gpu": @([context isMetalEnabled]),
         @"reasonNoGPU": [context reasonNoMetal],
-        @"model": @{
-          @"desc": [context modelDesc],
-          @"size": @([context modelSize]),
-          @"nParams": @([context modelNParams]),
-          @"metadata": [context metadata],
-        }
+        @"model": [context modelInfo],
     });
+}
+
+RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
+                 withMessages:(NSArray *)messages
+                 withTemplate:(NSString *)chatTemplate
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+    resolve([context getFormattedChat:messages withTemplate:chatTemplate]);
 }
 
 RCT_EXPORT_METHOD(loadSession:(double)contextId

@@ -229,6 +229,16 @@ struct llama_rn_context
         return true;
     }
 
+    bool validateModelChatTemplate() const {
+        llama_chat_message chat[] = {{"user", "test"}};
+
+        std::vector<char> model_template(2048, 0); // longest known template is about 1200 bytes
+        std::string template_key = "tokenizer.chat_template";
+        int32_t res = llama_model_meta_val_str(model, template_key.c_str(), model_template.data(), model_template.size());
+
+        return res >= 0;
+    }
+
     void truncatePrompt(std::vector<llama_token> &prompt_tokens) {
         const int n_left = n_ctx - params.n_keep;
         const int n_block_size = n_left / 2;

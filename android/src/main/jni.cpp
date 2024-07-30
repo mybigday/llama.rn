@@ -62,6 +62,16 @@ static inline void putDouble(JNIEnv *env, jobject map, const char *key, double v
     env->CallVoidMethod(map, putDoubleMethod, jKey, value);
 }
 
+// Method to put boolean into WritableMap
+static inline void putBoolean(JNIEnv *env, jobject map, const char *key, bool value) {
+    jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableMap");
+    jmethodID putBooleanMethod = env->GetMethodID(mapClass, "putBoolean", "(Ljava/lang/String;Z)V");
+
+    jstring jKey = env->NewStringUTF(key);
+
+    env->CallVoidMethod(map, putBooleanMethod, jKey, value);
+}
+
 // Method to put WriteableMap into WritableMap
 static inline void putMap(JNIEnv *env, jobject map, const char *key, jobject value) {
     jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableMap");
@@ -195,7 +205,7 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
     for (int i = 0; i < count; i++) {
         char key[256];
         llama_model_meta_key_by_index(llama->model, i, key, sizeof(key));
-        char val[256];
+        char val[2048];
         llama_model_meta_val_str_by_index(llama->model, i, val, sizeof(val));
 
         putString(env, meta, key, val);
@@ -208,9 +218,50 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
     putString(env, result, "desc", desc);
     putDouble(env, result, "size", llama_model_size(llama->model));
     putDouble(env, result, "nParams", llama_model_n_params(llama->model));
+    putBoolean(env, result, "isChatTemplateSupported", llama->validateModelChatTemplate());
     putMap(env, result, "metadata", meta);
 
     return reinterpret_cast<jobject>(result);
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_getFormattedChat(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jobjectArray messages,
+    jstring chat_template
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    std::vector<llama_chat_msg> chat;
+
+    int messages_len = env->GetArrayLength(messages);
+    for (int i = 0; i < messages_len; i++) {
+        jobject msg = env->GetObjectArrayElement(messages, i);
+        jclass msgClass = env->GetObjectClass(msg);
+
+        jmethodID getRoleMethod = env->GetMethodID(msgClass, "getString", "(Ljava/lang/String;)Ljava/lang/String;");
+        jstring roleKey = env->NewStringUTF("role");
+        jstring contentKey = env->NewStringUTF("content");
+
+        jstring role_str = (jstring) env->CallObjectMethod(msg, getRoleMethod, roleKey);
+        jstring content_str = (jstring) env->CallObjectMethod(msg, getRoleMethod, contentKey);
+
+        const char *role = env->GetStringUTFChars(role_str, nullptr);
+        const char *content = env->GetStringUTFChars(content_str, nullptr);
+
+        chat.push_back({ role, content });
+
+        env->ReleaseStringUTFChars(role_str, role);
+        env->ReleaseStringUTFChars(content_str, content);
+    }
+
+    const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
+    std::string formatted_chat = llama_chat_apply_template(llama->model, tmpl_chars, chat, true);
+
+    return env->NewStringUTF(formatted_chat.c_str());
 }
 
 JNIEXPORT jobject JNICALL
