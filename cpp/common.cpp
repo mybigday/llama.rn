@@ -52,6 +52,12 @@
 #include <future>
 #endif
 
+// build info
+int LLAMA_BUILD_NUMBER = 0;
+char const *LLAMA_COMMIT = "unknown";
+char const *LLAMA_COMPILER = "unknown";
+char const *LLAMA_BUILD_TARGET = "unknown";
+
 #if defined(_MSC_VER)
 #pragma warning(disable: 4244 4267) // possible loss of data
 #endif

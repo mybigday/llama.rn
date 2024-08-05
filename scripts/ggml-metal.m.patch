@@ -1,6 +1,6 @@
---- ggml-metal.m.orig	2024-05-29 09:16:58
-+++ ggml-metal.m	2024-05-29 09:16:59
-@@ -336,7 +336,7 @@
+--- ggml-metal.m.orig
++++ ggml-metal.m
+@@ -336,7 +336,7 @@ static struct lm_ggml_metal_context * lm_ggml_metal_init(int n_cb) {
          const bool try_metallib = true;
  #endif
 

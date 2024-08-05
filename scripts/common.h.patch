@@ -1,6 +1,6 @@
---- common.h.orig	2024-05-29 09:16:58
-+++ common.h	2024-05-29 09:16:59
-@@ -41,6 +41,17 @@
+--- common.h.orig
++++ common.h
+@@ -41,6 +41,17 @@ extern char const * LLAMA_BUILD_TARGET;
 
  struct llama_control_vector_load_info;
 
