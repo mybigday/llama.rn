@@ -19,7 +19,11 @@ typedef half2 lm_ggml_half2;
 
 #define LM_GGML_COMMON_DECL
 #elif defined(LM_GGML_COMMON_DECL_CUDA)
+#if defined(LM_GGML_COMMON_DECL_MUSA)
+#include <musa_fp16.h>
+#else
 #include <cuda_fp16.h>
+#endif
 #include <cstdint>
 
 typedef half  lm_ggml_half;
@@ -415,7 +419,7 @@ static_assert(sizeof(block_iq4_xs) == sizeof(lm_ggml_half) + sizeof(uint16_t) + 
 #define LM_GGML_TABLE_END() };
 
 #define LM_GGML_COMMON_IMPL
-#elif defined(LM_GGML_COMMON_IMPL_CUDA) || defined(LM_GGML_COMMON_IMPL_HIP)
+#elif defined(LM_GGML_COMMON_IMPL_CUDA) || defined(LM_GGML_COMMON_IMPL_HIP) || defined(LM_GGML_COMMON_IMPL_MUSA)
 #include <cstdint>
 
 #define LM_GGML_TABLE_BEGIN(type, name, size) static const __device__ type name[size] = {

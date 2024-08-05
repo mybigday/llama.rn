@@ -336,7 +336,7 @@ static struct lm_ggml_metal_context * lm_ggml_metal_init(int n_cb) {
         const bool try_metallib = true;
 #endif
 
-        NSString * path_lib = [bundle pathForResource:@"ggml-llama" ofType:@"metallib"];
+        NSString * path_lib = [bundle pathForResource:@"default" ofType:@"metallib"];
         if (try_metallib && path_lib != nil) {
             // pre-compiled library found
             NSURL * libURL = [NSURL fileURLWithPath:path_lib];
