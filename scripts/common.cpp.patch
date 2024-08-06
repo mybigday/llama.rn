@@ -1,15 +1,15 @@
---- common.cpp.orig	2024-05-29 09:16:58
-+++ common.cpp	2024-05-29 09:16:59
-@@ -51,6 +51,12 @@
- #include <thread>
+--- common.cpp.orig
++++ common.cpp
+@@ -52,6 +52,12 @@
  #include <future>
  #endif
-+
+
 +// build info
 +int LLAMA_BUILD_NUMBER = 0;
 +char const *LLAMA_COMMIT = "unknown";
 +char const *LLAMA_COMPILER = "unknown";
 +char const *LLAMA_BUILD_TARGET = "unknown";
-
++
  #if defined(_MSC_VER)
  #pragma warning(disable: 4244 4267) // possible loss of data
+ #endif
