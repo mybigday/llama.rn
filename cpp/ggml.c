@@ -37,6 +37,9 @@
 #include <unistd.h>
 #endif
 
+#if defined(__ARM_FEATURE_SVE)
+int lm_ggml_sve_cnt_b = 0;
+#endif
 #if defined(__ARM_FEATURE_SVE) || defined(__ARM_FEATURE_MATMUL_INT8)
 #undef LM_GGML_USE_LLAMAFILE
 #endif
@@ -141,7 +144,51 @@ typedef pthread_t lm_ggml_thread_t;
 
 #include <sys/wait.h>
 
-#if defined(__linux__)
+#if defined(__ANDROID__)
+#include <unwind.h>
+#include <dlfcn.h>
+#include <stdio.h>
+
+struct backtrace_state {
+    void ** current;
+    void ** end;
+};
+
+static _Unwind_Reason_Code unwind_callback(struct _Unwind_Context* context, void* arg) {
+    struct backtrace_state * state = (struct backtrace_state *)arg;
+    uintptr_t pc = _Unwind_GetIP(context);
+    if (pc) {
+        if (state->current == state->end) {
+            return _URC_END_OF_STACK;
+        } else {
+            *state->current++ = (void*)pc;
+        }
+    }
+    return _URC_NO_REASON;
+}
+
+static void lm_ggml_print_backtrace_symbols(void) {
+    const int max = 100;
+    void* buffer[max];
+
+    struct backtrace_state state = {buffer, buffer + max};
+    _Unwind_Backtrace(unwind_callback, &state);
+
+    int count = state.current - buffer;
+
+    for (int idx = 0; idx < count; ++idx) {
+        const void * addr = buffer[idx];
+        const char * symbol = "";
+
+        Dl_info info;
+        if (dladdr(addr, &info) && info.dli_sname) {
+            symbol = info.dli_sname;
+        }
+
+        fprintf(stderr, "%d: %p %s\n", idx, addr, symbol);
+    }
+}
+#elif defined(__linux__) && defined(__GLIBC__)
 #include <execinfo.h>
 static void lm_ggml_print_backtrace_symbols(void) {
     // void * trace[100];
@@ -436,9 +483,16 @@ void lm_ggml_bf16_to_fp32_row(const lm_ggml_bf16_t * x, float * y, int64_t n) {
     }
 }
 
+void lm_ggml_fp32_to_bf16_row_ref(const float * x, lm_ggml_bf16_t * y, int64_t n) {
+    for (int i = 0; i < n; i++) {
+        y[i] = lm_ggml_compute_fp32_to_bf16(x[i]);
+    }
+}
+
 void lm_ggml_fp32_to_bf16_row(const float * x, lm_ggml_bf16_t * y, int64_t n) {
   int i = 0;
 #if defined(__AVX512BF16__)
+  // subnormals are flushed to zero on this platform
   for (; i + 32 <= n; i += 32) {
         _mm512_storeu_si512(
             (__m512i *)(y + i),
@@ -918,7 +972,7 @@ static const lm_ggml_type_traits_t type_traits[LM_GGML_TYPE_COUNT] = {
         .is_quantized             = false,
         .to_float                 = (lm_ggml_to_float_t) lm_ggml_bf16_to_fp32_row,
         .from_float               = (lm_ggml_from_float_t) lm_ggml_fp32_to_bf16_row,
-        .from_float_ref           = (lm_ggml_from_float_t) lm_ggml_fp32_to_bf16_row,
+        .from_float_ref           = (lm_ggml_from_float_t) lm_ggml_fp32_to_bf16_row_ref,
         .vec_dot                  = (lm_ggml_vec_dot_t) lm_ggml_vec_dot_bf16,
         .vec_dot_type             = LM_GGML_TYPE_BF16,
         .nrows                    = 1,
@@ -2258,7 +2312,7 @@ inline static void lm_ggml_vec_abs_f32  (const int n, float * y, const float * x
 inline static void lm_ggml_vec_sgn_f32  (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = (x[i] > 0.f) ? 1.f : ((x[i] < 0.f) ? -1.f : 0.f); }
 inline static void lm_ggml_vec_step_f32 (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = (x[i] > 0.f) ? 1.f : 0.f; }
 inline static void lm_ggml_vec_tanh_f32 (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = tanhf(x[i]);  }
-inline static void lm_ggml_vec_elu_f32  (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = (x[i] > 0.f) ? x[i] : expf(x[i])-1; }
+inline static void lm_ggml_vec_elu_f32  (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = (x[i] > 0.f) ? x[i] : expm1f(x[i]); }
 inline static void lm_ggml_vec_relu_f32 (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = (x[i] > 0.f) ? x[i] : 0.f; }
 inline static void lm_ggml_vec_leaky_relu_f32 (const int n, float * y, const float * x, const float ns) { for (int i = 0; i < n; ++i) y[i] = ((x[i] > 0.f) ? x[i] : 0.f) + ns * ((x[i] < 0.0f) ? x[i] : 0.f); }
 inline static void lm_ggml_vec_sigmoid_f32 (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = 1.f / (1.f + expf(-x[i])); }
@@ -3506,6 +3560,12 @@ struct lm_ggml_context * lm_ggml_init(struct lm_ggml_init_params params) {
     LM_GGML_ASSERT(ctx->mem_buffer != NULL);
 
     LM_GGML_ASSERT_ALIGNED(ctx->mem_buffer);
+
+#if defined(__ARM_FEATURE_SVE)
+    if (!lm_ggml_sve_cnt_b) {
+        lm_ggml_sve_cnt_b = PR_SVE_VL_LEN_MASK & prctl(PR_SVE_GET_VL);
+    }
+#endif
 
     LM_GGML_PRINT_DEBUG("%s: context initialized\n", __func__);
 
@@ -14746,7 +14806,7 @@ static void lm_ggml_compute_forward_pool_1d_sk_p0(
 
     const struct lm_ggml_tensor * src = dst->src[0];
 
-    assert(src->type == LM_GGML_TYPE_F32);
+    assert(src->type == LM_GGML_TYPE_F32 || src->type == LM_GGML_TYPE_F16);
 
     if (params->ith != 0) {
         return;
@@ -14759,10 +14819,8 @@ static void lm_ggml_compute_forward_pool_1d_sk_p0(
     const int64_t rs = dst->ne[0];
 
     while (cdata < data_end) {
-        const float * const srow = (const float *)cdata;
-
+        const void * srow = (const void *)cdata;
         int j = 0;
-
         for (int64_t i = 0; i < rs; ++i) {
             switch (op) {
                 case LM_GGML_OP_POOL_AVG:   drow[i] = 0;        break;
@@ -14770,10 +14828,11 @@ static void lm_ggml_compute_forward_pool_1d_sk_p0(
                 case LM_GGML_OP_POOL_COUNT: LM_GGML_ABORT("fatal error");
             }
             for (int ki = 0; ki < k; ++ki) {
+                const float srow_j = (src->type == LM_GGML_TYPE_F32) ? ((const float*)srow)[j] : LM_GGML_FP16_TO_FP32(((const lm_ggml_fp16_t*)srow)[j]);
                 switch (op) {
-                    case LM_GGML_OP_POOL_AVG:                          drow[i] += srow[j]; break;
-                    case LM_GGML_OP_POOL_MAX:   if (srow[j] > drow[i]) drow[i]  = srow[j]; break;
-                    case LM_GGML_OP_POOL_COUNT:                        LM_GGML_ABORT("fatal error");
+                    case LM_GGML_OP_POOL_AVG:                         drow[i] += srow_j; break;
+                    case LM_GGML_OP_POOL_MAX:   if (srow_j > drow[i]) drow[i]  = srow_j; break;
+                    case LM_GGML_OP_POOL_COUNT:                       LM_GGML_ABORT("fatal error");
                 }
                 ++j;
             }
@@ -14814,7 +14873,7 @@ static void lm_ggml_compute_forward_pool_2d(
 
     const struct lm_ggml_tensor * src = dst->src[0];
 
-    LM_GGML_ASSERT(src->type == LM_GGML_TYPE_F32);
+    assert(src->type == LM_GGML_TYPE_F32 || src->type == LM_GGML_TYPE_F16);
 
     if (params->ith != 0) {
         return;
@@ -14857,14 +14916,15 @@ static void lm_ggml_compute_forward_pool_2d(
 
                 for (int ky = 0; ky < k1; ++ky) {
                     if (iy + ky < 0 || iy + ky >= src->ne[1]) continue;
-                    const float * const srow = (const float *)(cdata + src->nb[1] * (iy + ky));
+                    const void * srow = (const void *)(cdata + src->nb[1] * (iy + ky));
                     for (int kx = 0; kx < k0; ++kx) {
                         int j = ix + kx;
                         if (j < 0 || j >= src->ne[0]) continue;
+                        const float srow_j = (src->type == LM_GGML_TYPE_F32) ? ((const float*)srow)[j] : LM_GGML_FP16_TO_FP32(((const lm_ggml_fp16_t*)srow)[j]);
                         switch (op) {
-                            case LM_GGML_OP_POOL_AVG:                     *out += srow[j]; break;
-                            case LM_GGML_OP_POOL_MAX: if (srow[j] > *out) *out  = srow[j]; break;
-                            case LM_GGML_OP_POOL_COUNT:                LM_GGML_ABORT("fatal error");
+                            case LM_GGML_OP_POOL_AVG:                     *out += srow_j; break;
+                            case LM_GGML_OP_POOL_MAX: if (srow_j > *out)  *out  = srow_j; break;
+                            case LM_GGML_OP_POOL_COUNT:               LM_GGML_ABORT("fatal error");
                         }
                     }
                 }
@@ -18078,7 +18138,6 @@ static void lm_ggml_build_forward_impl(struct lm_ggml_cgraph * cgraph, struct lm
     }
 
     const int n0 = cgraph->n_nodes;
-    UNUSED(n0);
 
     lm_ggml_visit_parents(cgraph, tensor);
 
@@ -20607,7 +20666,7 @@ size_t lm_ggml_quantize_chunk(
         case LM_GGML_TYPE_BF16:
             {
                 size_t elemsize = sizeof(lm_ggml_bf16_t);
-                lm_ggml_fp32_to_bf16_row(src + start, (lm_ggml_bf16_t *)dst + start, n);
+                lm_ggml_fp32_to_bf16_row_ref(src + start, (lm_ggml_bf16_t *)dst + start, n);
                 result = n * elemsize;
             } break;
         case LM_GGML_TYPE_F32:
