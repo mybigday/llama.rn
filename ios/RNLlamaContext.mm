@@ -59,7 +59,7 @@
     if (params[@"lora"]) {
         float lora_scaled = 1.0f;
         if (params[@"lora_scaled"]) lora_scaled = [params[@"lora_scaled"] floatValue];
-        defaultParams.lora_adapter.push_back({[params[@"lora"] UTF8String], lora_scaled});
+        defaultParams.lora_adapters.push_back({[params[@"lora"] UTF8String], lora_scaled});
         defaultParams.use_mmap = false;
     }
 
