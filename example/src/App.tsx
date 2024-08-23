@@ -328,6 +328,7 @@ export default function App() {
                 required: ['query'],
               },
             },
+            required: ['function', 'arguments'],
           },
         ],
       }
