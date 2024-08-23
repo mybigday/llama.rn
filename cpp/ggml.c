@@ -56,6 +56,9 @@ int lm_ggml_sve_cnt_b = 0;
 // disable POSIX deprecation warnings
 // these functions are never going away, anyway
 #pragma warning(disable: 4996)
+
+// unreachable code because of multiple instances of code after LM_GGML_ABORT
+#pragma warning(disable: 4702)
 #endif
 
 #if defined(_WIN32)
@@ -3721,7 +3724,8 @@ static struct lm_ggml_tensor * lm_ggml_new_tensor_impl(
         struct lm_ggml_tensor  * view_src,
         size_t                view_offs) {
 
-    assert(n_dims >= 1 && n_dims <= LM_GGML_MAX_DIMS);
+    LM_GGML_ASSERT(type >= 0 && type < LM_GGML_TYPE_COUNT);
+    LM_GGML_ASSERT(n_dims >= 1 && n_dims <= LM_GGML_MAX_DIMS);
 
     // find the base tensor and absolute offset
     if (view_src != NULL && view_src->view_src != NULL) {
@@ -5374,6 +5378,7 @@ static struct lm_ggml_tensor * lm_ggml_group_norm_impl(
     struct lm_ggml_context * ctx,
     struct lm_ggml_tensor * a,
     int n_groups,
+    float eps,
     bool inplace) {
 
     bool is_node = false;
@@ -5384,7 +5389,8 @@ static struct lm_ggml_tensor * lm_ggml_group_norm_impl(
 
     struct lm_ggml_tensor * result = inplace ? lm_ggml_view_tensor(ctx, a) : lm_ggml_dup_tensor(ctx, a);
 
-    result->op_params[0] = n_groups;
+    lm_ggml_set_op_params_i32(result, 0, n_groups);
+    lm_ggml_set_op_params_f32(result, 1, eps);
 
     result->op = LM_GGML_OP_GROUP_NORM;
     result->grad = is_node ? lm_ggml_dup_tensor(ctx, result) : NULL;
@@ -5396,15 +5402,17 @@ static struct lm_ggml_tensor * lm_ggml_group_norm_impl(
 struct lm_ggml_tensor * lm_ggml_group_norm(
     struct lm_ggml_context * ctx,
     struct lm_ggml_tensor * a,
-    int n_groups) {
-    return lm_ggml_group_norm_impl(ctx, a, n_groups, false);
+    int n_groups,
+    float eps) {
+    return lm_ggml_group_norm_impl(ctx, a, n_groups, eps, false);
 }
 
 struct lm_ggml_tensor * lm_ggml_group_norm_inplace(
     struct lm_ggml_context * ctx,
     struct lm_ggml_tensor * a,
-    int n_groups) {
-    return lm_ggml_group_norm_impl(ctx, a, n_groups, true);
+    int n_groups,
+    float eps) {
+    return lm_ggml_group_norm_impl(ctx, a, n_groups, eps, true);
 }
 
 // lm_ggml_mul_mat
@@ -7221,43 +7229,34 @@ struct lm_ggml_tensor * lm_ggml_flash_attn_back(
 
 struct lm_ggml_tensor * lm_ggml_ssm_conv(
         struct lm_ggml_context * ctx,
-        struct lm_ggml_tensor  * s,
-        struct lm_ggml_tensor  * x,
-        struct lm_ggml_tensor  * c,
-        struct lm_ggml_tensor  * sq) {
-    LM_GGML_ASSERT(lm_ggml_is_3d(s));
-    LM_GGML_ASSERT(lm_ggml_is_matrix(x));
+        struct lm_ggml_tensor  * sx,
+        struct lm_ggml_tensor  * c) {
+    LM_GGML_ASSERT(lm_ggml_is_3d(sx));
     LM_GGML_ASSERT(lm_ggml_is_matrix(c));
-    LM_GGML_ASSERT(lm_ggml_is_matrix(sq));
-    LM_GGML_ASSERT(sq->type == LM_GGML_TYPE_I32);
 
-    const int64_t d_conv   = c->ne[0];
-    const int64_t d_inner  = c->ne[1];
-    const int64_t n_tokens = x->ne[1];
-    const int64_t n_kv     = s->ne[2];
+    const int64_t d_conv  = c->ne[0];
+    const int64_t d_inner = c->ne[1];
+    const int64_t n_t     = sx->ne[0] - d_conv + 1; // tokens per sequence
+    const int64_t n_s     = sx->ne[2];
 
-    LM_GGML_ASSERT( s->ne[0] == d_conv - 1);
-    LM_GGML_ASSERT( s->ne[1] == d_inner);
-    LM_GGML_ASSERT( x->ne[0] == d_inner);
-    LM_GGML_ASSERT(sq->ne[0] == n_kv);
-    LM_GGML_ASSERT(sq->ne[1] == n_tokens);
+    // TODO: maybe support other strides than 1?
+    LM_GGML_ASSERT(sx->ne[0] == d_conv - 1 + n_t);
+    LM_GGML_ASSERT(sx->ne[1] == d_inner);
+    LM_GGML_ASSERT(n_t >= 0);
 
     bool is_node = false;
 
-    if (s->grad || x->grad || c->grad || sq->grad) {
+    if (sx->grad || c->grad) {
         LM_GGML_ABORT("fatal error"); // TODO: implement
         is_node = true;
     }
 
-    // 2-in-1 concatenated x and conv_states, {d_inner, n_tokens} with {d_conv, d_inner, n_kv}
-    struct lm_ggml_tensor * result = lm_ggml_new_tensor_1d(ctx, LM_GGML_TYPE_F32, (d_inner*n_tokens) + (d_conv*d_inner*n_kv));
+    struct lm_ggml_tensor * result = lm_ggml_new_tensor_3d(ctx, LM_GGML_TYPE_F32, d_inner, n_t, n_s);
 
     result->op   = LM_GGML_OP_SSM_CONV;
     result->grad = is_node ? lm_ggml_dup_tensor(ctx, result) : NULL;
-    result->src[0] = s;
-    result->src[1] = x;
-    result->src[2] = c;
-    result->src[3] = sq;
+    result->src[0] = sx;
+    result->src[1] = c;
 
     return result;
 }
@@ -7271,39 +7270,42 @@ struct lm_ggml_tensor * lm_ggml_ssm_scan(
         struct lm_ggml_tensor  * dt,
         struct lm_ggml_tensor  * A,
         struct lm_ggml_tensor  * B,
-        struct lm_ggml_tensor  * C,
-        struct lm_ggml_tensor  * sq) {
+        struct lm_ggml_tensor  * C) {
     LM_GGML_ASSERT(lm_ggml_is_contiguous(s));
     LM_GGML_ASSERT(lm_ggml_is_contiguous(x));
     LM_GGML_ASSERT(lm_ggml_is_contiguous(dt));
     LM_GGML_ASSERT(lm_ggml_is_contiguous(A));
-    LM_GGML_ASSERT(sq->type == LM_GGML_TYPE_I32);
+    LM_GGML_ASSERT(lm_ggml_is_matrix(A));
+    LM_GGML_ASSERT(lm_ggml_is_3d(B));
+    LM_GGML_ASSERT(lm_ggml_is_3d(s));
     LM_GGML_ASSERT(B->nb[0] == lm_ggml_type_size(B->type));
     LM_GGML_ASSERT(C->nb[0] == lm_ggml_type_size(C->type));
     LM_GGML_ASSERT(lm_ggml_are_same_shape(x, dt));
+    LM_GGML_ASSERT(lm_ggml_are_same_shape(B, C));
 
     {
-        const int64_t d_state  = s->ne[0];
-        const int64_t d_inner  = s->ne[1];
-        const int64_t n_tokens = x->ne[1];
+        const int64_t d_state      = s->ne[0];
+        const int64_t d_inner      = s->ne[1];
+        const int64_t n_seq_tokens = x->ne[1];
+        const int64_t n_seqs       = x->ne[2];
 
+        LM_GGML_ASSERT(s->ne[2] == n_seqs);
         LM_GGML_ASSERT(x->ne[0] == d_inner);
         LM_GGML_ASSERT(A->ne[0] == d_state);
         LM_GGML_ASSERT(A->ne[1] == d_inner);
         LM_GGML_ASSERT(B->ne[0] == d_state);
-        LM_GGML_ASSERT(B->ne[1] == n_tokens);
-        LM_GGML_ASSERT(C->ne[0] == d_state);
-        LM_GGML_ASSERT(C->ne[1] == n_tokens);
+        LM_GGML_ASSERT(B->ne[1] == n_seq_tokens);
+        LM_GGML_ASSERT(B->ne[2] == n_seqs);
     }
 
     bool is_node = false;
 
-    if (s->grad || x->grad || dt->grad || A->grad || B->grad || C->grad || sq->grad) {
+    if (s->grad || x->grad || dt->grad || A->grad || B->grad || C->grad) {
         LM_GGML_ABORT("fatal error"); // TODO: implement
         is_node = true;
     }
 
-    // 2-in-1 concatenated y and ssm_states, {d_inner, n_tokens} with {d_state, d_inner, n_kv}
+    // concatenated y + ssm_states
     struct lm_ggml_tensor * result = lm_ggml_new_tensor_1d(ctx, LM_GGML_TYPE_F32, lm_ggml_nelements(x) + lm_ggml_nelements(s));
 
     result->op   = LM_GGML_OP_SSM_SCAN;
@@ -7314,7 +7316,6 @@ struct lm_ggml_tensor * lm_ggml_ssm_scan(
     result->src[3] = A;
     result->src[4] = B;
     result->src[5] = C;
-    result->src[6] = sq;
 
     return result;
 }
@@ -10987,11 +10988,6 @@ static void lm_ggml_compute_forward_concat_f32(
 
     LM_GGML_TENSOR_BINARY_OP_LOCALS
 
-    // TODO: support for transposed / permuted tensors
-    LM_GGML_ASSERT(nb0  == sizeof(float));
-    LM_GGML_ASSERT(nb00 == sizeof(float));
-    LM_GGML_ASSERT(nb10 == sizeof(float));
-
     const int32_t dim = lm_ggml_get_op_params_i32(dst, 0);
 
     LM_GGML_ASSERT(dim >= 0 && dim < 4);
@@ -12095,9 +12091,10 @@ static void lm_ggml_compute_forward_group_norm_f32(
 
     LM_GGML_TENSOR_UNARY_OP_LOCALS
 
-    const float eps = 1e-6f; // TODO: make this a parameter
-
     // TODO: optimize
+
+    float eps;
+    memcpy(&eps, dst->op_params + 1, sizeof(float));
 
     int n_channels = src0->ne[2];
     int n_groups = dst->op_params[0];
@@ -14085,7 +14082,7 @@ static void lm_ggml_compute_forward_rope_f32(
     float corr_dims[2];
     lm_ggml_rope_yarn_corr_dims(n_dims, n_ctx_orig, freq_base, beta_fast, beta_slow, corr_dims);
 
-    const bool is_neox = mode & 2;
+    const bool is_neox = mode & LM_GGML_ROPE_TYPE_NEOX;
 
     const float * freq_factors = NULL;
     if (src2 != NULL) {
@@ -14210,7 +14207,7 @@ static void lm_ggml_compute_forward_rope_f16(
     float corr_dims[2];
     lm_ggml_rope_yarn_corr_dims(n_dims, n_ctx_orig, freq_base, beta_fast, beta_slow, corr_dims);
 
-    const bool is_neox = mode & 2;
+    const bool is_neox = mode & LM_GGML_ROPE_TYPE_NEOX;
 
     const float * freq_factors = NULL;
     if (src2 != NULL) {
@@ -15773,27 +15770,22 @@ static void lm_ggml_compute_forward_flash_attn_back(
 static void lm_ggml_compute_forward_ssm_conv_f32(
         const struct lm_ggml_compute_params * params,
         struct lm_ggml_tensor * dst) {
-    const struct lm_ggml_tensor * src0 = dst->src[0]; // conv_state
-    const struct lm_ggml_tensor * src1 = dst->src[1]; // x
-    const struct lm_ggml_tensor * src2 = dst->src[2]; // conv1d.weight
-    const struct lm_ggml_tensor * src3 = dst->src[3]; // state_seq
+    const struct lm_ggml_tensor * src0 = dst->src[0]; // conv_x
+    const struct lm_ggml_tensor * src1 = dst->src[1]; // conv1d.weight
 
     const int ith = params->ith;
     const int nth = params->nth;
 
-    const int nc   = src2->ne[0]; // d_conv
-    const int nr   = src0->ne[1]; // d_inner
-    const int n_t  = src1->ne[1]; // n_tokens
-    const int n_kv = src0->ne[2]; // max number of sequences in the batch
+    const int nc  = src1->ne[0]; // d_conv
+    const int ncs = src0->ne[0]; // d_conv - 1 + n_t
+    const int nr  = src0->ne[1]; // d_inner
+    const int n_t =  dst->ne[1]; // tokens per sequence
+    const int n_s =  dst->ne[2]; // number of sequences in the batch
 
-    LM_GGML_ASSERT((nr*n_t) + (nc*nr*n_kv) == lm_ggml_nelements(dst));
+    LM_GGML_ASSERT( dst->ne[0] == nr);
     LM_GGML_ASSERT(src0->nb[0] == sizeof(float));
     LM_GGML_ASSERT(src1->nb[0] == sizeof(float));
-    LM_GGML_ASSERT(src2->nb[0] == sizeof(float));
-    LM_GGML_ASSERT(src3->nb[0] == sizeof(int32_t));
     LM_GGML_ASSERT(src0->nb[1] == src0->ne[0]*sizeof(float));
-    // for use with the destination state offset between sequences
-    LM_GGML_ASSERT(src2->nb[2] == src2->ne[1]*src2->ne[0]*sizeof(float));
 
     // rows per thread
     const int dr = (nr + nth - 1)/nth;
@@ -15803,74 +15795,27 @@ static void lm_ggml_compute_forward_ssm_conv_f32(
     const int ir1 = MIN(ir0 + dr, nr);
     const int ir  = ir1 - ir0;
 
-    if (n_kv > 1) {
-        // multiple sequences means it's hard to know when it's the first time a state is read,
-        // so copy them all over to the destination, just to be sure.
-        for (int i3 = 0; i3 < n_kv; ++i3) {
-            float * s0 = (float *) ((char *) src0->data + ir0*(src0->nb[1]) + i3*(src0->nb[2]));
-            float * s  = (float *) ((char *)  dst->data + ir0*(src2->nb[1]) + i3*(src2->nb[2]) + nr*n_t*sizeof(float));
-            // can't use memcpy because of d_conv vs d_conv - 1
+    for (int i3 = 0; i3 < n_s; ++i3) {
+        for (int i2 = 0; i2 < n_t; ++i2) {
+            // {d_conv - 1 + n_t, d_inner, n_seqs}
+            // sliding window
+            const float * s = (const float *) ((const char *) src0->data + ir0*(src0->nb[1]) + i2*(src0->nb[0]) + i3*(src0->nb[2])); // {d_conv, d_inner, n_s}
+            const float * c = (const float *) ((const char *) src1->data + ir0*(src1->nb[1])); // {d_conv, d_inner}
+            float * x = (float *) ((char *) dst->data + ir0*(dst->nb[0]) + i2*(dst->nb[1]) + i3*(dst->nb[2])); // {d_inner, n_t, n_s}
+
+            // TODO: transpose the output for smaller strides for big batches?
+            // d_inner
             for (int i1 = 0; i1 < ir; ++i1) {
-                for (int i0 = 0; i0 < nc - 1; ++i0) {
-                    // copy s0 to last (d_conv - 1) columns of s
-                    s[1 + i0 + i1*nc] = s0[i0 + i1*(nc - 1)];
+                // rowwise dot product
+                // NOTE: not using lm_ggml_vec_dot_f32, because its sum is in double precision
+                float sumf = 0.0f;
+
+                // d_conv
+                for (int i0 = 0; i0 < nc; ++i0) {
+                    sumf += s[i0 + i1*ncs] * c[i0 + i1*nc];
                 }
+                x[i1] = sumf;
             }
-        }
-    }
-
-    for (int i2 = 0; i2 < n_t; ++i2) {
-        int32_t * sq = (int32_t *) ((char *) src3->data +  i2*(src3->nb[1])); // {n_kv, n_tokens}
-        float *   x  = (float *)   ((char *)  dst->data + ir0*sizeof(float) + i2*(nr*sizeof(float))); // {d_inner, n_tokens}
-        float *   s  = (float *)   ((char *)  dst->data + ir0*(src2->nb[1]) + sq[0]*(src2->nb[2]) + nr*n_t*sizeof(float)); // {d_conv, d_inner, n_kv}
-        float *   s0; // {d_conv - 1, d_inner, n_kv}
-        float *   x0 = (float *)   ((char *) src1->data + ir0*(src1->nb[0]) + i2*(src1->nb[1])); // {d_inner, n_tokens}
-        float *   c  = (float *)   ((char *) src2->data + ir0*(src2->nb[1])); // {d_conv, d_inner}
-        int ne0s0;
-
-        LM_GGML_ASSERT(0 <= sq[0] && sq[0] < n_kv);
-
-        // avoid needing to copy the state for the first token
-        if (i2 == 0) {
-            s0 = (float *) ((char *) src0->data + ir0*(src0->nb[1]) + sq[0]*(src0->nb[2])); // {d_conv - 1, d_inner, n_kv}
-            ne0s0 = src0->ne[0];
-        } else {
-            // the source is the last (d_conv - 1) columns of the destination
-            s0 = s + 1;
-            ne0s0 = nc;
-        }
-
-        // d_inner
-        for (int i1 = 0; i1 < ir; ++i1) {
-            // shift state left
-            for (int i0 = 0; i0 < nc - 1; ++i0) {
-                s[i0 + i1*nc] = s0[i0 + i1*ne0s0];
-            }
-            // insert x on the last column
-            s[(nc - 1) + i1*nc] = x0[i1];
-        }
-
-        // handle copies when there are multiple output states
-        for (int i3 = 1; i3 < n_kv; ++i3) {
-            int32_t seq = sq[i3];
-            if (0 <= seq && seq < n_kv) {
-                float * s1 = s + (seq - sq[0])*nc*nr;
-                memcpy(s1, s, nc*ir*sizeof(float));
-            } else {
-                // stop at negative or too big seq_ids
-                break;
-            }
-        }
-
-        // it seems a little faster when this is separate from the state shift
-        for (int i1 = 0; i1 < ir; ++i1) {
-            // rowwise dot product
-            float sumf = 0.0f;
-            for (int i0 = 0; i0 < nc; ++i0) {
-                int i = i0 + i1*nc;
-                sumf += s[i] * c[i];
-            }
-            x[i1] = sumf;
         }
     }
 }
@@ -15901,15 +15846,14 @@ static void lm_ggml_compute_forward_ssm_scan_f32(
     const struct lm_ggml_tensor * src3 = dst->src[3]; // A
     const struct lm_ggml_tensor * src4 = dst->src[4]; // B
     const struct lm_ggml_tensor * src5 = dst->src[5]; // C
-    const struct lm_ggml_tensor * src6 = dst->src[6]; // sq
 
     const int ith = params->ith;
     const int nth = params->nth;
 
-    const int64_t nc   = src0->ne[0]; // d_state
-    const int64_t nr   = src0->ne[1]; // d_inner
-    const int64_t n_t  = src1->ne[1]; // number of tokens in the batch
-    const int64_t n_kv = src0->ne[2]; // max number of sequences in the batch
+    const int64_t nc  = src0->ne[0]; // d_state
+    const int64_t nr  = src0->ne[1]; // d_inner
+    const int64_t n_t = src1->ne[1]; // number of tokens per sequence
+    const int64_t n_s = src0->ne[2]; // number of sequences in the batch
 
     LM_GGML_ASSERT(lm_ggml_nelements(src1) + lm_ggml_nelements(src0) == lm_ggml_nelements(dst));
     LM_GGML_ASSERT(src0->nb[0] == sizeof(float));
@@ -15918,12 +15862,12 @@ static void lm_ggml_compute_forward_ssm_scan_f32(
     LM_GGML_ASSERT(src3->nb[0] == sizeof(float));
     LM_GGML_ASSERT(src4->nb[0] == sizeof(float));
     LM_GGML_ASSERT(src5->nb[0] == sizeof(float));
-    // required for the dot product between s and C, and when copying the states
+    // required for the dot product between s and C
     LM_GGML_ASSERT(src0->nb[1] == src0->ne[0]*sizeof(float));
     // required for per-sequence offsets for states
     LM_GGML_ASSERT(src0->nb[2] == src0->ne[0]*src0->ne[1]*sizeof(float));
-    // required to get correct offset for state destination (i.e. src1->nb[2])
-    LM_GGML_ASSERT(src1->nb[2] == src1->ne[0]*src1->ne[1]*sizeof(float));
+    // required to get correct offset for state destination (i.e. src1->nb[3])
+    LM_GGML_ASSERT(src1->nb[3] == src1->ne[0]*src1->ne[1]*src1->ne[2]*sizeof(float));
 
     // rows per thread
     const int dr = (nr + nth - 1)/nth;
@@ -15933,64 +15877,36 @@ static void lm_ggml_compute_forward_ssm_scan_f32(
     const int ir1 = MIN(ir0 + dr, nr);
     const int ir  = ir1 - ir0;
 
-    if (n_kv > 1) {
-        // it's hard to know if the source states have already been copied
-        // when there are multiple, so copy them already.
-        for (int i3 = 0; i3 < n_kv; ++i3) {
-            float * s0 = (float *) ((char *) src0->data + ir0*(src0->nb[1]) + i3*(src0->nb[2]));
-            float * s  = (float *) ((char *)  dst->data + ir0*(src0->nb[1]) + i3*(src0->nb[2]) + src1->nb[2]);
-            memcpy(s, s0, nc*ir*sizeof(float));
-        }
-    }
+    for (int i3 = 0; i3 < n_s; ++i3) {
+        for (int i2 = 0; i2 < n_t; ++i2) {
+            const float * s0 = (const float *) ((const char *) src0->data + ir0*(src0->nb[1]) + i3*(src0->nb[2])); // {d_state, d_inner, n_s}
+            const float * x  = (const float *) ((const char *) src1->data + ir0*(src1->nb[0]) + i2*(src1->nb[1]) + i3*(src1->nb[2])); // {d_inner, n_t, n_s}
+            const float * dt = (const float *) ((const char *) src2->data + ir0*(src2->nb[0]) + i2*(src2->nb[1]) + i3*(src2->nb[2])); // {d_inner, n_t, n_s}
+            const float * A  = (const float *) ((const char *) src3->data + ir0*(src3->nb[1])); // {d_state, d_inner}
+            const float * B  = (const float *) ((const char *) src4->data +  i2*(src4->nb[1]) + i3*(src4->nb[2])); // {d_state, n_t, n_s}
+            const float * C  = (const float *) ((const char *) src5->data +  i2*(src5->nb[1]) + i3*(src5->nb[2])); // {d_state, n_t, n_s}
+            float * y = (float *) ((char *) dst->data + ir0*(src1->nb[0]) + i2*(src1->nb[1]) + i3*(src1->nb[2])); // {d_inner, n_t, n_s}
+            float * s = (float *) ((char *) dst->data + ir0*(src0->nb[1]) + i3*(src0->nb[2]) + src1->nb[3]); // {d_state, d_inner, n_s}
 
-    for (int i2 = 0; i2 < n_t; ++i2) {
-        int32_t * sq = (int32_t *) ((char *) src6->data +  i2*(src6->nb[1])); // {n_kv, n_tokens}
-        float *   y  = (float *)   ((char *)  dst->data + ir0*(src1->nb[0]) +    i2*(src1->nb[1])); // {d_inner, n_tokens}
-        float *   s  = (float *)   ((char *)  dst->data + ir0*(src0->nb[1]) + sq[0]*(src0->nb[2]) + src1->nb[2]); // {d_state, d_inner, n_kv}
-        float *   s0;
-        float *   x  = (float *)   ((char *) src1->data + ir0*(src1->nb[0]) + i2*(src1->nb[1])); // {d_inner, n_tokens}
-        float *   dt = (float *)   ((char *) src2->data + ir0*(src2->nb[0]) + i2*(src2->nb[1])); // {d_inner, n_tokens}
-        float *   A  = (float *)   ((char *) src3->data + ir0*(src3->nb[1])); // {d_state, d_inner}
-        float *   B  = (float *)   ((char *) src4->data +  i2*(src4->nb[1])); // {d_state, n_tokens}
-        float *   C  = (float *)   ((char *) src5->data +  i2*(src5->nb[1])); // {d_state, n_tokens}
+            // use the output as the source for the next token-wise iterations
+            if (i2 > 0) { s0 = s; }
 
-        LM_GGML_ASSERT(0 <= sq[0] && sq[0] < n_kv);
-
-        // avoid needing to copy the state for the first token
-        if (i2 == 0) {
-            s0 = (float *) ((char *) src0->data + ir0*(src0->nb[1]) + sq[0]*(src0->nb[2])); // {d_state, d_inner, n_kv}
-        } else {
-            // otherwise the source is the same as the destination
-            s0 = s;
-        }
-
-        // d_inner
-        for (int i1 = 0; i1 < ir; ++i1) {
-            // ref: https://github.com/state-spaces/mamba/blob/34076d664838588a3c97727b263478ab9f621a07/mamba_ssm/ops/triton/selective_state_update.py#L78
-            float dt_soft_plus = dt[i1] <= 20.0f ? log1pf(expf(dt[i1])) : dt[i1];
-            float x_dt = x[i1] * dt_soft_plus;
-            float sumf = 0.0f;
-            // d_state
-            for (int i0 = 0; i0 < nc; ++i0) {
-                int i = i0 + i1*nc;
-                // state = prev_state * dA + dB * x
-                float state = (s0[i] * expf(dt_soft_plus * A[i])) + (B[i0] * x_dt);
-                // y = rowwise_dotprod(state, C)
-                sumf += state * C[i0];
-                s[i] = state;
-            }
-            y[i1] = sumf;
-        }
-
-        // handle copies when there are multiple output states
-        for (int i3 = 1; i3 < n_kv; ++i3) {
-            int32_t seq = sq[i3];
-            if (0 <= seq && seq < n_kv) {
-                float * s1 = s + (seq - sq[0])*nc*nr;
-                memcpy(s1, s, nc*ir*sizeof(float));
-            } else {
-                // stop at negative or too big seq_ids
-                break;
+            // d_inner
+            for (int i1 = 0; i1 < ir; ++i1) {
+                // ref: https://github.com/state-spaces/mamba/blob/34076d664838588a3c97727b263478ab9f621a07/mamba_ssm/ops/triton/selective_state_update.py#L78
+                float dt_soft_plus = dt[i1] <= 20.0f ? log1pf(expf(dt[i1])) : dt[i1];
+                float x_dt = x[i1] * dt_soft_plus;
+                float sumf = 0.0f;
+                // d_state
+                for (int i0 = 0; i0 < nc; ++i0) {
+                    int i = i0 + i1*nc;
+                    // state = prev_state * dA + dB * x
+                    float state = (s0[i] * expf(dt_soft_plus * A[i])) + (B[i0] * x_dt);
+                    // y = rowwise_dotprod(state, C)
+                    sumf += state * C[i0];
+                    s[i] = state;
+                }
+                y[i1] = sumf;
             }
         }
     }
@@ -21120,7 +21036,7 @@ struct lm_gguf_context * lm_gguf_init_from_file(const char * fname, struct lm_gg
                 (int64_t) info->ne[2] *
                 (int64_t) info->ne[3];
 
-            if (ne % lm_ggml_blck_size(info->type) != 0) {
+            if (lm_ggml_blck_size(info->type) == 0 || ne % lm_ggml_blck_size(info->type) != 0) {
                 fprintf(stderr, "%s: tensor '%s' of type %d (%s) number of elements (%" PRId64 ") is not a multiple of block size (%" PRId64 ")\n",
                         __func__, info->name.data, (int) info->type, lm_ggml_type_name(info->type), ne, lm_ggml_blck_size(info->type));
                 fclose(file);

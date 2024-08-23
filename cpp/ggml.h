@@ -244,6 +244,8 @@
 #define LM_GGML_EXIT_SUCCESS 0
 #define LM_GGML_EXIT_ABORTED 1
 
+#define LM_GGML_ROPE_TYPE_NEOX 2
+
 #define LM_GGUF_MAGIC "GGUF"
 
 #define LM_GGUF_VERSION 3
@@ -1140,16 +1142,17 @@ extern "C" {
 
     // group normalize along ne0*ne1*n_groups
     // used in stable-diffusion
-    // TODO: eps is hardcoded to 1e-6 for now
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_group_norm(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
-            int                   n_groups);
+            int                   n_groups,
+            float                 eps);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_group_norm_inplace(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
-            int                   n_groups);
+            int                   n_groups,
+            float                 eps);
 
     // a - x
     // b - dy
@@ -1452,8 +1455,8 @@ extern "C" {
             struct lm_ggml_tensor  * b);
 
     // rotary position embedding
-    // if mode & 1 == 1, skip n_past elements (NOT SUPPORTED)
-    // if mode & 2 == 1, GPT-NeoX style
+    // if (mode & 1) - skip n_past elements (NOT SUPPORTED)
+    // if (mode & LM_GGML_ROPE_TYPE_NEOX) - GPT-NeoX style
     //
     // b is an int32 vector with size a->ne[2], it contains the positions
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_rope(
@@ -1774,10 +1777,8 @@ extern "C" {
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_ssm_conv(
             struct lm_ggml_context * ctx,
-            struct lm_ggml_tensor  * s,
-            struct lm_ggml_tensor  * x,
-            struct lm_ggml_tensor  * c,
-            struct lm_ggml_tensor  * sq);
+            struct lm_ggml_tensor  * sx,
+            struct lm_ggml_tensor  * c);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_ssm_scan(
             struct lm_ggml_context * ctx,
@@ -1786,8 +1787,7 @@ extern "C" {
             struct lm_ggml_tensor  * dt,
             struct lm_ggml_tensor  * A,
             struct lm_ggml_tensor  * B,
-            struct lm_ggml_tensor  * C,
-            struct lm_ggml_tensor  * sq);
+            struct lm_ggml_tensor  * C);
 
     // partition into non-overlapping windows with padding if needed
     // example:
