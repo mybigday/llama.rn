@@ -1760,7 +1760,8 @@ extern "C" {
             struct lm_ggml_tensor  * v,
             struct lm_ggml_tensor  * mask,
             float                 scale,
-            float                 max_bias);
+            float                 max_bias,
+            float                 logit_softcap);
 
     LM_GGML_API void lm_ggml_flash_attn_ext_set_prec(
             struct lm_ggml_tensor * a,

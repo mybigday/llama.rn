@@ -802,6 +802,15 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_backend_metal_context
             if (op->src[0]->ne[0] == 256) {
                 return false;
             }
+            {
+                float logit_softcap;
+
+                memcpy(&logit_softcap, ((const float *) op->op_params) + 2, sizeof(logit_softcap));
+
+                if (logit_softcap != 0.0f) {
+                    return false;
+                }
+            }
             return ctx->support_simdgroup_mm; // TODO: over-restricted for vec-kernels
         case LM_GGML_OP_MUL_MAT:
         case LM_GGML_OP_MUL_MAT_ID:
