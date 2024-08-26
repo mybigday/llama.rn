@@ -351,15 +351,10 @@ void lm_ggml_backend_tensor_copy_async(lm_ggml_backend_t backend_src, lm_ggml_ba
     }
 
     // an async copy would normally happen after all the queued operations on both backends are completed
-    // sync src, set_async dst
-    if (lm_ggml_backend_buffer_is_host(src->buffer)) {
-        lm_ggml_backend_synchronize(backend_src);
-        lm_ggml_backend_tensor_set_async(backend_dst, dst, src->data, 0, lm_ggml_nbytes(src));
-    } else {
-        lm_ggml_backend_synchronize(backend_src);
-        lm_ggml_backend_tensor_copy(src, dst);
-        lm_ggml_backend_synchronize(backend_dst);
-    }
+    // to simulate the same behavior, we need to synchronize both backends first, and do a blocking copy
+    lm_ggml_backend_synchronize(backend_src);
+    lm_ggml_backend_synchronize(backend_dst);
+    lm_ggml_backend_tensor_copy(src, dst);
 }
 
 // events
@@ -1023,10 +1018,6 @@ static bool lm_ggml_is_view_op(enum lm_ggml_op op) {
 #define LM_GGML_SCHED_MAX_BACKENDS 16
 #endif
 
-#ifndef LM_GGML_SCHED_MAX_SPLITS
-#define LM_GGML_SCHED_MAX_SPLITS 2048
-#endif
-
 #ifndef LM_GGML_SCHED_MAX_SPLIT_INPUTS
 #define LM_GGML_SCHED_MAX_SPLIT_INPUTS LM_GGML_MAX_SRC
 #endif
@@ -1130,7 +1121,8 @@ static int lm_ggml_backend_sched_backend_from_buffer(lm_ggml_backend_sched_t sch
 }
 
 #if 0
-static char causes[LM_GGML_DEFAULT_GRAPH_SIZE*16 + LM_GGML_SCHED_MAX_SPLITS*LM_GGML_SCHED_MAX_SPLIT_INPUTS][128]; // debug only
+#define LM_GGML_SCHED_MAX_SPLITS_DEBUG 4096
+static char causes[LM_GGML_DEFAULT_GRAPH_SIZE*16 + LM_GGML_SCHED_MAX_SPLITS_DEBUG*LM_GGML_SCHED_MAX_SPLIT_INPUTS][128]; // debug only
 #define SET_CAUSE(node, ...) sprintf(causes[hash_id(node)], __VA_ARGS__)
 #define GET_CAUSE(node) causes[hash_id(node)]
 #else
@@ -1554,7 +1546,6 @@ static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, str
                     sched->splits = realloc(sched->splits, sched->splits_capacity * sizeof(struct lm_ggml_backend_sched_split));
                     LM_GGML_ASSERT(sched->splits != NULL);
                 }
-                LM_GGML_ASSERT(i_split < LM_GGML_SCHED_MAX_SPLITS);
                 split = &sched->splits[i_split];
                 split->backend_id = node_backend_id;
                 split->i_start = i;
@@ -1782,7 +1773,17 @@ static enum lm_ggml_status lm_ggml_backend_sched_compute_splits(lm_ggml_backend_
                 } else {
                     lm_ggml_backend_synchronize(split_backend);
                 }
-                lm_ggml_backend_tensor_copy_async(input_backend, split_backend, input, input_cpy);
+                // try async copy, but if not possible, we can still use a sync copy without synchronizing the dst backend, since we handle the synchronization here with multiple copies and events
+                // TODO: add public function to facilitate this, since applications do not have direct access to the backend interface
+                if (!split_backend->iface.cpy_tensor_async || !split_backend->iface.cpy_tensor_async(input_backend, split_backend, input, input_cpy)) {
+                    lm_ggml_backend_synchronize(input_backend);
+                    if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
+                        lm_ggml_backend_event_synchronize(sched->events[split_backend_id][sched->cur_copy]);
+                    } else {
+                        lm_ggml_backend_synchronize(split_backend);
+                    }
+                    lm_ggml_backend_tensor_copy(input, input_cpy);
+                }
             }
         }
 
@@ -1860,13 +1861,14 @@ lm_ggml_backend_sched_t lm_ggml_backend_sched_new(
     sched->hv_tensor_backend_ids = malloc(sched->hash_set.size * sizeof(sched->hv_tensor_backend_ids[0]));
     sched->hv_tensor_copies      = malloc(sched->hash_set.size * sched->n_backends * sched->n_copies * sizeof(struct lm_ggml_tensor *));
 
-    const size_t nodes_size = graph_size + LM_GGML_SCHED_MAX_SPLITS*LM_GGML_SCHED_MAX_SPLIT_INPUTS*2;
+    const size_t lm_ggml_sched_max_splits = graph_size; // at most there is one split for each node in the graph
+    const size_t nodes_size = graph_size + lm_ggml_sched_max_splits*LM_GGML_SCHED_MAX_SPLIT_INPUTS*2;
     sched->node_backend_ids = calloc(nodes_size, sizeof(sched->node_backend_ids[0]));
     sched->leaf_backend_ids = calloc(nodes_size, sizeof(sched->leaf_backend_ids[0]));
     sched->prev_node_backend_ids = calloc(nodes_size, sizeof(sched->prev_node_backend_ids[0]));
     sched->prev_leaf_backend_ids = calloc(nodes_size, sizeof(sched->prev_leaf_backend_ids[0]));
 
-    sched->context_buffer_size = LM_GGML_SCHED_MAX_SPLITS*LM_GGML_SCHED_MAX_SPLIT_INPUTS*2*sizeof(struct lm_ggml_tensor) + lm_ggml_graph_overhead_custom(graph_size, false);
+    sched->context_buffer_size = lm_ggml_sched_max_splits*LM_GGML_SCHED_MAX_SPLIT_INPUTS*2*sizeof(struct lm_ggml_tensor) + lm_ggml_graph_overhead_custom(graph_size, false);
     sched->context_buffer = malloc(sched->context_buffer_size);
 
     const int initial_splits_capacity = 16;
