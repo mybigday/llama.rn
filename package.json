@@ -226,5 +226,6 @@
     "name": "RNLlamaSpec",
     "type": "modules",
     "jsSrcsDir": "src"
-  }
+  },
+  "packageManager": "yarn@1.22.22"
 }
