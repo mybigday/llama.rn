@@ -3,6 +3,7 @@
 // #include <android/asset_manager_jni.h>
 #include <android/log.h>
 #include <cstdlib>
+#include <ctime>
 #include <sys/sysinfo.h>
 #include <string>
 #include <thread>
@@ -19,6 +20,13 @@
 
 static inline int min(int a, int b) {
     return (a < b) ? a : b;
+}
+
+static void log_callback(lm_ggml_log_level level, const char * fmt, void * data) {
+    if (level == LM_GGML_LOG_LEVEL_ERROR)     __android_log_print(ANDROID_LOG_ERROR, TAG, fmt, data);
+    else if (level == LM_GGML_LOG_LEVEL_INFO) __android_log_print(ANDROID_LOG_INFO, TAG, fmt, data);
+    else if (level == LM_GGML_LOG_LEVEL_WARN) __android_log_print(ANDROID_LOG_WARN, TAG, fmt, data);
+    else __android_log_print(ANDROID_LOG_DEFAULT, TAG, fmt, data);
 }
 
 extern "C" {
@@ -139,6 +147,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jint n_gpu_layers, // TODO: Support this
     jboolean use_mlock,
     jboolean use_mmap,
+    jboolean vocab_only,
     jstring lora_str,
     jfloat lora_scaled,
     jfloat rope_freq_base,
@@ -146,7 +155,12 @@ Java_com_rnllama_LlamaContext_initContext(
 ) {
     UNUSED(thiz);
 
-    gpt_params defaultParams;
+    common_params defaultParams;
+
+    defaultParams.vocab_only = vocab_only;
+    if(vocab_only) {
+        defaultParams.warmup = false;
+    }
 
     const char *model_path_chars = env->GetStringUTFChars(model_path_str, nullptr);
     defaultParams.model = model_path_chars;
@@ -159,10 +173,10 @@ Java_com_rnllama_LlamaContext_initContext(
     int max_threads = std::thread::hardware_concurrency();
     // Use 2 threads by default on 4-core devices, 4 threads on more cores
     int default_n_threads = max_threads == 4 ? 2 : min(4, max_threads);
-    defaultParams.n_threads = n_threads > 0 ? n_threads : default_n_threads;
+    defaultParams.cpuparams.n_threads = n_threads > 0 ? n_threads : default_n_threads;
 
     defaultParams.n_gpu_layers = n_gpu_layers;
-
+    
     defaultParams.use_mlock = use_mlock;
     defaultParams.use_mmap = use_mmap;
 
@@ -235,7 +249,7 @@ Java_com_rnllama_LlamaContext_getFormattedChat(
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
 
-    std::vector<llama_chat_msg> chat;
+    std::vector<common_chat_msg> chat;
 
     int messages_len = env->GetArrayLength(messages);
     for (int i = 0; i < messages_len; i++) {
@@ -259,7 +273,7 @@ Java_com_rnllama_LlamaContext_getFormattedChat(
     }
 
     const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
-    std::string formatted_chat = llama_chat_apply_template(llama->model, tmpl_chars, chat, true);
+    std::string formatted_chat = common_chat_apply_template(llama->model, tmpl_chars, chat, true);
 
     return env->NewStringUTF(formatted_chat.c_str());
 }
@@ -364,6 +378,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jint top_k,
     jfloat top_p,
     jfloat min_p,
+    jfloat xtc_threshold,
+    jfloat xtc_probability,
     jfloat tfs_z,
     jfloat typical_p,
     jint seed,
@@ -377,18 +393,18 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     llama->rewind();
 
-    llama_reset_timings(llama->ctx);
+    //llama_reset_timings(llama->ctx);
 
     llama->params.prompt = env->GetStringUTFChars(prompt, nullptr);
-    llama->params.seed = seed;
+    llama->params.sparams.seed = (seed == -1) ? time(NULL) : seed;
 
     int max_threads = std::thread::hardware_concurrency();
     // Use 2 threads by default on 4-core devices, 4 threads on more cores
     int default_n_threads = max_threads == 4 ? 2 : min(4, max_threads);
-    llama->params.n_threads = n_threads > 0 ? n_threads : default_n_threads;
+    llama->params.cpuparams.n_threads = n_threads > 0 ? n_threads : default_n_threads;
 
     llama->params.n_predict = n_predict;
-    llama->params.ignore_eos = ignore_eos;
+    llama->params.sparams.ignore_eos = ignore_eos;
 
     auto & sparams = llama->params.sparams;
     sparams.temp = temperature;
@@ -404,13 +420,15 @@ Java_com_rnllama_LlamaContext_doCompletion(
     sparams.top_p = top_p;
     sparams.min_p = min_p;
     sparams.tfs_z = tfs_z;
-    sparams.typical_p = typical_p;
+    sparams.typ_p = typical_p;
     sparams.n_probs = n_probs;
     sparams.grammar = env->GetStringUTFChars(grammar, nullptr);
+    sparams.xtc_threshold = xtc_threshold;
+    sparams.xtc_probability = xtc_probability;
 
     sparams.logit_bias.clear();
     if (ignore_eos) {
-        sparams.logit_bias[llama_token_eos(llama->model)] = -INFINITY;
+        sparams.logit_bias[llama_token_eos(llama->model)].bias = -INFINITY;
     }
 
     const int n_vocab = llama_n_vocab(llama_get_model(llama->ctx));
@@ -424,9 +442,9 @@ Java_com_rnllama_LlamaContext_doCompletion(
             llama_token tok = static_cast<llama_token>(doubleArray[0]);
             if (tok >= 0 && tok < n_vocab) {
                 if (doubleArray[1] != 0) {  // If the second element is not false (0)
-                    sparams.logit_bias[tok] = doubleArray[1];
+                    sparams.logit_bias[tok].bias = doubleArray[1];
                 } else {
-                    sparams.logit_bias[tok] = -INFINITY;
+                    sparams.logit_bias[tok].bias = -INFINITY;
                 }
             }
 
@@ -460,7 +478,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
         if (token_with_probs.tok == -1 || llama->incomplete) {
             continue;
         }
-        const std::string token_text = llama_token_to_piece(llama->ctx, token_with_probs.tok);
+        const std::string token_text = common_token_to_piece(llama->ctx, token_with_probs.tok);
 
         size_t pos = std::min(sent_count, llama->generated_text.size());
 
@@ -495,7 +513,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
             putString(env, tokenResult, "token", to_send.c_str());
 
             if (llama->params.sparams.n_probs > 0) {
-              const std::vector<llama_token> to_send_toks = llama_tokenize(llama->ctx, to_send, false);
+              const std::vector<llama_token> to_send_toks = common_tokenize(llama->ctx, to_send, false);
               size_t probs_pos = std::min(sent_token_probs_index, llama->generated_token_probs.size());
               size_t probs_stop_pos = std::min(sent_token_probs_index + to_send_toks.size(), llama->generated_token_probs.size());
               if (probs_pos < probs_stop_pos) {
@@ -512,7 +530,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
         }
     }
 
-    llama_print_timings(llama->ctx);
+    llama_perf_context_print(llama->ctx);
     llama->is_predicting = false;
 
     auto result = createWriteableMap(env);
@@ -527,16 +545,17 @@ Java_com_rnllama_LlamaContext_doCompletion(
     putString(env, result, "stopping_word", llama->stopping_word.c_str());
     putInt(env, result, "tokens_cached", llama->n_past);
 
-    const auto timings = llama_get_timings(llama->ctx);
+    const auto timings_token = llama_perf_context(llama -> ctx);
+    
     auto timingsResult = createWriteableMap(env);
-    putInt(env, timingsResult, "prompt_n", timings.n_p_eval);
-    putInt(env, timingsResult, "prompt_ms", timings.t_p_eval_ms);
-    putInt(env, timingsResult, "prompt_per_token_ms", timings.t_p_eval_ms / timings.n_p_eval);
-    putDouble(env, timingsResult, "prompt_per_second", 1e3 / timings.t_p_eval_ms * timings.n_p_eval);
-    putInt(env, timingsResult, "predicted_n", timings.n_eval);
-    putInt(env, timingsResult, "predicted_ms", timings.t_eval_ms);
-    putInt(env, timingsResult, "predicted_per_token_ms", timings.t_eval_ms / timings.n_eval);
-    putDouble(env, timingsResult, "predicted_per_second", 1e3 / timings.t_eval_ms * timings.n_eval);
+    putInt(env, timingsResult, "prompt_n", timings_token.n_p_eval);
+    putInt(env, timingsResult, "prompt_ms", timings_token.t_p_eval_ms);
+    putInt(env, timingsResult, "prompt_per_token_ms", timings_token.t_p_eval_ms / timings_token.n_p_eval);
+    putDouble(env, timingsResult, "prompt_per_second", 1e3 / timings_token.t_p_eval_ms * timings_token.n_p_eval);
+    putInt(env, timingsResult, "predicted_n", timings_token.n_eval);
+    putInt(env, timingsResult, "predicted_ms", timings_token.t_eval_ms);
+    putInt(env, timingsResult, "predicted_per_token_ms", timings_token.t_eval_ms / timings_token.n_eval);
+    putDouble(env, timingsResult, "predicted_per_second", 1e3 / timings_token.t_eval_ms * timings_token.n_eval);
 
     putMap(env, result, "timings", timingsResult);
 
@@ -569,7 +588,7 @@ Java_com_rnllama_LlamaContext_tokenize(
 
     const char *text_chars = env->GetStringUTFChars(text, nullptr);
 
-    const std::vector<llama_token> toks = llama_tokenize(
+    const std::vector<llama_token> toks = common_tokenize(
         llama->ctx,
         text_chars,
         false
@@ -623,8 +642,8 @@ Java_com_rnllama_LlamaContext_embedding(
 
     llama->rewind();
 
-    llama_reset_timings(llama->ctx);
-
+    llama_perf_context_reset(llama->ctx);
+    
     llama->params.prompt = text_chars;
 
     llama->params.n_predict = 0;
@@ -681,9 +700,16 @@ Java_com_rnllama_LlamaContext_freeContext(
     }
     if (llama->ctx_sampling != nullptr)
     {
-        llama_sampling_free(llama->ctx_sampling);
+        common_sampler_free(llama->ctx_sampling);
     }
     context_map.erase((long) llama->ctx);
+}
+
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_logToAndroid(JNIEnv *env, jobject thiz) {
+    UNUSED(env);
+    UNUSED(thiz);
+    llama_log_set(log_callback, NULL);
 }
 
 } // extern "C"

@@ -15,6 +15,7 @@ export type NativeContextParams = {
 
   use_mlock?: boolean
   use_mmap?: boolean
+  vocab_only?: boolean
 
   lora?: string // lora_adaptor
   lora_scaled?: number
@@ -34,6 +35,8 @@ export type NativeCompletionParams = {
   top_k?: number
   top_p?: number
   min_p?: number
+  xtc_threshold?: number
+  xtc_probability?: number
   tfs_z?: number
   typical_p?: number
   temperature?: number // -> temp

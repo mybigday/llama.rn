@@ -5,6 +5,7 @@
 #include <iostream>
 #include "common.h"
 #include "llama.h"
+#include "sampling.h"
 
 namespace rnllama {
 
@@ -115,7 +116,7 @@ static size_t find_partial_stop_string(const std::string &stop,
 // format incomplete utf-8 multibyte character for output
 static std::string tokens_to_output_formatted_string(const llama_context *ctx, const llama_token token)
 {
-    std::string out = token == -1 ? "" : llama_token_to_piece(ctx, token);
+    std::string out = token == -1 ? "" : common_token_to_piece(ctx, token);
     // if the size is 1 and first bit is 1, meaning it's a partial character
     //   (size > 1 meaning it's already a known token)
     if (out.size() == 1 && (out[0] & 0x80) == 0x80)
@@ -134,7 +135,7 @@ static std::string tokens_to_str(llama_context *ctx, Iter begin, Iter end)
     std::string ret;
     for (; begin != end; ++begin)
     {
-        ret += llama_token_to_piece(ctx, *begin);
+        ret += common_token_to_piece(ctx, *begin);
     }
     return ret;
 }
@@ -154,12 +155,12 @@ struct llama_rn_context
 
     std::vector<llama_token> embd;
 
-    gpt_params params;
+    common_params params;
 
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
-    llama_sampling_context *ctx_sampling = nullptr;
-
+    common_sampler *ctx_sampling = nullptr;
+  
     int n_ctx;
 
     bool truncated = false;
@@ -183,7 +184,7 @@ struct llama_rn_context
         }
         if (ctx_sampling != nullptr)
         {
-            llama_sampling_free(ctx_sampling);
+            common_sampler_free(ctx_sampling);
         }
     }
 
@@ -210,18 +211,18 @@ struct llama_rn_context
 
     bool initSampling() {
         if (ctx_sampling != nullptr) {
-            llama_sampling_free(ctx_sampling);
+            common_sampler_free(ctx_sampling);
         }
-        ctx_sampling = llama_sampling_init(params.sparams);
+        ctx_sampling = common_sampler_init(model, params.sparams);
         return ctx_sampling != nullptr;
     }
 
-    bool loadModel(gpt_params &params_)
+    bool loadModel(common_params &params_)
     {
         params = params_;
-        llama_init_result llama_init = llama_init_from_gpt_params(params);
-        model = llama_init.model;
-        ctx = llama_init.context;
+        common_init_result result = common_init_from_params(params);
+        model = result.model;
+        ctx = result.context;
         if (model == nullptr)
         {
            LOG_ERROR("unable to load model: %s", params_.model.c_str());
@@ -265,7 +266,7 @@ struct llama_rn_context
 
     void loadPrompt()
     {
-        std::vector<llama_token> prompt_tokens = ::llama_tokenize(ctx, params.prompt, true, true);
+        std::vector<llama_token> prompt_tokens = ::common_tokenize(ctx, params.prompt, true, true);
         num_prompt_tokens = prompt_tokens.size();
 
         // LOG tokens
@@ -293,7 +294,7 @@ struct llama_rn_context
         // push the prompt into the sampling context (do not apply grammar)
         for (auto & token : prompt_tokens)
         {
-           llama_sampling_accept(ctx_sampling, ctx, token, false);
+           common_sampler_accept(ctx_sampling, token, false);
         }
 
         // compare the evaluated prompt with the new prompt
@@ -322,8 +323,7 @@ struct llama_rn_context
     {
         // number of tokens to keep when resetting context
         n_remain = params.n_predict;
-        llama_set_rng_seed(ctx, params.seed);
-
+        llama_perf_context_reset(ctx);
         is_predicting = true;
     }
 
@@ -366,18 +366,25 @@ struct llama_rn_context
             {
                 n_eval = params.n_batch;
             }
-            if (llama_decode(ctx, llama_batch_get_one(&embd[n_past], n_eval, n_past, 0)))
-            {
+            if (llama_decode(ctx, llama_batch_get_one(&embd[n_past], n_eval)))
+            {   
                 LOG_ERROR("failed to eval, n_eval: %d, n_past: %d, n_threads: %d, embd: %s",
                     n_eval,
                     n_past,
-                    params.n_threads,
+                    params.cpuparams.n_threads,
                     tokens_to_str(ctx, embd.cbegin() + n_past, embd.cend()).c_str()
                 );
                 has_next_token = false;
                 return result;
             }
             n_past += n_eval;
+            
+            if(is_interrupted) {
+                LOG_INFO("Decoding Interrupted");
+                embd.resize(n_past);
+                has_next_token = false;
+                return result;
+            }
         }
 
         if (params.n_predict == 0)
@@ -392,22 +399,27 @@ struct llama_rn_context
             std::vector<llama_token_data> candidates;
             candidates.reserve(llama_n_vocab(model));
 
-            result.tok = llama_sampling_sample(ctx_sampling, ctx, NULL);
-
-            llama_token_data_array cur_p = { ctx_sampling->cur.data(), ctx_sampling->cur.size(), false };
+            result.tok = common_sampler_sample(ctx_sampling, ctx, -1);
+            
+            llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling);
 
             const int32_t n_probs = params.sparams.n_probs;
-            if (params.sparams.temp <= 0 && n_probs > 0)
+            
+            // deprecated
+            /*if (params.sparams.temp <= 0 && n_probs > 0)
             {
                 // For llama_sample_token_greedy we need to sort candidates
-                llama_sample_softmax(ctx, &cur_p);
-            }
+                llama_sampler_init_softmax();
+
+            }*/
+            
 
             for (size_t i = 0; i < std::min(cur_p.size, (size_t)n_probs); ++i)
             {
                 result.probs.push_back({cur_p.data[i].id, cur_p.data[i].p});
             }
-            llama_sampling_accept(ctx_sampling, ctx, result.tok, true);
+
+            common_sampler_accept(ctx_sampling, result.tok, true);
             if (tg) {
                 num_tokens_predicted++;
             }
@@ -467,7 +479,7 @@ struct llama_rn_context
     {
         const completion_token_output token_with_probs = nextToken();
 
-        const std::string token_text = token_with_probs.tok == -1 ? "" : llama_token_to_piece(ctx, token_with_probs.tok);
+        const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(ctx, token_with_probs.tok);
         generated_text += token_text;
 
         if (params.sparams.n_probs > 0)
@@ -508,7 +520,7 @@ struct llama_rn_context
         }
 
         LOG_VERBOSE("next token, token: %s, token_text: %s, has_next_token: %d, n_remain: %d, num_tokens_predicted: %d, stopped_eos: %d, stopped_word: %d, stopped_limit: %d, stopping_word: %s",
-            llama_token_to_piece(ctx, token_with_probs.tok),
+            common_token_to_piece(ctx, token_with_probs.tok),
             tokens_to_output_formatted_string(ctx, token_with_probs.tok).c_str(),
             has_next_token,
             n_remain,
@@ -529,9 +541,21 @@ struct llama_rn_context
             LOG_WARNING("embedding disabled, embedding: %s", params.embedding);
             return std::vector<float>(n_embd, 0.0f);
         }
-        const float *data = llama_get_embeddings(ctx);
-        std::vector<float> embedding(data, data + n_embd);
-        return embedding;
+        float *data;
+        
+        if(params.pooling_type == 0){
+            data = llama_get_embeddings(ctx);
+        }
+        else {
+            data = llama_get_embeddings_seq(ctx, 0);
+        }
+        
+        if(!data) {
+            return std::vector<float>(n_embd, 0.0f);
+        }
+        std::vector<float> embedding(data, data + n_embd), out(data, data + n_embd);
+        common_embd_normalize(embedding.data(), out.data(), n_embd, params.embd_normalize);
+        return out;
     }
 
     std::string bench(int pp, int tg, int pl, int nr)

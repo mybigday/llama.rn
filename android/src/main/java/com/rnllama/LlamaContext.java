@@ -35,6 +35,8 @@ public class LlamaContext {
     if (!params.hasKey("model")) {
       throw new IllegalArgumentException("Missing required parameter: model");
     }
+    Log.d(NAME, "Setting log callback");
+    logToAndroid();
     this.id = id;
     this.context = initContext(
       // String model,
@@ -53,6 +55,8 @@ public class LlamaContext {
       params.hasKey("use_mlock") ? params.getBoolean("use_mlock") : true,
       // boolean use_mmap,
       params.hasKey("use_mmap") ? params.getBoolean("use_mmap") : true,
+      //boolean vocab_only,
+      params.hasKey("vocab_only") ? params.getBoolean("vocab_only") : false,
       // String lora,
       params.hasKey("lora") ? params.getString("lora") : "",
       // float lora_scaled,
@@ -181,6 +185,10 @@ public class LlamaContext {
       params.hasKey("top_p") ? (float) params.getDouble("top_p") : 0.95f,
       // float min_p,
       params.hasKey("min_p") ? (float) params.getDouble("min_p") : 0.05f,
+      // float xtc_threshold,
+      params.hasKey("xtc_threshold") ? (float) params.getDouble("xtc_threshold") : 0.00f,
+      // float xtc_probability,
+      params.hasKey("xtc_probability") ? (float) params.getDouble("xtc_probability") : 0.00f,
       // float tfs_z,
       params.hasKey("tfs_z") ? (float) params.getDouble("tfs_z") : 1.00f,
       // float typical_p,
@@ -248,16 +256,34 @@ public class LlamaContext {
 
   static {
     Log.d(NAME, "Primary ABI: " + Build.SUPPORTED_ABIS[0]);
+
+    String cpuFeatures = LlamaContext.getCpuFeatures();
+    Log.d(NAME, "CPU features: " + cpuFeatures);
+    boolean hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp");
+    boolean hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp");
+    boolean hasSve = cpuFeatures.contains("sve");
+    boolean hasI8mm = cpuFeatures.contains("i8mm");
+    boolean isAtLeastArmV82 = cpuFeatures.contains("asimd") && cpuFeatures.contains("crc32") && cpuFeatures.contains("aes");
+    boolean isAtLeastArmV84 = cpuFeatures.contains("dcpop") && cpuFeatures.contains("uscat");
+    Log.d(NAME, "- hasFp16: " + hasFp16);
+    Log.d(NAME, "- hasDotProd: " + hasDotProd);
+    Log.d(NAME, "- hasSve: " + hasSve);
+    Log.d(NAME, "- hasI8mm: " + hasI8mm);
+    Log.d(NAME, "- isAtLeastArmV82: " + isAtLeastArmV82);
+    Log.d(NAME, "- isAtLeastArmV84: " + isAtLeastArmV84);
+
+    // TODO: Add runtime check for cpu features
     if (LlamaContext.isArm64V8a()) {
-      String cpuFeatures = LlamaContext.getCpuFeatures();
-      Log.d(NAME, "CPU features: " + cpuFeatures);
-
-      boolean hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp");
-      boolean hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp");
-      boolean isAtLeastArmV82 = cpuFeatures.contains("asimd") && cpuFeatures.contains("crc32") && cpuFeatures.contains("aes");
-      boolean isAtLeastArmV84 = cpuFeatures.contains("dcpop") && cpuFeatures.contains("uscat");
-
-      if (isAtLeastArmV84 && hasFp16 && hasDotProd) {
+      if (isAtLeastArmV84 && hasSve && hasI8mm && hasFp16 && hasDotProd) {
+        Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod_i8mm_sve.so");
+        System.loadLibrary("rnllama_v8_4_fp16_dotprod_i8mm_sve");
+      } else if (isAtLeastArmV84 && hasSve && hasFp16 && hasDotProd) {
+        Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod_sve.so");
+        System.loadLibrary("rnllama_v8_4_fp16_dotprod_sve");
+      } else if (isAtLeastArmV84 && hasI8mm && hasFp16 && hasDotProd) {
+        Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod_i8mm.so");
+        System.loadLibrary("rnllama_v8_4_fp16_dotprod_i8mm");
+      } else if (isAtLeastArmV84 && hasFp16 && hasDotProd) {
         Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod.so");
         System.loadLibrary("rnllama_v8_4_fp16_dotprod");
       } else if (isAtLeastArmV82 && hasFp16 && hasDotProd) {
@@ -270,14 +296,16 @@ public class LlamaContext {
         Log.d(NAME, "Loading librnllama_v8.so");
         System.loadLibrary("rnllama_v8");
       }
+      //  Log.d(NAME, "Loading librnllama_v8_7.so with runtime feature detection");
+      //  System.loadLibrary("rnllama_v8_7");
     } else if (LlamaContext.isX86_64()) {
-      Log.d(NAME, "Loading librnllama_x86_64.so");
-      System.loadLibrary("rnllama_x86_64");
+        Log.d(NAME, "Loading librnllama_x86_64.so");
+        System.loadLibrary("rnllama_x86_64");
     } else {
-      Log.d(NAME, "Loading default librnllama.so");
-      System.loadLibrary("rnllama");
+        Log.d(NAME, "Loading default librnllama.so");
+        System.loadLibrary("rnllama");
     }
-  }
+}
 
   private static boolean isArm64V8a() {
     return Build.SUPPORTED_ABIS[0].equals("arm64-v8a");
@@ -316,6 +344,7 @@ public class LlamaContext {
     int n_gpu_layers, // TODO: Support this
     boolean use_mlock,
     boolean use_mmap,
+    boolean vocab_only,
     String lora,
     float lora_scaled,
     float rope_freq_base,
@@ -357,6 +386,8 @@ public class LlamaContext {
     int top_k,
     float top_p,
     float min_p,
+    float xtc_threshold,
+    float xtc_probability,
     float tfs_z,
     float typical_p,
     int seed,
@@ -373,4 +404,5 @@ public class LlamaContext {
   protected static native WritableMap embedding(long contextPtr, String text);
   protected static native String bench(long contextPtr, int pp, int tg, int pl, int nr);
   protected static native void freeContext(long contextPtr);
+  protected static native void logToAndroid();
 }

@@ -5,7 +5,12 @@
 
 + (instancetype)initWithParams:(NSDictionary *)params {
     // llama_backend_init(false);
-    gpt_params defaultParams;
+    common_params defaultParams;
+
+    if (params[@"vocab_only"]) {
+        defaultParams.vocab_only = [params[@"vocab_only"] boolValue];
+        defaultParams.warmup = false;
+    }
 
     NSString *modelPath = params[@"model"];
     BOOL isAsset = [params[@"is_model_asset"] boolValue];
@@ -66,13 +71,13 @@
     if (params[@"rope_freq_base"]) defaultParams.rope_freq_base = [params[@"rope_freq_base"] floatValue];
     if (params[@"rope_freq_scale"]) defaultParams.rope_freq_scale = [params[@"rope_freq_scale"] floatValue];
 
-    if (params[@"seed"]) defaultParams.seed = [params[@"seed"] intValue];
+    //if (params[@"seed"]) defaultParams.seed = [params[@"seed"] intValue];
 
     int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : 0;
     const int maxThreads = (int) [[NSProcessInfo processInfo] processorCount];
     // Use 2 threads by default on 4-core devices, 4 threads on more cores
     const int defaultNThreads = nThreads == 4 ? 2 : MIN(4, maxThreads);
-    defaultParams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
+    defaultParams.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
 
     RNLlamaContext *context = [[RNLlamaContext alloc] init];
     if (context->llama == nullptr) {
@@ -128,7 +133,7 @@
 }
 
 - (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate {
-  std::vector<llama_chat_msg> chat;
+  std::vector<common_chat_msg> chat;
 
   for (NSDictionary *msg in messages) {
     std::string role = [[msg objectForKey:@"role"] UTF8String];
@@ -137,7 +142,7 @@
   }
 
   auto tmpl = chatTemplate == nil ? "" : [chatTemplate UTF8String];
-  auto formatted_chat = llama_chat_apply_template(llama->model, tmpl, chat, true);
+  auto formatted_chat = common_chat_apply_template(llama->model, tmpl, chat, true);
   return [NSString stringWithUTF8String:formatted_chat.c_str()];
 }
 
@@ -168,21 +173,22 @@
 {
     llama->rewind();
 
-    llama_reset_timings(llama->ctx);
+    //llama_reset_timings(llama->ctx);
 
     NSString *prompt = [params objectForKey:@"prompt"];
 
     llama->params.prompt = [prompt UTF8String];
-    llama->params.seed = params[@"seed"] ? [params[@"seed"] intValue] : -1;
+    llama->params.sparams.seed = params[@"seed"] ? [params[@"seed"] intValue] : -1;
 
     if (params[@"n_threads"]) {
-        int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : llama->params.n_threads;
+        int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : llama->params.cpuparams.n_threads;
         const int maxThreads = (int) [[NSProcessInfo processInfo] processorCount];
         // Use 2 threads by default on 4-core devices, 4 threads on more cores
         const int defaultNThreads = nThreads == 4 ? 2 : MIN(4, maxThreads);
-        llama->params.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
+        llama->params.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
     }
     if (params[@"n_predict"]) llama->params.n_predict = [params[@"n_predict"] intValue];
+    if (params[@"ignore_eos"]) llama->params.sparams.ignore_eos = [params[@"ignore_eos"] boolValue];
 
     auto & sparams = llama->params.sparams;
 
@@ -203,9 +209,10 @@
     if (params[@"top_k"]) sparams.top_k = [params[@"top_k"] intValue];
     if (params[@"top_p"]) sparams.top_p = [params[@"top_p"] doubleValue];
     if (params[@"min_p"]) sparams.min_p = [params[@"min_p"] doubleValue];
+    if (params[@"xtc_threshold"]) sparams.xtc_threshold = [params[@"xtc_threshold"] doubleValue];
+    if (params[@"xtc_probability"]) sparams.xtc_probability = [params[@"xtc_probability"] doubleValue];
     if (params[@"tfs_z"]) sparams.tfs_z = [params[@"tfs_z"] doubleValue];
-
-    if (params[@"typical_p"]) sparams.typical_p = [params[@"typical_p"] doubleValue];
+    if (params[@"typical_p"]) sparams.typ_p = [params[@"typical_p"] doubleValue];
 
     if (params[@"grammar"]) {
         sparams.grammar = [params[@"grammar"] UTF8String];
@@ -221,7 +228,7 @@
 
     sparams.logit_bias.clear();
     if (params[@"ignore_eos"] && [params[@"ignore_eos"] boolValue]) {
-        sparams.logit_bias[llama_token_eos(llama->model)] = -INFINITY;
+        sparams.logit_bias[llama_token_eos(llama->model)].bias = -INFINITY;
     }
 
     if (params[@"logit_bias"] && [params[@"logit_bias"] isKindOfClass:[NSArray class]]) {
@@ -232,9 +239,9 @@
                 llama_token tok = [el[0] intValue];
                 if (tok >= 0 && tok < n_vocab) {
                     if ([el[1] isKindOfClass:[NSNumber class]]) {
-                        sparams.logit_bias[tok] = [el[1] doubleValue];
+                        sparams.logit_bias[tok].bias = [el[1] doubleValue];
                     } else if ([el[1] isKindOfClass:[NSNumber class]] && ![el[1] boolValue]) {
-                        sparams.logit_bias[tok] = -INFINITY;
+                        sparams.logit_bias[tok].bias = -INFINITY;
                     }
                 }
             }
@@ -255,7 +262,7 @@
         if (token_with_probs.tok == -1 || llama->incomplete) {
             continue;
         }
-        const std::string token_text = llama_token_to_piece(llama->ctx, token_with_probs.tok);
+        const std::string token_text = common_token_to_piece(llama->ctx, token_with_probs.tok);
 
         size_t pos = std::min(sent_count, llama->generated_text.size());
 
@@ -290,7 +297,7 @@
             tokenResult[@"token"] = [NSString stringWithUTF8String:to_send.c_str()];
 
             if (llama->params.sparams.n_probs > 0) {
-                const std::vector<llama_token> to_send_toks = llama_tokenize(llama->ctx, to_send, false);
+                const std::vector<llama_token> to_send_toks = common_tokenize(llama->ctx, to_send, false);
                 size_t probs_pos = std::min(sent_token_probs_index, llama->generated_token_probs.size());
                 size_t probs_stop_pos = std::min(sent_token_probs_index + to_send_toks.size(), llama->generated_token_probs.size());
                 if (probs_pos < probs_stop_pos) {
@@ -305,10 +312,10 @@
         }
     }
 
-    llama_print_timings(llama->ctx);
+    llama_perf_context_print(llama->ctx);
     llama->is_predicting = false;
 
-    const auto timings = llama_get_timings(llama->ctx);
+    const auto timings = llama_perf_context(llama->ctx);
     return @{
         @"text": [NSString stringWithUTF8String:llama->generated_text.c_str()],
         @"completion_probabilities": [self tokenProbsToDict:llama->generated_token_probs],
@@ -339,7 +346,7 @@
 }
 
 - (NSArray *)tokenize:(NSString *)text {
-    const std::vector<llama_token> toks = llama_tokenize(llama->ctx, [text UTF8String], false);
+    const std::vector<llama_token> toks = common_tokenize(llama->ctx, [text UTF8String], false);
     NSMutableArray *result = [[NSMutableArray alloc] init];
     for (llama_token tok : toks) {
         [result addObject:@(tok)];
@@ -363,7 +370,7 @@
 
     llama->rewind();
 
-    llama_reset_timings(llama->ctx);
+    llama_perf_context_reset(llama->ctx);
 
     llama->params.prompt = [text UTF8String];
 

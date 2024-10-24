@@ -1,3 +1,13 @@
+// Note: porting this file to C++ is a work in progress
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#   define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include "ggml-backend-impl.h"
 #include "ggml-alloc.h"
 #include "ggml-impl.h"
@@ -8,9 +18,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
+#include <vector>
 
+#ifdef __APPLE__
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#endif
 
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 // backend buffer type
 
@@ -18,7 +33,7 @@ const char * lm_ggml_backend_buft_name(lm_ggml_backend_buffer_type_t buft) {
     return buft->iface.get_name(buft);
 }
 
-LM_GGML_CALL lm_ggml_backend_buffer_t lm_ggml_backend_buft_alloc_buffer(lm_ggml_backend_buffer_type_t buft, size_t size) {
+lm_ggml_backend_buffer_t lm_ggml_backend_buft_alloc_buffer(lm_ggml_backend_buffer_type_t buft, size_t size) {
     return buft->iface.alloc_buffer(buft, size);
 }
 
@@ -34,7 +49,7 @@ size_t lm_ggml_backend_buft_get_max_size(lm_ggml_backend_buffer_type_t buft) {
     return SIZE_MAX;
 }
 
-LM_GGML_CALL size_t lm_ggml_backend_buft_get_alloc_size(lm_ggml_backend_buffer_type_t buft, struct lm_ggml_tensor * tensor) {
+size_t lm_ggml_backend_buft_get_alloc_size(lm_ggml_backend_buffer_type_t buft, struct lm_ggml_tensor * tensor) {
     // get_alloc_size is optional, defaults to lm_ggml_nbytes
     if (buft->iface.get_alloc_size) {
         size_t size = buft->iface.get_alloc_size(buft, tensor);
@@ -51,16 +66,18 @@ bool lm_ggml_backend_buft_is_host(lm_ggml_backend_buffer_type_t buft) {
     return false;
 }
 
+lm_ggml_backend_dev_t lm_ggml_backend_buft_get_device(lm_ggml_backend_buffer_type_t buft) {
+    return buft->device;
+}
+
 // backend buffer
 
-LM_GGML_CALL lm_ggml_backend_buffer_t lm_ggml_backend_buffer_init(
-               lm_ggml_backend_buffer_type_t      buft,
-        struct lm_ggml_backend_buffer_i           iface,
-               lm_ggml_backend_buffer_context_t   context,
-               size_t                          size) {
-    lm_ggml_backend_buffer_t buffer = malloc(sizeof(struct lm_ggml_backend_buffer));
-
-    (*buffer) = (struct lm_ggml_backend_buffer) {
+lm_ggml_backend_buffer_t lm_ggml_backend_buffer_init(
+               lm_ggml_backend_buffer_type_t buft,
+        struct lm_ggml_backend_buffer_i      iface,
+               void *                     context,
+               size_t                     size) {
+    lm_ggml_backend_buffer_t buffer = new lm_ggml_backend_buffer {
         /* .interface = */ iface,
         /* .buft      = */ buft,
         /* .context   = */ context,
@@ -83,7 +100,7 @@ void lm_ggml_backend_buffer_free(lm_ggml_backend_buffer_t buffer) {
     if (buffer->iface.free_buffer != NULL) {
         buffer->iface.free_buffer(buffer);
     }
-    free(buffer);
+    delete buffer;
 }
 
 size_t lm_ggml_backend_buffer_get_size(lm_ggml_backend_buffer_t buffer) {
@@ -98,14 +115,14 @@ void * lm_ggml_backend_buffer_get_base(lm_ggml_backend_buffer_t buffer) {
     return base;
 }
 
-LM_GGML_CALL void lm_ggml_backend_buffer_init_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor) {
+void lm_ggml_backend_buffer_init_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor) {
     // init_tensor is optional
     if (buffer->iface.init_tensor) {
         buffer->iface.init_tensor(buffer, tensor);
     }
 }
 
-size_t lm_ggml_backend_buffer_get_alignment (lm_ggml_backend_buffer_t buffer) {
+size_t lm_ggml_backend_buffer_get_alignment(lm_ggml_backend_buffer_t buffer) {
     return lm_ggml_backend_buft_get_alignment(lm_ggml_backend_buffer_get_type(buffer));
 }
 
@@ -218,7 +235,7 @@ void lm_ggml_backend_tensor_get_async(lm_ggml_backend_t backend, const struct lm
     }
 }
 
-LM_GGML_CALL void lm_ggml_backend_tensor_set(struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
+void lm_ggml_backend_tensor_set(struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
     lm_ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 
     LM_GGML_ASSERT(buf != NULL && "tensor buffer not set");
@@ -232,7 +249,7 @@ LM_GGML_CALL void lm_ggml_backend_tensor_set(struct lm_ggml_tensor * tensor, con
     buf->iface.set_tensor(buf, tensor, data, offset, size);
 }
 
-LM_GGML_CALL void lm_ggml_backend_tensor_get(const struct lm_ggml_tensor * tensor, void * data, size_t offset, size_t size) {
+void lm_ggml_backend_tensor_get(const struct lm_ggml_tensor * tensor, void * data, size_t offset, size_t size) {
     lm_ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 
     LM_GGML_ASSERT(buf != NULL && "tensor buffer not set");
@@ -244,6 +261,22 @@ LM_GGML_CALL void lm_ggml_backend_tensor_get(const struct lm_ggml_tensor * tenso
     }
 
     buf->iface.get_tensor(buf, tensor, data, offset, size);
+}
+
+LM_GGML_API void lm_ggml_backend_tensor_memset(struct lm_ggml_tensor * tensor, uint8_t value, size_t offset, size_t size) {
+    lm_ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+
+    LM_GGML_ASSERT(buf != NULL && "tensor buffer not set");
+    LM_GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
+    LM_GGML_ASSERT(offset + size <= lm_ggml_nbytes(tensor) && "tensor write out of bounds");
+
+    if (!size) {
+        return;
+    }
+
+    LM_GGML_ASSERT(buf->iface.memset_tensor != NULL && "memset not supported by backend buffer");
+
+    buf->iface.memset_tensor(buf, tensor, value, offset, size);
 }
 
 void lm_ggml_backend_synchronize(lm_ggml_backend_t backend) {
@@ -283,18 +316,36 @@ enum lm_ggml_status lm_ggml_backend_graph_compute_async(lm_ggml_backend_t backen
 }
 
 bool lm_ggml_backend_supports_op(lm_ggml_backend_t backend, const struct lm_ggml_tensor * op) {
+    // helper to ease transition to device interface
+    if (backend->device) {
+        return lm_ggml_backend_dev_supports_op(backend->device, op);
+    }
+
     return backend->iface.supports_op(backend, op);
 }
 
 bool lm_ggml_backend_supports_buft(lm_ggml_backend_t backend, lm_ggml_backend_buffer_type_t buft) {
+    // helper to ease transition to device interface
+    if (backend->device) {
+        return lm_ggml_backend_dev_supports_buft(backend->device, buft);
+    }
     return backend->iface.supports_buft(backend, buft);
 }
 
 bool lm_ggml_backend_offload_op(lm_ggml_backend_t backend, const struct lm_ggml_tensor * op) {
+    // helper to ease transition to device interface
+    if (backend->device) {
+        return lm_ggml_backend_dev_offload_op(backend->device, op);
+    }
+
     if (backend->iface.offload_op != NULL) {
         return backend->iface.offload_op(backend, op);
     }
     return false;
+}
+
+lm_ggml_backend_dev_t lm_ggml_backend_get_device(lm_ggml_backend_t backend) {
+    return backend->device;
 }
 
 // backend copy
@@ -327,7 +378,7 @@ void lm_ggml_backend_tensor_copy(struct lm_ggml_tensor * src, struct lm_ggml_ten
         lm_ggml_backend_tensor_get(src, dst->data, 0, lm_ggml_nbytes(src));
     } else if (!lm_ggml_backend_buffer_copy_tensor(src, dst)) {
 #ifndef NDEBUG
-        fprintf(stderr, "%s: warning: slow copy from %s to %s\n", __func__, lm_ggml_backend_buffer_name(src->buffer), lm_ggml_backend_buffer_name(dst->buffer));
+        LM_GGML_LOG_DEBUG("%s: warning: slow copy from %s to %s\n", __func__, lm_ggml_backend_buffer_name(src->buffer), lm_ggml_backend_buffer_name(dst->buffer));
 #endif
         size_t nbytes = lm_ggml_nbytes(src);
         void * data = malloc(nbytes);
@@ -359,30 +410,31 @@ void lm_ggml_backend_tensor_copy_async(lm_ggml_backend_t backend_src, lm_ggml_ba
 
 // events
 
-lm_ggml_backend_event_t lm_ggml_backend_event_new(lm_ggml_backend_t backend) {
-    if (backend->iface.event_new == NULL) {
+lm_ggml_backend_event_t lm_ggml_backend_event_new(lm_ggml_backend_dev_t device) {
+    // null device is allowed for the transition period to the device interface
+    if (device == NULL || device->iface.event_new == NULL) {
         return NULL;
     }
-    return backend->iface.event_new(backend);
+    return device->iface.event_new(device);
 }
 
 void lm_ggml_backend_event_free(lm_ggml_backend_event_t event) {
     if (event == NULL) {
         return;
     }
-    event->backend->iface.event_free(event);
+    event->device->iface.event_free(event->device, event);
 }
 
-void lm_ggml_backend_event_record(lm_ggml_backend_event_t event) {
-    LM_GGML_ASSERT(event->backend->iface.event_record != NULL);
+void lm_ggml_backend_event_record(lm_ggml_backend_event_t event, lm_ggml_backend_t backend) {
+    LM_GGML_ASSERT(backend->iface.event_record != NULL);
 
-    event->backend->iface.event_record(event);
+    backend->iface.event_record(backend, event);
 }
 
 void lm_ggml_backend_event_synchronize(lm_ggml_backend_event_t event) {
-    LM_GGML_ASSERT(event->backend->iface.event_synchronize != NULL);
+    LM_GGML_ASSERT(event->device->iface.event_synchronize);
 
-    event->backend->iface.event_synchronize(event);
+    event->device->iface.event_synchronize(event->device, event);
 }
 
 void lm_ggml_backend_event_wait(lm_ggml_backend_t backend, lm_ggml_backend_event_t event) {
@@ -391,170 +443,283 @@ void lm_ggml_backend_event_wait(lm_ggml_backend_t backend, lm_ggml_backend_event
     backend->iface.event_wait(backend, event);
 }
 
-// backend registry
+// Backend device
 
-#define LM_GGML_REG_MAX_BACKENDS 64
-
-struct lm_ggml_backend_reg {
-    char name[128];
-    lm_ggml_backend_init_fn init_fn;
-    lm_ggml_backend_buffer_type_t default_buffer_type;
-    void * user_data;
-};
-
-static struct lm_ggml_backend_reg lm_ggml_backend_registry[LM_GGML_REG_MAX_BACKENDS];
-static size_t lm_ggml_backend_registry_count = 0;
-
-LM_GGML_CALL static lm_ggml_backend_t lm_ggml_backend_reg_cpu_init(const char * params, void * user_data);
-
-LM_GGML_CALL static void lm_ggml_backend_registry_init(void) {
-    static bool initialized = false;
-
-    if (initialized) {
-        return;
-    }
-
-    initialized = true;
-
-    lm_ggml_backend_register("CPU", lm_ggml_backend_reg_cpu_init, lm_ggml_backend_cpu_buffer_type(), NULL);
-
-    // add forward decls here to avoid including the backend headers
-#ifdef LM_GGML_USE_CUDA
-    extern LM_GGML_CALL void lm_ggml_backend_cuda_reg_devices(void);
-    lm_ggml_backend_cuda_reg_devices();
-#endif
-
-#ifdef LM_GGML_USE_SYCL
-    extern void lm_ggml_backend_sycl_reg_devices(void);
-    lm_ggml_backend_sycl_reg_devices();
-#endif
-
-#ifdef LM_GGML_USE_METAL
-    extern LM_GGML_CALL lm_ggml_backend_t lm_ggml_backend_reg_metal_init(const char * params, void * user_data);
-    extern LM_GGML_CALL lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_type(void);
-    lm_ggml_backend_register("Metal", lm_ggml_backend_reg_metal_init, lm_ggml_backend_metal_buffer_type(), NULL);
-#endif
-
-#ifdef LM_GGML_USE_VULKAN
-    extern LM_GGML_CALL int lm_ggml_backend_vk_reg_devices(void);
-    lm_ggml_backend_vk_reg_devices();
-#endif
-
-#ifdef LM_GGML_USE_KOMPUTE
-    extern LM_GGML_CALL void lm_ggml_backend_kompute_reg_devices(void);
-    lm_ggml_backend_kompute_reg_devices();
-#endif
-
-#ifdef LM_GGML_USE_CANN
-    extern LM_GGML_CALL int lm_ggml_backend_cann_reg_devices(void);
-    lm_ggml_backend_cann_reg_devices();
-#endif
+const char * lm_ggml_backend_dev_name(lm_ggml_backend_dev_t device) {
+    return device->iface.get_name(device);
 }
 
-LM_GGML_CALL void lm_ggml_backend_register(const char * name, lm_ggml_backend_init_fn init_fn, lm_ggml_backend_buffer_type_t default_buffer_type, void * user_data) {
-    LM_GGML_ASSERT(lm_ggml_backend_registry_count < LM_GGML_REG_MAX_BACKENDS);
-
-    size_t id = lm_ggml_backend_registry_count;
-
-    lm_ggml_backend_registry[id] = (struct lm_ggml_backend_reg) {
-        /* .name                = */ {0},
-        /* .fn                  = */ init_fn,
-        /* .default_buffer_type = */ default_buffer_type,
-        /* .user_data           = */ user_data,
-    };
-
-    snprintf(lm_ggml_backend_registry[id].name, sizeof(lm_ggml_backend_registry[id].name), "%s", name);
-
-#ifndef NDEBUG
-    fprintf(stderr, "%s: registered backend %s\n", __func__, name);
-#endif
-
-    lm_ggml_backend_registry_count++;
+const char * lm_ggml_backend_dev_description(lm_ggml_backend_dev_t device) {
+    return device->iface.get_description(device);
 }
 
-size_t lm_ggml_backend_reg_get_count(void) {
-    lm_ggml_backend_registry_init();
-
-    return lm_ggml_backend_registry_count;
+void lm_ggml_backend_dev_memory(lm_ggml_backend_dev_t device, size_t * free, size_t * total) {
+    device->iface.get_memory(device, free, total);
 }
 
-size_t lm_ggml_backend_reg_find_by_name(const char * name) {
-    lm_ggml_backend_registry_init();
-
-    for (size_t i = 0; i < lm_ggml_backend_registry_count; i++) {
-        // TODO: case insensitive in a portable way
-        if (strcmp(lm_ggml_backend_registry[i].name, name) == 0) {
-            return i;
-        }
-    }
-
-    // not found
-    return SIZE_MAX;
+enum lm_ggml_backend_dev_type lm_ggml_backend_dev_type(lm_ggml_backend_dev_t device) {
+    return device->iface.get_type(device);
 }
 
-// init from backend:params string
-lm_ggml_backend_t lm_ggml_backend_reg_init_backend_from_str(const char * backend_str) {
-    lm_ggml_backend_registry_init();
+void lm_ggml_backend_dev_get_props(lm_ggml_backend_dev_t device, struct lm_ggml_backend_dev_props * props) {
+    memset(props, 0, sizeof(*props));
+    device->iface.get_props(device, props);
+}
 
-    const char * params = strchr(backend_str, ':');
-    char backend_name[128];
-    if (params == NULL) {
-        snprintf(backend_name, sizeof(backend_name), "%s", backend_str);
-        params = "";
-    } else {
-        snprintf(backend_name, sizeof(backend_name), "%.*s", (int)(params - backend_str), backend_str);
-        params++;
-    }
+lm_ggml_backend_reg_t lm_ggml_backend_dev_backend_reg(lm_ggml_backend_dev_t device) {
+    return device->reg;
+}
 
-    size_t backend_i = lm_ggml_backend_reg_find_by_name(backend_name);
+lm_ggml_backend_t lm_ggml_backend_dev_init(lm_ggml_backend_dev_t device, const char * params) {
+    return device->iface.init_backend(device, params);
+}
 
-    if (backend_i == SIZE_MAX) {
-        fprintf(stderr, "%s: backend %s not found\n", __func__, backend_name);
+lm_ggml_backend_buffer_type_t lm_ggml_backend_dev_buffer_type(lm_ggml_backend_dev_t device) {
+    return device->iface.get_buffer_type(device);
+}
+
+lm_ggml_backend_buffer_type_t lm_ggml_backend_dev_host_buffer_type(lm_ggml_backend_dev_t device) {
+    if (device->iface.get_host_buffer_type == NULL) {
         return NULL;
     }
 
-    return lm_ggml_backend_reg_init_backend(backend_i, params);
+    return device->iface.get_host_buffer_type(device);
 }
 
-const char * lm_ggml_backend_reg_get_name(size_t i) {
-    lm_ggml_backend_registry_init();
-
-    LM_GGML_ASSERT(i < lm_ggml_backend_registry_count);
-    return lm_ggml_backend_registry[i].name;
+lm_ggml_backend_buffer_t lm_ggml_backend_dev_buffer_from_host_ptr(lm_ggml_backend_dev_t device, void * ptr, size_t size, size_t max_tensor_size) {
+    return device->iface.buffer_from_host_ptr(device, ptr, size, max_tensor_size);
 }
 
-lm_ggml_backend_t lm_ggml_backend_reg_init_backend(size_t i, const char * params) {
-    lm_ggml_backend_registry_init();
-
-    LM_GGML_ASSERT(i < lm_ggml_backend_registry_count);
-    return lm_ggml_backend_registry[i].init_fn(params, lm_ggml_backend_registry[i].user_data);
+bool lm_ggml_backend_dev_supports_op(lm_ggml_backend_dev_t device, const struct lm_ggml_tensor * op) {
+    return device->iface.supports_op(device, op);
 }
 
-lm_ggml_backend_buffer_type_t lm_ggml_backend_reg_get_default_buffer_type(size_t i) {
-    lm_ggml_backend_registry_init();
-
-    LM_GGML_ASSERT(i < lm_ggml_backend_registry_count);
-    return lm_ggml_backend_registry[i].default_buffer_type;
+bool lm_ggml_backend_dev_supports_buft(lm_ggml_backend_dev_t device, lm_ggml_backend_buffer_type_t buft) {
+    return device->iface.supports_buft(device, buft);
 }
 
-lm_ggml_backend_buffer_t lm_ggml_backend_reg_alloc_buffer(size_t i, size_t size) {
-    lm_ggml_backend_registry_init();
+bool lm_ggml_backend_dev_offload_op(lm_ggml_backend_dev_t device, const struct lm_ggml_tensor * op) {
+    if (device->iface.offload_op != NULL) {
+        return device->iface.offload_op(device, op);
+    }
 
-    LM_GGML_ASSERT(i < lm_ggml_backend_registry_count);
-    return lm_ggml_backend_buft_alloc_buffer(lm_ggml_backend_registry[i].default_buffer_type, size);
+    return false;
+}
+
+// Backend (reg)
+
+const char * lm_ggml_backend_reg_name(lm_ggml_backend_reg_t reg) {
+    return reg->iface.get_name(reg);
+}
+
+size_t lm_ggml_backend_reg_dev_count(lm_ggml_backend_reg_t reg) {
+    return reg->iface.get_device_count(reg);
+}
+
+lm_ggml_backend_dev_t lm_ggml_backend_reg_dev_get(lm_ggml_backend_reg_t reg, size_t index) {
+    return reg->iface.get_device(reg, index);
+}
+
+void * lm_ggml_backend_reg_get_proc_address(lm_ggml_backend_reg_t reg, const char * name) {
+    if (!reg->iface.get_proc_address) {
+        return NULL;
+    }
+    return reg->iface.get_proc_address(reg, name);
+}
+
+// Backend registry
+
+#ifdef LM_GGML_USE_CUDA
+#include "ggml-cuda.h"
+#endif
+
+#ifdef LM_GGML_USE_METAL
+#include "ggml-metal.h"
+#endif
+
+#ifdef LM_GGML_USE_SYCL
+#include "ggml-sycl.h"
+#endif
+
+#ifdef LM_GGML_USE_VULKAN
+#include "ggml-vulkan.h"
+#endif
+
+#ifdef LM_GGML_USE_BLAS
+#include "ggml-blas.h"
+#endif
+
+#ifdef LM_GGML_USE_RPC
+#include "ggml-rpc.h"
+#endif
+
+#ifndef __AMX_INT8__
+#undef LM_GGML_USE_AMX
+#endif
+
+#ifdef LM_GGML_USE_AMX
+#  include "ggml-amx.h"
+#endif
+
+#ifdef LM_GGML_USE_CANN
+#include "ggml-cann.h"
+#endif
+
+struct lm_ggml_backend_registry {
+    std::vector<lm_ggml_backend_reg_t> backends;
+    std::vector<lm_ggml_backend_dev_t> devices;
+
+    lm_ggml_backend_registry() {
+#ifdef LM_GGML_USE_CUDA
+        register_backend(lm_ggml_backend_cuda_reg());
+#endif
+#ifdef LM_GGML_USE_METAL
+        register_backend(lm_ggml_backend_metal_reg());
+#endif
+#ifdef LM_GGML_USE_SYCL
+        register_backend(lm_ggml_backend_sycl_reg());
+#endif
+#ifdef LM_GGML_USE_VULKAN
+        register_backend(lm_ggml_backend_vk_reg());
+#endif
+#ifdef LM_GGML_USE_BLAS
+        register_backend(lm_ggml_backend_blas_reg());
+#endif
+#ifdef LM_GGML_USE_RPC
+        register_backend(lm_ggml_backend_rpc_reg());
+#endif
+#ifdef LM_GGML_USE_AMX
+        register_backend(lm_ggml_backend_amx_reg());
+#endif
+#ifdef LM_GGML_USE_CANN
+        register_backend(lm_ggml_backend_cann_reg());
+#endif
+
+        // TODO: kompute
+
+        register_backend(lm_ggml_backend_cpu_reg());
+    }
+
+    void register_backend(lm_ggml_backend_reg_t reg) {
+#ifndef NDEBUG
+        LM_GGML_LOG_DEBUG("%s: registered backend %s (%zu devices)\n",
+            __func__, lm_ggml_backend_reg_name(reg), lm_ggml_backend_reg_dev_count(reg));
+#endif
+        backends.push_back(reg);
+        for (size_t i = 0; i < lm_ggml_backend_reg_dev_count(reg); i++) {
+            register_device(lm_ggml_backend_reg_dev_get(reg, i));
+        }
+    }
+
+    void register_device(lm_ggml_backend_dev_t device) {
+#ifndef NDEBUG
+        LM_GGML_LOG_DEBUG("%s: registered device %s (%s)\n", __func__, lm_ggml_backend_dev_name(device), lm_ggml_backend_dev_description(device));
+#endif
+        devices.push_back(device);
+    }
+};
+
+static lm_ggml_backend_registry & get_reg() {
+    static lm_ggml_backend_registry reg;
+    return reg;
+}
+
+// Internal API
+void lm_ggml_backend_register(lm_ggml_backend_reg_t reg) {
+    get_reg().register_backend(reg);
+}
+
+void lm_ggml_backend_device_register(lm_ggml_backend_dev_t device) {
+    get_reg().register_device(device);
+}
+
+// Backend (reg) enumeration
+size_t lm_ggml_backend_reg_count() {
+    return get_reg().backends.size();
+}
+
+lm_ggml_backend_reg_t lm_ggml_backend_reg_get(size_t index) {
+    LM_GGML_ASSERT(index < lm_ggml_backend_reg_count());
+    return get_reg().backends[index];
+}
+
+lm_ggml_backend_reg_t lm_ggml_backend_reg_by_name(const char * name) {
+    for (size_t i = 0; i < lm_ggml_backend_reg_count(); i++) {
+        lm_ggml_backend_reg_t reg = lm_ggml_backend_reg_get(i);
+        if (strcmp(lm_ggml_backend_reg_name(reg), name) == 0) {
+            return reg;
+        }
+    }
+    return NULL;
+}
+
+// Device enumeration
+size_t lm_ggml_backend_dev_count() {
+    return get_reg().devices.size();
+}
+
+lm_ggml_backend_dev_t lm_ggml_backend_dev_get(size_t index) {
+    LM_GGML_ASSERT(index < lm_ggml_backend_dev_count());
+    return get_reg().devices[index];
+}
+
+lm_ggml_backend_dev_t lm_ggml_backend_dev_by_name(const char * name) {
+    for (size_t i = 0; i < lm_ggml_backend_dev_count(); i++) {
+        lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
+        if (strcmp(lm_ggml_backend_dev_name(dev), name) == 0) {
+            return dev;
+        }
+    }
+    return NULL;
+}
+
+lm_ggml_backend_dev_t lm_ggml_backend_dev_by_type(enum lm_ggml_backend_dev_type type) {
+    for (size_t i = 0; i < lm_ggml_backend_dev_count(); i++) {
+        lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
+        if (lm_ggml_backend_dev_type(dev) == type) {
+            return dev;
+        }
+    }
+    return NULL;
+}
+
+// Convenience functions
+lm_ggml_backend_t lm_ggml_backend_init_by_name(const char * name, const char * params) {
+    lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_by_name(name);
+    if (!dev) {
+        return NULL;
+    }
+    return lm_ggml_backend_dev_init(dev, params);
+}
+
+lm_ggml_backend_t lm_ggml_backend_init_by_type(enum lm_ggml_backend_dev_type type, const char * params) {
+    lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_by_type(type);
+    if (!dev) {
+        return NULL;
+    }
+    return lm_ggml_backend_dev_init(dev, params);
+}
+
+lm_ggml_backend_t lm_ggml_backend_init_best(void) {
+    lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_GPU_FULL);
+    if (!dev) {
+        dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU_FULL);
+    }
+    if (!dev) {
+        return NULL;
+    }
+    return lm_ggml_backend_dev_init(dev, NULL);
 }
 
 // backend CPU
 
-static const size_t TENSOR_ALIGNMENT = 32; // required for mmap as gguf only guarantees 32-byte alignment
-
-LM_GGML_CALL static const char * lm_ggml_backend_cpu_buffer_name(lm_ggml_backend_buffer_t buffer) {
+static const char * lm_ggml_backend_cpu_buffer_get_name(lm_ggml_backend_buffer_t buffer) {
     return "CPU";
 
     LM_GGML_UNUSED(buffer);
 }
 
-LM_GGML_CALL static void * lm_ggml_backend_cpu_buffer_get_base(lm_ggml_backend_buffer_t buffer) {
+static void * lm_ggml_backend_cpu_buffer_get_base(lm_ggml_backend_buffer_t buffer) {
     uintptr_t data = (uintptr_t)buffer->context;
 
     // align the buffer
@@ -565,23 +730,29 @@ LM_GGML_CALL static void * lm_ggml_backend_cpu_buffer_get_base(lm_ggml_backend_b
     return (void *)data;
 }
 
-LM_GGML_CALL static void lm_ggml_backend_cpu_buffer_free_buffer(lm_ggml_backend_buffer_t buffer) {
-    free(buffer->context);
+static void lm_ggml_backend_cpu_buffer_free_buffer(lm_ggml_backend_buffer_t buffer) {
+    lm_ggml_aligned_free(buffer->context, buffer->size);
 }
 
-LM_GGML_CALL static void lm_ggml_backend_cpu_buffer_set_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
+static void lm_ggml_backend_cpu_buffer_memset_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor, uint8_t value, size_t offset, size_t size) {
+    memset((char *)tensor->data + offset, value, size);
+
+    LM_GGML_UNUSED(buffer);
+}
+
+static void lm_ggml_backend_cpu_buffer_set_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
     memcpy((char *)tensor->data + offset, data, size);
 
     LM_GGML_UNUSED(buffer);
 }
 
-LM_GGML_CALL static void lm_ggml_backend_cpu_buffer_get_tensor(lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * tensor, void * data, size_t offset, size_t size) {
+static void lm_ggml_backend_cpu_buffer_get_tensor(lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * tensor, void * data, size_t offset, size_t size) {
     memcpy(data, (const char *)tensor->data + offset, size);
 
     LM_GGML_UNUSED(buffer);
 }
 
-LM_GGML_CALL static bool lm_ggml_backend_cpu_buffer_cpy_tensor(lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst) {
+static bool lm_ggml_backend_cpu_buffer_cpy_tensor(lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst) {
     if (lm_ggml_backend_buffer_is_host(src->buffer)) {
         memcpy(dst->data, src->data, lm_ggml_nbytes(src));
         return true;
@@ -591,15 +762,16 @@ LM_GGML_CALL static bool lm_ggml_backend_cpu_buffer_cpy_tensor(lm_ggml_backend_b
     LM_GGML_UNUSED(buffer);
 }
 
-LM_GGML_CALL static void lm_ggml_backend_cpu_buffer_clear(lm_ggml_backend_buffer_t buffer, uint8_t value) {
+static void lm_ggml_backend_cpu_buffer_clear(lm_ggml_backend_buffer_t buffer, uint8_t value) {
     memset(buffer->context, value, buffer->size);
 }
 
-static struct lm_ggml_backend_buffer_i cpu_backend_buffer_i = {
-    /* .get_name        = */ lm_ggml_backend_cpu_buffer_name,
+static const struct lm_ggml_backend_buffer_i lm_ggml_backend_cpu_buffer_i = {
+    /* .get_name        = */ lm_ggml_backend_cpu_buffer_get_name,
     /* .free_buffer     = */ lm_ggml_backend_cpu_buffer_free_buffer,
     /* .get_base        = */ lm_ggml_backend_cpu_buffer_get_base,
     /* .init_tensor     = */ NULL, // no initialization required
+    /* .memset_tensor   = */ lm_ggml_backend_cpu_buffer_memset_tensor,
     /* .set_tensor      = */ lm_ggml_backend_cpu_buffer_set_tensor,
     /* .get_tensor      = */ lm_ggml_backend_cpu_buffer_get_tensor,
     /* .cpy_tensor      = */ lm_ggml_backend_cpu_buffer_cpy_tensor,
@@ -607,12 +779,12 @@ static struct lm_ggml_backend_buffer_i cpu_backend_buffer_i = {
     /* .reset           = */ NULL,
 };
 
-// for buffers from ptr, free is not called
-static struct lm_ggml_backend_buffer_i cpu_backend_buffer_i_from_ptr = {
-    /* .get_name        = */ lm_ggml_backend_cpu_buffer_name,
+static const struct lm_ggml_backend_buffer_i lm_ggml_backend_cpu_buffer_from_ptr_i = {
+    /* .get_name        = */ lm_ggml_backend_cpu_buffer_get_name,
     /* .free_buffer     = */ NULL, // ptr is not owned by the buffer, so it does not need to be freed
     /* .get_base        = */ lm_ggml_backend_cpu_buffer_get_base,
     /* .init_tensor     = */ NULL, // no initialization required
+    /* .memset_tensor   = */ lm_ggml_backend_cpu_buffer_memset_tensor,
     /* .set_tensor      = */ lm_ggml_backend_cpu_buffer_set_tensor,
     /* .get_tensor      = */ lm_ggml_backend_cpu_buffer_get_tensor,
     /* .cpy_tensor      = */ lm_ggml_backend_cpu_buffer_cpy_tensor,
@@ -620,38 +792,43 @@ static struct lm_ggml_backend_buffer_i cpu_backend_buffer_i_from_ptr = {
     /* .reset           = */ NULL,
 };
 
-LM_GGML_CALL static const char * lm_ggml_backend_cpu_buffer_type_get_name(lm_ggml_backend_buffer_type_t buft) {
+static const char * lm_ggml_backend_cpu_buffer_type_get_name(lm_ggml_backend_buffer_type_t buft) {
     return "CPU";
 
     LM_GGML_UNUSED(buft);
 }
 
-LM_GGML_CALL static lm_ggml_backend_buffer_t lm_ggml_backend_cpu_buffer_type_alloc_buffer(lm_ggml_backend_buffer_type_t buft, size_t size) {
-    size += TENSOR_ALIGNMENT;   // malloc may return an address that is not aligned
-    void * data = malloc(size); // TODO: use LM_GGML_ALIGNED_MALLOC (move to ggml-impl.h)
+static lm_ggml_backend_buffer_t lm_ggml_backend_cpu_buffer_type_alloc_buffer(lm_ggml_backend_buffer_type_t buft, size_t size) {
+    auto alloc_size = size;
+    if (alloc_size == 0) {
+        alloc_size = 1;
+    }
+
+    void * data = lm_ggml_aligned_malloc(alloc_size);
+
     if (data == NULL) {
-        fprintf(stderr, "%s: failed to allocate buffer of size %zu\n", __func__, size);
+        LM_GGML_LOG_ERROR("%s: failed to allocate buffer of size %zu\n", __func__, alloc_size);
         return NULL;
     }
 
-    return lm_ggml_backend_buffer_init(buft, cpu_backend_buffer_i, data, size);
+    return lm_ggml_backend_buffer_init(buft, lm_ggml_backend_cpu_buffer_i, data, alloc_size);
 }
 
-LM_GGML_CALL static size_t lm_ggml_backend_cpu_buffer_type_get_alignment(lm_ggml_backend_buffer_type_t buft) {
+static size_t lm_ggml_backend_cpu_buffer_type_get_alignment(lm_ggml_backend_buffer_type_t buft) {
     return TENSOR_ALIGNMENT;
 
     LM_GGML_UNUSED(buft);
 }
 
-LM_GGML_CALL static bool lm_ggml_backend_cpu_buffer_type_is_host(lm_ggml_backend_buffer_type_t buft) {
+static bool lm_ggml_backend_cpu_buffer_type_is_host(lm_ggml_backend_buffer_type_t buft) {
     return true;
 
     LM_GGML_UNUSED(buft);
 }
 
-LM_GGML_CALL lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_buffer_type(void) {
+lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_buffer_type(void) {
     static struct lm_ggml_backend_buffer_type lm_ggml_backend_cpu_buffer_type = {
-        /* .iface = */ {
+        /* .iface   = */ {
             /* .get_name         = */ lm_ggml_backend_cpu_buffer_type_get_name,
             /* .alloc_buffer     = */ lm_ggml_backend_cpu_buffer_type_alloc_buffer,
             /* .get_alignment    = */ lm_ggml_backend_cpu_buffer_type_get_alignment,
@@ -659,6 +836,7 @@ LM_GGML_CALL lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_buffer_type(void)
             /* .get_alloc_size   = */ NULL, // defaults to lm_ggml_nbytes
             /* .is_host          = */ lm_ggml_backend_cpu_buffer_type_is_host,
         },
+        /* .device  = */ lm_ggml_backend_reg_dev_get(lm_ggml_backend_cpu_reg(), 0),
         /* .context = */ NULL,
     };
 
@@ -671,28 +849,28 @@ LM_GGML_CALL lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_buffer_type(void)
 
 #include <hbwmalloc.h>
 
-LM_GGML_CALL static const char * lm_ggml_backend_cpu_hbm_buffer_type_get_name(lm_ggml_backend_buffer_type_t buft) {
+static const char * lm_ggml_backend_cpu_hbm_buffer_type_get_name(lm_ggml_backend_buffer_type_t buft) {
     return "CPU_HBM";
 
     LM_GGML_UNUSED(buft);
 }
 
-LM_GGML_CALL static const char * lm_ggml_backend_cpu_hbm_buffer_get_name(lm_ggml_backend_buffer_t buf) {
+static const char * lm_ggml_backend_cpu_hbm_buffer_get_name(lm_ggml_backend_buffer_t buf) {
     return "CPU_HBM";
 
     LM_GGML_UNUSED(buf);
 }
 
-LM_GGML_CALL static void lm_ggml_backend_cpu_hbm_buffer_free_buffer(lm_ggml_backend_buffer_t buffer) {
+static void lm_ggml_backend_cpu_hbm_buffer_free_buffer(lm_ggml_backend_buffer_t buffer) {
     hbw_free(buffer->context);
 }
 
-LM_GGML_CALL static lm_ggml_backend_buffer_t lm_ggml_backend_cpu_hbm_buffer_type_alloc_buffer(lm_ggml_backend_buffer_type_t buft, size_t size) {
+static lm_ggml_backend_buffer_t lm_ggml_backend_cpu_hbm_buffer_type_alloc_buffer(lm_ggml_backend_buffer_type_t buft, size_t size) {
     //void * ptr = hbw_malloc(size);
     void * ptr;
     int result = hbw_posix_memalign(&ptr, lm_ggml_backend_cpu_buffer_type_get_alignment(buft), size);
     if (result != 0) {
-        fprintf(stderr, "failed to allocate HBM buffer of size %zu\n", size);
+        LM_GGML_LOG_ERROR("failed to allocate HBM buffer of size %zu\n", size);
         return NULL;
     }
 
@@ -722,28 +900,30 @@ lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_hbm_buffer_type(void) {
 #endif
 
 struct lm_ggml_backend_cpu_context {
-    int n_threads;
-    void * work_data;
-    size_t work_size;
+    int                 n_threads;
+    lm_ggml_threadpool_t   threadpool;
+
+    uint8_t *           work_data;
+    size_t              work_size;
 
     lm_ggml_abort_callback abort_callback;
     void *              abort_callback_data;
 };
 
-LM_GGML_CALL static const char * lm_ggml_backend_cpu_name(lm_ggml_backend_t backend) {
+static const char * lm_ggml_backend_cpu_get_name(lm_ggml_backend_t backend) {
     return "CPU";
 
     LM_GGML_UNUSED(backend);
 }
 
-LM_GGML_CALL static void lm_ggml_backend_cpu_free(lm_ggml_backend_t backend) {
+static void lm_ggml_backend_cpu_free(lm_ggml_backend_t backend) {
     struct lm_ggml_backend_cpu_context * cpu_ctx = (struct lm_ggml_backend_cpu_context *)backend->context;
-    free(cpu_ctx->work_data);
-    free(cpu_ctx);
-    free(backend);
+    delete[] cpu_ctx->work_data;
+    delete cpu_ctx;
+    delete backend;
 }
 
-LM_GGML_CALL static lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_get_default_buffer_type(lm_ggml_backend_t backend) {
+static lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_get_default_buffer_type(lm_ggml_backend_t backend) {
     return lm_ggml_backend_cpu_buffer_type();
 
     LM_GGML_UNUSED(backend);
@@ -754,18 +934,18 @@ struct lm_ggml_backend_plan_cpu {
     struct lm_ggml_cgraph cgraph;
 };
 
-LM_GGML_CALL static lm_ggml_backend_graph_plan_t lm_ggml_backend_cpu_graph_plan_create(lm_ggml_backend_t backend, const struct lm_ggml_cgraph * cgraph) {
+static lm_ggml_backend_graph_plan_t lm_ggml_backend_cpu_graph_plan_create(lm_ggml_backend_t backend, const struct lm_ggml_cgraph * cgraph) {
     struct lm_ggml_backend_cpu_context * cpu_ctx = (struct lm_ggml_backend_cpu_context *)backend->context;
 
-    struct lm_ggml_backend_plan_cpu * cpu_plan = malloc(sizeof(struct lm_ggml_backend_plan_cpu));
+    struct lm_ggml_backend_plan_cpu * cpu_plan = new lm_ggml_backend_plan_cpu;
 
-    cpu_plan->cplan = lm_ggml_graph_plan(cgraph, cpu_ctx->n_threads);
+    cpu_plan->cplan = lm_ggml_graph_plan(cgraph, cpu_ctx->n_threads, cpu_ctx->threadpool);
     cpu_plan->cgraph = *cgraph; // FIXME: deep copy
 
     if (cpu_plan->cplan.work_size > 0) {
-        cpu_plan->cplan.work_data = malloc(cpu_plan->cplan.work_size);
+        cpu_plan->cplan.work_data = new uint8_t[cpu_plan->cplan.work_size];
         if (cpu_plan->cplan.work_data == NULL) {
-            free(cpu_plan);
+            delete cpu_plan;
             return NULL;
         }
     }
@@ -776,16 +956,16 @@ LM_GGML_CALL static lm_ggml_backend_graph_plan_t lm_ggml_backend_cpu_graph_plan_
     return cpu_plan;
 }
 
-LM_GGML_CALL static void lm_ggml_backend_cpu_graph_plan_free(lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan) {
+static void lm_ggml_backend_cpu_graph_plan_free(lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan) {
     struct lm_ggml_backend_plan_cpu * cpu_plan = (struct lm_ggml_backend_plan_cpu *)plan;
 
-    free(cpu_plan->cplan.work_data);
-    free(cpu_plan);
+    delete[] cpu_plan->cplan.work_data;
+    delete cpu_plan;
 
     LM_GGML_UNUSED(backend);
 }
 
-LM_GGML_CALL static enum lm_ggml_status lm_ggml_backend_cpu_graph_plan_compute(lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan) {
+static enum lm_ggml_status lm_ggml_backend_cpu_graph_plan_compute(lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan) {
     struct lm_ggml_backend_plan_cpu * cpu_plan = (struct lm_ggml_backend_plan_cpu *)plan;
 
     return lm_ggml_graph_compute(&cpu_plan->cgraph, &cpu_plan->cplan);
@@ -793,21 +973,21 @@ LM_GGML_CALL static enum lm_ggml_status lm_ggml_backend_cpu_graph_plan_compute(l
     LM_GGML_UNUSED(backend);
 }
 
-LM_GGML_CALL static enum lm_ggml_status lm_ggml_backend_cpu_graph_compute(lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph) {
+static enum lm_ggml_status lm_ggml_backend_cpu_graph_compute(lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph) {
     struct lm_ggml_backend_cpu_context * cpu_ctx = (struct lm_ggml_backend_cpu_context *)backend->context;
 
-    struct lm_ggml_cplan cplan = lm_ggml_graph_plan(cgraph, cpu_ctx->n_threads);
+    struct lm_ggml_cplan cplan = lm_ggml_graph_plan(cgraph, cpu_ctx->n_threads, cpu_ctx->threadpool);
 
     if (cpu_ctx->work_size < cplan.work_size) {
-        free(cpu_ctx->work_data);
-        cpu_ctx->work_data = malloc(cplan.work_size);
+        delete[] cpu_ctx->work_data;
+        cpu_ctx->work_data = new uint8_t[cplan.work_size];
         if (cpu_ctx->work_data == NULL) {
             cpu_ctx->work_size = 0;
             return LM_GGML_STATUS_ALLOC_FAILED;
         }
         cpu_ctx->work_size = cplan.work_size;
     }
-    cplan.work_data = cpu_ctx->work_data;
+    cplan.work_data = (uint8_t *)cpu_ctx->work_data;
 
     cplan.abort_callback      = cpu_ctx->abort_callback;
     cplan.abort_callback_data = cpu_ctx->abort_callback_data;
@@ -815,31 +995,8 @@ LM_GGML_CALL static enum lm_ggml_status lm_ggml_backend_cpu_graph_compute(lm_ggm
     return lm_ggml_graph_compute(cgraph, &cplan);
 }
 
-LM_GGML_CALL static bool lm_ggml_backend_cpu_supports_op(lm_ggml_backend_t backend, const struct lm_ggml_tensor * op) {
-    switch (op->op) {
-        case LM_GGML_OP_CPY:
-            return
-                op->type != LM_GGML_TYPE_IQ2_XXS &&
-                op->type != LM_GGML_TYPE_IQ2_XS  &&
-                op->type != LM_GGML_TYPE_IQ1_S   &&
-                op->type != LM_GGML_TYPE_IQ1_M; // missing type_traits.from_float
-        case LM_GGML_OP_MUL_MAT:
-            return op->src[1]->type == LM_GGML_TYPE_F32 || op->src[1]->type == lm_ggml_internal_get_type_traits(op->src[0]->type).vec_dot_type;
-        default:
-            return true;
-    }
-
-    LM_GGML_UNUSED(backend);
-}
-
-LM_GGML_CALL static bool lm_ggml_backend_cpu_supports_buft(lm_ggml_backend_t backend, lm_ggml_backend_buffer_type_t buft) {
-    return lm_ggml_backend_buft_is_host(buft);
-
-    LM_GGML_UNUSED(backend);
-}
-
-static struct lm_ggml_backend_i cpu_backend_i = {
-    /* .get_name                = */ lm_ggml_backend_cpu_name,
+static const struct lm_ggml_backend_i lm_ggml_backend_cpu_i = {
+    /* .get_name                = */ lm_ggml_backend_cpu_get_name,
     /* .free                    = */ lm_ggml_backend_cpu_free,
     /* .get_default_buffer_type = */ lm_ggml_backend_cpu_get_default_buffer_type,
     /* .set_tensor_async        = */ NULL,
@@ -851,14 +1008,11 @@ static struct lm_ggml_backend_i cpu_backend_i = {
     /* .graph_plan_update       = */ NULL,
     /* .graph_plan_compute      = */ lm_ggml_backend_cpu_graph_plan_compute,
     /* .graph_compute           = */ lm_ggml_backend_cpu_graph_compute,
-    /* .supports_op             = */ lm_ggml_backend_cpu_supports_op,
-    /* .supports_buft           = */ lm_ggml_backend_cpu_supports_buft,
+    /* .supports_op             = */ NULL,
+    /* .supports_buft           = */ NULL,
     /* .offload_op              = */ NULL,
-    /* .event_new               = */ NULL,
-    /* .event_free              = */ NULL,
     /* .event_record            = */ NULL,
     /* .event_wait              = */ NULL,
-    /* .event_synchronize       = */ NULL,
 };
 
 static lm_ggml_guid_t lm_ggml_backend_cpu_guid(void) {
@@ -867,32 +1021,34 @@ static lm_ggml_guid_t lm_ggml_backend_cpu_guid(void) {
 }
 
 lm_ggml_backend_t lm_ggml_backend_cpu_init(void) {
-    struct lm_ggml_backend_cpu_context * ctx = malloc(sizeof(struct lm_ggml_backend_cpu_context));
+    struct lm_ggml_backend_cpu_context * ctx = new lm_ggml_backend_cpu_context;
     if (ctx == NULL) {
         return NULL;
     }
 
     ctx->n_threads           = LM_GGML_DEFAULT_N_THREADS;
+    ctx->threadpool          = NULL;
     ctx->work_data           = NULL;
     ctx->work_size           = 0;
     ctx->abort_callback      = NULL;
     ctx->abort_callback_data = NULL;
 
-    lm_ggml_backend_t cpu_backend = malloc(sizeof(struct lm_ggml_backend));
+    lm_ggml_backend_t cpu_backend = new lm_ggml_backend {
+        /* .guid      = */ lm_ggml_backend_cpu_guid(),
+        /* .interface = */ lm_ggml_backend_cpu_i,
+        /* .device    = */ lm_ggml_backend_reg_dev_get(lm_ggml_backend_cpu_reg(), 0),
+        /* .context   = */ ctx,
+    };
+
     if (cpu_backend == NULL) {
-        free(ctx);
+        delete ctx;
         return NULL;
     }
 
-    *cpu_backend = (struct lm_ggml_backend) {
-        /* .guid      = */ lm_ggml_backend_cpu_guid(),
-        /* .interface = */ cpu_backend_i,
-        /* .context   = */ ctx
-    };
     return cpu_backend;
 }
 
-LM_GGML_CALL bool lm_ggml_backend_is_cpu(lm_ggml_backend_t backend) {
+bool lm_ggml_backend_is_cpu(lm_ggml_backend_t backend) {
     return backend != NULL && lm_ggml_guid_matches(backend->guid, lm_ggml_backend_cpu_guid());
 }
 
@@ -903,6 +1059,18 @@ void lm_ggml_backend_cpu_set_n_threads(lm_ggml_backend_t backend_cpu, int n_thre
     ctx->n_threads = n_threads;
 }
 
+void lm_ggml_backend_cpu_set_threadpool(lm_ggml_backend_t backend_cpu, lm_ggml_threadpool_t threadpool) {
+    LM_GGML_ASSERT(lm_ggml_backend_is_cpu(backend_cpu));
+
+    struct lm_ggml_backend_cpu_context * ctx = (struct lm_ggml_backend_cpu_context *)backend_cpu->context;
+
+    if (ctx->threadpool && ctx->threadpool != threadpool) {
+        // already had a different threadpool, pause/suspend it before switching
+        lm_ggml_threadpool_pause(ctx->threadpool);
+    }
+    ctx->threadpool = threadpool;
+}
+
 void lm_ggml_backend_cpu_set_abort_callback(lm_ggml_backend_t backend_cpu, lm_ggml_abort_callback abort_callback, void * abort_callback_data) {
     LM_GGML_ASSERT(lm_ggml_backend_is_cpu(backend_cpu));
 
@@ -911,16 +1079,233 @@ void lm_ggml_backend_cpu_set_abort_callback(lm_ggml_backend_t backend_cpu, lm_gg
     ctx->abort_callback_data = abort_callback_data;
 }
 
-LM_GGML_CALL lm_ggml_backend_buffer_t lm_ggml_backend_cpu_buffer_from_ptr(void * ptr, size_t size) {
+lm_ggml_backend_buffer_t lm_ggml_backend_cpu_buffer_from_ptr(void * ptr, size_t size) {
     LM_GGML_ASSERT((uintptr_t)ptr % TENSOR_ALIGNMENT == 0 && "buffer pointer must be aligned");
-    return lm_ggml_backend_buffer_init(lm_ggml_backend_cpu_buffer_type(), cpu_backend_buffer_i_from_ptr, ptr, size);
+    return lm_ggml_backend_buffer_init(lm_ggml_backend_cpu_buffer_type(), lm_ggml_backend_cpu_buffer_from_ptr_i, ptr, size);
 }
 
-LM_GGML_CALL static lm_ggml_backend_t lm_ggml_backend_reg_cpu_init(const char * params, void * user_data) {
+////////////////////////
+
+struct lm_ggml_backend_cpu_device_context {
+    std::string description = "CPU";
+
+    lm_ggml_backend_cpu_device_context() {
+#ifdef __APPLE__
+        size_t len = 0;
+        if (!sysctlbyname("machdep.cpu.brand_string", NULL, &len, NULL, 0)) {
+            description.resize(len);
+            sysctlbyname("machdep.cpu.brand_string", &description[0], &len, NULL, 0); // NOLINT
+        }
+#elif defined(__linux__)
+        FILE * f = fopen("/proc/cpuinfo", "r");
+        if (f) {
+            char buf[1024];
+            while (fgets(buf, sizeof(buf), f)) {
+                if (strncmp(buf, "model name", 10) == 0) {
+                    char * p = strchr(buf, ':');
+                    if (p) {
+                        p++;
+                        while (std::isspace(*p)) {
+                            p++;
+                        }
+                        while (std::isspace(p[strlen(p) - 1])) {
+                            p[strlen(p) - 1] = '\0';
+                        }
+                        description = p;
+                        break;
+                    }
+                }
+            }
+            fclose(f);
+        }
+#elif defined(_WIN32)
+        HKEY hKey;
+        if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+                        TEXT("HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0"),
+                        0,
+                        KEY_READ,
+                        &hKey) == ERROR_SUCCESS) {
+            DWORD cpu_brand_size = 0;
+            if (RegQueryValueExA(hKey,
+                                TEXT("ProcessorNameString"),
+                                NULL,
+                                NULL,
+                                NULL,
+                                &cpu_brand_size) == ERROR_SUCCESS) {
+                description.resize(cpu_brand_size);
+                if (RegQueryValueExA(hKey,
+                                    TEXT("ProcessorNameString"),
+                                    NULL,
+                                    NULL,
+                                    (LPBYTE)&description[0], // NOLINT
+                                    &cpu_brand_size) == ERROR_SUCCESS) {
+                    if (description.find('\0') != std::string::npos) {
+                        description.resize(description.find('\0'));
+                    }
+                }
+            }
+            RegCloseKey(hKey);
+        }
+#endif
+    }
+};
+
+static const char * lm_ggml_backend_cpu_device_get_name(lm_ggml_backend_dev_t dev) {
+    return "CPU";
+
+    LM_GGML_UNUSED(dev);
+}
+
+static const char * lm_ggml_backend_cpu_device_get_description(lm_ggml_backend_dev_t dev) {
+    struct lm_ggml_backend_cpu_device_context * ctx = (struct lm_ggml_backend_cpu_device_context *)dev->context;
+
+    return ctx->description.c_str();
+}
+
+static void lm_ggml_backend_cpu_device_get_memory(lm_ggml_backend_dev_t dev, size_t * free, size_t * total) {
+    // TODO
+    *free = 0;
+    *total = 0;
+
+    LM_GGML_UNUSED(dev);
+}
+
+static enum lm_ggml_backend_dev_type lm_ggml_backend_cpu_device_get_type(lm_ggml_backend_dev_t dev) {
+    return LM_GGML_BACKEND_DEVICE_TYPE_CPU_FULL;
+
+    LM_GGML_UNUSED(dev);
+}
+
+static void lm_ggml_backend_cpu_device_get_props(lm_ggml_backend_dev_t dev, struct lm_ggml_backend_dev_props * props) {
+    props->name        = lm_ggml_backend_cpu_device_get_name(dev);
+    props->description = lm_ggml_backend_cpu_device_get_description(dev);
+    props->type        = lm_ggml_backend_cpu_device_get_type(dev);
+    lm_ggml_backend_cpu_device_get_memory(dev, &props->memory_free, &props->memory_total);
+    props->caps = {
+        /* .async                 = */ false,
+        /* .host_buffer           = */ false,
+        /* .buffer_from_host_ptr  = */ true,
+        /* .events                = */ false,
+    };
+}
+
+static lm_ggml_backend_t lm_ggml_backend_cpu_device_init(lm_ggml_backend_dev_t dev, const char * params) {
     return lm_ggml_backend_cpu_init();
 
+    LM_GGML_UNUSED(dev);
     LM_GGML_UNUSED(params);
-    LM_GGML_UNUSED(user_data);
+}
+
+static lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_device_get_buffer_type(lm_ggml_backend_dev_t dev) {
+    return lm_ggml_backend_cpu_buffer_type();
+
+    LM_GGML_UNUSED(dev);
+}
+
+static lm_ggml_backend_buffer_t lm_ggml_backend_cpu_device_buffer_from_ptr(lm_ggml_backend_dev_t dev, void * ptr, size_t size, size_t max_tensor_size) {
+    return lm_ggml_backend_cpu_buffer_from_ptr(ptr, size);
+
+    LM_GGML_UNUSED(dev);
+    LM_GGML_UNUSED(max_tensor_size);
+}
+
+static bool lm_ggml_backend_cpu_device_supports_op(lm_ggml_backend_dev_t dev, const struct lm_ggml_tensor * op) {
+    switch (op->op) {
+        case LM_GGML_OP_CPY:
+            return
+                op->type != LM_GGML_TYPE_IQ2_XXS &&
+                op->type != LM_GGML_TYPE_IQ2_XS  &&
+                op->type != LM_GGML_TYPE_IQ1_S   &&
+                op->type != LM_GGML_TYPE_IQ1_M; // missing type_traits.from_float
+        case LM_GGML_OP_MUL_MAT:
+            return op->src[1]->type == LM_GGML_TYPE_F32 || op->src[1]->type == lm_ggml_get_type_traits(op->src[0]->type)->vec_dot_type;
+        case LM_GGML_OP_ROPE_BACK:
+            return op->src[2] == NULL && (op->op_params[2] & 4) == 0;
+        case LM_GGML_OP_IM2COL_BACK:
+            return op->src[0]->type == LM_GGML_TYPE_F32 && op->src[1]->type == LM_GGML_TYPE_F32;
+        case LM_GGML_OP_OUT_PROD:
+            return (op->src[0]->type == LM_GGML_TYPE_F32 || lm_ggml_is_quantized(op->src[0]->type)) && op->src[1]->type == LM_GGML_TYPE_F32;
+        default:
+            return true;
+    }
+
+    LM_GGML_UNUSED(dev);
+}
+
+static bool lm_ggml_backend_cpu_device_supports_buft(lm_ggml_backend_dev_t dev, lm_ggml_backend_buffer_type_t buft) {
+    return lm_ggml_backend_buft_is_host(buft);
+
+    LM_GGML_UNUSED(dev);
+}
+
+static const struct lm_ggml_backend_device_i lm_ggml_backend_cpu_device_i = {
+    /* .get_name             = */ lm_ggml_backend_cpu_device_get_name,
+    /* .get_description      = */ lm_ggml_backend_cpu_device_get_description,
+    /* .get_memory           = */ lm_ggml_backend_cpu_device_get_memory,
+    /* .get_type             = */ lm_ggml_backend_cpu_device_get_type,
+    /* .get_props            = */ lm_ggml_backend_cpu_device_get_props,
+    /* .init_backend         = */ lm_ggml_backend_cpu_device_init,
+    /* .get_buffer_type      = */ lm_ggml_backend_cpu_device_get_buffer_type,
+    /* .get_host_buffer_type = */ NULL,
+    /* .buffer_from_host_ptr = */ lm_ggml_backend_cpu_device_buffer_from_ptr,
+    /* .supports_op          = */ lm_ggml_backend_cpu_device_supports_op,
+    /* .supports_buft        = */ lm_ggml_backend_cpu_device_supports_buft,
+    /* .offload_op           = */ NULL,
+    /* .event_new            = */ NULL,
+    /* .event_free           = */ NULL,
+    /* .event_synchronize    = */ NULL,
+};
+
+////////////////////////
+
+static const char * lm_ggml_backend_cpu_reg_get_name(lm_ggml_backend_reg_t reg) {
+    return "CPU";
+
+    LM_GGML_UNUSED(reg);
+}
+
+static size_t lm_ggml_backend_cpu_reg_get_device_count(lm_ggml_backend_reg_t reg) {
+    return 1;
+
+    LM_GGML_UNUSED(reg);
+}
+
+static lm_ggml_backend_dev_t lm_ggml_backend_cpu_reg_get_device(lm_ggml_backend_reg_t reg, size_t index) {
+    LM_GGML_ASSERT(index == 0);
+
+    static lm_ggml_backend_cpu_device_context ctx;
+    static lm_ggml_backend_device lm_ggml_backend_cpu_device = {
+        /* .iface   = */ lm_ggml_backend_cpu_device_i,
+        /* .reg     = */ reg,
+        /* .context = */ &ctx,
+    };
+
+    return &lm_ggml_backend_cpu_device;
+}
+
+static void * lm_ggml_backend_cpu_get_proc_address(lm_ggml_backend_reg_t reg, const char * name) {
+    if (strcmp(name, "lm_ggml_backend_set_n_threads") == 0) {
+        return (void *)lm_ggml_backend_cpu_set_n_threads;
+    }
+    return NULL;
+
+    LM_GGML_UNUSED(reg);
+}
+
+static const struct lm_ggml_backend_reg_i lm_ggml_backend_cpu_reg_i = {
+    /* .get_name         = */ lm_ggml_backend_cpu_reg_get_name,
+    /* .get_device_count = */ lm_ggml_backend_cpu_reg_get_device_count,
+    /* .get_device       = */ lm_ggml_backend_cpu_reg_get_device,
+    /* .get_proc_address = */ lm_ggml_backend_cpu_get_proc_address,
+};
+
+lm_ggml_backend_reg_t lm_ggml_backend_cpu_reg(void) {
+    static struct lm_ggml_backend_reg lm_ggml_backend_cpu_reg = {
+        /* .iface   = */ lm_ggml_backend_cpu_reg_i,
+        /* .context = */ NULL,
+    };
+
+    return &lm_ggml_backend_cpu_reg;
 }
 
 // multi-buffer buffer
@@ -930,16 +1315,14 @@ struct lm_ggml_backend_multi_buffer_context {
     size_t n_buffers;
 };
 
-typedef struct lm_ggml_backend_multi_buffer_context * lm_ggml_backend_multi_buffer_context_t;
-
-LM_GGML_CALL static const char * lm_ggml_backend_multi_buffer_get_name(lm_ggml_backend_buffer_t buffer) {
-    lm_ggml_backend_multi_buffer_context_t ctx = (lm_ggml_backend_multi_buffer_context_t) buffer->context;
+static const char * lm_ggml_backend_multi_buffer_get_name(lm_ggml_backend_buffer_t buffer) {
+    lm_ggml_backend_multi_buffer_context * ctx = (lm_ggml_backend_multi_buffer_context *) buffer->context;
 
     return ctx->buffers[0]->iface.get_name(ctx->buffers[0]);
 }
 
-LM_GGML_CALL static void lm_ggml_backend_multi_buffer_free_buffer(lm_ggml_backend_buffer_t buffer) {
-    lm_ggml_backend_multi_buffer_context_t ctx = (lm_ggml_backend_multi_buffer_context_t) buffer->context;
+static void lm_ggml_backend_multi_buffer_free_buffer(lm_ggml_backend_buffer_t buffer) {
+    lm_ggml_backend_multi_buffer_context * ctx = (lm_ggml_backend_multi_buffer_context *) buffer->context;
     for (size_t i = 0; i < ctx->n_buffers; i++) {
         lm_ggml_backend_buffer_free(ctx->buffers[i]);
     }
@@ -948,31 +1331,28 @@ LM_GGML_CALL static void lm_ggml_backend_multi_buffer_free_buffer(lm_ggml_backen
     free(ctx);
 }
 
-LM_GGML_CALL static void lm_ggml_backend_multi_buffer_clear(lm_ggml_backend_buffer_t buffer, uint8_t value) {
-    lm_ggml_backend_multi_buffer_context_t ctx = (lm_ggml_backend_multi_buffer_context_t) buffer->context;
+static void lm_ggml_backend_multi_buffer_clear(lm_ggml_backend_buffer_t buffer, uint8_t value) {
+    lm_ggml_backend_multi_buffer_context * ctx = (lm_ggml_backend_multi_buffer_context *) buffer->context;
     for (size_t i = 0; i < ctx->n_buffers; i++) {
         lm_ggml_backend_buffer_clear(ctx->buffers[i], value);
     }
 }
 
-static struct lm_ggml_backend_buffer_i lm_ggml_backend_multi_buffer_context_interface(void) {
-    static struct lm_ggml_backend_buffer_i multi_backend_buffer_i = {
-        /* .get_name        = */ lm_ggml_backend_multi_buffer_get_name,
-        /* .free_buffer     = */ lm_ggml_backend_multi_buffer_free_buffer,
-        /* .get_base        = */ NULL,
-        /* .init_tensor     = */ NULL,
-        /* .set_tensor      = */ NULL,
-        /* .get_tensor      = */ NULL,
-        /* .cpy_tensor      = */ NULL,
-        /* .clear           = */ lm_ggml_backend_multi_buffer_clear,
-        /* .reset           = */ NULL,
-    };
+static const struct lm_ggml_backend_buffer_i lm_ggml_backend_multi_buffer_i = {
+    /* .get_name        = */ lm_ggml_backend_multi_buffer_get_name,
+    /* .free_buffer     = */ lm_ggml_backend_multi_buffer_free_buffer,
+    /* .get_base        = */ NULL,
+    /* .init_tensor     = */ NULL,
+    /* .memset_tensor   = */ NULL,
+    /* .set_tensor      = */ NULL,
+    /* .get_tensor      = */ NULL,
+    /* .cpy_tensor      = */ NULL,
+    /* .clear           = */ lm_ggml_backend_multi_buffer_clear,
+    /* .reset           = */ NULL,
+};
 
-    return multi_backend_buffer_i;
-}
-
-LM_GGML_CALL lm_ggml_backend_buffer_t lm_ggml_backend_multi_buffer_alloc_buffer(lm_ggml_backend_buffer_t * buffers, size_t n_buffers) {
-    lm_ggml_backend_multi_buffer_context_t ctx = (lm_ggml_backend_multi_buffer_context_t) malloc(sizeof(struct lm_ggml_backend_multi_buffer_context));
+lm_ggml_backend_buffer_t lm_ggml_backend_multi_buffer_alloc_buffer(lm_ggml_backend_buffer_t * buffers, size_t n_buffers) {
+    lm_ggml_backend_multi_buffer_context * ctx = (lm_ggml_backend_multi_buffer_context *) malloc(sizeof(struct lm_ggml_backend_multi_buffer_context));
     ctx->n_buffers = n_buffers;
     ctx->buffers = (lm_ggml_backend_buffer_t *) malloc(n_buffers * sizeof(lm_ggml_backend_buffer_t));
 
@@ -984,16 +1364,16 @@ LM_GGML_CALL lm_ggml_backend_buffer_t lm_ggml_backend_multi_buffer_alloc_buffer(
         total_size += lm_ggml_backend_buffer_get_size(buffers[i]);
     }
 
-    return lm_ggml_backend_buffer_init(buffers[0]->buft, lm_ggml_backend_multi_buffer_context_interface(), ctx, total_size);
+    return lm_ggml_backend_buffer_init(buffers[0]->buft, lm_ggml_backend_multi_buffer_i, ctx, total_size);
 }
 
-LM_GGML_CALL bool lm_ggml_backend_buffer_is_multi_buffer(lm_ggml_backend_buffer_t buffer) {
+bool lm_ggml_backend_buffer_is_multi_buffer(lm_ggml_backend_buffer_t buffer) {
     return buffer->iface.get_name == lm_ggml_backend_multi_buffer_get_name;
 }
 
-LM_GGML_CALL void lm_ggml_backend_multi_buffer_set_usage(lm_ggml_backend_buffer_t buffer, enum lm_ggml_backend_buffer_usage usage) {
+void lm_ggml_backend_multi_buffer_set_usage(lm_ggml_backend_buffer_t buffer, enum lm_ggml_backend_buffer_usage usage) {
     LM_GGML_ASSERT(lm_ggml_backend_buffer_is_multi_buffer(buffer));
-    lm_ggml_backend_multi_buffer_context_t ctx = (lm_ggml_backend_multi_buffer_context_t) buffer->context;
+    lm_ggml_backend_multi_buffer_context * ctx = (lm_ggml_backend_multi_buffer_context *) buffer->context;
     for (size_t i = 0; i < ctx->n_buffers; i++) {
         lm_ggml_backend_buffer_set_usage(ctx->buffers[i], usage);
     }
@@ -1113,7 +1493,7 @@ static int lm_ggml_backend_sched_backend_from_buffer(lm_ggml_backend_sched_t sch
     }
 
 #ifndef NDEBUG
-    fprintf(stderr, "%s: warning: no backend supports op %s with a weight with buffer type %s used in tensor %s, the weight will need to be copied\n",
+    LM_GGML_LOG_DEBUG("%s: warning: no backend supports op %s with a weight with buffer type %s used in tensor %s, the weight will need to be copied\n",
         __func__, lm_ggml_op_desc(tensor), lm_ggml_backend_buffer_name(buffer), tensor->name);
 #endif
 
@@ -1148,6 +1528,11 @@ static int lm_ggml_backend_sched_backend_id_from_cur(lm_ggml_backend_sched_t sch
             SET_CAUSE(tensor, "1.vsrc");
             return cur_backend_id;
         }
+    }
+
+    if (tensor->buffer || (tensor->view_src && tensor->view_src->buffer)) {
+        // since the tensor is pre-allocated, it cannot be moved to another backend
+        LM_GGML_ABORT("pre-allocated tensor in a backend that cannot run the operation");
     }
 
     // graph input
@@ -1197,13 +1582,13 @@ static void lm_ggml_backend_sched_print_assignments(lm_ggml_backend_sched_t sche
     for (int i = 0; i < graph->n_nodes; i++) {
         if (cur_split < sched->n_splits && i == sched->splits[cur_split].i_start) {
             lm_ggml_backend_t split_backend = sched->backends[sched->splits[cur_split].backend_id];
-            fprintf(stderr, "\n## SPLIT #%d: %s # %d inputs: ", cur_split, lm_ggml_backend_name(split_backend),
+            LM_GGML_LOG_DEBUG("\n## SPLIT #%d: %s # %d inputs: ", cur_split, lm_ggml_backend_name(split_backend),
                 sched->splits[cur_split].n_inputs);
             for (int j = 0; j < sched->splits[cur_split].n_inputs; j++) {
-                fprintf(stderr, "[%s (%5.5s)] ", sched->splits[cur_split].inputs[j]->name,
+                LM_GGML_LOG_DEBUG("[%s (%5.5s)] ", sched->splits[cur_split].inputs[j]->name,
                     fmt_size(lm_ggml_nbytes(sched->splits[cur_split].inputs[j])));
             }
-            fprintf(stderr, "\n");
+            LM_GGML_LOG_DEBUG("\n");
             cur_split++;
         }
         struct lm_ggml_tensor * node = graph->nodes[i];
@@ -1211,7 +1596,7 @@ static void lm_ggml_backend_sched_print_assignments(lm_ggml_backend_sched_t sche
             continue;
         }
         lm_ggml_backend_t tensor_backend = lm_ggml_backend_sched_get_tensor_backend(sched, node);
-        fprintf(stderr, "node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s]:", i, lm_ggml_op_name(node->op), node->name,
+        LM_GGML_LOG_DEBUG("node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s]:", i, lm_ggml_op_name(node->op), node->name,
             fmt_size(lm_ggml_nbytes(node)), tensor_backend ? lm_ggml_backend_name(tensor_backend) : "NULL", GET_CAUSE(node));
         for (int j = 0; j < LM_GGML_MAX_SRC; j++) {
             struct lm_ggml_tensor * src = node->src[j];
@@ -1219,10 +1604,10 @@ static void lm_ggml_backend_sched_print_assignments(lm_ggml_backend_sched_t sche
                 continue;
             }
             lm_ggml_backend_t src_backend = lm_ggml_backend_sched_get_tensor_backend(sched, src);
-            fprintf(stderr, " %20.20s (%5.5s) [%5.5s %8.8s]", src->name,
+            LM_GGML_LOG_DEBUG(" %20.20s (%5.5s) [%5.5s %8.8s]", src->name,
                 fmt_size(lm_ggml_nbytes(src)), src_backend ? lm_ggml_backend_name(src_backend) : "NULL", GET_CAUSE(src));
         }
-        fprintf(stderr, "\n");
+        LM_GGML_LOG_DEBUG("\n");
     }
 }
 
@@ -1543,7 +1928,8 @@ static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, str
                 i_split++;
                 if (i_split >= sched->splits_capacity) {
                     sched->splits_capacity *= 2;
-                    sched->splits = realloc(sched->splits, sched->splits_capacity * sizeof(struct lm_ggml_backend_sched_split));
+                    sched->splits = (lm_ggml_backend_sched_split *)
+                        realloc(sched->splits, sched->splits_capacity * sizeof(struct lm_ggml_backend_sched_split));
                     LM_GGML_ASSERT(sched->splits != NULL);
                 }
                 split = &sched->splits[i_split];
@@ -1629,11 +2015,11 @@ static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, str
         sched->prev_leaf_backend_ids = tmp;
     }
 
-    int graph_size = graph->n_nodes + sched->n_splits*LM_GGML_SCHED_MAX_SPLIT_INPUTS*2;
+    int graph_size = std::max(graph->n_nodes, graph->n_leafs) + sched->n_splits*LM_GGML_SCHED_MAX_SPLIT_INPUTS*2*sched->n_copies;
     if (sched->graph.size < graph_size) {
         sched->graph.size = graph_size;
-        sched->graph.nodes = realloc(sched->graph.nodes, graph_size * sizeof(struct lm_ggml_tensor *));
-        sched->graph.leafs = realloc(sched->graph.leafs, graph_size * sizeof(struct lm_ggml_tensor *));
+        sched->graph.nodes = (lm_ggml_tensor **) realloc(sched->graph.nodes, graph_size * sizeof(struct lm_ggml_tensor *));
+        sched->graph.leafs = (lm_ggml_tensor **) realloc(sched->graph.leafs, graph_size * sizeof(struct lm_ggml_tensor *));
         LM_GGML_ASSERT(sched->graph.nodes != NULL);
         LM_GGML_ASSERT(sched->graph.leafs != NULL);
     }
@@ -1681,6 +2067,7 @@ static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, str
             for (int c = 0; c < sched->n_copies; c++) {
                 struct lm_ggml_tensor * input_cpy = tensor_id_copy(id, backend_id, c);
                 sched->leaf_backend_ids[graph_copy->n_leafs] = backend_id;
+                assert(graph_copy->size > graph_copy->n_leafs);
                 graph_copy->leafs[graph_copy->n_leafs++] = input_cpy;
             }
         }
@@ -1694,6 +2081,7 @@ static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, str
                 for (int c = 0; c < sched->n_copies; c++) {
                     struct lm_ggml_tensor * input_cpy = tensor_id_copy(id, backend_id, c);
                     sched->leaf_backend_ids[graph_copy->n_leafs] = backend_id;
+                    assert(graph_copy->size > graph_copy->n_leafs);
                     graph_copy->leafs[graph_copy->n_leafs++] = input_cpy;
                 }
             }
@@ -1704,6 +2092,7 @@ static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, str
     for (int i = 0; i < graph->n_leafs; i++) {
         struct lm_ggml_tensor * leaf = graph->leafs[i];
         sched->leaf_backend_ids[graph_copy->n_leafs] = tensor_backend_id(leaf);
+        assert(graph_copy->size > graph_copy->n_leafs);
         graph_copy->leafs[graph_copy->n_leafs++] = leaf;
     }
 }
@@ -1732,11 +2121,11 @@ static bool lm_ggml_backend_sched_alloc_splits(lm_ggml_backend_sched_t sched) {
         // the re-allocation may cause the split inputs to be moved to a different address
         lm_ggml_backend_sched_synchronize(sched);
 #ifndef NDEBUG
-        fprintf(stderr, "%s: failed to allocate graph, reserving (backend_ids_changed = %d)\n", __func__, backend_ids_changed);
+        LM_GGML_LOG_DEBUG("%s: failed to allocate graph, reserving (backend_ids_changed = %d)\n", __func__, backend_ids_changed);
 #endif
         lm_ggml_gallocr_reserve_n(sched->galloc, &sched->graph, sched->node_backend_ids, sched->leaf_backend_ids);
         if (!lm_ggml_gallocr_alloc_graph(sched->galloc, &sched->graph)) {
-            fprintf(stderr, "%s: failed to allocate graph\n", __func__);
+            LM_GGML_LOG_ERROR("%s: failed to allocate graph\n", __func__);
             return false;
         }
     }
@@ -1829,7 +2218,7 @@ static enum lm_ggml_status lm_ggml_backend_sched_compute_splits(lm_ggml_backend_
         // record the event of this copy
         if (split->n_inputs > 0) {
             if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
-                lm_ggml_backend_event_record(sched->events[split_backend_id][sched->cur_copy]);
+                lm_ggml_backend_event_record(sched->events[split_backend_id][sched->cur_copy], split_backend);
             }
         }
     }
@@ -1849,7 +2238,7 @@ lm_ggml_backend_sched_t lm_ggml_backend_sched_new(
     LM_GGML_ASSERT(n_backends <= LM_GGML_SCHED_MAX_BACKENDS);
     LM_GGML_ASSERT(lm_ggml_backend_is_cpu(backends[n_backends - 1])); // last backend must be CPU
 
-    struct lm_ggml_backend_sched * sched = calloc(1, sizeof(struct lm_ggml_backend_sched));
+    struct lm_ggml_backend_sched * sched = (lm_ggml_backend_sched *) calloc(1, sizeof(struct lm_ggml_backend_sched));
 
     sched->debug = getenv("LM_GGML_SCHED_DEBUG") != NULL;
     sched->n_backends = n_backends;
@@ -1858,30 +2247,31 @@ lm_ggml_backend_sched_t lm_ggml_backend_sched_new(
     // initialize hash table
     // FIXME: needs to be size*2 to account for leafs (do it in graph_split instead)
     sched->hash_set    = lm_ggml_hash_set_new(graph_size);
-    sched->hv_tensor_backend_ids = malloc(sched->hash_set.size * sizeof(sched->hv_tensor_backend_ids[0]));
-    sched->hv_tensor_copies      = malloc(sched->hash_set.size * sched->n_backends * sched->n_copies * sizeof(struct lm_ggml_tensor *));
+    sched->hv_tensor_backend_ids = (int *) malloc(sched->hash_set.size * sizeof(sched->hv_tensor_backend_ids[0]));
+    sched->hv_tensor_copies      = (lm_ggml_tensor **) malloc(sched->hash_set.size * sched->n_backends * sched->n_copies * sizeof(struct lm_ggml_tensor *));
 
     const size_t lm_ggml_sched_max_splits = graph_size; // at most there is one split for each node in the graph
     const size_t nodes_size = graph_size + lm_ggml_sched_max_splits*LM_GGML_SCHED_MAX_SPLIT_INPUTS*2;
-    sched->node_backend_ids = calloc(nodes_size, sizeof(sched->node_backend_ids[0]));
-    sched->leaf_backend_ids = calloc(nodes_size, sizeof(sched->leaf_backend_ids[0]));
-    sched->prev_node_backend_ids = calloc(nodes_size, sizeof(sched->prev_node_backend_ids[0]));
-    sched->prev_leaf_backend_ids = calloc(nodes_size, sizeof(sched->prev_leaf_backend_ids[0]));
+    sched->node_backend_ids = (int *) calloc(nodes_size, sizeof(sched->node_backend_ids[0]));
+    sched->leaf_backend_ids = (int *) calloc(nodes_size, sizeof(sched->leaf_backend_ids[0]));
+    sched->prev_node_backend_ids = (int *) calloc(nodes_size, sizeof(sched->prev_node_backend_ids[0]));
+    sched->prev_leaf_backend_ids = (int *) calloc(nodes_size, sizeof(sched->prev_leaf_backend_ids[0]));
 
     sched->context_buffer_size = lm_ggml_sched_max_splits*LM_GGML_SCHED_MAX_SPLIT_INPUTS*2*sizeof(struct lm_ggml_tensor) + lm_ggml_graph_overhead_custom(graph_size, false);
-    sched->context_buffer = malloc(sched->context_buffer_size);
+    sched->context_buffer = (char *) malloc(sched->context_buffer_size);
 
     const int initial_splits_capacity = 16;
-    sched->splits = calloc(initial_splits_capacity, sizeof(sched->splits[0]));
+    sched->splits = (lm_ggml_backend_sched_split *) calloc(initial_splits_capacity, sizeof(sched->splits[0]));
     sched->splits_capacity = initial_splits_capacity;
 
     for (int b = 0; b < n_backends; b++) {
         sched->backends[b] = backends[b];
         sched->bufts[b] = bufts ? bufts[b] : lm_ggml_backend_get_default_buffer_type(backends[b]);
         LM_GGML_ASSERT(lm_ggml_backend_supports_buft(backends[b], sched->bufts[b]));
+
         if (sched->n_copies > 1) {
             for (int c = 0; c < sched->n_copies; c++) {
-                sched->events[b][c] = lm_ggml_backend_event_new(backends[b]);
+                sched->events[b][c] = lm_ggml_backend_event_new(backends[b]->device);
             }
         }
     }
@@ -2117,8 +2507,8 @@ static void graph_copy_init_tensor(struct lm_ggml_hash_set * hash_set, struct lm
 
 struct lm_ggml_backend_graph_copy lm_ggml_backend_graph_copy(lm_ggml_backend_t backend, struct lm_ggml_cgraph * graph) {
     struct lm_ggml_hash_set hash_set = lm_ggml_hash_set_new(graph->visited_hash_set.size);
-    struct lm_ggml_tensor ** node_copies = calloc(hash_set.size, sizeof(node_copies[0])); // NOLINT
-    bool * node_init = calloc(hash_set.size, sizeof(node_init[0]));
+    struct lm_ggml_tensor ** node_copies = (lm_ggml_tensor **) calloc(hash_set.size, sizeof(node_copies[0])); // NOLINT
+    bool * node_init = (bool *) calloc(hash_set.size, sizeof(node_init[0]));
 
     struct lm_ggml_init_params params = {
         /* .mem_size   = */ lm_ggml_tensor_overhead()*hash_set.size + lm_ggml_graph_overhead_custom(graph->size, false),
@@ -2130,13 +2520,13 @@ struct lm_ggml_backend_graph_copy lm_ggml_backend_graph_copy(lm_ggml_backend_t b
     struct lm_ggml_context * ctx_unallocated = lm_ggml_init(params);
 
     if (ctx_allocated == NULL || ctx_unallocated == NULL) {
-        fprintf(stderr, "failed to allocate context for graph copy\n");
+        LM_GGML_LOG_ERROR("%s: failed to allocate context for graph copy\n", __func__);
         lm_ggml_hash_set_free(&hash_set);
         free(node_copies);
         free(node_init);
         lm_ggml_free(ctx_allocated);
         lm_ggml_free(ctx_unallocated);
-        return (struct lm_ggml_backend_graph_copy) {
+        return {
             /* .buffer           = */ NULL,
             /* .ctx_allocated    = */ NULL,
             /* .ctx_unallocated  = */ NULL,
@@ -2153,13 +2543,13 @@ struct lm_ggml_backend_graph_copy lm_ggml_backend_graph_copy(lm_ggml_backend_t b
     // allocate nodes
     lm_ggml_backend_buffer_t buffer = lm_ggml_backend_alloc_ctx_tensors(ctx_allocated, backend);
     if (buffer == NULL) {
-        fprintf(stderr, "failed to allocate buffer for graph copy\n");
+        LM_GGML_LOG_ERROR("%s: failed to allocate buffer for graph copy\n", __func__);
         lm_ggml_hash_set_free(&hash_set);
         free(node_copies);
         free(node_init);
         lm_ggml_free(ctx_allocated);
         lm_ggml_free(ctx_unallocated);
-        return (struct lm_ggml_backend_graph_copy) {
+        return {
             /* .buffer           = */ NULL,
             /* .ctx_allocated    = */ NULL,
             /* .ctx_unallocated  = */ NULL,
@@ -2188,7 +2578,7 @@ struct lm_ggml_backend_graph_copy lm_ggml_backend_graph_copy(lm_ggml_backend_t b
     free(node_copies);
     free(node_init);
 
-    return (struct lm_ggml_backend_graph_copy) {
+    return {
         /* .buffer           = */ buffer,
         /* .ctx_allocated    = */ ctx_allocated,
         /* .ctx_unallocated  = */ ctx_unallocated,
