@@ -1,9 +1,7 @@
 #!/bin/bash -e
 
 git submodule init
-git submodule update --recursive --remote
-
-# cp ./llama.cpp/
+git submodule update --recursive
 
 cp ./llama.cpp/include/llama.h ./cpp/llama.h
 
