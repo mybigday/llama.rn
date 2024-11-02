@@ -1015,19 +1015,21 @@ static void lm_ggml_metal_encode_node(
     id<MTLBuffer> id_src2 = src2 ? lm_ggml_metal_get_buffer(src2, &offs_src2) : nil;
     id<MTLBuffer> id_dst  = dst  ? lm_ggml_metal_get_buffer(dst,  &offs_dst)  : nil;
 
-    //LM_GGML_LOG_INFO("%s: op - %s\n", __func__, lm_ggml_op_name(dst->op));
-    //if (src0) {
-    //    LM_GGML_LOG_INFO("%s: src0 - %4s [%5lld, %5lld, %5lld], %d, %s\n", __func__, lm_ggml_type_name(src0t), ne00, ne01, ne02,
-    //            lm_ggml_is_contiguous(src0), src0->name);
-    //}
-    //if (src1) {
-    //    LM_GGML_LOG_INFO("%s: src1 - %4s [%5lld, %5lld, %5lld], %d, %s\n", __func__, lm_ggml_type_name(src1t), ne10, ne11, ne12,
-    //            lm_ggml_is_contiguous(src1), src1->name);
-    //}
-    //if (dst) {
-    //    LM_GGML_LOG_INFO("%s: dst  - %4s [%5lld, %5lld, %5lld], 1, %s\n",  __func__, lm_ggml_type_name(dstt),  ne0,  ne1,  ne2,
-    //            dst->name);
-    //}
+#if 0
+    LM_GGML_LOG_INFO("%s: op - %s\n", __func__, lm_ggml_op_name(dst->op));
+    if (src0) {
+        LM_GGML_LOG_INFO("%s: src0 - %4s [%5lld, %5lld, %5lld, %5lld] [%5lld, %5lld, %5lld, %5lld], %d, %s\n", __func__, lm_ggml_type_name(src0t), ne00, ne01, ne02, ne03, nb00, nb01, nb02, nb03,
+                lm_ggml_is_contiguous(src0), src0->name);
+    }
+    if (src1) {
+        LM_GGML_LOG_INFO("%s: src1 - %4s [%5lld, %5lld, %5lld, %5lld] [%5lld, %5lld, %5lld, %5lld], %d, %s\n", __func__, lm_ggml_type_name(src1t), ne10, ne11, ne12, ne13, nb10, nb11, nb12, nb13,
+                lm_ggml_is_contiguous(src1), src1->name);
+    }
+    if (dst) {
+        LM_GGML_LOG_INFO("%s: dst  - %4s [%5lld, %5lld, %5lld, %5lld] [%5lld, %5lld, %5lld, %5lld], 1, %s\n", __func__, lm_ggml_type_name(dstt), ne0, ne1, ne2, ne3, nb0, nb1, nb2, nb3,
+                dst->name);
+    }
+#endif
 
     id<MTLDevice> device = ctx_dev->mtl_device;
 
@@ -1810,14 +1812,16 @@ static void lm_ggml_metal_encode_node(
                             [encoder setBytes:&ne02    length:sizeof(ne02) atIndex:4];
                             [encoder setBytes:&nb01    length:sizeof(nb01) atIndex:5];
                             [encoder setBytes:&nb02    length:sizeof(nb02) atIndex:6];
-                            [encoder setBytes:&ne12    length:sizeof(ne12) atIndex:7];
-                            [encoder setBytes:&nb10    length:sizeof(nb10) atIndex:8];
-                            [encoder setBytes:&nb11    length:sizeof(nb11) atIndex:9];
-                            [encoder setBytes:&nb12    length:sizeof(nb12) atIndex:10];
-                            [encoder setBytes:&ne0     length:sizeof(ne0)  atIndex:11];
-                            [encoder setBytes:&ne1     length:sizeof(ne1)  atIndex:12];
-                            [encoder setBytes:&r2      length:sizeof(r2)   atIndex:13];
-                            [encoder setBytes:&r3      length:sizeof(r3)   atIndex:14];
+                            [encoder setBytes:&nb03    length:sizeof(nb03) atIndex:7];
+                            [encoder setBytes:&ne12    length:sizeof(ne12) atIndex:8];
+                            [encoder setBytes:&nb10    length:sizeof(nb10) atIndex:9];
+                            [encoder setBytes:&nb11    length:sizeof(nb11) atIndex:10];
+                            [encoder setBytes:&nb12    length:sizeof(nb12) atIndex:11];
+                            [encoder setBytes:&nb13    length:sizeof(nb13) atIndex:12];
+                            [encoder setBytes:&ne0     length:sizeof(ne0)  atIndex:13];
+                            [encoder setBytes:&ne1     length:sizeof(ne1)  atIndex:14];
+                            [encoder setBytes:&r2      length:sizeof(r2)   atIndex:15];
+                            [encoder setBytes:&r3      length:sizeof(r3)   atIndex:16];
                             [encoder setThreadgroupMemoryLength:8192 atIndex:0];
                             [encoder dispatchThreadgroups:MTLSizeMake( (ne11 + 31)/32, (ne01 + 63)/64, ne12*ne13) threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
                         } else {
@@ -1986,20 +1990,22 @@ static void lm_ggml_metal_encode_node(
                             [encoder setBytes:&nb00 length:sizeof(nb00) atIndex:6];
                             [encoder setBytes:&nb01 length:sizeof(nb01) atIndex:7];
                             [encoder setBytes:&nb02 length:sizeof(nb02) atIndex:8];
-                            [encoder setBytes:&ne10 length:sizeof(ne10) atIndex:9];
-                            [encoder setBytes:&ne11 length:sizeof(ne11) atIndex:10];
-                            [encoder setBytes:&ne12 length:sizeof(ne12) atIndex:11];
-                            [encoder setBytes:&nb10 length:sizeof(nb10) atIndex:12];
-                            [encoder setBytes:&nb11 length:sizeof(nb11) atIndex:13];
-                            [encoder setBytes:&nb12 length:sizeof(nb12) atIndex:14];
-                            [encoder setBytes:&ne0  length:sizeof(ne0)  atIndex:15];
-                            [encoder setBytes:&ne1  length:sizeof(ne1)  atIndex:16];
-                            [encoder setBytes:&r2   length:sizeof(r2)   atIndex:17];
-                            [encoder setBytes:&r3   length:sizeof(r3)   atIndex:18];
+                            [encoder setBytes:&nb03 length:sizeof(nb03) atIndex:9];
+                            [encoder setBytes:&ne10 length:sizeof(ne10) atIndex:10];
+                            [encoder setBytes:&ne11 length:sizeof(ne11) atIndex:11];
+                            [encoder setBytes:&ne12 length:sizeof(ne12) atIndex:12];
+                            [encoder setBytes:&nb10 length:sizeof(nb10) atIndex:13];
+                            [encoder setBytes:&nb11 length:sizeof(nb11) atIndex:14];
+                            [encoder setBytes:&nb12 length:sizeof(nb12) atIndex:15];
+                            [encoder setBytes:&nb13 length:sizeof(nb13) atIndex:16];
+                            [encoder setBytes:&ne0  length:sizeof(ne0)  atIndex:17];
+                            [encoder setBytes:&ne1  length:sizeof(ne1)  atIndex:18];
+                            [encoder setBytes:&r2   length:sizeof(r2)   atIndex:19];
+                            [encoder setBytes:&r3   length:sizeof(r3)   atIndex:20];
 
                             if (src0t == LM_GGML_TYPE_Q4_0  || src0t == LM_GGML_TYPE_Q4_1  || src0t == LM_GGML_TYPE_Q5_0 ||
-                                    src0t == LM_GGML_TYPE_Q5_1  || src0t == LM_GGML_TYPE_Q8_0  || src0t == LM_GGML_TYPE_Q2_K ||
-                                    src0t == LM_GGML_TYPE_IQ1_S || src0t == LM_GGML_TYPE_IQ1_M || src0t == LM_GGML_TYPE_IQ2_S) {
+                                src0t == LM_GGML_TYPE_Q5_1  || src0t == LM_GGML_TYPE_Q8_0  || src0t == LM_GGML_TYPE_Q2_K ||
+                                src0t == LM_GGML_TYPE_IQ1_S || src0t == LM_GGML_TYPE_IQ1_M || src0t == LM_GGML_TYPE_IQ2_S) {
                                 [encoder dispatchThreadgroups:MTLSizeMake((ne01 + 7)/8, ne11, ne12*ne13) threadsPerThreadgroup:MTLSizeMake(nth0, nth1, 1)];
                             }
                             else if (src0t == LM_GGML_TYPE_IQ2_XXS || src0t == LM_GGML_TYPE_IQ2_XS) {
@@ -2047,6 +2053,9 @@ static void lm_ggml_metal_encode_node(
                 LM_GGML_ASSERT(!lm_ggml_is_transposed(src1));
 
                 LM_GGML_ASSERT(src1t == LM_GGML_TYPE_F32);
+
+                LM_GGML_ASSERT(ne03 == 1);
+                LM_GGML_ASSERT(ne13 == 1);
 
                 // find the break-even point where the matrix-matrix kernel becomes more efficient compared
                 // to the matrix-vector kernel
@@ -3238,12 +3247,6 @@ static enum lm_ggml_status lm_ggml_metal_graph_compute(
 
 // backend interface
 
-static const char * lm_ggml_backend_metal_buffer_get_name(lm_ggml_backend_buffer_t buffer) {
-    return "Metal";
-
-    UNUSED(buffer);
-}
-
 static void lm_ggml_backend_metal_buffer_free_buffer(lm_ggml_backend_buffer_t buffer) {
     struct lm_ggml_backend_metal_buffer_context * ctx = (struct lm_ggml_backend_metal_buffer_context *)buffer->context;
 
@@ -3298,7 +3301,6 @@ static void lm_ggml_backend_metal_buffer_clear(lm_ggml_backend_buffer_t buffer, 
 }
 
 static struct lm_ggml_backend_buffer_i lm_ggml_backend_metal_buffer_i = {
-    /* .get_name        = */ lm_ggml_backend_metal_buffer_get_name,
     /* .free_buffer     = */ lm_ggml_backend_metal_buffer_free_buffer,
     /* .get_base        = */ lm_ggml_backend_metal_buffer_get_base,
     /* .init_tensor     = */ NULL,
@@ -3423,6 +3425,29 @@ lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_type(void) {
     return &lm_ggml_backend_buffer_type_metal;
 }
 
+static const char * lm_ggml_backend_metal_buffer_from_ptr_type_get_name(lm_ggml_backend_buffer_type_t buft) {
+    return "Metal_Mapped";
+
+    UNUSED(buft);
+}
+
+static lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_from_ptr_type(void) {
+    static struct lm_ggml_backend_buffer_type lm_ggml_backend_buffer_from_ptr_type_metal = {
+        /* .iface = */ {
+            /* .get_name         = */ lm_ggml_backend_metal_buffer_from_ptr_type_get_name,
+            /* .alloc_buffer     = */ lm_ggml_backend_metal_buffer_type_alloc_buffer,
+            /* .get_alignment    = */ lm_ggml_backend_metal_buffer_type_get_alignment,
+            /* .get_max_size     = */ lm_ggml_backend_metal_buffer_type_get_max_size,
+            /* .get_alloc_size   = */ NULL, // defaults to lm_ggml_nbytes
+            /* .is_host          = */ lm_ggml_backend_metal_buffer_type_is_host,
+        },
+        /* .device  = */ &g_lm_ggml_backend_metal_device,
+        /* .context = */ NULL,
+    };
+
+    return &lm_ggml_backend_buffer_from_ptr_type_metal;
+}
+
 // TODO: obsoleted by lm_ggml_backend_metal_device_buffer_from_ptr
 lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_from_ptr(void * data, size_t size, size_t max_size) {
     struct lm_ggml_backend_metal_buffer_context * ctx = calloc(1, sizeof(struct lm_ggml_backend_metal_buffer_context));
@@ -3499,7 +3524,7 @@ lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_from_ptr(void * data, size
         }
     }
 
-    return lm_ggml_backend_buffer_init(lm_ggml_backend_metal_buffer_type(), lm_ggml_backend_metal_buffer_i, ctx, size);
+    return lm_ggml_backend_buffer_init(lm_ggml_backend_metal_buffer_from_ptr_type(), lm_ggml_backend_metal_buffer_i, ctx, size);
 }
 
 // backend
@@ -3518,12 +3543,6 @@ static void lm_ggml_backend_metal_free(lm_ggml_backend_t backend) {
     lm_ggml_metal_free(ctx);
 
     free(backend);
-}
-
-static lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_get_default_buffer_type(lm_ggml_backend_t backend) {
-    return lm_ggml_backend_metal_buffer_type();
-
-    UNUSED(backend);
 }
 
 static enum lm_ggml_status lm_ggml_backend_metal_graph_compute(lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph) {
@@ -3592,7 +3611,6 @@ static void lm_ggml_backend_metal_set_n_cb(lm_ggml_backend_t backend, int n_cb) 
 static struct lm_ggml_backend_i lm_ggml_backend_metal_i = {
     /* .get_name                = */ lm_ggml_backend_metal_name,
     /* .free                    = */ lm_ggml_backend_metal_free,
-    /* .get_default_buffer_type = */ lm_ggml_backend_metal_get_default_buffer_type,
     /* .set_tensor_async        = */ NULL,
     /* .get_tensor_async        = */ NULL,
     /* .cpy_tensor_async        = */ NULL,
@@ -3602,9 +3620,6 @@ static struct lm_ggml_backend_i lm_ggml_backend_metal_i = {
     /* .graph_plan_update       = */ NULL,
     /* .graph_plan_compute      = */ NULL,
     /* .graph_compute           = */ lm_ggml_backend_metal_graph_compute,
-    /* .supports_op             = */ NULL,
-    /* .supports_buft           = */ NULL,
-    /* .offload_op              = */ NULL,
     /* .event_record            = */ NULL,
     /* .event_wait              = */ NULL,
 };
@@ -3699,7 +3714,7 @@ static void lm_ggml_backend_metal_device_get_memory(lm_ggml_backend_dev_t dev, s
 }
 
 static enum lm_ggml_backend_dev_type lm_ggml_backend_metal_device_get_type(lm_ggml_backend_dev_t dev) {
-    return LM_GGML_BACKEND_DEVICE_TYPE_GPU_FULL;
+    return LM_GGML_BACKEND_DEVICE_TYPE_GPU;
 
     LM_GGML_UNUSED(dev);
 }

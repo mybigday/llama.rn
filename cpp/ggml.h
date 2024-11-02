@@ -217,7 +217,6 @@
 
 #define LM_GGML_MAX_DIMS           4
 #define LM_GGML_MAX_PARAMS         2048
-#define LM_GGML_MAX_CONTEXTS       64
 #define LM_GGML_MAX_SRC            10
 #define LM_GGML_MAX_N_THREADS      512
 #define LM_GGML_MAX_OP_PARAMS      64
@@ -559,10 +558,10 @@ extern "C" {
 
     enum lm_ggml_log_level {
         LM_GGML_LOG_LEVEL_NONE  = 0,
-        LM_GGML_LOG_LEVEL_INFO  = 1,
-        LM_GGML_LOG_LEVEL_WARN  = 2,
-        LM_GGML_LOG_LEVEL_ERROR = 3,
-        LM_GGML_LOG_LEVEL_DEBUG = 4,
+        LM_GGML_LOG_LEVEL_DEBUG = 1,
+        LM_GGML_LOG_LEVEL_INFO  = 2,
+        LM_GGML_LOG_LEVEL_WARN  = 3,
+        LM_GGML_LOG_LEVEL_ERROR = 4,
         LM_GGML_LOG_LEVEL_CONT  = 5, // continue previous log
     };
 
@@ -654,13 +653,6 @@ extern "C" {
         // abort lm_ggml_graph_compute when true
         lm_ggml_abort_callback abort_callback;
         void *              abort_callback_data;
-    };
-
-    // scratch buffer
-    struct lm_ggml_scratch {
-        size_t offs;
-        size_t size;
-        void * data;
     };
 
     struct lm_ggml_init_params {
@@ -760,12 +752,12 @@ extern "C" {
 
     // main
 
-    LM_GGML_API struct lm_ggml_context * lm_ggml_init(struct lm_ggml_init_params params);
-    LM_GGML_API void                  lm_ggml_free(struct lm_ggml_context * ctx);
+    LM_GGML_API struct lm_ggml_context * lm_ggml_init (struct lm_ggml_init_params params);
+    LM_GGML_API void                  lm_ggml_reset(struct lm_ggml_context * ctx);
+    LM_GGML_API void                  lm_ggml_free (struct lm_ggml_context * ctx);
 
     LM_GGML_API size_t  lm_ggml_used_mem(const struct lm_ggml_context * ctx);
 
-    LM_GGML_API size_t  lm_ggml_set_scratch (struct lm_ggml_context * ctx, struct lm_ggml_scratch scratch);
     LM_GGML_API bool    lm_ggml_get_no_alloc(struct lm_ggml_context * ctx);
     LM_GGML_API void    lm_ggml_set_no_alloc(struct lm_ggml_context * ctx, bool no_alloc);
 

@@ -1,9 +1,9 @@
---- llama.cpp.orig
-+++ llama.cpp
-@@ -91,6 +91,17 @@
+--- llama.cpp.orig	2024-11-02 10:33:10
++++ llama.cpp	2024-11-02 10:33:11
+@@ -80,6 +80,17 @@
  #define LLAMA_MAX_LAYERS  512
  #define LLAMA_MAX_EXPERTS 160  // DeepSeekV2
- 
+
 +#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
 +#include <android/log.h>
 +#define LLAMA_ANDROID_TAG "RNLLAMA_LOG_ANDROID"
@@ -18,8 +18,8 @@
  //
  // helpers
  //
-@@ -1933,16 +1944,16 @@ struct llama_mmap {
- 
+@@ -1930,16 +1941,16 @@
+
          if (prefetch > 0) {
              // advise the kernel to preload the mapped memory
 -            if (posix_madvise(addr, std::min(file->size, prefetch), POSIX_MADV_WILLNEED)) {

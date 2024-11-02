@@ -6,6 +6,7 @@ git submodule update --recursive
 cp ./llama.cpp/include/llama.h ./cpp/llama.h
 
 cp ./llama.cpp/ggml/include/ggml.h ./cpp/ggml.h
+cp ./llama.cpp/ggml/include/ggml-cpp.h ./cpp/ggml-cpp.h
 cp ./llama.cpp/ggml/include/ggml-alloc.h ./cpp/ggml-alloc.h
 cp ./llama.cpp/ggml/include/ggml-backend.h ./cpp/ggml-backend.h
 cp ./llama.cpp/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
@@ -66,6 +67,7 @@ files=(
   "./cpp/ggml.c"
   "./cpp/common.h"
   "./cpp/common.cpp"
+  "./cpp/ggml-cpp.h"
   "./cpp/ggml-metal.h"
   "./cpp/ggml-metal.m"
   "./cpp/llama.h"
