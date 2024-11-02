@@ -9,6 +9,10 @@ if ENV["RNLLAMA_DISABLE_METAL"] != "1" then
   base_compiler_flags += " -DLM_GGML_USE_METAL" # -DLM_GGML_METAL_NDEBUG
 end
 
+if ENV["RNLLAMA_DISABLE_RPC"] != "1" then
+  base_compiler_flags += " -DLM_GGML_USE_RPC"
+end
+
 # Use base_optimizer_flags = "" for debug builds
 # base_optimizer_flags = ""
 base_optimizer_flags = "-O3 -DNDEBUG"

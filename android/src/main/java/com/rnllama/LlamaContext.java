@@ -63,8 +63,10 @@ public class LlamaContext {
       params.hasKey("lora_scaled") ? (float) params.getDouble("lora_scaled") : 1.0f,
       // float rope_freq_base,
       params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 0.0f,
-      // float rope_freq_scale
-      params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 0.0f
+      // float rope_freq_scale,
+      params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 0.0f,
+      // String rpc_servers
+      params.hasKey("rpc_servers") ? String.join(",", params.getArray("rpc_servers").toArrayList()) : ""
     );
     this.modelDetails = loadModelDetails(this.context);
     this.reactContext = reactContext;
@@ -346,7 +348,8 @@ public class LlamaContext {
     String lora,
     float lora_scaled,
     float rope_freq_base,
-    float rope_freq_scale
+    float rope_freq_scale,
+    String rpc_servers
   );
   protected static native WritableMap loadModelDetails(
     long contextPtr

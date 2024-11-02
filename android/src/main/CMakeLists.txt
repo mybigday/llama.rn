@@ -18,6 +18,7 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml-alloc.c
     ${RNLLAMA_LIB_DIR}/ggml-backend.cpp
     ${RNLLAMA_LIB_DIR}/ggml.c
+    ${RNLLAMA_LIB_DIR}/ggml-rpc.cpp
     ${RNLLAMA_LIB_DIR}/ggml-quants.c
     ${RNLLAMA_LIB_DIR}/common.cpp
     ${RNLLAMA_LIB_DIR}/json.hpp
@@ -55,6 +56,7 @@ function(build_library target_name cpu_flags)
         target_compile_options(${target_name} PRIVATE -O3 -DNDEBUG)
         target_compile_options(${target_name} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
         target_compile_options(${target_name} PRIVATE -ffunction-sections -fdata-sections)
+        target_compile_options(${target_name} PRIVATE -DLM_GGML_USE_RPC)
 
         target_link_options(${target_name} PRIVATE -Wl,--gc-sections)
         target_link_options(${target_name} PRIVATE -Wl,--exclude-libs,ALL)
@@ -77,7 +79,7 @@ if (${ANDROID_ABI} STREQUAL "arm64-v8a")
 
     # https://github.com/ggerganov/llama.cpp/blob/master/docs/android.md#cross-compile-using-android-ndk
     # llama.cpp will deal with the cpu features
-    # build_library("rnllama_v8_7" "-march=armv8.7-a") 
+    # build_library("rnllama_v8_7" "-march=armv8.7-a")
     # TODO: Add support runtime check for cpu features
     # At the moment runtime check is failing.
 

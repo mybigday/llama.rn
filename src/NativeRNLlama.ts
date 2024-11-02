@@ -22,6 +22,10 @@ export type NativeContextParams = {
 
   rope_freq_base?: number
   rope_freq_scale?: number
+
+  // Use GGML backend RPC server (host:port)
+  // ref: https://github.com/ggerganov/llama.cpp/tree/a6744e43e80f4be6398fc7733a01642c846dce1d/examples/rpc
+  rpc_servers?: Array<string>
 }
 
 export type NativeCompletionParams = {

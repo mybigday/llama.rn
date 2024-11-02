@@ -10,9 +10,11 @@ cp ./llama.cpp/ggml/include/ggml-cpp.h ./cpp/ggml-cpp.h
 cp ./llama.cpp/ggml/include/ggml-alloc.h ./cpp/ggml-alloc.h
 cp ./llama.cpp/ggml/include/ggml-backend.h ./cpp/ggml-backend.h
 cp ./llama.cpp/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
+cp ./llama.cpp/ggml/include/ggml-rpc.h ./cpp/ggml-rpc.h
 
 cp ./llama.cpp/ggml/src/ggml.c ./cpp/ggml.c
 cp ./llama.cpp/ggml/src/ggml-metal.m ./cpp/ggml-metal.m
+cp ./llama.cpp/ggml/src/ggml-rpc.cpp ./cpp/ggml-rpc.cpp
 cp ./llama.cpp/ggml/src/ggml-alloc.c ./cpp/ggml-alloc.c
 cp ./llama.cpp/ggml/src/ggml-backend.cpp ./cpp/ggml-backend.cpp
 cp ./llama.cpp/ggml/src/ggml-backend-impl.h ./cpp/ggml-backend-impl.h
@@ -70,6 +72,8 @@ files=(
   "./cpp/ggml-cpp.h"
   "./cpp/ggml-metal.h"
   "./cpp/ggml-metal.m"
+  "./cpp/ggml-rpc.h"
+  "./cpp/ggml-rpc.cpp"
   "./cpp/llama.h"
   "./cpp/llama.cpp"
   "./cpp/sampling.cpp"
