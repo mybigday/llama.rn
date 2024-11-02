@@ -39,28 +39,3 @@
                          strerror(errno));
              }
          }
-@@ -19086,7 +19097,9 @@
-
- #ifdef LM_GGML_USE_METAL
-     // note: we usually have plenty of VRAM, so by default offload all layers to the GPU
--    result.n_gpu_layers = 999;
-+    if (result.n_gpu_layers > 0) {
-+        result.n_gpu_layers = 999;
-+    }
- #endif
-
-     return result;
-@@ -19289,7 +19302,13 @@
-                 break;
-
-             case LM_GGML_BACKEND_DEVICE_TYPE_GPU:
-+#ifdef LM_GGML_USE_METAL
-+                if (params.n_gpu_layers > 0) {
-+                    model->devices.push_back(dev);
-+                }
-+#else
-                 model->devices.push_back(dev);
-+#endif
-                 break;
-         }
-     }

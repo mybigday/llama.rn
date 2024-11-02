@@ -575,7 +575,10 @@ struct lm_ggml_backend_registry {
         register_backend(lm_ggml_backend_cuda_reg());
 #endif
 #ifdef LM_GGML_USE_METAL
+#include <TargetConditionals.h>
+#if !TARGET_OS_SIMULATOR
         register_backend(lm_ggml_backend_metal_reg());
+#endif
 #endif
 #ifdef LM_GGML_USE_SYCL
         register_backend(lm_ggml_backend_sycl_reg());

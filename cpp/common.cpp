@@ -985,7 +985,7 @@ struct llama_model_params common_model_params_to_llama(const common_params & par
     if (params.n_gpu_layers != -1) {
         mparams.n_gpu_layers = params.n_gpu_layers;
     }
-    
+
     mparams.vocab_only      = params.vocab_only;
     mparams.rpc_servers     = params.rpc_servers.c_str();
     mparams.main_gpu        = params.main_gpu;
