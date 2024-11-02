@@ -17,6 +17,8 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 
 public class LlamaContext {
   public static final String NAME = "RNLlamaContext";
@@ -66,7 +68,9 @@ public class LlamaContext {
       // float rope_freq_scale,
       params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 0.0f,
       // String rpc_servers
-      params.hasKey("rpc_servers") ? String.join(",", params.getArray("rpc_servers").toArrayList()) : ""
+      params.hasKey("rpc_servers") ?
+        String.join(",", Arrays.asList(params.getArray("rpc_servers").toArrayList().toArray(new String[0]))) :
+        ""
     );
     this.modelDetails = loadModelDetails(this.context);
     this.reactContext = reactContext;
