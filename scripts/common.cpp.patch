@@ -1,15 +1,24 @@
---- common.cpp.orig
-+++ common.cpp
-@@ -52,6 +52,12 @@
+--- common.cpp.orig	2024-11-02 10:33:10
++++ common.cpp	2024-11-02 10:33:11
+@@ -53,6 +53,12 @@
+ #include <curl/easy.h>
  #include <future>
  #endif
-
++
 +// build info
 +int LLAMA_BUILD_NUMBER = 0;
 +char const *LLAMA_COMMIT = "unknown";
 +char const *LLAMA_COMPILER = "unknown";
 +char const *LLAMA_BUILD_TARGET = "unknown";
-+
+
  #if defined(_MSC_VER)
  #pragma warning(disable: 4244 4267) // possible loss of data
- #endif
+@@ -979,6 +985,8 @@
+     if (params.n_gpu_layers != -1) {
+         mparams.n_gpu_layers = params.n_gpu_layers;
+     }
++
++    mparams.vocab_only      = params.vocab_only;
+     mparams.rpc_servers     = params.rpc_servers.c_str();
+     mparams.main_gpu        = params.main_gpu;
+     mparams.split_mode      = params.split_mode;

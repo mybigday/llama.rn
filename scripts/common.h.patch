@@ -1,9 +1,10 @@
---- common.h.orig	2024-08-23 14:12:33
-+++ common.h	2024-08-23 14:12:34
-@@ -50,6 +50,17 @@
+--- common.h.orig	2024-11-02 10:33:10
++++ common.h	2024-11-02 10:33:11
+@@ -40,6 +40,17 @@
+ extern char const * LLAMA_BUILD_TARGET;
 
- struct llama_control_vector_load_info;
-
+ struct common_control_vector_load_info;
++
 +#define print_build_info() do {                                                                     \
 +    fprintf(stderr, "%s: build = %d (%s)\n", __func__, LLAMA_BUILD_NUMBER, LLAMA_COMMIT);           \
 +    fprintf(stderr, "%s: built with %s for %s\n", __func__, LLAMA_COMPILER, LLAMA_BUILD_TARGET);    \
@@ -14,7 +15,14 @@
 +extern char const *LLAMA_COMMIT;
 +extern char const *LLAMA_COMPILER;
 +extern char const *LLAMA_BUILD_TARGET;
-+
+
  //
  // CPU utils
- //
+@@ -154,6 +165,7 @@
+ };
+
+ struct common_params {
++    bool vocab_only               = false;
+     int32_t n_predict             =    -1; // new tokens to predict
+     int32_t n_ctx                 =     0; // context size
+     int32_t n_batch               =  2048; // logical batch size for prompt processing (must be >=32 to use BLAS)

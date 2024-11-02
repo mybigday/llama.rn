@@ -1,6 +1,6 @@
---- ggml.c.orig	2024-08-23 14:12:33
-+++ ggml.c	2024-08-23 14:12:34
-@@ -194,9 +194,9 @@
+--- ggml.c.orig
++++ ggml.c
+@@ -242,9 +242,9 @@ static void lm_ggml_print_backtrace_symbols(void) {
  #elif defined(__linux__) && defined(__GLIBC__)
  #include <execinfo.h>
  static void lm_ggml_print_backtrace_symbols(void) {

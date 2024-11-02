@@ -9,21 +9,23 @@ include_directories(${RNLLAMA_LIB_DIR})
 
 set(
     SOURCE_FILES
+    ${RNLLAMA_LIB_DIR}/llama-grammar.cpp
+    ${RNLLAMA_LIB_DIR}/llama-sampling.cpp
+    ${RNLLAMA_LIB_DIR}/llama-vocab.cpp
+    ${RNLLAMA_LIB_DIR}/log.cpp
+
+    ${RNLLAMA_LIB_DIR}/ggml-aarch64.c
     ${RNLLAMA_LIB_DIR}/ggml-alloc.c
-    ${RNLLAMA_LIB_DIR}/ggml-backend.c
+    ${RNLLAMA_LIB_DIR}/ggml-backend.cpp
     ${RNLLAMA_LIB_DIR}/ggml.c
     ${RNLLAMA_LIB_DIR}/ggml-quants.c
     ${RNLLAMA_LIB_DIR}/common.cpp
-    ${RNLLAMA_LIB_DIR}/grammar-parser.cpp
     ${RNLLAMA_LIB_DIR}/json.hpp
     ${RNLLAMA_LIB_DIR}/json-schema-to-grammar.cpp
     ${RNLLAMA_LIB_DIR}/sampling.cpp
     ${RNLLAMA_LIB_DIR}/unicode-data.cpp
     ${RNLLAMA_LIB_DIR}/unicode.cpp
     ${RNLLAMA_LIB_DIR}/llama.cpp
-    ${RNLLAMA_LIB_DIR}/llama-vocab.cpp
-    ${RNLLAMA_LIB_DIR}/llama-sampling.cpp
-    ${RNLLAMA_LIB_DIR}/llama-grammar.cpp
     ${RNLLAMA_LIB_DIR}/sgemm.cpp
     ${RNLLAMA_LIB_DIR}/ggml-aarch64.c
     ${RNLLAMA_LIB_DIR}/rn-llama.hpp
@@ -65,10 +67,20 @@ build_library("rnllama" "")
 
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
     # ARM64 targets
+    build_library("rnllama_v8_4_fp16_dotprod_sve" "-march=armv8.4-a+fp16+dotprod+sve")
+    build_library("rnllama_v8_4_fp16_dotprod_i8mm_sve" "-march=armv8.4-a+fp16+dotprod+i8mm+sve")
+    build_library("rnllama_v8_4_fp16_dotprod_i8mm" "-march=armv8.4-a+fp16+dotprod+i8mm")
     build_library("rnllama_v8_4_fp16_dotprod" "-march=armv8.4-a+fp16+dotprod")
     build_library("rnllama_v8_2_fp16_dotprod" "-march=armv8.2-a+fp16+dotprod")
     build_library("rnllama_v8_2_fp16" "-march=armv8.2-a+fp16")
     build_library("rnllama_v8" "-march=armv8-a")
+
+    # https://github.com/ggerganov/llama.cpp/blob/master/docs/android.md#cross-compile-using-android-ndk
+    # llama.cpp will deal with the cpu features
+    # build_library("rnllama_v8_7" "-march=armv8.7-a") 
+    # TODO: Add support runtime check for cpu features
+    # At the moment runtime check is failing.
+
 elseif (${ANDROID_ABI} STREQUAL "x86_64")
     # x86_64 target
     build_library("rnllama_x86_64" "-march=x86-64" "-mtune=intel" "-msse4.2" "-mpopcnt")
