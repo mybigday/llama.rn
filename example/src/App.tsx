@@ -86,9 +86,8 @@ export default function App() {
     initLlama({
       model: file.uri,
       use_mlock: true,
-      n_gpu_layers: Platform.OS === 'ios' ? 999 : 0, // > 0: enable GPU
+      n_gpu_layers: Platform.OS === 'ios' ? 0 : 0, // > 0: enable GPU
       // embedding: true,
-      rpc_servers: ['127.0.0.1:19853'],
     })
       .then((ctx) => {
         setContext(ctx)
