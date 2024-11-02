@@ -37,7 +37,6 @@ export type NativeCompletionParams = {
   min_p?: number
   xtc_threshold?: number
   xtc_probability?: number
-  tfs_z?: number
   typical_p?: number
   temperature?: number // -> temp
   penalty_last_n?: number

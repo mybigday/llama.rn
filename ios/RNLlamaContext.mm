@@ -209,7 +209,6 @@
     if (params[@"min_p"]) sparams.min_p = [params[@"min_p"] doubleValue];
     if (params[@"xtc_threshold"]) sparams.xtc_threshold = [params[@"xtc_threshold"] doubleValue];
     if (params[@"xtc_probability"]) sparams.xtc_probability = [params[@"xtc_probability"] doubleValue];
-    if (params[@"tfs_z"]) sparams.tfs_z = [params[@"tfs_z"] doubleValue];
     if (params[@"typical_p"]) sparams.typ_p = [params[@"typical_p"] doubleValue];
 
     if (params[@"grammar"]) {

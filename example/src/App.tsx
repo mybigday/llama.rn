@@ -353,7 +353,6 @@ export default function App() {
           temperature: 0.7,
           top_k: 40, // <= 0 to use vocab size
           top_p: 0.5, // 1.0 = disabled
-          tfs_z: 1.0, // 1.0 = disabled
           typical_p: 1.0, // 1.0 = disabled
           penalty_last_n: 256, // 0 = disable penalty, -1 = context size
           penalty_repeat: 1.18, // 1.0 = disabled

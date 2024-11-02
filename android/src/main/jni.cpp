@@ -176,7 +176,7 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.cpuparams.n_threads = n_threads > 0 ? n_threads : default_n_threads;
 
     defaultParams.n_gpu_layers = n_gpu_layers;
-    
+
     defaultParams.use_mlock = use_mlock;
     defaultParams.use_mmap = use_mmap;
 
@@ -380,7 +380,6 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jfloat min_p,
     jfloat xtc_threshold,
     jfloat xtc_probability,
-    jfloat tfs_z,
     jfloat typical_p,
     jint seed,
     jobjectArray stop,
@@ -419,7 +418,6 @@ Java_com_rnllama_LlamaContext_doCompletion(
     sparams.top_k = top_k;
     sparams.top_p = top_p;
     sparams.min_p = min_p;
-    sparams.tfs_z = tfs_z;
     sparams.typ_p = typical_p;
     sparams.n_probs = n_probs;
     sparams.grammar = env->GetStringUTFChars(grammar, nullptr);
@@ -546,7 +544,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     putInt(env, result, "tokens_cached", llama->n_past);
 
     const auto timings_token = llama_perf_context(llama -> ctx);
-    
+
     auto timingsResult = createWriteableMap(env);
     putInt(env, timingsResult, "prompt_n", timings_token.n_p_eval);
     putInt(env, timingsResult, "prompt_ms", timings_token.t_p_eval_ms);
@@ -643,7 +641,7 @@ Java_com_rnllama_LlamaContext_embedding(
     llama->rewind();
 
     llama_perf_context_reset(llama->ctx);
-    
+
     llama->params.prompt = text_chars;
 
     llama->params.n_predict = 0;
