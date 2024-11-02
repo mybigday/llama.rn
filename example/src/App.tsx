@@ -268,11 +268,10 @@ export default function App() {
     ]
     addMessage(textMessage)
     setInferencing(true)
-
-    const formattedChat = (await context?.getFormattedChat(msgs)) || ''
     // Test area
     {
       // Test tokenize
+      const formattedChat = (await context?.getFormattedChat(msgs)) || ''
       const t0 = Date.now()
       const { tokens } = (await context?.tokenize(formattedChat)) || {}
       const t1 = Date.now()
@@ -347,7 +346,7 @@ export default function App() {
     context
       ?.completion(
         {
-          prompt: formattedChat,
+          messages: msgs,
           n_predict: 100,
           xtc_probability: 0.5,
           xtc_threshold: 0.1,
