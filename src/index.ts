@@ -111,9 +111,9 @@ export class LlamaContext {
     params: CompletionParams,
     callback?: (data: TokenData) => void,
   ): Promise<NativeCompletionResult> {
-
     let finalPrompt = params.prompt
-    if (params.messages) { // messages always win
+    if (params.messages) {
+      // messages always win
       finalPrompt = await this.getFormattedChat(params.messages)
     }
 
@@ -189,21 +189,28 @@ export async function setContextLimit(limit: number): Promise<void> {
   return RNLlama.setContextLimit(limit)
 }
 
-export async function initLlama({
-  model,
-  is_model_asset: isModelAsset,
-  ...rest
-}: ContextParams, onProgress?: (progress: number) => void): Promise<LlamaContext> {
+let contextIdCounter = 0
+const contextIdRandom = () =>
+  process.env.NODE_ENV === 'test' ? 0 : Math.floor(Math.random() * 100000)
+
+export async function initLlama(
+  { model, is_model_asset: isModelAsset, ...rest }: ContextParams,
+  onProgress?: (progress: number) => void,
+): Promise<LlamaContext> {
   let path = model
   if (path.startsWith('file://')) path = path.slice(7)
-  const contextId = Math.floor(Math.random() * 1000000)
+  const contextId = contextIdCounter + contextIdRandom()
+  contextIdCounter += 1
 
   let removeProgressListener: any = null
   if (onProgress) {
-    removeProgressListener = EventEmitter.addListener(EVENT_ON_INIT_CONTEXT_PROGRESS, (evt: { contextId: number, progress: number }) => {
-      if (evt.contextId !== contextId) return
-      onProgress(evt.progress)
-    })
+    removeProgressListener = EventEmitter.addListener(
+      EVENT_ON_INIT_CONTEXT_PROGRESS,
+      (evt: { contextId: number; progress: number }) => {
+        if (evt.contextId !== contextId) return
+        onProgress(evt.progress)
+      },
+    )
   }
 
   const {
