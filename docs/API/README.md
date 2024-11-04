@@ -43,7 +43,7 @@ llama.rn
 
 #### Defined in
 
-[index.ts:51](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L51)
+[index.ts:52](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L52)
 
 ___
 
@@ -53,7 +53,7 @@ ___
 
 #### Defined in
 
-[index.ts:43](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L43)
+[index.ts:44](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L44)
 
 ___
 
@@ -63,7 +63,7 @@ ___
 
 #### Defined in
 
-[index.ts:41](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L41)
+[index.ts:42](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L42)
 
 ___
 
@@ -80,7 +80,7 @@ ___
 
 #### Defined in
 
-[index.ts:31](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L31)
+[index.ts:32](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L32)
 
 ## Functions
 
@@ -104,19 +104,20 @@ ___
 
 #### Defined in
 
-[grammar.ts:824](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/grammar.ts#L824)
+[grammar.ts:824](https://github.com/mybigday/llama.rn/blob/41b779f/src/grammar.ts#L824)
 
 ___
 
 ### initLlama
 
-▸ **initLlama**(`«destructured»`): `Promise`<[`LlamaContext`](classes/LlamaContext.md)\>
+▸ **initLlama**(`«destructured»`, `onProgress?`): `Promise`<[`LlamaContext`](classes/LlamaContext.md)\>
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `«destructured»` | `NativeContextParams` |
+| `onProgress?` | (`progress`: `number`) => `void` |
 
 #### Returns
 
@@ -124,7 +125,7 @@ ___
 
 #### Defined in
 
-[index.ts:191](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L191)
+[index.ts:196](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L196)
 
 ___
 
@@ -138,7 +139,7 @@ ___
 
 #### Defined in
 
-[index.ts:211](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L211)
+[index.ts:233](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L233)
 
 ___
 
@@ -158,4 +159,4 @@ ___
 
 #### Defined in
 
-[index.ts:187](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L187)
+[index.ts:188](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L188)
