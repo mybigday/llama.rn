@@ -64,6 +64,7 @@ export default function App() {
       metadata: { system: true, ...metadata },
     }
     addMessage(textMessage)
+    return textMessage.id
   }
 
   const handleReleaseContext = async () => {
@@ -82,12 +83,28 @@ export default function App() {
 
   const handleInitContext = async (file: DocumentPickerResponse) => {
     await handleReleaseContext()
-    addSystemMessage('Initializing context...')
+    const msgId = addSystemMessage('Initializing context...')
     initLlama({
       model: file.uri,
       use_mlock: true,
       n_gpu_layers: Platform.OS === 'ios' ? 0 : 0, // > 0: enable GPU
       // embedding: true,
+    }, (progress) => {
+      setMessages((msgs) => {
+        const index = msgs.findIndex((msg) => msg.id === msgId)
+        if (index >= 0) {
+          return msgs.map((msg, i) => {
+            if (msg.type == 'text' && i === index) {
+              return {
+                ...msg,
+                text: `Initializing context... ${progress}%`,
+              }
+            }
+            return msg
+          })
+        }
+        return msgs
+      })
     })
       .then((ctx) => {
         setContext(ctx)

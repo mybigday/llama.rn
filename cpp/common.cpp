@@ -1001,6 +1001,9 @@ struct llama_model_params common_model_params_to_llama(const common_params & par
         mparams.kv_overrides = params.kv_overrides.data();
     }
 
+    mparams.progress_callback = params.progress_callback;
+    mparams.progress_callback_user_data = params.progress_callback_user_data;
+
     return mparams;
 }
 

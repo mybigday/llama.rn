@@ -17,6 +17,7 @@ import { formatChat } from './chat'
 
 export { SchemaGrammarConverter, convertJsonSchemaToGrammar }
 
+const EVENT_ON_INIT_CONTEXT_PROGRESS = '@RNLlama_onInitContextProgress'
 const EVENT_ON_TOKEN = '@RNLlama_onToken'
 
 let EventEmitter: NativeEventEmitter | DeviceEventEmitterStatic
@@ -192,19 +193,33 @@ export async function initLlama({
   model,
   is_model_asset: isModelAsset,
   ...rest
-}: ContextParams): Promise<LlamaContext> {
+}: ContextParams, onProgress?: (progress: number) => void): Promise<LlamaContext> {
   let path = model
   if (path.startsWith('file://')) path = path.slice(7)
+  const contextId = Math.floor(Math.random() * 1000000)
+
+  let removeProgressListener: any = null
+  if (onProgress) {
+    removeProgressListener = EventEmitter.addListener(EVENT_ON_INIT_CONTEXT_PROGRESS, (evt: { contextId: number, progress: number }) => {
+      if (evt.contextId !== contextId) return
+      onProgress(evt.progress)
+    })
+  }
+
   const {
-    contextId,
     gpu,
     reasonNoGPU,
     model: modelDetails,
-  } = await RNLlama.initContext({
+  } = await RNLlama.initContext(contextId, {
     model: path,
     is_model_asset: !!isModelAsset,
+    use_progress_callback: !!onProgress,
     ...rest,
+  }).catch((err: any) => {
+    removeProgressListener?.remove()
+    throw err
   })
+  removeProgressListener?.remove()
   return new LlamaContext({ contextId, gpu, reasonNoGPU, model: modelDetails })
 }
 

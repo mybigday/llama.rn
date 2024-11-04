@@ -6,13 +6,16 @@
 
 @interface RNLlamaContext : NSObject {
     bool is_metal_enabled;
-    NSString * reason_no_metal;
     bool is_model_loaded;
+    NSString * reason_no_metal;
+
+    void (^onProgress)(unsigned int progress);
 
     rnllama::llama_rn_context * llama;
 }
 
-+ (instancetype)initWithParams:(NSDictionary *)params;
++ (instancetype)initWithParams:(NSDictionary *)params onProgress:(void (^)(unsigned int progress))onProgress;
+- (void)interruptLoad;
 - (bool)isMetalEnabled;
 - (NSString *)reasonNoMetal;
 - (NSDictionary *)modelInfo;

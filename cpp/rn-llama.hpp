@@ -158,9 +158,12 @@ struct llama_rn_context
     common_params params;
 
     llama_model *model = nullptr;
+    float loading_progress = 0;
+    bool is_load_interrupted = false;
+
     llama_context *ctx = nullptr;
     common_sampler *ctx_sampling = nullptr;
-  
+
     int n_ctx;
 
     bool truncated = false;
@@ -367,7 +370,7 @@ struct llama_rn_context
                 n_eval = params.n_batch;
             }
             if (llama_decode(ctx, llama_batch_get_one(&embd[n_past], n_eval)))
-            {   
+            {
                 LOG_ERROR("failed to eval, n_eval: %d, n_past: %d, n_threads: %d, embd: %s",
                     n_eval,
                     n_past,
@@ -378,7 +381,7 @@ struct llama_rn_context
                 return result;
             }
             n_past += n_eval;
-            
+
             if(is_interrupted) {
                 LOG_INFO("Decoding Interrupted");
                 embd.resize(n_past);
@@ -400,11 +403,11 @@ struct llama_rn_context
             candidates.reserve(llama_n_vocab(model));
 
             result.tok = common_sampler_sample(ctx_sampling, ctx, -1);
-            
+
             llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling);
 
             const int32_t n_probs = params.sparams.n_probs;
-            
+
             // deprecated
             /*if (params.sparams.temp <= 0 && n_probs > 0)
             {
@@ -412,7 +415,7 @@ struct llama_rn_context
                 llama_sampler_init_softmax();
 
             }*/
-            
+
 
             for (size_t i = 0; i < std::min(cur_p.size, (size_t)n_probs); ++i)
             {
@@ -542,14 +545,14 @@ struct llama_rn_context
             return std::vector<float>(n_embd, 0.0f);
         }
         float *data;
-        
+
         if(params.pooling_type == 0){
             data = llama_get_embeddings(ctx);
         }
         else {
             data = llama_get_embeddings_seq(ctx, 0);
         }
-        
+
         if(!data) {
             return std::vector<float>(n_embd, 0.0f);
         }
