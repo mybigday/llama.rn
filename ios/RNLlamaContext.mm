@@ -77,6 +77,10 @@
     const int defaultNThreads = nThreads == 4 ? 2 : MIN(4, maxThreads);
     defaultParams.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
 
+    if (params[@"rpc_servers"]) {
+        defaultParams.rpc_servers = [params[@"rpc_servers"] componentsJoinedByString:@","].UTF8String;
+    }
+
     RNLlamaContext *context = [[RNLlamaContext alloc] init];
     context->llama = new rnllama::llama_rn_context();
     context->llama->is_load_interrupted = false;

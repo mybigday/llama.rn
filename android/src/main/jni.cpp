@@ -157,6 +157,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jfloat lora_scaled,
     jfloat rope_freq_base,
     jfloat rope_freq_scale,
+    jstring rpc_servers,
     jobject load_progress_callback
 ) {
     UNUSED(thiz);
@@ -194,6 +195,11 @@ Java_com_rnllama_LlamaContext_initContext(
 
     defaultParams.rope_freq_base = rope_freq_base;
     defaultParams.rope_freq_scale = rope_freq_scale;
+
+    const char *rpc_servers_chars = env->GetStringUTFChars(rpc_servers, nullptr);
+    if (rpc_servers_chars != nullptr && rpc_servers_chars[0] != '\0') {
+        defaultParams.rpc_servers = rpc_servers_chars;
+    }
 
     auto llama = new rnllama::llama_rn_context();
     llama->is_load_interrupted = false;
@@ -233,6 +239,7 @@ Java_com_rnllama_LlamaContext_initContext(
 
     env->ReleaseStringUTFChars(model_path_str, model_path_chars);
     env->ReleaseStringUTFChars(lora_str, lora_chars);
+    env->ReleaseStringUTFChars(rpc_servers, rpc_servers_chars);
 
     return reinterpret_cast<jlong>(llama->ctx);
 }

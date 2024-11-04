@@ -17,6 +17,8 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 
 public class LlamaContext {
   public static final String NAME = "RNLlamaContext";
@@ -64,8 +66,12 @@ public class LlamaContext {
       params.hasKey("lora_scaled") ? (float) params.getDouble("lora_scaled") : 1.0f,
       // float rope_freq_base,
       params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 0.0f,
-      // float rope_freq_scale
+      // float rope_freq_scale,
       params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 0.0f,
+      // String rpc_servers
+      params.hasKey("rpc_servers") ?
+        String.join(",", Arrays.asList(params.getArray("rpc_servers").toArrayList().toArray(new String[0]))) :
+        "",
       // LoadProgressCallback load_progress_callback
       params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
     );
@@ -372,6 +378,7 @@ public class LlamaContext {
     float lora_scaled,
     float rope_freq_base,
     float rope_freq_scale,
+    String rpc_servers,
     LoadProgressCallback load_progress_callback
   );
   protected static native void interruptLoad(long contextPtr);
