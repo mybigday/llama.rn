@@ -26,6 +26,7 @@ export type NativeContextParams = {
 
   // Use GGML backend RPC server (host:port)
   // ref: https://github.com/ggerganov/llama.cpp/tree/a6744e43e80f4be6398fc7733a01642c846dce1d/examples/rpc
+  // NOTE: This is an experimental feature so it may be removed at any time.
   rpc_servers?: Array<string>
 }
 
