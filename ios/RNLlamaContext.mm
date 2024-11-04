@@ -103,6 +103,10 @@
     return context;
 }
 
+- (void)interruptLoad {
+    llama->is_load_interrupted = true;
+}
+
 - (bool)isMetalEnabled {
     return is_metal_enabled;
 }
