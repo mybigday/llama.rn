@@ -985,7 +985,7 @@ struct llama_model_params common_model_params_to_llama(const common_params & par
     if (params.n_gpu_layers != -1) {
         mparams.n_gpu_layers = params.n_gpu_layers;
     }
-    
+
     mparams.vocab_only      = params.vocab_only;
     mparams.rpc_servers     = params.rpc_servers.c_str();
     mparams.main_gpu        = params.main_gpu;
@@ -1000,6 +1000,9 @@ struct llama_model_params common_model_params_to_llama(const common_params & par
         LM_GGML_ASSERT(params.kv_overrides.back().key[0] == 0 && "KV overrides not terminated with empty key");
         mparams.kv_overrides = params.kv_overrides.data();
     }
+
+    mparams.progress_callback = params.progress_callback;
+    mparams.progress_callback_user_data = params.progress_callback_user_data;
 
     return mparams;
 }

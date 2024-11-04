@@ -3,7 +3,7 @@
 
 @implementation RNLlamaContext
 
-+ (instancetype)initWithParams:(NSDictionary *)params {
++ (instancetype)initWithParams:(NSDictionary *)params onProgress:(void (^)(unsigned int progress))onProgress {
     // llama_backend_init(false);
     common_params defaultParams;
 
@@ -82,14 +82,33 @@
     }
 
     RNLlamaContext *context = [[RNLlamaContext alloc] init];
-    if (context->llama == nullptr) {
-        context->llama = new rnllama::llama_rn_context();
+    context->llama = new rnllama::llama_rn_context();
+    context->llama->is_load_interrupted = false;
+    context->llama->loading_progress = 0;
+    context->onProgress = onProgress;
+
+    if (params[@"use_progress_callback"] && [params[@"use_progress_callback"] boolValue]) {
+        defaultParams.progress_callback = [](float progress, void * user_data) {
+            RNLlamaContext *context = (__bridge RNLlamaContext *)(user_data);
+            unsigned percentage = (unsigned) (100 * progress);
+            if (percentage > context->llama->loading_progress) {
+                context->llama->loading_progress = percentage;
+                context->onProgress(percentage);
+            }
+            return !context->llama->is_load_interrupted;
+        };
+        defaultParams.progress_callback_user_data = context;
     }
+
     context->is_model_loaded = context->llama->loadModel(defaultParams);
     context->is_metal_enabled = isMetalEnabled;
     context->reason_no_metal = reasonNoMetal;
 
     return context;
+}
+
+- (void)interruptLoad {
+    llama->is_load_interrupted = true;
 }
 
 - (bool)isMetalEnabled {

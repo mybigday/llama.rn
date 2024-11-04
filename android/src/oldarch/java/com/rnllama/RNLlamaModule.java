@@ -39,8 +39,8 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void initContext(final ReadableMap params, final Promise promise) {
-    rnllama.initContext(params, promise);
+  public void initContext(double id, final ReadableMap params, final Promise promise) {
+    rnllama.initContext(id, params, promise);
   }
 
   @ReactMethod

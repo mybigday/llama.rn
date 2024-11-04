@@ -123,6 +123,7 @@ patch -p0 -d ./cpp < ./scripts/common.cpp.patch
 patch -p0 -d ./cpp < ./scripts/log.cpp.patch
 patch -p0 -d ./cpp < ./scripts/llama.cpp.patch
 patch -p0 -d ./cpp < ./scripts/ggml-metal.m.patch
+patch -p0 -d ./cpp < ./scripts/ggml-backend.cpp.patch
 patch -p0 -d ./cpp < ./scripts/ggml.c.patch
 
 

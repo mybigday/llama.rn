@@ -38,8 +38,8 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
-  public void initContext(final ReadableMap params, final Promise promise) {
-    rnllama.initContext(params, promise);
+  public void initContext(double id, final ReadableMap params, final Promise promise) {
+    rnllama.initContext(id, params, promise);
   }
 
   @ReactMethod

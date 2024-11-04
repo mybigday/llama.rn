@@ -4,6 +4,7 @@ import { TurboModuleRegistry } from 'react-native'
 export type NativeContextParams = {
   model: string
   is_model_asset?: boolean
+  use_progress_callback?: boolean
 
   embedding?: boolean
 
@@ -123,7 +124,7 @@ export type NativeLlamaChatMessage = {
 
 export interface Spec extends TurboModule {
   setContextLimit(limit: number): Promise<void>
-  initContext(params: NativeContextParams): Promise<NativeLlamaContext>
+  initContext(contextId: number, params: NativeContextParams): Promise<NativeLlamaContext>
 
   getFormattedChat(
     contextId: number,

@@ -39,6 +39,7 @@ public class LlamaContext {
     }
     Log.d(NAME, "Setting log callback");
     logToAndroid();
+    eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
     this.id = id;
     this.context = initContext(
       // String model,
@@ -70,11 +71,16 @@ public class LlamaContext {
       // String rpc_servers
       params.hasKey("rpc_servers") ?
         String.join(",", Arrays.asList(params.getArray("rpc_servers").toArrayList().toArray(new String[0]))) :
-        ""
+        "",
+      // LoadProgressCallback load_progress_callback
+      params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
     );
     this.modelDetails = loadModelDetails(this.context);
     this.reactContext = reactContext;
-    eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
+  }
+
+  public void interruptLoad() {
+    interruptLoad(this.context);
   }
 
   public long getContext() {
@@ -91,6 +97,25 @@ public class LlamaContext {
       msgs[i] = messages.getMap(i);
     }
     return getFormattedChat(this.context, msgs, chatTemplate == null ? "" : chatTemplate);
+  }
+
+  private void emitLoadProgress(int progress) {
+    WritableMap event = Arguments.createMap();
+    event.putInt("contextId", LlamaContext.this.id);
+    event.putInt("progress", progress);
+    eventEmitter.emit("@RNLlama_onInitContextProgress", event);
+  }
+
+  private static class LoadProgressCallback {
+    LlamaContext context;
+
+    public LoadProgressCallback(LlamaContext context) {
+      this.context = context;
+    }
+
+    void onLoadProgress(int progress) {
+      context.emitLoadProgress(progress);
+    }
   }
 
   private void emitPartialCompletion(WritableMap tokenResult) {
@@ -353,8 +378,10 @@ public class LlamaContext {
     float lora_scaled,
     float rope_freq_base,
     float rope_freq_scale,
-    String rpc_servers
+    String rpc_servers,
+    LoadProgressCallback load_progress_callback
   );
+  protected static native void interruptLoad(long contextPtr);
   protected static native WritableMap loadModelDetails(
     long contextPtr
   );

@@ -132,6 +132,11 @@ static inline void putArray(JNIEnv *env, jobject map, const char *key, jobject v
     env->CallVoidMethod(map, putArrayMethod, jKey, value);
 }
 
+struct callback_context {
+    JNIEnv *env;
+    rnllama::llama_rn_context *llama;
+    jobject callback;
+};
 
 std::unordered_map<long, rnllama::llama_rn_context *> context_map;
 
@@ -152,7 +157,8 @@ Java_com_rnllama_LlamaContext_initContext(
     jfloat lora_scaled,
     jfloat rope_freq_base,
     jfloat rope_freq_scale,
-    jstring rpc_servers
+    jstring rpc_servers,
+    jobject load_progress_callback
 ) {
     UNUSED(thiz);
 
@@ -196,6 +202,32 @@ Java_com_rnllama_LlamaContext_initContext(
     }
 
     auto llama = new rnllama::llama_rn_context();
+    llama->is_load_interrupted = false;
+    llama->loading_progress = 0;
+
+    if (load_progress_callback != nullptr) {
+        defaultParams.progress_callback = [](float progress, void * user_data) {
+            callback_context *cb_ctx = (callback_context *)user_data;
+            JNIEnv *env = cb_ctx->env;
+            auto llama = cb_ctx->llama;
+            jobject callback = cb_ctx->callback;
+            int percentage = (int) (100 * progress);
+            if (percentage > llama->loading_progress) {
+                llama->loading_progress = percentage;
+                jclass callback_class = env->GetObjectClass(callback);
+                jmethodID onLoadProgress = env->GetMethodID(callback_class, "onLoadProgress", "(I)V");
+                env->CallVoidMethod(callback, onLoadProgress, percentage);
+            }
+            return !llama->is_load_interrupted;
+        };
+
+        callback_context *cb_ctx = new callback_context;
+        cb_ctx->env = env;
+        cb_ctx->llama = llama;
+        cb_ctx->callback = env->NewGlobalRef(load_progress_callback);
+        defaultParams.progress_callback_user_data = cb_ctx;
+    }
+
     bool is_model_loaded = llama->loadModel(defaultParams);
 
     LOGI("[RNLlama] is_model_loaded %s", (is_model_loaded ? "true" : "false"));
@@ -210,6 +242,20 @@ Java_com_rnllama_LlamaContext_initContext(
     env->ReleaseStringUTFChars(rpc_servers, rpc_servers_chars);
 
     return reinterpret_cast<jlong>(llama->ctx);
+}
+
+
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_interruptLoad(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    if (llama) {
+        llama->is_load_interrupted = true;
+    }
 }
 
 JNIEXPORT jobject JNICALL

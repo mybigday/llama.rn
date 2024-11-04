@@ -19097,9 +19097,7 @@ struct llama_model_params llama_model_default_params() {
 
 #ifdef LM_GGML_USE_METAL
     // note: we usually have plenty of VRAM, so by default offload all layers to the GPU
-    if (result.n_gpu_layers > 0) {
-        result.n_gpu_layers = 999;
-    }
+    result.n_gpu_layers = 999;
 #endif
 
     return result;
@@ -19302,13 +19300,7 @@ struct llama_model * llama_load_model_from_file(
                 break;
 
             case LM_GGML_BACKEND_DEVICE_TYPE_GPU:
-#ifdef LM_GGML_USE_METAL
-                if (params.n_gpu_layers > 0) {
-                    model->devices.push_back(dev);
-                }
-#else
                 model->devices.push_back(dev);
-#endif
                 break;
         }
     }
