@@ -42,21 +42,24 @@ public class RNLlama implements LifecycleEventListener {
     promise.resolve(null);
   }
 
-  public void initContext(final ReadableMap params, final Promise promise) {
+  public void initContext(double id, final ReadableMap params, final Promise promise) {
+    final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
 
       @Override
       protected WritableMap doInBackground(Void... voids) {
         try {
-          int id = Math.abs(new Random().nextInt());
-          LlamaContext llamaContext = new LlamaContext(id, reactContext, params);
+          LlamaContext context = contexts.get(contextId);
+          if (context != null) {
+            throw new Exception("Context already exists");
+          }
+          LlamaContext llamaContext = new LlamaContext(contextId, reactContext, params);
           if (llamaContext.getContext() == 0) {
             throw new Exception("Failed to initialize context");
           }
-          contexts.put(id, llamaContext);
+          contexts.put(contextId, llamaContext);
           WritableMap result = Arguments.createMap();
-          result.putInt("contextId", id);
           result.putBoolean("gpu", false);
           result.putString("reasonNoGPU", "Currently not supported");
           result.putMap("model", llamaContext.getModelDetails());
@@ -393,6 +396,7 @@ public class RNLlama implements LifecycleEventListener {
           if (context == null) {
             throw new Exception("Context " + id + " not found");
           }
+          context.interruptLoad();
           context.stopCompletion();
           AsyncTask completionTask = null;
           for (AsyncTask task : tasks.keySet()) {

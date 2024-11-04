@@ -4,7 +4,6 @@ if (!NativeModules.RNLlama) {
   NativeModules.RNLlama = {
     initContext: jest.fn(() =>
       Promise.resolve({
-        contextId: 1,
         gpu: false,
         reasonNoGPU: 'Test',
       }),

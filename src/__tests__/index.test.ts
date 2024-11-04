@@ -9,7 +9,7 @@ test('Mock', async () => {
   const context = await initLlama({
     model: 'test.bin',
   })
-  expect(context.id).toBe(1)
+  expect(context.id).toBe(0)
   const events: TokenData[] = []
   const completionResult = await context.completion({
     prompt: 'Test',
