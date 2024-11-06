@@ -53,7 +53,7 @@ cp ./llama.cpp/common/sampling.h ./cpp/sampling.h
 cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
 
 # List of files to process
-files=(
+files_add_lm_prefix=(
   "./cpp/llama-impl.h"
   "./cpp/llama-vocab.h"
   "./cpp/llama-vocab.cpp"
@@ -92,7 +92,7 @@ files=(
 
 # Loop through each file and run the sed commands
 OS=$(uname)
-for file in "${files[@]}"; do
+for file in "${files_add_lm_prefix[@]}"; do
   # Add prefix to avoid redefinition with other libraries using ggml like whisper.rn
   if [ "$OS" = "Darwin" ]; then
     sed -i '' 's/GGML_/LM_GGML_/g' $file
@@ -106,6 +106,27 @@ for file in "${files[@]}"; do
     sed -i 's/GGUF_/LM_GGUF_/g' $file
     sed -i 's/gguf_/lm_gguf_/g' $file
     sed -i 's/GGMLMetalClass/LMGGMLMetalClass/g' $file
+  fi
+done
+
+files_iq_add_lm_prefix=(
+  "./cpp/ggml-quants.h"
+  "./cpp/ggml-quants.c"
+  "./cpp/ggml.c"
+)
+
+for file in "${files_iq_add_lm_prefix[@]}"; do
+  # Add prefix to avoid redefinition with other libraries using ggml like whisper.rn
+  if [ "$OS" = "Darwin" ]; then
+    sed -i '' 's/iq2xs_init_impl/lm_iq2xs_init_impl/g' $file
+    sed -i '' 's/iq2xs_free_impl/lm_iq2xs_free_impl/g' $file
+    sed -i '' 's/iq3xs_init_impl/lm_iq3xs_init_impl/g' $file
+    sed -i '' 's/iq3xs_free_impl/lm_iq3xs_free_impl/g' $file
+  else
+    sed -i 's/iq2xs_init_impl/lm_iq2xs_init_impl/g' $file
+    sed -i 's/iq2xs_free_impl/lm_iq2xs_free_impl/g' $file
+    sed -i 's/iq3xs_init_impl/lm_iq3xs_init_impl/g' $file
+    sed -i 's/iq3xs_free_impl/lm_iq3xs_free_impl/g' $file
   fi
 done
 

@@ -137,10 +137,10 @@ size_t quantize_q5_0(const float * LM_GGML_RESTRICT src, void * LM_GGML_RESTRICT
 size_t quantize_q5_1(const float * LM_GGML_RESTRICT src, void * LM_GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 size_t quantize_q8_0(const float * LM_GGML_RESTRICT src, void * LM_GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 
-void iq2xs_init_impl(enum lm_ggml_type type);
-void iq2xs_free_impl(enum lm_ggml_type type);
-void iq3xs_init_impl(int grid_size);
-void iq3xs_free_impl(int grid_size);
+void lm_iq2xs_init_impl(enum lm_ggml_type type);
+void lm_iq2xs_free_impl(enum lm_ggml_type type);
+void lm_iq3xs_init_impl(int grid_size);
+void lm_iq3xs_free_impl(int grid_size);
 
 #ifdef __cplusplus
 }

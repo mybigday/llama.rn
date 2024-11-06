@@ -21793,9 +21793,9 @@ void lm_ggml_quantize_init(enum lm_ggml_type type) {
         case LM_GGML_TYPE_IQ2_XS:
         case LM_GGML_TYPE_IQ2_S:
         case LM_GGML_TYPE_IQ1_S:
-        case LM_GGML_TYPE_IQ1_M:   iq2xs_init_impl(type); break;
-        case LM_GGML_TYPE_IQ3_XXS: iq3xs_init_impl(256); break;
-        case LM_GGML_TYPE_IQ3_S:   iq3xs_init_impl(512); break;
+        case LM_GGML_TYPE_IQ1_M:   lm_iq2xs_init_impl(type); break;
+        case LM_GGML_TYPE_IQ3_XXS: lm_iq3xs_init_impl(256); break;
+        case LM_GGML_TYPE_IQ3_S:   lm_iq3xs_init_impl(512); break;
         default: // nothing
             break;
     }
@@ -21806,10 +21806,10 @@ void lm_ggml_quantize_init(enum lm_ggml_type type) {
 void lm_ggml_quantize_free(void) {
     lm_ggml_critical_section_start();
 
-    iq2xs_free_impl(LM_GGML_TYPE_IQ2_XXS);
-    iq2xs_free_impl(LM_GGML_TYPE_IQ2_XS);
-    iq2xs_free_impl(LM_GGML_TYPE_IQ1_S);
-    iq3xs_free_impl(256);
+    lm_iq2xs_free_impl(LM_GGML_TYPE_IQ2_XXS);
+    lm_iq2xs_free_impl(LM_GGML_TYPE_IQ2_XS);
+    lm_iq2xs_free_impl(LM_GGML_TYPE_IQ1_S);
+    lm_iq3xs_free_impl(256);
 
     lm_ggml_critical_section_end();
 }

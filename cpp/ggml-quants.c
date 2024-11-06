@@ -13040,7 +13040,7 @@ static int iq2_compare_func(const void * left, const void * right) {
     return l[0] < r[0] ? -1 : l[0] > r[0] ? 1 : l[1] < r[1] ? -1 : l[1] > r[1] ? 1 : 0;
 }
 
-void iq2xs_init_impl(enum lm_ggml_type type) {
+void lm_iq2xs_init_impl(enum lm_ggml_type type) {
     const int gindex = iq2_data_index(type);
     const int grid_size = iq2_grid_size(type);
     if (iq2_data[gindex].grid) {
@@ -13396,7 +13396,7 @@ void iq2xs_init_impl(enum lm_ggml_type type) {
     free(dist2);
 }
 
-void iq2xs_free_impl(enum lm_ggml_type type) {
+void lm_iq2xs_free_impl(enum lm_ggml_type type) {
     LM_GGML_ASSERT(type == LM_GGML_TYPE_IQ2_XXS || type == LM_GGML_TYPE_IQ2_XS || type == LM_GGML_TYPE_IQ1_S || type == LM_GGML_TYPE_IQ1_M || type == LM_GGML_TYPE_IQ2_S);
     const int gindex = iq2_data_index(type);
     if (iq2_data[gindex].grid) {
@@ -13834,7 +13834,7 @@ static int iq3_compare_func(const void * left, const void * right) {
     return l[0] < r[0] ? -1 : l[0] > r[0] ? 1 : l[1] < r[1] ? -1 : l[1] > r[1] ? 1 : 0;
 }
 
-void iq3xs_init_impl(int grid_size) {
+void lm_iq3xs_init_impl(int grid_size) {
     const int gindex = iq3_data_index(grid_size);
     if (iq3_data[gindex].grid) {
         return;
@@ -13990,7 +13990,7 @@ void iq3xs_init_impl(int grid_size) {
     free(dist2);
 }
 
-void iq3xs_free_impl(int grid_size) {
+void lm_iq3xs_free_impl(int grid_size) {
     LM_GGML_ASSERT(grid_size == 256 || grid_size == 512);
     const int gindex = iq3_data_index(grid_size);
     if (iq3_data[gindex].grid) {
