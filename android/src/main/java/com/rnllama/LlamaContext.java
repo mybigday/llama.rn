@@ -44,6 +44,8 @@ public class LlamaContext {
       params.getString("model"),
       // boolean embedding,
       params.hasKey("embedding") ? params.getBoolean("embedding") : false,
+      // int embd_normalize,
+      params.hasKey("embd_normalize") ? params.getInt("embd_normalize") : -1,
       // int n_ctx,
       params.hasKey("n_ctx") ? params.getInt("n_ctx") : 512,
       // int n_batch,
@@ -66,9 +68,14 @@ public class LlamaContext {
       params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 0.0f,
       // float rope_freq_scale
       params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 0.0f,
+      // int pooling_type,
+      params.hasKey("pooling_type") ? params.getInt("pooling_type") : -1,
       // LoadProgressCallback load_progress_callback
       params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
     );
+    if (this.context == -1) {
+      throw new IllegalStateException("Failed to initialize context");
+    }
     this.modelDetails = loadModelDetails(this.context);
     this.reactContext = reactContext;
   }
@@ -258,11 +265,16 @@ public class LlamaContext {
     return detokenize(this.context, toks);
   }
 
-  public WritableMap getEmbedding(String text) {
+  public WritableMap getEmbedding(String text, ReadableMap params) {
     if (isEmbeddingEnabled(this.context) == false) {
       throw new IllegalStateException("Embedding is not enabled");
     }
-    WritableMap result = embedding(this.context, text);
+    WritableMap result = embedding(
+      this.context,
+      text,
+      // int embd_normalize,
+      params.hasKey("embd_normalize") ? params.getInt("embd_normalize") : -1
+    );
     if (result.hasKey("error")) {
       throw new IllegalStateException(result.getString("error"));
     }
@@ -365,6 +377,7 @@ public class LlamaContext {
   protected static native long initContext(
     String model,
     boolean embedding,
+    int embd_normalize,
     int n_ctx,
     int n_batch,
     int n_threads,
@@ -376,6 +389,7 @@ public class LlamaContext {
     float lora_scaled,
     float rope_freq_base,
     float rope_freq_scale,
+    int pooling_type,
     LoadProgressCallback load_progress_callback
   );
   protected static native void interruptLoad(long contextPtr);
@@ -429,7 +443,11 @@ public class LlamaContext {
   protected static native WritableArray tokenize(long contextPtr, String text);
   protected static native String detokenize(long contextPtr, int[] tokens);
   protected static native boolean isEmbeddingEnabled(long contextPtr);
-  protected static native WritableMap embedding(long contextPtr, String text);
+  protected static native WritableMap embedding(
+    long contextPtr,
+    String text,
+    int embd_normalize
+  );
   protected static native String bench(long contextPtr, int pp, int tg, int pl, int nr);
   protected static native void freeContext(long contextPtr);
   protected static native void logToAndroid();

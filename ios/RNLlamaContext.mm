@@ -57,10 +57,6 @@
     if (isAsset) path = [[NSBundle mainBundle] pathForResource:modelPath ofType:nil];
     defaultParams.model = [path UTF8String];
 
-    if (params[@"embedding"] && [params[@"embedding"] boolValue]) {
-        defaultParams.embedding = true;
-    }
-
     if (params[@"n_ctx"]) defaultParams.n_ctx = [params[@"n_ctx"] intValue];
     if (params[@"use_mlock"]) defaultParams.use_mlock = [params[@"use_mlock"]boolValue];
 
@@ -100,6 +96,20 @@
     if (params[@"n_batch"]) defaultParams.n_batch = [params[@"n_batch"] intValue];
     if (params[@"use_mmap"]) defaultParams.use_mmap = [params[@"use_mmap"] boolValue];
 
+    if (params[@"pooling_type"] && [params[@"pooling_type"] isKindOfClass:[NSNumber class]]) {
+      defaultParams.pooling_type = static_cast<enum llama_pooling_type>([params[@"pooling_type"] intValue]);
+    }
+
+    if (params[@"embedding"] && [params[@"embedding"] boolValue]) {
+        defaultParams.embedding = true;
+        // For non-causal models, batch size must be equal to ubatch size
+        defaultParams.n_ubatch = defaultParams.n_batch;
+
+        if (params[@"embd_normalize"] && [params[@"embd_normalize"] isKindOfClass:[NSNumber class]]) {
+            defaultParams.embd_normalize = [params[@"embd_normalize"] intValue];
+        }
+    }
+
     if (params[@"lora"]) {
         float lora_scaled = 1.0f;
         if (params[@"lora_scaled"]) lora_scaled = [params[@"lora_scaled"] floatValue];
@@ -136,6 +146,15 @@
     }
 
     context->is_model_loaded = context->llama->loadModel(defaultParams);
+
+    if (
+        params[@"embedding"] && [params[@"embedding"] boolValue] &&
+        llama_model_has_encoder(context->llama->model) && llama_model_has_decoder(context->llama->model)
+    ) {
+        delete context->llama;
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not supported in encoder-decoder models" userInfo:nil];
+    }
+
     context->is_metal_enabled = isMetalEnabled;
     context->reason_no_metal = reasonNoMetal;
 
@@ -418,9 +437,17 @@
     return [NSString stringWithUTF8String:text.c_str()];
 }
 
-- (NSArray *)embedding:(NSString *)text {
+- (NSDictionary *)embedding:(NSString *)text params:(NSDictionary *)params {
     if (llama->params.embedding != true) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not enabled" userInfo:nil];
+    }
+
+    common_params embdParams;
+    embdParams.embedding = true;
+    embdParams.embd_normalize = llama->params.embd_normalize;
+
+    if (params[@"embd_normalize"] && [params[@"embd_normalize"] isKindOfClass:[NSNumber class]]) {
+        embdParams.embd_normalize = [params[@"embd_normalize"] intValue];
     }
 
     llama->rewind();
@@ -438,15 +465,22 @@
     llama->loadPrompt();
     llama->doCompletion();
 
-    std::vector<float> result = llama->getEmbedding();
+    std::vector<float> result = llama->getEmbedding(embdParams);
 
+    NSMutableDictionary *resultDict = [[NSMutableDictionary alloc] init];
     NSMutableArray *embeddingResult = [[NSMutableArray alloc] init];
     for (float f : result) {
         [embeddingResult addObject:@(f)];
     }
+    resultDict[@"embedding"] = embeddingResult;
+    NSMutableArray *promptTokens = [[NSMutableArray alloc] init];
+    for (llama_token tok : llama->embd) {
+        [promptTokens addObject:[NSString stringWithUTF8String:common_token_to_piece(llama->ctx, tok).c_str()]];
+    }
+    resultDict[@"prompt_tokens"] = promptTokens;
 
     llama->is_predicting = false;
-    return embeddingResult;
+    return resultDict;
 }
 
 - (NSDictionary *)loadSession:(NSString *)path {

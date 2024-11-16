@@ -1,12 +1,14 @@
 import type { TurboModule } from 'react-native'
 import { TurboModuleRegistry } from 'react-native'
 
+export type NativeEmbeddingParams = {
+  embd_normalize?: number
+}
+
 export type NativeContextParams = {
   model: string
   is_model_asset?: boolean
   use_progress_callback?: boolean
-
-  embedding?: boolean
 
   n_ctx?: number
   n_batch?: number
@@ -23,6 +25,12 @@ export type NativeContextParams = {
 
   rope_freq_base?: number
   rope_freq_scale?: number
+
+  pooling_type?: number
+
+  // Embedding params
+  embedding?: boolean
+  embd_normalize?: number
 }
 
 export type NativeCompletionParams = {
@@ -145,7 +153,11 @@ export interface Spec extends TurboModule {
   stopCompletion(contextId: number): Promise<void>
   tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>
   detokenize(contextId: number, tokens: number[]): Promise<string>
-  embedding(contextId: number, text: string): Promise<NativeEmbeddingResult>
+  embedding(
+    contextId: number,
+    text: string,
+    params: NativeEmbeddingParams,
+  ): Promise<NativeEmbeddingResult>
   bench(
     contextId: number,
     pp: number,
