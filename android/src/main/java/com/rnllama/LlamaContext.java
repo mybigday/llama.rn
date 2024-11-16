@@ -358,6 +358,10 @@ public class LlamaContext {
     }
   }
 
+  protected static native WritableMap modelInfo(
+    String model,
+    String[] skip
+  );
   protected static native long initContext(
     String model,
     boolean embedding,

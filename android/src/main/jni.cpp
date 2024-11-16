@@ -9,8 +9,9 @@
 #include <thread>
 #include <unordered_map>
 #include "llama.h"
-#include "rn-llama.hpp"
+#include "llama-impl.h"
 #include "ggml.h"
+#include "rn-llama.hpp"
 
 #define UNUSED(x) (void)(x)
 #define TAG "RNLLAMA_ANDROID_JNI"
@@ -130,6 +131,72 @@ static inline void putArray(JNIEnv *env, jobject map, const char *key, jobject v
     jstring jKey = env->NewStringUTF(key);
 
     env->CallVoidMethod(map, putArrayMethod, jKey, value);
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_modelInfo(
+    JNIEnv *env,
+    jobject thiz,
+    jstring model_path_str,
+    jobjectArray skip
+) {
+    UNUSED(thiz);
+
+    const char *model_path_chars = env->GetStringUTFChars(model_path_str, nullptr);
+
+    std::vector<std::string> skip_vec;
+    int skip_len = env->GetArrayLength(skip);
+    for (int i = 0; i < skip_len; i++) {
+        jstring skip_str = (jstring) env->GetObjectArrayElement(skip, i);
+        const char *skip_chars = env->GetStringUTFChars(skip_str, nullptr);
+        skip_vec.push_back(skip_chars);
+        env->ReleaseStringUTFChars(skip_str, skip_chars);
+    }
+
+    struct lm_gguf_init_params params = {
+        /*.no_alloc = */ false,
+        /*.ctx      = */ NULL,
+    };
+    struct lm_gguf_context * ctx = lm_gguf_init_from_file(model_path_chars, params);
+
+    if (!ctx) {
+        LOGI("%s: failed to load '%s'\n", __func__, model_path_chars);
+        return nullptr;
+    }
+
+    auto info = createWriteableMap(env);
+    putInt(env, info, "version", lm_gguf_get_version(ctx));
+    putInt(env, info, "alignment", lm_gguf_get_alignment(ctx));
+    putInt(env, info, "data_offset", lm_gguf_get_data_offset(ctx));
+    {
+        const int n_kv = lm_gguf_get_n_kv(ctx);
+
+        for (int i = 0; i < n_kv; ++i) {
+            const char * key = lm_gguf_get_key(ctx, i);
+
+            bool skipped = false;
+            if (skip_len > 0) {
+                for (int j = 0; j < skip_len; j++) {
+                    if (skip_vec[j] == key) {
+                        skipped = true;
+                        break;
+                    }
+                }
+            }
+
+            if (skipped) {
+                continue;
+            }
+
+            const std::string value = rnllama::lm_gguf_kv_to_str(ctx, i);
+            putString(env, info, key, value.c_str());
+        }
+    }
+
+    env->ReleaseStringUTFChars(model_path_str, model_path_chars);
+    lm_gguf_free(ctx);
+
+    return reinterpret_cast<jobject>(info);
 }
 
 struct callback_context {
