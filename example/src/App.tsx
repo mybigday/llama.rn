@@ -125,6 +125,7 @@ export default function App() {
     )
       .then((ctx) => {
         const t1 = Date.now()
+        setContext(ctx)
         addSystemMessage(
           `Context initialized!\n\nLoad time: ${t1 - t0}ms\nGPU: ${
             ctx.gpu ? 'YES' : 'NO'
