@@ -84,8 +84,8 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void embedding(double id, final String text, final Promise promise) {
-    rnllama.embedding(id, text, promise);
+  public void embedding(double id, final String text, final ReadableMap params, final Promise promise) {
+    rnllama.embedding(id, text, params, promise);
   }
 
   @ReactMethod

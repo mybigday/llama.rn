@@ -53,23 +53,27 @@ RCT_EXPORT_METHOD(initContext:(double)contextId
         return;
     }
 
-    RNLlamaContext *context = [RNLlamaContext initWithParams:contextParams onProgress:^(unsigned int progress) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self sendEventWithName:@"@RNLlama_onInitContextProgress" body:@{ @"contextId": @(contextId), @"progress": @(progress) }];
-        });
-    }];
-    if (![context isModelLoaded]) {
-        reject(@"llama_cpp_error", @"Failed to load the model", nil);
-        return;
+    @try {
+      RNLlamaContext *context = [RNLlamaContext initWithParams:contextParams onProgress:^(unsigned int progress) {
+          dispatch_async(dispatch_get_main_queue(), ^{
+              [self sendEventWithName:@"@RNLlama_onInitContextProgress" body:@{ @"contextId": @(contextId), @"progress": @(progress) }];
+          });
+      }];
+      if (![context isModelLoaded]) {
+          reject(@"llama_cpp_error", @"Failed to load the model", nil);
+          return;
+      }
+
+      [llamaContexts setObject:context forKey:contextIdNumber];
+
+      resolve(@{
+          @"gpu": @([context isMetalEnabled]),
+          @"reasonNoGPU": [context reasonNoMetal],
+          @"model": [context modelInfo],
+      });
+    } @catch (NSException *exception) {
+      reject(@"llama_cpp_error", exception.reason, nil);
     }
-
-    [llamaContexts setObject:context forKey:contextIdNumber];
-
-    resolve(@{
-        @"gpu": @([context isMetalEnabled]),
-        @"reasonNoGPU": [context reasonNoMetal],
-        @"model": [context modelInfo],
-    });
 }
 
 RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
@@ -229,6 +233,7 @@ RCT_EXPORT_METHOD(detokenize:(double)contextId
 
 RCT_EXPORT_METHOD(embedding:(double)contextId
                   text:(NSString *)text
+                  params:(NSDictionary *)params
                   withResolver:(RCTPromiseResolveBlock)resolve
                   withRejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -238,9 +243,8 @@ RCT_EXPORT_METHOD(embedding:(double)contextId
         return;
     }
     @try {
-        NSMutableArray *embedding = [context embedding:text];
-        resolve(@{ @"embedding": embedding });
-        [embedding release];
+        NSDictionary *embedding = [context embedding:text params:params];
+        resolve(embedding);
     } @catch (NSException *exception) {
         reject(@"llama_cpp_error", exception.reason, nil);
     }

@@ -10,6 +10,7 @@ import type {
   NativeTokenizeResult,
   NativeEmbeddingResult,
   NativeSessionLoadResult,
+  NativeEmbeddingParams,
 } from './NativeRNLlama'
 import { SchemaGrammarConverter, convertJsonSchemaToGrammar } from './grammar'
 import type { RNLlamaOAICompatibleMessage } from './chat'
@@ -39,7 +40,11 @@ type TokenNativeEvent = {
   tokenResult: TokenData
 }
 
-export type ContextParams = NativeContextParams
+export type ContextParams = Omit<NativeContextParams, 'pooling_type'> & {
+  pooling_type?: 'none' | 'mean' | 'cls' | 'last' | 'rank'
+}
+
+export type EmbeddingParams = NativeEmbeddingParams
 
 export type CompletionParams = Omit<
   NativeCompletionParams,
@@ -156,8 +161,11 @@ export class LlamaContext {
     return RNLlama.detokenize(this.id, tokens)
   }
 
-  embedding(text: string): Promise<NativeEmbeddingResult> {
-    return RNLlama.embedding(this.id, text)
+  embedding(
+    text: string,
+    params?: EmbeddingParams,
+  ): Promise<NativeEmbeddingResult> {
+    return RNLlama.embedding(this.id, text, params || {})
   }
 
   async bench(
@@ -197,7 +205,7 @@ const modelInfoSkip = [
   // Large fields
   'tokenizer.ggml.tokens',
   'tokenizer.ggml.token_type',
-  'tokenizer.ggml.merges'
+  'tokenizer.ggml.merges',
 ]
 export async function loadLlamaModelInfo(model: string): Promise<Object> {
   let path = model
@@ -205,8 +213,22 @@ export async function loadLlamaModelInfo(model: string): Promise<Object> {
   return RNLlama.modelInfo(path, modelInfoSkip)
 }
 
+const poolTypeMap = {
+  // -1 is unspecified as undefined
+  none: 0,
+  mean: 1,
+  cls: 2,
+  last: 3,
+  rank: 4,
+}
+
 export async function initLlama(
-  { model, is_model_asset: isModelAsset, ...rest }: ContextParams,
+  {
+    model,
+    is_model_asset: isModelAsset,
+    pooling_type: poolingType,
+    ...rest
+  }: ContextParams,
   onProgress?: (progress: number) => void,
 ): Promise<LlamaContext> {
   let path = model
@@ -225,6 +247,7 @@ export async function initLlama(
     )
   }
 
+  const poolType = poolTypeMap[poolingType as keyof typeof poolTypeMap]
   const {
     gpu,
     reasonNoGPU,
@@ -233,6 +256,7 @@ export async function initLlama(
     model: path,
     is_model_asset: !!isModelAsset,
     use_progress_callback: !!onProgress,
+    pooling_type: poolType,
     ...rest,
   }).catch((err: any) => {
     removeProgressListener?.remove()

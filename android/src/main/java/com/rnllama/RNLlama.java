@@ -349,7 +349,7 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "detokenize-" + contextId);
   }
 
-  public void embedding(double id, final String text, final Promise promise) {
+  public void embedding(double id, final String text, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
@@ -361,7 +361,7 @@ public class RNLlama implements LifecycleEventListener {
           if (context == null) {
             throw new Exception("Context not found");
           }
-          return context.getEmbedding(text);
+          return context.getEmbedding(text, params);
         } catch (Exception e) {
           exception = e;
         }

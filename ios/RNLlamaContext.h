@@ -28,7 +28,7 @@
 - (void)stopCompletion;
 - (NSArray *)tokenize:(NSString *)text;
 - (NSString *)detokenize:(NSArray *)tokens;
-- (NSArray *)embedding:(NSString *)text;
+- (NSDictionary *)embedding:(NSString *)text params:(NSDictionary *)params;
 - (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate;
 - (NSDictionary *)loadSession:(NSString *)path;
 - (int)saveSession:(NSString *)path size:(int)size;

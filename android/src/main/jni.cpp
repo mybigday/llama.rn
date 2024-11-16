@@ -115,6 +115,15 @@ static inline void pushDouble(JNIEnv *env, jobject arr, double value) {
     env->CallVoidMethod(arr, pushDoubleMethod, value);
 }
 
+// Method to push string into WritableArray
+static inline void pushString(JNIEnv *env, jobject arr, const char *value) {
+    jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableArray");
+    jmethodID pushStringMethod = env->GetMethodID(mapClass, "pushString", "(Ljava/lang/String;)V");
+
+    jstring jValue = env->NewStringUTF(value);
+    env->CallVoidMethod(arr, pushStringMethod, jValue);
+}
+
 // Method to push WritableMap into WritableArray
 static inline void pushMap(JNIEnv *env, jobject arr, jobject value) {
     jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableArray");
@@ -213,6 +222,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jobject thiz,
     jstring model_path_str,
     jboolean embedding,
+    jint embd_normalize,
     jint n_ctx,
     jint n_batch,
     jint n_threads,
@@ -224,6 +234,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jfloat lora_scaled,
     jfloat rope_freq_base,
     jfloat rope_freq_scale,
+    jint pooling_type,
     jobject load_progress_callback
 ) {
     UNUSED(thiz);
@@ -238,10 +249,21 @@ Java_com_rnllama_LlamaContext_initContext(
     const char *model_path_chars = env->GetStringUTFChars(model_path_str, nullptr);
     defaultParams.model = model_path_chars;
 
-    defaultParams.embedding = embedding;
-
     defaultParams.n_ctx = n_ctx;
     defaultParams.n_batch = n_batch;
+
+    if (pooling_type != -1) {
+        defaultParams.pooling_type = static_cast<enum llama_pooling_type>(pooling_type);
+    }
+
+    defaultParams.embedding = embedding;
+    if (embd_normalize != -1) {
+        defaultParams.embd_normalize = embd_normalize;
+    }
+    if (embedding) {
+        // For non-causal models, batch size must be equal to ubatch size
+        defaultParams.n_ubatch = defaultParams.n_batch;
+    }
 
     int max_threads = std::thread::hardware_concurrency();
     // Use 2 threads by default on 4-core devices, 4 threads on more cores
@@ -291,15 +313,20 @@ Java_com_rnllama_LlamaContext_initContext(
 
     bool is_model_loaded = llama->loadModel(defaultParams);
 
+    env->ReleaseStringUTFChars(model_path_str, model_path_chars);
+    env->ReleaseStringUTFChars(lora_str, lora_chars);
+
     LOGI("[RNLlama] is_model_loaded %s", (is_model_loaded ? "true" : "false"));
     if (is_model_loaded) {
+      if (embedding && llama_model_has_encoder(llama->model) && llama_model_has_decoder(llama->model)) {
+        LOGI("[RNLlama] computing embeddings in encoder-decoder models is not supported");
+        llama_free(llama->ctx);
+        return -1;
+      }
       context_map[(long) llama->ctx] = llama;
     } else {
       llama_free(llama->ctx);
     }
-
-    env->ReleaseStringUTFChars(model_path_str, model_path_chars);
-    env->ReleaseStringUTFChars(lora_str, lora_chars);
 
     return reinterpret_cast<jlong>(llama->ctx);
 }
@@ -745,9 +772,20 @@ Java_com_rnllama_LlamaContext_isEmbeddingEnabled(
 
 JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_embedding(
-        JNIEnv *env, jobject thiz, jlong context_ptr, jstring text) {
+        JNIEnv *env, jobject thiz,
+        jlong context_ptr,
+        jstring text,
+        jint embd_normalize
+) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
+
+    common_params embdParams;
+    embdParams.embedding = true;
+    embdParams.embd_normalize = llama->params.embd_normalize;
+    if (embd_normalize != -1) {
+      embdParams.embd_normalize = embd_normalize;
+    }
 
     const char *text_chars = env->GetStringUTFChars(text, nullptr);
 
@@ -769,13 +807,19 @@ Java_com_rnllama_LlamaContext_embedding(
     llama->loadPrompt();
     llama->doCompletion();
 
-    std::vector<float> embedding = llama->getEmbedding();
+    std::vector<float> embedding = llama->getEmbedding(embdParams);
 
     auto embeddings = createWritableArray(env);
     for (const auto &val : embedding) {
       pushDouble(env, embeddings, (double) val);
     }
     putArray(env, result, "embedding", embeddings);
+
+    auto promptTokens = createWritableArray(env);
+    for (const auto &tok : llama->embd) {
+      pushString(env, promptTokens, common_token_to_piece(llama->ctx, tok).c_str());
+    }
+    putArray(env, result, "prompt_tokens", promptTokens);
 
     env->ReleaseStringUTFChars(text, text_chars);
     return result;
