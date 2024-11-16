@@ -193,6 +193,18 @@ let contextIdCounter = 0
 const contextIdRandom = () =>
   process.env.NODE_ENV === 'test' ? 0 : Math.floor(Math.random() * 100000)
 
+const modelInfoSkip = [
+  // Large fields
+  'tokenizer.ggml.tokens',
+  'tokenizer.ggml.token_type',
+  'tokenizer.ggml.merges'
+]
+export async function modelInfo(model: string): Promise<Object> {
+  let path = model
+  if (path.startsWith('file://')) path = path.slice(7)
+  return RNLlama.modelInfo(path, modelInfoSkip)
+}
+
 export async function initLlama(
   { model, is_model_asset: isModelAsset, ...rest }: ContextParams,
   onProgress?: (progress: number) => void,

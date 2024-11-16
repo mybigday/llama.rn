@@ -3,6 +3,43 @@
 
 @implementation RNLlamaContext
 
++ (NSDictionary *)modelInfo:(NSString *)path skip:(NSArray *)skip {
+    struct lm_gguf_init_params params = {
+        /*.no_alloc = */ false,
+        /*.ctx      = */ NULL,
+    };
+
+    struct lm_gguf_context * ctx = lm_gguf_init_from_file([path UTF8String], params);
+
+    if (!ctx) {
+        NSLog(@"%s: failed to load '%s'\n", __func__, [path UTF8String]);
+        return @{};
+    }
+
+    NSMutableDictionary *info = [[NSMutableDictionary alloc] init];
+
+    info[@"version"] = @(lm_gguf_get_version(ctx));
+    info[@"alignment"] = @(lm_gguf_get_alignment(ctx));
+    info[@"data_offset"] = @(lm_gguf_get_data_offset(ctx));
+
+    // kv
+    {
+        const int n_kv = lm_gguf_get_n_kv(ctx);
+
+        for (int i = 0; i < n_kv; ++i) {
+            const char * key = lm_gguf_get_key(ctx, i);
+
+            if (skip && [skip containsObject:[NSString stringWithUTF8String:key]]) {
+                continue;
+            }
+            const std::string value = rnllama::lm_gguf_kv_to_str(ctx, i);
+            info[[NSString stringWithUTF8String:key]] = [NSString stringWithUTF8String:value.c_str()];
+        }
+    }
+
+    return info;
+}
+
 + (instancetype)initWithParams:(NSDictionary *)params onProgress:(void (^)(unsigned int progress))onProgress {
     // llama_backend_init(false);
     common_params defaultParams;
