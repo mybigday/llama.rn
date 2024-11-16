@@ -1,5 +1,7 @@
 #ifdef __cplusplus
 #import "llama.h"
+#import "llama-impl.h"
+#import "ggml.h"
 #import "rn-llama.hpp"
 #endif
 
@@ -14,6 +16,7 @@
     rnllama::llama_rn_context * llama;
 }
 
++ (NSDictionary *)modelInfo:(NSString *)path skip:(NSArray *)skip;
 + (instancetype)initWithParams:(NSDictionary *)params onProgress:(void (^)(unsigned int progress))onProgress;
 - (void)interruptLoad;
 - (bool)isMetalEnabled;

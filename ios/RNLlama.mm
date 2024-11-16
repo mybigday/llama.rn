@@ -21,6 +21,14 @@ RCT_EXPORT_METHOD(setContextLimit:(double)limit
     resolve(nil);
 }
 
+RCT_EXPORT_METHOD(modelInfo:(NSString *)path
+                 withSkip:(NSArray *)skip
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    resolve([RNLlamaContext modelInfo:path skip:skip]);
+}
+
 RCT_EXPORT_METHOD(initContext:(double)contextId
                  withContextParams:(NSDictionary *)contextParams
                  withResolver:(RCTPromiseResolveBlock)resolve

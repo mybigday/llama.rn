@@ -42,6 +42,35 @@ public class RNLlama implements LifecycleEventListener {
     promise.resolve(null);
   }
 
+  public void modelInfo(final String model, final ReadableArray skip, final Promise promise) {
+    new AsyncTask<Void, Void, WritableMap>() {
+      private Exception exception;
+
+      @Override
+      protected WritableMap doInBackground(Void... voids) {
+        try {
+          String[] skipArray = new String[skip.size()];
+          for (int i = 0; i < skip.size(); i++) {
+            skipArray[i] = skip.getString(i);
+          }
+          return LlamaContext.modelInfo(model, skipArray);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(WritableMap result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+  }
+
   public void initContext(double id, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {

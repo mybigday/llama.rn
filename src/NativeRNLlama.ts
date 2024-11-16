@@ -120,6 +120,8 @@ export type NativeLlamaChatMessage = {
 
 export interface Spec extends TurboModule {
   setContextLimit(limit: number): Promise<void>
+
+  modelInfo(path: string, skip?: string[]): Promise<Object>
   initContext(contextId: number, params: NativeContextParams): Promise<NativeLlamaContext>
 
   getFormattedChat(
