@@ -42,7 +42,7 @@
 
 #### Defined in
 
-[index.ts:78](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L78)
+[index.ts:79](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L79)
 
 ## Properties
 
@@ -52,7 +52,7 @@
 
 #### Defined in
 
-[index.ts:70](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L70)
+[index.ts:71](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L71)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 #### Defined in
 
-[index.ts:68](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L68)
+[index.ts:69](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L69)
 
 ___
 
@@ -78,7 +78,7 @@ ___
 
 #### Defined in
 
-[index.ts:74](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L74)
+[index.ts:75](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L75)
 
 ___
 
@@ -88,7 +88,7 @@ ___
 
 #### Defined in
 
-[index.ts:72](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L72)
+[index.ts:73](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L73)
 
 ## Methods
 
@@ -111,7 +111,7 @@ ___
 
 #### Defined in
 
-[index.ts:171](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L171)
+[index.ts:171](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L171)
 
 ___
 
@@ -132,7 +132,7 @@ ___
 
 #### Defined in
 
-[index.ts:115](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L115)
+[index.ts:115](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L115)
 
 ___
 
@@ -152,7 +152,7 @@ ___
 
 #### Defined in
 
-[index.ts:160](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L160)
+[index.ts:160](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L160)
 
 ___
 
@@ -173,19 +173,20 @@ ___
 
 #### Defined in
 
-[index.ts:164](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L164)
+[index.ts:164](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L164)
 
 ___
 
 ### getFormattedChat
 
-▸ **getFormattedChat**(`messages`): `Promise`<`string`\>
+▸ **getFormattedChat**(`messages`, `template?`): `Promise`<`string`\>
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `messages` | `RNLlamaOAICompatibleMessage`[] |
+| `template?` | `string` |
 
 #### Returns
 
@@ -193,7 +194,7 @@ ___
 
 #### Defined in
 
-[index.ts:104](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L104)
+[index.ts:105](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L105)
 
 ___
 
@@ -215,7 +216,7 @@ Load cached prompt & completion state from a file.
 
 #### Defined in
 
-[index.ts:88](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L88)
+[index.ts:89](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L89)
 
 ___
 
@@ -229,7 +230,7 @@ ___
 
 #### Defined in
 
-[index.ts:191](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L191)
+[index.ts:191](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L191)
 
 ___
 
@@ -253,7 +254,7 @@ Save current cached prompt & completion state to a file.
 
 #### Defined in
 
-[index.ts:97](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L97)
+[index.ts:98](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L98)
 
 ___
 
@@ -267,7 +268,7 @@ ___
 
 #### Defined in
 
-[index.ts:152](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L152)
+[index.ts:152](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L152)
 
 ___
 
@@ -287,4 +288,4 @@ ___
 
 #### Defined in
 
-[index.ts:156](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L156)
+[index.ts:156](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L156)

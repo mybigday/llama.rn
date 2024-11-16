@@ -52,6 +52,7 @@ export type CompletionParams = Omit<
 > & {
   prompt?: string
   messages?: RNLlamaOAICompatibleMessage[]
+  chatTemplate?: string
 }
 
 export type BenchResult = {
@@ -103,13 +104,12 @@ export class LlamaContext {
 
   async getFormattedChat(
     messages: RNLlamaOAICompatibleMessage[],
+    template?: string,
   ): Promise<string> {
     const chat = formatChat(messages)
-    return RNLlama.getFormattedChat(
-      this.id,
-      chat,
-      this.model?.isChatTemplateSupported ? undefined : 'chatml',
-    )
+    let tmpl = this.model?.isChatTemplateSupported ? undefined : 'chatml'
+    if (template) tmpl = template // Force replace if provided
+    return RNLlama.getFormattedChat(this.id, chat, tmpl)
   }
 
   async completion(
@@ -119,7 +119,7 @@ export class LlamaContext {
     let finalPrompt = params.prompt
     if (params.messages) {
       // messages always win
-      finalPrompt = await this.getFormattedChat(params.messages)
+      finalPrompt = await this.getFormattedChat(params.messages, params.chatTemplate)
     }
 
     let tokenListener: any =

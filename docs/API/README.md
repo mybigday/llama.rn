@@ -45,17 +45,17 @@ llama.rn
 
 #### Defined in
 
-[index.ts:57](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L57)
+[index.ts:58](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L58)
 
 ___
 
 ### CompletionParams
 
-Ƭ **CompletionParams**: `Omit`<`NativeCompletionParams`, ``"emit_partial_completion"`` \| ``"prompt"``\> & { `messages?`: `RNLlamaOAICompatibleMessage`[] ; `prompt?`: `string`  }
+Ƭ **CompletionParams**: `Omit`<`NativeCompletionParams`, ``"emit_partial_completion"`` \| ``"prompt"``\> & { `chatTemplate?`: `string` ; `messages?`: `RNLlamaOAICompatibleMessage`[] ; `prompt?`: `string`  }
 
 #### Defined in
 
-[index.ts:49](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L49)
+[index.ts:49](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L49)
 
 ___
 
@@ -65,7 +65,7 @@ ___
 
 #### Defined in
 
-[index.ts:43](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L43)
+[index.ts:43](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L43)
 
 ___
 
@@ -75,7 +75,7 @@ ___
 
 #### Defined in
 
-[index.ts:47](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L47)
+[index.ts:47](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L47)
 
 ___
 
@@ -92,7 +92,7 @@ ___
 
 #### Defined in
 
-[index.ts:33](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L33)
+[index.ts:33](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L33)
 
 ## Functions
 
@@ -116,7 +116,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:824](https://github.com/mybigday/llama.rn/blob/20a1819/src/grammar.ts#L824)
+[grammar.ts:824](https://github.com/mybigday/llama.rn/blob/38fa660/src/grammar.ts#L824)
 
 ___
 
@@ -137,7 +137,7 @@ ___
 
 #### Defined in
 
-[index.ts:225](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L225)
+[index.ts:225](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L225)
 
 ___
 
@@ -157,7 +157,7 @@ ___
 
 #### Defined in
 
-[index.ts:210](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L210)
+[index.ts:210](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L210)
 
 ___
 
@@ -171,7 +171,7 @@ ___
 
 #### Defined in
 
-[index.ts:269](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L269)
+[index.ts:275](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L275)
 
 ___
 
@@ -191,4 +191,4 @@ ___
 
 #### Defined in
 
-[index.ts:196](https://github.com/mybigday/llama.rn/blob/20a1819/src/index.ts#L196)
+[index.ts:196](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L196)
