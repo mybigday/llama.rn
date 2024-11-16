@@ -227,12 +227,17 @@ export async function initLlama(
     model,
     is_model_asset: isModelAsset,
     pooling_type: poolingType,
+    lora,
     ...rest
   }: ContextParams,
   onProgress?: (progress: number) => void,
 ): Promise<LlamaContext> {
   let path = model
   if (path.startsWith('file://')) path = path.slice(7)
+
+  let loraPath = lora
+  if (loraPath?.startsWith('file://')) loraPath = loraPath.slice(7)
+
   const contextId = contextIdCounter + contextIdRandom()
   contextIdCounter += 1
 
@@ -257,6 +262,7 @@ export async function initLlama(
     is_model_asset: !!isModelAsset,
     use_progress_callback: !!onProgress,
     pooling_type: poolType,
+    lora: loraPath,
     ...rest,
   }).catch((err: any) => {
     removeProgressListener?.remove()
