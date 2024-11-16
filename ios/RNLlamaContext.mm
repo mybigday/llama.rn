@@ -37,6 +37,8 @@
         }
     }
 
+    lm_gguf_free(ctx);
+
     return info;
 }
 

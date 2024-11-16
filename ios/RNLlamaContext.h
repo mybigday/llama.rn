@@ -1,8 +1,8 @@
 #ifdef __cplusplus
 #import "llama.h"
 #import "llama-impl.h"
-#import "rn-llama.hpp"
 #import "ggml.h"
+#import "rn-llama.hpp"
 #endif
 
 
