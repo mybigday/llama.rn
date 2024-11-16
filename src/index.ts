@@ -199,7 +199,7 @@ const modelInfoSkip = [
   'tokenizer.ggml.token_type',
   'tokenizer.ggml.merges'
 ]
-export async function modelInfo(model: string): Promise<Object> {
+export async function loadLlamaModelInfo(model: string): Promise<Object> {
   let path = model
   if (path.startsWith('file://')) path = path.slice(7)
   return RNLlama.modelInfo(path, modelInfoSkip)
