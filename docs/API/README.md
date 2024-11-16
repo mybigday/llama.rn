@@ -20,6 +20,7 @@ llama.rn
 
 - [convertJsonSchemaToGrammar](README.md#convertjsonschematogrammar)
 - [initLlama](README.md#initllama)
+- [loadLlamaModelInfo](README.md#loadllamamodelinfo)
 - [releaseAllLlama](README.md#releaseallllama)
 - [setContextLimit](README.md#setcontextlimit)
 
@@ -43,7 +44,7 @@ llama.rn
 
 #### Defined in
 
-[index.ts:52](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L52)
+[index.ts:52](https://github.com/mybigday/llama.rn/blob/66d2ed3/src/index.ts#L52)
 
 ___
 
@@ -53,7 +54,7 @@ ___
 
 #### Defined in
 
-[index.ts:44](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L44)
+[index.ts:44](https://github.com/mybigday/llama.rn/blob/66d2ed3/src/index.ts#L44)
 
 ___
 
@@ -63,7 +64,7 @@ ___
 
 #### Defined in
 
-[index.ts:42](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L42)
+[index.ts:42](https://github.com/mybigday/llama.rn/blob/66d2ed3/src/index.ts#L42)
 
 ___
 
@@ -80,7 +81,7 @@ ___
 
 #### Defined in
 
-[index.ts:32](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L32)
+[index.ts:32](https://github.com/mybigday/llama.rn/blob/66d2ed3/src/index.ts#L32)
 
 ## Functions
 
@@ -104,7 +105,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:824](https://github.com/mybigday/llama.rn/blob/41b779f/src/grammar.ts#L824)
+[grammar.ts:824](https://github.com/mybigday/llama.rn/blob/66d2ed3/src/grammar.ts#L824)
 
 ___
 
@@ -125,7 +126,27 @@ ___
 
 #### Defined in
 
-[index.ts:196](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L196)
+[index.ts:208](https://github.com/mybigday/llama.rn/blob/66d2ed3/src/index.ts#L208)
+
+___
+
+### loadLlamaModelInfo
+
+▸ **loadLlamaModelInfo**(`model`): `Promise`<`Object`\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `model` | `string` |
+
+#### Returns
+
+`Promise`<`Object`\>
+
+#### Defined in
+
+[index.ts:202](https://github.com/mybigday/llama.rn/blob/66d2ed3/src/index.ts#L202)
 
 ___
 
@@ -139,7 +160,7 @@ ___
 
 #### Defined in
 
-[index.ts:233](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L233)
+[index.ts:245](https://github.com/mybigday/llama.rn/blob/66d2ed3/src/index.ts#L245)
 
 ___
 
@@ -159,4 +180,4 @@ ___
 
 #### Defined in
 
-[index.ts:188](https://github.com/mybigday/llama.rn/blob/41b779f/src/index.ts#L188)
+[index.ts:188](https://github.com/mybigday/llama.rn/blob/66d2ed3/src/index.ts#L188)
