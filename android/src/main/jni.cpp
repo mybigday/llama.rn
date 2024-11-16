@@ -278,7 +278,6 @@ Java_com_rnllama_LlamaContext_initContext(
     const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
     if (lora_chars != nullptr && lora_chars[0] != '\0') {
         defaultParams.lora_adapters.push_back({lora_chars, lora_scaled});
-        defaultParams.use_mmap = false;
     }
 
     defaultParams.rope_freq_base = rope_freq_base;
