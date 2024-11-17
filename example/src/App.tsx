@@ -103,7 +103,6 @@ export default function App() {
         model: file.uri,
         use_mlock: true,
         n_gpu_layers: Platform.OS === 'ios' ? 0 : 0, // > 0: enable GPU
-        lora: '/Users/jhen/Library/Containers/6A136561-8ED9-4BEF-A7BD-E39F19C67FA1/Data/tmp/org.reactjs.native.example.RNLlamaExample-Inbox/lora-Llama-3-Instruct-abliteration-LoRA-8B-f16.gguf',
         // embedding: true,
       },
       (progress) => {
