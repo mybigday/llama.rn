@@ -24,11 +24,11 @@ export type NativeContextParams = {
   /**
    * KV cache data type for the K (Experimental in llama.cpp)
    */
-  cache_type_k?: 'f16' | 'f32' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1'
+  cache_type_k?: string
   /**
    * KV cache data type for the V (Experimental in llama.cpp)
    */
-  cache_type_v?: 'f16' | 'f32' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1'
+  cache_type_v?: string
 
   use_mlock?: boolean
   use_mmap?: boolean

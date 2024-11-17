@@ -40,7 +40,12 @@ type TokenNativeEvent = {
   tokenResult: TokenData
 }
 
-export type ContextParams = Omit<NativeContextParams, 'pooling_type'> & {
+export type ContextParams = Omit<
+  NativeContextParams,
+  'cache_type_k' | 'cache_type_v' |  'pooling_type'
+> & {
+  cache_type_k?: 'f16' | 'f32' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1'
+  cache_type_v?: 'f16' | 'f32' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1'
   pooling_type?: 'none' | 'mean' | 'cls' | 'last' | 'rank'
 }
 
