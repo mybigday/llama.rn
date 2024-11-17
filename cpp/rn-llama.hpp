@@ -24,7 +24,7 @@ static std::string lm_gguf_data_to_str(enum lm_gguf_type type, const void * data
         case LM_GGUF_TYPE_FLOAT32: return std::to_string(((const float    *)data)[i]);
         case LM_GGUF_TYPE_FLOAT64: return std::to_string(((const double   *)data)[i]);
         case LM_GGUF_TYPE_BOOL:    return ((const bool *)data)[i] ? "true" : "false";
-        default:                return "unknown type: {}"; // TODO
+        default:                   return "unknown type: " + std::to_string(type);
     }
 }
 
