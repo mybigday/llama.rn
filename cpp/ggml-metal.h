@@ -39,27 +39,27 @@ extern "C" {
 // user-code should use only these functions
 //
 
-LM_GGML_API lm_ggml_backend_t lm_ggml_backend_metal_init(void);
+LM_GGML_BACKEND_API lm_ggml_backend_t lm_ggml_backend_metal_init(void);
 
-LM_GGML_API bool lm_ggml_backend_is_metal(lm_ggml_backend_t backend);
+LM_GGML_BACKEND_API bool lm_ggml_backend_is_metal(lm_ggml_backend_t backend);
 
 LM_GGML_DEPRECATED(
-        LM_GGML_API lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_from_ptr(void * data, size_t size, size_t max_size),
+        LM_GGML_BACKEND_API lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_from_ptr(void * data, size_t size, size_t max_size),
         "obsoleted by the new device interface - https://github.com/ggerganov/llama.cpp/pull/9713");
 
-LM_GGML_API void lm_ggml_backend_metal_set_abort_callback(lm_ggml_backend_t backend, lm_ggml_abort_callback abort_callback, void * user_data);
+LM_GGML_BACKEND_API void lm_ggml_backend_metal_set_abort_callback(lm_ggml_backend_t backend, lm_ggml_abort_callback abort_callback, void * user_data);
 
-LM_GGML_API lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_type(void);
+LM_GGML_BACKEND_API lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_type(void);
 
 // helper to check if the device supports a specific family
 // ideally, the user code should be doing these checks
 // ref: https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf
-LM_GGML_API bool lm_ggml_backend_metal_supports_family(lm_ggml_backend_t backend, int family);
+LM_GGML_BACKEND_API bool lm_ggml_backend_metal_supports_family(lm_ggml_backend_t backend, int family);
 
 // capture all command buffers committed the next time `lm_ggml_backend_graph_compute` is called
-LM_GGML_API void lm_ggml_backend_metal_capture_next_compute(lm_ggml_backend_t backend);
+LM_GGML_BACKEND_API void lm_ggml_backend_metal_capture_next_compute(lm_ggml_backend_t backend);
 
-LM_GGML_API lm_ggml_backend_reg_t lm_ggml_backend_metal_reg(void);
+LM_GGML_BACKEND_API lm_ggml_backend_reg_t lm_ggml_backend_metal_reg(void);
 
 #ifdef __cplusplus
 }

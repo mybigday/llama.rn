@@ -3,6 +3,20 @@
 #include "ggml.h"
 #include "ggml-alloc.h"
 
+#ifdef LM_GGML_BACKEND_SHARED
+#    if defined(_WIN32) && !defined(__MINGW32__)
+#        ifdef LM_GGML_BACKEND_BUILD
+#            define LM_GGML_BACKEND_API __declspec(dllexport) extern
+#        else
+#            define LM_GGML_BACKEND_API __declspec(dllimport) extern
+#        endif
+#    else
+#        define LM_GGML_BACKEND_API __attribute__ ((visibility ("default"))) extern
+#    endif
+#else
+#    define LM_GGML_BACKEND_API extern
+#endif
+
 #ifdef  __cplusplus
 extern "C" {
 #endif
@@ -305,26 +319,9 @@ extern "C" {
     LM_GGML_API void lm_ggml_backend_tensor_alloc(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor, void * addr);
     LM_GGML_API void lm_ggml_backend_view_init(struct lm_ggml_tensor * tensor);
 
-    //
-    // CPU backend
-    //
-
-    LM_GGML_API lm_ggml_backend_t lm_ggml_backend_cpu_init(void);
-
-    LM_GGML_API bool lm_ggml_backend_is_cpu                (lm_ggml_backend_t backend);
-    LM_GGML_API void lm_ggml_backend_cpu_set_n_threads     (lm_ggml_backend_t backend_cpu, int n_threads);
-    LM_GGML_API void lm_ggml_backend_cpu_set_threadpool    (lm_ggml_backend_t backend_cpu, lm_ggml_threadpool_t threadpool);
-    LM_GGML_API void lm_ggml_backend_cpu_set_abort_callback(lm_ggml_backend_t backend_cpu, lm_ggml_abort_callback abort_callback, void * abort_callback_data);
-
-    // Create a backend buffer from an existing pointer
+    // CPU buffer types are always available
     LM_GGML_API lm_ggml_backend_buffer_t      lm_ggml_backend_cpu_buffer_from_ptr(void * ptr, size_t size);
     LM_GGML_API lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_buffer_type(void);
-
-    LM_GGML_API lm_ggml_backend_reg_t lm_ggml_backend_cpu_reg(void);
-
-#ifdef LM_GGML_USE_CPU_HBM
-    LM_GGML_API lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_hbm_buffer_type(void);
-#endif
 
 #ifdef  __cplusplus
 }

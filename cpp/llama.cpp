@@ -2312,6 +2312,7 @@ enum e_model {
     MODEL_1B,
     MODEL_1_3B,
     MODEL_1_4B,
+    MODEL_1_5B,
     MODEL_1_6B,
     MODEL_2B,
     MODEL_2_8B,
@@ -2917,8 +2918,14 @@ struct llama_model {
     // for quantize-stats only
     std::vector<std::pair<std::string, struct lm_ggml_tensor *>> tensors_by_name;
 
-    int64_t t_load_us = 0;
+    int64_t t_load_us  = 0;
     int64_t t_start_us = 0;
+
+    // total number of parameters in the model
+    uint64_t n_elements = 0;
+
+    // total size of all the tensors in the model in bytes
+    size_t  n_bytes     = 0;
 
     // keep track of loaded lora adapters
     std::set<struct llama_lora_adapter *> lora_adapters;
@@ -3512,11 +3519,24 @@ static bool llama_kv_cache_init(
     return true;
 }
 
+// a structure holds information about the slot found in llama_kv_cache_find_slot
+struct llama_kv_cache_slot_info {
+    std::pair<uint32_t, uint32_t> boundaries; // slot boundaries [begin, end)
+    bool found = false;                       // the slot was found
+
+    explicit llama_kv_cache_slot_info(bool found_) : found{found_} {}
+    llama_kv_cache_slot_info(uint32_t begin, uint32_t end) : boundaries{begin, end}, found{true} {}
+
+    operator bool() const { return found; }
+};
+static const llama_kv_cache_slot_info llama_kv_cache_slot_info_failed{false};
+
 // find an empty slot of size "n_tokens" in the cache
 // updates the cache head
+// returns a structure holding information about the slot found
 // Note: On success, it's important that cache.head points
 // to the first cell of the slot.
-static bool llama_kv_cache_find_slot(
+static struct llama_kv_cache_slot_info llama_kv_cache_find_slot(
            struct llama_kv_cache & cache,
        const struct llama_ubatch & batch) {
     const uint32_t n_tokens = batch.n_tokens;
@@ -3544,7 +3564,7 @@ static bool llama_kv_cache_find_slot(
                     // too big seq_id
                     // TODO: would it be possible to resize the cache instead?
                     LLAMA_LOG_ERROR("%s: seq_id=%d >= n_seq_max=%d Try using a bigger --parallel value\n", __func__, seq_id, cache.size);
-                    return false;
+                    return llama_kv_cache_slot_info_failed;
                 }
                 if (j > 0) {
                     llama_kv_cell & seq = cache.cells[seq_id];
@@ -3679,15 +3699,17 @@ static bool llama_kv_cache_find_slot(
         // allow getting the range of used cells, from head to head + n
         cache.head = min;
         cache.n    = max - min + 1;
+        cache.used = std::count_if(cache.cells.begin(), cache.cells.end(),
+            [](const llama_kv_cell& cell){ return !cell.is_empty(); });
 
         // sanity check
-        return cache.n >= n_seqs;
+        return llama_kv_cache_slot_info(cache.n >= n_seqs);
     }
     // otherwise, one cell per token.
 
     if (n_tokens > cache.size) {
         LLAMA_LOG_ERROR("%s: n_tokens=%d > cache.size=%d\n", __func__, n_tokens, cache.size);
-        return false;
+        return llama_kv_cache_slot_info_failed;
     }
 
     uint32_t n_tested = 0;
@@ -3715,7 +3737,7 @@ static bool llama_kv_cache_find_slot(
 
         if (n_tested >= cache.size) {
             //LLAMA_LOG_ERROR("%s: failed to find a slot for %d tokens\n", __func__, n_tokens);
-            return false;
+            return llama_kv_cache_slot_info_failed;
         }
     }
 
@@ -3732,7 +3754,7 @@ static bool llama_kv_cache_find_slot(
 
     cache.used += n_tokens;
 
-    return true;
+    return llama_kv_cache_slot_info(cache.head, cache.head + n_tokens);
 }
 
 // find how many cells are currently in use
@@ -4008,6 +4030,53 @@ static uint32_t llama_kv_cache_get_padding(const struct llama_cparams & cparams)
     return cparams.flash_attn ? 256u : 32u;
 }
 
+// saves the kv_cache state for future recovery.
+// used to rollback llama_kv_cache_find_slot changes.
+struct llama_kv_slot_restorer {
+    struct llama_kv_cache_state {
+        uint32_t head = 0;
+        uint32_t n    = 0;
+    } old_state;
+
+    // for non-recurrent models only
+    // list of slots to restore
+    std::vector<std::pair<uint32_t, uint32_t>> slot_boundaries;
+
+    bool do_restore = false;
+
+    explicit llama_kv_slot_restorer(const struct llama_kv_cache & cache) {
+        old_state.head  = cache.head;
+        old_state.n     = cache.n;
+    }
+
+    // saves a slot information for future restoration
+    void save(const struct llama_kv_cache_slot_info & slot) {
+        if (slot) {
+            do_restore = true;
+            if (slot.boundaries.first != slot.boundaries.second) {
+                slot_boundaries.push_back(slot.boundaries);
+            }
+        }
+    }
+
+    // must be explicitly called to restore the kv_cache state
+    // and rollback changes from all llama_kv_cache_find_slot calls
+    void restore(struct llama_kv_cache & cache) {
+        if (do_restore) {
+            cache.head  = old_state.head;
+            cache.n     = old_state.n;
+
+            if (cache.recurrent) { // recurrent models like Mamba or RWKV can't have a state partially erased
+                llama_kv_cache_seq_rm(cache, -1, -1, -1);
+            } else {
+                for (auto & slot : slot_boundaries) {
+                    llama_kv_cache_seq_rm(cache, -1, slot.first, slot.second);
+                }
+            }
+        }
+    }
+};
+
 //
 // model loading and saving
 //
@@ -4223,8 +4292,8 @@ struct llama_model_loader {
     int n_tensors = 0;
     int n_created = 0;
 
-    int64_t n_elements = 0;
-    size_t  n_bytes    = 0;
+    uint64_t n_elements = 0;
+    size_t  n_bytes     = 0;
 
     bool use_mmap = false;
     bool check_tensors;
@@ -5238,6 +5307,7 @@ static const char * llama_model_type_name(e_model type) {
         case MODEL_1B:            return "1B";
         case MODEL_1_3B:          return "1.3B";
         case MODEL_1_4B:          return "1.4B";
+        case MODEL_1_5B:          return "1.5B";
         case MODEL_1_6B:          return "1.6B";
         case MODEL_2B:            return "2B";
         case MODEL_2_8B:          return "2.8B";
@@ -5289,6 +5359,11 @@ static const char * llama_model_vocab_type_name(enum llama_vocab_type type){
         case LLAMA_VOCAB_TYPE_RWKV: return "RWKV";
         default:                    return "unknown";
     }
+}
+
+static void llm_load_stats(llama_model_loader & ml, llama_model & model) {
+    model.n_elements = ml.n_elements;
+    model.n_bytes = ml.n_bytes;
 }
 
 static void llm_load_arch(llama_model_loader & ml, llama_model & model) {
@@ -5609,6 +5684,7 @@ static void llm_load_hparams(
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
                 switch (hparams.n_layer) {
                     case 24: model.type = hparams.n_embd == 1024 ? e_model::MODEL_0_5B : e_model::MODEL_1B; break;
+                    case 28: model.type = hparams.n_embd == 1536 ? e_model::MODEL_1_5B : e_model::MODEL_7B; break;
                     case 32: model.type = e_model::MODEL_7B; break;
                     case 40: model.type = hparams.n_head() == 20 ? e_model::MODEL_4B : e_model::MODEL_13B; break;
                     case 80: model.type = e_model::MODEL_70B; break;
@@ -7022,7 +7098,7 @@ static const std::map<llm_tensor, llm_tensor_info> llm_tensor_info_mapping = {
     {LLM_TENSOR_TIME_MIX_LERP_R,            {LLM_TENSOR_LAYER_REPEATING, LM_GGML_OP_ADD}},
     {LLM_TENSOR_TIME_MIX_LERP_G,            {LLM_TENSOR_LAYER_REPEATING, LM_GGML_OP_ADD}},
     {LLM_TENSOR_TIME_MIX_DECAY,             {LLM_TENSOR_LAYER_REPEATING, LM_GGML_OP_ADD}},
-    {LLM_TENSOR_TIME_MIX_FIRST,             {LLM_TENSOR_LAYER_REPEATING, LM_GGML_OP_RWKV_WKV}},
+    {LLM_TENSOR_TIME_MIX_FIRST,             {LLM_TENSOR_LAYER_REPEATING, LM_GGML_OP_RWKV_WKV6}},
     {LLM_TENSOR_ATTN_NORM,                  {LLM_TENSOR_LAYER_REPEATING, LM_GGML_OP_MUL}},
     {LLM_TENSOR_ATTN_NORM_2,                {LLM_TENSOR_LAYER_REPEATING, LM_GGML_OP_MUL}},
     {LLM_TENSOR_ATTN_OUT_NORM,              {LLM_TENSOR_LAYER_REPEATING, LM_GGML_OP_MUL}},
@@ -7138,7 +7214,7 @@ static bool weight_buft_supported(const llama_hparams & hparams, lm_ggml_tensor 
                 lm_ggml_tensor * C = lm_ggml_new_tensor_3d(ctx, LM_GGML_TYPE_F32, d_state, n_seq_tokens, n_seqs);
                 op_tensor = lm_ggml_ssm_scan(ctx, s, x, dt, w, B, C);
             } break;
-        case LM_GGML_OP_RWKV_WKV:
+        case LM_GGML_OP_RWKV_WKV6:
             {
                 // FIXME
                 const int64_t S = 123;
@@ -7151,7 +7227,7 @@ static bool weight_buft_supported(const llama_hparams & hparams, lm_ggml_tensor 
                 lm_ggml_tensor  * tf = w;
                 lm_ggml_tensor  * td = lm_ggml_new_tensor_4d(ctx, LM_GGML_TYPE_F32, 1, S, H, n_tokens);
                 lm_ggml_tensor  * state = lm_ggml_new_tensor_4d(ctx, LM_GGML_TYPE_F32, S, n_seqs, S, H);
-                op_tensor = lm_ggml_rwkv_wkv(ctx, k, v, r, tf, td, state);
+                op_tensor = lm_ggml_rwkv_wkv6(ctx, k, v, r, tf, td, state);
             } break;
         default:
             LM_GGML_ABORT("%s: missing test for op %s for tensor %s", __func__, lm_ggml_op_name(op), w->name);
@@ -7200,7 +7276,7 @@ static llama_model::buft_list_t make_cpu_buft_list(llama_model & model) {
     auto * cpu_dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
     auto * cpu_reg = lm_ggml_backend_dev_backend_reg(cpu_dev);
     auto lm_ggml_backend_dev_get_extra_bufts_fn = (lm_ggml_backend_dev_get_extra_bufts_t)
-        lm_ggml_backend_reg_get_proc_address(cpu_reg, "lm_ggml_backend_cpu_get_extra_bufts");
+        lm_ggml_backend_reg_get_proc_address(cpu_reg, "lm_ggml_backend_dev_get_extra_bufts");
     if (lm_ggml_backend_dev_get_extra_bufts_fn) {
         lm_ggml_backend_buffer_type_t * extra_bufts = lm_ggml_backend_dev_get_extra_bufts_fn(cpu_dev);
         while (extra_bufts && *extra_bufts) {
@@ -7467,7 +7543,7 @@ static bool llm_load_tensors(
 
             // avoid using a host buffer when using mmap
             auto * buft_dev = lm_ggml_backend_buft_get_device(buft);
-            if (ml.use_mmap && buft == lm_ggml_backend_dev_host_buffer_type(buft_dev)) {
+            if (ml.use_mmap && buft_dev && buft == lm_ggml_backend_dev_host_buffer_type(buft_dev)) {
                 auto * cpu_dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
                 buft = lm_ggml_backend_dev_buffer_type(cpu_dev);
             }
@@ -9074,6 +9150,10 @@ static bool llm_load_tensors(
 
         // check if it is possible to use buffer_from_host_ptr with this buffer type
         lm_ggml_backend_dev_t dev = lm_ggml_backend_buft_get_device(buft);
+        if (!dev) {
+            // FIXME: workaround for CPU backend buft having a NULL device
+            dev = lm_ggml_backend_reg_dev_get(lm_ggml_backend_cpu_reg(), 0);
+        }
         lm_ggml_backend_dev_props props;
         lm_ggml_backend_dev_get_props(dev, &props);
         bool buffer_from_host_ptr_supported = props.caps.buffer_from_host_ptr;
@@ -9145,7 +9225,7 @@ static bool llm_load_tensors(
 
     // print memory requirements per buffer type
     for (auto & buf : model.bufs) {
-        LLAMA_LOG_INFO("%s: %10s model buffer size = %8.2f MiB\n", __func__, lm_ggml_backend_buffer_name(buf.get()), lm_ggml_backend_buffer_get_size(buf.get()) / 1024.0 / 1024.0);
+        LLAMA_LOG_INFO("%s: %12s model buffer size = %8.2f MiB\n", __func__, lm_ggml_backend_buffer_name(buf.get()), lm_ggml_backend_buffer_get_size(buf.get()) / 1024.0 / 1024.0);
     }
 
     // populate tensors_by_name
@@ -9198,6 +9278,7 @@ static int llama_model_load(const std::string & fname, llama_model & model, llam
             throw std::runtime_error("error loading model vocabulary: " + std::string(e.what()));
         }
 
+        llm_load_stats(ml, model);
         llm_load_print_meta(ml, model);
 
         if (model.vocab.type != LLAMA_VOCAB_TYPE_NONE &&
@@ -10094,7 +10175,7 @@ static struct lm_ggml_tensor * llm_build_rwkv6_time_mix(
     v = lm_ggml_transpose(ctx, v);
     r = lm_ggml_transpose(ctx, r);
 
-    struct lm_ggml_tensor * wkv_output = lm_ggml_rwkv_wkv(ctx, k, v, r, layer->time_mix_first, w, *wkv_state);
+    struct lm_ggml_tensor * wkv_output = lm_ggml_rwkv_wkv6(ctx, k, v, r, layer->time_mix_first, w, *wkv_state);
     cur = lm_ggml_view_1d(ctx, wkv_output, n_embd * n_tokens, 0);
     *wkv_state = lm_ggml_view_1d(ctx, wkv_output, n_embd * head_size * n_seqs, n_embd * n_tokens * sizeof(float));
 
@@ -17189,7 +17270,8 @@ static void llama_output_reorder(struct llama_context * ctx) {
     }
 }
 
-static void llama_graph_compute(
+// returns the result of lm_ggml_backend_sched_graph_compute_async execution
+static enum lm_ggml_status llama_graph_compute(
           llama_context & lctx,
             lm_ggml_cgraph * gf,
                     int   n_threads,
@@ -17204,15 +17286,20 @@ static void llama_graph_compute(
         set_n_threads_fn.second(set_n_threads_fn.first, n_threads);
     }
 
-    auto err = lm_ggml_backend_sched_graph_compute_async(lctx.sched.get(), gf);
-    if (err != LM_GGML_STATUS_SUCCESS) {
-        LLAMA_LOG_ERROR("%s: lm_ggml_backend_sched_graph_compute_async failed with error %d\n", __func__, err);
+    auto status = lm_ggml_backend_sched_graph_compute_async(lctx.sched.get(), gf);
+    if (status != LM_GGML_STATUS_SUCCESS) {
+        LLAMA_LOG_ERROR("%s: lm_ggml_backend_sched_graph_compute_async failed with error %d\n", __func__, status);
     }
 
     // fprintf(stderr, "splits: %d\n", lm_ggml_backend_sched_get_n_splits(lctx.sched));
+
+    return status;
 }
 
 // decode a batch of tokens by evaluating the transformer
+// in case of unsuccessful decoding (error or warning),
+// the kv_cache state will be returned to its original state
+// (for non-recurrent models) or cleaned (for recurrent models)
 //
 //   - lctx:      llama context
 //   - batch:     batch to evaluate
@@ -17262,6 +17349,7 @@ static int llama_decode_internal(
     lctx.n_queued_tokens += n_tokens_all;
 
     auto & kv_self = lctx.kv_self;
+    llama_kv_slot_restorer kv_slot_restorer(kv_self);
 
     const int64_t n_embd  = hparams.n_embd;
     const int64_t n_vocab = hparams.n_vocab;
@@ -17346,9 +17434,11 @@ static int llama_decode_internal(
                 kv_self.head = 0;
             }
 
-            if (!llama_kv_cache_find_slot(kv_self, ubatch)) {
+            const auto slot = llama_kv_cache_find_slot(kv_self, ubatch);
+            if (!slot) {
                 return 1;
             }
+            kv_slot_restorer.save(slot);
 
             if (!kv_self.recurrent) {
                 // a heuristic, to avoid attending the full cache if it is not yet utilized
@@ -17395,7 +17485,19 @@ static int llama_decode_internal(
 
         llama_set_inputs(lctx, ubatch);
 
-        llama_graph_compute(lctx, gf, n_threads, threadpool);
+        const auto compute_status = llama_graph_compute(lctx, gf, n_threads, threadpool);
+        if (compute_status != LM_GGML_STATUS_SUCCESS) {
+            kv_slot_restorer.restore(kv_self);
+            switch (compute_status) {
+                case LM_GGML_STATUS_ABORTED:
+                    return 2;
+                case LM_GGML_STATUS_ALLOC_FAILED:
+                    return -2;
+                case LM_GGML_STATUS_FAILED:
+                default:
+                    return -3;
+            }
+        }
 
         // update the kv ring buffer
         {
@@ -17632,7 +17734,18 @@ static int llama_encode_internal(
 
     llama_set_inputs(lctx, ubatch);
 
-    llama_graph_compute(lctx, gf, n_threads, threadpool);
+    const auto compute_status = llama_graph_compute(lctx, gf, n_threads, threadpool);
+    switch (compute_status) {
+        case LM_GGML_STATUS_SUCCESS:
+            break;
+        case LM_GGML_STATUS_ABORTED:
+            return 2;
+        case LM_GGML_STATUS_ALLOC_FAILED:
+            return -2;
+        case LM_GGML_STATUS_FAILED:
+        default:
+            return -3;
+    }
 
     // extract embeddings
     if (embd) {
@@ -18511,6 +18624,7 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
     llama_model model;
     llm_load_arch(ml, model);
     llm_load_hparams(ml, model);
+    llm_load_stats(ml, model);
 
     struct quantize_state_internal qs(model, params);
 
@@ -19451,12 +19565,26 @@ struct llama_context * llama_new_context_with_model(
         cparams.causal_attn = params.attention_type == LLAMA_ATTENTION_TYPE_CAUSAL;
     }
 
-    LLAMA_LOG_INFO("%s: n_ctx      = %u\n",     __func__, cparams.n_ctx);
-    LLAMA_LOG_INFO("%s: n_batch    = %u\n",     __func__, cparams.n_batch);
-    LLAMA_LOG_INFO("%s: n_ubatch   = %u\n",     __func__, cparams.n_ubatch);
-    LLAMA_LOG_INFO("%s: flash_attn = %d\n",     __func__, cparams.flash_attn);
-    LLAMA_LOG_INFO("%s: freq_base  = %.1f\n",   __func__, cparams.rope_freq_base);
-    LLAMA_LOG_INFO("%s: freq_scale = %g\n",     __func__, cparams.rope_freq_scale);
+    const uint32_t n_ctx_per_seq = cparams.n_ctx / cparams.n_seq_max;
+
+    LLAMA_LOG_INFO("%s: n_seq_max     = %u\n",   __func__, cparams.n_seq_max);
+    LLAMA_LOG_INFO("%s: n_ctx         = %u\n",   __func__, cparams.n_ctx);
+    LLAMA_LOG_INFO("%s: n_ctx_per_seq = %u\n",   __func__, n_ctx_per_seq);
+    LLAMA_LOG_INFO("%s: n_batch       = %u\n",   __func__, cparams.n_batch);
+    LLAMA_LOG_INFO("%s: n_ubatch      = %u\n",   __func__, cparams.n_ubatch);
+    LLAMA_LOG_INFO("%s: flash_attn    = %d\n",   __func__, cparams.flash_attn);
+    LLAMA_LOG_INFO("%s: freq_base     = %.1f\n", __func__, cparams.rope_freq_base);
+    LLAMA_LOG_INFO("%s: freq_scale    = %g\n",   __func__, cparams.rope_freq_scale);
+
+    if (n_ctx_per_seq < hparams.n_ctx_train) {
+        LLAMA_LOG_WARN("%s: n_ctx_per_seq (%u) < n_ctx_train (%u) -- the full capacity of the model will not be utilized\n",
+                __func__, n_ctx_per_seq, hparams.n_ctx_train);
+    }
+
+    if (n_ctx_per_seq > hparams.n_ctx_train) {
+        LLAMA_LOG_WARN("%s: n_ctx_pre_seq (%u) > n_ctx_train (%u) -- possible training context overflow\n",
+                __func__, n_ctx_per_seq, hparams.n_ctx_train);
+    }
 
     ctx->abort_callback      = params.abort_callback;
     ctx->abort_callback_data = params.abort_callback_data;
@@ -19849,19 +19977,11 @@ int32_t llama_model_desc(const struct llama_model * model, char * buf, size_t bu
 }
 
 uint64_t llama_model_size(const struct llama_model * model) {
-    uint64_t size = 0;
-    for (const auto & it : model->tensors_by_name) {
-        size += lm_ggml_nbytes(it.second);
-    }
-    return size;
+    return model->n_bytes;
 }
 
 uint64_t llama_model_n_params(const struct llama_model * model) {
-    uint64_t nparams = 0;
-    for (const auto & it : model->tensors_by_name) {
-        nparams += lm_ggml_nelements(it.second);
-    }
-    return nparams;
+    return model->n_elements;
 }
 
 struct lm_ggml_tensor * llama_get_model_tensor(struct llama_model * model, const char * name) {
@@ -21796,8 +21916,11 @@ static int32_t llama_chat_apply_template_internal(
         // IBM Granite template
         for (const auto & message : chat) {
             std::string role(message->role);
-            ss << "<|start_of_role|>" << role << "<|end_of_role|>"
-               << message->content << "<|end_of_text|>\n";
+            ss << "<|start_of_role|>" << role << "<|end_of_role|>";
+            if (role == "assistant_tool_call") {
+                ss << "<|tool_call|>";
+            }
+            ss << message->content << "<|end_of_text|>\n";
         }
         if (add_ass) {
             ss << "<|start_of_role|>assistant<|end_of_role|>\n";
@@ -21897,6 +22020,8 @@ int llama_split_prefix(char * dest, size_t maxlen, const char * split_path, int 
 }
 
 const char * llama_print_system_info(void) {
+    lm_ggml_cpu_init(); // some ARM features are detected at runtime
+
     static std::string s;
 
     s  = "";
@@ -21916,7 +22041,6 @@ const char * llama_print_system_info(void) {
     s += "FP16_VA = "     + std::to_string(lm_ggml_cpu_has_fp16_va())     + " | ";
     s += "RISCV_VECT = "  + std::to_string(lm_ggml_cpu_has_riscv_v())     + " | ";
     s += "WASM_SIMD = "   + std::to_string(lm_ggml_cpu_has_wasm_simd())   + " | ";
-    s += "BLAS = "        + std::to_string(lm_ggml_cpu_has_blas())        + " | ";
     s += "SSE3 = "        + std::to_string(lm_ggml_cpu_has_sse3())        + " | ";
     s += "SSSE3 = "       + std::to_string(lm_ggml_cpu_has_ssse3())       + " | ";
     s += "VSX = "         + std::to_string(lm_ggml_cpu_has_vsx())         + " | ";
@@ -21960,28 +22084,6 @@ void llama_perf_context_reset(struct llama_context * ctx) {
     ctx->t_start_us  = lm_ggml_time_us();
     ctx->t_eval_us   = ctx->n_eval = 0;
     ctx->t_p_eval_us = ctx->n_p_eval = 0;
-}
-
-void llama_perf_dump_yaml(FILE * stream, const llama_context * ctx) {
-    fprintf(stream, "\n");
-    fprintf(stream, "###########\n");
-    fprintf(stream, "# Timings #\n");
-    fprintf(stream, "###########\n");
-    fprintf(stream, "\n");
-
-    fprintf(stream, "mst_eval: %.2f  # ms / token during generation\n",
-            1.0e-3 * ctx->t_eval_us / ctx->n_eval);
-    fprintf(stream, "mst_p_eval: %.2f  # ms / token during prompt processing\n",
-            1.0e-3 * ctx->t_p_eval_us / ctx->n_p_eval);
-    fprintf(stream, "n_eval: %d  # number of tokens generated (excluding the first one)\n", ctx->n_eval);
-    fprintf(stream, "n_p_eval: %d  # number of tokens processed in batches at the beginning\n", ctx->n_p_eval);
-    fprintf(stream, "t_eval_us: %" PRId64 "  # total microseconds spent generating tokens\n", ctx->t_eval_us);
-    fprintf(stream, "t_load_us: %" PRId64 "  # total microseconds spent loading the model\n", ctx->t_load_us);
-    fprintf(stream, "t_p_eval_us: %" PRId64 "  # total microseconds spent prompt processing\n", ctx->t_p_eval_us);
-    fprintf(stream, "ts_eval: %.2f  # tokens / second during generation\n",
-            1.0e6 * ctx->n_eval / ctx->t_eval_us);
-    fprintf(stream, "ts_p_eval: %.2f  # tokens / second during prompt processing\n",
-            1.0e6 * ctx->n_p_eval / ctx->t_p_eval_us);
 }
 
 // For internal test use
