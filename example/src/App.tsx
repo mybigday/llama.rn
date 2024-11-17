@@ -102,7 +102,7 @@ export default function App() {
       {
         model: file.uri,
         use_mlock: true,
-        n_gpu_layers: Platform.OS === 'ios' ? 0 : 0, // > 0: enable GPU
+        n_gpu_layers: Platform.OS === 'ios' ? 99 : 0, // > 0: enable GPU
         // embedding: true,
       },
       (progress) => {
