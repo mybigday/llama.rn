@@ -72,6 +72,12 @@ export type NativeCompletionParams = {
   penalize_nl?: boolean
   seed?: number
 
+  dry_multiplier?: number
+  dry_base?: number
+  dry_allowed_length?: number    
+  dry_penalty_last_n?: number
+  dry_sequence_breakers?: Array<string>
+
   ignore_eos?: boolean
   logit_bias?: Array<Array<number>>
 
