@@ -42,7 +42,7 @@
 
 #### Defined in
 
-[index.ts:79](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L79)
+[index.ts:79](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L79)
 
 ## Properties
 
@@ -52,7 +52,7 @@
 
 #### Defined in
 
-[index.ts:71](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L71)
+[index.ts:71](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L71)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 #### Defined in
 
-[index.ts:69](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L69)
+[index.ts:69](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L69)
 
 ___
 
@@ -78,7 +78,7 @@ ___
 
 #### Defined in
 
-[index.ts:75](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L75)
+[index.ts:75](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L75)
 
 ___
 
@@ -88,7 +88,7 @@ ___
 
 #### Defined in
 
-[index.ts:73](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L73)
+[index.ts:73](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L73)
 
 ## Methods
 
@@ -111,7 +111,7 @@ ___
 
 #### Defined in
 
-[index.ts:171](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L171)
+[index.ts:171](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L171)
 
 ___
 
@@ -132,7 +132,7 @@ ___
 
 #### Defined in
 
-[index.ts:115](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L115)
+[index.ts:115](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L115)
 
 ___
 
@@ -152,7 +152,7 @@ ___
 
 #### Defined in
 
-[index.ts:160](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L160)
+[index.ts:160](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L160)
 
 ___
 
@@ -173,7 +173,7 @@ ___
 
 #### Defined in
 
-[index.ts:164](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L164)
+[index.ts:164](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L164)
 
 ___
 
@@ -194,7 +194,7 @@ ___
 
 #### Defined in
 
-[index.ts:105](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L105)
+[index.ts:105](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L105)
 
 ___
 
@@ -216,7 +216,7 @@ Load cached prompt & completion state from a file.
 
 #### Defined in
 
-[index.ts:89](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L89)
+[index.ts:89](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L89)
 
 ___
 
@@ -230,7 +230,7 @@ ___
 
 #### Defined in
 
-[index.ts:191](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L191)
+[index.ts:191](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L191)
 
 ___
 
@@ -254,7 +254,7 @@ Save current cached prompt & completion state to a file.
 
 #### Defined in
 
-[index.ts:98](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L98)
+[index.ts:98](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L98)
 
 ___
 
@@ -268,7 +268,7 @@ ___
 
 #### Defined in
 
-[index.ts:152](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L152)
+[index.ts:152](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L152)
 
 ___
 
@@ -288,4 +288,4 @@ ___
 
 #### Defined in
 
-[index.ts:156](https://github.com/mybigday/llama.rn/blob/38fa660/src/index.ts#L156)
+[index.ts:156](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L156)

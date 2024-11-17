@@ -119,6 +119,11 @@
     if (params[@"rope_freq_base"]) defaultParams.rope_freq_base = [params[@"rope_freq_base"] floatValue];
     if (params[@"rope_freq_scale"]) defaultParams.rope_freq_scale = [params[@"rope_freq_scale"] floatValue];
 
+    if (params[@"flash_attn"] && [params[@"flash_attn"] boolValue]) defaultParams.flash_attn = true;
+
+    if (params[@"cache_type_k"]) defaultParams.cache_type_k = [params[@"cache_type_k"] UTF8String];
+    if (params[@"cache_type_v"]) defaultParams.cache_type_v = [params[@"cache_type_v"] UTF8String];
+
     int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : 0;
     const int maxThreads = (int) [[NSProcessInfo processInfo] processorCount];
     // Use 2 threads by default on 4-core devices, 4 threads on more cores

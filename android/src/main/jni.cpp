@@ -227,6 +227,9 @@ Java_com_rnllama_LlamaContext_initContext(
     jint n_batch,
     jint n_threads,
     jint n_gpu_layers, // TODO: Support this
+    jboolean flash_attn,
+    jstring cache_type_k,
+    jstring cache_type_v,
     jboolean use_mlock,
     jboolean use_mmap,
     jboolean vocab_only,
@@ -271,6 +274,12 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.cpuparams.n_threads = n_threads > 0 ? n_threads : default_n_threads;
 
     defaultParams.n_gpu_layers = n_gpu_layers;
+    defaultParams.flash_attn = flash_attn;
+
+    const char *cache_type_k_chars = env->GetStringUTFChars(cache_type_k, nullptr);
+    const char *cache_type_v_chars = env->GetStringUTFChars(cache_type_v, nullptr);
+    defaultParams.cache_type_k = cache_type_k_chars;
+    defaultParams.cache_type_v = cache_type_v_chars;
 
     defaultParams.use_mlock = use_mlock;
     defaultParams.use_mmap = use_mmap;
@@ -314,6 +323,8 @@ Java_com_rnllama_LlamaContext_initContext(
 
     env->ReleaseStringUTFChars(model_path_str, model_path_chars);
     env->ReleaseStringUTFChars(lora_str, lora_chars);
+    env->ReleaseStringUTFChars(cache_type_k, cache_type_k_chars);
+    env->ReleaseStringUTFChars(cache_type_v, cache_type_v_chars);
 
     LOGI("[RNLlama] is_model_loaded %s", (is_model_loaded ? "true" : "false"));
     if (is_model_loaded) {
