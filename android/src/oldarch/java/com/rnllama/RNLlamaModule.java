@@ -39,8 +39,13 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void initContext(final ReadableMap params, final Promise promise) {
-    rnllama.initContext(params, promise);
+  public void modelInfo(final String model, final ReadableArray skip, final Promise promise) {
+    rnllama.modelInfo(model, skip, promise);
+  }
+
+  @ReactMethod
+  public void initContext(double id, final ReadableMap params, final Promise promise) {
+    rnllama.initContext(id, params, promise);
   }
 
   @ReactMethod
@@ -79,8 +84,8 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void embedding(double id, final String text, final Promise promise) {
-    rnllama.embedding(id, text, promise);
+  public void embedding(double id, final String text, final ReadableMap params, final Promise promise) {
+    rnllama.embedding(id, text, params, promise);
   }
 
   @ReactMethod

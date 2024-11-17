@@ -10,6 +10,7 @@ import type {
   NativeTokenizeResult,
   NativeEmbeddingResult,
   NativeSessionLoadResult,
+  NativeEmbeddingParams,
 } from './NativeRNLlama'
 import { SchemaGrammarConverter, convertJsonSchemaToGrammar } from './grammar'
 import type { RNLlamaOAICompatibleMessage } from './chat'
@@ -17,6 +18,7 @@ import { formatChat } from './chat'
 
 export { SchemaGrammarConverter, convertJsonSchemaToGrammar }
 
+const EVENT_ON_INIT_CONTEXT_PROGRESS = '@RNLlama_onInitContextProgress'
 const EVENT_ON_TOKEN = '@RNLlama_onToken'
 
 let EventEmitter: NativeEventEmitter | DeviceEventEmitterStatic
@@ -38,7 +40,16 @@ type TokenNativeEvent = {
   tokenResult: TokenData
 }
 
-export type ContextParams = NativeContextParams
+export type ContextParams = Omit<
+  NativeContextParams,
+  'cache_type_k' | 'cache_type_v' |  'pooling_type'
+> & {
+  cache_type_k?: 'f16' | 'f32' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1'
+  cache_type_v?: 'f16' | 'f32' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1'
+  pooling_type?: 'none' | 'mean' | 'cls' | 'last' | 'rank'
+}
+
+export type EmbeddingParams = NativeEmbeddingParams
 
 export type CompletionParams = Omit<
   NativeCompletionParams,
@@ -46,6 +57,7 @@ export type CompletionParams = Omit<
 > & {
   prompt?: string
   messages?: RNLlamaOAICompatibleMessage[]
+  chatTemplate?: string
 }
 
 export type BenchResult = {
@@ -97,23 +109,22 @@ export class LlamaContext {
 
   async getFormattedChat(
     messages: RNLlamaOAICompatibleMessage[],
+    template?: string,
   ): Promise<string> {
     const chat = formatChat(messages)
-    return RNLlama.getFormattedChat(
-      this.id,
-      chat,
-      this.model?.isChatTemplateSupported ? undefined : 'chatml',
-    )
+    let tmpl = this.model?.isChatTemplateSupported ? undefined : 'chatml'
+    if (template) tmpl = template // Force replace if provided
+    return RNLlama.getFormattedChat(this.id, chat, tmpl)
   }
 
   async completion(
     params: CompletionParams,
     callback?: (data: TokenData) => void,
   ): Promise<NativeCompletionResult> {
-
     let finalPrompt = params.prompt
-    if (params.messages) { // messages always win
-      finalPrompt = await this.getFormattedChat(params.messages)
+    if (params.messages) {
+      // messages always win
+      finalPrompt = await this.getFormattedChat(params.messages, params.chatTemplate)
     }
 
     let tokenListener: any =
@@ -155,8 +166,11 @@ export class LlamaContext {
     return RNLlama.detokenize(this.id, tokens)
   }
 
-  embedding(text: string): Promise<NativeEmbeddingResult> {
-    return RNLlama.embedding(this.id, text)
+  embedding(
+    text: string,
+    params?: EmbeddingParams,
+  ): Promise<NativeEmbeddingResult> {
+    return RNLlama.embedding(this.id, text, params || {})
   }
 
   async bench(
@@ -188,23 +202,78 @@ export async function setContextLimit(limit: number): Promise<void> {
   return RNLlama.setContextLimit(limit)
 }
 
-export async function initLlama({
-  model,
-  is_model_asset: isModelAsset,
-  ...rest
-}: ContextParams): Promise<LlamaContext> {
+let contextIdCounter = 0
+const contextIdRandom = () =>
+  process.env.NODE_ENV === 'test' ? 0 : Math.floor(Math.random() * 100000)
+
+const modelInfoSkip = [
+  // Large fields
+  'tokenizer.ggml.tokens',
+  'tokenizer.ggml.token_type',
+  'tokenizer.ggml.merges',
+]
+export async function loadLlamaModelInfo(model: string): Promise<Object> {
   let path = model
   if (path.startsWith('file://')) path = path.slice(7)
+  return RNLlama.modelInfo(path, modelInfoSkip)
+}
+
+const poolTypeMap = {
+  // -1 is unspecified as undefined
+  none: 0,
+  mean: 1,
+  cls: 2,
+  last: 3,
+  rank: 4,
+}
+
+export async function initLlama(
+  {
+    model,
+    is_model_asset: isModelAsset,
+    pooling_type: poolingType,
+    lora,
+    ...rest
+  }: ContextParams,
+  onProgress?: (progress: number) => void,
+): Promise<LlamaContext> {
+  let path = model
+  if (path.startsWith('file://')) path = path.slice(7)
+
+  let loraPath = lora
+  if (loraPath?.startsWith('file://')) loraPath = loraPath.slice(7)
+
+  const contextId = contextIdCounter + contextIdRandom()
+  contextIdCounter += 1
+
+  let removeProgressListener: any = null
+  if (onProgress) {
+    removeProgressListener = EventEmitter.addListener(
+      EVENT_ON_INIT_CONTEXT_PROGRESS,
+      (evt: { contextId: number; progress: number }) => {
+        if (evt.contextId !== contextId) return
+        onProgress(evt.progress)
+      },
+    )
+  }
+
+  const poolType = poolTypeMap[poolingType as keyof typeof poolTypeMap]
   const {
-    contextId,
     gpu,
     reasonNoGPU,
     model: modelDetails,
-  } = await RNLlama.initContext({
+  } = await RNLlama.initContext(contextId, {
     model: path,
     is_model_asset: !!isModelAsset,
+    use_progress_callback: !!onProgress,
+    pooling_type: poolType,
+    lora: loraPath,
     ...rest,
+  }).catch((err: any) => {
+    removeProgressListener?.remove()
+    throw err
   })
+  removeProgressListener?.remove()
   return new LlamaContext({ contextId, gpu, reasonNoGPU, model: modelDetails })
 }
 

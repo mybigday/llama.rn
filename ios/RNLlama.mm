@@ -21,10 +21,25 @@ RCT_EXPORT_METHOD(setContextLimit:(double)limit
     resolve(nil);
 }
 
-RCT_EXPORT_METHOD(initContext:(NSDictionary *)contextParams
+RCT_EXPORT_METHOD(modelInfo:(NSString *)path
+                 withSkip:(NSArray *)skip
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
+    resolve([RNLlamaContext modelInfo:path skip:skip]);
+}
+
+RCT_EXPORT_METHOD(initContext:(double)contextId
+                 withContextParams:(NSDictionary *)contextParams
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    NSNumber *contextIdNumber = [NSNumber numberWithDouble:contextId];
+    if (llamaContexts[contextIdNumber] != nil) {
+        reject(@"llama_error", @"Context already exists", nil);
+        return;
+    }
+
     if (llamaDQueue == nil) {
       llamaDQueue = dispatch_queue_create("com.rnllama", DISPATCH_QUEUE_SERIAL);
     }
@@ -38,23 +53,27 @@ RCT_EXPORT_METHOD(initContext:(NSDictionary *)contextParams
         return;
     }
 
-    RNLlamaContext *context = [RNLlamaContext initWithParams:contextParams];
-    if (![context isModelLoaded]) {
-        reject(@"llama_cpp_error", @"Failed to load the model", nil);
-        return;
+    @try {
+      RNLlamaContext *context = [RNLlamaContext initWithParams:contextParams onProgress:^(unsigned int progress) {
+          dispatch_async(dispatch_get_main_queue(), ^{
+              [self sendEventWithName:@"@RNLlama_onInitContextProgress" body:@{ @"contextId": @(contextId), @"progress": @(progress) }];
+          });
+      }];
+      if (![context isModelLoaded]) {
+          reject(@"llama_cpp_error", @"Failed to load the model", nil);
+          return;
+      }
+
+      [llamaContexts setObject:context forKey:contextIdNumber];
+
+      resolve(@{
+          @"gpu": @([context isMetalEnabled]),
+          @"reasonNoGPU": [context reasonNoMetal],
+          @"model": [context modelInfo],
+      });
+    } @catch (NSException *exception) {
+      reject(@"llama_cpp_error", exception.reason, nil);
     }
-
-    double contextId = (double) arc4random_uniform(1000000);
-
-    NSNumber *contextIdNumber = [NSNumber numberWithDouble:contextId];
-    [llamaContexts setObject:context forKey:contextIdNumber];
-
-    resolve(@{
-        @"contextId": contextIdNumber,
-        @"gpu": @([context isMetalEnabled]),
-        @"reasonNoGPU": [context reasonNoMetal],
-        @"model": [context modelInfo],
-    });
 }
 
 RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
@@ -125,6 +144,7 @@ RCT_EXPORT_METHOD(saveSession:(double)contextId
 
 - (NSArray *)supportedEvents {
   return@[
+    @"@RNLlama_onInitContextProgress",
     @"@RNLlama_onToken",
   ];
 }
@@ -213,6 +233,7 @@ RCT_EXPORT_METHOD(detokenize:(double)contextId
 
 RCT_EXPORT_METHOD(embedding:(double)contextId
                   text:(NSString *)text
+                  params:(NSDictionary *)params
                   withResolver:(RCTPromiseResolveBlock)resolve
                   withRejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -222,9 +243,8 @@ RCT_EXPORT_METHOD(embedding:(double)contextId
         return;
     }
     @try {
-        NSMutableArray *embedding = [context embedding:text];
-        resolve(@{ @"embedding": embedding });
-        [embedding release];
+        NSDictionary *embedding = [context embedding:text params:params];
+        resolve(embedding);
     } @catch (NSException *exception) {
         reject(@"llama_cpp_error", exception.reason, nil);
     }
@@ -259,6 +279,9 @@ RCT_EXPORT_METHOD(releaseContext:(double)contextId
     if (context == nil) {
         reject(@"llama_error", @"Context not found", nil);
         return;
+    }
+    if (![context isModelLoaded]) {
+      [context interruptLoad];
     }
     [context stopCompletion];
     dispatch_barrier_sync(llamaDQueue, ^{});

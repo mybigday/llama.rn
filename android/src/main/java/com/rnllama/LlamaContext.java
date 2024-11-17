@@ -35,12 +35,17 @@ public class LlamaContext {
     if (!params.hasKey("model")) {
       throw new IllegalArgumentException("Missing required parameter: model");
     }
+    Log.d(NAME, "Setting log callback");
+    logToAndroid();
+    eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
     this.id = id;
     this.context = initContext(
       // String model,
       params.getString("model"),
       // boolean embedding,
       params.hasKey("embedding") ? params.getBoolean("embedding") : false,
+      // int embd_normalize,
+      params.hasKey("embd_normalize") ? params.getInt("embd_normalize") : -1,
       // int n_ctx,
       params.hasKey("n_ctx") ? params.getInt("n_ctx") : 512,
       // int n_batch,
@@ -49,10 +54,18 @@ public class LlamaContext {
       params.hasKey("n_threads") ? params.getInt("n_threads") : 0,
       // int n_gpu_layers, // TODO: Support this
       params.hasKey("n_gpu_layers") ? params.getInt("n_gpu_layers") : 0,
+      // boolean flash_attn,
+      params.hasKey("flash_attn") ? params.getBoolean("flash_attn") : false,
+      // String cache_type_k,
+      params.hasKey("cache_type_k") ? params.getString("cache_type_k") : "f16",
+      // String cache_type_v,
+      params.hasKey("cache_type_v") ? params.getString("cache_type_v") : "f16",
       // boolean use_mlock,
       params.hasKey("use_mlock") ? params.getBoolean("use_mlock") : true,
       // boolean use_mmap,
       params.hasKey("use_mmap") ? params.getBoolean("use_mmap") : true,
+      //boolean vocab_only,
+      params.hasKey("vocab_only") ? params.getBoolean("vocab_only") : false,
       // String lora,
       params.hasKey("lora") ? params.getString("lora") : "",
       // float lora_scaled,
@@ -60,11 +73,21 @@ public class LlamaContext {
       // float rope_freq_base,
       params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 0.0f,
       // float rope_freq_scale
-      params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 0.0f
+      params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 0.0f,
+      // int pooling_type,
+      params.hasKey("pooling_type") ? params.getInt("pooling_type") : -1,
+      // LoadProgressCallback load_progress_callback
+      params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
     );
+    if (this.context == -1) {
+      throw new IllegalStateException("Failed to initialize context");
+    }
     this.modelDetails = loadModelDetails(this.context);
     this.reactContext = reactContext;
-    eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
+  }
+
+  public void interruptLoad() {
+    interruptLoad(this.context);
   }
 
   public long getContext() {
@@ -81,6 +104,25 @@ public class LlamaContext {
       msgs[i] = messages.getMap(i);
     }
     return getFormattedChat(this.context, msgs, chatTemplate == null ? "" : chatTemplate);
+  }
+
+  private void emitLoadProgress(int progress) {
+    WritableMap event = Arguments.createMap();
+    event.putInt("contextId", LlamaContext.this.id);
+    event.putInt("progress", progress);
+    eventEmitter.emit("@RNLlama_onInitContextProgress", event);
+  }
+
+  private static class LoadProgressCallback {
+    LlamaContext context;
+
+    public LoadProgressCallback(LlamaContext context) {
+      this.context = context;
+    }
+
+    void onLoadProgress(int progress) {
+      context.emitLoadProgress(progress);
+    }
   }
 
   private void emitPartialCompletion(WritableMap tokenResult) {
@@ -181,8 +223,10 @@ public class LlamaContext {
       params.hasKey("top_p") ? (float) params.getDouble("top_p") : 0.95f,
       // float min_p,
       params.hasKey("min_p") ? (float) params.getDouble("min_p") : 0.05f,
-      // float tfs_z,
-      params.hasKey("tfs_z") ? (float) params.getDouble("tfs_z") : 1.00f,
+      // float xtc_threshold,
+      params.hasKey("xtc_threshold") ? (float) params.getDouble("xtc_threshold") : 0.00f,
+      // float xtc_probability,
+      params.hasKey("xtc_probability") ? (float) params.getDouble("xtc_probability") : 0.00f,
       // float typical_p,
       params.hasKey("typical_p") ? (float) params.getDouble("typical_p") : 1.00f,
       // int seed,
@@ -227,11 +271,16 @@ public class LlamaContext {
     return detokenize(this.context, toks);
   }
 
-  public WritableMap getEmbedding(String text) {
+  public WritableMap getEmbedding(String text, ReadableMap params) {
     if (isEmbeddingEnabled(this.context) == false) {
       throw new IllegalStateException("Embedding is not enabled");
     }
-    WritableMap result = embedding(this.context, text);
+    WritableMap result = embedding(
+      this.context,
+      text,
+      // int embd_normalize,
+      params.hasKey("embd_normalize") ? params.getInt("embd_normalize") : -1
+    );
     if (result.hasKey("error")) {
       throw new IllegalStateException(result.getString("error"));
     }
@@ -248,16 +297,34 @@ public class LlamaContext {
 
   static {
     Log.d(NAME, "Primary ABI: " + Build.SUPPORTED_ABIS[0]);
+
+    String cpuFeatures = LlamaContext.getCpuFeatures();
+    Log.d(NAME, "CPU features: " + cpuFeatures);
+    boolean hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp");
+    boolean hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp");
+    boolean hasSve = cpuFeatures.contains("sve");
+    boolean hasI8mm = cpuFeatures.contains("i8mm");
+    boolean isAtLeastArmV82 = cpuFeatures.contains("asimd") && cpuFeatures.contains("crc32") && cpuFeatures.contains("aes");
+    boolean isAtLeastArmV84 = cpuFeatures.contains("dcpop") && cpuFeatures.contains("uscat");
+    Log.d(NAME, "- hasFp16: " + hasFp16);
+    Log.d(NAME, "- hasDotProd: " + hasDotProd);
+    Log.d(NAME, "- hasSve: " + hasSve);
+    Log.d(NAME, "- hasI8mm: " + hasI8mm);
+    Log.d(NAME, "- isAtLeastArmV82: " + isAtLeastArmV82);
+    Log.d(NAME, "- isAtLeastArmV84: " + isAtLeastArmV84);
+
+    // TODO: Add runtime check for cpu features
     if (LlamaContext.isArm64V8a()) {
-      String cpuFeatures = LlamaContext.getCpuFeatures();
-      Log.d(NAME, "CPU features: " + cpuFeatures);
-
-      boolean hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp");
-      boolean hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp");
-      boolean isAtLeastArmV82 = cpuFeatures.contains("asimd") && cpuFeatures.contains("crc32") && cpuFeatures.contains("aes");
-      boolean isAtLeastArmV84 = cpuFeatures.contains("dcpop") && cpuFeatures.contains("uscat");
-
-      if (isAtLeastArmV84 && hasFp16 && hasDotProd) {
+      if (isAtLeastArmV84 && hasSve && hasI8mm && hasFp16 && hasDotProd) {
+        Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod_i8mm_sve.so");
+        System.loadLibrary("rnllama_v8_4_fp16_dotprod_i8mm_sve");
+      } else if (isAtLeastArmV84 && hasSve && hasFp16 && hasDotProd) {
+        Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod_sve.so");
+        System.loadLibrary("rnllama_v8_4_fp16_dotprod_sve");
+      } else if (isAtLeastArmV84 && hasI8mm && hasFp16 && hasDotProd) {
+        Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod_i8mm.so");
+        System.loadLibrary("rnllama_v8_4_fp16_dotprod_i8mm");
+      } else if (isAtLeastArmV84 && hasFp16 && hasDotProd) {
         Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod.so");
         System.loadLibrary("rnllama_v8_4_fp16_dotprod");
       } else if (isAtLeastArmV82 && hasFp16 && hasDotProd) {
@@ -270,14 +337,16 @@ public class LlamaContext {
         Log.d(NAME, "Loading librnllama_v8.so");
         System.loadLibrary("rnllama_v8");
       }
+      //  Log.d(NAME, "Loading librnllama_v8_7.so with runtime feature detection");
+      //  System.loadLibrary("rnllama_v8_7");
     } else if (LlamaContext.isX86_64()) {
-      Log.d(NAME, "Loading librnllama_x86_64.so");
-      System.loadLibrary("rnllama_x86_64");
+        Log.d(NAME, "Loading librnllama_x86_64.so");
+        System.loadLibrary("rnllama_x86_64");
     } else {
-      Log.d(NAME, "Loading default librnllama.so");
-      System.loadLibrary("rnllama");
+        Log.d(NAME, "Loading default librnllama.so");
+        System.loadLibrary("rnllama");
     }
-  }
+}
 
   private static boolean isArm64V8a() {
     return Build.SUPPORTED_ABIS[0].equals("arm64-v8a");
@@ -307,20 +376,32 @@ public class LlamaContext {
     }
   }
 
+  protected static native WritableMap modelInfo(
+    String model,
+    String[] skip
+  );
   protected static native long initContext(
     String model,
     boolean embedding,
+    int embd_normalize,
     int n_ctx,
     int n_batch,
     int n_threads,
     int n_gpu_layers, // TODO: Support this
+    boolean flash_attn,
+    String cache_type_k,
+    String cache_type_v,
     boolean use_mlock,
     boolean use_mmap,
+    boolean vocab_only,
     String lora,
     float lora_scaled,
     float rope_freq_base,
-    float rope_freq_scale
+    float rope_freq_scale,
+    int pooling_type,
+    LoadProgressCallback load_progress_callback
   );
+  protected static native void interruptLoad(long contextPtr);
   protected static native WritableMap loadModelDetails(
     long contextPtr
   );
@@ -357,7 +438,8 @@ public class LlamaContext {
     int top_k,
     float top_p,
     float min_p,
-    float tfs_z,
+    float xtc_threshold,
+    float xtc_probability,
     float typical_p,
     int seed,
     String[] stop,
@@ -370,7 +452,12 @@ public class LlamaContext {
   protected static native WritableArray tokenize(long contextPtr, String text);
   protected static native String detokenize(long contextPtr, int[] tokens);
   protected static native boolean isEmbeddingEnabled(long contextPtr);
-  protected static native WritableMap embedding(long contextPtr, String text);
+  protected static native WritableMap embedding(
+    long contextPtr,
+    String text,
+    int embd_normalize
+  );
   protected static native String bench(long contextPtr, int pp, int tg, int pl, int nr);
   protected static native void freeContext(long contextPtr);
+  protected static native void logToAndroid();
 }

@@ -1,11 +1,14 @@
 import type { TurboModule } from 'react-native'
 import { TurboModuleRegistry } from 'react-native'
 
+export type NativeEmbeddingParams = {
+  embd_normalize?: number
+}
+
 export type NativeContextParams = {
   model: string
   is_model_asset?: boolean
-
-  embedding?: boolean
+  use_progress_callback?: boolean
 
   n_ctx?: number
   n_batch?: number
@@ -13,14 +16,35 @@ export type NativeContextParams = {
   n_threads?: number
   n_gpu_layers?: number
 
+  /**
+   * Enable flash attention, only recommended in GPU device (Experimental in llama.cpp)
+   */
+  flash_attn?: boolean
+
+  /**
+   * KV cache data type for the K (Experimental in llama.cpp)
+   */
+  cache_type_k?: string
+  /**
+   * KV cache data type for the V (Experimental in llama.cpp)
+   */
+  cache_type_v?: string
+
   use_mlock?: boolean
   use_mmap?: boolean
+  vocab_only?: boolean
 
   lora?: string // lora_adaptor
   lora_scaled?: number
 
   rope_freq_base?: number
   rope_freq_scale?: number
+
+  pooling_type?: number
+
+  // Embedding params
+  embedding?: boolean
+  embd_normalize?: number
 }
 
 export type NativeCompletionParams = {
@@ -34,7 +58,8 @@ export type NativeCompletionParams = {
   top_k?: number
   top_p?: number
   min_p?: number
-  tfs_z?: number
+  xtc_threshold?: number
+  xtc_probability?: number
   typical_p?: number
   temperature?: number // -> temp
   penalty_last_n?: number
@@ -117,7 +142,9 @@ export type NativeLlamaChatMessage = {
 
 export interface Spec extends TurboModule {
   setContextLimit(limit: number): Promise<void>
-  initContext(params: NativeContextParams): Promise<NativeLlamaContext>
+
+  modelInfo(path: string, skip?: string[]): Promise<Object>
+  initContext(contextId: number, params: NativeContextParams): Promise<NativeLlamaContext>
 
   getFormattedChat(
     contextId: number,
@@ -140,7 +167,11 @@ export interface Spec extends TurboModule {
   stopCompletion(contextId: number): Promise<void>
   tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>
   detokenize(contextId: number, tokens: number[]): Promise<string>
-  embedding(contextId: number, text: string): Promise<NativeEmbeddingResult>
+  embedding(
+    contextId: number,
+    text: string,
+    params: NativeEmbeddingParams,
+  ): Promise<NativeEmbeddingResult>
   bench(
     contextId: number,
     pp: number,

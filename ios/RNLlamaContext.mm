@@ -3,19 +3,59 @@
 
 @implementation RNLlamaContext
 
-+ (instancetype)initWithParams:(NSDictionary *)params {
++ (NSDictionary *)modelInfo:(NSString *)path skip:(NSArray *)skip {
+    struct lm_gguf_init_params params = {
+        /*.no_alloc = */ false,
+        /*.ctx      = */ NULL,
+    };
+
+    struct lm_gguf_context * ctx = lm_gguf_init_from_file([path UTF8String], params);
+
+    if (!ctx) {
+        NSLog(@"%s: failed to load '%s'\n", __func__, [path UTF8String]);
+        return @{};
+    }
+
+    NSMutableDictionary *info = [[NSMutableDictionary alloc] init];
+
+    info[@"version"] = @(lm_gguf_get_version(ctx));
+    info[@"alignment"] = @(lm_gguf_get_alignment(ctx));
+    info[@"data_offset"] = @(lm_gguf_get_data_offset(ctx));
+
+    // kv
+    {
+        const int n_kv = lm_gguf_get_n_kv(ctx);
+
+        for (int i = 0; i < n_kv; ++i) {
+            const char * key = lm_gguf_get_key(ctx, i);
+
+            if (skip && [skip containsObject:[NSString stringWithUTF8String:key]]) {
+                continue;
+            }
+            const std::string value = rnllama::lm_gguf_kv_to_str(ctx, i);
+            info[[NSString stringWithUTF8String:key]] = [NSString stringWithUTF8String:value.c_str()];
+        }
+    }
+
+    lm_gguf_free(ctx);
+
+    return info;
+}
+
++ (instancetype)initWithParams:(NSDictionary *)params onProgress:(void (^)(unsigned int progress))onProgress {
     // llama_backend_init(false);
-    gpt_params defaultParams;
+    common_params defaultParams;
+
+    if (params[@"vocab_only"]) {
+        defaultParams.vocab_only = [params[@"vocab_only"] boolValue];
+        defaultParams.warmup = false;
+    }
 
     NSString *modelPath = params[@"model"];
     BOOL isAsset = [params[@"is_model_asset"] boolValue];
     NSString *path = modelPath;
     if (isAsset) path = [[NSBundle mainBundle] pathForResource:modelPath ofType:nil];
     defaultParams.model = [path UTF8String];
-
-    if (params[@"embedding"] && [params[@"embedding"] boolValue]) {
-        defaultParams.embedding = true;
-    }
 
     if (params[@"n_ctx"]) defaultParams.n_ctx = [params[@"n_ctx"] intValue];
     if (params[@"use_mlock"]) defaultParams.use_mlock = [params[@"use_mlock"]boolValue];
@@ -56,33 +96,77 @@
     if (params[@"n_batch"]) defaultParams.n_batch = [params[@"n_batch"] intValue];
     if (params[@"use_mmap"]) defaultParams.use_mmap = [params[@"use_mmap"] boolValue];
 
+    if (params[@"pooling_type"] && [params[@"pooling_type"] isKindOfClass:[NSNumber class]]) {
+      defaultParams.pooling_type = static_cast<enum llama_pooling_type>([params[@"pooling_type"] intValue]);
+    }
+
+    if (params[@"embedding"] && [params[@"embedding"] boolValue]) {
+        defaultParams.embedding = true;
+        // For non-causal models, batch size must be equal to ubatch size
+        defaultParams.n_ubatch = defaultParams.n_batch;
+
+        if (params[@"embd_normalize"] && [params[@"embd_normalize"] isKindOfClass:[NSNumber class]]) {
+            defaultParams.embd_normalize = [params[@"embd_normalize"] intValue];
+        }
+    }
+
     if (params[@"lora"]) {
         float lora_scaled = 1.0f;
         if (params[@"lora_scaled"]) lora_scaled = [params[@"lora_scaled"] floatValue];
-        defaultParams.lora_adapter.push_back({[params[@"lora"] UTF8String], lora_scaled});
-        defaultParams.use_mmap = false;
+        defaultParams.lora_adapters.push_back({[params[@"lora"] UTF8String], lora_scaled});
     }
 
     if (params[@"rope_freq_base"]) defaultParams.rope_freq_base = [params[@"rope_freq_base"] floatValue];
     if (params[@"rope_freq_scale"]) defaultParams.rope_freq_scale = [params[@"rope_freq_scale"] floatValue];
 
-    if (params[@"seed"]) defaultParams.seed = [params[@"seed"] intValue];
+    if (params[@"flash_attn"] && [params[@"flash_attn"] boolValue]) defaultParams.flash_attn = true;
+
+    if (params[@"cache_type_k"]) defaultParams.cache_type_k = [params[@"cache_type_k"] UTF8String];
+    if (params[@"cache_type_v"]) defaultParams.cache_type_v = [params[@"cache_type_v"] UTF8String];
 
     int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : 0;
     const int maxThreads = (int) [[NSProcessInfo processInfo] processorCount];
     // Use 2 threads by default on 4-core devices, 4 threads on more cores
     const int defaultNThreads = nThreads == 4 ? 2 : MIN(4, maxThreads);
-    defaultParams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
+    defaultParams.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
 
     RNLlamaContext *context = [[RNLlamaContext alloc] init];
-    if (context->llama == nullptr) {
-        context->llama = new rnllama::llama_rn_context();
+    context->llama = new rnllama::llama_rn_context();
+    context->llama->is_load_interrupted = false;
+    context->llama->loading_progress = 0;
+    context->onProgress = onProgress;
+
+    if (params[@"use_progress_callback"] && [params[@"use_progress_callback"] boolValue]) {
+        defaultParams.progress_callback = [](float progress, void * user_data) {
+            RNLlamaContext *context = (__bridge RNLlamaContext *)(user_data);
+            unsigned percentage = (unsigned) (100 * progress);
+            if (percentage > context->llama->loading_progress) {
+                context->llama->loading_progress = percentage;
+                context->onProgress(percentage);
+            }
+            return !context->llama->is_load_interrupted;
+        };
+        defaultParams.progress_callback_user_data = context;
     }
+
     context->is_model_loaded = context->llama->loadModel(defaultParams);
+
+    if (
+        params[@"embedding"] && [params[@"embedding"] boolValue] &&
+        llama_model_has_encoder(context->llama->model) && llama_model_has_decoder(context->llama->model)
+    ) {
+        delete context->llama;
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not supported in encoder-decoder models" userInfo:nil];
+    }
+
     context->is_metal_enabled = isMetalEnabled;
     context->reason_no_metal = reasonNoMetal;
 
     return context;
+}
+
+- (void)interruptLoad {
+    llama->is_load_interrupted = true;
 }
 
 - (bool)isMetalEnabled {
@@ -128,7 +212,7 @@
 }
 
 - (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate {
-  std::vector<llama_chat_msg> chat;
+  std::vector<common_chat_msg> chat;
 
   for (NSDictionary *msg in messages) {
     std::string role = [[msg objectForKey:@"role"] UTF8String];
@@ -137,7 +221,7 @@
   }
 
   auto tmpl = chatTemplate == nil ? "" : [chatTemplate UTF8String];
-  auto formatted_chat = llama_chat_apply_template(llama->model, tmpl, chat, true);
+  auto formatted_chat = common_chat_apply_template(llama->model, tmpl, chat, true);
   return [NSString stringWithUTF8String:formatted_chat.c_str()];
 }
 
@@ -168,21 +252,22 @@
 {
     llama->rewind();
 
-    llama_reset_timings(llama->ctx);
+    //llama_reset_timings(llama->ctx);
 
     NSString *prompt = [params objectForKey:@"prompt"];
 
     llama->params.prompt = [prompt UTF8String];
-    llama->params.seed = params[@"seed"] ? [params[@"seed"] intValue] : -1;
+    llama->params.sparams.seed = params[@"seed"] ? [params[@"seed"] intValue] : -1;
 
     if (params[@"n_threads"]) {
-        int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : llama->params.n_threads;
+        int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : llama->params.cpuparams.n_threads;
         const int maxThreads = (int) [[NSProcessInfo processInfo] processorCount];
         // Use 2 threads by default on 4-core devices, 4 threads on more cores
         const int defaultNThreads = nThreads == 4 ? 2 : MIN(4, maxThreads);
-        llama->params.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
+        llama->params.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
     }
     if (params[@"n_predict"]) llama->params.n_predict = [params[@"n_predict"] intValue];
+    if (params[@"ignore_eos"]) llama->params.sparams.ignore_eos = [params[@"ignore_eos"] boolValue];
 
     auto & sparams = llama->params.sparams;
 
@@ -203,9 +288,9 @@
     if (params[@"top_k"]) sparams.top_k = [params[@"top_k"] intValue];
     if (params[@"top_p"]) sparams.top_p = [params[@"top_p"] doubleValue];
     if (params[@"min_p"]) sparams.min_p = [params[@"min_p"] doubleValue];
-    if (params[@"tfs_z"]) sparams.tfs_z = [params[@"tfs_z"] doubleValue];
-
-    if (params[@"typical_p"]) sparams.typical_p = [params[@"typical_p"] doubleValue];
+    if (params[@"xtc_threshold"]) sparams.xtc_threshold = [params[@"xtc_threshold"] doubleValue];
+    if (params[@"xtc_probability"]) sparams.xtc_probability = [params[@"xtc_probability"] doubleValue];
+    if (params[@"typical_p"]) sparams.typ_p = [params[@"typical_p"] doubleValue];
 
     if (params[@"grammar"]) {
         sparams.grammar = [params[@"grammar"] UTF8String];
@@ -221,7 +306,7 @@
 
     sparams.logit_bias.clear();
     if (params[@"ignore_eos"] && [params[@"ignore_eos"] boolValue]) {
-        sparams.logit_bias[llama_token_eos(llama->model)] = -INFINITY;
+        sparams.logit_bias[llama_token_eos(llama->model)].bias = -INFINITY;
     }
 
     if (params[@"logit_bias"] && [params[@"logit_bias"] isKindOfClass:[NSArray class]]) {
@@ -232,9 +317,9 @@
                 llama_token tok = [el[0] intValue];
                 if (tok >= 0 && tok < n_vocab) {
                     if ([el[1] isKindOfClass:[NSNumber class]]) {
-                        sparams.logit_bias[tok] = [el[1] doubleValue];
+                        sparams.logit_bias[tok].bias = [el[1] doubleValue];
                     } else if ([el[1] isKindOfClass:[NSNumber class]] && ![el[1] boolValue]) {
-                        sparams.logit_bias[tok] = -INFINITY;
+                        sparams.logit_bias[tok].bias = -INFINITY;
                     }
                 }
             }
@@ -255,7 +340,7 @@
         if (token_with_probs.tok == -1 || llama->incomplete) {
             continue;
         }
-        const std::string token_text = llama_token_to_piece(llama->ctx, token_with_probs.tok);
+        const std::string token_text = common_token_to_piece(llama->ctx, token_with_probs.tok);
 
         size_t pos = std::min(sent_count, llama->generated_text.size());
 
@@ -290,7 +375,7 @@
             tokenResult[@"token"] = [NSString stringWithUTF8String:to_send.c_str()];
 
             if (llama->params.sparams.n_probs > 0) {
-                const std::vector<llama_token> to_send_toks = llama_tokenize(llama->ctx, to_send, false);
+                const std::vector<llama_token> to_send_toks = common_tokenize(llama->ctx, to_send, false);
                 size_t probs_pos = std::min(sent_token_probs_index, llama->generated_token_probs.size());
                 size_t probs_stop_pos = std::min(sent_token_probs_index + to_send_toks.size(), llama->generated_token_probs.size());
                 if (probs_pos < probs_stop_pos) {
@@ -305,10 +390,10 @@
         }
     }
 
-    llama_print_timings(llama->ctx);
+    llama_perf_context_print(llama->ctx);
     llama->is_predicting = false;
 
-    const auto timings = llama_get_timings(llama->ctx);
+    const auto timings = llama_perf_context(llama->ctx);
     return @{
         @"text": [NSString stringWithUTF8String:llama->generated_text.c_str()],
         @"completion_probabilities": [self tokenProbsToDict:llama->generated_token_probs],
@@ -339,7 +424,7 @@
 }
 
 - (NSArray *)tokenize:(NSString *)text {
-    const std::vector<llama_token> toks = llama_tokenize(llama->ctx, [text UTF8String], false);
+    const std::vector<llama_token> toks = common_tokenize(llama->ctx, [text UTF8String], false);
     NSMutableArray *result = [[NSMutableArray alloc] init];
     for (llama_token tok : toks) {
         [result addObject:@(tok)];
@@ -356,14 +441,22 @@
     return [NSString stringWithUTF8String:text.c_str()];
 }
 
-- (NSArray *)embedding:(NSString *)text {
+- (NSDictionary *)embedding:(NSString *)text params:(NSDictionary *)params {
     if (llama->params.embedding != true) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not enabled" userInfo:nil];
     }
 
+    common_params embdParams;
+    embdParams.embedding = true;
+    embdParams.embd_normalize = llama->params.embd_normalize;
+
+    if (params[@"embd_normalize"] && [params[@"embd_normalize"] isKindOfClass:[NSNumber class]]) {
+        embdParams.embd_normalize = [params[@"embd_normalize"] intValue];
+    }
+
     llama->rewind();
 
-    llama_reset_timings(llama->ctx);
+    llama_perf_context_reset(llama->ctx);
 
     llama->params.prompt = [text UTF8String];
 
@@ -376,15 +469,22 @@
     llama->loadPrompt();
     llama->doCompletion();
 
-    std::vector<float> result = llama->getEmbedding();
+    std::vector<float> result = llama->getEmbedding(embdParams);
 
+    NSMutableDictionary *resultDict = [[NSMutableDictionary alloc] init];
     NSMutableArray *embeddingResult = [[NSMutableArray alloc] init];
     for (float f : result) {
         [embeddingResult addObject:@(f)];
     }
+    resultDict[@"embedding"] = embeddingResult;
+    NSMutableArray *promptTokens = [[NSMutableArray alloc] init];
+    for (llama_token tok : llama->embd) {
+        [promptTokens addObject:[NSString stringWithUTF8String:common_token_to_piece(llama->ctx, tok).c_str()]];
+    }
+    resultDict[@"prompt_tokens"] = promptTokens;
 
     llama->is_predicting = false;
-    return embeddingResult;
+    return resultDict;
 }
 
 - (NSDictionary *)loadSession:(NSString *)path {

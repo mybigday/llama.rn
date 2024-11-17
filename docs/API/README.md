@@ -14,12 +14,14 @@ llama.rn
 - [BenchResult](README.md#benchresult)
 - [CompletionParams](README.md#completionparams)
 - [ContextParams](README.md#contextparams)
+- [EmbeddingParams](README.md#embeddingparams)
 - [TokenData](README.md#tokendata)
 
 ### Functions
 
 - [convertJsonSchemaToGrammar](README.md#convertjsonschematogrammar)
 - [initLlama](README.md#initllama)
+- [loadLlamaModelInfo](README.md#loadllamamodelinfo)
 - [releaseAllLlama](README.md#releaseallllama)
 - [setContextLimit](README.md#setcontextlimit)
 
@@ -43,27 +45,37 @@ llama.rn
 
 #### Defined in
 
-[index.ts:51](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L51)
+[index.ts:58](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L58)
 
 ___
 
 ### CompletionParams
 
-Ƭ **CompletionParams**: `Omit`<`NativeCompletionParams`, ``"emit_partial_completion"`` \| ``"prompt"``\> & { `messages?`: `RNLlamaOAICompatibleMessage`[] ; `prompt?`: `string`  }
+Ƭ **CompletionParams**: `Omit`<`NativeCompletionParams`, ``"emit_partial_completion"`` \| ``"prompt"``\> & { `chatTemplate?`: `string` ; `messages?`: `RNLlamaOAICompatibleMessage`[] ; `prompt?`: `string`  }
 
 #### Defined in
 
-[index.ts:43](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L43)
+[index.ts:49](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L49)
 
 ___
 
 ### ContextParams
 
-Ƭ **ContextParams**: `NativeContextParams`
+Ƭ **ContextParams**: `Omit`<`NativeContextParams`, ``"pooling_type"``\> & { `pooling_type?`: ``"none"`` \| ``"mean"`` \| ``"cls"`` \| ``"last"`` \| ``"rank"``  }
 
 #### Defined in
 
-[index.ts:41](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L41)
+[index.ts:43](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L43)
+
+___
+
+### EmbeddingParams
+
+Ƭ **EmbeddingParams**: `NativeEmbeddingParams`
+
+#### Defined in
+
+[index.ts:47](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L47)
 
 ___
 
@@ -80,7 +92,7 @@ ___
 
 #### Defined in
 
-[index.ts:31](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L31)
+[index.ts:33](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L33)
 
 ## Functions
 
@@ -104,19 +116,20 @@ ___
 
 #### Defined in
 
-[grammar.ts:824](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/grammar.ts#L824)
+[grammar.ts:824](https://github.com/mybigday/llama.rn/blob/68acf1a/src/grammar.ts#L824)
 
 ___
 
 ### initLlama
 
-▸ **initLlama**(`«destructured»`): `Promise`<[`LlamaContext`](classes/LlamaContext.md)\>
+▸ **initLlama**(`«destructured»`, `onProgress?`): `Promise`<[`LlamaContext`](classes/LlamaContext.md)\>
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `«destructured»` | `NativeContextParams` |
+| `«destructured»` | [`ContextParams`](README.md#contextparams) |
+| `onProgress?` | (`progress`: `number`) => `void` |
 
 #### Returns
 
@@ -124,7 +137,27 @@ ___
 
 #### Defined in
 
-[index.ts:191](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L191)
+[index.ts:225](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L225)
+
+___
+
+### loadLlamaModelInfo
+
+▸ **loadLlamaModelInfo**(`model`): `Promise`<`Object`\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `model` | `string` |
+
+#### Returns
+
+`Promise`<`Object`\>
+
+#### Defined in
+
+[index.ts:210](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L210)
 
 ___
 
@@ -138,7 +171,7 @@ ___
 
 #### Defined in
 
-[index.ts:211](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L211)
+[index.ts:275](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L275)
 
 ___
 
@@ -158,4 +191,4 @@ ___
 
 #### Defined in
 
-[index.ts:187](https://github.com/mybigday/llama.rn/blob/ad7e0a5/src/index.ts#L187)
+[index.ts:196](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L196)

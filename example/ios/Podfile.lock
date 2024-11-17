@@ -8,7 +8,7 @@ PODS:
     - hermes-engine/Pre-built (= 0.72.3)
   - hermes-engine/Pre-built (0.72.3)
   - libevent (2.1.12)
-  - llama-rn (0.3.6):
+  - llama-rn (0.4.0):
     - RCT-Folly
     - RCTRequired
     - RCTTypeSafety
@@ -1261,7 +1261,7 @@ SPEC CHECKSUMS:
   glog: 04b94705f318337d7ead9e6d17c019bd9b1f6b1b
   hermes-engine: 10fbd3f62405c41ea07e71973ea61e1878d07322
   libevent: 4049cae6c81cdb3654a443be001fb9bdceff7913
-  llama-rn: fbc4775cb24796c7cc59bf04855a669955508f30
+  llama-rn: d935a3e23a8c1bb15ca58578af852c16d608bcaa
   RCT-Folly: 424b8c9a7a0b9ab2886ffe9c3b041ef628fd4fb1
   RCTRequired: a2faf4bad4e438ca37b2040cb8f7799baa065c18
   RCTTypeSafety: cb09f3e4747b6d18331a15eb05271de7441ca0b3
@@ -1305,6 +1305,6 @@ SPEC CHECKSUMS:
   SocketRocket: f32cd54efbe0f095c4d7594881e52619cfe80b17
   Yoga: 8796b55dba14d7004f980b54bcc9833ee45b28ce
 
-PODFILE CHECKSUM: e85f4f0de2f3382c406a75702d5f126a993a8dde
+PODFILE CHECKSUM: cf6cc1e14840d7bc13c75e90df0f55023f1d4ad2
 
-COCOAPODS: 1.14.3
+COCOAPODS: 1.15.2

@@ -1,8 +1,8 @@
---- common.h.orig
-+++ common.h
-@@ -41,6 +41,17 @@ extern char const * LLAMA_BUILD_TARGET;
+--- common.h.orig	2024-11-17 11:56:40
++++ common.h	2024-11-17 11:56:41
+@@ -41,6 +41,17 @@
 
- struct llama_control_vector_load_info;
+ struct common_control_vector_load_info;
 
 +#define print_build_info() do {                                                                     \
 +    fprintf(stderr, "%s: build = %d (%s)\n", __func__, LLAMA_BUILD_NUMBER, LLAMA_COMMIT);           \
@@ -18,3 +18,21 @@
  //
  // CPU utils
  //
+@@ -154,6 +165,7 @@
+ };
+
+ struct common_params {
++    bool vocab_only               = false;
+     int32_t n_predict             =    -1; // new tokens to predict
+     int32_t n_ctx                 =  4096; // context size
+     int32_t n_batch               =  2048; // logical batch size for prompt processing (must be >=32 to use BLAS)
+@@ -270,6 +282,9 @@
+     bool warmup            = true;  // warmup run
+     bool check_tensors     = false; // validate tensor data
+
++    llama_progress_callback progress_callback;
++    void * progress_callback_user_data;
++
+     std::string cache_type_k = "f16"; // KV cache data type for the K
+     std::string cache_type_v = "f16"; // KV cache data type for the V
+

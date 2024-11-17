@@ -8,8 +8,13 @@ import { Chat, darkTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import json5 from 'json5'
 import ReactNativeBlobUtil from 'react-native-blob-util'
-// eslint-disable-next-line import/no-unresolved
-import { initLlama, LlamaContext, convertJsonSchemaToGrammar } from 'llama.rn'
+import type { LlamaContext } from 'llama.rn'
+import {
+  initLlama,
+  loadLlamaModelInfo,
+  convertJsonSchemaToGrammar,
+  // eslint-disable-next-line import/no-unresolved
+} from 'llama.rn'
 import { Bubble } from './Bubble'
 
 const { dirs } = ReactNativeBlobUtil.fs
@@ -64,6 +69,7 @@ export default function App() {
       metadata: { system: true, ...metadata },
     }
     addMessage(textMessage)
+    return textMessage.id
   }
 
   const handleReleaseContext = async () => {
@@ -80,21 +86,50 @@ export default function App() {
       })
   }
 
+  // Example: Get model info without initializing context
+  const getModelInfo = async (model: string) => {
+    const t0 = Date.now()
+    const info = await loadLlamaModelInfo(model)
+    console.log(`Model info (took ${Date.now() - t0}ms): `, info)
+  }
+
   const handleInitContext = async (file: DocumentPickerResponse) => {
     await handleReleaseContext()
-    addSystemMessage('Initializing context...')
-    initLlama({
-      model: file.uri,
-      use_mlock: true,
-      n_gpu_layers: Platform.OS === 'ios' ? 0 : 0, // > 0: enable GPU
-      // embedding: true,
-    })
+    await getModelInfo(file.uri)
+    const msgId = addSystemMessage('Initializing context...')
+    const t0 = Date.now()
+    initLlama(
+      {
+        model: file.uri,
+        use_mlock: true,
+        n_gpu_layers: Platform.OS === 'ios' ? 99 : 0, // > 0: enable GPU
+        // embedding: true,
+      },
+      (progress) => {
+        setMessages((msgs) => {
+          const index = msgs.findIndex((msg) => msg.id === msgId)
+          if (index >= 0) {
+            return msgs.map((msg, i) => {
+              if (msg.type == 'text' && i === index) {
+                return {
+                  ...msg,
+                  text: `Initializing context... ${progress}%`,
+                }
+              }
+              return msg
+            })
+          }
+          return msgs
+        })
+      },
+    )
       .then((ctx) => {
+        const t1 = Date.now()
         setContext(ctx)
         addSystemMessage(
-          `Context initialized! \n\nGPU: ${ctx.gpu ? 'YES' : 'NO'} (${
-            ctx.reasonNoGPU
-          })\nChat Template: ${
+          `Context initialized!\n\nLoad time: ${t1 - t0}ms\nGPU: ${
+            ctx.gpu ? 'YES' : 'NO'
+          } (${ctx.reasonNoGPU})\nChat Template: ${
             ctx.model.isChatTemplateSupported ? 'YES' : 'NO'
           }\n\n` +
             'You can use the following commands:\n\n' +
@@ -268,7 +303,6 @@ export default function App() {
     ]
     addMessage(textMessage)
     setInferencing(true)
-
     // Test area
     {
       // Test tokenize
@@ -328,6 +362,7 @@ export default function App() {
                 required: ['query'],
               },
             },
+            required: ['function', 'arguments'],
           },
         ],
       }
@@ -347,11 +382,12 @@ export default function App() {
       ?.completion(
         {
           messages: msgs,
-          n_predict: 400,
+          n_predict: 100,
+          xtc_probability: 0.5,
+          xtc_threshold: 0.1,
           temperature: 0.7,
           top_k: 40, // <= 0 to use vocab size
           top_p: 0.5, // 1.0 = disabled
-          tfs_z: 1.0, // 1.0 = disabled
           typical_p: 1.0, // 1.0 = disabled
           penalty_last_n: 256, // 0 = disable penalty, -1 = context size
           penalty_repeat: 1.18, // 1.0 = disabled
