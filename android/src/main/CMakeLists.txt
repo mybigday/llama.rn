@@ -26,8 +26,6 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml-threading.cpp
     ${RNLLAMA_LIB_DIR}/ggml-quants.c
     ${RNLLAMA_LIB_DIR}/common.cpp
-    ${RNLLAMA_LIB_DIR}/json.hpp
-    ${RNLLAMA_LIB_DIR}/json-schema-to-grammar.cpp
     ${RNLLAMA_LIB_DIR}/sampling.cpp
     ${RNLLAMA_LIB_DIR}/unicode-data.cpp
     ${RNLLAMA_LIB_DIR}/unicode.cpp
