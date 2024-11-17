@@ -93,7 +93,10 @@ export default function App() {
     console.log(`Model info (took ${Date.now() - t0}ms): `, info)
   }
 
-  const handleInitContext = async (file: DocumentPickerResponse) => {
+  const handleInitContext = async (
+    file: DocumentPickerResponse,
+    loraFile?: DocumentPickerResponse,
+  ) => {
     await handleReleaseContext()
     await getModelInfo(file.uri)
     const msgId = addSystemMessage('Initializing context...')
@@ -103,7 +106,9 @@ export default function App() {
         model: file.uri,
         use_mlock: true,
         n_gpu_layers: Platform.OS === 'ios' ? 99 : 0, // > 0: enable GPU
+
         // embedding: true,
+        lora: loraFile?.uri,
       },
       (progress) => {
         setMessages((msgs) => {
@@ -147,39 +152,48 @@ export default function App() {
       })
   }
 
-  const handlePickModel = async () => {
-    DocumentPicker.pick({
-      type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
-    })
-      .then(async (res) => {
-        let [file] = res
-        if (file) {
-          if (Platform.OS === 'android' && file.uri.startsWith('content://')) {
-            const dir = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/models`
-            if (!(await ReactNativeBlobUtil.fs.isDir(dir)))
-              await ReactNativeBlobUtil.fs.mkdir(dir)
+  const copyFileIfNeeded = async (
+    type = 'model',
+    file: DocumentPickerResponse,
+  ) => {
+    if (Platform.OS === 'android' && file.uri.startsWith('content://')) {
+      const dir = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/${type}s`
+      const filepath = `${dir}/${file.uri.split('/').pop() || type}.gguf`
 
-            const filepath = `${dir}/${
-              file.uri.split('/').pop() || 'model'
-            }.gguf`
-            if (await ReactNativeBlobUtil.fs.exists(filepath)) {
-              handleInitContext({ uri: filepath } as DocumentPickerResponse)
-              return
-            } else {
-              await ReactNativeBlobUtil.fs.unlink(dir) // Clean up old files in models
-            }
-            addSystemMessage('Copying model to internal storage...')
-            await ReactNativeBlobUtil.MediaCollection.copyToInternal(
-              file.uri,
-              filepath,
-            )
-            addSystemMessage('Model copied!')
-            file = { uri: filepath } as DocumentPickerResponse
-          }
-          handleInitContext(file)
-        }
-      })
-      .catch((e) => console.log('No file picked, error: ', e.message))
+      if (!(await ReactNativeBlobUtil.fs.isDir(dir)))
+        await ReactNativeBlobUtil.fs.mkdir(dir)
+
+      if (await ReactNativeBlobUtil.fs.exists(filepath))
+        return { uri: filepath } as DocumentPickerResponse
+
+      await ReactNativeBlobUtil.fs.unlink(dir) // Clean up old files in models
+
+      addSystemMessage(`Copying ${type} to internal storage...`)
+      await ReactNativeBlobUtil.MediaCollection.copyToInternal(
+        file.uri,
+        filepath,
+      )
+      addSystemMessage(`${type} copied!`)
+      return { uri: filepath } as DocumentPickerResponse
+    }
+    return file
+  }
+
+  const handlePickModel = async () => {
+    const modelRes = await DocumentPicker.pick({
+      type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
+    }).catch((e) => console.log('No model file picked, error: ', e.message))
+    if (!modelRes?.[0]) return
+    const modelFile = await copyFileIfNeeded('model', modelRes?.[0])
+
+    let loraFile
+    // Example: Apply lora adapter (Currently only select one lora file) (Uncomment to use)
+    // const loraRes = await DocumentPicker.pick({
+    //   type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
+    // }).catch(e => console.log('No lora file picked, error: ', e.message))
+    // if (loraRes?.[0]) loraFile = await copyFileIfNeeded('lora', loraRes[0])
+
+    handleInitContext(modelFile, loraFile)
   }
 
   const handleSendPress = async (message: MessageType.PartialText) => {
