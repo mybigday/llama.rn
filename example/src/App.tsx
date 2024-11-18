@@ -383,22 +383,32 @@ export default function App() {
         {
           messages: msgs,
           n_predict: 100,
+          grammar,
+          seed: -1,
+          n_probs: 0,
+
+          // Sampling params
+          top_k: 40,
+          top_p: 0.5,
+          min_p: 0.05,
           xtc_probability: 0.5,
           xtc_threshold: 0.1,
+          typical_p: 1.0,
           temperature: 0.7,
-          top_k: 40, // <= 0 to use vocab size
-          top_p: 0.5, // 1.0 = disabled
-          typical_p: 1.0, // 1.0 = disabled
-          penalty_last_n: 256, // 0 = disable penalty, -1 = context size
-          penalty_repeat: 1.18, // 1.0 = disabled
-          penalty_freq: 0.0, // 0.0 = disabled
-          penalty_present: 0.0, // 0.0 = disabled
-          mirostat: 0, // 0/1/2
-          mirostat_tau: 5, // target entropy
-          mirostat_eta: 0.1, // learning rate
-          penalize_nl: false, // penalize newlines
-          seed: -1, // random seed
-          n_probs: 0, // Show probabilities
+          penalty_last_n: 64,
+          penalty_repeat: 1.0,
+          penalty_freq: 0.0,
+          penalty_present: 0.0,
+          dry_multiplier: 0,
+          dry_base: 1.75,
+          dry_allowed_length: 2,
+          dry_penalty_last_n: -1,
+          dry_sequence_breakers: ["\n", ":", "\"", "*"],
+          mirostat: 0,
+          mirostat_tau: 5,
+          mirostat_eta: 0.1,
+          penalize_nl: false,
+          ignore_eos: false,
           stop: [
             '</s>',
             '<|end|>',
@@ -410,12 +420,6 @@ export default function App() {
             '<|end_of_turn|>',
             '<|endoftext|>',
           ],
-          dry_multiplier: 1,
-          dry_base: 1.75,
-          dry_allowed_length: 200,    
-          dry_penalty_last_n: -1,
-          dry_sequence_breakers: ["\n", ":", "\"", "*"],
-          grammar,
           // n_threads: 4,
           // logit_bias: [[15043,1.0]],
         },
