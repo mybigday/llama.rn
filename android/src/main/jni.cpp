@@ -535,6 +535,11 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jobjectArray stop,
     jboolean ignore_eos,
     jobjectArray logit_bias,
+    jfloat   dry_multiplier,
+    jfloat   dry_base,
+    jint dry_allowed_length,    
+    jint dry_penalty_last_n,
+    jobjectArray dry_sequence_breakers,
     jobject partial_completion_callback
 ) {
     UNUSED(thiz);
@@ -573,12 +578,32 @@ Java_com_rnllama_LlamaContext_doCompletion(
     sparams.grammar = env->GetStringUTFChars(grammar, nullptr);
     sparams.xtc_threshold = xtc_threshold;
     sparams.xtc_probability = xtc_probability;
+    sparams.dry_multiplier = dry_multiplier;
+    sparams.dry_base = dry_base;
+    sparams.dry_allowed_length = dry_allowed_length;
+    sparams.dry_penalty_last_n = dry_penalty_last_n;
 
     sparams.logit_bias.clear();
     if (ignore_eos) {
         sparams.logit_bias[llama_token_eos(llama->model)].bias = -INFINITY;
     }
 
+    // dry break seq
+
+    jint size = env->GetArrayLength(dry_sequence_breakers);
+    std::vector<std::string> dry_sequence_breakers_vector;
+
+    for (jint i = 0; i < size; i++) {
+        jstring javaString = (jstring)env->GetObjectArrayElement(dry_sequence_breakers, i);
+        const char *nativeString = env->GetStringUTFChars(javaString, 0);
+        dry_sequence_breakers_vector.push_back(std::string(nativeString));
+        env->ReleaseStringUTFChars(javaString, nativeString);
+        env->DeleteLocalRef(javaString);
+    }
+
+    sparams.dry_sequence_breakers = dry_sequence_breakers_vector;
+
+    // logit bias
     const int n_vocab = llama_n_vocab(llama_get_model(llama->ctx));
     jsize logit_bias_len = env->GetArrayLength(logit_bias);
 

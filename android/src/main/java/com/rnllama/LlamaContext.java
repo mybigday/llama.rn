@@ -237,6 +237,16 @@ public class LlamaContext {
       params.hasKey("ignore_eos") ? params.getBoolean("ignore_eos") : false,
       // double[][] logit_bias,
       logit_bias,
+      // float dry_multiplier,
+      params.hasKey("dry_multiplier") ? (float) params.getDouble("dry_multiplier") : 0.00f,
+      // float dry_base,
+      params.hasKey("dry_base") ? (float) params.getDouble("dry_base") : 1.75f,
+      // int dry_allowed_length,
+      params.hasKey("dry_allowed_length") ? params.getInt("dry_allowed_length") : 2,
+      // int dry_penalty_last_n,
+      params.hasKey("dry_penalty_last_n") ? params.getInt("dry_penalty_last_n") : -1,
+      // String[] dry_sequence_breakers, when undef, we use the default definition from common.h
+      params.hasKey("dry_sequence_breakers") ? params.getArray("dry_sequence_breakers").toArrayList().toArray(new String[0]) : new String[]{"\n", ":", "\"", "*"},
       // PartialCompletionCallback partial_completion_callback
       new PartialCompletionCallback(
         this,
@@ -445,6 +455,11 @@ public class LlamaContext {
     String[] stop,
     boolean ignore_eos,
     double[][] logit_bias,
+    float   dry_multiplier,
+    float   dry_base,
+    int dry_allowed_length,    
+    int dry_penalty_last_n,
+    String[] dry_sequence_breakers,
     PartialCompletionCallback partial_completion_callback
   );
   protected static native void stopCompletion(long contextPtr);
