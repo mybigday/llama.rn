@@ -74,7 +74,7 @@ function buildRepetition(
   return result
 }
 
-class BuiltinRule {
+export class SchemaGrammarConverterBuiltinRule {
   content: string
 
   deps: string[]
@@ -85,9 +85,11 @@ class BuiltinRule {
   }
 }
 
+const BuiltinRule = SchemaGrammarConverterBuiltinRule
+
 const UP_TO_15_DIGITS = buildRepetition('[0-9]', 0, 15)
 
-const PRIMITIVE_RULES: { [key: string]: BuiltinRule } = {
+const PRIMITIVE_RULES: { [key: string]: SchemaGrammarConverterBuiltinRule } = {
   boolean: new BuiltinRule('("true" | "false") space', []),
   'decimal-part': new BuiltinRule(`[0-9] ${UP_TO_15_DIGITS}`, []),
   'integral-part': new BuiltinRule(`[0-9] | [1-9] ${UP_TO_15_DIGITS}`, []),
@@ -126,7 +128,7 @@ const PRIMITIVE_RULES: { [key: string]: BuiltinRule } = {
 }
 
 // TODO: support "uri", "email" string formats
-const STRING_FORMAT_RULES: { [key: string]: BuiltinRule } = {
+const STRING_FORMAT_RULES: { [key: string]: SchemaGrammarConverterBuiltinRule } = {
   date: new BuiltinRule(
     '[0-9] [0-9] [0-9] [0-9] "-" ( "0" [1-9] | "1" [0-2] ) "-" ( "0" [1-9] | [1-2] [0-9] | "3" [0-1] )',
     [],
@@ -173,7 +175,7 @@ const formatLiteral = (literal: string): string => {
 const generateConstantRule = (value: any): string =>
   formatLiteral(JSON.stringify(value))
 
-interface PropOrder {
+export interface SchemaGrammarConverterPropOrder {
   [key: string]: number
 }
 
@@ -196,7 +198,7 @@ function* groupBy(iterable: Iterable<any>, keyFn: (x: any) => any) {
 }
 
 export class SchemaGrammarConverter {
-  private _propOrder: PropOrder
+  private _propOrder: SchemaGrammarConverterPropOrder
 
   private _allowFetch: boolean
 
@@ -209,7 +211,7 @@ export class SchemaGrammarConverter {
   private _refsBeingResolved: Set<string>
 
   constructor(options: {
-    prop_order?: PropOrder
+    prop_order?: SchemaGrammarConverterPropOrder
     allow_fetch?: boolean
     dotall?: boolean
   }) {
@@ -690,7 +692,7 @@ export class SchemaGrammarConverter {
     }
   }
 
-  _addPrimitive(name: string, rule: BuiltinRule | undefined) {
+  _addPrimitive(name: string, rule: SchemaGrammarConverterBuiltinRule | undefined) {
     if (!rule) {
       throw new Error(`Rule ${name} not known`)
     }
@@ -828,7 +830,7 @@ export const convertJsonSchemaToGrammar = ({
   allowFetch,
 }: {
   schema: any
-  propOrder?: PropOrder
+  propOrder?: SchemaGrammarConverterPropOrder
   dotall?: boolean
   allowFetch?: boolean
 }): string | Promise<string> => {
