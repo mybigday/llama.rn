@@ -214,6 +214,21 @@ export class LlamaContext {
     }
   }
 
+  async applyLoraAdapters(
+    loraAdapters: Array<{ path: string; scaled?: number }>,
+    removePrevious: boolean,
+  ): Promise<void> {
+    return RNLlama.applyLoraAdapters(this.id, loraAdapters, removePrevious)
+  }
+
+  async removeLoraAdapters(): Promise<void> {
+    return RNLlama.removeLoraAdapters(this.id)
+  }
+
+  async getLoadedLoraAdapters(): Promise<Array<{ path: string; scaled?: number }>> {
+    return RNLlama.getLoadedLoraAdapters(this.id)
+  }
+
   async release(): Promise<void> {
     return RNLlama.releaseContext(this.id)
   }
