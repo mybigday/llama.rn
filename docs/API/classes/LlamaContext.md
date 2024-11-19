@@ -38,11 +38,11 @@
 
 | Name | Type |
 | :------ | :------ |
-| `«destructured»` | `NativeLlamaContext` |
+| `«destructured»` | [`NativeLlamaContext`](../README.md#nativellamacontext) |
 
 #### Defined in
 
-[index.ts:79](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L79)
+[index.ts:105](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L105)
 
 ## Properties
 
@@ -52,7 +52,7 @@
 
 #### Defined in
 
-[index.ts:71](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L71)
+[index.ts:97](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L97)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 #### Defined in
 
-[index.ts:69](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L69)
+[index.ts:95](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L95)
 
 ___
 
@@ -78,7 +78,7 @@ ___
 
 #### Defined in
 
-[index.ts:75](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L75)
+[index.ts:101](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L101)
 
 ___
 
@@ -88,7 +88,7 @@ ___
 
 #### Defined in
 
-[index.ts:73](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L73)
+[index.ts:99](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L99)
 
 ## Methods
 
@@ -111,13 +111,13 @@ ___
 
 #### Defined in
 
-[index.ts:171](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L171)
+[index.ts:197](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L197)
 
 ___
 
 ### completion
 
-▸ **completion**(`params`, `callback?`): `Promise`<`NativeCompletionResult`\>
+▸ **completion**(`params`, `callback?`): `Promise`<[`NativeCompletionResult`](../README.md#nativecompletionresult)\>
 
 #### Parameters
 
@@ -128,11 +128,11 @@ ___
 
 #### Returns
 
-`Promise`<`NativeCompletionResult`\>
+`Promise`<[`NativeCompletionResult`](../README.md#nativecompletionresult)\>
 
 #### Defined in
 
-[index.ts:115](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L115)
+[index.ts:141](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L141)
 
 ___
 
@@ -152,28 +152,28 @@ ___
 
 #### Defined in
 
-[index.ts:160](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L160)
+[index.ts:186](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L186)
 
 ___
 
 ### embedding
 
-▸ **embedding**(`text`, `params?`): `Promise`<`NativeEmbeddingResult`\>
+▸ **embedding**(`text`, `params?`): `Promise`<[`NativeEmbeddingResult`](../README.md#nativeembeddingresult)\>
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `text` | `string` |
-| `params?` | `NativeEmbeddingParams` |
+| `params?` | [`NativeEmbeddingParams`](../README.md#nativeembeddingparams) |
 
 #### Returns
 
-`Promise`<`NativeEmbeddingResult`\>
+`Promise`<[`NativeEmbeddingResult`](../README.md#nativeembeddingresult)\>
 
 #### Defined in
 
-[index.ts:164](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L164)
+[index.ts:190](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L190)
 
 ___
 
@@ -185,7 +185,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `messages` | `RNLlamaOAICompatibleMessage`[] |
+| `messages` | [`RNLlamaOAICompatibleMessage`](../README.md#rnllamaoaicompatiblemessage)[] |
 | `template?` | `string` |
 
 #### Returns
@@ -194,13 +194,13 @@ ___
 
 #### Defined in
 
-[index.ts:105](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L105)
+[index.ts:131](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L131)
 
 ___
 
 ### loadSession
 
-▸ **loadSession**(`filepath`): `Promise`<`NativeSessionLoadResult`\>
+▸ **loadSession**(`filepath`): `Promise`<[`NativeSessionLoadResult`](../README.md#nativesessionloadresult)\>
 
 Load cached prompt & completion state from a file.
 
@@ -212,11 +212,11 @@ Load cached prompt & completion state from a file.
 
 #### Returns
 
-`Promise`<`NativeSessionLoadResult`\>
+`Promise`<[`NativeSessionLoadResult`](../README.md#nativesessionloadresult)\>
 
 #### Defined in
 
-[index.ts:89](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L89)
+[index.ts:115](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L115)
 
 ___
 
@@ -230,7 +230,7 @@ ___
 
 #### Defined in
 
-[index.ts:191](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L191)
+[index.ts:217](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L217)
 
 ___
 
@@ -254,7 +254,7 @@ Save current cached prompt & completion state to a file.
 
 #### Defined in
 
-[index.ts:98](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L98)
+[index.ts:124](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L124)
 
 ___
 
@@ -268,13 +268,13 @@ ___
 
 #### Defined in
 
-[index.ts:152](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L152)
+[index.ts:178](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L178)
 
 ___
 
 ### tokenize
 
-▸ **tokenize**(`text`): `Promise`<`NativeTokenizeResult`\>
+▸ **tokenize**(`text`): `Promise`<[`NativeTokenizeResult`](../README.md#nativetokenizeresult)\>
 
 #### Parameters
 
@@ -284,8 +284,8 @@ ___
 
 #### Returns
 
-`Promise`<`NativeTokenizeResult`\>
+`Promise`<[`NativeTokenizeResult`](../README.md#nativetokenizeresult)\>
 
 #### Defined in
 
-[index.ts:156](https://github.com/mybigday/llama.rn/blob/68acf1a/src/index.ts#L156)
+[index.ts:182](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L182)

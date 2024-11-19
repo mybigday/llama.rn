@@ -93,7 +93,10 @@ export default function App() {
     console.log(`Model info (took ${Date.now() - t0}ms): `, info)
   }
 
-  const handleInitContext = async (file: DocumentPickerResponse) => {
+  const handleInitContext = async (
+    file: DocumentPickerResponse,
+    loraFile?: DocumentPickerResponse,
+  ) => {
     await handleReleaseContext()
     await getModelInfo(file.uri)
     const msgId = addSystemMessage('Initializing context...')
@@ -103,7 +106,9 @@ export default function App() {
         model: file.uri,
         use_mlock: true,
         n_gpu_layers: Platform.OS === 'ios' ? 99 : 0, // > 0: enable GPU
+
         // embedding: true,
+        lora: loraFile?.uri,
       },
       (progress) => {
         setMessages((msgs) => {
@@ -147,39 +152,48 @@ export default function App() {
       })
   }
 
-  const handlePickModel = async () => {
-    DocumentPicker.pick({
-      type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
-    })
-      .then(async (res) => {
-        let [file] = res
-        if (file) {
-          if (Platform.OS === 'android' && file.uri.startsWith('content://')) {
-            const dir = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/models`
-            if (!(await ReactNativeBlobUtil.fs.isDir(dir)))
-              await ReactNativeBlobUtil.fs.mkdir(dir)
+  const copyFileIfNeeded = async (
+    type = 'model',
+    file: DocumentPickerResponse,
+  ) => {
+    if (Platform.OS === 'android' && file.uri.startsWith('content://')) {
+      const dir = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/${type}s`
+      const filepath = `${dir}/${file.uri.split('/').pop() || type}.gguf`
 
-            const filepath = `${dir}/${
-              file.uri.split('/').pop() || 'model'
-            }.gguf`
-            if (await ReactNativeBlobUtil.fs.exists(filepath)) {
-              handleInitContext({ uri: filepath } as DocumentPickerResponse)
-              return
-            } else {
-              await ReactNativeBlobUtil.fs.unlink(dir) // Clean up old files in models
-            }
-            addSystemMessage('Copying model to internal storage...')
-            await ReactNativeBlobUtil.MediaCollection.copyToInternal(
-              file.uri,
-              filepath,
-            )
-            addSystemMessage('Model copied!')
-            file = { uri: filepath } as DocumentPickerResponse
-          }
-          handleInitContext(file)
-        }
-      })
-      .catch((e) => console.log('No file picked, error: ', e.message))
+      if (!(await ReactNativeBlobUtil.fs.isDir(dir)))
+        await ReactNativeBlobUtil.fs.mkdir(dir)
+
+      if (await ReactNativeBlobUtil.fs.exists(filepath))
+        return { uri: filepath } as DocumentPickerResponse
+
+      await ReactNativeBlobUtil.fs.unlink(dir) // Clean up old files in models
+
+      addSystemMessage(`Copying ${type} to internal storage...`)
+      await ReactNativeBlobUtil.MediaCollection.copyToInternal(
+        file.uri,
+        filepath,
+      )
+      addSystemMessage(`${type} copied!`)
+      return { uri: filepath } as DocumentPickerResponse
+    }
+    return file
+  }
+
+  const handlePickModel = async () => {
+    const modelRes = await DocumentPicker.pick({
+      type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
+    }).catch((e) => console.log('No model file picked, error: ', e.message))
+    if (!modelRes?.[0]) return
+    const modelFile = await copyFileIfNeeded('model', modelRes?.[0])
+
+    let loraFile
+    // Example: Apply lora adapter (Currently only select one lora file) (Uncomment to use)
+    // const loraRes = await DocumentPicker.pick({
+    //   type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
+    // }).catch(e => console.log('No lora file picked, error: ', e.message))
+    // if (loraRes?.[0]) loraFile = await copyFileIfNeeded('lora', loraRes[0])
+
+    handleInitContext(modelFile, loraFile)
   }
 
   const handleSendPress = async (message: MessageType.PartialText) => {
@@ -383,22 +397,32 @@ export default function App() {
         {
           messages: msgs,
           n_predict: 100,
+          grammar,
+          seed: -1,
+          n_probs: 0,
+
+          // Sampling params
+          top_k: 40,
+          top_p: 0.5,
+          min_p: 0.05,
           xtc_probability: 0.5,
           xtc_threshold: 0.1,
+          typical_p: 1.0,
           temperature: 0.7,
-          top_k: 40, // <= 0 to use vocab size
-          top_p: 0.5, // 1.0 = disabled
-          typical_p: 1.0, // 1.0 = disabled
-          penalty_last_n: 256, // 0 = disable penalty, -1 = context size
-          penalty_repeat: 1.18, // 1.0 = disabled
-          penalty_freq: 0.0, // 0.0 = disabled
-          penalty_present: 0.0, // 0.0 = disabled
-          mirostat: 0, // 0/1/2
-          mirostat_tau: 5, // target entropy
-          mirostat_eta: 0.1, // learning rate
-          penalize_nl: false, // penalize newlines
-          seed: -1, // random seed
-          n_probs: 0, // Show probabilities
+          penalty_last_n: 64,
+          penalty_repeat: 1.0,
+          penalty_freq: 0.0,
+          penalty_present: 0.0,
+          dry_multiplier: 0,
+          dry_base: 1.75,
+          dry_allowed_length: 2,
+          dry_penalty_last_n: -1,
+          dry_sequence_breakers: ["\n", ":", "\"", "*"],
+          mirostat: 0,
+          mirostat_tau: 5,
+          mirostat_eta: 0.1,
+          penalize_nl: false,
+          ignore_eos: false,
           stop: [
             '</s>',
             '<|end|>',
@@ -410,12 +434,6 @@ export default function App() {
             '<|end_of_turn|>',
             '<|endoftext|>',
           ],
-          dry_multiplier: 1,
-          dry_base: 1.75,
-          dry_allowed_length: 200,    
-          dry_penalty_last_n: -1,
-          dry_sequence_breakers: ["\n", ":", "\"", "*"],
-          grammar,
           // n_threads: 4,
           // logit_bias: [[15043,1.0]],
         },
