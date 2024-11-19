@@ -34,8 +34,18 @@ export type NativeContextParams = {
   use_mmap?: boolean
   vocab_only?: boolean
 
-  lora?: string // lora_adaptor
+  /**
+   * Single LoRA adapter path
+   */
+  lora?: string
+  /**
+   * Single LoRA adapter scale
+   */
   lora_scaled?: number
+  /**
+   * LoRA adapter list
+   */
+  lora_list?: Array<{ path: string; scaled?: number }>
 
   rope_freq_base?: number
   rope_freq_scale?: number

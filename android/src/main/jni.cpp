@@ -12,6 +12,7 @@
 #include "llama-impl.h"
 #include "ggml.h"
 #include "rn-llama.hpp"
+#include "jni-utils.h"
 
 #define UNUSED(x) (void)(x)
 #define TAG "RNLLAMA_ANDROID_JNI"
@@ -235,6 +236,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jboolean vocab_only,
     jstring lora_str,
     jfloat lora_scaled,
+    jobject lora_adapters,
     jfloat rope_freq_base,
     jfloat rope_freq_scale,
     jint pooling_type,
@@ -287,6 +289,20 @@ Java_com_rnllama_LlamaContext_initContext(
     const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
     if (lora_chars != nullptr && lora_chars[0] != '\0') {
         defaultParams.lora_adapters.push_back({lora_chars, lora_scaled});
+    }
+
+    // lora_adapters: ReadableArray<ReadableMap>
+    int lora_adapters_size = readablearray::size(env, lora_adapters);
+    for (int i = 0; i < lora_adapters_size; i++) {
+        jobject lora_adapter = readablearray::getMap(env, lora_adapters, i);
+        jstring path = readablemap::getString(env, lora_adapter, "path", nullptr);
+        if (path != nullptr) {
+          const char *path_chars = env->GetStringUTFChars(path, nullptr);
+          env->ReleaseStringUTFChars(path, path_chars);
+          float scaled = readablemap::getFloat(env, lora_adapter, "scaled", 1.0f);
+
+          defaultParams.lora_adapters.push_back({path_chars, scaled});
+        }
     }
 
     defaultParams.rope_freq_base = rope_freq_base;
@@ -537,7 +553,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jobjectArray logit_bias,
     jfloat   dry_multiplier,
     jfloat   dry_base,
-    jint dry_allowed_length,    
+    jint dry_allowed_length,
     jint dry_penalty_last_n,
     jobjectArray dry_sequence_breakers,
     jobject partial_completion_callback

@@ -108,7 +108,7 @@ export default function App() {
         n_gpu_layers: Platform.OS === 'ios' ? 99 : 0, // > 0: enable GPU
 
         // embedding: true,
-        lora: loraFile?.uri,
+        lora_list: loraFile ? [{ path: loraFile.uri, scaled: 1.0 }] : undefined, // Or lora: loraFile?.uri,
       },
       (progress) => {
         setMessages((msgs) => {

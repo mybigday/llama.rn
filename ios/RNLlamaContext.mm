@@ -116,6 +116,16 @@
         defaultParams.lora_adapters.push_back({[params[@"lora"] UTF8String], lora_scaled});
     }
 
+    if (params[@"lora_list"] && [params[@"lora_list"] isKindOfClass:[NSArray class]]) {
+        NSArray *lora_list = params[@"lora_list"];
+        for (NSDictionary *lora_adapter in lora_list) {
+          NSString *path = lora_adapter[@"path"];
+          if (!path) continue;
+          float scale = [lora_adapter[@"scaled"] floatValue];
+          defaultParams.lora_adapters.push_back({[path UTF8String], scale});
+        }
+    }
+
     if (params[@"rope_freq_base"]) defaultParams.rope_freq_base = [params[@"rope_freq_base"] floatValue];
     if (params[@"rope_freq_scale"]) defaultParams.rope_freq_scale = [params[@"rope_freq_scale"] floatValue];
 
