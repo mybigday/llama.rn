@@ -292,6 +292,19 @@
     if (params[@"xtc_probability"]) sparams.xtc_probability = [params[@"xtc_probability"] doubleValue];
     if (params[@"typical_p"]) sparams.typ_p = [params[@"typical_p"] doubleValue];
 
+    if (params[@"dry_multiplier"]) sparams.dry_multiplier = [params[@"dry_multiplier"] doubleValue];
+    if (params[@"dry_base"]) sparams.dry_base = [params[@"dry_base"] doubleValue];
+    if (params[@"dry_allowed_length"]) sparams.dry_allowed_length = [params[@"dry_allowed_length"] intValue];
+    if (params[@"dry_penalty_last_n"]) sparams.dry_penalty_last_n = [params[@"dry_penalty_last_n"] intValue];
+
+    // dry break seq
+    if (params[@"dry_sequence_breakers"] && [params[@"dry_sequence_breakers"] isKindOfClass:[NSArray class]]) {
+        NSArray *dry_sequence_breakers = params[@"dry_sequence_breakers"];
+        for (NSString *s in dry_sequence_breakers) {
+            sparams.dry_sequence_breakers.push_back([s UTF8String]);
+        }
+    }
+
     if (params[@"grammar"]) {
         sparams.grammar = [params[@"grammar"] UTF8String];
     }
