@@ -303,6 +303,22 @@ public class LlamaContext {
     return bench(this.context, pp, tg, pl, nr);
   }
 
+  public int applyLoraAdapters(ReadableArray loraAdapters, boolean removePrevious) {
+    int result = applyLoraAdapters(this.context, loraAdapters, removePrevious);
+    if (result != 0) {
+      throw new IllegalStateException("Failed to apply lora adapters");
+    }
+    return result;
+  }
+
+  public void removeLoraAdapters() {
+    removeLoraAdapters(this.context);
+  }
+
+  public WritableArray getLoadedLoraAdapters() {
+    return getLoadedLoraAdapters(this.context);
+  }
+
   public void release() {
     freeContext(context);
   }
@@ -476,6 +492,9 @@ public class LlamaContext {
     int embd_normalize
   );
   protected static native String bench(long contextPtr, int pp, int tg, int pl, int nr);
+  protected static native int applyLoraAdapters(long contextPtr, ReadableArray loraAdapters, boolean removePrevious);
+  protected static native void removeLoraAdapters(long contextPtr);
+  protected static native WritableArray getLoadedLoraAdapters(long contextPtr);
   protected static native void freeContext(long contextPtr);
   protected static native void logToAndroid();
 }

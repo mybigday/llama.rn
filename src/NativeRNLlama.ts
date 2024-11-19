@@ -247,7 +247,10 @@ export interface Spec extends TurboModule {
   setContextLimit(limit: number): Promise<void>
 
   modelInfo(path: string, skip?: string[]): Promise<Object>
-  initContext(contextId: number, params: NativeContextParams): Promise<NativeLlamaContext>
+  initContext(
+    contextId: number,
+    params: NativeContextParams,
+  ): Promise<NativeLlamaContext>
 
   getFormattedChat(
     contextId: number,
@@ -282,6 +285,16 @@ export interface Spec extends TurboModule {
     pl: number,
     nr: number,
   ): Promise<string>
+
+  applyLoraAdapters(
+    contextId: number,
+    loraAdapters: Array<{ path: string; scaled?: number }>,
+    removePrevious: boolean,
+  ): Promise<void>
+  removeLoraAdapters(contextId: number): Promise<void>
+  getLoadedLoraAdapters(
+    contextId: number,
+  ): Promise<Array<{ path: string; scaled?: number }>>
 
   releaseContext(contextId: number): Promise<void>
 

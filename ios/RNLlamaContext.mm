@@ -548,6 +548,36 @@
     return [NSString stringWithUTF8String:llama->bench(pp, tg, pl, nr).c_str()];
 }
 
+- (void)applyLoraAdapters:(NSArray *)loraAdapters removePrevious:(BOOL)removePrevious {
+    std::vector<common_lora_adapter_info> lora_adapters;
+    for (NSDictionary *loraAdapter in loraAdapters) {
+        common_lora_adapter_info la;
+        la.path = [loraAdapter[@"path"] UTF8String];
+        la.scale = [loraAdapter[@"scaled"] doubleValue];
+        lora_adapters.push_back(la);
+    }
+    int result = llama->applyLoraAdapters(lora_adapters, removePrevious);
+    if (result != 0) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to apply lora adapters" userInfo:nil];
+    }
+}
+
+- (void)removeLoraAdapters {
+    [llama removeLoraAdapters];
+}
+
+- (NSArray *)getLoadedLoraAdapters {
+    std::vector<common_lora_adapter_container> loaded_lora_adapters = llama->getLoadedLoraAdapters();
+    NSMutableArray *result = [[NSMutableArray alloc] init];
+    for (common_lora_adapter_container &la : loaded_lora_adapters) {
+        [result addObject:@{
+            @"path": [NSString stringWithUTF8String:la.path.c_str()],
+            @"scale": @(la.scale)
+        }];
+    }
+    return result;
+}
+
 - (void)invalidate {
     delete llama;
     // llama_backend_free();

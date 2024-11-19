@@ -892,6 +892,55 @@ Java_com_rnllama_LlamaContext_bench(
     return env->NewStringUTF(result.c_str());
 }
 
+JNIEXPORT jint JNICALL
+Java_com_rnllama_LlamaContext_applyLoraAdapters(
+    JNIEnv *env, jobject thiz, jlong context_ptr, jobjectArray loraAdapters, jboolean removePrevious) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    // lora_adapters: ReadableArray<ReadableMap>
+    std::vector<common_lora_adapter_info> lora_adapters;
+    int lora_adapters_size = readablearray::size(env, loraAdapters);
+    for (int i = 0; i < lora_adapters_size; i++) {
+        jobject lora_adapter = readablearray::getMap(env, loraAdapters, i);
+        jstring path = readablemap::getString(env, lora_adapter, "path", nullptr);
+        if (path != nullptr) {
+          const char *path_chars = env->GetStringUTFChars(path, nullptr);
+          env->ReleaseStringUTFChars(path, path_chars);
+          float scaled = readablemap::getFloat(env, lora_adapter, "scaled", 1.0f);
+
+          lora_adapters.push_back({path_chars, scaled});
+        }
+    }
+    return llama->applyLoraAdapters(lora_adapters, removePrevious);
+}
+
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_removeLoraAdapters(
+    JNIEnv *env, jobject thiz, jlong context_ptr) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    llama->removeLoraAdapters();
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_getLoadedLoraAdapters(
+    JNIEnv *env, jobject thiz, jlong context_ptr) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    auto loaded_lora_adapters = llama->getLoadedLoraAdapters();
+    auto result = createWritableArray(env);
+    for (common_lora_adapter_container &la : loaded_lora_adapters) {
+        auto map = createWriteableMap(env);
+        pushString(env, map, la.path.c_str());
+        pushDouble(env, map, la.scale);
+        pushMap(env, result, map);
+    }
+    return result;
+}
+
 JNIEXPORT void JNICALL
 Java_com_rnllama_LlamaContext_freeContext(
         JNIEnv *env, jobject thiz, jlong context_ptr) {

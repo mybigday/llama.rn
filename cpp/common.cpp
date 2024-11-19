@@ -973,6 +973,12 @@ void common_lora_adapters_apply(struct llama_context * ctx, std::vector<common_l
     }
 }
 
+void common_lora_adapters_remove(struct llama_context * ctx, std::vector<common_lora_adapter_container> & lora_adapters) {
+    for (auto & la : lora_adapters) {
+        llama_lora_adapter_remove(ctx, la.adapter);
+    }
+}
+
 struct llama_model_params common_model_params_to_llama(const common_params & params) {
     auto mparams = llama_model_default_params();
 
