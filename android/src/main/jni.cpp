@@ -236,7 +236,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jboolean vocab_only,
     jstring lora_str,
     jfloat lora_scaled,
-    jobject lora_adapters,
+    jobject lora_list,
     jfloat rope_freq_base,
     jfloat rope_freq_scale,
     jint pooling_type,
@@ -286,25 +286,6 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.use_mlock = use_mlock;
     defaultParams.use_mmap = use_mmap;
 
-    const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
-    if (lora_chars != nullptr && lora_chars[0] != '\0') {
-        defaultParams.lora_adapters.push_back({lora_chars, lora_scaled});
-    }
-
-    // lora_adapters: ReadableArray<ReadableMap>
-    int lora_adapters_size = readablearray::size(env, lora_adapters);
-    for (int i = 0; i < lora_adapters_size; i++) {
-        jobject lora_adapter = readablearray::getMap(env, lora_adapters, i);
-        jstring path = readablemap::getString(env, lora_adapter, "path", nullptr);
-        if (path != nullptr) {
-          const char *path_chars = env->GetStringUTFChars(path, nullptr);
-          env->ReleaseStringUTFChars(path, path_chars);
-          float scaled = readablemap::getFloat(env, lora_adapter, "scaled", 1.0f);
-
-          defaultParams.lora_adapters.push_back({path_chars, scaled});
-        }
-    }
-
     defaultParams.rope_freq_base = rope_freq_base;
     defaultParams.rope_freq_scale = rope_freq_scale;
 
@@ -338,7 +319,6 @@ Java_com_rnllama_LlamaContext_initContext(
     bool is_model_loaded = llama->loadModel(defaultParams);
 
     env->ReleaseStringUTFChars(model_path_str, model_path_chars);
-    env->ReleaseStringUTFChars(lora_str, lora_chars);
     env->ReleaseStringUTFChars(cache_type_k, cache_type_k_chars);
     env->ReleaseStringUTFChars(cache_type_v, cache_type_v_chars);
 
@@ -352,6 +332,38 @@ Java_com_rnllama_LlamaContext_initContext(
       context_map[(long) llama->ctx] = llama;
     } else {
       llama_free(llama->ctx);
+    }
+
+    std::vector<common_lora_adapter_info> lora_adapters;
+    const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
+    if (lora_chars != nullptr && lora_chars[0] != '\0') {
+      common_lora_adapter_info la;
+      la.path = lora_chars;
+      la.scale = lora_scaled;
+      lora_adapters.push_back(la);
+    }
+    env->ReleaseStringUTFChars(lora_str, lora_chars);
+
+    // lora_adapters: ReadableArray<ReadableMap>
+    int lora_list_size = readablearray::size(env, lora_list);
+    for (int i = 0; i < lora_list_size; i++) {
+        jobject lora_adapter = readablearray::getMap(env, lora_list, i);
+        jstring path = readablemap::getString(env, lora_adapter, "path", nullptr);
+        if (path != nullptr) {
+          const char *path_chars = env->GetStringUTFChars(path, nullptr);
+          common_lora_adapter_info la;
+          la.path = path_chars;
+          la.scale = readablemap::getFloat(env, lora_adapter, "scaled", 1.0f);
+          lora_adapters.push_back(la);
+          env->ReleaseStringUTFChars(path, path_chars);
+        }
+    }
+
+    int result = llama->applyLoraAdapters(lora_adapters);
+    if (result != 0) {
+      LOGI("[RNLlama] Failed to apply lora adapters");
+      llama_free(llama->ctx);
+      return -1;
     }
 
     return reinterpret_cast<jlong>(llama->ctx);
