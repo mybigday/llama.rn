@@ -14,7 +14,10 @@ import type {
   NativeCompletionTokenProbItem,
   NativeCompletionResultTimings,
 } from './NativeRNLlama'
-import type { SchemaGrammarConverterPropOrder, SchemaGrammarConverterBuiltinRule } from './grammar'
+import type {
+  SchemaGrammarConverterPropOrder,
+  SchemaGrammarConverterBuiltinRule,
+} from './grammar'
 import { SchemaGrammarConverter, convertJsonSchemaToGrammar } from './grammar'
 import type { RNLlamaMessagePart, RNLlamaOAICompatibleMessage } from './chat'
 import { formatChat } from './chat'
@@ -63,10 +66,26 @@ type TokenNativeEvent = {
 
 export type ContextParams = Omit<
   NativeContextParams,
-  'cache_type_k' | 'cache_type_v' |  'pooling_type'
+  'cache_type_k' | 'cache_type_v' | 'pooling_type'
 > & {
-  cache_type_k?: 'f16' | 'f32' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1'
-  cache_type_v?: 'f16' | 'f32' | 'q8_0' | 'q4_0' | 'q4_1' | 'iq4_nl' | 'q5_0' | 'q5_1'
+  cache_type_k?:
+    | 'f16'
+    | 'f32'
+    | 'q8_0'
+    | 'q4_0'
+    | 'q4_1'
+    | 'iq4_nl'
+    | 'q5_0'
+    | 'q5_1'
+  cache_type_v?:
+    | 'f16'
+    | 'f32'
+    | 'q8_0'
+    | 'q4_0'
+    | 'q4_1'
+    | 'iq4_nl'
+    | 'q5_0'
+    | 'q5_1'
   pooling_type?: 'none' | 'mean' | 'cls' | 'last' | 'rank'
 }
 
@@ -145,7 +164,10 @@ export class LlamaContext {
     let finalPrompt = params.prompt
     if (params.messages) {
       // messages always win
-      finalPrompt = await this.getFormattedChat(params.messages, params.chatTemplate)
+      finalPrompt = await this.getFormattedChat(
+        params.messages,
+        params.chatTemplate,
+      )
     }
 
     let tokenListener: any =
@@ -225,7 +247,9 @@ export class LlamaContext {
     return RNLlama.removeLoraAdapters(this.id)
   }
 
-  async getLoadedLoraAdapters(): Promise<Array<{ path: string; scaled?: number }>> {
+  async getLoadedLoraAdapters(): Promise<
+    Array<{ path: string; scaled?: number }>
+  > {
     return RNLlama.getLoadedLoraAdapters(this.id)
   }
 
@@ -269,6 +293,7 @@ export async function initLlama(
     is_model_asset: isModelAsset,
     pooling_type: poolingType,
     lora,
+    lora_list: loraList,
     ...rest
   }: ContextParams,
   onProgress?: (progress: number) => void,
@@ -278,6 +303,13 @@ export async function initLlama(
 
   let loraPath = lora
   if (loraPath?.startsWith('file://')) loraPath = loraPath.slice(7)
+
+  let loraAdapters: Array<{ path: string; scaled?: number }> = []
+  if (loraList)
+    loraAdapters = loraList.map((l) => ({
+      path: l.path.replace(/file:\/\//, ''),
+      scaled: l.scaled,
+    }))
 
   const contextId = contextIdCounter + contextIdRandom()
   contextIdCounter += 1
@@ -304,6 +336,7 @@ export async function initLlama(
     use_progress_callback: !!onProgress,
     pooling_type: poolType,
     lora: loraPath,
+    lora_list: loraAdapters,
     ...rest,
   }).catch((err: any) => {
     removeProgressListener?.remove()
