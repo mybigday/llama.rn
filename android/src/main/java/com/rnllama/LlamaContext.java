@@ -71,7 +71,7 @@ public class LlamaContext {
       // float lora_scaled,
       params.hasKey("lora_scaled") ? (float) params.getDouble("lora_scaled") : 1.0f,
       // ReadableArray lora_adapters,
-      params.hasKey("lora_adapters") ? params.getArray("lora_adapters") : null,
+      params.hasKey("lora_list") ? params.getArray("lora_list") : null,
       // float rope_freq_base,
       params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 0.0f,
       // float rope_freq_scale
@@ -424,7 +424,7 @@ public class LlamaContext {
     boolean vocab_only,
     String lora,
     float lora_scaled,
-    ReadableArray lora_adapters,
+    ReadableArray lora_list,
     float rope_freq_base,
     float rope_freq_scale,
     int pooling_type,

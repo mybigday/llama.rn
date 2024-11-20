@@ -727,6 +727,7 @@ struct llama_rn_context
     }
 
     int applyLoraAdapters(std::vector<common_lora_adapter_info> lora_adapters) {
+        this->lora_adapters.clear();
         auto containers = std::vector<common_lora_adapter_container>();
         for (auto & la : lora_adapters) {
             common_lora_adapter_container loaded_la;

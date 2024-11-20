@@ -468,6 +468,7 @@ public class RNLlama implements LifecycleEventListener {
           promise.reject(exception);
           return;
         }
+        promise.resolve(null);
       }
     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "removeLoraAdapters-" + contextId);
@@ -498,6 +499,7 @@ public class RNLlama implements LifecycleEventListener {
           promise.reject(exception);
           return;
         }
+        promise.resolve(result);
       }
     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "getLoadedLoraAdapters-" + contextId);

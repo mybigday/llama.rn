@@ -128,7 +128,7 @@ static inline void pushString(JNIEnv *env, jobject arr, const char *value) {
 // Method to push WritableMap into WritableArray
 static inline void pushMap(JNIEnv *env, jobject arr, jobject value) {
     jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableArray");
-    jmethodID pushMapMethod = env->GetMethodID(mapClass, "pushMap", "(Lcom/facebook/react/bridge/WritableMap;)V");
+    jmethodID pushMapMethod = env->GetMethodID(mapClass, "pushMap", "(Lcom/facebook/react/bridge/ReadableMap;)V");
 
     env->CallVoidMethod(arr, pushMapMethod, value);
 }
@@ -324,41 +324,42 @@ Java_com_rnllama_LlamaContext_initContext(
 
     LOGI("[RNLlama] is_model_loaded %s", (is_model_loaded ? "true" : "false"));
     if (is_model_loaded) {
-      if (embedding && llama_model_has_encoder(llama->model) && llama_model_has_decoder(llama->model)) {
-        LOGI("[RNLlama] computing embeddings in encoder-decoder models is not supported");
-        llama_free(llama->ctx);
-        return -1;
-      }
-      context_map[(long) llama->ctx] = llama;
+        if (embedding && llama_model_has_encoder(llama->model) && llama_model_has_decoder(llama->model)) {
+            LOGI("[RNLlama] computing embeddings in encoder-decoder models is not supported");
+            llama_free(llama->ctx);
+            return -1;
+        }
+        context_map[(long) llama->ctx] = llama;
     } else {
-      llama_free(llama->ctx);
+        llama_free(llama->ctx);
     }
 
     std::vector<common_lora_adapter_info> lora_adapters;
     const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
     if (lora_chars != nullptr && lora_chars[0] != '\0') {
-      common_lora_adapter_info la;
-      la.path = lora_chars;
-      la.scale = lora_scaled;
-      lora_adapters.push_back(la);
+        common_lora_adapter_info la;
+        la.path = lora_chars;
+        la.scale = lora_scaled;
+        lora_adapters.push_back(la);
     }
-    env->ReleaseStringUTFChars(lora_str, lora_chars);
 
-    // lora_adapters: ReadableArray<ReadableMap>
-    int lora_list_size = readablearray::size(env, lora_list);
-    for (int i = 0; i < lora_list_size; i++) {
-        jobject lora_adapter = readablearray::getMap(env, lora_list, i);
-        jstring path = readablemap::getString(env, lora_adapter, "path", nullptr);
-        if (path != nullptr) {
-          const char *path_chars = env->GetStringUTFChars(path, nullptr);
-          common_lora_adapter_info la;
-          la.path = path_chars;
-          la.scale = readablemap::getFloat(env, lora_adapter, "scaled", 1.0f);
-          lora_adapters.push_back(la);
-          env->ReleaseStringUTFChars(path, path_chars);
+    if (lora_list != nullptr) {
+        // lora_adapters: ReadableArray<ReadableMap>
+        int lora_list_size = readablearray::size(env, lora_list);
+        for (int i = 0; i < lora_list_size; i++) {
+            jobject lora_adapter = readablearray::getMap(env, lora_list, i);
+            jstring path = readablemap::getString(env, lora_adapter, "path", nullptr);
+            if (path != nullptr) {
+                const char *path_chars = env->GetStringUTFChars(path, nullptr);
+                common_lora_adapter_info la;
+                la.path = path_chars;
+                la.scale = readablemap::getFloat(env, lora_adapter, "scaled", 1.0f);
+                lora_adapters.push_back(la);
+                env->ReleaseStringUTFChars(path, path_chars);
+            }
         }
     }
-
+    env->ReleaseStringUTFChars(lora_str, lora_chars);
     int result = llama->applyLoraAdapters(lora_adapters);
     if (result != 0) {
       LOGI("[RNLlama] Failed to apply lora adapters");
@@ -920,8 +921,10 @@ Java_com_rnllama_LlamaContext_applyLoraAdapters(
           const char *path_chars = env->GetStringUTFChars(path, nullptr);
           env->ReleaseStringUTFChars(path, path_chars);
           float scaled = readablemap::getFloat(env, lora_adapter, "scaled", 1.0f);
-
-          lora_adapters.push_back({path_chars, scaled});
+          common_lora_adapter_info la;
+          la.path = path_chars;
+          la.scale = scaled;
+          lora_adapters.push_back(la);
         }
     }
     return llama->applyLoraAdapters(lora_adapters);
@@ -939,15 +942,14 @@ Java_com_rnllama_LlamaContext_removeLoraAdapters(
 JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_getLoadedLoraAdapters(
     JNIEnv *env, jobject thiz, jlong context_ptr) {
-    UNUSED(env);
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
     auto loaded_lora_adapters = llama->getLoadedLoraAdapters();
     auto result = createWritableArray(env);
     for (common_lora_adapter_container &la : loaded_lora_adapters) {
         auto map = createWriteableMap(env);
-        pushString(env, map, la.path.c_str());
-        pushDouble(env, map, la.scale);
+        putString(env, map, "path", la.path.c_str());
+        putDouble(env, map, "scaled", la.scale);
         pushMap(env, result, map);
     }
     return result;

@@ -195,7 +195,7 @@ export default function App() {
     if (!modelRes?.[0]) return
     const modelFile = await copyFileIfNeeded('model', modelRes?.[0])
 
-    let loraFile = null
+    let loraFile: any = null
     // Example: Apply lora adapter (Currently only select one lora file) (Uncomment to use)
     // loraFile = await pickLora()
     loraFile = null
@@ -297,6 +297,11 @@ export default function App() {
                 `Loaded lora adapters: ${JSON.stringify(loraList)}`,
               ),
             )
+          return
+        case '/remove-lora':
+          context.removeLoraAdapters().then(() => {
+            addSystemMessage('Lora adapters removed!')
+          })
           return
         case '/lora-list':
           context.getLoadedLoraAdapters().then((loraList) => {
