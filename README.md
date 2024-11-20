@@ -36,11 +36,15 @@ For get a GGUF model or quantize manually, see [`Prepare and Quantize`](https://
 ## Usage
 
 ```js
-import { initLlama } from 'llama.rn'
+import { initLlama, loadLlamaModelInfo } from 'llama.rn'
+
+// Load the Llama model information pre initializing the Llama context
+const modelPath = 'file://<path to gguf model>';
+await loadLlamaModelInfo(modelPath);
 
 // Initial a Llama context with the model (may take a while)
 const context = await initLlama({
-  model: 'file://<path to gguf model>',
+  model: modelPath,
   use_mlock: true,
   n_ctx: 2048,
   n_gpu_layers: 1, // > 0: enable Metal on iOS
