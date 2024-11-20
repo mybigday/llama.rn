@@ -93,8 +93,8 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
-  public void applyLoraAdapters(double id, final ReadableArray loraAdapters, final boolean removePrevious, final Promise promise) {
-    rnllama.applyLoraAdapters(id, loraAdapters, removePrevious, promise);
+  public void applyLoraAdapters(double id, final ReadableArray loraAdapters, final Promise promise) {
+    rnllama.applyLoraAdapters(id, loraAdapters, promise);
   }
 
   @ReactMethod

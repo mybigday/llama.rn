@@ -289,7 +289,6 @@ export interface Spec extends TurboModule {
   applyLoraAdapters(
     contextId: number,
     loraAdapters: Array<{ path: string; scaled?: number }>,
-    removePrevious: boolean,
   ): Promise<void>
   removeLoraAdapters(contextId: number): Promise<void>
   getLoadedLoraAdapters(

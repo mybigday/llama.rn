@@ -413,7 +413,7 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "bench-" + contextId);
   }
 
-  public void applyLoraAdapters(double id, final ReadableArray loraAdapters, final boolean removePrevious, final Promise promise) {
+  public void applyLoraAdapters(double id, final ReadableArray loraAdapters, final Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, Void>() {
       private Exception exception;
@@ -425,7 +425,7 @@ public class RNLlama implements LifecycleEventListener {
           if (context == null) {
             throw new Exception("Context not found");
           }
-          context.applyLoraAdapters(loraAdapters, removePrevious);
+          context.applyLoraAdapters(loraAdapters);
         } catch (Exception e) {
           exception = e;
         }

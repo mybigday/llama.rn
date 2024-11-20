@@ -273,12 +273,11 @@ RCT_EXPORT_METHOD(bench:(double)contextId
 
 RCT_EXPORT_METHOD(applyLoraAdapters:(double)contextId
                  withLoraAdapters:(NSArray *)loraAdapters
-                 removePrevious:(BOOL)removePrevious
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
     RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
-    [context applyLoraAdapters:loraAdapters removePrevious:removePrevious];
+    [context applyLoraAdapters:loraAdapters];
     resolve(nil);
 }
 

@@ -237,10 +237,15 @@ export class LlamaContext {
   }
 
   async applyLoraAdapters(
-    loraAdapters: Array<{ path: string; scaled?: number }>,
-    removePrevious: boolean,
+    loraList: Array<{ path: string; scaled?: number }>
   ): Promise<void> {
-    return RNLlama.applyLoraAdapters(this.id, loraAdapters, removePrevious)
+    let loraAdapters: Array<{ path: string; scaled?: number }> = []
+    if (loraList)
+      loraAdapters = loraList.map((l) => ({
+        path: l.path.replace(/file:\/\//, ''),
+        scaled: l.scaled,
+      }))
+    return RNLlama.applyLoraAdapters(this.id, loraAdapters)
   }
 
   async removeLoraAdapters(): Promise<void> {

@@ -726,11 +726,7 @@ struct llama_rn_context
             std::string("]");
     }
 
-    int applyLoraAdapters(std::vector<common_lora_adapter_info> lora_adapters, bool remove_previous = false) {
-        if (remove_previous) {
-            common_lora_adapters_remove(ctx, this->lora_adapters);
-            this->lora_adapters.clear();
-        }
+    int applyLoraAdapters(std::vector<common_lora_adapter_info> lora_adapters) {
         auto containers = std::vector<common_lora_adapter_container>();
         for (auto & la : lora_adapters) {
             common_lora_adapter_container loaded_la;

@@ -894,7 +894,7 @@ Java_com_rnllama_LlamaContext_bench(
 
 JNIEXPORT jint JNICALL
 Java_com_rnllama_LlamaContext_applyLoraAdapters(
-    JNIEnv *env, jobject thiz, jlong context_ptr, jobjectArray loraAdapters, jboolean removePrevious) {
+    JNIEnv *env, jobject thiz, jlong context_ptr, jobjectArray loraAdapters) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
 
@@ -912,7 +912,7 @@ Java_com_rnllama_LlamaContext_applyLoraAdapters(
           lora_adapters.push_back({path_chars, scaled});
         }
     }
-    return llama->applyLoraAdapters(lora_adapters, removePrevious);
+    return llama->applyLoraAdapters(lora_adapters);
 }
 
 JNIEXPORT void JNICALL

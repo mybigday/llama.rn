@@ -303,8 +303,8 @@ public class LlamaContext {
     return bench(this.context, pp, tg, pl, nr);
   }
 
-  public int applyLoraAdapters(ReadableArray loraAdapters, boolean removePrevious) {
-    int result = applyLoraAdapters(this.context, loraAdapters, removePrevious);
+  public int applyLoraAdapters(ReadableArray loraAdapters) {
+    int result = applyLoraAdapters(this.context, loraAdapters);
     if (result != 0) {
       throw new IllegalStateException("Failed to apply lora adapters");
     }
@@ -492,7 +492,7 @@ public class LlamaContext {
     int embd_normalize
   );
   protected static native String bench(long contextPtr, int pp, int tg, int pl, int nr);
-  protected static native int applyLoraAdapters(long contextPtr, ReadableArray loraAdapters, boolean removePrevious);
+  protected static native int applyLoraAdapters(long contextPtr, ReadableArray loraAdapters);
   protected static native void removeLoraAdapters(long contextPtr);
   protected static native WritableArray getLoadedLoraAdapters(long contextPtr);
   protected static native void freeContext(long contextPtr);
