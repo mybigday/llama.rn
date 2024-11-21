@@ -95,7 +95,7 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void applyLoraAdapters(double id, final ReadableArray loraAdapters, final Promise promise) {
-    rnllama.applyLoraAdapters(id, loraAdapters);
+    rnllama.applyLoraAdapters(id, loraAdapters, promise);
   }
 
   @ReactMethod
