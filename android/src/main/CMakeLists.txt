@@ -33,6 +33,7 @@ set(
     ${RNLLAMA_LIB_DIR}/sgemm.cpp
     ${RNLLAMA_LIB_DIR}/ggml-aarch64.c
     ${RNLLAMA_LIB_DIR}/rn-llama.hpp
+    ${CMAKE_SOURCE_DIR}/jni-utils.h
     ${CMAKE_SOURCE_DIR}/jni.cpp
 )
 

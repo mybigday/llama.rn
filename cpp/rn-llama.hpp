@@ -229,6 +229,8 @@ struct llama_rn_context
     std::string stopping_word;
     bool incomplete = false;
 
+    std::vector<common_lora_adapter_container> lora_adapters;
+
     ~llama_rn_context()
     {
         if (ctx)
@@ -722,6 +724,35 @@ struct llama_rn_context
             std::to_string(tg_avg) + std::string(",") +
             std::to_string(tg_std) +
             std::string("]");
+    }
+
+    int applyLoraAdapters(std::vector<common_lora_adapter_info> lora_adapters) {
+        this->lora_adapters.clear();
+        auto containers = std::vector<common_lora_adapter_container>();
+        for (auto & la : lora_adapters) {
+            common_lora_adapter_container loaded_la;
+            loaded_la.path = la.path;
+            loaded_la.scale = la.scale;
+            loaded_la.adapter = llama_lora_adapter_init(model, la.path.c_str());
+            if (loaded_la.adapter == nullptr) {
+                LOG_ERROR("%s: failed to apply lora adapter '%s'\n", __func__, la.path.c_str());
+                return -1;
+            }
+
+            this->lora_adapters.push_back(loaded_la);
+            containers.push_back(loaded_la);
+        }
+        common_lora_adapters_apply(ctx, containers);
+        return 0;
+    }
+
+    void removeLoraAdapters() {
+        this->lora_adapters.clear();
+        common_lora_adapters_apply(ctx, this->lora_adapters); // apply empty list
+    }
+
+    std::vector<common_lora_adapter_container> getLoadedLoraAdapters() {
+        return this->lora_adapters;
     }
 };
 

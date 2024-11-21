@@ -1,5 +1,5 @@
---- common.h.orig	2024-11-17 11:56:40
-+++ common.h	2024-11-17 11:56:41
+--- common.h.orig	2024-11-21 10:21:53
++++ common.h	2024-11-21 10:23:00
 @@ -41,6 +41,17 @@
 
  struct common_control_vector_load_info;

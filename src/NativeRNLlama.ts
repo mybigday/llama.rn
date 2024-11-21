@@ -34,8 +34,18 @@ export type NativeContextParams = {
   use_mmap?: boolean
   vocab_only?: boolean
 
-  lora?: string // lora_adaptor
+  /**
+   * Single LoRA adapter path
+   */
+  lora?: string
+  /**
+   * Single LoRA adapter scale
+   */
   lora_scaled?: number
+  /**
+   * LoRA adapter list
+   */
+  lora_list?: Array<{ path: string; scaled?: number }>
 
   rope_freq_base?: number
   rope_freq_scale?: number
@@ -237,7 +247,10 @@ export interface Spec extends TurboModule {
   setContextLimit(limit: number): Promise<void>
 
   modelInfo(path: string, skip?: string[]): Promise<Object>
-  initContext(contextId: number, params: NativeContextParams): Promise<NativeLlamaContext>
+  initContext(
+    contextId: number,
+    params: NativeContextParams,
+  ): Promise<NativeLlamaContext>
 
   getFormattedChat(
     contextId: number,
@@ -272,6 +285,15 @@ export interface Spec extends TurboModule {
     pl: number,
     nr: number,
   ): Promise<string>
+
+  applyLoraAdapters(
+    contextId: number,
+    loraAdapters: Array<{ path: string; scaled?: number }>,
+  ): Promise<void>
+  removeLoraAdapters(contextId: number): Promise<void>
+  getLoadedLoraAdapters(
+    contextId: number,
+  ): Promise<Array<{ path: string; scaled?: number }>>
 
   releaseContext(contextId: number): Promise<void>
 

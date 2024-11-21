@@ -93,6 +93,21 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
+  public void applyLoraAdapters(double id, final ReadableArray loraAdapters, final Promise promise) {
+    rnllama.applyLoraAdapters(id, loraAdapters, promise);
+  }
+
+  @ReactMethod
+  public void removeLoraAdapters(double id, final Promise promise) {
+    rnllama.removeLoraAdapters(id, promise);
+  }
+
+  @ReactMethod
+  public void getLoadedLoraAdapters(double id, final Promise promise) {
+    rnllama.getLoadedLoraAdapters(id, promise);
+  }
+
+  @ReactMethod
   public void releaseContext(double id, Promise promise) {
     rnllama.releaseContext(id, promise);
   }
