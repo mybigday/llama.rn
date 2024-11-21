@@ -1,5 +1,5 @@
---- common.cpp.orig	2024-11-19 11:11:05
-+++ common.cpp	2024-11-19 11:07:02
+--- common.cpp.orig	2024-11-21 10:21:53
++++ common.cpp	2024-11-21 10:22:56
 @@ -4,10 +4,6 @@
 
  #include "common.h"
@@ -33,19 +33,7 @@
 
  //
  // CPU utils
-@@ -973,12 +973,20 @@
-     }
- }
-
-+void common_lora_adapters_remove(struct llama_context * ctx, std::vector<common_lora_adapter_container> & lora_adapters) {
-+    for (auto & la : lora_adapters) {
-+        llama_lora_adapter_remove(ctx, la.adapter);
-+    }
-+}
-+
- struct llama_model_params common_model_params_to_llama(const common_params & params) {
-     auto mparams = llama_model_default_params();
-
+@@ -979,6 +979,8 @@
      if (params.n_gpu_layers != -1) {
          mparams.n_gpu_layers = params.n_gpu_layers;
      }
@@ -54,7 +42,7 @@
      mparams.rpc_servers     = params.rpc_servers.c_str();
      mparams.main_gpu        = params.main_gpu;
      mparams.split_mode      = params.split_mode;
-@@ -993,6 +1001,9 @@
+@@ -993,6 +995,9 @@
          mparams.kv_overrides = params.kv_overrides.data();
      }
 
@@ -64,11 +52,10 @@
      return mparams;
  }
 
-@@ -1117,221 +1128,7 @@
-
+@@ -1118,220 +1123,6 @@
      return false;
  }
--
+
 -static bool common_download_file(const std::string & url, const std::string & path, const std::string & hf_token) {
 -
 -    // Initialize libcurl
@@ -108,7 +95,7 @@
 -    nlohmann::json metadata;
 -    std::string etag;
 -    std::string last_modified;
-
+-
 -    if (file_exists) {
 -        // Try and read the JSON metadata file (note: stream autoclosed upon exiting this block).
 -        std::ifstream metadata_in(metadata_path);

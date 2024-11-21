@@ -476,9 +476,6 @@ struct llama_model * common_load_model_from_hf(const char * repo, const char * f
 // clear LoRA adapters from context, then apply new list of adapters
 void common_lora_adapters_apply(struct llama_context * ctx, std::vector<common_lora_adapter_container> & lora_adapters);
 
-// remove LoRA adapters from context
-void common_lora_adapters_remove(struct llama_context * ctx, std::vector<common_lora_adapter_container> & lora_adapters);
-
 // Batch utils
 
 void common_batch_clear(struct llama_batch & batch);

@@ -747,8 +747,8 @@ struct llama_rn_context
     }
 
     void removeLoraAdapters() {
-        common_lora_adapters_remove(ctx, this->lora_adapters);
         this->lora_adapters.clear();
+        common_lora_adapters_apply(ctx, this->lora_adapters); // apply empty list
     }
 
     std::vector<common_lora_adapter_container> getLoadedLoraAdapters() {
