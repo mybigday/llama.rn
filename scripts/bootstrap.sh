@@ -14,6 +14,7 @@ cp ./llama.cpp/ggml/include/ggml-opt.h ./cpp/ggml-opt.h
 cp ./llama.cpp/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
 
 cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal.m ./cpp/ggml-metal.m
+cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal-impl.h ./cpp/ggml-metal-impl.h
 
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu.c
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu.cpp
@@ -90,6 +91,7 @@ files_add_lm_prefix=(
   "./cpp/ggml-opt.cpp"
   "./cpp/ggml-metal.h"
   "./cpp/ggml-metal.m"
+  "./cpp/ggml-metal-impl.h"
   "./cpp/ggml-quants.h"
   "./cpp/ggml-quants.c"
   "./cpp/ggml-alloc.h"
