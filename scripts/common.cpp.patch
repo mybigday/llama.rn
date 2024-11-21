@@ -1,5 +1,5 @@
---- common.cpp.orig	2024-11-21 10:21:53
-+++ common.cpp	2024-11-21 10:22:56
+--- common.cpp.orig	2024-11-21 11:03:19
++++ common.cpp	2024-11-21 11:03:20
 @@ -4,10 +4,6 @@
 
  #include "common.h"
@@ -33,7 +33,7 @@
 
  //
  // CPU utils
-@@ -979,6 +979,8 @@
+@@ -985,6 +985,8 @@
      if (params.n_gpu_layers != -1) {
          mparams.n_gpu_layers = params.n_gpu_layers;
      }
@@ -42,7 +42,7 @@
      mparams.rpc_servers     = params.rpc_servers.c_str();
      mparams.main_gpu        = params.main_gpu;
      mparams.split_mode      = params.split_mode;
-@@ -993,6 +995,9 @@
+@@ -999,6 +1001,9 @@
          mparams.kv_overrides = params.kv_overrides.data();
      }
 
@@ -52,7 +52,7 @@
      return mparams;
  }
 
-@@ -1118,220 +1123,6 @@
+@@ -1124,220 +1129,6 @@
      return false;
  }
 

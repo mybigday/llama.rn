@@ -10,9 +10,11 @@ cp ./llama.cpp/ggml/include/ggml-alloc.h ./cpp/ggml-alloc.h
 cp ./llama.cpp/ggml/include/ggml-backend.h ./cpp/ggml-backend.h
 cp ./llama.cpp/ggml/include/ggml-cpu.h ./cpp/ggml-cpu.h
 cp ./llama.cpp/ggml/include/ggml-cpp.h ./cpp/ggml-cpp.h
+cp ./llama.cpp/ggml/include/ggml-opt.h ./cpp/ggml-opt.h
 cp ./llama.cpp/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
 
 cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal.m ./cpp/ggml-metal.m
+cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal-impl.h ./cpp/ggml-metal-impl.h
 
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu.c
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu.cpp
@@ -32,6 +34,7 @@ cp ./llama.cpp/ggml/src/ggml-backend.cpp ./cpp/ggml-backend.cpp
 cp ./llama.cpp/ggml/src/ggml-backend-impl.h ./cpp/ggml-backend-impl.h
 cp ./llama.cpp/ggml/src/ggml-backend-reg.cpp ./cpp/ggml-backend-reg.cpp
 cp ./llama.cpp/ggml/src/ggml-common.h ./cpp/ggml-common.h
+cp ./llama.cpp/ggml/src/ggml-opt.cpp ./cpp/ggml-opt.cpp
 cp ./llama.cpp/ggml/src/ggml-quants.h ./cpp/ggml-quants.h
 cp ./llama.cpp/ggml/src/ggml-quants.c ./cpp/ggml-quants.c
 cp ./llama.cpp/ggml/src/ggml-aarch64.c ./cpp/ggml-aarch64.c
@@ -84,8 +87,11 @@ files_add_lm_prefix=(
   "./cpp/ggml.c"
   "./cpp/ggml-impl.h"
   "./cpp/ggml-cpp.h"
+  "./cpp/ggml-opt.h"
+  "./cpp/ggml-opt.cpp"
   "./cpp/ggml-metal.h"
   "./cpp/ggml-metal.m"
+  "./cpp/ggml-metal-impl.h"
   "./cpp/ggml-quants.h"
   "./cpp/ggml-quants.c"
   "./cpp/ggml-alloc.h"
