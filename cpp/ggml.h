@@ -602,7 +602,6 @@ extern "C" {
 
         int32_t flags;
 
-        struct lm_ggml_tensor * grad;
         struct lm_ggml_tensor * src[LM_GGML_MAX_SRC];
 
         // source tensor and offset for views
@@ -615,7 +614,7 @@ extern "C" {
 
         void * extra; // extra things e.g. for ggml-cuda.cu
 
-        // char padding[4];
+        char padding[8];
     };
 
     static const size_t LM_GGML_TENSOR_SIZE = sizeof(struct lm_ggml_tensor);
@@ -1985,28 +1984,20 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * grad,
-            float                 alpha,
-            float                 beta1,
-            float                 beta2,
-            float                 eps,
-            float                 wd); // weight decay
+            struct lm_ggml_tensor  * m,
+            struct lm_ggml_tensor  * v,
+            struct lm_ggml_tensor  * adamw_params); // parameters such a the learning rate
 
     //
     // automatic differentiation
     //
 
-    LM_GGML_API void lm_ggml_build_forward_expand (struct lm_ggml_cgraph * cgraph, struct lm_ggml_tensor * tensor);
-    LM_GGML_API void lm_ggml_build_backward_expand(struct lm_ggml_context * ctx, struct lm_ggml_cgraph * gf, struct lm_ggml_cgraph * gb, bool accumulate);
-
-    LM_GGML_API void lm_ggml_build_opt_adamw(
-            struct lm_ggml_context * ctx,
-            struct lm_ggml_cgraph  * gf,
-            struct lm_ggml_cgraph  * gb,
-            float                 alpha,
-            float                 beta1,
-            float                 beta2,
-            float                 eps,
-            float                 wd); // weight decay
+    LM_GGML_API void lm_ggml_build_forward_expand(struct lm_ggml_cgraph * cgraph, struct lm_ggml_tensor * tensor);
+    LM_GGML_API void lm_ggml_build_backward_expand(
+        struct lm_ggml_context * ctx_static,  // context for static gradients (loss + gradient accumulation)
+        struct lm_ggml_context * ctx_compute, // context for gradient computation
+        struct lm_ggml_cgraph  * cgraph,
+        bool                  accumulate); // whether or not gradients should be accumulated, requires static allocation of tensors in ctx_static
 
     // graph allocation in a context
     LM_GGML_API struct lm_ggml_cgraph * lm_ggml_new_graph       (struct lm_ggml_context * ctx); // size = LM_GGML_DEFAULT_GRAPH_SIZE, grads = false
@@ -2026,7 +2017,9 @@ extern "C" {
     LM_GGML_API size_t lm_ggml_graph_overhead(void);
     LM_GGML_API size_t lm_ggml_graph_overhead_custom(size_t size, bool grads);
 
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_graph_get_tensor(struct lm_ggml_cgraph * cgraph, const char * name);
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_graph_get_tensor  (const struct lm_ggml_cgraph * cgraph, const char * name);
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_graph_get_grad    (const struct lm_ggml_cgraph * cgraph, const struct lm_ggml_tensor * node);
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_graph_get_grad_acc(const struct lm_ggml_cgraph * cgraph, const struct lm_ggml_tensor * node);
 
     LM_GGML_API void                 lm_ggml_graph_export(const struct lm_ggml_cgraph * cgraph, const char * fname);
     LM_GGML_API struct lm_ggml_cgraph * lm_ggml_graph_import(const char * fname, struct lm_ggml_context ** ctx_data, struct lm_ggml_context ** ctx_eval);
@@ -2037,197 +2030,14 @@ extern "C" {
     // dump the graph into a file using the dot format
     LM_GGML_API void lm_ggml_graph_dump_dot(const struct lm_ggml_cgraph * gb, const struct lm_ggml_cgraph * gf, const char * filename);
 
-    // build gradient checkpointing backward graph gb for gf using provided checkpoints
-    // gb_tmp will contain original backward graph with rewritten backward process nodes,
-    // but without the second forward pass nodes.
-    LM_GGML_API void lm_ggml_build_backward_gradient_checkpointing(
-            struct lm_ggml_context   * ctx,
-            struct lm_ggml_cgraph    * gf,
-            struct lm_ggml_cgraph    * gb,
-            struct lm_ggml_cgraph    * gb_tmp,
-            struct lm_ggml_tensor  * * checkpoints,
-            int                     n_checkpoints);
-    //
-    // optimization
-    //
-
-    // optimization methods
-    enum lm_ggml_opt_type {
-        LM_GGML_OPT_TYPE_ADAM,
-        LM_GGML_OPT_TYPE_LBFGS,
-    };
-
-    // linesearch methods
-    enum lm_ggml_linesearch {
-        LM_GGML_LINESEARCH_DEFAULT = 1,
-
-        LM_GGML_LINESEARCH_BACKTRACKING_ARMIJO       = 0,
-        LM_GGML_LINESEARCH_BACKTRACKING_WOLFE        = 1,
-        LM_GGML_LINESEARCH_BACKTRACKING_STRONG_WOLFE = 2,
-    };
-
-    // optimization return values
-    enum lm_ggml_opt_result {
-        LM_GGML_OPT_RESULT_OK = 0,
-        LM_GGML_OPT_RESULT_DID_NOT_CONVERGE,
-        LM_GGML_OPT_RESULT_NO_CONTEXT,
-        LM_GGML_OPT_RESULT_INVALID_WOLFE,
-        LM_GGML_OPT_RESULT_FAIL,
-        LM_GGML_OPT_RESULT_CANCEL,
-
-        LM_GGML_LINESEARCH_FAIL = -128,
-        LM_GGML_LINESEARCH_MINIMUM_STEP,
-        LM_GGML_LINESEARCH_MAXIMUM_STEP,
-        LM_GGML_LINESEARCH_MAXIMUM_ITERATIONS,
-        LM_GGML_LINESEARCH_INVALID_PARAMETERS,
-    };
-
-    typedef void (*lm_ggml_opt_callback)(void * data, int accum_step, float * sched, bool * cancel);
+    // TODO these functions were sandwiched in the old optimization interface, is there a better place for them?
     typedef void (*lm_ggml_log_callback)(enum lm_ggml_log_level level, const char * text, void * user_data);
 
     // Set callback for all future logging events.
     // If this is not called, or NULL is supplied, everything is output on stderr.
     LM_GGML_API void lm_ggml_log_set(lm_ggml_log_callback log_callback, void * user_data);
 
-    // optimization parameters
-    //
-    //   see ggml.c (lm_ggml_opt_default_params) for default values
-    //
-    struct lm_ggml_opt_params {
-        enum lm_ggml_opt_type type;
-
-        size_t graph_size;
-
-        int n_threads;
-
-        // delta-based convergence test
-        //
-        //   if past == 0 - disabled
-        //   if past > 0:
-        //     stop if |f(x) - f(x_past)| < delta * max(1, |f(x)|)
-        //
-        int past;
-        float delta;
-
-        // maximum number of iterations without improvement
-        //
-        //   if 0 - disabled
-        //   if > 0:
-        //     assume convergence if no cost improvement in this number of iterations
-        //
-        int max_no_improvement;
-
-        bool print_forward_graph;
-        bool print_backward_graph;
-
-        int n_gradient_accumulation;
-
-        // ADAM parameters
-        struct {
-            int n_iter;
-
-            float sched; // schedule multiplier (fixed, decay or warmup)
-            float decay; // weight decay for AdamW, use 0.0f to disable
-            int   decay_min_ndim; // minimum number of tensor dimension to apply weight decay
-            float alpha; // learning rate
-            float beta1;
-            float beta2;
-            float eps;   // epsilon for numerical stability
-            float eps_f; // epsilon for convergence test
-            float eps_g; // epsilon for convergence test
-            float gclip; // gradient clipping
-        } adam;
-
-        // LBFGS parameters
-        struct {
-            int m; // number of corrections to approximate the inv. Hessian
-            int n_iter;
-            int max_linesearch;
-
-            float eps;      // convergence tolerance
-            float ftol;     // line search tolerance
-            float wolfe;
-            float min_step;
-            float max_step;
-
-            enum lm_ggml_linesearch linesearch;
-        } lbfgs;
-    };
-
-    struct lm_ggml_opt_context {
-        struct lm_ggml_context * ctx;
-        struct lm_ggml_opt_params params;
-
-        int iter;
-        int64_t nx; // number of parameter elements
-
-        bool just_initialized;
-
-        float loss_before;
-        float loss_after;
-
-        struct {
-            struct lm_ggml_tensor * g;  // current gradient
-            struct lm_ggml_tensor * m;  // first moment
-            struct lm_ggml_tensor * v;  // second moment
-            struct lm_ggml_tensor * pf; // past function values
-            float fx_best;
-            float fx_prev;
-            int n_no_improvement;
-        } adam;
-
-        struct {
-            struct lm_ggml_tensor * x;    // current parameters
-            struct lm_ggml_tensor * xp;   // previous parameters
-            struct lm_ggml_tensor * g;    // current gradient
-            struct lm_ggml_tensor * gp;   // previous gradient
-            struct lm_ggml_tensor * d;    // search direction
-            struct lm_ggml_tensor * pf;   // past function values
-            struct lm_ggml_tensor * lmal; // the L-BFGS memory alpha
-            struct lm_ggml_tensor * lmys; // the L-BFGS memory ys
-            struct lm_ggml_tensor * lms;  // the L-BFGS memory s
-            struct lm_ggml_tensor * lmy;  // the L-BFGS memory y
-            float fx_best;
-            float step;
-            int j;
-            int k;
-            int end;
-            int n_no_improvement;
-        } lbfgs;
-    };
-
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_set_zero(struct lm_ggml_tensor * tensor);
-
-    LM_GGML_API struct lm_ggml_opt_params lm_ggml_opt_default_params(enum lm_ggml_opt_type type);
-
-    // optimize the function defined by the tensor f
-    LM_GGML_API enum lm_ggml_opt_result lm_ggml_opt(
-            struct lm_ggml_context * ctx,
-            struct lm_ggml_opt_params params,
-            struct lm_ggml_tensor * f);
-
-    // initialize optimizer context
-    LM_GGML_API void lm_ggml_opt_init(
-            struct lm_ggml_context     * ctx,
-            struct lm_ggml_opt_context * opt,
-            struct lm_ggml_opt_params    params,
-            int64_t                   nx);
-
-    // continue optimizing the function defined by the tensor f
-    LM_GGML_API enum lm_ggml_opt_result lm_ggml_opt_resume(
-            struct lm_ggml_context * ctx,
-            struct lm_ggml_opt_context * opt,
-            struct lm_ggml_tensor * f);
-
-    // continue optimizing the function defined by the tensor f
-    LM_GGML_API enum lm_ggml_opt_result lm_ggml_opt_resume_g(
-            struct lm_ggml_context * ctx,
-            struct lm_ggml_opt_context * opt,
-            struct lm_ggml_tensor * f,
-            struct lm_ggml_cgraph * gf,
-            struct lm_ggml_cgraph * gb,
-            lm_ggml_opt_callback callback,
-            void * callback_data);
 
     //
     // quantization

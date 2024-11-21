@@ -18,6 +18,7 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml-cpu.cpp
     ${RNLLAMA_LIB_DIR}/ggml-cpu-aarch64.c
     ${RNLLAMA_LIB_DIR}/ggml-cpu-quants.c
+    ${RNLLAMA_LIB_DIR}/ggml-opt.cpp
     ${RNLLAMA_LIB_DIR}/ggml-threading.cpp
     ${RNLLAMA_LIB_DIR}/ggml-quants.c
     ${RNLLAMA_LIB_DIR}/log.cpp
