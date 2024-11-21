@@ -425,6 +425,9 @@ public class RNLlama implements LifecycleEventListener {
           if (context == null) {
             throw new Exception("Context not found");
           }
+          if (context.isPredicting()) {
+            throw new Exception("Context is busy");
+          }
           context.applyLoraAdapters(loraAdapters);
         } catch (Exception e) {
           exception = e;
@@ -454,6 +457,9 @@ public class RNLlama implements LifecycleEventListener {
           LlamaContext context = contexts.get(contextId);
           if (context == null) {
             throw new Exception("Context not found");
+          }
+          if (context.isPredicting()) {
+            throw new Exception("Context is busy");
           }
           context.removeLoraAdapters();
         } catch (Exception e) {

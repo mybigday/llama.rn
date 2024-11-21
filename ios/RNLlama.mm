@@ -281,6 +281,10 @@ RCT_EXPORT_METHOD(applyLoraAdapters:(double)contextId
         reject(@"llama_error", @"Context not found", nil);
         return;
     }
+    if ([context isPredicting]) {
+        reject(@"llama_error", @"Context is busy", nil);
+        return;
+    }
     [context applyLoraAdapters:loraAdapters];
     resolve(nil);
 }
@@ -292,6 +296,10 @@ RCT_EXPORT_METHOD(removeLoraAdapters:(double)contextId
     RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
     if (context == nil) {
         reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+    if ([context isPredicting]) {
+        reject(@"llama_error", @"Context is busy", nil);
         return;
     }
     [context removeLoraAdapters];
