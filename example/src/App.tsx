@@ -291,7 +291,7 @@ export default function App() {
               if (loraFile)
                 context.applyLoraAdapters([{ path: loraFile.uri }])
             })
-            .then(context.getLoadedLoraAdapters)
+            .then(() => context.getLoadedLoraAdapters())
             .then((loraList) =>
               addSystemMessage(
                 `Loaded lora adapters: ${JSON.stringify(loraList)}`,
