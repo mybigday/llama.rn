@@ -12,6 +12,19 @@ cp ./llama.cpp/ggml/include/ggml-cpu.h ./cpp/ggml-cpu.h
 cp ./llama.cpp/ggml/include/ggml-cpp.h ./cpp/ggml-cpp.h
 cp ./llama.cpp/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
 
+cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal.m ./cpp/ggml-metal.m
+
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu.c
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu.cpp
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-impl.h ./cpp/ggml-cpu-impl.h
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.h ./cpp/ggml-cpu-aarch64.h
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.c ./cpp/ggml-cpu-aarch64.c
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.h ./cpp/ggml-cpu-quants.h
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.c ./cpp/ggml-cpu-quants.c
+
+cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.h ./cpp/sgemm.h
+cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.cpp ./cpp/sgemm.cpp
+
 cp ./llama.cpp/ggml/src/ggml.c ./cpp/ggml.c
 cp ./llama.cpp/ggml/src/ggml-impl.h ./cpp/ggml-impl.h
 cp ./llama.cpp/ggml/src/ggml-alloc.c ./cpp/ggml-alloc.c
@@ -25,19 +38,6 @@ cp ./llama.cpp/ggml/src/ggml-aarch64.c ./cpp/ggml-aarch64.c
 cp ./llama.cpp/ggml/src/ggml-aarch64.h ./cpp/ggml-aarch64.h
 cp ./llama.cpp/ggml/src/ggml-threading.cpp ./cpp/ggml-threading.cpp
 cp ./llama.cpp/ggml/src/ggml-threading.h ./cpp/ggml-threading.h
-
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu.c
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu.cpp
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-impl.h ./cpp/ggml-cpu-impl.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.h ./cpp/ggml-cpu-aarch64.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.c ./cpp/ggml-cpu-aarch64.c
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.h ./cpp/ggml-cpu-quants.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.c ./cpp/ggml-cpu-quants.c
-
-cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal.m ./cpp/ggml-metal.m
-
-cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.h ./cpp/sgemm.h
-cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.cpp ./cpp/sgemm.cpp
 
 cp ./llama.cpp/src/llama.cpp ./cpp/llama.cpp
 cp ./llama.cpp/src/llama-impl.h ./cpp/llama-impl.h
@@ -72,17 +72,20 @@ files_add_lm_prefix=(
   "./cpp/llama-sampling.cpp"
   "./cpp/log.h"
   "./cpp/log.cpp"
-  "./cpp/ggml.h"
-  "./cpp/ggml.c"
-  "./cpp/ggml-impl.h"
-  "./cpp/common.h"
-  "./cpp/common.cpp"
-  "./cpp/ggml-cpp.h"
-  "./cpp/ggml-metal.h"
-  "./cpp/ggml-metal.m"
   "./cpp/llama.h"
   "./cpp/llama.cpp"
   "./cpp/sampling.cpp"
+  "./cpp/sgemm.h"
+  "./cpp/sgemm.cpp"
+  "./cpp/common.h"
+  "./cpp/common.cpp"
+  "./cpp/ggml-common.h"
+  "./cpp/ggml.h"
+  "./cpp/ggml.c"
+  "./cpp/ggml-impl.h"
+  "./cpp/ggml-cpp.h"
+  "./cpp/ggml-metal.h"
+  "./cpp/ggml-metal.m"
   "./cpp/ggml-quants.h"
   "./cpp/ggml-quants.c"
   "./cpp/ggml-alloc.h"
@@ -101,9 +104,6 @@ files_add_lm_prefix=(
   "./cpp/ggml-cpu-quants.c"
   "./cpp/ggml-threading.h"
   "./cpp/ggml-threading.cpp"
-  "./cpp/ggml-common.h"
-  "./cpp/sgemm.h"
-  "./cpp/sgemm.cpp"
   "./cpp/ggml-aarch64.h"
   "./cpp/ggml-aarch64.c"
 )
