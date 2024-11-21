@@ -277,6 +277,10 @@ RCT_EXPORT_METHOD(applyLoraAdapters:(double)contextId
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
     RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
     [context applyLoraAdapters:loraAdapters];
     resolve(nil);
 }
@@ -286,6 +290,10 @@ RCT_EXPORT_METHOD(removeLoraAdapters:(double)contextId
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
     RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
     [context removeLoraAdapters];
     resolve(nil);
 }
@@ -295,6 +303,10 @@ RCT_EXPORT_METHOD(getLoadedLoraAdapters:(double)contextId
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
     RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
     resolve([context getLoadedLoraAdapters]);
 }
 

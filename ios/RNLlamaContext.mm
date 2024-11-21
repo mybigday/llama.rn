@@ -576,7 +576,7 @@
 }
 
 - (void)removeLoraAdapters {
-    [llama removeLoraAdapters];
+    llama->removeLoraAdapters();
 }
 
 - (NSArray *)getLoadedLoraAdapters {
