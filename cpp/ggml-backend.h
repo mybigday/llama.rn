@@ -86,7 +86,7 @@ extern "C" {
     LM_GGML_API void lm_ggml_backend_tensor_set_async(lm_ggml_backend_t backend,       struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size);
     LM_GGML_API void lm_ggml_backend_tensor_get_async(lm_ggml_backend_t backend, const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size);
 
-    // "offset" refers to the offset of the tensor data for setting/getting data
+    // "offset" refers to the offset in tensor->data for setting/getting data
     LM_GGML_API void lm_ggml_backend_tensor_set(      struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size);
     LM_GGML_API void lm_ggml_backend_tensor_get(const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size);
     LM_GGML_API void lm_ggml_backend_tensor_memset(   struct lm_ggml_tensor * tensor,     uint8_t value, size_t offset, size_t size);
@@ -242,14 +242,20 @@ extern "C" {
         lm_ggml_backend_sched_reserve(sched, reserve_graph);
 
         // compute
-        graph = build_graph(sched);
-        lm_ggml_backend_sched_graph_compute(sched, graph);
+        graph = build_graph(sched); // the graph and its tensors are single-use in terms of allocation, multi-use in terms of computation
+        for (int i = 0; i < 10; ++i) {
+            lm_ggml_backend_sched_graph_compute(sched, graph); // on the first iteration the graph is allocated automatically
+        }
 
         // if there are graph inputs:
-        lm_ggml_backend_sched_reset(sched);
-        lm_ggml_backend_sched_alloc_graph(sched, graph);
-        lm_ggml_backend_tensor_set(input_tensor, ...);
-        lm_ggml_backend_sched_graph_compute(sched, graph);
+        graph = build_graph(sched); // get a new graph that is not allocated (the metadata for the old graph is freed once lm_ggml_free is called)
+        lm_ggml_backend_sched_reset(sched); // clear the allocation of the previous graph
+        lm_ggml_backend_sched_alloc_graph(sched, graph); // explicitly allocate the new graph but do not execute it
+        lm_ggml_backend_tensor_set(input_tensor, ...); // copy data to the newly allocated graph tensors
+        lm_ggml_backend_sched_graph_compute(sched, graph); // execute the graph
+
+        // as an alternative to the above it is also possible to assign the inputs to a dedicated context and
+        // allocate them statically via lm_ggml_backend_alloc_ctx_tensors
     }
     */
 
@@ -264,7 +270,7 @@ extern "C" {
     //
     typedef bool (*lm_ggml_backend_sched_eval_callback)(struct lm_ggml_tensor * t, bool ask, void * user_data);
 
-    // Initialize a backend scheduler
+    // Initialize a backend scheduler, backends with low index are given priority over backends with high index
     LM_GGML_API lm_ggml_backend_sched_t lm_ggml_backend_sched_new(lm_ggml_backend_t * backends, lm_ggml_backend_buffer_type_t * bufts, int n_backends, size_t graph_size, bool parallel);
     LM_GGML_API void                 lm_ggml_backend_sched_free(lm_ggml_backend_sched_t sched);
 
@@ -289,7 +295,9 @@ extern "C" {
     LM_GGML_API enum lm_ggml_status     lm_ggml_backend_sched_graph_compute_async(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph);
     LM_GGML_API void                 lm_ggml_backend_sched_synchronize(lm_ggml_backend_sched_t sched);
 
-    // Reset all assignments and allocators - must be called before changing the node backends
+    // Reset all assignments and allocators - must be called before changing the node backends or allocating a new graph.
+    // This in effect deallocates all tensors that were previously allocated and leaves them with dangling pointers.
+    // The correct way to use this API is to discard the deallocated tensors and create new ones.
     LM_GGML_API void                 lm_ggml_backend_sched_reset(lm_ggml_backend_sched_t sched);
 
     // Set a callback to be called for each resulting node during graph compute

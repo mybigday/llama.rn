@@ -110,12 +110,6 @@
         }
     }
 
-    if (params[@"lora"]) {
-        float lora_scaled = 1.0f;
-        if (params[@"lora_scaled"]) lora_scaled = [params[@"lora_scaled"] floatValue];
-        defaultParams.lora_adapters.push_back({[params[@"lora"] UTF8String], lora_scaled});
-    }
-
     if (params[@"rope_freq_base"]) defaultParams.rope_freq_base = [params[@"rope_freq_base"] floatValue];
     if (params[@"rope_freq_scale"]) defaultParams.rope_freq_scale = [params[@"rope_freq_scale"] floatValue];
 
@@ -129,6 +123,7 @@
     // Use 2 threads by default on 4-core devices, 4 threads on more cores
     const int defaultNThreads = nThreads == 4 ? 2 : MIN(4, maxThreads);
     defaultParams.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
+
 
     RNLlamaContext *context = [[RNLlamaContext alloc] init];
     context->llama = new rnllama::llama_rn_context();
@@ -157,6 +152,34 @@
     ) {
         delete context->llama;
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not supported in encoder-decoder models" userInfo:nil];
+    }
+
+    std::vector<common_lora_adapter_info> lora_adapters;
+    if (params[@"lora"]) {
+        common_lora_adapter_info la;
+        la.path = [params[@"lora"] UTF8String];
+        la.scale = 1.0f;
+        if (params[@"lora_scaled"]) la.scale = [params[@"lora_scaled"] floatValue];
+        lora_adapters.push_back(la);
+    }
+    if (params[@"lora_list"] && [params[@"lora_list"] isKindOfClass:[NSArray class]]) {
+        NSArray *lora_list = params[@"lora_list"];
+        for (NSDictionary *lora_adapter in lora_list) {
+          NSString *path = lora_adapter[@"path"];
+          if (!path) continue;
+          float scale = [lora_adapter[@"scaled"] floatValue];
+          common_lora_adapter_info la;
+          la.path = [path UTF8String];
+          la.scale = scale;
+          lora_adapters.push_back(la);
+        }
+    }
+    if (lora_adapters.size() > 0) {
+        int result = context->llama->applyLoraAdapters(lora_adapters);
+        if (result != 0) {
+            delete context->llama;
+            @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to apply lora adapters" userInfo:nil];
+        }
     }
 
     context->is_metal_enabled = isMetalEnabled;
@@ -536,6 +559,36 @@
 
 - (NSString *)bench:(int)pp tg:(int)tg pl:(int)pl nr:(int)nr {
     return [NSString stringWithUTF8String:llama->bench(pp, tg, pl, nr).c_str()];
+}
+
+- (void)applyLoraAdapters:(NSArray *)loraAdapters {
+    std::vector<common_lora_adapter_info> lora_adapters;
+    for (NSDictionary *loraAdapter in loraAdapters) {
+        common_lora_adapter_info la;
+        la.path = [loraAdapter[@"path"] UTF8String];
+        la.scale = [loraAdapter[@"scaled"] doubleValue];
+        lora_adapters.push_back(la);
+    }
+    int result = llama->applyLoraAdapters(lora_adapters);
+    if (result != 0) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to apply lora adapters" userInfo:nil];
+    }
+}
+
+- (void)removeLoraAdapters {
+    llama->removeLoraAdapters();
+}
+
+- (NSArray *)getLoadedLoraAdapters {
+    std::vector<common_lora_adapter_container> loaded_lora_adapters = llama->getLoadedLoraAdapters();
+    NSMutableArray *result = [[NSMutableArray alloc] init];
+    for (common_lora_adapter_container &la : loaded_lora_adapters) {
+        [result addObject:@{
+            @"path": [NSString stringWithUTF8String:la.path.c_str()],
+            @"scale": @(la.scale)
+        }];
+    }
+    return result;
 }
 
 - (void)invalidate {

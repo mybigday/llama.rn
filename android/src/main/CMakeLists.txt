@@ -9,30 +9,30 @@ include_directories(${RNLLAMA_LIB_DIR})
 
 set(
     SOURCE_FILES
-    ${RNLLAMA_LIB_DIR}/llama-grammar.cpp
-    ${RNLLAMA_LIB_DIR}/llama-sampling.cpp
-    ${RNLLAMA_LIB_DIR}/llama-vocab.cpp
-    ${RNLLAMA_LIB_DIR}/log.cpp
-
+    ${RNLLAMA_LIB_DIR}/ggml.c
     ${RNLLAMA_LIB_DIR}/ggml-aarch64.c
     ${RNLLAMA_LIB_DIR}/ggml-alloc.c
     ${RNLLAMA_LIB_DIR}/ggml-backend.cpp
     ${RNLLAMA_LIB_DIR}/ggml-backend-reg.cpp
-    ${RNLLAMA_LIB_DIR}/ggml.c
     ${RNLLAMA_LIB_DIR}/ggml-cpu.c
     ${RNLLAMA_LIB_DIR}/ggml-cpu.cpp
     ${RNLLAMA_LIB_DIR}/ggml-cpu-aarch64.c
     ${RNLLAMA_LIB_DIR}/ggml-cpu-quants.c
+    ${RNLLAMA_LIB_DIR}/ggml-opt.cpp
     ${RNLLAMA_LIB_DIR}/ggml-threading.cpp
     ${RNLLAMA_LIB_DIR}/ggml-quants.c
-    ${RNLLAMA_LIB_DIR}/common.cpp
+    ${RNLLAMA_LIB_DIR}/log.cpp
+    ${RNLLAMA_LIB_DIR}/llama-grammar.cpp
+    ${RNLLAMA_LIB_DIR}/llama-sampling.cpp
+    ${RNLLAMA_LIB_DIR}/llama-vocab.cpp
+    ${RNLLAMA_LIB_DIR}/llama.cpp
     ${RNLLAMA_LIB_DIR}/sampling.cpp
     ${RNLLAMA_LIB_DIR}/unicode-data.cpp
     ${RNLLAMA_LIB_DIR}/unicode.cpp
-    ${RNLLAMA_LIB_DIR}/llama.cpp
     ${RNLLAMA_LIB_DIR}/sgemm.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-aarch64.c
+    ${RNLLAMA_LIB_DIR}/common.cpp
     ${RNLLAMA_LIB_DIR}/rn-llama.hpp
+    ${CMAKE_SOURCE_DIR}/jni-utils.h
     ${CMAKE_SOURCE_DIR}/jni.cpp
 )
 

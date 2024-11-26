@@ -95,7 +95,7 @@ export default function App() {
 
   const handleInitContext = async (
     file: DocumentPickerResponse,
-    loraFile?: DocumentPickerResponse,
+    loraFile: DocumentPickerResponse | null,
   ) => {
     await handleReleaseContext()
     await getModelInfo(file.uri)
@@ -108,7 +108,7 @@ export default function App() {
         n_gpu_layers: Platform.OS === 'ios' ? 99 : 0, // > 0: enable GPU
 
         // embedding: true,
-        lora: loraFile?.uri,
+        lora_list: loraFile ? [{ path: loraFile.uri, scaled: 1.0 }] : undefined, // Or lora: loraFile?.uri,
       },
       (progress) => {
         setMessages((msgs) => {
@@ -179,6 +179,15 @@ export default function App() {
     return file
   }
 
+  const pickLora = async () => {
+    let loraFile
+    const loraRes = await DocumentPicker.pick({
+      type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
+    }).catch((e) => console.log('No lora file picked, error: ', e.message))
+    if (loraRes?.[0]) loraFile = await copyFileIfNeeded('lora', loraRes[0])
+    return loraFile
+  }
+
   const handlePickModel = async () => {
     const modelRes = await DocumentPicker.pick({
       type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
@@ -186,12 +195,10 @@ export default function App() {
     if (!modelRes?.[0]) return
     const modelFile = await copyFileIfNeeded('model', modelRes?.[0])
 
-    let loraFile
+    let loraFile: any = null
     // Example: Apply lora adapter (Currently only select one lora file) (Uncomment to use)
-    // const loraRes = await DocumentPicker.pick({
-    //   type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
-    // }).catch(e => console.log('No lora file picked, error: ', e.message))
-    // if (loraRes?.[0]) loraFile = await copyFileIfNeeded('lora', loraRes[0])
+    // loraFile = await pickLora()
+    loraFile = null
 
     handleInitContext(modelFile, loraFile)
   }
@@ -277,6 +284,31 @@ export default function App() {
               console.log('Session load failed:', e)
               addSystemMessage(`Session load failed: ${e.message}`)
             })
+          return
+        case '/lora':
+          pickLora()
+            .then((loraFile) => {
+              if (loraFile)
+                context.applyLoraAdapters([{ path: loraFile.uri }])
+            })
+            .then(() => context.getLoadedLoraAdapters())
+            .then((loraList) =>
+              addSystemMessage(
+                `Loaded lora adapters: ${JSON.stringify(loraList)}`,
+              ),
+            )
+          return
+        case '/remove-lora':
+          context.removeLoraAdapters().then(() => {
+            addSystemMessage('Lora adapters removed!')
+          })
+          return
+        case '/lora-list':
+          context.getLoadedLoraAdapters().then((loraList) => {
+            addSystemMessage(
+              `Loaded lora adapters: ${JSON.stringify(loraList)}`,
+            )
+          })
           return
       }
     }
@@ -417,7 +449,7 @@ export default function App() {
           dry_base: 1.75,
           dry_allowed_length: 2,
           dry_penalty_last_n: -1,
-          dry_sequence_breakers: ["\n", ":", "\"", "*"],
+          dry_sequence_breakers: ['\n', ':', '"', '*'],
           mirostat: 0,
           mirostat_tau: 5,
           mirostat_eta: 0.1,

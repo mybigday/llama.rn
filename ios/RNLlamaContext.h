@@ -33,7 +33,9 @@
 - (NSDictionary *)loadSession:(NSString *)path;
 - (int)saveSession:(NSString *)path size:(int)size;
 - (NSString *)bench:(int)pp tg:(int)tg pl:(int)pl nr:(int)nr;
-
+- (void)applyLoraAdapters:(NSArray *)loraAdapters;
+- (void)removeLoraAdapters;
+- (NSArray *)getLoadedLoraAdapters;
 - (void)invalidate;
 
 @end

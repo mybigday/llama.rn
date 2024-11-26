@@ -17,13 +17,16 @@
 
 ### Methods
 
+- [applyLoraAdapters](LlamaContext.md#applyloraadapters)
 - [bench](LlamaContext.md#bench)
 - [completion](LlamaContext.md#completion)
 - [detokenize](LlamaContext.md#detokenize)
 - [embedding](LlamaContext.md#embedding)
 - [getFormattedChat](LlamaContext.md#getformattedchat)
+- [getLoadedLoraAdapters](LlamaContext.md#getloadedloraadapters)
 - [loadSession](LlamaContext.md#loadsession)
 - [release](LlamaContext.md#release)
+- [removeLoraAdapters](LlamaContext.md#removeloraadapters)
 - [saveSession](LlamaContext.md#savesession)
 - [stopCompletion](LlamaContext.md#stopcompletion)
 - [tokenize](LlamaContext.md#tokenize)
@@ -42,7 +45,7 @@
 
 #### Defined in
 
-[index.ts:105](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L105)
+[index.ts:124](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L124)
 
 ## Properties
 
@@ -52,7 +55,7 @@
 
 #### Defined in
 
-[index.ts:97](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L97)
+[index.ts:116](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L116)
 
 ___
 
@@ -62,7 +65,7 @@ ___
 
 #### Defined in
 
-[index.ts:95](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L95)
+[index.ts:114](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L114)
 
 ___
 
@@ -78,7 +81,7 @@ ___
 
 #### Defined in
 
-[index.ts:101](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L101)
+[index.ts:120](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L120)
 
 ___
 
@@ -88,9 +91,29 @@ ___
 
 #### Defined in
 
-[index.ts:99](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L99)
+[index.ts:118](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L118)
 
 ## Methods
+
+### applyLoraAdapters
+
+▸ **applyLoraAdapters**(`loraList`): `Promise`<`void`\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `loraList` | { `path`: `string` ; `scaled?`: `number`  }[] |
+
+#### Returns
+
+`Promise`<`void`\>
+
+#### Defined in
+
+[index.ts:239](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L239)
+
+___
 
 ### bench
 
@@ -111,7 +134,7 @@ ___
 
 #### Defined in
 
-[index.ts:197](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L197)
+[index.ts:219](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L219)
 
 ___
 
@@ -132,7 +155,7 @@ ___
 
 #### Defined in
 
-[index.ts:141](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L141)
+[index.ts:160](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L160)
 
 ___
 
@@ -152,7 +175,7 @@ ___
 
 #### Defined in
 
-[index.ts:186](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L186)
+[index.ts:208](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L208)
 
 ___
 
@@ -173,7 +196,7 @@ ___
 
 #### Defined in
 
-[index.ts:190](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L190)
+[index.ts:212](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L212)
 
 ___
 
@@ -194,7 +217,21 @@ ___
 
 #### Defined in
 
-[index.ts:131](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L131)
+[index.ts:150](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L150)
+
+___
+
+### getLoadedLoraAdapters
+
+▸ **getLoadedLoraAdapters**(): `Promise`<{ `path`: `string` ; `scaled?`: `number`  }[]\>
+
+#### Returns
+
+`Promise`<{ `path`: `string` ; `scaled?`: `number`  }[]\>
+
+#### Defined in
+
+[index.ts:255](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L255)
 
 ___
 
@@ -216,7 +253,7 @@ Load cached prompt & completion state from a file.
 
 #### Defined in
 
-[index.ts:115](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L115)
+[index.ts:134](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L134)
 
 ___
 
@@ -230,7 +267,21 @@ ___
 
 #### Defined in
 
-[index.ts:217](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L217)
+[index.ts:261](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L261)
+
+___
+
+### removeLoraAdapters
+
+▸ **removeLoraAdapters**(): `Promise`<`void`\>
+
+#### Returns
+
+`Promise`<`void`\>
+
+#### Defined in
+
+[index.ts:251](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L251)
 
 ___
 
@@ -254,7 +305,7 @@ Save current cached prompt & completion state to a file.
 
 #### Defined in
 
-[index.ts:124](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L124)
+[index.ts:143](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L143)
 
 ___
 
@@ -268,7 +319,7 @@ ___
 
 #### Defined in
 
-[index.ts:178](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L178)
+[index.ts:200](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L200)
 
 ___
 
@@ -288,4 +339,4 @@ ___
 
 #### Defined in
 
-[index.ts:182](https://github.com/mybigday/llama.rn/blob/0c04b5e/src/index.ts#L182)
+[index.ts:204](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L204)
