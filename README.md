@@ -310,6 +310,16 @@ Android:
 
 See the [contributing guide](CONTRIBUTING.md) to learn how to contribute to the repository and the development workflow.
 
+## Apps using `llama.rn`
+
+- [BRICKS](https://bricks.tools): Our product for building interactive signage in simple way. We provide LLM functions as Generator LLM/Assistant.
+- [ChatterUI](https://github.com/Vali-98/ChatterUI): A platform for building AI agents.
+- [PocketPal AI](https://github.com/a-ghorbani/pocketpal-ai): An app that brings language models directly to your phone.
+
+## Node.js binding
+
+- [llama.node](https://github.com/mybigday/llama.node): An another Node.js binding of `llama.cpp` but made API same as `llama.rn`.
+
 ## License
 
 MIT
