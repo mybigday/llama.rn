@@ -115,8 +115,8 @@
 
     if (params[@"flash_attn"] && [params[@"flash_attn"] boolValue]) defaultParams.flash_attn = true;
 
-    if (params[@"cache_type_k"]) defaultParams.cache_type_k = [params[@"cache_type_k"] UTF8String];
-    if (params[@"cache_type_v"]) defaultParams.cache_type_v = [params[@"cache_type_v"] UTF8String];
+    if (params[@"cache_type_k"]) defaultParams.cache_type_k = rnllama::kv_cache_type_from_str([params[@"cache_type_k"] UTF8String]);
+    if (params[@"cache_type_v"]) defaultParams.cache_type_v = rnllama::kv_cache_type_from_str([params[@"cache_type_v"] UTF8String]);
 
     int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : 0;
     const int maxThreads = (int) [[NSProcessInfo processInfo] processorCount];
@@ -280,7 +280,7 @@
     NSString *prompt = [params objectForKey:@"prompt"];
 
     llama->params.prompt = [prompt UTF8String];
-    llama->params.sparams.seed = params[@"seed"] ? [params[@"seed"] intValue] : -1;
+    llama->params.sampling.seed = params[@"seed"] ? [params[@"seed"] intValue] : -1;
 
     if (params[@"n_threads"]) {
         int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : llama->params.cpuparams.n_threads;
@@ -290,9 +290,9 @@
         llama->params.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
     }
     if (params[@"n_predict"]) llama->params.n_predict = [params[@"n_predict"] intValue];
-    if (params[@"ignore_eos"]) llama->params.sparams.ignore_eos = [params[@"ignore_eos"] boolValue];
+    if (params[@"ignore_eos"]) llama->params.sampling.ignore_eos = [params[@"ignore_eos"] boolValue];
 
-    auto & sparams = llama->params.sparams;
+    auto & sparams = llama->params.sampling;
 
     if (params[@"temperature"]) sparams.temp = [params[@"temperature"] doubleValue];
 
@@ -306,7 +306,6 @@
     if (params[@"mirostat"]) sparams.mirostat = [params[@"mirostat"] intValue];
     if (params[@"mirostat_tau"]) sparams.mirostat_tau = [params[@"mirostat_tau"] doubleValue];
     if (params[@"mirostat_eta"]) sparams.mirostat_eta = [params[@"mirostat_eta"] doubleValue];
-    if (params[@"penalize_nl"]) sparams.penalize_nl = [params[@"penalize_nl"] boolValue];
 
     if (params[@"top_k"]) sparams.top_k = [params[@"top_k"] intValue];
     if (params[@"top_p"]) sparams.top_p = [params[@"top_p"] doubleValue];
@@ -410,7 +409,7 @@
             NSMutableDictionary *tokenResult = [[NSMutableDictionary alloc] init];
             tokenResult[@"token"] = [NSString stringWithUTF8String:to_send.c_str()];
 
-            if (llama->params.sparams.n_probs > 0) {
+            if (llama->params.sampling.n_probs > 0) {
                 const std::vector<llama_token> to_send_toks = common_tokenize(llama->ctx, to_send, false);
                 size_t probs_pos = std::min(sent_token_probs_index, llama->generated_token_probs.size());
                 size_t probs_stop_pos = std::min(sent_token_probs_index + to_send_toks.size(), llama->generated_token_probs.size());

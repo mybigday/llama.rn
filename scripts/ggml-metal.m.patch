@@ -1,11 +1,11 @@
---- ggml-metal.m.orig	2024-11-21 11:03:19
-+++ ggml-metal.m	2024-11-21 11:03:20
-@@ -463,7 +463,7 @@
+--- ggml-metal.m.orig	2024-12-20 13:36:22
++++ ggml-metal.m	2024-12-20 13:37:17
+@@ -509,7 +509,7 @@
          const bool try_metallib = true;
  #endif
 
 -        NSString * path_lib = [bundle pathForResource:@"default" ofType:@"metallib"];
 +        NSString * path_lib = [bundle pathForResource:@"ggml-llama" ofType:@"metallib"];
-         if (try_metallib && path_lib != nil) {
-             // pre-compiled library found
-             NSURL * libURL = [NSURL fileURLWithPath:path_lib];
+         if (path_lib == nil) {
+             // Try to find the resource in the directory where the current binary located.
+             NSString * current_binary = [[NSProcessInfo processInfo] arguments][0];
