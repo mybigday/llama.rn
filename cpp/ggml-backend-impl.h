@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+    #define LM_GGML_BACKEND_API_VERSION 1
+
     //
     // Backend buffer type
     //
@@ -63,20 +65,20 @@ extern "C" {
         enum lm_ggml_backend_buffer_usage usage;
     };
 
-    lm_ggml_backend_buffer_t lm_ggml_backend_buffer_init(
+    LM_GGML_API lm_ggml_backend_buffer_t lm_ggml_backend_buffer_init(
                    lm_ggml_backend_buffer_type_t buft,
             struct lm_ggml_backend_buffer_i      iface,
                    void *                     context,
                    size_t                     size);
 
     // do not use directly, use lm_ggml_backend_tensor_copy instead
-    bool lm_ggml_backend_buffer_copy_tensor(const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
+    LM_GGML_API bool lm_ggml_backend_buffer_copy_tensor(const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
 
     // multi-buffer
     // buffer that contains a collection of buffers
-    lm_ggml_backend_buffer_t lm_ggml_backend_multi_buffer_alloc_buffer(lm_ggml_backend_buffer_t * buffers, size_t n_buffers);
-    bool                  lm_ggml_backend_buffer_is_multi_buffer(lm_ggml_backend_buffer_t buffer);
-    void                  lm_ggml_backend_multi_buffer_set_usage(lm_ggml_backend_buffer_t buffer, enum lm_ggml_backend_buffer_usage usage);
+    LM_GGML_API lm_ggml_backend_buffer_t lm_ggml_backend_multi_buffer_alloc_buffer(lm_ggml_backend_buffer_t * buffers, size_t n_buffers);
+    LM_GGML_API bool                  lm_ggml_backend_buffer_is_multi_buffer(lm_ggml_backend_buffer_t buffer);
+    LM_GGML_API void                  lm_ggml_backend_multi_buffer_set_usage(lm_ggml_backend_buffer_t buffer, enum lm_ggml_backend_buffer_usage usage);
 
     //
     // Backend (stream)
@@ -199,17 +201,55 @@ extern "C" {
     };
 
     struct lm_ggml_backend_reg {
-        // int api_version; // TODO: for dynamic loading
+        int api_version; // initialize to LM_GGML_BACKEND_API_VERSION
         struct lm_ggml_backend_reg_i iface;
         void * context;
     };
 
-
     // Internal backend registry API
-    void lm_ggml_backend_register(lm_ggml_backend_reg_t reg);
-    void lm_ggml_backend_device_register(lm_ggml_backend_dev_t device);
-    // TODO: backends can be loaded as a dynamic library, in which case it needs to export this function
-    // typedef lm_ggml_backend_register_t * (*lm_ggml_backend_init)(void);
+    LM_GGML_API void lm_ggml_backend_register(lm_ggml_backend_reg_t reg);
+    LM_GGML_API void lm_ggml_backend_device_register(lm_ggml_backend_dev_t device);
+
+    // Add backend dynamic loading support to the backend
+
+    // Initialize the backend
+    typedef lm_ggml_backend_reg_t (*lm_ggml_backend_init_t)(void);
+    // Optional: obtain a score for the backend based on the system configuration
+    // Higher scores are preferred, 0 means the backend is not supported in the current system
+    typedef int                (*lm_ggml_backend_score_t)(void);
+
+#ifdef LM_GGML_BACKEND_DL
+#    ifdef __cplusplus
+#        define LM_GGML_BACKEND_DL_IMPL(reg_fn)                             \
+            extern "C" {                                                 \
+            LM_GGML_BACKEND_API lm_ggml_backend_reg_t lm_ggml_backend_init(void); \
+            }                                                            \
+            lm_ggml_backend_reg_t lm_ggml_backend_init(void) {                 \
+                return reg_fn();                                         \
+            }
+#        define LM_GGML_BACKEND_DL_SCORE_IMPL(score_fn)       \
+            extern "C" {                                   \
+            LM_GGML_BACKEND_API int lm_ggml_backend_score(void); \
+            }                                              \
+            int lm_ggml_backend_score(void) {                 \
+                return score_fn();                         \
+            }
+#    else
+#        define LM_GGML_BACKEND_DL_IMPL(reg_fn)                              \
+            LM_GGML_BACKEND_API lm_ggml_backend_reg_t lm_ggml_backend_init(void);  \
+            lm_ggml_backend_reg_t                  lm_ggml_backend_init(void) { \
+                return reg_fn();                                          \
+            }
+#        define LM_GGML_BACKEND_DL_SCORE_IMPL(score_fn)        \
+            LM_GGML_BACKEND_API int lm_ggml_backend_score(void);  \
+            int                  lm_ggml_backend_score(void) { \
+                return score_fn();                          \
+            }
+#    endif
+#else
+#    define LM_GGML_BACKEND_DL_IMPL(reg_fn)
+#    define LM_GGML_BACKEND_DL_SCORE_IMPL(score_fn)
+#endif
 
 #ifdef  __cplusplus
 }

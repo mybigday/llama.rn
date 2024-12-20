@@ -14,51 +14,51 @@
 #include <vector>
 
 struct lm_ggml_opt_dataset {
-    struct lm_ggml_context   * ctx;
-    lm_ggml_backend_buffer_t   buf;
-    struct lm_ggml_tensor    * data;
-    struct lm_ggml_tensor    * labels;
+    struct lm_ggml_context   * ctx    = nullptr;
+    lm_ggml_backend_buffer_t   buf    = nullptr;
+    struct lm_ggml_tensor    * data   = nullptr;
+    struct lm_ggml_tensor    * labels = nullptr;
 
-    int64_t ndata;
-    int64_t ndata_shard;
-    size_t  nbs_data;
-    size_t  nbs_labels;
+    int64_t ndata       = -1;
+    int64_t ndata_shard = -1;
+    size_t  nbs_data    = -1;
+    size_t  nbs_labels  = -1;
 
     std::vector<int64_t> permutation;
 };
 
 struct lm_ggml_opt_context {
-    lm_ggml_backend_sched_t    backend_sched;
-    lm_ggml_cgraph           * allocated_graph;
-    lm_ggml_cgraph           * allocated_graph_copy;
-    struct lm_ggml_context   * ctx_static;
-    struct lm_ggml_context   * ctx_static_cpu;
-    struct lm_ggml_context   * ctx_compute;
-    struct lm_ggml_context   * ctx_copy;
-    lm_ggml_backend_buffer_t   buf_static;
-    lm_ggml_backend_buffer_t   buf_static_cpu;
+    lm_ggml_backend_sched_t    backend_sched        = nullptr;
+    lm_ggml_cgraph           * allocated_graph      = nullptr;
+    lm_ggml_cgraph           * allocated_graph_copy = nullptr;
+    struct lm_ggml_context   * ctx_static           = nullptr;
+    struct lm_ggml_context   * ctx_static_cpu       = nullptr;
+    struct lm_ggml_context   * ctx_compute          = nullptr;
+    struct lm_ggml_context   * ctx_copy             = nullptr;
+    lm_ggml_backend_buffer_t   buf_static           = nullptr;
+    lm_ggml_backend_buffer_t   buf_static_cpu       = nullptr;
     std::mt19937            rng;
 
-    struct lm_ggml_tensor * inputs;
-    struct lm_ggml_tensor * outputs;
-    struct lm_ggml_tensor * labels;
+    struct lm_ggml_tensor * inputs  = nullptr;
+    struct lm_ggml_tensor * outputs = nullptr;
+    struct lm_ggml_tensor * labels  = nullptr;
 
-    struct lm_ggml_tensor * loss;
-    struct lm_ggml_tensor * pred;
-    struct lm_ggml_tensor * ncorrect;
+    struct lm_ggml_tensor * loss     = nullptr;
+    struct lm_ggml_tensor * pred     = nullptr;
+    struct lm_ggml_tensor * ncorrect = nullptr;
 
-    struct lm_ggml_cgraph * gf;
-    struct lm_ggml_cgraph * gb_grad;
-    struct lm_ggml_cgraph * gb_opt;
+    struct lm_ggml_cgraph * gf      = nullptr;
+    struct lm_ggml_cgraph * gb_grad = nullptr;
+    struct lm_ggml_cgraph * gb_opt  = nullptr;
 
-    int64_t iter;
-    int32_t opt_period;
-    int32_t opt_i;
-    bool    loss_per_datapoint;
+    int64_t iter               = 1;
+    int32_t opt_period         = 1;
+    int32_t opt_i              = 0;
+    bool    loss_per_datapoint = false;
 
-    lm_ggml_opt_get_optimizer_params get_opt_pars;
-    void * get_opt_pars_ud;
-    struct lm_ggml_tensor * adamw_params;
+    lm_ggml_opt_get_optimizer_params get_opt_pars = nullptr;
+    void * get_opt_pars_ud                     = nullptr;
+    struct lm_ggml_tensor * adamw_params          = nullptr;
 };
 
 struct lm_ggml_opt_result {
@@ -67,8 +67,8 @@ struct lm_ggml_opt_result {
     std::vector<int32_t> pred;
     int64_t              ncorrect = 0;
 
-    bool loss_per_datapoint = false;
-    int64_t opt_period = -1;
+    int64_t opt_period         = -1;
+    bool    loss_per_datapoint = false;
 };
 
 // ====== Dataset ======
@@ -188,11 +188,11 @@ struct lm_ggml_opt_optimizer_params lm_ggml_opt_get_default_optimizer_params(voi
 }
 
 struct lm_ggml_opt_params lm_ggml_opt_default_params(
-        lm_ggml_backend_sched_t backend_sched,
-        struct lm_ggml_context * ctx_compute,
-        struct lm_ggml_tensor * inputs,
-        struct lm_ggml_tensor * outputs,
-        enum lm_ggml_opt_loss_type loss_type) {
+        lm_ggml_backend_sched_t      backend_sched,
+        struct lm_ggml_context     * ctx_compute,
+        struct lm_ggml_tensor      * inputs,
+        struct lm_ggml_tensor      * outputs,
+        enum lm_ggml_opt_loss_type   loss_type) {
     return {
         /*backend_sched   =*/ backend_sched,
         /*ctx_compute     =*/ ctx_compute,
@@ -237,25 +237,33 @@ static lm_ggml_tensor * map_tensor(std::map<lm_ggml_tensor *, lm_ggml_tensor *> 
     return new_tensor;
 }
 
-static lm_ggml_cgraph * dup_graph(lm_ggml_context * ctx, lm_ggml_cgraph * graph) {
+static lm_ggml_cgraph * dup_graph(lm_ggml_context * ctx, lm_ggml_cgraph * src) {
     std::map<lm_ggml_tensor *, lm_ggml_tensor *> tensor_map;
 
-    lm_ggml_cgraph * new_graph = lm_ggml_new_graph_custom(ctx, LM_GGML_DEFAULT_GRAPH_SIZE, /*grads =*/ true);
+    lm_ggml_cgraph * dst = lm_ggml_new_graph_custom(ctx, src->size, /*grads =*/ true);
 
-    for (int i = 0; i < graph->n_leafs; i++) {
-        lm_ggml_build_forward_expand(new_graph, map_tensor(tensor_map, ctx, graph->leafs[i]));
+    for (int i = 0; i < src->n_leafs; i++) {
+        lm_ggml_build_forward_expand(dst, map_tensor(tensor_map, ctx, src->leafs[i]));
     }
-    for (int i = 0; i < graph->n_nodes; i++) {
-        lm_ggml_build_forward_expand(new_graph, map_tensor(tensor_map, ctx, graph->nodes[i]));
+    LM_GGML_ASSERT(dst->n_leafs == src->n_leafs);
+    for (int i = 0; i < src->n_nodes; i++) {
+        lm_ggml_build_forward_expand(dst, map_tensor(tensor_map, ctx, src->nodes[i]));
     }
-    for (int i = 0; i < graph->n_nodes; ++i) {
-        const size_t igrad_src = lm_ggml_hash_find(&graph->visited_hash_set, graph->nodes[i]);
-        const size_t igrad_dst = lm_ggml_hash_find(&new_graph->visited_hash_set, new_graph->nodes[i]);
-        graph->grads[igrad_dst]     = new_graph->grads[igrad_src];
-        graph->grad_accs[igrad_dst] = new_graph->grad_accs[igrad_src];
+    LM_GGML_ASSERT(dst->n_nodes == src->n_nodes);
+    for (int i = 0; i < src->n_nodes; ++i) {
+        const size_t igrad_src = lm_ggml_hash_find(&src->visited_hash_set, src->nodes[i]);
+        const size_t igrad_dst = lm_ggml_hash_find(&dst->visited_hash_set, dst->nodes[i]);
+
+        LM_GGML_ASSERT(igrad_src != LM_GGML_HASHSET_FULL);
+        LM_GGML_ASSERT(lm_ggml_bitset_get(src->visited_hash_set.used, igrad_src));
+        LM_GGML_ASSERT(igrad_dst != LM_GGML_HASHSET_FULL);
+        LM_GGML_ASSERT(lm_ggml_bitset_get(dst->visited_hash_set.used, igrad_dst));
+
+        dst->grads[igrad_dst]     = src->grads[igrad_src];
+        dst->grad_accs[igrad_dst] = src->grad_accs[igrad_src];
     }
 
-    return new_graph;
+    return dst;
 }
 
 static void lm_ggml_opt_alloc_graph(lm_ggml_opt_context_t opt_ctx, lm_ggml_cgraph * graph) {
@@ -284,18 +292,13 @@ static void lm_ggml_opt_alloc_graph(lm_ggml_opt_context_t opt_ctx, lm_ggml_cgrap
 
 lm_ggml_opt_context_t lm_ggml_opt_init(struct lm_ggml_opt_params params) {
     lm_ggml_opt_context_t result = new struct lm_ggml_opt_context;
-    result->backend_sched        = params.backend_sched;
-    result->allocated_graph      = nullptr;
-    result->allocated_graph_copy = nullptr;
-    result->ctx_compute          = params.ctx_compute;
-    result->ctx_copy             = nullptr;
-    result->inputs               = params.inputs;
-    result->outputs              = params.outputs;
-    result->iter                 = 1;
-    result->opt_period           = params.opt_period;
-    result->opt_i                = 0;
-    result->get_opt_pars         = params.get_opt_pars;
-    result->get_opt_pars_ud      = params.get_opt_pars_ud;
+    result->backend_sched   = params.backend_sched;
+    result->ctx_compute     = params.ctx_compute;
+    result->inputs          = params.inputs;
+    result->outputs         = params.outputs;
+    result->opt_period      = params.opt_period;
+    result->get_opt_pars    = params.get_opt_pars;
+    result->get_opt_pars_ud = params.get_opt_pars_ud;
 
     LM_GGML_ASSERT(result->inputs->data && "the inputs must be allocated statically");
     LM_GGML_ASSERT(result->opt_period >= 1);
@@ -348,7 +351,6 @@ lm_ggml_opt_context_t lm_ggml_opt_init(struct lm_ggml_opt_params params) {
 
     switch (params.loss_type) {
         case LM_GGML_OPT_LOSS_TYPE_MEAN: {
-            result->labels = nullptr;
             result->loss = lm_ggml_sum(result->ctx_static, result->outputs);
             lm_ggml_set_name(result->loss, "loss_sum");
             const float scale = 1.0f / (result->opt_period * lm_ggml_nelements(result->outputs));
@@ -358,7 +360,6 @@ lm_ggml_opt_context_t lm_ggml_opt_init(struct lm_ggml_opt_params params) {
             break;
         }
         case LM_GGML_OPT_LOSS_TYPE_SUM: {
-            result->labels = nullptr;
             result->loss = lm_ggml_sum(result->ctx_static, result->outputs);
             lm_ggml_set_name(result->loss, "loss_sum");
             result->loss_per_datapoint = false;
@@ -413,14 +414,7 @@ lm_ggml_opt_context_t lm_ggml_opt_init(struct lm_ggml_opt_params params) {
     }
 
     if (params.build_type == LM_GGML_OPT_BUILD_TYPE_FORWARD) {
-        result->gb_grad = nullptr;
-        result->gb_opt  = nullptr;
-
         result->buf_static = lm_ggml_backend_alloc_ctx_tensors(result->ctx_static, lm_ggml_backend_sched_get_backend(result->backend_sched, 0));
-        result->buf_static_cpu = nullptr;
-
-        lm_ggml_opt_alloc_graph(result, result->gf);
-
         return result;
     }
 
@@ -429,14 +423,8 @@ lm_ggml_opt_context_t lm_ggml_opt_init(struct lm_ggml_opt_params params) {
     lm_ggml_build_backward_expand(result->ctx_static, result->ctx_compute, result->gb_grad, accumulate);
 
     if (params.build_type == LM_GGML_OPT_BUILD_TYPE_GRAD) {
-        result->gb_opt  = nullptr;
-
         result->buf_static = lm_ggml_backend_alloc_ctx_tensors(result->ctx_static, lm_ggml_backend_sched_get_backend(result->backend_sched, 0));
-        result->buf_static_cpu = nullptr;
-
-        lm_ggml_opt_alloc_graph(result, result->gb_grad);
         lm_ggml_graph_reset(result->gb_grad);
-
         return result;
     }
 
@@ -466,7 +454,6 @@ lm_ggml_opt_context_t lm_ggml_opt_init(struct lm_ggml_opt_params params) {
 
     result->buf_static_cpu = lm_ggml_backend_alloc_ctx_tensors_from_buft(result->ctx_static_cpu, lm_ggml_backend_cpu_buffer_type());
 
-    lm_ggml_opt_alloc_graph(result, result->gb_opt);
     lm_ggml_graph_reset(result->gb_opt);
 
     return result;

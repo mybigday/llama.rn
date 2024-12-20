@@ -453,7 +453,6 @@ export default function App() {
           mirostat: 0,
           mirostat_tau: 5,
           mirostat_eta: 0.1,
-          penalize_nl: false,
           ignore_eos: false,
           stop: [
             '</s>',

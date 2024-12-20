@@ -20,9 +20,13 @@ cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu.c
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu.cpp
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-impl.h ./cpp/ggml-cpu-impl.h
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.h ./cpp/ggml-cpu-aarch64.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.c ./cpp/ggml-cpu-aarch64.c
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.cpp ./cpp/ggml-cpu-aarch64.cpp
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.h ./cpp/ggml-cpu-quants.h
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.c ./cpp/ggml-cpu-quants.c
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-traits.h ./cpp/ggml-cpu-traits.h
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-traits.cpp ./cpp/ggml-cpu-traits.cpp
+
+cp -r ./llama.cpp/ggml/src/ggml-cpu/amx ./cpp/
 
 cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.h ./cpp/sgemm.h
 cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.cpp ./cpp/sgemm.cpp
@@ -37,8 +41,6 @@ cp ./llama.cpp/ggml/src/ggml-common.h ./cpp/ggml-common.h
 cp ./llama.cpp/ggml/src/ggml-opt.cpp ./cpp/ggml-opt.cpp
 cp ./llama.cpp/ggml/src/ggml-quants.h ./cpp/ggml-quants.h
 cp ./llama.cpp/ggml/src/ggml-quants.c ./cpp/ggml-quants.c
-cp ./llama.cpp/ggml/src/ggml-aarch64.c ./cpp/ggml-aarch64.c
-cp ./llama.cpp/ggml/src/ggml-aarch64.h ./cpp/ggml-aarch64.h
 cp ./llama.cpp/ggml/src/ggml-threading.cpp ./cpp/ggml-threading.cpp
 cp ./llama.cpp/ggml/src/ggml-threading.h ./cpp/ggml-threading.h
 
@@ -105,13 +107,18 @@ files_add_lm_prefix=(
   "./cpp/ggml-cpu.c"
   "./cpp/ggml-cpu.cpp"
   "./cpp/ggml-cpu-aarch64.h"
-  "./cpp/ggml-cpu-aarch64.c"
+  "./cpp/ggml-cpu-aarch64.cpp"
   "./cpp/ggml-cpu-quants.h"
   "./cpp/ggml-cpu-quants.c"
+  "./cpp/ggml-cpu-traits.h"
+  "./cpp/ggml-cpu-traits.cpp"
   "./cpp/ggml-threading.h"
   "./cpp/ggml-threading.cpp"
-  "./cpp/ggml-aarch64.h"
-  "./cpp/ggml-aarch64.c"
+  "./cpp/amx/amx.h"
+  "./cpp/amx/amx.cpp"
+  "./cpp/amx/mmq.h"
+  "./cpp/amx/mmq.cpp"
+  "./cpp/amx/common.h"
 )
 
 # Loop through each file and run the sed commands
@@ -167,9 +174,6 @@ patch -p0 -d ./cpp < ./scripts/ggml-metal.m.patch
 patch -p0 -d ./cpp < ./scripts/ggml-backend-reg.cpp.patch
 patch -p0 -d ./cpp < ./scripts/ggml.c.patch
 patch -p0 -d ./cpp < ./scripts/ggml-quants.c.patch
-patch -p0 -d ./cpp < ./scripts/ggml-cpu-aarch64.c.patch
-patch -p0 -d ./cpp < ./scripts/sgemm.cpp.patch
-
 
 if [ "$OS" = "Darwin" ]; then
   # Build metallib (~1.4MB)

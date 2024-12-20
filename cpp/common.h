@@ -33,11 +33,13 @@ struct common_lora_adapter_container : common_lora_adapter_info {
     struct llama_lora_adapter * adapter;
 };
 
+using llama_tokens = std::vector<llama_token>;
+
 // build info
 extern int LLAMA_BUILD_NUMBER;
-extern char const * LLAMA_COMMIT;
-extern char const * LLAMA_COMPILER;
-extern char const * LLAMA_BUILD_TARGET;
+extern const char * LLAMA_COMMIT;
+extern const char * LLAMA_COMPILER;
+extern const char * LLAMA_BUILD_TARGET;
 
 struct common_control_vector_load_info;
 
@@ -89,6 +91,7 @@ enum llama_example {
     LLAMA_EXAMPLE_LLAVA,
     LLAMA_EXAMPLE_LOOKUP,
     LLAMA_EXAMPLE_PARALLEL,
+    LLAMA_EXAMPLE_TTS,
 
     LLAMA_EXAMPLE_COUNT,
 };
@@ -104,6 +107,7 @@ enum common_sampler_type {
     COMMON_SAMPLER_TYPE_TEMPERATURE = 7,
     COMMON_SAMPLER_TYPE_XTC         = 8,
     COMMON_SAMPLER_TYPE_INFILL      = 9,
+    COMMON_SAMPLER_TYPE_PENALTIES   = 10,
 };
 
 // dimensionality reduction methods, used by cvector-generator
@@ -112,8 +116,8 @@ enum dimre_method {
     DIMRE_METHOD_MEAN,
 };
 
-// sampler parameters
-struct common_sampler_params {
+// sampling parameters
+struct common_params_sampling {
     uint32_t seed = LLAMA_DEFAULT_SEED; // the seed used to initialize llama_sampler
 
     int32_t n_prev             = 64;    // number of previous tokens to remember
@@ -139,14 +143,15 @@ struct common_sampler_params {
     int32_t mirostat           = 0;     // 0 = disabled, 1 = mirostat, 2 = mirostat 2.0
     float   mirostat_tau       = 5.00f; // target entropy
     float   mirostat_eta       = 0.10f; // learning rate
-    bool    penalize_nl        = false; // consider newlines as a repeatable token
     bool    ignore_eos         = false;
     bool    no_perf            = false; // disable performance metrics
+    bool    timing_per_token   = false;
 
     std::vector<std::string> dry_sequence_breakers = {"\n", ":", "\"", "*"};     // default sequence breakers for DRY
 
 
     std::vector<enum common_sampler_type> samplers = {
+        COMMON_SAMPLER_TYPE_PENALTIES,
         COMMON_SAMPLER_TYPE_DRY,
         COMMON_SAMPLER_TYPE_TOP_K,
         COMMON_SAMPLER_TYPE_TYPICAL_P,
@@ -164,6 +169,30 @@ struct common_sampler_params {
     std::string print() const;
 };
 
+struct common_params_speculative {
+    std::vector<lm_ggml_backend_dev_t> devices; // devices to use for offloading
+
+    int32_t n_ctx        =     0; // draft context size
+    int32_t n_max        =    16; // maximum number of tokens to draft during speculative decoding
+    int32_t n_min        =     5; // minimum number of draft tokens to use for speculative decoding
+    int32_t n_gpu_layers =    -1; // number of layers to store in VRAM for the draft model (-1 - use default)
+    float   p_split      =  0.1f; // speculative decoding split probability
+    float   p_min        =  0.9f; // minimum speculative decoding probability (greedy)
+
+    struct cpu_params cpuparams;
+    struct cpu_params cpuparams_batch;
+
+    std::string model = ""; // draft model for speculative decoding                          // NOLINT
+};
+
+struct common_params_vocoder {
+    std::string hf_repo = ""; // HF repo                                                     // NOLINT
+    std::string hf_file = ""; // HF file                                                     // NOLINT
+
+    std::string model     = ""; // model path                                                // NOLINT
+    std::string model_url = ""; // model url to download                                     // NOLINT
+};
+
 struct common_params {
     bool vocab_only               = false;
     int32_t n_predict             =    -1; // new tokens to predict
@@ -171,15 +200,9 @@ struct common_params {
     int32_t n_batch               =  2048; // logical batch size for prompt processing (must be >=32 to use BLAS)
     int32_t n_ubatch              =   512; // physical batch size for prompt processing (must be >=32 to use BLAS)
     int32_t n_keep                =     0; // number of tokens to keep from initial prompt
-    int32_t n_draft               =     5; // number of tokens to draft during speculative decoding
     int32_t n_chunks              =    -1; // max number of chunks to process (-1 = unlimited)
     int32_t n_parallel            =     1; // number of parallel sequences to decode
     int32_t n_sequences           =     1; // number of sequences to decode
-    float   p_split               =  0.1f; // speculative decoding split probability
-    int32_t n_gpu_layers          =    -1; // number of layers to store in VRAM (-1 - use default)
-    int32_t n_gpu_layers_draft    =    -1; // number of layers to store in VRAM for the draft model (-1 - use default)
-    int32_t main_gpu              =     0; // the GPU that is used for scratch and small tensors
-    float   tensor_split[128]     =   {0}; // how split tensors should be distributed across GPUs
     int32_t grp_attn_n            =     1; // group-attention factor
     int32_t grp_attn_w            =   512; // group-attention width
     int32_t n_print               =    -1; // print token count every n tokens (-1 = disabled)
@@ -192,26 +215,33 @@ struct common_params {
     int32_t yarn_orig_ctx         =     0; // YaRN original context length
     float   defrag_thold          =  0.1f; // KV cache defragmentation threshold
 
+    // offload params
+    std::vector<lm_ggml_backend_dev_t> devices; // devices to use for offloading
+
+    int32_t n_gpu_layers      = -1;  // number of layers to store in VRAM (-1 - use default)
+    int32_t main_gpu          = 0;   // the GPU that is used for scratch and small tensors
+    float   tensor_split[128] = {0}; // how split tensors should be distributed across GPUs
+
+    enum llama_split_mode split_mode = LLAMA_SPLIT_MODE_LAYER; // how to split the model across GPUs
+
     struct cpu_params cpuparams;
     struct cpu_params cpuparams_batch;
-    struct cpu_params draft_cpuparams;
-    struct cpu_params draft_cpuparams_batch;
 
     lm_ggml_backend_sched_eval_callback cb_eval = nullptr;
     void * cb_eval_user_data                 = nullptr;
 
     lm_ggml_numa_strategy numa = LM_GGML_NUMA_STRATEGY_DISABLED;
 
-    enum llama_split_mode        split_mode        = LLAMA_SPLIT_MODE_LAYER; // how to split the model across GPUs
     enum llama_rope_scaling_type rope_scaling_type = LLAMA_ROPE_SCALING_TYPE_UNSPECIFIED;
     enum llama_pooling_type      pooling_type      = LLAMA_POOLING_TYPE_UNSPECIFIED; // pooling type for embeddings
     enum llama_attention_type    attention_type    = LLAMA_ATTENTION_TYPE_UNSPECIFIED; // attention type for embeddings
 
-    struct common_sampler_params sparams;
+    struct common_params_sampling    sampling;
+    struct common_params_speculative speculative;
+    struct common_params_vocoder     vocoder;
 
     std::string model                = ""; // model path                                                    // NOLINT
-    std::string model_draft          = ""; // draft model for speculative decoding                          // NOLINT
-    std::string model_alias          = "unknown"; // model alias                                            // NOLINT
+    std::string model_alias          = ""; // model alias                                                   // NOLINT
     std::string model_url            = ""; // model url to download                                         // NOLINT
     std::string hf_token             = ""; // HF token                                                      // NOLINT
     std::string hf_repo              = ""; // HF repo                                                       // NOLINT
@@ -285,8 +315,8 @@ struct common_params {
     llama_progress_callback progress_callback = nullptr;
     void * progress_callback_user_data = nullptr;
 
-    std::string cache_type_k = "f16"; // KV cache data type for the K
-    std::string cache_type_v = "f16"; // KV cache data type for the V
+    lm_ggml_type cache_type_k = LM_GGML_TYPE_F16; // KV cache data type for the K
+    lm_ggml_type cache_type_v = LM_GGML_TYPE_F16; // KV cache data type for the V
 
     // multimodal models (see examples/llava)
     std::string mmproj = "";        // path to multimodal projector                                         // NOLINT
@@ -436,6 +466,11 @@ std::vector<std::string> string_split<std::string>(const std::string & input, ch
     return parts;
 }
 
+static bool string_starts_with(const std::string & str,
+                               const std::string & prefix) {  // While we wait for C++20's std::string::starts_with...
+    return str.rfind(prefix, 0) == 0;
+}
+
 bool string_parse_kv_override(const char * data, std::vector<llama_model_kv_override> & overrides);
 void string_process_escapes(std::string & input);
 
@@ -466,17 +501,28 @@ struct common_init_result {
 
 struct common_init_result     common_init_from_params(common_params & params);
 
-struct llama_model_params     common_model_params_to_llama  (const common_params & params);
+struct llama_model_params     common_model_params_to_llama  (      common_params & params);
 struct llama_context_params   common_context_params_to_llama(const common_params & params);
 struct lm_ggml_threadpool_params lm_ggml_threadpool_params_from_cpu_params(const cpu_params & params);
 
-struct llama_model * common_load_model_from_url(const char * model_url, const char * path_model, const char * hf_token, const struct llama_model_params & params);
-struct llama_model * common_load_model_from_hf(const char * repo, const char * file, const char * path_model, const char * hf_token, const struct llama_model_params & params);
+struct llama_model * common_load_model_from_url(
+    const std::string & model_url,
+    const std::string & local_path,
+    const std::string & hf_token,
+    const struct llama_model_params & params);
+struct llama_model * common_load_model_from_hf(
+    const std::string & repo,
+    const std::string & remote_path,
+    const std::string & local_path,
+    const std::string & hf_token,
+    const struct llama_model_params & params);
 
 // clear LoRA adapters from context, then apply new list of adapters
 void common_lora_adapters_apply(struct llama_context * ctx, std::vector<common_lora_adapter_container> & lora_adapters);
 
+//
 // Batch utils
+//
 
 void common_batch_clear(struct llama_batch & batch);
 
@@ -486,6 +532,16 @@ void common_batch_add(
                           llama_pos   pos,
     const std::vector<llama_seq_id> & seq_ids,
                                bool   logits);
+
+//
+// Token utils
+//
+
+// longest common prefix
+size_t common_lcp(const llama_tokens & a, const llama_tokens & b);
+
+// longet common subsequence
+size_t common_lcs(const llama_tokens & a, const llama_tokens & b);
 
 //
 // Vocab utils
@@ -566,7 +622,8 @@ void common_kv_cache_dump_view_seqs(const llama_kv_cache_view & view, int row_si
 // Embedding utils
 //
 
-void common_embd_normalize(const float * inp, float * out, int n, int embd_norm = 2);
+// TODO: repace embd_norm with an enum
+void common_embd_normalize(const float * inp, float * out, int n, int embd_norm);
 
 float common_embd_similarity_cos(const float * embd1, const float * embd2, int n);
 

@@ -11,6 +11,27 @@
 
 namespace rnllama {
 
+const std::vector<lm_ggml_type> kv_cache_types = {
+    LM_GGML_TYPE_F32,
+    LM_GGML_TYPE_F16,
+    LM_GGML_TYPE_BF16,
+    LM_GGML_TYPE_Q8_0,
+    LM_GGML_TYPE_Q4_0,
+    LM_GGML_TYPE_Q4_1,
+    LM_GGML_TYPE_IQ4_NL,
+    LM_GGML_TYPE_Q5_0,
+    LM_GGML_TYPE_Q5_1,
+};
+
+static lm_ggml_type kv_cache_type_from_str(const std::string & s) {
+    for (const auto & type : kv_cache_types) {
+        if (lm_ggml_type_name(type) == s) {
+            return type;
+        }
+    }
+    throw std::runtime_error("Unsupported cache type: " + s);
+}
+
 static std::string lm_gguf_data_to_str(enum lm_gguf_type type, const void * data, int i) {
     switch (type) {
         case LM_GGUF_TYPE_UINT8:   return std::to_string(((const uint8_t  *)data)[i]);
@@ -253,7 +274,7 @@ struct llama_rn_context
     {
         is_interrupted = false;
         params.antiprompt.clear();
-        params.sparams.grammar.clear();
+        params.sampling.grammar.clear();
         num_prompt_tokens = 0;
         num_tokens_predicted = 0;
         generated_text = "";
@@ -267,14 +288,14 @@ struct llama_rn_context
         incomplete = false;
         n_remain = 0;
         n_past = 0;
-        params.sparams.n_prev = n_ctx;
+        params.sampling.n_prev = n_ctx;
     }
 
     bool initSampling() {
         if (ctx_sampling != nullptr) {
             common_sampler_free(ctx_sampling);
         }
-        ctx_sampling = common_sampler_init(model, params.sparams);
+        ctx_sampling = common_sampler_init(model, params.sampling);
         return ctx_sampling != nullptr;
     }
 
@@ -467,10 +488,10 @@ struct llama_rn_context
 
             llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling);
 
-            const int32_t n_probs = params.sparams.n_probs;
+            const int32_t n_probs = params.sampling.n_probs;
 
             // deprecated
-            /*if (params.sparams.temp <= 0 && n_probs > 0)
+            /*if (params.sampling.temp <= 0 && n_probs > 0)
             {
                 // For llama_sample_token_greedy we need to sort candidates
                 llama_sampler_init_softmax();
@@ -546,7 +567,7 @@ struct llama_rn_context
         const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(ctx, token_with_probs.tok);
         generated_text += token_text;
 
-        if (params.sparams.n_probs > 0)
+        if (params.sampling.n_probs > 0)
         {
             generated_token_probs.push_back(token_with_probs);
         }
