@@ -35,12 +35,19 @@ For get a GGUF model or quantize manually, see [`Prepare and Quantize`](https://
 
 ## Usage
 
-```js
-import { initLlama, loadLlamaModelInfo } from 'llama.rn'
+Load model info only:
 
-// Load the Llama model information pre initializing the Llama context
-const modelPath = 'file://<path to gguf model>';
-await loadLlamaModelInfo(modelPath);
+```js
+import { loadLlamaModelInfo } from 'llama.rn'
+
+const modelPath = 'file://<path to gguf model>'
+console.log('Model Info:', await loadLlamaModelInfo(modelPath))
+```
+
+Initialize a Llama context & do completion:
+
+```js
+import { initLlama } from 'llama.rn'
 
 // Initial a Llama context with the model (may take a while)
 const context = await initLlama({
