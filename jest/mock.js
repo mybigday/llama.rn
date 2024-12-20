@@ -2,10 +2,15 @@ const { NativeModules, DeviceEventEmitter } = require('react-native')
 
 if (!NativeModules.RNLlama) {
   NativeModules.RNLlama = {
+    setContextLimit: jest.fn(),
+
+    modelInfo: jest.fn(async () => ({})),
+
     initContext: jest.fn(() =>
       Promise.resolve({
         gpu: false,
         reasonNoGPU: 'Test',
+        model: {},
       }),
     ),
 
