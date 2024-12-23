@@ -126,10 +126,6 @@ export type NativeCompletionParams = {
    */
   penalty_present?: number
   /**
-   * Penalize newline tokens when applying the repeat penalty. Default: `false`
-   */
-  penalize_nl?: boolean
-  /**
    * Enable Mirostat sampling, controlling perplexity during text generation. Default: `0`, where `0` is disabled, `1` is Mirostat, and `2` is Mirostat 2.0.
    */
   mirostat?: number

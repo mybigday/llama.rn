@@ -1,5 +1,5 @@
---- llama.cpp.orig	2024-11-21 11:03:19
-+++ llama.cpp	2024-11-21 11:03:20
+--- llama.cpp.orig	2024-12-23 10:40:08
++++ llama.cpp	2024-12-23 10:40:09
 @@ -80,6 +80,17 @@
  #define LLAMA_MAX_LAYERS  512
  #define LLAMA_MAX_EXPERTS 160  // DeepSeekV2
@@ -18,7 +18,7 @@
  //
  // helpers
  //
-@@ -1951,16 +1962,16 @@
+@@ -2160,16 +2171,16 @@
 
          if (prefetch > 0) {
              // advise the kernel to preload the mapped memory
