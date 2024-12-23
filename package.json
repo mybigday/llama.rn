@@ -13,7 +13,7 @@
     "jest",
     "ios",
     "android",
-    "cpp/*.*",
+    "cpp",
     "*.podspec",
     "!lib/typescript/example",
     "!ios/build",
