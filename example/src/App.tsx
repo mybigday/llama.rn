@@ -464,6 +464,8 @@ export default function App() {
             '<|END_OF_TURN_TOKEN|>',
             '<|end_of_turn|>',
             '<|endoftext|>',
+            '<end_of_turn>',
+            '<eos>',
           ],
           // n_threads: 4,
           // logit_bias: [[15043,1.0]],
