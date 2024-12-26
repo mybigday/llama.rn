@@ -226,6 +226,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jint embd_normalize,
     jint n_ctx,
     jint n_batch,
+    jint n_ubatch,
     jint n_threads,
     jint n_gpu_layers, // TODO: Support this
     jboolean flash_attn,
@@ -256,6 +257,7 @@ Java_com_rnllama_LlamaContext_initContext(
 
     defaultParams.n_ctx = n_ctx;
     defaultParams.n_batch = n_batch;
+    defaultParams.n_ubatch = n_ubatch;
 
     if (pooling_type != -1) {
         defaultParams.pooling_type = static_cast<enum llama_pooling_type>(pooling_type);

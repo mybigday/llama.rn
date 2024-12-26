@@ -12,6 +12,7 @@ export type NativeContextParams = {
 
   n_ctx?: number
   n_batch?: number
+  n_ubatch?: number
 
   n_threads?: number
   n_gpu_layers?: number
