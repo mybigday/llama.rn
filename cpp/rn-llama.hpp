@@ -660,7 +660,11 @@ struct llama_rn_context
         double tg_std = 0;
 
         // TODO: move batch into llama_rn_context (related https://github.com/mybigday/llama.rn/issues/30)
-        llama_batch batch = llama_batch_init(512, 0, 1);
+        llama_batch batch = llama_batch_init(
+            std::min(pp, params.n_ubatch), // max n_tokens is limited by n_ubatch
+            0,                         // No embeddings
+            1                          // Single sequence
+        );
 
         for (int i = 0; i < nr; i++)
         {
