@@ -8,7 +8,9 @@
 #include "llama.h"
 #include "llama-impl.h"
 #include "sampling.h"
+#if defined(__ANDROID__)
 #include <android/log.h>
+#endif
 
 namespace rnllama {
 
@@ -107,31 +109,32 @@ static void llama_batch_add(llama_batch *batch, llama_token id, llama_pos pos, s
 static void log(const char *level, const char *function, int line,
                        const char *format, ...)
 {
-    // Create the log tag prefix with function:line-number
-    char prefix[256];
-    snprintf(prefix, sizeof(prefix), "%s:%d ", function, line);
-
-    // add the message
-    char final_msg[4096];
     va_list args;
-    va_start(args, format);
-    vsnprintf(final_msg, sizeof(final_msg), format, args);
-    va_end(args);
-
-    android_LogPriority priority;
-    if (strcmp(level, "ERROR") == 0) {
-        priority = ANDROID_LOG_ERROR;
-    } else if (strcmp(level, "WARNING") == 0) {
-        priority = ANDROID_LOG_WARN;
-    } else if (strcmp(level, "INFO") == 0) {
-        priority = ANDROID_LOG_INFO;
-    } else {
-        priority = ANDROID_LOG_DEBUG;
-    }
-
-    __android_log_print(priority, "RNLlama", "%s%s", prefix, final_msg);
+    #if defined(__ANDROID__)
+        char prefix[256];
+        snprintf(prefix, sizeof(prefix), "%s:%d %s", function, line, format);
+        
+        va_start(args, format);
+        android_LogPriority priority;
+        if (strcmp(level, "ERROR") == 0) {
+            priority = ANDROID_LOG_ERROR;
+        } else if (strcmp(level, "WARNING") == 0) {
+            priority = ANDROID_LOG_WARN;
+        } else if (strcmp(level, "INFO") == 0) {
+            priority = ANDROID_LOG_INFO;
+        } else {
+            priority = ANDROID_LOG_DEBUG;
+        }
+        __android_log_vprint(priority, "RNLlama", prefix, args);
+        va_end(args);
+    #else
+        printf("[%s] %s:%d ", level, function, line);
+        va_start(args, format);
+        vprintf(format, args);
+        va_end(args);
+        printf("\n");
+    #endif
 }
-
 static bool rnllama_verbose = false;
 
 #if RNLLAMA_VERBOSE != 1
