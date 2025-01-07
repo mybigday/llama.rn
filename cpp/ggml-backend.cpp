@@ -795,9 +795,12 @@ static void lm_ggml_backend_sched_print_assignments(lm_ggml_backend_sched_t sche
     for (int i = 0; i < graph->n_nodes; i++) {
         if (cur_split < sched->n_splits && i == sched->splits[cur_split].i_start) {
             lm_ggml_backend_t split_backend = sched->backends[sched->splits[cur_split].backend_id];
-            LM_GGML_LOG_DEBUG("\n## SPLIT #%d: %s # %d inputs: ", cur_split, lm_ggml_backend_name(split_backend),
+            LM_GGML_LOG_DEBUG("\n## SPLIT #%d: %s # %d inputs", cur_split, lm_ggml_backend_name(split_backend),
                 sched->splits[cur_split].n_inputs);
             for (int j = 0; j < sched->splits[cur_split].n_inputs; j++) {
+                if (j == 0) {
+                    LM_GGML_LOG_DEBUG(": ");
+                }
                 LM_GGML_LOG_DEBUG("[%s (%5.5s)] ", sched->splits[cur_split].inputs[j]->name,
                     fmt_size(lm_ggml_nbytes(sched->splits[cur_split].inputs[j])));
             }

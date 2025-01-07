@@ -25,7 +25,19 @@ set(
     ${RNLLAMA_LIB_DIR}/llama-grammar.cpp
     ${RNLLAMA_LIB_DIR}/llama-sampling.cpp
     ${RNLLAMA_LIB_DIR}/llama-vocab.cpp
+    ${RNLLAMA_LIB_DIR}/llama-adapter.cpp
+    ${RNLLAMA_LIB_DIR}/llama-chat.cpp
+    ${RNLLAMA_LIB_DIR}/llama-context.cpp
+    ${RNLLAMA_LIB_DIR}/llama-kv-cache.cpp
+    ${RNLLAMA_LIB_DIR}/llama-arch.cpp
+    ${RNLLAMA_LIB_DIR}/llama-batch.cpp
+    ${RNLLAMA_LIB_DIR}/llama-cparams.cpp
+    ${RNLLAMA_LIB_DIR}/llama-hparams.cpp
     ${RNLLAMA_LIB_DIR}/llama.cpp
+    ${RNLLAMA_LIB_DIR}/llama-model.cpp
+    ${RNLLAMA_LIB_DIR}/llama-model-loader.cpp
+    ${RNLLAMA_LIB_DIR}/llama-mmap.cpp
+    ${RNLLAMA_LIB_DIR}/llama-vocab.cpp
     ${RNLLAMA_LIB_DIR}/sampling.cpp
     ${RNLLAMA_LIB_DIR}/unicode-data.cpp
     ${RNLLAMA_LIB_DIR}/unicode.cpp
