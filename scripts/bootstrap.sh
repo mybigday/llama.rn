@@ -69,6 +69,7 @@ cp ./llama.cpp/src/llama-cparams.cpp ./cpp/llama-cparams.cpp
 cp ./llama.cpp/src/llama-hparams.h ./cpp/llama-hparams.h
 cp ./llama.cpp/src/llama-hparams.cpp ./cpp/llama-hparams.cpp
 cp ./llama.cpp/src/llama-impl.h ./cpp/llama-impl.h
+cp ./llama.cpp/src/llama-impl.cpp ./cpp/llama-impl.cpp
 
 cp ./llama.cpp/src/llama-vocab.h ./cpp/llama-vocab.h
 cp ./llama.cpp/src/llama-vocab.cpp ./cpp/llama-vocab.cpp
@@ -92,6 +93,7 @@ cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
 # List of files to process
 files_add_lm_prefix=(
   "./cpp/llama-impl.h"
+  "./cpp/llama-impl.cpp"
   "./cpp/llama-vocab.h"
   "./cpp/llama-vocab.cpp"
   "./cpp/llama-grammar.h"

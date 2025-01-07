@@ -154,13 +154,17 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not supported in encoder-decoder models" userInfo:nil];
     }
 
-    std::vector<common_lora_adapter_info> lora_adapters;
+    std::vector<common_lora_adapter_info> lora;
     if (params[@"lora"]) {
         common_lora_adapter_info la;
         la.path = [params[@"lora"] UTF8String];
         la.scale = 1.0f;
         if (params[@"lora_scaled"]) la.scale = [params[@"lora_scaled"] floatValue];
-        lora_adapters.push_back(la);
+        la.ptr = llama_lora_adapter_init(context->llama->model, la.path.c_str());
+        if (la.ptr == nullptr) {
+            @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to apply lora adapter" userInfo:nil];
+        }
+        lora.push_back(la);
     }
     if (params[@"lora_list"] && [params[@"lora_list"] isKindOfClass:[NSArray class]]) {
         NSArray *lora_list = params[@"lora_list"];
@@ -171,11 +175,15 @@
           common_lora_adapter_info la;
           la.path = [path UTF8String];
           la.scale = scale;
-          lora_adapters.push_back(la);
+          la.ptr = llama_lora_adapter_init(context->llama->model, la.path.c_str());
+          if (la.ptr == nullptr) {
+            @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to apply lora adapter" userInfo:nil];
+          }
+          lora.push_back(la);
         }
     }
-    if (lora_adapters.size() > 0) {
-        int result = context->llama->applyLoraAdapters(lora_adapters);
+    if (lora.size() > 0) {
+        int result = context->llama->applyLoraAdapters(lora);
         if (result != 0) {
             delete context->llama;
             @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to apply lora adapters" userInfo:nil];
@@ -566,6 +574,10 @@
         common_lora_adapter_info la;
         la.path = [loraAdapter[@"path"] UTF8String];
         la.scale = [loraAdapter[@"scaled"] doubleValue];
+        la.ptr = llama_lora_adapter_init(llama->model, la.path.c_str());
+        if (la.ptr == nullptr) {
+            @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to apply lora adapter" userInfo:nil];
+        }
         lora_adapters.push_back(la);
     }
     int result = llama->applyLoraAdapters(lora_adapters);
@@ -579,9 +591,9 @@
 }
 
 - (NSArray *)getLoadedLoraAdapters {
-    std::vector<common_lora_adapter_container> loaded_lora_adapters = llama->getLoadedLoraAdapters();
+    std::vector<common_lora_adapter_info> loaded_lora_adapters = llama->getLoadedLoraAdapters();
     NSMutableArray *result = [[NSMutableArray alloc] init];
-    for (common_lora_adapter_container &la : loaded_lora_adapters) {
+    for (common_lora_adapter_info &la : loaded_lora_adapters) {
         [result addObject:@{
             @"path": [NSString stringWithUTF8String:la.path.c_str()],
             @"scale": @(la.scale)

@@ -250,7 +250,7 @@ struct llama_rn_context
     std::string stopping_word;
     bool incomplete = false;
 
-    std::vector<common_lora_adapter_container> lora_adapters;
+    std::vector<common_lora_adapter_info> lora;
 
     ~llama_rn_context()
     {
@@ -303,8 +303,8 @@ struct llama_rn_context
     {
         params = params_;
         common_init_result result = common_init_from_params(params);
-        model = result.model;
-        ctx = result.context;
+        model = result.model.get();
+        ctx = result.context.get();
         if (model == nullptr)
         {
            LOG_ERROR("unable to load model: %s", params_.model.c_str());
@@ -747,33 +747,19 @@ struct llama_rn_context
             std::string("]");
     }
 
-    int applyLoraAdapters(std::vector<common_lora_adapter_info> lora_adapters) {
-        this->lora_adapters.clear();
-        auto containers = std::vector<common_lora_adapter_container>();
-        for (auto & la : lora_adapters) {
-            common_lora_adapter_container loaded_la;
-            loaded_la.path = la.path;
-            loaded_la.scale = la.scale;
-            loaded_la.adapter = llama_lora_adapter_init(model, la.path.c_str());
-            if (loaded_la.adapter == nullptr) {
-                LOG_ERROR("%s: failed to apply lora adapter '%s'\n", __func__, la.path.c_str());
-                return -1;
-            }
-
-            this->lora_adapters.push_back(loaded_la);
-            containers.push_back(loaded_la);
-        }
-        common_lora_adapters_apply(ctx, containers);
+    int applyLoraAdapters(std::vector<common_lora_adapter_info> lora) {
+        this->lora = lora;
+        common_lora_adapters_apply(ctx, lora);
         return 0;
     }
 
     void removeLoraAdapters() {
-        this->lora_adapters.clear();
-        common_lora_adapters_apply(ctx, this->lora_adapters); // apply empty list
+        this->lora.clear();
+        common_lora_adapters_apply(ctx, this->lora); // apply empty list
     }
 
-    std::vector<common_lora_adapter_container> getLoadedLoraAdapters() {
-        return this->lora_adapters;
+    std::vector<common_lora_adapter_info> getLoadedLoraAdapters() {
+        return this->lora;
     }
 };
 
