@@ -210,7 +210,7 @@ struct llama_rn_context
         }
         if (model)
         {
-            llama_free_model(model);
+            llama_model_free(model);
             model = nullptr;
         }
         if (ctx_sampling != nullptr)

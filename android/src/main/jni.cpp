@@ -970,7 +970,7 @@ Java_com_rnllama_LlamaContext_freeContext(
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
     if (llama->model) {
-        llama_free_model(llama->model);
+        llama_model_free(llama->model);
     }
     if (llama->ctx) {
         llama_free(llama->ctx);
