@@ -213,24 +213,26 @@
     llama_model_desc(llama->model, desc, sizeof(desc));
 
     int count = llama_model_meta_count(llama->model);
-    NSDictionary *meta = [[NSMutableDictionary alloc] init];
-    for (int i = 0; i < count; i++) {
-        char key[256];
-        llama_model_meta_key_by_index(llama->model, i, key, sizeof(key));
-        char val[2048];
-        llama_model_meta_val_str_by_index(llama->model, i, val, sizeof(val));
+    // NSDictionary *meta = [[NSMutableDictionary alloc] init];
+    // for (int i = 0; i < count; i++) {
+    //     char key[256];
+    //     llama_model_meta_key_by_index(llama->model, i, key, sizeof(key));
+    //     char val[2048];
+    //     llama_model_meta_val_str_by_index(llama->model, i, val, sizeof(val));
 
-        NSString *keyStr = [NSString stringWithUTF8String:key];
-        NSString *valStr = [NSString stringWithUTF8String:val];
-        [meta setValue:valStr forKey:keyStr];
-    }
+    //     NSString *keyStr = [NSString stringWithUTF8String:key];
+    //     NSString *valStr = [NSString stringWithUTF8String:val];
+    //     if (keyStr && valStr) {
+    //         [meta setValue:valStr forKey:keyStr];
+    //     }
+    // }
 
     return @{
         @"desc": [NSString stringWithUTF8String:desc],
         @"size": @(llama_model_size(llama->model)),
         @"nParams": @(llama_model_n_params(llama->model)),
         @"isChatTemplateSupported": @(llama->validateModelChatTemplate()),
-        @"metadata": meta
+        // @"metadata": meta
     };
 }
 
