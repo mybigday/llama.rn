@@ -198,7 +198,7 @@ Java_com_rnllama_LlamaContext_modelInfo(
                 continue;
             }
 
-            const std::string value = rnllama::lm_gguf_kv_to_str(ctx, i);
+            const std::string value = lm_gguf_kv_to_str(ctx, i);
             putString(env, info, key, value.c_str());
         }
     }

@@ -32,7 +32,7 @@
             if (skip && [skip containsObject:[NSString stringWithUTF8String:key]]) {
                 continue;
             }
-            const std::string value = rnllama::lm_gguf_kv_to_str(ctx, i);
+            const std::string value = lm_gguf_kv_to_str(ctx, i);
             info[[NSString stringWithUTF8String:key]] = [NSString stringWithUTF8String:value.c_str()];
         }
     }

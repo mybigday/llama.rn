@@ -33,60 +33,6 @@ static lm_ggml_type kv_cache_type_from_str(const std::string & s) {
     throw std::runtime_error("Unsupported cache type: " + s);
 }
 
-static std::string lm_gguf_data_to_str(enum lm_gguf_type type, const void * data, int i) {
-    switch (type) {
-        case LM_GGUF_TYPE_UINT8:   return std::to_string(((const uint8_t  *)data)[i]);
-        case LM_GGUF_TYPE_INT8:    return std::to_string(((const int8_t   *)data)[i]);
-        case LM_GGUF_TYPE_UINT16:  return std::to_string(((const uint16_t *)data)[i]);
-        case LM_GGUF_TYPE_INT16:   return std::to_string(((const int16_t  *)data)[i]);
-        case LM_GGUF_TYPE_UINT32:  return std::to_string(((const uint32_t *)data)[i]);
-        case LM_GGUF_TYPE_INT32:   return std::to_string(((const int32_t  *)data)[i]);
-        case LM_GGUF_TYPE_UINT64:  return std::to_string(((const uint64_t *)data)[i]);
-        case LM_GGUF_TYPE_INT64:   return std::to_string(((const int64_t  *)data)[i]);
-        case LM_GGUF_TYPE_FLOAT32: return std::to_string(((const float    *)data)[i]);
-        case LM_GGUF_TYPE_FLOAT64: return std::to_string(((const double   *)data)[i]);
-        case LM_GGUF_TYPE_BOOL:    return ((const bool *)data)[i] ? "true" : "false";
-        default:                   return "unknown type: " + std::to_string(type);
-    }
-}
-
-static std::string lm_gguf_kv_to_str(const struct lm_gguf_context * ctx_gguf, int i) {
-    const enum lm_gguf_type type = lm_gguf_get_kv_type(ctx_gguf, i);
-
-    switch (type) {
-        case LM_GGUF_TYPE_STRING:
-            return lm_gguf_get_val_str(ctx_gguf, i);
-        case LM_GGUF_TYPE_ARRAY:
-            {
-                const enum lm_gguf_type arr_type = lm_gguf_get_arr_type(ctx_gguf, i);
-                int arr_n = lm_gguf_get_arr_n(ctx_gguf, i);
-                const void * data = lm_gguf_get_arr_data(ctx_gguf, i);
-                std::stringstream ss;
-                ss << "[";
-                for (int j = 0; j < arr_n; j++) {
-                    if (arr_type == LM_GGUF_TYPE_STRING) {
-                        std::string val = lm_gguf_get_arr_str(ctx_gguf, i, j);
-                        // escape quotes
-                        replace_all(val, "\\", "\\\\");
-                        replace_all(val, "\"", "\\\"");
-                        ss << '"' << val << '"';
-                    } else if (arr_type == LM_GGUF_TYPE_ARRAY) {
-                        ss << "???";
-                    } else {
-                        ss << lm_gguf_data_to_str(arr_type, data, j);
-                    }
-                    if (j < arr_n - 1) {
-                        ss << ", ";
-                    }
-                }
-                ss << "]";
-                return ss.str();
-            }
-        default:
-            return lm_gguf_data_to_str(type, lm_gguf_get_val_data(ctx_gguf, i), 0);
-    }
-}
-
 static void llama_batch_clear(llama_batch *batch) {
     batch->n_tokens = 0;
 }
