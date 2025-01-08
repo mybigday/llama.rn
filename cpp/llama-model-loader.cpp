@@ -18,7 +18,7 @@ const char * llama_file_version_name(llama_fver version) {
 }
 
 namespace GGUFMeta {
-    template <typename T, lm_gguf_type gt_, T (*gfun)(const lm_gguf_context *, const int)>
+    template <typename T, lm_gguf_type gt_, T (*gfun)(const lm_gguf_context *, const int64_t)>
     struct GKV_Base_Type {
         static constexpr lm_gguf_type gt = gt_;
 
@@ -60,10 +60,11 @@ namespace GGUFMeta {
         public:
         static constexpr lm_gguf_type gt = LM_GGUF_TYPE_ARRAY;
         static ArrayInfo getter(const lm_gguf_context *ctx, const int k) {
+            const enum lm_gguf_type arr_type = lm_gguf_get_arr_type(ctx, k);
             return ArrayInfo {
-                lm_gguf_get_arr_type(ctx, k),
+                arr_type,
                 size_t(lm_gguf_get_arr_n(ctx, k)),
-                lm_gguf_get_arr_data(ctx, k),
+                arr_type == LM_GGUF_TYPE_STRING ? nullptr : lm_gguf_get_arr_data(ctx, k),
             };
         }
     };
@@ -553,7 +554,7 @@ llama_model_loader::llama_model_loader(const std::string & fname, bool use_mmap,
             const enum lm_gguf_type type   = lm_gguf_get_kv_type(meta.get(), i);
             const std::string type_name =
                 type == LM_GGUF_TYPE_ARRAY
-                ? format("%s[%s,%d]", lm_gguf_type_name(type), lm_gguf_type_name(lm_gguf_get_arr_type(meta.get(), i)), lm_gguf_get_arr_n(meta.get(), i))
+                ? format("%s[%s,%zu]", lm_gguf_type_name(type), lm_gguf_type_name(lm_gguf_get_arr_type(meta.get(), i)), lm_gguf_get_arr_n(meta.get(), i))
                 : lm_gguf_type_name(type);
 
             std::string value          = lm_gguf_kv_to_str(meta.get(), i);

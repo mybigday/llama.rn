@@ -241,12 +241,6 @@
 #define LM_GGML_ROPE_TYPE_MROPE  8
 #define LM_GGML_ROPE_TYPE_VISION 24
 
-#define LM_GGUF_MAGIC "GGUF"
-
-#define LM_GGUF_VERSION 3
-
-#define LM_GGUF_DEFAULT_ALIGNMENT 32
-
 #define LM_GGML_UNUSED(x) (void)(x)
 
 #define LM_GGML_PAD(x, n) (((x) + (n) - 1) & ~((n) - 1))
@@ -401,12 +395,6 @@ extern "C" {
     enum lm_ggml_prec {
         LM_GGML_PREC_DEFAULT,
         LM_GGML_PREC_F32,
-    };
-
-    enum lm_ggml_backend_type {
-        LM_GGML_BACKEND_TYPE_CPU = 0,
-        LM_GGML_BACKEND_TYPE_GPU = 10,
-        LM_GGML_BACKEND_TYPE_GPU_SPLIT = 20,
     };
 
     // model file types
@@ -586,8 +574,6 @@ extern "C" {
     // n-dimensional tensor
     struct lm_ggml_tensor {
         enum lm_ggml_type type;
-
-        LM_GGML_DEPRECATED(enum lm_ggml_backend_type backend, "use the buffer type to find the storage location of the tensor");
 
         struct lm_ggml_backend_buffer * buffer;
 
@@ -2110,132 +2096,6 @@ extern "C" {
                    int64_t   nrows,
                    int64_t   n_per_row,
                const float * imatrix);
-
-    //
-    // gguf
-    //
-
-    enum lm_gguf_type {
-        LM_GGUF_TYPE_UINT8   = 0,
-        LM_GGUF_TYPE_INT8    = 1,
-        LM_GGUF_TYPE_UINT16  = 2,
-        LM_GGUF_TYPE_INT16   = 3,
-        LM_GGUF_TYPE_UINT32  = 4,
-        LM_GGUF_TYPE_INT32   = 5,
-        LM_GGUF_TYPE_FLOAT32 = 6,
-        LM_GGUF_TYPE_BOOL    = 7,
-        LM_GGUF_TYPE_STRING  = 8,
-        LM_GGUF_TYPE_ARRAY   = 9,
-        LM_GGUF_TYPE_UINT64  = 10,
-        LM_GGUF_TYPE_INT64   = 11,
-        LM_GGUF_TYPE_FLOAT64 = 12,
-        LM_GGUF_TYPE_COUNT,       // marks the end of the enum
-    };
-
-    struct lm_gguf_context;
-
-    struct lm_gguf_init_params {
-        bool no_alloc;
-
-        // if not NULL, create a lm_ggml_context and allocate the tensor data in it
-        struct lm_ggml_context ** ctx;
-    };
-
-    LM_GGML_API struct lm_gguf_context * lm_gguf_init_empty(void);
-    LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_file(const char * fname, struct lm_gguf_init_params params);
-    //LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_buffer(..);
-
-    LM_GGML_API void lm_gguf_free(struct lm_gguf_context * ctx);
-
-    LM_GGML_API const char * lm_gguf_type_name(enum lm_gguf_type type);
-
-    LM_GGML_API int    lm_gguf_get_version    (const struct lm_gguf_context * ctx);
-    LM_GGML_API size_t lm_gguf_get_alignment  (const struct lm_gguf_context * ctx);
-    LM_GGML_API size_t lm_gguf_get_data_offset(const struct lm_gguf_context * ctx);
-    LM_GGML_API void * lm_gguf_get_data       (const struct lm_gguf_context * ctx);
-
-    LM_GGML_API int          lm_gguf_get_n_kv(const struct lm_gguf_context * ctx);
-    LM_GGML_API int          lm_gguf_find_key(const struct lm_gguf_context * ctx, const char * key);
-    LM_GGML_API const char * lm_gguf_get_key (const struct lm_gguf_context * ctx, int key_id);
-
-    LM_GGML_API enum lm_gguf_type lm_gguf_get_kv_type (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API enum lm_gguf_type lm_gguf_get_arr_type(const struct lm_gguf_context * ctx, int key_id);
-
-    // will abort if the wrong type is used for the key
-    LM_GGML_API uint8_t      lm_gguf_get_val_u8  (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API int8_t       lm_gguf_get_val_i8  (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API uint16_t     lm_gguf_get_val_u16 (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API int16_t      lm_gguf_get_val_i16 (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API uint32_t     lm_gguf_get_val_u32 (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API int32_t      lm_gguf_get_val_i32 (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API float        lm_gguf_get_val_f32 (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API uint64_t     lm_gguf_get_val_u64 (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API int64_t      lm_gguf_get_val_i64 (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API double       lm_gguf_get_val_f64 (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API bool         lm_gguf_get_val_bool(const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API const char * lm_gguf_get_val_str (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API const void * lm_gguf_get_val_data(const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API int          lm_gguf_get_arr_n   (const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API const void * lm_gguf_get_arr_data(const struct lm_gguf_context * ctx, int key_id);
-    LM_GGML_API const char * lm_gguf_get_arr_str (const struct lm_gguf_context * ctx, int key_id, int i);
-
-    LM_GGML_API int            lm_gguf_get_n_tensors    (const struct lm_gguf_context * ctx);
-    LM_GGML_API int            lm_gguf_find_tensor      (const struct lm_gguf_context * ctx, const char * name);
-    LM_GGML_API size_t         lm_gguf_get_tensor_offset(const struct lm_gguf_context * ctx, int i);
-    LM_GGML_API char *         lm_gguf_get_tensor_name  (const struct lm_gguf_context * ctx, int i);
-    LM_GGML_API enum lm_ggml_type lm_gguf_get_tensor_type  (const struct lm_gguf_context * ctx, int i);
-
-    // removes key if it exists
-    LM_GGML_API void lm_gguf_remove_key(struct lm_gguf_context * ctx, const char * key);
-
-    // overrides existing values or adds a new one
-    LM_GGML_API void lm_gguf_set_val_u8  (struct lm_gguf_context * ctx, const char * key, uint8_t  val);
-    LM_GGML_API void lm_gguf_set_val_i8  (struct lm_gguf_context * ctx, const char * key, int8_t   val);
-    LM_GGML_API void lm_gguf_set_val_u16 (struct lm_gguf_context * ctx, const char * key, uint16_t val);
-    LM_GGML_API void lm_gguf_set_val_i16 (struct lm_gguf_context * ctx, const char * key, int16_t  val);
-    LM_GGML_API void lm_gguf_set_val_u32 (struct lm_gguf_context * ctx, const char * key, uint32_t val);
-    LM_GGML_API void lm_gguf_set_val_i32 (struct lm_gguf_context * ctx, const char * key, int32_t  val);
-    LM_GGML_API void lm_gguf_set_val_f32 (struct lm_gguf_context * ctx, const char * key, float    val);
-    LM_GGML_API void lm_gguf_set_val_u64 (struct lm_gguf_context * ctx, const char * key, uint64_t val);
-    LM_GGML_API void lm_gguf_set_val_i64 (struct lm_gguf_context * ctx, const char * key, int64_t  val);
-    LM_GGML_API void lm_gguf_set_val_f64 (struct lm_gguf_context * ctx, const char * key, double   val);
-    LM_GGML_API void lm_gguf_set_val_bool(struct lm_gguf_context * ctx, const char * key, bool     val);
-    LM_GGML_API void lm_gguf_set_val_str (struct lm_gguf_context * ctx, const char * key, const char * val);
-    LM_GGML_API void lm_gguf_set_arr_data(struct lm_gguf_context * ctx, const char * key, enum lm_gguf_type type, const void * data, int n);
-    LM_GGML_API void lm_gguf_set_arr_str (struct lm_gguf_context * ctx, const char * key, const char ** data, int n);
-
-    // set or add KV pairs from another context
-    LM_GGML_API void lm_gguf_set_kv(struct lm_gguf_context * ctx, struct lm_gguf_context * src);
-
-    // manage tensor info
-    LM_GGML_API void lm_gguf_add_tensor(struct lm_gguf_context * ctx, const struct lm_ggml_tensor * tensor);
-    LM_GGML_API void lm_gguf_set_tensor_type(struct lm_gguf_context * ctx, const char * name, enum lm_ggml_type type);
-    LM_GGML_API void lm_gguf_set_tensor_data(struct lm_gguf_context * ctx, const char * name, const void * data, size_t size);
-
-    // writing gguf files can be done in 2 ways:
-    //
-    // - write the entire lm_gguf_context to a binary file in a single pass:
-    //
-    //   lm_gguf_write_to_file(ctx, fname);
-    //
-    // - first prepare a file with a placeholder for the meta data, write the tensor data, then write the meta data:
-    //
-    //   FILE * f = fopen(fname, "wb");
-    //   fseek(f, lm_gguf_get_meta_size(ctx), SEEK_SET);
-    //   fwrite(f, ...);
-    //   void * data = lm_gguf_meta_get_meta_data(ctx);
-    //   fseek(f, 0, SEEK_SET);
-    //   fwrite(f, data, lm_gguf_get_meta_size(ctx));
-    //   free(data);
-    //   fclose(f);
-    //
-
-    // write the entire context to a binary file
-    LM_GGML_API void lm_gguf_write_to_file(const struct lm_gguf_context * ctx, const char * fname, bool only_meta);
-
-    // get the size in bytes of the meta data (header, kv pairs, tensor info) including padding
-    LM_GGML_API size_t lm_gguf_get_meta_size(const struct lm_gguf_context * ctx);
-    LM_GGML_API void   lm_gguf_get_meta_data(const struct lm_gguf_context * ctx, void * data);
 
 #ifdef __cplusplus
     // restrict not standard in C++

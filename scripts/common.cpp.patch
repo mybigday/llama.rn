@@ -1,6 +1,6 @@
---- common.cpp.orig	2025-01-07 13:08:49
-+++ common.cpp	2025-01-07 13:10:43
-@@ -4,10 +4,6 @@
+--- common.cpp.orig	2025-01-08 19:12:46
++++ common.cpp	2025-01-08 19:12:48
+@@ -7,10 +7,6 @@
 
  #include "common.h"
  #include "log.h"
@@ -11,7 +11,7 @@
  #include "llama.h"
 
  #include <algorithm>
-@@ -54,6 +50,12 @@
+@@ -57,6 +53,12 @@
  #include <curl/easy.h>
  #include <future>
  #endif
@@ -24,7 +24,7 @@
 
  #if defined(_MSC_VER)
  #pragma warning(disable: 4244 4267) // possible loss of data
-@@ -71,8 +73,6 @@
+@@ -74,8 +76,6 @@
  #endif
  #define LLAMA_CURL_MAX_URL_LENGTH 2084 // Maximum URL Length in Chrome: 2083
  #endif // LLAMA_USE_CURL
@@ -33,7 +33,7 @@
 
  //
  // CPU utils
-@@ -1020,6 +1020,8 @@
+@@ -1023,6 +1023,8 @@
      if (params.n_gpu_layers != -1) {
          mparams.n_gpu_layers = params.n_gpu_layers;
      }
@@ -42,7 +42,7 @@
      mparams.rpc_servers     = params.rpc_servers.c_str();
      mparams.main_gpu        = params.main_gpu;
      mparams.split_mode      = params.split_mode;
-@@ -1034,6 +1036,11 @@
+@@ -1037,6 +1039,11 @@
          mparams.kv_overrides = params.kv_overrides.data();
      }
 
@@ -54,7 +54,7 @@
      return mparams;
  }
 
-@@ -1120,221 +1127,7 @@
+@@ -1123,221 +1130,7 @@
 
      return false;
  }

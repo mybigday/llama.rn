@@ -5,6 +5,7 @@
 #include <iostream>
 #include "common.h"
 #include "ggml.h"
+#include "gguf.h"
 #include "llama.h"
 #include "llama-impl.h"
 #include "sampling.h"

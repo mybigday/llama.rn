@@ -21,6 +21,7 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml-opt.cpp
     ${RNLLAMA_LIB_DIR}/ggml-threading.cpp
     ${RNLLAMA_LIB_DIR}/ggml-quants.c
+    ${RNLLAMA_LIB_DIR}/gguf.cpp
     ${RNLLAMA_LIB_DIR}/log.cpp
     ${RNLLAMA_LIB_DIR}/llama-impl.cpp
     ${RNLLAMA_LIB_DIR}/llama-grammar.cpp

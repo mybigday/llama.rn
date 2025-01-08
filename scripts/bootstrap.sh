@@ -13,6 +13,7 @@ cp ./llama.cpp/ggml/include/ggml-cpu.h ./cpp/ggml-cpu.h
 cp ./llama.cpp/ggml/include/ggml-cpp.h ./cpp/ggml-cpp.h
 cp ./llama.cpp/ggml/include/ggml-opt.h ./cpp/ggml-opt.h
 cp ./llama.cpp/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
+cp ./llama.cpp/ggml/include/gguf.h ./cpp/gguf.h
 
 cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal.m ./cpp/ggml-metal.m
 cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal-impl.h ./cpp/ggml-metal-impl.h
@@ -44,6 +45,7 @@ cp ./llama.cpp/ggml/src/ggml-quants.h ./cpp/ggml-quants.h
 cp ./llama.cpp/ggml/src/ggml-quants.c ./cpp/ggml-quants.c
 cp ./llama.cpp/ggml/src/ggml-threading.cpp ./cpp/ggml-threading.cpp
 cp ./llama.cpp/ggml/src/ggml-threading.h ./cpp/ggml-threading.h
+cp ./llama.cpp/ggml/src/gguf.cpp ./cpp/gguf.cpp
 
 cp ./llama.cpp/src/llama.cpp ./cpp/llama.cpp
 cp ./llama.cpp/src/llama-chat.h ./cpp/llama-chat.h
@@ -134,6 +136,8 @@ files_add_lm_prefix=(
   "./cpp/ggml-common.h"
   "./cpp/ggml.h"
   "./cpp/ggml.c"
+  "./cpp/gguf.h"
+  "./cpp/gguf.cpp"
   "./cpp/ggml-impl.h"
   "./cpp/ggml-cpp.h"
   "./cpp/ggml-opt.h"

@@ -1,5 +1,6 @@
 #include "llama-impl.h"
 
+#include "gguf.h"
 #include "llama.h"
 
 #include <cinttypes>
@@ -138,7 +139,7 @@ std::string lm_gguf_kv_to_str(const struct lm_gguf_context * ctx_gguf, int i) {
             {
                 const enum lm_gguf_type arr_type = lm_gguf_get_arr_type(ctx_gguf, i);
                 int arr_n = lm_gguf_get_arr_n(ctx_gguf, i);
-                const void * data = lm_gguf_get_arr_data(ctx_gguf, i);
+                const void * data = arr_type == LM_GGUF_TYPE_STRING ? nullptr : lm_gguf_get_arr_data(ctx_gguf, i);
                 std::stringstream ss;
                 ss << "[";
                 for (int j = 0; j < arr_n; j++) {

@@ -4169,6 +4169,8 @@ static lm_ggml_backend_buffer_t lm_ggml_backend_cpu_aarch64_buffer_type_alloc_bu
     buffer->buft              = buft;
     buffer->iface.init_tensor = lm_ggml_backend_cpu_aarch64_buffer_init_tensor;
     buffer->iface.set_tensor  = lm_ggml_backend_cpu_aarch64_buffer_set_tensor;
+    buffer->iface.get_tensor  = nullptr;
+    buffer->iface.cpy_tensor  = nullptr;
     return buffer;
 }
 
