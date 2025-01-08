@@ -235,6 +235,8 @@ struct llama_rn_context
 
     common_params params;
 
+    common_init_result llama_init;
+
     llama_model *model = nullptr;
     float loading_progress = 0;
     bool is_load_interrupted = false;
@@ -303,9 +305,9 @@ struct llama_rn_context
     bool loadModel(common_params &params_)
     {
         params = params_;
-        common_init_result result = common_init_from_params(params);
-        model = result.model.get();
-        ctx = result.context.get();
+        llama_init = common_init_from_params(params);
+        model = llama_init.model.get();
+        ctx = llama_init.context.get();
         if (model == nullptr)
         {
            LOG_ERROR("unable to load model: %s", params_.model.c_str());
@@ -316,17 +318,9 @@ struct llama_rn_context
     }
 
     bool validateModelChatTemplate() const {
-        static const char * template_key = "tokenizer.chat_template";
-        int32_t res = llama_model_meta_val_str(model, template_key, NULL, 0);
-        if (res > 0) {
-            std::vector<char> model_template(res + 1, 0);
-            llama_model_meta_val_str(model, template_key, model_template.data(), model_template.size());
-            std::string tmpl = std::string(model_template.data(), model_template.size() - 1);
-            llama_chat_message chat[] = {{"user", "test"}};
-            int32_t chat_res = llama_chat_apply_template(model, tmpl.c_str(), chat, 1, true, nullptr, 0);
-            return chat_res > 0;
-        }
-        return res > 0;
+        llama_chat_message chat[] = {{"user", "test"}};
+        int32_t chat_res = llama_chat_apply_template(model, nullptr, chat, 1, true, nullptr, 0);
+        return chat_res > 0;
     }
 
     void truncatePrompt(std::vector<llama_token> &prompt_tokens) {
