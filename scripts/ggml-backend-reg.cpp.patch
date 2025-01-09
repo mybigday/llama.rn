@@ -1,5 +1,5 @@
---- ggml-backend-reg.cpp.orig	2024-12-20 13:38:33
-+++ ggml-backend-reg.cpp	2024-12-20 13:38:34
+--- ggml-backend-reg.cpp.orig	2025-01-07 13:18:14
++++ ggml-backend-reg.cpp	2025-01-07 13:18:16
 @@ -35,9 +35,14 @@
  #endif
 
@@ -15,7 +15,7 @@
  #ifdef LM_GGML_USE_SYCL
  #include "ggml-sycl.h"
  #endif
-@@ -142,7 +147,11 @@
+@@ -157,7 +162,11 @@
          register_backend(lm_ggml_backend_cuda_reg());
  #endif
  #ifdef LM_GGML_USE_METAL

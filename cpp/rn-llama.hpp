@@ -5,6 +5,7 @@
 #include <iostream>
 #include "common.h"
 #include "ggml.h"
+#include "gguf.h"
 #include "llama.h"
 #include "llama-impl.h"
 #include "sampling.h"
@@ -33,60 +34,6 @@ static lm_ggml_type kv_cache_type_from_str(const std::string & s) {
         }
     }
     throw std::runtime_error("Unsupported cache type: " + s);
-}
-
-static std::string lm_gguf_data_to_str(enum lm_gguf_type type, const void * data, int i) {
-    switch (type) {
-        case LM_GGUF_TYPE_UINT8:   return std::to_string(((const uint8_t  *)data)[i]);
-        case LM_GGUF_TYPE_INT8:    return std::to_string(((const int8_t   *)data)[i]);
-        case LM_GGUF_TYPE_UINT16:  return std::to_string(((const uint16_t *)data)[i]);
-        case LM_GGUF_TYPE_INT16:   return std::to_string(((const int16_t  *)data)[i]);
-        case LM_GGUF_TYPE_UINT32:  return std::to_string(((const uint32_t *)data)[i]);
-        case LM_GGUF_TYPE_INT32:   return std::to_string(((const int32_t  *)data)[i]);
-        case LM_GGUF_TYPE_UINT64:  return std::to_string(((const uint64_t *)data)[i]);
-        case LM_GGUF_TYPE_INT64:   return std::to_string(((const int64_t  *)data)[i]);
-        case LM_GGUF_TYPE_FLOAT32: return std::to_string(((const float    *)data)[i]);
-        case LM_GGUF_TYPE_FLOAT64: return std::to_string(((const double   *)data)[i]);
-        case LM_GGUF_TYPE_BOOL:    return ((const bool *)data)[i] ? "true" : "false";
-        default:                   return "unknown type: " + std::to_string(type);
-    }
-}
-
-static std::string lm_gguf_kv_to_str(const struct lm_gguf_context * ctx_gguf, int i) {
-    const enum lm_gguf_type type = lm_gguf_get_kv_type(ctx_gguf, i);
-
-    switch (type) {
-        case LM_GGUF_TYPE_STRING:
-            return lm_gguf_get_val_str(ctx_gguf, i);
-        case LM_GGUF_TYPE_ARRAY:
-            {
-                const enum lm_gguf_type arr_type = lm_gguf_get_arr_type(ctx_gguf, i);
-                int arr_n = lm_gguf_get_arr_n(ctx_gguf, i);
-                const void * data = lm_gguf_get_arr_data(ctx_gguf, i);
-                std::stringstream ss;
-                ss << "[";
-                for (int j = 0; j < arr_n; j++) {
-                    if (arr_type == LM_GGUF_TYPE_STRING) {
-                        std::string val = lm_gguf_get_arr_str(ctx_gguf, i, j);
-                        // escape quotes
-                        replace_all(val, "\\", "\\\\");
-                        replace_all(val, "\"", "\\\"");
-                        ss << '"' << val << '"';
-                    } else if (arr_type == LM_GGUF_TYPE_ARRAY) {
-                        ss << "???";
-                    } else {
-                        ss << lm_gguf_data_to_str(arr_type, data, j);
-                    }
-                    if (j < arr_n - 1) {
-                        ss << ", ";
-                    }
-                }
-                ss << "]";
-                return ss.str();
-            }
-        default:
-            return lm_gguf_data_to_str(type, lm_gguf_get_val_data(ctx_gguf, i), 0);
-    }
 }
 
 static void llama_batch_clear(llama_batch *batch) {
@@ -253,6 +200,8 @@ struct llama_rn_context
 
     common_params params;
 
+    common_init_result llama_init;
+
     llama_model *model = nullptr;
     float loading_progress = 0;
     bool is_load_interrupted = false;
@@ -269,20 +218,10 @@ struct llama_rn_context
     std::string stopping_word;
     bool incomplete = false;
 
-    std::vector<common_lora_adapter_container> lora_adapters;
+    std::vector<common_lora_adapter_info> lora;
 
     ~llama_rn_context()
     {
-        if (ctx)
-        {
-            llama_free(ctx);
-            ctx = nullptr;
-        }
-        if (model)
-        {
-            llama_free_model(model);
-            model = nullptr;
-        }
         if (ctx_sampling != nullptr)
         {
             common_sampler_free(ctx_sampling);
@@ -321,9 +260,9 @@ struct llama_rn_context
     bool loadModel(common_params &params_)
     {
         params = params_;
-        common_init_result result = common_init_from_params(params);
-        model = result.model;
-        ctx = result.context;
+        llama_init = common_init_from_params(params);
+        model = llama_init.model.get();
+        ctx = llama_init.context.get();
         if (model == nullptr)
         {
            LOG_ERROR("unable to load model: %s", params_.model.c_str());
@@ -338,16 +277,9 @@ struct llama_rn_context
     }
 
     bool validateModelChatTemplate() const {
-        std::vector<char> model_template(2048, 0); // longest known template is about 1200 bytes
-        std::string template_key = "tokenizer.chat_template";
-        int32_t res = llama_model_meta_val_str(model, template_key.c_str(), model_template.data(), model_template.size());
-        if (res >= 0) {
-            llama_chat_message chat[] = {{"user", "test"}};
-            std::string tmpl = std::string(model_template.data(), model_template.size());
-            int32_t chat_res = llama_chat_apply_template(model, tmpl.c_str(), chat, 1, true, nullptr, 0);
-            return chat_res > 0;
-        }
-        return res > 0;
+        llama_chat_message chat[] = {{"user", "test"}};
+        int32_t chat_res = llama_chat_apply_template(model, nullptr, chat, 1, true, nullptr, 0);
+        return chat_res > 0;
     }
 
     void truncatePrompt(std::vector<llama_token> &prompt_tokens) {
@@ -774,33 +706,26 @@ struct llama_rn_context
             std::string("]");
     }
 
-    int applyLoraAdapters(std::vector<common_lora_adapter_info> lora_adapters) {
-        this->lora_adapters.clear();
-        auto containers = std::vector<common_lora_adapter_container>();
-        for (auto & la : lora_adapters) {
-            common_lora_adapter_container loaded_la;
-            loaded_la.path = la.path;
-            loaded_la.scale = la.scale;
-            loaded_la.adapter = llama_lora_adapter_init(model, la.path.c_str());
-            if (loaded_la.adapter == nullptr) {
-                LOG_ERROR("%s: failed to apply lora adapter '%s'\n", __func__, la.path.c_str());
+    int applyLoraAdapters(std::vector<common_lora_adapter_info> lora) {
+        for (auto &la : lora) {
+            la.ptr = llama_lora_adapter_init(model, la.path.c_str());
+            if (la.ptr == nullptr) {
+                LOG_ERROR("failed to apply lora adapter '%s'\n", la.path.c_str());
                 return -1;
             }
-
-            this->lora_adapters.push_back(loaded_la);
-            containers.push_back(loaded_la);
         }
-        common_lora_adapters_apply(ctx, containers);
+        this->lora = lora;
+        common_lora_adapters_apply(ctx, lora);
         return 0;
     }
 
     void removeLoraAdapters() {
-        this->lora_adapters.clear();
-        common_lora_adapters_apply(ctx, this->lora_adapters); // apply empty list
+        this->lora.clear();
+        common_lora_adapters_apply(ctx, this->lora); // apply empty list
     }
 
-    std::vector<common_lora_adapter_container> getLoadedLoraAdapters() {
-        return this->lora_adapters;
+    std::vector<common_lora_adapter_info> getLoadedLoraAdapters() {
+        return this->lora;
     }
 };
 

@@ -1,6 +1,6 @@
---- common.cpp.orig	2024-12-20 13:45:13
-+++ common.cpp	2024-12-20 13:47:23
-@@ -4,10 +4,6 @@
+--- common.cpp.orig	2025-01-08 19:12:46
++++ common.cpp	2025-01-08 19:12:48
+@@ -7,10 +7,6 @@
 
  #include "common.h"
  #include "log.h"
@@ -11,7 +11,7 @@
  #include "llama.h"
 
  #include <algorithm>
-@@ -53,6 +49,12 @@
+@@ -57,6 +53,12 @@
  #include <curl/easy.h>
  #include <future>
  #endif
@@ -24,7 +24,7 @@
 
  #if defined(_MSC_VER)
  #pragma warning(disable: 4244 4267) // possible loss of data
-@@ -68,8 +70,6 @@
+@@ -74,8 +76,6 @@
  #endif
  #define LLAMA_CURL_MAX_URL_LENGTH 2084 // Maximum URL Length in Chrome: 2083
  #endif // LLAMA_USE_CURL
@@ -33,7 +33,7 @@
 
  //
  // CPU utils
-@@ -1017,6 +1017,8 @@
+@@ -1023,6 +1023,8 @@
      if (params.n_gpu_layers != -1) {
          mparams.n_gpu_layers = params.n_gpu_layers;
      }
@@ -42,7 +42,7 @@
      mparams.rpc_servers     = params.rpc_servers.c_str();
      mparams.main_gpu        = params.main_gpu;
      mparams.split_mode      = params.split_mode;
-@@ -1031,6 +1033,11 @@
+@@ -1037,6 +1039,11 @@
          mparams.kv_overrides = params.kv_overrides.data();
      }
 
@@ -54,11 +54,10 @@
      return mparams;
  }
 
-@@ -1116,221 +1123,6 @@
-     LOG_ERR("%s: curl_easy_perform() failed after %d attempts\n", __func__, max_attempts);
+@@ -1123,221 +1130,7 @@
 
      return false;
--}
+ }
 -
 -static bool common_download_file(const std::string & url, const std::string & path, const std::string & hf_token) {
 -    // Initialize libcurl
@@ -90,8 +89,7 @@
 -#endif
 -
 -    // Check if the file already exists locally
--    struct stat model_file_info;
--    auto file_exists = (stat(path.c_str(), &model_file_info) == 0);
+-    auto file_exists = std::filesystem::exists(path);
 -
 -    // If the file exists, check its JSON metadata companion file.
 -    std::string metadata_path = path + ".json";
@@ -127,7 +125,7 @@
 -    } else {
 -        LOG_INF("%s: no previous model file found %s\n", __func__, path.c_str());
 -    }
--
+
 -    // Send a HEAD request to retrieve the etag and last-modified headers
 -    struct common_load_model_from_url_headers {
 -        std::string etag;
@@ -273,6 +271,8 @@
 -    }
 -
 -    return true;
- }
-
+-}
+-
  struct llama_model * common_load_model_from_url(
+         const std::string & model_url,
+         const std::string & local_path,

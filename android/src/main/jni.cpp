@@ -19,7 +19,7 @@
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,     TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,     TAG, __VA_ARGS__)
-
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR,    TAG, __VA_ARGS__)
 static inline int min(int a, int b) {
     return (a < b) ? a : b;
 }
@@ -198,7 +198,7 @@ Java_com_rnllama_LlamaContext_modelInfo(
                 continue;
             }
 
-            const std::string value = rnllama::lm_gguf_kv_to_str(ctx, i);
+            const std::string value = lm_gguf_kv_to_str(ctx, i);
             putString(env, info, key, value.c_str());
         }
     }
@@ -336,13 +336,13 @@ Java_com_rnllama_LlamaContext_initContext(
         llama_free(llama->ctx);
     }
 
-    std::vector<common_lora_adapter_info> lora_adapters;
+    std::vector<common_lora_adapter_info> lora;
     const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
     if (lora_chars != nullptr && lora_chars[0] != '\0') {
         common_lora_adapter_info la;
         la.path = lora_chars;
         la.scale = lora_scaled;
-        lora_adapters.push_back(la);
+        lora.push_back(la);
     }
 
     if (lora_list != nullptr) {
@@ -356,13 +356,13 @@ Java_com_rnllama_LlamaContext_initContext(
                 common_lora_adapter_info la;
                 la.path = path_chars;
                 la.scale = readablemap::getFloat(env, lora_adapter, "scaled", 1.0f);
-                lora_adapters.push_back(la);
+                lora.push_back(la);
                 env->ReleaseStringUTFChars(path, path_chars);
             }
         }
     }
     env->ReleaseStringUTFChars(lora_str, lora_chars);
-    int result = llama->applyLoraAdapters(lora_adapters);
+    int result = llama->applyLoraAdapters(lora);
     if (result != 0) {
       LOGI("[RNLlama] Failed to apply lora adapters");
       llama_free(llama->ctx);
@@ -946,7 +946,7 @@ Java_com_rnllama_LlamaContext_getLoadedLoraAdapters(
     auto llama = context_map[(long) context_ptr];
     auto loaded_lora_adapters = llama->getLoadedLoraAdapters();
     auto result = createWritableArray(env);
-    for (common_lora_adapter_container &la : loaded_lora_adapters) {
+    for (common_lora_adapter_info &la : loaded_lora_adapters) {
         auto map = createWriteableMap(env);
         putString(env, map, "path", la.path.c_str());
         putDouble(env, map, "scaled", la.scale);
@@ -961,17 +961,8 @@ Java_com_rnllama_LlamaContext_freeContext(
     UNUSED(env);
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
-    if (llama->model) {
-        llama_free_model(llama->model);
-    }
-    if (llama->ctx) {
-        llama_free(llama->ctx);
-    }
-    if (llama->ctx_sampling != nullptr)
-    {
-        common_sampler_free(llama->ctx_sampling);
-    }
     context_map.erase((long) llama->ctx);
+    delete llama;
 }
 
 JNIEXPORT void JNICALL

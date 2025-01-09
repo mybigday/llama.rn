@@ -2067,8 +2067,8 @@ static void lm_ggml_metal_encode_node(
                 LM_GGML_ASSERT(ne12 % ne02 == 0);
                 LM_GGML_ASSERT(ne13 % ne03 == 0);
 
-                const uint r2 = ne12/ne02;
-                const uint r3 = ne13/ne03;
+                const uint32_t r2 = ne12/ne02;
+                const uint32_t r3 = ne13/ne03;
 
                 // find the break-even point where the matrix-matrix kernel becomes more efficient compared
                 // to the matrix-vector kernel

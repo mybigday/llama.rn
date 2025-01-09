@@ -4,6 +4,7 @@ git submodule init
 git submodule update --recursive
 
 cp ./llama.cpp/include/llama.h ./cpp/llama.h
+cp ./llama.cpp/include/llama-cpp.h ./cpp/llama-cpp.h
 
 cp ./llama.cpp/ggml/include/ggml.h ./cpp/ggml.h
 cp ./llama.cpp/ggml/include/ggml-alloc.h ./cpp/ggml-alloc.h
@@ -12,6 +13,7 @@ cp ./llama.cpp/ggml/include/ggml-cpu.h ./cpp/ggml-cpu.h
 cp ./llama.cpp/ggml/include/ggml-cpp.h ./cpp/ggml-cpp.h
 cp ./llama.cpp/ggml/include/ggml-opt.h ./cpp/ggml-opt.h
 cp ./llama.cpp/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
+cp ./llama.cpp/ggml/include/gguf.h ./cpp/gguf.h
 
 cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal.m ./cpp/ggml-metal.m
 cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal-impl.h ./cpp/ggml-metal-impl.h
@@ -43,9 +45,33 @@ cp ./llama.cpp/ggml/src/ggml-quants.h ./cpp/ggml-quants.h
 cp ./llama.cpp/ggml/src/ggml-quants.c ./cpp/ggml-quants.c
 cp ./llama.cpp/ggml/src/ggml-threading.cpp ./cpp/ggml-threading.cpp
 cp ./llama.cpp/ggml/src/ggml-threading.h ./cpp/ggml-threading.h
+cp ./llama.cpp/ggml/src/gguf.cpp ./cpp/gguf.cpp
 
 cp ./llama.cpp/src/llama.cpp ./cpp/llama.cpp
+cp ./llama.cpp/src/llama-chat.h ./cpp/llama-chat.h
+cp ./llama.cpp/src/llama-chat.cpp ./cpp/llama-chat.cpp
+cp ./llama.cpp/src/llama-context.h ./cpp/llama-context.h
+cp ./llama.cpp/src/llama-context.cpp ./cpp/llama-context.cpp
+cp ./llama.cpp/src/llama-mmap.h ./cpp/llama-mmap.h
+cp ./llama.cpp/src/llama-mmap.cpp ./cpp/llama-mmap.cpp
+cp ./llama.cpp/src/llama-kv-cache.h ./cpp/llama-kv-cache.h
+cp ./llama.cpp/src/llama-kv-cache.cpp ./cpp/llama-kv-cache.cpp
+cp ./llama.cpp/src/llama-model-loader.h ./cpp/llama-model-loader.h
+cp ./llama.cpp/src/llama-model-loader.cpp ./cpp/llama-model-loader.cpp
+cp ./llama.cpp/src/llama-model.h ./cpp/llama-model.h
+cp ./llama.cpp/src/llama-model.cpp ./cpp/llama-model.cpp
+cp ./llama.cpp/src/llama-adapter.h ./cpp/llama-adapter.h
+cp ./llama.cpp/src/llama-adapter.cpp ./cpp/llama-adapter.cpp
+cp ./llama.cpp/src/llama-arch.h ./cpp/llama-arch.h
+cp ./llama.cpp/src/llama-arch.cpp ./cpp/llama-arch.cpp
+cp ./llama.cpp/src/llama-batch.h ./cpp/llama-batch.h
+cp ./llama.cpp/src/llama-batch.cpp ./cpp/llama-batch.cpp
+cp ./llama.cpp/src/llama-cparams.h ./cpp/llama-cparams.h
+cp ./llama.cpp/src/llama-cparams.cpp ./cpp/llama-cparams.cpp
+cp ./llama.cpp/src/llama-hparams.h ./cpp/llama-hparams.h
+cp ./llama.cpp/src/llama-hparams.cpp ./cpp/llama-hparams.cpp
 cp ./llama.cpp/src/llama-impl.h ./cpp/llama-impl.h
+cp ./llama.cpp/src/llama-impl.cpp ./cpp/llama-impl.cpp
 
 cp ./llama.cpp/src/llama-vocab.h ./cpp/llama-vocab.h
 cp ./llama.cpp/src/llama-vocab.cpp ./cpp/llama-vocab.cpp
@@ -69,12 +95,35 @@ cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
 # List of files to process
 files_add_lm_prefix=(
   "./cpp/llama-impl.h"
+  "./cpp/llama-impl.cpp"
   "./cpp/llama-vocab.h"
   "./cpp/llama-vocab.cpp"
   "./cpp/llama-grammar.h"
   "./cpp/llama-grammar.cpp"
   "./cpp/llama-sampling.h"
   "./cpp/llama-sampling.cpp"
+  "./cpp/llama-adapter.h"
+  "./cpp/llama-adapter.cpp"
+  "./cpp/llama-arch.h"
+  "./cpp/llama-arch.cpp"
+  "./cpp/llama-batch.h"
+  "./cpp/llama-batch.cpp"
+  "./cpp/llama-chat.h"
+  "./cpp/llama-chat.cpp"
+  "./cpp/llama-context.h"
+  "./cpp/llama-context.cpp"
+  "./cpp/llama-kv-cache.h"
+  "./cpp/llama-kv-cache.cpp"
+  "./cpp/llama-model-loader.h"
+  "./cpp/llama-model-loader.cpp"
+  "./cpp/llama-model.h"
+  "./cpp/llama-model.cpp"
+  "./cpp/llama-mmap.h"
+  "./cpp/llama-mmap.cpp"
+  "./cpp/llama-hparams.h"
+  "./cpp/llama-hparams.cpp"
+  "./cpp/llama-cparams.h"
+  "./cpp/llama-cparams.cpp"
   "./cpp/log.h"
   "./cpp/log.cpp"
   "./cpp/llama.h"
@@ -87,6 +136,8 @@ files_add_lm_prefix=(
   "./cpp/ggml-common.h"
   "./cpp/ggml.h"
   "./cpp/ggml.c"
+  "./cpp/gguf.h"
+  "./cpp/gguf.cpp"
   "./cpp/ggml-impl.h"
   "./cpp/ggml-cpp.h"
   "./cpp/ggml-opt.h"
@@ -169,11 +220,11 @@ yarn example
 patch -p0 -d ./cpp < ./scripts/common.h.patch
 patch -p0 -d ./cpp < ./scripts/common.cpp.patch
 patch -p0 -d ./cpp < ./scripts/log.cpp.patch
-patch -p0 -d ./cpp < ./scripts/llama.cpp.patch
 patch -p0 -d ./cpp < ./scripts/ggml-metal.m.patch
 patch -p0 -d ./cpp < ./scripts/ggml-backend-reg.cpp.patch
 patch -p0 -d ./cpp < ./scripts/ggml.c.patch
 patch -p0 -d ./cpp < ./scripts/ggml-quants.c.patch
+patch -p0 -d ./cpp < ./scripts/llama-mmap.cpp.patch
 
 if [ "$OS" = "Darwin" ]; then
   # Build metallib (~1.4MB)

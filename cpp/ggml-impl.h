@@ -3,6 +3,8 @@
 // GGML internal header
 
 #include "ggml.h"
+#include "gguf.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdlib.h> // load `stdlib.h` before other headers to work around MinGW bug: https://sourceforge.net/p/mingw-w64/bugs/192/
@@ -551,22 +553,15 @@ static inline lm_ggml_bf16_t lm_ggml_compute_fp32_to_bf16(float s) {
 #define LM_GGML_FP32_TO_BF16(x) lm_ggml_compute_fp32_to_bf16(x)
 #define LM_GGML_BF16_TO_FP32(x) lm_ggml_compute_bf16_to_fp32(x)
 
-// expose GGUF internals for test code
-
-LM_GGML_API size_t lm_gguf_type_size(enum lm_gguf_type type);
-
-LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_file_impl(FILE * file, struct lm_gguf_init_params params);
-
-struct lm_gguf_buf {
-    void * data;
-    size_t size;
-    size_t offset;
-};
-LM_GGML_API struct lm_gguf_buf lm_gguf_buf_init(size_t size);
-LM_GGML_API void lm_gguf_buf_free(struct lm_gguf_buf buf);
-
-LM_GGML_API void lm_gguf_write_to_buf(const struct lm_gguf_context * ctx, struct lm_gguf_buf * buf, bool only_meta);
-
 #ifdef __cplusplus
 }
 #endif
+
+#ifdef __cplusplus
+#include <vector>
+
+// expose GGUF internals for test code
+LM_GGML_API size_t lm_gguf_type_size(enum lm_gguf_type type);
+LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_file_impl(FILE * file, struct lm_gguf_init_params params);
+LM_GGML_API void lm_gguf_write_to_buf(const struct lm_gguf_context * ctx, std::vector<int8_t> & buf, bool only_meta);
+#endif // __cplusplus
