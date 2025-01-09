@@ -94,6 +94,7 @@
 #endif
     }
     if (params[@"n_batch"]) defaultParams.n_batch = [params[@"n_batch"] intValue];
+    if (params[@"n_ubatch"]) defaultParams.n_ubatch = [params[@"n_ubatch"] intValue];
     if (params[@"use_mmap"]) defaultParams.use_mmap = [params[@"use_mmap"] boolValue];
 
     if (params[@"pooling_type"] && [params[@"pooling_type"] isKindOfClass:[NSNumber class]]) {
