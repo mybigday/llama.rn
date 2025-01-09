@@ -2545,6 +2545,21 @@ static struct lm_ggml_tensor * llm_build_inp_embd(
         lm_ggml_set_input(lctx.inp_tokens);
 
         inpL = lm_ggml_get_rows(ctx, tok_embd, lctx.inp_tokens);
+
+        // apply lora for embedding tokens if needed
+        for (auto & it : lctx.lora_adapters) {
+            struct llama_lora_weight * lora = it.first->get_weight(tok_embd);
+            if (lora == nullptr) {
+                continue;
+            }
+            const float adapter_scale = it.second;
+            const float scale = lora->get_scale(it.first->alpha, adapter_scale);
+            struct lm_ggml_tensor * inpL_delta = lm_ggml_scale(ctx, lm_ggml_mul_mat(
+                ctx, lora->b, // non-transposed lora_b
+                lm_ggml_get_rows(ctx, lora->a, lctx.inp_tokens)
+            ), scale);
+            inpL = lm_ggml_add(ctx, inpL, inpL_delta);
+        }
     } else {
         lctx.inp_embd = lm_ggml_new_tensor_2d(ctx, LM_GGML_TYPE_F32, n_embd, ubatch.n_tokens);
         inpL = lctx.inp_embd;
@@ -2617,9 +2632,8 @@ static struct lm_ggml_tensor * llm_build_lora_mm(
         if (lora == nullptr) {
             continue;
         }
-        const float alpha = it.first->alpha;
-        const float rank  = (float) lora->b->ne[0];
-        const float scale = alpha ? it.second * alpha / rank : it.second;
+        const float adapter_scale = it.second;
+        const float scale = lora->get_scale(it.first->alpha, adapter_scale);
         struct lm_ggml_tensor * ab_cur = lm_ggml_mul_mat(
             ctx0, lora->b,
             lm_ggml_mul_mat(ctx0, lora->a, cur)
@@ -3967,6 +3981,7 @@ struct llm_build_context {
 
             // feed-forward network
             if (model.layers[il].ffn_gate_inp == nullptr) {
+
                 cur = llm_build_norm(ctx0, ffn_inp, hparams,
                         model.layers[il].ffn_norm, NULL,
                         LLM_NORM_RMS, cb, il);

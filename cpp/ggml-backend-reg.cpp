@@ -583,4 +583,9 @@ void lm_ggml_backend_load_all_from_path(const char * dir_path) {
     lm_ggml_backend_load_best("opencl", silent, dir_path);
     lm_ggml_backend_load_best("musa", silent, dir_path);
     lm_ggml_backend_load_best("cpu", silent, dir_path);
+    // check the environment variable LM_GGML_BACKEND_PATH to load an out-of-tree backend
+    const char * backend_path = std::getenv("LM_GGML_BACKEND_PATH");
+    if (backend_path) {
+        lm_ggml_backend_load(backend_path);
+    }
 }
