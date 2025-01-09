@@ -160,10 +160,6 @@
         la.path = [params[@"lora"] UTF8String];
         la.scale = 1.0f;
         if (params[@"lora_scaled"]) la.scale = [params[@"lora_scaled"] floatValue];
-        la.ptr = llama_lora_adapter_init(context->llama->model, la.path.c_str());
-        if (la.ptr == nullptr) {
-            @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to apply lora adapter" userInfo:nil];
-        }
         lora.push_back(la);
     }
     if (params[@"lora_list"] && [params[@"lora_list"] isKindOfClass:[NSArray class]]) {
@@ -175,10 +171,6 @@
           common_lora_adapter_info la;
           la.path = [path UTF8String];
           la.scale = scale;
-          la.ptr = llama_lora_adapter_init(context->llama->model, la.path.c_str());
-          if (la.ptr == nullptr) {
-            @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to apply lora adapter" userInfo:nil];
-          }
           lora.push_back(la);
         }
     }

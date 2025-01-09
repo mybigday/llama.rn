@@ -340,11 +340,6 @@ Java_com_rnllama_LlamaContext_initContext(
         common_lora_adapter_info la;
         la.path = lora_chars;
         la.scale = lora_scaled;
-        la.ptr = llama_lora_adapter_init(llama->model, la.path.c_str());
-        if (la.ptr == nullptr) {
-            LOGE("%s: failed to apply lora adapter '%s'\n", __func__, la.path.c_str());
-            return -1;
-        }
         lora.push_back(la);
     }
 
@@ -359,11 +354,6 @@ Java_com_rnllama_LlamaContext_initContext(
                 common_lora_adapter_info la;
                 la.path = path_chars;
                 la.scale = readablemap::getFloat(env, lora_adapter, "scaled", 1.0f);
-                la.ptr = llama_lora_adapter_init(llama->model, la.path.c_str());
-                if (la.ptr == nullptr) {
-                    LOGE("%s: failed to apply lora adapter '%s'\n", __func__, la.path.c_str());
-                    return -1;
-                }
                 lora.push_back(la);
                 env->ReleaseStringUTFChars(path, path_chars);
             }

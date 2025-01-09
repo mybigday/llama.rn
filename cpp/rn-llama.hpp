@@ -690,6 +690,13 @@ struct llama_rn_context
     }
 
     int applyLoraAdapters(std::vector<common_lora_adapter_info> lora) {
+        for (auto &la : lora) {
+            la.ptr = llama_lora_adapter_init(model, la.path.c_str());
+            if (la.ptr == nullptr) {
+                LOG_ERROR("failed to apply lora adapter '%s'\n", la.path.c_str());
+                return -1;
+            }
+        }
         this->lora = lora;
         common_lora_adapters_apply(ctx, lora);
         return 0;
