@@ -50,6 +50,8 @@ public class LlamaContext {
       params.hasKey("n_ctx") ? params.getInt("n_ctx") : 512,
       // int n_batch,
       params.hasKey("n_batch") ? params.getInt("n_batch") : 512,
+      // int n_ubatch,
+      params.hasKey("n_ubatch") ? params.getInt("n_ubatch") : 512,
       // int n_threads,
       params.hasKey("n_threads") ? params.getInt("n_threads") : 0,
       // int n_gpu_layers, // TODO: Support this
@@ -412,6 +414,7 @@ public class LlamaContext {
     int embd_normalize,
     int n_ctx,
     int n_batch,
+    int n_ubatch,
     int n_threads,
     int n_gpu_layers, // TODO: Support this
     boolean flash_attn,
