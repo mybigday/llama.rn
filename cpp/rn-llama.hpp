@@ -203,16 +203,6 @@ struct llama_rn_context
 
     ~llama_rn_context()
     {
-        if (ctx)
-        {
-            llama_free(ctx);
-            ctx = nullptr;
-        }
-        if (model)
-        {
-            llama_model_free(model);
-            model = nullptr;
-        }
         if (ctx_sampling != nullptr)
         {
             common_sampler_free(ctx_sampling);
