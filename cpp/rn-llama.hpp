@@ -8,6 +8,9 @@
 #include "llama.h"
 #include "llama-impl.h"
 #include "sampling.h"
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
 
 namespace rnllama {
 
@@ -106,16 +109,32 @@ static void llama_batch_add(llama_batch *batch, llama_token id, llama_pos pos, s
 static void log(const char *level, const char *function, int line,
                        const char *format, ...)
 {
-    printf("[%s] %s:%d ", level, function, line);
-
     va_list args;
-    va_start(args, format);
-    vprintf(format, args);
-    va_end(args);
-
-    printf("\n");
+    #if defined(__ANDROID__)
+        char prefix[256];
+        snprintf(prefix, sizeof(prefix), "%s:%d %s", function, line, format);
+        
+        va_start(args, format);
+        android_LogPriority priority;
+        if (strcmp(level, "ERROR") == 0) {
+            priority = ANDROID_LOG_ERROR;
+        } else if (strcmp(level, "WARNING") == 0) {
+            priority = ANDROID_LOG_WARN;
+        } else if (strcmp(level, "INFO") == 0) {
+            priority = ANDROID_LOG_INFO;
+        } else {
+            priority = ANDROID_LOG_DEBUG;
+        }
+        __android_log_vprint(priority, "RNLlama", prefix, args);
+        va_end(args);
+    #else
+        printf("[%s] %s:%d ", level, function, line);
+        va_start(args, format);
+        vprintf(format, args);
+        va_end(args);
+        printf("\n");
+    #endif
 }
-
 static bool rnllama_verbose = false;
 
 #if RNLLAMA_VERBOSE != 1
@@ -311,6 +330,10 @@ struct llama_rn_context
            return false;
         }
         n_ctx = llama_n_ctx(ctx);
+
+        // We can uncomment for debugging or after this fix: https://github.com/ggerganov/llama.cpp/pull/11101
+        // LOG_INFO("%s\n", common_params_get_system_info(params).c_str());
+       
         return true;
     }
 
