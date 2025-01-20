@@ -7,6 +7,7 @@
 #include <cstring>
 #include <climits>
 #include <stdexcept>
+#include <cerrno>
 
 #ifdef __has_include
     #if __has_include(<unistd.h>)
@@ -35,7 +36,7 @@
 
 // TODO: consider moving to llama-impl.h if needed in more places
 #if defined(_WIN32)
-std::string llama_format_win_err(DWORD err) {
+static std::string llama_format_win_err(DWORD err) {
     LPSTR buf;
     size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
                                  NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&buf, 0, NULL);
@@ -285,14 +286,14 @@ struct llama_mmap::impl {
         }
 
         if (prefetch > 0) {
-            if (madvise(addr, std::min(file->size(), prefetch), MADV_WILLNEED)) {
-                fprintf(stderr, "warning: madvise(.., MADV_WILLNEED) failed: %s\n",
+            if (posix_madvise(addr, std::min(file->size(), prefetch), POSIX_MADV_WILLNEED)) {
+                LLAMA_LOG_WARN("warning: posix_madvise(.., POSIX_MADV_WILLNEED) failed: %s\n",
                         strerror(errno));
             }
         }
         if (numa) {
-            if (madvise(addr, file->size(), MADV_RANDOM)) {
-                fprintf(stderr, "warning: madvise(.., MADV_RANDOM) failed: %s\n",
+            if (posix_madvise(addr, file->size(), POSIX_MADV_RANDOM)) {
+                LLAMA_LOG_WARN("warning: posix_madvise(.., POSIX_MADV_RANDOM) failed: %s\n",
                         strerror(errno));
             }
         }

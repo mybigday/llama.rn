@@ -403,8 +403,16 @@ static bool lm_ggml_backend_cpu_device_supports_op(lm_ggml_backend_dev_t dev, co
                 op->type != LM_GGML_TYPE_IQ1_M; // missing type_traits.from_float
         case LM_GGML_OP_MUL_MAT:
             return src1->type == LM_GGML_TYPE_F32 || src1->type == lm_ggml_get_type_traits_cpu(src0->type)->vec_dot_type;
-        case LM_GGML_OP_ROPE_BACK:
-            return op->src[2] == NULL && (op->op_params[2] & 4) == 0;
+        case LM_GGML_OP_SOFT_MAX_BACK: {
+            if (op->src[0]->type != LM_GGML_TYPE_F32 || op->src[1]->type != LM_GGML_TYPE_F32) {
+                return false;
+            }
+            float max_bias = 0.0f;
+
+            memcpy(&max_bias, (const float *) op->op_params + 1, sizeof(float));
+
+            return max_bias == 0.0f;
+        }
         case LM_GGML_OP_IM2COL_BACK:
             return src0->type == LM_GGML_TYPE_F32 && src1->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_OUT_PROD:

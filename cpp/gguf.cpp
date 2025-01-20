@@ -648,6 +648,10 @@ struct lm_gguf_context * lm_gguf_init_from_file_impl(FILE * file, struct lm_gguf
 
             ok = ok && data != nullptr;
 
+            if (ok) {
+                lm_ggml_set_name(data, "GGUF tensor data binary blob");
+            }
+
             // read the binary blob with the tensor data
             ok = ok && gr.read(data->data, ctx->size);
 

@@ -37,6 +37,7 @@ static bool lm_ggml_are_same_layout(const struct lm_ggml_tensor * a, const struc
     return true;
 }
 
+// ops that return true for this function must not use restrict pointers for their backend implementations
 static bool lm_ggml_op_can_inplace(enum lm_ggml_op op) {
     switch (op) {
         case LM_GGML_OP_SCALE:
@@ -52,8 +53,12 @@ static bool lm_ggml_op_can_inplace(enum lm_ggml_op op) {
         case LM_GGML_OP_LOG:
         case LM_GGML_OP_UNARY:
         case LM_GGML_OP_ROPE:
+        case LM_GGML_OP_ROPE_BACK:
+        case LM_GGML_OP_SILU_BACK:
         case LM_GGML_OP_RMS_NORM:
+        case LM_GGML_OP_RMS_NORM_BACK:
         case LM_GGML_OP_SOFT_MAX:
+        case LM_GGML_OP_SOFT_MAX_BACK:
             return true;
 
         default:
