@@ -509,7 +509,7 @@ static struct lm_ggml_backend_metal_context * lm_ggml_metal_init(lm_ggml_backend
         const bool try_metallib = true;
 #endif
 
-        NSString * path_lib = [bundle pathForResource:@"default" ofType:@"metallib"];
+        NSString * path_lib = [bundle pathForResource:@"ggml-llama" ofType:@"metallib"];
         if (path_lib == nil) {
             // Try to find the resource in the directory where the current binary located.
             NSString * current_binary = [[NSProcessInfo processInfo] arguments][0];

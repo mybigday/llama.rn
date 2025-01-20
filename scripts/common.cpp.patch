@@ -1,7 +1,7 @@
---- common.cpp.orig	2025-01-08 19:12:46
-+++ common.cpp	2025-01-08 19:12:48
+--- common.cpp.orig	2025-01-20 20:12:46
++++ common.cpp	2025-01-20 20:12:48
 @@ -7,10 +7,6 @@
-
+ 
  #include "common.h"
  #include "log.h"
 -// Change JSON_ASSERT from assert() to LM_GGML_ASSERT:
@@ -9,43 +9,43 @@
 -#include "json.hpp"
 -#include "json-schema-to-grammar.h"
  #include "llama.h"
-
+ 
  #include <algorithm>
-@@ -57,6 +53,12 @@
- #include <curl/easy.h>
+@@ -58,6 +54,12 @@
  #include <future>
  #endif
-+
+ 
 +// build info
 +int LLAMA_BUILD_NUMBER = 0;
 +char const *LLAMA_COMMIT = "unknown";
 +char const *LLAMA_COMPILER = "unknown";
 +char const *LLAMA_BUILD_TARGET = "unknown";
-
++
  #if defined(_MSC_VER)
  #pragma warning(disable: 4244 4267) // possible loss of data
-@@ -74,8 +76,6 @@
  #endif
- #define LLAMA_CURL_MAX_URL_LENGTH 2084 // Maximum URL Length in Chrome: 2083
+@@ -91,8 +93,6 @@ struct curl_slist_ptr {
+ };
  #endif // LLAMA_USE_CURL
--
+ 
 -using json = nlohmann::ordered_json;
-
+-
  //
  // CPU utils
-@@ -1023,6 +1023,8 @@
+ //
+@@ -1043,6 +1043,8 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
      if (params.n_gpu_layers != -1) {
          mparams.n_gpu_layers = params.n_gpu_layers;
      }
 +
 +    mparams.vocab_only      = params.vocab_only;
-     mparams.rpc_servers     = params.rpc_servers.c_str();
      mparams.main_gpu        = params.main_gpu;
      mparams.split_mode      = params.split_mode;
-@@ -1037,6 +1039,11 @@
+     mparams.tensor_split    = params.tensor_split;
+@@ -1056,6 +1058,11 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
          mparams.kv_overrides = params.kv_overrides.data();
      }
-
+ 
 +    if (params.progress_callback != nullptr) {
 +        mparams.progress_callback = params.progress_callback;
 +        mparams.progress_callback_user_data = params.progress_callback_user_data;
@@ -53,15 +53,15 @@
 +
      return mparams;
  }
-
-@@ -1123,221 +1130,7 @@
-
+ 
+@@ -1143,218 +1150,6 @@ static bool curl_perform_with_retry(const std::string & url, CURL * curl, int ma
      return false;
  }
--
+ 
 -static bool common_download_file(const std::string & url, const std::string & path, const std::string & hf_token) {
 -    // Initialize libcurl
--    std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), &curl_easy_cleanup);
+-    curl_ptr       curl(curl_easy_init(), &curl_easy_cleanup);
+-    curl_slist_ptr http_headers;
 -    if (!curl) {
 -        LOG_ERR("%s: error initializing libcurl\n", __func__);
 -        return false;
@@ -75,11 +75,9 @@
 -
 -    // Check if hf-token or bearer-token was specified
 -    if (!hf_token.empty()) {
--      std::string auth_header = "Authorization: Bearer ";
--      auth_header += hf_token.c_str();
--      struct curl_slist *http_headers = NULL;
--      http_headers = curl_slist_append(http_headers, auth_header.c_str());
--      curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, http_headers);
+-        std::string auth_header = "Authorization: Bearer " + hf_token;
+-        http_headers.ptr = curl_slist_append(http_headers.ptr, auth_header.c_str());
+-        curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, http_headers.ptr);
 -    }
 -
 -#if defined(_WIN32)
@@ -125,7 +123,7 @@
 -    } else {
 -        LOG_INF("%s: no previous model file found %s\n", __func__, path.c_str());
 -    }
-
+-
 -    // Send a HEAD request to retrieve the etag and last-modified headers
 -    struct common_load_model_from_url_headers {
 -        std::string etag;
@@ -272,7 +270,6 @@
 -
 -    return true;
 -}
--
+ 
  struct llama_model * common_load_model_from_url(
          const std::string & model_url,
-         const std::string & local_path,
