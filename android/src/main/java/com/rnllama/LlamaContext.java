@@ -50,6 +50,8 @@ public class LlamaContext {
       params.hasKey("n_ctx") ? params.getInt("n_ctx") : 512,
       // int n_batch,
       params.hasKey("n_batch") ? params.getInt("n_batch") : 512,
+      // int n_ubatch,
+      params.hasKey("n_ubatch") ? params.getInt("n_ubatch") : 512,
       // int n_threads,
       params.hasKey("n_threads") ? params.getInt("n_threads") : 0,
       // int n_gpu_layers, // TODO: Support this
@@ -217,8 +219,6 @@ public class LlamaContext {
       params.hasKey("mirostat_tau") ? (float) params.getDouble("mirostat_tau") : 5.00f,
       // float mirostat_eta,
       params.hasKey("mirostat_eta") ? (float) params.getDouble("mirostat_eta") : 0.10f,
-      // boolean penalize_nl,
-      params.hasKey("penalize_nl") ? params.getBoolean("penalize_nl") : false,
       // int top_k,
       params.hasKey("top_k") ? params.getInt("top_k") : 40,
       // float top_p,
@@ -414,6 +414,7 @@ public class LlamaContext {
     int embd_normalize,
     int n_ctx,
     int n_batch,
+    int n_ubatch,
     int n_threads,
     int n_gpu_layers, // TODO: Support this
     boolean flash_attn,
@@ -463,7 +464,6 @@ public class LlamaContext {
     float mirostat,
     float mirostat_tau,
     float mirostat_eta,
-    boolean penalize_nl,
     int top_k,
     float top_p,
     float min_p,

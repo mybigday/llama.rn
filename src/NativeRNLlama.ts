@@ -12,6 +12,7 @@ export type NativeContextParams = {
 
   n_ctx?: number
   n_batch?: number
+  n_ubatch?: number
 
   n_threads?: number
   n_gpu_layers?: number
@@ -125,10 +126,6 @@ export type NativeCompletionParams = {
    * Repeat alpha presence penalty. Default: `0.0`, which is disabled.
    */
   penalty_present?: number
-  /**
-   * Penalize newline tokens when applying the repeat penalty. Default: `false`
-   */
-  penalize_nl?: boolean
   /**
    * Enable Mirostat sampling, controlling perplexity during text generation. Default: `0`, where `0` is disabled, `1` is Mirostat, and `2` is Mirostat 2.0.
    */

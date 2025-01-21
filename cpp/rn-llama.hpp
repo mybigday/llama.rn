@@ -5,64 +5,35 @@
 #include <iostream>
 #include "common.h"
 #include "ggml.h"
+#include "gguf.h"
 #include "llama.h"
 #include "llama-impl.h"
 #include "sampling.h"
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
 
 namespace rnllama {
 
-static std::string lm_gguf_data_to_str(enum lm_gguf_type type, const void * data, int i) {
-    switch (type) {
-        case LM_GGUF_TYPE_UINT8:   return std::to_string(((const uint8_t  *)data)[i]);
-        case LM_GGUF_TYPE_INT8:    return std::to_string(((const int8_t   *)data)[i]);
-        case LM_GGUF_TYPE_UINT16:  return std::to_string(((const uint16_t *)data)[i]);
-        case LM_GGUF_TYPE_INT16:   return std::to_string(((const int16_t  *)data)[i]);
-        case LM_GGUF_TYPE_UINT32:  return std::to_string(((const uint32_t *)data)[i]);
-        case LM_GGUF_TYPE_INT32:   return std::to_string(((const int32_t  *)data)[i]);
-        case LM_GGUF_TYPE_UINT64:  return std::to_string(((const uint64_t *)data)[i]);
-        case LM_GGUF_TYPE_INT64:   return std::to_string(((const int64_t  *)data)[i]);
-        case LM_GGUF_TYPE_FLOAT32: return std::to_string(((const float    *)data)[i]);
-        case LM_GGUF_TYPE_FLOAT64: return std::to_string(((const double   *)data)[i]);
-        case LM_GGUF_TYPE_BOOL:    return ((const bool *)data)[i] ? "true" : "false";
-        default:                   return "unknown type: " + std::to_string(type);
-    }
-}
+const std::vector<lm_ggml_type> kv_cache_types = {
+    LM_GGML_TYPE_F32,
+    LM_GGML_TYPE_F16,
+    LM_GGML_TYPE_BF16,
+    LM_GGML_TYPE_Q8_0,
+    LM_GGML_TYPE_Q4_0,
+    LM_GGML_TYPE_Q4_1,
+    LM_GGML_TYPE_IQ4_NL,
+    LM_GGML_TYPE_Q5_0,
+    LM_GGML_TYPE_Q5_1,
+};
 
-static std::string lm_gguf_kv_to_str(const struct lm_gguf_context * ctx_gguf, int i) {
-    const enum lm_gguf_type type = lm_gguf_get_kv_type(ctx_gguf, i);
-
-    switch (type) {
-        case LM_GGUF_TYPE_STRING:
-            return lm_gguf_get_val_str(ctx_gguf, i);
-        case LM_GGUF_TYPE_ARRAY:
-            {
-                const enum lm_gguf_type arr_type = lm_gguf_get_arr_type(ctx_gguf, i);
-                int arr_n = lm_gguf_get_arr_n(ctx_gguf, i);
-                const void * data = lm_gguf_get_arr_data(ctx_gguf, i);
-                std::stringstream ss;
-                ss << "[";
-                for (int j = 0; j < arr_n; j++) {
-                    if (arr_type == LM_GGUF_TYPE_STRING) {
-                        std::string val = lm_gguf_get_arr_str(ctx_gguf, i, j);
-                        // escape quotes
-                        replace_all(val, "\\", "\\\\");
-                        replace_all(val, "\"", "\\\"");
-                        ss << '"' << val << '"';
-                    } else if (arr_type == LM_GGUF_TYPE_ARRAY) {
-                        ss << "???";
-                    } else {
-                        ss << lm_gguf_data_to_str(arr_type, data, j);
-                    }
-                    if (j < arr_n - 1) {
-                        ss << ", ";
-                    }
-                }
-                ss << "]";
-                return ss.str();
-            }
-        default:
-            return lm_gguf_data_to_str(type, lm_gguf_get_val_data(ctx_gguf, i), 0);
+static lm_ggml_type kv_cache_type_from_str(const std::string & s) {
+    for (const auto & type : kv_cache_types) {
+        if (lm_ggml_type_name(type) == s) {
+            return type;
+        }
     }
+    throw std::runtime_error("Unsupported cache type: " + s);
 }
 
 static void llama_batch_clear(llama_batch *batch) {
@@ -85,16 +56,32 @@ static void llama_batch_add(llama_batch *batch, llama_token id, llama_pos pos, s
 static void log(const char *level, const char *function, int line,
                        const char *format, ...)
 {
-    printf("[%s] %s:%d ", level, function, line);
-
     va_list args;
-    va_start(args, format);
-    vprintf(format, args);
-    va_end(args);
-
-    printf("\n");
+    #if defined(__ANDROID__)
+        char prefix[256];
+        snprintf(prefix, sizeof(prefix), "%s:%d %s", function, line, format);
+        
+        va_start(args, format);
+        android_LogPriority priority;
+        if (strcmp(level, "ERROR") == 0) {
+            priority = ANDROID_LOG_ERROR;
+        } else if (strcmp(level, "WARNING") == 0) {
+            priority = ANDROID_LOG_WARN;
+        } else if (strcmp(level, "INFO") == 0) {
+            priority = ANDROID_LOG_INFO;
+        } else {
+            priority = ANDROID_LOG_DEBUG;
+        }
+        __android_log_vprint(priority, "RNLlama", prefix, args);
+        va_end(args);
+    #else
+        printf("[%s] %s:%d ", level, function, line);
+        va_start(args, format);
+        vprintf(format, args);
+        va_end(args);
+        printf("\n");
+    #endif
 }
-
 static bool rnllama_verbose = false;
 
 #if RNLLAMA_VERBOSE != 1
@@ -213,6 +200,8 @@ struct llama_rn_context
 
     common_params params;
 
+    common_init_result llama_init;
+
     llama_model *model = nullptr;
     float loading_progress = 0;
     bool is_load_interrupted = false;
@@ -229,20 +218,10 @@ struct llama_rn_context
     std::string stopping_word;
     bool incomplete = false;
 
-    std::vector<common_lora_adapter_container> lora_adapters;
+    std::vector<common_lora_adapter_info> lora;
 
     ~llama_rn_context()
     {
-        if (ctx)
-        {
-            llama_free(ctx);
-            ctx = nullptr;
-        }
-        if (model)
-        {
-            llama_free_model(model);
-            model = nullptr;
-        }
         if (ctx_sampling != nullptr)
         {
             common_sampler_free(ctx_sampling);
@@ -253,7 +232,7 @@ struct llama_rn_context
     {
         is_interrupted = false;
         params.antiprompt.clear();
-        params.sparams.grammar.clear();
+        params.sampling.grammar.clear();
         num_prompt_tokens = 0;
         num_tokens_predicted = 0;
         generated_text = "";
@@ -267,43 +246,40 @@ struct llama_rn_context
         incomplete = false;
         n_remain = 0;
         n_past = 0;
-        params.sparams.n_prev = n_ctx;
+        params.sampling.n_prev = n_ctx;
     }
 
     bool initSampling() {
         if (ctx_sampling != nullptr) {
             common_sampler_free(ctx_sampling);
         }
-        ctx_sampling = common_sampler_init(model, params.sparams);
+        ctx_sampling = common_sampler_init(model, params.sampling);
         return ctx_sampling != nullptr;
     }
 
     bool loadModel(common_params &params_)
     {
         params = params_;
-        common_init_result result = common_init_from_params(params);
-        model = result.model;
-        ctx = result.context;
+        llama_init = common_init_from_params(params);
+        model = llama_init.model.get();
+        ctx = llama_init.context.get();
         if (model == nullptr)
         {
            LOG_ERROR("unable to load model: %s", params_.model.c_str());
            return false;
         }
         n_ctx = llama_n_ctx(ctx);
+
+        // We can uncomment for debugging or after this fix: https://github.com/ggerganov/llama.cpp/pull/11101
+        // LOG_INFO("%s\n", common_params_get_system_info(params).c_str());
+       
         return true;
     }
 
     bool validateModelChatTemplate() const {
-        std::vector<char> model_template(2048, 0); // longest known template is about 1200 bytes
-        std::string template_key = "tokenizer.chat_template";
-        int32_t res = llama_model_meta_val_str(model, template_key.c_str(), model_template.data(), model_template.size());
-        if (res >= 0) {
-            llama_chat_message chat[] = {{"user", "test"}};
-            std::string tmpl = std::string(model_template.data(), model_template.size());
-            int32_t chat_res = llama_chat_apply_template(model, tmpl.c_str(), chat, 1, true, nullptr, 0);
-            return chat_res > 0;
-        }
-        return res > 0;
+        llama_chat_message chat[] = {{"user", "test"}};
+        int32_t chat_res = llama_chat_apply_template(model, nullptr, chat, 1, true, nullptr, 0);
+        return chat_res > 0;
     }
 
     void truncatePrompt(std::vector<llama_token> &prompt_tokens) {
@@ -467,10 +443,10 @@ struct llama_rn_context
 
             llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling);
 
-            const int32_t n_probs = params.sparams.n_probs;
+            const int32_t n_probs = params.sampling.n_probs;
 
             // deprecated
-            /*if (params.sparams.temp <= 0 && n_probs > 0)
+            /*if (params.sampling.temp <= 0 && n_probs > 0)
             {
                 // For llama_sample_token_greedy we need to sort candidates
                 llama_sampler_init_softmax();
@@ -546,7 +522,7 @@ struct llama_rn_context
         const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(ctx, token_with_probs.tok);
         generated_text += token_text;
 
-        if (params.sparams.n_probs > 0)
+        if (params.sampling.n_probs > 0)
         {
             generated_token_probs.push_back(token_with_probs);
         }
@@ -639,7 +615,11 @@ struct llama_rn_context
         double tg_std = 0;
 
         // TODO: move batch into llama_rn_context (related https://github.com/mybigday/llama.rn/issues/30)
-        llama_batch batch = llama_batch_init(512, 0, 1);
+        llama_batch batch = llama_batch_init(
+            std::min(pp, params.n_ubatch), // max n_tokens is limited by n_ubatch
+            0,                         // No embeddings
+            1                          // Single sequence
+        );
 
         for (int i = 0; i < nr; i++)
         {
@@ -726,33 +706,26 @@ struct llama_rn_context
             std::string("]");
     }
 
-    int applyLoraAdapters(std::vector<common_lora_adapter_info> lora_adapters) {
-        this->lora_adapters.clear();
-        auto containers = std::vector<common_lora_adapter_container>();
-        for (auto & la : lora_adapters) {
-            common_lora_adapter_container loaded_la;
-            loaded_la.path = la.path;
-            loaded_la.scale = la.scale;
-            loaded_la.adapter = llama_lora_adapter_init(model, la.path.c_str());
-            if (loaded_la.adapter == nullptr) {
-                LOG_ERROR("%s: failed to apply lora adapter '%s'\n", __func__, la.path.c_str());
+    int applyLoraAdapters(std::vector<common_lora_adapter_info> lora) {
+        for (auto &la : lora) {
+            la.ptr = llama_lora_adapter_init(model, la.path.c_str());
+            if (la.ptr == nullptr) {
+                LOG_ERROR("failed to apply lora adapter '%s'\n", la.path.c_str());
                 return -1;
             }
-
-            this->lora_adapters.push_back(loaded_la);
-            containers.push_back(loaded_la);
         }
-        common_lora_adapters_apply(ctx, containers);
+        this->lora = lora;
+        common_lora_adapters_apply(ctx, lora);
         return 0;
     }
 
     void removeLoraAdapters() {
-        this->lora_adapters.clear();
-        common_lora_adapters_apply(ctx, this->lora_adapters); // apply empty list
+        this->lora.clear();
+        common_lora_adapters_apply(ctx, this->lora); // apply empty list
     }
 
-    std::vector<common_lora_adapter_container> getLoadedLoraAdapters() {
-        return this->lora_adapters;
+    std::vector<common_lora_adapter_info> getLoadedLoraAdapters() {
+        return this->lora;
     }
 };
 

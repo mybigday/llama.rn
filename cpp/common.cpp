@@ -2,6 +2,9 @@
 #define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
 #endif
 
+#include "ggml.h"
+#include "gguf.h"
+
 #include "common.h"
 #include "log.h"
 #include "llama.h"
@@ -14,6 +17,7 @@
 #include <cstdarg>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -64,7 +68,9 @@ char const *LLAMA_BUILD_TARGET = "unknown";
 #ifdef __linux__
 #include <linux/limits.h>
 #elif defined(_WIN32)
-#define PATH_MAX MAX_PATH
+#   if !defined(PATH_MAX)
+#   define PATH_MAX MAX_PATH
+#   endif
 #else
 #include <sys/syslimits.h>
 #endif
@@ -536,12 +542,12 @@ std::string string_from(const struct llama_context * ctx, const struct llama_bat
                     [](const unsigned char c) { return !std::isprint(c); }),
                 detokenized.end());
 
-        buf << "\n" << std::to_string(i)
-            << ":token '" << detokenized << "'"
-            << ":pos " << std::to_string(batch.pos[i])
-            << ":n_seq_id  " << std::to_string(batch.n_seq_id[i])
-            << ":seq_id " << std::to_string(batch.seq_id[i][0])
-            << ":logits " << std::to_string(batch.logits[i]);
+        buf << "\n"          << std::to_string(i)
+            << ", token '"   << detokenized << "'"
+            << ", pos "      << std::to_string(batch.pos[i])
+            << ", n_seq_id " << std::to_string(batch.n_seq_id[i])
+            << ", seq_id "   << std::to_string(batch.seq_id[i][0])
+            << ", logits "   << std::to_string(batch.logits[i]);
     }
 
     buf << " ]";
@@ -652,7 +658,17 @@ bool fs_validate_filename(const std::string & filename) {
 
     std::u32string filename_utf32;
     try {
+#if defined(__clang__)
+        // disable C++17 deprecation warning for std::codecvt_utf8
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
         std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
+
+#if defined(__clang__)
+#    pragma clang diagnostic pop
+#endif
+
         filename_utf32 = converter.from_bytes(filename);
 
         // If the reverse conversion mismatches, it means overlong UTF-8 sequences were used,
@@ -829,11 +845,11 @@ struct common_init_result common_init_from_params(common_params & params) {
     llama_model * model = nullptr;
 
     if (!params.hf_repo.empty() && !params.hf_file.empty()) {
-        model = common_load_model_from_hf(params.hf_repo.c_str(), params.hf_file.c_str(), params.model.c_str(), params.hf_token.c_str(), mparams);
+        model = common_load_model_from_hf(params.hf_repo, params.hf_file, params.model, params.hf_token, mparams);
     } else if (!params.model_url.empty()) {
-        model = common_load_model_from_url(params.model_url.c_str(), params.model.c_str(), params.hf_token.c_str(), mparams);
+        model = common_load_model_from_url(params.model_url, params.model, params.hf_token, mparams);
     } else {
-        model = llama_load_model_from_file(params.model.c_str(), mparams);
+        model = llama_model_load_from_file(params.model.c_str(), mparams);
     }
 
     if (model == NULL) {
@@ -860,7 +876,7 @@ struct common_init_result common_init_from_params(common_params & params) {
         }
 
         if (!ok) {
-            llama_free_model(model);
+            llama_model_free(model);
 
             return iparams;
         }
@@ -871,14 +887,13 @@ struct common_init_result common_init_from_params(common_params & params) {
     llama_context * lctx = llama_new_context_with_model(model, cparams);
     if (lctx == NULL) {
         LOG_ERR("%s: failed to create context with model '%s'\n", __func__, params.model.c_str());
-        llama_free_model(model);
+        llama_model_free(model);
         return iparams;
     }
 
     if (params.ctx_shift && !llama_kv_cache_can_shift(lctx)) {
-        LOG_ERR("%s: KV cache shifting is not supported for this model (--no-context-shift to disable)'\n", __func__);
-        llama_free_model(model);
-        return iparams;
+        LOG_WRN("%s: KV cache shifting is not supported for this model, disabling KV cache shifting\n", __func__);
+        params.ctx_shift = false;
     }
 
     if (!params.control_vectors.empty()) {
@@ -888,7 +903,7 @@ struct common_init_result common_init_from_params(common_params & params) {
         const auto cvec = common_control_vector_load(params.control_vectors);
         if (cvec.n_embd == -1) {
             llama_free(lctx);
-            llama_free_model(model);
+            llama_model_free(model);
 
             return iparams;
         }
@@ -901,7 +916,7 @@ struct common_init_result common_init_from_params(common_params & params) {
                                              params.control_vector_layer_end);
         if (err) {
             llama_free(lctx);
-            llama_free_model(model);
+            llama_model_free(model);
 
             return iparams;
         }
@@ -909,25 +924,45 @@ struct common_init_result common_init_from_params(common_params & params) {
 
     // load and optionally apply lora adapters
     for (auto & la : params.lora_adapters) {
-        common_lora_adapter_container loaded_la;
-        loaded_la.path = la.path;
-        loaded_la.scale = la.scale;
-        loaded_la.adapter = llama_lora_adapter_init(model, la.path.c_str());
-        if (loaded_la.adapter == nullptr) {
+        llama_lora_adapter_ptr lora;
+        lora.reset(llama_lora_adapter_init(model, la.path.c_str()));
+        if (lora == nullptr) {
             LOG_ERR("%s: failed to apply lora adapter '%s'\n", __func__, la.path.c_str());
             llama_free(lctx);
-            llama_free_model(model);
+            llama_model_free(model);
             return iparams;
         }
-        iparams.lora_adapters.push_back(loaded_la); // copy to list of loaded adapters
-    }
-    if (!params.lora_init_without_apply) {
-        common_lora_adapters_apply(lctx, iparams.lora_adapters);
+
+        la.ptr = lora.get();
+        iparams.lora.emplace_back(std::move(lora)); // copy to list of loaded adapters
     }
 
-    if (params.sparams.ignore_eos && llama_token_eos(model) == LLAMA_TOKEN_NULL) {
+    if (!params.lora_init_without_apply) {
+        common_lora_adapters_apply(lctx, params.lora_adapters);
+    }
+
+    if (params.sampling.ignore_eos && llama_token_eos(model) == LLAMA_TOKEN_NULL) {
         LOG_WRN("%s: warning: model does not have an EOS token, ignoring --ignore-eos\n", __func__);
-        params.sparams.ignore_eos = false;
+        params.sampling.ignore_eos = false;
+    }
+
+    if (params.sampling.ignore_eos) {
+        for (llama_token i = 0; i < llama_n_vocab(model); i++) {
+            if (llama_token_is_eog(model, i)) {
+                LOG_INF("%s: added %s logit bias = %f\n", __func__, common_token_to_piece(lctx, i).c_str(), -INFINITY);
+                params.sampling.logit_bias.push_back({i, -INFINITY});
+            }
+        }
+    }
+
+    if (params.sampling.penalty_last_n == -1) {
+        LOG_INF("%s: setting penalty_last_n to ctx_size = %d\n", __func__, llama_n_ctx(lctx));
+        params.sampling.penalty_last_n = llama_n_ctx(lctx);
+    }
+
+    if (params.sampling.dry_penalty_last_n == -1) {
+        LOG_INF("%s: setting dry_penalty_last_n to ctx_size = %d\n", __func__, llama_n_ctx(lctx));
+        params.sampling.dry_penalty_last_n = llama_n_ctx(lctx);
     }
 
     if (params.warmup) {
@@ -950,7 +985,7 @@ struct common_init_result common_init_from_params(common_params & params) {
         if (llama_model_has_encoder(model)) {
             llama_encode(lctx, llama_batch_get_one(tmp.data(), tmp.size()));
             llama_token decoder_start_token_id = llama_model_decoder_start_token(model);
-            if (decoder_start_token_id == -1) {
+            if (decoder_start_token_id == LLAMA_TOKEN_NULL) {
                 decoder_start_token_id = bos;
             }
             tmp.clear();
@@ -964,24 +999,27 @@ struct common_init_result common_init_from_params(common_params & params) {
         llama_perf_context_reset(lctx);
     }
 
-    iparams.model   = model;
-    iparams.context = lctx;
+    iparams.model.reset(model);
+    iparams.context.reset(lctx);
 
     return iparams;
 }
 
-void common_lora_adapters_apply(struct llama_context * ctx, std::vector<common_lora_adapter_container> & lora_adapters) {
+void common_lora_adapters_apply(struct llama_context * ctx, std::vector<common_lora_adapter_info> & lora) {
     llama_lora_adapter_clear(ctx);
-    for (auto & la : lora_adapters) {
+    for (auto & la : lora) {
         if (la.scale != 0.0f) {
-            llama_lora_adapter_set(ctx, la.adapter, la.scale);
+            llama_lora_adapter_set(ctx, la.ptr, la.scale);
         }
     }
 }
 
-struct llama_model_params common_model_params_to_llama(const common_params & params) {
+struct llama_model_params common_model_params_to_llama(common_params & params) {
     auto mparams = llama_model_default_params();
 
+    if (!params.devices.empty()) {
+        mparams.devices = params.devices.data();
+    }
     if (params.n_gpu_layers != -1) {
         mparams.n_gpu_layers = params.n_gpu_layers;
     }
@@ -1001,42 +1039,12 @@ struct llama_model_params common_model_params_to_llama(const common_params & par
         mparams.kv_overrides = params.kv_overrides.data();
     }
 
-    mparams.progress_callback = params.progress_callback;
-    mparams.progress_callback_user_data = params.progress_callback_user_data;
+    if (params.progress_callback != nullptr) {
+        mparams.progress_callback = params.progress_callback;
+        mparams.progress_callback_user_data = params.progress_callback_user_data;
+    }
 
     return mparams;
-}
-
-static lm_ggml_type kv_cache_type_from_str(const std::string & s) {
-    if (s == "f32") {
-        return LM_GGML_TYPE_F32;
-    }
-    if (s == "f16") {
-        return LM_GGML_TYPE_F16;
-    }
-    if (s == "bf16") {
-        return LM_GGML_TYPE_BF16;
-    }
-    if (s == "q8_0") {
-        return LM_GGML_TYPE_Q8_0;
-    }
-    if (s == "q4_0") {
-        return LM_GGML_TYPE_Q4_0;
-    }
-    if (s == "q4_1") {
-        return LM_GGML_TYPE_Q4_1;
-    }
-    if (s == "iq4_nl") {
-        return LM_GGML_TYPE_IQ4_NL;
-    }
-    if (s == "q5_0") {
-        return LM_GGML_TYPE_Q5_0;
-    }
-    if (s == "q5_1") {
-        return LM_GGML_TYPE_Q5_1;
-    }
-
-    throw std::runtime_error("Unsupported cache type: " + s);
 }
 
 struct llama_context_params common_context_params_to_llama(const common_params & params) {
@@ -1073,8 +1081,8 @@ struct llama_context_params common_context_params_to_llama(const common_params &
         cparams.pooling_type  = LLAMA_POOLING_TYPE_RANK;
     }
 
-    cparams.type_k = kv_cache_type_from_str(params.cache_type_k);
-    cparams.type_v = kv_cache_type_from_str(params.cache_type_v);
+    cparams.type_k = params.cache_type_k;
+    cparams.type_v = params.cache_type_v;
 
     return cparams;
 }
@@ -1100,13 +1108,7 @@ struct lm_ggml_threadpool_params lm_ggml_threadpool_params_from_cpu_params(const
 #define CURL_MAX_RETRY 3
 #define CURL_RETRY_DELAY_SECONDS 2
 
-
-static bool starts_with(const std::string & str, const std::string & prefix) {
-    // While we wait for C++20's std::string::starts_with...
-    return str.rfind(prefix, 0) == 0;
-}
-
-static bool curl_perform_with_retry(const std::string& url, CURL* curl, int max_attempts, int retry_delay_seconds) {
+static bool curl_perform_with_retry(const std::string & url, CURL * curl, int max_attempts, int retry_delay_seconds) {
     int remaining_attempts = max_attempts;
 
     while (remaining_attempts > 0) {
@@ -1130,17 +1132,17 @@ static bool curl_perform_with_retry(const std::string& url, CURL* curl, int max_
 }
 
 struct llama_model * common_load_model_from_url(
-        const char * model_url,
-        const char * path_model,
-        const char * hf_token,
+        const std::string & model_url,
+        const std::string & local_path,
+        const std::string & hf_token,
         const struct llama_model_params & params) {
     // Basic validation of the model_url
-    if (!model_url || strlen(model_url) == 0) {
+    if (model_url.empty()) {
         LOG_ERR("%s: invalid model_url\n", __func__);
         return NULL;
     }
 
-    if (!common_download_file(model_url, path_model, hf_token)) {
+    if (!common_download_file(model_url, local_path, hf_token)) {
         return NULL;
     }
 
@@ -1151,9 +1153,9 @@ struct llama_model * common_load_model_from_url(
             /*.no_alloc = */ true,
             /*.ctx      = */ NULL,
         };
-        auto * ctx_gguf = lm_gguf_init_from_file(path_model, lm_gguf_params);
+        auto * ctx_gguf = lm_gguf_init_from_file(local_path.c_str(), lm_gguf_params);
         if (!ctx_gguf) {
-            LOG_ERR("\n%s:  failed to load input GGUF from %s\n", __func__, path_model);
+            LOG_ERR("\n%s:  failed to load input GGUF from %s\n", __func__, local_path.c_str());
             return NULL;
         }
 
@@ -1172,13 +1174,13 @@ struct llama_model * common_load_model_from_url(
         // Verify the first split file format
         // and extract split URL and PATH prefixes
         {
-            if (!llama_split_prefix(split_prefix, sizeof(split_prefix), path_model, 0, n_split)) {
-                LOG_ERR("\n%s: unexpected model file name: %s n_split=%d\n", __func__, path_model, n_split);
+            if (!llama_split_prefix(split_prefix, sizeof(split_prefix), local_path.c_str(), 0, n_split)) {
+                LOG_ERR("\n%s: unexpected model file name: %s n_split=%d\n", __func__, local_path.c_str(), n_split);
                 return NULL;
             }
 
-            if (!llama_split_prefix(split_url_prefix, sizeof(split_url_prefix), model_url, 0, n_split)) {
-                LOG_ERR("\n%s: unexpected model url: %s n_split=%d\n", __func__, model_url, n_split);
+            if (!llama_split_prefix(split_url_prefix, sizeof(split_url_prefix), model_url.c_str(), 0, n_split)) {
+                LOG_ERR("\n%s: unexpected model url: %s n_split=%d\n", __func__, model_url.c_str(), n_split);
                 return NULL;
             }
         }
@@ -1205,14 +1207,14 @@ struct llama_model * common_load_model_from_url(
         }
     }
 
-    return llama_load_model_from_file(path_model, params);
+    return llama_model_load_from_file(local_path.c_str(), params);
 }
 
 struct llama_model * common_load_model_from_hf(
-        const char * repo,
-        const char * model,
-        const char * path_model,
-        const char * hf_token,
+        const std::string & repo,
+        const std::string & remote_path,
+        const std::string & local_path,
+        const std::string & hf_token,
         const struct llama_model_params & params) {
     // construct hugging face model url:
     //
@@ -1226,27 +1228,27 @@ struct llama_model * common_load_model_from_hf(
     std::string model_url = "https://huggingface.co/";
     model_url += repo;
     model_url += "/resolve/main/";
-    model_url += model;
+    model_url += remote_path;
 
-    return common_load_model_from_url(model_url.c_str(), path_model, hf_token, params);
+    return common_load_model_from_url(model_url, local_path, hf_token, params);
 }
 
 #else
 
 struct llama_model * common_load_model_from_url(
-        const char * /*model_url*/,
-        const char * /*path_model*/,
-        const char * /*hf_token*/,
+        const std::string & /*model_url*/,
+        const std::string & /*local_path*/,
+        const std::string & /*hf_token*/,
         const struct llama_model_params & /*params*/) {
     LOG_WRN("%s: llama.cpp built without libcurl, downloading from an url not supported.\n", __func__);
     return nullptr;
 }
 
 struct llama_model * common_load_model_from_hf(
-        const char * /*repo*/,
-        const char * /*model*/,
-        const char * /*path_model*/,
-        const char * /*hf_token*/,
+        const std::string & /*repo*/,
+        const std::string & /*remote_path*/,
+        const std::string & /*local_path*/,
+        const std::string & /*hf_token*/,
         const struct llama_model_params & /*params*/) {
     LOG_WRN("%s: llama.cpp built without libcurl, downloading from Hugging Face not supported.\n", __func__);
     return nullptr;
@@ -1279,6 +1281,66 @@ void common_batch_add(
     batch.logits  [batch.n_tokens] = logits;
 
     batch.n_tokens++;
+}
+
+//
+// Token utils
+//
+
+size_t common_lcp(const llama_tokens & a, const llama_tokens & b) {
+    size_t i;
+    for (i = 0; i < a.size() && i < b.size() && a[i] == b[i]; i++) {}
+
+    return i;
+}
+
+size_t common_lcs(const llama_tokens & a, const llama_tokens & b) {
+    // check for empty sequences
+    if (a.empty() || b.empty()) {
+        return 0;
+    }
+
+    // get the lengths of the input sequences
+    size_t a_len = a.size();
+    size_t b_len = b.size();
+
+    // initialize the maximum length of the longest common subsequence (LCS)
+    size_t max_length = 0;
+
+    // use two rows instead of a 2D matrix to optimize space
+    std::vector<size_t> prev_row(b_len + 1, 0);
+    std::vector<size_t> curr_row(b_len + 1, 0);
+
+    // iterate through the elements of a
+    for (size_t i = 1; i <= a_len; i++) {
+        // iterate through the elements of b
+        for (size_t j = 1; j <= b_len; j++) {
+            // if elements at the current positions match
+            if (a[i - 1] == b[j - 1]) {
+                // if it's the first element of either sequences, set LCS length to 1
+                if (i == 1 || j == 1) {
+                    curr_row[j] = 1;
+                } else {
+                    // increment LCS length by 1 compared to the previous element
+                    curr_row[j] = prev_row[j - 1] + 1;
+                }
+
+                // update max_length if necessary
+                if (curr_row[j] > max_length) {
+                    max_length = curr_row[j];
+                }
+            } else {
+                // reset LCS length if elements don't match
+                curr_row[j] = 0;
+            }
+        }
+
+        // update the previous row for the next iteration
+        prev_row = curr_row;
+    }
+
+    // return the maximum length of the LCS
+    return max_length;
 }
 
 //
@@ -1347,6 +1409,18 @@ std::string common_detokenize(llama_context * ctx, const std::vector<llama_token
 //
 // Chat template utils
 //
+
+std::string common_get_builtin_chat_template(const struct llama_model * model) {
+    static const char * template_key = "tokenizer.chat_template";
+    // call with NULL buffer to get the total size of the string
+    int32_t res = llama_model_meta_val_str(model, template_key, NULL, 0);
+    if (res > 0) {
+        std::vector<char> model_template(res + 1, 0);
+        llama_model_meta_val_str(model, template_key, model_template.data(), model_template.size());
+        return std::string(model_template.data(), model_template.size() - 1);
+    }
+    return "";
+}
 
 bool common_chat_verify_template(const std::string & tmpl) {
     llama_chat_message chat[] = {{"user", "test"}};
@@ -1517,7 +1591,9 @@ void common_embd_normalize(const float * inp, float * out, int n, int embd_norm)
             break;
         case 0: // max absolute
             for (int i = 0; i < n; i++) {
-                if (sum < std::abs(inp[i])) sum = std::abs(inp[i]);
+                if (sum < std::abs(inp[i])) {
+                    sum = std::abs(inp[i]);
+                }
             }
             sum /= 32760.0; // make an int16 range
             break;

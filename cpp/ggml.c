@@ -8,7 +8,10 @@
 
 // FIXME: required here for quantization functions
 #include "ggml-quants.h"
-#include "ggml-aarch64.h"
+
+#ifdef LM_GGML_USE_CPU_HBM
+#include <hbwmalloc.h>
+#endif
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
 #include <malloc.h> // using malloc.h with MSC/MINGW
@@ -788,32 +791,23 @@ static const struct lm_ggml_type_traits type_traits[LM_GGML_TYPE_COUNT] = {
         .to_float                 = (lm_ggml_to_float_t) lm_ggml_bf16_to_fp32_row,
         .from_float_ref           = (lm_ggml_from_float_t) lm_ggml_fp32_to_bf16_row_ref,
     },
-    [LM_GGML_TYPE_Q4_0_4_4] = {
-        .type_name                = "q4_0_4x4",
-        .blck_size                = QK4_0,
-        .blck_size_interleave     = 4,
-        .type_size                = sizeof(block_q4_0),
-        .is_quantized             = true,
-        .to_float                 = NULL,
-        .from_float_ref           = NULL,
+    [31] = { // LM_GGML_TYPE_Q4_0_4_4
+        .type_name                = "TYPE_Q4_0_4_4 REMOVED, use Q4_0 with runtime repacking",
+        .blck_size                = 0,
+        .type_size                = 0,
+        .is_quantized             = false,
     },
-    [LM_GGML_TYPE_Q4_0_4_8] = {
-        .type_name                = "q4_0_4x8",
-        .blck_size                = QK4_0,
-        .blck_size_interleave     = 8,
-        .type_size                = sizeof(block_q4_0),
-        .is_quantized             = true,
-        .to_float                 = NULL,
-        .from_float_ref           = NULL,
+    [32] = { // LM_GGML_TYPE_Q4_0_4_8
+        .type_name                = "TYPE_Q4_0_4_8 REMOVED, use Q4_0 with runtime repacking",
+        .blck_size                = 0,
+        .type_size                = 0,
+        .is_quantized             = false,
     },
-    [LM_GGML_TYPE_Q4_0_8_8] = {
-        .type_name                = "q4_0_8x8",
-        .blck_size                = QK4_0,
-        .blck_size_interleave     = 8,
-        .type_size                = sizeof(block_q4_0),
-        .is_quantized             = true,
-        .to_float                 = NULL,
-        .from_float_ref           = NULL,
+    [33] = { // LM_GGML_TYPE_Q4_0_8_8
+        .type_name                = "TYPE_Q4_0_8_8 REMOVED, use Q4_0 with runtime repacking",
+        .blck_size                = 0,
+        .type_size                = 0,
+        .is_quantized             = false,
     },
     [LM_GGML_TYPE_TQ1_0] = {
         .type_name                = "tq1_0",
@@ -830,6 +824,24 @@ static const struct lm_ggml_type_traits type_traits[LM_GGML_TYPE_COUNT] = {
         .is_quantized             = true,
         .to_float                 = (lm_ggml_to_float_t) dequantize_row_tq2_0,
         .from_float_ref           = (lm_ggml_from_float_t) quantize_row_tq2_0_ref,
+    },
+    [36] = { // LM_GGML_TYPE_IQ4_NL_4_4
+        .type_name                = "TYPE_IQ4_NL_4_4 REMOVED, use IQ4_NL with runtime repacking",
+        .blck_size                = 0,
+        .type_size                = 0,
+        .is_quantized             = false,
+    },
+    [37] = { // LM_GGML_TYPE_IQ4_NL_4_8
+        .type_name                = "TYPE_IQ4_NL_4_8 REMOVED, use IQ4_NL with runtime repacking",
+        .blck_size                = 0,
+        .type_size                = 0,
+        .is_quantized             = false,
+    },
+    [38] = { // LM_GGML_TYPE_IQ4_NL_8_8
+        .type_name                = "TYPE_IQ4_NL_8_8 REMOVED, use IQ4_NL with runtime repacking",
+        .blck_size                = 0,
+        .type_size                = 0,
+        .is_quantized             = false,
     },
 };
 
@@ -941,6 +953,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "POOL_2D_BACK",
     "UPSCALE",
     "PAD",
+    "PAD_REFLECT_1D",
     "ARANGE",
     "TIMESTEP_EMBEDDING",
     "ARGSORT",
@@ -974,7 +987,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "OPT_STEP_ADAMW",
 };
 
-static_assert(LM_GGML_OP_COUNT == 81, "LM_GGML_OP_COUNT != 81");
+static_assert(LM_GGML_OP_COUNT == 82, "LM_GGML_OP_COUNT != 82");
 
 static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "none",
@@ -1036,6 +1049,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "pool_2d_back(x)",
     "upscale(x)",
     "pad(x)",
+    "pad_reflect_1d(x)",
     "arange(start, stop, step)",
     "timestep_embedding(timesteps, dim, max_period)",
     "argsort(x)",
@@ -1069,7 +1083,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "adamw(x)",
 };
 
-static_assert(LM_GGML_OP_COUNT == 81, "LM_GGML_OP_COUNT != 81");
+static_assert(LM_GGML_OP_COUNT == 82, "LM_GGML_OP_COUNT != 82");
 
 static_assert(LM_GGML_OP_POOL_COUNT == 2, "LM_GGML_OP_POOL_COUNT != 2");
 
@@ -1259,9 +1273,6 @@ enum lm_ggml_type lm_ggml_ftype_to_lm_ggml_type(enum lm_ggml_ftype ftype) {
         case LM_GGML_FTYPE_MOSTLY_IQ4_XS:        wtype = LM_GGML_TYPE_IQ4_XS;   break;
         case LM_GGML_FTYPE_MOSTLY_IQ3_S:         wtype = LM_GGML_TYPE_IQ3_S;    break;
         case LM_GGML_FTYPE_MOSTLY_IQ2_S:         wtype = LM_GGML_TYPE_IQ2_S;    break;
-        case LM_GGML_FTYPE_MOSTLY_Q4_0_4_4:      wtype = LM_GGML_TYPE_Q4_0_4_4; break;
-        case LM_GGML_FTYPE_MOSTLY_Q4_0_4_8:      wtype = LM_GGML_TYPE_Q4_0_4_8; break;
-        case LM_GGML_FTYPE_MOSTLY_Q4_0_8_8:      wtype = LM_GGML_TYPE_Q4_0_8_8; break;
         case LM_GGML_FTYPE_UNKNOWN:              wtype = LM_GGML_TYPE_COUNT; break;
         case LM_GGML_FTYPE_MOSTLY_Q4_1_SOME_F16: wtype = LM_GGML_TYPE_COUNT; break;
     }
@@ -1577,15 +1588,8 @@ static struct lm_ggml_tensor * lm_ggml_new_tensor_impl(
 
     struct lm_ggml_tensor * const result = (struct lm_ggml_tensor *)((char *)ctx->mem_buffer + obj_new->offs);
 
-#ifdef __clang__
-    // temporary until lm_ggml_tensor::backend is removed
-    #pragma clang diagnostic push
-    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#endif
-
     *result = (struct lm_ggml_tensor) {
         /*.type         =*/ type,
-        /*.backend      =*/ LM_GGML_BACKEND_TYPE_CPU,
         /*.buffer       =*/ NULL,
         /*.ne           =*/ { 1, 1, 1, 1 },
         /*.nb           =*/ { 0, 0, 0, 0 },
@@ -1600,10 +1604,6 @@ static struct lm_ggml_tensor * lm_ggml_new_tensor_impl(
         /*.extra        =*/ NULL,
         /*.padding      =*/ { 0 },
     };
-
-#ifdef __clang__
-    #pragma clang diagnostic pop
-#endif
 
     // TODO: this should not be needed as long as we don't rely on aligned SIMD loads
     //LM_GGML_ASSERT_ALIGNED(result->data);
@@ -2255,6 +2255,7 @@ struct lm_ggml_tensor * lm_ggml_argmax(
         struct lm_ggml_context * ctx,
         struct lm_ggml_tensor  * a) {
     LM_GGML_ASSERT(lm_ggml_is_matrix(a));
+    LM_GGML_ASSERT(a->ne[0] <= INT32_MAX);
 
     struct lm_ggml_tensor * result = lm_ggml_new_tensor_1d(ctx, LM_GGML_TYPE_I32, a->ne[1]);
 
@@ -3505,15 +3506,18 @@ static struct lm_ggml_tensor * lm_ggml_rope_impl(
         LM_GGML_ASSERT(c->ne[0] >= n_dims / 2);
     }
 
+    int sections[4] = {0, 0, 0, 0};
+
     struct lm_ggml_tensor * result = inplace ? lm_ggml_view_tensor(ctx, a) : lm_ggml_dup_tensor(ctx, a);
 
-    int32_t params[11] = { /*n_past*/ 0, n_dims, mode, /*n_ctx*/ 0, n_ctx_orig };
+    int32_t params[15] = { /*n_past*/ 0, n_dims, mode, /*n_ctx*/ 0, n_ctx_orig };
     memcpy(params +  5, &freq_base,    sizeof(float));
     memcpy(params +  6, &freq_scale,   sizeof(float));
     memcpy(params +  7, &ext_factor,   sizeof(float));
     memcpy(params +  8, &attn_factor,  sizeof(float));
     memcpy(params +  9, &beta_fast,    sizeof(float));
     memcpy(params + 10, &beta_slow,    sizeof(float));
+    memcpy(params + 11, &sections,     sizeof(int)*4);
     lm_ggml_set_op_params(result, params, sizeof(params));
 
     result->op     = LM_GGML_OP_ROPE;
@@ -3533,6 +3537,53 @@ struct lm_ggml_tensor * lm_ggml_rope(
     return lm_ggml_rope_impl(
         ctx, a, b, NULL, n_dims, mode, 0, 10000.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, false
     );
+}
+
+struct lm_ggml_tensor * lm_ggml_rope_multi(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        struct lm_ggml_tensor  * c,
+        int                   n_dims,
+        int                   sections[4],
+        int                   mode,
+        int                   n_ctx_orig,
+        float                 freq_base,
+        float                 freq_scale,
+        float                 ext_factor,
+        float                 attn_factor,
+        float                 beta_fast,
+        float                 beta_slow) {
+    // Multimodal Rotary Position Embedding
+    LM_GGML_ASSERT((mode & 1) == 0 && "mode & 1 == 1 is no longer supported");
+
+    LM_GGML_ASSERT(lm_ggml_is_vector(b));
+    LM_GGML_ASSERT(b->type == LM_GGML_TYPE_I32);
+    LM_GGML_ASSERT(a->ne[2] * 4 == b->ne[0]); // mrope expecting 4 position ids per token
+
+    if (c) {
+        LM_GGML_ASSERT(c->type == LM_GGML_TYPE_F32);
+        LM_GGML_ASSERT(c->ne[0] >= n_dims / 2);
+    }
+
+    struct lm_ggml_tensor * result = lm_ggml_dup_tensor(ctx, a);
+
+    int32_t params[11 + 4] = { /*n_past*/ 0, n_dims, mode, /*n_ctx*/ 0, n_ctx_orig };
+    memcpy(params +  5, &freq_base,    sizeof(float));
+    memcpy(params +  6, &freq_scale,   sizeof(float));
+    memcpy(params +  7, &ext_factor,   sizeof(float));
+    memcpy(params +  8, &attn_factor,  sizeof(float));
+    memcpy(params +  9, &beta_fast,    sizeof(float));
+    memcpy(params + 10, &beta_slow,    sizeof(float));
+    memcpy(&params[11], sections,      sizeof(int)*4);
+    lm_ggml_set_op_params(result, params, sizeof(params));
+
+    result->op   = LM_GGML_OP_ROPE;
+    result->src[0] = a;
+    result->src[1] = b;
+    result->src[2] = c;
+
+    return result;
 }
 
 struct lm_ggml_tensor * lm_ggml_rope_inplace(
@@ -3698,103 +3749,9 @@ struct lm_ggml_tensor * lm_ggml_clamp(
     return result;
 }
 
-// lm_ggml_conv_1d
-
 static int64_t lm_ggml_calc_conv_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
     return (ins + 2 * p - d * (ks - 1) - 1) / s + 1;
 }
-
-LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_1d(
-        struct lm_ggml_context * ctx,
-        struct lm_ggml_tensor  * a,
-        struct lm_ggml_tensor  * b,
-        int                   s0,
-        int                   p0,
-        int                   d0) {
-    struct lm_ggml_tensor * im2col = lm_ggml_im2col(ctx, a, b, s0, 0, p0, 0, d0, 0, false, LM_GGML_TYPE_F16); // [N, OL, IC * K]
-
-    struct lm_ggml_tensor * result =
-        lm_ggml_mul_mat(ctx,
-                lm_ggml_reshape_2d(ctx, im2col, im2col->ne[0], (im2col->ne[2] * im2col->ne[1])), // [N, OL, IC * K] => [N*OL, IC * K]
-                lm_ggml_reshape_2d(ctx, a, (a->ne[0] * a->ne[1]), a->ne[2]));                    // [OC，IC, K] => [OC, IC * K]
-
-    result = lm_ggml_reshape_3d(ctx, result, im2col->ne[1], a->ne[2], im2col->ne[2]); // [N, OC, OL]
-
-    return result;
-}
-
-// lm_ggml_conv_1d_ph
-
-struct lm_ggml_tensor* lm_ggml_conv_1d_ph(
-        struct lm_ggml_context * ctx,
-        struct lm_ggml_tensor  * a,
-        struct lm_ggml_tensor  * b,
-        int                   s,
-        int                   d) {
-    return lm_ggml_conv_1d(ctx, a, b, s, a->ne[0] / 2, d);
-}
-
-// lm_ggml_conv_transpose_1d
-
-static int64_t lm_ggml_calc_conv_transpose_1d_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
-    return (ins - 1) * s - 2 * p + d * (ks - 1) + 1;
-}
-
-LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_transpose_1d(
-        struct lm_ggml_context * ctx,
-        struct lm_ggml_tensor  * a,
-        struct lm_ggml_tensor  * b,
-        int                   s0,
-        int                   p0,
-        int                   d0) {
-    LM_GGML_ASSERT(lm_ggml_is_matrix(b));
-    LM_GGML_ASSERT(a->ne[2] == b->ne[1]);
-    LM_GGML_ASSERT(a->ne[3] == 1);
-
-    LM_GGML_ASSERT(p0 == 0);
-    LM_GGML_ASSERT(d0 == 1);
-
-    const int64_t ne[4] = {
-        lm_ggml_calc_conv_transpose_1d_output_size(b->ne[0], a->ne[0], s0, 0 /*p0*/, 1 /*d0*/),
-        a->ne[1], b->ne[2], 1,
-    };
-    struct lm_ggml_tensor * result = lm_ggml_new_tensor(ctx, LM_GGML_TYPE_F32, 4, ne);
-
-    int32_t params[] = { s0, p0, d0 };
-    lm_ggml_set_op_params(result, params, sizeof(params));
-
-    result->op     = LM_GGML_OP_CONV_TRANSPOSE_1D;
-    result->src[0] = a;
-    result->src[1] = b;
-
-    return result;
-}
-
-// lm_ggml_conv_depthwise
-
-struct lm_ggml_tensor * lm_ggml_conv_depthwise_2d(
-        struct lm_ggml_context * ctx,
-        struct lm_ggml_tensor  * a,
-        struct lm_ggml_tensor  * b,
-        int                   s0,
-        int                   s1,
-        int                   p0,
-        int                   p1,
-        int                   d0,
-        int                   d1) {
-    struct lm_ggml_tensor * new_a = lm_ggml_reshape_4d(ctx, a, a->ne[0], a->ne[1], 1, a->ne[2] * a->ne[3]);
-    struct lm_ggml_tensor * im2col = lm_ggml_im2col(ctx, new_a,
-                                        lm_ggml_reshape_4d(ctx, b, b->ne[0], b->ne[1], 1, b->ne[2] * b->ne[3]),
-                                        s0, s1, p0, p1, d0, d1, true, LM_GGML_TYPE_F16); // [N * IC, OH, OW, KH * KW]
-    struct lm_ggml_tensor * new_b = lm_ggml_reshape_4d(ctx, im2col, im2col->ne[0], im2col->ne[2] * im2col->ne[1], b->ne[2], b->ne[3]); // [N * IC, OH, OW, KH * KW] => [N, IC, OH * OW, KH * KW]
-
-    new_a = lm_ggml_reshape_4d(ctx, new_a, (new_a->ne[0] * new_a->ne[1]), new_a->ne[2],  new_a->ne[3], 1);                       // [OC，1, KH, KW] => [1, OC, 1, KH * KW]
-    struct lm_ggml_tensor * result = lm_ggml_mul_mat(ctx, new_a, new_b);
-    result = lm_ggml_reshape_4d(ctx, result, im2col->ne[1], im2col->ne[2], b->ne[2], b->ne[3]); // [N, OC, OH, OW]
-
-    return result;
-}
-// lm_ggml_conv_2d
 
 // im2col: [N, IC, IH, IW] => [N, OH, OW, IC*KH*KW]
 // a: [OC，IC, KH, KW]
@@ -3812,10 +3769,11 @@ struct lm_ggml_tensor * lm_ggml_im2col(
         int                   d1,
         bool                  is_2D,
         enum lm_ggml_type        dst_type) {
-    if(is_2D) {
+    if (is_2D) {
         LM_GGML_ASSERT(a->ne[2] == b->ne[2]);
     } else {
-        LM_GGML_ASSERT(a->ne[1] == b->ne[1]);
+        //LM_GGML_ASSERT(b->ne[1] % a->ne[1] == 0);
+        LM_GGML_ASSERT(b->ne[1] == a->ne[1]);
         LM_GGML_ASSERT(b->ne[3] == 1);
     }
 
@@ -3866,6 +3824,108 @@ struct lm_ggml_tensor * lm_ggml_im2col_back(
     return result;
 }
 
+// lm_ggml_conv_1d
+
+struct lm_ggml_tensor * lm_ggml_conv_1d(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        int                   s0,
+        int                   p0,
+        int                   d0) {
+    struct lm_ggml_tensor * im2col = lm_ggml_im2col(ctx, a, b, s0, 0, p0, 0, d0, 0, false, LM_GGML_TYPE_F16); // [N, OL, IC * K]
+
+    struct lm_ggml_tensor * result =
+        lm_ggml_mul_mat(ctx,
+                lm_ggml_reshape_2d(ctx, im2col, im2col->ne[0], (im2col->ne[2] * im2col->ne[1])), // [N, OL, IC * K] => [N*OL, IC * K]
+                lm_ggml_reshape_2d(ctx, a, (a->ne[0] * a->ne[1]), a->ne[2]));                    // [OC，IC, K] => [OC, IC * K]
+
+    result = lm_ggml_reshape_3d(ctx, result, im2col->ne[1], a->ne[2], im2col->ne[2]); // [N, OC, OL]
+
+    return result;
+}
+
+// lm_ggml_conv_1d_ph
+
+struct lm_ggml_tensor* lm_ggml_conv_1d_ph(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        int                   s,
+        int                   d) {
+    return lm_ggml_conv_1d(ctx, a, b, s, a->ne[0] / 2, d);
+}
+
+// lm_ggml_conv_1d_dw
+
+struct lm_ggml_tensor * lm_ggml_conv_1d_dw(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        int                   s0,
+        int                   p0,
+        int                   d0) {
+    struct lm_ggml_tensor * new_a = lm_ggml_reshape_4d(ctx, a, a->ne[0], 1, a->ne[1], a->ne[2]);
+    struct lm_ggml_tensor * new_b = lm_ggml_reshape_4d(ctx, b, b->ne[0], 1, b->ne[1], b->ne[2]);
+
+    struct lm_ggml_tensor * im2col = lm_ggml_im2col(ctx, new_a, new_b, s0, 0, p0, 0, d0, 0, false, LM_GGML_TYPE_F16);
+
+    struct lm_ggml_tensor * result = lm_ggml_mul_mat(ctx, im2col, a);
+
+    result = lm_ggml_reshape_3d(ctx, result, b->ne[0], b->ne[1], 1);
+
+    return result;
+}
+
+// lm_ggml_conv_1d_dw_ph
+
+struct lm_ggml_tensor * lm_ggml_conv_1d_dw_ph(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        int                   s0,
+        int                   d0) {
+    return lm_ggml_conv_1d_dw(ctx, a, b, s0, a->ne[0] / 2, d0);
+}
+
+// lm_ggml_conv_transpose_1d
+
+static int64_t lm_ggml_calc_conv_transpose_1d_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
+    return (ins - 1) * s - 2 * p + d * (ks - 1) + 1;
+}
+
+LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_transpose_1d(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        int                   s0,
+        int                   p0,
+        int                   d0) {
+    LM_GGML_ASSERT(lm_ggml_is_matrix(b));
+    LM_GGML_ASSERT(a->ne[2] == b->ne[1]);
+    LM_GGML_ASSERT(a->ne[3] == 1);
+
+    LM_GGML_ASSERT(p0 == 0);
+    LM_GGML_ASSERT(d0 == 1);
+
+    const int64_t ne[4] = {
+        lm_ggml_calc_conv_transpose_1d_output_size(b->ne[0], a->ne[0], s0, 0 /*p0*/, 1 /*d0*/),
+        a->ne[1], b->ne[2], 1,
+    };
+    struct lm_ggml_tensor * result = lm_ggml_new_tensor(ctx, LM_GGML_TYPE_F32, 4, ne);
+
+    int32_t params[] = { s0, p0, d0 };
+    lm_ggml_set_op_params(result, params, sizeof(params));
+
+    result->op     = LM_GGML_OP_CONV_TRANSPOSE_1D;
+    result->src[0] = a;
+    result->src[1] = b;
+
+    return result;
+}
+
+// lm_ggml_conv_2d
+
 // a: [OC，IC, KH, KW]
 // b: [N, IC, IH, IW]
 // result: [N, OC, OH, OW]
@@ -3909,6 +3969,31 @@ struct lm_ggml_tensor * lm_ggml_conv_2d_s1_ph(
         struct lm_ggml_tensor  * a,
         struct lm_ggml_tensor  * b) {
     return lm_ggml_conv_2d(ctx, a, b, 1, 1, a->ne[0] / 2, a->ne[1] / 2, 1, 1);
+}
+
+// lm_ggml_conv_2d_dw
+
+struct lm_ggml_tensor * lm_ggml_conv_2d_dw(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        int                   s0,
+        int                   s1,
+        int                   p0,
+        int                   p1,
+        int                   d0,
+        int                   d1) {
+    struct lm_ggml_tensor * new_a = lm_ggml_reshape_4d(ctx, a, a->ne[0], a->ne[1], 1, a->ne[2] * a->ne[3]);
+    struct lm_ggml_tensor * im2col = lm_ggml_im2col(ctx, new_a,
+                                        lm_ggml_reshape_4d(ctx, b, b->ne[0], b->ne[1], 1, b->ne[2] * b->ne[3]),
+                                        s0, s1, p0, p1, d0, d1, true, LM_GGML_TYPE_F16); // [N * IC, OH, OW, KH * KW]
+    struct lm_ggml_tensor * new_b = lm_ggml_reshape_4d(ctx, im2col, im2col->ne[0], im2col->ne[2] * im2col->ne[1], b->ne[2], b->ne[3]); // [N * IC, OH, OW, KH * KW] => [N, IC, OH * OW, KH * KW]
+
+    new_a = lm_ggml_reshape_4d(ctx, new_a, (new_a->ne[0] * new_a->ne[1]), new_a->ne[2],  new_a->ne[3], 1);                       // [OC，1, KH, KW] => [1, OC, 1, KH * KW]
+    struct lm_ggml_tensor * result = lm_ggml_mul_mat(ctx, new_a, new_b);
+    result = lm_ggml_reshape_4d(ctx, result, im2col->ne[1], im2col->ne[2], b->ne[2], b->ne[3]); // [N, OC, OH, OW]
+
+    return result;
 }
 
 // lm_ggml_conv_transpose_2d_p0
@@ -4087,6 +4172,37 @@ struct lm_ggml_tensor * lm_ggml_pad(
     return result;
 }
 
+// lm_ggml_pad_reflect_1d
+
+struct lm_ggml_tensor * lm_ggml_pad_reflect_1d(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        int                   p0,
+        int                   p1) {
+    LM_GGML_ASSERT(p0 >= 0);
+    LM_GGML_ASSERT(p1 >= 0);
+
+    LM_GGML_ASSERT(p0 < a->ne[0]); // padding length on each size must be less than the
+    LM_GGML_ASSERT(p1 < a->ne[0]); // existing length of the dimension being padded
+
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(a));
+    LM_GGML_ASSERT(a->type == LM_GGML_TYPE_F32);
+
+    struct lm_ggml_tensor * result = lm_ggml_new_tensor_4d(ctx, a->type,
+            a->ne[0] + p0 + p1,
+            a->ne[1],
+            a->ne[2],
+            a->ne[3]);
+
+    int32_t params[] = { p0, p1 };
+    lm_ggml_set_op_params(result, params, sizeof(params));
+
+    result->op     = LM_GGML_OP_PAD_REFLECT_1D;
+    result->src[0] = a;
+
+    return result;
+}
+
 // lm_ggml_arange
 
 struct lm_ggml_tensor * lm_ggml_arange(
@@ -4138,6 +4254,7 @@ struct lm_ggml_tensor * lm_ggml_argsort(
         struct lm_ggml_context  * ctx,
         struct lm_ggml_tensor   * a,
         enum lm_ggml_sort_order   order) {
+    LM_GGML_ASSERT(a->ne[0] <= INT32_MAX);
     struct lm_ggml_tensor * result = lm_ggml_new_tensor(ctx, LM_GGML_TYPE_I32, LM_GGML_MAX_DIMS, a->ne);
 
     lm_ggml_set_op_params_i32(result, 0, (int32_t) order);
@@ -5019,8 +5136,10 @@ static void lm_ggml_hash_map_free(struct hash_map * map) {
 }
 
 // utility functions to change gradients
-// if a is in acc_table, modify gradients in-place and mark result as gradient accumulator
-// else if a is in zero_table, replace a
+// isrc is the index of tensor in cgraph->visited_has_set.keys
+// the corresponding gradient (accumulators) are also at position isrc
+// if tensor has a gradient accumulator, modify that accumulator in-place
+// else if there is no gradient for tensor, set the corresponding value
 // else, just add/subtract/etc. the gradients
 
 static void lm_ggml_add_or_set(
@@ -5028,11 +5147,14 @@ static void lm_ggml_add_or_set(
         struct lm_ggml_cgraph  * cgraph,
         size_t                isrc,
         struct lm_ggml_tensor  * tensor) {
+    struct lm_ggml_tensor * src = cgraph->visited_hash_set.keys[isrc];
+    LM_GGML_ASSERT(src);
     if (cgraph->grads[isrc]) {
-        cgraph->grads[isrc] = lm_ggml_add_impl(ctx, cgraph->grads[isrc], tensor, cgraph->grad_accs[isrc]);
+        cgraph->grads[isrc] = lm_ggml_add_impl(ctx, cgraph->grads[isrc], tensor, /*inplace =*/ cgraph->grad_accs[isrc]);
     } else {
         cgraph->grads[isrc] = tensor;
     }
+    lm_ggml_format_name(cgraph->grads[isrc], "grad for %s", src->name);
     lm_ggml_build_forward_expand(cgraph, cgraph->grads[isrc]);
 }
 
@@ -5040,18 +5162,20 @@ static void lm_ggml_acc_or_set(
         struct lm_ggml_context * ctx,
         struct lm_ggml_cgraph  * cgraph,
         size_t                isrc,
-        struct lm_ggml_tensor  * src,
         struct lm_ggml_tensor  * tensor,
         const  size_t         nb1,
         const  size_t         nb2,
         const  size_t         nb3,
         const  size_t         offset) {
+    struct lm_ggml_tensor * src = cgraph->visited_hash_set.keys[isrc];
+    LM_GGML_ASSERT(src);
     if (cgraph->grads[isrc]) {
         cgraph->grads[isrc] = lm_ggml_acc_impl(ctx, cgraph->grads[isrc], tensor, nb1, nb2, nb3, offset, cgraph->grad_accs[isrc]);
     } else {
         struct lm_ggml_tensor * a_zero = lm_ggml_scale(ctx, src, 0.0f); // FIXME this is going to produce NaN if a contains inf/NaN
         cgraph->grads[isrc] = lm_ggml_acc_impl(ctx, a_zero, tensor, nb1, nb2, nb3, offset, false);
     }
+    lm_ggml_format_name(cgraph->grads[isrc], "grad for %s", cgraph->visited_hash_set.keys[isrc]->name);
     lm_ggml_build_forward_expand(cgraph, cgraph->grads[isrc]);
 }
 
@@ -5059,13 +5183,15 @@ static void lm_ggml_add1_or_set(
         struct lm_ggml_context * ctx,
         struct lm_ggml_cgraph  * cgraph,
         size_t                isrc,
-        struct lm_ggml_tensor  * src,
         struct lm_ggml_tensor  * tensor) {
+    struct lm_ggml_tensor * src = cgraph->visited_hash_set.keys[isrc];
+    LM_GGML_ASSERT(src);
     if (cgraph->grads[isrc]) {
         cgraph->grads[isrc] = lm_ggml_add1_impl(ctx, cgraph->grads[isrc], tensor, cgraph->grad_accs[isrc]);
     } else {
         cgraph->grads[isrc] = lm_ggml_repeat(ctx, tensor, src);
     }
+    lm_ggml_format_name(cgraph->grads[isrc], "grad for %s", src->name);
     lm_ggml_build_forward_expand(cgraph, cgraph->grads[isrc]);
 }
 
@@ -5074,11 +5200,14 @@ static void lm_ggml_sub_or_set(
         struct lm_ggml_cgraph  * cgraph,
         size_t                isrc,
         struct lm_ggml_tensor  * tensor) {
+    struct lm_ggml_tensor * src = cgraph->visited_hash_set.keys[isrc];
+    LM_GGML_ASSERT(src);
     if (cgraph->grads[isrc]) {
         cgraph->grads[isrc] = lm_ggml_sub_impl(ctx, cgraph->grads[isrc], tensor, cgraph->grad_accs[isrc]);
     } else {
         cgraph->grads[isrc] = lm_ggml_neg(ctx, tensor);
     }
+    lm_ggml_format_name(cgraph->grads[isrc], "grad for %s", src->name);
     lm_ggml_build_forward_expand(cgraph, cgraph->grads[isrc]);
 }
 
@@ -5095,12 +5224,12 @@ static void lm_ggml_compute_backward(
     struct lm_ggml_tensor * src1 = tensor->src[1];
     struct lm_ggml_tensor * src2 = tensor->src[2];
     struct lm_ggml_hash_set * hash_set = &cgraph->visited_hash_set;
-    const size_t isrc0 = lm_ggml_hash_find(hash_set, src0);
-    const size_t isrc1 = lm_ggml_hash_find(hash_set, src1);
-    const size_t isrc2 = lm_ggml_hash_find(hash_set, src2);
-    const bool src0_needs_grads = isrc0 != LM_GGML_HASHSET_FULL && lm_ggml_bitset_get(hash_set->used, isrc0) && grads_needed[isrc0];
-    const bool src1_needs_grads = isrc1 != LM_GGML_HASHSET_FULL && lm_ggml_bitset_get(hash_set->used, isrc1) && grads_needed[isrc1];
-    const bool src2_needs_grads = isrc2 != LM_GGML_HASHSET_FULL && lm_ggml_bitset_get(hash_set->used, isrc2) && grads_needed[isrc2];
+    const size_t isrc0 = src0 ? lm_ggml_hash_find(hash_set, src0) : (size_t) -1;
+    const size_t isrc1 = src1 ? lm_ggml_hash_find(hash_set, src1) : (size_t) -1;
+    const size_t isrc2 = src2 ? lm_ggml_hash_find(hash_set, src2) : (size_t) -1;
+    const bool src0_needs_grads = src0 && isrc0 != LM_GGML_HASHSET_FULL && lm_ggml_bitset_get(hash_set->used, isrc0) && grads_needed[isrc0];
+    const bool src1_needs_grads = src1 && isrc1 != LM_GGML_HASHSET_FULL && lm_ggml_bitset_get(hash_set->used, isrc1) && grads_needed[isrc1];
+    const bool src2_needs_grads = src2 && isrc2 != LM_GGML_HASHSET_FULL && lm_ggml_bitset_get(hash_set->used, isrc2) && grads_needed[isrc2];
 
     switch (tensor->op) {
         case LM_GGML_OP_DUP: {
@@ -5200,7 +5329,7 @@ static void lm_ggml_compute_backward(
         } break;
         case LM_GGML_OP_SUM: {
             if (src0_needs_grads) {
-                lm_ggml_add1_or_set(ctx, cgraph, isrc0, src0, grad);
+                lm_ggml_add1_or_set(ctx, cgraph, isrc0, grad);
             }
         } break;
         case LM_GGML_OP_SUM_ROWS: {
@@ -5210,7 +5339,7 @@ static void lm_ggml_compute_backward(
         } break;
         case LM_GGML_OP_MEAN: {
             if (src0_needs_grads) {
-                lm_ggml_add1_or_set(ctx, cgraph, isrc0, src0, lm_ggml_scale_impl(ctx, grad, 1.0f/src0->ne[0], false));
+                lm_ggml_add1_or_set(ctx, cgraph, isrc0, lm_ggml_scale_impl(ctx, grad, 1.0f/src0->ne[0], false));
             }
         } break;
         case LM_GGML_OP_REPEAT: {
@@ -5363,7 +5492,7 @@ static void lm_ggml_compute_backward(
                     nb3 = (nb3 / n0) * ng;
                 }
 
-                lm_ggml_acc_or_set(ctx, cgraph, isrc0, src0, grad, nb1, nb2, nb3, offset);
+                lm_ggml_acc_or_set(ctx, cgraph, isrc0, grad, nb1, nb2, nb3, offset);
             }
         } break;
         case LM_GGML_OP_PERMUTE: {
@@ -5597,10 +5726,9 @@ void lm_ggml_build_backward_expand(
 
     const int n_nodes_f = cgraph->n_nodes;
 
-    const size_t hash_size = lm_ggml_hash_size(2*cgraph->size);
-    memset(cgraph->grads,     0, hash_size*sizeof(struct lm_ggml_tensor *));
-    memset(cgraph->grad_accs, 0, hash_size*sizeof(struct lm_ggml_tensor *));
-    bool * grads_needed = calloc(hash_size, sizeof(bool));
+    memset(cgraph->grads,     0, cgraph->visited_hash_set.size*sizeof(struct lm_ggml_tensor *));
+    memset(cgraph->grad_accs, 0, cgraph->visited_hash_set.size*sizeof(struct lm_ggml_tensor *));
+    bool * grads_needed = calloc(cgraph->visited_hash_set.size, sizeof(bool));
 
     {
         bool any_params = false;
@@ -5621,7 +5749,7 @@ void lm_ggml_build_backward_expand(
             continue;
         }
 
-        bool node_needs_grad = node->flags & LM_GGML_TENSOR_FLAG_PARAM;
+        bool node_needs_grad = (node->flags & LM_GGML_TENSOR_FLAG_PARAM) || (node->flags & LM_GGML_TENSOR_FLAG_LOSS);
         bool ignore_src[LM_GGML_MAX_SRC] = {false};
         switch (node->op) {
             // gradients in node->src[0] for one reason or another have no effect on output gradients
@@ -5638,7 +5766,7 @@ void lm_ggml_build_backward_expand(
             } break;
 
             // gradients in node->src[1] for one reason or another have no effect on output gradients
-            case LM_GGML_OP_CPY:           // gradients in CPY target  are irrelevant
+            case LM_GGML_OP_CPY:           // gradients in CPY target are irrelevant
             case LM_GGML_OP_GET_ROWS:      // row indices not differentiable
             case LM_GGML_OP_GET_ROWS_BACK: // same as for GET_ROWS
             case LM_GGML_OP_ROPE:          // positions not differentiable
@@ -5665,9 +5793,12 @@ void lm_ggml_build_backward_expand(
             node->op == LM_GGML_OP_RESHAPE || node->op == LM_GGML_OP_PERMUTE || node->op == LM_GGML_OP_TRANSPOSE);
 
         const size_t igrad = lm_ggml_hash_find(&cgraph->visited_hash_set, node);
+        LM_GGML_ASSERT(igrad != LM_GGML_HASHSET_FULL);
+        LM_GGML_ASSERT(lm_ggml_bitset_get(cgraph->visited_hash_set.used, igrad));
         if ((accumulate && (node->flags & LM_GGML_TENSOR_FLAG_PARAM)) || (node->flags & LM_GGML_TENSOR_FLAG_LOSS)) {
-            cgraph->grads[igrad]     = lm_ggml_dup_tensor(ctx_static, node);
-            cgraph->grad_accs[igrad] = cgraph->grads[igrad];
+            cgraph->grad_accs[igrad] = lm_ggml_dup_tensor(ctx_static, node);
+            cgraph->grads[igrad]     = cgraph->grad_accs[igrad];
+            lm_ggml_format_name(cgraph->grad_accs[igrad], "grad acc for %s", node->name);
         }
         grads_needed[igrad] = true;
     }
@@ -5761,15 +5892,15 @@ struct lm_ggml_cgraph * lm_ggml_new_graph(struct lm_ggml_context * ctx) {
 
 struct lm_ggml_cgraph lm_ggml_graph_view(struct lm_ggml_cgraph * cgraph0, int i0, int i1) {
     struct lm_ggml_cgraph cgraph = {
-        /*.size         =*/ 0,
-        /*.n_nodes      =*/ i1 - i0,
-        /*.n_leafs      =*/ 0,
-        /*.nodes        =*/ cgraph0->nodes + i0,
-        /*.grads        =*/ cgraph0->grads ? cgraph0->grads + i0 : NULL,
-        /*.grad_accs    =*/ cgraph0->grad_accs ? cgraph0->grad_accs + i0 : NULL,
-        /*.leafs        =*/ NULL,
-        /*.hash_table   =*/ { 0, NULL, NULL },
-        /*.order        =*/ cgraph0->order,
+        /*.size             =*/ 0,
+        /*.n_nodes          =*/ i1 - i0,
+        /*.n_leafs          =*/ 0,
+        /*.nodes            =*/ cgraph0->nodes + i0,
+        /*.grads            =*/ NULL, // gradients would need visited_hash_set
+        /*.grad_accs        =*/ NULL,
+        /*.leafs            =*/ NULL,
+        /*.visited_hash_set =*/ { 0, NULL, NULL },
+        /*.order            =*/ cgraph0->order,
     };
 
     return cgraph;
@@ -5799,12 +5930,22 @@ void lm_ggml_graph_cpy(struct lm_ggml_cgraph * src, struct lm_ggml_cgraph * dst)
         }
     }
 
+    if (dst->grads) {
+        memset(dst->grads,     0, dst->visited_hash_set.size*sizeof(struct lm_ggml_tensor *));
+        memset(dst->grad_accs, 0, dst->visited_hash_set.size*sizeof(struct lm_ggml_tensor *));
+    }
     if (src->grads) {
         LM_GGML_ASSERT(dst->grads     != NULL);
         LM_GGML_ASSERT(dst->grad_accs != NULL);
         for (int i = 0; i < src->n_nodes; ++i) {
             const size_t igrad_src = lm_ggml_hash_find(&src->visited_hash_set, src->nodes[i]);
             const size_t igrad_dst = lm_ggml_hash_find(&dst->visited_hash_set, dst->nodes[i]);
+
+            LM_GGML_ASSERT(igrad_src != LM_GGML_HASHSET_FULL);
+            LM_GGML_ASSERT(lm_ggml_bitset_get(src->visited_hash_set.used, igrad_src));
+            LM_GGML_ASSERT(igrad_dst != LM_GGML_HASHSET_FULL);
+            LM_GGML_ASSERT(lm_ggml_bitset_get(dst->visited_hash_set.used, igrad_dst));
+
             dst->grads[igrad_dst]     = src->grads[igrad_src];
             dst->grad_accs[igrad_dst] = src->grad_accs[igrad_src];
         }
@@ -5839,12 +5980,8 @@ void lm_ggml_graph_reset(struct lm_ggml_cgraph * cgraph) {
 
         if (node->op == LM_GGML_OP_OPT_STEP_ADAMW) {
             // clear momenta
-            if (node->src[2]->data) {
-                lm_ggml_set_zero(node->src[2]);
-            }
-            if (node->src[3]->data) {
-                lm_ggml_set_zero(node->src[3]);
-            }
+            lm_ggml_set_zero(node->src[2]);
+            lm_ggml_set_zero(node->src[3]);
         }
 
         // initial gradients of loss should be 1, 0 otherwise
@@ -5923,12 +6060,12 @@ struct lm_ggml_tensor * lm_ggml_graph_get_tensor(const struct lm_ggml_cgraph * c
 
 struct lm_ggml_tensor * lm_ggml_graph_get_grad(const struct lm_ggml_cgraph * cgraph, const struct lm_ggml_tensor * node) {
     const size_t igrad = lm_ggml_hash_find(&cgraph->visited_hash_set, node);
-    return igrad != LM_GGML_HASHSET_FULL && lm_ggml_bitset_get(cgraph->visited_hash_set.used, igrad) ? cgraph->grads[igrad] : NULL;
+    return igrad != LM_GGML_HASHSET_FULL && lm_ggml_bitset_get(cgraph->visited_hash_set.used, igrad) && cgraph->grads ? cgraph->grads[igrad] : NULL;
 }
 
 struct lm_ggml_tensor * lm_ggml_graph_get_grad_acc(const struct lm_ggml_cgraph * cgraph, const struct lm_ggml_tensor * node) {
     const size_t igrad = lm_ggml_hash_find(&cgraph->visited_hash_set, node);
-    return igrad != LM_GGML_HASHSET_FULL && lm_ggml_bitset_get(cgraph->visited_hash_set.used, igrad) ? cgraph->grad_accs[igrad] : NULL;
+    return igrad != LM_GGML_HASHSET_FULL && lm_ggml_bitset_get(cgraph->visited_hash_set.used, igrad) && cgraph->grad_accs ? cgraph->grad_accs[igrad] : NULL;
 }
 
 void lm_ggml_graph_print(const struct lm_ggml_cgraph * cgraph) {
@@ -6240,9 +6377,6 @@ size_t lm_ggml_quantize_chunk(
         case LM_GGML_TYPE_IQ1_M:   result = quantize_iq1_m  (src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case LM_GGML_TYPE_IQ4_NL:  result = quantize_iq4_nl (src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case LM_GGML_TYPE_IQ4_XS:  result = quantize_iq4_xs (src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
-        case LM_GGML_TYPE_Q4_0_4_4: result = quantize_q4_0_4x4(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
-        case LM_GGML_TYPE_Q4_0_4_8: result = quantize_q4_0_4x8(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
-        case LM_GGML_TYPE_Q4_0_8_8: result = quantize_q4_0_8x8(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case LM_GGML_TYPE_F16:
             {
                 size_t elemsize = sizeof(lm_ggml_fp16_t);
@@ -6272,1280 +6406,30 @@ size_t lm_ggml_quantize_chunk(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct lm_gguf_str {
-    uint64_t n;  // GGUFv2
-    char * data;
-};
-
-static const size_t LM_GGUF_TYPE_SIZE[LM_GGUF_TYPE_COUNT] = {
-    [LM_GGUF_TYPE_UINT8]   = sizeof(uint8_t),
-    [LM_GGUF_TYPE_INT8]    = sizeof(int8_t),
-    [LM_GGUF_TYPE_UINT16]  = sizeof(uint16_t),
-    [LM_GGUF_TYPE_INT16]   = sizeof(int16_t),
-    [LM_GGUF_TYPE_UINT32]  = sizeof(uint32_t),
-    [LM_GGUF_TYPE_INT32]   = sizeof(int32_t),
-    [LM_GGUF_TYPE_FLOAT32] = sizeof(float),
-    [LM_GGUF_TYPE_BOOL]    = sizeof(bool),
-    [LM_GGUF_TYPE_STRING]  = sizeof(struct lm_gguf_str),
-    [LM_GGUF_TYPE_UINT64]  = sizeof(uint64_t),
-    [LM_GGUF_TYPE_INT64]   = sizeof(int64_t),
-    [LM_GGUF_TYPE_FLOAT64] = sizeof(double),
-    [LM_GGUF_TYPE_ARRAY]   = 0, // undefined
-};
-static_assert(LM_GGUF_TYPE_COUNT == 13, "LM_GGUF_TYPE_COUNT != 13");
-
-static const char * LM_GGUF_TYPE_NAME[LM_GGUF_TYPE_COUNT] = {
-    [LM_GGUF_TYPE_UINT8]   = "u8",
-    [LM_GGUF_TYPE_INT8]    = "i8",
-    [LM_GGUF_TYPE_UINT16]  = "u16",
-    [LM_GGUF_TYPE_INT16]   = "i16",
-    [LM_GGUF_TYPE_UINT32]  = "u32",
-    [LM_GGUF_TYPE_INT32]   = "i32",
-    [LM_GGUF_TYPE_FLOAT32] = "f32",
-    [LM_GGUF_TYPE_BOOL]    = "bool",
-    [LM_GGUF_TYPE_STRING]  = "str",
-    [LM_GGUF_TYPE_ARRAY]   = "arr",
-    [LM_GGUF_TYPE_UINT64]  = "u64",
-    [LM_GGUF_TYPE_INT64]   = "i64",
-    [LM_GGUF_TYPE_FLOAT64] = "f64",
-};
-static_assert(LM_GGUF_TYPE_COUNT == 13, "LM_GGUF_TYPE_COUNT != 13");
-
-union lm_gguf_value {
-    uint8_t  uint8;
-    int8_t   int8;
-    uint16_t uint16;
-    int16_t  int16;
-    uint32_t uint32;
-    int32_t  int32;
-    float    float32;
-    uint64_t uint64;
-    int64_t  int64;
-    double   float64;
-    bool     bool_;
-
-    struct lm_gguf_str str;
-
-    struct {
-        enum lm_gguf_type type;
-
-        uint64_t n;  // GGUFv2
-        void * data;
-    } arr;
-};
-
-struct lm_gguf_kv {
-    struct lm_gguf_str key;
-
-    enum  lm_gguf_type  type;
-    union lm_gguf_value value;
-};
-
-struct lm_gguf_header {
-    char magic[4];
-
-    uint32_t version;
-    uint64_t n_tensors; // GGUFv2
-    uint64_t n_kv;      // GGUFv2
-};
-
-struct lm_gguf_tensor_info {
-    struct lm_gguf_str name;
-
-    uint32_t n_dims;
-    uint64_t ne[LM_GGML_MAX_DIMS];
-
-    enum lm_ggml_type type;
-
-    uint64_t offset; // offset from start of `data`, must be a multiple of `ALIGNMENT`
-
-    // for writing API
-    const void * data;
-    size_t size;
-};
-
-struct lm_gguf_context {
-    struct lm_gguf_header header;
-
-    struct lm_gguf_kv          * kv;
-    struct lm_gguf_tensor_info * infos;
-
-    size_t alignment;
-    size_t offset;    // offset of `data` from beginning of file
-    size_t size;      // size of `data` in bytes
-
-    //uint8_t * padding;
-    void * data;
-};
-
-static size_t lm_gguf_type_size(enum lm_gguf_type type) {
-    LM_GGML_ASSERT(0 <= type && type < LM_GGUF_TYPE_COUNT);
-    return LM_GGUF_TYPE_SIZE[type];
-}
-
-static bool lm_gguf_tensor_info_sanitize(struct lm_gguf_tensor_info * info) {
-    if (info->n_dims > LM_GGML_MAX_DIMS) {
-        fprintf(stderr, "%s: invalid number of dimensions (%" PRIu32 ")\n", __func__, info->n_dims);
-        return false;
-    }
-
-    if (info->type < 0 || info->type >= LM_GGML_TYPE_COUNT) {
-        fprintf(stderr, "%s: invalid type (%d)\n", __func__, info->type);
-        return false;
-    }
-
-    if (strlen(info->name.data) >= LM_GGML_MAX_NAME) {
-        fprintf(stderr, "%s: tensor '%s' name is too long\n", __func__, info->name.data);
-        return false;
-    }
-
-    for (uint32_t i = 0; i < info->n_dims; ++i) {
-        if (info->ne[i] <= 0) {
-            fprintf(stderr, "%s: invalid number of elements (%" PRIu64 ")\n", __func__, info->ne[i]);
-            return false;
-        }
-    }
-
-    // prevent overflow for total number of elements
-    if (INT64_MAX/info->ne[1] <= info->ne[0]) {
-        fprintf(stderr, "%s: invalid number of elements (%" PRIu64 ")\n", __func__, info->ne[1]);
-        return false;
-    }
-
-    if (INT64_MAX/info->ne[2] <= info->ne[0]*info->ne[1]) {
-        fprintf(stderr, "%s: invalid number of elements (%" PRIu64 ")\n", __func__, info->ne[2]);
-        return false;
-    }
-
-    if (INT64_MAX/info->ne[3] <= info->ne[0]*info->ne[1]*info->ne[2]) {
-        fprintf(stderr, "%s: invalid number of elements (%" PRIu64 ")\n", __func__, info->ne[3]);
-        return false;
-    }
-
-    return true;
-}
-
-static bool lm_gguf_fread_el(FILE * file, void * dst, size_t size, size_t * offset) {
-    const size_t n = fread(dst, 1, size, file);
-    *offset += n;
-    return n == size;
-}
-
-static bool lm_gguf_fread_str(FILE * file, struct lm_gguf_str * p, size_t * offset) {
-    p->n    = 0;
-    p->data = NULL;
-
-    bool ok = true;
-
-    ok = ok && lm_gguf_fread_el(file, &p->n, sizeof(p->n), offset);
-
-    // early exit if string length is invalid, prevents from integer overflow
-    if (p->n == SIZE_MAX) {
-        fprintf(stderr, "%s: invalid string length (%" PRIu64 ")\n", __func__, p->n);
-        return false;
-    }
-
-    p->data = calloc(p->n + 1, 1);
-    if (!p->data) {
-        fprintf(stderr, "%s: failed to allocate memory for string of length %" PRIu64 "\n", __func__, p->n);
-        return false;
-    }
-
-    ok = ok && lm_gguf_fread_el(file,  p->data, p->n, offset);
-
-    return ok;
-}
-
-static void lm_gguf_free_kv(struct lm_gguf_kv * kv) {
-    if (kv->key.data) {
-        LM_GGML_FREE(kv->key.data);
-    }
-
-    if (kv->type == LM_GGUF_TYPE_STRING) {
-        if (kv->value.str.data) {
-            LM_GGML_FREE(kv->value.str.data);
-        }
-    }
-
-    if (kv->type == LM_GGUF_TYPE_ARRAY) {
-        if (kv->value.arr.data) {
-            if (kv->value.arr.type == LM_GGUF_TYPE_STRING) {
-                for (uint64_t j = 0; j < kv->value.arr.n; ++j) {
-                    struct lm_gguf_str * str = &((struct lm_gguf_str *) kv->value.arr.data)[j];
-                    if (str->data) {
-                        LM_GGML_FREE(str->data);
-                    }
-                }
-            }
-            LM_GGML_FREE(kv->value.arr.data);
-        }
-    }
-}
-
-struct lm_gguf_context * lm_gguf_init_empty(void) {
-    struct lm_gguf_context * ctx = calloc(1, sizeof(struct lm_gguf_context));
-    if (!ctx) {
-        fprintf(stderr, "%s: failed to allocate memory for context\n", __func__);
-        return NULL;
-    }
-
-    memcpy(ctx->header.magic, LM_GGUF_MAGIC, sizeof(ctx->header.magic));
-    ctx->header.version   = LM_GGUF_VERSION;
-    ctx->header.n_tensors = 0;
-    ctx->header.n_kv      = 0;
-
-    ctx->kv    = NULL;
-    ctx->infos = NULL;
-
-    ctx->alignment = LM_GGUF_DEFAULT_ALIGNMENT;
-    ctx->offset    = 0;
-    ctx->size      = 0;
-
-    ctx->data = NULL;
-
-    return ctx;
-}
-
-struct lm_gguf_context * lm_gguf_init_from_file(const char * fname, struct lm_gguf_init_params params) {
-    FILE * file = lm_ggml_fopen(fname, "rb");
-    if (!file) {
-        fprintf(stderr, "%s: failed to open '%s': '%s'\n", __func__, fname, strerror(errno));
-        return NULL;
-    }
-
-    // offset from start of file
-    size_t offset = 0;
-
-    char magic[4];
-
-    // check the magic before making allocations
-    {
-        lm_gguf_fread_el(file, &magic, sizeof(magic), &offset);
-
-        for (uint32_t i = 0; i < sizeof(magic); i++) {
-            if (magic[i] != LM_GGUF_MAGIC[i]) {
-                fprintf(stderr, "%s: invalid magic characters '%c%c%c%c'\n", __func__, magic[0], magic[1], magic[2], magic[3]);
-                fclose(file);
-                return NULL;
-            }
-        }
-    }
-
-    bool ok = true;
-
-    struct lm_gguf_context * ctx = calloc(1, sizeof(struct lm_gguf_context));
-    if (!ctx) {
-        fprintf(stderr, "%s: failed to allocate memory for context\n", __func__);
-        fclose(file);
-        return NULL;
-    }
-
-    // read the header
-    {
-        strncpy(ctx->header.magic, magic, 4);
-
-        ctx->kv    = NULL;
-        ctx->infos = NULL;
-        ctx->data  = NULL;
-
-        ok = ok && lm_gguf_fread_el(file, &ctx->header.version,   sizeof(ctx->header.version),   &offset);
-        ok = ok && lm_gguf_fread_el(file, &ctx->header.n_tensors, sizeof(ctx->header.n_tensors), &offset);
-        ok = ok && lm_gguf_fread_el(file, &ctx->header.n_kv,      sizeof(ctx->header.n_kv),      &offset);
-
-        if (ctx->header.version == 1) {
-            fprintf(stderr, "%s: GGUFv1 is no longer supported. please use a more up-to-date version\n", __func__);
-            fclose(file);
-            lm_gguf_free(ctx);
-            return NULL;
-        }
-
-        // sanity-checks to prevent from integer/buffer overflows
-
-        ok = ok && (ctx->header.n_tensors < (SIZE_MAX/2)/sizeof(struct lm_gguf_tensor_info));
-        ok = ok && (ctx->header.n_tensors < (SIZE_MAX/2)/lm_ggml_tensor_overhead());
-        ok = ok && (ctx->header.n_kv      < (SIZE_MAX/2)/sizeof(struct lm_gguf_kv));
-
-        if (!ok) {
-            fprintf(stderr, "%s: failed to read header\n", __func__);
-            fclose(file);
-            lm_gguf_free(ctx);
-            return NULL;
-        }
-    }
-
-    // read the kv pairs
-    {
-        const uint64_t n_kv = ctx->header.n_kv;
-
-        ctx->kv = calloc(n_kv, sizeof(struct lm_gguf_kv));
-        if (!ctx->kv) {
-            fprintf(stderr, "%s: failed to allocate memory for kv pairs\n", __func__);
-            fclose(file);
-            lm_gguf_free(ctx);
-            return NULL;
-        }
-
-        for (uint64_t i = 0; i < n_kv; ++i) {
-            struct lm_gguf_kv * kv = &ctx->kv[i];
-
-            //fprintf(stderr, "%s: reading kv %d\n", __func__, i);
-
-            ok = ok && lm_gguf_fread_str(file, &kv->key,                    &offset);
-            ok = ok && lm_gguf_fread_el (file, &kv->type, sizeof(kv->type), &offset);
-
-            //fprintf(stderr, "%s: reading kv with key %s\n", __func__, kv->key.data);
-
-            switch (kv->type) {
-                case LM_GGUF_TYPE_UINT8:   ok = ok && lm_gguf_fread_el (file, &kv->value.uint8,   sizeof(kv->value.uint8),   &offset); break;
-                case LM_GGUF_TYPE_INT8:    ok = ok && lm_gguf_fread_el (file, &kv->value.int8,    sizeof(kv->value.int8),    &offset); break;
-                case LM_GGUF_TYPE_UINT16:  ok = ok && lm_gguf_fread_el (file, &kv->value.uint16,  sizeof(kv->value.uint16),  &offset); break;
-                case LM_GGUF_TYPE_INT16:   ok = ok && lm_gguf_fread_el (file, &kv->value.int16,   sizeof(kv->value.int16),   &offset); break;
-                case LM_GGUF_TYPE_UINT32:  ok = ok && lm_gguf_fread_el (file, &kv->value.uint32,  sizeof(kv->value.uint32),  &offset); break;
-                case LM_GGUF_TYPE_INT32:   ok = ok && lm_gguf_fread_el (file, &kv->value.int32,   sizeof(kv->value.int32),   &offset); break;
-                case LM_GGUF_TYPE_FLOAT32: ok = ok && lm_gguf_fread_el (file, &kv->value.float32, sizeof(kv->value.float32), &offset); break;
-                case LM_GGUF_TYPE_UINT64:  ok = ok && lm_gguf_fread_el (file, &kv->value.uint64,  sizeof(kv->value.uint64),  &offset); break;
-                case LM_GGUF_TYPE_INT64:   ok = ok && lm_gguf_fread_el (file, &kv->value.int64,   sizeof(kv->value.int64),   &offset); break;
-                case LM_GGUF_TYPE_FLOAT64: ok = ok && lm_gguf_fread_el (file, &kv->value.float64, sizeof(kv->value.float64), &offset); break;
-                case LM_GGUF_TYPE_BOOL:    ok = ok && lm_gguf_fread_el (file, &kv->value.bool_,   sizeof(kv->value.bool_),   &offset); break;
-                case LM_GGUF_TYPE_STRING:  ok = ok && lm_gguf_fread_str(file, &kv->value.str,                                &offset); break;
-                case LM_GGUF_TYPE_ARRAY:
-                    {
-                        ok = ok && lm_gguf_fread_el(file, &kv->value.arr.type, sizeof(kv->value.arr.type), &offset);
-                        ok = ok && lm_gguf_fread_el(file, &kv->value.arr.n,    sizeof(kv->value.arr.n),    &offset);
-
-                        switch (kv->value.arr.type) {
-                            case LM_GGUF_TYPE_UINT8:
-                            case LM_GGUF_TYPE_INT8:
-                            case LM_GGUF_TYPE_UINT16:
-                            case LM_GGUF_TYPE_INT16:
-                            case LM_GGUF_TYPE_UINT32:
-                            case LM_GGUF_TYPE_INT32:
-                            case LM_GGUF_TYPE_FLOAT32:
-                            case LM_GGUF_TYPE_UINT64:
-                            case LM_GGUF_TYPE_INT64:
-                            case LM_GGUF_TYPE_FLOAT64:
-                            case LM_GGUF_TYPE_BOOL:
-                                {
-                                    // prevent from integer overflow in the malloc below
-                                    if (kv->value.arr.n >= SIZE_MAX/lm_gguf_type_size(kv->value.arr.type)) {
-                                        fprintf(stderr, "%s: array size is too large (%" PRIu64 ")\n", __func__, kv->value.arr.n);
-                                        fclose(file);
-                                        lm_gguf_free(ctx);
-                                        return NULL;
-                                    }
-
-                                    kv->value.arr.data = calloc(kv->value.arr.n, lm_gguf_type_size(kv->value.arr.type));
-                                    if (!kv->value.arr.data) {
-                                        fprintf(stderr, "%s: failed to allocate memory for array\n", __func__);
-                                        fclose(file);
-                                        lm_gguf_free(ctx);
-                                        return NULL;
-                                    }
-
-                                    ok = ok && lm_gguf_fread_el(file, kv->value.arr.data, kv->value.arr.n * lm_gguf_type_size(kv->value.arr.type), &offset);
-                                } break;
-                            case LM_GGUF_TYPE_STRING:
-                                {
-                                    // prevent from integer overflow in the malloc below
-                                    if (kv->value.arr.n >= SIZE_MAX/sizeof(struct lm_gguf_str)) {
-                                        fprintf(stderr, "%s: array size is too large (%" PRIu64 ")\n", __func__, kv->value.arr.n);
-                                        fclose(file);
-                                        lm_gguf_free(ctx);
-                                        return NULL;
-                                    }
-
-                                    kv->value.arr.data = calloc(kv->value.arr.n, sizeof(struct lm_gguf_str));
-                                    if (!kv->value.arr.data) {
-                                        fprintf(stderr, "%s: failed to allocate memory for array\n", __func__);
-                                        fclose(file);
-                                        lm_gguf_free(ctx);
-                                        return NULL;
-                                    }
-
-                                    for (uint64_t j = 0; j < kv->value.arr.n; ++j) {
-                                        ok = ok && lm_gguf_fread_str(file, &((struct lm_gguf_str *) kv->value.arr.data)[j], &offset);
-                                    }
-                                } break;
-                            case LM_GGUF_TYPE_ARRAY:
-                            default:
-                                {
-                                    fprintf(stderr, "%s: invalid array type %d\n", __func__, kv->value.arr.type);
-                                    ok = false;
-                                } break;
-                        }
-                    } break;
-                default:
-                    {
-                        fprintf(stderr, "%s: invalid type %d\n", __func__, kv->type);
-                        ok = false;
-                    } break;
-            }
-
-            if (!ok) {
-                break;
-            }
-        }
-
-        if (!ok) {
-            fprintf(stderr, "%s: failed to read key-value pairs\n", __func__);
-            fclose(file);
-            lm_gguf_free(ctx);
-            return NULL;
-        }
-    }
-
-    // read the tensor infos
-    if (ctx->header.n_tensors > 0) {
-        ctx->infos = calloc(ctx->header.n_tensors, sizeof(struct lm_gguf_tensor_info));
-        if (!ctx->infos) {
-            fprintf(stderr, "%s: failed to allocate memory for tensor infos\n", __func__);
-            fclose(file);
-            lm_gguf_free(ctx);
-            return NULL;
-        }
-
-        for (uint64_t i = 0; i < ctx->header.n_tensors; ++i) {
-            struct lm_gguf_tensor_info * info = &ctx->infos[i];
-
-            for (int j = 0; j < LM_GGML_MAX_DIMS; ++j) {
-                info->ne[j] = 1;
-            }
-
-            ok = ok && lm_gguf_fread_str(file, &info->name,                          &offset);
-            ok = ok && lm_gguf_fread_el (file, &info->n_dims, sizeof(info->n_dims),  &offset);
-
-            ok = ok && (info->n_dims <= LM_GGML_MAX_DIMS);
-
-            for (uint32_t j = 0; j < info->n_dims; ++j) {
-                ok = ok && lm_gguf_fread_el(file, &info->ne[j], sizeof(info->ne[j]), &offset);
-            }
-
-            ok = ok && lm_gguf_fread_el (file, &info->type,   sizeof(info->type),    &offset);
-            ok = ok && lm_gguf_fread_el (file, &info->offset, sizeof(info->offset),  &offset);
-
-            ok = ok && lm_gguf_tensor_info_sanitize(info);
-
-            // make sure there is no duplicated tensor names
-            for (uint64_t j = 0; j < i && ok; ++j) {
-                if (strcmp(info->name.data, ctx->infos[j].name.data) == 0) {
-                    fprintf(stderr, "%s: duplicated tensor name %s\n", __func__, info->name.data);
-                    ok = false;
-                }
-            }
-
-            if (!ok) {
-                fprintf(stderr, "%s: failed to read tensor info\n", __func__);
-                fclose(file);
-                lm_gguf_free(ctx);
-                return NULL;
-            }
-        }
-    }
-
-    ctx->alignment = LM_GGUF_DEFAULT_ALIGNMENT;
-
-    int alignment_idx = lm_gguf_find_key(ctx, "general.alignment");
-    if (alignment_idx != -1) {
-        ctx->alignment = lm_gguf_get_val_u32(ctx, alignment_idx);
-    }
-
-    // we require the data section to be aligned, so take into account any padding
-    {
-        const size_t offset_pad = offset % ctx->alignment;
-
-        if (offset_pad != 0) {
-            offset += ctx->alignment - offset_pad;
-            fseek(file, offset, SEEK_SET);
-        }
-    }
-
-    // store the current file offset - this is where the data section starts
-    ctx->offset = offset;
-
-    // compute the total size of the data section, taking into account the alignment
-    {
-        ctx->size = 0;
-        for (uint64_t i = 0; i < ctx->header.n_tensors; ++i) {
-            struct lm_gguf_tensor_info * info = &ctx->infos[i];
-
-            const int64_t ne =
-                (int64_t) info->ne[0] *
-                (int64_t) info->ne[1] *
-                (int64_t) info->ne[2] *
-                (int64_t) info->ne[3];
-
-            if (lm_ggml_blck_size(info->type) == 0 || ne % lm_ggml_blck_size(info->type) != 0) {
-                fprintf(stderr, "%s: tensor '%s' of type %d (%s) number of elements (%" PRId64 ") is not a multiple of block size (%" PRId64 ")\n",
-                        __func__, info->name.data, (int) info->type, lm_ggml_type_name(info->type), ne, lm_ggml_blck_size(info->type));
-                fclose(file);
-                lm_gguf_free(ctx);
-                return NULL;
-            }
-
-            const size_t size_cur = lm_ggml_row_size(info->type, ne);
-
-            ctx->size += LM_GGML_PAD(size_cur, ctx->alignment);
-        }
-    }
-
-    // load the tensor data only if requested
-    if (params.ctx != NULL) {
-        // if the provided lm_gguf_context is no_alloc, then we create "empty" tensors and do not read the binary blob
-        // otherwise, we load the binary blob into the created lm_ggml_context as well, and point the "data" members of
-        // the lm_ggml_tensor structs to the appropriate locations in the binary blob
-
-        // compute the exact size needed for the new lm_ggml_context
-        const size_t mem_size =
-            params.no_alloc ?
-            (ctx->header.n_tensors    )*lm_ggml_tensor_overhead() :
-            (ctx->header.n_tensors + 1)*lm_ggml_tensor_overhead() + ctx->size;
-
-        struct lm_ggml_init_params pdata = {
-            .mem_size   = mem_size,
-            .mem_buffer = NULL,
-            .no_alloc   = params.no_alloc,
-        };
-
-        *params.ctx = lm_ggml_init(pdata);
-        if (*params.ctx == NULL) {
-            fprintf(stderr, "%s: failed to initialize context\n", __func__);
-            fclose(file);
-            lm_gguf_free(ctx);
-            return NULL;
-        }
-
-        struct lm_ggml_context * ctx_data = *params.ctx;
-
-        struct lm_ggml_tensor * data = NULL;
-
-        if (!params.no_alloc) {
-            data = lm_ggml_new_tensor_1d(ctx_data, LM_GGML_TYPE_I8, ctx->size);
-
-            ok = ok && data != NULL;
-
-            // read the binary blob with the tensor data
-            ok = ok && lm_gguf_fread_el(file, data->data, ctx->size, &offset);
-
-            if (!ok) {
-                fprintf(stderr, "%s: failed to read tensor data\n", __func__);
-                fclose(file);
-                lm_ggml_free(ctx_data);
-                lm_gguf_free(ctx);
-                return NULL;
-            }
-
-            ctx->data = data->data;
-        }
-
-        lm_ggml_set_no_alloc(ctx_data, true);
-
-        // create the tensors
-        for (uint64_t i = 0; i < ctx->header.n_tensors; ++i) {
-            const int64_t ne[LM_GGML_MAX_DIMS] = {
-                ctx->infos[i].ne[0],
-                ctx->infos[i].ne[1],
-                ctx->infos[i].ne[2],
-                ctx->infos[i].ne[3],
-            };
-
-            struct lm_ggml_tensor * cur = lm_ggml_new_tensor(ctx_data, ctx->infos[i].type, ctx->infos[i].n_dims, ne);
-
-            ok = ok && cur != NULL;
-
-            if (!ok) {
-                break;
-            }
-
-            lm_ggml_set_name(cur, ctx->infos[i].name.data);
-
-            // point the data member to the appropriate location in the binary blob using the tensor infos
-            if (!params.no_alloc) {
-              //cur->data = (char *) data->data + ctx->infos[i].offset - ctx->offset; // offset from start of file
-                cur->data = (char *) data->data + ctx->infos[i].offset;               // offset from data
-            }
-        }
-
-        if (!ok) {
-            fprintf(stderr, "%s: failed to read the tensor data\n", __func__);
-            fclose(file);
-            lm_ggml_free(ctx_data);
-            lm_gguf_free(ctx);
-            return NULL;
-        }
-
-        lm_ggml_set_no_alloc(ctx_data, params.no_alloc);
-    }
-
-    fclose(file);
-
-    return ctx;
-}
-
-void lm_gguf_free(struct lm_gguf_context * ctx) {
-    if (ctx == NULL) {
-        return;
-    }
-
-    if (ctx->kv) {
-        // free string memory - not great..
-        for (uint64_t i = 0; i < ctx->header.n_kv; ++i) {
-            lm_gguf_free_kv(&ctx->kv[i]);
-        }
-
-        LM_GGML_FREE(ctx->kv);
-    }
-
-    if (ctx->infos) {
-        for (uint64_t i = 0; i < ctx->header.n_tensors; ++i) {
-            struct lm_gguf_tensor_info * info = &ctx->infos[i];
-
-            if (info->name.data) {
-                LM_GGML_FREE(info->name.data);
-            }
-        }
-
-        LM_GGML_FREE(ctx->infos);
-    }
-
-    LM_GGML_FREE(ctx);
-}
-
-const char * lm_gguf_type_name(enum lm_gguf_type type) {
-    return LM_GGUF_TYPE_NAME[type];
-}
-
-int lm_gguf_get_version(const struct lm_gguf_context * ctx) {
-    return ctx->header.version;
-}
-
-size_t lm_gguf_get_alignment(const struct lm_gguf_context * ctx) {
-    return ctx->alignment;
-}
-
-size_t lm_gguf_get_data_offset(const struct lm_gguf_context * ctx) {
-    return ctx->offset;
-}
-
-void * lm_gguf_get_data(const struct lm_gguf_context * ctx) {
-    return ctx->data;
-}
-
-int lm_gguf_get_n_kv(const struct lm_gguf_context * ctx) {
-    return ctx->header.n_kv;
-}
-
-int lm_gguf_find_key(const struct lm_gguf_context * ctx, const char * key) {
-    // return -1 if key not found
-    int keyfound = -1;
-
-    const int n_kv = lm_gguf_get_n_kv(ctx);
-
-    for (int i = 0; i < n_kv; ++i) {
-        if (strcmp(key, lm_gguf_get_key(ctx, i)) == 0) {
-            keyfound = i;
-            break;
-        }
-    }
-
-    return keyfound;
-}
-
-const char * lm_gguf_get_key(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    return ctx->kv[key_id].key.data;
-}
-
-enum lm_gguf_type lm_gguf_get_kv_type(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    return ctx->kv[key_id].type;
-}
-
-enum lm_gguf_type lm_gguf_get_arr_type(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_ARRAY);
-    return ctx->kv[key_id].value.arr.type;
-}
-
-const void * lm_gguf_get_arr_data(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_ARRAY);
-    return ctx->kv[key_id].value.arr.data;
-}
-
-const char * lm_gguf_get_arr_str(const struct lm_gguf_context * ctx, int key_id, int i) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_ARRAY);
-    struct lm_gguf_kv * kv = &ctx->kv[key_id];
-    struct lm_gguf_str * str = &((struct lm_gguf_str *) kv->value.arr.data)[i];
-    return str->data;
-}
-
-int lm_gguf_get_arr_n(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_ARRAY);
-    return ctx->kv[key_id].value.arr.n;
-}
-
-uint8_t lm_gguf_get_val_u8(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_UINT8);
-    return ctx->kv[key_id].value.uint8;
-}
-
-int8_t lm_gguf_get_val_i8(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_INT8);
-    return ctx->kv[key_id].value.int8;
-}
-
-uint16_t lm_gguf_get_val_u16(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_UINT16);
-    return ctx->kv[key_id].value.uint16;
-}
-
-int16_t lm_gguf_get_val_i16(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_INT16);
-    return ctx->kv[key_id].value.int16;
-}
-
-uint32_t lm_gguf_get_val_u32(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_UINT32);
-    return ctx->kv[key_id].value.uint32;
-}
-
-int32_t lm_gguf_get_val_i32(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_INT32);
-    return ctx->kv[key_id].value.int32;
-}
-
-float lm_gguf_get_val_f32(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_FLOAT32);
-    return ctx->kv[key_id].value.float32;
-}
-
-uint64_t lm_gguf_get_val_u64(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_UINT64);
-    return ctx->kv[key_id].value.uint64;
-}
-
-int64_t lm_gguf_get_val_i64(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_INT64);
-    return ctx->kv[key_id].value.int64;
-}
-
-double lm_gguf_get_val_f64(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_FLOAT64);
-    return ctx->kv[key_id].value.float64;
-}
-
-bool lm_gguf_get_val_bool(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_BOOL);
-    return ctx->kv[key_id].value.bool_;
-}
-
-const char * lm_gguf_get_val_str(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type == LM_GGUF_TYPE_STRING);
-    return ctx->kv[key_id].value.str.data;
-}
-
-const void * lm_gguf_get_val_data(const struct lm_gguf_context * ctx, int key_id) {
-    LM_GGML_ASSERT(key_id >= 0 && key_id < lm_gguf_get_n_kv(ctx));
-    LM_GGML_ASSERT(ctx->kv[key_id].type != LM_GGUF_TYPE_ARRAY);
-    LM_GGML_ASSERT(ctx->kv[key_id].type != LM_GGUF_TYPE_STRING);
-    return &ctx->kv[key_id].value;
-}
-
-int lm_gguf_get_n_tensors(const struct lm_gguf_context * ctx) {
-    return ctx->header.n_tensors;
-}
-
-int lm_gguf_find_tensor(const struct lm_gguf_context * ctx, const char * name) {
-    // return -1 if tensor not found
-    int tensorfound = -1;
-
-    const int n_tensors = lm_gguf_get_n_tensors(ctx);
-
-    for (int i = 0; i < n_tensors; ++i) {
-        if (strcmp(name, lm_gguf_get_tensor_name(ctx, i)) == 0) {
-            tensorfound = i;
-            break;
-        }
-    }
-
-    return tensorfound;
-}
-
-size_t lm_gguf_get_tensor_offset(const struct lm_gguf_context * ctx, int i) {
-    return ctx->infos[i].offset;
-}
-
-char * lm_gguf_get_tensor_name(const struct lm_gguf_context * ctx, int i) {
-    return ctx->infos[i].name.data;
-}
-
-enum lm_ggml_type lm_gguf_get_tensor_type(const struct lm_gguf_context * ctx, int i) {
-    return ctx->infos[i].type;
-}
-
-// returns the index
-static int lm_gguf_get_or_add_key(struct lm_gguf_context * ctx, const char * key) {
-    const int idx = lm_gguf_find_key(ctx, key);
-    if (idx >= 0) {
-        return idx;
-    }
-
-    const int n_kv = lm_gguf_get_n_kv(ctx);
-
-    ctx->kv = realloc(ctx->kv, (n_kv + 1) * sizeof(struct lm_gguf_kv));
-    ctx->kv[n_kv].key.n    = strlen(key);
-    ctx->kv[n_kv].key.data = strdup(key);
-    ctx->header.n_kv++;
-
-    return n_kv;
-}
-
-void lm_gguf_remove_key(struct lm_gguf_context * ctx, const char * key) {
-    const int idx = lm_gguf_find_key(ctx, key);
-    if (idx >= 0) {
-        const int n_kv = lm_gguf_get_n_kv(ctx);
-        lm_gguf_free_kv(&ctx->kv[idx]);
-        for (int i = idx; i < n_kv-1; ++i) {
-            ctx->kv[i] = ctx->kv[i+1];
-        }
-        ctx->kv = realloc(ctx->kv, (n_kv - 1) * sizeof(struct lm_gguf_kv));
-        ctx->header.n_kv--;
-    }
-}
-
-void lm_gguf_set_val_u8(struct lm_gguf_context * ctx, const char * key, uint8_t val) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type        = LM_GGUF_TYPE_UINT8;
-    ctx->kv[idx].value.uint8 = val;
-}
-
-void lm_gguf_set_val_i8(struct lm_gguf_context * ctx, const char * key, int8_t val) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type       = LM_GGUF_TYPE_INT8;
-    ctx->kv[idx].value.int8 = val;
-}
-
-void lm_gguf_set_val_u16(struct lm_gguf_context * ctx, const char * key, uint16_t val) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type         = LM_GGUF_TYPE_UINT16;
-    ctx->kv[idx].value.uint16 = val;
-}
-
-void lm_gguf_set_val_i16(struct lm_gguf_context * ctx, const char * key, int16_t val) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type        = LM_GGUF_TYPE_INT16;
-    ctx->kv[idx].value.int16 = val;
-}
-
-void lm_gguf_set_val_u32(struct lm_gguf_context * ctx, const char * key, uint32_t val) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type         = LM_GGUF_TYPE_UINT32;
-    ctx->kv[idx].value.uint32 = val;
-}
-
-void lm_gguf_set_val_i32(struct lm_gguf_context * ctx, const char * key, int32_t val) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type        = LM_GGUF_TYPE_INT32;
-    ctx->kv[idx].value.int32 = val;
-}
-
-void lm_gguf_set_val_f32(struct lm_gguf_context * ctx, const char * key, float val) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type          = LM_GGUF_TYPE_FLOAT32;
-    ctx->kv[idx].value.float32 = val;
-}
-
-void lm_gguf_set_val_u64(struct lm_gguf_context * ctx, const char * key, uint64_t val) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type         = LM_GGUF_TYPE_UINT64;
-    ctx->kv[idx].value.uint64 = val;
-}
-
-void lm_gguf_set_val_i64(struct lm_gguf_context * ctx, const char * key, int64_t val) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type        = LM_GGUF_TYPE_INT64;
-    ctx->kv[idx].value.int64 = val;
-}
-
-void lm_gguf_set_val_f64(struct lm_gguf_context * ctx, const char * key, double val) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type          = LM_GGUF_TYPE_FLOAT64;
-    ctx->kv[idx].value.float64 = val;
-}
-
-void lm_gguf_set_val_bool(struct lm_gguf_context * ctx, const char * key, bool val) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type        = LM_GGUF_TYPE_BOOL;
-    ctx->kv[idx].value.bool_ = val;
-}
-
-void lm_gguf_set_val_str(struct lm_gguf_context * ctx, const char * key, const char * val) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type           = LM_GGUF_TYPE_STRING;
-    ctx->kv[idx].value.str.n    = strlen(val);
-    ctx->kv[idx].value.str.data = strdup(val);
-}
-
-void lm_gguf_set_arr_data(struct lm_gguf_context * ctx, const char * key, enum lm_gguf_type type, const void * data, int n) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type           = LM_GGUF_TYPE_ARRAY;
-    ctx->kv[idx].value.arr.type = type;
-    ctx->kv[idx].value.arr.n    = n;
-    ctx->kv[idx].value.arr.data = LM_GGML_CALLOC(n, lm_gguf_type_size(type));
-    memcpy(ctx->kv[idx].value.arr.data, data, n*lm_gguf_type_size(type));
-}
-
-void lm_gguf_set_arr_str(struct lm_gguf_context * ctx, const char * key, const char ** data, int n) {
-    const int idx = lm_gguf_get_or_add_key(ctx, key);
-
-    ctx->kv[idx].type           = LM_GGUF_TYPE_ARRAY;
-    ctx->kv[idx].value.arr.type = LM_GGUF_TYPE_STRING;
-    ctx->kv[idx].value.arr.n    = n;
-    ctx->kv[idx].value.arr.data = LM_GGML_CALLOC(n, sizeof(struct lm_gguf_str));
-    for (int i = 0; i < n; i++) {
-        struct lm_gguf_str * str = &((struct lm_gguf_str *)ctx->kv[idx].value.arr.data)[i];
-        str->n    = strlen(data[i]);
-        str->data = strdup(data[i]);
-    }
-}
-
-// set or add KV pairs from another context
-void lm_gguf_set_kv(struct lm_gguf_context * ctx, struct lm_gguf_context * src) {
-    for (uint32_t i = 0; i < src->header.n_kv; i++) {
-        switch (src->kv[i].type) {
-            case LM_GGUF_TYPE_UINT8:   lm_gguf_set_val_u8  (ctx, src->kv[i].key.data, src->kv[i].value.uint8);    break;
-            case LM_GGUF_TYPE_INT8:    lm_gguf_set_val_i8  (ctx, src->kv[i].key.data, src->kv[i].value.int8);     break;
-            case LM_GGUF_TYPE_UINT16:  lm_gguf_set_val_u16 (ctx, src->kv[i].key.data, src->kv[i].value.uint16);   break;
-            case LM_GGUF_TYPE_INT16:   lm_gguf_set_val_i16 (ctx, src->kv[i].key.data, src->kv[i].value.int16);    break;
-            case LM_GGUF_TYPE_UINT32:  lm_gguf_set_val_u32 (ctx, src->kv[i].key.data, src->kv[i].value.uint32);   break;
-            case LM_GGUF_TYPE_INT32:   lm_gguf_set_val_i32 (ctx, src->kv[i].key.data, src->kv[i].value.int32);    break;
-            case LM_GGUF_TYPE_FLOAT32: lm_gguf_set_val_f32 (ctx, src->kv[i].key.data, src->kv[i].value.float32);  break;
-            case LM_GGUF_TYPE_UINT64:  lm_gguf_set_val_u64 (ctx, src->kv[i].key.data, src->kv[i].value.uint64);   break;
-            case LM_GGUF_TYPE_INT64:   lm_gguf_set_val_i64 (ctx, src->kv[i].key.data, src->kv[i].value.int64);    break;
-            case LM_GGUF_TYPE_FLOAT64: lm_gguf_set_val_f64 (ctx, src->kv[i].key.data, src->kv[i].value.float64);  break;
-            case LM_GGUF_TYPE_BOOL:    lm_gguf_set_val_bool(ctx, src->kv[i].key.data, src->kv[i].value.bool_);    break;
-            case LM_GGUF_TYPE_STRING:  lm_gguf_set_val_str (ctx, src->kv[i].key.data, src->kv[i].value.str.data); break;
-            case LM_GGUF_TYPE_ARRAY:
-                {
-                    if (src->kv[i].value.arr.type == LM_GGUF_TYPE_STRING) {
-                        const char ** data = LM_GGML_CALLOC(src->kv[i].value.arr.n, sizeof(char *));
-                        for (uint32_t j = 0; j < src->kv[i].value.arr.n; j++) {
-                            data[j] = ((struct lm_gguf_str *)src->kv[i].value.arr.data)[j].data;
-                        }
-                        lm_gguf_set_arr_str(ctx, src->kv[i].key.data, data, src->kv[i].value.arr.n);
-                        LM_GGML_FREE((void *)data);
-                    } else if (src->kv[i].value.arr.type == LM_GGUF_TYPE_ARRAY) {
-                        LM_GGML_ABORT("nested arrays not supported");
-                    } else {
-                        lm_gguf_set_arr_data(ctx, src->kv[i].key.data, src->kv[i].value.arr.type, src->kv[i].value.arr.data, src->kv[i].value.arr.n);
-                    }
-                } break;
-            default: LM_GGML_ABORT("invalid type");
-        }
-    }
-}
-
-void lm_gguf_add_tensor(
-             struct lm_gguf_context * ctx,
-        const struct lm_ggml_tensor * tensor) {
-    LM_GGML_ASSERT(tensor);
-    if (lm_gguf_find_tensor(ctx, tensor->name) != -1) {
-        LM_GGML_ABORT("duplicated tensor name");
-    }
-
-    const int idx = ctx->header.n_tensors;
-    ctx->infos = realloc(ctx->infos, (idx + 1)*sizeof(struct lm_gguf_tensor_info));
-
-    ctx->infos[idx].name.n    = strlen(tensor->name);
-    ctx->infos[idx].name.data = strdup(tensor->name);
-
-    for (int i = 0; i < LM_GGML_MAX_DIMS; ++i) {
-        ctx->infos[idx].ne[i] = 1;
-    }
-
-    ctx->infos[idx].n_dims = lm_ggml_n_dims(tensor);
-    for (uint32_t i = 0; i < ctx->infos[idx].n_dims; i++) {
-        ctx->infos[idx].ne[i] = tensor->ne[i];
-    }
-
-    ctx->infos[idx].type   = tensor->type;
-    ctx->infos[idx].offset = 0;
-    ctx->infos[idx].data   = tensor->data;
-    ctx->infos[idx].size   = lm_ggml_nbytes(tensor);
-
-    if (ctx->header.n_tensors > 0) {
-        ctx->infos[idx].offset = ctx->infos[idx - 1].offset + LM_GGML_PAD(ctx->infos[idx - 1].size, ctx->alignment);
-    }
-
-    ctx->header.n_tensors++;
-}
-
-void lm_gguf_set_tensor_type(struct lm_gguf_context * ctx, const char * name, enum lm_ggml_type type) {
-    const int idx = lm_gguf_find_tensor(ctx, name);
-    if (idx < 0) {
-        LM_GGML_ABORT("tensor not found");
-    }
-
-    ctx->infos[idx].type = type;
-}
-
-void lm_gguf_set_tensor_data(struct lm_gguf_context * ctx, const char * name, const void * data, size_t size) {
-    const int idx = lm_gguf_find_tensor(ctx, name);
-    if (idx < 0) {
-        LM_GGML_ABORT("tensor not found");
-    }
-
-    ctx->infos[idx].data = data;
-    ctx->infos[idx].size = size;
-
-    // update offsets
-    for (uint32_t i = idx + 1; i < ctx->header.n_tensors; ++i) {
-        ctx->infos[i].offset = ctx->infos[i - 1].offset + LM_GGML_PAD(ctx->infos[i - 1].size, ctx->alignment);
-    }
-}
-
-//static void lm_gguf_fwrite_str(FILE * file, const struct lm_gguf_str * val) {
-//    fwrite(&val->n,   sizeof(val->n),    1, file);
-//    fwrite(val->data, sizeof(char), val->n, file);
-//}
-//
-//static void lm_gguf_fwrite_el(FILE * file, const void * val, size_t size) {
-//    fwrite(val, sizeof(char), size, file);
-//}
-
-struct lm_gguf_buf {
-    void * data;
-    size_t size;
-    size_t offset;
-};
-
-static struct lm_gguf_buf lm_gguf_buf_init(size_t size) {
-    struct lm_gguf_buf buf = {
-        /*buf.data   =*/ size == 0 ? NULL : LM_GGML_CALLOC(1, size),
-        /*buf.size   =*/ size,
-        /*buf.offset =*/ 0,
-    };
-
-    return buf;
-}
-
-static void lm_gguf_buf_free(struct lm_gguf_buf buf) {
-    if (buf.data) {
-        LM_GGML_FREE(buf.data);
-    }
-}
-
-static void lm_gguf_buf_grow(struct lm_gguf_buf * buf, size_t size) {
-    if (buf->offset + size > buf->size) {
-        buf->size = 1.5*(buf->offset + size);
-        if (buf->data) {
-            buf->data = realloc(buf->data, buf->size);
-        }
-    }
-}
-
-static void lm_gguf_bwrite_str(struct lm_gguf_buf * buf, const struct lm_gguf_str * val) {
-    lm_gguf_buf_grow(buf, sizeof(val->n) + val->n);
-
-    if (buf->data) {
-        memcpy((char *) buf->data + buf->offset, &val->n, sizeof(val->n));
-    }
-    buf->offset += sizeof(val->n);
-
-    if (buf->data) {
-        memcpy((char *) buf->data + buf->offset, val->data, val->n);
-    }
-    buf->offset += val->n;
-}
-
-static void lm_gguf_bwrite_el(struct lm_gguf_buf * buf, const void * val, size_t el_size) {
-    lm_gguf_buf_grow(buf, el_size);
-
-    if (buf->data) {
-        memcpy((char *) buf->data + buf->offset, val, el_size);
-    }
-    buf->offset += el_size;
-}
-
-static void lm_gguf_write_to_buf(const struct lm_gguf_context * ctx, struct lm_gguf_buf * buf, bool only_meta) {
-    // write header
-    lm_gguf_bwrite_el(buf, &ctx->header.magic,     sizeof(ctx->header.magic));
-    lm_gguf_bwrite_el(buf, &ctx->header.version,   sizeof(ctx->header.version));
-    lm_gguf_bwrite_el(buf, &ctx->header.n_tensors, sizeof(ctx->header.n_tensors));
-    lm_gguf_bwrite_el(buf, &ctx->header.n_kv,      sizeof(ctx->header.n_kv));
-
-    // write key-value pairs
-    for (uint32_t i = 0; i < ctx->header.n_kv; ++i) {
-        struct lm_gguf_kv * kv = &ctx->kv[i];
-
-        lm_gguf_bwrite_str(buf, &kv->key);
-        lm_gguf_bwrite_el (buf, &kv->type, sizeof(kv->type));
-
-        switch (kv->type) {
-            case LM_GGUF_TYPE_UINT8:   lm_gguf_bwrite_el( buf, &kv->value.uint8,   sizeof(kv->value.uint8)  ); break;
-            case LM_GGUF_TYPE_INT8:    lm_gguf_bwrite_el (buf, &kv->value.int8,    sizeof(kv->value.int8)   ); break;
-            case LM_GGUF_TYPE_UINT16:  lm_gguf_bwrite_el (buf, &kv->value.uint16,  sizeof(kv->value.uint16) ); break;
-            case LM_GGUF_TYPE_INT16:   lm_gguf_bwrite_el (buf, &kv->value.int16,   sizeof(kv->value.int16)  ); break;
-            case LM_GGUF_TYPE_UINT32:  lm_gguf_bwrite_el (buf, &kv->value.uint32,  sizeof(kv->value.uint32) ); break;
-            case LM_GGUF_TYPE_INT32:   lm_gguf_bwrite_el (buf, &kv->value.int32,   sizeof(kv->value.int32)  ); break;
-            case LM_GGUF_TYPE_FLOAT32: lm_gguf_bwrite_el (buf, &kv->value.float32, sizeof(kv->value.float32)); break;
-            case LM_GGUF_TYPE_UINT64:  lm_gguf_bwrite_el (buf, &kv->value.uint64,  sizeof(kv->value.uint64) ); break;
-            case LM_GGUF_TYPE_INT64:   lm_gguf_bwrite_el (buf, &kv->value.int64,   sizeof(kv->value.int64)  ); break;
-            case LM_GGUF_TYPE_FLOAT64: lm_gguf_bwrite_el (buf, &kv->value.float64, sizeof(kv->value.float64)); break;
-            case LM_GGUF_TYPE_BOOL:    lm_gguf_bwrite_el (buf, &kv->value.bool_,   sizeof(kv->value.bool_)  ); break;
-            case LM_GGUF_TYPE_STRING:  lm_gguf_bwrite_str(buf, &kv->value.str                               ); break;
-            case LM_GGUF_TYPE_ARRAY:
-                {
-                    lm_gguf_bwrite_el(buf, &kv->value.arr.type, sizeof(kv->value.arr.type));
-                    lm_gguf_bwrite_el(buf, &kv->value.arr.n,    sizeof(kv->value.arr.n)   );
-
-                    switch (kv->value.arr.type) {
-                        case LM_GGUF_TYPE_UINT8:
-                        case LM_GGUF_TYPE_INT8:
-                        case LM_GGUF_TYPE_UINT16:
-                        case LM_GGUF_TYPE_INT16:
-                        case LM_GGUF_TYPE_UINT32:
-                        case LM_GGUF_TYPE_INT32:
-                        case LM_GGUF_TYPE_FLOAT32:
-                        case LM_GGUF_TYPE_UINT64:
-                        case LM_GGUF_TYPE_INT64:
-                        case LM_GGUF_TYPE_FLOAT64:
-                        case LM_GGUF_TYPE_BOOL:
-                            {
-                                lm_gguf_bwrite_el(buf, kv->value.arr.data, kv->value.arr.n * lm_gguf_type_size(kv->value.arr.type));
-                            } break;
-                        case LM_GGUF_TYPE_STRING:
-                            {
-                                for (uint32_t j = 0; j < kv->value.arr.n; ++j) {
-                                    lm_gguf_bwrite_str(buf, &((struct lm_gguf_str *) kv->value.arr.data)[j]);
-                                }
-                            } break;
-                        case LM_GGUF_TYPE_ARRAY:
-                        default: LM_GGML_ABORT("invalid type");
-                    }
-                } break;
-            default: LM_GGML_ABORT("invalid type");
-        }
-    }
-
-    // write tensor infos
-    for (uint32_t i = 0; i < ctx->header.n_tensors; ++i) {
-        struct lm_gguf_tensor_info * info = &ctx->infos[i];
-
-        lm_gguf_bwrite_str(buf, &info->name);
-        lm_gguf_bwrite_el (buf, &info->n_dims, sizeof(info->n_dims));
-        for (uint32_t j = 0; j < info->n_dims; ++j) {
-            lm_gguf_bwrite_el(buf, &info->ne[j], sizeof(info->ne[j]));
-        }
-        lm_gguf_bwrite_el(buf, &info->type,   sizeof(info->type));
-        lm_gguf_bwrite_el(buf, &info->offset, sizeof(info->offset));
-    }
-
-    // we require the data section to be aligned, so take into account any padding
-    {
-        const size_t offset     = buf->offset;
-        const size_t offset_pad = LM_GGML_PAD(offset, ctx->alignment);
-
-        if (offset_pad != offset) {
-            uint8_t pad = 0;
-            for (size_t i = 0; i < offset_pad - offset; ++i) {
-                lm_gguf_bwrite_el(buf, &pad, sizeof(pad));
-            }
-        }
-    }
-
-    if (only_meta) {
-        return;
-    }
-
-    size_t offset = 0;
-
-    // write tensor data
-    for (uint32_t i = 0; i < ctx->header.n_tensors; ++i) {
-        struct lm_gguf_tensor_info * info = &ctx->infos[i];
-
-        const size_t size     = info->size;
-        const size_t size_pad = LM_GGML_PAD(size, ctx->alignment);
-
-        lm_gguf_bwrite_el(buf, info->data, size);
-
-        if (size_pad != size) {
-            uint8_t pad = 0;
-            for (size_t j = 0; j < size_pad - size; ++j) {
-                lm_gguf_bwrite_el(buf, &pad, sizeof(pad));
-            }
-        }
-
-        LM_GGML_ASSERT(offset == info->offset);
-
-        offset += size_pad;
-    }
-}
-
-void lm_gguf_write_to_file(const struct lm_gguf_context * ctx, const char * fname, bool only_meta) {
-    FILE * file = lm_ggml_fopen(fname, "wb");
-    if (!file) {
-        LM_GGML_ABORT("failed to open file for writing");
-    }
-
-    struct lm_gguf_buf buf = lm_gguf_buf_init(16*1024);
-
-    lm_gguf_write_to_buf(ctx, &buf, only_meta);
-
-    fwrite(buf.data, 1, buf.offset, file);
-
-    lm_gguf_buf_free(buf);
-
-    fclose(file);
-}
-
-size_t lm_gguf_get_meta_size(const struct lm_gguf_context * ctx) {
-    // no allocs - only compute size
-    struct lm_gguf_buf buf = lm_gguf_buf_init(0);
-
-    lm_gguf_write_to_buf(ctx, &buf, true);
-
-    return buf.offset;
-}
-
-void lm_gguf_get_meta_data(const struct lm_gguf_context * ctx, void * data) {
-    struct lm_gguf_buf buf = lm_gguf_buf_init(16*1024);
-
-    lm_gguf_write_to_buf(ctx, &buf, true);
-
-    memcpy(data, buf.data, buf.offset);
-
-    lm_gguf_buf_free(buf);
-}
-
 void lm_ggml_log_set(lm_ggml_log_callback log_callback, void * user_data) {
     g_logger_state.log_callback = log_callback ? log_callback : lm_ggml_log_callback_default;
     g_logger_state.log_callback_user_data = user_data;
+}
+
+void lm_ggml_threadpool_params_init(struct lm_ggml_threadpool_params * p, int n_threads) {
+    p->n_threads  = n_threads;
+    p->prio       = 0;     // default priority (usually means normal or inherited)
+    p->poll       = 50;    // hybrid-polling enabled
+    p->strict_cpu = false; // no strict placement (all threads share same cpumask)
+    p->paused     = false; // threads are ready to go
+    memset(p->cpumask, 0, LM_GGML_MAX_N_THREADS); // all-zero means use the default affinity (usually inherited)
+}
+
+struct lm_ggml_threadpool_params lm_ggml_threadpool_params_default(int n_threads) {
+    struct lm_ggml_threadpool_params p;
+    lm_ggml_threadpool_params_init(&p, n_threads);
+    return p;
+}
+
+bool lm_ggml_threadpool_params_match(const struct lm_ggml_threadpool_params * p0, const struct lm_ggml_threadpool_params * p1) {
+    if (p0->n_threads      != p1->n_threads  )    return false;
+    if (p0->prio           != p1->prio       )    return false;
+    if (p0->poll           != p1->poll       )    return false;
+    if (p0->strict_cpu     != p1->strict_cpu )    return false;
+    return memcmp(p0->cpumask, p1->cpumask, LM_GGML_MAX_N_THREADS) == 0;
 }

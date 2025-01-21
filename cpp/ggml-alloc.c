@@ -534,7 +534,6 @@ static void lm_ggml_gallocr_allocate_node(lm_ggml_gallocr_t galloc, struct lm_gg
         size_t offset = lm_ggml_dyn_tallocr_alloc(alloc, size, node);
         hn->buffer_id = buffer_id;
         hn->offset = offset;
-        return;
     }
 }
 

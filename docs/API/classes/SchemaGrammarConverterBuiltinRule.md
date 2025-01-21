@@ -28,7 +28,7 @@
 
 #### Defined in
 
-[grammar.ts:82](https://github.com/mybigday/llama.rn/blob/276a90a/src/grammar.ts#L82)
+[grammar.ts:82](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L82)
 
 ## Properties
 
@@ -38,7 +38,7 @@
 
 #### Defined in
 
-[grammar.ts:78](https://github.com/mybigday/llama.rn/blob/276a90a/src/grammar.ts#L78)
+[grammar.ts:78](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L78)
 
 ___
 
@@ -48,4 +48,4 @@ ___
 
 #### Defined in
 
-[grammar.ts:80](https://github.com/mybigday/llama.rn/blob/276a90a/src/grammar.ts#L80)
+[grammar.ts:80](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L80)

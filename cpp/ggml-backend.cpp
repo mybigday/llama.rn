@@ -252,6 +252,7 @@ void lm_ggml_backend_tensor_get_async(lm_ggml_backend_t backend, const struct lm
 }
 
 void lm_ggml_backend_tensor_set(struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
+    LM_GGML_ASSERT(tensor);
     lm_ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 
     if (size == 0) {
@@ -266,6 +267,7 @@ void lm_ggml_backend_tensor_set(struct lm_ggml_tensor * tensor, const void * dat
 }
 
 void lm_ggml_backend_tensor_get(const struct lm_ggml_tensor * tensor, void * data, size_t offset, size_t size) {
+    LM_GGML_ASSERT(tensor);
     lm_ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 
     if (size == 0) {
@@ -740,7 +742,8 @@ static int lm_ggml_backend_sched_backend_id_from_cur(lm_ggml_backend_sched_t sch
 
     if (tensor->buffer || (tensor->view_src && tensor->view_src->buffer)) {
         // since the tensor is pre-allocated, it cannot be moved to another backend
-        LM_GGML_ABORT("pre-allocated tensor (%s) in a backend that cannot run the operation", tensor->name);
+        lm_ggml_backend_buffer_t buffer = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+        LM_GGML_ABORT("pre-allocated tensor (%s) in a buffer (%s) that cannot run the operation (%s)", tensor->name, lm_ggml_backend_buffer_name(buffer), lm_ggml_op_name(tensor->op));
     }
 
     // graph input
@@ -761,7 +764,7 @@ static int lm_ggml_backend_sched_backend_id_from_cur(lm_ggml_backend_sched_t sch
         if (tensor->op != LM_GGML_OP_ROPE && src->buffer != NULL && src->buffer->usage == LM_GGML_BACKEND_BUFFER_USAGE_WEIGHTS) {
             int src_backend_id = lm_ggml_backend_sched_backend_from_buffer(sched, src, tensor);
             // check if a backend with higher prio wants to offload the op
-            if (src_backend_id == sched->n_backends - 1) {
+            if (src_backend_id == sched->n_backends - 1 && lm_ggml_backend_buffer_is_host(src->buffer)) {
                 for (int b = 0; b < src_backend_id; b++) {
                     if (lm_ggml_backend_supports_op(sched->backends[b], tensor) && lm_ggml_backend_offload_op(sched->backends[b], tensor)) {
                         SET_CAUSE(tensor, "1.off");
@@ -792,9 +795,12 @@ static void lm_ggml_backend_sched_print_assignments(lm_ggml_backend_sched_t sche
     for (int i = 0; i < graph->n_nodes; i++) {
         if (cur_split < sched->n_splits && i == sched->splits[cur_split].i_start) {
             lm_ggml_backend_t split_backend = sched->backends[sched->splits[cur_split].backend_id];
-            LM_GGML_LOG_DEBUG("\n## SPLIT #%d: %s # %d inputs: ", cur_split, lm_ggml_backend_name(split_backend),
+            LM_GGML_LOG_DEBUG("\n## SPLIT #%d: %s # %d inputs", cur_split, lm_ggml_backend_name(split_backend),
                 sched->splits[cur_split].n_inputs);
             for (int j = 0; j < sched->splits[cur_split].n_inputs; j++) {
+                if (j == 0) {
+                    LM_GGML_LOG_DEBUG(": ");
+                }
                 LM_GGML_LOG_DEBUG("[%s (%5.5s)] ", sched->splits[cur_split].inputs[j]->name,
                     fmt_size(lm_ggml_nbytes(sched->splits[cur_split].inputs[j])));
             }
@@ -884,9 +890,6 @@ static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, str
     for (int i = 0; i < graph->n_nodes; i++) {
         struct lm_ggml_tensor * node = graph->nodes[i];
         int * node_backend_id = &tensor_backend_id(node);
-        if (lm_ggml_is_view_op(node->op)) {
-            continue;
-        }
         // do not overwrite user assignments
         if (*node_backend_id == -1) {
             *node_backend_id = lm_ggml_backend_sched_backend_id_from_cur(sched, node);

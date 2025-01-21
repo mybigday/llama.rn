@@ -32,7 +32,7 @@
             if (skip && [skip containsObject:[NSString stringWithUTF8String:key]]) {
                 continue;
             }
-            const std::string value = rnllama::lm_gguf_kv_to_str(ctx, i);
+            const std::string value = lm_gguf_kv_to_str(ctx, i);
             info[[NSString stringWithUTF8String:key]] = [NSString stringWithUTF8String:value.c_str()];
         }
     }
@@ -94,6 +94,7 @@
 #endif
     }
     if (params[@"n_batch"]) defaultParams.n_batch = [params[@"n_batch"] intValue];
+    if (params[@"n_ubatch"]) defaultParams.n_ubatch = [params[@"n_ubatch"] intValue];
     if (params[@"use_mmap"]) defaultParams.use_mmap = [params[@"use_mmap"] boolValue];
 
     if (params[@"pooling_type"] && [params[@"pooling_type"] isKindOfClass:[NSNumber class]]) {
@@ -115,8 +116,8 @@
 
     if (params[@"flash_attn"] && [params[@"flash_attn"] boolValue]) defaultParams.flash_attn = true;
 
-    if (params[@"cache_type_k"]) defaultParams.cache_type_k = [params[@"cache_type_k"] UTF8String];
-    if (params[@"cache_type_v"]) defaultParams.cache_type_v = [params[@"cache_type_v"] UTF8String];
+    if (params[@"cache_type_k"]) defaultParams.cache_type_k = rnllama::kv_cache_type_from_str([params[@"cache_type_k"] UTF8String]);
+    if (params[@"cache_type_v"]) defaultParams.cache_type_v = rnllama::kv_cache_type_from_str([params[@"cache_type_v"] UTF8String]);
 
     int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : 0;
     const int maxThreads = (int) [[NSProcessInfo processInfo] processorCount];
@@ -154,13 +155,13 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not supported in encoder-decoder models" userInfo:nil];
     }
 
-    std::vector<common_lora_adapter_info> lora_adapters;
+    std::vector<common_lora_adapter_info> lora;
     if (params[@"lora"]) {
         common_lora_adapter_info la;
         la.path = [params[@"lora"] UTF8String];
         la.scale = 1.0f;
         if (params[@"lora_scaled"]) la.scale = [params[@"lora_scaled"] floatValue];
-        lora_adapters.push_back(la);
+        lora.push_back(la);
     }
     if (params[@"lora_list"] && [params[@"lora_list"] isKindOfClass:[NSArray class]]) {
         NSArray *lora_list = params[@"lora_list"];
@@ -171,11 +172,11 @@
           common_lora_adapter_info la;
           la.path = [path UTF8String];
           la.scale = scale;
-          lora_adapters.push_back(la);
+          lora.push_back(la);
         }
     }
-    if (lora_adapters.size() > 0) {
-        int result = context->llama->applyLoraAdapters(lora_adapters);
+    if (lora.size() > 0) {
+        int result = context->llama->applyLoraAdapters(lora);
         if (result != 0) {
             delete context->llama;
             @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to apply lora adapters" userInfo:nil];
@@ -280,7 +281,7 @@
     NSString *prompt = [params objectForKey:@"prompt"];
 
     llama->params.prompt = [prompt UTF8String];
-    llama->params.sparams.seed = params[@"seed"] ? [params[@"seed"] intValue] : -1;
+    llama->params.sampling.seed = params[@"seed"] ? [params[@"seed"] intValue] : -1;
 
     if (params[@"n_threads"]) {
         int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : llama->params.cpuparams.n_threads;
@@ -290,9 +291,9 @@
         llama->params.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
     }
     if (params[@"n_predict"]) llama->params.n_predict = [params[@"n_predict"] intValue];
-    if (params[@"ignore_eos"]) llama->params.sparams.ignore_eos = [params[@"ignore_eos"] boolValue];
+    if (params[@"ignore_eos"]) llama->params.sampling.ignore_eos = [params[@"ignore_eos"] boolValue];
 
-    auto & sparams = llama->params.sparams;
+    auto & sparams = llama->params.sampling;
 
     if (params[@"temperature"]) sparams.temp = [params[@"temperature"] doubleValue];
 
@@ -306,7 +307,6 @@
     if (params[@"mirostat"]) sparams.mirostat = [params[@"mirostat"] intValue];
     if (params[@"mirostat_tau"]) sparams.mirostat_tau = [params[@"mirostat_tau"] doubleValue];
     if (params[@"mirostat_eta"]) sparams.mirostat_eta = [params[@"mirostat_eta"] doubleValue];
-    if (params[@"penalize_nl"]) sparams.penalize_nl = [params[@"penalize_nl"] boolValue];
 
     if (params[@"top_k"]) sparams.top_k = [params[@"top_k"] intValue];
     if (params[@"top_p"]) sparams.top_p = [params[@"top_p"] doubleValue];
@@ -410,7 +410,7 @@
             NSMutableDictionary *tokenResult = [[NSMutableDictionary alloc] init];
             tokenResult[@"token"] = [NSString stringWithUTF8String:to_send.c_str()];
 
-            if (llama->params.sparams.n_probs > 0) {
+            if (llama->params.sampling.n_probs > 0) {
                 const std::vector<llama_token> to_send_toks = common_tokenize(llama->ctx, to_send, false);
                 size_t probs_pos = std::min(sent_token_probs_index, llama->generated_token_probs.size());
                 size_t probs_stop_pos = std::min(sent_token_probs_index + to_send_toks.size(), llama->generated_token_probs.size());
@@ -567,6 +567,10 @@
         common_lora_adapter_info la;
         la.path = [loraAdapter[@"path"] UTF8String];
         la.scale = [loraAdapter[@"scaled"] doubleValue];
+        la.ptr = llama_lora_adapter_init(llama->model, la.path.c_str());
+        if (la.ptr == nullptr) {
+            @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to apply lora adapter" userInfo:nil];
+        }
         lora_adapters.push_back(la);
     }
     int result = llama->applyLoraAdapters(lora_adapters);
@@ -580,9 +584,9 @@
 }
 
 - (NSArray *)getLoadedLoraAdapters {
-    std::vector<common_lora_adapter_container> loaded_lora_adapters = llama->getLoadedLoraAdapters();
+    std::vector<common_lora_adapter_info> loaded_lora_adapters = llama->getLoadedLoraAdapters();
     NSMutableArray *result = [[NSMutableArray alloc] init];
-    for (common_lora_adapter_container &la : loaded_lora_adapters) {
+    for (common_lora_adapter_info &la : loaded_lora_adapters) {
         [result addObject:@{
             @"path": [NSString stringWithUTF8String:la.path.c_str()],
             @"scale": @(la.scale)

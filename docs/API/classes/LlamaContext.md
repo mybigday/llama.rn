@@ -45,7 +45,7 @@
 
 #### Defined in
 
-[index.ts:124](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L124)
+[index.ts:124](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L124)
 
 ## Properties
 
@@ -55,7 +55,7 @@
 
 #### Defined in
 
-[index.ts:116](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L116)
+[index.ts:116](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L116)
 
 ___
 
@@ -65,7 +65,7 @@ ___
 
 #### Defined in
 
-[index.ts:114](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L114)
+[index.ts:114](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L114)
 
 ___
 
@@ -81,7 +81,7 @@ ___
 
 #### Defined in
 
-[index.ts:120](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L120)
+[index.ts:120](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L120)
 
 ___
 
@@ -91,7 +91,7 @@ ___
 
 #### Defined in
 
-[index.ts:118](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L118)
+[index.ts:118](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L118)
 
 ## Methods
 
@@ -111,7 +111,7 @@ ___
 
 #### Defined in
 
-[index.ts:239](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L239)
+[index.ts:239](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L239)
 
 ___
 
@@ -134,7 +134,7 @@ ___
 
 #### Defined in
 
-[index.ts:219](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L219)
+[index.ts:219](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L219)
 
 ___
 
@@ -155,7 +155,7 @@ ___
 
 #### Defined in
 
-[index.ts:160](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L160)
+[index.ts:160](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L160)
 
 ___
 
@@ -175,7 +175,7 @@ ___
 
 #### Defined in
 
-[index.ts:208](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L208)
+[index.ts:208](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L208)
 
 ___
 
@@ -196,7 +196,7 @@ ___
 
 #### Defined in
 
-[index.ts:212](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L212)
+[index.ts:212](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L212)
 
 ___
 
@@ -217,7 +217,7 @@ ___
 
 #### Defined in
 
-[index.ts:150](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L150)
+[index.ts:150](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L150)
 
 ___
 
@@ -231,7 +231,7 @@ ___
 
 #### Defined in
 
-[index.ts:255](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L255)
+[index.ts:255](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L255)
 
 ___
 
@@ -253,7 +253,7 @@ Load cached prompt & completion state from a file.
 
 #### Defined in
 
-[index.ts:134](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L134)
+[index.ts:134](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L134)
 
 ___
 
@@ -267,7 +267,7 @@ ___
 
 #### Defined in
 
-[index.ts:261](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L261)
+[index.ts:261](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L261)
 
 ___
 
@@ -281,7 +281,7 @@ ___
 
 #### Defined in
 
-[index.ts:251](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L251)
+[index.ts:251](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L251)
 
 ___
 
@@ -305,7 +305,7 @@ Save current cached prompt & completion state to a file.
 
 #### Defined in
 
-[index.ts:143](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L143)
+[index.ts:143](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L143)
 
 ___
 
@@ -319,7 +319,7 @@ ___
 
 #### Defined in
 
-[index.ts:200](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L200)
+[index.ts:200](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L200)
 
 ___
 
@@ -339,4 +339,4 @@ ___
 
 #### Defined in
 
-[index.ts:204](https://github.com/mybigday/llama.rn/blob/276a90a/src/index.ts#L204)
+[index.ts:204](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L204)

@@ -1,11 +1,23 @@
 const { NativeModules, DeviceEventEmitter } = require('react-native')
 
 if (!NativeModules.RNLlama) {
+  const demoEmbedding = new Array(768).fill(0.01)
+
   NativeModules.RNLlama = {
-    initContext: jest.fn(() =>
+    setContextLimit: jest.fn(),
+
+    modelInfo: jest.fn(async () => ({})),
+
+    initContext: jest.fn((_, params) =>
       Promise.resolve({
         gpu: false,
         reasonNoGPU: 'Test',
+        model: {
+          metadata: {
+            'general.architecture': 'llama',
+            'llama.embedding_length': params.embedding ? 768 : undefined,
+          },
+        },
       }),
     ),
 
@@ -144,9 +156,9 @@ if (!NativeModules.RNLlama) {
 
     stopCompletion: jest.fn(),
 
-    tokenize: jest.fn(async () => []),
+    tokenize: jest.fn(async (_, content) => ({ tokens: content.split('') })),
     detokenize: jest.fn(async () => ''),
-    embedding: jest.fn(async () => []),
+    embedding: jest.fn(async () => ({ embedding: demoEmbedding })),
 
     loadSession: jest.fn(async () => ({
       tokens_loaded: 1,

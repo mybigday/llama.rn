@@ -453,7 +453,6 @@ export default function App() {
           mirostat: 0,
           mirostat_tau: 5,
           mirostat_eta: 0.1,
-          penalize_nl: false,
           ignore_eos: false,
           stop: [
             '</s>',
@@ -465,6 +464,8 @@ export default function App() {
             '<|END_OF_TURN_TOKEN|>',
             '<|end_of_turn|>',
             '<|endoftext|>',
+            '<end_of_turn>',
+            '<eos>',
           ],
           // n_threads: 4,
           // logit_bias: [[15043,1.0]],
