@@ -155,9 +155,9 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not supported in encoder-decoder models" userInfo:nil];
     }
 
-    std::vector<common_lora_adapter_info> lora;
+    std::vector<common_adapter_lora_info> lora;
     if (params[@"lora"]) {
-        common_lora_adapter_info la;
+        common_adapter_lora_info la;
         la.path = [params[@"lora"] UTF8String];
         la.scale = 1.0f;
         if (params[@"lora_scaled"]) la.scale = [params[@"lora_scaled"] floatValue];
@@ -169,7 +169,7 @@
           NSString *path = lora_adapter[@"path"];
           if (!path) continue;
           float scale = [lora_adapter[@"scaled"] floatValue];
-          common_lora_adapter_info la;
+          common_adapter_lora_info la;
           la.path = [path UTF8String];
           la.scale = scale;
           lora.push_back(la);
@@ -210,7 +210,7 @@
     for (int i = 0; i < count; i++) {
         char key[256];
         llama_model_meta_key_by_index(llama->model, i, key, sizeof(key));
-        char val[2048];
+        char val[4096];
         llama_model_meta_val_str_by_index(llama->model, i, val, sizeof(val));
 
         NSString *keyStr = [NSString stringWithUTF8String:key];
@@ -340,13 +340,16 @@
         }
     }
 
+    const llama_model * model = llama_get_model(llama->ctx);
+    const llama_vocab * vocab = llama_model_get_vocab(model);
+
     sparams.logit_bias.clear();
     if (params[@"ignore_eos"] && [params[@"ignore_eos"] boolValue]) {
-        sparams.logit_bias[llama_token_eos(llama->model)].bias = -INFINITY;
+        sparams.logit_bias[llama_vocab_eos(vocab)].bias = -INFINITY;
     }
 
     if (params[@"logit_bias"] && [params[@"logit_bias"] isKindOfClass:[NSArray class]]) {
-        const int n_vocab = llama_n_vocab(llama_get_model(llama->ctx));
+        const int n_vocab = llama_vocab_n_tokens(vocab);      
         NSArray *logit_bias = params[@"logit_bias"];
         for (NSArray *el in logit_bias) {
             if ([el isKindOfClass:[NSArray class]] && [el count] == 2) {
@@ -562,12 +565,12 @@
 }
 
 - (void)applyLoraAdapters:(NSArray *)loraAdapters {
-    std::vector<common_lora_adapter_info> lora_adapters;
+    std::vector<common_adapter_lora_info> lora_adapters;
     for (NSDictionary *loraAdapter in loraAdapters) {
-        common_lora_adapter_info la;
+        common_adapter_lora_info la;
         la.path = [loraAdapter[@"path"] UTF8String];
         la.scale = [loraAdapter[@"scaled"] doubleValue];
-        la.ptr = llama_lora_adapter_init(llama->model, la.path.c_str());
+        la.ptr = llama_adapter_lora_init(llama->model, la.path.c_str());
         if (la.ptr == nullptr) {
             @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to apply lora adapter" userInfo:nil];
         }
@@ -584,9 +587,9 @@
 }
 
 - (NSArray *)getLoadedLoraAdapters {
-    std::vector<common_lora_adapter_info> loaded_lora_adapters = llama->getLoadedLoraAdapters();
+    std::vector<common_adapter_lora_info> loaded_lora_adapters = llama->getLoadedLoraAdapters();
     NSMutableArray *result = [[NSMutableArray alloc] init];
-    for (common_lora_adapter_info &la : loaded_lora_adapters) {
+    for (common_adapter_lora_info &la : loaded_lora_adapters) {
         [result addObject:@{
             @"path": [NSString stringWithUTF8String:la.path.c_str()],
             @"scale": @(la.scale)
