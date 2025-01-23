@@ -232,7 +232,7 @@ if [ "$OS" = "Darwin" ]; then
   xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air
   xcrun --sdk iphoneos metallib ggml-metal.air   -o ggml-llama.metallib
   rm ggml-metal.air
-  cp ./ggml-llama.metallib ../../../../cpp/ggml-llama.metallib
+  mv ./ggml-llama.metallib ../../../../cpp/ggml-llama.metallib
 
   cd -
 

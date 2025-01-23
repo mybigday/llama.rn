@@ -26,12 +26,11 @@ cmake ../ios \
 # Build
 cmake --build . --config Release
 
-rm -rf ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator/rnllama.framework
-mv Release-iphonesimulator/rnllama.framework ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator/
+rm -rf ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator
+mkdir -p ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator
+mv Release-iphonesimulator/rnllama.framework ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator/rnllama.framework
 mkdir -p ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator/rnllama.framework/Headers
 cp_headers ios-arm64_x86_64-simulator
-# mkdir -p ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator/rnllama.framework/Resources
-# cp ../cpp/ggml-llama.metallib ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator/rnllama.framework/Resources/
 
 rm -rf ./*
 
@@ -46,12 +45,11 @@ cmake ../ios \
 
 cmake --build . --config Release
 
-rm -rf ../ios/rnllama.xcframework/ios-arm64/rnllama.framework
-mv Release-iphoneos/rnllama.framework ../ios/rnllama.xcframework/ios-arm64/
+rm -rf ../ios/rnllama.xcframework/ios-arm64
+mkdir -p ../ios/rnllama.xcframework/ios-arm64
+mv Release-iphoneos/rnllama.framework ../ios/rnllama.xcframework/ios-arm64/rnllama.framework
 mkdir -p ../ios/rnllama.xcframework/ios-arm64/rnllama.framework/Headers
 cp_headers ios-arm64
-# mkdir -p ../ios/rnllama.xcframework/ios-arm64/rnllama.framework/Resources
-# cp ../cpp/ggml-llama.metallib ../ios/rnllama.xcframework/ios-arm64/rnllama.framework/Resources/
 
 cd ..
 
@@ -70,29 +68,8 @@ cmake ../ios \
 
 cmake --build . --config Release
 
-rm -rf ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator/rnllama.framework
-mv Release-appletvsimulator/rnllama.framework ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator/
+rm -rf ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator
+mkdir -p ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator
+mv Release-appletvsimulator/rnllama.framework ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator/rnllama.framework
 mkdir -p ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator/rnllama.framework/Headers
 cp_headers tvos-arm64_x86_64-simulator
-# mkdir -p ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator/rnllama.framework/Resources
-# cp ../cpp/ggml-llama.metallib ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator/rnllama.framework/Resources/
-
-rm -rf ./*
-
-cmake ../ios \
-    -GXcode \
-    -DCMAKE_SYSTEM_NAME=tvOS \
-    -DCMAKE_OSX_ARCHITECTURES=arm64 \
-    -DCMAKE_INSTALL_PREFIX=`pwd`/install \
-    -DCMAKE_OSX_SYSROOT=appletvos \
-    -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
-    -DCMAKE_IOS_INSTALL_COMBINED=YES
-
-cmake --build . --config Release
-
-rm -rf ../ios/rnllama.xcframework/tvos-arm64/rnllama.framework
-mv Release-appletvos/rnllama.framework ../ios/rnllama.xcframework/tvos-arm64/
-mkdir -p ../ios/rnllama.xcframework/tvos-arm64/rnllama.framework/Headers
-cp_headers tvos-arm64
-# mkdir -p ../ios/rnllama.xcframework/tvos-arm64/rnllama.framework/Resources
-# cp ../cpp/ggml-llama.metallib ../ios/rnllama.xcframework/tvos-arm64/rnllama.framework/Resources/
