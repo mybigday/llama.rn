@@ -12,7 +12,7 @@ cmake -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
   -DANDROID_ABI=arm64-v8a \
   -DANDROID_PLATFORM=$ANDROID_PLATFORM \
   -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE \
-  -B build
+  -B build-arm64
 
 cmake --build build-arm64 --config Release
 
