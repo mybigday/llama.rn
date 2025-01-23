@@ -1,5 +1,5 @@
 #ifdef __cplusplus
-#import "rn-llama.hpp"
+#import "rn-llama.h"
 #endif
 
 #import <React/RCTEventEmitter.h>

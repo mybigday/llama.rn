@@ -2,7 +2,7 @@
 #import "llama.h"
 #import "llama-impl.h"
 #import "ggml.h"
-#import "rn-llama.hpp"
+#import "rn-llama.h"
 #endif
 
 
