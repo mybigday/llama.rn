@@ -21,6 +21,8 @@ import java.io.IOException;
 public class LlamaContext {
   public static final String NAME = "RNLlamaContext";
 
+  private static String loadedLibrary = "";
+
   private int id;
   private ReactApplicationContext reactContext;
   private long context;
@@ -100,6 +102,10 @@ public class LlamaContext {
 
   public WritableMap getModelDetails() {
     return modelDetails;
+  }
+
+  public String getLoadedLibrary() {
+    return loadedLibrary;
   }
 
   public String getFormattedChat(ReadableArray messages, String chatTemplate) {
@@ -346,33 +352,42 @@ public class LlamaContext {
       if (isAtLeastArmV84 && hasSve && hasI8mm && hasFp16 && hasDotProd) {
         Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod_i8mm_sve.so");
         System.loadLibrary("rnllama_v8_4_fp16_dotprod_i8mm_sve");
+        loadedLibrary = "rnllama_v8_4_fp16_dotprod_i8mm_sve";
       } else if (isAtLeastArmV84 && hasSve && hasFp16 && hasDotProd) {
         Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod_sve.so");
         System.loadLibrary("rnllama_v8_4_fp16_dotprod_sve");
+        loadedLibrary = "rnllama_v8_4_fp16_dotprod_sve";
       } else if (isAtLeastArmV84 && hasI8mm && hasFp16 && hasDotProd) {
         Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod_i8mm.so");
         System.loadLibrary("rnllama_v8_4_fp16_dotprod_i8mm");
+        loadedLibrary = "rnllama_v8_4_fp16_dotprod_i8mm";
       } else if (isAtLeastArmV84 && hasFp16 && hasDotProd) {
         Log.d(NAME, "Loading librnllama_v8_4_fp16_dotprod.so");
         System.loadLibrary("rnllama_v8_4_fp16_dotprod");
+        loadedLibrary = "rnllama_v8_4_fp16_dotprod";
       } else if (isAtLeastArmV82 && hasFp16 && hasDotProd) {
         Log.d(NAME, "Loading librnllama_v8_2_fp16_dotprod.so");
         System.loadLibrary("rnllama_v8_2_fp16_dotprod");
+        loadedLibrary = "rnllama_v8_2_fp16_dotprod";
       } else if (isAtLeastArmV82 && hasFp16) {
         Log.d(NAME, "Loading librnllama_v8_2_fp16.so");
         System.loadLibrary("rnllama_v8_2_fp16");
+        loadedLibrary = "rnllama_v8_2_fp16";
       } else {
         Log.d(NAME, "Loading librnllama_v8.so");
         System.loadLibrary("rnllama_v8");
+        loadedLibrary = "rnllama_v8";
       }
       //  Log.d(NAME, "Loading librnllama_v8_7.so with runtime feature detection");
       //  System.loadLibrary("rnllama_v8_7");
     } else if (LlamaContext.isX86_64()) {
         Log.d(NAME, "Loading librnllama_x86_64.so");
         System.loadLibrary("rnllama_x86_64");
+        loadedLibrary = "rnllama_x86_64";
     } else {
         Log.d(NAME, "Loading default librnllama.so");
         System.loadLibrary("rnllama");
+        loadedLibrary = "rnllama";
     }
 }
 
