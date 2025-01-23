@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Clean up the build directory
+# Clean up the build directories
 rm -rf build-ios
 rm -rf build-tvos
 
@@ -9,90 +9,53 @@ function cp_headers() {
     cp ../cpp/*.h ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/
 }
 
-# Create build directory
+function build_framework() {
+    # Parameters:
+    # $1: system_name (iOS/tvOS)
+    # $2: architectures
+    # $3: sysroot
+    # $4: output_path
+    # $5: build_dir
+
+    cd $5
+
+    # Configure CMake
+    cmake ../ios \
+        -GXcode \
+        -DCMAKE_SYSTEM_NAME=$1 \
+        -DCMAKE_OSX_ARCHITECTURES="$2" \
+        -DCMAKE_OSX_SYSROOT=$3 \
+        -DCMAKE_INSTALL_PREFIX=`pwd`/install \
+        -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
+        -DCMAKE_IOS_INSTALL_COMBINED=YES
+
+    # Build
+    cmake --build . --config Release
+
+    # Setup framework directory
+    rm -rf ../ios/rnllama.xcframework/$4
+    mkdir -p ../ios/rnllama.xcframework/$4
+    mv Release-$3/rnllama.framework ../ios/rnllama.xcframework/$4/rnllama.framework
+    mkdir -p ../ios/rnllama.xcframework/$4/rnllama.framework/Headers
+
+    # Copy headers and metallib
+    cp_headers $4
+
+    # TODO: May need to re-build metallib for tvOS
+    cp ../cpp/ggml-llama.metallib ../ios/rnllama.xcframework/$4/rnllama.framework/ggml-llama.metallib
+
+    rm -rf ./*
+}
+
+# Create build directories
 mkdir -p build-ios
-cd build-ios
-
-# Configure CMake for iOS simulator
-cmake ../ios \
-    -GXcode \
-    -DCMAKE_SYSTEM_NAME=iOS \
-    -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
-    -DCMAKE_OSX_SYSROOT=iphonesimulator \
-    -DCMAKE_INSTALL_PREFIX=`pwd`/install \
-    -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
-    -DCMAKE_IOS_INSTALL_COMBINED=YES
-
-# Build
-cmake --build . --config Release
-
-rm -rf ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator
-mkdir -p ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator
-mv Release-iphonesimulator/rnllama.framework ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator/rnllama.framework
-mkdir -p ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator/rnllama.framework/Headers
-cp_headers ios-arm64_x86_64-simulator
-cp ../cpp/ggml-llama.metallib ../ios/rnllama.xcframework/ios-arm64_x86_64-simulator/rnllama.framework/ggml-llama.metallib
-
-rm -rf ./*
-
-cmake ../ios \
-    -GXcode \
-    -DCMAKE_SYSTEM_NAME=iOS \
-    -DCMAKE_OSX_ARCHITECTURES=arm64 \
-    -DCMAKE_OSX_SYSROOT=iphoneos \
-    -DCMAKE_INSTALL_PREFIX=`pwd`/install \
-    -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
-    -DCMAKE_IOS_INSTALL_COMBINED=YES
-
-cmake --build . --config Release
-
-rm -rf ../ios/rnllama.xcframework/ios-arm64
-mkdir -p ../ios/rnllama.xcframework/ios-arm64
-mv Release-iphoneos/rnllama.framework ../ios/rnllama.xcframework/ios-arm64/rnllama.framework
-mkdir -p ../ios/rnllama.xcframework/ios-arm64/rnllama.framework/Headers
-cp_headers ios-arm64
-cp ../cpp/ggml-llama.metallib ../ios/rnllama.xcframework/ios-arm64/rnllama.framework/ggml-llama.metallib
-
-cd ..
-
 mkdir -p build-tvos
-cd build-tvos
 
-# Configure CMake for tvOS
-cmake ../ios \
-    -GXcode \
-    -DCMAKE_SYSTEM_NAME=tvOS \
-    -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
-    -DCMAKE_OSX_SYSROOT=appletvsimulator \
-    -DCMAKE_INSTALL_PREFIX=`pwd`/install \
-    -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
-    -DCMAKE_IOS_INSTALL_COMBINED=YES
+# Build iOS frameworks
+build_framework "iOS" "arm64;x86_64" "iphonesimulator" "ios-arm64_x86_64-simulator" "build-ios"
+build_framework "iOS" "arm64" "iphoneos" "ios-arm64" "build-ios"
 
-cmake --build . --config Release
-
-rm -rf ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator
-mkdir -p ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator
-mv Release-appletvsimulator/rnllama.framework ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator/rnllama.framework
-mkdir -p ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator/rnllama.framework/Headers
-cp_headers tvos-arm64_x86_64-simulator
-cp ../cpp/ggml-llama.metallib ../ios/rnllama.xcframework/tvos-arm64_x86_64-simulator/rnllama.framework/ggml-llama.metallib
-
-rm -rf ./*
-
-cmake ../ios \
-    -GXcode \
-    -DCMAKE_SYSTEM_NAME=tvOS \
-    -DCMAKE_OSX_ARCHITECTURES=arm64 \
-    -DCMAKE_INSTALL_PREFIX=`pwd`/install \
-    -DCMAKE_OSX_SYSROOT=appletvos \
-    -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \
-    -DCMAKE_IOS_INSTALL_COMBINED=YES
-
-cmake --build . --config Release
-
-rm -rf ../ios/rnllama.xcframework/tvos-arm64/rnllama.framework
-mkdir -p ../ios/rnllama.xcframework/tvos-arm64
-mv Release-appletvos/rnllama.framework ../ios/rnllama.xcframework/tvos-arm64/rnllama.framework
-mkdir -p ../ios/rnllama.xcframework/tvos-arm64/rnllama.framework/Headers
-cp_headers tvos-arm64
-cp ../cpp/ggml-llama.metallib ../ios/rnllama.xcframework/tvos-arm64/rnllama.framework/ggml-llama.metallib
+# Build tvOS frameworks
+cd ..
+build_framework "tvOS" "arm64;x86_64" "appletvsimulator" "tvos-arm64_x86_64-simulator" "build-tvos"
+build_framework "tvOS" "arm64" "appletvos" "tvos-arm64" "build-tvos"

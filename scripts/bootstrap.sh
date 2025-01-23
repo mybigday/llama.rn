@@ -227,7 +227,7 @@ patch -p0 -d ./cpp < ./scripts/ggml-quants.c.patch
 patch -p0 -d ./cpp < ./scripts/llama-mmap.cpp.patch
 
 if [ "$OS" = "Darwin" ]; then
-  # Build metallib (~1.4MB)
+  # Build metallib (~2.6MB)
   cd llama.cpp/ggml/src/ggml-metal
   xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air
   xcrun --sdk iphoneos metallib ggml-metal.air   -o ggml-llama.metallib
