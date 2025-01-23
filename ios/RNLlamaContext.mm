@@ -221,6 +221,7 @@
     return @{
         @"desc": [NSString stringWithUTF8String:desc],
         @"size": @(llama_model_size(llama->model)),
+        @"nEmbd": @(llama_n_embd(llama->model)),
         @"nParams": @(llama_model_n_params(llama->model)),
         @"isChatTemplateSupported": @(llama->validateModelChatTemplate()),
         @"metadata": meta

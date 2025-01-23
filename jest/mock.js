@@ -8,14 +8,15 @@ if (!NativeModules.RNLlama) {
 
     modelInfo: jest.fn(async () => ({})),
 
-    initContext: jest.fn((_, params) =>
+    initContext: jest.fn(() =>
       Promise.resolve({
         gpu: false,
         reasonNoGPU: 'Test',
         model: {
+          nEmbd: 768,
           metadata: {
             'general.architecture': 'llama',
-            'llama.embedding_length': params.embedding ? 768 : undefined,
+            'llama.embedding_length': 768,
           },
         },
       }),

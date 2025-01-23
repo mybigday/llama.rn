@@ -412,6 +412,7 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
     llama_model_desc(llama->model, desc, sizeof(desc));
     putString(env, result, "desc", desc);
     putDouble(env, result, "size", llama_model_size(llama->model));
+    putDouble(env, result, "nEmbd", llama_n_embd(llama->model));
     putDouble(env, result, "nParams", llama_model_n_params(llama->model));
     putBoolean(env, result, "isChatTemplateSupported", llama->validateModelChatTemplate());
     putMap(env, result, "metadata", meta);
