@@ -17,8 +17,7 @@ namespace rnllama {
 
 std::string tokens_to_output_formatted_string(const llama_context *ctx, const llama_token token);
 
-template <class Iter>
-std::string tokens_to_str(llama_context *ctx, Iter begin, Iter end);
+std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::const_iterator begin, const std::vector<llama_token>::const_iterator end);
 
 lm_ggml_type kv_cache_type_from_str(const std::string & s);
 

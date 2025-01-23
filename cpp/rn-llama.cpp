@@ -139,13 +139,12 @@ std::string tokens_to_output_formatted_string(const llama_context *ctx, const ll
     return out;
 }
 
-template <class Iter>
-std::string tokens_to_str(llama_context *ctx, Iter begin, Iter end)
+std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::const_iterator begin, const std::vector<llama_token>::const_iterator end)
 {
     std::string ret;
-    for (; begin != end; ++begin)
+    for (auto it = begin; it != end; ++it)
     {
-        ret += common_token_to_piece(ctx, *begin);
+        ret += common_token_to_piece(ctx, *it);
     }
     return ret;
 }
