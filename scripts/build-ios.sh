@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Clean up the build directories
-rm -rf build-ios
-rm -rf build-tvos
 
 function cp_headers() {
     mkdir -p ../ios/rnllama.xcframework/$1/rnllama.framework/Headers
@@ -47,15 +44,22 @@ function build_framework() {
     rm -rf ./*
 }
 
-# Create build directories
+rm -rf build-ios
 mkdir -p build-ios
-mkdir -p build-tvos
 
 # Build iOS frameworks
 build_framework "iOS" "arm64;x86_64" "iphonesimulator" "ios-arm64_x86_64-simulator" "build-ios"
 build_framework "iOS" "arm64" "iphoneos" "ios-arm64" "build-ios"
 
-# Build tvOS frameworks
 cd ..
+rm -rf build-ios
+
+rm -rf build-tvos
+mkdir -p build-tvos
+
+# Build tvOS frameworks
 build_framework "tvOS" "arm64;x86_64" "appletvsimulator" "tvos-arm64_x86_64-simulator" "build-tvos"
 build_framework "tvOS" "arm64" "appletvos" "tvos-arm64" "build-tvos"
+
+cd ..
+rm -rf build-tvos

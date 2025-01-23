@@ -35,7 +35,7 @@ jobs:
       - name: Run unit tests
         run: yarn test --maxWorkers=2 --coverage
 
-  build-ios:
+  build-ios-from-source:
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -69,7 +69,23 @@ jobs:
         run: |
           yarn build:ios
 
-  build-android:
+  build-ios-frameworks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Build iOS frameworks
+        env:
+          RNLLAMA_BUILD_FROM_SOURCE: 0
+        run: |
+          yarn example pods
+          yarn build:ios
+
+  build-android-from-source:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -80,4 +96,18 @@ jobs:
 
       - name: Build example for Android
         run: |
+          yarn build:android
+
+  build-android-libs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Build example for Android
+        run: |
+          sed -i 's/rnllamaBuildFromSource=true/rnllamaBuildFromSource=false/g' example/android/gradle.properties
           yarn build:android
