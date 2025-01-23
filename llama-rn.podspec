@@ -25,12 +25,12 @@ Pod::Spec.new do |s|
 
   if ENV["RNLLAMA_BUILD_FROM_SOURCE"] == "1"
     s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,m,mm}"
+    s.resources = "cpp/**/*.{metallib}"
     base_compiler_flags += " -DRNLLAMA_BUILD_FROM_SOURCE"
   else
     s.source_files = "ios/**/*.{h,m,mm}"
     s.vendored_frameworks = "ios/rnllama.xcframework"
   end
-  s.resources = "cpp/**/*.{metallib}"
 
   s.dependency "React-Core"
 

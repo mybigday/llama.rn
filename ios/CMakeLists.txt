@@ -86,17 +86,6 @@ target_link_libraries(rnllama PRIVATE
     "-framework MetalKit"
 )
 
-# Disable ARC
-set_target_properties(rnllama PROPERTIES
-    XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC NO
-)
-
-# iOS code signing settings
-set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development")
-set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "YES")
-set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic")
-set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "5427S6C58K")  # Replace with your team ID
-
 # Set properties for framework
 set_target_properties(rnllama PROPERTIES
     MACOSX_FRAMEWORK_IDENTIFIER "com.rnllama"
@@ -105,8 +94,4 @@ set_target_properties(rnllama PROPERTIES
     VERSION 1.0.0
     PUBLIC_HEADER "${PUBLIC_HEADERS}"
     XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC NO
-    XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development"
-    XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "YES"
-    XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic"
-    XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "5427S6C58K"  # Replace with your team ID
 )
