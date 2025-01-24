@@ -218,7 +218,7 @@ struct llama_rn_context
     std::string stopping_word;
     bool incomplete = false;
 
-    std::vector<common_lora_adapter_info> lora;
+    std::vector<common_adapter_lora_info> lora;
 
     ~llama_rn_context()
     {
@@ -277,8 +277,9 @@ struct llama_rn_context
     }
 
     bool validateModelChatTemplate() const {
+        const char * tmpl = llama_model_chat_template(model);
         llama_chat_message chat[] = {{"user", "test"}};
-        int32_t chat_res = llama_chat_apply_template(model, nullptr, chat, 1, true, nullptr, 0);
+        int32_t chat_res = llama_chat_apply_template(tmpl, chat, 1, true, nullptr, 0);
         return chat_res > 0;
     }
 
@@ -427,17 +428,19 @@ struct llama_rn_context
             }
         }
 
+        const llama_vocab* vocab = llama_model_get_vocab(model);
+
         if (params.n_predict == 0)
         {
             has_next_token = false;
-            result.tok = llama_token_eos(model);
+            result.tok = llama_vocab_eos(vocab);
             return result;
         }
 
         {
             // out of user input, sample next token
             std::vector<llama_token_data> candidates;
-            candidates.reserve(llama_n_vocab(model));
+            candidates.reserve(llama_vocab_n_tokens(vocab));
 
             result.tok = common_sampler_sample(ctx_sampling, ctx, -1);
 
@@ -470,7 +473,7 @@ struct llama_rn_context
         // decrement remaining sampling budget
         --n_remain;
 
-        if (!embd.empty() && embd.back() == llama_token_eos(model))
+        if (!embd.empty() && embd.back() == llama_vocab_eos(vocab))
         {
             // stopping_word = llama_token_to_piece(ctx, embd.back());
             has_next_token = false;
@@ -575,7 +578,7 @@ struct llama_rn_context
 
     std::vector<float> getEmbedding(common_params &embd_params)
     {
-        static const int n_embd = llama_n_embd(llama_get_model(ctx));
+        static const int n_embd = llama_model_n_embd(llama_get_model(ctx));
         if (!embd_params.embedding)
         {
             LOG_WARNING("embedding disabled, embedding: %s", embd_params.embedding);
@@ -706,25 +709,25 @@ struct llama_rn_context
             std::string("]");
     }
 
-    int applyLoraAdapters(std::vector<common_lora_adapter_info> lora) {
+    int applyLoraAdapters(std::vector<common_adapter_lora_info> lora) {
         for (auto &la : lora) {
-            la.ptr = llama_lora_adapter_init(model, la.path.c_str());
+            la.ptr = llama_adapter_lora_init(model, la.path.c_str());
             if (la.ptr == nullptr) {
                 LOG_ERROR("failed to apply lora adapter '%s'\n", la.path.c_str());
                 return -1;
             }
         }
         this->lora = lora;
-        common_lora_adapters_apply(ctx, lora);
+        common_set_adapter_lora(ctx, lora);
         return 0;
     }
 
     void removeLoraAdapters() {
         this->lora.clear();
-        common_lora_adapters_apply(ctx, this->lora); // apply empty list
+        common_set_adapter_lora(ctx, this->lora); // apply empty list
     }
 
-    std::vector<common_lora_adapter_info> getLoadedLoraAdapters() {
+    std::vector<common_adapter_lora_info> getLoadedLoraAdapters() {
         return this->lora;
     }
 };
