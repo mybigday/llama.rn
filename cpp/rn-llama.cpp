@@ -357,7 +357,7 @@ completion_token_output llama_rn_context::nextToken()
     if (params.n_predict == 0)
     {
         has_next_token = false;
-        result.tok = llama_vocab_eos(model);
+        result.tok = llama_vocab_eos(vocab);
         return result;
     }
 
@@ -635,7 +635,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
 
 int llama_rn_context::applyLoraAdapters(std::vector<common_adapter_lora_info> lora) {
     for (auto &la : lora) {
-        la.ptr = llama_lora_adapter_init(model, la.path.c_str());
+        la.ptr = llama_adapter_lora_init(model, la.path.c_str());
         if (la.ptr == nullptr) {
             LOG_ERROR("failed to apply lora adapter '%s'\n", la.path.c_str());
             return -1;
