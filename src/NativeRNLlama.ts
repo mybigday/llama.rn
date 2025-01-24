@@ -225,9 +225,13 @@ export type NativeEmbeddingResult = {
 
 export type NativeLlamaContext = {
   contextId: number
+  model: Object
+  /**
+   * Loaded library name for Android
+   */
+  androidLib?: string
   gpu: boolean
   reasonNoGPU: string
-  model: Object
 }
 
 export type NativeSessionLoadResult = {

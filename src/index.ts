@@ -237,7 +237,7 @@ export class LlamaContext {
   }
 
   async applyLoraAdapters(
-    loraList: Array<{ path: string; scaled?: number }>
+    loraList: Array<{ path: string; scaled?: number }>,
   ): Promise<void> {
     let loraAdapters: Array<{ path: string; scaled?: number }> = []
     if (loraList)
@@ -335,6 +335,7 @@ export async function initLlama(
     gpu,
     reasonNoGPU,
     model: modelDetails,
+    androidLib,
   } = await RNLlama.initContext(contextId, {
     model: path,
     is_model_asset: !!isModelAsset,
@@ -348,7 +349,13 @@ export async function initLlama(
     throw err
   })
   removeProgressListener?.remove()
-  return new LlamaContext({ contextId, gpu, reasonNoGPU, model: modelDetails })
+  return new LlamaContext({
+    contextId,
+    gpu,
+    reasonNoGPU,
+    model: modelDetails,
+    androidLib,
+  })
 }
 
 export async function releaseAllLlama(): Promise<void> {
