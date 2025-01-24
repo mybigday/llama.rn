@@ -221,7 +221,7 @@
     return @{
         @"desc": [NSString stringWithUTF8String:desc],
         @"size": @(llama_model_size(llama->model)),
-        @"nEmbd": @(llama_n_embd(llama->model)),
+        @"nEmbd": @(llama_model_n_embd(llama->model)),
         @"nParams": @(llama_model_n_params(llama->model)),
         @"isChatTemplateSupported": @(llama->validateModelChatTemplate()),
         @"metadata": meta
@@ -350,7 +350,7 @@
     }
 
     if (params[@"logit_bias"] && [params[@"logit_bias"] isKindOfClass:[NSArray class]]) {
-        const int n_vocab = llama_vocab_n_tokens(vocab);      
+        const int n_vocab = llama_vocab_n_tokens(vocab);
         NSArray *logit_bias = params[@"logit_bias"];
         for (NSArray *el in logit_bias) {
             if ([el isKindOfClass:[NSArray class]] && [el count] == 2) {
