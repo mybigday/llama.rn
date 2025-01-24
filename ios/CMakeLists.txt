@@ -89,6 +89,8 @@ target_link_libraries(rnllama PRIVATE
 # Set properties for framework
 set_target_properties(rnllama PROPERTIES
     MACOSX_FRAMEWORK_IDENTIFIER "com.rnllama"
+    MACOSX_FRAMEWORK_BUNDLE_VERSION 1.0.0
+    MACOSX_FRAMEWORK_SHORT_VERSION_STRING 1.0.0
     FRAMEWORK TRUE
     FRAMEWORK_VERSION 1.0.0
     VERSION 1.0.0
