@@ -70,7 +70,7 @@ jobs:
           yarn build:ios
 
   build-ios-frameworks:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -78,11 +78,30 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
-      - name: Build iOS frameworks
-        env:
-          RNLLAMA_BUILD_FROM_SOURCE: 0
+      - name: Cache build & pods
+        uses: actions/cache@v3
+        with:
+          path: |
+            example/ios/Pods
+            example/ios/build
+          key: ${{ runner.os }}-pods-${{ hashFiles('example/ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Upgrade CocoaPods to version 1.15.2
+        run: |
+          gem uninstall cocoapods --ignore-dependencies
+          gem install cocoapods -v 1.15.2
+
+      - name: Install cocoapods
         run: |
           yarn example pods
+        env:
+          NO_FLIPPER: 1
+          RNLLAMA_BUILD_FROM_SOURCE: 0
+
+      - name: Build example for iOS
+        run: |
           yarn build:ios
 
   build-android-from-source:
