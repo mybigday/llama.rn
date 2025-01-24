@@ -73,7 +73,7 @@ struct llama_rn_context {
     std::string stopping_word;
     bool incomplete = false;
 
-    std::vector<common_lora_adapter_info> lora;
+    std::vector<common_adapter_lora_info> lora;
 
     ~llama_rn_context();
 
@@ -89,9 +89,9 @@ struct llama_rn_context {
     completion_token_output doCompletion();
     std::vector<float> getEmbedding(common_params &embd_params);
     std::string bench(int pp, int tg, int pl, int nr);
-    int applyLoraAdapters(std::vector<common_lora_adapter_info> lora);
+    int applyLoraAdapters(std::vector<common_adapter_lora_info> lora);
     void removeLoraAdapters();
-    std::vector<common_lora_adapter_info> getLoadedLoraAdapters();
+    std::vector<common_adapter_lora_info> getLoadedLoraAdapters();
 };\
 
 // Logging macros

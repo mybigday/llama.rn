@@ -87,13 +87,13 @@ build_library("rnllama" "")
 
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
     # ARM64 targets
-    build_library("rnllama_v8_4_fp16_dotprod_sve" "-march=armv8.4-a+fp16+dotprod+sve")
-    build_library("rnllama_v8_4_fp16_dotprod_i8mm_sve" "-march=armv8.4-a+fp16+dotprod+i8mm+sve")
-    build_library("rnllama_v8_4_fp16_dotprod_i8mm" "-march=armv8.4-a+fp16+dotprod+i8mm")
-    build_library("rnllama_v8_4_fp16_dotprod" "-march=armv8.4-a+fp16+dotprod")
-    build_library("rnllama_v8_2_fp16_dotprod" "-march=armv8.2-a+fp16+dotprod")
-    build_library("rnllama_v8_2_fp16" "-march=armv8.2-a+fp16")
+    # Removing fp16 for now as it leads to issues with some models like deepseek r1 distills
+    # https://github.com/mybigday/llama.rn/pull/110#issuecomment-2609918310
     build_library("rnllama_v8" "-march=armv8-a")
+    build_library("rnllama_v8_2" "-march=armv8.2-a")
+    build_library("rnllama_v8_2_dotprod" "-march=armv8.2-a+dotprod")
+    build_library("rnllama_v8_2_i8mm" "-march=armv8.2-a+i8mm")
+    build_library("rnllama_v8_2_dotprod_i8mm" "-march=armv8.2-a+dotprod+i8mm")
 
     # https://github.com/ggerganov/llama.cpp/blob/master/docs/android.md#cross-compile-using-android-ndk
     # llama.cpp will deal with the cpu features
