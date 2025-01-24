@@ -1,8 +1,15 @@
 #ifdef __cplusplus
+#if RNLLAMA_BUILD_FROM_SOURCE
 #import "llama.h"
 #import "llama-impl.h"
 #import "ggml.h"
-#import "rn-llama.hpp"
+#import "rn-llama.h"
+#else
+#import <rnllama/llama.h>
+#import <rnllama/llama-impl.h>
+#import <rnllama/ggml.h>
+#import <rnllama/rn-llama.h>
+#endif
 #endif
 
 

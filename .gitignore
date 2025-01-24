@@ -73,3 +73,11 @@ docs/API/.nojekyll
 
 *.metallib
 .xocde.env.local
+
+build-arm64/
+build-x86_64/
+jniLibs/
+build-ios/
+build-tvos/
+
+ios/rnllama.xcframework/**/*.framework

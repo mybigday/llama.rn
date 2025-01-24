@@ -54,9 +54,18 @@ android {
       }
     }
   }
-  externalNativeBuild {
-    cmake {
-      path = file('src/main/CMakeLists.txt')
+  def rnllamaBuildFromSource = project.properties["rnllamaBuildFromSource"]
+  if (rnllamaBuildFromSource == "true") {
+    externalNativeBuild {
+      cmake {
+        path = file('src/main/CMakeLists.txt')
+      }
+    }
+    // Exclude jniLibs
+    sourceSets {
+      main {
+        jniLibs.srcDirs = []
+      }
     }
   }
   buildTypes {

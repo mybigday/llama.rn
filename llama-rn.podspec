@@ -23,8 +23,14 @@ Pod::Spec.new do |s|
   s.platforms    = { :ios => "13.0", :tvos => "13.0" }
   s.source       = { :git => "https://github.com/mybigday/llama.rn.git", :tag => "#{s.version}" }
 
-  s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,m,mm}"
-  s.resources = "cpp/**/*.{metallib}"
+  if ENV["RNLLAMA_BUILD_FROM_SOURCE"] == "1"
+    s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,m,mm}"
+    s.resources = "cpp/**/*.{metallib}"
+    base_compiler_flags += " -DRNLLAMA_BUILD_FROM_SOURCE"
+  else
+    s.source_files = "ios/**/*.{h,m,mm}"
+    s.vendored_frameworks = "ios/rnllama.xcframework"
+  end
 
   s.dependency "React-Core"
 
