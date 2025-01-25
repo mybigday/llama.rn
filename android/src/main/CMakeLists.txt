@@ -45,6 +45,9 @@ set(
     ${RNLLAMA_LIB_DIR}/unicode.cpp
     ${RNLLAMA_LIB_DIR}/sgemm.cpp
     ${RNLLAMA_LIB_DIR}/common.cpp
+    ${RNLLAMA_LIB_DIR}/chat-template.hpp
+    ${RNLLAMA_LIB_DIR}/minja.hpp
+    ${RNLLAMA_LIB_DIR}/json.hpp
     ${RNLLAMA_LIB_DIR}/amx/amx.cpp
     ${RNLLAMA_LIB_DIR}/amx/mmq.cpp
     ${RNLLAMA_LIB_DIR}/rn-llama.cpp

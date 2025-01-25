@@ -91,6 +91,9 @@ cp ./llama.cpp/common/common.h ./cpp/common.h
 cp ./llama.cpp/common/common.cpp ./cpp/common.cpp
 cp ./llama.cpp/common/sampling.h ./cpp/sampling.h
 cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
+cp ./llama.cpp/common/chat-template.hpp ./cpp/chat-template.hpp
+cp ./llama.cpp/common/minja.hpp ./cpp/minja.hpp
+cp ./llama.cpp/common/json.hpp ./cpp/json.hpp
 
 # List of files to process
 files_add_lm_prefix=(
