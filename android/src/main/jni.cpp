@@ -11,7 +11,6 @@
 #include "llama.h"
 #include "llama-impl.h"
 #include "ggml.h"
-#include "chat-template.hpp"
 #include "rn-llama.h"
 #include "jni-utils.h"
 

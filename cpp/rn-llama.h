@@ -3,11 +3,7 @@
 
 #include <sstream>
 #include <iostream>
-
-#ifdef RNLLAMA_BUILD_FROM_SOURCE
 #include "chat-template.hpp"
-#endif
-
 #include "common.h"
 #include "ggml.h"
 #include "gguf.h"
