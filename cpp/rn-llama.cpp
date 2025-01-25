@@ -203,7 +203,11 @@ bool llama_rn_context::loadModel(common_params &params_)
 }
 
 bool llama_rn_context::validateModelChatTemplate() const {
-    const char * tmpl = llama_model_chat_template(model);
+    const char * tmpl = llama_model_chat_template(model, /* name */ nullptr);
+    if (tmpl == nullptr) {
+      return false;
+    }
+
     llama_chat_message chat[] = {{"user", "test"}};
     int32_t chat_res = llama_chat_apply_template(tmpl, chat, 1, true, nullptr, 0);
     return chat_res > 0;

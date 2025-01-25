@@ -224,6 +224,7 @@
         @"nEmbd": @(llama_model_n_embd(llama->model)),
         @"nParams": @(llama_model_n_params(llama->model)),
         @"isChatTemplateSupported": @(llama->validateModelChatTemplate()),
+        @"isChatTemplateToolUseSupported": @(llama->validateModelChatTemplateToolUse()),
         @"metadata": meta
     };
 }
@@ -246,7 +247,14 @@
   }
 
   auto tmpl = chatTemplate == nil ? "" : [chatTemplate UTF8String];
-  auto formatted_chat = common_chat_apply_template(llama->model, tmpl, chat, true);
+  common_chat_templates templates = common_chat_templates_from_model(llama->model, tmpl);
+  auto formatted_chat = common_chat_apply_template(
+    *templates.template_default,
+    chat,
+    true,
+    /* use_jinja= */ true
+  );
+
   return [NSString stringWithUTF8String:formatted_chat.c_str()];
 }
 

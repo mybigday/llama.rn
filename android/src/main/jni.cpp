@@ -455,7 +455,15 @@ Java_com_rnllama_LlamaContext_getFormattedChat(
     }
 
     const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
-    std::string formatted_chat = common_chat_apply_template(llama->model, tmpl_chars, chat, true);
+    common_chat_templates templates = common_chat_templates_from_model(llama->model, tmpl_chars);
+    std::string formatted_chat = common_chat_apply_template(
+      *templates.template_default,
+      chat,
+      true,
+      /* use_jinja= */ false
+    );
+
+    env->ReleaseStringUTFChars(chat_template, tmpl_chars);
 
     return env->NewStringUTF(formatted_chat.c_str());
 }

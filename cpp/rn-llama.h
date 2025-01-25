@@ -3,6 +3,7 @@
 
 #include <sstream>
 #include <iostream>
+#include "chat-template.hpp"
 #include "common.h"
 #include "ggml.h"
 #include "gguf.h"
