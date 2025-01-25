@@ -1,5 +1,4 @@
 #include "rn-llama.h"
-#include "chat-template.hpp"
 
 namespace rnllama {
 
