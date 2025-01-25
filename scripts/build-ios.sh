@@ -36,11 +36,11 @@ function build_framework() {
 
   # Copy headers and metallib
   cp_headers $4
-
   # TODO: May need to re-build metallib for tvOS
   cp ../cpp/ggml-llama.metallib ../ios/rnllama.xcframework/$4/rnllama.framework/ggml-llama.metallib
 
   rm -rf ./*
+  cd ..
 }
 
 rm -rf build-ios
@@ -49,8 +49,6 @@ mkdir -p build-ios
 # Build iOS frameworks
 build_framework "iOS" "arm64;x86_64" "iphonesimulator" "ios-arm64_x86_64-simulator" "build-ios"
 build_framework "iOS" "arm64" "iphoneos" "ios-arm64" "build-ios"
-
-cd ..
 rm -rf build-ios
 
 rm -rf build-tvos
@@ -59,6 +57,4 @@ mkdir -p build-tvos
 # Build tvOS frameworks
 build_framework "tvOS" "arm64;x86_64" "appletvsimulator" "tvos-arm64_x86_64-simulator" "build-tvos"
 build_framework "tvOS" "arm64" "appletvos" "tvos-arm64" "build-tvos"
-
-cd ..
 rm -rf build-tvos
