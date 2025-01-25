@@ -1,9 +1,23 @@
-#! /bin/bash
+#!/bin/bash -e
 
-NDK_VERSION=26.1.10909125
+NDK_VERSION=26.3.11579264
 CMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/$NDK_VERSION/build/cmake/android.toolchain.cmake
 ANDROID_PLATFORM=android-21
 CMAKE_BUILD_TYPE=Release
+
+if [ ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]; then
+  echo "NDK $NDK_VERSION not found, available versions: $(ls $ANDROID_HOME/ndk)"
+  echo "Run \$ANDROID_HOME/tools/bin/sdkmanager \"ndk;$NDK_VERSION\""
+  CMAKE_VERSION=3.10.2.4988404
+  echo "and \$ANDROID_HOME/tools/bin/sdkmanager \"cmake;$CMAKE_VERSION\""
+  exit 1
+fi
+
+# check cmake
+if ! command -v cmake &> /dev/null; then
+  echo "cmake could not be found, please install it"
+  exit 1
+fi
 
 cd android/src/main
 
