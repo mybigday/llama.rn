@@ -33,6 +33,7 @@
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
+    "build": "bob build",
     "prepack": "./scripts/build-ios.sh && ./scripts/build-android.sh && bob build",
     "release": "release-it",
     "example": "yarn --cwd example",
