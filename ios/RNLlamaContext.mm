@@ -224,7 +224,6 @@
         @"nEmbd": @(llama_model_n_embd(llama->model)),
         @"nParams": @(llama_model_n_params(llama->model)),
         @"isChatTemplateSupported": @(llama->validateModelChatTemplate()),
-        @"isChatTemplateToolUseSupported": @(llama->validateModelChatTemplateToolUse()),
         @"metadata": meta
     };
 }
