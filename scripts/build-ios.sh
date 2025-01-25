@@ -1,4 +1,9 @@
-#!/bin/bash
+#!/bin/bash -e
+
+if ! command -v cmake &> /dev/null; then
+  echo "cmake could not be found, please install it"
+  exit 1
+fi
 
 function cp_headers() {
   mkdir -p ../ios/rnllama.xcframework/$1/rnllama.framework/Headers
