@@ -27,6 +27,6 @@ runs:
         yarn install --frozen-lockfile
       shell: bash
 
-    - name: Bootstrap & Prepack
-      run: yarn bootstrap && yarn prepack
+    - name: Bootstrap & Build
+      run: yarn bootstrap && yarn build
       shell: bash

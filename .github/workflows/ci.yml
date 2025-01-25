@@ -100,6 +100,10 @@ jobs:
           NO_FLIPPER: 1
           RNLLAMA_BUILD_FROM_SOURCE: 0
 
+      - name: Build frameworks
+        run: |
+          yarn build:ios-frameworks
+
       - name: Build example for iOS
         run: |
           yarn build:ios
@@ -125,6 +129,10 @@ jobs:
 
       - name: Setup
         uses: ./.github/actions/setup
+
+      - name: Build libraries
+        run: |
+          yarn build:android-libs
 
       - name: Build example for Android
         run: |
