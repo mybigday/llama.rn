@@ -220,14 +220,17 @@ echo "Replacement completed successfully!"
 yarn example
 
 # Apply patch
-patch -p0 -d ./cpp < ./scripts/common.h.patch
-patch -p0 -d ./cpp < ./scripts/common.cpp.patch
-patch -p0 -d ./cpp < ./scripts/log.cpp.patch
-patch -p0 -d ./cpp < ./scripts/ggml-metal.m.patch
-patch -p0 -d ./cpp < ./scripts/ggml-backend-reg.cpp.patch
-patch -p0 -d ./cpp < ./scripts/ggml.c.patch
-patch -p0 -d ./cpp < ./scripts/ggml-quants.c.patch
-patch -p0 -d ./cpp < ./scripts/llama-mmap.cpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/common.h.patch
+patch -p0 -d ./cpp < ./scripts/patches/common.cpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/log.cpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/ggml-metal.m.patch
+patch -p0 -d ./cpp < ./scripts/patches/ggml-backend-reg.cpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/ggml.c.patch
+patch -p0 -d ./cpp < ./scripts/patches/ggml-quants.c.patch
+patch -p0 -d ./cpp < ./scripts/patches/llama-mmap.cpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/chat-template.hpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/minja.hpp.patch
+rm -rf ./cpp/*.orig
 
 if [ "$OS" = "Darwin" ]; then
   # Build metallib (~2.6MB)

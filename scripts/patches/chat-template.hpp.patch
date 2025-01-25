@@ -1,0 +1,11 @@
+--- chat-template.hpp.orig	2025-01-25 18:28:48
++++ chat-template.hpp	2025-01-25 18:29:02
+@@ -9,7 +9,7 @@
+ #pragma once
+ 
+ #include "minja.hpp"
+-#include <json.hpp>
++#include "json.hpp"
+ #include <string>
+ #include <vector>
+ 
