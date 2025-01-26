@@ -1,5 +1,4 @@
 #import "RNLlamaContext.h"
-#import "json.hpp"
 #import <Metal/Metal.h>
 
 @implementation RNLlamaContext
