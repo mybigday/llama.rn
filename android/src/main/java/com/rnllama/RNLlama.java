@@ -116,7 +116,7 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "initContext");
   }
 
-  public void getFormattedChat(double id, final ReadableArray messages, final String chatTemplate, Promise promise) {
+  public void getFormattedChat(double id, final ReadableArray messages, final String chatTemplate, final boolean useJinja, Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, String>() {
       private Exception exception;
@@ -128,7 +128,7 @@ public class RNLlama implements LifecycleEventListener {
           if (context == null) {
             throw new Exception("Context not found");
           }
-          return context.getFormattedChat(messages, chatTemplate);
+          return context.getFormattedChat(messages, chatTemplate, useJinja);
         } catch (Exception e) {
           exception = e;
           return null;

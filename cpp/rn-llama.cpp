@@ -202,15 +202,12 @@ bool llama_rn_context::loadModel(common_params &params_)
     return true;
 }
 
-bool llama_rn_context::validateModelChatTemplate() const {
+bool llama_rn_context::validateModelChatTemplate(bool use_jinja) const {
     const char * tmpl = llama_model_chat_template(model, /* name */ nullptr);
     if (tmpl == nullptr) {
       return false;
     }
-
-    llama_chat_message chat[] = {{"user", "test"}};
-    int32_t chat_res = llama_chat_apply_template(tmpl, chat, 1, true, nullptr, 0);
-    return chat_res > 0;
+    return common_chat_verify_template(tmpl, use_jinja);
 }
 
 void llama_rn_context::truncatePrompt(std::vector<llama_token> &prompt_tokens) {

@@ -223,7 +223,7 @@
         @"size": @(llama_model_size(llama->model)),
         @"nEmbd": @(llama_model_n_embd(llama->model)),
         @"nParams": @(llama_model_n_params(llama->model)),
-        @"isChatTemplateSupported": @(llama->validateModelChatTemplate()),
+        @"isChatTemplateSupported": @(llama->validateModelChatTemplate(false)),
         @"metadata": meta
     };
 }
@@ -236,7 +236,7 @@
     return llama->is_predicting;
 }
 
-- (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate {
+- (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate useJinja:(BOOL)useJinja {
   std::vector<common_chat_msg> chat;
 
   for (NSDictionary *msg in messages) {
@@ -251,7 +251,7 @@
     *templates.template_default,
     chat,
     true,
-    /* use_jinja= */ true
+    /* use_jinja= */ useJinja
   );
 
   return [NSString stringWithUTF8String:formatted_chat.c_str()];

@@ -79,6 +79,7 @@ RCT_EXPORT_METHOD(initContext:(double)contextId
 RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
                  withMessages:(NSArray *)messages
                  withTemplate:(NSString *)chatTemplate
+                 withUseJinja:(BOOL)useJinja
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -87,7 +88,7 @@ RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
         reject(@"llama_error", @"Context not found", nil);
         return;
     }
-    resolve([context getFormattedChat:messages withTemplate:chatTemplate]);
+    resolve([context getFormattedChat:messages withTemplate:chatTemplate useJinja:useJinja]);
 }
 
 RCT_EXPORT_METHOD(loadSession:(double)contextId

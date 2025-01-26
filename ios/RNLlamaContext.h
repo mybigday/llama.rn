@@ -36,7 +36,7 @@
 - (NSArray *)tokenize:(NSString *)text;
 - (NSString *)detokenize:(NSArray *)tokens;
 - (NSDictionary *)embedding:(NSString *)text params:(NSDictionary *)params;
-- (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate;
+- (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate useJinja:(BOOL)useJinja;
 - (NSDictionary *)loadSession:(NSString *)path;
 - (int)saveSession:(NSString *)path size:(int)size;
 - (NSString *)bench:(int)pp tg:(int)tg pl:(int)pl nr:(int)nr;

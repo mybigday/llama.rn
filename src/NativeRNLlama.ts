@@ -257,6 +257,7 @@ export interface Spec extends TurboModule {
     contextId: number,
     messages: NativeLlamaChatMessage[],
     chatTemplate?: string,
+    jinja?: boolean,
   ): Promise<string>
   loadSession(
     contextId: number,

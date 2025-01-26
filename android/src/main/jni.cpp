@@ -414,7 +414,7 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
     putDouble(env, result, "size", llama_model_size(llama->model));
     putDouble(env, result, "nEmbd", llama_model_n_embd(llama->model));
     putDouble(env, result, "nParams", llama_model_n_params(llama->model));
-    putBoolean(env, result, "isChatTemplateSupported", llama->validateModelChatTemplate());
+    putBoolean(env, result, "isChatTemplateSupported", llama->validateModelChatTemplate(false));
     putMap(env, result, "metadata", meta);
 
     return reinterpret_cast<jobject>(result);
@@ -426,7 +426,8 @@ Java_com_rnllama_LlamaContext_getFormattedChat(
     jobject thiz,
     jlong context_ptr,
     jobjectArray messages,
-    jstring chat_template
+    jstring chat_template,
+    jboolean use_jinja
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
@@ -460,7 +461,7 @@ Java_com_rnllama_LlamaContext_getFormattedChat(
       *templates.template_default,
       chat,
       true,
-      /* use_jinja= */ false
+      /* use_jinja= */ use_jinja
     );
 
     env->ReleaseStringUTFChars(chat_template, tmpl_chars);

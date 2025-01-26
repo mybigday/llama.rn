@@ -48,8 +48,8 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
-  public void getFormattedChat(double id, ReadableArray messages, String chatTemplate, Promise promise) {
-    rnllama.getFormattedChat(id, messages, chatTemplate, promise);
+  public void getFormattedChat(double id, ReadableArray messages, String chatTemplate, Boolean useJinja, Promise promise) {
+    rnllama.getFormattedChat(id, messages, chatTemplate, useJinja, promise);
   }
 
   @ReactMethod
