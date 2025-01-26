@@ -99,6 +99,7 @@ export type CompletionParams = Omit<
   messages?: RNLlamaOAICompatibleMessage[]
   chatTemplate?: string
   jinja?: boolean
+  tools?: object
 }
 
 export type BenchResult = {
@@ -153,6 +154,7 @@ export class LlamaContext {
     params?: {
       template?: string
       jinja?: boolean
+      tools?: object
     },
   ): Promise<string> {
     const chat = formatChat(messages)
@@ -161,9 +163,10 @@ export class LlamaContext {
       tmpl = params.template // Force replace if provided
     return RNLlama.getFormattedChat(
       this.id,
-      chat,
+      JSON.stringify(chat),
       tmpl,
       params?.jinja || false,
+      params?.tools ? JSON.stringify(params.tools) : undefined,
     )
   }
 
@@ -179,6 +182,7 @@ export class LlamaContext {
         {
           template: params.chatTemplate,
           jinja: params.jinja,
+          tools: params.tools,
         },
       )
     }

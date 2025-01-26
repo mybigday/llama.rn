@@ -255,9 +255,10 @@ export interface Spec extends TurboModule {
 
   getFormattedChat(
     contextId: number,
-    messages: NativeLlamaChatMessage[],
+    messages: string,
     chatTemplate?: string,
     jinja?: boolean,
+    tools?: string,
   ): Promise<string>
   loadSession(
     contextId: number,

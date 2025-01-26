@@ -210,6 +210,33 @@ bool llama_rn_context::validateModelChatTemplate(bool use_jinja) const {
     return common_chat_verify_template(tmpl, use_jinja);
 }
 
+std::string llama_rn_context::getFormattedChat(const std::string &messages, const std::string &chat_template, bool use_jinja, const std::string &tools) const {
+  auto chat_json = json::parse(messages);
+  common_chat_templates templates = common_chat_templates_from_model(model, chat_template);
+
+  if (!tools.empty()) {
+    auto tools_json = json::parse(tools);
+    auto &tmpl = chat_template.empty() && templates.template_tool_use != nullptr ? *templates.template_tool_use : *templates.template_default;
+    auto formatted_chat = tmpl.apply(chat_json, tools_json, true);
+    return formatted_chat;
+  } else {
+    std::vector<common_chat_msg> chat_msgs;
+    for (auto &msg : chat_json) {
+      std::string role = msg["role"].get<std::string>();
+      std::string content = msg["content"].get<std::string>();
+      chat_msgs.push_back({ role, content });
+    }
+
+    auto formatted_chat = common_chat_apply_template(
+      *templates.template_default,
+      chat_msgs,
+      true,
+      /* use_jinja= */ use_jinja
+    );
+    return formatted_chat;
+  }
+}
+
 void llama_rn_context::truncatePrompt(std::vector<llama_token> &prompt_tokens) {
     const int n_left = n_ctx - params.n_keep;
     const int n_block_size = n_left / 2;

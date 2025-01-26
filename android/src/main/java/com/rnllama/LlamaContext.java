@@ -108,12 +108,8 @@ public class LlamaContext {
     return loadedLibrary;
   }
 
-  public String getFormattedChat(ReadableArray messages, String chatTemplate, boolean useJinja) {
-    ReadableMap[] msgs = new ReadableMap[messages.size()];
-    for (int i = 0; i < messages.size(); i++) {
-      msgs[i] = messages.getMap(i);
-    }
-    return getFormattedChat(this.context, msgs, chatTemplate == null ? "" : chatTemplate, useJinja);
+  public String getFormattedChat(String messages, String chatTemplate, boolean useJinja, String tools) {
+    return getFormattedChat(this.context, messages, chatTemplate == null ? "" : chatTemplate, useJinja, tools);
   }
 
   private void emitLoadProgress(int progress) {
@@ -444,9 +440,10 @@ public class LlamaContext {
   );
   protected static native String getFormattedChat(
     long contextPtr,
-    ReadableMap[] messages,
+    String messages,
     String chatTemplate,
-    boolean useJinja
+    boolean useJinja,
+    String tools
   );
   protected static native WritableMap loadSession(
     long contextPtr,

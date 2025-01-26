@@ -82,6 +82,7 @@ struct llama_rn_context {
     bool initSampling();
     bool loadModel(common_params &params_);
     bool validateModelChatTemplate(bool use_jinja) const;
+    std::string getFormattedChat(const std::string &messages, const std::string &chat_template, bool use_jinja, const std::string &tools) const;
     void truncatePrompt(std::vector<llama_token> &prompt_tokens);
     void loadPrompt();
     void beginCompletion();

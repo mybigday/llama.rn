@@ -410,11 +410,13 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
 
     char desc[1024];
     llama_model_desc(llama->model, desc, sizeof(desc));
+
     putString(env, result, "desc", desc);
     putDouble(env, result, "size", llama_model_size(llama->model));
     putDouble(env, result, "nEmbd", llama_model_n_embd(llama->model));
     putDouble(env, result, "nParams", llama_model_n_params(llama->model));
     putBoolean(env, result, "isChatTemplateSupported", llama->validateModelChatTemplate(false));
+    putBoolean(env, result, "isJinjaChatTemplateSupported", llama->validateModelChatTemplate(true));
     putMap(env, result, "metadata", meta);
 
     return reinterpret_cast<jobject>(result);
@@ -425,45 +427,22 @@ Java_com_rnllama_LlamaContext_getFormattedChat(
     JNIEnv *env,
     jobject thiz,
     jlong context_ptr,
-    jobjectArray messages,
+    jstring messages,
     jstring chat_template,
-    jboolean use_jinja
+    jboolean use_jinja,
+    jstring tools
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
 
-    std::vector<common_chat_msg> chat;
-
-    int messages_len = env->GetArrayLength(messages);
-    for (int i = 0; i < messages_len; i++) {
-        jobject msg = env->GetObjectArrayElement(messages, i);
-        jclass msgClass = env->GetObjectClass(msg);
-
-        jmethodID getRoleMethod = env->GetMethodID(msgClass, "getString", "(Ljava/lang/String;)Ljava/lang/String;");
-        jstring roleKey = env->NewStringUTF("role");
-        jstring contentKey = env->NewStringUTF("content");
-
-        jstring role_str = (jstring) env->CallObjectMethod(msg, getRoleMethod, roleKey);
-        jstring content_str = (jstring) env->CallObjectMethod(msg, getRoleMethod, contentKey);
-
-        const char *role = env->GetStringUTFChars(role_str, nullptr);
-        const char *content = env->GetStringUTFChars(content_str, nullptr);
-
-        chat.push_back({ role, content });
-
-        env->ReleaseStringUTFChars(role_str, role);
-        env->ReleaseStringUTFChars(content_str, content);
-    }
-
+    const char *messages_chars = env->GetStringUTFChars(messages, nullptr);
     const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
-    common_chat_templates templates = common_chat_templates_from_model(llama->model, tmpl_chars);
-    std::string formatted_chat = common_chat_apply_template(
-      *templates.template_default,
-      chat,
-      true,
-      /* use_jinja= */ use_jinja
-    );
+    const char *tools_chars = env->GetStringUTFChars(tools, nullptr);
 
+    std::string formatted_chat = llama->getFormattedChat(messages_chars, tmpl_chars, use_jinja, tools_chars);
+
+    env->ReleaseStringUTFChars(tools, tools_chars);
+    env->ReleaseStringUTFChars(messages, messages_chars);
     env->ReleaseStringUTFChars(chat_template, tmpl_chars);
 
     return env->NewStringUTF(formatted_chat.c_str());

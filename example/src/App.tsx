@@ -288,8 +288,7 @@ export default function App() {
         case '/lora':
           pickLora()
             .then((loraFile) => {
-              if (loraFile)
-                context.applyLoraAdapters([{ path: loraFile.uri }])
+              if (loraFile) context.applyLoraAdapters([{ path: loraFile.uri }])
             })
             .then(() => context.getLoadedLoraAdapters())
             .then((loraList) =>
@@ -349,10 +348,45 @@ export default function App() {
     ]
     addMessage(textMessage)
     setInferencing(true)
+
+    let jinjaParams: any = {}
+    // Test jinja & tools
+    {
+      const params = {
+        jinja: true,
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'ipython',
+              description:
+                'Runs code in an ipython interpreter and returns the result of the execution after 60 seconds.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  code: {
+                    type: 'string',
+                    description:
+                      'The code to run in the ipython interpreter.',
+                  },
+                },
+                required: ['code'],
+              },
+            },
+          },
+        ],
+      }
+      jinjaParams = params
+      jinjaParams = undefined
+      // Uncomment to test:
+      // jinjaParams = params
+    }
+
     // Test area
     {
       // Test tokenize
-      const formattedChat = (await context?.getFormattedChat(msgs)) || ''
+      const formattedChat =
+        (await context?.getFormattedChat(msgs, jinjaParams)) || ''
       const t0 = Date.now()
       const { tokens } = (await context?.tokenize(formattedChat)) || {}
       const t1 = Date.now()
@@ -430,6 +464,8 @@ export default function App() {
           messages: msgs,
           n_predict: 100,
           grammar,
+          ...jinjaParams,
+
           seed: -1,
           n_probs: 0,
 

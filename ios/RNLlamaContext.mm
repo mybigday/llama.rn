@@ -1,4 +1,5 @@
 #import "RNLlamaContext.h"
+#import "json.hpp"
 #import <Metal/Metal.h>
 
 @implementation RNLlamaContext
@@ -224,6 +225,7 @@
         @"nEmbd": @(llama_model_n_embd(llama->model)),
         @"nParams": @(llama_model_n_params(llama->model)),
         @"isChatTemplateSupported": @(llama->validateModelChatTemplate(false)),
+        @"isJinjaChatTemplateSupported": @(llama->validateModelChatTemplate(true)),
         @"metadata": meta
     };
 }
@@ -236,25 +238,14 @@
     return llama->is_predicting;
 }
 
-- (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate useJinja:(BOOL)useJinja {
-  std::vector<common_chat_msg> chat;
-
-  for (NSDictionary *msg in messages) {
-    std::string role = [[msg objectForKey:@"role"] UTF8String];
-    std::string content = [[msg objectForKey:@"content"] UTF8String];
-    chat.push_back({ role, content });
-  }
-
-  auto tmpl = chatTemplate == nil ? "" : [chatTemplate UTF8String];
-  common_chat_templates templates = common_chat_templates_from_model(llama->model, tmpl);
-  auto formatted_chat = common_chat_apply_template(
-    *templates.template_default,
-    chat,
-    true,
-    /* use_jinja= */ useJinja
-  );
-
-  return [NSString stringWithUTF8String:formatted_chat.c_str()];
+- (NSString *)getFormattedChat:(NSString *)messages withTemplate:(NSString *)chatTemplate withJinja:(BOOL)jinja withTools:(NSString *)tools {
+  auto tmpl_str = chatTemplate == nil ? "" : [chatTemplate UTF8String];
+  return [NSString stringWithUTF8String:llama->getFormattedChat(
+    [messages UTF8String],
+    tmpl_str,
+    jinja,
+    tools == nil ? "" : [tools UTF8String]
+  ).c_str()];
 }
 
 - (NSArray *)tokenProbsToDict:(std::vector<rnllama::completion_token_output>)probs {
