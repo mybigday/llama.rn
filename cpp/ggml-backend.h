@@ -203,6 +203,8 @@ extern "C" {
     // Backend registry
     //
 
+    LM_GGML_API void lm_ggml_backend_device_register(lm_ggml_backend_dev_t device);
+
     // Backend (reg) enumeration
     LM_GGML_API size_t             lm_ggml_backend_reg_count(void);
     LM_GGML_API lm_ggml_backend_reg_t lm_ggml_backend_reg_get(size_t index);

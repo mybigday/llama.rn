@@ -501,6 +501,7 @@ extern "C" {
         LM_GGML_OP_GET_REL_POS,
         LM_GGML_OP_ADD_REL_POS,
         LM_GGML_OP_RWKV_WKV6,
+        LM_GGML_OP_GATED_LINEAR_ATTN,
 
         LM_GGML_OP_UNARY,
 
@@ -1383,16 +1384,20 @@ extern "C" {
             float                 scale,
             float                 max_bias);
 
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_soft_max_back(
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_soft_max_ext_back(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
-            struct lm_ggml_tensor  * b);
+            struct lm_ggml_tensor  * b,
+            float                 scale,
+            float                 max_bias);
 
     // in-place, returns view(a)
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_soft_max_back_inplace(
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_soft_max_ext_back_inplace(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
-            struct lm_ggml_tensor  * b);
+            struct lm_ggml_tensor  * b,
+            float                 scale,
+            float                 max_bias);
 
     // rotary position embedding
     // if (mode & 1) - skip n_past elements (NOT SUPPORTED)
@@ -1499,7 +1504,7 @@ extern "C" {
 
     // rotary position embedding backward, i.e compute dx from dy
     // a - dy
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_rope_back(
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_rope_ext_back(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a, // gradients of lm_ggml_rope result
             struct lm_ggml_tensor  * b, // positions
@@ -1513,6 +1518,23 @@ extern "C" {
             float                 attn_factor,
             float                 beta_fast,
             float                 beta_slow);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_rope_multi_back(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b,
+            struct lm_ggml_tensor  * c,
+            int                   n_dims,
+            int                   sections[4],
+            int                   mode,
+            int                   n_ctx_orig,
+            float                 freq_base,
+            float                 freq_scale,
+            float                 ext_factor,
+            float                 attn_factor,
+            float                 beta_fast,
+            float                 beta_slow);
+
 
     // clamp
     // in-place, returns view(a)
@@ -1858,6 +1880,15 @@ extern "C" {
             struct lm_ggml_tensor  * tf,
             struct lm_ggml_tensor  * td,
             struct lm_ggml_tensor  * state);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_gated_linear_attn(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * k,
+            struct lm_ggml_tensor  * v,
+            struct lm_ggml_tensor  * q,
+            struct lm_ggml_tensor  * g,
+            struct lm_ggml_tensor  * state,
+            float scale);
 
     // custom operators
 

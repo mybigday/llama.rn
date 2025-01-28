@@ -35,7 +35,7 @@ jobs:
       - name: Run unit tests
         run: yarn test --maxWorkers=2 --coverage
 
-  build-ios:
+  build-ios-from-source:
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -69,7 +69,46 @@ jobs:
         run: |
           yarn build:ios
 
-  build-android:
+  build-ios-frameworks:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Cache build & pods
+        uses: actions/cache@v3
+        with:
+          path: |
+            example/ios/Pods
+            example/ios/build
+          key: ${{ runner.os }}-pods-${{ hashFiles('example/ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Upgrade CocoaPods to version 1.15.2
+        run: |
+          gem uninstall cocoapods --ignore-dependencies
+          gem install cocoapods -v 1.15.2
+
+      - name: Install cocoapods
+        run: |
+          yarn example pods
+        env:
+          NO_FLIPPER: 1
+          RNLLAMA_BUILD_FROM_SOURCE: 0
+
+      - name: Build frameworks
+        run: |
+          yarn build:ios-frameworks
+
+      - name: Build example for iOS
+        run: |
+          yarn build:ios
+
+  build-android-from-source:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -80,4 +119,22 @@ jobs:
 
       - name: Build example for Android
         run: |
+          yarn build:android
+
+  build-android-libs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Build libraries
+        run: |
+          yarn build:android-libs
+
+      - name: Build example for Android
+        run: |
+          sed -i 's/rnllamaBuildFromSource=true/rnllamaBuildFromSource=false/g' example/android/gradle.properties
           yarn build:android

@@ -18,6 +18,8 @@ npm install llama.rn
 
 Please re-run `npx pod-install` again.
 
+By default, `llama.rn` will use pre-built `rnllama.xcframework` for iOS. If you want to build from source, please set `RNLLAMA_BUILD_FROM_SOURCE` to `1` in your Podfile.
+
 #### Android
 
 Add proguard rule if it's enabled in project (android/app/proguard-rules.pro):
@@ -26,6 +28,8 @@ Add proguard rule if it's enabled in project (android/app/proguard-rules.pro):
 # llama.rn
 -keep class com.rnllama.** { *; }
 ```
+
+By default, `llama.rn` will use pre-built libraries for Android. If you want to build from source, please set `rnllamaBuildFromSource` to `true` in `android/gradle.properties`.
 
 ## Obtain the model
 
@@ -117,29 +121,6 @@ The binding’s deisgn inspired by [server.cpp](https://github.com/ggerganov/lla
 Please visit the [Documentation](docs/API) for more details.
 
 You can also visit the [example](example) to see how to use it.
-
-Run the example:
-
-```bash
-yarn && yarn bootstrap
-
-# iOS
-yarn example ios
-# Use device
-yarn example ios --device "<device name>"
-# With release mode
-yarn example ios --mode Release
-
-# Android
-yarn example android
-# With release mode
-yarn example android --mode release
-```
-
-This example used [react-native-document-picker](https://github.com/rnmods/react-native-document-picker) for select model.
-
-- iOS: You can move the model to iOS Simulator, or iCloud for real device.
-- Android: Selected file will be copied or downloaded to cache directory so it may be slow.
 
 ## Grammar Sampling
 

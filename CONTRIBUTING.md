@@ -17,22 +17,6 @@ yarn bootstrap
 
 While developing, you can run the [example app](/example/) to test your changes. Any changes you make in your library's JavaScript code will be reflected in the example app without a rebuild. If you change any native code, then you'll need to rebuild the example app.
 
-To start the packager:
-
-```sh
-yarn example start
-```
-
-To run the example app on iOS:
-
-```sh
-yarn example pods
-yarn example ios
-```
-
-For test better performance on completion, you can run the app in Release mode:
-- iOS: `yarn example ios --mode Release`
-
 Make sure your code passes TypeScript and ESLint. Run the following to verify:
 
 ```sh

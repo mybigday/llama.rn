@@ -35,7 +35,7 @@ public class RNLlama implements LifecycleEventListener {
 
   private HashMap<Integer, LlamaContext> contexts = new HashMap<>();
 
-  private int llamaContextLimit = 1;
+  private int llamaContextLimit = -1;
 
   public void setContextLimit(double limit, Promise promise) {
     llamaContextLimit = (int) limit;
@@ -83,6 +83,9 @@ public class RNLlama implements LifecycleEventListener {
           if (context != null) {
             throw new Exception("Context already exists");
           }
+          if (llamaContextLimit > -1 && contexts.size() >= llamaContextLimit) {
+            throw new Exception("Context limit reached");
+          }
           LlamaContext llamaContext = new LlamaContext(contextId, reactContext, params);
           if (llamaContext.getContext() == 0) {
             throw new Exception("Failed to initialize context");
@@ -92,6 +95,7 @@ public class RNLlama implements LifecycleEventListener {
           result.putBoolean("gpu", false);
           result.putString("reasonNoGPU", "Currently not supported");
           result.putMap("model", llamaContext.getModelDetails());
+          result.putString("androidLib", llamaContext.getLoadedLibrary());
           return result;
         } catch (Exception e) {
           exception = e;

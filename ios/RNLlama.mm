@@ -8,7 +8,7 @@
 @implementation RNLlama
 
 NSMutableDictionary *llamaContexts;
-double llamaContextLimit = 1;
+double llamaContextLimit = -1;
 dispatch_queue_t llamaDQueue;
 
 RCT_EXPORT_MODULE()
@@ -48,7 +48,7 @@ RCT_EXPORT_METHOD(initContext:(double)contextId
         llamaContexts = [[NSMutableDictionary alloc] init];
     }
 
-    if (llamaContextLimit > 0 && [llamaContexts count] >= llamaContextLimit) {
+    if (llamaContextLimit > -1 && [llamaContexts count] >= llamaContextLimit) {
         reject(@"llama_error", @"Context limit reached", nil);
         return;
     }
