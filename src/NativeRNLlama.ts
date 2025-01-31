@@ -65,6 +65,12 @@ export type NativeCompletionParams = {
    * Set grammar for grammar-based sampling.  Default: no grammar
    */
   grammar?: string
+  grammar_lazy?: boolean
+  grammar_triggers?: Array<{
+    at_start: boolean
+    word: string
+  }>
+  chat_format?: number
   /**
    * Specify a JSON array of stopping strings.
    * These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]`
@@ -257,8 +263,12 @@ export interface Spec extends TurboModule {
     contextId: number,
     messages: string,
     chatTemplate?: string,
-    jinja?: boolean,
-    tools?: string,
+    params?: {
+      jinja?: boolean
+      tools?: string
+      parallel_tool_calls?: string
+      tool_choice?: string
+    },
   ): Promise<string>
   loadSession(
     contextId: number,

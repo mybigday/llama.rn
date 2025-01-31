@@ -3,6 +3,7 @@
 
 #include <sstream>
 #include <iostream>
+#include "chat.hpp"
 #include "chat-template.hpp"
 #include "common.h"
 #include "ggml.h"
@@ -83,7 +84,17 @@ struct llama_rn_context {
     bool initSampling();
     bool loadModel(common_params &params_);
     bool validateModelChatTemplate(bool use_jinja) const;
-    std::string getFormattedChat(const std::string &messages, const std::string &chat_template, bool use_jinja, const std::string &tools) const;
+    common_chat_params getFormattedChatWithJinja(
+      const std::string &messages,
+      const std::string &chat_template,
+      const std::string &tools,
+      const std::string &parallel_tool_calls,
+      const std::string &tool_choice
+    ) const;
+    std::string getFormattedChat(
+      const std::string &messages,
+      const std::string &chat_template
+    ) const;
     void truncatePrompt(std::vector<llama_token> &prompt_tokens);
     void loadPrompt();
     void beginCompletion();

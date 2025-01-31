@@ -354,6 +354,7 @@ export default function App() {
     {
       const params = {
         jinja: true,
+        tool_choice: 'auto',
         tools: [
           {
             type: 'function',
@@ -462,7 +463,7 @@ export default function App() {
       ?.completion(
         {
           messages: msgs,
-          n_predict: 100,
+          n_predict: 2048,
           grammar,
           ...jinjaParams,
 

@@ -211,22 +211,43 @@ bool llama_rn_context::validateModelChatTemplate(bool use_jinja) const {
     return common_chat_verify_template(tmpl, use_jinja);
 }
 
-std::string llama_rn_context::getFormattedChat(const std::string &messages, const std::string &chat_template, bool use_jinja, const std::string &tools) const {
-  auto chat_json = json::parse(messages);
-
+common_chat_params llama_rn_context::getFormattedChatWithJinja(
+  const std::string &messages,
+  const std::string &chat_template,
+  const std::string &tools,
+  const std::string &parallel_tool_calls,
+  const std::string &tool_choice
+) const {
+  common_chat_inputs inputs;
+  inputs.messages = json::parse(messages);
   if (!tools.empty()) {
-    auto tools_json = json::parse(tools);
-    const common_chat_template* template_ptr;
-
-    // If chat_template is provided, create new one and use it (probably slow)
-    if (!chat_template.empty()) {
-      auto tmp = common_chat_templates_from_model(model, chat_template);
-      template_ptr = tmp.template_tool_use ? tmp.template_tool_use.get() : tmp.template_default.get();
-    } else {
-      template_ptr = templates.template_tool_use ? templates.template_tool_use.get() : templates.template_default.get();
-    }
-    return template_ptr->apply(chat_json, tools_json, true);
+    inputs.tools = json::parse(tools);
   }
+  if (!parallel_tool_calls.empty()) {
+    inputs.parallel_tool_calls = json::parse(parallel_tool_calls);
+  }
+  if (!tool_choice.empty()) {
+    inputs.tool_choice = tool_choice;
+  }
+  inputs.stream = true;
+
+  const common_chat_template* template_ptr;
+
+  // If chat_template is provided, create new one and use it (probably slow)
+  if (!chat_template.empty()) {
+    auto tmp = common_chat_templates_from_model(model, chat_template);
+    template_ptr = tmp.template_tool_use ? tmp.template_tool_use.get() : tmp.template_default.get();
+  } else {
+    template_ptr = templates.template_tool_use ? templates.template_tool_use.get() : templates.template_default.get();
+  }
+  return common_chat_params_init(*template_ptr, inputs);
+}
+
+std::string llama_rn_context::getFormattedChat(
+  const std::string &messages,
+  const std::string &chat_template
+) const {
+  auto chat_json = json::parse(messages);
 
   // Handle regular chat without tools
   std::vector<common_chat_msg> chat_msgs;
@@ -249,7 +270,7 @@ std::string llama_rn_context::getFormattedChat(const std::string &messages, cons
     *template_ptr,
     chat_msgs,
     true,
-    use_jinja
+    false
   );
 }
 
