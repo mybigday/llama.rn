@@ -66,6 +66,11 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/unicode.cpp
     ${SOURCE_DIR}/sgemm.cpp
     ${SOURCE_DIR}/common.cpp
+    ${SOURCE_DIR}/chat.cpp
+    ${SOURCE_DIR}/chat-template.hpp
+    ${SOURCE_DIR}/json-schema-to-grammar.cpp
+    ${SOURCE_DIR}/minja.hpp
+    ${SOURCE_DIR}/json.hpp
     ${SOURCE_DIR}/amx/amx.cpp
     ${SOURCE_DIR}/amx/mmq.cpp
     ${SOURCE_DIR}/rn-llama.cpp
