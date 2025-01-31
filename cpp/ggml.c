@@ -128,6 +128,10 @@ static void lm_ggml_print_backtrace_symbols(void) {
 #endif
 
 static void lm_ggml_print_backtrace(void) {
+    const char * LM_GGML_NO_BACKTRACE = getenv("LM_GGML_NO_BACKTRACE");
+    if (LM_GGML_NO_BACKTRACE) {
+        return;
+    }
     char attach[32];
     snprintf(attach, sizeof(attach), "attach %d", getpid());
     int pid = fork();

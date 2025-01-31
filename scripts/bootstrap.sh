@@ -92,6 +92,10 @@ cp ./llama.cpp/common/common.cpp ./cpp/common.cpp
 cp ./llama.cpp/common/sampling.h ./cpp/sampling.h
 cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
 cp ./llama.cpp/common/chat-template.hpp ./cpp/chat-template.hpp
+cp ./llama.cpp/common/chat.hpp ./cpp/chat.hpp
+cp ./llama.cpp/common/chat.cpp ./cpp/chat.cpp
+cp ./llama.cpp/common/json-schema-to-grammar.h ./cpp/json-schema-to-grammar.h
+cp ./llama.cpp/common/json-schema-to-grammar.cpp ./cpp/json-schema-to-grammar.cpp
 cp ./llama.cpp/common/minja.hpp ./cpp/minja.hpp
 cp ./llama.cpp/common/json.hpp ./cpp/json.hpp
 
@@ -136,6 +140,7 @@ files_add_lm_prefix=(
   "./cpp/sgemm.cpp"
   "./cpp/common.h"
   "./cpp/common.cpp"
+  "./cpp/json-schema-to-grammar.h"
   "./cpp/ggml-common.h"
   "./cpp/ggml.h"
   "./cpp/ggml.c"
@@ -229,6 +234,7 @@ patch -p0 -d ./cpp < ./scripts/patches/ggml.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml-quants.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/llama-mmap.cpp.patch
 patch -p0 -d ./cpp < ./scripts/patches/chat-template.hpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/chat.hpp.patch
 patch -p0 -d ./cpp < ./scripts/patches/minja.hpp.patch
 rm -rf ./cpp/*.orig
 
