@@ -216,7 +216,7 @@ export class LlamaContext {
           nativeParams.chat_format = formattedResult.chat_format
         if (formattedResult.grammar)
           nativeParams.grammar = formattedResult.grammar
-        if (formattedResult.grammar_lazy)
+        if (typeof formattedResult.grammar_lazy === 'boolean')
           nativeParams.grammar_lazy = formattedResult.grammar_lazy
         if (formattedResult.grammar_triggers)
           nativeParams.grammar_triggers = formattedResult.grammar_triggers
