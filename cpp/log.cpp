@@ -239,6 +239,7 @@ public:
                 vsnprintf(entry.msg.data(), entry.msg.size(), ss.str().c_str(), args_copy);
             }
 #endif
+            va_end(args_copy);
         }
 
         entry.level = level;
