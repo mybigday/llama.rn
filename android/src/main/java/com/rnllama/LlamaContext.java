@@ -108,8 +108,15 @@ public class LlamaContext {
     return loadedLibrary;
   }
 
-  public String getFormattedChat(String messages, String chatTemplate, boolean useJinja, String tools) {
-    return getFormattedChat(this.context, messages, chatTemplate == null ? "" : chatTemplate, useJinja, tools);
+  public WritableMap getFormattedChatWithJinja(String messages, String chatTemplate, ReadableMap params) {
+    String tools = params.hasKey("tools") ? params.getString("tools") : "";
+    String parallelToolCalls = params.hasKey("parallel_tool_calls") ? params.getString("parallel_tool_calls") : "";
+    String toolChoice = params.hasKey("tool_choice") ? params.getString("tool_choice") : "";
+    return getFormattedChatWithJinja(this.context, messages, chatTemplate, tools, parallelToolCalls, toolChoice);
+  }
+
+  public String getFormattedChat(String messages, String chatTemplate) {
+    return getFormattedChat(this.context, messages, chatTemplate == null ? "" : chatTemplate);
   }
 
   private void emitLoadProgress(int progress) {
@@ -438,12 +445,18 @@ public class LlamaContext {
   protected static native WritableMap loadModelDetails(
     long contextPtr
   );
-  protected static native String getFormattedChat(
+  protected static native WritableMap getFormattedChatWithJinja(
     long contextPtr,
     String messages,
     String chatTemplate,
-    boolean useJinja,
-    String tools
+    String tools,
+    String parallelToolCalls,
+    String toolChoice
+  );
+  protected static native String getFormattedChat(
+    long contextPtr,
+    String messages,
+    String chatTemplate
   );
   protected static native WritableMap loadSession(
     long contextPtr,

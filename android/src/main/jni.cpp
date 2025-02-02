@@ -423,14 +423,15 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
 }
 
 JNIEXPORT jobject JNICALL
-Java_com_rnllama_LlamaContext_getFormattedChat(
+Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     JNIEnv *env,
     jobject thiz,
     jlong context_ptr,
     jstring messages,
     jstring chat_template,
-    jboolean use_jinja,
-    jstring tools
+    jstring tools,
+    jstring parallel_tool_calls,
+    jstring tool_choice
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
@@ -438,10 +439,61 @@ Java_com_rnllama_LlamaContext_getFormattedChat(
     const char *messages_chars = env->GetStringUTFChars(messages, nullptr);
     const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
     const char *tools_chars = env->GetStringUTFChars(tools, nullptr);
+    const char *parallel_tool_calls_chars = env->GetStringUTFChars(parallel_tool_calls, nullptr);
+    const char *tool_choice_chars = env->GetStringUTFChars(tool_choice, nullptr);
 
-    std::string formatted_chat = llama->getFormattedChat(messages_chars, tmpl_chars, use_jinja, tools_chars);
+    auto formatted = llama->getFormattedChatWithJinja(
+      messages_chars,
+      tmpl_chars,
+      tools_chars,
+      parallel_tool_calls_chars,
+      tool_choice_chars
+    );
 
     env->ReleaseStringUTFChars(tools, tools_chars);
+    env->ReleaseStringUTFChars(messages, messages_chars);
+    env->ReleaseStringUTFChars(chat_template, tmpl_chars);
+    env->ReleaseStringUTFChars(parallel_tool_calls, parallel_tool_calls_chars);
+    env->ReleaseStringUTFChars(tool_choice, tool_choice_chars);
+
+    auto result = createWriteableMap(env);
+    putString(env, result, "prompt", formatted.prompt.get<std::string>().c_str());
+    putInt(env, result, "chat_format", static_cast<int>(formatted.format));
+    putString(env, result, "grammar", formatted.grammar.c_str());
+    putBoolean(env, result, "grammar_lazy", formatted.grammar_lazy);
+    auto grammar_triggers = createWritableArray(env);
+    for (const auto &trigger : formatted.grammar_triggers) {
+        auto trigger_map = createWriteableMap(env);
+        putString(env, trigger_map, "word", trigger.word.c_str());
+        putBoolean(env, trigger_map, "at_start", trigger.at_start);
+        pushMap(env, grammar_triggers, trigger_map);
+    }
+    putArray(env, result, "grammar_triggers", grammar_triggers);
+    auto additional_stops = createWritableArray(env);
+    for (const auto &stop : formatted.additional_stops) {
+        pushString(env, additional_stops, stop.c_str());
+    }
+    putArray(env, result, "additional_stops", additional_stops);
+
+    return reinterpret_cast<jobject>(result);
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_getFormattedChat(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring messages,
+    jstring chat_template
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *messages_chars = env->GetStringUTFChars(messages, nullptr);
+    const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
+
+    std::string formatted_chat = llama->getFormattedChat(messages_chars, tmpl_chars);
+
     env->ReleaseStringUTFChars(messages, messages_chars);
     env->ReleaseStringUTFChars(chat_template, tmpl_chars);
 
