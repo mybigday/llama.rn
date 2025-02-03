@@ -123,6 +123,7 @@ type JinjaFormattedChatResult = {
     at_start: boolean
     word: string
   }>
+  preserved_tokens?: Array<string>
   additional_stops?: Array<string>
 }
 
@@ -220,6 +221,8 @@ export class LlamaContext {
           nativeParams.grammar_lazy = formattedResult.grammar_lazy
         if (formattedResult.grammar_triggers)
           nativeParams.grammar_triggers = formattedResult.grammar_triggers
+        if (formattedResult.preserved_tokens)
+          nativeParams.preserved_tokens = formattedResult.preserved_tokens
         if (formattedResult.additional_stops) {
           if (!nativeParams.stop) nativeParams.stop = []
           nativeParams.stop.push(...formattedResult.additional_stops)

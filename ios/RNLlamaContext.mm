@@ -265,6 +265,11 @@
         }];
     }
     result[@"grammar_triggers"] = grammar_triggers;
+    NSMutableArray *preserved_tokens = [[NSMutableArray alloc] init];
+    for (const auto & token : chatParams.preserved_tokens) {
+        [preserved_tokens addObject:[NSString stringWithUTF8String:token.c_str()]];
+    }
+    result[@"preserved_tokens"] = preserved_tokens;
     NSMutableArray *additional_stops = [[NSMutableArray alloc] init];
     for (const auto & stop : chatParams.additional_stops) {
         [additional_stops addObject:[NSString stringWithUTF8String:stop.c_str()]];
@@ -380,10 +385,23 @@
             if (ids.size() == 1) {
                 // LOG_DBG("Grammar trigger token: %d (`%s`)\n", ids[0], trigger.word.c_str());
                 sparams.grammar_trigger_tokens.push_back(ids[0]);
+                sparams.preserved_tokens.insert(ids[0]);
                 continue;
             }
             // LOG_DBG("Grammar trigger word: `%s`\n", trigger.word.c_str());
             sparams.grammar_trigger_words.push_back(trigger);
+        }
+    }
+
+    if (params[@"preserved_tokens"] && [params[@"preserved_tokens"] isKindOfClass:[NSArray class]]) {
+        NSArray *preserved_tokens = params[@"preserved_tokens"];
+        for (NSString *token in preserved_tokens) {
+            auto ids = common_tokenize(llama->ctx, [token UTF8String], /* add_special= */ false, /* parse_special= */ true);
+            if (ids.size() == 1) {
+                sparams.preserved_tokens.insert(ids[0]);
+            } else {
+                LOG_WRN("Not preserved because more than 1 token (wrong chat template override?): %s\n", [token UTF8String]);
+            }
         }
     }
 

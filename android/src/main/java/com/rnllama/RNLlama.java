@@ -130,10 +130,10 @@ public class RNLlama implements LifecycleEventListener {
           }
           if (params.hasKey("jinja") && params.getBoolean("jinja")) {
             ReadableMap result = context.getFormattedChatWithJinja(messages, chatTemplate, params);
-            if (result.hasKey("error")) {
-              throw new Exception(result.getString("error"));
+            if (result.hasKey("_error")) {
+              throw new Exception(result.getString("_error"));
             }
-            return result.getMap("result");
+            return result;
           }
           return context.getFormattedChat(messages, chatTemplate);
         } catch (Exception e) {

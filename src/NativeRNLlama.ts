@@ -70,6 +70,7 @@ export type NativeCompletionParams = {
     at_start: boolean
     word: string
   }>
+  preserved_tokens?: Array<string>
   chat_format?: number
   /**
    * Specify a JSON array of stopping strings.

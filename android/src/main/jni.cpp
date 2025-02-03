@@ -442,16 +442,15 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     const char *parallel_tool_calls_chars = env->GetStringUTFChars(parallel_tool_calls, nullptr);
     const char *tool_choice_chars = env->GetStringUTFChars(tool_choice, nullptr);
 
-    auto returnResult = createWriteableMap(env);
+    auto result = createWriteableMap(env);
     try {
         auto formatted = llama->getFormattedChatWithJinja(
-          messages_chars,
-          tmpl_chars,
-          tools_chars,
-          parallel_tool_calls_chars,
-          tool_choice_chars
+            messages_chars,
+            tmpl_chars,
+            tools_chars,
+            parallel_tool_calls_chars,
+            tool_choice_chars
         );
-        auto result = createWriteableMap(env);
         putString(env, result, "prompt", formatted.prompt.get<std::string>().c_str());
         putInt(env, result, "chat_format", static_cast<int>(formatted.format));
         putString(env, result, "grammar", formatted.grammar.c_str());
@@ -464,22 +463,26 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
             pushMap(env, grammar_triggers, trigger_map);
         }
         putArray(env, result, "grammar_triggers", grammar_triggers);
+        auto preserved_tokens = createWritableArray(env);
+        for (const auto &token : formatted.preserved_tokens) {
+            pushString(env, preserved_tokens, token.c_str());
+        }
+        putArray(env, result, "preserved_tokens", preserved_tokens);
         auto additional_stops = createWritableArray(env);
         for (const auto &stop : formatted.additional_stops) {
             pushString(env, additional_stops, stop.c_str());
         }
         putArray(env, result, "additional_stops", additional_stops);
-        putMap(env, returnResult, "result", result);
     } catch (const std::runtime_error &e) {
         LOGI("[RNLlama] Error: %s", e.what());
-        putString(env, returnResult, "error", e.what());
+        putString(env, result, "_error", e.what());
     }
+    env->ReleaseStringUTFChars(tools, tools_chars);
     env->ReleaseStringUTFChars(messages, messages_chars);
     env->ReleaseStringUTFChars(chat_template, tmpl_chars);
-    env->ReleaseStringUTFChars(tools, tools_chars);
     env->ReleaseStringUTFChars(parallel_tool_calls, parallel_tool_calls_chars);
     env->ReleaseStringUTFChars(tool_choice, tool_choice_chars);
-    return reinterpret_cast<jobject>(returnResult);
+    return reinterpret_cast<jobject>(result);
 }
 
 JNIEXPORT jobject JNICALL
@@ -591,6 +594,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jstring grammar,
     jboolean grammar_lazy,
     jobject grammar_triggers,
+    jobject preserved_tokens,
     jfloat temperature,
     jint n_threads,
     jint n_predict,
@@ -661,23 +665,37 @@ Java_com_rnllama_LlamaContext_doCompletion(
     // grammar
     sparams.grammar = env->GetStringUTFChars(grammar, nullptr);
     sparams.grammar_lazy = grammar_lazy;
-    if (grammar_triggers) {
-      int grammar_triggers_size = readablearray::size(env, grammar_triggers);
-      for (int i = 0; i < grammar_triggers_size; i++) {
-        common_grammar_trigger trigger;
-        auto trigger_map = readablearray::getMap(env, grammar_triggers, i);
-        jstring trigger_word = readablemap::getString(env, trigger_map, "word", nullptr);
-        jboolean trigger_at_start = readablemap::getBool(env, trigger_map, "at_start", false);
-        trigger.word = env->GetStringUTFChars(trigger_word, nullptr);
-        trigger.at_start = trigger_at_start;
+    if (grammar_triggers != nullptr) {
+        int grammar_triggers_size = readablearray::size(env, grammar_triggers);
+        for (int i = 0; i < grammar_triggers_size; i++) {
+            common_grammar_trigger trigger;
+            auto trigger_map = readablearray::getMap(env, grammar_triggers, i);
+            jstring trigger_word = readablemap::getString(env, trigger_map, "word", nullptr);
+            jboolean trigger_at_start = readablemap::getBool(env, trigger_map, "at_start", false);
+            trigger.word = env->GetStringUTFChars(trigger_word, nullptr);
+            trigger.at_start = trigger_at_start;
 
-        auto ids = common_tokenize(llama->ctx, trigger.word, /* add_special= */ false, /* parse_special= */ true);
-        if (ids.size() == 1) {
-          sparams.grammar_trigger_tokens.push_back(ids[0]);
-          continue;
+            auto ids = common_tokenize(llama->ctx, trigger.word, /* add_special= */ false, /* parse_special= */ true);
+            if (ids.size() == 1) {
+                sparams.grammar_trigger_tokens.push_back(ids[0]);
+                sparams.preserved_tokens.insert(ids[0]);
+                continue;
+            }
+            sparams.grammar_trigger_words.push_back(trigger);
         }
-        sparams.grammar_trigger_words.push_back(trigger);
-      }
+    }
+
+    if (preserved_tokens != nullptr) {
+        int preserved_tokens_size = readablearray::size(env, preserved_tokens);
+        for (int i = 0; i < preserved_tokens_size; i++) {
+            jstring preserved_token = readablearray::getString(env, preserved_tokens, i);
+            auto ids = common_tokenize(llama->ctx, env->GetStringUTFChars(preserved_token, nullptr), /* add_special= */ false, /* parse_special= */ true);
+            if (ids.size() == 1) {
+                sparams.preserved_tokens.insert(ids[0]);
+            } else {
+                LOGI("[RNLlama] Not preserved because more than 1 token (wrong chat template override?): %s", env->GetStringUTFChars(preserved_token, nullptr));
+            }
+        }
     }
 
     const llama_model * model = llama_get_model(llama->ctx);
