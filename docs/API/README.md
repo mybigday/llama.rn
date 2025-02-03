@@ -18,6 +18,7 @@ llama.rn
 
 - [BenchResult](README.md#benchresult)
 - [CompletionParams](README.md#completionparams)
+- [CompletionResponseFormat](README.md#completionresponseformat)
 - [ContextParams](README.md#contextparams)
 - [EmbeddingParams](README.md#embeddingparams)
 - [NativeCompletionParams](README.md#nativecompletionparams)
@@ -63,17 +64,37 @@ llama.rn
 
 #### Defined in
 
-[index.ts:107](https://github.com/mybigday/llama.rn/blob/00f2415/src/index.ts#L107)
+[index.ts:117](https://github.com/mybigday/llama.rn/blob/77772cb/src/index.ts#L117)
 
 ___
 
 ### CompletionParams
 
-Ƭ **CompletionParams**: `Omit`<[`NativeCompletionParams`](README.md#nativecompletionparams), ``"emit_partial_completion"`` \| ``"prompt"``\> & { `chatTemplate?`: `string` ; `jinja?`: `boolean` ; `messages?`: [`RNLlamaOAICompatibleMessage`](README.md#rnllamaoaicompatiblemessage)[] ; `parallel_tool_calls?`: `object` ; `prompt?`: `string` ; `tool_choice?`: `string` ; `tools?`: `object`  }
+Ƭ **CompletionParams**: `Omit`<[`NativeCompletionParams`](README.md#nativecompletionparams), ``"emit_partial_completion"`` \| ``"prompt"``\> & { `chatTemplate?`: `string` ; `jinja?`: `boolean` ; `messages?`: [`RNLlamaOAICompatibleMessage`](README.md#rnllamaoaicompatiblemessage)[] ; `parallel_tool_calls?`: `object` ; `prompt?`: `string` ; `response_format?`: [`CompletionResponseFormat`](README.md#completionresponseformat) ; `tool_choice?`: `string` ; `tools?`: `object`  }
 
 #### Defined in
 
-[index.ts:94](https://github.com/mybigday/llama.rn/blob/00f2415/src/index.ts#L94)
+[index.ts:103](https://github.com/mybigday/llama.rn/blob/77772cb/src/index.ts#L103)
+
+___
+
+### CompletionResponseFormat
+
+Ƭ **CompletionResponseFormat**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `json_schema?` | { `schema`: `object` ; `strict?`: `boolean`  } |
+| `json_schema.schema` | `object` |
+| `json_schema.strict?` | `boolean` |
+| `schema?` | `object` |
+| `type` | ``"text"`` \| ``"json_object"`` \| ``"json_schema"`` |
+
+#### Defined in
+
+[index.ts:94](https://github.com/mybigday/llama.rn/blob/77772cb/src/index.ts#L94)
 
 ___
 
@@ -83,7 +104,7 @@ ___
 
 #### Defined in
 
-[index.ts:67](https://github.com/mybigday/llama.rn/blob/00f2415/src/index.ts#L67)
+[index.ts:67](https://github.com/mybigday/llama.rn/blob/77772cb/src/index.ts#L67)
 
 ___
 
@@ -93,7 +114,7 @@ ___
 
 #### Defined in
 
-[index.ts:92](https://github.com/mybigday/llama.rn/blob/00f2415/src/index.ts#L92)
+[index.ts:92](https://github.com/mybigday/llama.rn/blob/77772cb/src/index.ts#L92)
 
 ___
 
@@ -116,6 +137,7 @@ ___
 | `grammar_lazy?` | `boolean` | - |
 | `grammar_triggers?` | { `at_start`: `boolean` ; `word`: `string`  }[] | - |
 | `ignore_eos?` | `boolean` | Ignore end of stream token and continue generating. Default: `false` |
+| `json_schema?` | `string` | - |
 | `logit_bias?` | `number`[][] | Modify the likelihood of a token appearing in the generated text completion. For example, use `"logit_bias": [[15043,1.0]]` to increase the likelihood of the token 'Hello', or `"logit_bias": [[15043,-1.0]]` to decrease its likelihood. Setting the value to false, `"logit_bias": [[15043,false]]` ensures that the token `Hello` is never produced. The tokens can also be represented as strings, e.g.`[["Hello, World!",-0.5]]` will reduce the likelihood of all the individual tokens that represent the string `Hello, World!`, just like the `presence_penalty` does. Default: `[]` |
 | `min_p?` | `number` | The minimum probability for a token to be considered, relative to the probability of the most likely token. Default: `0.05` |
 | `mirostat?` | `number` | Enable Mirostat sampling, controlling perplexity during text generation. Default: `0`, where `0` is disabled, `1` is Mirostat, and `2` is Mirostat 2.0. |
@@ -141,7 +163,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:61](https://github.com/mybigday/llama.rn/blob/00f2415/src/NativeRNLlama.ts#L61)
+[NativeRNLlama.ts:61](https://github.com/mybigday/llama.rn/blob/77772cb/src/NativeRNLlama.ts#L61)
 
 ___
 
@@ -167,7 +189,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:209](https://github.com/mybigday/llama.rn/blob/00f2415/src/NativeRNLlama.ts#L209)
+[NativeRNLlama.ts:210](https://github.com/mybigday/llama.rn/blob/77772cb/src/NativeRNLlama.ts#L210)
 
 ___
 
@@ -190,7 +212,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:198](https://github.com/mybigday/llama.rn/blob/00f2415/src/NativeRNLlama.ts#L198)
+[NativeRNLlama.ts:199](https://github.com/mybigday/llama.rn/blob/77772cb/src/NativeRNLlama.ts#L199)
 
 ___
 
@@ -207,7 +229,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:193](https://github.com/mybigday/llama.rn/blob/00f2415/src/NativeRNLlama.ts#L193)
+[NativeRNLlama.ts:194](https://github.com/mybigday/llama.rn/blob/77772cb/src/NativeRNLlama.ts#L194)
 
 ___
 
@@ -224,7 +246,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:188](https://github.com/mybigday/llama.rn/blob/00f2415/src/NativeRNLlama.ts#L188)
+[NativeRNLlama.ts:189](https://github.com/mybigday/llama.rn/blob/77772cb/src/NativeRNLlama.ts#L189)
 
 ___
 
@@ -261,7 +283,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:8](https://github.com/mybigday/llama.rn/blob/00f2415/src/NativeRNLlama.ts#L8)
+[NativeRNLlama.ts:8](https://github.com/mybigday/llama.rn/blob/77772cb/src/NativeRNLlama.ts#L8)
 
 ___
 
@@ -277,7 +299,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:4](https://github.com/mybigday/llama.rn/blob/00f2415/src/NativeRNLlama.ts#L4)
+[NativeRNLlama.ts:4](https://github.com/mybigday/llama.rn/blob/77772cb/src/NativeRNLlama.ts#L4)
 
 ___
 
@@ -293,7 +315,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:229](https://github.com/mybigday/llama.rn/blob/00f2415/src/NativeRNLlama.ts#L229)
+[NativeRNLlama.ts:230](https://github.com/mybigday/llama.rn/blob/77772cb/src/NativeRNLlama.ts#L230)
 
 ___
 
@@ -338,7 +360,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:233](https://github.com/mybigday/llama.rn/blob/00f2415/src/NativeRNLlama.ts#L233)
+[NativeRNLlama.ts:234](https://github.com/mybigday/llama.rn/blob/77772cb/src/NativeRNLlama.ts#L234)
 
 ___
 
@@ -355,7 +377,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:274](https://github.com/mybigday/llama.rn/blob/00f2415/src/NativeRNLlama.ts#L274)
+[NativeRNLlama.ts:275](https://github.com/mybigday/llama.rn/blob/77772cb/src/NativeRNLlama.ts#L275)
 
 ___
 
@@ -371,7 +393,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:225](https://github.com/mybigday/llama.rn/blob/00f2415/src/NativeRNLlama.ts#L225)
+[NativeRNLlama.ts:226](https://github.com/mybigday/llama.rn/blob/77772cb/src/NativeRNLlama.ts#L226)
 
 ___
 
@@ -387,7 +409,7 @@ ___
 
 #### Defined in
 
-[chat.ts:3](https://github.com/mybigday/llama.rn/blob/00f2415/src/chat.ts#L3)
+[chat.ts:3](https://github.com/mybigday/llama.rn/blob/77772cb/src/chat.ts#L3)
 
 ___
 
@@ -404,7 +426,7 @@ ___
 
 #### Defined in
 
-[chat.ts:7](https://github.com/mybigday/llama.rn/blob/00f2415/src/chat.ts#L7)
+[chat.ts:7](https://github.com/mybigday/llama.rn/blob/77772cb/src/chat.ts#L7)
 
 ___
 
@@ -421,7 +443,7 @@ ___
 
 #### Defined in
 
-[index.ts:57](https://github.com/mybigday/llama.rn/blob/00f2415/src/index.ts#L57)
+[index.ts:57](https://github.com/mybigday/llama.rn/blob/77772cb/src/index.ts#L57)
 
 ## Functions
 
@@ -445,7 +467,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:829](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L829)
+[grammar.ts:829](https://github.com/mybigday/llama.rn/blob/77772cb/src/grammar.ts#L829)
 
 ___
 
@@ -466,7 +488,7 @@ ___
 
 #### Defined in
 
-[index.ts:361](https://github.com/mybigday/llama.rn/blob/00f2415/src/index.ts#L361)
+[index.ts:389](https://github.com/mybigday/llama.rn/blob/77772cb/src/index.ts#L389)
 
 ___
 
@@ -486,7 +508,7 @@ ___
 
 #### Defined in
 
-[index.ts:346](https://github.com/mybigday/llama.rn/blob/00f2415/src/index.ts#L346)
+[index.ts:374](https://github.com/mybigday/llama.rn/blob/77772cb/src/index.ts#L374)
 
 ___
 
@@ -500,7 +522,7 @@ ___
 
 #### Defined in
 
-[index.ts:427](https://github.com/mybigday/llama.rn/blob/00f2415/src/index.ts#L427)
+[index.ts:455](https://github.com/mybigday/llama.rn/blob/77772cb/src/index.ts#L455)
 
 ___
 
@@ -520,4 +542,4 @@ ___
 
 #### Defined in
 
-[index.ts:332](https://github.com/mybigday/llama.rn/blob/00f2415/src/index.ts#L332)
+[index.ts:360](https://github.com/mybigday/llama.rn/blob/77772cb/src/index.ts#L360)
