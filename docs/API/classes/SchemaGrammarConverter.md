@@ -46,7 +46,7 @@
 
 #### Defined in
 
-[grammar.ts:213](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L213)
+[grammar.ts:216](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L216)
 
 ## Properties
 
@@ -56,7 +56,7 @@
 
 #### Defined in
 
-[grammar.ts:203](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L203)
+[grammar.ts:206](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L206)
 
 ___
 
@@ -66,7 +66,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:205](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L205)
+[grammar.ts:208](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L208)
 
 ___
 
@@ -76,7 +76,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:201](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L201)
+[grammar.ts:204](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L204)
 
 ___
 
@@ -90,7 +90,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:209](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L209)
+[grammar.ts:212](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L212)
 
 ___
 
@@ -100,7 +100,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:211](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L211)
+[grammar.ts:214](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L214)
 
 ___
 
@@ -114,7 +114,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:207](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L207)
+[grammar.ts:210](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L210)
 
 ## Methods
 
@@ -135,7 +135,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:695](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L695)
+[grammar.ts:698](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L698)
 
 ___
 
@@ -156,7 +156,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:226](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L226)
+[grammar.ts:229](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L229)
 
 ___
 
@@ -179,7 +179,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:712](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L712)
+[grammar.ts:715](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L715)
 
 ___
 
@@ -200,7 +200,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:314](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L314)
+[grammar.ts:317](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L317)
 
 ___
 
@@ -220,7 +220,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:520](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L520)
+[grammar.ts:523](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L523)
 
 ___
 
@@ -241,7 +241,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:325](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L325)
+[grammar.ts:328](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L328)
 
 ___
 
@@ -255,7 +255,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:815](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L815)
+[grammar.ts:818](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L818)
 
 ___
 
@@ -276,7 +276,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:249](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L249)
+[grammar.ts:252](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L252)
 
 ___
 
@@ -297,4 +297,4 @@ ___
 
 #### Defined in
 
-[grammar.ts:531](https://github.com/mybigday/llama.rn/blob/402a590/src/grammar.ts#L531)
+[grammar.ts:534](https://github.com/mybigday/llama.rn/blob/00f2415/src/grammar.ts#L534)
