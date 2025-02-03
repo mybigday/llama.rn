@@ -109,6 +109,7 @@ public class LlamaContext {
   }
 
   public WritableMap getFormattedChatWithJinja(String messages, String chatTemplate, ReadableMap params) {
+    String jsonSchema = params.hasKey("json_schema") ? params.getString("json_schema") : "";
     String tools = params.hasKey("tools") ? params.getString("tools") : "";
     Boolean parallelToolCalls = params.hasKey("parallel_tool_calls") ? params.getBoolean("parallel_tool_calls") : false;
     String toolChoice = params.hasKey("tool_choice") ? params.getString("tool_choice") : "";
@@ -116,6 +117,7 @@ public class LlamaContext {
       this.context,
       messages,
       chatTemplate == null ? "" : chatTemplate,
+      jsonSchema,
       tools,
       parallelToolCalls,
       toolChoice
@@ -213,6 +215,8 @@ public class LlamaContext {
       params.getString("prompt"),
       // String grammar,
       params.hasKey("grammar") ? params.getString("grammar") : "",
+      // String json_schema,
+      params.hasKey("json_schema") ? params.getString("json_schema") : "",
       // boolean grammar_lazy,
       params.hasKey("grammar_lazy") ? params.getBoolean("grammar_lazy") : false,
       // ReadableArray grammar_triggers,
@@ -462,6 +466,7 @@ public class LlamaContext {
     long contextPtr,
     String messages,
     String chatTemplate,
+    String jsonSchema,
     String tools,
     boolean parallelToolCalls,
     String toolChoice
@@ -484,6 +489,7 @@ public class LlamaContext {
     long context_ptr,
     String prompt,
     String grammar,
+    String json_schema,
     boolean grammar_lazy,
     ReadableArray grammar_triggers,
     ReadableArray preserved_tokens,

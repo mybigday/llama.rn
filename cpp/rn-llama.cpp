@@ -214,6 +214,7 @@ bool llama_rn_context::validateModelChatTemplate(bool use_jinja, const char *nam
 common_chat_params llama_rn_context::getFormattedChatWithJinja(
   const std::string &messages,
   const std::string &chat_template,
+  const std::string &json_schema,
   const std::string &tools,
   const bool &parallel_tool_calls,
   const std::string &tool_choice
@@ -227,6 +228,9 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
   inputs.parallel_tool_calls = parallel_tool_calls;
   if (!tool_choice.empty()) {
       inputs.tool_choice = tool_choice;
+  }
+  if (!json_schema.empty()) {
+      inputs.json_schema = json::parse(json_schema);
   }
   inputs.stream = true;
 

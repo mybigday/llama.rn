@@ -12,12 +12,38 @@ import type { LlamaContext } from 'llama.rn'
 import {
   initLlama,
   loadLlamaModelInfo,
-  convertJsonSchemaToGrammar,
   // eslint-disable-next-line import/no-unresolved
 } from 'llama.rn'
 import { Bubble } from './Bubble'
 
 const { dirs } = ReactNativeBlobUtil.fs
+
+// Example grammar for output JSON
+const testGbnf = `root   ::= object
+value  ::= object | array | string | number | ("true" | "false" | "null") ws
+
+object ::=
+  "{" ws (
+            string ":" ws value
+    ("," ws string ":" ws value)*
+  )? "}" ws
+
+array  ::=
+  "[" ws (
+            value
+    ("," ws value)*
+  )? "]" ws
+
+string ::=
+  "\\"" (
+    [^"\\\\\\x7F\\x00-\\x1F] |
+    "\\\\" (["\\\\bfnrt] | "u" [0-9a-fA-F]{4}) # escapes
+  )* "\\"" ws
+
+number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1-9]{0,15})? ws
+
+# Optional space: by convention, applied in this grammar after literal chars when allowed
+ws ::= | " " | "\\n" [ \\t]{0,20}`
 
 const randId = () => Math.random().toString(36).substr(2, 9)
 
@@ -349,11 +375,66 @@ export default function App() {
     addMessage(textMessage)
     setInferencing(true)
 
+    let responseFormat
+    {
+      // Test JSON Schema
+      responseFormat = {
+        type: 'json_schema',
+        json_schema: {
+          schema: {
+            oneOf: [
+              {
+                type: 'object',
+                properties: {
+                  function: { const: 'create_event' },
+                  arguments: {
+                    type: 'object',
+                    properties: {
+                      title: { type: 'string' },
+                      date: { type: 'string' },
+                      time: { type: 'string' },
+                    },
+                    required: ['title', 'date'],
+                  },
+                },
+                required: ['function', 'arguments'],
+              },
+              {
+                type: 'object',
+                properties: {
+                  function: { const: 'image_search' },
+                  arguments: {
+                    type: 'object',
+                    properties: {
+                      query: { type: 'string' },
+                    },
+                    required: ['query'],
+                  },
+                },
+                required: ['function', 'arguments'],
+              },
+            ],
+          }
+        },
+      }
+      // Comment to test:
+      responseFormat = undefined
+    }
+
+    let grammar
+    {
+      // Test grammar (It will override responseFormat)
+      grammar = testGbnf
+      // Comment to test:
+      grammar = undefined
+    }
+
     let jinjaParams: any = {}
     // Test jinja & tools
     {
-      const params = {
+      jinjaParams = {
         jinja: true,
+        response_format: responseFormat,
         tool_choice: 'auto',
         tools: [
           {
@@ -376,10 +457,8 @@ export default function App() {
           },
         ],
       }
-      jinjaParams = params
+      // Comment to test:
       jinjaParams = undefined
-      // Uncomment to test:
-      // jinjaParams = params
     }
 
     // Test area
@@ -411,60 +490,13 @@ export default function App() {
       // })
     }
 
-    let grammar
-    {
-      // Test JSON Schema -> grammar
-      const schema = {
-        oneOf: [
-          {
-            type: 'object',
-            properties: {
-              function: { const: 'create_event' },
-              arguments: {
-                type: 'object',
-                properties: {
-                  title: { type: 'string' },
-                  date: { type: 'string' },
-                  time: { type: 'string' },
-                },
-                required: ['title', 'date'],
-              },
-            },
-            required: ['function', 'arguments'],
-          },
-          {
-            type: 'object',
-            properties: {
-              function: { const: 'image_search' },
-              arguments: {
-                type: 'object',
-                properties: {
-                  query: { type: 'string' },
-                },
-                required: ['query'],
-              },
-            },
-            required: ['function', 'arguments'],
-          },
-        ],
-      }
-
-      const converted = convertJsonSchemaToGrammar({
-        schema,
-        propOrder: { function: 0, arguments: 1 },
-      })
-      // @ts-ignore
-      if (false) console.log('Converted grammar:', converted)
-      grammar = undefined
-      // Uncomment to test:
-      // grammar = converted
-    }
-
     context
       ?.completion(
         {
           messages: msgs,
           n_predict: 2048,
+
+          response_format: responseFormat,
           grammar,
           ...jinjaParams,
 
@@ -504,6 +536,7 @@ export default function App() {
             '<|endoftext|>',
             '<end_of_turn>',
             '<eos>',
+            '<｜end▁of▁sentence｜>',
           ],
           // n_threads: 4,
           // logit_bias: [[15043,1.0]],

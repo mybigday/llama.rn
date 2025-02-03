@@ -8,12 +8,12 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include "json-schema-to-grammar.h"
 #include "llama.h"
 #include "llama-impl.h"
 #include "ggml.h"
 #include "rn-llama.h"
 #include "jni-utils.h"
-
 #define UNUSED(x) (void)(x)
 #define TAG "RNLLAMA_ANDROID_JNI"
 
@@ -464,6 +464,7 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     jlong context_ptr,
     jstring messages,
     jstring chat_template,
+    jstring json_schema,
     jstring tools,
     jboolean parallel_tool_calls,
     jstring tool_choice
@@ -473,6 +474,7 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
 
     const char *messages_chars = env->GetStringUTFChars(messages, nullptr);
     const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
+    const char *json_schema_chars = env->GetStringUTFChars(json_schema, nullptr);
     const char *tools_chars = env->GetStringUTFChars(tools, nullptr);
     const char *tool_choice_chars = env->GetStringUTFChars(tool_choice, nullptr);
 
@@ -481,6 +483,7 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
         auto formatted = llama->getFormattedChatWithJinja(
             messages_chars,
             tmpl_chars,
+            json_schema_chars,
             tools_chars,
             parallel_tool_calls,
             tool_choice_chars
@@ -514,6 +517,7 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     env->ReleaseStringUTFChars(tools, tools_chars);
     env->ReleaseStringUTFChars(messages, messages_chars);
     env->ReleaseStringUTFChars(chat_template, tmpl_chars);
+    env->ReleaseStringUTFChars(json_schema, json_schema_chars);
     env->ReleaseStringUTFChars(tool_choice, tool_choice_chars);
     return reinterpret_cast<jobject>(result);
 }
@@ -625,6 +629,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jlong context_ptr,
     jstring prompt,
     jstring grammar,
+    jstring json_schema,
     jboolean grammar_lazy,
     jobject grammar_triggers,
     jobject preserved_tokens,
@@ -663,7 +668,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     //llama_reset_timings(llama->ctx);
 
-    llama->params.prompt = env->GetStringUTFChars(prompt, nullptr);
+    auto prompt_chars = env->GetStringUTFChars(prompt, nullptr);
+    llama->params.prompt = prompt_chars;
     llama->params.sampling.seed = (seed == -1) ? time(NULL) : seed;
 
     int max_threads = std::thread::hardware_concurrency();
@@ -696,7 +702,10 @@ Java_com_rnllama_LlamaContext_doCompletion(
     sparams.dry_penalty_last_n = dry_penalty_last_n;
 
     // grammar
-    sparams.grammar = env->GetStringUTFChars(grammar, nullptr);
+    auto grammar_chars = env->GetStringUTFChars(grammar, nullptr);
+    if (grammar_chars && grammar_chars[0] != '\0') {
+      sparams.grammar = grammar_chars;
+    }
     sparams.grammar_lazy = grammar_lazy;
     if (grammar_triggers != nullptr) {
         int grammar_triggers_size = readablearray::size(env, grammar_triggers);
@@ -717,6 +726,13 @@ Java_com_rnllama_LlamaContext_doCompletion(
             sparams.grammar_trigger_words.push_back(trigger);
         }
     }
+
+    auto json_schema_chars = env->GetStringUTFChars(json_schema, nullptr);
+    if ((!grammar_chars || grammar_chars[0] == '\0') && json_schema_chars && json_schema_chars[0] != '\0') {
+        auto schema = json::parse(json_schema_chars);
+        sparams.grammar = json_schema_to_grammar(schema);
+    }
+    env->ReleaseStringUTFChars(json_schema, json_schema_chars);
 
     if (preserved_tokens != nullptr) {
         int preserved_tokens_size = readablearray::size(env, preserved_tokens);
@@ -854,6 +870,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
         }
     }
 
+    env->ReleaseStringUTFChars(grammar, grammar_chars);
+    env->ReleaseStringUTFChars(prompt, prompt_chars);
     llama_perf_context_print(llama->ctx);
     llama->is_predicting = false;
 

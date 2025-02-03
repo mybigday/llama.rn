@@ -89,10 +89,11 @@ RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
         return;
     }
     if ([params[@"jinja"] boolValue]) {
+        NSString *jsonSchema = params[@"json_schema"];
         NSString *tools = params[@"tools"];
         NSString *parallelToolCalls = params[@"parallel_tool_calls"];
         NSString *toolChoice = params[@"tool_choice"];
-        resolve([context getFormattedChatWithJinja:messages withChatTemplate:chatTemplate withTools:tools withParallelToolCalls:parallelToolCalls withToolChoice:toolChoice]);
+        resolve([context getFormattedChatWithJinja:messages withChatTemplate:chatTemplate withJsonSchema:jsonSchema withTools:tools withParallelToolCalls:parallelToolCalls withToolChoice:toolChoice]);
     } else {
         resolve([context getFormattedChat:messages withChatTemplate:chatTemplate]);
     }
