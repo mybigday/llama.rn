@@ -100,10 +100,7 @@ export type CompletionResponseFormat = {
   schema?: object // for json_object type
 }
 
-export type CompletionParams = Omit<
-  NativeCompletionParams,
-  'emit_partial_completion' | 'prompt'
-> & {
+export type CompletionBaseParams = {
   prompt?: string
   messages?: RNLlamaOAICompatibleMessage[]
   chatTemplate?: string
@@ -113,6 +110,10 @@ export type CompletionParams = Omit<
   tool_choice?: string
   response_format?: CompletionResponseFormat
 }
+export type CompletionParams = Omit<
+  NativeCompletionParams,
+  'emit_partial_completion' | 'prompt'
+> & CompletionBaseParams
 
 export type BenchResult = {
   modelDesc: string

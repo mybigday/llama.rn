@@ -242,6 +242,8 @@ const { text } = await context.completion({
 console.log('Result:', text)
 ```
 
+Also, this is how `json_schema` works in `response_format` during completion, it converts the json_schema to gbnf grammar.
+
 ## Mock `llama.rn`
 
 We have provided a mock version of `llama.rn` for testing purpose you can use on Jest:

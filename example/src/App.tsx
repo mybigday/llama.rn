@@ -421,6 +421,14 @@ export default function App() {
       responseFormat = undefined
     }
 
+    let grammar
+    {
+      // Test grammar (It will override responseFormat)
+      grammar = testGbnf
+      // Comment to test:
+      grammar = undefined
+    }
+
     let jinjaParams: any = {}
     // Test jinja & tools
     {
@@ -451,14 +459,6 @@ export default function App() {
       }
       // Comment to test:
       jinjaParams = undefined
-    }
-
-    let grammar
-    {
-      // Test grammar
-      grammar = testGbnf
-      // Comment to test:
-      grammar = undefined
     }
 
     // Test area
