@@ -39,7 +39,7 @@
 - (NSDictionary *)getFormattedChatWithJinja:(NSString *)messages
     withChatTemplate:(NSString *)chatTemplate
     withTools:(NSString *)tools
-    withParallelToolCalls:(NSString *)parallel_tool_calls
+    withParallelToolCalls:(BOOL)parallelToolCalls
     withToolChoice:(NSString *)tool_choice;
 - (NSString *)getFormattedChat:(NSString *)messages withChatTemplate:(NSString *)chatTemplate;
 - (NSDictionary *)loadSession:(NSString *)path;
