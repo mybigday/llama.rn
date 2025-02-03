@@ -108,12 +108,22 @@ public class LlamaContext {
     return loadedLibrary;
   }
 
-  public String getFormattedChat(ReadableArray messages, String chatTemplate) {
-    ReadableMap[] msgs = new ReadableMap[messages.size()];
-    for (int i = 0; i < messages.size(); i++) {
-      msgs[i] = messages.getMap(i);
-    }
-    return getFormattedChat(this.context, msgs, chatTemplate == null ? "" : chatTemplate);
+  public WritableMap getFormattedChatWithJinja(String messages, String chatTemplate, ReadableMap params) {
+    String tools = params.hasKey("tools") ? params.getString("tools") : "";
+    Boolean parallelToolCalls = params.hasKey("parallel_tool_calls") ? params.getBoolean("parallel_tool_calls") : false;
+    String toolChoice = params.hasKey("tool_choice") ? params.getString("tool_choice") : "";
+    return getFormattedChatWithJinja(
+      this.context,
+      messages,
+      chatTemplate == null ? "" : chatTemplate,
+      tools,
+      parallelToolCalls,
+      toolChoice
+    );
+  }
+
+  public String getFormattedChat(String messages, String chatTemplate) {
+    return getFormattedChat(this.context, messages, chatTemplate == null ? "" : chatTemplate);
   }
 
   private void emitLoadProgress(int progress) {
@@ -203,6 +213,12 @@ public class LlamaContext {
       params.getString("prompt"),
       // String grammar,
       params.hasKey("grammar") ? params.getString("grammar") : "",
+      // boolean grammar_lazy,
+      params.hasKey("grammar_lazy") ? params.getBoolean("grammar_lazy") : false,
+      // ReadableArray grammar_triggers,
+      params.hasKey("grammar_triggers") ? params.getArray("grammar_triggers") : null,
+      // ReadableArray preserved_tokens,
+      params.hasKey("preserved_tokens") ? params.getArray("preserved_tokens") : null,
       // float temperature,
       params.hasKey("temperature") ? (float) params.getDouble("temperature") : 0.7f,
       // int n_threads,
@@ -442,9 +458,17 @@ public class LlamaContext {
   protected static native WritableMap loadModelDetails(
     long contextPtr
   );
+  protected static native WritableMap getFormattedChatWithJinja(
+    long contextPtr,
+    String messages,
+    String chatTemplate,
+    String tools,
+    boolean parallelToolCalls,
+    String toolChoice
+  );
   protected static native String getFormattedChat(
     long contextPtr,
-    ReadableMap[] messages,
+    String messages,
     String chatTemplate
   );
   protected static native WritableMap loadSession(
@@ -460,6 +484,9 @@ public class LlamaContext {
     long context_ptr,
     String prompt,
     String grammar,
+    boolean grammar_lazy,
+    ReadableArray grammar_triggers,
+    ReadableArray preserved_tokens,
     float temperature,
     int n_threads,
     int n_predict,

@@ -128,6 +128,10 @@ static void lm_ggml_print_backtrace_symbols(void) {
 #endif
 
 static void lm_ggml_print_backtrace(void) {
+    const char * LM_GGML_NO_BACKTRACE = getenv("LM_GGML_NO_BACKTRACE");
+    if (LM_GGML_NO_BACKTRACE) {
+        return;
+    }
     char attach[32];
     snprintf(attach, sizeof(attach), "attach %d", getpid());
     int pid = fork();
@@ -5339,7 +5343,7 @@ static void lm_ggml_compute_backward(
         } break;
         case LM_GGML_OP_MUL: {
             if (src0_needs_grads) {
-                lm_ggml_add_or_set(ctx, cgraph, isrc0, lm_ggml_mul(ctx, src1, grad));
+                lm_ggml_add_or_set(ctx, cgraph, isrc0, lm_ggml_mul(ctx, grad, src1));
             }
             if (src1_needs_grads) {
                 struct lm_ggml_tensor * tmp = lm_ggml_mul(ctx, src0, grad);
@@ -5431,21 +5435,25 @@ static void lm_ggml_compute_backward(
             // src1.shape   [n,p,qq,rr]
 
             if (src0_needs_grads) {
-                struct lm_ggml_tensor * s1_tg =
+                LM_GGML_ASSERT(grad->ne[2] == src1->ne[2]);
+                LM_GGML_ASSERT(grad->ne[3] == src1->ne[3]);
+                struct lm_ggml_tensor * tmp =
                     lm_ggml_out_prod(ctx, // [n,m,qq,rr]
                         src1,          // [n,p,qq,rr]
                         grad);         // [m,p,qq,rr]
-                const int64_t qq = s1_tg->ne[2];
-                const int64_t rr = s1_tg->ne[3];
-                const int64_t q1 = src0->ne[2];
-                const int64_t r1 = src0->ne[3];
-                const bool ne2_broadcasted = qq > q1;
-                const bool ne3_broadcasted = rr > r1;
-                if (ne2_broadcasted || ne3_broadcasted) {
-                    // sum broadcast repetitions of s1_tg into shape of src0
-                    s1_tg = lm_ggml_repeat_back(ctx, s1_tg, src0);
+                if (!lm_ggml_are_same_shape(tmp, src0)) {
+                    LM_GGML_ASSERT(tmp->ne[0] == src0->ne[0]);
+                    LM_GGML_ASSERT(tmp->ne[1] == src0->ne[1]);
+                    LM_GGML_ASSERT(tmp->ne[3] == 1);
+
+                    const int64_t nr2 = tmp->ne[2] / src0->ne[2];
+                    const size_t nb2 = tmp->nb[2] * nr2;
+                    const size_t nb3 = tmp->nb[2];
+
+                    tmp = lm_ggml_view_4d(ctx, tmp, src0->ne[0], src0->ne[1], src0->ne[2], nr2, tmp->nb[1], nb2, nb3, 0);
+                    tmp = lm_ggml_repeat_back(ctx, tmp, src0);
                 }
-                lm_ggml_add_or_set(ctx, cgraph, isrc0, s1_tg /*= [n,m,q1,r1]*/);
+                lm_ggml_add_or_set(ctx, cgraph, isrc0, tmp);
             }
             if (src1_needs_grads) {
                 lm_ggml_add_or_set(ctx, cgraph, isrc1,
@@ -5514,7 +5522,9 @@ static void lm_ggml_compute_backward(
             if (src0_needs_grads) {
                 LM_GGML_ASSERT(!cgraph->grads[isrc0] || lm_ggml_is_contiguous(cgraph->grads[isrc0]));
                 LM_GGML_ASSERT(lm_ggml_is_contiguous(grad));
-                lm_ggml_add_or_set(ctx, cgraph, isrc0, grad);
+                LM_GGML_ASSERT(lm_ggml_nelements(tensor) == lm_ggml_nelements(src0));
+                lm_ggml_add_or_set(ctx, cgraph, isrc0,
+                    lm_ggml_are_same_shape(tensor, src0) ? grad : lm_ggml_reshape(ctx, grad, src0));
             }
         } break;
         case LM_GGML_OP_RESHAPE: {

@@ -98,6 +98,10 @@ export type CompletionParams = Omit<
   prompt?: string
   messages?: RNLlamaOAICompatibleMessage[]
   chatTemplate?: string
+  jinja?: boolean
+  tools?: object
+  parallel_tool_calls?: object
+  tool_choice?: string
 }
 
 export type BenchResult = {
@@ -110,6 +114,19 @@ export type BenchResult = {
   tgStd: number
 }
 
+type JinjaFormattedChatResult = {
+  prompt: string
+  chat_format?: number
+  grammar?: string
+  grammar_lazy?: boolean
+  grammar_triggers?: Array<{
+    at_start: boolean
+    word: string
+  }>
+  preserved_tokens?: Array<string>
+  additional_stops?: Array<string>
+}
+
 export class LlamaContext {
   id: number
 
@@ -117,9 +134,7 @@ export class LlamaContext {
 
   reasonNoGPU: string = ''
 
-  model: {
-    isChatTemplateSupported?: boolean
-  } = {}
+  model: NativeLlamaContext['model']
 
   constructor({ contextId, gpu, reasonNoGPU, model }: NativeLlamaContext) {
     this.id = contextId
@@ -147,27 +162,81 @@ export class LlamaContext {
     return RNLlama.saveSession(this.id, filepath, options?.tokenSize || -1)
   }
 
+  isLlamaChatSupported(): boolean {
+    return !!this.model.chatTemplates.llamaChat
+  }
+
+  isJinjaSupported(): boolean {
+    const { minja } = this.model.chatTemplates
+    return !!minja?.toolUse || !!minja?.default
+  }
+
   async getFormattedChat(
     messages: RNLlamaOAICompatibleMessage[],
-    template?: string,
-  ): Promise<string> {
+    template?: string | null,
+    params?: {
+      jinja?: boolean
+      tools?: object
+      parallel_tool_calls?: object
+      tool_choice?: string
+    },
+  ): Promise<JinjaFormattedChatResult | string> {
     const chat = formatChat(messages)
-    let tmpl = this.model?.isChatTemplateSupported ? undefined : 'chatml'
+    const useJinja = this.isJinjaSupported() && params?.jinja
+    let tmpl = this.isLlamaChatSupported() || useJinja ? undefined : 'chatml'
     if (template) tmpl = template // Force replace if provided
-    return RNLlama.getFormattedChat(this.id, chat, tmpl)
+    return RNLlama.getFormattedChat(this.id, JSON.stringify(chat), tmpl, {
+      jinja: useJinja,
+      tools: params?.tools ? JSON.stringify(params.tools) : undefined,
+      parallel_tool_calls: params?.parallel_tool_calls
+        ? JSON.stringify(params.parallel_tool_calls)
+        : undefined,
+      tool_choice: params?.tool_choice,
+    })
   }
 
   async completion(
     params: CompletionParams,
     callback?: (data: TokenData) => void,
   ): Promise<NativeCompletionResult> {
-    let finalPrompt = params.prompt
+    const nativeParams = {
+      ...params,
+      prompt: params.prompt || '',
+      emit_partial_completion: !!callback,
+    }
     if (params.messages) {
       // messages always win
-      finalPrompt = await this.getFormattedChat(
+      const formattedResult = await this.getFormattedChat(
         params.messages,
         params.chatTemplate,
+        {
+          jinja: params.jinja,
+          tools: params.tools,
+          parallel_tool_calls: params.parallel_tool_calls,
+          tool_choice: params.tool_choice,
+        },
       )
+      if (typeof formattedResult === 'string') {
+        nativeParams.prompt = formattedResult || ''
+      } else {
+        nativeParams.prompt = formattedResult.prompt || ''
+        if (typeof formattedResult.chat_format === 'number')
+          nativeParams.chat_format = formattedResult.chat_format
+        if (formattedResult.grammar)
+          nativeParams.grammar = formattedResult.grammar
+        if (typeof formattedResult.grammar_lazy === 'boolean')
+          nativeParams.grammar_lazy = formattedResult.grammar_lazy
+        if (formattedResult.grammar_triggers)
+          nativeParams.grammar_triggers = formattedResult.grammar_triggers
+        if (formattedResult.preserved_tokens)
+          nativeParams.preserved_tokens = formattedResult.preserved_tokens
+        if (formattedResult.additional_stops) {
+          if (!nativeParams.stop) nativeParams.stop = []
+          nativeParams.stop.push(...formattedResult.additional_stops)
+        }
+      }
+    } else {
+      nativeParams.prompt = params.prompt || ''
     }
 
     let tokenListener: any =
@@ -178,12 +247,9 @@ export class LlamaContext {
         callback(tokenResult)
       })
 
-    if (!finalPrompt) throw new Error('Prompt is required')
-    const promise = RNLlama.completion(this.id, {
-      ...params,
-      prompt: finalPrompt,
-      emit_partial_completion: !!callback,
-    })
+    if (!nativeParams.prompt) throw new Error('Prompt is required')
+
+    const promise = RNLlama.completion(this.id, nativeParams)
     return promise
       .then((completionResult) => {
         tokenListener?.remove()

@@ -65,6 +65,13 @@ export type NativeCompletionParams = {
    * Set grammar for grammar-based sampling.  Default: no grammar
    */
   grammar?: string
+  grammar_lazy?: boolean
+  grammar_triggers?: Array<{
+    at_start: boolean
+    word: string
+  }>
+  preserved_tokens?: Array<string>
+  chat_format?: number
   /**
    * Specify a JSON array of stopping strings.
    * These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]`
@@ -225,7 +232,37 @@ export type NativeEmbeddingResult = {
 
 export type NativeLlamaContext = {
   contextId: number
-  model: Object
+  model: {
+    desc: string
+    size: number
+    nEmbd: number
+    nParams: number
+    chatTemplates: {
+      llamaChat: boolean // Chat template in llama-chat.cpp
+      minja: { // Chat template supported by minja.hpp
+        default: boolean
+        defaultCaps: {
+          tools: boolean
+          toolCalls: boolean
+          toolResponses: boolean
+          systemRole: boolean
+          parallelToolCalls: boolean
+          toolCallId: boolean
+        }
+        toolUse: boolean
+        toolUseCaps: {
+          tools: boolean
+          toolCalls: boolean
+          toolResponses: boolean
+          systemRole: boolean
+          parallelToolCalls: boolean
+          toolCallId: boolean
+        }
+      }
+    },
+    metadata: Object,
+    isChatTemplateSupported: boolean // Deprecated
+  }
   /**
    * Loaded library name for Android
    */
@@ -255,8 +292,14 @@ export interface Spec extends TurboModule {
 
   getFormattedChat(
     contextId: number,
-    messages: NativeLlamaChatMessage[],
+    messages: string,
     chatTemplate?: string,
+    params?: {
+      jinja?: boolean
+      tools?: string
+      parallel_tool_calls?: string
+      tool_choice?: string
+    },
   ): Promise<string>
   loadSession(
     contextId: number,

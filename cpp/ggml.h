@@ -1775,7 +1775,7 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             int                   k);
 
-#define LM_GGML_KQ_MASK_PAD 32
+#define LM_GGML_KQ_MASK_PAD 64
 
     // q:    [n_embd, n_batch,     n_head,    1]
     // k:    [n_embd, n_kv,        n_head_kv, 1]

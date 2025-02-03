@@ -135,7 +135,7 @@ export default function App() {
           `Context initialized!\n\nLoad time: ${t1 - t0}ms\nGPU: ${
             ctx.gpu ? 'YES' : 'NO'
           } (${ctx.reasonNoGPU})\nChat Template: ${
-            ctx.model.isChatTemplateSupported ? 'YES' : 'NO'
+            ctx.model.chatTemplates.llamaChat ? 'YES' : 'NO'
           }\n\n` +
             'You can use the following commands:\n\n' +
             '- /info: to get the model info\n' +
@@ -288,8 +288,7 @@ export default function App() {
         case '/lora':
           pickLora()
             .then((loraFile) => {
-              if (loraFile)
-                context.applyLoraAdapters([{ path: loraFile.uri }])
+              if (loraFile) context.applyLoraAdapters([{ path: loraFile.uri }])
             })
             .then(() => context.getLoadedLoraAdapters())
             .then((loraList) =>
@@ -349,23 +348,60 @@ export default function App() {
     ]
     addMessage(textMessage)
     setInferencing(true)
+
+    let jinjaParams: any = {}
+    // Test jinja & tools
+    {
+      const params = {
+        jinja: true,
+        tool_choice: 'auto',
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'ipython',
+              description:
+                'Runs code in an ipython interpreter and returns the result of the execution after 60 seconds.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  code: {
+                    type: 'string',
+                    description: 'The code to run in the ipython interpreter.',
+                  },
+                },
+                required: ['code'],
+              },
+            },
+          },
+        ],
+      }
+      jinjaParams = params
+      jinjaParams = undefined
+      // Uncomment to test:
+      // jinjaParams = params
+    }
+
     // Test area
     {
       // Test tokenize
-      const formattedChat = (await context?.getFormattedChat(msgs)) || ''
+      const formatted =
+        (await context?.getFormattedChat(msgs, null, jinjaParams)) || ''
+      const prompt =
+        typeof formatted === 'string' ? formatted : formatted.prompt
       const t0 = Date.now()
-      const { tokens } = (await context?.tokenize(formattedChat)) || {}
+      const { tokens } = (await context?.tokenize(prompt)) || {}
       const t1 = Date.now()
       console.log(
         'Formatted:',
-        `"${formattedChat}"`,
+        formatted,
         '\nTokenize:',
         tokens,
         `(${tokens?.length} tokens, ${t1 - t0}ms})`,
       )
 
       // Test embedding
-      // await context?.embedding(formattedChat).then((result) => {
+      // await context?.embedding(prompt).then((result) => {
       //   console.log('Embedding:', result)
       // })
 
@@ -428,8 +464,10 @@ export default function App() {
       ?.completion(
         {
           messages: msgs,
-          n_predict: 100,
+          n_predict: 2048,
           grammar,
+          ...jinjaParams,
+
           seed: -1,
           n_probs: 0,
 

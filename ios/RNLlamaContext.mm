@@ -218,13 +218,48 @@
         [meta setValue:valStr forKey:keyStr];
     }
 
+    auto template_tool_use = llama->templates.template_tool_use.get();
+    NSDictionary *tool_use_caps_dir = nil;
+    if (template_tool_use) {
+        auto tool_use_caps = template_tool_use->original_caps();
+        tool_use_caps_dir = @{
+            @"tools": @(tool_use_caps.supports_tools),
+            @"toolCalls": @(tool_use_caps.supports_tool_calls),
+            @"toolResponses": @(tool_use_caps.supports_tool_responses),
+            @"systemRole": @(tool_use_caps.supports_system_role),
+            @"parallelToolCalls": @(tool_use_caps.supports_parallel_tool_calls),
+            @"toolCallId": @(tool_use_caps.supports_tool_call_id)
+        };
+    }
+
+    auto default_tmpl = llama->templates.template_default.get();
+    auto default_tmpl_caps = default_tmpl->original_caps();
+
     return @{
         @"desc": [NSString stringWithUTF8String:desc],
         @"size": @(llama_model_size(llama->model)),
         @"nEmbd": @(llama_model_n_embd(llama->model)),
         @"nParams": @(llama_model_n_params(llama->model)),
-        @"isChatTemplateSupported": @(llama->validateModelChatTemplate()),
-        @"metadata": meta
+        @"chatTemplates": @{
+            @"llamaChat": @(llama->validateModelChatTemplate(false, nullptr)),
+            @"minja": @{
+                @"default": @(llama->validateModelChatTemplate(true, nullptr)),
+                @"defaultCaps": @{
+                    @"tools": @(default_tmpl_caps.supports_tools),
+                    @"toolCalls": @(default_tmpl_caps.supports_tool_calls),
+                    @"toolResponses": @(default_tmpl_caps.supports_tool_responses),
+                    @"systemRole": @(default_tmpl_caps.supports_system_role),
+                    @"parallelToolCalls": @(default_tmpl_caps.supports_parallel_tool_calls),
+                    @"toolCallId": @(default_tmpl_caps.supports_tool_call_id)
+                },
+                @"toolUse": @(llama->validateModelChatTemplate(true, "tool_use")),
+                @"toolUseCaps": tool_use_caps_dir ?: @{}
+            }
+        },
+        @"metadata": meta,
+
+        // deprecated
+        @"isChatTemplateSupported": @(llama->validateModelChatTemplate(false, nullptr))
     };
 }
 
@@ -236,18 +271,54 @@
     return llama->is_predicting;
 }
 
-- (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate {
-  std::vector<common_chat_msg> chat;
+- (NSDictionary *)getFormattedChatWithJinja:(NSString *)messages
+    withChatTemplate:(NSString *)chatTemplate
+    withTools:(NSString *)tools
+    withParallelToolCalls:(BOOL)parallelToolCalls
+    withToolChoice:(NSString *)toolChoice
+{
+    auto tmpl_str = chatTemplate == nil ? "" : [chatTemplate UTF8String];
 
-  for (NSDictionary *msg in messages) {
-    std::string role = [[msg objectForKey:@"role"] UTF8String];
-    std::string content = [[msg objectForKey:@"content"] UTF8String];
-    chat.push_back({ role, content });
-  }
+    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
+    auto chatParams = llama->getFormattedChatWithJinja(
+        [messages UTF8String],
+        tmpl_str,
+        tools == nil ? "" : [tools UTF8String],
+        parallelToolCalls,
+        toolChoice == nil ? "" : [toolChoice UTF8String]
+    );
+    result[@"prompt"] = [NSString stringWithUTF8String:chatParams.prompt.get<std::string>().c_str()];
+    result[@"chat_format"] = @(static_cast<int>(chatParams.format));
+    result[@"grammar"] = [NSString stringWithUTF8String:chatParams.grammar.c_str()];
+    result[@"grammar_lazy"] = @(chatParams.grammar_lazy);
+    NSMutableArray *grammar_triggers = [[NSMutableArray alloc] init];
+    for (const auto & trigger : chatParams.grammar_triggers) {
+        [grammar_triggers addObject:@{
+            @"word": [NSString stringWithUTF8String:trigger.word.c_str()],
+            @"at_start": @(trigger.at_start),
+        }];
+    }
+    result[@"grammar_triggers"] = grammar_triggers;
+    NSMutableArray *preserved_tokens = [[NSMutableArray alloc] init];
+    for (const auto & token : chatParams.preserved_tokens) {
+        [preserved_tokens addObject:[NSString stringWithUTF8String:token.c_str()]];
+    }
+    result[@"preserved_tokens"] = preserved_tokens;
+    NSMutableArray *additional_stops = [[NSMutableArray alloc] init];
+    for (const auto & stop : chatParams.additional_stops) {
+        [additional_stops addObject:[NSString stringWithUTF8String:stop.c_str()]];
+    }
+    result[@"additional_stops"] = additional_stops;
 
-  auto tmpl = chatTemplate == nil ? "" : [chatTemplate UTF8String];
-  auto formatted_chat = common_chat_apply_template(llama->model, tmpl, chat, true);
-  return [NSString stringWithUTF8String:formatted_chat.c_str()];
+    return result;
+}
+
+- (NSString *)getFormattedChat:(NSString *)messages withChatTemplate:(NSString *)chatTemplate {
+    auto tmpl_str = chatTemplate == nil ? "" : [chatTemplate UTF8String];
+    return [NSString stringWithUTF8String:llama->getFormattedChat(
+        [messages UTF8String],
+        tmpl_str
+    ).c_str()];;
 }
 
 - (NSArray *)tokenProbsToDict:(std::vector<rnllama::completion_token_output>)probs {
@@ -331,6 +402,41 @@
 
     if (params[@"grammar"]) {
         sparams.grammar = [params[@"grammar"] UTF8String];
+    }
+
+    if (params[@"grammar_lazy"]) {
+        sparams.grammar_lazy = [params[@"grammar_lazy"] boolValue];
+    }
+
+    if (params[@"grammar_triggers"] && [params[@"grammar_triggers"] isKindOfClass:[NSArray class]]) {
+        NSArray *grammar_triggers = params[@"grammar_triggers"];
+        for (NSDictionary *grammar_trigger in grammar_triggers) {
+            common_grammar_trigger trigger;
+            trigger.word = [grammar_trigger[@"word"] UTF8String];
+            trigger.at_start = [grammar_trigger[@"at_start"] boolValue];
+
+            auto ids = common_tokenize(llama->ctx, trigger.word, /* add_special= */ false, /* parse_special= */ true);
+            if (ids.size() == 1) {
+                // LOG_DBG("Grammar trigger token: %d (`%s`)\n", ids[0], trigger.word.c_str());
+                sparams.grammar_trigger_tokens.push_back(ids[0]);
+                sparams.preserved_tokens.insert(ids[0]);
+                continue;
+            }
+            // LOG_DBG("Grammar trigger word: `%s`\n", trigger.word.c_str());
+            sparams.grammar_trigger_words.push_back(trigger);
+        }
+    }
+
+    if (params[@"preserved_tokens"] && [params[@"preserved_tokens"] isKindOfClass:[NSArray class]]) {
+        NSArray *preserved_tokens = params[@"preserved_tokens"];
+        for (NSString *token in preserved_tokens) {
+            auto ids = common_tokenize(llama->ctx, [token UTF8String], /* add_special= */ false, /* parse_special= */ true);
+            if (ids.size() == 1) {
+                sparams.preserved_tokens.insert(ids[0]);
+            } else {
+//                LOG_WRN("Not preserved because more than 1 token (wrong chat template override?): %s\n", [token UTF8String]);
+            }
+        }
     }
 
     llama->params.antiprompt.clear();
@@ -434,8 +540,27 @@
     llama->is_predicting = false;
 
     const auto timings = llama_perf_context(llama->ctx);
+
+    NSMutableArray *toolCalls = nil;
+    if (!llama->is_interrupted) {
+      auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
+      common_chat_msg message = common_chat_parse(llama->generated_text, static_cast<common_chat_format>(chat_format));
+      toolCalls = [[NSMutableArray alloc] init];
+      for (const auto &tc : message.tool_calls) {
+        [toolCalls addObject:@{
+          @"type": @"function",
+          @"function": @{
+            @"name": [NSString stringWithUTF8String:tc.name.c_str()],
+            @"arguments": [NSString stringWithUTF8String:tc.arguments.c_str()],
+          },
+          @"id": tc.id.empty() ? [NSNull null] : [NSString stringWithUTF8String:tc.id.c_str()],
+        }];
+      }
+    }
+
     return @{
         @"text": [NSString stringWithUTF8String:llama->generated_text.c_str()],
+        @"tool_calls": toolCalls,
         @"completion_probabilities": [self tokenProbsToDict:llama->generated_token_probs],
         @"tokens_predicted": @(llama->num_tokens_predicted),
         @"tokens_evaluated": @(llama->num_prompt_tokens),

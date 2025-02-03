@@ -1,5 +1,8 @@
 /* eslint-disable no-restricted-syntax */
 /* eslint-disable no-underscore-dangle */
+
+// TODO: Deprecate this & support response_format
+
 const SPACE_RULE = '" "?'
 
 function buildRepetition(

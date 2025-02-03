@@ -8,6 +8,7 @@ fi
 function cp_headers() {
   mkdir -p ../ios/rnllama.xcframework/$1/rnllama.framework/Headers
   cp ../cpp/*.h ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/
+  cp ../cpp/*.hpp ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/
 }
 
 function build_framework() {
