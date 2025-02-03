@@ -62,11 +62,21 @@ export type NativeCompletionParams = {
   prompt: string
   n_threads?: number
   /**
+   * JSON schema for convert to grammar for structured JSON output.
+   * It will be override by grammar if both are set.
+   */
+  json_schema?: string
+  /**
    * Set grammar for grammar-based sampling.  Default: no grammar
    */
   grammar?: string
-  json_schema?: string
+  /**
+   * Lazy grammar sampling, trigger by grammar_triggers. Default: false
+   */
   grammar_lazy?: boolean
+  /**
+   * Lazy grammar triggers. Default: []
+   */
   grammar_triggers?: Array<{
     at_start: boolean
     word: string
@@ -240,7 +250,8 @@ export type NativeLlamaContext = {
     nParams: number
     chatTemplates: {
       llamaChat: boolean // Chat template in llama-chat.cpp
-      minja: { // Chat template supported by minja.hpp
+      minja: {
+        // Chat template supported by minja.hpp
         default: boolean
         defaultCaps: {
           tools: boolean
@@ -260,8 +271,8 @@ export type NativeLlamaContext = {
           toolCallId: boolean
         }
       }
-    },
-    metadata: Object,
+    }
+    metadata: Object
     isChatTemplateSupported: boolean // Deprecated
   }
   /**
