@@ -585,6 +585,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jlong context_ptr,
     jstring prompt,
     jstring grammar,
+    jboolean grammar_lazy,
+    jobject grammar_triggers,
     jfloat temperature,
     jint n_threads,
     jint n_predict,
@@ -645,13 +647,34 @@ Java_com_rnllama_LlamaContext_doCompletion(
     sparams.min_p = min_p;
     sparams.typ_p = typical_p;
     sparams.n_probs = n_probs;
-    sparams.grammar = env->GetStringUTFChars(grammar, nullptr);
     sparams.xtc_threshold = xtc_threshold;
     sparams.xtc_probability = xtc_probability;
     sparams.dry_multiplier = dry_multiplier;
     sparams.dry_base = dry_base;
     sparams.dry_allowed_length = dry_allowed_length;
     sparams.dry_penalty_last_n = dry_penalty_last_n;
+
+    // grammar
+    sparams.grammar = env->GetStringUTFChars(grammar, nullptr);
+    sparams.grammar_lazy = grammar_lazy;
+    if (grammar_triggers) {
+      int grammar_triggers_size = readablearray::size(env, grammar_triggers);
+      for (int i = 0; i < grammar_triggers_size; i++) {
+        common_grammar_trigger trigger;
+        auto trigger_map = readablearray::getMap(env, grammar_triggers, i);
+        jstring trigger_word = readablemap::getString(env, trigger_map, "word", nullptr);
+        jboolean trigger_at_start = readablemap::getBool(env, trigger_map, "at_start", false);
+        trigger.word = env->GetStringUTFChars(trigger_word, nullptr);
+        trigger.at_start = trigger_at_start;
+
+        auto ids = common_tokenize(llama->ctx, trigger.word, /* add_special= */ false, /* parse_special= */ true);
+        if (ids.size() == 1) {
+          sparams.grammar_trigger_tokens.push_back(ids[0]);
+          continue;
+        }
+        sparams.grammar_trigger_words.push_back(trigger);
+      }
+    }
 
     const llama_model * model = llama_get_model(llama->ctx);
     const llama_vocab * vocab = llama_model_get_vocab(model);

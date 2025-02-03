@@ -367,8 +367,7 @@ export default function App() {
                 properties: {
                   code: {
                     type: 'string',
-                    description:
-                      'The code to run in the ipython interpreter.',
+                    description: 'The code to run in the ipython interpreter.',
                   },
                 },
                 required: ['code'],
@@ -386,21 +385,23 @@ export default function App() {
     // Test area
     {
       // Test tokenize
-      const formattedChat =
-        (await context?.getFormattedChat(msgs, jinjaParams)) || ''
+      const formatted =
+        (await context?.getFormattedChat(msgs, null, jinjaParams)) || ''
+      const prompt =
+        typeof formatted === 'string' ? formatted : formatted.prompt
       const t0 = Date.now()
-      const { tokens } = (await context?.tokenize(formattedChat)) || {}
+      const { tokens } = (await context?.tokenize(prompt)) || {}
       const t1 = Date.now()
       console.log(
         'Formatted:',
-        `"${formattedChat}"`,
+        formatted,
         '\nTokenize:',
         tokens,
         `(${tokens?.length} tokens, ${t1 - t0}ms})`,
       )
 
       // Test embedding
-      // await context?.embedding(formattedChat).then((result) => {
+      // await context?.embedding(prompt).then((result) => {
       //   console.log('Embedding:', result)
       // })
 

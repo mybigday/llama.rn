@@ -112,7 +112,14 @@ public class LlamaContext {
     String tools = params.hasKey("tools") ? params.getString("tools") : "";
     String parallelToolCalls = params.hasKey("parallel_tool_calls") ? params.getString("parallel_tool_calls") : "";
     String toolChoice = params.hasKey("tool_choice") ? params.getString("tool_choice") : "";
-    return getFormattedChatWithJinja(this.context, messages, chatTemplate, tools, parallelToolCalls, toolChoice);
+    return getFormattedChatWithJinja(
+      this.context,
+      messages,
+      chatTemplate == null ? "" : chatTemplate,
+      tools,
+      parallelToolCalls,
+      toolChoice
+    );
   }
 
   public String getFormattedChat(String messages, String chatTemplate) {
@@ -206,6 +213,10 @@ public class LlamaContext {
       params.getString("prompt"),
       // String grammar,
       params.hasKey("grammar") ? params.getString("grammar") : "",
+      // boolean grammar_lazy,
+      params.hasKey("grammar_lazy") ? params.getBoolean("grammar_lazy") : false,
+      // ReadableArray grammar_triggers,
+      params.hasKey("grammar_triggers") ? params.getArray("grammar_triggers") : null,
       // float temperature,
       params.hasKey("temperature") ? (float) params.getDouble("temperature") : 0.7f,
       // int n_threads,
@@ -471,6 +482,8 @@ public class LlamaContext {
     long context_ptr,
     String prompt,
     String grammar,
+    boolean grammar_lazy,
+    ReadableArray grammar_triggers,
     float temperature,
     int n_threads,
     int n_predict,

@@ -166,7 +166,7 @@ export class LlamaContext {
 
   async getFormattedChat(
     messages: RNLlamaOAICompatibleMessage[],
-    template?: string,
+    template?: string | null,
     params?: {
       jinja?: boolean
       tools?: object
@@ -178,7 +178,7 @@ export class LlamaContext {
     let tmpl = this.model?.isChatTemplateSupported ? undefined : 'chatml'
     if (template) tmpl = template // Force replace if provided
     return RNLlama.getFormattedChat(this.id, JSON.stringify(chat), tmpl, {
-      jinja: params?.jinja || false,
+      jinja: this.model?.isJinjaChatTemplateSupported && params?.jinja,
       tools: params?.tools ? JSON.stringify(params.tools) : undefined,
       parallel_tool_calls: params?.parallel_tool_calls
         ? JSON.stringify(params.parallel_tool_calls)
