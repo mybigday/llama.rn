@@ -218,14 +218,48 @@
         [meta setValue:valStr forKey:keyStr];
     }
 
+    auto template_tool_use = llama->templates.template_tool_use.get();
+    NSDictionary *tool_use_caps_dir = nil;
+    if (template_tool_use) {
+        auto tool_use_caps = template_tool_use->original_caps();
+        tool_use_caps_dir = @{
+            @"tools": @(tool_use_caps.supports_tools),
+            @"toolCalls": @(tool_use_caps.supports_tool_calls),
+            @"toolResponses": @(tool_use_caps.supports_tool_responses),
+            @"systemRole": @(tool_use_caps.supports_system_role),
+            @"parallelToolCalls": @(tool_use_caps.supports_parallel_tool_calls),
+            @"toolCallId": @(tool_use_caps.supports_tool_call_id)
+        };
+    }
+
+    auto default_tmpl = llama->templates.template_default.get();
+    auto default_tmpl_caps = default_tmpl->original_caps();
+
     return @{
         @"desc": [NSString stringWithUTF8String:desc],
         @"size": @(llama_model_size(llama->model)),
         @"nEmbd": @(llama_model_n_embd(llama->model)),
         @"nParams": @(llama_model_n_params(llama->model)),
-        @"isChatTemplateSupported": @(llama->validateModelChatTemplate(false)),
-        @"isJinjaChatTemplateSupported": @(llama->validateModelChatTemplate(true)),
-        @"metadata": meta
+        @"chatTemplates": @{
+            @"llamaChat": @(llama->validateModelChatTemplate(false, nullptr)),
+            @"minja": @{
+                @"default": @(llama->validateModelChatTemplate(true, nullptr)),
+                @"defaultCaps": @{
+                    @"tools": @(default_tmpl_caps.supports_tools),
+                    @"toolCalls": @(default_tmpl_caps.supports_tool_calls),
+                    @"toolResponses": @(default_tmpl_caps.supports_tool_responses),
+                    @"systemRole": @(default_tmpl_caps.supports_system_role),
+                    @"parallelToolCalls": @(default_tmpl_caps.supports_parallel_tool_calls),
+                    @"toolCallId": @(default_tmpl_caps.supports_tool_call_id)
+                },
+                @"toolUse": @(llama->validateModelChatTemplate(true, "tool_use")),
+                @"toolUseCaps": tool_use_caps_dir ?: @{}
+            }
+        },
+        @"metadata": meta,
+
+        // deprecated
+        @"isChatTemplateSupported": @(llama->validateModelChatTemplate(false, nullptr))
     };
 }
 
@@ -240,7 +274,7 @@
 - (NSDictionary *)getFormattedChatWithJinja:(NSString *)messages
     withChatTemplate:(NSString *)chatTemplate
     withTools:(NSString *)tools
-    withParallelToolCalls:(NSString *)parallelToolCalls
+    withParallelToolCalls:(BOOL)parallelToolCalls
     withToolChoice:(NSString *)toolChoice
 {
     auto tmpl_str = chatTemplate == nil ? "" : [chatTemplate UTF8String];
@@ -250,7 +284,7 @@
         [messages UTF8String],
         tmpl_str,
         tools == nil ? "" : [tools UTF8String],
-        parallelToolCalls == nil ? "" : [parallelToolCalls UTF8String],
+        parallelToolCalls,
         toolChoice == nil ? "" : [toolChoice UTF8String]
     );
     result[@"prompt"] = [NSString stringWithUTF8String:chatParams.prompt.get<std::string>().c_str()];
@@ -400,7 +434,7 @@
             if (ids.size() == 1) {
                 sparams.preserved_tokens.insert(ids[0]);
             } else {
-                LOG_WRN("Not preserved because more than 1 token (wrong chat template override?): %s\n", [token UTF8String]);
+//                LOG_WRN("Not preserved because more than 1 token (wrong chat template override?): %s\n", [token UTF8String]);
             }
         }
     }

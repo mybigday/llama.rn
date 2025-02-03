@@ -110,7 +110,7 @@ public class LlamaContext {
 
   public WritableMap getFormattedChatWithJinja(String messages, String chatTemplate, ReadableMap params) {
     String tools = params.hasKey("tools") ? params.getString("tools") : "";
-    String parallelToolCalls = params.hasKey("parallel_tool_calls") ? params.getString("parallel_tool_calls") : "";
+    Boolean parallelToolCalls = params.hasKey("parallel_tool_calls") ? params.getBoolean("parallel_tool_calls") : false;
     String toolChoice = params.hasKey("tool_choice") ? params.getString("tool_choice") : "";
     return getFormattedChatWithJinja(
       this.context,
@@ -463,7 +463,7 @@ public class LlamaContext {
     String messages,
     String chatTemplate,
     String tools,
-    String parallelToolCalls,
+    boolean parallelToolCalls,
     String toolChoice
   );
   protected static native String getFormattedChat(

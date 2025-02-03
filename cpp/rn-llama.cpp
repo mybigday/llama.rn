@@ -203,8 +203,8 @@ bool llama_rn_context::loadModel(common_params &params_)
     return true;
 }
 
-bool llama_rn_context::validateModelChatTemplate(bool use_jinja) const {
-    const char * tmpl = llama_model_chat_template(model, /* name */ nullptr);
+bool llama_rn_context::validateModelChatTemplate(bool use_jinja, const char *name) const {
+    const char * tmpl = llama_model_chat_template(model, name);
     if (tmpl == nullptr) {
       return false;
     }
@@ -215,19 +215,18 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
   const std::string &messages,
   const std::string &chat_template,
   const std::string &tools,
-  const std::string &parallel_tool_calls,
+  const bool &parallel_tool_calls,
   const std::string &tool_choice
 ) const {
   common_chat_inputs inputs;
   inputs.messages = json::parse(messages);
-  if (!tools.empty()) {
-    inputs.tools = json::parse(tools);
+  auto useTools = !tools.empty();
+  if (useTools) {
+      inputs.tools = json::parse(tools);
   }
-  if (!parallel_tool_calls.empty()) {
-    inputs.parallel_tool_calls = json::parse(parallel_tool_calls);
-  }
+  inputs.parallel_tool_calls = parallel_tool_calls;
   if (!tool_choice.empty()) {
-    inputs.tool_choice = tool_choice;
+      inputs.tool_choice = tool_choice;
   }
   inputs.stream = true;
 
@@ -235,10 +234,14 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
 
   // If chat_template is provided, create new one and use it (probably slow)
   if (!chat_template.empty()) {
-    auto tmp = common_chat_templates_from_model(model, chat_template);
-    template_ptr = tmp.template_tool_use ? tmp.template_tool_use.get() : tmp.template_default.get();
+      auto tmp = common_chat_templates_from_model(model, chat_template);
+      template_ptr = useTools && tmp.template_tool_use ? tmp.template_tool_use.get() : tmp.template_default.get();
   } else {
-    template_ptr = templates.template_tool_use ? templates.template_tool_use.get() : templates.template_default.get();
+      template_ptr = useTools && templates.template_tool_use ? templates.template_tool_use.get() : templates.template_default.get();
+  }
+
+  if (inputs.parallel_tool_calls && !template_ptr->original_caps().supports_parallel_tool_calls) {
+      inputs.parallel_tool_calls = false;
   }
   return common_chat_params_init(*template_ptr, inputs);
 }

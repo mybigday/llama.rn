@@ -83,12 +83,12 @@ struct llama_rn_context {
     void rewind();
     bool initSampling();
     bool loadModel(common_params &params_);
-    bool validateModelChatTemplate(bool use_jinja) const;
+    bool validateModelChatTemplate(bool use_jinja, const char *name) const;
     common_chat_params getFormattedChatWithJinja(
       const std::string &messages,
       const std::string &chat_template,
       const std::string &tools,
-      const std::string &parallel_tool_calls,
+      const bool &parallel_tool_calls,
       const std::string &tool_choice
     ) const;
     std::string getFormattedChat(

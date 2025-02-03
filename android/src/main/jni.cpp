@@ -415,9 +415,44 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
     putDouble(env, result, "size", llama_model_size(llama->model));
     putDouble(env, result, "nEmbd", llama_model_n_embd(llama->model));
     putDouble(env, result, "nParams", llama_model_n_params(llama->model));
-    putBoolean(env, result, "isChatTemplateSupported", llama->validateModelChatTemplate(false));
-    putBoolean(env, result, "isJinjaChatTemplateSupported", llama->validateModelChatTemplate(true));
+    auto chat_templates = createWriteableMap(env);
+    putBoolean(env, chat_templates, "llamaChat", llama->validateModelChatTemplate(false, nullptr));
+
+    auto minja = createWriteableMap(env);
+    putBoolean(env, minja, "default", llama->validateModelChatTemplate(true, nullptr));
+
+    auto default_caps = createWriteableMap(env);
+
+    auto default_tmpl = llama->templates.template_default.get();
+    auto default_tmpl_caps = default_tmpl->original_caps();
+    putBoolean(env, default_caps, "tools", default_tmpl_caps.supports_tools);
+    putBoolean(env, default_caps, "toolCalls", default_tmpl_caps.supports_tool_calls);
+    putBoolean(env, default_caps, "parallelToolCalls", default_tmpl_caps.supports_parallel_tool_calls);
+    putBoolean(env, default_caps, "toolResponses", default_tmpl_caps.supports_tool_responses);
+    putBoolean(env, default_caps, "systemRole", default_tmpl_caps.supports_system_role);
+    putBoolean(env, default_caps, "toolCallId", default_tmpl_caps.supports_tool_call_id);
+    putMap(env, minja, "defaultCaps", default_caps);
+
+    putBoolean(env, minja, "toolUse", llama->validateModelChatTemplate(true, "tool_use"));
+    auto tool_use_tmpl = llama->templates.template_tool_use.get();
+    if (tool_use_tmpl != nullptr) {
+      auto tool_use_caps = createWriteableMap(env);
+      auto tool_use_tmpl_caps = tool_use_tmpl->original_caps();
+      putBoolean(env, tool_use_caps, "tools", tool_use_tmpl_caps.supports_tools);
+      putBoolean(env, tool_use_caps, "toolCalls", tool_use_tmpl_caps.supports_tool_calls);
+      putBoolean(env, tool_use_caps, "parallelToolCalls", tool_use_tmpl_caps.supports_parallel_tool_calls);
+      putBoolean(env, tool_use_caps, "systemRole", tool_use_tmpl_caps.supports_system_role);
+      putBoolean(env, tool_use_caps, "toolResponses", tool_use_tmpl_caps.supports_tool_responses);
+      putBoolean(env, tool_use_caps, "toolCallId", tool_use_tmpl_caps.supports_tool_call_id);
+      putMap(env, minja, "toolUseCaps", tool_use_caps);
+    }
+
+    putMap(env, chat_templates, "minja", minja);
     putMap(env, result, "metadata", meta);
+    putMap(env, result, "chatTemplates", chat_templates);
+
+    // deprecated
+    putBoolean(env, result, "isChatTemplateSupported", llama->validateModelChatTemplate(false, nullptr));
 
     return reinterpret_cast<jobject>(result);
 }
@@ -430,7 +465,7 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     jstring messages,
     jstring chat_template,
     jstring tools,
-    jstring parallel_tool_calls,
+    jboolean parallel_tool_calls,
     jstring tool_choice
 ) {
     UNUSED(thiz);
@@ -439,7 +474,6 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     const char *messages_chars = env->GetStringUTFChars(messages, nullptr);
     const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
     const char *tools_chars = env->GetStringUTFChars(tools, nullptr);
-    const char *parallel_tool_calls_chars = env->GetStringUTFChars(parallel_tool_calls, nullptr);
     const char *tool_choice_chars = env->GetStringUTFChars(tool_choice, nullptr);
 
     auto result = createWriteableMap(env);
@@ -448,7 +482,7 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
             messages_chars,
             tmpl_chars,
             tools_chars,
-            parallel_tool_calls_chars,
+            parallel_tool_calls,
             tool_choice_chars
         );
         putString(env, result, "prompt", formatted.prompt.get<std::string>().c_str());
@@ -480,7 +514,6 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     env->ReleaseStringUTFChars(tools, tools_chars);
     env->ReleaseStringUTFChars(messages, messages_chars);
     env->ReleaseStringUTFChars(chat_template, tmpl_chars);
-    env->ReleaseStringUTFChars(parallel_tool_calls, parallel_tool_calls_chars);
     env->ReleaseStringUTFChars(tool_choice, tool_choice_chars);
     return reinterpret_cast<jobject>(result);
 }

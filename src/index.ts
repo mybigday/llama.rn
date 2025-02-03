@@ -135,8 +135,26 @@ export class LlamaContext {
   reasonNoGPU: string = ''
 
   model: {
-    isChatTemplateSupported?: boolean
-    isJinjaChatTemplateSupported?: boolean
+    chatTemplates?: {
+      llamaChat: boolean // Chat template in llama-chat.cpp
+      minja: { // Chat template supported by minja.hpp
+        default: boolean
+        defaultCaps: {
+          tools: boolean
+          toolCalls: boolean
+          toolResponses: boolean
+          systemRole: boolean
+          parallelToolCalls: boolean
+          toolCallId: boolean
+        }
+        toolUse: boolean
+        toolUseCaps: {
+          tools: boolean
+          toolCalls: boolean
+          toolResponses: boolean
+        }
+      }
+    }
   } = {}
 
   constructor({ contextId, gpu, reasonNoGPU, model }: NativeLlamaContext) {
@@ -165,6 +183,15 @@ export class LlamaContext {
     return RNLlama.saveSession(this.id, filepath, options?.tokenSize || -1)
   }
 
+  isLlamaChatSupported(): boolean {
+    return !!this.model?.chatTemplates?.llamaChat
+  }
+
+  isJinjaSupported(): boolean {
+    const minja = this.model?.chatTemplates?.minja
+    return !!minja?.toolUse || !!minja?.default
+  }
+
   async getFormattedChat(
     messages: RNLlamaOAICompatibleMessage[],
     template?: string | null,
@@ -176,10 +203,11 @@ export class LlamaContext {
     },
   ): Promise<JinjaFormattedChatResult | string> {
     const chat = formatChat(messages)
-    let tmpl = this.model?.isChatTemplateSupported ? undefined : 'chatml'
+    const useJinja = this.isJinjaSupported() && params?.jinja
+    let tmpl = this.isLlamaChatSupported() || useJinja ? undefined : 'chatml'
     if (template) tmpl = template // Force replace if provided
     return RNLlama.getFormattedChat(this.id, JSON.stringify(chat), tmpl, {
-      jinja: this.model?.isJinjaChatTemplateSupported && params?.jinja,
+      jinja: useJinja,
       tools: params?.tools ? JSON.stringify(params.tools) : undefined,
       parallel_tool_calls: params?.parallel_tool_calls
         ? JSON.stringify(params.parallel_tool_calls)
@@ -203,7 +231,7 @@ export class LlamaContext {
         params.messages,
         params.chatTemplate,
         {
-          jinja: this.model?.isJinjaChatTemplateSupported && params.jinja,
+          jinja: params.jinja,
           tools: params.tools,
           parallel_tool_calls: params.parallel_tool_calls,
           tool_choice: params.tool_choice,
