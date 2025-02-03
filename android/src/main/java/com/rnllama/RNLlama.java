@@ -129,7 +129,11 @@ public class RNLlama implements LifecycleEventListener {
             throw new Exception("Context not found");
           }
           if (params.hasKey("jinja") && params.getBoolean("jinja")) {
-            return context.getFormattedChatWithJinja(messages, chatTemplate, params);
+            ReadableMap result = context.getFormattedChatWithJinja(messages, chatTemplate, params);
+            if (result.hasKey("error")) {
+              throw new Exception(result.getString("error"));
+            }
+            return result.getMap("result");
           }
           return context.getFormattedChat(messages, chatTemplate);
         } catch (Exception e) {

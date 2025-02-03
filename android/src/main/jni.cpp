@@ -442,40 +442,44 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     const char *parallel_tool_calls_chars = env->GetStringUTFChars(parallel_tool_calls, nullptr);
     const char *tool_choice_chars = env->GetStringUTFChars(tool_choice, nullptr);
 
-    auto formatted = llama->getFormattedChatWithJinja(
-      messages_chars,
-      tmpl_chars,
-      tools_chars,
-      parallel_tool_calls_chars,
-      tool_choice_chars
-    );
-
-    env->ReleaseStringUTFChars(tools, tools_chars);
+    auto returnResult = createWriteableMap(env);
+    try {
+        auto formatted = llama->getFormattedChatWithJinja(
+          messages_chars,
+          tmpl_chars,
+          tools_chars,
+          parallel_tool_calls_chars,
+          tool_choice_chars
+        );
+        auto result = createWriteableMap(env);
+        putString(env, result, "prompt", formatted.prompt.get<std::string>().c_str());
+        putInt(env, result, "chat_format", static_cast<int>(formatted.format));
+        putString(env, result, "grammar", formatted.grammar.c_str());
+        putBoolean(env, result, "grammar_lazy", formatted.grammar_lazy);
+        auto grammar_triggers = createWritableArray(env);
+        for (const auto &trigger : formatted.grammar_triggers) {
+            auto trigger_map = createWriteableMap(env);
+            putString(env, trigger_map, "word", trigger.word.c_str());
+            putBoolean(env, trigger_map, "at_start", trigger.at_start);
+            pushMap(env, grammar_triggers, trigger_map);
+        }
+        putArray(env, result, "grammar_triggers", grammar_triggers);
+        auto additional_stops = createWritableArray(env);
+        for (const auto &stop : formatted.additional_stops) {
+            pushString(env, additional_stops, stop.c_str());
+        }
+        putArray(env, result, "additional_stops", additional_stops);
+        putMap(env, returnResult, "result", result);
+    } catch (const std::runtime_error &e) {
+        LOGI("[RNLlama] Error: %s", e.what());
+        putString(env, returnResult, "error", e.what());
+    }
     env->ReleaseStringUTFChars(messages, messages_chars);
     env->ReleaseStringUTFChars(chat_template, tmpl_chars);
+    env->ReleaseStringUTFChars(tools, tools_chars);
     env->ReleaseStringUTFChars(parallel_tool_calls, parallel_tool_calls_chars);
     env->ReleaseStringUTFChars(tool_choice, tool_choice_chars);
-
-    auto result = createWriteableMap(env);
-    putString(env, result, "prompt", formatted.prompt.get<std::string>().c_str());
-    putInt(env, result, "chat_format", static_cast<int>(formatted.format));
-    putString(env, result, "grammar", formatted.grammar.c_str());
-    putBoolean(env, result, "grammar_lazy", formatted.grammar_lazy);
-    auto grammar_triggers = createWritableArray(env);
-    for (const auto &trigger : formatted.grammar_triggers) {
-        auto trigger_map = createWriteableMap(env);
-        putString(env, trigger_map, "word", trigger.word.c_str());
-        putBoolean(env, trigger_map, "at_start", trigger.at_start);
-        pushMap(env, grammar_triggers, trigger_map);
-    }
-    putArray(env, result, "grammar_triggers", grammar_triggers);
-    auto additional_stops = createWritableArray(env);
-    for (const auto &stop : formatted.additional_stops) {
-        pushString(env, additional_stops, stop.c_str());
-    }
-    putArray(env, result, "additional_stops", additional_stops);
-
-    return reinterpret_cast<jobject>(result);
+    return reinterpret_cast<jobject>(returnResult);
 }
 
 JNIEXPORT jobject JNICALL
