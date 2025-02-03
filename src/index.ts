@@ -206,9 +206,10 @@ export class LlamaContext {
     const useJinja = this.isJinjaSupported() && params?.jinja
     let tmpl = this.isLlamaChatSupported() || useJinja ? undefined : 'chatml'
     if (template) tmpl = template // Force replace if provided
+    const jsonSchema = getJsonSchema(params?.response_format)
     return RNLlama.getFormattedChat(this.id, JSON.stringify(chat), tmpl, {
       jinja: useJinja,
-      json_schema: JSON.stringify(getJsonSchema(params?.response_format)),
+      json_schema: jsonSchema ? JSON.stringify(jsonSchema) : undefined,
       tools: params?.tools ? JSON.stringify(params.tools) : undefined,
       parallel_tool_calls: params?.parallel_tool_calls
         ? JSON.stringify(params.parallel_tool_calls)
@@ -262,7 +263,8 @@ export class LlamaContext {
     }
 
     if (nativeParams.response_format && !nativeParams.grammar) {
-      nativeParams.json_schema = JSON.stringify(getJsonSchema(params.response_format))
+      const jsonSchema = getJsonSchema(params.response_format)
+      if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
     }
 
     let tokenListener: any =
