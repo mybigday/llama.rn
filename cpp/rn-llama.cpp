@@ -234,20 +234,21 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
   }
   inputs.stream = true;
 
-  const common_chat_template* template_ptr;
-
   // If chat_template is provided, create new one and use it (probably slow)
   if (!chat_template.empty()) {
       auto tmp = common_chat_templates_from_model(model, chat_template);
-      template_ptr = useTools && tmp.template_tool_use ? tmp.template_tool_use.get() : tmp.template_default.get();
+      const common_chat_template* template_ptr = useTools && tmp.template_tool_use ? tmp.template_tool_use.get() : tmp.template_default.get();
+      if (inputs.parallel_tool_calls && !template_ptr->original_caps().supports_parallel_tool_calls) {
+          inputs.parallel_tool_calls = false;
+      }
+      return common_chat_params_init(*template_ptr, inputs);
   } else {
-      template_ptr = useTools && templates.template_tool_use ? templates.template_tool_use.get() : templates.template_default.get();
+      const common_chat_template* template_ptr = useTools && templates.template_tool_use ? templates.template_tool_use.get() : templates.template_default.get();
+      if (inputs.parallel_tool_calls && !template_ptr->original_caps().supports_parallel_tool_calls) {
+          inputs.parallel_tool_calls = false;
+      }
+      return common_chat_params_init(*template_ptr, inputs);
   }
-
-  if (inputs.parallel_tool_calls && !template_ptr->original_caps().supports_parallel_tool_calls) {
-      inputs.parallel_tool_calls = false;
-  }
-  return common_chat_params_init(*template_ptr, inputs);
 }
 
 std::string llama_rn_context::getFormattedChat(
@@ -259,26 +260,29 @@ std::string llama_rn_context::getFormattedChat(
   // Handle regular chat without tools
   std::vector<common_chat_msg> chat_msgs;
   for (const auto &msg : chat_json) {
-    chat_msgs.push_back({
-      msg["role"].get<std::string>(),
-      msg["content"].get<std::string>()
-    });
+      chat_msgs.push_back({
+          msg["role"].get<std::string>(),
+          msg["content"].get<std::string>()
+      });
   }
 
-  const common_chat_template* template_ptr;
   // If chat_template is provided, create new one and use it (probably slow)
   if (!chat_template.empty()) {
-    template_ptr = common_chat_templates_from_model(model, chat_template).template_default.get();
+      auto tmp = common_chat_templates_from_model(model, chat_template);
+      return common_chat_apply_template(
+          *tmp.template_default,
+          chat_msgs,
+          true,
+          false
+      );
   } else {
-    template_ptr = templates.template_default.get();
+      return common_chat_apply_template(
+          *templates.template_default,
+          chat_msgs,
+          true,
+          false
+      );
   }
-
-  return common_chat_apply_template(
-    *template_ptr,
-    chat_msgs,
-    true,
-    false
-  );
 }
 
 void llama_rn_context::truncatePrompt(std::vector<llama_token> &prompt_tokens) {

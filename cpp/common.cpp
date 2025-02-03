@@ -1683,7 +1683,7 @@ common_chat_templates common_chat_templates_from_model(const struct llama_model 
         }
     }
     if (default_template_src.empty() || default_template_src == "chatml") {
-        if (!template_tool_use_src.empty()) {
+        if (template_tool_use_src != "chatml") {
             default_template_src = template_tool_use_src;
         } else {
             default_template_src = R"(
