@@ -668,7 +668,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     //llama_reset_timings(llama->ctx);
 
-    llama->params.prompt = env->GetStringUTFChars(prompt, nullptr);
+    auto prompt_chars = env->GetStringUTFChars(prompt, nullptr);
+    llama->params.prompt = prompt_chars;
     llama->params.sampling.seed = (seed == -1) ? time(NULL) : seed;
 
     int max_threads = std::thread::hardware_concurrency();
@@ -701,7 +702,10 @@ Java_com_rnllama_LlamaContext_doCompletion(
     sparams.dry_penalty_last_n = dry_penalty_last_n;
 
     // grammar
-    sparams.grammar = env->GetStringUTFChars(grammar, nullptr);
+    auto grammar_chars = env->GetStringUTFChars(grammar, nullptr);
+    if (grammar_chars && grammar_chars[0] != '\0') {
+      sparams.grammar = grammar_chars;
+    }
     sparams.grammar_lazy = grammar_lazy;
     if (grammar_triggers != nullptr) {
         int grammar_triggers_size = readablearray::size(env, grammar_triggers);
@@ -723,10 +727,12 @@ Java_com_rnllama_LlamaContext_doCompletion(
         }
     }
 
-    if (json_schema != nullptr && grammar == nullptr) {
-        auto schema = json::parse(env->GetStringUTFChars(json_schema, nullptr));
+    auto json_schema_chars = env->GetStringUTFChars(json_schema, nullptr);
+    if ((!grammar_chars || grammar_chars[0] == '\0') && json_schema_chars && json_schema_chars[0] != '\0') {
+        auto schema = json::parse(json_schema_chars);
         sparams.grammar = json_schema_to_grammar(schema);
     }
+    env->ReleaseStringUTFChars(json_schema, json_schema_chars);
 
     if (preserved_tokens != nullptr) {
         int preserved_tokens_size = readablearray::size(env, preserved_tokens);
@@ -864,6 +870,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
         }
     }
 
+    env->ReleaseStringUTFChars(grammar, grammar_chars);
+    env->ReleaseStringUTFChars(prompt, prompt_chars);
     llama_perf_context_print(llama->ctx);
     llama->is_predicting = false;
 
