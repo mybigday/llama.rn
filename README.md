@@ -175,7 +175,7 @@ console.log('Result:', text)
 if (tool_calls) console.log('Tool Calls:', tool_calls)
 ```
 
-You can check [chat.cpp](https://github.com/ggerganov/llama.cpp/blob/master/common/chat.cpp) for models has native tool calling support, or it will fallback to `GENERIC` type tool call.
+You can check [chat.cpp](https://github.com/ggerganov/llama.cpp/blob/6eecde3cc8fda44da7794042e3668de4af3c32c6/common/chat.cpp#L7-L23) for models has native tool calling support, or it will fallback to `GENERIC` type tool call.
 
 The generic tool call will be always JSON object as output, the output will be like `{"response": "..."}` when it not decided to use tool call.
 
