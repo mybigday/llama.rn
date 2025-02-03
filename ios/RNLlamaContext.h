@@ -40,7 +40,7 @@
     withChatTemplate:(NSString *)chatTemplate
     withTools:(NSString *)tools
     withParallelToolCalls:(BOOL)parallelToolCalls
-    withToolChoice:(NSString *)tool_choice;
+    withToolChoice:(NSString *)toolChoice;
 - (NSString *)getFormattedChat:(NSString *)messages withChatTemplate:(NSString *)chatTemplate;
 - (NSDictionary *)loadSession:(NSString *)path;
 - (int)saveSession:(NSString *)path size:(int)size;
