@@ -232,7 +232,37 @@ export type NativeEmbeddingResult = {
 
 export type NativeLlamaContext = {
   contextId: number
-  model: Object
+  model: {
+    desc: string
+    size: number
+    nEmbd: number
+    nParams: number
+    chatTemplates: {
+      llamaChat: boolean // Chat template in llama-chat.cpp
+      minja: { // Chat template supported by minja.hpp
+        default: boolean
+        defaultCaps: {
+          tools: boolean
+          toolCalls: boolean
+          toolResponses: boolean
+          systemRole: boolean
+          parallelToolCalls: boolean
+          toolCallId: boolean
+        }
+        toolUse: boolean
+        toolUseCaps: {
+          tools: boolean
+          toolCalls: boolean
+          toolResponses: boolean
+          systemRole: boolean
+          parallelToolCalls: boolean
+          toolCallId: boolean
+        }
+      }
+    },
+    metadata: Object,
+    isChatTemplateSupported: boolean // Deprecated
+  }
   /**
    * Loaded library name for Android
    */

@@ -134,28 +134,7 @@ export class LlamaContext {
 
   reasonNoGPU: string = ''
 
-  model: {
-    chatTemplates?: {
-      llamaChat: boolean // Chat template in llama-chat.cpp
-      minja: { // Chat template supported by minja.hpp
-        default: boolean
-        defaultCaps: {
-          tools: boolean
-          toolCalls: boolean
-          toolResponses: boolean
-          systemRole: boolean
-          parallelToolCalls: boolean
-          toolCallId: boolean
-        }
-        toolUse: boolean
-        toolUseCaps: {
-          tools: boolean
-          toolCalls: boolean
-          toolResponses: boolean
-        }
-      }
-    }
-  } = {}
+  model: NativeLlamaContext['model']
 
   constructor({ contextId, gpu, reasonNoGPU, model }: NativeLlamaContext) {
     this.id = contextId
@@ -184,11 +163,11 @@ export class LlamaContext {
   }
 
   isLlamaChatSupported(): boolean {
-    return !!this.model?.chatTemplates?.llamaChat
+    return !!this.model.chatTemplates.llamaChat
   }
 
   isJinjaSupported(): boolean {
-    const minja = this.model?.chatTemplates?.minja
+    const { minja } = this.model.chatTemplates
     return !!minja?.toolUse || !!minja?.default
   }
 

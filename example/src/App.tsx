@@ -135,7 +135,7 @@ export default function App() {
           `Context initialized!\n\nLoad time: ${t1 - t0}ms\nGPU: ${
             ctx.gpu ? 'YES' : 'NO'
           } (${ctx.reasonNoGPU})\nChat Template: ${
-            ctx.model.isChatTemplateSupported ? 'YES' : 'NO'
+            ctx.model.chatTemplates.llamaChat ? 'YES' : 'NO'
           }\n\n` +
             'You can use the following commands:\n\n' +
             '- /info: to get the model info\n' +
