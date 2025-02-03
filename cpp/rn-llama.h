@@ -87,6 +87,7 @@ struct llama_rn_context {
     common_chat_params getFormattedChatWithJinja(
       const std::string &messages,
       const std::string &chat_template,
+      const std::string &json_schema,
       const std::string &tools,
       const bool &parallel_tool_calls,
       const std::string &tool_choice

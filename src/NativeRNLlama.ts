@@ -65,6 +65,7 @@ export type NativeCompletionParams = {
    * Set grammar for grammar-based sampling.  Default: no grammar
    */
   grammar?: string
+  json_schema?: string
   grammar_lazy?: boolean
   grammar_triggers?: Array<{
     at_start: boolean
@@ -296,6 +297,7 @@ export interface Spec extends TurboModule {
     chatTemplate?: string,
     params?: {
       jinja?: boolean
+      json_schema?: string
       tools?: string
       parallel_tool_calls?: string
       tool_choice?: string

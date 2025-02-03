@@ -1,7 +1,7 @@
 /* eslint-disable no-restricted-syntax */
 /* eslint-disable no-underscore-dangle */
 
-// TODO: Deprecate this & support response_format
+// NOTE: Deprecated, please use tools or response_format with json_schema instead
 
 const SPACE_RULE = '" "?'
 

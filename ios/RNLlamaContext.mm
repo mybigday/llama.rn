@@ -273,6 +273,7 @@
 
 - (NSDictionary *)getFormattedChatWithJinja:(NSString *)messages
     withChatTemplate:(NSString *)chatTemplate
+    withJsonSchema:(NSString *)jsonSchema
     withTools:(NSString *)tools
     withParallelToolCalls:(BOOL)parallelToolCalls
     withToolChoice:(NSString *)toolChoice
@@ -283,6 +284,7 @@
     auto chatParams = llama->getFormattedChatWithJinja(
         [messages UTF8String],
         tmpl_str,
+        jsonSchema == nil ? "" : [jsonSchema UTF8String],
         tools == nil ? "" : [tools UTF8String],
         parallelToolCalls,
         toolChoice == nil ? "" : [toolChoice UTF8String]
@@ -402,6 +404,10 @@
 
     if (params[@"grammar"]) {
         sparams.grammar = [params[@"grammar"] UTF8String];
+    }
+
+    if (params[@"json_schema"] && !params[@"grammar"]) {
+        sparams.grammar = json_schema_to_grammar(json::parse([params[@"json_schema"] UTF8String]));
     }
 
     if (params[@"grammar_lazy"]) {

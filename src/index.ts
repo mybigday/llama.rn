@@ -91,6 +91,15 @@ export type ContextParams = Omit<
 
 export type EmbeddingParams = NativeEmbeddingParams
 
+export type CompletionResponseFormat = {
+  type: 'text' | 'json_object' | 'json_schema',
+  json_schema?: {
+    strict?: boolean
+    schema: object
+  }
+  schema?: object // for json_object type
+}
+
 export type CompletionParams = Omit<
   NativeCompletionParams,
   'emit_partial_completion' | 'prompt'
@@ -102,6 +111,7 @@ export type CompletionParams = Omit<
   tools?: object
   parallel_tool_calls?: object
   tool_choice?: string
+  response_format?: CompletionResponseFormat
 }
 
 export type BenchResult = {
@@ -125,6 +135,16 @@ type JinjaFormattedChatResult = {
   }>
   preserved_tokens?: Array<string>
   additional_stops?: Array<string>
+}
+
+const getJsonSchema = (responseFormat?: CompletionResponseFormat) => {
+  if (responseFormat?.type === 'json_schema') {
+    return responseFormat.json_schema?.schema
+  }
+  if (responseFormat?.type === 'json_object') {
+    return responseFormat.schema
+  }
+  return null
 }
 
 export class LlamaContext {
@@ -176,6 +196,7 @@ export class LlamaContext {
     template?: string | null,
     params?: {
       jinja?: boolean
+      response_format?: CompletionResponseFormat
       tools?: object
       parallel_tool_calls?: object
       tool_choice?: string
@@ -187,6 +208,7 @@ export class LlamaContext {
     if (template) tmpl = template // Force replace if provided
     return RNLlama.getFormattedChat(this.id, JSON.stringify(chat), tmpl, {
       jinja: useJinja,
+      json_schema: JSON.stringify(getJsonSchema(params?.response_format)),
       tools: params?.tools ? JSON.stringify(params.tools) : undefined,
       parallel_tool_calls: params?.parallel_tool_calls
         ? JSON.stringify(params.parallel_tool_calls)
@@ -237,6 +259,10 @@ export class LlamaContext {
       }
     } else {
       nativeParams.prompt = params.prompt || ''
+    }
+
+    if (nativeParams.response_format && !nativeParams.grammar) {
+      nativeParams.json_schema = JSON.stringify(getJsonSchema(params.response_format))
     }
 
     let tokenListener: any =

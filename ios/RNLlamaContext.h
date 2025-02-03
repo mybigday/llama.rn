@@ -4,11 +4,13 @@
 #import "llama-impl.h"
 #import "ggml.h"
 #import "rn-llama.h"
+#import "json-schema-to-grammar.h"
 #else
 #import <rnllama/llama.h>
 #import <rnllama/llama-impl.h>
 #import <rnllama/ggml.h>
 #import <rnllama/rn-llama.h>
+#import <rnllama/json-schema-to-grammar.h>
 #endif
 #endif
 
@@ -38,6 +40,7 @@
 - (NSDictionary *)embedding:(NSString *)text params:(NSDictionary *)params;
 - (NSDictionary *)getFormattedChatWithJinja:(NSString *)messages
     withChatTemplate:(NSString *)chatTemplate
+    withJsonSchema:(NSString *)jsonSchema
     withTools:(NSString *)tools
     withParallelToolCalls:(BOOL)parallelToolCalls
     withToolChoice:(NSString *)toolChoice;
