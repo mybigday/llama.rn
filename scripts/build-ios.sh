@@ -32,7 +32,7 @@ function build_framework() {
     -DCMAKE_IOS_INSTALL_COMBINED=YES
 
   # Build
-  cmake --build . --config Release
+  cmake --build . --config Release -j $(sysctl -n hw.logicalcpu)
 
   # Setup framework directory
   rm -rf ../ios/rnllama.xcframework/$4
@@ -49,6 +49,9 @@ function build_framework() {
   cd ..
 }
 
+
+t0=$(date +%s)
+
 rm -rf build-ios
 mkdir -p build-ios
 
@@ -64,3 +67,6 @@ mkdir -p build-tvos
 build_framework "tvOS" "arm64;x86_64" "appletvsimulator" "tvos-arm64_x86_64-simulator" "build-tvos"
 build_framework "tvOS" "arm64" "appletvos" "tvos-arm64" "build-tvos"
 rm -rf build-tvos
+
+t1=$(date +%s)
+echo "Total time: $((t1 - t0)) seconds"
