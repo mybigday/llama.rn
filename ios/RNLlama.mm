@@ -88,14 +88,18 @@ RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
         reject(@"llama_error", @"Context not found", nil);
         return;
     }
-    if ([params[@"jinja"] boolValue]) {
-        NSString *jsonSchema = params[@"json_schema"];
-        NSString *tools = params[@"tools"];
-        NSString *parallelToolCalls = params[@"parallel_tool_calls"];
-        NSString *toolChoice = params[@"tool_choice"];
-        resolve([context getFormattedChatWithJinja:messages withChatTemplate:chatTemplate withJsonSchema:jsonSchema withTools:tools withParallelToolCalls:parallelToolCalls withToolChoice:toolChoice]);
-    } else {
-        resolve([context getFormattedChat:messages withChatTemplate:chatTemplate]);
+    try {
+        if ([params[@"jinja"] boolValue]) {
+            NSString *jsonSchema = params[@"json_schema"];
+            NSString *tools = params[@"tools"];
+            NSString *parallelToolCalls = params[@"parallel_tool_calls"];
+            NSString *toolChoice = params[@"tool_choice"];\
+            resolve([context getFormattedChatWithJinja:messages withChatTemplate:chatTemplate withJsonSchema:jsonSchema withTools:tools withParallelToolCalls:parallelToolCalls withToolChoice:toolChoice]);
+        } else {
+            resolve([context getFormattedChat:messages withChatTemplate:chatTemplate]);
+        }
+    } catch (const std::exception& e) { // catch cpp exceptions
+        reject(@"llama_error", [NSString stringWithUTF8String:e.what()], nil);
     }
 }
 
