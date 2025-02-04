@@ -241,7 +241,7 @@ rm -rf ./cpp/*.orig
 if [ "$OS" = "Darwin" ]; then
   # Build metallib (~2.6MB)
   cd llama.cpp/ggml/src/ggml-metal
-  xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air
+  xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_USE_BF16=1
   xcrun --sdk iphoneos metallib ggml-metal.air   -o ggml-llama.metallib
   rm ggml-metal.air
   mv ./ggml-llama.metallib ../../../../cpp/ggml-llama.metallib
