@@ -1071,7 +1071,7 @@ static bool lm_ggml_backend_metal_buffer_rset_init(
     }
 
 #if defined(LM_GGML_METAL_HAS_RESIDENCY_SETS)
-    if (@available(macOS 15.0, *)) {
+    if (@available(macOS 15.0, iOS 18.0, tvOS 18.0, *)) {
         MTLResidencySetDescriptor * desc = [[MTLResidencySetDescriptor alloc] init];
         desc.label = @"lm_ggml_backend_metal";
         desc.initialCapacity = ctx->n_buffers;
@@ -1106,7 +1106,7 @@ static bool lm_ggml_backend_metal_buffer_rset_init(
 // rset free
 static void lm_ggml_backend_metal_buffer_rset_free(struct lm_ggml_backend_metal_buffer_context * ctx) {
 #if defined(LM_GGML_METAL_HAS_RESIDENCY_SETS)
-    if (@available(macOS 15.0, *)) {
+    if (@available(macOS 15.0, iOS 18.0, tvOS 18.0, *)) {
         if (ctx->rset) {
             [ctx->rset endResidency];
             [ctx->rset removeAllAllocations];

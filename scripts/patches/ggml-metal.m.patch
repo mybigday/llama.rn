@@ -1,6 +1,6 @@
---- ggml-metal.m.orig	2024-12-20 13:36:22
-+++ ggml-metal.m	2024-12-20 13:37:17
-@@ -509,7 +509,7 @@
+--- ggml-metal.m.orig	2025-02-04 08:54:36
++++ ggml-metal.m	2025-02-04 08:55:48
+@@ -527,7 +527,7 @@
          const bool try_metallib = true;
  #endif
 
@@ -9,3 +9,21 @@
          if (path_lib == nil) {
              // Try to find the resource in the directory where the current binary located.
              NSString * current_binary = [[NSProcessInfo processInfo] arguments][0];
+@@ -1071,7 +1071,7 @@
+     }
+
+ #if defined(LM_GGML_METAL_HAS_RESIDENCY_SETS)
+-    if (@available(macOS 15.0, *)) {
++    if (@available(macOS 15.0, iOS 18.0, tvOS 18.0, *)) {
+         MTLResidencySetDescriptor * desc = [[MTLResidencySetDescriptor alloc] init];
+         desc.label = @"lm_ggml_backend_metal";
+         desc.initialCapacity = ctx->n_buffers;
+@@ -1106,7 +1106,7 @@
+ // rset free
+ static void lm_ggml_backend_metal_buffer_rset_free(struct lm_ggml_backend_metal_buffer_context * ctx) {
+ #if defined(LM_GGML_METAL_HAS_RESIDENCY_SETS)
+-    if (@available(macOS 15.0, *)) {
++    if (@available(macOS 15.0, iOS 18.0, tvOS 18.0, *)) {
+         if (ctx->rset) {
+             [ctx->rset endResidency];
+             [ctx->rset removeAllAllocations];
