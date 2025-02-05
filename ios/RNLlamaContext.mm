@@ -564,30 +564,30 @@
       }
     }
 
-    return @{
-        @"text": [NSString stringWithUTF8String:llama->generated_text.c_str()],
-        @"tool_calls": toolCalls,
-        @"completion_probabilities": [self tokenProbsToDict:llama->generated_token_probs],
-        @"tokens_predicted": @(llama->num_tokens_predicted),
-        @"tokens_evaluated": @(llama->num_prompt_tokens),
-        @"truncated": @(llama->truncated),
-        @"stopped_eos": @(llama->stopped_eos),
-        @"stopped_word": @(llama->stopped_word),
-        @"stopped_limit": @(llama->stopped_limit),
-        @"stopping_word": [NSString stringWithUTF8String:llama->stopping_word.c_str()],
-        @"tokens_cached": @(llama->n_past),
-        @"timings": @{
-            @"prompt_n": @(timings.n_p_eval),
-            @"prompt_ms": @(timings.t_p_eval_ms),
-            @"prompt_per_token_ms": @(timings.t_p_eval_ms / timings.n_p_eval),
-            @"prompt_per_second": @(1e3 / timings.t_p_eval_ms * timings.n_p_eval),
-
-            @"predicted_n": @(timings.n_eval),
-            @"predicted_ms": @(timings.t_eval_ms),
-            @"predicted_per_token_ms": @(timings.t_eval_ms / timings.n_eval),
-            @"predicted_per_second": @(1e3 / timings.t_eval_ms * timings.n_eval),
-        }
+    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
+    result[@"text"] = [NSString stringWithUTF8String:llama->generated_text.c_str()];
+    if (toolCalls) result[@"tool_calls"] = toolCalls;
+    result[@"completion_probabilities"] = [self tokenProbsToDict:llama->generated_token_probs];
+    result[@"tokens_predicted"] = @(llama->num_tokens_predicted);
+    result[@"tokens_evaluated"] = @(llama->num_prompt_tokens);
+    result[@"truncated"] = @(llama->truncated);
+    result[@"stopped_eos"] = @(llama->stopped_eos);
+    result[@"stopped_word"] = @(llama->stopped_word);
+    result[@"stopped_limit"] = @(llama->stopped_limit);
+    result[@"stopping_word"] = [NSString stringWithUTF8String:llama->stopping_word.c_str()];
+    result[@"tokens_cached"] = @(llama->n_past);
+    result[@"timings"] = @{
+        @"prompt_n": @(timings.n_p_eval),
+        @"prompt_ms": @(timings.t_p_eval_ms),
+        @"prompt_per_token_ms": @(timings.t_p_eval_ms / timings.n_p_eval),
+        @"prompt_per_second": @(1e3 / timings.t_p_eval_ms * timings.n_p_eval),
+        @"predicted_n": @(timings.n_eval),
+        @"predicted_n": @(timings.n_eval),
+        @"predicted_ms": @(timings.t_eval_ms),
+        @"predicted_per_token_ms": @(timings.t_eval_ms / timings.n_eval),
+        @"predicted_per_second": @(1e3 / timings.t_eval_ms * timings.n_eval),
     };
+    return result;
 }
 
 - (void)stopCompletion {
