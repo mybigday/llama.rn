@@ -1,16 +1,16 @@
---- log.cpp.orig
-+++ log.cpp
+--- log.cpp.orig	2025-02-05 11:41:07
++++ log.cpp	2025-02-05 11:41:09
 @@ -1,3 +1,6 @@
 +#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
 +#include <android/log.h>
 +#endif
  #include "log.h"
- 
+
  #include <condition_variable>
-@@ -66,7 +69,36 @@ struct common_log_entry {
+@@ -56,7 +59,36 @@
      // signals the worker thread to stop
      bool is_end;
- 
+
 +    #if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
 +    void android_print() const {
 +        int android_log_priority;
@@ -32,7 +32,7 @@
 +                break;
 +        }
 +
-+        const char * tag = "RNLLAMA_LOG_ANDROID"; 
++        const char * tag = "RNLLAMA_LOG_ANDROID";
 +        __android_log_print(android_log_priority, tag, "%s", msg.data());
 +    }
 +    #endif
@@ -44,11 +44,11 @@
          FILE * fcur = file;
          if (!fcur) {
              // stderr displays DBG messages only when their verbosity level is not higher than the threshold
-@@ -111,6 +143,7 @@ struct common_log_entry {
+@@ -101,6 +133,7 @@
          }
- 
+
          fflush(fcur);
 +        #endif
      }
  };
- 
+

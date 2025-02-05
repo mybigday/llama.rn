@@ -20,7 +20,10 @@
 #define LM_GGML_METAL_MAX_COMMAND_BUFFERS 8
 
 // create residency sets only on macOS >= 15.0
-#if TARGET_OS_OSX && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
+#if TARGET_OS_OSX && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000 || \
+    TARGET_OS_IOS && __IPHONE_OS_VERSION_MAX_ALLOWED >= 180000 || \
+    TARGET_OS_TV && __TV_OS_VERSION_MAX_ALLOWED >= 180000 || \
+    TARGET_OS_VISION && __VISION_OS_VERSION_MAX_ALLOWED >= 200000
 #define LM_GGML_METAL_HAS_RESIDENCY_SETS 1
 #endif
 
@@ -1071,7 +1074,7 @@ static bool lm_ggml_backend_metal_buffer_rset_init(
     }
 
 #if defined(LM_GGML_METAL_HAS_RESIDENCY_SETS)
-    if (@available(macOS 15.0, iOS 18.0, tvOS 18.0, *)) {
+    if (@available(macOS 15.0, iOS 18.0, tvOS 18.0, visionOS 2.0, *)) {
         MTLResidencySetDescriptor * desc = [[MTLResidencySetDescriptor alloc] init];
         desc.label = @"lm_ggml_backend_metal";
         desc.initialCapacity = ctx->n_buffers;
@@ -1106,7 +1109,7 @@ static bool lm_ggml_backend_metal_buffer_rset_init(
 // rset free
 static void lm_ggml_backend_metal_buffer_rset_free(struct lm_ggml_backend_metal_buffer_context * ctx) {
 #if defined(LM_GGML_METAL_HAS_RESIDENCY_SETS)
-    if (@available(macOS 15.0, iOS 18.0, tvOS 18.0, *)) {
+    if (@available(macOS 15.0, iOS 18.0, tvOS 18.0, visionOS 2.0, *)) {
         if (ctx->rset) {
             [ctx->rset endResidency];
             [ctx->rset removeAllAllocations];
@@ -1203,10 +1206,11 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_backend_metal_device_
         case LM_GGML_OP_GROUP_NORM:
             return has_simdgroup_reduction;
         case LM_GGML_OP_RMS_NORM:
-            return has_simdgroup_reduction && (op->ne[0] % 4 == 0);
+            return has_simdgroup_reduction && (op->ne[0] % 4 == 0 && lm_ggml_is_contiguous_1(op->src[0]));
         case LM_GGML_OP_ARGMAX:
-        case LM_GGML_OP_NORM:
             return true;
+        case LM_GGML_OP_NORM:
+            return has_simdgroup_reduction && lm_ggml_is_contiguous(op->src[0]);
         case LM_GGML_OP_ROPE:
             {
                 const int mode = ((const int32_t *) op->op_params)[2];

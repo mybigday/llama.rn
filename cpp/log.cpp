@@ -80,7 +80,7 @@ struct common_log_entry {
                 break;
         }
 
-        const char * tag = "RNLLAMA_LOG_ANDROID"; 
+        const char * tag = "RNLLAMA_LOG_ANDROID";
         __android_log_print(android_log_priority, tag, "%s", msg.data());
     }
     #endif

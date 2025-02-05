@@ -1,6 +1,6 @@
---- common.h.orig	2025-01-25 14:43:22
-+++ common.h	2025-01-25 14:43:23
-@@ -41,6 +41,17 @@
+--- common.h.orig	2025-02-05 11:41:07
++++ common.h	2025-02-05 11:41:09
+@@ -42,6 +42,17 @@
 
  struct common_control_vector_load_info;
 
@@ -18,7 +18,7 @@
  //
  // CPU utils
  //
-@@ -193,6 +204,7 @@
+@@ -203,6 +214,7 @@
  };
 
  struct common_params {
@@ -26,7 +26,7 @@
      int32_t n_predict             =    -1; // new tokens to predict
      int32_t n_ctx                 =  4096; // context size
      int32_t n_batch               =  2048; // logical batch size for prompt processing (must be >=32 to use BLAS)
-@@ -308,6 +320,9 @@
+@@ -318,6 +330,9 @@
      bool warmup            = true;  // warmup run
      bool check_tensors     = false; // validate tensor data
 
