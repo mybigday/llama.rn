@@ -194,7 +194,7 @@ bool llama_rn_context::loadModel(common_params &params_)
         LOG_ERROR("unable to load model: %s", params_.model.c_str());
         return false;
     }
-    templates = common_chat_templates_from_model(model, "");
+    templates = common_chat_templates_from_model(model, params.chat_template);
     n_ctx = llama_n_ctx(ctx);
 
     // We can uncomment for debugging or after this fix: https://github.com/ggerganov/llama.cpp/pull/11101

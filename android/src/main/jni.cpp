@@ -222,6 +222,7 @@ Java_com_rnllama_LlamaContext_initContext(
     JNIEnv *env,
     jobject thiz,
     jstring model_path_str,
+    jstring chat_template,
     jboolean embedding,
     jint embd_normalize,
     jint n_ctx,
@@ -254,6 +255,9 @@ Java_com_rnllama_LlamaContext_initContext(
 
     const char *model_path_chars = env->GetStringUTFChars(model_path_str, nullptr);
     defaultParams.model = model_path_chars;
+
+    const char *chat_template_chars = env->GetStringUTFChars(chat_template, nullptr);
+    defaultParams.chat_template = chat_template_chars;
 
     defaultParams.n_ctx = n_ctx;
     defaultParams.n_batch = n_batch;
@@ -321,6 +325,7 @@ Java_com_rnllama_LlamaContext_initContext(
     bool is_model_loaded = llama->loadModel(defaultParams);
 
     env->ReleaseStringUTFChars(model_path_str, model_path_chars);
+    env->ReleaseStringUTFChars(chat_template, chat_template_chars);
     env->ReleaseStringUTFChars(cache_type_k, cache_type_k_chars);
     env->ReleaseStringUTFChars(cache_type_v, cache_type_v_chars);
 

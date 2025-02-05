@@ -44,6 +44,8 @@ public class LlamaContext {
     this.context = initContext(
       // String model,
       params.getString("model"),
+      // String chat_template,
+      params.hasKey("chat_template") ? params.getString("chat_template") : "",
       // boolean embedding,
       params.hasKey("embedding") ? params.getBoolean("embedding") : false,
       // int embd_normalize,
@@ -437,6 +439,7 @@ public class LlamaContext {
   );
   protected static native long initContext(
     String model,
+    String chat_template,
     boolean embedding,
     int embd_normalize,
     int n_ctx,

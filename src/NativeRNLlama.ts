@@ -7,6 +7,11 @@ export type NativeEmbeddingParams = {
 
 export type NativeContextParams = {
   model: string
+  /**
+   * Chat template to override the default one from the model.
+   */
+  chat_template?: string
+
   is_model_asset?: boolean
   use_progress_callback?: boolean
 

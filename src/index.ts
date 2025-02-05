@@ -103,7 +103,8 @@ export type CompletionResponseFormat = {
 export type CompletionBaseParams = {
   prompt?: string
   messages?: RNLlamaOAICompatibleMessage[]
-  chatTemplate?: string
+  chatTemplate?: string // deprecated
+  chat_template?: string
   jinja?: boolean
   tools?: object
   parallel_tool_calls?: object
@@ -232,7 +233,7 @@ export class LlamaContext {
       // messages always win
       const formattedResult = await this.getFormattedChat(
         params.messages,
-        params.chatTemplate,
+        params.chat_template || params.chatTemplate,
         {
           jinja: params.jinja,
           tools: params.tools,

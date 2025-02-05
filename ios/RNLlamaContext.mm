@@ -57,6 +57,12 @@
     if (isAsset) path = [[NSBundle mainBundle] pathForResource:modelPath ofType:nil];
     defaultParams.model = [path UTF8String];
 
+    NSString *chatTemplate = params[@"chat_template"];
+    if (chatTemplate) {
+        defaultParams.chat_template = [chatTemplate UTF8String];
+        NSLog(@"chatTemplate: %@", chatTemplate);
+    }
+
     if (params[@"n_ctx"]) defaultParams.n_ctx = [params[@"n_ctx"] intValue];
     if (params[@"use_mlock"]) defaultParams.use_mlock = [params[@"use_mlock"]boolValue];
 
