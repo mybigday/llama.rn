@@ -12,9 +12,16 @@ import type { LlamaContext } from 'llama.rn'
 import {
   initLlama,
   loadLlamaModelInfo,
+  addNativeLogListener,
   // eslint-disable-next-line import/no-unresolved
 } from 'llama.rn'
 import { Bubble } from './Bubble'
+
+addNativeLogListener((level, message) => {
+  console.log(
+    ['[rnllama]', level ? `[${level}]` : '', message].filter(Boolean).join(' '),
+  )
+})
 
 const { dirs } = ReactNativeBlobUtil.fs
 
@@ -415,7 +422,7 @@ export default function App() {
                 required: ['function', 'arguments'],
               },
             ],
-          }
+          },
         },
       }
       // Comment to test:

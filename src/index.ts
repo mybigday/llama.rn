@@ -55,16 +55,14 @@ if (Platform.OS === 'android') {
   EventEmitter = DeviceEventEmitter
 }
 
+const logListeners: Array<(level: string, message: string) => void> = []
+
 // @ts-ignore
 if (EventEmitter) {
   EventEmitter.addListener(
     EVENT_ON_NATIVE_LOG,
     (evt: { level: string; message: string }) => {
-      console.log(
-        ...['[rnllama]', evt.level ? `[${evt.level}]` : '', evt.message].filter(
-          Boolean,
-        ),
-      )
+      logListeners.forEach((listener) => listener(evt.level, evt.message))
     },
   )
   RNLlama?.toggleNativeLog?.(true)
@@ -378,6 +376,17 @@ export class LlamaContext {
 
 export async function toggleNativeLog(enabled: boolean): Promise<void> {
   return RNLlama.toggleNativeLog(enabled)
+}
+
+export function addNativeLogListener(
+  listener: (level: string, message: string) => void,
+): { remove: () => void } {
+  logListeners.push(listener)
+  return {
+    remove: () => {
+      logListeners.splice(logListeners.indexOf(listener), 1)
+    },
+  }
 }
 
 export async function setContextLimit(limit: number): Promise<void> {
