@@ -130,6 +130,7 @@ export default function App() {
     initLlama(
       {
         model: file.uri,
+        n_ctx: 200,
         use_mlock: true,
         n_gpu_layers: Platform.OS === 'ios' ? 99 : 0, // > 0: enable GPU
 

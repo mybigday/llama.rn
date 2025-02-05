@@ -34,6 +34,11 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
+  public void toggleNativeLog(boolean enabled, Promise promise) {
+    rnllama.toggleNativeLog(enabled, promise);
+  }
+
+  @ReactMethod
   public void setContextLimit(double limit, Promise promise) {
     rnllama.setContextLimit(limit, promise);
   }

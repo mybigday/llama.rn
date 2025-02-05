@@ -35,6 +35,32 @@ public class RNLlama implements LifecycleEventListener {
 
   private HashMap<Integer, LlamaContext> contexts = new HashMap<>();
 
+  public void toggleNativeLog(boolean enabled, Promise promise) {
+    new AsyncTask<Void, Void, Boolean>() {
+      private Exception exception;
+
+      @Override
+      protected Boolean doInBackground(Void... voids) {
+        try {
+          LlamaContext.toggleNativeLog(reactContext, enabled);
+          return true;
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(Boolean result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+  }
+
   private int llamaContextLimit = -1;
 
   public void setContextLimit(double limit, Promise promise) {
