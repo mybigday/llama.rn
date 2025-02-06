@@ -229,7 +229,6 @@ patch -p0 -d ./cpp < ./scripts/patches/common.h.patch
 patch -p0 -d ./cpp < ./scripts/patches/common.cpp.patch
 patch -p0 -d ./cpp < ./scripts/patches/log.cpp.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml-metal.m.patch
-patch -p0 -d ./cpp < ./scripts/patches/ggml-backend-reg.cpp.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml-quants.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/llama-mmap.cpp.patch
@@ -245,6 +244,11 @@ if [ "$OS" = "Darwin" ]; then
   xcrun --sdk iphoneos metallib ggml-metal.air   -o ggml-llama.metallib
   rm ggml-metal.air
   mv ./ggml-llama.metallib ../../../../cpp/ggml-llama.metallib
+
+  xcrun --sdk iphonesimulator metal -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_USE_BF16=1
+  xcrun --sdk iphonesimulator metallib ggml-metal.air   -o ggml-llama.metallib
+  rm ggml-metal.air
+  mv ./ggml-llama.metallib ../../../../cpp/ggml-llama-sim.metallib
 
   cd -
 
