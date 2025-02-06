@@ -116,8 +116,14 @@
             if (pipeline == nil) {
                 reasonNoMetal = [error localizedDescription];
             } else {
+#if TARGET_OS_SIMULATOR
+                defaultParams.n_gpu_layers = 0;
+                isMetalEnabled = false;
+                reasonNoMetal = @"Metal is not supported on simulator";
+#else
                 defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
                 isMetalEnabled = true;
+#endif
             }
         }
         device = nil;
