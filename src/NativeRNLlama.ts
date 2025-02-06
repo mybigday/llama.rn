@@ -298,6 +298,19 @@ export type NativeLlamaChatMessage = {
   content: string
 }
 
+export type JinjaFormattedChatResult = {
+  prompt: string
+  chat_format?: number
+  grammar?: string
+  grammar_lazy?: boolean
+  grammar_triggers?: Array<{
+    at_start: boolean
+    word: string
+  }>
+  preserved_tokens?: Array<string>
+  additional_stops?: Array<string>
+}
+
 export interface Spec extends TurboModule {
   toggleNativeLog(enabled: boolean): Promise<void>
   setContextLimit(limit: number): Promise<void>
@@ -319,7 +332,7 @@ export interface Spec extends TurboModule {
       parallel_tool_calls?: string
       tool_choice?: string
     },
-  ): Promise<string>
+  ): Promise<JinjaFormattedChatResult | string>
   loadSession(
     contextId: number,
     filepath: string,

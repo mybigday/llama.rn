@@ -22,8 +22,12 @@ if (!NativeModules.RNLlama) {
       }),
     ),
 
-    // TODO: Use jinja parser
-    getFormattedChat: jest.fn(() => ''),
+    getFormattedChat: jest.fn(async (messages, chatTemplate, options) => {
+      if (options.jinja) {
+        return { prompt: '', chat_format: 0 }
+      }
+      return ''
+    }),
 
     completion: jest.fn(async (contextId, jobId) => {
       const testResult = {

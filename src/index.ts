@@ -13,6 +13,7 @@ import type {
   NativeEmbeddingParams,
   NativeCompletionTokenProbItem,
   NativeCompletionResultTimings,
+  JinjaFormattedChatResult,
 } from './NativeRNLlama'
 import type {
   SchemaGrammarConverterPropOrder,
@@ -36,6 +37,9 @@ export type {
   NativeCompletionResultTimings,
   RNLlamaMessagePart,
   RNLlamaOAICompatibleMessage,
+  JinjaFormattedChatResult,
+
+  // Deprecated
   SchemaGrammarConverterPropOrder,
   SchemaGrammarConverterBuiltinRule,
 }
@@ -139,19 +143,6 @@ export type BenchResult = {
   ppStd: number
   tgAvg: number
   tgStd: number
-}
-
-type JinjaFormattedChatResult = {
-  prompt: string
-  chat_format?: number
-  grammar?: string
-  grammar_lazy?: boolean
-  grammar_triggers?: Array<{
-    at_start: boolean
-    word: string
-  }>
-  preserved_tokens?: Array<string>
-  additional_stops?: Array<string>
 }
 
 const getJsonSchema = (responseFormat?: CompletionResponseFormat) => {
