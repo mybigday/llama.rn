@@ -3,6 +3,33 @@
 
 @implementation RNLlamaContext
 
++ (void)toggleNativeLog:(BOOL)enabled onEmitLog:(void (^)(NSString *level, NSString *text))onEmitLog {
+  if (enabled) {
+      void (^copiedBlock)(NSString *, NSString *) = [onEmitLog copy];
+      llama_log_set([](lm_ggml_log_level level, const char * text, void * data) {
+          llama_log_callback_default(level, text, data);
+          NSString *levelStr = @"";
+          if (level == LM_GGML_LOG_LEVEL_ERROR) {
+              levelStr = @"error";
+          } else if (level == LM_GGML_LOG_LEVEL_INFO) {
+              levelStr = @"info";
+          } else if (level == LM_GGML_LOG_LEVEL_WARN) {
+              levelStr = @"warn";
+          }
+
+          NSString *textStr = [NSString stringWithUTF8String:text];
+          // NOTE: Convert to UTF-8 string may fail
+          if (!textStr) {
+              return;
+          }
+          void (^block)(NSString *, NSString *) = (__bridge void (^)(NSString *, NSString *))(data);
+          block(levelStr, textStr);
+      }, copiedBlock);
+  } else {
+      llama_log_set(llama_log_callback_default, nullptr);
+  }
+}
+
 + (NSDictionary *)modelInfo:(NSString *)path skip:(NSArray *)skip {
     struct lm_gguf_init_params params = {
         /*.no_alloc = */ false,
