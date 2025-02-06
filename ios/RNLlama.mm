@@ -13,6 +13,16 @@ dispatch_queue_t llamaDQueue;
 
 RCT_EXPORT_MODULE()
 
+RCT_EXPORT_METHOD(toggleNativeLog:(BOOL)enabled) {
+    void (^onEmitLog)(NSString *level, NSString *text) = nil;
+    if (enabled) {
+        onEmitLog = ^(NSString *level, NSString *text) {
+            [self sendEventWithName:@"@RNLlama_onNativeLog" body:@{ @"level": level, @"text": text }];
+        };
+    }
+    [RNLlamaContext toggleNativeLog:enabled onEmitLog:onEmitLog];
+}
+
 RCT_EXPORT_METHOD(setContextLimit:(double)limit
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
@@ -41,7 +51,7 @@ RCT_EXPORT_METHOD(initContext:(double)contextId
     }
 
     if (llamaDQueue == nil) {
-      llamaDQueue = dispatch_queue_create("com.rnllama", DISPATCH_QUEUE_SERIAL);
+        llamaDQueue = dispatch_queue_create("com.rnllama", DISPATCH_QUEUE_SERIAL);
     }
 
     if (llamaContexts == nil) {
@@ -159,6 +169,7 @@ RCT_EXPORT_METHOD(saveSession:(double)contextId
   return@[
     @"@RNLlama_onInitContextProgress",
     @"@RNLlama_onToken",
+    @"@RNLlama_onNativeLog",
   ];
 }
 
