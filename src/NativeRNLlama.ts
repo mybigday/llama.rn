@@ -299,6 +299,7 @@ export type NativeLlamaChatMessage = {
 }
 
 export interface Spec extends TurboModule {
+  toggleNativeLog(enabled: boolean): Promise<void>
   setContextLimit(limit: number): Promise<void>
 
   modelInfo(path: string, skip?: string[]): Promise<Object>

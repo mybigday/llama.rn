@@ -23,6 +23,29 @@ public class LlamaContext {
 
   private static String loadedLibrary = "";
 
+  private static class NativeLogCallback {
+    DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
+
+    public NativeLogCallback(ReactApplicationContext reactContext) {
+      this.eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
+    }
+
+    void emitNativeLog(String level, String text) {
+      WritableMap event = Arguments.createMap();
+      event.putString("level", level);
+      event.putString("text", text);
+      eventEmitter.emit("@RNLlama_onNativeLog", event);
+    }
+  }
+
+  static void toggleNativeLog(ReactApplicationContext reactContext, boolean enabled) {
+    if (enabled) {
+      setupLog(new NativeLogCallback(reactContext));
+    } else {
+      unsetLog();
+    }
+  }
+
   private int id;
   private ReactApplicationContext reactContext;
   private long context;
@@ -37,8 +60,6 @@ public class LlamaContext {
     if (!params.hasKey("model")) {
       throw new IllegalArgumentException("Missing required parameter: model");
     }
-    Log.d(NAME, "Setting log callback");
-    logToAndroid();
     eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
     this.id = id;
     this.context = initContext(
@@ -539,5 +560,6 @@ public class LlamaContext {
   protected static native void removeLoraAdapters(long contextPtr);
   protected static native WritableArray getLoadedLoraAdapters(long contextPtr);
   protected static native void freeContext(long contextPtr);
-  protected static native void logToAndroid();
+  protected static native void setupLog(NativeLogCallback logCallback);
+  protected static native void unsetLog();
 }
