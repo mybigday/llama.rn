@@ -12,14 +12,16 @@ import type { LlamaContext } from 'llama.rn'
 import {
   initLlama,
   loadLlamaModelInfo,
+  toggleNativeLog,
   addNativeLogListener,
   // eslint-disable-next-line import/no-unresolved
 } from 'llama.rn'
 import { Bubble } from './Bubble'
 
-addNativeLogListener((level, message) => {
+toggleNativeLog(true)
+addNativeLogListener((level, text) => {
   console.log(
-    ['[rnllama]', level ? `[${level}]` : '', message].filter(Boolean).join(' '),
+    ['[rnllama]', level ? `[${level}]` : '', text].filter(Boolean).join(' '),
   )
 })
 

@@ -24,6 +24,13 @@ static inline int min(int a, int b) {
     return (a < b) ? a : b;
 }
 
+static void rnllama_log_callback_default(lm_ggml_log_level level, const char * fmt, void * data) {
+    if (level == LM_GGML_LOG_LEVEL_ERROR)     __android_log_print(ANDROID_LOG_ERROR, TAG, fmt, data);
+    else if (level == LM_GGML_LOG_LEVEL_INFO) __android_log_print(ANDROID_LOG_INFO, TAG, fmt, data);
+    else if (level == LM_GGML_LOG_LEVEL_WARN) __android_log_print(ANDROID_LOG_WARN, TAG, fmt, data);
+    else __android_log_print(ANDROID_LOG_DEFAULT, TAG, fmt, data);
+}
+
 extern "C" {
 
 // Method to create WritableMap
@@ -1108,19 +1115,19 @@ struct log_callback_context {
     jobject callback;
 };
 
-static void rnllama_log_callback(lm_ggml_log_level level, const char * fmt, void * data) {
+static void rnllama_log_callback_to_j(lm_ggml_log_level level, const char * text, void * data) {
     auto level_c = "";
     if (level == LM_GGML_LOG_LEVEL_ERROR) {
+        __android_log_print(ANDROID_LOG_ERROR, TAG, text, nullptr);
         level_c = "error";
-        __android_log_print(ANDROID_LOG_ERROR, TAG, fmt, data);
     } else if (level == LM_GGML_LOG_LEVEL_INFO) {
+        __android_log_print(ANDROID_LOG_INFO, TAG, text, nullptr);
         level_c = "info";
-        __android_log_print(ANDROID_LOG_INFO, TAG, fmt, data);
     } else if (level == LM_GGML_LOG_LEVEL_WARN) {
+        __android_log_print(ANDROID_LOG_WARN, TAG, text, nullptr);
         level_c = "warn";
-        __android_log_print(ANDROID_LOG_WARN, TAG, fmt, data);
     } else {
-        __android_log_print(ANDROID_LOG_DEFAULT, TAG, fmt, data);
+        __android_log_print(ANDROID_LOG_DEFAULT, TAG, text, nullptr);
     }
 
     log_callback_context *cb_ctx = (log_callback_context *) data;
@@ -1144,10 +1151,10 @@ static void rnllama_log_callback(lm_ggml_log_level level, const char * fmt, void
     jmethodID emitNativeLog = env->GetMethodID(cb_class, "emitNativeLog", "(Ljava/lang/String;Ljava/lang/String;)V");
 
     jstring level_str = env->NewStringUTF(level_c);
-    jstring fmt_str = env->NewStringUTF(fmt);
-    env->CallVoidMethod(callback, emitNativeLog, level_str, fmt_str);
+    jstring text_str = env->NewStringUTF(text);
+    env->CallVoidMethod(callback, emitNativeLog, level_str, text_str);
     env->DeleteLocalRef(level_str);
-    env->DeleteLocalRef(fmt_str);
+    env->DeleteLocalRef(text_str);
 
     if (need_detach) {
         cb_ctx->jvm->DetachCurrentThread();
@@ -1163,17 +1170,16 @@ Java_com_rnllama_LlamaContext_setupLog(JNIEnv *env, jobject thiz, jobject logCal
     JavaVM *jvm;
     env->GetJavaVM(&jvm);
     cb_ctx->jvm = jvm;
-
     cb_ctx->callback = env->NewGlobalRef(logCallback);
 
-    llama_log_set(rnllama_log_callback, cb_ctx);
+    llama_log_set(rnllama_log_callback_to_j, cb_ctx);
 }
 
 JNIEXPORT void JNICALL
 Java_com_rnllama_LlamaContext_unsetLog(JNIEnv *env, jobject thiz) {
     UNUSED(env);
     UNUSED(thiz);
-    llama_log_set(llama_log_callback_default, NULL);
+    llama_log_set(rnllama_log_callback_default, NULL);
 }
 
 } // extern "C"

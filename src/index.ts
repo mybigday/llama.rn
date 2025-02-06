@@ -55,17 +55,17 @@ if (Platform.OS === 'android') {
   EventEmitter = DeviceEventEmitter
 }
 
-const logListeners: Array<(level: string, message: string) => void> = []
+const logListeners: Array<(level: string, text: string) => void> = []
 
 // @ts-ignore
 if (EventEmitter) {
   EventEmitter.addListener(
     EVENT_ON_NATIVE_LOG,
-    (evt: { level: string; message: string }) => {
-      logListeners.forEach((listener) => listener(evt.level, evt.message))
+    (evt: { level: string; text: string }) => {
+      logListeners.forEach((listener) => listener(evt.level, evt.text))
     },
   )
-  RNLlama?.toggleNativeLog?.(true)
+  RNLlama?.toggleNativeLog?.(false) // Trigger unset to use default log callback
 }
 
 export type TokenData = {
@@ -379,7 +379,7 @@ export async function toggleNativeLog(enabled: boolean): Promise<void> {
 }
 
 export function addNativeLogListener(
-  listener: (level: string, message: string) => void,
+  listener: (level: string, text: string) => void,
 ): { remove: () => void } {
   logListeners.push(listener)
   return {

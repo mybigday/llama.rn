@@ -23,6 +23,21 @@ public class LlamaContext {
 
   private static String loadedLibrary = "";
 
+  private static class NativeLogCallback {
+    DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
+
+    public NativeLogCallback(ReactApplicationContext reactContext) {
+      this.eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
+    }
+
+    void emitNativeLog(String level, String text) {
+      WritableMap event = Arguments.createMap();
+      event.putString("level", level);
+      event.putString("text", text);
+      eventEmitter.emit("@RNLlama_onNativeLog", event);
+    }
+  }
+
   static void toggleNativeLog(ReactApplicationContext reactContext, boolean enabled) {
     if (enabled) {
       setupLog(new NativeLogCallback(reactContext));
@@ -134,21 +149,6 @@ public class LlamaContext {
 
   public String getFormattedChat(String messages, String chatTemplate) {
     return getFormattedChat(this.context, messages, chatTemplate == null ? "" : chatTemplate);
-  }
-
-  private static class NativeLogCallback {
-    DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
-
-    public NativeLogCallback(ReactApplicationContext reactContext) {
-      this.eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
-    }
-
-    void emitNativeLog(String level, String message) {
-      WritableMap event = Arguments.createMap();
-      event.putString("level", level);
-      event.putString("message", message);
-      eventEmitter.emit("@RNLlama_onNativeLog", event);
-    }
   }
 
   private void emitLoadProgress(int progress) {
