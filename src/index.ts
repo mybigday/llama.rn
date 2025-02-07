@@ -150,7 +150,7 @@ const getJsonSchema = (responseFormat?: CompletionResponseFormat) => {
     return responseFormat.json_schema?.schema
   }
   if (responseFormat?.type === 'json_object') {
-    return responseFormat.schema
+    return responseFormat.schema || {}
   }
   return null
 }
