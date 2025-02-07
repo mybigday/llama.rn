@@ -104,6 +104,7 @@
         id<MTLLibrary> library = [device
             newLibraryWithSource:@"#include <metal_stdlib>\n"
                                     "using namespace metal;"
+                                    "typedef matrix<bfloat, 4, 4> bfloat4x4;"
                                     "kernel void test() { simd_sum(0); }"
             options:nil
             error:&error
@@ -588,24 +589,28 @@
 
     NSMutableArray *toolCalls = nil;
     if (!llama->is_interrupted) {
-      auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
-      common_chat_msg message = common_chat_parse(llama->generated_text, static_cast<common_chat_format>(chat_format));
-      toolCalls = [[NSMutableArray alloc] init];
-      for (const auto &tc : message.tool_calls) {
-        [toolCalls addObject:@{
-          @"type": @"function",
-          @"function": @{
-            @"name": [NSString stringWithUTF8String:tc.name.c_str()],
-            @"arguments": [NSString stringWithUTF8String:tc.arguments.c_str()],
-          },
-          @"id": tc.id.empty() ? [NSNull null] : [NSString stringWithUTF8String:tc.id.c_str()],
-        }];
-      }
+        try {
+            auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
+            common_chat_msg message = common_chat_parse(llama->generated_text, static_cast<common_chat_format>(chat_format));
+            toolCalls = [[NSMutableArray alloc] init];
+            for (const auto &tc : message.tool_calls) {
+                [toolCalls addObject:@{
+                    @"type": @"function",
+                    @"function": @{
+                        @"name": [NSString stringWithUTF8String:tc.name.c_str()],
+                        @"arguments": [NSString stringWithUTF8String:tc.arguments.c_str()],
+                    },
+                    @"id": tc.id.empty() ? [NSNull null] : [NSString stringWithUTF8String:tc.id.c_str()],
+                }];
+            }
+        } catch (const std::exception &e) {
+            // NSLog(@"Error parsing tool calls: %s", e.what());
+        }
     }
 
     NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
     result[@"text"] = [NSString stringWithUTF8String:llama->generated_text.c_str()];
-    if (toolCalls) result[@"tool_calls"] = toolCalls;
+    if (toolCalls && toolCalls.count > 0) result[@"tool_calls"] = toolCalls;
     result[@"completion_probabilities"] = [self tokenProbsToDict:llama->generated_token_probs];
     result[@"tokens_predicted"] = @(llama->num_tokens_predicted);
     result[@"tokens_evaluated"] = @(llama->num_prompt_tokens);
