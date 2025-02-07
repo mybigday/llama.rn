@@ -633,6 +633,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jobject thiz,
     jlong context_ptr,
     jstring prompt,
+    jint chat_format,
     jstring grammar,
     jstring json_schema,
     jboolean grammar_lazy,
@@ -880,8 +881,34 @@ Java_com_rnllama_LlamaContext_doCompletion(
     llama_perf_context_print(llama->ctx);
     llama->is_predicting = false;
 
+    auto toolCalls = createWritableArray(env);
+    auto toolCallsSize = 0;
+    if (!llama->is_interrupted) {
+        try {
+            common_chat_msg message = common_chat_parse(llama->generated_text, static_cast<common_chat_format>(chat_format));
+            for (const auto &tc : message.tool_calls) {
+                auto toolCall = createWriteableMap(env);
+                putString(env, toolCall, "type", "function");
+                auto functionMap = createWriteableMap(env);
+                putString(env, functionMap, "name", tc.name.c_str());
+                putString(env, functionMap, "arguments", tc.arguments.c_str());
+                putMap(env, toolCall, "function", functionMap);
+                if (!tc.id.empty()) {
+                    putString(env, toolCall, "id", tc.id.c_str());
+                }
+                pushMap(env, toolCalls, toolCall);
+                toolCallsSize++;
+            }
+        } catch (const std::exception &e) {
+            // LOGI("Error parsing tool calls: %s", e.what());
+        }
+    }
+
     auto result = createWriteableMap(env);
     putString(env, result, "text", llama->generated_text.c_str());
+    if (toolCallsSize > 0) {
+        putArray(env, result, "tool_calls", toolCalls);
+    }
     putArray(env, result, "completion_probabilities", tokenProbsToMap(env, llama, llama->generated_token_probs));
     putInt(env, result, "tokens_predicted", llama->num_tokens_predicted);
     putInt(env, result, "tokens_evaluated", llama->num_prompt_tokens);

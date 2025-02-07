@@ -236,6 +236,8 @@ public class LlamaContext {
       this.context,
       // String prompt,
       params.getString("prompt"),
+      // int chat_format,
+      params.hasKey("chat_format") ? params.getInt("chat_format") : 0,
       // String grammar,
       params.hasKey("grammar") ? params.getString("grammar") : "",
       // String json_schema,
@@ -512,6 +514,7 @@ public class LlamaContext {
   protected static native WritableMap doCompletion(
     long context_ptr,
     String prompt,
+    int chat_format,
     String grammar,
     String json_schema,
     boolean grammar_lazy,
