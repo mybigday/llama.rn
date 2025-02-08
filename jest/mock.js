@@ -18,6 +18,21 @@ if (!NativeModules.RNLlama) {
             'general.architecture': 'llama',
             'llama.embedding_length': 768,
           },
+          chatTemplates: {
+            llamaChat: true,
+            minja: {
+              default: true,
+              defaultCaps: {
+                parallelToolCalls: false,
+                systemRole: true,
+                toolCallId: false,
+                toolCalls: false,
+                toolResponses: false,
+                tools: false,
+              },
+              toolUse: false,
+            },
+          },
         },
       }),
     ),
