@@ -58,7 +58,7 @@ const context = await initLlama({
   model: modelPath,
   use_mlock: true,
   n_ctx: 2048,
-  n_gpu_layers: 1, // > 0: enable Metal on iOS
+  n_gpu_layers: 99, // number of layers to store in VRAM (Currently only for iOS)
   // embedding: true, // use embedding
 })
 

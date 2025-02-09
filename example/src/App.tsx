@@ -18,9 +18,14 @@ import {
 } from 'llama.rn'
 import { Bubble } from './Bubble'
 
+// Example: Catch logs from llama.cpp
 toggleNativeLog(true)
 addNativeLogListener((level, text) => {
-  console.log(
+  // eslint-disable-next-line prefer-const
+  let log = (t: string) => t // noop
+  // Uncomment to test:
+  // ({log} = console)
+  log(
     ['[rnllama]', level ? `[${level}]` : '', text].filter(Boolean).join(' '),
   )
 })
@@ -141,10 +146,11 @@ export default function App() {
         model: file.uri,
         n_ctx: 200,
         use_mlock: true,
-        n_gpu_layers: Platform.OS === 'ios' ? 99 : 0, // > 0: enable GPU
-
-        // embedding: true,
         lora_list: loraFile ? [{ path: loraFile.uri, scaled: 1.0 }] : undefined, // Or lora: loraFile?.uri,
+
+        // Currently only for iOS
+        n_gpu_layers: Platform.OS === 'ios' ? 99 : 0,
+        // no_gpu_devices: true, // (iOS only)
       },
       (progress) => {
         setMessages((msgs) => {

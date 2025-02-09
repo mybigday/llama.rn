@@ -20,7 +20,15 @@ export type NativeContextParams = {
   n_ubatch?: number
 
   n_threads?: number
+
+  /**
+   * Number of layers to store in VRAM (Currently only for iOS)
+   */
   n_gpu_layers?: number
+  /**
+   * Skip GPU devices (iOS only)
+   */
+  no_gpu_devices?: boolean
 
   /**
    * Enable flash attention, only recommended in GPU device (Experimental in llama.cpp)
