@@ -1,8 +1,6 @@
-#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
-#include <android/log.h>
-#endif
 #include "log.h"
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
@@ -10,6 +8,10 @@
 #include <sstream>
 #include <thread>
 #include <vector>
+
+#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
+#include <android/log.h>
+#endif
 
 int common_log_verbosity_thold = LOG_DEFAULT_LLAMA;
 

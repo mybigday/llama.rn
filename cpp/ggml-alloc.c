@@ -989,19 +989,7 @@ lm_ggml_backend_buffer_t lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_g
             this_size = LM_GGML_PAD(lm_ggml_backend_buft_get_alloc_size(buft, t), alignment);
         }
 
-        if (this_size > max_size) {
-            LM_GGML_LOG_ERROR("%s: tensor %s is too large to fit in a %s buffer (tensor size: %zu, max buffer size: %zu)\n",
-                    __func__, t->name,
-                    lm_ggml_backend_buft_name(buft),
-                    this_size, max_size);
-            for (size_t i = 0; i < n_buffers; i++) {
-                lm_ggml_backend_buffer_free(buffers[i]);
-            }
-            free(buffers);
-            return NULL;
-        }
-
-        if ((cur_buf_size + this_size) > max_size) {
+        if (cur_buf_size > 0 && (cur_buf_size + this_size) > max_size) {
             // allocate tensors in the current buffer
             if (!alloc_tensor_range(ctx, first, t, buft, cur_buf_size, &buffers, &n_buffers)) {
                 return NULL;

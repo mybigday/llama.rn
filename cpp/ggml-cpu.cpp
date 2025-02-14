@@ -284,14 +284,14 @@ struct lm_ggml_backend_cpu_device_context {
                         &hKey) == ERROR_SUCCESS) {
             DWORD cpu_brand_size = 0;
             if (RegQueryValueExA(hKey,
-                                TEXT("ProcessorNameString"),
+                                "ProcessorNameString",
                                 NULL,
                                 NULL,
                                 NULL,
                                 &cpu_brand_size) == ERROR_SUCCESS) {
                 description.resize(cpu_brand_size);
                 if (RegQueryValueExA(hKey,
-                                    TEXT("ProcessorNameString"),
+                                    "ProcessorNameString",
                                     NULL,
                                     NULL,
                                     (LPBYTE)&description[0], // NOLINT
@@ -533,9 +533,6 @@ static lm_ggml_backend_feature * lm_ggml_backend_cpu_get_features(lm_ggml_backen
         }
         if (lm_ggml_cpu_has_dotprod()) {
             features.push_back({ "DOTPROD", "1" });
-        }
-        if (lm_ggml_cpu_has_matmul_int8()) {
-            features.push_back({ "MATMUL_INT8", "1" });
         }
         if (lm_ggml_cpu_get_sve_cnt() > 0) {
             static std::string sve_cnt = std::to_string(lm_ggml_cpu_get_sve_cnt());
