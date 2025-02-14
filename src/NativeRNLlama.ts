@@ -232,6 +232,14 @@ export type NativeCompletionResultTimings = {
 
 export type NativeCompletionResult = {
   text: string
+  tool_calls: Array<{
+    type: 'function'
+    function: {
+      name: string
+      arguments: string
+    }
+    id?: string
+  }>
 
   tokens_predicted: number
   tokens_evaluated: number
