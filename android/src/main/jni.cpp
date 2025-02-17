@@ -664,6 +664,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jfloat   dry_base,
     jint dry_allowed_length,
     jint dry_penalty_last_n,
+    jfloat top_n_sigma,
     jobjectArray dry_sequence_breakers,
     jobject partial_completion_callback
 ) {
@@ -706,6 +707,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     sparams.dry_base = dry_base;
     sparams.dry_allowed_length = dry_allowed_length;
     sparams.dry_penalty_last_n = dry_penalty_last_n;
+    sparams.top_n_sigma = top_n_sigma;
 
     // grammar
     auto grammar_chars = env->GetStringUTFChars(grammar, nullptr);

@@ -298,6 +298,8 @@ public class LlamaContext {
       params.hasKey("dry_allowed_length") ? params.getInt("dry_allowed_length") : 2,
       // int dry_penalty_last_n,
       params.hasKey("dry_penalty_last_n") ? params.getInt("dry_penalty_last_n") : -1,
+      // float top_n_sigma,
+      params.hasKey("top_n_sigma") ? (float) params.getDouble("top_n_sigma") : -1.0f,
       // String[] dry_sequence_breakers, when undef, we use the default definition from common.h
       params.hasKey("dry_sequence_breakers") ? params.getArray("dry_sequence_breakers").toArrayList().toArray(new String[0]) : new String[]{"\n", ":", "\"", "*"},
       // PartialCompletionCallback partial_completion_callback
@@ -545,6 +547,7 @@ public class LlamaContext {
     float   dry_base,
     int dry_allowed_length,
     int dry_penalty_last_n,
+    float top_n_sigma,
     String[] dry_sequence_breakers,
     PartialCompletionCallback partial_completion_callback
   );

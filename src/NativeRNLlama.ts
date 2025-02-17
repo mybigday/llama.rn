@@ -190,6 +190,11 @@ export type NativeCompletionParams = {
    */
   dry_sequence_breakers?: Array<string>
   /**
+   * Top n sigma sampling as described in academic paper "Top-nσ: Not All Logits Are You Need" https://arxiv.org/pdf/2411.07641. Default: `-1.0` (Disabled)
+   */
+  top_n_sigma?: number
+
+  /**
    * Ignore end of stream token and continue generating. Default: `false`
    */
   ignore_eos?: boolean
