@@ -70,6 +70,8 @@ public class LlamaContext {
       params.getString("model"),
       // String chat_template,
       params.hasKey("chat_template") ? params.getString("chat_template") : "",
+      // String reasoning_format,
+      params.hasKey("reasoning_format") ? params.getString("reasoning_format") : "none",
       // boolean embedding,
       params.hasKey("embedding") ? params.getBoolean("embedding") : false,
       // int embd_normalize,
@@ -470,6 +472,7 @@ public class LlamaContext {
   protected static native long initContext(
     String model,
     String chat_template,
+    String reasoning_format,
     boolean embedding,
     int embd_normalize,
     int n_ctx,

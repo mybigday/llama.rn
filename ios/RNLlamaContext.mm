@@ -90,6 +90,13 @@
         NSLog(@"chatTemplate: %@", chatTemplate);
     }
 
+    NSString *reasoningFormat = params[@"reasoning_format"];
+    if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek"]) {
+        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+    } else {
+        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_NONE;
+    }
+
     if (params[@"n_ctx"]) defaultParams.n_ctx = [params[@"n_ctx"] intValue];
     if (params[@"use_mlock"]) defaultParams.use_mlock = [params[@"use_mlock"]boolValue];
 
@@ -610,10 +617,16 @@
     const auto timings = llama_perf_context(llama->ctx);
 
     NSMutableArray *toolCalls = nil;
+    NSString *reasoningContent = nil;
+    NSString *content = nil;
     if (!llama->is_interrupted) {
         try {
             auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
             common_chat_msg message = common_chat_parse(llama->generated_text, static_cast<common_chat_format>(chat_format));
+            if (!message.reasoning_content.empty()) {
+                reasoningContent = [NSString stringWithUTF8String:message.reasoning_content.c_str()];
+            }
+            content = [NSString stringWithUTF8String:message.content.c_str()];
             toolCalls = [[NSMutableArray alloc] init];
             for (const auto &tc : message.tool_calls) {
                 [toolCalls addObject:@{
@@ -631,7 +644,9 @@
     }
 
     NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
-    result[@"text"] = [NSString stringWithUTF8String:llama->generated_text.c_str()];
+    result[@"text"] = [NSString stringWithUTF8String:llama->generated_text.c_str()]; // Original text
+    if (content) result[@"content"] = content;
+    if (reasoningContent) result[@"reasoning_content"] = reasoningContent;
     if (toolCalls && toolCalls.count > 0) result[@"tool_calls"] = toolCalls;
     result[@"completion_probabilities"] = [self tokenProbsToDict:llama->generated_token_probs];
     result[@"tokens_predicted"] = @(llama->num_tokens_predicted);

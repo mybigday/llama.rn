@@ -12,6 +12,8 @@ export type NativeContextParams = {
    */
   chat_template?: string
 
+  reasoning_format?: string
+
   is_model_asset?: boolean
   use_progress_callback?: boolean
 
@@ -236,7 +238,17 @@ export type NativeCompletionResultTimings = {
 }
 
 export type NativeCompletionResult = {
+  /**
+   * Original text (Ignored reasoning_content / tool_calls)
+   */
   text: string
+  /**
+   * Reasoning content (parsed for reasoning model)
+   */
+  reasoning_content: string
+  /**
+   * Tool calls
+   */
   tool_calls: Array<{
     type: 'function'
     function: {
@@ -245,6 +257,10 @@ export type NativeCompletionResult = {
     }
     id?: string
   }>
+  /**
+   * Content text (Filtered text by reasoning_content / tool_calls)
+   */
+  content: string
 
   tokens_predicted: number
   tokens_evaluated: number
