@@ -261,7 +261,7 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.chat_template = chat_template_chars;
 
     const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
-    if (reasoning_format_chars == "deepseek") {
+    if (strcmp(reasoning_format_chars, "deepseek") == 0) {
         defaultParams.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
     } else {
         defaultParams.reasoning_format = COMMON_REASONING_FORMAT_NONE;
