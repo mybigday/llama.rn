@@ -19,8 +19,12 @@
 // max number of MTLCommandBuffer used to submit a graph for processing
 #define LM_GGML_METAL_MAX_COMMAND_BUFFERS 8
 
+#ifndef TARGET_OS_VISION
+#define TARGET_OS_VISION 0
+#endif
+
 // create residency sets only on macOS >= 15.0
-#if TARGET_OS_OSX && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000 || \
+#if !TARGET_CPU_X86_64 && TARGET_OS_OSX && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000 || \
     TARGET_OS_IOS && __IPHONE_OS_VERSION_MAX_ALLOWED >= 180000 || \
     TARGET_OS_TV && __TV_OS_VERSION_MAX_ALLOWED >= 180000 || \
     TARGET_OS_VISION && __VISION_OS_VERSION_MAX_ALLOWED >= 200000
@@ -1208,13 +1212,13 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_backend_metal_device_
         case LM_GGML_OP_SUM_ROWS:
         case LM_GGML_OP_SOFT_MAX:
         case LM_GGML_OP_GROUP_NORM:
-            return has_simdgroup_reduction;
+            return has_simdgroup_reduction && lm_ggml_is_contiguous(op->src[0]);
         case LM_GGML_OP_RMS_NORM:
             return has_simdgroup_reduction && (op->ne[0] % 4 == 0 && lm_ggml_is_contiguous_1(op->src[0]));
         case LM_GGML_OP_ARGMAX:
             return true;
         case LM_GGML_OP_NORM:
-            return has_simdgroup_reduction && lm_ggml_is_contiguous(op->src[0]);
+            return has_simdgroup_reduction && (op->ne[0] % 4 == 0 && lm_ggml_is_contiguous_1(op->src[0]));
         case LM_GGML_OP_ROPE:
             {
                 const int mode = ((const int32_t *) op->op_params)[2];
@@ -1983,7 +1987,7 @@ static void lm_ggml_metal_encode_node(
                 const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
 
                 // TODO: add lm_ggml_metal_kargs struct
-                // TODO: optimize (see https://github.com/ggerganov/llama.cpp/pull/10238/commits/7941b6b9ec29a2866fec6fa6c51612515ca509f6)
+                // TODO: optimize (see https://github.com/ggml-org/llama.cpp/pull/10238/commits/7941b6b9ec29a2866fec6fa6c51612515ca509f6)
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0   atIndex:0];
                 if (id_src1) {

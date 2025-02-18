@@ -223,6 +223,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jobject thiz,
     jstring model_path_str,
     jstring chat_template,
+    jstring reasoning_format,
     jboolean embedding,
     jint embd_normalize,
     jint n_ctx,
@@ -258,6 +259,13 @@ Java_com_rnllama_LlamaContext_initContext(
 
     const char *chat_template_chars = env->GetStringUTFChars(chat_template, nullptr);
     defaultParams.chat_template = chat_template_chars;
+
+    const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
+    if (strcmp(reasoning_format_chars, "deepseek") == 0) {
+        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+    } else {
+        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_NONE;
+    }
 
     defaultParams.n_ctx = n_ctx;
     defaultParams.n_batch = n_batch;
@@ -326,6 +334,7 @@ Java_com_rnllama_LlamaContext_initContext(
 
     env->ReleaseStringUTFChars(model_path_str, model_path_chars);
     env->ReleaseStringUTFChars(chat_template, chat_template_chars);
+    env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
     env->ReleaseStringUTFChars(cache_type_k, cache_type_k_chars);
     env->ReleaseStringUTFChars(cache_type_v, cache_type_v_chars);
 
@@ -664,6 +673,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jfloat   dry_base,
     jint dry_allowed_length,
     jint dry_penalty_last_n,
+    jfloat top_n_sigma,
     jobjectArray dry_sequence_breakers,
     jobject partial_completion_callback
 ) {
@@ -706,6 +716,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     sparams.dry_base = dry_base;
     sparams.dry_allowed_length = dry_allowed_length;
     sparams.dry_penalty_last_n = dry_penalty_last_n;
+    sparams.top_n_sigma = top_n_sigma;
 
     // grammar
     auto grammar_chars = env->GetStringUTFChars(grammar, nullptr);
@@ -882,10 +893,16 @@ Java_com_rnllama_LlamaContext_doCompletion(
     llama->is_predicting = false;
 
     auto toolCalls = createWritableArray(env);
+    std::string reasoningContent = "";
+    std::string *content = nullptr;
     auto toolCallsSize = 0;
     if (!llama->is_interrupted) {
         try {
             common_chat_msg message = common_chat_parse(llama->generated_text, static_cast<common_chat_format>(chat_format));
+            if (!message.reasoning_content.empty()) {
+                reasoningContent = message.reasoning_content;
+            }
+            content = &message.content;
             for (const auto &tc : message.tool_calls) {
                 auto toolCall = createWriteableMap(env);
                 putString(env, toolCall, "type", "function");
@@ -906,6 +923,12 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     auto result = createWriteableMap(env);
     putString(env, result, "text", llama->generated_text.c_str());
+    if (content) {
+        putString(env, result, "content", content->c_str());
+    }
+    if (!reasoningContent.empty()) {
+        putString(env, result, "reasoning_content", reasoningContent.c_str());
+    }
     if (toolCallsSize > 0) {
         putArray(env, result, "tool_calls", toolCalls);
     }

@@ -12,6 +12,8 @@ export type NativeContextParams = {
    */
   chat_template?: string
 
+  reasoning_format?: string
+
   is_model_asset?: boolean
   use_progress_callback?: boolean
 
@@ -190,6 +192,11 @@ export type NativeCompletionParams = {
    */
   dry_sequence_breakers?: Array<string>
   /**
+   * Top n sigma sampling as described in academic paper "Top-nσ: Not All Logits Are You Need" https://arxiv.org/pdf/2411.07641. Default: `-1.0` (Disabled)
+   */
+  top_n_sigma?: number
+
+  /**
    * Ignore end of stream token and continue generating. Default: `false`
    */
   ignore_eos?: boolean
@@ -231,7 +238,17 @@ export type NativeCompletionResultTimings = {
 }
 
 export type NativeCompletionResult = {
+  /**
+   * Original text (Ignored reasoning_content / tool_calls)
+   */
   text: string
+  /**
+   * Reasoning content (parsed for reasoning model)
+   */
+  reasoning_content: string
+  /**
+   * Tool calls
+   */
   tool_calls: Array<{
     type: 'function'
     function: {
@@ -240,6 +257,10 @@ export type NativeCompletionResult = {
     }
     id?: string
   }>
+  /**
+   * Content text (Filtered text by reasoning_content / tool_calls)
+   */
+  content: string
 
   tokens_predicted: number
   tokens_evaluated: number

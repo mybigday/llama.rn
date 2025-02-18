@@ -144,9 +144,11 @@ export default function App() {
     initLlama(
       {
         model: file.uri,
-        n_ctx: 200,
         use_mlock: true,
         lora_list: loraFile ? [{ path: loraFile.uri, scaled: 1.0 }] : undefined, // Or lora: loraFile?.uri,
+
+        // If use deepseek r1 distill
+        reasoning_format: 'deepseek',
 
         // Currently only for iOS
         n_gpu_layers: Platform.OS === 'ios' ? 99 : 0,
@@ -474,7 +476,7 @@ export default function App() {
         ],
       }
       // Comment to test:
-      jinjaParams = undefined
+      jinjaParams = { jinja: true }
     }
 
     // Test area

@@ -232,6 +232,7 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
   if (!json_schema.empty()) {
       inputs.json_schema = json::parse(json_schema);
   }
+  inputs.extract_reasoning = params.reasoning_format != COMMON_REASONING_FORMAT_NONE;
   inputs.stream = true;
 
   // If chat_template is provided, create new one and use it (probably slow)
