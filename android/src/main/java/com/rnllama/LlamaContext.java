@@ -39,6 +39,9 @@ public class LlamaContext {
   }
 
   static void toggleNativeLog(ReactApplicationContext reactContext, boolean enabled) {
+    if (LlamaContext.isArchNotSupported()) {
+      throw new IllegalStateException("Only 64-bit architectures are supported");
+    }
     if (enabled) {
       setupLog(new NativeLogCallback(reactContext));
     } else {
@@ -54,7 +57,7 @@ public class LlamaContext {
   private DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
 
   public LlamaContext(int id, ReactApplicationContext reactContext, ReadableMap params) {
-    if (LlamaContext.isArm64V8a() == false && LlamaContext.isX86_64() == false) {
+    if (LlamaContext.isArchNotSupported()) {
       throw new IllegalStateException("Only 64-bit architectures are supported");
     }
     if (!params.hasKey("model")) {
@@ -420,15 +423,13 @@ public class LlamaContext {
       //  Log.d(NAME, "Loading librnllama_v8_7.so with runtime feature detection");
       //  System.loadLibrary("rnllama_v8_7");
     } else if (LlamaContext.isX86_64()) {
-        Log.d(NAME, "Loading librnllama_x86_64.so");
-        System.loadLibrary("rnllama_x86_64");
-        loadedLibrary = "rnllama_x86_64";
+      Log.d(NAME, "Loading librnllama_x86_64.so");
+      System.loadLibrary("rnllama_x86_64");
+      loadedLibrary = "rnllama_x86_64";
     } else {
-        Log.d(NAME, "Loading default librnllama.so");
-        System.loadLibrary("rnllama");
-        loadedLibrary = "rnllama";
+      Log.d(NAME, "ARM32 is not supported, skipping loading library");
     }
-}
+  }
 
   private static boolean isArm64V8a() {
     return Build.SUPPORTED_ABIS[0].equals("arm64-v8a");
@@ -436,6 +437,10 @@ public class LlamaContext {
 
   private static boolean isX86_64() {
     return Build.SUPPORTED_ABIS[0].equals("x86_64");
+  }
+
+  private static boolean isArchNotSupported() {
+    return isArm64V8a() == false && isX86_64() == false;
   }
 
   private static String getCpuFeatures() {
