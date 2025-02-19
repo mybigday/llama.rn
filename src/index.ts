@@ -13,6 +13,7 @@ import type {
   NativeEmbeddingParams,
   NativeCompletionTokenProbItem,
   NativeCompletionResultTimings,
+  JinjaFormattedChatResult,
 } from './NativeRNLlama'
 import type {
   SchemaGrammarConverterPropOrder,
@@ -36,6 +37,9 @@ export type {
   NativeCompletionResultTimings,
   RNLlamaMessagePart,
   RNLlamaOAICompatibleMessage,
+  JinjaFormattedChatResult,
+
+  // Deprecated
   SchemaGrammarConverterPropOrder,
   SchemaGrammarConverterBuiltinRule,
 }
@@ -44,6 +48,7 @@ export { SchemaGrammarConverter, convertJsonSchemaToGrammar }
 
 const EVENT_ON_INIT_CONTEXT_PROGRESS = '@RNLlama_onInitContextProgress'
 const EVENT_ON_TOKEN = '@RNLlama_onToken'
+const EVENT_ON_NATIVE_LOG = '@RNLlama_onNativeLog'
 
 let EventEmitter: NativeEventEmitter | DeviceEventEmitterStatic
 if (Platform.OS === 'ios') {
@@ -52,6 +57,19 @@ if (Platform.OS === 'ios') {
 }
 if (Platform.OS === 'android') {
   EventEmitter = DeviceEventEmitter
+}
+
+const logListeners: Array<(level: string, text: string) => void> = []
+
+// @ts-ignore
+if (EventEmitter) {
+  EventEmitter.addListener(
+    EVENT_ON_NATIVE_LOG,
+    (evt: { level: string; text: string }) => {
+      logListeners.forEach((listener) => listener(evt.level, evt.text))
+    },
+  )
+  RNLlama?.toggleNativeLog?.(false) // Trigger unset to use default log callback
 }
 
 export type TokenData = {
@@ -91,14 +109,31 @@ export type ContextParams = Omit<
 
 export type EmbeddingParams = NativeEmbeddingParams
 
+export type CompletionResponseFormat = {
+  type: 'text' | 'json_object' | 'json_schema'
+  json_schema?: {
+    strict?: boolean
+    schema: object
+  }
+  schema?: object // for json_object type
+}
+
+export type CompletionBaseParams = {
+  prompt?: string
+  messages?: RNLlamaOAICompatibleMessage[]
+  chatTemplate?: string // deprecated
+  chat_template?: string
+  jinja?: boolean
+  tools?: object
+  parallel_tool_calls?: object
+  tool_choice?: string
+  response_format?: CompletionResponseFormat
+}
 export type CompletionParams = Omit<
   NativeCompletionParams,
   'emit_partial_completion' | 'prompt'
-> & {
-  prompt?: string
-  messages?: RNLlamaOAICompatibleMessage[]
-  chatTemplate?: string
-}
+> &
+  CompletionBaseParams
 
 export type BenchResult = {
   modelDesc: string
@@ -110,6 +145,16 @@ export type BenchResult = {
   tgStd: number
 }
 
+const getJsonSchema = (responseFormat?: CompletionResponseFormat) => {
+  if (responseFormat?.type === 'json_schema') {
+    return responseFormat.json_schema?.schema
+  }
+  if (responseFormat?.type === 'json_object') {
+    return responseFormat.schema || {}
+  }
+  return null
+}
+
 export class LlamaContext {
   id: number
 
@@ -117,9 +162,7 @@ export class LlamaContext {
 
   reasonNoGPU: string = ''
 
-  model: {
-    isChatTemplateSupported?: boolean
-  } = {}
+  model: NativeLlamaContext['model']
 
   constructor({ contextId, gpu, reasonNoGPU, model }: NativeLlamaContext) {
     this.id = contextId
@@ -147,27 +190,89 @@ export class LlamaContext {
     return RNLlama.saveSession(this.id, filepath, options?.tokenSize || -1)
   }
 
+  isLlamaChatSupported(): boolean {
+    return !!this.model.chatTemplates.llamaChat
+  }
+
+  isJinjaSupported(): boolean {
+    const { minja } = this.model.chatTemplates
+    return !!minja?.toolUse || !!minja?.default
+  }
+
   async getFormattedChat(
     messages: RNLlamaOAICompatibleMessage[],
-    template?: string,
-  ): Promise<string> {
+    template?: string | null,
+    params?: {
+      jinja?: boolean
+      response_format?: CompletionResponseFormat
+      tools?: object
+      parallel_tool_calls?: object
+      tool_choice?: string
+    },
+  ): Promise<JinjaFormattedChatResult | string> {
     const chat = formatChat(messages)
-    let tmpl = this.model?.isChatTemplateSupported ? undefined : 'chatml'
+    const useJinja = this.isJinjaSupported() && params?.jinja
+    let tmpl = this.isLlamaChatSupported() || useJinja ? undefined : 'chatml'
     if (template) tmpl = template // Force replace if provided
-    return RNLlama.getFormattedChat(this.id, chat, tmpl)
+    const jsonSchema = getJsonSchema(params?.response_format)
+    return RNLlama.getFormattedChat(this.id, JSON.stringify(chat), tmpl, {
+      jinja: useJinja,
+      json_schema: jsonSchema ? JSON.stringify(jsonSchema) : undefined,
+      tools: params?.tools ? JSON.stringify(params.tools) : undefined,
+      parallel_tool_calls: params?.parallel_tool_calls
+        ? JSON.stringify(params.parallel_tool_calls)
+        : undefined,
+      tool_choice: params?.tool_choice,
+    })
   }
 
   async completion(
     params: CompletionParams,
     callback?: (data: TokenData) => void,
   ): Promise<NativeCompletionResult> {
-    let finalPrompt = params.prompt
+    const nativeParams = {
+      ...params,
+      prompt: params.prompt || '',
+      emit_partial_completion: !!callback,
+    }
     if (params.messages) {
       // messages always win
-      finalPrompt = await this.getFormattedChat(
+      const formattedResult = await this.getFormattedChat(
         params.messages,
-        params.chatTemplate,
+        params.chat_template || params.chatTemplate,
+        {
+          jinja: params.jinja,
+          tools: params.tools,
+          parallel_tool_calls: params.parallel_tool_calls,
+          tool_choice: params.tool_choice,
+        },
       )
+      if (typeof formattedResult === 'string') {
+        nativeParams.prompt = formattedResult || ''
+      } else {
+        nativeParams.prompt = formattedResult.prompt || ''
+        if (typeof formattedResult.chat_format === 'number')
+          nativeParams.chat_format = formattedResult.chat_format
+        if (formattedResult.grammar)
+          nativeParams.grammar = formattedResult.grammar
+        if (typeof formattedResult.grammar_lazy === 'boolean')
+          nativeParams.grammar_lazy = formattedResult.grammar_lazy
+        if (formattedResult.grammar_triggers)
+          nativeParams.grammar_triggers = formattedResult.grammar_triggers
+        if (formattedResult.preserved_tokens)
+          nativeParams.preserved_tokens = formattedResult.preserved_tokens
+        if (formattedResult.additional_stops) {
+          if (!nativeParams.stop) nativeParams.stop = []
+          nativeParams.stop.push(...formattedResult.additional_stops)
+        }
+      }
+    } else {
+      nativeParams.prompt = params.prompt || ''
+    }
+
+    if (nativeParams.response_format && !nativeParams.grammar) {
+      const jsonSchema = getJsonSchema(params.response_format)
+      if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
     }
 
     let tokenListener: any =
@@ -178,12 +283,9 @@ export class LlamaContext {
         callback(tokenResult)
       })
 
-    if (!finalPrompt) throw new Error('Prompt is required')
-    const promise = RNLlama.completion(this.id, {
-      ...params,
-      prompt: finalPrompt,
-      emit_partial_completion: !!callback,
-    })
+    if (!nativeParams.prompt) throw new Error('Prompt is required')
+
+    const promise = RNLlama.completion(this.id, nativeParams)
     return promise
       .then((completionResult) => {
         tokenListener?.remove()
@@ -260,6 +362,21 @@ export class LlamaContext {
 
   async release(): Promise<void> {
     return RNLlama.releaseContext(this.id)
+  }
+}
+
+export async function toggleNativeLog(enabled: boolean): Promise<void> {
+  return RNLlama.toggleNativeLog(enabled)
+}
+
+export function addNativeLogListener(
+  listener: (level: string, text: string) => void,
+): { remove: () => void } {
+  logListeners.push(listener)
+  return {
+    remove: () => {
+      logListeners.splice(logListeners.indexOf(listener), 1)
+    },
   }
 }
 

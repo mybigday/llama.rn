@@ -3,6 +3,33 @@
 
 @implementation RNLlamaContext
 
++ (void)toggleNativeLog:(BOOL)enabled onEmitLog:(void (^)(NSString *level, NSString *text))onEmitLog {
+  if (enabled) {
+      void (^copiedBlock)(NSString *, NSString *) = [onEmitLog copy];
+      llama_log_set([](lm_ggml_log_level level, const char * text, void * data) {
+          llama_log_callback_default(level, text, data);
+          NSString *levelStr = @"";
+          if (level == LM_GGML_LOG_LEVEL_ERROR) {
+              levelStr = @"error";
+          } else if (level == LM_GGML_LOG_LEVEL_INFO) {
+              levelStr = @"info";
+          } else if (level == LM_GGML_LOG_LEVEL_WARN) {
+              levelStr = @"warn";
+          }
+
+          NSString *textStr = [NSString stringWithUTF8String:text];
+          // NOTE: Convert to UTF-8 string may fail
+          if (!textStr) {
+              return;
+          }
+          void (^block)(NSString *, NSString *) = (__bridge void (^)(NSString *, NSString *))(data);
+          block(levelStr, textStr);
+      }, copiedBlock);
+  } else {
+      llama_log_set(llama_log_callback_default, nullptr);
+  }
+}
+
 + (NSDictionary *)modelInfo:(NSString *)path skip:(NSArray *)skip {
     struct lm_gguf_init_params params = {
         /*.no_alloc = */ false,
@@ -57,42 +84,83 @@
     if (isAsset) path = [[NSBundle mainBundle] pathForResource:modelPath ofType:nil];
     defaultParams.model = [path UTF8String];
 
+    NSString *chatTemplate = params[@"chat_template"];
+    if (chatTemplate) {
+        defaultParams.chat_template = [chatTemplate UTF8String];
+        NSLog(@"chatTemplate: %@", chatTemplate);
+    }
+
+    NSString *reasoningFormat = params[@"reasoning_format"];
+    if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek"]) {
+        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+    } else {
+        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_NONE;
+    }
+
     if (params[@"n_ctx"]) defaultParams.n_ctx = [params[@"n_ctx"] intValue];
     if (params[@"use_mlock"]) defaultParams.use_mlock = [params[@"use_mlock"]boolValue];
+
+    BOOL skipGpuDevices = params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue];
 
     BOOL isMetalEnabled = false;
     NSString *reasonNoMetal = @"";
     defaultParams.n_gpu_layers = 0;
-    if (params[@"n_gpu_layers"] && [params[@"n_gpu_layers"] intValue] > 0) {
 #ifdef LM_GGML_USE_METAL
-        // Check ggml-metal availability
-        NSError * error = nil;
-        id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-        id<MTLLibrary> library = [device
-            newLibraryWithSource:@"#include <metal_stdlib>\n"
-                                    "using namespace metal;"
-                                    "kernel void test() { simd_sum(0); }"
-            options:nil
-            error:&error
-        ];
-        if (error) {
+    // Check ggml-metal availability
+    NSError * error = nil;
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    id<MTLLibrary> library = [device
+        newLibraryWithSource:@"#include <metal_stdlib>\n"
+                                "using namespace metal;"
+                                "typedef matrix<bfloat, 4, 4> bfloat4x4;"
+                                "kernel void test() { simd_sum(0); }"
+        options:nil
+        error:&error
+    ];
+    if (error) {
+        reasonNoMetal = [error localizedDescription];
+        skipGpuDevices = true;
+    } else {
+        id<MTLFunction> kernel = [library newFunctionWithName:@"test"];
+        id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:kernel error:&error];
+        if (pipeline == nil) {
             reasonNoMetal = [error localizedDescription];
+            skipGpuDevices = true;
         } else {
-            id<MTLFunction> kernel = [library newFunctionWithName:@"test"];
-            id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:kernel error:&error];
-            if (pipeline == nil) {
-                reasonNoMetal = [error localizedDescription];
-            } else {
-                defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
-                isMetalEnabled = true;
+#if TARGET_OS_SIMULATOR
+            // Use the backend, but no layers because not supported fully on simulator
+            defaultParams.n_gpu_layers = 0;
+            isMetalEnabled = true;
+#else
+            defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
+            isMetalEnabled = true;
+#endif
+        }
+    }
+    device = nil;
+#else
+    reasonNoMetal = @"Metal is not enabled in this build";
+    isMetalEnabled = false;
+#endif
+
+    if (skipGpuDevices) {
+        std::vector<lm_ggml_backend_dev_t> cpu_devs;
+        for (size_t i = 0; i < lm_ggml_backend_dev_count(); ++i) {
+            lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
+            switch (lm_ggml_backend_dev_type(dev)) {
+                case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
+                case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
+                    cpu_devs.push_back(dev);
+                    break;
+                case LM_GGML_BACKEND_DEVICE_TYPE_GPU:
+                    break;
             }
         }
-        device = nil;
-#else
-        reasonNoMetal = @"Metal is not enabled in this build";
-        isMetalEnabled = false;
-#endif
+        if (cpu_devs.size() > 0) {
+            defaultParams.devices = cpu_devs;
+        }
     }
+
     if (params[@"n_batch"]) defaultParams.n_batch = [params[@"n_batch"] intValue];
     if (params[@"n_ubatch"]) defaultParams.n_ubatch = [params[@"n_ubatch"] intValue];
     if (params[@"use_mmap"]) defaultParams.use_mmap = [params[@"use_mmap"] boolValue];
@@ -124,7 +192,6 @@
     // Use 2 threads by default on 4-core devices, 4 threads on more cores
     const int defaultNThreads = nThreads == 4 ? 2 : MIN(4, maxThreads);
     defaultParams.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
-
 
     RNLlamaContext *context = [[RNLlamaContext alloc] init];
     context->llama = new rnllama::llama_rn_context();
@@ -218,13 +285,48 @@
         [meta setValue:valStr forKey:keyStr];
     }
 
+    auto template_tool_use = llama->templates.template_tool_use.get();
+    NSDictionary *tool_use_caps_dir = nil;
+    if (template_tool_use) {
+        auto tool_use_caps = template_tool_use->original_caps();
+        tool_use_caps_dir = @{
+            @"tools": @(tool_use_caps.supports_tools),
+            @"toolCalls": @(tool_use_caps.supports_tool_calls),
+            @"toolResponses": @(tool_use_caps.supports_tool_responses),
+            @"systemRole": @(tool_use_caps.supports_system_role),
+            @"parallelToolCalls": @(tool_use_caps.supports_parallel_tool_calls),
+            @"toolCallId": @(tool_use_caps.supports_tool_call_id)
+        };
+    }
+
+    auto default_tmpl = llama->templates.template_default.get();
+    auto default_tmpl_caps = default_tmpl->original_caps();
+
     return @{
         @"desc": [NSString stringWithUTF8String:desc],
         @"size": @(llama_model_size(llama->model)),
         @"nEmbd": @(llama_model_n_embd(llama->model)),
         @"nParams": @(llama_model_n_params(llama->model)),
-        @"isChatTemplateSupported": @(llama->validateModelChatTemplate()),
-        @"metadata": meta
+        @"chatTemplates": @{
+            @"llamaChat": @(llama->validateModelChatTemplate(false, nullptr)),
+            @"minja": @{
+                @"default": @(llama->validateModelChatTemplate(true, nullptr)),
+                @"defaultCaps": @{
+                    @"tools": @(default_tmpl_caps.supports_tools),
+                    @"toolCalls": @(default_tmpl_caps.supports_tool_calls),
+                    @"toolResponses": @(default_tmpl_caps.supports_tool_responses),
+                    @"systemRole": @(default_tmpl_caps.supports_system_role),
+                    @"parallelToolCalls": @(default_tmpl_caps.supports_parallel_tool_calls),
+                    @"toolCallId": @(default_tmpl_caps.supports_tool_call_id)
+                },
+                @"toolUse": @(llama->validateModelChatTemplate(true, "tool_use")),
+                @"toolUseCaps": tool_use_caps_dir ?: @{}
+            }
+        },
+        @"metadata": meta,
+
+        // deprecated
+        @"isChatTemplateSupported": @(llama->validateModelChatTemplate(false, nullptr))
     };
 }
 
@@ -236,18 +338,56 @@
     return llama->is_predicting;
 }
 
-- (NSString *)getFormattedChat:(NSArray *)messages withTemplate:(NSString *)chatTemplate {
-  std::vector<common_chat_msg> chat;
+- (NSDictionary *)getFormattedChatWithJinja:(NSString *)messages
+    withChatTemplate:(NSString *)chatTemplate
+    withJsonSchema:(NSString *)jsonSchema
+    withTools:(NSString *)tools
+    withParallelToolCalls:(BOOL)parallelToolCalls
+    withToolChoice:(NSString *)toolChoice
+{
+    auto tmpl_str = chatTemplate == nil ? "" : [chatTemplate UTF8String];
 
-  for (NSDictionary *msg in messages) {
-    std::string role = [[msg objectForKey:@"role"] UTF8String];
-    std::string content = [[msg objectForKey:@"content"] UTF8String];
-    chat.push_back({ role, content });
-  }
+    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
+    auto chatParams = llama->getFormattedChatWithJinja(
+        [messages UTF8String],
+        tmpl_str,
+        jsonSchema == nil ? "" : [jsonSchema UTF8String],
+        tools == nil ? "" : [tools UTF8String],
+        parallelToolCalls,
+        toolChoice == nil ? "" : [toolChoice UTF8String]
+    );
+    result[@"prompt"] = [NSString stringWithUTF8String:chatParams.prompt.get<std::string>().c_str()];
+    result[@"chat_format"] = @(static_cast<int>(chatParams.format));
+    result[@"grammar"] = [NSString stringWithUTF8String:chatParams.grammar.c_str()];
+    result[@"grammar_lazy"] = @(chatParams.grammar_lazy);
+    NSMutableArray *grammar_triggers = [[NSMutableArray alloc] init];
+    for (const auto & trigger : chatParams.grammar_triggers) {
+        [grammar_triggers addObject:@{
+            @"word": [NSString stringWithUTF8String:trigger.word.c_str()],
+            @"at_start": @(trigger.at_start),
+        }];
+    }
+    result[@"grammar_triggers"] = grammar_triggers;
+    NSMutableArray *preserved_tokens = [[NSMutableArray alloc] init];
+    for (const auto & token : chatParams.preserved_tokens) {
+        [preserved_tokens addObject:[NSString stringWithUTF8String:token.c_str()]];
+    }
+    result[@"preserved_tokens"] = preserved_tokens;
+    NSMutableArray *additional_stops = [[NSMutableArray alloc] init];
+    for (const auto & stop : chatParams.additional_stops) {
+        [additional_stops addObject:[NSString stringWithUTF8String:stop.c_str()]];
+    }
+    result[@"additional_stops"] = additional_stops;
 
-  auto tmpl = chatTemplate == nil ? "" : [chatTemplate UTF8String];
-  auto formatted_chat = common_chat_apply_template(llama->model, tmpl, chat, true);
-  return [NSString stringWithUTF8String:formatted_chat.c_str()];
+    return result;
+}
+
+- (NSString *)getFormattedChat:(NSString *)messages withChatTemplate:(NSString *)chatTemplate {
+    auto tmpl_str = chatTemplate == nil ? "" : [chatTemplate UTF8String];
+    return [NSString stringWithUTF8String:llama->getFormattedChat(
+        [messages UTF8String],
+        tmpl_str
+    ).c_str()];;
 }
 
 - (NSArray *)tokenProbsToDict:(std::vector<rnllama::completion_token_output>)probs {
@@ -321,6 +461,8 @@
     if (params[@"dry_allowed_length"]) sparams.dry_allowed_length = [params[@"dry_allowed_length"] intValue];
     if (params[@"dry_penalty_last_n"]) sparams.dry_penalty_last_n = [params[@"dry_penalty_last_n"] intValue];
 
+    if (params[@"top_n_sigma"]) sparams.top_n_sigma = [params[@"top_n_sigma"] doubleValue];
+
     // dry break seq
     if (params[@"dry_sequence_breakers"] && [params[@"dry_sequence_breakers"] isKindOfClass:[NSArray class]]) {
         NSArray *dry_sequence_breakers = params[@"dry_sequence_breakers"];
@@ -331,6 +473,45 @@
 
     if (params[@"grammar"]) {
         sparams.grammar = [params[@"grammar"] UTF8String];
+    }
+
+    if (params[@"json_schema"] && !params[@"grammar"]) {
+        sparams.grammar = json_schema_to_grammar(json::parse([params[@"json_schema"] UTF8String]));
+    }
+
+    if (params[@"grammar_lazy"]) {
+        sparams.grammar_lazy = [params[@"grammar_lazy"] boolValue];
+    }
+
+    if (params[@"grammar_triggers"] && [params[@"grammar_triggers"] isKindOfClass:[NSArray class]]) {
+        NSArray *grammar_triggers = params[@"grammar_triggers"];
+        for (NSDictionary *grammar_trigger in grammar_triggers) {
+            common_grammar_trigger trigger;
+            trigger.word = [grammar_trigger[@"word"] UTF8String];
+            trigger.at_start = [grammar_trigger[@"at_start"] boolValue];
+
+            auto ids = common_tokenize(llama->ctx, trigger.word, /* add_special= */ false, /* parse_special= */ true);
+            if (ids.size() == 1) {
+                // LOG_DBG("Grammar trigger token: %d (`%s`)\n", ids[0], trigger.word.c_str());
+                sparams.grammar_trigger_tokens.push_back(ids[0]);
+                sparams.preserved_tokens.insert(ids[0]);
+                continue;
+            }
+            // LOG_DBG("Grammar trigger word: `%s`\n", trigger.word.c_str());
+            sparams.grammar_trigger_words.push_back(trigger);
+        }
+    }
+
+    if (params[@"preserved_tokens"] && [params[@"preserved_tokens"] isKindOfClass:[NSArray class]]) {
+        NSArray *preserved_tokens = params[@"preserved_tokens"];
+        for (NSString *token in preserved_tokens) {
+            auto ids = common_tokenize(llama->ctx, [token UTF8String], /* add_special= */ false, /* parse_special= */ true);
+            if (ids.size() == 1) {
+                sparams.preserved_tokens.insert(ids[0]);
+            } else {
+//                LOG_WRN("Not preserved because more than 1 token (wrong chat template override?): %s\n", [token UTF8String]);
+            }
+        }
     }
 
     llama->params.antiprompt.clear();
@@ -434,29 +615,60 @@
     llama->is_predicting = false;
 
     const auto timings = llama_perf_context(llama->ctx);
-    return @{
-        @"text": [NSString stringWithUTF8String:llama->generated_text.c_str()],
-        @"completion_probabilities": [self tokenProbsToDict:llama->generated_token_probs],
-        @"tokens_predicted": @(llama->num_tokens_predicted),
-        @"tokens_evaluated": @(llama->num_prompt_tokens),
-        @"truncated": @(llama->truncated),
-        @"stopped_eos": @(llama->stopped_eos),
-        @"stopped_word": @(llama->stopped_word),
-        @"stopped_limit": @(llama->stopped_limit),
-        @"stopping_word": [NSString stringWithUTF8String:llama->stopping_word.c_str()],
-        @"tokens_cached": @(llama->n_past),
-        @"timings": @{
-            @"prompt_n": @(timings.n_p_eval),
-            @"prompt_ms": @(timings.t_p_eval_ms),
-            @"prompt_per_token_ms": @(timings.t_p_eval_ms / timings.n_p_eval),
-            @"prompt_per_second": @(1e3 / timings.t_p_eval_ms * timings.n_p_eval),
 
-            @"predicted_n": @(timings.n_eval),
-            @"predicted_ms": @(timings.t_eval_ms),
-            @"predicted_per_token_ms": @(timings.t_eval_ms / timings.n_eval),
-            @"predicted_per_second": @(1e3 / timings.t_eval_ms * timings.n_eval),
+    NSMutableArray *toolCalls = nil;
+    NSString *reasoningContent = nil;
+    NSString *content = nil;
+    if (!llama->is_interrupted) {
+        try {
+            auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
+            common_chat_msg message = common_chat_parse(llama->generated_text, static_cast<common_chat_format>(chat_format));
+            if (!message.reasoning_content.empty()) {
+                reasoningContent = [NSString stringWithUTF8String:message.reasoning_content.c_str()];
+            }
+            content = [NSString stringWithUTF8String:message.content.c_str()];
+            toolCalls = [[NSMutableArray alloc] init];
+            for (const auto &tc : message.tool_calls) {
+                [toolCalls addObject:@{
+                    @"type": @"function",
+                    @"function": @{
+                        @"name": [NSString stringWithUTF8String:tc.name.c_str()],
+                        @"arguments": [NSString stringWithUTF8String:tc.arguments.c_str()],
+                    },
+                    @"id": tc.id.empty() ? [NSNull null] : [NSString stringWithUTF8String:tc.id.c_str()],
+                }];
+            }
+        } catch (const std::exception &e) {
+            // NSLog(@"Error parsing tool calls: %s", e.what());
         }
+    }
+
+    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
+    result[@"text"] = [NSString stringWithUTF8String:llama->generated_text.c_str()]; // Original text
+    if (content) result[@"content"] = content;
+    if (reasoningContent) result[@"reasoning_content"] = reasoningContent;
+    if (toolCalls && toolCalls.count > 0) result[@"tool_calls"] = toolCalls;
+    result[@"completion_probabilities"] = [self tokenProbsToDict:llama->generated_token_probs];
+    result[@"tokens_predicted"] = @(llama->num_tokens_predicted);
+    result[@"tokens_evaluated"] = @(llama->num_prompt_tokens);
+    result[@"truncated"] = @(llama->truncated);
+    result[@"stopped_eos"] = @(llama->stopped_eos);
+    result[@"stopped_word"] = @(llama->stopped_word);
+    result[@"stopped_limit"] = @(llama->stopped_limit);
+    result[@"stopping_word"] = [NSString stringWithUTF8String:llama->stopping_word.c_str()];
+    result[@"tokens_cached"] = @(llama->n_past);
+    result[@"timings"] = @{
+        @"prompt_n": @(timings.n_p_eval),
+        @"prompt_ms": @(timings.t_p_eval_ms),
+        @"prompt_per_token_ms": @(timings.t_p_eval_ms / timings.n_p_eval),
+        @"prompt_per_second": @(1e3 / timings.t_p_eval_ms * timings.n_p_eval),
+        @"predicted_n": @(timings.n_eval),
+        @"predicted_n": @(timings.n_eval),
+        @"predicted_ms": @(timings.t_eval_ms),
+        @"predicted_per_token_ms": @(timings.t_eval_ms / timings.n_eval),
+        @"predicted_per_second": @(1e3 / timings.t_eval_ms * timings.n_eval),
     };
+    return result;
 }
 
 - (void)stopCompletion {

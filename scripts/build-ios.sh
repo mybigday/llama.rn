@@ -8,6 +8,7 @@ fi
 function cp_headers() {
   mkdir -p ../ios/rnllama.xcframework/$1/rnllama.framework/Headers
   cp ../cpp/*.h ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/
+  cp ../cpp/*.hpp ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/
 }
 
 function build_framework() {
@@ -31,7 +32,7 @@ function build_framework() {
     -DCMAKE_IOS_INSTALL_COMBINED=YES
 
   # Build
-  cmake --build . --config Release
+  cmake --build . --config Release -j $(sysctl -n hw.logicalcpu)
 
   # Setup framework directory
   rm -rf ../ios/rnllama.xcframework/$4
@@ -42,11 +43,18 @@ function build_framework() {
   # Copy headers and metallib
   cp_headers $4
   # TODO: May need to re-build metallib for tvOS
-  cp ../cpp/ggml-llama.metallib ../ios/rnllama.xcframework/$4/rnllama.framework/ggml-llama.metallib
+  if [ "$4" == "ios-arm64_x86_64-simulator" ] || [ "$4" == "tvos-arm64_x86_64-simulator" ]; then
+    cp ../cpp/ggml-llama-sim.metallib ../ios/rnllama.xcframework/$4/rnllama.framework/ggml-llama-sim.metallib
+  else
+    cp ../cpp/ggml-llama.metallib ../ios/rnllama.xcframework/$4/rnllama.framework/ggml-llama.metallib
+  fi
 
   rm -rf ./*
   cd ..
 }
+
+
+t0=$(date +%s)
 
 rm -rf build-ios
 mkdir -p build-ios
@@ -63,3 +71,6 @@ mkdir -p build-tvos
 build_framework "tvOS" "arm64;x86_64" "appletvsimulator" "tvos-arm64_x86_64-simulator" "build-tvos"
 build_framework "tvOS" "arm64" "appletvos" "tvos-arm64" "build-tvos"
 rm -rf build-tvos
+
+t1=$(date +%s)
+echo "Total time: $((t1 - t0)) seconds"

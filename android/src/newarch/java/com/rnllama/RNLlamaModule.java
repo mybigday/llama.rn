@@ -33,6 +33,11 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
+  public void toggleNativeLog(boolean enabled, Promise promise) {
+    rnllama.toggleNativeLog(enabled, promise);
+  }
+
+  @ReactMethod
   public void setContextLimit(double limit, Promise promise) {
     rnllama.setContextLimit(limit, promise);
   }
@@ -48,8 +53,8 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
-  public void getFormattedChat(double id, ReadableArray messages, String chatTemplate, Promise promise) {
-    rnllama.getFormattedChat(id, messages, chatTemplate, promise);
+  public void getFormattedChat(double id, String messages, String chatTemplate, ReadableMap params, Promise promise) {
+    rnllama.getFormattedChat(id, messages, chatTemplate, params, promise);
   }
 
   @ReactMethod

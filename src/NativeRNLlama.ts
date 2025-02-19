@@ -7,6 +7,13 @@ export type NativeEmbeddingParams = {
 
 export type NativeContextParams = {
   model: string
+  /**
+   * Chat template to override the default one from the model.
+   */
+  chat_template?: string
+
+  reasoning_format?: string
+
   is_model_asset?: boolean
   use_progress_callback?: boolean
 
@@ -15,7 +22,15 @@ export type NativeContextParams = {
   n_ubatch?: number
 
   n_threads?: number
+
+  /**
+   * Number of layers to store in VRAM (Currently only for iOS)
+   */
   n_gpu_layers?: number
+  /**
+   * Skip GPU devices (iOS only)
+   */
+  no_gpu_devices?: boolean
 
   /**
    * Enable flash attention, only recommended in GPU device (Experimental in llama.cpp)
@@ -62,9 +77,27 @@ export type NativeCompletionParams = {
   prompt: string
   n_threads?: number
   /**
+   * JSON schema for convert to grammar for structured JSON output.
+   * It will be override by grammar if both are set.
+   */
+  json_schema?: string
+  /**
    * Set grammar for grammar-based sampling.  Default: no grammar
    */
   grammar?: string
+  /**
+   * Lazy grammar sampling, trigger by grammar_triggers. Default: false
+   */
+  grammar_lazy?: boolean
+  /**
+   * Lazy grammar triggers. Default: []
+   */
+  grammar_triggers?: Array<{
+    at_start: boolean
+    word: string
+  }>
+  preserved_tokens?: Array<string>
+  chat_format?: number
   /**
    * Specify a JSON array of stopping strings.
    * These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]`
@@ -159,6 +192,11 @@ export type NativeCompletionParams = {
    */
   dry_sequence_breakers?: Array<string>
   /**
+   * Top n sigma sampling as described in academic paper "Top-nσ: Not All Logits Are You Need" https://arxiv.org/pdf/2411.07641. Default: `-1.0` (Disabled)
+   */
+  top_n_sigma?: number
+
+  /**
    * Ignore end of stream token and continue generating. Default: `false`
    */
   ignore_eos?: boolean
@@ -200,7 +238,29 @@ export type NativeCompletionResultTimings = {
 }
 
 export type NativeCompletionResult = {
+  /**
+   * Original text (Ignored reasoning_content / tool_calls)
+   */
   text: string
+  /**
+   * Reasoning content (parsed for reasoning model)
+   */
+  reasoning_content: string
+  /**
+   * Tool calls
+   */
+  tool_calls: Array<{
+    type: 'function'
+    function: {
+      name: string
+      arguments: string
+    }
+    id?: string
+  }>
+  /**
+   * Content text (Filtered text by reasoning_content / tool_calls)
+   */
+  content: string
 
   tokens_predicted: number
   tokens_evaluated: number
@@ -225,7 +285,38 @@ export type NativeEmbeddingResult = {
 
 export type NativeLlamaContext = {
   contextId: number
-  model: Object
+  model: {
+    desc: string
+    size: number
+    nEmbd: number
+    nParams: number
+    chatTemplates: {
+      llamaChat: boolean // Chat template in llama-chat.cpp
+      minja: {
+        // Chat template supported by minja.hpp
+        default: boolean
+        defaultCaps: {
+          tools: boolean
+          toolCalls: boolean
+          toolResponses: boolean
+          systemRole: boolean
+          parallelToolCalls: boolean
+          toolCallId: boolean
+        }
+        toolUse: boolean
+        toolUseCaps: {
+          tools: boolean
+          toolCalls: boolean
+          toolResponses: boolean
+          systemRole: boolean
+          parallelToolCalls: boolean
+          toolCallId: boolean
+        }
+      }
+    }
+    metadata: Object
+    isChatTemplateSupported: boolean // Deprecated
+  }
   /**
    * Loaded library name for Android
    */
@@ -244,7 +335,21 @@ export type NativeLlamaChatMessage = {
   content: string
 }
 
+export type JinjaFormattedChatResult = {
+  prompt: string
+  chat_format?: number
+  grammar?: string
+  grammar_lazy?: boolean
+  grammar_triggers?: Array<{
+    at_start: boolean
+    word: string
+  }>
+  preserved_tokens?: Array<string>
+  additional_stops?: Array<string>
+}
+
 export interface Spec extends TurboModule {
+  toggleNativeLog(enabled: boolean): Promise<void>
   setContextLimit(limit: number): Promise<void>
 
   modelInfo(path: string, skip?: string[]): Promise<Object>
@@ -255,9 +360,16 @@ export interface Spec extends TurboModule {
 
   getFormattedChat(
     contextId: number,
-    messages: NativeLlamaChatMessage[],
+    messages: string,
     chatTemplate?: string,
-  ): Promise<string>
+    params?: {
+      jinja?: boolean
+      json_schema?: string
+      tools?: string
+      parallel_tool_calls?: string
+      tool_choice?: string
+    },
+  ): Promise<JinjaFormattedChatResult | string>
   loadSession(
     contextId: number,
     filepath: string,

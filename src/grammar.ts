@@ -1,5 +1,8 @@
 /* eslint-disable no-restricted-syntax */
 /* eslint-disable no-underscore-dangle */
+
+// NOTE: Deprecated, please use tools or response_format with json_schema instead
+
 const SPACE_RULE = '" "?'
 
 function buildRepetition(

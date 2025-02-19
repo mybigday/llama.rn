@@ -284,14 +284,14 @@ struct lm_ggml_backend_cpu_device_context {
                         &hKey) == ERROR_SUCCESS) {
             DWORD cpu_brand_size = 0;
             if (RegQueryValueExA(hKey,
-                                TEXT("ProcessorNameString"),
+                                "ProcessorNameString",
                                 NULL,
                                 NULL,
                                 NULL,
                                 &cpu_brand_size) == ERROR_SUCCESS) {
                 description.resize(cpu_brand_size);
                 if (RegQueryValueExA(hKey,
-                                    TEXT("ProcessorNameString"),
+                                    "ProcessorNameString",
                                     NULL,
                                     NULL,
                                     (LPBYTE)&description[0], // NOLINT
@@ -416,7 +416,8 @@ static bool lm_ggml_backend_cpu_device_supports_op(lm_ggml_backend_dev_t dev, co
         case LM_GGML_OP_IM2COL_BACK:
             return src0->type == LM_GGML_TYPE_F32 && src1->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_OUT_PROD:
-            return (src0->type == LM_GGML_TYPE_F32 || lm_ggml_is_quantized(src0->type)) && src1->type == LM_GGML_TYPE_F32;
+            return (src0->type == LM_GGML_TYPE_F32 || (lm_ggml_is_quantized(src0->type) && src0->ne[2] == src1->ne[2] && src0->ne[3] == src1->ne[3])) &&
+                src1->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
         default:
             return true;
     }
@@ -532,9 +533,6 @@ static lm_ggml_backend_feature * lm_ggml_backend_cpu_get_features(lm_ggml_backen
         }
         if (lm_ggml_cpu_has_dotprod()) {
             features.push_back({ "DOTPROD", "1" });
-        }
-        if (lm_ggml_cpu_has_matmul_int8()) {
-            features.push_back({ "MATMUL_INT8", "1" });
         }
         if (lm_ggml_cpu_get_sve_cnt() > 0) {
             static std::string sve_cnt = std::to_string(lm_ggml_cpu_get_sve_cnt());

@@ -8,12 +8,12 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include "json-schema-to-grammar.h"
 #include "llama.h"
 #include "llama-impl.h"
 #include "ggml.h"
 #include "rn-llama.h"
 #include "jni-utils.h"
-
 #define UNUSED(x) (void)(x)
 #define TAG "RNLLAMA_ANDROID_JNI"
 
@@ -24,7 +24,7 @@ static inline int min(int a, int b) {
     return (a < b) ? a : b;
 }
 
-static void log_callback(lm_ggml_log_level level, const char * fmt, void * data) {
+static void rnllama_log_callback_default(lm_ggml_log_level level, const char * fmt, void * data) {
     if (level == LM_GGML_LOG_LEVEL_ERROR)     __android_log_print(ANDROID_LOG_ERROR, TAG, fmt, data);
     else if (level == LM_GGML_LOG_LEVEL_INFO) __android_log_print(ANDROID_LOG_INFO, TAG, fmt, data);
     else if (level == LM_GGML_LOG_LEVEL_WARN) __android_log_print(ANDROID_LOG_WARN, TAG, fmt, data);
@@ -222,6 +222,8 @@ Java_com_rnllama_LlamaContext_initContext(
     JNIEnv *env,
     jobject thiz,
     jstring model_path_str,
+    jstring chat_template,
+    jstring reasoning_format,
     jboolean embedding,
     jint embd_normalize,
     jint n_ctx,
@@ -254,6 +256,16 @@ Java_com_rnllama_LlamaContext_initContext(
 
     const char *model_path_chars = env->GetStringUTFChars(model_path_str, nullptr);
     defaultParams.model = model_path_chars;
+
+    const char *chat_template_chars = env->GetStringUTFChars(chat_template, nullptr);
+    defaultParams.chat_template = chat_template_chars;
+
+    const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
+    if (strcmp(reasoning_format_chars, "deepseek") == 0) {
+        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+    } else {
+        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_NONE;
+    }
 
     defaultParams.n_ctx = n_ctx;
     defaultParams.n_batch = n_batch;
@@ -321,6 +333,8 @@ Java_com_rnllama_LlamaContext_initContext(
     bool is_model_loaded = llama->loadModel(defaultParams);
 
     env->ReleaseStringUTFChars(model_path_str, model_path_chars);
+    env->ReleaseStringUTFChars(chat_template, chat_template_chars);
+    env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
     env->ReleaseStringUTFChars(cache_type_k, cache_type_k_chars);
     env->ReleaseStringUTFChars(cache_type_v, cache_type_v_chars);
 
@@ -410,13 +424,115 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
 
     char desc[1024];
     llama_model_desc(llama->model, desc, sizeof(desc));
+
     putString(env, result, "desc", desc);
     putDouble(env, result, "size", llama_model_size(llama->model));
     putDouble(env, result, "nEmbd", llama_model_n_embd(llama->model));
     putDouble(env, result, "nParams", llama_model_n_params(llama->model));
-    putBoolean(env, result, "isChatTemplateSupported", llama->validateModelChatTemplate());
-    putMap(env, result, "metadata", meta);
+    auto chat_templates = createWriteableMap(env);
+    putBoolean(env, chat_templates, "llamaChat", llama->validateModelChatTemplate(false, nullptr));
 
+    auto minja = createWriteableMap(env);
+    putBoolean(env, minja, "default", llama->validateModelChatTemplate(true, nullptr));
+
+    auto default_caps = createWriteableMap(env);
+
+    auto default_tmpl = llama->templates.template_default.get();
+    auto default_tmpl_caps = default_tmpl->original_caps();
+    putBoolean(env, default_caps, "tools", default_tmpl_caps.supports_tools);
+    putBoolean(env, default_caps, "toolCalls", default_tmpl_caps.supports_tool_calls);
+    putBoolean(env, default_caps, "parallelToolCalls", default_tmpl_caps.supports_parallel_tool_calls);
+    putBoolean(env, default_caps, "toolResponses", default_tmpl_caps.supports_tool_responses);
+    putBoolean(env, default_caps, "systemRole", default_tmpl_caps.supports_system_role);
+    putBoolean(env, default_caps, "toolCallId", default_tmpl_caps.supports_tool_call_id);
+    putMap(env, minja, "defaultCaps", default_caps);
+
+    putBoolean(env, minja, "toolUse", llama->validateModelChatTemplate(true, "tool_use"));
+    auto tool_use_tmpl = llama->templates.template_tool_use.get();
+    if (tool_use_tmpl != nullptr) {
+      auto tool_use_caps = createWriteableMap(env);
+      auto tool_use_tmpl_caps = tool_use_tmpl->original_caps();
+      putBoolean(env, tool_use_caps, "tools", tool_use_tmpl_caps.supports_tools);
+      putBoolean(env, tool_use_caps, "toolCalls", tool_use_tmpl_caps.supports_tool_calls);
+      putBoolean(env, tool_use_caps, "parallelToolCalls", tool_use_tmpl_caps.supports_parallel_tool_calls);
+      putBoolean(env, tool_use_caps, "systemRole", tool_use_tmpl_caps.supports_system_role);
+      putBoolean(env, tool_use_caps, "toolResponses", tool_use_tmpl_caps.supports_tool_responses);
+      putBoolean(env, tool_use_caps, "toolCallId", tool_use_tmpl_caps.supports_tool_call_id);
+      putMap(env, minja, "toolUseCaps", tool_use_caps);
+    }
+
+    putMap(env, chat_templates, "minja", minja);
+    putMap(env, result, "metadata", meta);
+    putMap(env, result, "chatTemplates", chat_templates);
+
+    // deprecated
+    putBoolean(env, result, "isChatTemplateSupported", llama->validateModelChatTemplate(false, nullptr));
+
+    return reinterpret_cast<jobject>(result);
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring messages,
+    jstring chat_template,
+    jstring json_schema,
+    jstring tools,
+    jboolean parallel_tool_calls,
+    jstring tool_choice
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *messages_chars = env->GetStringUTFChars(messages, nullptr);
+    const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
+    const char *json_schema_chars = env->GetStringUTFChars(json_schema, nullptr);
+    const char *tools_chars = env->GetStringUTFChars(tools, nullptr);
+    const char *tool_choice_chars = env->GetStringUTFChars(tool_choice, nullptr);
+
+    auto result = createWriteableMap(env);
+    try {
+        auto formatted = llama->getFormattedChatWithJinja(
+            messages_chars,
+            tmpl_chars,
+            json_schema_chars,
+            tools_chars,
+            parallel_tool_calls,
+            tool_choice_chars
+        );
+        putString(env, result, "prompt", formatted.prompt.get<std::string>().c_str());
+        putInt(env, result, "chat_format", static_cast<int>(formatted.format));
+        putString(env, result, "grammar", formatted.grammar.c_str());
+        putBoolean(env, result, "grammar_lazy", formatted.grammar_lazy);
+        auto grammar_triggers = createWritableArray(env);
+        for (const auto &trigger : formatted.grammar_triggers) {
+            auto trigger_map = createWriteableMap(env);
+            putString(env, trigger_map, "word", trigger.word.c_str());
+            putBoolean(env, trigger_map, "at_start", trigger.at_start);
+            pushMap(env, grammar_triggers, trigger_map);
+        }
+        putArray(env, result, "grammar_triggers", grammar_triggers);
+        auto preserved_tokens = createWritableArray(env);
+        for (const auto &token : formatted.preserved_tokens) {
+            pushString(env, preserved_tokens, token.c_str());
+        }
+        putArray(env, result, "preserved_tokens", preserved_tokens);
+        auto additional_stops = createWritableArray(env);
+        for (const auto &stop : formatted.additional_stops) {
+            pushString(env, additional_stops, stop.c_str());
+        }
+        putArray(env, result, "additional_stops", additional_stops);
+    } catch (const std::runtime_error &e) {
+        LOGI("[RNLlama] Error: %s", e.what());
+        putString(env, result, "_error", e.what());
+    }
+    env->ReleaseStringUTFChars(tools, tools_chars);
+    env->ReleaseStringUTFChars(messages, messages_chars);
+    env->ReleaseStringUTFChars(chat_template, tmpl_chars);
+    env->ReleaseStringUTFChars(json_schema, json_schema_chars);
+    env->ReleaseStringUTFChars(tool_choice, tool_choice_chars);
     return reinterpret_cast<jobject>(result);
 }
 
@@ -425,37 +541,19 @@ Java_com_rnllama_LlamaContext_getFormattedChat(
     JNIEnv *env,
     jobject thiz,
     jlong context_ptr,
-    jobjectArray messages,
+    jstring messages,
     jstring chat_template
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
 
-    std::vector<common_chat_msg> chat;
-
-    int messages_len = env->GetArrayLength(messages);
-    for (int i = 0; i < messages_len; i++) {
-        jobject msg = env->GetObjectArrayElement(messages, i);
-        jclass msgClass = env->GetObjectClass(msg);
-
-        jmethodID getRoleMethod = env->GetMethodID(msgClass, "getString", "(Ljava/lang/String;)Ljava/lang/String;");
-        jstring roleKey = env->NewStringUTF("role");
-        jstring contentKey = env->NewStringUTF("content");
-
-        jstring role_str = (jstring) env->CallObjectMethod(msg, getRoleMethod, roleKey);
-        jstring content_str = (jstring) env->CallObjectMethod(msg, getRoleMethod, contentKey);
-
-        const char *role = env->GetStringUTFChars(role_str, nullptr);
-        const char *content = env->GetStringUTFChars(content_str, nullptr);
-
-        chat.push_back({ role, content });
-
-        env->ReleaseStringUTFChars(role_str, role);
-        env->ReleaseStringUTFChars(content_str, content);
-    }
-
+    const char *messages_chars = env->GetStringUTFChars(messages, nullptr);
     const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
-    std::string formatted_chat = common_chat_apply_template(llama->model, tmpl_chars, chat, true);
+
+    std::string formatted_chat = llama->getFormattedChat(messages_chars, tmpl_chars);
+
+    env->ReleaseStringUTFChars(messages, messages_chars);
+    env->ReleaseStringUTFChars(chat_template, tmpl_chars);
 
     return env->NewStringUTF(formatted_chat.c_str());
 }
@@ -544,7 +642,12 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jobject thiz,
     jlong context_ptr,
     jstring prompt,
+    jint chat_format,
     jstring grammar,
+    jstring json_schema,
+    jboolean grammar_lazy,
+    jobject grammar_triggers,
+    jobject preserved_tokens,
     jfloat temperature,
     jint n_threads,
     jint n_predict,
@@ -570,6 +673,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jfloat   dry_base,
     jint dry_allowed_length,
     jint dry_penalty_last_n,
+    jfloat top_n_sigma,
     jobjectArray dry_sequence_breakers,
     jobject partial_completion_callback
 ) {
@@ -580,7 +684,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     //llama_reset_timings(llama->ctx);
 
-    llama->params.prompt = env->GetStringUTFChars(prompt, nullptr);
+    auto prompt_chars = env->GetStringUTFChars(prompt, nullptr);
+    llama->params.prompt = prompt_chars;
     llama->params.sampling.seed = (seed == -1) ? time(NULL) : seed;
 
     int max_threads = std::thread::hardware_concurrency();
@@ -605,13 +710,59 @@ Java_com_rnllama_LlamaContext_doCompletion(
     sparams.min_p = min_p;
     sparams.typ_p = typical_p;
     sparams.n_probs = n_probs;
-    sparams.grammar = env->GetStringUTFChars(grammar, nullptr);
     sparams.xtc_threshold = xtc_threshold;
     sparams.xtc_probability = xtc_probability;
     sparams.dry_multiplier = dry_multiplier;
     sparams.dry_base = dry_base;
     sparams.dry_allowed_length = dry_allowed_length;
     sparams.dry_penalty_last_n = dry_penalty_last_n;
+    sparams.top_n_sigma = top_n_sigma;
+
+    // grammar
+    auto grammar_chars = env->GetStringUTFChars(grammar, nullptr);
+    if (grammar_chars && grammar_chars[0] != '\0') {
+      sparams.grammar = grammar_chars;
+    }
+    sparams.grammar_lazy = grammar_lazy;
+    if (grammar_triggers != nullptr) {
+        int grammar_triggers_size = readablearray::size(env, grammar_triggers);
+        for (int i = 0; i < grammar_triggers_size; i++) {
+            common_grammar_trigger trigger;
+            auto trigger_map = readablearray::getMap(env, grammar_triggers, i);
+            jstring trigger_word = readablemap::getString(env, trigger_map, "word", nullptr);
+            jboolean trigger_at_start = readablemap::getBool(env, trigger_map, "at_start", false);
+            trigger.word = env->GetStringUTFChars(trigger_word, nullptr);
+            trigger.at_start = trigger_at_start;
+
+            auto ids = common_tokenize(llama->ctx, trigger.word, /* add_special= */ false, /* parse_special= */ true);
+            if (ids.size() == 1) {
+                sparams.grammar_trigger_tokens.push_back(ids[0]);
+                sparams.preserved_tokens.insert(ids[0]);
+                continue;
+            }
+            sparams.grammar_trigger_words.push_back(trigger);
+        }
+    }
+
+    auto json_schema_chars = env->GetStringUTFChars(json_schema, nullptr);
+    if ((!grammar_chars || grammar_chars[0] == '\0') && json_schema_chars && json_schema_chars[0] != '\0') {
+        auto schema = json::parse(json_schema_chars);
+        sparams.grammar = json_schema_to_grammar(schema);
+    }
+    env->ReleaseStringUTFChars(json_schema, json_schema_chars);
+
+    if (preserved_tokens != nullptr) {
+        int preserved_tokens_size = readablearray::size(env, preserved_tokens);
+        for (int i = 0; i < preserved_tokens_size; i++) {
+            jstring preserved_token = readablearray::getString(env, preserved_tokens, i);
+            auto ids = common_tokenize(llama->ctx, env->GetStringUTFChars(preserved_token, nullptr), /* add_special= */ false, /* parse_special= */ true);
+            if (ids.size() == 1) {
+                sparams.preserved_tokens.insert(ids[0]);
+            } else {
+                LOGI("[RNLlama] Not preserved because more than 1 token (wrong chat template override?): %s", env->GetStringUTFChars(preserved_token, nullptr));
+            }
+        }
+    }
 
     const llama_model * model = llama_get_model(llama->ctx);
     const llama_vocab * vocab = llama_model_get_vocab(model);
@@ -736,11 +887,51 @@ Java_com_rnllama_LlamaContext_doCompletion(
         }
     }
 
+    env->ReleaseStringUTFChars(grammar, grammar_chars);
+    env->ReleaseStringUTFChars(prompt, prompt_chars);
     llama_perf_context_print(llama->ctx);
     llama->is_predicting = false;
 
+    auto toolCalls = createWritableArray(env);
+    std::string reasoningContent = "";
+    std::string *content = nullptr;
+    auto toolCallsSize = 0;
+    if (!llama->is_interrupted) {
+        try {
+            common_chat_msg message = common_chat_parse(llama->generated_text, static_cast<common_chat_format>(chat_format));
+            if (!message.reasoning_content.empty()) {
+                reasoningContent = message.reasoning_content;
+            }
+            content = &message.content;
+            for (const auto &tc : message.tool_calls) {
+                auto toolCall = createWriteableMap(env);
+                putString(env, toolCall, "type", "function");
+                auto functionMap = createWriteableMap(env);
+                putString(env, functionMap, "name", tc.name.c_str());
+                putString(env, functionMap, "arguments", tc.arguments.c_str());
+                putMap(env, toolCall, "function", functionMap);
+                if (!tc.id.empty()) {
+                    putString(env, toolCall, "id", tc.id.c_str());
+                }
+                pushMap(env, toolCalls, toolCall);
+                toolCallsSize++;
+            }
+        } catch (const std::exception &e) {
+            // LOGI("Error parsing tool calls: %s", e.what());
+        }
+    }
+
     auto result = createWriteableMap(env);
     putString(env, result, "text", llama->generated_text.c_str());
+    if (content) {
+        putString(env, result, "content", content->c_str());
+    }
+    if (!reasoningContent.empty()) {
+        putString(env, result, "reasoning_content", reasoningContent.c_str());
+    }
+    if (toolCallsSize > 0) {
+        putArray(env, result, "tool_calls", toolCalls);
+    }
     putArray(env, result, "completion_probabilities", tokenProbsToMap(env, llama, llama->generated_token_probs));
     putInt(env, result, "tokens_predicted", llama->num_tokens_predicted);
     putInt(env, result, "tokens_evaluated", llama->num_prompt_tokens);
@@ -969,11 +1160,76 @@ Java_com_rnllama_LlamaContext_freeContext(
     delete llama;
 }
 
+struct log_callback_context {
+    JavaVM *jvm;
+    jobject callback;
+};
+
+static void rnllama_log_callback_to_j(lm_ggml_log_level level, const char * text, void * data) {
+    auto level_c = "";
+    if (level == LM_GGML_LOG_LEVEL_ERROR) {
+        __android_log_print(ANDROID_LOG_ERROR, TAG, text, nullptr);
+        level_c = "error";
+    } else if (level == LM_GGML_LOG_LEVEL_INFO) {
+        __android_log_print(ANDROID_LOG_INFO, TAG, text, nullptr);
+        level_c = "info";
+    } else if (level == LM_GGML_LOG_LEVEL_WARN) {
+        __android_log_print(ANDROID_LOG_WARN, TAG, text, nullptr);
+        level_c = "warn";
+    } else {
+        __android_log_print(ANDROID_LOG_DEFAULT, TAG, text, nullptr);
+    }
+
+    log_callback_context *cb_ctx = (log_callback_context *) data;
+
+    JNIEnv *env;
+    bool need_detach = false;
+    int getEnvResult = cb_ctx->jvm->GetEnv((void**)&env, JNI_VERSION_1_6);
+
+    if (getEnvResult == JNI_EDETACHED) {
+        if (cb_ctx->jvm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+            need_detach = true;
+        } else {
+            return;
+        }
+    } else if (getEnvResult != JNI_OK) {
+        return;
+    }
+
+    jobject callback = cb_ctx->callback;
+    jclass cb_class = env->GetObjectClass(callback);
+    jmethodID emitNativeLog = env->GetMethodID(cb_class, "emitNativeLog", "(Ljava/lang/String;Ljava/lang/String;)V");
+
+    jstring level_str = env->NewStringUTF(level_c);
+    jstring text_str = env->NewStringUTF(text);
+    env->CallVoidMethod(callback, emitNativeLog, level_str, text_str);
+    env->DeleteLocalRef(level_str);
+    env->DeleteLocalRef(text_str);
+
+    if (need_detach) {
+        cb_ctx->jvm->DetachCurrentThread();
+    }
+}
+
 JNIEXPORT void JNICALL
-Java_com_rnllama_LlamaContext_logToAndroid(JNIEnv *env, jobject thiz) {
+Java_com_rnllama_LlamaContext_setupLog(JNIEnv *env, jobject thiz, jobject logCallback) {
+    UNUSED(thiz);
+
+    log_callback_context *cb_ctx = new log_callback_context;
+
+    JavaVM *jvm;
+    env->GetJavaVM(&jvm);
+    cb_ctx->jvm = jvm;
+    cb_ctx->callback = env->NewGlobalRef(logCallback);
+
+    llama_log_set(rnllama_log_callback_to_j, cb_ctx);
+}
+
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_unsetLog(JNIEnv *env, jobject thiz) {
     UNUSED(env);
     UNUSED(thiz);
-    llama_log_set(log_callback, NULL);
+    llama_log_set(rnllama_log_callback_default, NULL);
 }
 
 } // extern "C"

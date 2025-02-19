@@ -19,7 +19,17 @@
 // max number of MTLCommandBuffer used to submit a graph for processing
 #define LM_GGML_METAL_MAX_COMMAND_BUFFERS 8
 
-#define UNUSED(x) (void)(x)
+#ifndef TARGET_OS_VISION
+#define TARGET_OS_VISION 0
+#endif
+
+// create residency sets only on macOS >= 15.0
+#if !TARGET_CPU_X86_64 && TARGET_OS_OSX && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000 || \
+    TARGET_OS_IOS && __IPHONE_OS_VERSION_MAX_ALLOWED >= 180000 || \
+    TARGET_OS_TV && __TV_OS_VERSION_MAX_ALLOWED >= 180000 || \
+    TARGET_OS_VISION && __VISION_OS_VERSION_MAX_ALLOWED >= 200000
+#define LM_GGML_METAL_HAS_RESIDENCY_SETS 1
+#endif
 
 // globals
 
@@ -39,6 +49,7 @@ static struct lm_ggml_backend_metal_device_context {
 
     bool has_simdgroup_reduction;
     bool has_simdgroup_mm;
+    bool has_residency_sets;
     bool has_bfloat;
     bool use_bfloat;
 
@@ -48,6 +59,7 @@ static struct lm_ggml_backend_metal_device_context {
     /*.mtl_device_ref_count    =*/ 0,
     /*.has_simdgroup_reduction =*/ false,
     /*.has_simdgroup_mm        =*/ false,
+    /*.has_residency_sets      =*/ false,
     /*.has_bfloat              =*/ false,
     /*.use_bfloat              =*/ false,
     /*.name                    =*/ "",
@@ -59,11 +71,17 @@ static id<MTLDevice> lm_ggml_backend_metal_device_acq(struct lm_ggml_backend_met
 
     if (ctx->mtl_device == nil) {
         ctx->mtl_device = MTLCreateSystemDefaultDevice();
+    }
 
+    if (ctx->mtl_device) {
         ctx->has_simdgroup_reduction  = [ctx->mtl_device supportsFamily:MTLGPUFamilyApple7];
         ctx->has_simdgroup_reduction |= [ctx->mtl_device supportsFamily:MTLGPUFamilyMetal3_GGML];
 
         ctx->has_simdgroup_mm = [ctx->mtl_device supportsFamily:MTLGPUFamilyApple7];
+
+#if defined(LM_GGML_METAL_HAS_RESIDENCY_SETS)
+        ctx->has_residency_sets = getenv("LM_GGML_METAL_NO_RESIDENCY") == NULL;
+#endif
 
         ctx->has_bfloat  = [ctx->mtl_device supportsFamily:MTLGPUFamilyMetal3_GGML];
         ctx->has_bfloat |= [ctx->mtl_device supportsFamily:MTLGPUFamilyApple6];
@@ -90,8 +108,10 @@ static void lm_ggml_backend_metal_device_rel(struct lm_ggml_backend_metal_device
     ctx->mtl_device_ref_count--;
 
     if (ctx->mtl_device_ref_count == 0) {
-        [ctx->mtl_device release];
-        ctx->mtl_device = nil;
+        if (ctx->mtl_device) {
+            [ctx->mtl_device release];
+            ctx->mtl_device = nil;
+        }
     }
 }
 
@@ -483,6 +503,11 @@ static struct lm_ggml_backend_metal_context * lm_ggml_metal_init(lm_ggml_backend
     LM_GGML_LOG_INFO("%s: picking default device: %s\n", __func__, [[device name] UTF8String]);
 
     ctx->queue  = [device newCommandQueue];
+    if (ctx->queue == nil) {
+        LM_GGML_LOG_ERROR("%s: error: failed to create command queue\n", __func__);
+        return NULL;
+    }
+
     ctx->d_queue = dispatch_queue_create("ggml-metal", DISPATCH_QUEUE_CONCURRENT);
 
     id<MTLLibrary> metal_library;
@@ -509,7 +534,11 @@ static struct lm_ggml_backend_metal_context * lm_ggml_metal_init(lm_ggml_backend
         const bool try_metallib = true;
 #endif
 
+#if TARGET_OS_SIMULATOR
+        NSString * path_lib = [bundle pathForResource:@"ggml-llama-sim" ofType:@"metallib"];
+#else
         NSString * path_lib = [bundle pathForResource:@"ggml-llama" ofType:@"metallib"];
+#endif
         if (path_lib == nil) {
             // Try to find the resource in the directory where the current binary located.
             NSString * current_binary = [[NSProcessInfo processInfo] arguments][0];
@@ -649,6 +678,7 @@ static struct lm_ggml_backend_metal_context * lm_ggml_metal_init(lm_ggml_backend
 
     LM_GGML_LOG_INFO("%s: simdgroup reduction   = %s\n", __func__, ctx_dev->has_simdgroup_reduction     ? "true" : "false");
     LM_GGML_LOG_INFO("%s: simdgroup matrix mul. = %s\n", __func__, ctx_dev->has_simdgroup_mm            ? "true" : "false");
+    LM_GGML_LOG_INFO("%s: has residency sets    = %s\n", __func__, ctx_dev->has_residency_sets          ? "true" : "false");
     LM_GGML_LOG_INFO("%s: has bfloat            = %s\n", __func__, ctx_dev->has_bfloat                  ? "true" : "false");
     LM_GGML_LOG_INFO("%s: use bfloat            = %s\n", __func__, ctx_dev->use_bfloat                  ? "true" : "false");
     LM_GGML_LOG_INFO("%s: hasUnifiedMemory      = %s\n", __func__, ctx_dev->mtl_device.hasUnifiedMemory ? "true" : "false");
@@ -1035,7 +1065,69 @@ struct lm_ggml_backend_metal_buffer_context {
     // multiple buffers are used only to avoid the maximum buffer size limitation when using mmap
     int n_buffers;
     struct lm_ggml_backend_metal_buffer buffers[LM_GGML_METAL_MAX_BUFFERS];
+
+    // optional MTLResidencySet
+    id rset;
 };
+
+// rset init
+static bool lm_ggml_backend_metal_buffer_rset_init(
+        struct lm_ggml_backend_metal_buffer_context * ctx,
+        struct lm_ggml_backend_metal_device_context * ctx_dev,
+        id<MTLDevice> device) {
+    ctx->rset = nil;
+
+    if (!ctx_dev->has_residency_sets) {
+        return true;
+    }
+
+#if defined(LM_GGML_METAL_HAS_RESIDENCY_SETS)
+    if (@available(macOS 15.0, iOS 18.0, tvOS 18.0, visionOS 2.0, *)) {
+        MTLResidencySetDescriptor * desc = [[MTLResidencySetDescriptor alloc] init];
+        desc.label = @"lm_ggml_backend_metal";
+        desc.initialCapacity = ctx->n_buffers;
+
+        NSError * error;
+        ctx->rset = [device newResidencySetWithDescriptor:desc error:&error];
+        if (error) {
+            LM_GGML_LOG_ERROR("%s: error: %s\n", __func__, [[error description] UTF8String]);
+            [desc release];
+            return false;
+        }
+
+        [desc release];
+
+        for (int i = 0; i < ctx->n_buffers; i++) {
+            [ctx->rset addAllocation:ctx->buffers[i].metal];
+        }
+
+        [ctx->rset commit];
+        [ctx->rset requestResidency];
+
+        return true;
+    }
+#else
+    LM_GGML_UNUSED(ctx_dev);
+    LM_GGML_UNUSED(device);
+#endif
+
+    return true;
+}
+
+// rset free
+static void lm_ggml_backend_metal_buffer_rset_free(struct lm_ggml_backend_metal_buffer_context * ctx) {
+#if defined(LM_GGML_METAL_HAS_RESIDENCY_SETS)
+    if (@available(macOS 15.0, iOS 18.0, tvOS 18.0, visionOS 2.0, *)) {
+        if (ctx->rset) {
+            [ctx->rset endResidency];
+            [ctx->rset removeAllAllocations];
+            [ctx->rset release];
+        }
+    }
+#else
+    LM_GGML_UNUSED(ctx);
+#endif
+}
 
 // finds the Metal buffer that contains the tensor data on the GPU device
 // the assumption is that there is 1-to-1 mapping between the host and device memory buffers, so we can find the
@@ -1120,12 +1212,13 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_backend_metal_device_
         case LM_GGML_OP_SUM_ROWS:
         case LM_GGML_OP_SOFT_MAX:
         case LM_GGML_OP_GROUP_NORM:
-            return has_simdgroup_reduction;
+            return has_simdgroup_reduction && lm_ggml_is_contiguous(op->src[0]);
         case LM_GGML_OP_RMS_NORM:
-            return has_simdgroup_reduction && (op->ne[0] % 4 == 0);
+            return has_simdgroup_reduction && (op->ne[0] % 4 == 0 && lm_ggml_is_contiguous_1(op->src[0]));
         case LM_GGML_OP_ARGMAX:
-        case LM_GGML_OP_NORM:
             return true;
+        case LM_GGML_OP_NORM:
+            return has_simdgroup_reduction && (op->ne[0] % 4 == 0 && lm_ggml_is_contiguous_1(op->src[0]));
         case LM_GGML_OP_ROPE:
             {
                 const int mode = ((const int32_t *) op->op_params)[2];
@@ -1894,7 +1987,7 @@ static void lm_ggml_metal_encode_node(
                 const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
 
                 // TODO: add lm_ggml_metal_kargs struct
-                // TODO: optimize (see https://github.com/ggerganov/llama.cpp/pull/10238/commits/7941b6b9ec29a2866fec6fa6c51612515ca509f6)
+                // TODO: optimize (see https://github.com/ggml-org/llama.cpp/pull/10238/commits/7941b6b9ec29a2866fec6fa6c51612515ca509f6)
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0   atIndex:0];
                 if (id_src1) {
@@ -4176,6 +4269,8 @@ static void lm_ggml_backend_metal_buffer_free_buffer(lm_ggml_backend_buffer_t bu
     for (int i = 0; i < ctx->n_buffers; i++) {
         [ctx->buffers[i].metal release];
     }
+
+    lm_ggml_backend_metal_buffer_rset_free(ctx);
     lm_ggml_backend_metal_device_rel(buffer->buft->device->context);
 
     if (ctx->owned) {
@@ -4198,19 +4293,19 @@ static void * lm_ggml_backend_metal_buffer_get_base(lm_ggml_backend_buffer_t buf
 static void lm_ggml_backend_metal_buffer_memset_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor, uint8_t value, size_t offset, size_t size) {
     memset((char *)tensor->data + offset, value, size);
 
-    UNUSED(buffer);
+    LM_GGML_UNUSED(buffer);
 }
 
 static void lm_ggml_backend_metal_buffer_set_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
     memcpy((char *)tensor->data + offset, data, size);
 
-    UNUSED(buffer);
+    LM_GGML_UNUSED(buffer);
 }
 
 static void lm_ggml_backend_metal_buffer_get_tensor(lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * tensor, void * data, size_t offset, size_t size) {
     memcpy(data, (const char *)tensor->data + offset, size);
 
-    UNUSED(buffer);
+    LM_GGML_UNUSED(buffer);
 }
 
 static bool lm_ggml_backend_metal_buffer_cpy_tensor(lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst) {
@@ -4220,7 +4315,7 @@ static bool lm_ggml_backend_metal_buffer_cpy_tensor(lm_ggml_backend_buffer_t buf
     }
     return false;
 
-    UNUSED(buffer);
+    LM_GGML_UNUSED(buffer);
 }
 
 static void lm_ggml_backend_metal_buffer_clear(lm_ggml_backend_buffer_t buffer, uint8_t value) {
@@ -4246,7 +4341,7 @@ static struct lm_ggml_backend_buffer_i lm_ggml_backend_metal_buffer_i = {
 static const char * lm_ggml_backend_metal_buffer_type_get_name(lm_ggml_backend_buffer_type_t buft) {
     return "Metal";
 
-    UNUSED(buft);
+    LM_GGML_UNUSED(buft);
 }
 
 static void lm_ggml_backend_metal_log_allocated_size(id<MTLDevice> device, size_t size_aligned) {
@@ -4270,8 +4365,8 @@ static void lm_ggml_backend_metal_log_allocated_size(id<MTLDevice> device, size_
     }
 #endif
 #endif
-    UNUSED(device);
-    UNUSED(size_aligned);
+    LM_GGML_UNUSED(device);
+    LM_GGML_UNUSED(size_aligned);
 }
 
 static lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_type_alloc_buffer(lm_ggml_backend_buffer_type_t buft, size_t size) {
@@ -4284,7 +4379,8 @@ static lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_type_alloc_buffer(l
         size_aligned += (size_page - (size_aligned % size_page));
     }
 
-    id<MTLDevice> device = lm_ggml_backend_metal_device_acq(buft->device->context);
+    struct lm_ggml_backend_metal_device_context * ctx_dev = (struct lm_ggml_backend_metal_device_context *)buft->device->context;
+    id<MTLDevice> device = lm_ggml_backend_metal_device_acq(ctx_dev);
 
     ctx->all_data = lm_ggml_metal_host_malloc(size_aligned);
     ctx->all_size = size_aligned;
@@ -4307,7 +4403,14 @@ static lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_type_alloc_buffer(l
     if (size_aligned > 0 && (ctx->all_data == NULL || ctx->buffers[0].metal == nil)) {
         LM_GGML_LOG_ERROR("%s: error: failed to allocate buffer, size = %8.2f MiB\n", __func__, size_aligned / 1024.0 / 1024.0);
         free(ctx);
-        lm_ggml_backend_metal_device_rel(buft->device->context);
+        lm_ggml_backend_metal_device_rel(ctx_dev);
+        return NULL;
+    }
+
+    if (!lm_ggml_backend_metal_buffer_rset_init(ctx, ctx_dev, device)) {
+        LM_GGML_LOG_ERROR("%s: error: failed to initialize residency set\n", __func__);
+        free(ctx);
+        lm_ggml_backend_metal_device_rel(ctx_dev);
         return NULL;
     }
 
@@ -4318,7 +4421,7 @@ static lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_type_alloc_buffer(l
 
 static size_t lm_ggml_backend_metal_buffer_type_get_alignment(lm_ggml_backend_buffer_type_t buft) {
     return 32;
-    UNUSED(buft);
+    LM_GGML_UNUSED(buft);
 }
 
 static size_t lm_ggml_backend_metal_buffer_type_get_max_size(lm_ggml_backend_buffer_type_t buft) {
@@ -4328,13 +4431,13 @@ static size_t lm_ggml_backend_metal_buffer_type_get_max_size(lm_ggml_backend_buf
 
     return max_size;
 
-    UNUSED(buft);
+    LM_GGML_UNUSED(buft);
 }
 
 static bool lm_ggml_backend_metal_buffer_type_is_host(lm_ggml_backend_buffer_type_t buft) {
     return true;
 
-    UNUSED(buft);
+    LM_GGML_UNUSED(buft);
 }
 
 lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_type(void) {
@@ -4357,7 +4460,7 @@ lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_type(void) {
 static const char * lm_ggml_backend_metal_buffer_from_ptr_type_get_name(lm_ggml_backend_buffer_type_t buft) {
     return "Metal_Mapped";
 
-    UNUSED(buft);
+    LM_GGML_UNUSED(buft);
 }
 
 static lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_from_ptr_type(void) {
@@ -4400,7 +4503,8 @@ lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_from_ptr(void * data, size
         size_aligned += (size_page - (size_aligned % size_page));
     }
 
-    id<MTLDevice> device = lm_ggml_backend_metal_device_acq(&g_lm_ggml_ctx_dev_main);
+    struct lm_ggml_backend_metal_device_context * ctx_dev = &g_lm_ggml_ctx_dev_main;
+    id<MTLDevice> device = lm_ggml_backend_metal_device_acq(ctx_dev);
 
     // the buffer fits into the max buffer size allowed by the device
     if (size_aligned <= device.maxBufferLength) {
@@ -4453,6 +4557,13 @@ lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_from_ptr(void * data, size
         }
     }
 
+    if (!lm_ggml_backend_metal_buffer_rset_init(ctx, ctx_dev, device)) {
+        LM_GGML_LOG_ERROR("%s: error: failed to initialize residency set\n", __func__);
+        free(ctx);
+        lm_ggml_backend_metal_device_rel(ctx_dev);
+        return NULL;
+    }
+
     return lm_ggml_backend_buffer_init(lm_ggml_backend_metal_buffer_from_ptr_type(), lm_ggml_backend_metal_buffer_i, ctx, size);
 }
 
@@ -4461,7 +4572,7 @@ lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_from_ptr(void * data, size
 static const char * lm_ggml_backend_metal_name(lm_ggml_backend_t backend) {
     return "Metal";
 
-    UNUSED(backend);
+    LM_GGML_UNUSED(backend);
 }
 
 static void lm_ggml_backend_metal_free(lm_ggml_backend_t backend) {
@@ -4766,6 +4877,13 @@ static lm_ggml_backend_buffer_t lm_ggml_backend_metal_device_buffer_from_ptr(lm_
         }
     }
 
+    if (!lm_ggml_backend_metal_buffer_rset_init(ctx, ctx_dev, device)) {
+        LM_GGML_LOG_ERROR("%s: error: failed to initialize residency set\n", __func__);
+        free(ctx);
+        lm_ggml_backend_metal_device_rel(ctx_dev);
+        return NULL;
+    }
+
     return lm_ggml_backend_buffer_init(lm_ggml_backend_metal_buffer_from_ptr_type(), lm_ggml_backend_metal_buffer_i, ctx, size);
 }
 
@@ -4779,7 +4897,7 @@ static bool lm_ggml_backend_metal_device_supports_buft(lm_ggml_backend_dev_t dev
     return buft->iface.get_name == lm_ggml_backend_metal_buffer_type_get_name ||
             buft->iface.get_name == lm_ggml_backend_metal_buffer_from_ptr_type_get_name;
 
-    UNUSED(dev);
+    LM_GGML_UNUSED(dev);
 }
 
 static bool lm_ggml_backend_metal_device_offload_op(lm_ggml_backend_dev_t dev, const struct lm_ggml_tensor * op) {

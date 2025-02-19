@@ -23,6 +23,32 @@ public class LlamaContext {
 
   private static String loadedLibrary = "";
 
+  private static class NativeLogCallback {
+    DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
+
+    public NativeLogCallback(ReactApplicationContext reactContext) {
+      this.eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
+    }
+
+    void emitNativeLog(String level, String text) {
+      WritableMap event = Arguments.createMap();
+      event.putString("level", level);
+      event.putString("text", text);
+      eventEmitter.emit("@RNLlama_onNativeLog", event);
+    }
+  }
+
+  static void toggleNativeLog(ReactApplicationContext reactContext, boolean enabled) {
+    if (LlamaContext.isArchNotSupported()) {
+      throw new IllegalStateException("Only 64-bit architectures are supported");
+    }
+    if (enabled) {
+      setupLog(new NativeLogCallback(reactContext));
+    } else {
+      unsetLog();
+    }
+  }
+
   private int id;
   private ReactApplicationContext reactContext;
   private long context;
@@ -31,19 +57,21 @@ public class LlamaContext {
   private DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
 
   public LlamaContext(int id, ReactApplicationContext reactContext, ReadableMap params) {
-    if (LlamaContext.isArm64V8a() == false && LlamaContext.isX86_64() == false) {
+    if (LlamaContext.isArchNotSupported()) {
       throw new IllegalStateException("Only 64-bit architectures are supported");
     }
     if (!params.hasKey("model")) {
       throw new IllegalArgumentException("Missing required parameter: model");
     }
-    Log.d(NAME, "Setting log callback");
-    logToAndroid();
     eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
     this.id = id;
     this.context = initContext(
       // String model,
       params.getString("model"),
+      // String chat_template,
+      params.hasKey("chat_template") ? params.getString("chat_template") : "",
+      // String reasoning_format,
+      params.hasKey("reasoning_format") ? params.getString("reasoning_format") : "none",
       // boolean embedding,
       params.hasKey("embedding") ? params.getBoolean("embedding") : false,
       // int embd_normalize,
@@ -108,12 +136,24 @@ public class LlamaContext {
     return loadedLibrary;
   }
 
-  public String getFormattedChat(ReadableArray messages, String chatTemplate) {
-    ReadableMap[] msgs = new ReadableMap[messages.size()];
-    for (int i = 0; i < messages.size(); i++) {
-      msgs[i] = messages.getMap(i);
-    }
-    return getFormattedChat(this.context, msgs, chatTemplate == null ? "" : chatTemplate);
+  public WritableMap getFormattedChatWithJinja(String messages, String chatTemplate, ReadableMap params) {
+    String jsonSchema = params.hasKey("json_schema") ? params.getString("json_schema") : "";
+    String tools = params.hasKey("tools") ? params.getString("tools") : "";
+    Boolean parallelToolCalls = params.hasKey("parallel_tool_calls") ? params.getBoolean("parallel_tool_calls") : false;
+    String toolChoice = params.hasKey("tool_choice") ? params.getString("tool_choice") : "";
+    return getFormattedChatWithJinja(
+      this.context,
+      messages,
+      chatTemplate == null ? "" : chatTemplate,
+      jsonSchema,
+      tools,
+      parallelToolCalls,
+      toolChoice
+    );
+  }
+
+  public String getFormattedChat(String messages, String chatTemplate) {
+    return getFormattedChat(this.context, messages, chatTemplate == null ? "" : chatTemplate);
   }
 
   private void emitLoadProgress(int progress) {
@@ -201,8 +241,18 @@ public class LlamaContext {
       this.context,
       // String prompt,
       params.getString("prompt"),
+      // int chat_format,
+      params.hasKey("chat_format") ? params.getInt("chat_format") : 0,
       // String grammar,
       params.hasKey("grammar") ? params.getString("grammar") : "",
+      // String json_schema,
+      params.hasKey("json_schema") ? params.getString("json_schema") : "",
+      // boolean grammar_lazy,
+      params.hasKey("grammar_lazy") ? params.getBoolean("grammar_lazy") : false,
+      // ReadableArray grammar_triggers,
+      params.hasKey("grammar_triggers") ? params.getArray("grammar_triggers") : null,
+      // ReadableArray preserved_tokens,
+      params.hasKey("preserved_tokens") ? params.getArray("preserved_tokens") : null,
       // float temperature,
       params.hasKey("temperature") ? (float) params.getDouble("temperature") : 0.7f,
       // int n_threads,
@@ -253,6 +303,8 @@ public class LlamaContext {
       params.hasKey("dry_allowed_length") ? params.getInt("dry_allowed_length") : 2,
       // int dry_penalty_last_n,
       params.hasKey("dry_penalty_last_n") ? params.getInt("dry_penalty_last_n") : -1,
+      // float top_n_sigma,
+      params.hasKey("top_n_sigma") ? (float) params.getDouble("top_n_sigma") : -1.0f,
       // String[] dry_sequence_breakers, when undef, we use the default definition from common.h
       params.hasKey("dry_sequence_breakers") ? params.getArray("dry_sequence_breakers").toArrayList().toArray(new String[0]) : new String[]{"\n", ":", "\"", "*"},
       // PartialCompletionCallback partial_completion_callback
@@ -373,15 +425,13 @@ public class LlamaContext {
       //  Log.d(NAME, "Loading librnllama_v8_7.so with runtime feature detection");
       //  System.loadLibrary("rnllama_v8_7");
     } else if (LlamaContext.isX86_64()) {
-        Log.d(NAME, "Loading librnllama_x86_64.so");
-        System.loadLibrary("rnllama_x86_64");
-        loadedLibrary = "rnllama_x86_64";
+      Log.d(NAME, "Loading librnllama_x86_64.so");
+      System.loadLibrary("rnllama_x86_64");
+      loadedLibrary = "rnllama_x86_64";
     } else {
-        Log.d(NAME, "Loading default librnllama.so");
-        System.loadLibrary("rnllama");
-        loadedLibrary = "rnllama";
+      Log.d(NAME, "ARM32 is not supported, skipping loading library");
     }
-}
+  }
 
   private static boolean isArm64V8a() {
     return Build.SUPPORTED_ABIS[0].equals("arm64-v8a");
@@ -389,6 +439,10 @@ public class LlamaContext {
 
   private static boolean isX86_64() {
     return Build.SUPPORTED_ABIS[0].equals("x86_64");
+  }
+
+  private static boolean isArchNotSupported() {
+    return isArm64V8a() == false && isX86_64() == false;
   }
 
   private static String getCpuFeatures() {
@@ -417,6 +471,8 @@ public class LlamaContext {
   );
   protected static native long initContext(
     String model,
+    String chat_template,
+    String reasoning_format,
     boolean embedding,
     int embd_normalize,
     int n_ctx,
@@ -442,9 +498,18 @@ public class LlamaContext {
   protected static native WritableMap loadModelDetails(
     long contextPtr
   );
+  protected static native WritableMap getFormattedChatWithJinja(
+    long contextPtr,
+    String messages,
+    String chatTemplate,
+    String jsonSchema,
+    String tools,
+    boolean parallelToolCalls,
+    String toolChoice
+  );
   protected static native String getFormattedChat(
     long contextPtr,
-    ReadableMap[] messages,
+    String messages,
     String chatTemplate
   );
   protected static native WritableMap loadSession(
@@ -459,7 +524,12 @@ public class LlamaContext {
   protected static native WritableMap doCompletion(
     long context_ptr,
     String prompt,
+    int chat_format,
     String grammar,
+    String json_schema,
+    boolean grammar_lazy,
+    ReadableArray grammar_triggers,
+    ReadableArray preserved_tokens,
     float temperature,
     int n_threads,
     int n_predict,
@@ -485,6 +555,7 @@ public class LlamaContext {
     float   dry_base,
     int dry_allowed_length,
     int dry_penalty_last_n,
+    float top_n_sigma,
     String[] dry_sequence_breakers,
     PartialCompletionCallback partial_completion_callback
   );
@@ -503,5 +574,6 @@ public class LlamaContext {
   protected static native void removeLoraAdapters(long contextPtr);
   protected static native WritableArray getLoadedLoraAdapters(long contextPtr);
   protected static native void freeContext(long contextPtr);
-  protected static native void logToAndroid();
+  protected static native void setupLog(NativeLogCallback logCallback);
+  protected static native void unsetLog();
 }

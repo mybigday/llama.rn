@@ -91,6 +91,13 @@ cp ./llama.cpp/common/common.h ./cpp/common.h
 cp ./llama.cpp/common/common.cpp ./cpp/common.cpp
 cp ./llama.cpp/common/sampling.h ./cpp/sampling.h
 cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
+cp ./llama.cpp/common/chat-template.hpp ./cpp/chat-template.hpp
+cp ./llama.cpp/common/chat.hpp ./cpp/chat.hpp
+cp ./llama.cpp/common/chat.cpp ./cpp/chat.cpp
+cp ./llama.cpp/common/json-schema-to-grammar.h ./cpp/json-schema-to-grammar.h
+cp ./llama.cpp/common/json-schema-to-grammar.cpp ./cpp/json-schema-to-grammar.cpp
+cp ./llama.cpp/common/minja.hpp ./cpp/minja.hpp
+cp ./llama.cpp/common/json.hpp ./cpp/json.hpp
 
 # List of files to process
 files_add_lm_prefix=(
@@ -133,6 +140,7 @@ files_add_lm_prefix=(
   "./cpp/sgemm.cpp"
   "./cpp/common.h"
   "./cpp/common.cpp"
+  "./cpp/json-schema-to-grammar.h"
   "./cpp/ggml-common.h"
   "./cpp/ggml.h"
   "./cpp/ggml.c"
@@ -217,22 +225,30 @@ echo "Replacement completed successfully!"
 yarn example
 
 # Apply patch
-patch -p0 -d ./cpp < ./scripts/common.h.patch
-patch -p0 -d ./cpp < ./scripts/common.cpp.patch
-patch -p0 -d ./cpp < ./scripts/log.cpp.patch
-patch -p0 -d ./cpp < ./scripts/ggml-metal.m.patch
-patch -p0 -d ./cpp < ./scripts/ggml-backend-reg.cpp.patch
-patch -p0 -d ./cpp < ./scripts/ggml.c.patch
-patch -p0 -d ./cpp < ./scripts/ggml-quants.c.patch
-patch -p0 -d ./cpp < ./scripts/llama-mmap.cpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/common.h.patch
+patch -p0 -d ./cpp < ./scripts/patches/common.cpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/log.cpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/ggml-metal.m.patch
+patch -p0 -d ./cpp < ./scripts/patches/ggml.c.patch
+patch -p0 -d ./cpp < ./scripts/patches/ggml-quants.c.patch
+patch -p0 -d ./cpp < ./scripts/patches/llama-mmap.cpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/chat-template.hpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/chat.hpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/minja.hpp.patch
+rm -rf ./cpp/*.orig
 
 if [ "$OS" = "Darwin" ]; then
   # Build metallib (~2.6MB)
   cd llama.cpp/ggml/src/ggml-metal
-  xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air
+  xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_USE_BF16=1
   xcrun --sdk iphoneos metallib ggml-metal.air   -o ggml-llama.metallib
   rm ggml-metal.air
   mv ./ggml-llama.metallib ../../../../cpp/ggml-llama.metallib
+
+  xcrun --sdk iphonesimulator metal -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_USE_BF16=1
+  xcrun --sdk iphonesimulator metallib ggml-metal.air   -o ggml-llama.metallib
+  rm ggml-metal.air
+  mv ./ggml-llama.metallib ../../../../cpp/ggml-llama-sim.metallib
 
   cd -
 

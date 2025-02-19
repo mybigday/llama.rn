@@ -19,6 +19,15 @@ if ! command -v cmake &> /dev/null; then
   exit 1
 fi
 
+n_cpu=1
+if uname -a | grep -q "Darwin"; then
+  n_cpu=$(sysctl -n hw.logicalcpu)
+elif uname -a | grep -q "Linux"; then
+  n_cpu=$(nproc)
+fi
+
+t0=$(date +%s)
+
 cd android/src/main
 
 # Build the Android library (arm64-v8a)
@@ -28,7 +37,7 @@ cmake -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
   -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE \
   -B build-arm64
 
-cmake --build build-arm64 --config Release
+cmake --build build-arm64 --config Release -j $n_cpu
 
 mkdir -p jniLibs/arm64-v8a
 
@@ -44,7 +53,7 @@ cmake -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
   -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE \
   -B build-x86_64
 
-cmake --build build-x86_64 --config Release
+cmake --build build-x86_64 --config Release -j $n_cpu
 
 mkdir -p jniLibs/x86_64
 
@@ -52,3 +61,6 @@ mkdir -p jniLibs/x86_64
 cp build-x86_64/*.so jniLibs/x86_64/
 
 rm -rf build-x86_64
+
+t1=$(date +%s)
+echo "Total time: $((t1 - t0)) seconds"

@@ -1,0 +1,11 @@
+--- minja.hpp.orig	2025-01-25 18:29:13
++++ minja.hpp	2025-01-25 18:29:25
+@@ -16,7 +16,7 @@
+ #include <stdexcept>
+ #include <sstream>
+ #include <unordered_set>
+-#include <json.hpp>
++#include "json.hpp"
+ 
+ using json = nlohmann::ordered_json;
+ 

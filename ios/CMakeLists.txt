@@ -15,6 +15,7 @@ add_definitions(
     -DLM_GGML_USE_CPU
     -DLM_GGML_USE_ACCELERATE
     -DLM_GGML_USE_METAL
+    -DLM_GGML_METAL_USE_BF16
 )
 
 set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
@@ -66,6 +67,11 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/unicode.cpp
     ${SOURCE_DIR}/sgemm.cpp
     ${SOURCE_DIR}/common.cpp
+    ${SOURCE_DIR}/chat.cpp
+    ${SOURCE_DIR}/chat-template.hpp
+    ${SOURCE_DIR}/json-schema-to-grammar.cpp
+    ${SOURCE_DIR}/minja.hpp
+    ${SOURCE_DIR}/json.hpp
     ${SOURCE_DIR}/amx/amx.cpp
     ${SOURCE_DIR}/amx/mmq.cpp
     ${SOURCE_DIR}/rn-llama.cpp

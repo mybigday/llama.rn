@@ -16,6 +16,12 @@ jobject getMap(JNIEnv *env, jobject readableArray, int index) {
     return env->CallObjectMethod(readableArray, getMapMethod, index);
 }
 
+jstring getString(JNIEnv *env, jobject readableArray, int index) {
+    jclass arrayClass = env->GetObjectClass(readableArray);
+    jmethodID getStringMethod = env->GetMethodID(arrayClass, "getString", "(I)Ljava/lang/String;");
+    return (jstring) env->CallObjectMethod(readableArray, getStringMethod, index);
+}
+
 // Other methods not used yet
 
 }

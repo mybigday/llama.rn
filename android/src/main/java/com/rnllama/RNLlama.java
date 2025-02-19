@@ -35,6 +35,32 @@ public class RNLlama implements LifecycleEventListener {
 
   private HashMap<Integer, LlamaContext> contexts = new HashMap<>();
 
+  public void toggleNativeLog(boolean enabled, Promise promise) {
+    new AsyncTask<Void, Void, Boolean>() {
+      private Exception exception;
+
+      @Override
+      protected Boolean doInBackground(Void... voids) {
+        try {
+          LlamaContext.toggleNativeLog(reactContext, enabled);
+          return true;
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(Boolean result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+  }
+
   private int llamaContextLimit = -1;
 
   public void setContextLimit(double limit, Promise promise) {
@@ -116,17 +142,24 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "initContext");
   }
 
-  public void getFormattedChat(double id, final ReadableArray messages, final String chatTemplate, Promise promise) {
+  public void getFormattedChat(double id, final String messages, final String chatTemplate, final ReadableMap params, Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, String>() {
+    AsyncTask task = new AsyncTask<Void, Void, Object>() {
       private Exception exception;
 
       @Override
-      protected String doInBackground(Void... voids) {
+      protected Object doInBackground(Void... voids) {
         try {
           LlamaContext context = contexts.get(contextId);
           if (context == null) {
             throw new Exception("Context not found");
+          }
+          if (params.hasKey("jinja") && params.getBoolean("jinja")) {
+            ReadableMap result = context.getFormattedChatWithJinja(messages, chatTemplate, params);
+            if (result.hasKey("_error")) {
+              throw new Exception(result.getString("_error"));
+            }
+            return result;
           }
           return context.getFormattedChat(messages, chatTemplate);
         } catch (Exception e) {
@@ -136,7 +169,7 @@ public class RNLlama implements LifecycleEventListener {
       }
 
       @Override
-      protected void onPostExecute(String result) {
+      protected void onPostExecute(Object result) {
         if (exception != null) {
           promise.reject(exception);
           return;

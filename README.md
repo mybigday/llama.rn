@@ -58,7 +58,7 @@ const context = await initLlama({
   model: modelPath,
   use_mlock: true,
   n_ctx: 2048,
-  n_gpu_layers: 1, // > 0: enable Metal on iOS
+  n_gpu_layers: 99, // number of layers to store in VRAM (Currently only for iOS)
   // embedding: true, // use embedding
 })
 
@@ -122,6 +122,63 @@ Please visit the [Documentation](docs/API) for more details.
 
 You can also visit the [example](example) to see how to use it.
 
+## Tool Calling
+
+`llama.rn` has universal tool call support by using [minja](https://github.com/google/minja) (as Jinja template parser) and [chat.cpp](https://github.com/ggerganov/llama.cpp/blob/master/common/chat.cpp) in llama.cpp.
+
+Example:
+
+```js
+import { initLlama } from 'llama.rn'
+
+const context = await initLlama({
+  // ...params
+})
+
+const { text, tool_calls } = await context.completion({
+  // ...params
+  jinja: true, // Enable Jinja template parser
+  tool_choice: 'auto',
+  tools: [
+    {
+      type: 'function',
+      function: {
+        name: 'ipython',
+        description:
+          'Runs code in an ipython interpreter and returns the result of the execution after 60 seconds.',
+        parameters: {
+          type: 'object',
+          properties: {
+            code: {
+              type: 'string',
+              description: 'The code to run in the ipython interpreter.',
+            },
+          },
+          required: ['code'],
+        },
+      },
+    },
+  ],
+  messages: [
+    {
+      role: 'system',
+      content: 'You are a helpful assistant that can answer questions and help with tasks.',
+    },
+    {
+      role: 'user',
+      content: 'Test',
+    },
+  ],
+})
+console.log('Result:', text)
+// If tool_calls is not empty, it means the model has called the tool
+if (tool_calls) console.log('Tool Calls:', tool_calls)
+```
+
+You can check [chat.cpp](https://github.com/ggerganov/llama.cpp/blob/6eecde3cc8fda44da7794042e3668de4af3c32c6/common/chat.cpp#L7-L23) for models has native tool calling support, or it will fallback to `GENERIC` type tool call.
+
+The generic tool call will be always JSON object as output, the output will be like `{"response": "..."}` when it not decided to use tool call.
+
 ## Grammar Sampling
 
 GBNF (GGML BNF) is a format for defining [formal grammars](https://en.wikipedia.org/wiki/Formal_grammar) to constrain model outputs in `llama.cpp`. For example, you can use it to force the model to generate valid JSON, or speak only in emojis.
@@ -130,140 +187,62 @@ You can see [GBNF Guide](https://github.com/ggerganov/llama.cpp/tree/master/gram
 
 `llama.rn` provided a built-in function to convert JSON Schema to GBNF:
 
-```js
-import { initLlama, convertJsonSchemaToGrammar } from 'llama.rn'
+Example gbnf grammar:
+```bnf
+root   ::= object
+value  ::= object | array | string | number | ("true" | "false" | "null") ws
 
-const schema = {
-  /* JSON Schema, see below */
-}
+object ::=
+  "{" ws (
+            string ":" ws value
+    ("," ws string ":" ws value)*
+  )? "}" ws
+
+array  ::=
+  "[" ws (
+            value
+    ("," ws value)*
+  )? "]" ws
+
+string ::=
+  "\"" (
+    [^"\\\x7F\x00-\x1F] |
+    "\\" (["\\bfnrt] | "u" [0-9a-fA-F]{4}) # escapes
+  )* "\"" ws
+
+number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1-9]{0,15})? ws
+
+# Optional space: by convention, applied in this grammar after literal chars when allowed
+ws ::= | " " | "\n" [ \t]{0,20}
+```
+
+```js
+import { initLlama } from 'llama.rn'
+
+const gbnf = '...'
 
 const context = await initLlama({
-  model: 'file://<path to gguf model>',
-  use_mlock: true,
-  n_ctx: 2048,
-  n_gpu_layers: 1, // > 0: enable Metal on iOS
-  // embedding: true, // use embedding
-  grammar: convertJsonSchemaToGrammar({
-    schema,
-    propOrder: { function: 0, arguments: 1 },
-  }),
+  // ...params
+  grammar: gbnf,
 })
 
 const { text } = await context.completion({
-  prompt: 'Schedule a birthday party on Aug 14th 2023 at 8pm.',
-})
-console.log('Result:', text)
-// Example output:
-// {"function": "create_event","arguments":{"date": "Aug 14th 2023", "time": "8pm", "title": "Birthday Party"}}
-```
-
-<details>
-<summary>JSON Schema example (Define function get_current_weather / create_event / image_search)</summary>
-
-```json5
-{
-  oneOf: [
+  // ...params
+  messages: [
     {
-      type: 'object',
-      name: 'get_current_weather',
-      description: 'Get the current weather in a given location',
-      properties: {
-        function: {
-          const: 'get_current_weather',
-        },
-        arguments: {
-          type: 'object',
-          properties: {
-            location: {
-              type: 'string',
-              description: 'The city and state, e.g. San Francisco, CA',
-            },
-            unit: {
-              type: 'string',
-              enum: ['celsius', 'fahrenheit'],
-            },
-          },
-          required: ['location'],
-        },
-      },
+      role: 'system',
+      content: 'You are a helpful assistant that can answer questions and help with tasks.',
     },
     {
-      type: 'object',
-      name: 'create_event',
-      description: 'Create a calendar event',
-      properties: {
-        function: {
-          const: 'create_event',
-        },
-        arguments: {
-          type: 'object',
-          properties: {
-            title: {
-              type: 'string',
-              description: 'The title of the event',
-            },
-            date: {
-              type: 'string',
-              description: 'The date of the event',
-            },
-            time: {
-              type: 'string',
-              description: 'The time of the event',
-            },
-          },
-          required: ['title', 'date', 'time'],
-        },
-      },
-    },
-    {
-      type: 'object',
-      name: 'image_search',
-      description: 'Search for an image',
-      properties: {
-        function: {
-          const: 'image_search',
-        },
-        arguments: {
-          type: 'object',
-          properties: {
-            query: {
-              type: 'string',
-              description: 'The search query',
-            },
-          },
-          required: ['query'],
-        },
-      },
+      role: 'user',
+      content: 'Test',
     },
   ],
-}
+})
+console.log('Result:', text)
 ```
 
-</details>
-
-<details>
-<summary>Converted GBNF looks like</summary>
-
-```bnf
-space ::= " "?
-0-function ::= "\"get_current_weather\""
-string ::=  "\"" (
-        [^"\\] |
-        "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
-      )* "\"" space
-0-arguments-unit ::= "\"celsius\"" | "\"fahrenheit\""
-0-arguments ::= "{" space "\"location\"" space ":" space string "," space "\"unit\"" space ":" space 0-arguments-unit "}" space
-0 ::= "{" space "\"function\"" space ":" space 0-function "," space "\"arguments\"" space ":" space 0-arguments "}" space
-1-function ::= "\"create_event\""
-1-arguments ::= "{" space "\"date\"" space ":" space string "," space "\"time\"" space ":" space string "," space "\"title\"" space ":" space string "}" space
-1 ::= "{" space "\"function\"" space ":" space 1-function "," space "\"arguments\"" space ":" space 1-arguments "}" space
-2-function ::= "\"image_search\""
-2-arguments ::= "{" space "\"query\"" space ":" space string "}" space
-2 ::= "{" space "\"function\"" space ":" space 2-function "," space "\"arguments\"" space ":" space 2-arguments "}" space
-root ::= 0 | 1 | 2
-```
-
-</details>
+Also, this is how `json_schema` works in `response_format` during completion, it converts the json_schema to gbnf grammar.
 
 ## Mock `llama.rn`
 

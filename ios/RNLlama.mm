@@ -13,6 +13,16 @@ dispatch_queue_t llamaDQueue;
 
 RCT_EXPORT_MODULE()
 
+RCT_EXPORT_METHOD(toggleNativeLog:(BOOL)enabled) {
+    void (^onEmitLog)(NSString *level, NSString *text) = nil;
+    if (enabled) {
+        onEmitLog = ^(NSString *level, NSString *text) {
+            [self sendEventWithName:@"@RNLlama_onNativeLog" body:@{ @"level": level, @"text": text }];
+        };
+    }
+    [RNLlamaContext toggleNativeLog:enabled onEmitLog:onEmitLog];
+}
+
 RCT_EXPORT_METHOD(setContextLimit:(double)limit
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
@@ -41,7 +51,7 @@ RCT_EXPORT_METHOD(initContext:(double)contextId
     }
 
     if (llamaDQueue == nil) {
-      llamaDQueue = dispatch_queue_create("com.rnllama", DISPATCH_QUEUE_SERIAL);
+        llamaDQueue = dispatch_queue_create("com.rnllama", DISPATCH_QUEUE_SERIAL);
     }
 
     if (llamaContexts == nil) {
@@ -77,8 +87,9 @@ RCT_EXPORT_METHOD(initContext:(double)contextId
 }
 
 RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
-                 withMessages:(NSArray *)messages
+                 withMessages:(NSString *)messages
                  withTemplate:(NSString *)chatTemplate
+                 withParams:(NSDictionary *)params
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -87,7 +98,19 @@ RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
         reject(@"llama_error", @"Context not found", nil);
         return;
     }
-    resolve([context getFormattedChat:messages withTemplate:chatTemplate]);
+    try {
+        if ([params[@"jinja"] boolValue]) {
+            NSString *jsonSchema = params[@"json_schema"];
+            NSString *tools = params[@"tools"];
+            NSString *parallelToolCalls = params[@"parallel_tool_calls"];
+            NSString *toolChoice = params[@"tool_choice"];\
+            resolve([context getFormattedChatWithJinja:messages withChatTemplate:chatTemplate withJsonSchema:jsonSchema withTools:tools withParallelToolCalls:parallelToolCalls withToolChoice:toolChoice]);
+        } else {
+            resolve([context getFormattedChat:messages withChatTemplate:chatTemplate]);
+        }
+    } catch (const std::exception& e) { // catch cpp exceptions
+        reject(@"llama_error", [NSString stringWithUTF8String:e.what()], nil);
+    }
 }
 
 RCT_EXPORT_METHOD(loadSession:(double)contextId
@@ -146,6 +169,7 @@ RCT_EXPORT_METHOD(saveSession:(double)contextId
   return@[
     @"@RNLlama_onInitContextProgress",
     @"@RNLlama_onToken",
+    @"@RNLlama_onNativeLog",
   ];
 }
 

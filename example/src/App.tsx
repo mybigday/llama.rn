@@ -12,12 +12,52 @@ import type { LlamaContext } from 'llama.rn'
 import {
   initLlama,
   loadLlamaModelInfo,
-  convertJsonSchemaToGrammar,
+  toggleNativeLog,
+  addNativeLogListener,
   // eslint-disable-next-line import/no-unresolved
 } from 'llama.rn'
 import { Bubble } from './Bubble'
 
+// Example: Catch logs from llama.cpp
+toggleNativeLog(true)
+addNativeLogListener((level, text) => {
+  // eslint-disable-next-line prefer-const
+  let log = (t: string) => t // noop
+  // Uncomment to test:
+  // ({log} = console)
+  log(
+    ['[rnllama]', level ? `[${level}]` : '', text].filter(Boolean).join(' '),
+  )
+})
+
 const { dirs } = ReactNativeBlobUtil.fs
+
+// Example grammar for output JSON
+const testGbnf = `root   ::= object
+value  ::= object | array | string | number | ("true" | "false" | "null") ws
+
+object ::=
+  "{" ws (
+            string ":" ws value
+    ("," ws string ":" ws value)*
+  )? "}" ws
+
+array  ::=
+  "[" ws (
+            value
+    ("," ws value)*
+  )? "]" ws
+
+string ::=
+  "\\"" (
+    [^"\\\\\\x7F\\x00-\\x1F] |
+    "\\\\" (["\\\\bfnrt] | "u" [0-9a-fA-F]{4}) # escapes
+  )* "\\"" ws
+
+number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1-9]{0,15})? ws
+
+# Optional space: by convention, applied in this grammar after literal chars when allowed
+ws ::= | " " | "\\n" [ \\t]{0,20}`
 
 const randId = () => Math.random().toString(36).substr(2, 9)
 
@@ -105,10 +145,14 @@ export default function App() {
       {
         model: file.uri,
         use_mlock: true,
-        n_gpu_layers: Platform.OS === 'ios' ? 99 : 0, // > 0: enable GPU
-
-        // embedding: true,
         lora_list: loraFile ? [{ path: loraFile.uri, scaled: 1.0 }] : undefined, // Or lora: loraFile?.uri,
+
+        // If use deepseek r1 distill
+        reasoning_format: 'deepseek',
+
+        // Currently only for iOS
+        n_gpu_layers: Platform.OS === 'ios' ? 99 : 0,
+        // no_gpu_devices: true, // (iOS only)
       },
       (progress) => {
         setMessages((msgs) => {
@@ -135,7 +179,7 @@ export default function App() {
           `Context initialized!\n\nLoad time: ${t1 - t0}ms\nGPU: ${
             ctx.gpu ? 'YES' : 'NO'
           } (${ctx.reasonNoGPU})\nChat Template: ${
-            ctx.model.isChatTemplateSupported ? 'YES' : 'NO'
+            ctx.model.chatTemplates.llamaChat ? 'YES' : 'NO'
           }\n\n` +
             'You can use the following commands:\n\n' +
             '- /info: to get the model info\n' +
@@ -288,8 +332,7 @@ export default function App() {
         case '/lora':
           pickLora()
             .then((loraFile) => {
-              if (loraFile)
-                context.applyLoraAdapters([{ path: loraFile.uri }])
+              if (loraFile) context.applyLoraAdapters([{ path: loraFile.uri }])
             })
             .then(() => context.getLoadedLoraAdapters())
             .then((loraList) =>
@@ -349,23 +392,113 @@ export default function App() {
     ]
     addMessage(textMessage)
     setInferencing(true)
+
+    let responseFormat
+    {
+      // Test JSON Schema
+      responseFormat = {
+        type: 'json_schema',
+        json_schema: {
+          schema: {
+            oneOf: [
+              {
+                type: 'object',
+                properties: {
+                  function: { const: 'create_event' },
+                  arguments: {
+                    type: 'object',
+                    properties: {
+                      title: { type: 'string' },
+                      date: { type: 'string' },
+                      time: { type: 'string' },
+                    },
+                    required: ['title', 'date'],
+                  },
+                },
+                required: ['function', 'arguments'],
+              },
+              {
+                type: 'object',
+                properties: {
+                  function: { const: 'image_search' },
+                  arguments: {
+                    type: 'object',
+                    properties: {
+                      query: { type: 'string' },
+                    },
+                    required: ['query'],
+                  },
+                },
+                required: ['function', 'arguments'],
+              },
+            ],
+          },
+        },
+      }
+      // Comment to test:
+      responseFormat = undefined
+    }
+
+    let grammar
+    {
+      // Test grammar (It will override responseFormat)
+      grammar = testGbnf
+      // Comment to test:
+      grammar = undefined
+    }
+
+    let jinjaParams: any = {}
+    // Test jinja & tools
+    {
+      jinjaParams = {
+        jinja: true,
+        response_format: responseFormat,
+        tool_choice: 'auto',
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'ipython',
+              description:
+                'Runs code in an ipython interpreter and returns the result of the execution after 60 seconds.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  code: {
+                    type: 'string',
+                    description: 'The code to run in the ipython interpreter.',
+                  },
+                },
+                required: ['code'],
+              },
+            },
+          },
+        ],
+      }
+      // Comment to test:
+      jinjaParams = { jinja: true }
+    }
+
     // Test area
     {
       // Test tokenize
-      const formattedChat = (await context?.getFormattedChat(msgs)) || ''
+      const formatted =
+        (await context?.getFormattedChat(msgs, null, jinjaParams)) || ''
+      const prompt =
+        typeof formatted === 'string' ? formatted : formatted.prompt
       const t0 = Date.now()
-      const { tokens } = (await context?.tokenize(formattedChat)) || {}
+      const { tokens } = (await context?.tokenize(prompt)) || {}
       const t1 = Date.now()
       console.log(
         'Formatted:',
-        `"${formattedChat}"`,
+        formatted,
         '\nTokenize:',
         tokens,
         `(${tokens?.length} tokens, ${t1 - t0}ms})`,
       )
 
       // Test embedding
-      // await context?.embedding(formattedChat).then((result) => {
+      // await context?.embedding(prompt).then((result) => {
       //   console.log('Embedding:', result)
       // })
 
@@ -375,61 +508,16 @@ export default function App() {
       // })
     }
 
-    let grammar
-    {
-      // Test JSON Schema -> grammar
-      const schema = {
-        oneOf: [
-          {
-            type: 'object',
-            properties: {
-              function: { const: 'create_event' },
-              arguments: {
-                type: 'object',
-                properties: {
-                  title: { type: 'string' },
-                  date: { type: 'string' },
-                  time: { type: 'string' },
-                },
-                required: ['title', 'date'],
-              },
-            },
-            required: ['function', 'arguments'],
-          },
-          {
-            type: 'object',
-            properties: {
-              function: { const: 'image_search' },
-              arguments: {
-                type: 'object',
-                properties: {
-                  query: { type: 'string' },
-                },
-                required: ['query'],
-              },
-            },
-            required: ['function', 'arguments'],
-          },
-        ],
-      }
-
-      const converted = convertJsonSchemaToGrammar({
-        schema,
-        propOrder: { function: 0, arguments: 1 },
-      })
-      // @ts-ignore
-      if (false) console.log('Converted grammar:', converted)
-      grammar = undefined
-      // Uncomment to test:
-      // grammar = converted
-    }
-
     context
       ?.completion(
         {
           messages: msgs,
-          n_predict: 100,
+          n_predict: 2048,
+
+          response_format: responseFormat,
           grammar,
+          ...jinjaParams,
+
           seed: -1,
           n_probs: 0,
 
@@ -466,6 +554,7 @@ export default function App() {
             '<|endoftext|>',
             '<end_of_turn>',
             '<eos>',
+            '<｜end▁of▁sentence｜>',
           ],
           // n_threads: 4,
           // logit_bias: [[15043,1.0]],

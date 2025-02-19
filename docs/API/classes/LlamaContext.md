@@ -24,6 +24,8 @@
 - [embedding](LlamaContext.md#embedding)
 - [getFormattedChat](LlamaContext.md#getformattedchat)
 - [getLoadedLoraAdapters](LlamaContext.md#getloadedloraadapters)
+- [isJinjaSupported](LlamaContext.md#isjinjasupported)
+- [isLlamaChatSupported](LlamaContext.md#isllamachatsupported)
 - [loadSession](LlamaContext.md#loadsession)
 - [release](LlamaContext.md#release)
 - [removeLoraAdapters](LlamaContext.md#removeloraadapters)
@@ -45,7 +47,7 @@
 
 #### Defined in
 
-[index.ts:124](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L124)
+[index.ts:167](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L167)
 
 ## Properties
 
@@ -55,7 +57,7 @@
 
 #### Defined in
 
-[index.ts:116](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L116)
+[index.ts:161](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L161)
 
 ___
 
@@ -65,23 +67,47 @@ ___
 
 #### Defined in
 
-[index.ts:114](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L114)
+[index.ts:159](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L159)
 
 ___
 
 ### model
 
-• **model**: `Object` = `{}`
+• **model**: `Object`
 
 #### Type declaration
 
 | Name | Type |
 | :------ | :------ |
-| `isChatTemplateSupported?` | `boolean` |
+| `chatTemplates` | { `llamaChat`: `boolean` ; `minja`: { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  }  }  } |
+| `chatTemplates.llamaChat` | `boolean` |
+| `chatTemplates.minja` | { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  }  } |
+| `chatTemplates.minja.default` | `boolean` |
+| `chatTemplates.minja.defaultCaps` | { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } |
+| `chatTemplates.minja.defaultCaps.parallelToolCalls` | `boolean` |
+| `chatTemplates.minja.defaultCaps.systemRole` | `boolean` |
+| `chatTemplates.minja.defaultCaps.toolCallId` | `boolean` |
+| `chatTemplates.minja.defaultCaps.toolCalls` | `boolean` |
+| `chatTemplates.minja.defaultCaps.toolResponses` | `boolean` |
+| `chatTemplates.minja.defaultCaps.tools` | `boolean` |
+| `chatTemplates.minja.toolUse` | `boolean` |
+| `chatTemplates.minja.toolUseCaps` | { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } |
+| `chatTemplates.minja.toolUseCaps.parallelToolCalls` | `boolean` |
+| `chatTemplates.minja.toolUseCaps.systemRole` | `boolean` |
+| `chatTemplates.minja.toolUseCaps.toolCallId` | `boolean` |
+| `chatTemplates.minja.toolUseCaps.toolCalls` | `boolean` |
+| `chatTemplates.minja.toolUseCaps.toolResponses` | `boolean` |
+| `chatTemplates.minja.toolUseCaps.tools` | `boolean` |
+| `desc` | `string` |
+| `isChatTemplateSupported` | `boolean` |
+| `metadata` | `Object` |
+| `nEmbd` | `number` |
+| `nParams` | `number` |
+| `size` | `number` |
 
 #### Defined in
 
-[index.ts:120](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L120)
+[index.ts:165](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L165)
 
 ___
 
@@ -91,7 +117,7 @@ ___
 
 #### Defined in
 
-[index.ts:118](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L118)
+[index.ts:163](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L163)
 
 ## Methods
 
@@ -111,7 +137,7 @@ ___
 
 #### Defined in
 
-[index.ts:239](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L239)
+[index.ts:341](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L341)
 
 ___
 
@@ -134,7 +160,7 @@ ___
 
 #### Defined in
 
-[index.ts:219](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L219)
+[index.ts:321](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L321)
 
 ___
 
@@ -155,7 +181,7 @@ ___
 
 #### Defined in
 
-[index.ts:160](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L160)
+[index.ts:229](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L229)
 
 ___
 
@@ -175,7 +201,7 @@ ___
 
 #### Defined in
 
-[index.ts:208](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L208)
+[index.ts:310](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L310)
 
 ___
 
@@ -196,28 +222,34 @@ ___
 
 #### Defined in
 
-[index.ts:212](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L212)
+[index.ts:314](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L314)
 
 ___
 
 ### getFormattedChat
 
-▸ **getFormattedChat**(`messages`, `template?`): `Promise`<`string`\>
+▸ **getFormattedChat**(`messages`, `template?`, `params?`): `Promise`<`string` \| [`JinjaFormattedChatResult`](../README.md#jinjaformattedchatresult)\>
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `messages` | [`RNLlamaOAICompatibleMessage`](../README.md#rnllamaoaicompatiblemessage)[] |
-| `template?` | `string` |
+| `template?` | ``null`` \| `string` |
+| `params?` | `Object` |
+| `params.jinja?` | `boolean` |
+| `params.parallel_tool_calls?` | `object` |
+| `params.response_format?` | [`CompletionResponseFormat`](../README.md#completionresponseformat) |
+| `params.tool_choice?` | `string` |
+| `params.tools?` | `object` |
 
 #### Returns
 
-`Promise`<`string`\>
+`Promise`<`string` \| [`JinjaFormattedChatResult`](../README.md#jinjaformattedchatresult)\>
 
 #### Defined in
 
-[index.ts:150](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L150)
+[index.ts:202](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L202)
 
 ___
 
@@ -231,7 +263,35 @@ ___
 
 #### Defined in
 
-[index.ts:255](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L255)
+[index.ts:357](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L357)
+
+___
+
+### isJinjaSupported
+
+▸ **isJinjaSupported**(): `boolean`
+
+#### Returns
+
+`boolean`
+
+#### Defined in
+
+[index.ts:197](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L197)
+
+___
+
+### isLlamaChatSupported
+
+▸ **isLlamaChatSupported**(): `boolean`
+
+#### Returns
+
+`boolean`
+
+#### Defined in
+
+[index.ts:193](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L193)
 
 ___
 
@@ -253,7 +313,7 @@ Load cached prompt & completion state from a file.
 
 #### Defined in
 
-[index.ts:134](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L134)
+[index.ts:177](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L177)
 
 ___
 
@@ -267,7 +327,7 @@ ___
 
 #### Defined in
 
-[index.ts:261](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L261)
+[index.ts:363](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L363)
 
 ___
 
@@ -281,7 +341,7 @@ ___
 
 #### Defined in
 
-[index.ts:251](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L251)
+[index.ts:353](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L353)
 
 ___
 
@@ -305,7 +365,7 @@ Save current cached prompt & completion state to a file.
 
 #### Defined in
 
-[index.ts:143](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L143)
+[index.ts:186](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L186)
 
 ___
 
@@ -319,7 +379,7 @@ ___
 
 #### Defined in
 
-[index.ts:200](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L200)
+[index.ts:302](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L302)
 
 ___
 
@@ -339,4 +399,4 @@ ___
 
 #### Defined in
 
-[index.ts:204](https://github.com/mybigday/llama.rn/blob/402a590/src/index.ts#L204)
+[index.ts:306](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L306)
