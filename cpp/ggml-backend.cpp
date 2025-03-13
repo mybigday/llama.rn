@@ -21,6 +21,7 @@
 #include <string.h>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #ifdef __APPLE__
 #include <sys/types.h>
@@ -126,11 +127,12 @@ void * lm_ggml_backend_buffer_get_base(lm_ggml_backend_buffer_t buffer) {
     return base;
 }
 
-void lm_ggml_backend_buffer_init_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor) {
+enum lm_ggml_status lm_ggml_backend_buffer_init_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor) {
     // init_tensor is optional
     if (buffer->iface.init_tensor) {
-        buffer->iface.init_tensor(buffer, tensor);
+        return buffer->iface.init_tensor(buffer, tensor);
     }
+    return LM_GGML_STATUS_SUCCESS;
 }
 
 void lm_ggml_backend_buffer_clear(lm_ggml_backend_buffer_t buffer, uint8_t value) {
@@ -1641,7 +1643,7 @@ lm_ggml_backend_t lm_ggml_backend_sched_get_tensor_backend(lm_ggml_backend_sched
 
 // utils
 
-void lm_ggml_backend_view_init(struct lm_ggml_tensor * tensor) {
+enum lm_ggml_status lm_ggml_backend_view_init(struct lm_ggml_tensor * tensor) {
     LM_GGML_ASSERT(tensor->buffer == NULL);
     LM_GGML_ASSERT(tensor->view_src != NULL);
     LM_GGML_ASSERT(tensor->view_src->buffer != NULL);
@@ -1649,10 +1651,10 @@ void lm_ggml_backend_view_init(struct lm_ggml_tensor * tensor) {
 
     tensor->buffer = tensor->view_src->buffer;
     tensor->data = (char *)tensor->view_src->data + tensor->view_offs;
-    lm_ggml_backend_buffer_init_tensor(tensor->buffer, tensor);
+    return lm_ggml_backend_buffer_init_tensor(tensor->buffer, tensor);
 }
 
-void lm_ggml_backend_tensor_alloc(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor, void * addr) {
+enum lm_ggml_status lm_ggml_backend_tensor_alloc(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor, void * addr) {
     LM_GGML_ASSERT(tensor->buffer == NULL);
     LM_GGML_ASSERT(tensor->data == NULL);
     LM_GGML_ASSERT(tensor->view_src == NULL);
@@ -1662,7 +1664,7 @@ void lm_ggml_backend_tensor_alloc(lm_ggml_backend_buffer_t buffer, struct lm_ggm
 
     tensor->buffer = buffer;
     tensor->data = addr;
-    lm_ggml_backend_buffer_init_tensor(buffer, tensor);
+    return lm_ggml_backend_buffer_init_tensor(buffer, tensor);
 }
 
 static struct lm_ggml_tensor * graph_copy_dup_tensor(struct lm_ggml_hash_set hash_set, struct lm_ggml_tensor ** node_copies,
@@ -1708,7 +1710,8 @@ static void graph_copy_init_tensor(struct lm_ggml_hash_set * hash_set, struct lm
     struct lm_ggml_tensor * dst = node_copies[id];
     if (dst->view_src != NULL) {
         graph_copy_init_tensor(hash_set, node_copies, node_init, src->view_src);
-        lm_ggml_backend_view_init(dst);
+        enum lm_ggml_status status = lm_ggml_backend_view_init(dst);
+        LM_GGML_ASSERT(status == LM_GGML_STATUS_SUCCESS);
     }
     else {
         lm_ggml_backend_tensor_copy(src, dst);
@@ -1823,7 +1826,6 @@ bool lm_ggml_backend_compare_graph_backend(lm_ggml_backend_t backend1, lm_ggml_b
     assert(g1->n_nodes == g2->n_nodes);
 
     for (int i = 0; i < g1->n_nodes; i++) {
-        //printf("eval %d/%d\n", i, g1->n_nodes);
         struct lm_ggml_tensor * t1 = g1->nodes[i];
         struct lm_ggml_tensor * t2 = g2->nodes[i];
 

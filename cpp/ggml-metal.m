@@ -46,6 +46,7 @@ static struct lm_ggml_backend_device g_lm_ggml_backend_metal_device;
 static struct lm_ggml_backend_metal_device_context {
     id<MTLDevice> mtl_device;
     int           mtl_device_ref_count;
+    id<MTLLibrary> mtl_library;
 
     bool has_simdgroup_reduction;
     bool has_simdgroup_mm;
@@ -57,6 +58,7 @@ static struct lm_ggml_backend_metal_device_context {
 } g_lm_ggml_ctx_dev_main = {
     /*.mtl_device              =*/ nil,
     /*.mtl_device_ref_count    =*/ 0,
+    /*.mtl_library             =*/ nil,
     /*.has_simdgroup_reduction =*/ false,
     /*.has_simdgroup_mm        =*/ false,
     /*.has_residency_sets      =*/ false,
@@ -108,6 +110,11 @@ static void lm_ggml_backend_metal_device_rel(struct lm_ggml_backend_metal_device
     ctx->mtl_device_ref_count--;
 
     if (ctx->mtl_device_ref_count == 0) {
+        if (ctx->mtl_library) {
+            [ctx->mtl_library release];
+            ctx->mtl_library = nil;
+        }
+
         if (ctx->mtl_device) {
             [ctx->mtl_device release];
             ctx->mtl_device = nil;
@@ -407,6 +414,16 @@ enum lm_ggml_metal_kernel_type {
     LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q5_0,
     LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q5_1,
     LM_GGML_METAL_KERNEL_TYPE_CPY_F32_IQ4_NL,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_Q4_0_F32,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_Q4_0_F16,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_Q4_1_F32,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_Q4_1_F16,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_Q5_0_F32,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_Q5_0_F16,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_Q5_1_F32,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_Q5_1_F16,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_Q8_0_F32,
+    LM_GGML_METAL_KERNEL_TYPE_CPY_Q8_0_F16,
     LM_GGML_METAL_KERNEL_TYPE_CONCAT,
     LM_GGML_METAL_KERNEL_TYPE_SQR,
     LM_GGML_METAL_KERNEL_TYPE_SQRT,
@@ -457,11 +474,13 @@ struct lm_ggml_backend_metal_context {
 //       for now it is easier to work in a separate file
 // static NSString * const msl_library_source = @"see metal.metal";
 
+#if !LM_GGML_METAL_EMBED_LIBRARY
 // Here to assist with NSBundle Path Hack
 @interface LMGGMLMetalClass : NSObject
 @end
 @implementation LMGGMLMetalClass
 @end
+#endif
 
 static void * lm_ggml_metal_host_malloc(size_t n) {
     void * data = NULL;
@@ -481,6 +500,143 @@ static void * lm_ggml_metal_host_malloc(size_t n) {
 #endif
 
     return data;
+}
+
+// load library
+//
+// - first check if the library is embedded
+// - then check if the library is in the bundle
+// - if not found, load the source and compile it
+// - if that fails, return NULL
+static id<MTLLibrary> lm_ggml_metal_load_library(id<MTLDevice> device, bool use_bfloat) {
+    id<MTLLibrary> metal_library = nil;
+    NSError * error = nil;
+    NSString * src = nil;
+
+#if LM_GGML_METAL_EMBED_LIBRARY
+    LM_GGML_LOG_INFO("%s: using embedded metal library\n", __func__);
+
+    extern const char lm_ggml_metallib_start[];
+    extern const char lm_ggml_metallib_end[];
+
+    src = [[NSString alloc] initWithBytes:lm_ggml_metallib_start length:(lm_ggml_metallib_end-lm_ggml_metallib_start) encoding:NSUTF8StringEncoding];
+
+#else
+
+#ifdef SWIFT_PACKAGE
+    NSBundle * bundle = SWIFTPM_MODULE_BUNDLE;
+#else
+    NSBundle * bundle = [NSBundle bundleForClass:[LMGGMLMetalClass class]];
+#endif
+
+#if TARGET_OS_SIMULATOR
+    NSString * path_lib = [bundle pathForResource:@"ggml-llama-sim" ofType:@"metallib"];
+#else
+    NSString * path_lib = [bundle pathForResource:@"ggml-llama" ofType:@"metallib"];
+#endif
+    if (path_lib == nil) {
+        // Try to find the resource in the directory where the current binary located.
+        NSString * current_binary = [[NSProcessInfo processInfo] arguments][0];
+        NSString * bin_dir = [current_binary stringByDeletingLastPathComponent];
+        NSString * default_metallib_path = [NSString pathWithComponents:@[bin_dir, @"default.metallib"]];
+        if ([[NSFileManager defaultManager] isReadableFileAtPath:default_metallib_path]) {
+            LM_GGML_LOG_INFO("%s: found '%s'\n", __func__, [default_metallib_path UTF8String]);
+            NSDictionary * atts = [[NSFileManager defaultManager] attributesOfItemAtPath:default_metallib_path error:&error];
+            if (atts && atts[NSFileType] == NSFileTypeSymbolicLink) {
+                // Optionally, if this is a symlink, try to resolve it.
+                default_metallib_path = [[NSFileManager defaultManager] destinationOfSymbolicLinkAtPath:default_metallib_path error:&error];
+                if (default_metallib_path && [default_metallib_path length] > 0 && ![[default_metallib_path substringToIndex:1] isEqualToString:@"/"]) {
+                    // It is a relative path, adding the binary directory as directory prefix.
+                    default_metallib_path = [NSString pathWithComponents:@[bin_dir, default_metallib_path]];
+                }
+                if (!default_metallib_path || ![[NSFileManager defaultManager] isReadableFileAtPath:default_metallib_path]) {
+                    // Link to the resource could not be resolved.
+                    default_metallib_path = nil;
+                } else {
+                    LM_GGML_LOG_INFO("%s: symlink resolved '%s'\n", __func__, [default_metallib_path UTF8String]);
+                }
+            }
+        } else {
+            // The resource couldn't be found in the binary's directory.
+            default_metallib_path = nil;
+        }
+        path_lib = default_metallib_path;
+    }
+
+    if (path_lib != nil) {
+        // pre-compiled library found
+        NSURL * libURL = [NSURL fileURLWithPath:path_lib];
+        LM_GGML_LOG_INFO("%s: loading '%s'\n", __func__, [path_lib UTF8String]);
+
+        metal_library = [device newLibraryWithURL:libURL error:&error];
+        if (error) {
+            LM_GGML_LOG_ERROR("%s: error: %s\n", __func__, [[error description] UTF8String]);
+            return NULL;
+        }
+    } else {
+        LM_GGML_LOG_INFO("%s: default.metallib not found, loading from source\n", __func__);
+
+        NSString * path_source;
+        NSString * path_resource = [[NSProcessInfo processInfo].environment objectForKey:@"LM_GGML_METAL_PATH_RESOURCES"];
+
+        LM_GGML_LOG_INFO("%s: LM_GGML_METAL_PATH_RESOURCES = %s\n", __func__, path_resource ? [path_resource UTF8String] : "nil");
+
+        if (path_resource) {
+            path_source = [path_resource stringByAppendingPathComponent:@"ggml-metal.metal"];
+        } else {
+            path_source = [bundle pathForResource:@"ggml-metal" ofType:@"metal"];
+        }
+
+        if (path_source == nil) {
+            LM_GGML_LOG_WARN("%s: error: could not use bundle path to find ggml-metal.metal, falling back to trying cwd\n", __func__);
+            path_source = @"ggml-metal.metal";
+        }
+
+        LM_GGML_LOG_INFO("%s: loading '%s'\n", __func__, [path_source UTF8String]);
+
+        src = [NSString stringWithContentsOfFile:path_source encoding:NSUTF8StringEncoding error:&error];
+        if (error) {
+            LM_GGML_LOG_ERROR("%s: error: %s\n", __func__, [[error description] UTF8String]);
+            return NULL;
+        }
+    }
+#endif
+
+    if (!metal_library) {
+        @autoreleasepool {
+            // dictionary of preprocessor macros
+            NSMutableDictionary * prep = [NSMutableDictionary dictionary];
+
+            if (use_bfloat) {
+                [prep setObject:@"1" forKey:@"LM_GGML_METAL_USE_BF16"];
+            }
+
+#if LM_GGML_METAL_EMBED_LIBRARY
+            [prep setObject:@"1" forKey:@"LM_GGML_METAL_EMBED_LIBRARY"];
+#endif
+
+            MTLCompileOptions * options = [MTLCompileOptions new];
+            options.preprocessorMacros = prep;
+
+            //[options setFastMathEnabled:false];
+
+            metal_library = [device newLibraryWithSource:src options:options error:&error];
+            if (error) {
+                LM_GGML_LOG_ERROR("%s: error: %s\n", __func__, [[error description] UTF8String]);
+                return NULL;
+            }
+
+#if !__has_feature(objc_arc)
+            [options release];
+#endif
+        }
+    }
+
+#if LM_GGML_METAL_EMBED_LIBRARY
+    [src release];
+#endif // LM_GGML_METAL_EMBED_LIBRARY
+
+    return metal_library;
 }
 
 static struct lm_ggml_backend_metal_context * lm_ggml_metal_init(lm_ggml_backend_dev_t dev) {
@@ -510,141 +666,14 @@ static struct lm_ggml_backend_metal_context * lm_ggml_metal_init(lm_ggml_backend
 
     ctx->d_queue = dispatch_queue_create("ggml-metal", DISPATCH_QUEUE_CONCURRENT);
 
-    id<MTLLibrary> metal_library;
-
     // load library
-    //
-    // - first check if the library is embedded
-    // - then check if the library is in the bundle
-    // - if not found, load the source and compile it
-    // - if that fails, return NULL
-    {
-        NSBundle * bundle = nil;
-#ifdef SWIFT_PACKAGE
-        bundle = SWIFTPM_MODULE_BUNDLE;
-#else
-        bundle = [NSBundle bundleForClass:[LMGGMLMetalClass class]];
-#endif
-
-        NSError * error = nil;
-
-#if LM_GGML_METAL_EMBED_LIBRARY
-        const bool try_metallib = false;
-#else
-        const bool try_metallib = true;
-#endif
-
-#if TARGET_OS_SIMULATOR
-        NSString * path_lib = [bundle pathForResource:@"ggml-llama-sim" ofType:@"metallib"];
-#else
-        NSString * path_lib = [bundle pathForResource:@"ggml-llama" ofType:@"metallib"];
-#endif
-        if (path_lib == nil) {
-            // Try to find the resource in the directory where the current binary located.
-            NSString * current_binary = [[NSProcessInfo processInfo] arguments][0];
-            NSString * bin_dir = [current_binary stringByDeletingLastPathComponent];
-            NSString * default_metallib_path = [NSString pathWithComponents:@[bin_dir, @"default.metallib"]];
-            if ([[NSFileManager defaultManager] isReadableFileAtPath:default_metallib_path]) {
-                LM_GGML_LOG_INFO("%s: found '%s'\n", __func__, [default_metallib_path UTF8String]);
-                NSDictionary * atts = [[NSFileManager defaultManager] attributesOfItemAtPath:default_metallib_path error:&error];
-                if (atts && atts[NSFileType] == NSFileTypeSymbolicLink) {
-                    // Optionally, if this is a symlink, try to resolve it.
-                    default_metallib_path = [[NSFileManager defaultManager] destinationOfSymbolicLinkAtPath:default_metallib_path error:&error];
-                    if (default_metallib_path && [default_metallib_path length] > 0 && ![[default_metallib_path substringToIndex:1] isEqualToString:@"/"]) {
-                        // It is a relative path, adding the binary directory as directory prefix.
-                        default_metallib_path = [NSString pathWithComponents:@[bin_dir, default_metallib_path]];
-                    }
-                    if (!default_metallib_path || ![[NSFileManager defaultManager] isReadableFileAtPath:default_metallib_path]) {
-                        // Link to the resource could not be resolved.
-                        default_metallib_path = nil;
-                    } else {
-                        LM_GGML_LOG_INFO("%s: symlink resolved '%s'\n", __func__, [default_metallib_path UTF8String]);
-                    }
-                }
-            } else {
-                // The resource couldn't be found in the binary's directory.
-                default_metallib_path = nil;
-            }
-            path_lib = default_metallib_path;
-        }
-
-        if (try_metallib && path_lib != nil) {
-            // pre-compiled library found
-            NSURL * libURL = [NSURL fileURLWithPath:path_lib];
-            LM_GGML_LOG_INFO("%s: loading '%s'\n", __func__, [path_lib UTF8String]);
-
-            metal_library = [device newLibraryWithURL:libURL error:&error];
-            if (error) {
-                LM_GGML_LOG_ERROR("%s: error: %s\n", __func__, [[error description] UTF8String]);
-                return NULL;
-            }
-        } else {
-#if LM_GGML_METAL_EMBED_LIBRARY
-            LM_GGML_LOG_INFO("%s: using embedded metal library\n", __func__);
-
-            extern const char lm_ggml_metallib_start[];
-            extern const char lm_ggml_metallib_end[];
-
-            NSString * src = [[NSString alloc] initWithBytes:lm_ggml_metallib_start length:(lm_ggml_metallib_end-lm_ggml_metallib_start) encoding:NSUTF8StringEncoding];
-#else
-            LM_GGML_LOG_INFO("%s: default.metallib not found, loading from source\n", __func__);
-
-            NSString * path_source;
-            NSString * path_resource = [[NSProcessInfo processInfo].environment objectForKey:@"LM_GGML_METAL_PATH_RESOURCES"];
-
-            LM_GGML_LOG_INFO("%s: LM_GGML_METAL_PATH_RESOURCES = %s\n", __func__, path_resource ? [path_resource UTF8String] : "nil");
-
-            if (path_resource) {
-                path_source = [path_resource stringByAppendingPathComponent:@"ggml-metal.metal"];
-            } else {
-                path_source = [bundle pathForResource:@"ggml-metal" ofType:@"metal"];
-            }
-
-            if (path_source == nil) {
-                LM_GGML_LOG_WARN("%s: error: could not use bundle path to find ggml-metal.metal, falling back to trying cwd\n", __func__);
-                path_source = @"ggml-metal.metal";
-            }
-
-            LM_GGML_LOG_INFO("%s: loading '%s'\n", __func__, [path_source UTF8String]);
-
-            NSString * src = [NSString stringWithContentsOfFile:path_source encoding:NSUTF8StringEncoding error:&error];
-            if (error) {
-                LM_GGML_LOG_ERROR("%s: error: %s\n", __func__, [[error description] UTF8String]);
-                return NULL;
-            }
-#endif // LM_GGML_METAL_EMBED_LIBRARY
-
-            @autoreleasepool {
-                // dictionary of preprocessor macros
-                NSMutableDictionary * prep = [NSMutableDictionary dictionary];
-
-                if (ctx_dev->use_bfloat) {
-                    [prep setObject:@"1" forKey:@"LM_GGML_METAL_USE_BF16"];
-                }
-
-#if LM_GGML_METAL_EMBED_LIBRARY
-                [prep setObject:@"1" forKey:@"LM_GGML_METAL_EMBED_LIBRARY"];
-#endif
-
-                MTLCompileOptions * options = [MTLCompileOptions new];
-                options.preprocessorMacros = prep;
-
-                //[options setFastMathEnabled:false];
-
-                metal_library = [device newLibraryWithSource:src options:options error:&error];
-                if (error) {
-                    LM_GGML_LOG_ERROR("%s: error: %s\n", __func__, [[error description] UTF8String]);
-                    return NULL;
-                }
-
-#if !__has_feature(objc_arc)
-                [options release];
-#endif
-            }
-#if LM_GGML_METAL_EMBED_LIBRARY
-            [src release];
-#endif // LM_GGML_METAL_EMBED_LIBRARY
-        }
+    if (ctx_dev->mtl_library == nil) {
+        ctx_dev->mtl_library = lm_ggml_metal_load_library(device, ctx_dev->use_bfloat);
+    }
+    id<MTLLibrary> metal_library = ctx_dev->mtl_library;
+    if (metal_library == nil) {
+        LM_GGML_LOG_ERROR("%s: error: metal library is nil\n", __func__);
+        return NULL;
     }
 
     // print MTL GPU family:
@@ -718,7 +747,6 @@ static struct lm_ggml_backend_metal_context * lm_ggml_metal_init(lm_ggml_backend
             [metal_function release]; \
             if (error) { \
                 LM_GGML_LOG_ERROR("%s: error: load pipeline error: %s\n", __func__, [[error description] UTF8String]); \
-                [metal_library release]; \
                 return NULL; \
             } \
         } else { \
@@ -1016,6 +1044,16 @@ static struct lm_ggml_backend_metal_context * lm_ggml_metal_init(lm_ggml_backend
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q5_0,                  cpy_f32_q5_0,                   true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F32_Q5_1,                  cpy_f32_q5_1,                   true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_F32_IQ4_NL,                cpy_f32_iq4_nl,                 true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_Q4_0_F32,                  cpy_q4_0_f32,                   true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_Q4_0_F16,                  cpy_q4_0_f16,                   true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_Q4_1_F32,                  cpy_q4_1_f32,                   true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_Q4_1_F16,                  cpy_q4_1_f16,                   true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_Q5_0_F32,                  cpy_q5_0_f32,                   true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_Q5_0_F16,                  cpy_q5_0_f16,                   true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_Q5_1_F32,                  cpy_q5_1_f32,                   true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_Q5_1_F16,                  cpy_q5_1_f16,                   true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_Q8_0_F32,                  cpy_q8_0_f32,                   true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CPY_Q8_0_F16,                  cpy_q8_0_f16,                   true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_CONCAT,                        concat,                         true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_SQR,                           sqr,                            true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_SQRT,                          sqrt,                           true);
@@ -1026,8 +1064,6 @@ static struct lm_ggml_backend_metal_context * lm_ggml_metal_init(lm_ggml_backend
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_POOL_2D_AVG_F32,               pool_2d_avg_f32,                true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_POOL_2D_MAX_F32,               pool_2d_max_f32,                true);
     }
-
-    [metal_library release];
 
     return ctx;
 }
@@ -1184,7 +1220,7 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_backend_metal_device_
                 case LM_GGML_UNARY_OP_GELU_QUICK:
                 case LM_GGML_UNARY_OP_SILU:
                 case LM_GGML_UNARY_OP_ELU:
-                    return lm_ggml_is_contiguous(op->src[0]);
+                    return lm_ggml_is_contiguous(op->src[0]) && op->src[0]->type == LM_GGML_TYPE_F32;
                 default:
                     return false;
             }
@@ -1194,21 +1230,26 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_backend_metal_device_
         case LM_GGML_OP_TRANSPOSE:
         case LM_GGML_OP_PERMUTE:
         case LM_GGML_OP_CONCAT:
+            return true;
         case LM_GGML_OP_ADD:
         case LM_GGML_OP_SUB:
-        case LM_GGML_OP_ACC:
         case LM_GGML_OP_MUL:
         case LM_GGML_OP_DIV:
+            return op->src[0]->type == LM_GGML_TYPE_F32;
+        case LM_GGML_OP_ACC:
         case LM_GGML_OP_REPEAT:
         case LM_GGML_OP_SCALE:
-        case LM_GGML_OP_CLAMP:
         case LM_GGML_OP_CONV_TRANSPOSE_1D:
             return true;
+        case LM_GGML_OP_CLAMP:
+            return op->src[0]->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_SQR:
         case LM_GGML_OP_SQRT:
         case LM_GGML_OP_SIN:
         case LM_GGML_OP_COS:
-            return lm_ggml_is_contiguous(op->src[0]);
+            return lm_ggml_is_contiguous(op->src[0]) && op->src[0]->type == LM_GGML_TYPE_F32;
+        case LM_GGML_OP_LOG:
+            return false; // TODO: implement
         case LM_GGML_OP_SUM_ROWS:
         case LM_GGML_OP_SOFT_MAX:
         case LM_GGML_OP_GROUP_NORM:
@@ -1238,10 +1279,11 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_backend_metal_device_
         case LM_GGML_OP_UPSCALE:
         case LM_GGML_OP_PAD:
         case LM_GGML_OP_PAD_REFLECT_1D:
-        case LM_GGML_OP_ARANGE:
         case LM_GGML_OP_TIMESTEP_EMBEDDING:
         case LM_GGML_OP_ARGSORT:
         case LM_GGML_OP_LEAKY_RELU:
+            return op->src[0]->type == LM_GGML_TYPE_F32;
+        case LM_GGML_OP_ARANGE:
             return true;
         case LM_GGML_OP_FLASH_ATTN_EXT:
             if (op->src[1]->type != op->src[2]->type) {
@@ -1287,6 +1329,18 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_backend_metal_device_
                         switch (op->type) {
                             case LM_GGML_TYPE_F32:
                             case LM_GGML_TYPE_BF16:
+                                return true;
+                            default:
+                                return false;
+                        }
+                    case LM_GGML_TYPE_Q4_0:
+                    case LM_GGML_TYPE_Q4_1:
+                    case LM_GGML_TYPE_Q5_0:
+                    case LM_GGML_TYPE_Q5_1:
+                    case LM_GGML_TYPE_Q8_0:
+                        switch (op->type) {
+                            case LM_GGML_TYPE_F32:
+                            case LM_GGML_TYPE_F16:
                                 return true;
                             default:
                                 return false;
@@ -1910,34 +1964,38 @@ static void lm_ggml_metal_encode_node(
 
                 id<MTLComputePipelineState> pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_SUM_ROWS].pipeline;
 
-                // TODO: add lm_ggml_metal_kargs struct
+
+                lm_ggml_metal_kargs_sum_rows args = {
+                   /*.ne00 =*/ ne00,
+                   /*.ne01 =*/ ne01,
+                   /*.ne02 =*/ ne02,
+                   /*.ne03 =*/ ne03,
+                   /*.nb00 =*/ nb00,
+                   /*.nb01 =*/ nb01,
+                   /*.nb02 =*/ nb02,
+                   /*.nb03 =*/ nb03,
+                   /*.ne10 =*/ ne10,
+                   /*.ne11 =*/ ne11,
+                   /*.ne12 =*/ ne12,
+                   /*.ne13 =*/ ne13,
+                   /*.nb10 =*/ nb10,
+                   /*.nb11 =*/ nb11,
+                   /*.nb12 =*/ nb12,
+                   /*.nb13 =*/ nb13,
+                   /*.ne0  =*/ ne0,
+                   /*.ne1  =*/ ne1,
+                   /*.ne2  =*/ ne2,
+                   /*.ne3  =*/ ne3,
+                   /*.nb0  =*/ nb0,
+                   /*.nb1  =*/ nb1,
+                   /*.nb2  =*/ nb2,
+                   /*.nb3  =*/ nb3,
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0 atIndex:0];
                 [encoder setBuffer:id_dst  offset:offs_dst  atIndex:1];
-                [encoder setBytes:&ne00 length:sizeof(ne00) atIndex:2];
-                [encoder setBytes:&ne01 length:sizeof(ne01) atIndex:3];
-                [encoder setBytes:&ne02 length:sizeof(ne02) atIndex:4];
-                [encoder setBytes:&ne03 length:sizeof(ne03) atIndex:5];
-                [encoder setBytes:&nb00 length:sizeof(nb00) atIndex:6];
-                [encoder setBytes:&nb01 length:sizeof(nb01) atIndex:7];
-                [encoder setBytes:&nb02 length:sizeof(nb02) atIndex:8];
-                [encoder setBytes:&nb03 length:sizeof(nb03) atIndex:9];
-                [encoder setBytes:&ne10 length:sizeof(ne10) atIndex:10];
-                [encoder setBytes:&ne11 length:sizeof(ne11) atIndex:11];
-                [encoder setBytes:&ne12 length:sizeof(ne12) atIndex:12];
-                [encoder setBytes:&ne13 length:sizeof(ne13) atIndex:13];
-                [encoder setBytes:&nb10 length:sizeof(nb10) atIndex:14];
-                [encoder setBytes:&nb11 length:sizeof(nb11) atIndex:15];
-                [encoder setBytes:&nb12 length:sizeof(nb12) atIndex:16];
-                [encoder setBytes:&nb13 length:sizeof(nb13) atIndex:17];
-                [encoder setBytes:&ne0  length:sizeof(ne0)  atIndex:18];
-                [encoder setBytes:&ne1  length:sizeof(ne1)  atIndex:19];
-                [encoder setBytes:&ne2  length:sizeof(ne2)  atIndex:20];
-                [encoder setBytes:&ne3  length:sizeof(ne3)  atIndex:21];
-                [encoder setBytes:&nb0  length:sizeof(nb0)  atIndex:22];
-                [encoder setBytes:&nb1  length:sizeof(nb1)  atIndex:23];
-                [encoder setBytes:&nb2  length:sizeof(nb2)  atIndex:24];
-                [encoder setBytes:&nb3  length:sizeof(nb3)  atIndex:25];
+                [encoder setBytes:&args length:sizeof(args) atIndex:2];
 
                 [encoder dispatchThreadgroups:MTLSizeMake(ne01, ne02, ne03) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
             } break;
@@ -1986,8 +2044,17 @@ static void lm_ggml_metal_encode_node(
                 const float m0 = powf(2.0f, -(max_bias       ) / n_head_log2);
                 const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
 
-                // TODO: add lm_ggml_metal_kargs struct
-                // TODO: optimize (see https://github.com/ggml-org/llama.cpp/pull/10238/commits/7941b6b9ec29a2866fec6fa6c51612515ca509f6)
+                lm_ggml_metal_kargs_soft_max args = {
+                    /*.ne00 =*/ ne00,
+                    /*.ne01 =*/ ne01,
+                    /*.ne02 =*/ ne02,
+                    /*.scale =*/ scale,
+                    /*.max_bias =*/ max_bias,
+                    /*.m0 =*/ m0,
+                    /*.m1 =*/ m1,
+                    /*.n_head_log2 =*/ n_head_log2,
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0   atIndex:0];
                 if (id_src1) {
@@ -1996,14 +2063,7 @@ static void lm_ggml_metal_encode_node(
                     [encoder setBuffer:id_src0 offset:offs_src0   atIndex:1];
                 }
                 [encoder setBuffer:id_dst      offset:offs_dst            atIndex:2];
-                [encoder setBytes:&ne00        length:sizeof(ne00)        atIndex:3];
-                [encoder setBytes:&ne01        length:sizeof(ne01)        atIndex:4];
-                [encoder setBytes:&ne02        length:sizeof(ne02)        atIndex:5];
-                [encoder setBytes:&scale       length:sizeof(scale)       atIndex:6];
-                [encoder setBytes:&max_bias    length:sizeof(max_bias)    atIndex:7];
-                [encoder setBytes:&m0          length:sizeof(m0)          atIndex:8];
-                [encoder setBytes:&m1          length:sizeof(m1)          atIndex:9];
-                [encoder setBytes:&n_head_log2 length:sizeof(n_head_log2) atIndex:10];
+                [encoder setBytes:&args        length:sizeof(args)        atIndex:3];
 
                 [encoder setThreadgroupMemoryLength:32*sizeof(float) atIndex:0];
 
@@ -2021,13 +2081,16 @@ static void lm_ggml_metal_encode_node(
                     pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_DIAG_MASK_INF].pipeline;
                 }
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_diag_mask_inf args = {
+                    /*.ne00 =*/ ne00,
+                    /*.ne01 =*/ ne01,
+                    /*.n_past =*/ n_past,
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0 atIndex:0];
                 [encoder setBuffer:id_dst  offset:offs_dst  atIndex:1];
-                [encoder setBytes:&ne00   length:sizeof(ne00) atIndex:2];
-                [encoder setBytes:&ne01   length:sizeof(ne01) atIndex:3];
-                [encoder setBytes:&n_past length:sizeof(int)  atIndex:4];
+                [encoder setBytes:&args  length:sizeof(args) atIndex:2];
 
                 if (ne00%8 == 0) {
                     [encoder dispatchThreadgroups:MTLSizeMake(ne00*ne01*ne02/8, 1, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
@@ -2046,27 +2109,30 @@ static void lm_ggml_metal_encode_node(
 
                 id<MTLComputePipelineState> pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_SSM_CONV_F32].pipeline;
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_ssm_conv args = {
+                    /*.ne00 =*/ ne00,
+                    /*.ne01 =*/ ne01,
+                    /*.ne02 =*/ ne02,
+                    /*.nb00 =*/ nb00,
+                    /*.nb01 =*/ nb01,
+                    /*.nb02 =*/ nb02,
+                    /*.ne10 =*/ ne10,
+                    /*.ne11 =*/ ne11,
+                    /*.nb10 =*/ nb10,
+                    /*.nb11 =*/ nb11,
+                    /*.ne0  =*/ ne0,
+                    /*.ne1  =*/ ne1,
+                    /*.ne2  =*/ ne2,
+                    /*.nb0  =*/ nb0,
+                    /*.nb1  =*/ nb1,
+                    /*.nb2  =*/ nb2,
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0    atIndex:0];
                 [encoder setBuffer:id_src1 offset:offs_src1    atIndex:1];
                 [encoder setBuffer:id_dst  offset:offs_dst     atIndex:2];
-                [encoder setBytes:&ne00    length:sizeof(ne00) atIndex:3];
-                [encoder setBytes:&ne01    length:sizeof(ne01) atIndex:4];
-                [encoder setBytes:&ne02    length:sizeof(ne02) atIndex:5];
-                [encoder setBytes:&nb00    length:sizeof(nb00) atIndex:6];
-                [encoder setBytes:&nb01    length:sizeof(nb01) atIndex:7];
-                [encoder setBytes:&nb02    length:sizeof(nb02) atIndex:8];
-                [encoder setBytes:&ne10    length:sizeof(ne10) atIndex:9];
-                [encoder setBytes:&ne11    length:sizeof(ne11) atIndex:10];
-                [encoder setBytes:&nb10    length:sizeof(nb10) atIndex:11];
-                [encoder setBytes:&nb11    length:sizeof(nb11) atIndex:12];
-                [encoder setBytes:&ne0     length:sizeof(ne0)  atIndex:13];
-                [encoder setBytes:&ne1     length:sizeof(ne1)  atIndex:14];
-                [encoder setBytes:&ne2     length:sizeof(ne2)  atIndex:15];
-                [encoder setBytes:&nb0     length:sizeof(nb0)  atIndex:16];
-                [encoder setBytes:&nb1     length:sizeof(nb1)  atIndex:17];
-                [encoder setBytes:&nb2     length:sizeof(nb2)  atIndex:18];
+                [encoder setBytes:&args    length:sizeof(args) atIndex:3];
 
                 [encoder dispatchThreadgroups:MTLSizeMake(ne01, ne1, ne02) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
             } break;
@@ -2117,7 +2183,31 @@ static void lm_ggml_metal_encode_node(
 
                 id<MTLComputePipelineState> pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_SSM_SCAN_F32].pipeline;
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_ssm_scan args = {
+                    /*.d_state =*/ d_state,
+                    /*.d_inner =*/ d_inner,
+                    /*.n_seq_tokens =*/ n_seq_tokens,
+                    /*.n_seqs =*/ n_seqs,
+                    /*.nb00 =*/ nb00,
+                    /*.nb01 =*/ nb01,
+                    /*.nb02 =*/ nb02,
+                    /*.nb10 =*/ nb10,
+                    /*.nb11 =*/ nb11,
+                    /*.nb12 =*/ nb12,
+                    /*.nb13 =*/ nb13,
+                    /*.nb20 =*/ nb20,
+                    /*.nb21 =*/ nb21,
+                    /*.nb22 =*/ nb22,
+                    /*.nb30 =*/ nb30,
+                    /*.nb31 =*/ nb31,
+                    /*.nb40 =*/ nb40,
+                    /*.nb41 =*/ nb41,
+                    /*.nb42 =*/ nb42,
+                    /*.nb50 =*/ nb50,
+                    /*.nb51 =*/ nb51,
+                    /*.nb52 =*/ nb52,
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0 atIndex:0];
                 [encoder setBuffer:id_src1 offset:offs_src1 atIndex:1];
@@ -2126,30 +2216,7 @@ static void lm_ggml_metal_encode_node(
                 [encoder setBuffer:id_src4 offset:offs_src4 atIndex:4];
                 [encoder setBuffer:id_src5 offset:offs_src5 atIndex:5];
                 [encoder setBuffer:id_dst  offset:offs_dst  atIndex:6];
-
-                [encoder setBytes:&d_state      length:sizeof(d_state)      atIndex:7];
-                [encoder setBytes:&d_inner      length:sizeof(d_inner)      atIndex:8];
-                [encoder setBytes:&n_seq_tokens length:sizeof(n_seq_tokens) atIndex:9];
-                [encoder setBytes:&n_seqs       length:sizeof(n_seqs)       atIndex:10];
-
-                [encoder setBytes:&nb00 length:sizeof(nb00) atIndex:11];
-                [encoder setBytes:&nb01 length:sizeof(nb01) atIndex:12];
-                [encoder setBytes:&nb02 length:sizeof(nb02) atIndex:13];
-                [encoder setBytes:&nb10 length:sizeof(nb10) atIndex:14];
-                [encoder setBytes:&nb11 length:sizeof(nb11) atIndex:15];
-                [encoder setBytes:&nb12 length:sizeof(nb12) atIndex:16];
-                [encoder setBytes:&nb13 length:sizeof(nb13) atIndex:17];
-                [encoder setBytes:&nb20 length:sizeof(nb20) atIndex:18];
-                [encoder setBytes:&nb21 length:sizeof(nb21) atIndex:19];
-                [encoder setBytes:&nb22 length:sizeof(nb22) atIndex:20];
-                [encoder setBytes:&nb30 length:sizeof(nb30) atIndex:21];
-                [encoder setBytes:&nb31 length:sizeof(nb31) atIndex:22];
-                [encoder setBytes:&nb40 length:sizeof(nb40) atIndex:23];
-                [encoder setBytes:&nb41 length:sizeof(nb41) atIndex:24];
-                [encoder setBytes:&nb42 length:sizeof(nb42) atIndex:25];
-                [encoder setBytes:&nb50 length:sizeof(nb50) atIndex:26];
-                [encoder setBytes:&nb51 length:sizeof(nb51) atIndex:27];
-                [encoder setBytes:&nb52 length:sizeof(nb52) atIndex:28];
+                [encoder setBytes:&args    length:sizeof(args) atIndex:7];
 
                 [encoder dispatchThreadgroups:MTLSizeMake(d_inner, n_seqs, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
             } break;
@@ -3006,19 +3073,22 @@ static void lm_ggml_metal_encode_node(
                     default: LM_GGML_ABORT("not implemented");
                 }
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_get_rows args = {
+                    /*.ne00 =*/ ne00,
+                    /*.nb01 =*/ nb01,
+                    /*.nb02 =*/ nb02,
+                    /*.ne10 =*/ ne10,
+                    /*.nb10 =*/ nb10,
+                    /*.nb11 =*/ nb11,
+                    /*.nb1 =*/ nb1,
+                    /*.nb2 =*/ nb2,
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0     offset:offs_src0 atIndex:0];
                 [encoder setBuffer:id_src1     offset:offs_src1 atIndex:1];
                 [encoder setBuffer:id_dst      offset:offs_dst  atIndex:2];
-                [encoder setBytes:&ne00 length:sizeof( int64_t) atIndex:3];
-                [encoder setBytes:&nb01 length:sizeof(uint64_t) atIndex:4];
-                [encoder setBytes:&nb02 length:sizeof(uint64_t) atIndex:5];
-                [encoder setBytes:&ne10 length:sizeof( int64_t) atIndex:6];
-                [encoder setBytes:&nb10 length:sizeof( int64_t) atIndex:7];
-                [encoder setBytes:&nb11 length:sizeof( int64_t) atIndex:8];
-                [encoder setBytes:&nb1  length:sizeof(uint64_t) atIndex:9];
-                [encoder setBytes:&nb2  length:sizeof(uint64_t) atIndex:10];
+                [encoder setBytes:&args length:sizeof(args) atIndex:3];
 
                 [encoder dispatchThreadgroups:MTLSizeMake(ne10, ne11, 1) threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
             } break;
@@ -3075,18 +3145,21 @@ static void lm_ggml_metal_encode_node(
 
                 id<MTLComputePipelineState> pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_GROUP_NORM].pipeline;
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_group_norm args = {
+                    /*.ne00 =*/ ne00,
+                    /*.ne01 =*/ ne01,
+                    /*.ne02 =*/ ne02,
+                    /*.nb00 =*/ nb00,
+                    /*.nb01 =*/ nb01,
+                    /*.nb02 =*/ nb02,
+                    /*.n_groups =*/ n_groups,
+                    /*.eps =*/ eps,
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0  offset:offs_src0        atIndex:0];
                 [encoder setBuffer:id_dst   offset:offs_dst         atIndex:1];
-                [encoder setBytes:&ne00     length:sizeof( int64_t) atIndex:2];
-                [encoder setBytes:&ne01     length:sizeof( int64_t) atIndex:3];
-                [encoder setBytes:&ne02     length:sizeof( int64_t) atIndex:4];
-                [encoder setBytes:&nb00     length:sizeof(uint64_t) atIndex:5];
-                [encoder setBytes:&nb01     length:sizeof(uint64_t) atIndex:6];
-                [encoder setBytes:&nb02     length:sizeof(uint64_t) atIndex:7];
-                [encoder setBytes:&n_groups length:sizeof( int32_t) atIndex:8];
-                [encoder setBytes:&eps      length:sizeof(   float) atIndex:9];
+                [encoder setBytes:&args     length:sizeof(args)     atIndex:2];
                 [encoder setThreadgroupMemoryLength:32*sizeof(float) atIndex:0];
 
                 [encoder dispatchThreadgroups:MTLSizeMake(n_groups, 1, 1) threadsPerThreadgroup:MTLSizeMake(nth, 1, 1)];
@@ -3244,8 +3317,8 @@ static void lm_ggml_metal_encode_node(
 
                 const int32_t CHW = IC * KH * KW;
 
-                const int32_t ofs0 = src1->nb[is_2D ? 3 : 2] / 4;
-                const int32_t ofs1 = src1->nb[is_2D ? 2 : 1] / 4;
+                const uint64_t ofs0 = src1->nb[is_2D ? 3 : 2] / 4;
+                const uint64_t ofs1 = src1->nb[is_2D ? 2 : 1] / 4;
 
                 id<MTLComputePipelineState> pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_IM2COL_F32].pipeline;
 
@@ -3267,27 +3340,30 @@ static void lm_ggml_metal_encode_node(
                     default: LM_GGML_ABORT("fatal error");
                 };
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_im2col args = {
+                    /*.ofs0 =*/ ofs0,
+                    /*.ofs1 =*/ ofs1,
+                    /*.IW   =*/ IW,
+                    /*.IH   =*/ IH,
+                    /*.CHW  =*/ CHW,
+                    /*.s0   =*/ s0,
+                    /*.s1   =*/ s1,
+                    /*.p0   =*/ p0,
+                    /*.p1   =*/ p1,
+                    /*.d0   =*/ d0,
+                    /*.d1   =*/ d1,
+                    /*.N    =*/ N,
+                    /*.KH   =*/ KH,
+                    /*.KW   =*/ KW,
+                    /*.KHW  =*/ KH * KW,
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src1 offset:offs_src1       atIndex:0];
                 [encoder setBuffer:id_dst  offset:offs_dst        atIndex:1];
-                [encoder setBytes:&ofs0    length:sizeof(int32_t) atIndex:2];
-                [encoder setBytes:&ofs1    length:sizeof(int32_t) atIndex:3];
-                [encoder setBytes:&IW      length:sizeof(int32_t) atIndex:4];
-                [encoder setBytes:&IH      length:sizeof(int32_t) atIndex:5];
-                [encoder setBytes:&CHW     length:sizeof(int32_t) atIndex:6];
-                [encoder setBytes:&s0      length:sizeof(int32_t) atIndex:7];
-                [encoder setBytes:&s1      length:sizeof(int32_t) atIndex:8];
-                [encoder setBytes:&p0      length:sizeof(int32_t) atIndex:9];
-                [encoder setBytes:&p1      length:sizeof(int32_t) atIndex:10];
-                [encoder setBytes:&d0      length:sizeof(int32_t) atIndex:11];
-                [encoder setBytes:&d1      length:sizeof(int32_t) atIndex:12];
+                [encoder setBytes:&args length:sizeof(args)       atIndex:2];
 
                 if (is_gt_mttpt) {
-                    [encoder setBytes:&N   length:sizeof(int32_t) atIndex:13];
-                    [encoder setBytes:&KH  length:sizeof(int32_t) atIndex:14];
-                    [encoder setBytes:&KW  length:sizeof(int32_t) atIndex:15];
-
                     const uint64_t n_threads = MIN(pipeline.maxTotalThreadsPerThreadgroup, (uint64_t)N);
 
                     const int64_t  quotient  = N / n_threads + (N % n_threads > 0 ? 1 : 0);
@@ -3327,16 +3403,20 @@ static void lm_ggml_metal_encode_node(
                     default: LM_GGML_ABORT("fatal error");
                 };
 
+                lm_ggml_metal_kargs_conv_transpose_1d args = {
+                    /*.IC =*/ IC,
+                    /*.IL =*/ IL,
+                    /*.K  =*/ K,
+                    /*.s0 =*/ s0,
+                    /*.nb0 =*/ nb0,
+                    /*.nb1 =*/ nb1,
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0         atIndex:0];
                 [encoder setBuffer:id_src1 offset:offs_src1         atIndex:1];
                 [encoder setBuffer:id_dst  offset:offs_dst          atIndex:2];
-                [encoder setBytes:&IC      length:sizeof( int32_t)  atIndex:3];
-                [encoder setBytes:&IL      length:sizeof( int32_t)  atIndex:4];
-                [encoder setBytes:&K       length:sizeof( int32_t)  atIndex:5];
-                [encoder setBytes:&s0      length:sizeof( int32_t)  atIndex:6];
-                [encoder setBytes:&nb0     length:sizeof(uint64_t)  atIndex:7];
-                [encoder setBytes:&nb1     length:sizeof(uint64_t)  atIndex:8];
+                [encoder setBytes:&args    length:sizeof(args)       atIndex:3];
 
                 [encoder dispatchThreadgroups:MTLSizeMake(OL, OC, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
             } break;
@@ -3351,30 +3431,33 @@ static void lm_ggml_metal_encode_node(
 
                 const id<MTLComputePipelineState> pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_UPSCALE_F32].pipeline;
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_upscale args = {
+                    /*.ne00 =*/ ne00,
+                    /*.ne01 =*/ ne01,
+                    /*.ne02 =*/ ne02,
+                    /*.ne03 =*/ ne03,
+                    /*.nb00 =*/ nb00,
+                    /*.nb01 =*/ nb01,
+                    /*.nb02 =*/ nb02,
+                    /*.nb03 =*/ nb03,
+                    /*.ne0 =*/ ne0,
+                    /*.ne1 =*/ ne1,
+                    /*.ne2 =*/ ne2,
+                    /*.ne3 =*/ ne3,
+                    /*.nb0 =*/ nb0,
+                    /*.nb1 =*/ nb1,
+                    /*.nb2 =*/ nb2,
+                    /*.nb3 =*/ nb3,
+                    /*.sf0 =*/ sf0,
+                    /*.sf1 =*/ sf1,
+                    /*.sf2 =*/ sf2,
+                    /*.sf3 =*/ sf3
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0 atIndex:0];
                 [encoder setBuffer:id_dst  offset:offs_dst  atIndex:1];
-                [encoder setBytes:&ne00 length:sizeof(ne00) atIndex:2];
-                [encoder setBytes:&ne01 length:sizeof(ne01) atIndex:3];
-                [encoder setBytes:&ne02 length:sizeof(ne02) atIndex:4];
-                [encoder setBytes:&ne03 length:sizeof(ne03) atIndex:5];
-                [encoder setBytes:&nb00 length:sizeof(nb00) atIndex:6];
-                [encoder setBytes:&nb01 length:sizeof(nb01) atIndex:7];
-                [encoder setBytes:&nb02 length:sizeof(nb02) atIndex:8];
-                [encoder setBytes:&nb03 length:sizeof(nb03) atIndex:9];
-                [encoder setBytes:&ne0  length:sizeof(ne0)  atIndex:10];
-                [encoder setBytes:&ne1  length:sizeof(ne1)  atIndex:11];
-                [encoder setBytes:&ne2  length:sizeof(ne2)  atIndex:12];
-                [encoder setBytes:&ne3  length:sizeof(ne3)  atIndex:13];
-                [encoder setBytes:&nb0  length:sizeof(nb0)  atIndex:14];
-                [encoder setBytes:&nb1  length:sizeof(nb1)  atIndex:15];
-                [encoder setBytes:&nb2  length:sizeof(nb2)  atIndex:16];
-                [encoder setBytes:&nb3  length:sizeof(nb3)  atIndex:17];
-                [encoder setBytes:&sf0  length:sizeof(sf0)  atIndex:18];
-                [encoder setBytes:&sf1  length:sizeof(sf1)  atIndex:19];
-                [encoder setBytes:&sf2  length:sizeof(sf2)  atIndex:20];
-                [encoder setBytes:&sf3  length:sizeof(sf3)  atIndex:21];
+                [encoder setBytes:&args length:sizeof(args) atIndex:2];
 
                 const int nth = MIN((int) pipeline.maxTotalThreadsPerThreadgroup, ne0);
 
@@ -3386,26 +3469,29 @@ static void lm_ggml_metal_encode_node(
 
                 id<MTLComputePipelineState> pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_PAD_F32].pipeline;
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_pad args = {
+                    /*.ne00 =*/ ne00,
+                    /*.ne01 =*/ ne01,
+                    /*.ne02 =*/ ne02,
+                    /*.ne03 =*/ ne03,
+                    /*.nb00 =*/ nb00,
+                    /*.nb01 =*/ nb01,
+                    /*.nb02 =*/ nb02,
+                    /*.nb03 =*/ nb03,
+                    /*.ne0 =*/ ne0,
+                    /*.ne1 =*/ ne1,
+                    /*.ne2 =*/ ne2,
+                    /*.ne3 =*/ ne3,
+                    /*.nb0 =*/ nb0,
+                    /*.nb1 =*/ nb1,
+                    /*.nb2 =*/ nb2,
+                    /*.nb3 =*/ nb3
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0 atIndex:0];
                 [encoder setBuffer:id_dst  offset:offs_dst  atIndex:1];
-                [encoder setBytes:&ne00 length:sizeof(ne00) atIndex:2];
-                [encoder setBytes:&ne01 length:sizeof(ne01) atIndex:3];
-                [encoder setBytes:&ne02 length:sizeof(ne02) atIndex:4];
-                [encoder setBytes:&ne03 length:sizeof(ne03) atIndex:5];
-                [encoder setBytes:&nb00 length:sizeof(nb00) atIndex:6];
-                [encoder setBytes:&nb01 length:sizeof(nb01) atIndex:7];
-                [encoder setBytes:&nb02 length:sizeof(nb02) atIndex:8];
-                [encoder setBytes:&nb03 length:sizeof(nb03) atIndex:9];
-                [encoder setBytes:&ne0  length:sizeof(ne0)  atIndex:10];
-                [encoder setBytes:&ne1  length:sizeof(ne1)  atIndex:11];
-                [encoder setBytes:&ne2  length:sizeof(ne2)  atIndex:12];
-                [encoder setBytes:&ne3  length:sizeof(ne3)  atIndex:13];
-                [encoder setBytes:&nb0  length:sizeof(nb0)  atIndex:14];
-                [encoder setBytes:&nb1  length:sizeof(nb1)  atIndex:15];
-                [encoder setBytes:&nb2  length:sizeof(nb2)  atIndex:16];
-                [encoder setBytes:&nb3  length:sizeof(nb3)  atIndex:17];
+                [encoder setBytes:&args length:sizeof(args) atIndex:2];
 
                 const int nth = MIN(1024, ne0);
 
@@ -3420,24 +3506,31 @@ static void lm_ggml_metal_encode_node(
 
                 id<MTLComputePipelineState> pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_PAD_REFLECT_1D_F32].pipeline;
 
+                lm_ggml_metal_kargs_pad_reflect_1d args = {
+                    /*.ne00 =*/ ne00,
+                    /*.ne01 =*/ ne01,
+                    /*.ne02 =*/ ne02,
+                    /*.ne03 =*/ ne03,
+                    /*.nb00 =*/ nb00,
+                    /*.nb01 =*/ nb01,
+                    /*.nb02 =*/ nb02,
+                    /*.nb03 =*/ nb03,
+                    /*.ne0 =*/ ne0,
+                    /*.ne1 =*/ ne1,
+                    /*.ne2 =*/ ne2,
+                    /*.ne3 =*/ ne3,
+                    /*.nb0 =*/ nb0,
+                    /*.nb1 =*/ nb1,
+                    /*.nb2 =*/ nb2,
+                    /*.nb3 =*/ nb3,
+                    /*.p0 =*/ p0,
+                    /*.p1 =*/ p1
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0 atIndex:0];
                 [encoder setBuffer:id_dst  offset:offs_dst  atIndex:1];
-                [encoder setBytes:&ne00 length:sizeof(ne00) atIndex:2];
-                [encoder setBytes:&ne01 length:sizeof(ne01) atIndex:3];
-                [encoder setBytes:&ne02 length:sizeof(ne02) atIndex:4];
-                [encoder setBytes:&ne03 length:sizeof(ne03) atIndex:5];
-                [encoder setBytes:&ne0  length:sizeof(ne0)  atIndex:6];
-                [encoder setBytes:&nb00 length:sizeof(nb00) atIndex:7];
-                [encoder setBytes:&nb01 length:sizeof(nb01) atIndex:8];
-                [encoder setBytes:&nb02 length:sizeof(nb02) atIndex:9];
-                [encoder setBytes:&nb03 length:sizeof(nb03) atIndex:10];
-                [encoder setBytes:&nb0  length:sizeof(nb0)  atIndex:11];
-                [encoder setBytes:&nb1  length:sizeof(nb1)  atIndex:12];
-                [encoder setBytes:&nb2  length:sizeof(nb2)  atIndex:13];
-                [encoder setBytes:&nb3  length:sizeof(nb3)  atIndex:14];
-                [encoder setBytes:&p0   length:sizeof(p0)   atIndex:15];
-                [encoder setBytes:&p1   length:sizeof(p1)   atIndex:16];
+                [encoder setBytes:&args length:sizeof(args) atIndex:2];
 
                 const int nth = MIN(1024, ne0);
 
@@ -3455,12 +3548,15 @@ static void lm_ggml_metal_encode_node(
 
                 id<MTLComputePipelineState> pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_ARANGE_F32].pipeline;
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_arange args = {
+                    /*.ne0 =*/ ne0,
+                    /*.start =*/ start,
+                    /*.step =*/ step
+                };
+
                 [encoder setComputePipelineState:pipeline];
-                [encoder setBuffer:id_dst  offset:offs_dst    atIndex:0];
-                [encoder setBytes:&ne0   length:sizeof(ne0)   atIndex:1];
-                [encoder setBytes:&start length:sizeof(start) atIndex:2];
-                [encoder setBytes:&step  length:sizeof(step)  atIndex:3];
+                [encoder setBuffer:id_dst  offset:offs_dst  atIndex:0];
+                [encoder setBytes:&args length:sizeof(args) atIndex:1];
 
                 const int nth = MIN(1024, ne0);
 
@@ -3477,13 +3573,16 @@ static void lm_ggml_metal_encode_node(
 
                 id<MTLComputePipelineState> pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_TIMESTEP_EMBEDDING_F32].pipeline;
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_timestep_embedding args = {
+                    /*.nb1 =*/ nb1,
+                    /*.dim =*/ dim,
+                    /*.max_period =*/ max_period
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0 atIndex:0];
                 [encoder setBuffer:id_dst  offset:offs_dst  atIndex:1];
-                [encoder setBytes:&nb1   length:sizeof(nb1) atIndex:2];
-                [encoder setBytes:&dim   length:sizeof(dim) atIndex:3];
-                [encoder setBytes:&max_period length:sizeof(max_period) atIndex:4];
+                [encoder setBytes:&args length:sizeof(args) atIndex:2];
 
                 const int nth = MIN(1024, half);
 
@@ -3516,12 +3615,15 @@ static void lm_ggml_metal_encode_node(
                     default: LM_GGML_ABORT("fatal error");
                 };
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_argsort args = {
+                    /*.ncols =*/ ne00,
+                    /*.ncols_pad =*/ ne00_padded
+                };
+
                 [encoder setComputePipelineState:pipeline];
-                [encoder setBuffer:id_src0     offset:offs_src0        atIndex:0];
-                [encoder setBuffer:id_dst      offset:offs_dst         atIndex:1];
-                [encoder setBytes:&ne00        length:sizeof( int64_t) atIndex:2];
-                [encoder setBytes:&ne00_padded length:sizeof( int64_t) atIndex:3];
+                [encoder setBuffer:id_src0 offset:offs_src0 atIndex:0];
+                [encoder setBuffer:id_dst  offset:offs_dst  atIndex:1];
+                [encoder setBytes:&args length:sizeof(args) atIndex:2];
                 [encoder setThreadgroupMemoryLength:mem_size atIndex:0];
 
                 [encoder dispatchThreadgroups:MTLSizeMake(1, nrows, 1) threadsPerThreadgroup:MTLSizeMake(ne00_padded, 1, 1)];
@@ -3535,11 +3637,14 @@ static void lm_ggml_metal_encode_node(
 
                 id<MTLComputePipelineState> pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_LEAKY_RELU_F32].pipeline;
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_leaky_relu args = {
+                    /*.slope =*/ slope
+                };
+
                 [encoder setComputePipelineState:pipeline];
                 [encoder setBuffer:id_src0 offset:offs_src0   atIndex:0];
                 [encoder setBuffer:id_dst  offset:offs_dst    atIndex:1];
-                [encoder setBytes:&slope length:sizeof(slope) atIndex:2];
+                [encoder setBytes:&args length:sizeof(args)   atIndex:2];
 
                 const int64_t n = lm_ggml_nelements(dst);
 
@@ -3903,10 +4008,6 @@ static void lm_ggml_metal_encode_node(
         case LM_GGML_OP_CPY:
         case LM_GGML_OP_CONT:
             {
-                LM_GGML_ASSERT(ne00 % lm_ggml_blck_size(src0->type) == 0);
-
-                int nth = MIN(1024, ne00/lm_ggml_blck_size(src0->type));
-
                 id<MTLComputePipelineState> pipeline = nil;
 
                 switch (src0t) {
@@ -3940,7 +4041,47 @@ static void lm_ggml_metal_encode_node(
                             switch (dstt) {
                                 case LM_GGML_TYPE_F32:  pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_BF16_F32].pipeline; break;
                                 case LM_GGML_TYPE_BF16: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_BF16_BF16].pipeline; break;
-                                default: LM_GGML_ASSERT(false && "not implemented");
+                                default: LM_GGML_ABORT("not implemented");
+                            };
+                        } break;
+                    case LM_GGML_TYPE_Q4_0:
+                        {
+                            switch (dstt) {
+                                case LM_GGML_TYPE_F32: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_Q4_0_F32].pipeline; break;
+                                case LM_GGML_TYPE_F16: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_Q4_0_F16].pipeline; break;
+                                default: LM_GGML_ABORT("not implemented");
+                            };
+                        } break;
+                    case LM_GGML_TYPE_Q4_1:
+                        {
+                            switch (dstt) {
+                                case LM_GGML_TYPE_F32: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_Q4_1_F32].pipeline; break;
+                                case LM_GGML_TYPE_F16: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_Q4_1_F16].pipeline; break;
+                                default: LM_GGML_ABORT("not implemented");
+                            };
+                        } break;
+                    case LM_GGML_TYPE_Q5_0:
+                        {
+                            switch (dstt) {
+                                case LM_GGML_TYPE_F32: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_Q5_0_F32].pipeline; break;
+                                case LM_GGML_TYPE_F16: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_Q5_0_F16].pipeline; break;
+                                default: LM_GGML_ABORT("not implemented");
+                            };
+                        } break;
+                    case LM_GGML_TYPE_Q5_1:
+                        {
+                            switch (dstt) {
+                                case LM_GGML_TYPE_F32: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_Q5_1_F32].pipeline; break;
+                                case LM_GGML_TYPE_F16: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_Q5_1_F16].pipeline; break;
+                                default: LM_GGML_ABORT("not implemented");
+                            };
+                        } break;
+                    case LM_GGML_TYPE_Q8_0:
+                        {
+                            switch (dstt) {
+                                case LM_GGML_TYPE_F32: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_Q8_0_F32].pipeline; break;
+                                case LM_GGML_TYPE_F16: pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_CPY_Q8_0_F16].pipeline; break;
+                                default: LM_GGML_ABORT("not implemented");
                             };
                         } break;
                     default: LM_GGML_ABORT("not implemented");
@@ -3970,7 +4111,11 @@ static void lm_ggml_metal_encode_node(
                 [encoder setBuffer:id_src0 offset:offs_src0 atIndex:1];
                 [encoder setBuffer:id_dst  offset:offs_dst  atIndex:2];
 
+                LM_GGML_ASSERT(ne00 % lm_ggml_blck_size(src0->type) == 0);
+                int nth = MIN(1024, ne00/lm_ggml_blck_size(src0->type));
+
                 [encoder dispatchThreadgroups:MTLSizeMake(ne01, ne02, ne03) threadsPerThreadgroup:MTLSizeMake(nth, 1, 1)];
+
             } break;
         case LM_GGML_OP_SET:
             {
@@ -4075,21 +4220,24 @@ static void lm_ggml_metal_encode_node(
                 const int64_t n_threads = MIN((int64_t)[pipeline maxTotalThreadsPerThreadgroup], parallel_elements);
                 const int64_t n_tg = (parallel_elements + n_threads - 1) / n_threads;
 
-                // TODO: add lm_ggml_metal_kargs struct
+                lm_ggml_metal_kargs_pool_2d args_pool_2d = {
+                    /* .k0 = */ k0,
+                    /* .k1 = */ k1,
+                    /* .s0 = */ s0,
+                    /* .s1 = */ s1,
+                    /* .p0 = */ p0,
+                    /* .p1 = */ p1,
+                    /* .IH = */ IH,
+                    /* .IW = */ IW,
+                    /* .OH = */ OH,
+                    /* .OW = */ OW,
+                    /* .parallel_elements = */ parallel_elements
+                };
+
                 [encoder setComputePipelineState:pipeline];
-                [encoder setBuffer:id_src0 offset:offs_src0       atIndex:0];
-                [encoder setBuffer:id_dst  offset:offs_dst        atIndex:1];
-                [encoder setBytes:&k0      length:sizeof(int32_t) atIndex:2];
-                [encoder setBytes:&k1      length:sizeof(int32_t) atIndex:3];
-                [encoder setBytes:&s0      length:sizeof(int32_t) atIndex:4];
-                [encoder setBytes:&s1      length:sizeof(int32_t) atIndex:5];
-                [encoder setBytes:&p0      length:sizeof(int32_t) atIndex:6];
-                [encoder setBytes:&p1      length:sizeof(int32_t) atIndex:7];
-                [encoder setBytes:&IH      length:sizeof(int64_t) atIndex:8];
-                [encoder setBytes:&IW      length:sizeof(int64_t) atIndex:9];
-                [encoder setBytes:&OH      length:sizeof(int64_t) atIndex:10];
-                [encoder setBytes:&OW      length:sizeof(int64_t) atIndex:11];
-                [encoder setBytes:&parallel_elements length:sizeof(int64_t) atIndex:12];
+                [encoder setBuffer:id_src0 offset:offs_src0 atIndex:0];
+                [encoder setBuffer:id_dst  offset:offs_dst  atIndex:1];
+                [encoder setBytes:&args_pool_2d length:sizeof(args_pool_2d) atIndex:2];
 
                 [encoder dispatchThreadgroups:MTLSizeMake(n_tg, 1, 1) threadsPerThreadgroup:MTLSizeMake(n_threads, 1, 1)];
             } break;

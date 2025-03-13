@@ -19,7 +19,7 @@ struct lm_ggml_tallocr {
 };
 
 LM_GGML_API struct lm_ggml_tallocr lm_ggml_tallocr_new(lm_ggml_backend_buffer_t buffer);
-LM_GGML_API void                lm_ggml_tallocr_alloc(struct lm_ggml_tallocr * talloc, struct lm_ggml_tensor * tensor);
+LM_GGML_API enum lm_ggml_status    lm_ggml_tallocr_alloc(struct lm_ggml_tallocr * talloc, struct lm_ggml_tensor * tensor);
 
 // Graph allocator
 /*

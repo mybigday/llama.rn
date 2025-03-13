@@ -4135,10 +4135,11 @@ static const ggml::cpu::tensor_traits * lm_ggml_aarch64_get_optimal_repack_type(
     return nullptr;
 }
 
-static void lm_ggml_backend_cpu_aarch64_buffer_init_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor) {
+static enum lm_ggml_status lm_ggml_backend_cpu_aarch64_buffer_init_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor) {
     tensor->extra = (void *) const_cast<ggml::cpu::tensor_traits *>(lm_ggml_aarch64_get_optimal_repack_type(tensor));
 
     LM_GGML_UNUSED(buffer);
+    return LM_GGML_STATUS_SUCCESS;
 }
 
 static void lm_ggml_backend_cpu_aarch64_buffer_set_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor,

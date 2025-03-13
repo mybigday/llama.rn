@@ -1,39 +1,51 @@
---- common.cpp.orig	2025-02-05 11:41:07
-+++ common.cpp	2025-02-05 11:43:10
-@@ -7,10 +7,6 @@
-
- #include "common.h"
- #include "log.h"
--// Change JSON_ASSERT from assert() to LM_GGML_ASSERT:
--#define JSON_ASSERT LM_GGML_ASSERT
--#include "json.hpp"
--#include "json-schema-to-grammar.h"
- #include "llama.h"
- #include "chat.hpp"
- #include "chat-template.hpp"
-@@ -59,6 +55,12 @@
- #include <curl/easy.h>
+--- common.cpp.orig	2025-03-13 11:08:56
++++ common.cpp	2025-03-13 11:13:24
+@@ -57,38 +57,15 @@
  #include <future>
  #endif
-+
+
 +// build info
 +int LLAMA_BUILD_NUMBER = 0;
 +char const *LLAMA_COMMIT = "unknown";
 +char const *LLAMA_COMPILER = "unknown";
 +char const *LLAMA_BUILD_TARGET = "unknown";
-
++
  #if defined(_MSC_VER)
  #pragma warning(disable: 4244 4267) // possible loss of data
-@@ -92,8 +94,6 @@
-     }
- };
- #endif // LLAMA_USE_CURL
+ #endif
 -
--using json = nlohmann::ordered_json;
+-#if defined(LLAMA_USE_CURL)
+-#ifdef __linux__
+-#include <linux/limits.h>
+-#elif defined(_WIN32)
+-#   if !defined(PATH_MAX)
+-#   define PATH_MAX MAX_PATH
+-#   endif
+-#else
+-#include <sys/syslimits.h>
+-#endif
+-#define LLAMA_CURL_MAX_URL_LENGTH 2084 // Maximum URL Length in Chrome: 2083
+-
+-//
+-// CURL utils
+-//
+-
+-using curl_ptr = std::unique_ptr<CURL, decltype(&curl_easy_cleanup)>;
+-
+-// cannot use unique_ptr for curl_slist, because we cannot update without destroying the old one
+-struct curl_slist_ptr {
+-    struct curl_slist * ptr = nullptr;
+-    ~curl_slist_ptr() {
+-        if (ptr) {
+-            curl_slist_free_all(ptr);
+-        }
+-    }
+-};
+-#endif // LLAMA_USE_CURL
 
- //
- // CPU utils
-@@ -1087,6 +1087,8 @@
+ using json = nlohmann::ordered_json;
+
+@@ -1089,6 +1066,8 @@
      if (params.n_gpu_layers != -1) {
          mparams.n_gpu_layers = params.n_gpu_layers;
      }
@@ -42,22 +54,50 @@
      mparams.main_gpu        = params.main_gpu;
      mparams.split_mode      = params.split_mode;
      mparams.tensor_split    = params.tensor_split;
-@@ -1100,6 +1102,11 @@
+@@ -1100,6 +1079,11 @@
+     } else {
+         LM_GGML_ASSERT(params.kv_overrides.back().key[0] == 0 && "KV overrides not terminated with empty key");
          mparams.kv_overrides = params.kv_overrides.data();
-     }
-
++    }
++
 +    if (params.progress_callback != nullptr) {
 +        mparams.progress_callback = params.progress_callback;
 +        mparams.progress_callback_user_data = params.progress_callback_user_data;
-+    }
-+
+     }
+
      return mparams;
+@@ -1161,451 +1145,6 @@
+     return tpp;
  }
 
-@@ -1187,219 +1194,7 @@
-     return false;
- }
-
+-#ifdef LLAMA_USE_CURL
+-
+-#define CURL_MAX_RETRY 3
+-#define CURL_RETRY_DELAY_SECONDS 2
+-
+-static bool curl_perform_with_retry(const std::string & url, CURL * curl, int max_attempts, int retry_delay_seconds) {
+-    int remaining_attempts = max_attempts;
+-
+-    while (remaining_attempts > 0) {
+-        LOG_INF("%s: Trying to download from %s (attempt %d of %d)...\n", __func__ , url.c_str(), max_attempts - remaining_attempts + 1, max_attempts);
+-
+-        CURLcode res = curl_easy_perform(curl);
+-        if (res == CURLE_OK) {
+-            return true;
+-        }
+-
+-        int exponential_backoff_delay = std::pow(retry_delay_seconds, max_attempts - remaining_attempts) * 1000;
+-        LOG_WRN("%s: curl_easy_perform() failed: %s, retrying after %d milliseconds...\n", __func__, curl_easy_strerror(res), exponential_backoff_delay);
+-
+-        remaining_attempts--;
+-        std::this_thread::sleep_for(std::chrono::milliseconds(exponential_backoff_delay));
+-    }
+-
+-    LOG_ERR("%s: curl_easy_perform() failed after %d attempts\n", __func__, max_attempts);
+-
+-    return false;
+-}
+-
 -static bool common_download_file(const std::string & url, const std::string & path, const std::string & hf_token) {
 -    // Initialize libcurl
 -    curl_ptr       curl(curl_easy_init(), &curl_easy_cleanup);
@@ -66,7 +106,7 @@
 -        LOG_ERR("%s: error initializing libcurl\n", __func__);
 -        return false;
 -    }
-
+-
 -    bool force_download = false;
 -
 -    // Set the URL, allow to follow http redirection
@@ -271,6 +311,210 @@
 -    return true;
 -}
 -
- struct llama_model * common_load_model_from_url(
-         const std::string & model_url,
-         const std::string & local_path,
+-struct llama_model * common_load_model_from_url(
+-        const std::string & model_url,
+-        const std::string & local_path,
+-        const std::string & hf_token,
+-        const struct llama_model_params & params) {
+-    // Basic validation of the model_url
+-    if (model_url.empty()) {
+-        LOG_ERR("%s: invalid model_url\n", __func__);
+-        return NULL;
+-    }
+-
+-    if (!common_download_file(model_url, local_path, hf_token)) {
+-        return NULL;
+-    }
+-
+-    // check for additional GGUFs split to download
+-    int n_split = 0;
+-    {
+-        struct lm_gguf_init_params lm_gguf_params = {
+-            /*.no_alloc = */ true,
+-            /*.ctx      = */ NULL,
+-        };
+-        auto * ctx_gguf = lm_gguf_init_from_file(local_path.c_str(), lm_gguf_params);
+-        if (!ctx_gguf) {
+-            LOG_ERR("\n%s:  failed to load input GGUF from %s\n", __func__, local_path.c_str());
+-            return NULL;
+-        }
+-
+-        auto key_n_split = lm_gguf_find_key(ctx_gguf, LLM_KV_SPLIT_COUNT);
+-        if (key_n_split >= 0) {
+-            n_split = lm_gguf_get_val_u16(ctx_gguf, key_n_split);
+-        }
+-
+-        lm_gguf_free(ctx_gguf);
+-    }
+-
+-    if (n_split > 1) {
+-        char split_prefix[PATH_MAX] = {0};
+-        char split_url_prefix[LLAMA_CURL_MAX_URL_LENGTH] = {0};
+-
+-        // Verify the first split file format
+-        // and extract split URL and PATH prefixes
+-        {
+-            if (!llama_split_prefix(split_prefix, sizeof(split_prefix), local_path.c_str(), 0, n_split)) {
+-                LOG_ERR("\n%s: unexpected model file name: %s n_split=%d\n", __func__, local_path.c_str(), n_split);
+-                return NULL;
+-            }
+-
+-            if (!llama_split_prefix(split_url_prefix, sizeof(split_url_prefix), model_url.c_str(), 0, n_split)) {
+-                LOG_ERR("\n%s: unexpected model url: %s n_split=%d\n", __func__, model_url.c_str(), n_split);
+-                return NULL;
+-            }
+-        }
+-
+-        // Prepare download in parallel
+-        std::vector<std::future<bool>> futures_download;
+-        for (int idx = 1; idx < n_split; idx++) {
+-            futures_download.push_back(std::async(std::launch::async, [&split_prefix, &split_url_prefix, &n_split, hf_token](int download_idx) -> bool {
+-                char split_path[PATH_MAX] = {0};
+-                llama_split_path(split_path, sizeof(split_path), split_prefix, download_idx, n_split);
+-
+-                char split_url[LLAMA_CURL_MAX_URL_LENGTH] = {0};
+-                llama_split_path(split_url, sizeof(split_url), split_url_prefix, download_idx, n_split);
+-
+-                return common_download_file(split_url, split_path, hf_token);
+-            }, idx));
+-        }
+-
+-        // Wait for all downloads to complete
+-        for (auto & f : futures_download) {
+-            if (!f.get()) {
+-                return NULL;
+-            }
+-        }
+-    }
+-
+-    return llama_model_load_from_file(local_path.c_str(), params);
+-}
+-
+-struct llama_model * common_load_model_from_hf(
+-        const std::string & repo,
+-        const std::string & remote_path,
+-        const std::string & local_path,
+-        const std::string & hf_token,
+-        const struct llama_model_params & params) {
+-    // construct hugging face model url:
+-    //
+-    //  --repo ggml-org/models --file tinyllama-1.1b/ggml-model-f16.gguf
+-    //    https://huggingface.co/ggml-org/models/resolve/main/tinyllama-1.1b/ggml-model-f16.gguf
+-    //
+-    //  --repo TheBloke/Mixtral-8x7B-v0.1-GGUF --file mixtral-8x7b-v0.1.Q4_K_M.gguf
+-    //    https://huggingface.co/TheBloke/Mixtral-8x7B-v0.1-GGUF/resolve/main/mixtral-8x7b-v0.1.Q4_K_M.gguf
+-    //
+-
+-    std::string model_url = "https://huggingface.co/";
+-    model_url += repo;
+-    model_url += "/resolve/main/";
+-    model_url += remote_path;
+-
+-    return common_load_model_from_url(model_url, local_path, hf_token, params);
+-}
+-
+-/**
+- * Allow getting the HF file from the HF repo with tag (like ollama), for example:
+- * - bartowski/Llama-3.2-3B-Instruct-GGUF:q4
+- * - bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M
+- * - bartowski/Llama-3.2-3B-Instruct-GGUF:q5_k_s
+- * Tag is optional, default to "latest" (meaning it checks for Q4_K_M first, then Q4, then if not found, return the first GGUF file in repo)
+- *
+- * Return pair of <repo, file> (with "repo" already having tag removed)
+- *
+- * Note: we use the Ollama-compatible HF API, but not using the blobId. Instead, we use the special "ggufFile" field which returns the value for "hf_file". This is done to be backward-compatible with existing cache files.
+- */
+-std::pair<std::string, std::string> common_get_hf_file(const std::string & hf_repo_with_tag, const std::string & hf_token) {
+-    auto parts = string_split<std::string>(hf_repo_with_tag, ':');
+-    std::string tag = parts.size() > 1 ? parts.back() : "latest";
+-    std::string hf_repo = parts[0];
+-    if (string_split<std::string>(hf_repo, '/').size() != 2) {
+-        throw std::invalid_argument("error: invalid HF repo format, expected <user>/<model>[:quant]\n");
+-    }
+-
+-    // fetch model info from Hugging Face Hub API
+-    json model_info;
+-    curl_ptr       curl(curl_easy_init(), &curl_easy_cleanup);
+-    curl_slist_ptr http_headers;
+-    std::string res_str;
+-    std::string url = "https://huggingface.co/v2/" + hf_repo + "/manifests/" + tag;
+-    curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
+-    curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 1L);
+-    typedef size_t(*CURLOPT_WRITEFUNCTION_PTR)(void * ptr, size_t size, size_t nmemb, void * data);
+-    auto write_callback = [](void * ptr, size_t size, size_t nmemb, void * data) -> size_t {
+-        static_cast<std::string *>(data)->append((char * ) ptr, size * nmemb);
+-        return size * nmemb;
+-    };
+-    curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, static_cast<CURLOPT_WRITEFUNCTION_PTR>(write_callback));
+-    curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &res_str);
+-#if defined(_WIN32)
+-    curl_easy_setopt(curl.get(), CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
+-#endif
+-    if (!hf_token.empty()) {
+-        std::string auth_header = "Authorization: Bearer " + hf_token;
+-        http_headers.ptr = curl_slist_append(http_headers.ptr, auth_header.c_str());
+-    }
+-    // Important: the User-Agent must be "llama-cpp" to get the "ggufFile" field in the response
+-    http_headers.ptr = curl_slist_append(http_headers.ptr, "User-Agent: llama-cpp");
+-    http_headers.ptr = curl_slist_append(http_headers.ptr, "Accept: application/json");
+-    curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, http_headers.ptr);
+-
+-    CURLcode res = curl_easy_perform(curl.get());
+-
+-    if (res != CURLE_OK) {
+-        throw std::runtime_error("error: cannot make GET request to HF API");
+-    }
+-
+-    long res_code;
+-    curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &res_code);
+-    if (res_code == 200) {
+-        model_info = json::parse(res_str);
+-    } else if (res_code == 401) {
+-        throw std::runtime_error("error: model is private or does not exist; if you are accessing a gated model, please provide a valid HF token");
+-    } else {
+-        throw std::runtime_error(string_format("error from HF API, response code: %ld, data: %s", res_code, res_str.c_str()));
+-    }
+-
+-    // check response
+-    if (!model_info.contains("ggufFile")) {
+-        throw std::runtime_error("error: model does not have ggufFile");
+-    }
+-    json & lm_gguf_file = model_info.at("ggufFile");
+-    if (!lm_gguf_file.contains("rfilename")) {
+-        throw std::runtime_error("error: ggufFile does not have rfilename");
+-    }
+-
+-    return std::make_pair(hf_repo, lm_gguf_file.at("rfilename"));
+-}
+-
+-#else
+-
+-struct llama_model * common_load_model_from_url(
+-        const std::string & /*model_url*/,
+-        const std::string & /*local_path*/,
+-        const std::string & /*hf_token*/,
+-        const struct llama_model_params & /*params*/) {
+-    LOG_WRN("%s: llama.cpp built without libcurl, downloading from an url not supported.\n", __func__);
+-    return nullptr;
+-}
+-
+-struct llama_model * common_load_model_from_hf(
+-        const std::string & /*repo*/,
+-        const std::string & /*remote_path*/,
+-        const std::string & /*local_path*/,
+-        const std::string & /*hf_token*/,
+-        const struct llama_model_params & /*params*/) {
+-    LOG_WRN("%s: llama.cpp built without libcurl, downloading from Hugging Face not supported.\n", __func__);
+-    return nullptr;
+-}
+-
+-std::pair<std::string, std::string> common_get_hf_file(const std::string &, const std::string &) {
+-    LOG_WRN("%s: llama.cpp built without libcurl, downloading from Hugging Face not supported.\n", __func__);
+-    return std::make_pair("", "");
+-}
+-
+-#endif // LLAMA_USE_CURL
+-
+ //
+ // Batch utils
+ //

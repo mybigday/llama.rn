@@ -3,8 +3,8 @@
 
 #include <sstream>
 #include <iostream>
-#include "chat.hpp"
-#include "chat-template.hpp"
+#include "minja/chat-template.hpp"
+#include "chat.h"
 #include "common.h"
 #include "ggml.h"
 #include "gguf.h"

@@ -2140,7 +2140,11 @@ extern "C" {
 #        define LM_GGML_RESTRICT
 #    endif
 #else
-#    define LM_GGML_RESTRICT restrict
+#    if defined (_MSC_VER) && (__STDC_VERSION__ < 201112L)
+#        define LM_GGML_RESTRICT __restrict
+#    else
+#        define LM_GGML_RESTRICT restrict
+#    endif
 #endif
     typedef void (*lm_ggml_to_float_t)  (const void  * LM_GGML_RESTRICT x, float * LM_GGML_RESTRICT y, int64_t k);
     typedef void (*lm_ggml_from_float_t)(const float * LM_GGML_RESTRICT x, void  * LM_GGML_RESTRICT y, int64_t k);

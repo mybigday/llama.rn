@@ -80,6 +80,7 @@ extern "C" {
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_avx        (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_avx_vnni   (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_avx2       (void);
+    LM_GGML_BACKEND_API int lm_ggml_cpu_has_bmi2       (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_f16c       (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_fma        (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_avx512     (void);
@@ -95,9 +96,11 @@ extern "C" {
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_matmul_int8(void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_sve        (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_get_sve_cnt    (void);  // sve vector length in bytes
+    LM_GGML_BACKEND_API int lm_ggml_cpu_has_sme        (void);
     // other
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_riscv_v    (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_vsx        (void);
+    LM_GGML_BACKEND_API int lm_ggml_cpu_has_vxe        (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_wasm_simd  (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_llamafile  (void);
 
