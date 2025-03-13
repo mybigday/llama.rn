@@ -105,6 +105,7 @@ extern "C" {
         LLAMA_VOCAB_PRE_TYPE_CHAMELEON      = 26,
         LLAMA_VOCAB_PRE_TYPE_MINERVA        = 27,
         LLAMA_VOCAB_PRE_TYPE_DEEPSEEK3_LLM  = 28,
+        LLAMA_VOCAB_PRE_TYPE_GPT4O          = 29,
     };
 
     enum llama_rope_type {
@@ -477,6 +478,7 @@ extern "C" {
     LLAMA_API int32_t llama_model_n_embd     (const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_layer    (const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_head     (const struct llama_model * model);
+    LLAMA_API int32_t llama_model_n_head_kv  (const struct llama_model * model);
 
     // Get the model's RoPE frequency scaling factor
     LLAMA_API float llama_model_rope_freq_scale_train(const struct llama_model * model);
@@ -1203,17 +1205,29 @@ extern "C" {
                           const char * grammar_str,
                           const char * grammar_root);
 
-    /// @details Lazy grammar sampler, introduced in https://github.com/ggml-org/llama.cpp/pull/9639
-    /// @param trigger_words A list of words that will trigger the grammar sampler. This may be updated to a loose regex syntax (w/ ^) in a near future.
-    /// @param trigger_tokens A list of tokens that will trigger the grammar sampler.
-    LLAMA_API struct llama_sampler * llama_sampler_init_grammar_lazy(
+    DEPRECATED(LLAMA_API struct llama_sampler * llama_sampler_init_grammar_lazy(
             const struct llama_vocab * vocab,
                           const char * grammar_str,
                           const char * grammar_root,
                          const char ** trigger_words,
                                 size_t num_trigger_words,
                    const llama_token * trigger_tokens,
-                                size_t num_trigger_tokens);
+                                size_t num_trigger_tokens),
+        "use llama_sampler_init_grammar_lazy_patterns instead");
+
+
+    /// @details Lazy grammar sampler, introduced in https://github.com/ggml-org/llama.cpp/pull/9639
+    /// @param trigger_patterns A list of patterns that will trigger the grammar sampler. Pattern will be matched from the start of the generation output, and grammar sampler will be fed content starting from its first match group.
+    /// @param trigger_tokens A list of tokens that will trigger the grammar sampler. Grammar sampler will be fed content starting from the trigger token included.
+    LLAMA_API struct llama_sampler * llama_sampler_init_grammar_lazy_patterns(
+        const struct llama_vocab * vocab,
+                      const char * grammar_str,
+                      const char * grammar_root,
+                     const char ** trigger_patterns,
+                            size_t num_trigger_patterns,
+               const llama_token * trigger_tokens,
+                            size_t num_trigger_tokens);
+
 
     /// NOTE: Avoid using on the full vocabulary as searching for repeated tokens can become slow. For example, apply top-k or top-p sampling first.
     LLAMA_API struct llama_sampler * llama_sampler_init_penalties(

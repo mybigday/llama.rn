@@ -89,7 +89,7 @@ struct lm_ggml_tallocr lm_ggml_tallocr_new(lm_ggml_backend_buffer_t buffer) {
     return talloc;
 }
 
-void lm_ggml_tallocr_alloc(struct lm_ggml_tallocr * talloc, struct lm_ggml_tensor * tensor) {
+enum lm_ggml_status lm_ggml_tallocr_alloc(struct lm_ggml_tallocr * talloc, struct lm_ggml_tensor * tensor) {
     size_t size = lm_ggml_backend_buffer_get_alloc_size(talloc->buffer, tensor);
     size = LM_GGML_PAD(size, talloc->alignment);
 
@@ -104,7 +104,7 @@ void lm_ggml_tallocr_alloc(struct lm_ggml_tallocr * talloc, struct lm_ggml_tenso
 
     assert(((uintptr_t)addr % talloc->alignment) == 0);
 
-    lm_ggml_backend_tensor_alloc(talloc->buffer, tensor, addr);
+    return lm_ggml_backend_tensor_alloc(talloc->buffer, tensor, addr);
 }
 
 // dynamic tensor allocator
@@ -933,41 +933,50 @@ size_t lm_ggml_gallocr_get_buffer_size(lm_ggml_gallocr_t galloc, int buffer_id) 
 
 // utils
 
+static void free_buffers(lm_ggml_backend_buffer_t ** buffers, const size_t * n_buffers) {
+    for (size_t i = 0; i < *n_buffers; i++) {
+        lm_ggml_backend_buffer_free((*buffers)[i]);
+    }
+    free(*buffers);
+}
+
 static bool alloc_tensor_range(struct lm_ggml_context * ctx,
         struct lm_ggml_tensor * first, struct lm_ggml_tensor * last,
         lm_ggml_backend_buffer_type_t buft, size_t size,
         lm_ggml_backend_buffer_t ** buffers, size_t * n_buffers) {
+
     lm_ggml_backend_buffer_t buffer = lm_ggml_backend_buft_alloc_buffer(buft, size);
     if (buffer == NULL) {
-#ifndef NDEBUG
-        LM_GGML_LOG_DEBUG("%s: failed to allocate %s buffer of size %zu\n", __func__, lm_ggml_backend_buft_name(buft), size);
-#endif
-        for (size_t i = 0; i < *n_buffers; i++) {
-            lm_ggml_backend_buffer_free((*buffers)[i]);
-        }
-        free(*buffers);
+        LM_GGML_LOG_ERROR("%s: failed to allocate %s buffer of size %zu\n", __func__, lm_ggml_backend_buft_name(buft), size);
+        free_buffers(buffers, n_buffers);
         return false;
-    }
-
-    struct lm_ggml_tallocr tallocr = lm_ggml_tallocr_new(buffer);
-
-    for (struct lm_ggml_tensor * t = first; t != last; t = lm_ggml_get_next_tensor(ctx, t)) {
-        if (t->data == NULL) {
-            if (t->view_src == NULL) {
-                lm_ggml_tallocr_alloc(&tallocr, t);
-            } else if (t->buffer == NULL) {
-                lm_ggml_backend_view_init(t);
-            }
-        } else {
-            if (t->view_src != NULL && t->buffer == NULL) {
-                // view of a pre-allocated tensor
-                lm_ggml_backend_view_init(t);
-            }
-        }
     }
 
     *buffers = realloc(*buffers, sizeof(lm_ggml_backend_buffer_t) * (*n_buffers + 1));
     (*buffers)[(*n_buffers)++] = buffer;
+
+    struct lm_ggml_tallocr tallocr = lm_ggml_tallocr_new(buffer);
+
+    for (struct lm_ggml_tensor * t = first; t != last; t = lm_ggml_get_next_tensor(ctx, t)) {
+        enum lm_ggml_status status = LM_GGML_STATUS_SUCCESS;
+        if (t->data == NULL) {
+            if (t->view_src == NULL) {
+                status = lm_ggml_tallocr_alloc(&tallocr, t);
+            } else if (t->buffer == NULL) {
+                status = lm_ggml_backend_view_init(t);
+            }
+        } else {
+            if (t->view_src != NULL && t->buffer == NULL) {
+                // view of a pre-allocated tensor
+                status = lm_ggml_backend_view_init(t);
+            }
+        }
+        if (status != LM_GGML_STATUS_SUCCESS) {
+            LM_GGML_LOG_ERROR("%s: failed to initialize tensor %s\n", __func__, t->name);
+            free_buffers(buffers, n_buffers);
+            return false;
+        }
+    }
 
     return true;
 }

@@ -93,8 +93,8 @@ export type NativeCompletionParams = {
    * Lazy grammar triggers. Default: []
    */
   grammar_triggers?: Array<{
-    at_start: boolean
-    word: string
+    value: string
+    token: number
   }>
   preserved_tokens?: Array<string>
   chat_format?: number
@@ -341,8 +341,8 @@ export type JinjaFormattedChatResult = {
   grammar?: string
   grammar_lazy?: boolean
   grammar_triggers?: Array<{
-    at_start: boolean
-    word: string
+    value: string
+    token: number
   }>
   preserved_tokens?: Array<string>
   additional_stops?: Array<string>

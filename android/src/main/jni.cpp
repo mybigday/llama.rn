@@ -437,7 +437,7 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
 
     auto default_caps = createWriteableMap(env);
 
-    auto default_tmpl = llama->templates.template_default.get();
+    auto default_tmpl = llama->templates.get()->template_default.get();
     auto default_tmpl_caps = default_tmpl->original_caps();
     putBoolean(env, default_caps, "tools", default_tmpl_caps.supports_tools);
     putBoolean(env, default_caps, "toolCalls", default_tmpl_caps.supports_tool_calls);
@@ -448,7 +448,7 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
     putMap(env, minja, "defaultCaps", default_caps);
 
     putBoolean(env, minja, "toolUse", llama->validateModelChatTemplate(true, "tool_use"));
-    auto tool_use_tmpl = llama->templates.template_tool_use.get();
+    auto tool_use_tmpl = llama->templates.get()->template_tool_use.get();
     if (tool_use_tmpl != nullptr) {
       auto tool_use_caps = createWriteableMap(env);
       auto tool_use_tmpl_caps = tool_use_tmpl->original_caps();
@@ -502,15 +502,15 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
             parallel_tool_calls,
             tool_choice_chars
         );
-        putString(env, result, "prompt", formatted.prompt.get<std::string>().c_str());
+        putString(env, result, "prompt", formatted.prompt.c_str());
         putInt(env, result, "chat_format", static_cast<int>(formatted.format));
         putString(env, result, "grammar", formatted.grammar.c_str());
         putBoolean(env, result, "grammar_lazy", formatted.grammar_lazy);
         auto grammar_triggers = createWritableArray(env);
         for (const auto &trigger : formatted.grammar_triggers) {
             auto trigger_map = createWriteableMap(env);
-            putString(env, trigger_map, "word", trigger.word.c_str());
-            putBoolean(env, trigger_map, "at_start", trigger.at_start);
+            putString(env, trigger_map, "value", trigger.value.c_str());
+            putInt(env, trigger_map, "token", trigger.token);
             pushMap(env, grammar_triggers, trigger_map);
         }
         putArray(env, result, "grammar_triggers", grammar_triggers);
@@ -724,32 +724,6 @@ Java_com_rnllama_LlamaContext_doCompletion(
       sparams.grammar = grammar_chars;
     }
     sparams.grammar_lazy = grammar_lazy;
-    if (grammar_triggers != nullptr) {
-        int grammar_triggers_size = readablearray::size(env, grammar_triggers);
-        for (int i = 0; i < grammar_triggers_size; i++) {
-            common_grammar_trigger trigger;
-            auto trigger_map = readablearray::getMap(env, grammar_triggers, i);
-            jstring trigger_word = readablemap::getString(env, trigger_map, "word", nullptr);
-            jboolean trigger_at_start = readablemap::getBool(env, trigger_map, "at_start", false);
-            trigger.word = env->GetStringUTFChars(trigger_word, nullptr);
-            trigger.at_start = trigger_at_start;
-
-            auto ids = common_tokenize(llama->ctx, trigger.word, /* add_special= */ false, /* parse_special= */ true);
-            if (ids.size() == 1) {
-                sparams.grammar_trigger_tokens.push_back(ids[0]);
-                sparams.preserved_tokens.insert(ids[0]);
-                continue;
-            }
-            sparams.grammar_trigger_words.push_back(trigger);
-        }
-    }
-
-    auto json_schema_chars = env->GetStringUTFChars(json_schema, nullptr);
-    if ((!grammar_chars || grammar_chars[0] == '\0') && json_schema_chars && json_schema_chars[0] != '\0') {
-        auto schema = json::parse(json_schema_chars);
-        sparams.grammar = json_schema_to_grammar(schema);
-    }
-    env->ReleaseStringUTFChars(json_schema, json_schema_chars);
 
     if (preserved_tokens != nullptr) {
         int preserved_tokens_size = readablearray::size(env, preserved_tokens);
@@ -763,6 +737,38 @@ Java_com_rnllama_LlamaContext_doCompletion(
             }
         }
     }
+
+    if (grammar_triggers != nullptr) {
+        int grammar_triggers_size = readablearray::size(env, grammar_triggers);
+        for (int i = 0; i < grammar_triggers_size; i++) {
+            auto trigger_map = readablearray::getMap(env, grammar_triggers, i);
+            jstring trigger_word = readablemap::getString(env, trigger_map, "word", nullptr);
+            auto word = env->GetStringUTFChars(trigger_word, nullptr);
+
+            auto ids = common_tokenize(llama->ctx, word, /* add_special= */ false, /* parse_special= */ true);
+            if (ids.size() == 1) {
+                auto token = ids[0];
+                if (std::find(sparams.preserved_tokens.begin(), sparams.preserved_tokens.end(), (llama_token) token) == sparams.preserved_tokens.end()) {
+                    throw std::runtime_error("Grammar trigger word should be marked as preserved token");
+                }
+                common_grammar_trigger trigger;
+                trigger.type = COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN;
+                trigger.value = word;
+                trigger.token = token;
+                sparams.grammar_triggers.push_back(std::move(trigger));
+            } else {
+                sparams.grammar_triggers.push_back({COMMON_GRAMMAR_TRIGGER_TYPE_WORD, word});
+            }
+        }
+    }
+
+    auto json_schema_chars = env->GetStringUTFChars(json_schema, nullptr);
+    if ((!grammar_chars || grammar_chars[0] == '\0') && json_schema_chars && json_schema_chars[0] != '\0') {
+        auto schema = json::parse(json_schema_chars);
+        sparams.grammar = json_schema_to_grammar(schema);
+    }
+    env->ReleaseStringUTFChars(json_schema, json_schema_chars);
+
 
     const llama_model * model = llama_get_model(llama->ctx);
     const llama_vocab * vocab = llama_model_get_vocab(model);

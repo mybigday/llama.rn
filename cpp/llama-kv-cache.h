@@ -6,6 +6,7 @@
 
 #include <set>
 #include <vector>
+#include <algorithm>
 
 struct llama_kv_cell {
     llama_pos pos   = -1;
