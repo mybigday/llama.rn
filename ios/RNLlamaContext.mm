@@ -285,7 +285,7 @@
         [meta setValue:valStr forKey:keyStr];
     }
 
-    auto template_tool_use = llama->templates.template_tool_use.get();
+    auto template_tool_use = llama->templates.get()->template_tool_use.get();
     NSDictionary *tool_use_caps_dir = nil;
     if (template_tool_use) {
         auto tool_use_caps = template_tool_use->original_caps();
@@ -299,7 +299,7 @@
         };
     }
 
-    auto default_tmpl = llama->templates.template_default.get();
+    auto default_tmpl = llama->templates.get()->template_default.get();
     auto default_tmpl_caps = default_tmpl->original_caps();
 
     return @{
@@ -356,15 +356,15 @@
         parallelToolCalls,
         toolChoice == nil ? "" : [toolChoice UTF8String]
     );
-    result[@"prompt"] = [NSString stringWithUTF8String:chatParams.prompt.get<std::string>().c_str()];
+    result[@"prompt"] = [NSString stringWithUTF8String:chatParams.prompt.c_str()];
     result[@"chat_format"] = @(static_cast<int>(chatParams.format));
     result[@"grammar"] = [NSString stringWithUTF8String:chatParams.grammar.c_str()];
     result[@"grammar_lazy"] = @(chatParams.grammar_lazy);
     NSMutableArray *grammar_triggers = [[NSMutableArray alloc] init];
     for (const auto & trigger : chatParams.grammar_triggers) {
         [grammar_triggers addObject:@{
-            @"word": [NSString stringWithUTF8String:trigger.word.c_str()],
-            @"at_start": @(trigger.at_start),
+            @"value": [NSString stringWithUTF8String:trigger.value.c_str()],
+            @"token": @(trigger.token),
         }];
     }
     result[@"grammar_triggers"] = grammar_triggers;
@@ -483,25 +483,6 @@
         sparams.grammar_lazy = [params[@"grammar_lazy"] boolValue];
     }
 
-    if (params[@"grammar_triggers"] && [params[@"grammar_triggers"] isKindOfClass:[NSArray class]]) {
-        NSArray *grammar_triggers = params[@"grammar_triggers"];
-        for (NSDictionary *grammar_trigger in grammar_triggers) {
-            common_grammar_trigger trigger;
-            trigger.word = [grammar_trigger[@"word"] UTF8String];
-            trigger.at_start = [grammar_trigger[@"at_start"] boolValue];
-
-            auto ids = common_tokenize(llama->ctx, trigger.word, /* add_special= */ false, /* parse_special= */ true);
-            if (ids.size() == 1) {
-                // LOG_DBG("Grammar trigger token: %d (`%s`)\n", ids[0], trigger.word.c_str());
-                sparams.grammar_trigger_tokens.push_back(ids[0]);
-                sparams.preserved_tokens.insert(ids[0]);
-                continue;
-            }
-            // LOG_DBG("Grammar trigger word: `%s`\n", trigger.word.c_str());
-            sparams.grammar_trigger_words.push_back(trigger);
-        }
-    }
-
     if (params[@"preserved_tokens"] && [params[@"preserved_tokens"] isKindOfClass:[NSArray class]]) {
         NSArray *preserved_tokens = params[@"preserved_tokens"];
         for (NSString *token in preserved_tokens) {
@@ -510,6 +491,27 @@
                 sparams.preserved_tokens.insert(ids[0]);
             } else {
 //                LOG_WRN("Not preserved because more than 1 token (wrong chat template override?): %s\n", [token UTF8String]);
+            }
+        }
+    }
+
+    if (params[@"grammar_triggers"] && [params[@"grammar_triggers"] isKindOfClass:[NSArray class]]) {
+        NSArray *grammar_triggers = params[@"grammar_triggers"];
+        for (NSDictionary *grammar_trigger in grammar_triggers) {
+            const auto & word = [grammar_trigger[@"word"] UTF8String];
+            auto ids = common_tokenize(llama->ctx, word, /* add_special= */ false, /* parse_special= */ true);
+            if (ids.size() == 1) {
+                auto token = ids[0];
+                if (std::find(sparams.preserved_tokens.begin(), sparams.preserved_tokens.end(), (llama_token) token) == sparams.preserved_tokens.end()) {
+                    throw std::runtime_error("Grammar trigger word should be marked as preserved token");
+                }
+                common_grammar_trigger trigger;
+                trigger.type = COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN;
+                trigger.value = word;
+                trigger.token = token;
+                sparams.grammar_triggers.push_back(std::move(trigger));
+            } else {
+                sparams.grammar_triggers.push_back({COMMON_GRAMMAR_TRIGGER_TYPE_WORD, word});
             }
         }
     }

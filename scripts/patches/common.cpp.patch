@@ -1,9 +1,9 @@
---- common.cpp.orig	2025-03-13 11:08:56
-+++ common.cpp	2025-03-13 11:13:24
+--- common.cpp.orig	2025-03-13 13:05:47
++++ common.cpp	2025-03-13 13:04:16
 @@ -57,38 +57,15 @@
  #include <future>
  #endif
-
+ 
 +// build info
 +int LLAMA_BUILD_NUMBER = 0;
 +char const *LLAMA_COMMIT = "unknown";
@@ -42,10 +42,27 @@
 -    }
 -};
 -#endif // LLAMA_USE_CURL
-
+ 
  using json = nlohmann::ordered_json;
-
-@@ -1089,6 +1066,8 @@
+ 
+@@ -904,15 +881,7 @@
+     common_init_result iparams;
+     auto mparams = common_model_params_to_llama(params);
+ 
+-    llama_model * model = nullptr;
+-
+-    if (!params.hf_repo.empty() && !params.hf_file.empty()) {
+-        model = common_load_model_from_hf(params.hf_repo, params.hf_file, params.model, params.hf_token, mparams);
+-    } else if (!params.model_url.empty()) {
+-        model = common_load_model_from_url(params.model_url, params.model, params.hf_token, mparams);
+-    } else {
+-        model = llama_model_load_from_file(params.model.c_str(), mparams);
+-    }
++    llama_model * model = llama_model_load_from_file(params.model.c_str(), mparams);
+ 
+     if (model == NULL) {
+         LOG_ERR("%s: failed to load model '%s'\n", __func__, params.model.c_str());
+@@ -1089,6 +1058,8 @@
      if (params.n_gpu_layers != -1) {
          mparams.n_gpu_layers = params.n_gpu_layers;
      }
@@ -54,22 +71,24 @@
      mparams.main_gpu        = params.main_gpu;
      mparams.split_mode      = params.split_mode;
      mparams.tensor_split    = params.tensor_split;
-@@ -1100,6 +1079,11 @@
-     } else {
-         LM_GGML_ASSERT(params.kv_overrides.back().key[0] == 0 && "KV overrides not terminated with empty key");
+@@ -1102,6 +1073,11 @@
          mparams.kv_overrides = params.kv_overrides.data();
-+    }
-+
+     }
+ 
 +    if (params.progress_callback != nullptr) {
 +        mparams.progress_callback = params.progress_callback;
 +        mparams.progress_callback_user_data = params.progress_callback_user_data;
-     }
-
++    }
++
      return mparams;
-@@ -1161,451 +1145,6 @@
-     return tpp;
  }
-
+ 
+@@ -1159,453 +1135,8 @@
+     tpp.strict_cpu = params.strict_cpu;
+ 
+     return tpp;
+-}
+-
 -#ifdef LLAMA_USE_CURL
 -
 -#define CURL_MAX_RETRY 3
@@ -96,7 +115,7 @@
 -    LOG_ERR("%s: curl_easy_perform() failed after %d attempts\n", __func__, max_attempts);
 -
 -    return false;
--}
+ }
 -
 -static bool common_download_file(const std::string & url, const std::string & path, const std::string & hf_token) {
 -    // Initialize libcurl
@@ -163,7 +182,7 @@
 -    } else {
 -        LOG_INF("%s: no previous model file found %s\n", __func__, path.c_str());
 -    }
--
+ 
 -    // Send a HEAD request to retrieve the etag and last-modified headers
 -    struct common_load_model_from_url_headers {
 -        std::string etag;

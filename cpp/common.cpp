@@ -881,15 +881,7 @@ struct common_init_result common_init_from_params(common_params & params) {
     common_init_result iparams;
     auto mparams = common_model_params_to_llama(params);
 
-    llama_model * model = nullptr;
-
-    if (!params.hf_repo.empty() && !params.hf_file.empty()) {
-        model = common_load_model_from_hf(params.hf_repo, params.hf_file, params.model, params.hf_token, mparams);
-    } else if (!params.model_url.empty()) {
-        model = common_load_model_from_url(params.model_url, params.model, params.hf_token, mparams);
-    } else {
-        model = llama_model_load_from_file(params.model.c_str(), mparams);
-    }
+    llama_model * model = llama_model_load_from_file(params.model.c_str(), mparams);
 
     if (model == NULL) {
         LOG_ERR("%s: failed to load model '%s'\n", __func__, params.model.c_str());

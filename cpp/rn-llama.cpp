@@ -194,7 +194,7 @@ bool llama_rn_context::loadModel(common_params &params_)
         LOG_ERROR("unable to load model: %s", params_.model.c_str());
         return false;
     }
-    templates = common_chat_templates_from_model(model, params.chat_template);
+    templates = common_chat_templates_init(model, params.chat_template);
     n_ctx = llama_n_ctx(ctx);
 
     // We can uncomment for debugging or after this fix: https://github.com/ggerganov/llama.cpp/pull/11101
@@ -219,71 +219,56 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
   const bool &parallel_tool_calls,
   const std::string &tool_choice
 ) const {
-  common_chat_inputs inputs;
-  inputs.messages = json::parse(messages);
-  auto useTools = !tools.empty();
-  if (useTools) {
-      inputs.tools = json::parse(tools);
-  }
-  inputs.parallel_tool_calls = parallel_tool_calls;
-  if (!tool_choice.empty()) {
-      inputs.tool_choice = tool_choice;
-  }
-  if (!json_schema.empty()) {
-      inputs.json_schema = json::parse(json_schema);
-  }
-  inputs.extract_reasoning = params.reasoning_format != COMMON_REASONING_FORMAT_NONE;
-  inputs.stream = true;
+    common_chat_templates_inputs inputs;
+    inputs.use_jinja = true;
+    inputs.messages = common_chat_msgs_parse_oaicompat(json::parse(messages));
+    auto useTools = !tools.empty();
+    if (useTools) {
+        inputs.tools = common_chat_tools_parse_oaicompat(json::parse(tools));
+    }
+    inputs.parallel_tool_calls = parallel_tool_calls;
+    if (!tool_choice.empty()) {
+        inputs.tool_choice = common_chat_tool_choice_parse_oaicompat(tool_choice);
+    }
+    if (!json_schema.empty()) {
+        inputs.json_schema = json::parse(json_schema);
+    }
+    inputs.extract_reasoning = params.reasoning_format != COMMON_REASONING_FORMAT_NONE;
 
-  // If chat_template is provided, create new one and use it (probably slow)
-  if (!chat_template.empty()) {
-      auto tmp = common_chat_templates_from_model(model, chat_template);
-      const common_chat_template* template_ptr = useTools && tmp.template_tool_use ? tmp.template_tool_use.get() : tmp.template_default.get();
-      if (inputs.parallel_tool_calls && !template_ptr->original_caps().supports_parallel_tool_calls) {
-          inputs.parallel_tool_calls = false;
-      }
-      return common_chat_params_init(*template_ptr, inputs);
-  } else {
-      const common_chat_template* template_ptr = useTools && templates.template_tool_use ? templates.template_tool_use.get() : templates.template_default.get();
-      if (inputs.parallel_tool_calls && !template_ptr->original_caps().supports_parallel_tool_calls) {
-          inputs.parallel_tool_calls = false;
-      }
-      return common_chat_params_init(*template_ptr, inputs);
-  }
+    // If chat_template is provided, create new one and use it (probably slow)
+    if (!chat_template.empty()) {
+        auto tmps = common_chat_templates_init(model, chat_template);
+        return common_chat_templates_apply(tmps.get(), inputs);
+    } else {
+        return common_chat_templates_apply(templates.get(), inputs);
+    }
 }
 
 std::string llama_rn_context::getFormattedChat(
   const std::string &messages,
   const std::string &chat_template
 ) const {
-  auto chat_json = json::parse(messages);
+    auto chat_json = json::parse(messages);
 
-  // Handle regular chat without tools
-  std::vector<common_chat_msg> chat_msgs;
-  for (const auto &msg : chat_json) {
-      chat_msgs.push_back({
-          msg["role"].get<std::string>(),
-          msg["content"].get<std::string>()
-      });
-  }
+    // Handle regular chat without tools
+    std::vector<common_chat_msg> chat_msgs;
+    for (const auto &msg : chat_json) {
+        chat_msgs.push_back({
+            msg["role"].get<std::string>(),
+            msg["content"].get<std::string>()
+        });
+    }
+    common_chat_templates_inputs inputs;
+    inputs.messages = common_chat_msgs_parse_oaicompat(json::parse(messages));
+    inputs.use_jinja = false;
 
-  // If chat_template is provided, create new one and use it (probably slow)
-  if (!chat_template.empty()) {
-      auto tmp = common_chat_templates_from_model(model, chat_template);
-      return common_chat_apply_template(
-          *tmp.template_default,
-          chat_msgs,
-          true,
-          false
-      );
-  } else {
-      return common_chat_apply_template(
-          *templates.template_default,
-          chat_msgs,
-          true,
-          false
-      );
-  }
+    // If chat_template is provided, create new one and use it (probably slow)
+    if (!chat_template.empty()) {
+        auto tmps = common_chat_templates_init(model, chat_template);
+        return common_chat_templates_apply(tmps.get(), inputs).prompt;
+    } else {
+        return common_chat_templates_apply(templates.get(), inputs).prompt;
+    }
 }
 
 void llama_rn_context::truncatePrompt(std::vector<llama_token> &prompt_tokens) {

@@ -230,6 +230,8 @@ yarn example
 # Apply patch
 patch -p0 -d ./cpp < ./scripts/patches/common.h.patch
 patch -p0 -d ./cpp < ./scripts/patches/common.cpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/chat.h.patch
+patch -p0 -d ./cpp < ./scripts/patches/chat.cpp.patch
 patch -p0 -d ./cpp < ./scripts/patches/log.cpp.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml-metal.m.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml.c.patch

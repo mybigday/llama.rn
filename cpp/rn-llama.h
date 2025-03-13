@@ -65,7 +65,7 @@ struct llama_rn_context {
 
     llama_context *ctx = nullptr;
     common_sampler *ctx_sampling = nullptr;
-    common_chat_templates templates;
+    common_chat_templates_ptr templates;
 
     int n_ctx;
 
