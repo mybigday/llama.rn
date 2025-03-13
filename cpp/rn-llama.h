@@ -3,7 +3,6 @@
 
 #include <sstream>
 #include <iostream>
-#include "minja/chat-template.hpp"
 #include "chat.h"
 #include "common.h"
 #include "ggml.h"
