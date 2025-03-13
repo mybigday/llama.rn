@@ -68,9 +68,9 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/sgemm.cpp
     ${SOURCE_DIR}/common.cpp
     ${SOURCE_DIR}/chat.cpp
-    ${SOURCE_DIR}/chat-template.hpp
     ${SOURCE_DIR}/json-schema-to-grammar.cpp
-    ${SOURCE_DIR}/minja.hpp
+    ${SOURCE_DIR}/minja/minja.hpp
+    ${SOURCE_DIR}/minja/chat-template.hpp
     ${SOURCE_DIR}/json.hpp
     ${SOURCE_DIR}/amx/amx.cpp
     ${SOURCE_DIR}/amx/mmq.cpp
