@@ -913,7 +913,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     auto toolCalls = createWritableArray(env);
     std::string reasoningContent = "";
-    std::string *content = nullptr;
+    std::string content;
     auto toolCallsSize = 0;
     if (!llama->is_interrupted) {
         try {
@@ -921,7 +921,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
             if (!message.reasoning_content.empty()) {
                 reasoningContent = message.reasoning_content;
             }
-            content = &message.content;
+            content = message.content;
             for (const auto &tc : message.tool_calls) {
                 auto toolCall = createWriteableMap(env);
                 putString(env, toolCall, "type", "function");
@@ -942,8 +942,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     auto result = createWriteableMap(env);
     putString(env, result, "text", llama->generated_text.c_str());
-    if (content) {
-        putString(env, result, "content", content->c_str());
+    if (!content.empty()) {
+        putString(env, result, "content", content.c_str());
     }
     if (!reasoningContent.empty()) {
         putString(env, result, "reasoning_content", reasoningContent.c_str());

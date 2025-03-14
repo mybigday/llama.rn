@@ -62,6 +62,9 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/llama-model-loader.cpp
     ${SOURCE_DIR}/llama-mmap.cpp
     ${SOURCE_DIR}/llama-vocab.cpp
+    ${SOURCE_DIR}/llama-memory.cpp
+    ${SOURCE_DIR}/llama-io.cpp
+    ${SOURCE_DIR}/llama-graph.cpp
     ${SOURCE_DIR}/sampling.cpp
     ${SOURCE_DIR}/unicode-data.cpp
     ${SOURCE_DIR}/unicode.cpp

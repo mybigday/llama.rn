@@ -326,7 +326,7 @@ void llama_rn_context::loadPrompt() {
     }
 
     // since #3228 we now have to manually manage the KV cache
-    llama_kv_cache_seq_rm(ctx, 0, n_past, -1);
+    llama_kv_self_seq_rm(ctx, 0, n_past, -1);
 
     LOG_VERBOSE("prompt ingested, n_past: %d, cached: %s, to_eval: %s",
         n_past,
@@ -356,8 +356,8 @@ completion_token_output llama_rn_context::nextToken()
         const int n_left    = n_past - params.n_keep - 1;
         const int n_discard = n_left/2;
 
-        llama_kv_cache_seq_rm (ctx, 0, params.n_keep + 1            , params.n_keep + n_discard + 1);
-        llama_kv_cache_seq_add(ctx, 0, params.n_keep + 1 + n_discard, n_past, -n_discard);
+        llama_kv_self_seq_rm (ctx, 0, params.n_keep + 1            , params.n_keep + n_discard + 1);
+        llama_kv_self_seq_add(ctx, 0, params.n_keep + 1 + n_discard, n_past, -n_discard);
 
         for (size_t i = params.n_keep + 1 + n_discard; i < embd.size(); i++)
         {
@@ -612,7 +612,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
         }
         batch.logits[batch.n_tokens - 1] = 1; // true
 
-        llama_kv_cache_clear(ctx);
+        llama_kv_self_clear(ctx);
 
         const int64_t t_pp_start = llama_time_us();
         if (llama_decode(ctx, batch) != 0)
@@ -620,7 +620,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
             LOG_ERROR("llama_decode() failed during prompt", "");
         }
         const int64_t t_pp_end = llama_time_us();
-        llama_kv_cache_clear(ctx);
+        llama_kv_self_clear(ctx);
 
         if (is_interrupted) break;
 
@@ -644,7 +644,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
 
         const int64_t t_tg_end = llama_time_us();
 
-        llama_kv_cache_clear(ctx);
+        llama_kv_self_clear(ctx);
 
         const double t_pp = (t_pp_end - t_pp_start) / 1000000.0;
         const double t_tg = (t_tg_end - t_tg_start) / 1000000.0;
@@ -670,7 +670,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
         tg_std = 0;
     }
 
-    if (is_interrupted) llama_kv_cache_clear(ctx);
+    if (is_interrupted) llama_kv_self_clear(ctx);
     is_predicting = false;
 
     char model_desc[128];

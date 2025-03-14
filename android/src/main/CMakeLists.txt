@@ -40,6 +40,9 @@ set(
     ${RNLLAMA_LIB_DIR}/llama-model-loader.cpp
     ${RNLLAMA_LIB_DIR}/llama-mmap.cpp
     ${RNLLAMA_LIB_DIR}/llama-vocab.cpp
+    ${RNLLAMA_LIB_DIR}/llama-memory.cpp
+    ${RNLLAMA_LIB_DIR}/llama-io.cpp
+    ${RNLLAMA_LIB_DIR}/llama-graph.cpp
     ${RNLLAMA_LIB_DIR}/sampling.cpp
     ${RNLLAMA_LIB_DIR}/unicode-data.cpp
     ${RNLLAMA_LIB_DIR}/unicode.cpp

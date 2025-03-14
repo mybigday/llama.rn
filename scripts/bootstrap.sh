@@ -85,6 +85,13 @@ cp ./llama.cpp/src/unicode.cpp ./cpp/unicode.cpp
 cp ./llama.cpp/src/unicode-data.h ./cpp/unicode-data.h
 cp ./llama.cpp/src/unicode-data.cpp ./cpp/unicode-data.cpp
 
+cp ./llama.cpp/src/llama-graph.h ./cpp/llama-graph.h
+cp ./llama.cpp/src/llama-graph.cpp ./cpp/llama-graph.cpp
+cp ./llama.cpp/src/llama-io.h ./cpp/llama-io.h
+cp ./llama.cpp/src/llama-io.cpp ./cpp/llama-io.cpp
+cp ./llama.cpp/src/llama-memory.h ./cpp/llama-memory.h
+cp ./llama.cpp/src/llama-memory.cpp ./cpp/llama-memory.cpp
+
 cp ./llama.cpp/common/log.h ./cpp/log.h
 cp ./llama.cpp/common/log.cpp ./cpp/log.cpp
 cp ./llama.cpp/common/common.h ./cpp/common.h
@@ -133,6 +140,12 @@ files_add_lm_prefix=(
   "./cpp/llama-hparams.cpp"
   "./cpp/llama-cparams.h"
   "./cpp/llama-cparams.cpp"
+  "./cpp/llama-graph.h"
+  "./cpp/llama-graph.cpp"
+  "./cpp/llama-io.h"
+  "./cpp/llama-io.cpp"
+  "./cpp/llama-memory.h"
+  "./cpp/llama-memory.cpp"
   "./cpp/log.h"
   "./cpp/log.cpp"
   "./cpp/llama.h"
