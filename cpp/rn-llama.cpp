@@ -248,16 +248,6 @@ std::string llama_rn_context::getFormattedChat(
   const std::string &messages,
   const std::string &chat_template
 ) const {
-    auto chat_json = json::parse(messages);
-
-    // Handle regular chat without tools
-    std::vector<common_chat_msg> chat_msgs;
-    for (const auto &msg : chat_json) {
-        chat_msgs.push_back({
-            msg["role"].get<std::string>(),
-            msg["content"].get<std::string>()
-        });
-    }
     common_chat_templates_inputs inputs;
     inputs.messages = common_chat_msgs_parse_oaicompat(json::parse(messages));
     inputs.use_jinja = false;
