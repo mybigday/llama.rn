@@ -498,20 +498,33 @@
     if (params[@"grammar_triggers"] && [params[@"grammar_triggers"] isKindOfClass:[NSArray class]]) {
         NSArray *grammar_triggers = params[@"grammar_triggers"];
         for (NSDictionary *grammar_trigger in grammar_triggers) {
-            const auto & word = [grammar_trigger[@"word"] UTF8String];
-            auto ids = common_tokenize(llama->ctx, word, /* add_special= */ false, /* parse_special= */ true);
-            if (ids.size() == 1) {
-                auto token = ids[0];
-                if (std::find(sparams.preserved_tokens.begin(), sparams.preserved_tokens.end(), (llama_token) token) == sparams.preserved_tokens.end()) {
-                    throw std::runtime_error("Grammar trigger word should be marked as preserved token");
-                }
-                common_grammar_trigger trigger;
-                trigger.type = COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN;
-                trigger.value = word;
-                trigger.token = token;
-                sparams.grammar_triggers.push_back(std::move(trigger));
+            const auto type = static_cast<common_grammar_trigger_type>([grammar_trigger[@"type"] intValue]);
+            const auto & word = [grammar_trigger[@"value"] UTF8String];
+
+            if (type == COMMON_GRAMMAR_TRIGGER_TYPE_WORD) {
+              auto ids = common_tokenize(llama->ctx, word, /* add_special= */ false, /* parse_special= */ true);
+              if (ids.size() == 1) {
+                  auto token = ids[0];
+                  if (std::find(sparams.preserved_tokens.begin(), sparams.preserved_tokens.end(), (llama_token) token) == sparams.preserved_tokens.end()) {
+                      throw std::runtime_error("Grammar trigger word should be marked as preserved token");
+                  }
+                  common_grammar_trigger trigger;
+                  trigger.type = COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN;
+                  trigger.value = word;
+                  trigger.token = token;
+                  sparams.grammar_triggers.push_back(std::move(trigger));
+              } else {
+                  sparams.grammar_triggers.push_back({COMMON_GRAMMAR_TRIGGER_TYPE_WORD, word});
+              }
             } else {
-                sparams.grammar_triggers.push_back({COMMON_GRAMMAR_TRIGGER_TYPE_WORD, word});
+                common_grammar_trigger trigger;
+                trigger.type = type;
+                trigger.value = word;
+                if (type == COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN) {
+                    const auto token = (llama_token) [grammar_trigger[@"token"] intValue];
+                    trigger.token = token;
+                }
+                sparams.grammar_triggers.push_back(std::move(trigger));
             }
         }
     }

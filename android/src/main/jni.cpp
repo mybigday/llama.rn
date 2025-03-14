@@ -742,22 +742,34 @@ Java_com_rnllama_LlamaContext_doCompletion(
         int grammar_triggers_size = readablearray::size(env, grammar_triggers);
         for (int i = 0; i < grammar_triggers_size; i++) {
             auto trigger_map = readablearray::getMap(env, grammar_triggers, i);
-            jstring trigger_word = readablemap::getString(env, trigger_map, "word", nullptr);
+            const auto type = static_cast<common_grammar_trigger_type>(readablemap::getInt(env, trigger_map, "type", 0));
+            jstring trigger_word = readablemap::getString(env, trigger_map, "value", nullptr);
             auto word = env->GetStringUTFChars(trigger_word, nullptr);
 
-            auto ids = common_tokenize(llama->ctx, word, /* add_special= */ false, /* parse_special= */ true);
-            if (ids.size() == 1) {
-                auto token = ids[0];
-                if (std::find(sparams.preserved_tokens.begin(), sparams.preserved_tokens.end(), (llama_token) token) == sparams.preserved_tokens.end()) {
-                    throw std::runtime_error("Grammar trigger word should be marked as preserved token");
+            if (type == COMMON_GRAMMAR_TRIGGER_TYPE_WORD) {
+                auto ids = common_tokenize(llama->ctx, word, /* add_special= */ false, /* parse_special= */ true);
+                if (ids.size() == 1) {
+                    auto token = ids[0];
+                    if (std::find(sparams.preserved_tokens.begin(), sparams.preserved_tokens.end(), (llama_token) token) == sparams.preserved_tokens.end()) {
+                        throw std::runtime_error("Grammar trigger word should be marked as preserved token");
+                    }
+                    common_grammar_trigger trigger;
+                    trigger.type = COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN;
+                    trigger.value = word;
+                    trigger.token = token;
+                    sparams.grammar_triggers.push_back(std::move(trigger));
+                } else {
+                    sparams.grammar_triggers.push_back({COMMON_GRAMMAR_TRIGGER_TYPE_WORD, word});
                 }
-                common_grammar_trigger trigger;
-                trigger.type = COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN;
-                trigger.value = word;
-                trigger.token = token;
-                sparams.grammar_triggers.push_back(std::move(trigger));
             } else {
-                sparams.grammar_triggers.push_back({COMMON_GRAMMAR_TRIGGER_TYPE_WORD, word});
+                common_grammar_trigger trigger;
+                trigger.type = type;
+                trigger.value = word;
+                if (type == COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN) {
+                    const auto token = (llama_token) readablemap::getInt(env, trigger_map, "token", 0);
+                    trigger.token = token;
+                }
+                sparams.grammar_triggers.push_back(std::move(trigger));
             }
         }
     }
