@@ -93,6 +93,7 @@ export type NativeCompletionParams = {
    * Lazy grammar triggers. Default: []
    */
   grammar_triggers?: Array<{
+    type: number
     value: string
     token: number
   }>
@@ -341,6 +342,7 @@ export type JinjaFormattedChatResult = {
   grammar?: string
   grammar_lazy?: boolean
   grammar_triggers?: Array<{
+    type: number
     value: string
     token: number
   }>

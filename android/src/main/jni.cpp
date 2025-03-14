@@ -509,6 +509,7 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
         auto grammar_triggers = createWritableArray(env);
         for (const auto &trigger : formatted.grammar_triggers) {
             auto trigger_map = createWriteableMap(env);
+            putInt(env, trigger_map, "type", trigger.type);
             putString(env, trigger_map, "value", trigger.value.c_str());
             putInt(env, trigger_map, "token", trigger.token);
             pushMap(env, grammar_triggers, trigger_map);

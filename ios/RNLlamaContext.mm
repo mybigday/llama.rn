@@ -363,6 +363,7 @@
     NSMutableArray *grammar_triggers = [[NSMutableArray alloc] init];
     for (const auto & trigger : chatParams.grammar_triggers) {
         [grammar_triggers addObject:@{
+            @"type": @(trigger.type),
             @"value": [NSString stringWithUTF8String:trigger.value.c_str()],
             @"token": @(trigger.token),
         }];
