@@ -69,7 +69,8 @@ if (EventEmitter) {
       logListeners.forEach((listener) => listener(evt.level, evt.text))
     },
   )
-  RNLlama?.toggleNativeLog?.(false) // Trigger unset to use default log callback
+  // Trigger unset to use default log callback
+  RNLlama?.toggleNativeLog?.(false)?.catch?.(() => {})
 }
 
 export type TokenData = {
