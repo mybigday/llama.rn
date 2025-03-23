@@ -929,6 +929,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "RMS_NORM",
     "RMS_NORM_BACK",
     "GROUP_NORM",
+    "L2_NORM",
 
     "MUL_MAT",
     "MUL_MAT_ID",
@@ -977,6 +978,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "ADD_REL_POS",
     "RWKV_WKV6",
     "GATED_LINEAR_ATTN",
+    "RWKV_WKV7",
 
     "UNARY",
 
@@ -996,7 +998,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "OPT_STEP_ADAMW",
 };
 
-static_assert(LM_GGML_OP_COUNT == 83, "LM_GGML_OP_COUNT != 83");
+static_assert(LM_GGML_OP_COUNT == 85, "LM_GGML_OP_COUNT != 85");
 
 static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "none",
@@ -1026,6 +1028,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "rms_norm(x)",
     "rms_norm_back(x)",
     "group_norm(x)",
+    "l2_norm(x)",
 
     "X*Y",
     "X[i]*Y",
@@ -1074,6 +1077,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "add_rel_pos(x)",
     "rwkv_wkv6(k, v, r, tf, td, s)",
     "gated_linear_attn(k, v, q, gate, s)",
+    "rwkv_wkv7(r, w, k, v, a, b, s)",
 
     "unary(x)",
 
@@ -1093,7 +1097,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "adamw(x)",
 };
 
-static_assert(LM_GGML_OP_COUNT == 83, "LM_GGML_OP_COUNT != 83");
+static_assert(LM_GGML_OP_COUNT == 85, "LM_GGML_OP_COUNT != 85");
 
 static_assert(LM_GGML_OP_POOL_COUNT == 2, "LM_GGML_OP_POOL_COUNT != 2");
 
@@ -2684,6 +2688,37 @@ struct lm_ggml_tensor * lm_ggml_group_norm_inplace(
         int                   n_groups,
         float                 eps) {
     return lm_ggml_group_norm_impl(ctx, a, n_groups, eps, true);
+}
+
+// lm_ggml_l2_norm
+
+static struct lm_ggml_tensor * lm_ggml_l2_norm_impl(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        float                 eps,
+        bool                  inplace) {
+    struct lm_ggml_tensor * result = inplace ? lm_ggml_view_tensor(ctx, a) : lm_ggml_dup_tensor(ctx, a);
+
+    lm_ggml_set_op_params_f32(result, 0, eps);
+
+    result->op     = LM_GGML_OP_L2_NORM;
+    result->src[0] = a;
+
+    return result;
+}
+
+struct lm_ggml_tensor * lm_ggml_l2_norm(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        float                 eps) {
+    return lm_ggml_l2_norm_impl(ctx, a, eps, false);
+}
+
+struct lm_ggml_tensor * lm_ggml_l2_norm_inplace(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        float                 eps) {
+    return lm_ggml_l2_norm_impl(ctx, a, eps, true);
 }
 
 // lm_ggml_mul_mat
@@ -4716,6 +4751,54 @@ struct lm_ggml_tensor * lm_ggml_gated_linear_attn(
     result->src[2] = q;
     result->src[3] = g;
     result->src[4] = state;
+
+    return result;
+}
+
+// lm_ggml_rwkv_wkv7
+
+struct lm_ggml_tensor * lm_ggml_rwkv_wkv7(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * r,
+        struct lm_ggml_tensor  * w,
+        struct lm_ggml_tensor  * k,
+        struct lm_ggml_tensor  * v,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        struct lm_ggml_tensor  * state) {
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(r));
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(w));
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(k));
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(v));
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(a));
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(b));
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(state));
+
+    const int64_t S = k->ne[0];
+    const int64_t H = k->ne[1];
+    const int64_t n_tokens = k->ne[2];
+    const int64_t n_seqs = state->ne[1];
+    {
+        LM_GGML_ASSERT(w->ne[0] == S && w->ne[1] == H && w->ne[2] == n_tokens);
+        LM_GGML_ASSERT(k->ne[0] == S && k->ne[1] == H && k->ne[2] == n_tokens);
+        LM_GGML_ASSERT(v->ne[0] == S && v->ne[1] == H && v->ne[2] == n_tokens);
+        LM_GGML_ASSERT(a->ne[0] == S && a->ne[1] == H && a->ne[2] == n_tokens);
+        LM_GGML_ASSERT(b->ne[0] == S && b->ne[1] == H && b->ne[2] == n_tokens);
+        LM_GGML_ASSERT(lm_ggml_nelements(state) == S * S * H * n_seqs);
+    }
+
+    // concat output and new_state
+    const int64_t ne[4] = { S * H, n_tokens + S * n_seqs, 1, 1 };
+    struct lm_ggml_tensor * result = lm_ggml_new_tensor(ctx, LM_GGML_TYPE_F32, 4, ne);
+
+    result->op     = LM_GGML_OP_RWKV_WKV7;
+    result->src[0] = r;
+    result->src[1] = w;
+    result->src[2] = k;
+    result->src[3] = v;
+    result->src[4] = a;
+    result->src[5] = b;
+    result->src[6] = state;
 
     return result;
 }
