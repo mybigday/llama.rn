@@ -454,6 +454,7 @@ extern "C" {
         LM_GGML_OP_RMS_NORM,
         LM_GGML_OP_RMS_NORM_BACK,
         LM_GGML_OP_GROUP_NORM,
+        LM_GGML_OP_L2_NORM,
 
         LM_GGML_OP_MUL_MAT,
         LM_GGML_OP_MUL_MAT_ID,
@@ -502,6 +503,7 @@ extern "C" {
         LM_GGML_OP_ADD_REL_POS,
         LM_GGML_OP_RWKV_WKV6,
         LM_GGML_OP_GATED_LINEAR_ATTN,
+        LM_GGML_OP_RWKV_WKV7,
 
         LM_GGML_OP_UNARY,
 
@@ -1093,6 +1095,18 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             int                   n_groups,
+            float                 eps);
+
+    // l2 normalize along rows
+    // used in rwkv v7
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_l2_norm(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            float                 eps);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_l2_norm_inplace(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
             float                 eps);
 
     // a - x
@@ -1889,6 +1903,16 @@ extern "C" {
             struct lm_ggml_tensor  * g,
             struct lm_ggml_tensor  * state,
             float scale);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_rwkv_wkv7(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * r,
+            struct lm_ggml_tensor  * w,
+            struct lm_ggml_tensor  * k,
+            struct lm_ggml_tensor  * v,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b,
+            struct lm_ggml_tensor  * state);
 
     // custom operators
 

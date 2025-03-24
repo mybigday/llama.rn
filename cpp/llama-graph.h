@@ -487,9 +487,9 @@ struct llm_graph_context {
 
     lm_ggml_tensor * build_attn_mha(
              lm_ggml_cgraph * gf,
-             lm_ggml_tensor * q,
-             lm_ggml_tensor * k,
-             lm_ggml_tensor * v,
+             lm_ggml_tensor * q, // [n_embd_head_q, n_tokens, n_head_q]
+             lm_ggml_tensor * k, // [n_embd_head_k, n_tokens, n_head_k]
+             lm_ggml_tensor * v, // [n_embd_head_v, n_tokens, n_head_v] (v_trans == false)
              lm_ggml_tensor * kq_b,
              lm_ggml_tensor * kq_mask,
                     bool   v_trans,
@@ -502,9 +502,9 @@ struct llm_graph_context {
             lm_ggml_cgraph * gf,
             lm_ggml_tensor * wo,
             lm_ggml_tensor * wo_b,
-            lm_ggml_tensor * q_cur,
-            lm_ggml_tensor * k_cur,
-            lm_ggml_tensor * v_cur,
+            lm_ggml_tensor * q_cur, // [n_embd_head_q, n_head_q, n_tokens]
+            lm_ggml_tensor * k_cur, // [n_embd_head_k, n_head_k, n_tokens]
+            lm_ggml_tensor * v_cur, // [n_embd_head_v, n_head_v, n_tokens]
             lm_ggml_tensor * kq_b,
                   float   kq_scale,
                     int   il) const;
@@ -516,9 +516,9 @@ struct llm_graph_context {
             lm_ggml_cgraph * gf,
             lm_ggml_tensor * wo,
             lm_ggml_tensor * wo_b,
-            lm_ggml_tensor * q_cur,
-            lm_ggml_tensor * k_cur,
-            lm_ggml_tensor * v_cur,
+            lm_ggml_tensor * q_cur, // [n_embd_head_q, n_head_q, n_tokens]
+            lm_ggml_tensor * k_cur, // [n_embd_head_k, n_head_k, n_tokens]
+            lm_ggml_tensor * v_cur, // [n_embd_head_v, n_head_v, n_tokens]
             lm_ggml_tensor * kq_b,
                   float   kq_scale,
                     int   il) const;
@@ -530,9 +530,9 @@ struct llm_graph_context {
             lm_ggml_cgraph * gf,
             lm_ggml_tensor * wo,
             lm_ggml_tensor * wo_b,
-            lm_ggml_tensor * q_cur,
-            lm_ggml_tensor * k_cur,
-            lm_ggml_tensor * v_cur,
+            lm_ggml_tensor * q_cur, // [n_embd_head_q, n_head_q, n_tokens]
+            lm_ggml_tensor * k_cur, // [n_embd_head_k, n_head_k, n_tokens]
+            lm_ggml_tensor * v_cur, // [n_embd_head_v, n_head_v, n_tokens]
             lm_ggml_tensor * kq_b,
                   float   kq_scale,
                     int   il) const;
