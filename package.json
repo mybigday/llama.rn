@@ -1,7 +1,13 @@
 {
+<<<<<<< HEAD
   "name": "ragionare-llama.rn",
   "version": "1.6.9",
   "description": "React Native binding of llama.cpp for Ragionare",
+=======
+  "name": "llama.rn",
+  "version": "1.6.9",
+  "description": "React Native binding of llama.cpp",
+>>>>>>> a69ba2c6c64dff42923be7fddb184e398de54629
   "main": "lib/commonjs/index",
   "module": "lib/module/index",
   "types": "lib/typescript/index.d.ts",
