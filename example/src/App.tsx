@@ -8,14 +8,14 @@ import { Chat, darkTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import json5 from 'json5'
 import ReactNativeBlobUtil from 'react-native-blob-util'
-import type { LlamaContext } from 'llama.rn'
+import type { LlamaContext } from 'ragionare-llama.rn'
 import {
   initLlama,
   loadLlamaModelInfo,
   toggleNativeLog,
   addNativeLogListener,
   // eslint-disable-next-line import/no-unresolved
-} from 'llama.rn'
+} from 'ragionare-llama.rn'
 import { Bubble } from './Bubble'
 
 // Example: Catch logs from llama.cpp
