@@ -26,6 +26,9 @@
     "verbatimModuleSyntax": true
   },
   "exclude": [
-    "llama.cpp"
+    "llama.cpp",
+    "**/CMakeFiles/**",
+    "**/build/**",
+    "**/android/build/**"
   ]
 }

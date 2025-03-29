@@ -1,11 +1,31 @@
 #!/bin/bash -e
 
 # Set Android SDK and NDK paths
-export ANDROID_HOME=~/android-sdk
+if [ -z "$ANDROID_HOME" ]; then
+    # Try common Android SDK locations
+    if [ -d "$HOME/Android/Sdk" ]; then
+        export ANDROID_HOME="$HOME/Android/Sdk"
+    elif [ -d "/usr/local/lib/android/sdk" ]; then
+        export ANDROID_HOME="/usr/local/lib/android/sdk"
+    elif [ -d "$HOME/android-sdk" ]; then
+        export ANDROID_HOME="$HOME/android-sdk"
+    else
+        echo "Error: ANDROID_HOME is not set and could not find Android SDK"
+        echo "Please set ANDROID_HOME environment variable to your Android SDK path"
+        exit 1
+    fi
+fi
+
 export NDK_VERSION=26.3.11579264
 
 # Add command line tools to PATH
-export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+if [ -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
+    export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+elif [ -d "$ANDROID_HOME/cmdline-tools/tools/bin" ]; then
+    export PATH=$PATH:$ANDROID_HOME/cmdline-tools/tools/bin
+fi
+
+echo "Using Android SDK at: $ANDROID_HOME"
 
 # Set compiler paths
 export CC="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
@@ -14,12 +34,14 @@ export CXX="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64
 # Check if NDK exists
 if [ ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]; then
     echo "NDK not found at $ANDROID_HOME/ndk/$NDK_VERSION"
+    echo "Please install NDK version $NDK_VERSION through Android Studio"
     exit 1
 fi
 
 # Check if CMake exists
 if [ ! -d "$ANDROID_HOME/cmake" ]; then
     echo "CMake not found at $ANDROID_HOME/cmake"
+    echo "Please install CMake through Android Studio"
     exit 1
 fi
 
