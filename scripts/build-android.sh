@@ -27,9 +27,24 @@ fi
 
 echo "Using Android SDK at: $ANDROID_HOME"
 
-# Set compiler paths
-export CC="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
-export CXX="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
+# Detect if running in WSL
+if [[ $(uname -r) =~ [Mm]icrosoft ]]; then
+    # Running in WSL
+    # Check if using Windows NDK path or Linux NDK path
+    if [[ "$ANDROID_HOME" == /mnt/* ]]; then
+        # Path is mounted from Windows, use Windows paths
+        export CC="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe"
+        export CXX="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe"
+    else
+        # Path is in Linux filesystem, use Linux paths
+        export CC="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+        export CXX="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
+    fi
+else
+    # Not running in WSL, use Linux paths
+    export CC="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+    export CXX="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
+fi
 
 # Check if NDK exists
 if [ ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]; then
@@ -46,13 +61,13 @@ if [ ! -d "$ANDROID_HOME/cmake" ]; then
 fi
 
 # Check if compilers are executable
-if [ ! -x "$CC" ]; then
-    echo "C compiler not executable at $CC"
+if [ ! -f "$CC" ]; then
+    echo "C compiler not found at $CC"
     exit 1
 fi
 
-if [ ! -x "$CXX" ]; then
-    echo "C++ compiler not executable at $CXX"
+if [ ! -f "$CXX" ]; then
+    echo "C++ compiler not found at $CXX"
     exit 1
 fi
 
