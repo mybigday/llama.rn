@@ -1,6 +1,6 @@
 {
   "name": "ragionare-llama.rn",
-  "version": "1.6.9",
+  "version": "1.7.1",
   "description": "React Native binding of llama.cpp for Ragionare",
   "main": "lib/commonjs/index",
   "module": "lib/module/index",

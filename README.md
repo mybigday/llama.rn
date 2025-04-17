@@ -1,6 +1,6 @@
 # llama.rn
 
-[![Actions Status](https://github.com/sbhjt-gr/ragionare-llama.rn/workflows/CI/badge.svg)](https://github.com/sbhjt-gr/ragionare-llama.rn/actions)
+[![Actions Status](https://github.com/mybigday/llama.rn/workflows/CI/badge.svg)](https://github.com/sbhjt-gr/ragionare-llama.rn/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![npm](https://img.shields.io/npm/v/llama.rn.svg)](https://www.npmjs.com/package/ragionare-llama.rn/)
 
