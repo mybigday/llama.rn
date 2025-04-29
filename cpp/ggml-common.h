@@ -158,6 +158,12 @@ typedef sycl::half2 lm_ggml_half2;
 
 #endif // LM_GGML_COMMON_DECL_CUDA || LM_GGML_COMMON_DECL_HIP
 
+#ifdef _MSC_VER
+#define LM_GGML_EXTENSION
+#else // _MSC_VER
+#define LM_GGML_EXTENSION __extension__
+#endif // _MSC_VER
+
 #define QK4_0 32
 typedef struct {
     lm_ggml_half d;           // delta
@@ -167,7 +173,7 @@ static_assert(sizeof(block_q4_0) == sizeof(lm_ggml_half) + QK4_0 / 2, "wrong q4_
 
 #define QK4_1 32
 typedef struct {
-    union {
+    LM_GGML_EXTENSION union {
         struct {
             lm_ggml_half d; // delta
             lm_ggml_half m; // min
@@ -188,7 +194,7 @@ static_assert(sizeof(block_q5_0) == sizeof(lm_ggml_half) + sizeof(uint32_t) + QK
 
 #define QK5_1 32
 typedef struct {
-    union {
+    LM_GGML_EXTENSION union {
         struct {
             lm_ggml_half d; // delta
             lm_ggml_half m; // min
@@ -209,7 +215,7 @@ static_assert(sizeof(block_q8_0) == sizeof(lm_ggml_half) + QK8_0, "wrong q8_0 bl
 
 #define QK8_1 32
 typedef struct {
-    union {
+    LM_GGML_EXTENSION union {
         struct {
             lm_ggml_half d; // delta
             lm_ggml_half s; // d * sum(qs[i])
@@ -250,7 +256,7 @@ static_assert(sizeof(block_tq2_0) == sizeof(lm_ggml_half) + QK_K / 4, "wrong tq2
 typedef struct {
     uint8_t scales[QK_K/16]; // scales and mins, quantized with 4 bits
     uint8_t qs[QK_K/4];      // quants
-    union {
+    LM_GGML_EXTENSION union {
         struct {
             lm_ggml_half d;    // super-block scale for quantized scales
             lm_ggml_half dmin; // super-block scale for quantized mins
@@ -277,7 +283,7 @@ static_assert(sizeof(block_q3_K) == sizeof(lm_ggml_half) + QK_K / 4 + QK_K / 8 +
 // weight is represented as x = a * q + b
 // Effectively 4.5 bits per weight
 typedef struct {
-    union {
+    LM_GGML_EXTENSION union {
         struct {
             lm_ggml_half d;    // super-block scale for quantized scales
             lm_ggml_half dmin; // super-block scale for quantized mins
@@ -294,7 +300,7 @@ static_assert(sizeof(block_q4_K) == 2*sizeof(lm_ggml_half) + K_SCALE_SIZE + QK_K
 // weight is represented as x = a * q + b
 // Effectively 5.5 bits per weight
 typedef struct {
-    union {
+    LM_GGML_EXTENSION union {
         struct {
             lm_ggml_half d;    // super-block scale for quantized scales
             lm_ggml_half dmin; // super-block scale for quantized mins

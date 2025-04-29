@@ -255,7 +255,7 @@ Java_com_rnllama_LlamaContext_initContext(
     }
 
     const char *model_path_chars = env->GetStringUTFChars(model_path_str, nullptr);
-    defaultParams.model = model_path_chars;
+    defaultParams.model.path = model_path_chars;
 
     const char *chat_template_chars = env->GetStringUTFChars(chat_template, nullptr);
     defaultParams.chat_template = chat_template_chars;

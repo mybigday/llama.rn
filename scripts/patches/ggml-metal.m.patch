@@ -1,9 +1,9 @@
 --- ggml-metal.m.orig	2025-03-13 11:13:58
 +++ ggml-metal.m	2025-03-13 11:14:54
-@@ -529,7 +529,11 @@
+@@ -834,7 +834,11 @@ @implementation LMGGMLMetalClass
      NSBundle * bundle = [NSBundle bundleForClass:[LMGGMLMetalClass class]];
  #endif
-
+ 
 -    NSString * path_lib = [bundle pathForResource:@"default" ofType:@"metallib"];
 +#if TARGET_OS_SIMULATOR
 +    NSString * path_lib = [bundle pathForResource:@"ggml-llama-sim" ofType:@"metallib"];

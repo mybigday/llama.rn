@@ -82,7 +82,7 @@
     BOOL isAsset = [params[@"is_model_asset"] boolValue];
     NSString *path = modelPath;
     if (isAsset) path = [[NSBundle mainBundle] pathForResource:modelPath ofType:nil];
-    defaultParams.model = [path UTF8String];
+    defaultParams.model.path = [path UTF8String];
 
     NSString *chatTemplate = params[@"chat_template"];
     if (chatTemplate) {

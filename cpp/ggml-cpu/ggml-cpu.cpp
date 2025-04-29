@@ -425,6 +425,8 @@ static bool lm_ggml_backend_cpu_device_supports_op(lm_ggml_backend_dev_t dev, co
         }
         case LM_GGML_OP_IM2COL_BACK:
             return src0->type == LM_GGML_TYPE_F32 && src1->type == LM_GGML_TYPE_F32;
+        case LM_GGML_OP_GET_ROWS_BACK:
+            return src0->type == LM_GGML_TYPE_F32 || src0->type == LM_GGML_TYPE_F16;
         case LM_GGML_OP_OUT_PROD:
             return (src0->type == LM_GGML_TYPE_F32 || (lm_ggml_is_quantized(src0->type) && src0->ne[2] == src1->ne[2] && src0->ne[3] == src1->ne[3])) &&
                 src1->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
