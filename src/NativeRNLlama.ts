@@ -68,6 +68,11 @@ export type NativeContextParams = {
 
   pooling_type?: number
 
+  /**
+   * Enable context shifting to handle prompts larger than context size
+   */
+  ctx_shift?: boolean
+
   // Embedding params
   embedding?: boolean
   embd_normalize?: number

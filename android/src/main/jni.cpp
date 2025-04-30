@@ -243,6 +243,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jfloat rope_freq_base,
     jfloat rope_freq_scale,
     jint pooling_type,
+    jboolean ctx_shift,
     jobject load_progress_callback
 ) {
     UNUSED(thiz);
@@ -270,6 +271,7 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.n_ctx = n_ctx;
     defaultParams.n_batch = n_batch;
     defaultParams.n_ubatch = n_ubatch;
+    defaultParams.ctx_shift = ctx_shift;
 
     if (pooling_type != -1) {
         defaultParams.pooling_type = static_cast<enum llama_pooling_type>(pooling_type);
@@ -846,6 +848,12 @@ Java_com_rnllama_LlamaContext_doCompletion(
     llama->beginCompletion();
     llama->loadPrompt();
 
+    if (llama->context_full) {
+        auto result = createWriteableMap(env);
+        putString(env, result, "error", "Context is full");
+        return reinterpret_cast<jobject>(result);
+    }
+
     size_t sent_count = 0;
     size_t sent_token_probs_index = 0;
 
@@ -955,6 +963,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     putInt(env, result, "tokens_predicted", llama->num_tokens_predicted);
     putInt(env, result, "tokens_evaluated", llama->num_prompt_tokens);
     putInt(env, result, "truncated", llama->truncated);
+    putBoolean(env, result, "context_full", llama->context_full);
     putInt(env, result, "stopped_eos", llama->stopped_eos);
     putInt(env, result, "stopped_word", llama->stopped_word);
     putInt(env, result, "stopped_limit", llama->stopped_limit);
