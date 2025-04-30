@@ -165,6 +165,7 @@ void llama_rn_context::rewind() {
     generated_text.reserve(params.n_ctx);
     generated_token_probs.clear();
     truncated = false;
+    context_full = false;
     stopped_eos = false;
     stopped_word = false;
     stopped_limit = false;
@@ -196,6 +197,9 @@ bool llama_rn_context::loadModel(common_params &params_)
     }
     templates = common_chat_templates_init(model, params.chat_template);
     n_ctx = llama_n_ctx(ctx);
+
+    // Initialize context shift flag
+    LOG_INFO("ctx_shift: %s", params.ctx_shift ? "enabled" : "disabled");
 
     // We can uncomment for debugging or after this fix: https://github.com/ggerganov/llama.cpp/pull/11101
     // LOG_INFO("%s\n", common_params_get_system_info(params).c_str());
@@ -271,11 +275,11 @@ void llama_rn_context::truncatePrompt(std::vector<llama_token> &prompt_tokens) {
 
     new_tokens.insert(new_tokens.end(), prompt_tokens.begin() + params.n_keep + erased_blocks * n_block_size, prompt_tokens.end());
 
-    LOG_VERBOSE("input truncated, n_ctx: %d, n_keep: %d, n_left: %d, new_tokens: %s, num_prompt_tokens: %d",
+    LOG_INFO("input truncated, n_ctx: %d, n_keep: %d, n_left: %d, old_size: %d, new_size: %d",
         n_ctx,
         params.n_keep,
         n_left,
-        tokens_to_str(ctx, new_tokens.cbegin(), new_tokens.cend()).c_str(),
+        prompt_tokens.size(),
         new_tokens.size()
     );
 
@@ -304,9 +308,12 @@ void llama_rn_context::loadPrompt() {
     // if input prompt is too big, truncate like normal
     if (num_prompt_tokens >= (size_t) n_ctx)
     {
+        if (!params.ctx_shift) {
+            context_full = true;
+            return;
+        }
         truncatePrompt(prompt_tokens);
         num_prompt_tokens = prompt_tokens.size();
-
         LM_GGML_ASSERT(num_prompt_tokens < (size_t) n_ctx);
     }
     // push the prompt into the sampling context (do not apply grammar)
@@ -351,6 +358,14 @@ completion_token_output llama_rn_context::nextToken()
 
     if (embd.size() >= (size_t)params.n_ctx)
     {
+        if (!params.ctx_shift) {
+            // If context shifting is disabled, stop generation
+            LOG_WARNING("context full, n_ctx: %d, tokens: %d", params.n_ctx, embd.size());
+            has_next_token = false;
+            context_full = true;
+            return result;
+        }
+
         // Shift context
 
         const int n_left    = n_past - params.n_keep - 1;
@@ -366,12 +381,9 @@ completion_token_output llama_rn_context::nextToken()
         embd.resize(embd.size() - n_discard);
 
         n_past -= n_discard;
+        truncated = true;
 
-        LOG_VERBOSE("input truncated, n_ctx: %d, n_keep: %d, n_left: %d, new_tokens: %s",
-            params.n_ctx,
-            params.n_keep,
-            n_left
-        );
+        LOG_VERBOSE("context shifted, new n_past: %d, new size: %d", n_past, embd.size());
     }
 
     bool tg = true;

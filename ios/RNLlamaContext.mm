@@ -184,6 +184,8 @@
 
     if (params[@"flash_attn"] && [params[@"flash_attn"] boolValue]) defaultParams.flash_attn = true;
 
+    if (params[@"ctx_shift"]) defaultParams.ctx_shift = [params[@"ctx_shift"] boolValue];
+
     if (params[@"cache_type_k"]) defaultParams.cache_type_k = rnllama::kv_cache_type_from_str([params[@"cache_type_k"] UTF8String]);
     if (params[@"cache_type_v"]) defaultParams.cache_type_v = rnllama::kv_cache_type_from_str([params[@"cache_type_v"] UTF8String]);
 
@@ -568,6 +570,9 @@
     }
     llama->beginCompletion();
     llama->loadPrompt();
+    if (llama->context_full) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context is full" userInfo:nil];
+    }
 
     size_t sent_count = 0;
     size_t sent_token_probs_index = 0;
@@ -668,6 +673,7 @@
     result[@"tokens_predicted"] = @(llama->num_tokens_predicted);
     result[@"tokens_evaluated"] = @(llama->num_prompt_tokens);
     result[@"truncated"] = @(llama->truncated);
+    result[@"context_full"] = @(llama->context_full);
     result[@"stopped_eos"] = @(llama->stopped_eos);
     result[@"stopped_word"] = @(llama->stopped_word);
     result[@"stopped_limit"] = @(llama->stopped_limit);
