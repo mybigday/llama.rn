@@ -1,10 +1,10 @@
 # llama.rn
 
-[![Actions Status](https://github.com/mybigday/llama.rn/workflows/CI/badge.svg)](https://github.com/sbhjt-gr/ragionare-llama.rn/actions)
+[![Actions Status](https://github.com/mybigday/llama.rn/workflows/CI/badge.svg)](https://github.com/sbhjt-gr/inferra-llama.rn/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![npm](https://img.shields.io/npm/v/llama.rn.svg)](https://www.npmjs.com/package/ragionare-llama.rn/)
+[![npm](https://img.shields.io/npm/v/llama.rn.svg)](https://www.npmjs.com/package/inferra-llama.rn/)
 
-React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp) for Ragionare.
+React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp) for Inferra.
 
 [llama.cpp](https://github.com/ggerganov/llama.cpp): Inference of [LLaMA](https://arxiv.org/abs/2302.13971) model in pure C/C++
 

@@ -2,7 +2,7 @@
   "compilerOptions": {
     "baseUrl": "./",
     "paths": {
-      "ragionare-llama.rn": ["./src/index"]
+      "inferra-llama.rn": ["./src/index"]
     },
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,

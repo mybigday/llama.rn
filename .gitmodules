@@ -2,4 +2,4 @@
 	path = llama.cpp
 	url = https://github.com/sbhjt-gr/llama.cpp.git
 	ignore = dirty
-	branch = ragionare
+	branch = inferra
