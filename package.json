@@ -1,6 +1,6 @@
 {
   "name": "ragionare-llama.rn",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "React Native binding of llama.cpp for Ragionare",
   "main": "lib/commonjs/index",
   "module": "lib/module/index",
@@ -34,7 +34,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
     "build": "bob build",
-    "prepack": "./scripts/build-android.sh && bob build",
+    "prepack": "./scripts/build-ios.sh && ./scripts/build-android.sh && bob build",
     "release": "release-it",
     "example": "yarn --cwd example",
     "build:ios-frameworks": "./scripts/build-ios.sh",
