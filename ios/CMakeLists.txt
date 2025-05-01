@@ -34,6 +34,8 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/ggml-alloc.c
     ${SOURCE_DIR}/ggml-backend.cpp
     ${SOURCE_DIR}/ggml-backend-reg.cpp
+    ${SOURCE_DIR}/ggml-cpu/amx/amx.cpp
+    ${SOURCE_DIR}/ggml-cpu/amx/mmq.cpp
     ${SOURCE_DIR}/ggml-cpu/ggml-cpu.c
     ${SOURCE_DIR}/ggml-cpu/ggml-cpu.cpp
     ${SOURCE_DIR}/ggml-cpu/ggml-cpu-aarch64.cpp
@@ -79,8 +81,6 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/minja/minja.hpp
     ${SOURCE_DIR}/minja/chat-template.hpp
     ${SOURCE_DIR}/json.hpp
-    ${SOURCE_DIR}/amx/amx.cpp
-    ${SOURCE_DIR}/amx/mmq.cpp
     ${SOURCE_DIR}/rn-llama.cpp
 )
 

@@ -16,6 +16,8 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml-alloc.c
     ${RNLLAMA_LIB_DIR}/ggml-backend.cpp
     ${RNLLAMA_LIB_DIR}/ggml-backend-reg.cpp
+    ${RNLLAMA_LIB_DIR}/ggml-cpu/amx/amx.cpp
+    ${RNLLAMA_LIB_DIR}/ggml-cpu/amx/mmq.cpp
     ${RNLLAMA_LIB_DIR}/ggml-cpu/ggml-cpu.c
     ${RNLLAMA_LIB_DIR}/ggml-cpu/ggml-cpu.cpp
     ${RNLLAMA_LIB_DIR}/ggml-cpu/ggml-cpu-aarch64.cpp
@@ -58,8 +60,6 @@ set(
     ${RNLLAMA_LIB_DIR}/chat.cpp
     ${RNLLAMA_LIB_DIR}/json-schema-to-grammar.cpp
     ${RNLLAMA_LIB_DIR}/json.hpp
-    ${RNLLAMA_LIB_DIR}/amx/amx.cpp
-    ${RNLLAMA_LIB_DIR}/amx/mmq.cpp
     ${RNLLAMA_LIB_DIR}/minja/minja.hpp
     ${RNLLAMA_LIB_DIR}/minja/chat-template.hpp
     ${RNLLAMA_LIB_DIR}/rn-llama.cpp

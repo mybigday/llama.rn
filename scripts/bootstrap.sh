@@ -39,7 +39,7 @@ cp ./llama.cpp/ggml/src/ggml-cpu/simd-mappings.h ./cpp/ggml-cpu/simd-mappings.h
 cp ./llama.cpp/ggml/src/ggml-cpu/ops.h ./cpp/ggml-cpu/ops.h
 cp ./llama.cpp/ggml/src/ggml-cpu/ops.cpp ./cpp/ggml-cpu/ops.cpp
 
-cp -r ./llama.cpp/ggml/src/ggml-cpu/amx ./cpp/
+cp -r ./llama.cpp/ggml/src/ggml-cpu/amx ./cpp/ggml-cpu/
 
 cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.h ./cpp/ggml-cpu/sgemm.h
 cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.cpp ./cpp/ggml-cpu/sgemm.cpp
@@ -201,11 +201,11 @@ files_add_lm_prefix=(
   "./cpp/ggml-cpu/common.h"
   "./cpp/ggml-threading.h"
   "./cpp/ggml-threading.cpp"
-  "./cpp/amx/amx.h"
-  "./cpp/amx/amx.cpp"
-  "./cpp/amx/mmq.h"
-  "./cpp/amx/mmq.cpp"
-  "./cpp/amx/common.h"
+  "./cpp/ggml-cpu/amx/amx.h"
+  "./cpp/ggml-cpu/amx/amx.cpp"
+  "./cpp/ggml-cpu/amx/mmq.h"
+  "./cpp/ggml-cpu/amx/mmq.cpp"
+  "./cpp/ggml-cpu/amx/common.h"
   "./cpp/ggml-cpu/unary-ops.h"
   "./cpp/ggml-cpu/unary-ops.cpp"
   "./cpp/ggml-cpu/binary-ops.h"
