@@ -232,7 +232,7 @@ static void llama_sampler_top_k_impl(llama_token_data_array * cur_p, int32_t k) 
     // }
 
     if (k <= 0) {
-        k = cur_p->size;
+        return;
     }
 
     k = std::min(k, (int) cur_p->size);
@@ -298,6 +298,7 @@ static void llama_sampler_top_k_impl(llama_token_data_array * cur_p, int32_t k) 
         }
         cur_p->sorted = true;
     }
+
     cur_p->size = k;
 }
 
@@ -1477,6 +1478,7 @@ static struct llama_sampler * llama_sampler_grammar_clone(const struct llama_sam
     const auto * ctx = (const llama_sampler_grammar *) smpl->ctx;
 
     auto * result = llama_sampler_init_grammar_impl(ctx->vocab, nullptr, nullptr, false, nullptr, 0, nullptr, 0, nullptr, 0);
+    LM_GGML_ASSERT(result);
 
     // copy the state
     {
@@ -1548,6 +1550,10 @@ static struct llama_sampler * llama_sampler_init_grammar_impl(
             /* .grammar_root = */ grammar_root,
             /* .grammar      = */ llama_grammar_init_impl(vocab, grammar_str, grammar_root, lazy, trigger_patterns, num_trigger_patterns, trigger_tokens, num_trigger_tokens),
         };
+        if (!ctx->grammar) {
+            delete ctx;
+            return nullptr;
+        }
     } else {
         *ctx = {
             /* .vocab        = */ vocab,

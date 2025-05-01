@@ -932,6 +932,7 @@ static void lm_gguf_check_reserved_keys(const std::string & key, const T val) {
         if constexpr (std::is_same<T, uint32_t>::value) {
             LM_GGML_ASSERT(val > 0 && (val & (val - 1)) == 0 && LM_GGUF_KEY_GENERAL_ALIGNMENT " must be power of 2");
         } else {
+            LM_GGML_UNUSED(val);
             LM_GGML_ABORT(LM_GGUF_KEY_GENERAL_ALIGNMENT " must be type u32");
         }
     }

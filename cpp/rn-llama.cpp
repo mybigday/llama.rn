@@ -192,7 +192,7 @@ bool llama_rn_context::loadModel(common_params &params_)
     ctx = llama_init.context.get();
     if (model == nullptr)
     {
-        LOG_ERROR("unable to load model: %s", params_.model.c_str());
+        LOG_ERROR("unable to load model: %s", params_.model.path.c_str());
         return false;
     }
     templates = common_chat_templates_init(model, params.chat_template);

@@ -393,8 +393,8 @@ extern "C" {
 
     // precision
     enum lm_ggml_prec {
-        LM_GGML_PREC_DEFAULT,
-        LM_GGML_PREC_F32,
+        LM_GGML_PREC_DEFAULT =  0, // stored as lm_ggml_tensor.op_params, 0 by default
+        LM_GGML_PREC_F32     = 10,
     };
 
     // model file types
@@ -481,6 +481,7 @@ extern "C" {
         LM_GGML_OP_CONV_TRANSPOSE_1D,
         LM_GGML_OP_IM2COL,
         LM_GGML_OP_IM2COL_BACK,
+        LM_GGML_OP_CONV_2D_DW,
         LM_GGML_OP_CONV_TRANSPOSE_2D,
         LM_GGML_OP_POOL_1D,
         LM_GGML_OP_POOL_2D,
@@ -507,16 +508,11 @@ extern "C" {
 
         LM_GGML_OP_UNARY,
 
-        LM_GGML_OP_MAP_UNARY,
-        LM_GGML_OP_MAP_BINARY,
-
-        LM_GGML_OP_MAP_CUSTOM1_F32,
-        LM_GGML_OP_MAP_CUSTOM2_F32,
-        LM_GGML_OP_MAP_CUSTOM3_F32,
-
         LM_GGML_OP_MAP_CUSTOM1,
         LM_GGML_OP_MAP_CUSTOM2,
         LM_GGML_OP_MAP_CUSTOM3,
+
+        LM_GGML_OP_CUSTOM,
 
         LM_GGML_OP_CROSS_ENTROPY_LOSS,
         LM_GGML_OP_CROSS_ENTROPY_LOSS_BACK,
@@ -681,6 +677,9 @@ extern "C" {
     LM_GGML_API bool lm_ggml_is_contiguous_0(const struct lm_ggml_tensor * tensor); // same as lm_ggml_is_contiguous()
     LM_GGML_API bool lm_ggml_is_contiguous_1(const struct lm_ggml_tensor * tensor); // contiguous for dims >= 1
     LM_GGML_API bool lm_ggml_is_contiguous_2(const struct lm_ggml_tensor * tensor); // contiguous for dims >= 2
+
+    // true for tensor that is stored in memory as CxWxHxN and has been permuted to WxHxCxN
+    LM_GGML_API bool lm_ggml_is_contiguous_channels(const struct lm_ggml_tensor * tensor);
 
     LM_GGML_API bool lm_ggml_are_same_shape (const struct lm_ggml_tensor * t0, const struct lm_ggml_tensor * t1);
     LM_GGML_API bool lm_ggml_are_same_stride(const struct lm_ggml_tensor * t0, const struct lm_ggml_tensor * t1);
@@ -1665,7 +1664,7 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * b);
 
-    // depthwise
+    // depthwise (via im2col and mul_mat)
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_2d_dw(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,  // convolution kernel
@@ -1676,6 +1675,22 @@ extern "C" {
             int                  p1,  // padding dimension 1
             int                  d0,  // dilation dimension 0
             int                  d1); // dilation dimension 1
+
+    // Depthwise 2D convolution
+    // may be faster than lm_ggml_conv_2d_dw, but not available in all backends
+    // a:   KW    KH    1    C    convolution kernel
+    // b:   W     H     C    N    input data
+    // res: W_out H_out C    N
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_2d_dw_direct(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b,
+            int                   stride0,
+            int                   stride1,
+            int                   pad0,
+            int                   pad1,
+            int                   dilation0,
+            int                   dilation1);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_transpose_2d_p0(
             struct lm_ggml_context * ctx,
@@ -1722,24 +1737,29 @@ extern "C" {
             float                 p0,
             float                 p1);
 
-    // nearest interpolate
+    enum lm_ggml_scale_mode {
+        LM_GGML_SCALE_MODE_NEAREST  = 0,
+        LM_GGML_SCALE_MODE_BILINEAR = 1,
+    };
+
+    // interpolate
     // multiplies ne0 and ne1 by scale factor
-    // used in stable-diffusion
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_upscale(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
-            int                   scale_factor);
+            int                   scale_factor,
+            enum lm_ggml_scale_mode  mode);
 
-    // nearest interpolate
-    // nearest interpolate to specified dimensions
-    // used in tortoise.cpp
+    // interpolate
+    // interpolate scale to specified dimensions
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_upscale_ext(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             int                   ne0,
             int                   ne1,
             int                   ne2,
-            int                   ne3);
+            int                   ne3,
+            enum lm_ggml_scale_mode  mode);
 
     // pad each dimension with zeros: [x, ..., x] -> [x, ..., x, 0, ..., 0]
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_pad(
@@ -1791,11 +1811,11 @@ extern "C" {
 
 #define LM_GGML_KQ_MASK_PAD 64
 
-    // q:    [n_embd, n_batch,     n_head,    1]
-    // k:    [n_embd, n_kv,        n_head_kv, 1]
-    // v:    [n_embd, n_kv,        n_head_kv, 1] !! not transposed !!
-    // mask: [n_kv,   n_batch_pad, 1,         1] !! n_batch_pad = LM_GGML_PAD(n_batch, LM_GGML_KQ_MASK_PAD) !!
-    // res:  [n_embd, n_head,      n_batch,   1] !! permuted !!
+    // q:    [n_embd_k, n_batch,     n_head,    1]
+    // k:    [n_embd_k, n_kv,        n_head_kv, 1]
+    // v:    [n_embd_v, n_kv,        n_head_kv, 1] !! not transposed !!
+    // mask: [n_kv,     n_batch_pad, 1,         1] !! n_batch_pad = LM_GGML_PAD(n_batch, LM_GGML_KQ_MASK_PAD) !!
+    // res:  [n_embd_v, n_head,      n_batch,   1] !! permuted !!
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_flash_attn_ext(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * q,
@@ -1916,83 +1936,6 @@ extern "C" {
 
     // custom operators
 
-    typedef void (*lm_ggml_unary_op_f32_t) (const int, float *, const float *);
-    typedef void (*lm_ggml_binary_op_f32_t)(const int, float *, const float *, const float *);
-
-    typedef void (*lm_ggml_custom1_op_f32_t)(struct lm_ggml_tensor *, const struct lm_ggml_tensor *);
-    typedef void (*lm_ggml_custom2_op_f32_t)(struct lm_ggml_tensor *, const struct lm_ggml_tensor *, const struct lm_ggml_tensor *);
-    typedef void (*lm_ggml_custom3_op_f32_t)(struct lm_ggml_tensor *, const struct lm_ggml_tensor *, const struct lm_ggml_tensor *, const struct lm_ggml_tensor *);
-
-    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_map_unary_f32(
-            struct lm_ggml_context        * ctx,
-            struct lm_ggml_tensor         * a,
-                   lm_ggml_unary_op_f32_t   fun),
-        "use lm_ggml_map_custom1 instead");
-
-    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_map_unary_inplace_f32(
-            struct lm_ggml_context        * ctx,
-            struct lm_ggml_tensor         * a,
-                   lm_ggml_unary_op_f32_t   fun),
-        "use lm_ggml_map_custom1_inplace instead");
-
-    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_map_binary_f32(
-            struct lm_ggml_context         * ctx,
-            struct lm_ggml_tensor          * a,
-            struct lm_ggml_tensor          * b,
-                   lm_ggml_binary_op_f32_t   fun),
-        "use lm_ggml_map_custom2 instead");
-
-    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_map_binary_inplace_f32(
-            struct lm_ggml_context         * ctx,
-            struct lm_ggml_tensor          * a,
-            struct lm_ggml_tensor          * b,
-                   lm_ggml_binary_op_f32_t   fun),
-        "use lm_ggml_map_custom2_inplace instead");
-
-    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_map_custom1_f32(
-            struct lm_ggml_context          * ctx,
-            struct lm_ggml_tensor           * a,
-                   lm_ggml_custom1_op_f32_t   fun),
-        "use lm_ggml_map_custom1 instead");
-
-    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_map_custom1_inplace_f32(
-            struct lm_ggml_context          * ctx,
-            struct lm_ggml_tensor           * a,
-                   lm_ggml_custom1_op_f32_t   fun),
-        "use lm_ggml_map_custom1_inplace instead");
-
-    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_map_custom2_f32(
-            struct lm_ggml_context          * ctx,
-            struct lm_ggml_tensor           * a,
-            struct lm_ggml_tensor           * b,
-                   lm_ggml_custom2_op_f32_t   fun),
-        "use lm_ggml_map_custom2 instead");
-
-    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_map_custom2_inplace_f32(
-            struct lm_ggml_context          * ctx,
-            struct lm_ggml_tensor           * a,
-            struct lm_ggml_tensor           * b,
-                   lm_ggml_custom2_op_f32_t   fun),
-        "use lm_ggml_map_custom2_inplace instead");
-
-    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_map_custom3_f32(
-            struct lm_ggml_context          * ctx,
-            struct lm_ggml_tensor           * a,
-            struct lm_ggml_tensor           * b,
-            struct lm_ggml_tensor           * c,
-                   lm_ggml_custom3_op_f32_t   fun),
-        "use lm_ggml_map_custom3 instead");
-
-    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_map_custom3_inplace_f32(
-            struct lm_ggml_context          * ctx,
-            struct lm_ggml_tensor           * a,
-            struct lm_ggml_tensor           * b,
-            struct lm_ggml_tensor           * c,
-                   lm_ggml_custom3_op_f32_t   fun),
-        "use lm_ggml_map_custom3_inplace instead");
-
-    // custom operators v2
-
     typedef void (*lm_ggml_custom1_op_t)(struct lm_ggml_tensor * dst , const struct lm_ggml_tensor * a, int ith, int nth, void * userdata);
     typedef void (*lm_ggml_custom2_op_t)(struct lm_ggml_tensor * dst , const struct lm_ggml_tensor * a, const struct lm_ggml_tensor * b, int ith, int nth, void * userdata);
     typedef void (*lm_ggml_custom3_op_t)(struct lm_ggml_tensor * dst , const struct lm_ggml_tensor * a, const struct lm_ggml_tensor * b, const struct lm_ggml_tensor * c, int ith, int nth, void * userdata);
@@ -2047,6 +1990,30 @@ extern "C" {
             lm_ggml_custom3_op_t       fun,
             int                     n_tasks,
             void                  * userdata);
+
+    typedef void (*lm_ggml_custom_op_t)(struct lm_ggml_tensor * dst , int ith, int nth, void * userdata);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_custom_4d(
+            struct lm_ggml_context * ctx,
+            enum lm_ggml_type        type,
+            int64_t               ne0,
+            int64_t               ne1,
+            int64_t               ne2,
+            int64_t               ne3,
+            struct lm_ggml_tensor ** args,
+            int                   n_args,
+            lm_ggml_custom_op_t      fun,
+            int                   n_tasks,
+            void                * userdata);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_custom_inplace(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor ** args,
+            int                   n_args,
+            lm_ggml_custom_op_t      fun,
+            int                   n_tasks,
+            void                * userdata);
 
     // loss function
 

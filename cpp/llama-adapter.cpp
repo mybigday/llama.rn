@@ -247,6 +247,26 @@ static void llama_adapter_lora_init_impl(llama_model & model, const char * path_
         }
     }
 
+    // get extra buffer types of the CPU
+    // TODO: a more general solution for non-CPU extra buft should be imlpemented in the future
+    //       ref: https://github.com/ggml-org/llama.cpp/pull/12593#pullrequestreview-2718659948
+    std::vector<lm_ggml_backend_buffer_type_t> buft_extra;
+    {
+        auto * cpu_dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
+        auto * cpu_reg = lm_ggml_backend_dev_backend_reg(cpu_dev);
+
+        auto lm_ggml_backend_dev_get_extra_bufts_fn = (lm_ggml_backend_dev_get_extra_bufts_t)
+            lm_ggml_backend_reg_get_proc_address(cpu_reg, "lm_ggml_backend_dev_get_extra_bufts");
+
+        if (lm_ggml_backend_dev_get_extra_bufts_fn) {
+            lm_ggml_backend_buffer_type_t * extra_bufts = lm_ggml_backend_dev_get_extra_bufts_fn(cpu_dev);
+            while (extra_bufts && *extra_bufts) {
+                buft_extra.emplace_back(*extra_bufts);
+                ++extra_bufts;
+            }
+        }
+    }
+
     // add tensors
     for (auto & it : ab_map) {
         const std::string & name = it.first;
@@ -263,7 +283,23 @@ static void llama_adapter_lora_init_impl(llama_model & model, const char * path_
             throw std::runtime_error("LoRA tensor '" + name + "' does not exist in base model (hint: maybe wrong base model?)");
         }
 
-        lm_ggml_context * dev_ctx = ctx_for_buft(lm_ggml_backend_buffer_get_type(model_tensor->buffer));
+        auto * buft = lm_ggml_backend_buffer_get_type(model_tensor->buffer);
+
+        // do not load loras to extra buffer types (i.e. bufts for repacking) -> use the CPU in that case
+        for (auto & ex : buft_extra) {
+            if (ex == buft) {
+                LLAMA_LOG_WARN("%s: lora for '%s' cannot use buft '%s', fallback to CPU\n", __func__, model_tensor->name, lm_ggml_backend_buft_name(buft));
+
+                auto * cpu_dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
+                buft = lm_ggml_backend_dev_buffer_type(cpu_dev);
+
+                break;
+            }
+        }
+
+        LLAMA_LOG_DEBUG("%s: lora for '%s' -> '%s'\n", __func__, model_tensor->name, lm_ggml_backend_buft_name(buft));
+
+        lm_ggml_context * dev_ctx = ctx_for_buft(buft);
         // validate tensor shape
         if (is_token_embd) {
             // expect B to be non-transposed, A and B are flipped; see llm_build_inp_embd()

@@ -107,6 +107,11 @@ extern "C" {
         LLAMA_VOCAB_PRE_TYPE_MINERVA        = 27,
         LLAMA_VOCAB_PRE_TYPE_DEEPSEEK3_LLM  = 28,
         LLAMA_VOCAB_PRE_TYPE_GPT4O          = 29,
+        LLAMA_VOCAB_PRE_TYPE_SUPERBPE       = 30,
+        LLAMA_VOCAB_PRE_TYPE_TRILLION       = 31,
+        LLAMA_VOCAB_PRE_TYPE_BAILINGMOE     = 32,
+        LLAMA_VOCAB_PRE_TYPE_LLAMA4         = 33,
+        LLAMA_VOCAB_PRE_TYPE_PIXTRAL        = 34,
     };
 
     enum llama_rope_type {
@@ -277,9 +282,17 @@ extern "C" {
         };
     };
 
+    struct llama_model_tensor_buft_override {
+        const char * pattern;
+        lm_ggml_backend_buffer_type_t buft;
+    };
+
     struct llama_model_params {
         // NULL-terminated list of devices to use for offloading (if NULL, all available devices are used)
         lm_ggml_backend_dev_t * devices;
+
+        // NULL-terminated list of buffer types to use for tensors that match a pattern
+        const struct llama_model_tensor_buft_override * tensor_buft_overrides;
 
         int32_t n_gpu_layers; // number of layers to store in VRAM
         enum llama_split_mode split_mode; // how to split the model across multiple GPUs
@@ -355,17 +368,18 @@ extern "C" {
 
     // model quantization parameters
     typedef struct llama_model_quantize_params {
-        int32_t nthread;                     // number of threads to use for quantizing, if <=0 will use std::thread::hardware_concurrency()
-        enum llama_ftype ftype;              // quantize to this llama_ftype
-        enum lm_ggml_type output_tensor_type;   // output tensor type
-        enum lm_ggml_type token_embedding_type; // token embeddings tensor type
-        bool allow_requantize;               // allow quantizing non-f32/f16 tensors
-        bool quantize_output_tensor;         // quantize output.weight
-        bool only_copy;                      // only copy tensors - ftype, allow_requantize and quantize_output_tensor are ignored
-        bool pure;                           // quantize all tensors to the default type
-        bool keep_split;                     // quantize to the same number of shards
-        void * imatrix;                      // pointer to importance matrix data
-        void * kv_overrides;                 // pointer to vector containing overrides
+        int32_t nthread;                      // number of threads to use for quantizing, if <=0 will use std::thread::hardware_concurrency()
+        enum llama_ftype ftype;               // quantize to this llama_ftype
+        enum lm_ggml_type output_tensor_type;    // output tensor type
+        enum lm_ggml_type token_embedding_type;  // token embeddings tensor type
+        bool allow_requantize;                // allow quantizing non-f32/f16 tensors
+        bool quantize_output_tensor;          // quantize output.weight
+        bool only_copy;                       // only copy tensors - ftype, allow_requantize and quantize_output_tensor are ignored
+        bool pure;                            // quantize all tensors to the default type
+        bool keep_split;                      // quantize to the same number of shards
+        void * imatrix;                       // pointer to importance matrix data
+        void * kv_overrides;                  // pointer to vector containing overrides
+        void * tensor_types;                  // pointer to vector containing tensor types
     } llama_model_quantize_params;
 
     typedef struct llama_logit_bias {
@@ -1218,6 +1232,7 @@ extern "C" {
         "will be removed in the future (see https://github.com/ggml-org/llama.cpp/pull/9896#discussion_r1800920915)");
 
     /// @details Top-K sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751
+    /// Setting k <= 0 makes this a noop
     LLAMA_API struct llama_sampler * llama_sampler_init_top_k      (int32_t k);
 
     /// @details Nucleus sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751
@@ -1264,6 +1279,10 @@ extern "C" {
                                float   tau,
                                float   eta);
 
+    /// @details Intializes a GBNF grammar, see grammars/README.md for details.
+    /// @param vocab The vocabulary that this grammar will be used with.
+    /// @param grammar_str The production rules for the grammar, encoded as a string. Returns an empty grammar if empty. Returns NULL if parsing of grammar_str fails.
+    /// @param grammar_root The name of the start symbol for the grammar.
     LLAMA_API struct llama_sampler * llama_sampler_init_grammar(
             const struct llama_vocab * vocab,
                           const char * grammar_str,

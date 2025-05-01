@@ -7,9 +7,6 @@
 
 #include "common.h"
 #include "log.h"
-// Change JSON_ASSERT from assert() to LM_GGML_ASSERT:
-#define JSON_ASSERT LM_GGML_ASSERT
-#include "json.hpp"
 #include "llama.h"
 
 #include <algorithm>
@@ -51,11 +48,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
-#if defined(LLAMA_USE_CURL)
-#include <curl/curl.h>
-#include <curl/easy.h>
-#include <future>
-#endif
 
 // build info
 int LLAMA_BUILD_NUMBER = 0;
@@ -63,11 +55,10 @@ char const *LLAMA_COMMIT = "unknown";
 char const *LLAMA_COMPILER = "unknown";
 char const *LLAMA_BUILD_TARGET = "unknown";
 
+
 #if defined(_MSC_VER)
 #pragma warning(disable: 4244 4267) // possible loss of data
 #endif
-
-using json = nlohmann::ordered_json;
 
 //
 // CPU utils
@@ -846,7 +837,7 @@ std::string fs_get_cache_directory() {
     if (getenv("LLAMA_CACHE")) {
         cache_directory = std::getenv("LLAMA_CACHE");
     } else {
-#ifdef __linux__
+#if defined(__linux__) || defined(__FreeBSD__) || defined(_AIX)
         if (std::getenv("XDG_CACHE_HOME")) {
             cache_directory = std::getenv("XDG_CACHE_HOME");
         } else {
@@ -856,7 +847,9 @@ std::string fs_get_cache_directory() {
         cache_directory = std::getenv("HOME") + std::string("/Library/Caches/");
 #elif defined(_WIN32)
         cache_directory = std::getenv("LOCALAPPDATA");
-#endif // __linux__
+#else
+#  error Unknown architecture
+#endif
         cache_directory = ensure_trailing_slash(cache_directory);
         cache_directory += "llama.cpp";
     }
@@ -877,14 +870,14 @@ std::string fs_get_cache_file(const std::string & filename) {
 //
 // Model utils
 //
+
 struct common_init_result common_init_from_params(common_params & params) {
     common_init_result iparams;
     auto mparams = common_model_params_to_llama(params);
 
-    llama_model * model = llama_model_load_from_file(params.model.c_str(), mparams);
-
+    llama_model * model = llama_model_load_from_file(params.model.path.c_str(), mparams);
     if (model == NULL) {
-        LOG_ERR("%s: failed to load model '%s'\n", __func__, params.model.c_str());
+        LOG_ERR("%s: failed to load model '%s'\n", __func__, params.model.path.c_str());
         return iparams;
     }
 
@@ -919,7 +912,7 @@ struct common_init_result common_init_from_params(common_params & params) {
 
     llama_context * lctx = llama_init_from_model(model, cparams);
     if (lctx == NULL) {
-        LOG_ERR("%s: failed to create context with model '%s'\n", __func__, params.model.c_str());
+        LOG_ERR("%s: failed to create context with model '%s'\n", __func__, params.model.path.c_str());
         llama_model_free(model);
         return iparams;
     }
@@ -1043,6 +1036,19 @@ struct common_init_result common_init_from_params(common_params & params) {
     return iparams;
 }
 
+std::string get_model_endpoint() {
+    const char * model_endpoint_env = getenv("MODEL_ENDPOINT");
+    // We still respect the use of environment-variable "HF_ENDPOINT" for backward-compatibility.
+    const char * hf_endpoint_env = getenv("HF_ENDPOINT");
+    const char * endpoint_env = model_endpoint_env ? model_endpoint_env : hf_endpoint_env;
+    std::string model_endpoint = "https://huggingface.co/";
+    if (endpoint_env) {
+        model_endpoint = endpoint_env;
+        if (model_endpoint.back() != '/') model_endpoint += '/';
+    }
+    return model_endpoint;
+}
+
 void common_set_adapter_lora(struct llama_context * ctx, std::vector<common_adapter_lora_info> & lora) {
     llama_clear_adapter_lora(ctx);
     for (auto & la : lora) {
@@ -1058,6 +1064,7 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
     if (!params.devices.empty()) {
         mparams.devices = params.devices.data();
     }
+
     if (params.n_gpu_layers != -1) {
         mparams.n_gpu_layers = params.n_gpu_layers;
     }
@@ -1069,11 +1076,19 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
     mparams.use_mmap        = params.use_mmap;
     mparams.use_mlock       = params.use_mlock;
     mparams.check_tensors   = params.check_tensors;
+
     if (params.kv_overrides.empty()) {
         mparams.kv_overrides = NULL;
     } else {
         LM_GGML_ASSERT(params.kv_overrides.back().key[0] == 0 && "KV overrides not terminated with empty key");
         mparams.kv_overrides = params.kv_overrides.data();
+    }
+
+    if (params.tensor_buft_overrides.empty()) {
+        mparams.tensor_buft_overrides = NULL;
+    } else {
+        LM_GGML_ASSERT(params.tensor_buft_overrides.back().pattern == nullptr && "Tensor buffer overrides not terminated with empty pattern");
+        mparams.tensor_buft_overrides = params.tensor_buft_overrides.data();
     }
 
     if (params.progress_callback != nullptr) {
@@ -1562,27 +1577,4 @@ common_control_vector_data common_control_vector_load(const std::vector<common_c
     }
 
     return result;
-}
-
-template <>
-json common_grammar_trigger::to_json() const {
-    json out {
-        {"type", (int) type},
-        {"value", value},
-    };
-    if (type == COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN) {
-        out["token"] = (int) token;
-    }
-    return out;
-}
-
-template <>
-common_grammar_trigger common_grammar_trigger::from_json(const json & in) {
-    common_grammar_trigger out;
-    out.type = (common_grammar_trigger_type) in.at("type").get<int>();
-    out.value = in.at("value").get<std::string>();
-    if (out.type == COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN) {
-        out.token = (llama_token) in.at("token").get<int>();
-    }
-    return out;
 }
