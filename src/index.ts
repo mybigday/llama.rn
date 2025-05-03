@@ -69,7 +69,8 @@ if (EventEmitter) {
       logListeners.forEach((listener) => listener(evt.level, evt.text))
     },
   )
-  RNLlama?.toggleNativeLog?.(false) // Trigger unset to use default log callback
+  // Trigger unset to use default log callback
+  RNLlama?.toggleNativeLog?.(false)?.catch?.(() => {})
 }
 
 export type TokenData = {
@@ -393,6 +394,7 @@ const modelInfoSkip = [
   'tokenizer.ggml.tokens',
   'tokenizer.ggml.token_type',
   'tokenizer.ggml.merges',
+  'tokenizer.ggml.scores'
 ]
 export async function loadLlamaModelInfo(model: string): Promise<Object> {
   let path = model

@@ -18,20 +18,31 @@ cp ./llama.cpp/ggml/include/gguf.h ./cpp/gguf.h
 cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal.m ./cpp/ggml-metal.m
 cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal-impl.h ./cpp/ggml-metal-impl.h
 
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu.c
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu.cpp
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-impl.h ./cpp/ggml-cpu-impl.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.h ./cpp/ggml-cpu-aarch64.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.cpp ./cpp/ggml-cpu-aarch64.cpp
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.h ./cpp/ggml-cpu-quants.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.c ./cpp/ggml-cpu-quants.c
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-traits.h ./cpp/ggml-cpu-traits.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-traits.cpp ./cpp/ggml-cpu-traits.cpp
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu/ggml-cpu.c
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu/ggml-cpu.cpp
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-impl.h ./cpp/ggml-cpu/ggml-cpu-impl.h
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.h ./cpp/ggml-cpu/ggml-cpu-aarch64.h
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.cpp ./cpp/ggml-cpu/ggml-cpu-aarch64.cpp
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.h ./cpp/ggml-cpu/ggml-cpu-quants.h
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.c ./cpp/ggml-cpu/ggml-cpu-quants.c
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-traits.h ./cpp/ggml-cpu/ggml-cpu-traits.h
+cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-traits.cpp ./cpp/ggml-cpu/ggml-cpu-traits.cpp
+cp ./llama.cpp/ggml/src/ggml-cpu/common.h ./cpp/ggml-cpu/common.h
 
-cp -r ./llama.cpp/ggml/src/ggml-cpu/amx ./cpp/
+cp ./llama.cpp/ggml/src/ggml-cpu/unary-ops.h ./cpp/ggml-cpu/unary-ops.h
+cp ./llama.cpp/ggml/src/ggml-cpu/unary-ops.cpp ./cpp/ggml-cpu/unary-ops.cpp
+cp ./llama.cpp/ggml/src/ggml-cpu/binary-ops.h ./cpp/ggml-cpu/binary-ops.h
+cp ./llama.cpp/ggml/src/ggml-cpu/binary-ops.cpp ./cpp/ggml-cpu/binary-ops.cpp
+cp ./llama.cpp/ggml/src/ggml-cpu/vec.h ./cpp/ggml-cpu/vec.h
+cp ./llama.cpp/ggml/src/ggml-cpu/vec.cpp ./cpp/ggml-cpu/vec.cpp
+cp ./llama.cpp/ggml/src/ggml-cpu/simd-mappings.h ./cpp/ggml-cpu/simd-mappings.h
+cp ./llama.cpp/ggml/src/ggml-cpu/ops.h ./cpp/ggml-cpu/ops.h
+cp ./llama.cpp/ggml/src/ggml-cpu/ops.cpp ./cpp/ggml-cpu/ops.cpp
 
-cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.h ./cpp/sgemm.h
-cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.cpp ./cpp/sgemm.cpp
+cp -r ./llama.cpp/ggml/src/ggml-cpu/amx ./cpp/ggml-cpu/
+
+cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.h ./cpp/ggml-cpu/sgemm.h
+cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.cpp ./cpp/ggml-cpu/sgemm.cpp
 
 cp ./llama.cpp/ggml/src/ggml.c ./cpp/ggml.c
 cp ./llama.cpp/ggml/src/ggml-impl.h ./cpp/ggml-impl.h
@@ -85,19 +96,28 @@ cp ./llama.cpp/src/unicode.cpp ./cpp/unicode.cpp
 cp ./llama.cpp/src/unicode-data.h ./cpp/unicode-data.h
 cp ./llama.cpp/src/unicode-data.cpp ./cpp/unicode-data.cpp
 
+cp ./llama.cpp/src/llama-graph.h ./cpp/llama-graph.h
+cp ./llama.cpp/src/llama-graph.cpp ./cpp/llama-graph.cpp
+cp ./llama.cpp/src/llama-io.h ./cpp/llama-io.h
+cp ./llama.cpp/src/llama-io.cpp ./cpp/llama-io.cpp
+cp ./llama.cpp/src/llama-memory.h ./cpp/llama-memory.h
+cp ./llama.cpp/src/llama-memory.cpp ./cpp/llama-memory.cpp
+
 cp ./llama.cpp/common/log.h ./cpp/log.h
 cp ./llama.cpp/common/log.cpp ./cpp/log.cpp
 cp ./llama.cpp/common/common.h ./cpp/common.h
 cp ./llama.cpp/common/common.cpp ./cpp/common.cpp
 cp ./llama.cpp/common/sampling.h ./cpp/sampling.h
 cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
-cp ./llama.cpp/common/chat-template.hpp ./cpp/chat-template.hpp
-cp ./llama.cpp/common/chat.hpp ./cpp/chat.hpp
-cp ./llama.cpp/common/chat.cpp ./cpp/chat.cpp
 cp ./llama.cpp/common/json-schema-to-grammar.h ./cpp/json-schema-to-grammar.h
 cp ./llama.cpp/common/json-schema-to-grammar.cpp ./cpp/json-schema-to-grammar.cpp
-cp ./llama.cpp/common/minja.hpp ./cpp/minja.hpp
 cp ./llama.cpp/common/json.hpp ./cpp/json.hpp
+
+cp ./llama.cpp/common/chat.h ./cpp/chat.h
+cp ./llama.cpp/common/chat.cpp ./cpp/chat.cpp
+
+cp ./llama.cpp/common/minja/minja.hpp ./cpp/minja/minja.hpp
+cp ./llama.cpp/common/minja/chat-template.hpp ./cpp/minja/chat-template.hpp
 
 # List of files to process
 files_add_lm_prefix=(
@@ -131,16 +151,23 @@ files_add_lm_prefix=(
   "./cpp/llama-hparams.cpp"
   "./cpp/llama-cparams.h"
   "./cpp/llama-cparams.cpp"
+  "./cpp/llama-graph.h"
+  "./cpp/llama-graph.cpp"
+  "./cpp/llama-io.h"
+  "./cpp/llama-io.cpp"
+  "./cpp/llama-memory.h"
+  "./cpp/llama-memory.cpp"
   "./cpp/log.h"
   "./cpp/log.cpp"
   "./cpp/llama.h"
   "./cpp/llama.cpp"
   "./cpp/sampling.cpp"
-  "./cpp/sgemm.h"
-  "./cpp/sgemm.cpp"
+  "./cpp/ggml-cpu/sgemm.h"
+  "./cpp/ggml-cpu/sgemm.cpp"
   "./cpp/common.h"
   "./cpp/common.cpp"
   "./cpp/json-schema-to-grammar.h"
+  "./cpp/chat.cpp"
   "./cpp/ggml-common.h"
   "./cpp/ggml.h"
   "./cpp/ggml.c"
@@ -161,23 +188,33 @@ files_add_lm_prefix=(
   "./cpp/ggml-backend.cpp"
   "./cpp/ggml-backend-impl.h"
   "./cpp/ggml-backend-reg.cpp"
-  "./cpp/ggml-cpu-impl.h"
   "./cpp/ggml-cpu.h"
-  "./cpp/ggml-cpu.c"
-  "./cpp/ggml-cpu.cpp"
-  "./cpp/ggml-cpu-aarch64.h"
-  "./cpp/ggml-cpu-aarch64.cpp"
-  "./cpp/ggml-cpu-quants.h"
-  "./cpp/ggml-cpu-quants.c"
-  "./cpp/ggml-cpu-traits.h"
-  "./cpp/ggml-cpu-traits.cpp"
+  "./cpp/ggml-cpu/ggml-cpu-impl.h"
+  "./cpp/ggml-cpu/ggml-cpu.c"
+  "./cpp/ggml-cpu/ggml-cpu.cpp"
+  "./cpp/ggml-cpu/ggml-cpu-aarch64.h"
+  "./cpp/ggml-cpu/ggml-cpu-aarch64.cpp"
+  "./cpp/ggml-cpu/ggml-cpu-quants.h"
+  "./cpp/ggml-cpu/ggml-cpu-quants.c"
+  "./cpp/ggml-cpu/ggml-cpu-traits.h"
+  "./cpp/ggml-cpu/ggml-cpu-traits.cpp"
+  "./cpp/ggml-cpu/common.h"
   "./cpp/ggml-threading.h"
   "./cpp/ggml-threading.cpp"
-  "./cpp/amx/amx.h"
-  "./cpp/amx/amx.cpp"
-  "./cpp/amx/mmq.h"
-  "./cpp/amx/mmq.cpp"
-  "./cpp/amx/common.h"
+  "./cpp/ggml-cpu/amx/amx.h"
+  "./cpp/ggml-cpu/amx/amx.cpp"
+  "./cpp/ggml-cpu/amx/mmq.h"
+  "./cpp/ggml-cpu/amx/mmq.cpp"
+  "./cpp/ggml-cpu/amx/common.h"
+  "./cpp/ggml-cpu/unary-ops.h"
+  "./cpp/ggml-cpu/unary-ops.cpp"
+  "./cpp/ggml-cpu/binary-ops.h"
+  "./cpp/ggml-cpu/binary-ops.cpp"
+  "./cpp/ggml-cpu/vec.h"
+  "./cpp/ggml-cpu/vec.cpp"
+  "./cpp/ggml-cpu/simd-mappings.h"
+  "./cpp/ggml-cpu/ops.h"
+  "./cpp/ggml-cpu/ops.cpp"
 )
 
 # Loop through each file and run the sed commands
@@ -227,19 +264,22 @@ yarn example
 # Apply patch
 patch -p0 -d ./cpp < ./scripts/patches/common.h.patch
 patch -p0 -d ./cpp < ./scripts/patches/common.cpp.patch
+patch -p0 -d ./cpp < ./scripts/patches/chat.h.patch
+patch -p0 -d ./cpp < ./scripts/patches/chat.cpp.patch
 patch -p0 -d ./cpp < ./scripts/patches/log.cpp.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml-metal.m.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml-quants.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/llama-mmap.cpp.patch
-patch -p0 -d ./cpp < ./scripts/patches/chat-template.hpp.patch
-patch -p0 -d ./cpp < ./scripts/patches/chat.hpp.patch
-patch -p0 -d ./cpp < ./scripts/patches/minja.hpp.patch
 rm -rf ./cpp/*.orig
 
 if [ "$OS" = "Darwin" ]; then
   # Build metallib (~2.6MB)
   cd llama.cpp/ggml/src/ggml-metal
+
+  # Create a symbolic link to ggml-common.h in the current directory
+  ln -sf ../ggml-common.h .
+
   xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_USE_BF16=1
   xcrun --sdk iphoneos metallib ggml-metal.air   -o ggml-llama.metallib
   rm ggml-metal.air
@@ -249,6 +289,9 @@ if [ "$OS" = "Darwin" ]; then
   xcrun --sdk iphonesimulator metallib ggml-metal.air   -o ggml-llama.metallib
   rm ggml-metal.air
   mv ./ggml-llama.metallib ../../../../cpp/ggml-llama-sim.metallib
+
+  # Remove the symbolic link
+  rm ggml-common.h
 
   cd -
 

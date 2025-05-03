@@ -3,8 +3,7 @@
 
 #include <sstream>
 #include <iostream>
-#include "chat.hpp"
-#include "chat-template.hpp"
+#include "chat.h"
 #include "common.h"
 #include "ggml.h"
 #include "gguf.h"
@@ -65,10 +64,11 @@ struct llama_rn_context {
 
     llama_context *ctx = nullptr;
     common_sampler *ctx_sampling = nullptr;
-    common_chat_templates templates;
+    common_chat_templates_ptr templates;
 
     int n_ctx;
 
+    bool context_full = false;
     bool truncated = false;
     bool stopped_eos = false;
     bool stopped_word = false;

@@ -50,10 +50,11 @@ static void * lm_ggml_backend_amx_buffer_get_base(lm_ggml_backend_buffer_t buffe
     return (void *) (buffer->context);
 }
 
-static void lm_ggml_backend_amx_buffer_init_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor) {
+static enum lm_ggml_status lm_ggml_backend_amx_buffer_init_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor) {
     tensor->extra = (void *) ggml::cpu::amx::get_tensor_traits(buffer, tensor);
 
     LM_GGML_UNUSED(buffer);
+    return LM_GGML_STATUS_SUCCESS;
 }
 
 static void lm_ggml_backend_amx_buffer_memset_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor,

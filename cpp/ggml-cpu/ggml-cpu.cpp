@@ -14,6 +14,10 @@
 #include "ggml-cpu-hbm.h"
 #endif
 
+#ifdef LM_GGML_USE_CPU_KLEIDIAI
+#include "kleidiai/kleidiai.h"
+#endif
+
 #if defined(__APPLE__)
 #include <sys/types.h>
 #include <sys/sysctl.h>
@@ -36,6 +40,12 @@ std::vector<lm_ggml_backend_buffer_type_t>& lm_ggml_backend_cpu_get_extra_buffer
 #if defined(__AMX_INT8__) && defined(__AVX512VNNI__)
         if (lm_ggml_backend_amx_buffer_type()) {
             bufts.push_back(lm_ggml_backend_amx_buffer_type());
+        }
+#endif
+
+#ifdef LM_GGML_USE_CPU_KLEIDIAI
+        if (lm_ggml_backend_cpu_kleidiai_buffer_type()) {
+            bufts.push_back(lm_ggml_backend_cpu_kleidiai_buffer_type());
         }
 #endif
 
@@ -415,6 +425,8 @@ static bool lm_ggml_backend_cpu_device_supports_op(lm_ggml_backend_dev_t dev, co
         }
         case LM_GGML_OP_IM2COL_BACK:
             return src0->type == LM_GGML_TYPE_F32 && src1->type == LM_GGML_TYPE_F32;
+        case LM_GGML_OP_GET_ROWS_BACK:
+            return src0->type == LM_GGML_TYPE_F32 || src0->type == LM_GGML_TYPE_F16;
         case LM_GGML_OP_OUT_PROD:
             return (src0->type == LM_GGML_TYPE_F32 || (lm_ggml_is_quantized(src0->type) && src0->ne[2] == src1->ne[2] && src0->ne[3] == src1->ne[3])) &&
                 src1->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
@@ -501,6 +513,9 @@ static lm_ggml_backend_feature * lm_ggml_backend_cpu_get_features(lm_ggml_backen
         if (lm_ggml_cpu_has_fma()) {
             features.push_back({ "FMA", "1" });
         }
+        if (lm_ggml_cpu_has_bmi2()) {
+            features.push_back({ "BMI2", "1" });
+        }
         if (lm_ggml_cpu_has_avx512()) {
             features.push_back({ "AVX512", "1" });
         }
@@ -538,11 +553,17 @@ static lm_ggml_backend_feature * lm_ggml_backend_cpu_get_features(lm_ggml_backen
             static std::string sve_cnt = std::to_string(lm_ggml_cpu_get_sve_cnt());
             features.push_back({ "SVE_CNT", sve_cnt.c_str() });
         }
+        if (lm_ggml_cpu_has_sme()) {
+            features.push_back({ "SME", "1" });
+        }
         if (lm_ggml_cpu_has_riscv_v()) {
             features.push_back({ "RISCV_V", "1" });
         }
         if (lm_ggml_cpu_has_vsx()) {
             features.push_back({ "VSX", "1" });
+        }
+        if (lm_ggml_cpu_has_vxe()) {
+            features.push_back({ "VXE", "1" });
         }
         if (lm_ggml_cpu_has_wasm_simd()) {
             features.push_back({ "WASM_SIMD", "1" });
@@ -558,6 +579,9 @@ static lm_ggml_backend_feature * lm_ggml_backend_cpu_get_features(lm_ggml_backen
     #endif
     #ifdef LM_GGML_USE_OPENMP
         features.push_back({ "OPENMP", "1" });
+    #endif
+    #ifdef LM_GGML_USE_CPU_KLEIDIAI
+        features.push_back({ "KLEIDIAI", "1" });
     #endif
     #ifdef LM_GGML_USE_CPU_AARCH64
         features.push_back({ "AARCH64_REPACK", "1" });

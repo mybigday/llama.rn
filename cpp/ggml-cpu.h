@@ -80,6 +80,7 @@ extern "C" {
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_avx        (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_avx_vnni   (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_avx2       (void);
+    LM_GGML_BACKEND_API int lm_ggml_cpu_has_bmi2       (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_f16c       (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_fma        (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_avx512     (void);
@@ -95,9 +96,11 @@ extern "C" {
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_matmul_int8(void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_sve        (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_get_sve_cnt    (void);  // sve vector length in bytes
+    LM_GGML_BACKEND_API int lm_ggml_cpu_has_sme        (void);
     // other
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_riscv_v    (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_vsx        (void);
+    LM_GGML_BACKEND_API int lm_ggml_cpu_has_vxe        (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_wasm_simd  (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_llamafile  (void);
 
@@ -129,6 +132,11 @@ extern "C" {
     LM_GGML_BACKEND_API void lm_ggml_backend_cpu_set_abort_callback(lm_ggml_backend_t backend_cpu, lm_ggml_abort_callback abort_callback, void * abort_callback_data);
 
     LM_GGML_BACKEND_API lm_ggml_backend_reg_t lm_ggml_backend_cpu_reg(void);
+
+    LM_GGML_BACKEND_API void lm_ggml_cpu_fp32_to_fp16(const float *, lm_ggml_fp16_t *, int64_t);
+    LM_GGML_BACKEND_API void lm_ggml_cpu_fp16_to_fp32(const lm_ggml_fp16_t *, float *, int64_t);
+    LM_GGML_BACKEND_API void lm_ggml_cpu_fp32_to_bf16(const float *, lm_ggml_bf16_t *, int64_t);
+    LM_GGML_BACKEND_API void lm_ggml_cpu_bf16_to_fp32(const lm_ggml_bf16_t *, float *, int64_t);
 
 #ifdef __cplusplus
 }

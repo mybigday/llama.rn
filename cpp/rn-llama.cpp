@@ -165,6 +165,7 @@ void llama_rn_context::rewind() {
     generated_text.reserve(params.n_ctx);
     generated_token_probs.clear();
     truncated = false;
+    context_full = false;
     stopped_eos = false;
     stopped_word = false;
     stopped_limit = false;
@@ -191,11 +192,14 @@ bool llama_rn_context::loadModel(common_params &params_)
     ctx = llama_init.context.get();
     if (model == nullptr)
     {
-        LOG_ERROR("unable to load model: %s", params_.model.c_str());
+        LOG_ERROR("unable to load model: %s", params_.model.path.c_str());
         return false;
     }
-    templates = common_chat_templates_from_model(model, params.chat_template);
+    templates = common_chat_templates_init(model, params.chat_template);
     n_ctx = llama_n_ctx(ctx);
+
+    // Initialize context shift flag
+    LOG_INFO("ctx_shift: %s", params.ctx_shift ? "enabled" : "disabled");
 
     // We can uncomment for debugging or after this fix: https://github.com/ggerganov/llama.cpp/pull/11101
     // LOG_INFO("%s\n", common_params_get_system_info(params).c_str());
@@ -219,71 +223,46 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
   const bool &parallel_tool_calls,
   const std::string &tool_choice
 ) const {
-  common_chat_inputs inputs;
-  inputs.messages = json::parse(messages);
-  auto useTools = !tools.empty();
-  if (useTools) {
-      inputs.tools = json::parse(tools);
-  }
-  inputs.parallel_tool_calls = parallel_tool_calls;
-  if (!tool_choice.empty()) {
-      inputs.tool_choice = tool_choice;
-  }
-  if (!json_schema.empty()) {
-      inputs.json_schema = json::parse(json_schema);
-  }
-  inputs.extract_reasoning = params.reasoning_format != COMMON_REASONING_FORMAT_NONE;
-  inputs.stream = true;
+    common_chat_templates_inputs inputs;
+    inputs.use_jinja = true;
+    inputs.messages = common_chat_msgs_parse_oaicompat(json::parse(messages));
+    auto useTools = !tools.empty();
+    if (useTools) {
+        inputs.tools = common_chat_tools_parse_oaicompat(json::parse(tools));
+    }
+    inputs.parallel_tool_calls = parallel_tool_calls;
+    if (!tool_choice.empty()) {
+        inputs.tool_choice = common_chat_tool_choice_parse_oaicompat(tool_choice);
+    }
+    if (!json_schema.empty()) {
+        inputs.json_schema = json::parse(json_schema);
+    }
+    inputs.extract_reasoning = params.reasoning_format != COMMON_REASONING_FORMAT_NONE;
 
-  // If chat_template is provided, create new one and use it (probably slow)
-  if (!chat_template.empty()) {
-      auto tmp = common_chat_templates_from_model(model, chat_template);
-      const common_chat_template* template_ptr = useTools && tmp.template_tool_use ? tmp.template_tool_use.get() : tmp.template_default.get();
-      if (inputs.parallel_tool_calls && !template_ptr->original_caps().supports_parallel_tool_calls) {
-          inputs.parallel_tool_calls = false;
-      }
-      return common_chat_params_init(*template_ptr, inputs);
-  } else {
-      const common_chat_template* template_ptr = useTools && templates.template_tool_use ? templates.template_tool_use.get() : templates.template_default.get();
-      if (inputs.parallel_tool_calls && !template_ptr->original_caps().supports_parallel_tool_calls) {
-          inputs.parallel_tool_calls = false;
-      }
-      return common_chat_params_init(*template_ptr, inputs);
-  }
+    // If chat_template is provided, create new one and use it (probably slow)
+    if (!chat_template.empty()) {
+        auto tmps = common_chat_templates_init(model, chat_template);
+        return common_chat_templates_apply(tmps.get(), inputs);
+    } else {
+        return common_chat_templates_apply(templates.get(), inputs);
+    }
 }
 
 std::string llama_rn_context::getFormattedChat(
   const std::string &messages,
   const std::string &chat_template
 ) const {
-  auto chat_json = json::parse(messages);
+    common_chat_templates_inputs inputs;
+    inputs.messages = common_chat_msgs_parse_oaicompat(json::parse(messages));
+    inputs.use_jinja = false;
 
-  // Handle regular chat without tools
-  std::vector<common_chat_msg> chat_msgs;
-  for (const auto &msg : chat_json) {
-      chat_msgs.push_back({
-          msg["role"].get<std::string>(),
-          msg["content"].get<std::string>()
-      });
-  }
-
-  // If chat_template is provided, create new one and use it (probably slow)
-  if (!chat_template.empty()) {
-      auto tmp = common_chat_templates_from_model(model, chat_template);
-      return common_chat_apply_template(
-          *tmp.template_default,
-          chat_msgs,
-          true,
-          false
-      );
-  } else {
-      return common_chat_apply_template(
-          *templates.template_default,
-          chat_msgs,
-          true,
-          false
-      );
-  }
+    // If chat_template is provided, create new one and use it (probably slow)
+    if (!chat_template.empty()) {
+        auto tmps = common_chat_templates_init(model, chat_template);
+        return common_chat_templates_apply(tmps.get(), inputs).prompt;
+    } else {
+        return common_chat_templates_apply(templates.get(), inputs).prompt;
+    }
 }
 
 void llama_rn_context::truncatePrompt(std::vector<llama_token> &prompt_tokens) {
@@ -296,11 +275,11 @@ void llama_rn_context::truncatePrompt(std::vector<llama_token> &prompt_tokens) {
 
     new_tokens.insert(new_tokens.end(), prompt_tokens.begin() + params.n_keep + erased_blocks * n_block_size, prompt_tokens.end());
 
-    LOG_VERBOSE("input truncated, n_ctx: %d, n_keep: %d, n_left: %d, new_tokens: %s, num_prompt_tokens: %d",
+    LOG_INFO("input truncated, n_ctx: %d, n_keep: %d, n_left: %d, old_size: %d, new_size: %d",
         n_ctx,
         params.n_keep,
         n_left,
-        tokens_to_str(ctx, new_tokens.cbegin(), new_tokens.cend()).c_str(),
+        prompt_tokens.size(),
         new_tokens.size()
     );
 
@@ -329,9 +308,12 @@ void llama_rn_context::loadPrompt() {
     // if input prompt is too big, truncate like normal
     if (num_prompt_tokens >= (size_t) n_ctx)
     {
+        if (!params.ctx_shift) {
+            context_full = true;
+            return;
+        }
         truncatePrompt(prompt_tokens);
         num_prompt_tokens = prompt_tokens.size();
-
         LM_GGML_ASSERT(num_prompt_tokens < (size_t) n_ctx);
     }
     // push the prompt into the sampling context (do not apply grammar)
@@ -351,7 +333,7 @@ void llama_rn_context::loadPrompt() {
     }
 
     // since #3228 we now have to manually manage the KV cache
-    llama_kv_cache_seq_rm(ctx, 0, n_past, -1);
+    llama_kv_self_seq_rm(ctx, 0, n_past, -1);
 
     LOG_VERBOSE("prompt ingested, n_past: %d, cached: %s, to_eval: %s",
         n_past,
@@ -376,13 +358,21 @@ completion_token_output llama_rn_context::nextToken()
 
     if (embd.size() >= (size_t)params.n_ctx)
     {
+        if (!params.ctx_shift) {
+            // If context shifting is disabled, stop generation
+            LOG_WARNING("context full, n_ctx: %d, tokens: %d", params.n_ctx, embd.size());
+            has_next_token = false;
+            context_full = true;
+            return result;
+        }
+
         // Shift context
 
         const int n_left    = n_past - params.n_keep - 1;
         const int n_discard = n_left/2;
 
-        llama_kv_cache_seq_rm (ctx, 0, params.n_keep + 1            , params.n_keep + n_discard + 1);
-        llama_kv_cache_seq_add(ctx, 0, params.n_keep + 1 + n_discard, n_past, -n_discard);
+        llama_kv_self_seq_rm (ctx, 0, params.n_keep + 1            , params.n_keep + n_discard + 1);
+        llama_kv_self_seq_add(ctx, 0, params.n_keep + 1 + n_discard, n_past, -n_discard);
 
         for (size_t i = params.n_keep + 1 + n_discard; i < embd.size(); i++)
         {
@@ -391,12 +381,9 @@ completion_token_output llama_rn_context::nextToken()
         embd.resize(embd.size() - n_discard);
 
         n_past -= n_discard;
+        truncated = true;
 
-        LOG_VERBOSE("input truncated, n_ctx: %d, n_keep: %d, n_left: %d, new_tokens: %s",
-            params.n_ctx,
-            params.n_keep,
-            n_left
-        );
+        LOG_VERBOSE("context shifted, new n_past: %d, new size: %d", n_past, embd.size());
     }
 
     bool tg = true;
@@ -637,7 +624,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
         }
         batch.logits[batch.n_tokens - 1] = 1; // true
 
-        llama_kv_cache_clear(ctx);
+        llama_kv_self_clear(ctx);
 
         const int64_t t_pp_start = llama_time_us();
         if (llama_decode(ctx, batch) != 0)
@@ -645,7 +632,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
             LOG_ERROR("llama_decode() failed during prompt", "");
         }
         const int64_t t_pp_end = llama_time_us();
-        llama_kv_cache_clear(ctx);
+        llama_kv_self_clear(ctx);
 
         if (is_interrupted) break;
 
@@ -669,7 +656,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
 
         const int64_t t_tg_end = llama_time_us();
 
-        llama_kv_cache_clear(ctx);
+        llama_kv_self_clear(ctx);
 
         const double t_pp = (t_pp_end - t_pp_start) / 1000000.0;
         const double t_tg = (t_tg_end - t_tg_start) / 1000000.0;
@@ -695,7 +682,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
         tg_std = 0;
     }
 
-    if (is_interrupted) llama_kv_cache_clear(ctx);
+    if (is_interrupted) llama_kv_self_clear(ctx);
     is_predicting = false;
 
     char model_desc[128];
