@@ -944,7 +944,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
                 toolCallsSize++;
             }
         } catch (const std::exception &e) {
-            // LOGI("Error parsing tool calls: %s", e.what());
+        } catch (...) {
         }
     }
 

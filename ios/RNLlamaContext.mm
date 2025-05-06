@@ -660,7 +660,7 @@
                 }];
             }
         } catch (const std::exception &e) {
-            // NSLog(@"Error parsing tool calls: %s", e.what());
+        } catch (...) {
         }
     }
 
