@@ -8,6 +8,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include "json.hpp"
 #include "json-schema-to-grammar.h"
 #include "llama.h"
 #include "llama-impl.h"
@@ -527,9 +528,15 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
             pushString(env, additional_stops, stop.c_str());
         }
         putArray(env, result, "additional_stops", additional_stops);
+    } catch (const nlohmann::json_abi_v3_11_3::detail::parse_error& e) {
+        std::string errorMessage = "JSON parse error in getFormattedChat: " + std::string(e.what());
+        putString(env, result, "_error", errorMessage.c_str());
+        LOGI("[RNLlama] %s", errorMessage.c_str());
     } catch (const std::runtime_error &e) {
-        LOGI("[RNLlama] Error: %s", e.what());
         putString(env, result, "_error", e.what());
+        LOGI("[RNLlama] Error: %s", e.what());
+    } catch (...) {
+        putString(env, result, "_error", "Unknown error in getFormattedChat");
     }
     env->ReleaseStringUTFChars(tools, tools_chars);
     env->ReleaseStringUTFChars(messages, messages_chars);

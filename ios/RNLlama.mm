@@ -108,8 +108,13 @@ RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
         } else {
             resolve([context getFormattedChat:messages withChatTemplate:chatTemplate]);
         }
+    } catch (const nlohmann::json_abi_v3_11_3::detail::parse_error& e) {
+        NSString *errorMessage = [NSString stringWithUTF8String:e.what()];
+        reject(@"llama_error", [NSString stringWithFormat:@"JSON parse error in getFormattedChat: %@", errorMessage], nil);
     } catch (const std::exception& e) { // catch cpp exceptions
         reject(@"llama_error", [NSString stringWithUTF8String:e.what()], nil);
+    } catch (...) {
+        reject(@"llama_error", @"Unknown error in getFormattedChat", nil);
     }
 }
 
