@@ -106,37 +106,27 @@
     NSString *reasonNoMetal = @"";
     defaultParams.n_gpu_layers = 0;
 #ifdef LM_GGML_USE_METAL
-    // Check ggml-metal availability
-    NSError * error = nil;
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-    id<MTLLibrary> library = [device
-        newLibraryWithSource:@"#include <metal_stdlib>\n"
-                                "using namespace metal;"
-                                "typedef matrix<bfloat, 4, 4> bfloat4x4;"
-                                "kernel void test() { simd_sum(0); }"
-        options:nil
-        error:&error
-    ];
-    if (error) {
-        reasonNoMetal = [error localizedDescription];
-        skipGpuDevices = true;
-    } else {
-        id<MTLFunction> kernel = [library newFunctionWithName:@"test"];
-        id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:kernel error:&error];
-        if (pipeline == nil) {
-            reasonNoMetal = [error localizedDescription];
-            skipGpuDevices = true;
-        } else {
-#if TARGET_OS_SIMULATOR
-            // Use the backend, but no layers because not supported fully on simulator
-            defaultParams.n_gpu_layers = 0;
-            isMetalEnabled = true;
-#else
-            defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
-            isMetalEnabled = true;
-#endif
-        }
+
+    // Check ggml-metal availability
+    BOOL supportsGgmlMetal = [device supportsFamily:MTLGPUFamilyApple7];
+    if (@available(iOS 16.0, tvOS 16.0, *)) {
+        supportsGgmlMetal = supportsGgmlMetal && [device supportsFamily:MTLGPUFamilyMetal3];
     }
+    if (!supportsGgmlMetal) {
+        reasonNoMetal = @"Metal is not supported in this device";
+        skipGpuDevices = true;
+    }
+
+#if TARGET_OS_SIMULATOR
+    // Use the backend, but no layers because not supported fully on simulator
+    defaultParams.n_gpu_layers = 0;
+    isMetalEnabled = true;
+#else
+    defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
+    isMetalEnabled = true;
+#endif
+
     device = nil;
 #else
     reasonNoMetal = @"Metal is not enabled in this build";
@@ -158,6 +148,8 @@
         }
         if (cpu_devs.size() > 0) {
             defaultParams.devices = cpu_devs;
+            defaultParams.n_gpu_layers = 0;
+            isMetalEnabled = false;
         }
     }
 
