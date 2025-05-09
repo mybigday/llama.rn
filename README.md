@@ -134,6 +134,22 @@ await context.saveSession('<path to save session>')
 await context.loadSession('<path to load session>')
 ```
 
+## Embedding
+
+The embedding API is used to get the embedding of a text.
+
+```js
+const context = await initLlama({
+  ...params,
+  embedding: true,
+})
+
+const { embedding } = await context.embedding('Hello, world!')
+```
+
+- You can use model like [nomic-ai/nomic-embed-text-v1.5-GGUF](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF) for better embedding quality.
+- You can use DB like [op-sqlite](https://github.com/OP-Engineering/op-sqlite) with sqlite-vec support to store and search embeddings.
+
 ## Tool Calling
 
 `llama.rn` has universal tool call support by using [minja](https://github.com/google/minja) (as Jinja template parser) and [chat.cpp](https://github.com/ggerganov/llama.cpp/blob/master/common/chat.cpp) in llama.cpp.
