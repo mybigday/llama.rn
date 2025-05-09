@@ -106,21 +106,33 @@ console.log('Result:', textResult.text)
 console.log('Timings:', textResult.timings)
 ```
 
-The binding’s deisgn inspired by [server.cpp](https://github.com/ggerganov/llama.cpp/tree/master/examples/server) example in llama.cpp, so you can map its API to LlamaContext:
+The binding’s deisgn inspired by [server.cpp](https://github.com/ggerganov/llama.cpp/tree/master/examples/server) example in llama.cpp:
 
 - `/completion` and `/chat/completions`: `context.completion(params, partialCompletionCallback)`
 - `/tokenize`: `context.tokenize(content)`
 - `/detokenize`: `context.detokenize(tokens)`
 - `/embedding`: `context.embedding(content)`
-- Other methods
-  - `context.loadSession(path)`
-  - `context.saveSession(path)`
-  - `context.stopCompletion()`
-  - `context.release()`
+- ... Other methods
 
 Please visit the [Documentation](docs/API) for more details.
 
 You can also visit the [example](example) to see how to use it.
+
+## Session (State)
+
+The session file is a binary file that contains the state of the context, it can saves time of prompt processing.
+
+```js
+const context = await initLlama({ ...params })
+
+// After prompt processing or completion ...
+
+// Save the session
+await context.saveSession('<path to save session>')
+
+// Load the session
+await context.loadSession('<path to load session>')
+```
 
 ## Tool Calling
 
