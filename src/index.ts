@@ -14,6 +14,7 @@ import type {
   NativeCompletionTokenProbItem,
   NativeCompletionResultTimings,
   JinjaFormattedChatResult,
+  NativeImageProcessingResult,
 } from './NativeRNLlama'
 import type {
   SchemaGrammarConverterPropOrder,
@@ -38,6 +39,7 @@ export type {
   RNLlamaMessagePart,
   RNLlamaOAICompatibleMessage,
   JinjaFormattedChatResult,
+  NativeImageProcessingResult,
 
   // Deprecated
   SchemaGrammarConverterPropOrder,
@@ -361,6 +363,37 @@ export class LlamaContext {
     return RNLlama.getLoadedLoraAdapters(this.id)
   }
 
+  /**
+   * Initialize multimodal support with a mmproj file
+   * @param mmprojPath Path to the multimodal projector file
+   * @returns Promise resolving to true if initialization was successful
+   */
+  async initMultimodal(mmprojPath: string): Promise<boolean> {
+    let path = mmprojPath
+    if (path.startsWith('file://')) path = path.slice(7)
+    return RNLlama.initMultimodal(this.id, path)
+  }
+
+  /**
+   * Process an image and update the prompt with the image token
+   * @param image_path Path to the image file
+   * @param prompt Prompt text, can include <image> placeholder
+   * @returns Promise resolving to the result of image processing
+   */
+  async processImage(mmprojPath: string, prompt: string): Promise<NativeImageProcessingResult> {
+    let path = mmprojPath
+    if (path.startsWith('file://')) path = path.slice(7)
+    return RNLlama.processImage(this.id, path, prompt)
+  }
+
+  /**
+   * Check if multimodal support is enabled
+   * @returns Promise resolving to true if multimodal is enabled
+   */
+  async isMultimodalEnabled(): Promise<boolean> {
+    return RNLlama.isMultimodalEnabled(this.id)
+  }
+
   async release(): Promise<void> {
     return RNLlama.releaseContext(this.id)
   }
@@ -418,6 +451,7 @@ export async function initLlama(
     pooling_type: poolingType,
     lora,
     lora_list: loraList,
+    mmproj,
     ...rest
   }: ContextParams,
   onProgress?: (progress: number) => void,
@@ -427,6 +461,9 @@ export async function initLlama(
 
   let loraPath = lora
   if (loraPath?.startsWith('file://')) loraPath = loraPath.slice(7)
+
+  let mmprojPath = mmproj
+  if (mmprojPath?.startsWith('file://')) mmprojPath = mmprojPath.slice(7)
 
   let loraAdapters: Array<{ path: string; scaled?: number }> = []
   if (loraList)
@@ -462,6 +499,7 @@ export async function initLlama(
     pooling_type: poolType,
     lora: loraPath,
     lora_list: loraAdapters,
+    mmproj: mmprojPath,
     ...rest,
   }).catch((err: any) => {
     removeProgressListener?.remove()

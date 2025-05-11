@@ -76,6 +76,12 @@ export type NativeContextParams = {
   // Embedding params
   embedding?: boolean
   embd_normalize?: number
+
+  // Multimodal params
+  /**
+   * Path to the multimodal projector (mmproj) file for image processing
+   */
+  mmproj?: string
 }
 
 export type NativeCompletionParams = {
@@ -355,6 +361,12 @@ export type JinjaFormattedChatResult = {
   additional_stops?: Array<string>
 }
 
+export type NativeImageProcessingResult = {
+  success: boolean
+  prompt: string
+  error?: string
+}
+
 export interface Spec extends TurboModule {
   toggleNativeLog(enabled: boolean): Promise<void>
   setContextLimit(limit: number): Promise<void>
@@ -414,6 +426,22 @@ export interface Spec extends TurboModule {
   getLoadedLoraAdapters(
     contextId: number,
   ): Promise<Array<{ path: string; scaled?: number }>>
+
+  // Multimodal methods
+  initMultimodal(
+    contextId: number,
+    mmproj_path: string,
+  ): Promise<boolean>
+
+  processImage(
+    contextId: number,
+    image_path: string,
+    prompt: string,
+  ): Promise<NativeImageProcessingResult>
+
+  isMultimodalEnabled(
+    contextId: number,
+  ): Promise<boolean>
 
   releaseContext(contextId: number): Promise<void>
 

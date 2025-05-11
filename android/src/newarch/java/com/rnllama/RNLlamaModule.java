@@ -113,6 +113,21 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
+  public void initMultimodal(double id, final String mmproj_path, final Promise promise) {
+    rnllama.initMultimodal(id, mmproj_path, promise);
+  }
+
+  @ReactMethod
+  public void processImage(double id, final String image_path, final String prompt, final Promise promise) {
+    rnllama.processImage(id, image_path, prompt, promise);
+  }
+
+  @ReactMethod
+  public void isMultimodalEnabled(double id, final Promise promise) {
+    rnllama.isMultimodalEnabled(id, promise);
+  }
+
+  @ReactMethod
   public void releaseContext(double id, Promise promise) {
     rnllama.releaseContext(id, promise);
   }

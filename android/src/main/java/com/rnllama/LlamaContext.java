@@ -112,6 +112,8 @@ public class LlamaContext {
       params.hasKey("pooling_type") ? params.getInt("pooling_type") : -1,
       // boolean ctx_shift,
       params.hasKey("ctx_shift") ? params.getBoolean("ctx_shift") : true,
+      // String mmproj,
+      params.hasKey("mmproj") ? params.getString("mmproj") : "",
       // LoadProgressCallback load_progress_callback
       params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
     );
@@ -379,6 +381,45 @@ public class LlamaContext {
     return getLoadedLoraAdapters(this.context);
   }
 
+  public boolean initMultimodal(String mmproj_path) {
+    if (mmproj_path == null || mmproj_path.isEmpty()) {
+      throw new IllegalArgumentException("mmproj_path is empty");
+    }
+    File file = new File(mmproj_path);
+    if (!file.exists()) {
+      throw new IllegalArgumentException("mmproj file does not exist: " + mmproj_path);
+    }
+    return initMultimodal(this.context, mmproj_path);
+  }
+
+  public WritableMap processImage(String image_path, String prompt) {
+    if (image_path == null || image_path.isEmpty()) {
+      throw new IllegalArgumentException("image_path is empty");
+    }
+    File file = new File(image_path);
+    if (!file.exists()) {
+      throw new IllegalArgumentException("Image file does not exist: " + image_path);
+    }
+    if (prompt == null) {
+      prompt = "";
+    }
+
+    WritableMap result = Arguments.createMap();
+    String[] processResult = processImage(this.context, image_path, prompt);
+
+    result.putBoolean("success", Boolean.parseBoolean(processResult[0]));
+    result.putString("prompt", processResult[1]);
+    if (!Boolean.parseBoolean(processResult[0])) {
+      result.putString("error", "Failed to process image");
+    }
+
+    return result;
+  }
+
+  public boolean isMultimodalEnabled() {
+    return isMultimodalEnabled(this.context);
+  }
+
   public void release() {
     freeContext(context);
   }
@@ -495,6 +536,7 @@ public class LlamaContext {
     float rope_freq_scale,
     int pooling_type,
     boolean ctx_shift,
+    String mmproj,
     LoadProgressCallback load_progress_callback
   );
   protected static native void interruptLoad(long contextPtr);
@@ -576,6 +618,9 @@ public class LlamaContext {
   protected static native int applyLoraAdapters(long contextPtr, ReadableArray loraAdapters);
   protected static native void removeLoraAdapters(long contextPtr);
   protected static native WritableArray getLoadedLoraAdapters(long contextPtr);
+  protected static native boolean initMultimodal(long contextPtr, String mmproj_path);
+  protected static native String[] processImage(long contextPtr, String image_path, String prompt);
+  protected static native boolean isMultimodalEnabled(long contextPtr);
   protected static native void freeContext(long contextPtr);
   protected static native void setupLog(NativeLogCallback logCallback);
   protected static native void unsetLog();

@@ -153,6 +153,12 @@ llama_rn_context::~llama_rn_context() {
     if (ctx_sampling != nullptr) {
         common_sampler_free(ctx_sampling);
     }
+
+    if (mtmd_ctx != nullptr) {
+        mtmd_free(mtmd_ctx);
+        mtmd_ctx = nullptr;
+        has_multimodal = false;
+    }
 }
 
 void llama_rn_context::rewind() {
@@ -717,6 +723,117 @@ void llama_rn_context::removeLoraAdapters() {
 
 std::vector<common_adapter_lora_info> llama_rn_context::getLoadedLoraAdapters() {
     return this->lora;
+}
+
+bool llama_rn_context::initMultimodal(const std::string &mmproj_path) {
+    if (model == nullptr) {
+        LOG_ERROR("Model not loaded, cannot initialize multimodal", "");
+        return false;
+    }
+
+    // Initialize mtmd context
+    mtmd_context_params mtmd_params = mtmd_context_params_default();
+    mtmd_params.use_gpu = true;
+    mtmd_params.print_timings = true;
+    mtmd_params.n_threads = params.cpuparams.n_threads;
+    mtmd_params.verbosity = (lm_ggml_log_level)LM_GGML_LOG_LEVEL_INFO;
+
+    mtmd_ctx = mtmd_init_from_file(mmproj_path.c_str(), model, mtmd_params);
+    if (mtmd_ctx == nullptr) {
+        LOG_ERROR("Failed to initialize multimodal context with mmproj: %s", mmproj_path.c_str());
+        return false;
+    }
+
+    has_multimodal = true;
+    LOG_INFO("Multimodal context initialized successfully with mmproj: %s", mmproj_path.c_str());
+    return true;
+}
+
+bool llama_rn_context::processImage(const std::string &image_path, std::string &prompt) {
+    if (!has_multimodal || mtmd_ctx == nullptr) {
+        LOG_ERROR("Multimodal context not initialized", "");
+        return false;
+    }
+
+    // Load the image from file
+    mtmd_bitmap* bitmap = mtmd_helper_bitmap_init_from_file(image_path.c_str());
+    if (bitmap == nullptr) {
+        LOG_ERROR("Failed to load image: %s", image_path.c_str());
+        return false;
+    }
+
+    // Create input chunks
+    mtmd_input_chunks* chunks = mtmd_input_chunks_init();
+    if (chunks == nullptr) {
+        LOG_ERROR("Failed to initialize input chunks", "");
+        mtmd_bitmap_free(bitmap);
+        return false;
+    }
+
+    // Create input text
+    mtmd_input_text input_text;
+    input_text.text = prompt.c_str();
+    input_text.add_special = true;
+    input_text.parse_special = true;
+
+    // Tokenize the text and image
+    const mtmd_bitmap* bitmaps[] = { bitmap };
+    int32_t res = mtmd_tokenize(mtmd_ctx, chunks, &input_text, bitmaps, 1);
+    if (res != 0) {
+        LOG_ERROR("Failed to tokenize image and text: %d", res);
+        mtmd_input_chunks_free(chunks);
+        mtmd_bitmap_free(bitmap);
+        return false;
+    }
+
+    // Process each chunk
+    size_t n_chunks = mtmd_input_chunks_size(chunks);
+    std::string new_prompt;
+
+    for (size_t i = 0; i < n_chunks; i++) {
+        const mtmd_input_chunk* chunk = mtmd_input_chunks_get(chunks, i);
+        mtmd_input_chunk_type type = mtmd_input_chunk_get_type(chunk);
+
+        if (type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+            // For text chunks, convert tokens back to text
+            size_t n_tokens;
+            const llama_token* tokens = mtmd_input_chunk_get_tokens_text(chunk, &n_tokens);
+
+            for (size_t j = 0; j < n_tokens; j++) {
+                std::string token_str = tokens_to_output_formatted_string(ctx, tokens[j]);
+                new_prompt += token_str;
+            }
+        } else if (type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+            // For image chunks, encode the image
+            const mtmd_image_tokens* image_tokens = mtmd_input_chunk_get_tokens_image(chunk);
+            if (image_tokens == nullptr) {
+                LOG_ERROR("Failed to get image tokens", "");
+                continue;
+            }
+
+            // Encode the image
+            if (mtmd_encode(mtmd_ctx, image_tokens) != 0) {
+                LOG_ERROR("Failed to encode image", "");
+                continue;
+            }
+
+            // Add a placeholder for the image in the prompt
+            new_prompt += MTMD_DEFAULT_IMAGE_MARKER;
+        }
+    }
+
+    // Update the prompt
+    prompt = new_prompt;
+
+    // Clean up
+    mtmd_input_chunks_free(chunks);
+    mtmd_bitmap_free(bitmap);
+
+    return true;
+}
+
+bool llama_rn_context::isMultimodalEnabled() const {
+    return has_multimodal && mtmd_ctx != nullptr;
 }
 
 }

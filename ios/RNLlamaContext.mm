@@ -332,6 +332,29 @@
     return llama->is_predicting;
 }
 
+- (bool)initMultimodal:(NSString *)mmproj_path {
+    return llama->initMultimodal([mmproj_path UTF8String]);
+}
+
+- (NSDictionary *)processImage:(NSString *)image_path prompt:(NSString *)prompt {
+    std::string prompt_str = [prompt UTF8String];
+    bool success = llama->processImage([image_path UTF8String], prompt_str);
+
+    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
+    result[@"success"] = @(success);
+    result[@"prompt"] = [NSString stringWithUTF8String:prompt_str.c_str()];
+
+    if (!success) {
+        result[@"error"] = @"Failed to process image";
+    }
+
+    return result;
+}
+
+- (bool)isMultimodalEnabled {
+    return llama->isMultimodalEnabled();
+}
+
 - (NSDictionary *)getFormattedChatWithJinja:(NSString *)messages
     withChatTemplate:(NSString *)chatTemplate
     withJsonSchema:(NSString *)jsonSchema

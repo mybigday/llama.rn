@@ -119,6 +119,14 @@ cp ./llama.cpp/common/chat.cpp ./cpp/chat.cpp
 cp ./llama.cpp/common/minja/minja.hpp ./cpp/minja/minja.hpp
 cp ./llama.cpp/common/minja/chat-template.hpp ./cpp/minja/chat-template.hpp
 
+# Copy multimodal files from tools/mtmd
+cp ./llama.cpp/tools/mtmd/mtmd.h ./cpp/tools/mtmd/mtmd.h
+cp ./llama.cpp/tools/mtmd/mtmd.cpp ./cpp/tools/mtmd/mtmd.cpp
+cp ./llama.cpp/tools/mtmd/clip.h ./cpp/tools/mtmd/clip.h
+cp ./llama.cpp/tools/mtmd/clip.cpp ./cpp/tools/mtmd/clip.cpp
+cp ./llama.cpp/tools/mtmd/clip-impl.h ./cpp/tools/mtmd/clip-impl.h
+cp ./llama.cpp/common/stb_image.h ./cpp/tools/mtmd/stb_image.h
+
 # List of files to process
 files_add_lm_prefix=(
   "./cpp/llama-impl.h"
@@ -215,6 +223,12 @@ files_add_lm_prefix=(
   "./cpp/ggml-cpu/simd-mappings.h"
   "./cpp/ggml-cpu/ops.h"
   "./cpp/ggml-cpu/ops.cpp"
+  # Multimodal files
+  "./cpp/tools/mtmd/mtmd.h"
+  "./cpp/tools/mtmd/mtmd.cpp"
+  "./cpp/tools/mtmd/clip.h"
+  "./cpp/tools/mtmd/clip.cpp"
+  "./cpp/tools/mtmd/clip-impl.h"
 )
 
 # Loop through each file and run the sed commands

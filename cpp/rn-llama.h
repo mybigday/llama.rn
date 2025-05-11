@@ -10,6 +10,9 @@
 #include "llama.h"
 #include "llama-impl.h"
 #include "sampling.h"
+// Include multimodal support
+#include "tools/mtmd/mtmd.h"
+#include "tools/mtmd/clip.h"
 #if defined(__ANDROID__)
 #include <android/log.h>
 #endif
@@ -78,6 +81,10 @@ struct llama_rn_context {
 
     std::vector<common_adapter_lora_info> lora;
 
+    // Multimodal support
+    mtmd_context *mtmd_ctx = nullptr;
+    bool has_multimodal = false;
+
     ~llama_rn_context();
 
     void rewind();
@@ -107,6 +114,11 @@ struct llama_rn_context {
     int applyLoraAdapters(std::vector<common_adapter_lora_info> lora);
     void removeLoraAdapters();
     std::vector<common_adapter_lora_info> getLoadedLoraAdapters();
+
+    // Multimodal methods
+    bool initMultimodal(const std::string &mmproj_path);
+    bool processImage(const std::string &image_path, std::string &prompt);
+    bool isMultimodalEnabled() const;
 };\
 
 // Logging macros

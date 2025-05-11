@@ -81,6 +81,15 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/minja/minja.hpp
     ${SOURCE_DIR}/minja/chat-template.hpp
     ${SOURCE_DIR}/json.hpp
+    ${SOURCE_DIR}/amx/amx.cpp
+    ${SOURCE_DIR}/amx/mmq.cpp
+    # Multimodal support
+    ${SOURCE_DIR}/tools/mtmd/mtmd.cpp
+    ${SOURCE_DIR}/tools/mtmd/mtmd.h
+    ${SOURCE_DIR}/tools/mtmd/clip.cpp
+    ${SOURCE_DIR}/tools/mtmd/clip.h
+    ${SOURCE_DIR}/tools/mtmd/clip-impl.h
+    ${SOURCE_DIR}/tools/mtmd/stb_image.h
     ${SOURCE_DIR}/rn-llama.cpp
 )
 
@@ -89,6 +98,7 @@ target_include_directories(rnllama
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools.mtmd>
         $<INSTALL_INTERFACE:include>
 )
 

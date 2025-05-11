@@ -245,6 +245,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jfloat rope_freq_scale,
     jint pooling_type,
     jboolean ctx_shift,
+    jstring mmproj,
     jobject load_progress_callback
 ) {
     UNUSED(thiz);
@@ -1265,6 +1266,63 @@ Java_com_rnllama_LlamaContext_unsetLog(JNIEnv *env, jobject thiz) {
     UNUSED(env);
     UNUSED(thiz);
     llama_log_set(rnllama_log_callback_default, NULL);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_rnllama_LlamaContext_initMultimodal(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring mmproj_path
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *mmproj_path_chars = env->GetStringUTFChars(mmproj_path, nullptr);
+    bool result = llama->initMultimodal(mmproj_path_chars);
+    env->ReleaseStringUTFChars(mmproj_path, mmproj_path_chars);
+
+    return result;
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_rnllama_LlamaContext_processImage(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring image_path,
+    jstring prompt
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *image_path_chars = env->GetStringUTFChars(image_path, nullptr);
+    const char *prompt_chars = env->GetStringUTFChars(prompt, nullptr);
+
+    std::string prompt_str = prompt_chars;
+    bool success = llama->processImage(image_path_chars, prompt_str);
+
+    env->ReleaseStringUTFChars(image_path, image_path_chars);
+    env->ReleaseStringUTFChars(prompt, prompt_chars);
+
+    // Create a string array to return [success, prompt]
+    jobjectArray result = env->NewObjectArray(2, env->FindClass("java/lang/String"), nullptr);
+    env->SetObjectArrayElement(result, 0, env->NewStringUTF(success ? "true" : "false"));
+    env->SetObjectArrayElement(result, 1, env->NewStringUTF(prompt_str.c_str()));
+
+    return result;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_rnllama_LlamaContext_isMultimodalEnabled(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    return llama->isMultimodalEnabled();
 }
 
 } // extern "C"

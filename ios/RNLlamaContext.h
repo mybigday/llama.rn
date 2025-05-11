@@ -34,6 +34,9 @@
 - (NSDictionary *)modelInfo;
 - (bool)isModelLoaded;
 - (bool)isPredicting;
+- (bool)initMultimodal:(NSString *)mmproj_path;
+- (NSDictionary *)processImage:(NSString *)image_path prompt:(NSString *)prompt;
+- (bool)isMultimodalEnabled;
 - (NSDictionary *)completion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *tokenResult))onToken;
 - (void)stopCompletion;
 - (NSArray *)tokenize:(NSString *)text;
