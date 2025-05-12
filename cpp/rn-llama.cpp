@@ -795,7 +795,7 @@ bool llama_rn_context::processImage(
     if (mtmd_helper_eval_chunks(mtmd_ctx,
                 ctx, // llama context
                 chunks, // chunks
-                0, // n_past (start from beginning)
+                n_past, // n_past (start from beginning)
                 0, // seq_id
                 params.n_batch, // n_batch
                 true, // logits_last
