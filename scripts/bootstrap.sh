@@ -125,6 +125,7 @@ cp ./llama.cpp/tools/mtmd/mtmd.cpp ./cpp/tools/mtmd/mtmd.cpp
 cp ./llama.cpp/tools/mtmd/clip.h ./cpp/tools/mtmd/clip.h
 cp ./llama.cpp/tools/mtmd/clip.cpp ./cpp/tools/mtmd/clip.cpp
 cp ./llama.cpp/tools/mtmd/clip-impl.h ./cpp/tools/mtmd/clip-impl.h
+cp ./llama.cpp/tools/mtmd/mtmd-helper.cpp ./cpp/tools/mtmd/mtmd-helper.cpp
 cp ./llama.cpp/common/stb_image.h ./cpp/tools/mtmd/stb_image.h
 
 # List of files to process
@@ -229,6 +230,7 @@ files_add_lm_prefix=(
   "./cpp/tools/mtmd/clip.h"
   "./cpp/tools/mtmd/clip.cpp"
   "./cpp/tools/mtmd/clip-impl.h"
+  "./cpp/tools/mtmd/mtmd-helper.cpp"
 )
 
 # Loop through each file and run the sed commands

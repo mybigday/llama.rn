@@ -315,7 +315,9 @@ public class LlamaContext {
       new PartialCompletionCallback(
         this,
         params.hasKey("emit_partial_completion") ? params.getBoolean("emit_partial_completion") : false
-      )
+      ),
+      // String image_path
+      params.hasKey("image_path") ? params.getString("image_path") : null
     );
     if (result.hasKey("error")) {
       throw new IllegalStateException(result.getString("error"));
@@ -602,7 +604,8 @@ public class LlamaContext {
     int dry_penalty_last_n,
     float top_n_sigma,
     String[] dry_sequence_breakers,
-    PartialCompletionCallback partial_completion_callback
+    PartialCompletionCallback partial_completion_callback,
+    String image_path
   );
   protected static native void stopCompletion(long contextPtr);
   protected static native boolean isPredicting(long contextPtr);

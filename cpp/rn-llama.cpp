@@ -749,7 +749,10 @@ bool llama_rn_context::initMultimodal(const std::string &mmproj_path) {
     return true;
 }
 
-bool llama_rn_context::processImage(const std::string &image_path, std::string &prompt) {
+bool llama_rn_context::processImage(
+    const std::string &image_path,
+    const std::string &prompt
+) {
     if (!has_multimodal || mtmd_ctx == nullptr) {
         LOG_ERROR("Multimodal context not initialized", "");
         return false;
@@ -786,48 +789,31 @@ bool llama_rn_context::processImage(const std::string &image_path, std::string &
         return false;
     }
 
-    // Process each chunk
-    size_t n_chunks = mtmd_input_chunks_size(chunks);
-    std::string new_prompt;
-
-    for (size_t i = 0; i < n_chunks; i++) {
-        const mtmd_input_chunk* chunk = mtmd_input_chunks_get(chunks, i);
-        mtmd_input_chunk_type type = mtmd_input_chunk_get_type(chunk);
-
-        if (type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
-            // For text chunks, convert tokens back to text
-            size_t n_tokens;
-            const llama_token* tokens = mtmd_input_chunk_get_tokens_text(chunk, &n_tokens);
-
-            for (size_t j = 0; j < n_tokens; j++) {
-                std::string token_str = tokens_to_output_formatted_string(ctx, tokens[j]);
-                new_prompt += token_str;
-            }
-        } else if (type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
-            // For image chunks, encode the image
-            const mtmd_image_tokens* image_tokens = mtmd_input_chunk_get_tokens_image(chunk);
-            if (image_tokens == nullptr) {
-                LOG_ERROR("Failed to get image tokens", "");
-                continue;
-            }
-
-            // Encode the image
-            if (mtmd_encode(mtmd_ctx, image_tokens) != 0) {
-                LOG_ERROR("Failed to encode image", "");
-                continue;
-            }
-
-            // Add a placeholder for the image in the prompt
-            new_prompt += MTMD_DEFAULT_IMAGE_MARKER;
-        }
+    // Evaluate the chunks in the model's context
+    // This is the critical step that makes the model aware of the image
+    llama_pos new_n_past = 0;
+    if (mtmd_helper_eval_chunks(mtmd_ctx,
+                ctx, // llama context
+                chunks, // chunks
+                0, // n_past (start from beginning)
+                0, // seq_id
+                params.n_batch, // n_batch
+                true, // logits_last
+                &new_n_past)) {
+        LOG_ERROR("Failed to evaluate chunks", "");
+        mtmd_input_chunks_free(chunks);
+        mtmd_bitmap_free(bitmap);
+        return false;
     }
 
-    // Update the prompt
-    prompt = new_prompt;
+    // Update the context state to reflect the new tokens
+    n_past = new_n_past;
 
-    // Clean up
+    // Clean up image resources
     mtmd_input_chunks_free(chunks);
     mtmd_bitmap_free(bitmap);
+
+    LOG_INFO("Image processed successfully, context updated: n_past=%d", n_past);
 
     return true;
 }

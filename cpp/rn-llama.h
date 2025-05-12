@@ -117,7 +117,13 @@ struct llama_rn_context {
 
     // Multimodal methods
     bool initMultimodal(const std::string &mmproj_path);
-    bool processImage(const std::string &image_path, std::string &prompt);
+
+    // Process an image and add it to the context
+    bool processImage(
+        const std::string &image_path,
+        const std::string &prompt
+    );
+
     bool isMultimodalEnabled() const;
 };\
 

@@ -111,6 +111,12 @@ export type NativeCompletionParams = {
   preserved_tokens?: Array<string>
   chat_format?: number
   /**
+   * Path to an image file to process before generating text.
+   * When provided, the image will be processed and added to the context.
+   * Requires multimodal support to be enabled via initMultimodal.
+   */
+  image_path?: string
+  /**
    * Specify a JSON array of stopping strings.
    * These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]`
    */
@@ -433,11 +439,14 @@ export interface Spec extends TurboModule {
     mmproj_path: string,
   ): Promise<boolean>
 
+  // Process an image and add it to the context
   processImage(
     contextId: number,
     image_path: string,
     prompt: string,
   ): Promise<NativeImageProcessingResult>
+
+  // processImageAndGenerateResponse has been removed in favor of the unified API approach
 
   isMultimodalEnabled(
     contextId: number,

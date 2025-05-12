@@ -1,6 +1,5 @@
 import React, { useState, useRef } from 'react'
-import type { ReactNode } from 'react'
-import { Platform } from 'react-native'
+import { Platform, Alert } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import DocumentPicker from 'react-native-document-picker'
 import type { DocumentPickerResponse } from 'react-native-document-picker'
@@ -16,7 +15,6 @@ import {
   addNativeLogListener,
   // eslint-disable-next-line import/no-unresolved
 } from 'llama.rn'
-import { Bubble } from './Bubble'
 
 // Example: Catch logs from llama.cpp
 toggleNativeLog(true)
@@ -76,17 +74,21 @@ const defaultConversationId = 'default'
 
 const renderBubble = ({
   child,
-  message,
+  // Using _message to indicate it's intentionally unused
+  _message,
 }: {
-  child: ReactNode
-  message: MessageType.Any
-}) => <Bubble child={child} message={message} />
+  child: React.ReactNode
+  _message?: MessageType.Any
+}) => child;
 
 export default function App() {
   const [context, setContext] = useState<LlamaContext | undefined>(undefined)
-
   const [inferencing, setInferencing] = useState<boolean>(false)
   const [messages, setMessages] = useState<MessageType.Any[]>([])
+
+  // Multimodal state
+  const [multimodalEnabled, setMultimodalEnabled] = useState<boolean>(false)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
 
   const conversationIdRef = useRef<string>(defaultConversationId)
 
@@ -136,6 +138,7 @@ export default function App() {
   const handleInitContext = async (
     file: DocumentPickerResponse,
     loraFile: DocumentPickerResponse | null,
+    mmProjFile: DocumentPickerResponse | null = null,
   ) => {
     await handleReleaseContext()
     await getModelInfo(file.uri)
@@ -146,6 +149,9 @@ export default function App() {
         model: file.uri,
         use_mlock: true,
         lora_list: loraFile ? [{ path: loraFile.uri, scaled: 1.0 }] : undefined, // Or lora: loraFile?.uri,
+
+        // Add mmproj file if provided
+        mmproj: mmProjFile?.uri,
 
         // If use deepseek r1 distill
         reasoning_format: 'deepseek',
@@ -172,23 +178,71 @@ export default function App() {
         })
       },
     )
-      .then((ctx) => {
+      .then(async (ctx) => {
         const t1 = Date.now()
         setContext(ctx)
+
+        // Initialize multimodal support if mmproj file was provided
+        if (mmProjFile) {
+          try {
+            addSystemMessage('Checking multimodal support status...');
+            const isEnabled = await ctx.isMultimodalEnabled();
+            if (!isEnabled) {
+              addSystemMessage('Initializing multimodal support...');
+              const success = await ctx.initMultimodal(mmProjFile.uri);
+              setMultimodalEnabled(success);
+              if (success) {
+                addSystemMessage('Multimodal support initialized successfully!');
+              } else {
+                addSystemMessage('Failed to initialize multimodal support.');
+              }
+            } else {
+              setMultimodalEnabled(true);
+              addSystemMessage('Multimodal support already enabled.');
+            }
+          } catch (error) {
+            addSystemMessage(`Error initializing multimodal support: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        } else {
+          // Even if no mmproj file was explicitly provided, check if multimodal is already enabled
+          try {
+            const isEnabled = await ctx.isMultimodalEnabled();
+            if (isEnabled) {
+              setMultimodalEnabled(true);
+              addSystemMessage('Multimodal support detected and enabled.');
+            }
+          } catch (error) {
+            // Silently ignore errors when checking multimodal status
+            console.log('Error checking multimodal status:', error);
+          }
+        }
+
+        // Create commands list including multimodal commands if enabled
+        const commands = [
+          '- /info: to get the model info',
+          '- /bench: to benchmark the model',
+          '- /release: release the context',
+          '- /stop: stop the current completion',
+          '- /reset: reset the conversation',
+          '- /save-session: save the session tokens',
+          '- /load-session: load the session tokens',
+        ];
+
+        // Always include the image command if mmproj file was provided
+        // This ensures the command is available even if there's a delay in setting multimodalEnabled
+        if (mmProjFile || multimodalEnabled) {
+          commands.push(
+            '- /image: pick an image to analyze'
+          );
+        }
+
         addSystemMessage(
-          `Context initialized!\n\nLoad time: ${t1 - t0}ms\nGPU: ${
-            ctx.gpu ? 'YES' : 'NO'
-          } (${ctx.reasonNoGPU})\nChat Template: ${
-            ctx.model.chatTemplates.llamaChat ? 'YES' : 'NO'
-          }\n\n` +
-            'You can use the following commands:\n\n' +
-            '- /info: to get the model info\n' +
-            '- /bench: to benchmark the model\n' +
-            '- /release: release the context\n' +
-            '- /stop: stop the current completion\n' +
-            '- /reset: reset the conversation' +
-            '- /save-session: save the session tokens\n' +
-            '- /load-session: load the session tokens',
+          `Context initialized!\n\n` +
+          `Load time: ${t1 - t0}ms\n` +
+          `GPU: ${ctx.gpu ? 'YES' : 'NO'} (${ctx.reasonNoGPU})\n` +
+          `Chat Template: ${ctx.model.chatTemplates.llamaChat ? 'YES' : 'NO'}\n` +
+          `Multimodal: ${multimodalEnabled || mmProjFile ? 'YES' : 'NO'}\n\n` +
+          `You can use the following commands:\n\n${commands.join('\n')}`
         )
       })
       .catch((err) => {
@@ -232,6 +286,17 @@ export default function App() {
     return loraFile
   }
 
+  const pickMmproj = async () => {
+    let mmProjFile
+    const mmProjRes = await DocumentPicker.pick({
+      type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
+    }).catch((e) => console.log('No mmproj file picked, error: ', e.message))
+    if (mmProjRes?.[0]) mmProjFile = await copyFileIfNeeded('mmproj', mmProjRes[0])
+    return mmProjFile
+  }
+
+  // We'll use this function directly in the /image command handler
+
   const handlePickModel = async () => {
     const modelRes = await DocumentPicker.pick({
       type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
@@ -244,7 +309,38 @@ export default function App() {
     // loraFile = await pickLora()
     loraFile = null
 
-    handleInitContext(modelFile, loraFile)
+    // Ask if user wants to enable multimodal support
+    const enableMultimodal = Alert.alert(
+      'Multimodal Support',
+      'Do you want to enable multimodal support? This requires a mmproj file.',
+      [
+        {
+          text: 'No',
+          style: 'cancel',
+          onPress: () => {
+            handleInitContext(modelFile, loraFile);
+          },
+        },
+        {
+          text: 'Yes',
+          onPress: async () => {
+            addSystemMessage('Please select a mmproj file for multimodal support...');
+            const mmProjFile = await pickMmproj();
+            if (mmProjFile) {
+              handleInitContext(modelFile, loraFile, mmProjFile);
+            } else {
+              addSystemMessage('No mmproj file selected, continuing without multimodal support.');
+              handleInitContext(modelFile, loraFile);
+            }
+          },
+        },
+      ]
+    );
+
+    // Default case if Alert.alert doesn't work as expected
+    if (enableMultimodal === undefined) {
+      handleInitContext(modelFile, loraFile);
+    }
   }
 
   const handleSendPress = async (message: MessageType.PartialText) => {
@@ -353,8 +449,146 @@ export default function App() {
             )
           })
           return
+        case '/image':
+          // Check if multimodal is enabled or if we're in the process of initializing it
+          if (!multimodalEnabled) {
+            // If context exists but multimodal isn't enabled, check if it can be enabled
+            if (context && context.isMultimodalEnabled) {
+              try {
+                const isEnabled = await context.isMultimodalEnabled();
+                if (isEnabled) {
+                  // Update state if multimodal is actually enabled but state hasn't caught up
+                  setMultimodalEnabled(true);
+                  addSystemMessage('Multimodal support is already enabled.');
+                } else {
+                  addSystemMessage('Multimodal support is not enabled. Please initialize a model with a mmproj file.')
+                  return;
+                }
+              } catch (error) {
+                addSystemMessage(`Error checking multimodal status: ${error instanceof Error ? error.message : String(error)}`);
+                return;
+              }
+            } else {
+              addSystemMessage('Multimodal support is not enabled. Please initialize a model with a mmproj file.')
+              return;
+            }
+          }
+
+          try {
+            // Use DocumentPicker to pick an image
+            const imageRes = await DocumentPicker.pick({
+              type: Platform.OS === 'ios' ? 'public.image' : 'image/*',
+            }).catch((e) => {
+              console.log('No image picked, error: ', e.message);
+              return null;
+            });
+
+            if (!imageRes?.[0]) {
+              addSystemMessage('No image selected.');
+              return;
+            }
+
+            let imagePath = imageRes[0].uri;
+            console.log('Image path:', imagePath);
+
+            // For Android, we need to copy the content URI to a file path
+            if (Platform.OS === 'android' && imagePath.startsWith('content://')) {
+              try {
+                addSystemMessage('Copying image to temporary file...');
+                const tempDir = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/images`;
+                const tempFilePath = `${tempDir}/${Date.now()}.jpg`;
+
+                // Create directory if it doesn't exist
+                if (!(await ReactNativeBlobUtil.fs.isDir(tempDir))) {
+                  await ReactNativeBlobUtil.fs.mkdir(tempDir);
+                }
+
+                // Copy the file to a temporary location
+                await ReactNativeBlobUtil.MediaCollection.copyToInternal(imagePath, tempFilePath);
+
+                // Update the image path to the new file path
+                // Add file:// prefix for Android to make it work with React Native's Image component
+                imagePath = `file://${tempFilePath}`;
+                addSystemMessage('Image copied successfully.');
+                console.log('Copied image to:', imagePath);
+              } catch (copyError) {
+                addSystemMessage(`Error copying image: ${copyError instanceof Error ? copyError.message : String(copyError)}`);
+                return;
+              }
+            }
+
+            setSelectedImage(imagePath);
+
+            addSystemMessage('Image selected. Please send a message to analyze the image.');
+
+            // Add an image message using the built-in Image message type
+            const imageMessage: MessageType.Image = {
+              author: user,
+              createdAt: Date.now(),
+              id: randId(),
+              name: 'Selected Image',
+              size: 0, // We might not know the size without additional API calls
+              type: 'image',
+              uri: imagePath,
+              metadata: {
+                contextId: context?.id,
+                conversationId: conversationIdRef.current,
+              },
+            };
+
+            addMessage(imageMessage);
+          } catch (error) {
+            addSystemMessage(`Error selecting image: ${error instanceof Error ? error.message : String(error)}`);
+          }
+          return
       }
     }
+    // Check if there's a selected image to process
+    const processedPrompt = message.text;
+
+    if (selectedImage && multimodalEnabled && context) {
+      try {
+        addSystemMessage('Processing image...');
+
+        // Make sure we have a valid file path for Android
+        let imagePath = selectedImage;
+        if (Platform.OS === 'android' && imagePath.startsWith('content://')) {
+          try {
+            const tempDir = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/images`;
+            const tempFilePath = `${tempDir}/${Date.now()}.jpg`;
+
+            // Create directory if it doesn't exist
+            if (!(await ReactNativeBlobUtil.fs.isDir(tempDir))) {
+              await ReactNativeBlobUtil.fs.mkdir(tempDir);
+            }
+
+            // Copy the file to a temporary location
+            await ReactNativeBlobUtil.MediaCollection.copyToInternal(imagePath, tempFilePath);
+
+            // Update the image path to the new file path
+            // Add file:// prefix for Android to make it work with React Native's Image component
+            imagePath = `file://${tempFilePath}`;
+            console.log('Copied image for processing to:', imagePath);
+          } catch (copyError) {
+            addSystemMessage(`Error copying image for processing: ${copyError instanceof Error ? copyError.message : String(copyError)}`);
+            setSelectedImage(null);
+            return;
+          }
+        }
+
+        // For Android, we need to make sure we're using a real file path without the file:// prefix
+        // For iOS, the file:// prefix is required for the Image component but should be removed for native code
+        const nativeImagePath = imagePath.startsWith('file://') ? imagePath.substring(7) : imagePath;
+
+        console.log('Processing image with native path:', nativeImagePath);
+
+      } catch (error: any) {
+        addSystemMessage(`Error processing image: ${error?.message || String(error)}`);
+        console.log('Error processing image:', error);
+        setSelectedImage(null);
+      }
+    }
+
     const textMessage: MessageType.Text = {
       author: user,
       createdAt: Date.now(),
@@ -364,6 +598,7 @@ export default function App() {
       metadata: {
         contextId: context?.id,
         conversationId: conversationIdRef.current,
+        hasImage: !!selectedImage,
       },
     }
 
@@ -382,16 +617,38 @@ export default function App() {
           ) {
             return {
               role: msg.author.id === systemId ? 'assistant' : 'user',
-              content: msg.text,
+              content: msg.metadata?.hasImage ? [
+                {
+                  type: 'text',
+                  text: msg.text,
+                },
+                {
+                  type: 'image_url',
+                  image_url: { url: selectedImage },
+                }
+              ] : msg.text
             }
           }
           return { role: '', content: '' }
         })
         .filter((msg) => msg.role),
-      { role: 'user', content: message.text },
+      {
+        role: 'user',
+        content: selectedImage ? [
+          {
+            type: 'text',
+            text: processedPrompt,
+          },
+          {
+            type: 'image_url',
+            image_url: { url: selectedImage },
+          }
+        ] : processedPrompt
+      }
     ]
     addMessage(textMessage)
     setInferencing(true)
+    console.log("Formatted msgs:", msgs)
 
     let responseFormat
     {
@@ -514,6 +771,13 @@ export default function App() {
           messages: msgs,
           n_predict: 2048,
 
+          // Add image_path parameter if an image is selected
+          ...(selectedImage ? {
+            image_path: selectedImage.startsWith('file://')
+              ? selectedImage.substring(7)
+              : selectedImage
+          } : {}),
+
           response_format: responseFormat,
           grammar,
           ...jinjaParams,
@@ -561,10 +825,10 @@ export default function App() {
         },
         (data) => {
           const { token } = data
-          setMessages((msgs) => {
-            const index = msgs.findIndex((msg) => msg.id === id)
+          setMessages((currentMsgs) => {
+            const index = currentMsgs.findIndex((msg) => msg.id === id)
             if (index >= 0) {
-              return msgs.map((msg, i) => {
+              return currentMsgs.map((msg, i) => {
                 if (msg.type == 'text' && i === index) {
                   return {
                     ...msg,
@@ -586,7 +850,7 @@ export default function App() {
                   conversationId: conversationIdRef.current,
                 },
               },
-              ...msgs,
+              ...currentMsgs,
             ]
           })
         },
@@ -596,10 +860,10 @@ export default function App() {
         const timings = `${completionResult.timings.predicted_per_token_ms.toFixed()}ms per token, ${completionResult.timings.predicted_per_second.toFixed(
           2,
         )} tokens per second`
-        setMessages((msgs) => {
-          const index = msgs.findIndex((msg) => msg.id === id)
+        setMessages((currentMsgs) => {
+          const index = currentMsgs.findIndex((msg) => msg.id === id)
           if (index >= 0) {
-            return msgs.map((msg, i) => {
+            return currentMsgs.map((msg, i) => {
               if (msg.type == 'text' && i === index) {
                 return {
                   ...msg,
@@ -612,8 +876,14 @@ export default function App() {
               return msg
             })
           }
-          return msgs
+          return currentMsgs
         })
+
+        // Clear the selected image after completion
+        if (selectedImage) {
+          setSelectedImage(null);
+        }
+
         setInferencing(false)
       })
       .catch((e) => {

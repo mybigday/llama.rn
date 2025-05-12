@@ -89,6 +89,7 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/tools/mtmd/clip.cpp
     ${SOURCE_DIR}/tools/mtmd/clip.h
     ${SOURCE_DIR}/tools/mtmd/clip-impl.h
+    ${SOURCE_DIR}/tools/mtmd/mtmd-helper.cpp
     ${SOURCE_DIR}/tools/mtmd/stb_image.h
     ${SOURCE_DIR}/rn-llama.cpp
 )

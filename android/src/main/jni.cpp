@@ -686,7 +686,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jint dry_penalty_last_n,
     jfloat top_n_sigma,
     jobjectArray dry_sequence_breakers,
-    jobject partial_completion_callback
+    jobject partial_completion_callback,
+    jstring image_path
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
@@ -695,8 +696,45 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     //llama_reset_timings(llama->ctx);
 
-    auto prompt_chars = env->GetStringUTFChars(prompt, nullptr);
-    llama->params.prompt = prompt_chars;
+    // Define prompt_chars outside the if-else block so it's accessible later
+    const char *prompt_chars = nullptr;
+
+    // Process image if provided
+    if (image_path != nullptr) {
+        const char *image_path_chars = env->GetStringUTFChars(image_path, nullptr);
+        prompt_chars = env->GetStringUTFChars(prompt, nullptr);
+
+        // Process the image and add it to the context
+        if (llama->isMultimodalEnabled()) {
+            bool image_processed = llama->processImage(image_path_chars, prompt_chars);
+            if (!image_processed) {
+                auto result = createWriteableMap(env);
+                putString(env, result, "error", "Failed to process image");
+                env->ReleaseStringUTFChars(image_path, image_path_chars);
+                env->ReleaseStringUTFChars(prompt, prompt_chars);
+                return reinterpret_cast<jobject>(result);
+            }
+
+            // Since the image has been processed and added to the context,
+            // we don't need to process the prompt text again
+            llama->params.prompt = "";
+        } else {
+            auto result = createWriteableMap(env);
+            putString(env, result, "error", "Multimodal support not enabled. Call initMultimodal first.");
+            env->ReleaseStringUTFChars(image_path, image_path_chars);
+            env->ReleaseStringUTFChars(prompt, prompt_chars);
+            return reinterpret_cast<jobject>(result);
+        }
+
+        env->ReleaseStringUTFChars(image_path, image_path_chars);
+        env->ReleaseStringUTFChars(prompt, prompt_chars);
+        prompt_chars = nullptr; // Mark as released
+    } else {
+        // No image, just process the text prompt as usual
+        prompt_chars = env->GetStringUTFChars(prompt, nullptr);
+        llama->params.prompt = prompt_chars;
+    }
+
     llama->params.sampling.seed = (seed == -1) ? time(NULL) : seed;
 
     int max_threads = std::thread::hardware_concurrency();
@@ -923,7 +961,12 @@ Java_com_rnllama_LlamaContext_doCompletion(
     }
 
     env->ReleaseStringUTFChars(grammar, grammar_chars);
-    env->ReleaseStringUTFChars(prompt, prompt_chars);
+
+    // Release prompt_chars if it's still allocated
+    if (prompt_chars != nullptr) {
+        env->ReleaseStringUTFChars(prompt, prompt_chars);
+    }
+
     llama_perf_context_print(llama->ctx);
     llama->is_predicting = false;
 
@@ -1312,6 +1355,8 @@ Java_com_rnllama_LlamaContext_processImage(
 
     return result;
 }
+
+// processImageAndGenerateResponse has been removed in favor of the unified API approach
 
 JNIEXPORT jboolean JNICALL
 Java_com_rnllama_LlamaContext_isMultimodalEnabled(

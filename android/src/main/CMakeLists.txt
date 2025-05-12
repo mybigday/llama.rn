@@ -40,6 +40,7 @@ set(
     ${RNLLAMA_LIB_DIR}/tools/mtmd/clip.cpp
     ${RNLLAMA_LIB_DIR}/tools/mtmd/clip.h
     ${RNLLAMA_LIB_DIR}/tools/mtmd/clip-impl.h
+    ${RNLLAMA_LIB_DIR}/tools/mtmd/mtmd-helper.cpp
     ${RNLLAMA_LIB_DIR}/tools/mtmd/stb_image.h
     ${RNLLAMA_LIB_DIR}/llama-grammar.cpp
     ${RNLLAMA_LIB_DIR}/llama-sampling.cpp

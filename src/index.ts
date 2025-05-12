@@ -229,6 +229,16 @@ export class LlamaContext {
     })
   }
 
+  /**
+   * Generate a completion based on the provided parameters
+   * @param params Completion parameters including prompt or messages
+   * @param callback Optional callback for token-by-token streaming
+   * @returns Promise resolving to the completion result
+   *
+   * Note: For multimodal support, you can include an image_path parameter.
+   * This will process the image and add it to the context before generating text.
+   * Multimodal support must be enabled via initMultimodal() first.
+   */
   async completion(
     params: CompletionParams,
     callback?: (data: TokenData) => void,
@@ -376,12 +386,17 @@ export class LlamaContext {
 
   /**
    * Process an image and update the prompt with the image token
-   * @param image_path Path to the image file
+   * @param imagePath Path to the image file
    * @param prompt Prompt text, can include <image> placeholder
    * @returns Promise resolving to the result of image processing
+   *
+   * Note: This is an alternative to using the image_path parameter in the completion method.
+   * You can either:
+   * 1. Call processImage() first, then call completion() with the returned prompt
+   * 2. Call completion() directly with the image_path parameter
    */
-  async processImage(mmprojPath: string, prompt: string): Promise<NativeImageProcessingResult> {
-    let path = mmprojPath
+  async processImage(imagePath: string, prompt: string): Promise<NativeImageProcessingResult> {
+    let path = imagePath
     if (path.startsWith('file://')) path = path.slice(7)
     return RNLlama.processImage(this.id, path, prompt)
   }
