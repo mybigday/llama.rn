@@ -776,7 +776,7 @@ bool llama_rn_context::processImage(
     // Create input text
     mtmd_input_text input_text;
     input_text.text = prompt.c_str();
-    input_text.add_special = true;
+    input_text.add_special = n_past == 0;
     input_text.parse_special = true;
 
     // Tokenize the text and image
