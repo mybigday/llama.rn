@@ -1,5 +1,6 @@
 #import "RNLlamaContext.h"
 #import <Metal/Metal.h>
+#include "../cpp/logging.h"
 
 @implementation RNLlamaContext
 
@@ -336,21 +337,6 @@
     return llama->initMultimodal([mmproj_path UTF8String]);
 }
 
-- (NSDictionary *)processImage:(NSString *)image_path prompt:(NSString *)prompt {
-    std::string prompt_str = [prompt UTF8String];
-    bool success = llama->processImage([image_path UTF8String], prompt_str);
-
-    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
-    result[@"success"] = @(success);
-    result[@"prompt"] = [NSString stringWithUTF8String:prompt_str.c_str()];
-
-    if (!success) {
-        result[@"error"] = @"Failed to process image";
-    }
-
-    return result;
-}
-
 - (bool)isMultimodalEnabled {
     return llama->isMultimodalEnabled();
 }
@@ -584,7 +570,15 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
     llama->beginCompletion();
-    llama->loadPrompt();
+
+    // Use the unified loadPrompt function with image path if available
+    NSString *imagePath = params[@"image_path"];
+    if (imagePath) {
+        llama->loadPrompt([imagePath UTF8String]);
+    } else {
+        llama->loadPrompt("");
+    }
+
     if (llama->context_full) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context is full" userInfo:nil];
     }
@@ -755,7 +749,7 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
     llama->beginCompletion();
-    llama->loadPrompt();
+    llama->loadPrompt("");
     llama->doCompletion();
 
     std::vector<float> result = llama->getEmbedding(embdParams);

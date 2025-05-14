@@ -211,13 +211,49 @@ export class LlamaContext {
       tools?: object
       parallel_tool_calls?: object
       tool_choice?: string
+      image_path?: string
     },
   ): Promise<JinjaFormattedChatResult | string> {
-    const chat = formatChat(messages)
-    const useJinja = this.isJinjaSupported() && params?.jinja
-    let tmpl = this.isLlamaChatSupported() || useJinja ? undefined : 'chatml'
-    if (template) tmpl = template // Force replace if provided
-    const jsonSchema = getJsonSchema(params?.response_format)
+    // Process messages with multimodal content
+    const processedMessages = messages.map(msg => {
+      // Handle multimodal content
+      if (Array.isArray(msg.content)) {
+        // Find image_url parts
+        const imageParts = msg.content.filter(part =>
+          part.type === 'image_url' && part.image_url?.url
+        );
+
+        // Extract the first image path if available and not already provided
+        if (imageParts.length > 0 && !params?.image_path && imageParts[0].image_url?.url) {
+          if (!params) {
+            params = {};
+          }
+          params.image_path = imageParts[0].image_url.url;
+        }
+
+        // Convert to text-only content with image markers
+        const textParts = msg.content.filter(part => part.type === 'text');
+        let textContent = textParts.map(part => part.text).join(' ');
+
+        // Add image marker if there are image parts
+        if (imageParts.length > 0) {
+          textContent += ' <__image__>';
+        }
+
+        return {
+          ...msg,
+          content: textContent
+        };
+      }
+      return msg;
+    });
+
+    const chat = formatChat(processedMessages);
+    const useJinja = this.isJinjaSupported() && params?.jinja;
+    let tmpl = this.isLlamaChatSupported() || useJinja ? undefined : 'chatml';
+    if (template) tmpl = template; // Force replace if provided
+    const jsonSchema = getJsonSchema(params?.response_format);
+
     return RNLlama.getFormattedChat(this.id, JSON.stringify(chat), tmpl, {
       jinja: useJinja,
       json_schema: jsonSchema ? JSON.stringify(jsonSchema) : undefined,
@@ -248,8 +284,11 @@ export class LlamaContext {
       prompt: params.prompt || '',
       emit_partial_completion: !!callback,
     }
+
+    // Extract image_path if present
+    const imagePath = (params as any).image_path;
+
     if (params.messages) {
-      // messages always win
       const formattedResult = await this.getFormattedChat(
         params.messages,
         params.chat_template || params.chatTemplate,
@@ -258,6 +297,7 @@ export class LlamaContext {
           tools: params.tools,
           parallel_tool_calls: params.parallel_tool_calls,
           tool_choice: params.tool_choice,
+          image_path: imagePath, // Pass the image_path if provided
         },
       )
       if (typeof formattedResult === 'string') {
@@ -283,6 +323,11 @@ export class LlamaContext {
       nativeParams.prompt = params.prompt || ''
     }
 
+    // If image_path was explicitly provided or extracted from messages, use it
+    if (imagePath) {
+      (nativeParams as any).image_path = imagePath;
+    }
+
     if (nativeParams.response_format && !nativeParams.grammar) {
       const jsonSchema = getJsonSchema(params.response_format)
       if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
@@ -298,6 +343,7 @@ export class LlamaContext {
 
     if (!nativeParams.prompt) throw new Error('Prompt is required')
 
+    console.log('nativeParams.prompt: ', nativeParams.prompt)
     const promise = RNLlama.completion(this.id, nativeParams)
     return promise
       .then((completionResult) => {
@@ -382,23 +428,6 @@ export class LlamaContext {
     let path = mmprojPath
     if (path.startsWith('file://')) path = path.slice(7)
     return RNLlama.initMultimodal(this.id, path)
-  }
-
-  /**
-   * Process an image and update the prompt with the image token
-   * @param imagePath Path to the image file
-   * @param prompt Prompt text, can include <image> placeholder
-   * @returns Promise resolving to the result of image processing
-   *
-   * Note: This is an alternative to using the image_path parameter in the completion method.
-   * You can either:
-   * 1. Call processImage() first, then call completion() with the returned prompt
-   * 2. Call completion() directly with the image_path parameter
-   */
-  async processImage(imagePath: string, prompt: string): Promise<NativeImageProcessingResult> {
-    let path = imagePath
-    if (path.startsWith('file://')) path = path.slice(7)
-    return RNLlama.processImage(this.id, path, prompt)
   }
 
   /**

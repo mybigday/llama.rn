@@ -1,6 +1,19 @@
 #include "rn-llama.h"
+#include "logging.h"
 
 namespace rnllama {
+
+// Computes FNV-1a hash of the data
+static std::string fnv_hash(const uint8_t * data, size_t len) {
+    const uint64_t fnv_prime = 0x100000001b3ULL;
+    uint64_t hash = 0xcbf29ce484222325ULL;
+
+    for (size_t i = 0; i < len; ++i) {
+        hash ^= data[i];
+        hash *= fnv_prime;
+    }
+    return std::to_string(hash);
+}
 
 const std::vector<lm_ggml_type> kv_cache_types = {
     LM_GGML_TYPE_F32,
@@ -293,61 +306,79 @@ void llama_rn_context::truncatePrompt(std::vector<llama_token> &prompt_tokens) {
     prompt_tokens = new_tokens;
 }
 
-void llama_rn_context::loadPrompt() {
-    std::vector<llama_token> prompt_tokens = ::common_tokenize(ctx, params.prompt, true, true);
-    num_prompt_tokens = prompt_tokens.size();
+void llama_rn_context::loadPrompt(const std::string &image_path) {
+    bool has_image = !image_path.empty() && has_multimodal && mtmd_ctx != nullptr;
 
-    // LOG tokens
-    std::stringstream ss;
-    ss << "\n" << __func__ << ": prompt_tokens = ";
-    for (auto& token : prompt_tokens) {
-        ss << token << " ";
-    }
-    LOG_INFO("%s\n", ss.str().c_str());
+    LOG_INFO("[DEBUG] loadPrompt: has_image=%d, prompt='%s', image_path='%s'",
+             has_image ? 1 : 0, params.prompt.c_str(), image_path.c_str());
 
-    if (params.n_keep < 0)
-    {
-        params.n_keep = (int)num_prompt_tokens;
-    }
-    params.n_keep = std::min(n_ctx - 4, params.n_keep);
+    // Step 1: Process input (different for text-only vs. multimodal)
+    std::vector<llama_token> text_tokens;
 
-    // if input prompt is too big, truncate like normal
-    if (num_prompt_tokens >= (size_t) n_ctx)
-    {
-        if (!params.ctx_shift) {
-            context_full = true;
+    if (!has_image) {
+        // Text-only path
+        text_tokens = ::common_tokenize(ctx, params.prompt, true, true);
+        num_prompt_tokens = text_tokens.size();
+
+        // LOG tokens
+        std::stringstream ss;
+        ss << "\n" << __func__ << ": prompt_tokens = ";
+        for (auto& token : text_tokens) {
+            ss << token << " ";
+        }
+        LOG_INFO("%s\n", ss.str().c_str());
+
+        if (params.n_keep < 0) {
+            params.n_keep = (int)num_prompt_tokens;
+        }
+        params.n_keep = std::min(n_ctx - 4, params.n_keep);
+
+        // Handle truncation if needed
+        if (num_prompt_tokens >= (size_t)n_ctx) {
+            if (!params.ctx_shift) {
+                context_full = true;
+                return;
+            }
+            truncatePrompt(text_tokens);
+            num_prompt_tokens = text_tokens.size();
+            LM_GGML_ASSERT(num_prompt_tokens < (size_t)n_ctx);
+        }
+
+        // Update sampling context
+        for (auto & token : text_tokens) {
+            common_sampler_accept(ctx_sampling, token, false);
+        }
+
+        // compare the evaluated prompt with the new prompt
+        n_past = common_part(embd, text_tokens);
+
+        embd = text_tokens;
+        if (n_past == num_prompt_tokens) {
+            // we have to evaluate at least 1 token to generate logits.
+            n_past--;
+        }
+
+        // Manage KV cache
+        llama_kv_self_seq_rm(ctx, 0, n_past, -1);
+
+        LOG_VERBOSE("prompt ingested, n_past: %d, cached: %s, to_eval: %s",
+            n_past,
+            tokens_to_str(ctx, embd.cbegin(), embd.cbegin() + n_past).c_str(),
+            tokens_to_str(ctx, embd.cbegin() + n_past, embd.cend()).c_str()
+        );
+    } else {
+        // Multimodal path
+        if (!processImage(image_path, params.prompt, text_tokens)) {
+            LOG_ERROR("[DEBUG] Failed to process image", "");
             return;
         }
-        truncatePrompt(prompt_tokens);
-        num_prompt_tokens = prompt_tokens.size();
-        LM_GGML_ASSERT(num_prompt_tokens < (size_t) n_ctx);
+        num_prompt_tokens = text_tokens.size();
     }
-    // push the prompt into the sampling context (do not apply grammar)
-    for (auto & token : prompt_tokens)
-    {
-        common_sampler_accept(ctx_sampling, token, false);
-    }
-
-    // compare the evaluated prompt with the new prompt
-    n_past = common_part(embd, prompt_tokens);
-
-    embd = prompt_tokens;
-    if (n_past == num_prompt_tokens)
-    {
-        // we have to evaluate at least 1 token to generate logits.
-        n_past--;
-    }
-
-    // since #3228 we now have to manually manage the KV cache
-    llama_kv_self_seq_rm(ctx, 0, n_past, -1);
-
-    LOG_VERBOSE("prompt ingested, n_past: %d, cached: %s, to_eval: %s",
-        n_past,
-        tokens_to_str(ctx, embd.cbegin(), embd.cbegin() + n_past).c_str(),
-        tokens_to_str(ctx, embd.cbegin() + n_past, embd.cend()).c_str()
-    );
 
     has_next_token = true;
+
+    LOG_INFO("[DEBUG] Input processed: n_past=%d, embd.size=%zu, num_prompt_tokens=%zu, has_image=%d",
+             n_past, embd.size(), num_prompt_tokens, has_image ? 1 : 0);
 }
 
 void llama_rn_context::beginCompletion() {
@@ -359,6 +390,8 @@ void llama_rn_context::beginCompletion() {
 
 completion_token_output llama_rn_context::nextToken()
 {
+    LOG_INFO("[DEBUG] nextToken: n_past=%d, embd.size=%zu, n_ctx=%d", n_past, embd.size(), params.n_ctx);
+
     completion_token_output result;
     result.tok = -1;
 
@@ -366,7 +399,7 @@ completion_token_output llama_rn_context::nextToken()
     {
         if (!params.ctx_shift) {
             // If context shifting is disabled, stop generation
-            LOG_WARNING("context full, n_ctx: %d, tokens: %d", params.n_ctx, embd.size());
+            LOG_WARNING("[DEBUG] Context full, n_ctx: %d, tokens: %d", params.n_ctx, embd.size());
             has_next_token = false;
             context_full = true;
             return result;
@@ -433,12 +466,54 @@ completion_token_output llama_rn_context::nextToken()
 
     {
         // out of user input, sample next token
+        LOG_INFO("[DEBUG] Sampling next token from model");
         std::vector<llama_token_data> candidates;
         candidates.reserve(llama_vocab_n_tokens(vocab));
 
+        // Log sampling parameters
+        LOG_INFO("[DEBUG] Sampling parameters: temp=%.2f, top_k=%d, top_p=%.2f, min_p=%.2f, typ_p=%.2f",
+                params.sampling.temp,
+                params.sampling.top_k,
+                params.sampling.top_p,
+                params.sampling.min_p,
+                params.sampling.typ_p);
+
+        // Use -1 to tell common_sampler_sample to use the most recent logits
+        // This matches the behavior of the CLI implementation
+        LOG_INFO("[DEBUG] Using idx=-1 for sampling (use most recent logits)");
         result.tok = common_sampler_sample(ctx_sampling, ctx, -1);
 
+        if (result.tok != -1) {
+            std::string token_text = common_token_to_piece(ctx, result.tok);
+            LOG_INFO("[DEBUG] Sampled token ID: %d, text: '%s'", result.tok, token_text.c_str());
+        }
+
         llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling);
+        LOG_INFO("[DEBUG] Number of candidates: %zu", cur_p.size);
+
+        // Log the selected token index
+        LOG_INFO("[DEBUG] Selected token index: %d", cur_p.selected);
+
+        // Log if the candidates are sorted
+        LOG_INFO("[DEBUG] Candidates sorted: %s", cur_p.sorted ? "true" : "false");
+
+        // Log the vocabulary size
+        const llama_vocab* vocab = llama_model_get_vocab(model);
+        const int n_vocab = llama_vocab_n_tokens(vocab);
+        LOG_INFO("[DEBUG] Vocabulary size: %d", n_vocab);
+
+        // Log top 5 candidates
+        if (cur_p.size > 0) {
+            std::string top_candidates = "";
+            for (size_t i = 0; i < std::min((size_t)5, cur_p.size); ++i) {
+                std::string token_text = common_token_to_piece(ctx, cur_p.data[i].id);
+                top_candidates += string_format("[%d: '%s' (%.4f)] ",
+                    cur_p.data[i].id,
+                    token_text.c_str(),
+                    cur_p.data[i].p);
+            }
+            LOG_INFO("[DEBUG] Top candidates: %s", top_candidates.c_str());
+        }
 
         const int32_t n_probs = params.sampling.n_probs;
 
@@ -464,6 +539,7 @@ completion_token_output llama_rn_context::nextToken()
 
     // add it to the context
     embd.push_back(result.tok);
+
     // decrement remaining sampling budget
     --n_remain;
 
@@ -514,10 +590,24 @@ size_t llama_rn_context::findStoppingStrings(const std::string &text, const size
 
 completion_token_output llama_rn_context::doCompletion()
 {
+    LOG_INFO("[DEBUG] Starting token generation: n_past=%d, n_remain=%d", n_past, n_remain);
+
+    // Log current sampling parameters
+    LOG_INFO("[DEBUG] Current sampling parameters: temp=%.2f, top_k=%d, top_p=%.2f, min_p=%.2f, typ_p=%.2f",
+            params.sampling.temp,
+            params.sampling.top_k,
+            params.sampling.top_p,
+            params.sampling.min_p,
+            params.sampling.typ_p);
+
     const completion_token_output token_with_probs = nextToken();
 
     const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(ctx, token_with_probs.tok);
     generated_text += token_text;
+
+    LOG_INFO("[DEBUG] Sampled token: id=%d, text='%s'",
+             token_with_probs.tok,
+             tokens_to_output_formatted_string(ctx, token_with_probs.tok).c_str());
 
     if (params.sampling.n_probs > 0)
     {
@@ -726,94 +816,228 @@ std::vector<common_adapter_lora_info> llama_rn_context::getLoadedLoraAdapters() 
 }
 
 bool llama_rn_context::initMultimodal(const std::string &mmproj_path) {
+    LOG_INFO("[DEBUG] Initializing multimodal with mmproj path: %s", mmproj_path.c_str());
+
     if (model == nullptr) {
-        LOG_ERROR("Model not loaded, cannot initialize multimodal", "");
+        LOG_ERROR("[DEBUG] Model not loaded, cannot initialize multimodal", "");
         return false;
     }
 
+    LOG_INFO("[DEBUG] Model info: n_ctx=%d, n_embd=%d",
+             llama_n_ctx(ctx),
+             llama_model_n_embd(model));
+
     // Initialize mtmd context
     mtmd_context_params mtmd_params = mtmd_context_params_default();
-    mtmd_params.use_gpu = true;
+    mtmd_params.use_gpu = false;
     mtmd_params.print_timings = true;
     mtmd_params.n_threads = params.cpuparams.n_threads;
     mtmd_params.verbosity = (lm_ggml_log_level)LM_GGML_LOG_LEVEL_INFO;
 
+    LOG_INFO("[DEBUG] Initializing mtmd context with threads=%d", mtmd_params.n_threads);
+
     mtmd_ctx = mtmd_init_from_file(mmproj_path.c_str(), model, mtmd_params);
     if (mtmd_ctx == nullptr) {
-        LOG_ERROR("Failed to initialize multimodal context with mmproj: %s", mmproj_path.c_str());
+        LOG_ERROR("[DEBUG] Failed to initialize multimodal context with mmproj: %s", mmproj_path.c_str());
         return false;
     }
 
     has_multimodal = true;
+
+    // Check if the model uses M-RoPE or non-causal attention
+    bool uses_mrope = mtmd_decode_use_mrope(mtmd_ctx);
+    bool uses_non_causal = mtmd_decode_use_non_causal(mtmd_ctx);
+    LOG_INFO("[DEBUG] Model multimodal properties: uses_mrope=%d, uses_non_causal=%d",
+             uses_mrope ? 1 : 0,
+             uses_non_causal ? 1 : 0);
+
+    // Disable context shifting when multimodal is enabled
+    // This is because an image chunk may contain multiple tokens
+    // and context shifting could break the image representation
+    params.ctx_shift = false;
     LOG_INFO("Multimodal context initialized successfully with mmproj: %s", mmproj_path.c_str());
+    LOG_INFO("Context shifting disabled for multimodal support");
     return true;
 }
 
 bool llama_rn_context::processImage(
     const std::string &image_path,
-    const std::string &prompt
+    const std::string &prompt,
+    std::vector<llama_token> &text_tokens
 ) {
     if (!has_multimodal || mtmd_ctx == nullptr) {
-        LOG_ERROR("Multimodal context not initialized", "");
+        LOG_ERROR("[DEBUG] Multimodal context not initialized", "");
         return false;
     }
+
+    // Multimodal path
+    std::string full_prompt = prompt;
+    if (full_prompt.find("<__image__>") == std::string::npos) {
+        full_prompt += " <__image__>";
+    }
+
+    LOG_INFO("[DEBUG] Processing message with role=user, content=%s", full_prompt.c_str());
+    LOG_INFO("[DEBUG] Processing image: %s with prompt: %s", image_path.c_str(), prompt.c_str());
+    LOG_INFO("[DEBUG] Current context state: n_past=%d, n_ctx=%d", n_past, n_ctx);
 
     // Load the image from file
-    mtmd_bitmap* bitmap = mtmd_helper_bitmap_init_from_file(image_path.c_str());
-    if (bitmap == nullptr) {
-        LOG_ERROR("Failed to load image: %s", image_path.c_str());
+    LOG_INFO("[DEBUG] Loading image from file: %s", image_path.c_str());
+
+    // Check if file exists
+    FILE* file = fopen(image_path.c_str(), "rb");
+    if (file == nullptr) {
+        LOG_ERROR("[DEBUG] File does not exist or cannot be opened: %s (errno: %d, %s)",
+                 image_path.c_str(), errno, strerror(errno));
         return false;
     }
 
+    // Get file size
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    LOG_INFO("[DEBUG] File exists and size is %ld bytes", file_size);
+    fclose(file);
+
+    // Try to load the image
+    mtmd_bitmap* bitmap = mtmd_helper_bitmap_init_from_file(image_path.c_str());
+    if (bitmap == nullptr) {
+        LOG_ERROR("[DEBUG] Failed to load image: %s", image_path.c_str());
+        return false;
+    }
+
+    // Log image dimensions
+    uint32_t nx = mtmd_bitmap_get_nx(bitmap);
+    uint32_t ny = mtmd_bitmap_get_ny(bitmap);
+    LOG_INFO("[DEBUG] Image loaded successfully: dimensions=%dx%d", nx, ny);
+
+    // Calculate bitmap hash (for KV caching)
+    std::string hash = fnv_hash((const uint8_t*)mtmd_bitmap_get_data(bitmap),
+                               nx * ny * 3);
+    mtmd_bitmap_set_id(bitmap, hash.c_str());
+    LOG_INFO("[DEBUG] Image hash calculated: %s", hash.c_str());
+
     // Create input chunks
+    LOG_INFO("[DEBUG] Initializing input chunks");
     mtmd_input_chunks* chunks = mtmd_input_chunks_init();
     if (chunks == nullptr) {
-        LOG_ERROR("Failed to initialize input chunks", "");
+        LOG_ERROR("[DEBUG] Failed to initialize input chunks", "");
         mtmd_bitmap_free(bitmap);
         return false;
     }
 
     // Create input text
+    LOG_INFO("[DEBUG] Setting up input text with add_special=%d, parse_special=%d",
+             n_past == 0 ? 1 : 0, 1);
     mtmd_input_text input_text;
-    input_text.text = prompt.c_str();
-    input_text.add_special = n_past == 0;
-    input_text.parse_special = true;
+    input_text.text = full_prompt.c_str(); // Use the full prompt with image marker
+    input_text.add_special = n_past == 0;  // Add BOS token if this is the first message
+    input_text.parse_special = true;       // Parse special tokens like <__image__>
 
     // Tokenize the text and image
+    LOG_INFO("[DEBUG] Tokenizing text and image");
     const mtmd_bitmap* bitmaps[] = { bitmap };
     int32_t res = mtmd_tokenize(mtmd_ctx, chunks, &input_text, bitmaps, 1);
     if (res != 0) {
-        LOG_ERROR("Failed to tokenize image and text: %d", res);
+        LOG_ERROR("[DEBUG] Failed to tokenize image and text: %d", res);
         mtmd_input_chunks_free(chunks);
         mtmd_bitmap_free(bitmap);
         return false;
     }
 
+    // Log chunk information
+    size_t num_chunks = mtmd_input_chunks_size(chunks);
+    LOG_INFO("[DEBUG] Tokenization successful: num_chunks=%zu", num_chunks);
+
+    // Clear text_tokens before adding new tokens
+    text_tokens.clear();
+
+    // Create a vector to store all tokens (both text and image)
+    std::vector<llama_token> all_tokens;
+
+    // Track the total number of tokens (both text and image)
+    size_t total_token_count = 0;
+
+    for (size_t i = 0; i < num_chunks; i++) {
+        const mtmd_input_chunk* chunk = mtmd_input_chunks_get(chunks, i);
+        mtmd_input_chunk_type chunk_type = mtmd_input_chunk_get_type(chunk);
+
+        if (chunk_type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+            size_t n_tokens;
+            const llama_token* tokens = mtmd_input_chunk_get_tokens_text(chunk, &n_tokens);
+            LOG_INFO("[DEBUG] Chunk %zu: type=TEXT, n_tokens=%zu", i, n_tokens);
+
+            // Add text tokens
+            text_tokens.insert(text_tokens.end(), tokens, tokens + n_tokens);
+            all_tokens.insert(all_tokens.end(), tokens, tokens + n_tokens);
+            total_token_count += n_tokens;
+
+        } else if (chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+            const mtmd_image_tokens* img_tokens = mtmd_input_chunk_get_tokens_image(chunk);
+            size_t n_tokens = mtmd_image_tokens_get_n_tokens(img_tokens);
+            size_t n_pos = mtmd_image_tokens_get_n_pos(img_tokens);
+            LOG_INFO("[DEBUG] Chunk %zu: type=IMAGE, n_tokens=%zu, n_pos=%zu",
+                     i, n_tokens, n_pos);
+
+            // TODO: Need to understand this part better
+            // For image tokens, we need to create placeholder tokens in embd
+            // These won't be used for decoding, but they ensure embd.size() matches n_past
+            for (size_t j = 0; j < n_pos; j++) {
+                // Use a special token ID that won't be confused with real tokens
+                // llama_token_eos(vocab) is a good choice as it's a known special token
+                all_tokens.push_back(0); // Placeholder token
+            }
+            total_token_count += n_pos;
+        }
+    }
+
     // Evaluate the chunks in the model's context
     // This is the critical step that makes the model aware of the image
+    LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, params.n_batch);
     llama_pos new_n_past = 0;
     if (mtmd_helper_eval_chunks(mtmd_ctx,
                 ctx, // llama context
                 chunks, // chunks
-                n_past, // n_past (start from beginning)
+                n_past, // n_past
                 0, // seq_id
                 params.n_batch, // n_batch
                 true, // logits_last
                 &new_n_past)) {
-        LOG_ERROR("Failed to evaluate chunks", "");
+        LOG_ERROR("[DEBUG] Failed to evaluate chunks", "");
         mtmd_input_chunks_free(chunks);
         mtmd_bitmap_free(bitmap);
         return false;
     }
 
     // Update the context state to reflect the new tokens
+    LOG_INFO("[DEBUG] Chunks evaluated: old_n_past=%d, new_n_past=%d, total_token_count=%zu",
+             this->n_past, new_n_past, total_token_count);
+
+    // Verify that new_n_past matches our token count
+    if (new_n_past != n_past + total_token_count) {
+        LOG_WARNING("[DEBUG] Token count mismatch: new_n_past=%d, expected=%zu",
+                   new_n_past, n_past + total_token_count);
+    }
+
+    // Update n_past
     n_past = new_n_past;
 
+    // Update embd with all tokens (both text and image)
+    embd = all_tokens;
+
+    // TODO: mtmd-cli doesn't have this. 
+    // Manage KV cache
+    llama_kv_self_seq_rm(ctx, 0, n_past, -1);
+
+    // TODO: why?
+    // Update sampling context with text tokens only
+    for (auto & token : text_tokens) {
+        common_sampler_accept(ctx_sampling, token, false);
+    }
+
     // Clean up image resources
+    LOG_INFO("[DEBUG] Cleaning up resources");
     mtmd_input_chunks_free(chunks);
     mtmd_bitmap_free(bitmap);
-
-    LOG_INFO("Image processed successfully, context updated: n_past=%d", n_past);
 
     return true;
 }

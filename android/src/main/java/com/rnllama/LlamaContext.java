@@ -394,30 +394,6 @@ public class LlamaContext {
     return initMultimodal(this.context, mmproj_path);
   }
 
-  public WritableMap processImage(String image_path, String prompt) {
-    if (image_path == null || image_path.isEmpty()) {
-      throw new IllegalArgumentException("image_path is empty");
-    }
-    File file = new File(image_path);
-    if (!file.exists()) {
-      throw new IllegalArgumentException("Image file does not exist: " + image_path);
-    }
-    if (prompt == null) {
-      prompt = "";
-    }
-
-    WritableMap result = Arguments.createMap();
-    String[] processResult = processImage(this.context, image_path, prompt);
-
-    result.putBoolean("success", Boolean.parseBoolean(processResult[0]));
-    result.putString("prompt", processResult[1]);
-    if (!Boolean.parseBoolean(processResult[0])) {
-      result.putString("error", "Failed to process image");
-    }
-
-    return result;
-  }
-
   public boolean isMultimodalEnabled() {
     return isMultimodalEnabled(this.context);
   }
@@ -622,7 +598,6 @@ public class LlamaContext {
   protected static native void removeLoraAdapters(long contextPtr);
   protected static native WritableArray getLoadedLoraAdapters(long contextPtr);
   protected static native boolean initMultimodal(long contextPtr, String mmproj_path);
-  protected static native String[] processImage(long contextPtr, String image_path, String prompt);
   protected static native boolean isMultimodalEnabled(long contextPtr);
   protected static native void freeContext(long contextPtr);
   protected static native void setupLog(NativeLogCallback logCallback);

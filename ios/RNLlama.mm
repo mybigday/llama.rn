@@ -370,30 +370,6 @@ RCT_EXPORT_METHOD(initMultimodal:(double)contextId
     }
 }
 
-RCT_EXPORT_METHOD(processImage:(double)contextId
-                 withImagePath:(NSString *)image_path
-                 withPrompt:(NSString *)prompt
-                 withResolver:(RCTPromiseResolveBlock)resolve
-                 withRejecter:(RCTPromiseRejectBlock)reject)
-{
-    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
-    if (context == nil) {
-        reject(@"llama_error", @"Context not found", nil);
-        return;
-    }
-    if ([context isPredicting]) {
-        reject(@"llama_error", @"Context is busy", nil);
-        return;
-    }
-
-    @try {
-        NSDictionary *result = [context processImage:image_path prompt:prompt];
-        resolve(result);
-    } @catch (NSException *exception) {
-        reject(@"llama_cpp_error", exception.reason, nil);
-    }
-}
-
 RCT_EXPORT_METHOD(isMultimodalEnabled:(double)contextId
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)

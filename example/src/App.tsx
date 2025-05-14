@@ -75,10 +75,10 @@ const defaultConversationId = 'default'
 const renderBubble = ({
   child,
   // Using _message to indicate it's intentionally unused
-  _message,
+  // _message,
 }: {
   child: React.ReactNode
-  _message?: MessageType.Any
+  // _message?: MessageType.Any
 }) => child;
 
 export default function App() {
@@ -648,7 +648,6 @@ export default function App() {
     ]
     addMessage(textMessage)
     setInferencing(true)
-    console.log("Formatted msgs:", msgs)
 
     let responseFormat
     {
@@ -765,6 +764,7 @@ export default function App() {
       // })
     }
 
+    console.log("msgs: ", msgs)
     context
       ?.completion(
         {

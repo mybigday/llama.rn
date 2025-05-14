@@ -439,15 +439,6 @@ export interface Spec extends TurboModule {
     mmproj_path: string,
   ): Promise<boolean>
 
-  // Process an image and add it to the context
-  processImage(
-    contextId: number,
-    image_path: string,
-    prompt: string,
-  ): Promise<NativeImageProcessingResult>
-
-  // processImageAndGenerateResponse has been removed in favor of the unified API approach
-
   isMultimodalEnabled(
     contextId: number,
   ): Promise<boolean>

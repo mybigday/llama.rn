@@ -696,43 +696,34 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     //llama_reset_timings(llama->ctx);
 
-    // Define prompt_chars outside the if-else block so it's accessible later
-    const char *prompt_chars = nullptr;
+    const char *prompt_chars = env->GetStringUTFChars(prompt, nullptr);
 
-    // Process image if provided
+    // Set the prompt parameter
+    llama->params.prompt = prompt_chars;
+
+    // Process image path if provided
+    std::string image_path_str = "";
     if (image_path != nullptr) {
-        const char *image_path_chars = env->GetStringUTFChars(image_path, nullptr);
-        prompt_chars = env->GetStringUTFChars(prompt, nullptr);
-
-        // Process the image and add it to the context
-        if (llama->isMultimodalEnabled()) {
-            bool image_processed = llama->processImage(image_path_chars, prompt_chars);
-            if (!image_processed) {
-                auto result = createWriteableMap(env);
-                putString(env, result, "error", "Failed to process image");
-                env->ReleaseStringUTFChars(image_path, image_path_chars);
-                env->ReleaseStringUTFChars(prompt, prompt_chars);
-                return reinterpret_cast<jobject>(result);
-            }
-
-            // Since the image has been processed and added to the context,
-            // we don't need to process the prompt text again
-            llama->params.prompt = "";
-        } else {
+        // Check if multimodal is enabled
+        if (!llama->isMultimodalEnabled()) {
             auto result = createWriteableMap(env);
             putString(env, result, "error", "Multimodal support not enabled. Call initMultimodal first.");
-            env->ReleaseStringUTFChars(image_path, image_path_chars);
             env->ReleaseStringUTFChars(prompt, prompt_chars);
             return reinterpret_cast<jobject>(result);
         }
 
+        // Get image path
+        const char *image_path_chars = env->GetStringUTFChars(image_path, nullptr);
+
+        // Process the image path to handle file:/// URLs
+        image_path_str = image_path_chars;
+        if (image_path_str.find("file:///") == 0) {
+            // Remove the file:/// prefix
+            image_path_str = image_path_str.substr(7);
+            LOGI("Converted image path from file:/// URL: %s", image_path_str.c_str());
+        }
+
         env->ReleaseStringUTFChars(image_path, image_path_chars);
-        env->ReleaseStringUTFChars(prompt, prompt_chars);
-        prompt_chars = nullptr; // Mark as released
-    } else {
-        // No image, just process the text prompt as usual
-        prompt_chars = env->GetStringUTFChars(prompt, nullptr);
-        llama->params.prompt = prompt_chars;
     }
 
     llama->params.sampling.seed = (seed == -1) ? time(NULL) : seed;
@@ -892,7 +883,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
         return reinterpret_cast<jobject>(result);
     }
     llama->beginCompletion();
-    llama->loadPrompt();
+
+    llama->loadPrompt(image_path_str.c_str());
 
     if (llama->context_full) {
         auto result = createWriteableMap(env);
@@ -1142,7 +1134,7 @@ Java_com_rnllama_LlamaContext_embedding(
     }
 
     llama->beginCompletion();
-    llama->loadPrompt();
+    llama->loadPrompt("");
     llama->doCompletion();
 
     std::vector<float> embedding = llama->getEmbedding(embdParams);
@@ -1327,36 +1319,6 @@ Java_com_rnllama_LlamaContext_initMultimodal(
 
     return result;
 }
-
-JNIEXPORT jobjectArray JNICALL
-Java_com_rnllama_LlamaContext_processImage(
-    JNIEnv *env,
-    jobject thiz,
-    jlong context_ptr,
-    jstring image_path,
-    jstring prompt
-) {
-    UNUSED(thiz);
-    auto llama = context_map[(long) context_ptr];
-
-    const char *image_path_chars = env->GetStringUTFChars(image_path, nullptr);
-    const char *prompt_chars = env->GetStringUTFChars(prompt, nullptr);
-
-    std::string prompt_str = prompt_chars;
-    bool success = llama->processImage(image_path_chars, prompt_str);
-
-    env->ReleaseStringUTFChars(image_path, image_path_chars);
-    env->ReleaseStringUTFChars(prompt, prompt_chars);
-
-    // Create a string array to return [success, prompt]
-    jobjectArray result = env->NewObjectArray(2, env->FindClass("java/lang/String"), nullptr);
-    env->SetObjectArrayElement(result, 0, env->NewStringUTF(success ? "true" : "false"));
-    env->SetObjectArrayElement(result, 1, env->NewStringUTF(prompt_str.c_str()));
-
-    return result;
-}
-
-// processImageAndGenerateResponse has been removed in favor of the unified API approach
 
 JNIEXPORT jboolean JNICALL
 Java_com_rnllama_LlamaContext_isMultimodalEnabled(
