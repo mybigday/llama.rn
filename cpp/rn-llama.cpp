@@ -1,5 +1,4 @@
 #include "rn-llama.h"
-#include "logging.h"
 
 namespace rnllama {
 
