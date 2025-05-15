@@ -1,6 +1,5 @@
 #import "RNLlamaContext.h"
 #import <Metal/Metal.h>
-#include "../cpp/logging.h"
 
 @implementation RNLlamaContext
 
