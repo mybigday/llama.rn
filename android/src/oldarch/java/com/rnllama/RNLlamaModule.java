@@ -114,6 +114,11 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
+  public void initMultimodal(double id, final String mmproj_path, final boolean use_gpu, final Promise promise) {
+    rnllama.initMultimodal(id, mmproj_path, use_gpu, promise);
+  }
+
+  @ReactMethod
   public void initMultimodal(double id, final String mmproj_path, final Promise promise) {
     rnllama.initMultimodal(id, mmproj_path, promise);
   }

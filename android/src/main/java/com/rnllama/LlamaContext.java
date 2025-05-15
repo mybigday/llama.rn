@@ -114,6 +114,8 @@ public class LlamaContext {
       params.hasKey("ctx_shift") ? params.getBoolean("ctx_shift") : true,
       // String mmproj,
       params.hasKey("mmproj") ? params.getString("mmproj") : "",
+      // boolean mmproj_use_gpu,
+      params.hasKey("mmproj_use_gpu") ? params.getBoolean("mmproj_use_gpu") : true,
       // LoadProgressCallback load_progress_callback
       params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
     );
@@ -383,7 +385,7 @@ public class LlamaContext {
     return getLoadedLoraAdapters(this.context);
   }
 
-  public boolean initMultimodal(String mmproj_path) {
+  public boolean initMultimodal(String mmproj_path, boolean use_gpu) {
     if (mmproj_path == null || mmproj_path.isEmpty()) {
       throw new IllegalArgumentException("mmproj_path is empty");
     }
@@ -391,7 +393,11 @@ public class LlamaContext {
     if (!file.exists()) {
       throw new IllegalArgumentException("mmproj file does not exist: " + mmproj_path);
     }
-    return initMultimodal(this.context, mmproj_path);
+    return initMultimodal(this.context, mmproj_path, use_gpu);
+  }
+
+  public boolean initMultimodal(String mmproj_path) {
+    return initMultimodal(mmproj_path, true);
   }
 
   public boolean isMultimodalEnabled() {
@@ -515,6 +521,7 @@ public class LlamaContext {
     int pooling_type,
     boolean ctx_shift,
     String mmproj,
+    boolean mmproj_use_gpu,
     LoadProgressCallback load_progress_callback
   );
   protected static native void interruptLoad(long contextPtr);
@@ -597,7 +604,7 @@ public class LlamaContext {
   protected static native int applyLoraAdapters(long contextPtr, ReadableArray loraAdapters);
   protected static native void removeLoraAdapters(long contextPtr);
   protected static native WritableArray getLoadedLoraAdapters(long contextPtr);
-  protected static native boolean initMultimodal(long contextPtr, String mmproj_path);
+  protected static native boolean initMultimodal(long contextPtr, String mmproj_path, boolean use_gpu);
   protected static native boolean isMultimodalEnabled(long contextPtr);
   protected static native void freeContext(long contextPtr);
   protected static native void setupLog(NativeLogCallback logCallback);

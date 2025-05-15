@@ -828,7 +828,7 @@ bool llama_rn_context::initMultimodal(const std::string &mmproj_path) {
 
     // Initialize mtmd context
     mtmd_context_params mtmd_params = mtmd_context_params_default();
-    mtmd_params.use_gpu = false;
+    mtmd_params.use_gpu = params.mmproj_use_gpu;
     mtmd_params.print_timings = true;
     mtmd_params.n_threads = params.cpuparams.n_threads;
     mtmd_params.verbosity = (lm_ggml_log_level)LM_GGML_LOG_LEVEL_INFO;
@@ -1023,7 +1023,7 @@ bool llama_rn_context::processImage(
     // Update embd with all tokens (both text and image)
     embd = all_tokens;
 
-    // TODO: mtmd-cli doesn't have this. 
+    // TODO: mtmd-cli doesn't have this.
     // Manage KV cache
     llama_kv_self_seq_rm(ctx, 0, n_past, -1);
 

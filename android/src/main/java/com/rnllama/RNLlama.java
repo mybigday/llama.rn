@@ -548,7 +548,7 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "getLoadedLoraAdapters-" + contextId);
   }
 
-  public void initMultimodal(double id, final String mmproj_path, final Promise promise) {
+  public void initMultimodal(double id, final String mmproj_path, final boolean use_gpu, final Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, Boolean>() {
       private Exception exception;
@@ -563,7 +563,7 @@ public class RNLlama implements LifecycleEventListener {
           if (context.isPredicting()) {
             throw new Exception("Context is busy");
           }
-          return context.initMultimodal(mmproj_path);
+          return context.initMultimodal(mmproj_path, use_gpu);
         } catch (Exception e) {
           exception = e;
         }
@@ -581,6 +581,10 @@ public class RNLlama implements LifecycleEventListener {
       }
     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "initMultimodal-" + contextId);
+  }
+
+  public void initMultimodal(double id, final String mmproj_path, final Promise promise) {
+    initMultimodal(id, mmproj_path, true, promise);
   }
 
   public void isMultimodalEnabled(double id, final Promise promise) {

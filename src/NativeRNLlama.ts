@@ -82,6 +82,11 @@ export type NativeContextParams = {
    * Path to the multimodal projector (mmproj) file for image processing
    */
   mmproj?: string
+  /**
+   * Enable GPU acceleration for multimodal processing
+   * @default true
+   */
+  mmproj_use_gpu?: boolean
 }
 
 export type NativeCompletionParams = {
@@ -437,6 +442,7 @@ export interface Spec extends TurboModule {
   initMultimodal(
     contextId: number,
     mmproj_path: string,
+    use_gpu?: boolean,
   ): Promise<boolean>
 
   isMultimodalEnabled(

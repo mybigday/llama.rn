@@ -422,12 +422,13 @@ export class LlamaContext {
   /**
    * Initialize multimodal support with a mmproj file
    * @param mmprojPath Path to the multimodal projector file
+   * @param useGpu Whether to use GPU for multimodal processing
    * @returns Promise resolving to true if initialization was successful
    */
-  async initMultimodal(mmprojPath: string): Promise<boolean> {
+  async initMultimodal(mmprojPath: string, useGpu: boolean = true): Promise<boolean> {
     let path = mmprojPath
     if (path.startsWith('file://')) path = path.slice(7)
-    return RNLlama.initMultimodal(this.id, path)
+    return RNLlama.initMultimodal(this.id, path, useGpu)
   }
 
   /**
@@ -496,6 +497,7 @@ export async function initLlama(
     lora,
     lora_list: loraList,
     mmproj,
+    mmproj_use_gpu: mmprojUseGPU,
     ...rest
   }: ContextParams,
   onProgress?: (progress: number) => void,
@@ -544,6 +546,7 @@ export async function initLlama(
     lora: loraPath,
     lora_list: loraAdapters,
     mmproj: mmprojPath,
+    mmproj_use_gpu: mmprojUseGPU,
     ...rest,
   }).catch((err: any) => {
     removeProgressListener?.remove()

@@ -246,6 +246,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jint pooling_type,
     jboolean ctx_shift,
     jstring mmproj,
+    jboolean mmproj_use_gpu,
     jobject load_progress_callback
 ) {
     UNUSED(thiz);
@@ -303,6 +304,7 @@ Java_com_rnllama_LlamaContext_initContext(
 
     defaultParams.use_mlock = use_mlock;
     defaultParams.use_mmap = use_mmap;
+    defaultParams.mmproj_use_gpu = mmproj_use_gpu;
 
     defaultParams.rope_freq_base = rope_freq_base;
     defaultParams.rope_freq_scale = rope_freq_scale;
@@ -1308,10 +1310,14 @@ Java_com_rnllama_LlamaContext_initMultimodal(
     JNIEnv *env,
     jobject thiz,
     jlong context_ptr,
-    jstring mmproj_path
+    jstring mmproj_path,
+    jboolean use_gpu
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
+
+    // Update the mmproj_use_gpu parameter in the context
+    llama->params.mmproj_use_gpu = use_gpu;
 
     const char *mmproj_path_chars = env->GetStringUTFChars(mmproj_path, nullptr);
     bool result = llama->initMultimodal(mmproj_path_chars);
