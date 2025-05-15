@@ -385,7 +385,7 @@ public class LlamaContext {
     return getLoadedLoraAdapters(this.context);
   }
 
-  public boolean initMultimodal(String mmproj_path, boolean use_gpu) {
+  public boolean initMultimodal(String mmproj_path) {
     if (mmproj_path == null || mmproj_path.isEmpty()) {
       throw new IllegalArgumentException("mmproj_path is empty");
     }
@@ -393,11 +393,7 @@ public class LlamaContext {
     if (!file.exists()) {
       throw new IllegalArgumentException("mmproj file does not exist: " + mmproj_path);
     }
-    return initMultimodal(this.context, mmproj_path, use_gpu);
-  }
-
-  public boolean initMultimodal(String mmproj_path) {
-    return initMultimodal(mmproj_path, true);
+    return initMultimodal(this.context, mmproj_path);
   }
 
   public boolean isMultimodalEnabled() {
@@ -604,7 +600,7 @@ public class LlamaContext {
   protected static native int applyLoraAdapters(long contextPtr, ReadableArray loraAdapters);
   protected static native void removeLoraAdapters(long contextPtr);
   protected static native WritableArray getLoadedLoraAdapters(long contextPtr);
-  protected static native boolean initMultimodal(long contextPtr, String mmproj_path, boolean use_gpu);
+  protected static native boolean initMultimodal(long contextPtr, String mmproj_path);
   protected static native boolean isMultimodalEnabled(long contextPtr);
   protected static native void freeContext(long contextPtr);
   protected static native void setupLog(NativeLogCallback logCallback);

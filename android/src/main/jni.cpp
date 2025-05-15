@@ -1310,14 +1310,10 @@ Java_com_rnllama_LlamaContext_initMultimodal(
     JNIEnv *env,
     jobject thiz,
     jlong context_ptr,
-    jstring mmproj_path,
-    jboolean use_gpu
+    jstring mmproj_path
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
-
-    // Update the mmproj_use_gpu parameter in the context
-    llama->params.mmproj_use_gpu = use_gpu;
 
     const char *mmproj_path_chars = env->GetStringUTFChars(mmproj_path, nullptr);
     bool result = llama->initMultimodal(mmproj_path_chars);

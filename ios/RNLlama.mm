@@ -349,50 +349,25 @@ RCT_EXPORT_METHOD(getLoadedLoraAdapters:(double)contextId
 
 RCT_EXPORT_METHOD(initMultimodal:(double)contextId
                  withMmprojPath:(NSString *)mmproj_path
-                 withUseGpu:(BOOL)use_gpu
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
-{
-    dispatch_async(llamaDQueue, ^{
-        bool success = [self initMultimodalSync:contextId withMmprojPath:mmproj_path withUseGpu:use_gpu withRejecter:reject];
-        if (success) {
-            resolve(@(YES));
-        }
-    });
-}
-
-- (bool)initMultimodalSync:(double)contextId
-                withMmprojPath:(NSString *)mmproj_path withUseGpu:(BOOL)use_gpu
-                withRejecter:(RCTPromiseRejectBlock)reject
 {
     RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
     if (context == nil) {
         reject(@"llama_error", @"Context not found", nil);
-        return false;
+        return;
     }
     if ([context isPredicting]) {
         reject(@"llama_error", @"Context is busy", nil);
-        return false;
+        return;
     }
 
     @try {
-        // Update the mmproj_use_gpu parameter in the context
-        context->llama->params.mmproj_use_gpu = use_gpu;
-
         bool success = [context initMultimodal:mmproj_path];
-        return success;
+        resolve(@(success));
     } @catch (NSException *exception) {
         reject(@"llama_cpp_error", exception.reason, nil);
-        return false;
     }
-}
-
-RCT_EXPORT_METHOD(initMultimodal:(double)contextId
-                 withMmprojPath:(NSString *)mmproj_path
-                 withResolver:(RCTPromiseResolveBlock)resolve
-                 withRejecter:(RCTPromiseRejectBlock)reject)
-{
-    [self initMultimodal:contextId withMmprojPath:mmproj_path withUseGpu:YES withResolver:resolve withRejecter:reject];
 }
 
 RCT_EXPORT_METHOD(isMultimodalEnabled:(double)contextId

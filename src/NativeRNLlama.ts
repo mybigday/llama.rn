@@ -442,7 +442,6 @@ export interface Spec extends TurboModule {
   initMultimodal(
     contextId: number,
     mmproj_path: string,
-    use_gpu?: boolean,
   ): Promise<boolean>
 
   isMultimodalEnabled(

@@ -422,13 +422,15 @@ export class LlamaContext {
   /**
    * Initialize multimodal support with a mmproj file
    * @param mmprojPath Path to the multimodal projector file
-   * @param useGpu Whether to use GPU for multimodal processing
    * @returns Promise resolving to true if initialization was successful
+   *
+   * Note: GPU acceleration for multimodal processing is controlled by the
+   * mmproj_use_gpu parameter when initializing the context.
    */
-  async initMultimodal(mmprojPath: string, useGpu: boolean = true): Promise<boolean> {
+  async initMultimodal(mmprojPath: string): Promise<boolean> {
     let path = mmprojPath
     if (path.startsWith('file://')) path = path.slice(7)
-    return RNLlama.initMultimodal(this.id, path, useGpu)
+    return RNLlama.initMultimodal(this.id, path)
   }
 
   /**
