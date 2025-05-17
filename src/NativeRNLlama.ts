@@ -358,8 +358,14 @@ export type NativeLlamaChatMessage = {
   content: string
 }
 
-export type JinjaFormattedChatResult = {
+export type FormattedChatResult = {
+  type: 'jinja' | 'llama-chat'
   prompt: string
+  has_image: boolean
+  image_paths?: Array<string>
+}
+
+export type JinjaFormattedChatResult = FormattedChatResult & {
   chat_format?: number
   grammar?: string
   grammar_lazy?: boolean
@@ -370,7 +376,6 @@ export type JinjaFormattedChatResult = {
   }>
   preserved_tokens?: Array<string>
   additional_stops?: Array<string>
-  image_paths?: Array<string>
 }
 
 export type NativeImageProcessingResult = {

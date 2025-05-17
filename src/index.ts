@@ -14,6 +14,7 @@ import type {
   NativeCompletionTokenProbItem,
   NativeCompletionResultTimings,
   JinjaFormattedChatResult,
+  FormattedChatResult,
   NativeImageProcessingResult,
 } from './NativeRNLlama'
 import type {
@@ -213,8 +214,7 @@ export class LlamaContext {
       parallel_tool_calls?: object
       tool_choice?: string
     },
-  ): Promise<JinjaFormattedChatResult | string> {
-    // Process messages with multimodal content
+  ): Promise<FormattedChatResult> {
     const imagePaths: string[] = []
     const processedMessages = messages.map((msg) => {
       if (Array.isArray(msg.content)) {
@@ -261,11 +261,19 @@ export class LlamaContext {
         tool_choice: params?.tool_choice,
       },
     )
-    if (params?.jinja) {
-      // TODO: Make jinja=false work with image_paths
-      ;(result as JinjaFormattedChatResult).image_paths = imagePaths
+    if (!useJinja) {
+      return {
+        type: 'llama-chat',
+        prompt: result as string,
+        has_image: imagePaths.length > 0,
+        image_paths: imagePaths,
+      }
     }
-    return result
+    const jinjaResult = result as JinjaFormattedChatResult
+    jinjaResult.type = 'jinja'
+    jinjaResult.has_image = imagePaths.length > 0
+    jinjaResult.image_paths = imagePaths
+    return jinjaResult
   }
 
   /**
@@ -299,26 +307,32 @@ export class LlamaContext {
           tool_choice: params.tool_choice,
         },
       )
-      if (typeof formattedResult === 'string') {
-        nativeParams.prompt = formattedResult || ''
-      } else {
-        nativeParams.prompt = formattedResult.prompt || ''
-        if (typeof formattedResult.chat_format === 'number')
-          nativeParams.chat_format = formattedResult.chat_format
-        if (formattedResult.grammar)
-          nativeParams.grammar = formattedResult.grammar
-        if (typeof formattedResult.grammar_lazy === 'boolean')
-          nativeParams.grammar_lazy = formattedResult.grammar_lazy
-        if (formattedResult.grammar_triggers)
-          nativeParams.grammar_triggers = formattedResult.grammar_triggers
-        if (formattedResult.preserved_tokens)
-          nativeParams.preserved_tokens = formattedResult.preserved_tokens
-        if (formattedResult.additional_stops) {
+      if (formattedResult.type === 'jinja') {
+        const jinjaResult = formattedResult as JinjaFormattedChatResult
+
+        nativeParams.prompt = jinjaResult.prompt || ''
+        if (typeof jinjaResult.chat_format === 'number')
+          nativeParams.chat_format = jinjaResult.chat_format
+        if (jinjaResult.grammar)
+          nativeParams.grammar = jinjaResult.grammar
+        if (typeof jinjaResult.grammar_lazy === 'boolean')
+          nativeParams.grammar_lazy = jinjaResult.grammar_lazy
+        if (jinjaResult.grammar_triggers)
+          nativeParams.grammar_triggers = jinjaResult.grammar_triggers
+        if (jinjaResult.preserved_tokens)
+          nativeParams.preserved_tokens = jinjaResult.preserved_tokens
+        if (jinjaResult.additional_stops) {
           if (!nativeParams.stop) nativeParams.stop = []
-          nativeParams.stop.push(...formattedResult.additional_stops)
+          nativeParams.stop.push(...jinjaResult.additional_stops)
         }
-        if (formattedResult.image_paths) {
-          nativeParams.image_paths = formattedResult.image_paths
+        if (jinjaResult.has_image) {
+          nativeParams.image_paths = jinjaResult.image_paths
+        }
+      } else if (formattedResult.type === 'llama-chat') {
+        const llamaChatResult = formattedResult as FormattedChatResult
+        nativeParams.prompt = llamaChatResult.prompt || ''
+        if (llamaChatResult.has_image) {
+          nativeParams.image_paths = llamaChatResult.image_paths
         }
       }
     } else {
@@ -345,7 +359,6 @@ export class LlamaContext {
 
     if (!nativeParams.prompt) throw new Error('Prompt is required')
 
-    console.log('nativeParams.prompt: ', nativeParams.prompt)
     const promise = RNLlama.completion(this.id, nativeParams)
     return promise
       .then((completionResult) => {

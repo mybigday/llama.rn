@@ -357,112 +357,107 @@ export default function App() {
   }
 
   const handleSendPress = async (message: MessageType.PartialText) => {
-    if (context) {
-      switch (message.text) {
-        case '/info':
-          addSystemMessage(
-            `// Model Info\n${json5.stringify(context.model, null, 2)}`,
-            { copyable: true },
-          )
+    if (!context) return
+    switch (message.text) {
+      case '/info':
+        addSystemMessage(
+          `// Model Info\n${json5.stringify(context.model, null, 2)}`,
+          { copyable: true },
+        )
+        return
+      case '/bench':
+        addSystemMessage('Heating up the model...')
+        const t0 = Date.now()
+        await context.bench(8, 4, 1, 1)
+        const tHeat = Date.now() - t0
+        if (tHeat > 1e4) {
+          addSystemMessage('Heat up time is too long, please try again.')
           return
-        case '/bench':
-          addSystemMessage('Heating up the model...')
-          const t0 = Date.now()
-          await context.bench(8, 4, 1, 1)
-          const tHeat = Date.now() - t0
-          if (tHeat > 1e4) {
-            addSystemMessage('Heat up time is too long, please try again.')
-            return
-          }
-          addSystemMessage(`Heat up time: ${tHeat}ms`)
+        }
+        addSystemMessage(`Heat up time: ${tHeat}ms`)
 
-          addSystemMessage('Benchmarking the model...')
-          const {
-            modelDesc,
-            modelSize,
-            modelNParams,
-            ppAvg,
-            ppStd,
-            tgAvg,
-            tgStd,
-          } = await context.bench(512, 128, 1, 3)
+        addSystemMessage('Benchmarking the model...')
+        const {
+          modelDesc,
+          modelSize,
+          modelNParams,
+          ppAvg,
+          ppStd,
+          tgAvg,
+          tgStd,
+        } = await context.bench(512, 128, 1, 3)
 
-          const size = `${(modelSize / 1024.0 / 1024.0 / 1024.0).toFixed(
+        const size = `${(modelSize / 1024.0 / 1024.0 / 1024.0).toFixed(2)} GiB`
+        const nParams = `${(modelNParams / 1e9).toFixed(2)}B`
+        const md =
+          '| model | size | params | test | t/s |\n' +
+          '| --- | --- | --- | --- | --- |\n' +
+          `| ${modelDesc} | ${size} | ${nParams} | pp 512 | ${ppAvg.toFixed(
             2,
-          )} GiB`
-          const nParams = `${(modelNParams / 1e9).toFixed(2)}B`
-          const md =
-            '| model | size | params | test | t/s |\n' +
-            '| --- | --- | --- | --- | --- |\n' +
-            `| ${modelDesc} | ${size} | ${nParams} | pp 512 | ${ppAvg.toFixed(
-              2,
-            )} ± ${ppStd.toFixed(2)} |\n` +
-            `| ${modelDesc} | ${size} | ${nParams} | tg 128 | ${tgAvg.toFixed(
-              2,
-            )} ± ${tgStd.toFixed(2)}`
-          addSystemMessage(md, { copyable: true })
-          return
-        case '/release':
-          await handleReleaseContext()
-          return
-        case '/stop':
-          if (inferencing) context.stopCompletion()
-          return
-        case '/reset':
-          conversationIdRef.current = randId()
-          addSystemMessage('Conversation reset!')
-          return
-        case '/save-session':
-          context
-            .saveSession(`${dirs.DocumentDir}/llama-session.bin`)
-            .then((tokensSaved) => {
-              console.log('Session tokens saved:', tokensSaved)
-              addSystemMessage(`Session saved! ${tokensSaved} tokens saved.`)
-            })
-            .catch((e) => {
-              console.log('Session save failed:', e)
-              addSystemMessage(`Session save failed: ${e.message}`)
-            })
-          return
-        case '/load-session':
-          context
-            .loadSession(`${dirs.DocumentDir}/llama-session.bin`)
-            .then((details) => {
-              console.log('Session loaded:', details)
-              addSystemMessage(
-                `Session loaded! ${details.tokens_loaded} tokens loaded.`,
-              )
-            })
-            .catch((e) => {
-              console.log('Session load failed:', e)
-              addSystemMessage(`Session load failed: ${e.message}`)
-            })
-          return
-        case '/lora':
-          pickLora()
-            .then((loraFile) => {
-              if (loraFile) context.applyLoraAdapters([{ path: loraFile.uri }])
-            })
-            .then(() => context.getLoadedLoraAdapters())
-            .then((loraList) =>
-              addSystemMessage(
-                `Loaded lora adapters: ${JSON.stringify(loraList)}`,
-              ),
-            )
-          return
-        case '/remove-lora':
-          context.removeLoraAdapters().then(() => {
-            addSystemMessage('Lora adapters removed!')
+          )} ± ${ppStd.toFixed(2)} |\n` +
+          `| ${modelDesc} | ${size} | ${nParams} | tg 128 | ${tgAvg.toFixed(
+            2,
+          )} ± ${tgStd.toFixed(2)}`
+        addSystemMessage(md, { copyable: true })
+        return
+      case '/release':
+        await handleReleaseContext()
+        return
+      case '/stop':
+        if (inferencing) context.stopCompletion()
+        return
+      case '/reset':
+        conversationIdRef.current = randId()
+        addSystemMessage('Conversation reset!')
+        return
+      case '/save-session':
+        context
+          .saveSession(`${dirs.DocumentDir}/llama-session.bin`)
+          .then((tokensSaved) => {
+            console.log('Session tokens saved:', tokensSaved)
+            addSystemMessage(`Session saved! ${tokensSaved} tokens saved.`)
           })
-          return
-        case '/lora-list':
-          context.getLoadedLoraAdapters().then((loraList) => {
+          .catch((e) => {
+            console.log('Session save failed:', e)
+            addSystemMessage(`Session save failed: ${e.message}`)
+          })
+        return
+      case '/load-session':
+        context
+          .loadSession(`${dirs.DocumentDir}/llama-session.bin`)
+          .then((details) => {
+            console.log('Session loaded:', details)
+            addSystemMessage(
+              `Session loaded! ${details.tokens_loaded} tokens loaded.`,
+            )
+          })
+          .catch((e) => {
+            console.log('Session load failed:', e)
+            addSystemMessage(`Session load failed: ${e.message}`)
+          })
+        return
+      case '/lora':
+        pickLora()
+          .then((loraFile) => {
+            if (loraFile) context.applyLoraAdapters([{ path: loraFile.uri }])
+          })
+          .then(() => context.getLoadedLoraAdapters())
+          .then((loraList) =>
             addSystemMessage(
               `Loaded lora adapters: ${JSON.stringify(loraList)}`,
-            )
-          })
-          return
-      }
+            ),
+          )
+        return
+      case '/remove-lora':
+        context.removeLoraAdapters().then(() => {
+          addSystemMessage('Lora adapters removed!')
+        })
+        return
+      case '/lora-list':
+        context.getLoadedLoraAdapters().then((loraList) => {
+          addSystemMessage(`Loaded lora adapters: ${JSON.stringify(loraList)}`)
+        })
+        return
     }
 
     let textContent = message.text
@@ -475,34 +470,32 @@ export default function App() {
 
       // Check if multimodal is enabled or if we're in the process of initializing it
       if (!multimodalEnabled) {
-        // If context exists but multimodal isn't enabled, check if it can be enabled
-        if (context && context.isMultimodalEnabled) {
-          try {
-            const isEnabled = await context.isMultimodalEnabled()
-            if (isEnabled) {
-              // Update state if multimodal is actually enabled but state hasn't caught up
-              setMultimodalEnabled(true)
-              addSystemMessage('Multimodal support is already enabled.')
-            } else {
-              addSystemMessage(
-                'Multimodal support is not enabled. Please initialize a model with a mmproj file.',
-              )
-              return
-            }
-          } catch (error) {
+        // Check if multimodal can be enabled
+        try {
+          const isEnabled = await context.isMultimodalEnabled()
+          if (isEnabled) {
+            // Update state if multimodal is actually enabled but state hasn't caught up
+            setMultimodalEnabled(true)
+            addSystemMessage('Multimodal support is already enabled.')
+          } else {
             addSystemMessage(
-              `Error checking multimodal status: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
+              'Multimodal support is not enabled. Please initialize a model with a mmproj file.',
             )
             return
           }
-        } else {
+        } catch (error) {
           addSystemMessage(
-            'Multimodal support is not enabled. Please initialize a model with a mmproj file.',
+            `Error checking multimodal status: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
           )
           return
         }
+      } else {
+        addSystemMessage(
+          'Multimodal support is not enabled. Please initialize a model with a mmproj file.',
+        )
+        return
       }
 
       try {
@@ -733,12 +726,11 @@ export default function App() {
     // Test area
     {
       // Test tokenize
-      const formatted =
-        (await context?.getFormattedChat(msgs, null, jinjaParams)) || ''
+      const formatted = await context.getFormattedChat(msgs, null, jinjaParams)
       const prompt =
         typeof formatted === 'string' ? formatted : formatted.prompt
       const t0 = Date.now()
-      const { tokens } = (await context?.tokenize(prompt)) || {}
+      const { tokens } = await context.tokenize(prompt)
       const t1 = Date.now()
       console.log(
         'Formatted:',
@@ -749,19 +741,19 @@ export default function App() {
       )
 
       // Test embedding
-      // await context?.embedding(prompt).then((result) => {
+      // await context.embedding(prompt).then((result) => {
       //   console.log('Embedding:', result)
       // })
 
       // Test detokenize
-      // await context?.detokenize(tokens).then((result) => {
+      // await context.detokenize(tokens).then((result) => {
       //   console.log('Detokenize:', result)
       // })
     }
 
     console.log('msgs: ', msgs)
     context
-      ?.completion(
+      .completion(
         {
           messages: msgs,
           n_predict: 2048,
