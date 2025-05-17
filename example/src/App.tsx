@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react'
+import type { ReactNode } from 'react'
 import { Platform, Alert } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import DocumentPicker from 'react-native-document-picker'
@@ -15,6 +16,7 @@ import {
   addNativeLogListener,
   // eslint-disable-next-line import/no-unresolved
 } from 'llama.rn'
+import { Bubble } from './Bubble'
 
 // Example: Catch logs from llama.cpp
 toggleNativeLog(true)
@@ -23,9 +25,7 @@ addNativeLogListener((level, text) => {
   let log = (t: string) => t // noop
   // Uncomment to test:
   // ({log} = console)
-  log(
-    ['[rnllama]', level ? `[${level}]` : '', text].filter(Boolean).join(' '),
-  )
+  log(['[rnllama]', level ? `[${level}]` : '', text].filter(Boolean).join(' '))
 })
 
 const { dirs } = ReactNativeBlobUtil.fs
@@ -74,12 +74,11 @@ const defaultConversationId = 'default'
 
 const renderBubble = ({
   child,
-  // Using _message to indicate it's intentionally unused
-  // _message,
+  message,
 }: {
-  child: React.ReactNode
-  // _message?: MessageType.Any
-}) => child;
+  child: ReactNode
+  message: MessageType.Any
+}) => <Bubble child={child} message={message} />
 
 export default function App() {
   const [context, setContext] = useState<LlamaContext | undefined>(undefined)
@@ -88,7 +87,6 @@ export default function App() {
 
   // Multimodal state
   const [multimodalEnabled, setMultimodalEnabled] = useState<boolean>(false)
-  const [selectedImage, setSelectedImage] = useState<string | null>(null)
 
   const conversationIdRef = useRef<string>(defaultConversationId)
 
@@ -159,6 +157,8 @@ export default function App() {
         // Currently only for iOS
         n_gpu_layers: Platform.OS === 'ios' ? 99 : 0,
         // no_gpu_devices: true, // (iOS only)
+
+        ctx_shift: false,
       },
       (progress) => {
         setMessages((msgs) => {
@@ -185,35 +185,39 @@ export default function App() {
         // Initialize multimodal support if mmproj file was provided
         if (mmProjFile) {
           try {
-            addSystemMessage('Checking multimodal support status...');
-            const isEnabled = await ctx.isMultimodalEnabled();
+            addSystemMessage('Checking multimodal support status...')
+            const isEnabled = await ctx.isMultimodalEnabled()
             if (!isEnabled) {
-              addSystemMessage('Initializing multimodal support...');
-              const success = await ctx.initMultimodal(mmProjFile.uri);
-              setMultimodalEnabled(success);
+              addSystemMessage('Initializing multimodal support...')
+              const success = await ctx.initMultimodal(mmProjFile.uri)
+              setMultimodalEnabled(success)
               if (success) {
-                addSystemMessage('Multimodal support initialized successfully!');
+                addSystemMessage('Multimodal support initialized successfully!')
               } else {
-                addSystemMessage('Failed to initialize multimodal support.');
+                addSystemMessage('Failed to initialize multimodal support.')
               }
             } else {
-              setMultimodalEnabled(true);
-              addSystemMessage('Multimodal support already enabled.');
+              setMultimodalEnabled(true)
+              addSystemMessage('Multimodal support already enabled.')
             }
           } catch (error) {
-            addSystemMessage(`Error initializing multimodal support: ${error instanceof Error ? error.message : String(error)}`);
+            addSystemMessage(
+              `Error initializing multimodal support: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            )
           }
         } else {
           // Even if no mmproj file was explicitly provided, check if multimodal is already enabled
           try {
-            const isEnabled = await ctx.isMultimodalEnabled();
+            const isEnabled = await ctx.isMultimodalEnabled()
             if (isEnabled) {
-              setMultimodalEnabled(true);
-              addSystemMessage('Multimodal support detected and enabled.');
+              setMultimodalEnabled(true)
+              addSystemMessage('Multimodal support detected and enabled.')
             }
           } catch (error) {
             // Silently ignore errors when checking multimodal status
-            console.log('Error checking multimodal status:', error);
+            console.log('Error checking multimodal status:', error)
           }
         }
 
@@ -226,23 +230,27 @@ export default function App() {
           '- /reset: reset the conversation',
           '- /save-session: save the session tokens',
           '- /load-session: load the session tokens',
-        ];
+        ]
 
         // Always include the image command if mmproj file was provided
         // This ensures the command is available even if there's a delay in setting multimodalEnabled
         if (mmProjFile || multimodalEnabled) {
           commands.push(
-            '- /image: pick an image to analyze'
-          );
+            '- /image <content>: pick an image and start a conversation',
+          )
         }
 
         addSystemMessage(
           `Context initialized!\n\n` +
-          `Load time: ${t1 - t0}ms\n` +
-          `GPU: ${ctx.gpu ? 'YES' : 'NO'} (${ctx.reasonNoGPU})\n` +
-          `Chat Template: ${ctx.model.chatTemplates.llamaChat ? 'YES' : 'NO'}\n` +
-          `Multimodal: ${multimodalEnabled || mmProjFile ? 'YES' : 'NO'}\n\n` +
-          `You can use the following commands:\n\n${commands.join('\n')}`
+            `Load time: ${t1 - t0}ms\n` +
+            `GPU: ${ctx.gpu ? 'YES' : 'NO'} (${ctx.reasonNoGPU})\n` +
+            `Chat Template: ${
+              ctx.model.chatTemplates.llamaChat ? 'YES' : 'NO'
+            }\n` +
+            `Multimodal: ${
+              multimodalEnabled || mmProjFile ? 'YES' : 'NO'
+            }\n\n` +
+            `You can use the following commands:\n\n${commands.join('\n')}`,
         )
       })
       .catch((err) => {
@@ -291,7 +299,8 @@ export default function App() {
     const mmProjRes = await DocumentPicker.pick({
       type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
     }).catch((e) => console.log('No mmproj file picked, error: ', e.message))
-    if (mmProjRes?.[0]) mmProjFile = await copyFileIfNeeded('mmproj', mmProjRes[0])
+    if (mmProjRes?.[0])
+      mmProjFile = await copyFileIfNeeded('mmproj', mmProjRes[0])
     return mmProjFile
   }
 
@@ -318,28 +327,32 @@ export default function App() {
           text: 'No',
           style: 'cancel',
           onPress: () => {
-            handleInitContext(modelFile, loraFile);
+            handleInitContext(modelFile, loraFile)
           },
         },
         {
           text: 'Yes',
           onPress: async () => {
-            addSystemMessage('Please select a mmproj file for multimodal support...');
-            const mmProjFile = await pickMmproj();
+            addSystemMessage(
+              'Please select a mmproj file for multimodal support...',
+            )
+            const mmProjFile = await pickMmproj()
             if (mmProjFile) {
-              handleInitContext(modelFile, loraFile, mmProjFile);
+              handleInitContext(modelFile, loraFile, mmProjFile)
             } else {
-              addSystemMessage('No mmproj file selected, continuing without multimodal support.');
-              handleInitContext(modelFile, loraFile);
+              addSystemMessage(
+                'No mmproj file selected, continuing without multimodal support.',
+              )
+              handleInitContext(modelFile, loraFile)
             }
           },
         },
-      ]
-    );
+      ],
+    )
 
     // Default case if Alert.alert doesn't work as expected
     if (enableMultimodal === undefined) {
-      handleInitContext(modelFile, loraFile);
+      handleInitContext(modelFile, loraFile)
     }
   }
 
@@ -449,143 +462,107 @@ export default function App() {
             )
           })
           return
-        case '/image':
-          // Check if multimodal is enabled or if we're in the process of initializing it
-          if (!multimodalEnabled) {
-            // If context exists but multimodal isn't enabled, check if it can be enabled
-            if (context && context.isMultimodalEnabled) {
-              try {
-                const isEnabled = await context.isMultimodalEnabled();
-                if (isEnabled) {
-                  // Update state if multimodal is actually enabled but state hasn't caught up
-                  setMultimodalEnabled(true);
-                  addSystemMessage('Multimodal support is already enabled.');
-                } else {
-                  addSystemMessage('Multimodal support is not enabled. Please initialize a model with a mmproj file.')
-                  return;
-                }
-              } catch (error) {
-                addSystemMessage(`Error checking multimodal status: ${error instanceof Error ? error.message : String(error)}`);
-                return;
-              }
-            } else {
-              addSystemMessage('Multimodal support is not enabled. Please initialize a model with a mmproj file.')
-              return;
-            }
-          }
-
-          try {
-            // Use DocumentPicker to pick an image
-            const imageRes = await DocumentPicker.pick({
-              type: Platform.OS === 'ios' ? 'public.image' : 'image/*',
-            }).catch((e) => {
-              console.log('No image picked, error: ', e.message);
-              return null;
-            });
-
-            if (!imageRes?.[0]) {
-              addSystemMessage('No image selected.');
-              return;
-            }
-
-            let imagePath = imageRes[0].uri;
-            console.log('Image path:', imagePath);
-
-            // For Android, we need to copy the content URI to a file path
-            if (Platform.OS === 'android' && imagePath.startsWith('content://')) {
-              try {
-                addSystemMessage('Copying image to temporary file...');
-                const tempDir = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/images`;
-                const tempFilePath = `${tempDir}/${Date.now()}.jpg`;
-
-                // Create directory if it doesn't exist
-                if (!(await ReactNativeBlobUtil.fs.isDir(tempDir))) {
-                  await ReactNativeBlobUtil.fs.mkdir(tempDir);
-                }
-
-                // Copy the file to a temporary location
-                await ReactNativeBlobUtil.MediaCollection.copyToInternal(imagePath, tempFilePath);
-
-                // Update the image path to the new file path
-                // Add file:// prefix for Android to make it work with React Native's Image component
-                imagePath = `file://${tempFilePath}`;
-                addSystemMessage('Image copied successfully.');
-                console.log('Copied image to:', imagePath);
-              } catch (copyError) {
-                addSystemMessage(`Error copying image: ${copyError instanceof Error ? copyError.message : String(copyError)}`);
-                return;
-              }
-            }
-
-            setSelectedImage(imagePath);
-
-            addSystemMessage('Image selected. Please send a message to analyze the image.');
-
-            // Add an image message using the built-in Image message type
-            const imageMessage: MessageType.Image = {
-              author: user,
-              createdAt: Date.now(),
-              id: randId(),
-              name: 'Selected Image',
-              size: 0, // We might not know the size without additional API calls
-              type: 'image',
-              uri: imagePath,
-              metadata: {
-                contextId: context?.id,
-                conversationId: conversationIdRef.current,
-              },
-            };
-
-            addMessage(imageMessage);
-          } catch (error) {
-            addSystemMessage(`Error selecting image: ${error instanceof Error ? error.message : String(error)}`);
-          }
-          return
       }
     }
-    // Check if there's a selected image to process
-    const processedPrompt = message.text;
 
-    if (selectedImage && multimodalEnabled && context) {
+    let textContent = message.text
+    let hasImage = false
+    let imagePath = null
+    // Handle /image <content>
+    // TODO: Image picker button without slash command
+    if (message.text.startsWith('/image ')) {
+      textContent = message.text.slice(7)
+
+      // Check if multimodal is enabled or if we're in the process of initializing it
+      if (!multimodalEnabled) {
+        // If context exists but multimodal isn't enabled, check if it can be enabled
+        if (context && context.isMultimodalEnabled) {
+          try {
+            const isEnabled = await context.isMultimodalEnabled()
+            if (isEnabled) {
+              // Update state if multimodal is actually enabled but state hasn't caught up
+              setMultimodalEnabled(true)
+              addSystemMessage('Multimodal support is already enabled.')
+            } else {
+              addSystemMessage(
+                'Multimodal support is not enabled. Please initialize a model with a mmproj file.',
+              )
+              return
+            }
+          } catch (error) {
+            addSystemMessage(
+              `Error checking multimodal status: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            )
+            return
+          }
+        } else {
+          addSystemMessage(
+            'Multimodal support is not enabled. Please initialize a model with a mmproj file.',
+          )
+          return
+        }
+      }
+
       try {
-        addSystemMessage('Processing image...');
+        // Use DocumentPicker to pick an image
+        const imageRes = await DocumentPicker.pick({
+          type: Platform.OS === 'ios' ? 'public.image' : 'image/*',
+        }).catch((e) => {
+          console.log('No image picked, error: ', e.message)
+          return null
+        })
 
-        // Make sure we have a valid file path for Android
-        let imagePath = selectedImage;
+        if (!imageRes?.[0]) {
+          addSystemMessage('No image selected.')
+          return
+        }
+
+        imagePath = imageRes[0].uri
+        hasImage = true
+        console.log('Image path:', imagePath)
+
+        // For Android, we need to copy the content URI to a file path
         if (Platform.OS === 'android' && imagePath.startsWith('content://')) {
           try {
-            const tempDir = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/images`;
-            const tempFilePath = `${tempDir}/${Date.now()}.jpg`;
+            addSystemMessage('Copying image to temporary file...')
+            const tempDir = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/images`
+            const tempFilePath = `${tempDir}/${Date.now()}.jpg`
 
             // Create directory if it doesn't exist
             if (!(await ReactNativeBlobUtil.fs.isDir(tempDir))) {
-              await ReactNativeBlobUtil.fs.mkdir(tempDir);
+              await ReactNativeBlobUtil.fs.mkdir(tempDir)
             }
 
             // Copy the file to a temporary location
-            await ReactNativeBlobUtil.MediaCollection.copyToInternal(imagePath, tempFilePath);
+            await ReactNativeBlobUtil.MediaCollection.copyToInternal(
+              imagePath,
+              tempFilePath,
+            )
 
             // Update the image path to the new file path
             // Add file:// prefix for Android to make it work with React Native's Image component
-            imagePath = `file://${tempFilePath}`;
-            console.log('Copied image for processing to:', imagePath);
+            imagePath = `file://${tempFilePath}`
+
+            console.log('Copied image to:', imagePath)
           } catch (copyError) {
-            addSystemMessage(`Error copying image for processing: ${copyError instanceof Error ? copyError.message : String(copyError)}`);
-            setSelectedImage(null);
-            return;
+            addSystemMessage(
+              `Error copying image: ${
+                copyError instanceof Error
+                  ? copyError.message
+                  : String(copyError)
+              }`,
+            )
+            return
           }
         }
-
-        // For Android, we need to make sure we're using a real file path without the file:// prefix
-        // For iOS, the file:// prefix is required for the Image component but should be removed for native code
-        const nativeImagePath = imagePath.startsWith('file://') ? imagePath.substring(7) : imagePath;
-
-        console.log('Processing image with native path:', nativeImagePath);
-
-      } catch (error: any) {
-        addSystemMessage(`Error processing image: ${error?.message || String(error)}`);
-        console.log('Error processing image:', error);
-        setSelectedImage(null);
+      } catch (error) {
+        addSystemMessage(
+          `Error selecting image: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
       }
     }
 
@@ -593,12 +570,13 @@ export default function App() {
       author: user,
       createdAt: Date.now(),
       id: randId(),
-      text: message.text,
+      text: textContent,
       type: 'text',
       metadata: {
         contextId: context?.id,
         conversationId: conversationIdRef.current,
-        hasImage: !!selectedImage,
+        hasImage,
+        imagePath,
       },
     }
 
@@ -617,16 +595,18 @@ export default function App() {
           ) {
             return {
               role: msg.author.id === systemId ? 'assistant' : 'user',
-              content: msg.metadata?.hasImage ? [
-                {
-                  type: 'text',
-                  text: msg.text,
-                },
-                {
-                  type: 'image_url',
-                  image_url: { url: selectedImage },
-                }
-              ] : msg.text
+              content: msg.metadata?.hasImage
+                ? [
+                    {
+                      type: 'image_url',
+                      image_url: { url: msg.metadata?.imagePath },
+                    },
+                    {
+                      type: 'text',
+                      text: msg.text,
+                    },
+                  ]
+                : msg.text,
             }
           }
           return { role: '', content: '' }
@@ -634,17 +614,19 @@ export default function App() {
         .filter((msg) => msg.role),
       {
         role: 'user',
-        content: selectedImage ? [
-          {
-            type: 'text',
-            text: processedPrompt,
-          },
-          {
-            type: 'image_url',
-            image_url: { url: selectedImage },
-          }
-        ] : processedPrompt
-      }
+        content: hasImage
+          ? [
+              {
+                type: 'image_url',
+                image_url: { url: imagePath },
+              },
+              {
+                type: 'text',
+                text: textContent,
+              },
+            ]
+          : textContent,
+      },
     ]
     addMessage(textMessage)
     setInferencing(true)
@@ -764,19 +746,12 @@ export default function App() {
       // })
     }
 
-    console.log("msgs: ", msgs)
+    console.log('msgs: ', msgs)
     context
       ?.completion(
         {
           messages: msgs,
           n_predict: 2048,
-
-          // Add image_path parameter if an image is selected
-          ...(selectedImage ? {
-            image_path: selectedImage.startsWith('file://')
-              ? selectedImage.substring(7)
-              : selectedImage
-          } : {}),
 
           response_format: responseFormat,
           grammar,
@@ -878,11 +853,6 @@ export default function App() {
           }
           return currentMsgs
         })
-
-        // Clear the selected image after completion
-        if (selectedImage) {
-          setSelectedImage(null);
-        }
 
         setInferencing(false)
       })

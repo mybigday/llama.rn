@@ -570,12 +570,19 @@
     }
     llama->beginCompletion();
 
-    // Use the unified loadPrompt function with image path if available
-    NSString *imagePath = params[@"image_path"];
-    if (imagePath) {
-        llama->loadPrompt([imagePath UTF8String]);
+    // Use the unified loadPrompt function with image paths if available
+    NSArray *imagePaths = params[@"image_paths"];
+    if (imagePaths && [imagePaths count] > 0) {
+        // Multiple image paths
+        std::vector<std::string> image_paths_vector;
+        for (NSString *path in imagePaths) {
+            if ([path isKindOfClass:[NSString class]]) {
+                image_paths_vector.push_back([path UTF8String]);
+            }
+        }
+        llama->loadPrompt(image_paths_vector);
     } else {
-        llama->loadPrompt("");
+        llama->loadPrompt({});
     }
 
     if (llama->context_full) {
@@ -748,7 +755,7 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
     llama->beginCompletion();
-    llama->loadPrompt("");
+    llama->loadPrompt({});
     llama->doCompletion();
 
     std::vector<float> result = llama->getEmbedding(embdParams);

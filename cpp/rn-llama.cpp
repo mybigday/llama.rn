@@ -305,16 +305,16 @@ void llama_rn_context::truncatePrompt(std::vector<llama_token> &prompt_tokens) {
     prompt_tokens = new_tokens;
 }
 
-void llama_rn_context::loadPrompt(const std::string &image_path) {
-    bool has_image = !image_path.empty() && has_multimodal && mtmd_ctx != nullptr;
+void llama_rn_context::loadPrompt(const std::vector<std::string> &image_paths) {
+    bool has_images = !image_paths.empty() && has_multimodal && mtmd_ctx != nullptr;
 
-    LOG_INFO("[DEBUG] loadPrompt: has_image=%d, prompt='%s', image_path='%s'",
-             has_image ? 1 : 0, params.prompt.c_str(), image_path.c_str());
+    LOG_INFO("[DEBUG] loadPrompt: has_images=%d, prompt='%s', image_paths_count=%zu",
+             has_images ? 1 : 0, params.prompt.c_str(), image_paths.size());
 
     // Step 1: Process input (different for text-only vs. multimodal)
     std::vector<llama_token> text_tokens;
 
-    if (!has_image) {
+    if (!has_images) {
         // Text-only path
         text_tokens = ::common_tokenize(ctx, params.prompt, true, true);
         num_prompt_tokens = text_tokens.size();
@@ -366,9 +366,9 @@ void llama_rn_context::loadPrompt(const std::string &image_path) {
             tokens_to_str(ctx, embd.cbegin() + n_past, embd.cend()).c_str()
         );
     } else {
-        // Multimodal path
-        if (!processImage(image_path, params.prompt, text_tokens)) {
-            LOG_ERROR("[DEBUG] Failed to process image", "");
+        // Multimodal path - process all images
+        if (!processImage(image_paths, params.prompt, text_tokens)) {
+            LOG_ERROR("[DEBUG] Failed to process images", "");
             return;
         }
         num_prompt_tokens = text_tokens.size();
@@ -376,8 +376,8 @@ void llama_rn_context::loadPrompt(const std::string &image_path) {
 
     has_next_token = true;
 
-    LOG_INFO("[DEBUG] Input processed: n_past=%d, embd.size=%zu, num_prompt_tokens=%zu, has_image=%d",
-             n_past, embd.size(), num_prompt_tokens, has_image ? 1 : 0);
+    LOG_INFO("[DEBUG] Input processed: n_past=%d, embd.size=%zu, num_prompt_tokens=%zu, has_images=%d",
+             n_past, embd.size(), num_prompt_tokens, has_images ? 1 : 0);
 }
 
 void llama_rn_context::beginCompletion() {
@@ -854,13 +854,16 @@ bool llama_rn_context::initMultimodal(const std::string &mmproj_path) {
     // This is because an image chunk may contain multiple tokens
     // and context shifting could break the image representation
     params.ctx_shift = false;
+
+    // params.n_cache_reuse = 0;
+
     LOG_INFO("Multimodal context initialized successfully with mmproj: %s", mmproj_path.c_str());
     LOG_INFO("Context shifting disabled for multimodal support");
     return true;
 }
 
 bool llama_rn_context::processImage(
-    const std::string &image_path,
+    const std::vector<std::string> &image_paths,
     const std::string &prompt,
     std::vector<llama_token> &text_tokens
 ) {
@@ -871,56 +874,59 @@ bool llama_rn_context::processImage(
 
     // Multimodal path
     std::string full_prompt = prompt;
+    // Add image marker if it doesn't already exist
     if (full_prompt.find("<__image__>") == std::string::npos) {
         full_prompt += " <__image__>";
     }
 
     LOG_INFO("[DEBUG] Processing message with role=user, content=%s", full_prompt.c_str());
-    LOG_INFO("[DEBUG] Processing image: %s with prompt: %s", image_path.c_str(), prompt.c_str());
+    LOG_INFO("[DEBUG] Processing %zu images with prompt: %s", image_paths.size(), prompt.c_str());
     LOG_INFO("[DEBUG] Current context state: n_past=%d, n_ctx=%d", n_past, n_ctx);
 
-    // Load the image from file
-    LOG_INFO("[DEBUG] Loading image from file: %s", image_path.c_str());
+    // Prepare bitmaps array for all images
+    mtmd::bitmaps bitmaps;
 
-    // Check if file exists
-    FILE* file = fopen(image_path.c_str(), "rb");
-    if (file == nullptr) {
-        LOG_ERROR("[DEBUG] File does not exist or cannot be opened: %s (errno: %d, %s)",
-                 image_path.c_str(), errno, strerror(errno));
-        return false;
+    // Load all images
+    for (const auto& image_path : image_paths) {
+        LOG_INFO("[DEBUG] Loading image from file: %s", image_path.c_str());
+
+        // Check if file exists
+        FILE* file = fopen(image_path.c_str(), "rb");
+        if (file == nullptr) {
+            LOG_ERROR("[DEBUG] File does not exist or cannot be opened: %s (errno: %d, %s)",
+                     image_path.c_str(), errno, strerror(errno));
+
+            bitmaps.entries.clear();
+            return false;
+        }
+
+        // Get file size
+        fseek(file, 0, SEEK_END);
+        long file_size = ftell(file);
+        fseek(file, 0, SEEK_SET);
+        LOG_INFO("[DEBUG] File exists and size is %ld bytes", file_size);
+        fclose(file);
+
+        mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(image_path.c_str()));
+        if (!bmp.ptr) {
+            LOG_ERROR("[DEBUG] Failed to load image: %s", image_path.c_str());
+
+            bitmaps.entries.clear();
+            return false;
+        }
+        // calculate bitmap hash (for KV caching)
+        std::string hash = fnv_hash(bmp.data(), bmp.nx()*bmp.ny()*3);
+        bmp.set_id(hash.c_str());
+        LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
+        bitmaps.entries.push_back(std::move(bmp));
     }
-
-    // Get file size
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-    LOG_INFO("[DEBUG] File exists and size is %ld bytes", file_size);
-    fclose(file);
-
-    // Try to load the image
-    mtmd_bitmap* bitmap = mtmd_helper_bitmap_init_from_file(image_path.c_str());
-    if (bitmap == nullptr) {
-        LOG_ERROR("[DEBUG] Failed to load image: %s", image_path.c_str());
-        return false;
-    }
-
-    // Log image dimensions
-    uint32_t nx = mtmd_bitmap_get_nx(bitmap);
-    uint32_t ny = mtmd_bitmap_get_ny(bitmap);
-    LOG_INFO("[DEBUG] Image loaded successfully: dimensions=%dx%d", nx, ny);
-
-    // Calculate bitmap hash (for KV caching)
-    std::string hash = fnv_hash((const uint8_t*)mtmd_bitmap_get_data(bitmap),
-                               nx * ny * 3);
-    mtmd_bitmap_set_id(bitmap, hash.c_str());
-    LOG_INFO("[DEBUG] Image hash calculated: %s", hash.c_str());
 
     // Create input chunks
     LOG_INFO("[DEBUG] Initializing input chunks");
     mtmd_input_chunks* chunks = mtmd_input_chunks_init();
     if (chunks == nullptr) {
         LOG_ERROR("[DEBUG] Failed to initialize input chunks", "");
-        mtmd_bitmap_free(bitmap);
+        bitmaps.entries.clear();
         return false;
     }
 
@@ -932,14 +938,14 @@ bool llama_rn_context::processImage(
     input_text.add_special = n_past == 0;  // Add BOS token if this is the first message
     input_text.parse_special = true;       // Parse special tokens like <__image__>
 
-    // Tokenize the text and image
-    LOG_INFO("[DEBUG] Tokenizing text and image");
-    const mtmd_bitmap* bitmaps[] = { bitmap };
-    int32_t res = mtmd_tokenize(mtmd_ctx, chunks, &input_text, bitmaps, 1);
+    // Tokenize the text and images
+    LOG_INFO("[DEBUG] Tokenizing text and %zu images", bitmaps.entries.size());
+    auto bitmaps_c_ptr = bitmaps.c_ptr();
+    int32_t res = mtmd_tokenize(mtmd_ctx, chunks, &input_text, bitmaps_c_ptr.data(), bitmaps_c_ptr.size());
     if (res != 0) {
-        LOG_ERROR("[DEBUG] Failed to tokenize image and text: %d", res);
+        LOG_ERROR("[DEBUG] Failed to tokenize images and text: %d", res);
         mtmd_input_chunks_free(chunks);
-        mtmd_bitmap_free(bitmap);
+        bitmaps.entries.clear();
         return false;
     }
 
@@ -1003,7 +1009,7 @@ bool llama_rn_context::processImage(
                 &new_n_past)) {
         LOG_ERROR("[DEBUG] Failed to evaluate chunks", "");
         mtmd_input_chunks_free(chunks);
-        mtmd_bitmap_free(bitmap);
+        bitmaps.entries.clear();
         return false;
     }
 
@@ -1036,8 +1042,7 @@ bool llama_rn_context::processImage(
     // Clean up image resources
     LOG_INFO("[DEBUG] Cleaning up resources");
     mtmd_input_chunks_free(chunks);
-    mtmd_bitmap_free(bitmap);
-
+    bitmaps.entries.clear();
     return true;
 }
 

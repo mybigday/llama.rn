@@ -131,6 +131,7 @@ export type CompletionBaseParams = {
   parallel_tool_calls?: object
   tool_choice?: string
   response_format?: CompletionResponseFormat
+  image_paths?: string | string[]
 }
 export type CompletionParams = Omit<
   NativeCompletionParams,
@@ -211,61 +212,60 @@ export class LlamaContext {
       tools?: object
       parallel_tool_calls?: object
       tool_choice?: string
-      image_path?: string
     },
   ): Promise<JinjaFormattedChatResult | string> {
     // Process messages with multimodal content
-    const processedMessages = messages.map(msg => {
-      // Handle multimodal content
+    const imagePaths: string[] = []
+    const processedMessages = messages.map((msg) => {
       if (Array.isArray(msg.content)) {
-        // Find image_url parts
-        const imageParts = msg.content.filter(part =>
-          part.type === 'image_url' && part.image_url?.url
-        );
-
-        // Extract the first image path if available and not already provided
-        if (imageParts.length > 0 && !params?.image_path && imageParts[0].image_url?.url) {
-          if (!params) {
-            params = {};
-          }
-          params.image_path = imageParts[0].image_url.url;
-          if (params.image_path?.startsWith('file://')) {
-            params.image_path = params.image_path.slice(7);
-          }
-        }
-
-        // Convert to text-only content with image markers
-        const textParts = msg.content.filter(part => part.type === 'text');
-        let textContent = textParts.map(part => part.text).join(' ');
-
-        // Add image marker if there are image parts
-        if (imageParts.length > 0) {
-          textContent += ' <__image__>';
-        }
+        const content = msg.content
+          .map((part) => {
+            // Handle multimodal content
+            if (part.type === 'image_url') {
+              let path = part.image_url?.url
+              if (path?.startsWith('file://')) path = path.slice(7)
+              imagePaths.push(path)
+              return {
+                type: 'text',
+                text: '<__image__>',
+              }
+            }
+            return part
+          })
 
         return {
           ...msg,
-          content: textContent
-        };
+          content,
+        }
       }
-      return msg;
-    });
-
-    const chat = formatChat(processedMessages);
-    const useJinja = this.isJinjaSupported() && params?.jinja;
-    let tmpl = this.isLlamaChatSupported() || useJinja ? undefined : 'chatml';
-    if (template) tmpl = template; // Force replace if provided
-    const jsonSchema = getJsonSchema(params?.response_format);
-
-    return RNLlama.getFormattedChat(this.id, JSON.stringify(chat), tmpl, {
-      jinja: useJinja,
-      json_schema: jsonSchema ? JSON.stringify(jsonSchema) : undefined,
-      tools: params?.tools ? JSON.stringify(params.tools) : undefined,
-      parallel_tool_calls: params?.parallel_tool_calls
-        ? JSON.stringify(params.parallel_tool_calls)
-        : undefined,
-      tool_choice: params?.tool_choice,
+      return msg
     })
+
+    const chat = formatChat(processedMessages)
+    const useJinja = this.isJinjaSupported() && params?.jinja
+    let tmpl = this.isLlamaChatSupported() || useJinja ? undefined : 'chatml'
+    if (template) tmpl = template // Force replace if provided
+    const jsonSchema = getJsonSchema(params?.response_format)
+
+    const result = await RNLlama.getFormattedChat(
+      this.id,
+      JSON.stringify(chat),
+      tmpl,
+      {
+        jinja: useJinja,
+        json_schema: jsonSchema ? JSON.stringify(jsonSchema) : undefined,
+        tools: params?.tools ? JSON.stringify(params.tools) : undefined,
+        parallel_tool_calls: params?.parallel_tool_calls
+          ? JSON.stringify(params.parallel_tool_calls)
+          : undefined,
+        tool_choice: params?.tool_choice,
+      },
+    )
+    if (params?.jinja) {
+      // TODO: Make jinja=false work with image_paths
+      ;(result as JinjaFormattedChatResult).image_paths = imagePaths
+    }
+    return result
   }
 
   /**
@@ -274,8 +274,8 @@ export class LlamaContext {
    * @param callback Optional callback for token-by-token streaming
    * @returns Promise resolving to the completion result
    *
-   * Note: For multimodal support, you can include an image_path parameter.
-   * This will process the image and add it to the context before generating text.
+   * Note: For multimodal support, you can include an image_paths parameter.
+   * This will process the images and add them to the context before generating text.
    * Multimodal support must be enabled via initMultimodal() first.
    */
   async completion(
@@ -288,9 +288,6 @@ export class LlamaContext {
       emit_partial_completion: !!callback,
     }
 
-    // Extract image_path if present
-    const imagePath = (params as any).image_path;
-
     if (params.messages) {
       const formattedResult = await this.getFormattedChat(
         params.messages,
@@ -300,7 +297,6 @@ export class LlamaContext {
           tools: params.tools,
           parallel_tool_calls: params.parallel_tool_calls,
           tool_choice: params.tool_choice,
-          image_path: imagePath, // Pass the image_path if provided
         },
       )
       if (typeof formattedResult === 'string') {
@@ -321,14 +317,17 @@ export class LlamaContext {
           if (!nativeParams.stop) nativeParams.stop = []
           nativeParams.stop.push(...formattedResult.additional_stops)
         }
+        if (formattedResult.image_paths) {
+          nativeParams.image_paths = formattedResult.image_paths
+        }
       }
     } else {
       nativeParams.prompt = params.prompt || ''
     }
 
-    // If image_path was explicitly provided or extracted from messages, use it
-    if (imagePath) {
-      (nativeParams as any).image_path = imagePath;
+    // If image_paths were explicitly provided or extracted from messages, use them
+    if (!nativeParams.image_paths && params.image_paths) {
+      nativeParams.image_paths = params.image_paths
     }
 
     if (nativeParams.response_format && !nativeParams.grammar) {
@@ -477,7 +476,7 @@ const modelInfoSkip = [
   'tokenizer.ggml.tokens',
   'tokenizer.ggml.token_type',
   'tokenizer.ggml.merges',
-  'tokenizer.ggml.scores'
+  'tokenizer.ggml.scores',
 ]
 export async function loadLlamaModelInfo(model: string): Promise<Object> {
   let path = model

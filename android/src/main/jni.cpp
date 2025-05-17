@@ -689,7 +689,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jfloat top_n_sigma,
     jobjectArray dry_sequence_breakers,
     jobject partial_completion_callback,
-    jstring image_path
+    jstring image_paths
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
@@ -703,9 +703,9 @@ Java_com_rnllama_LlamaContext_doCompletion(
     // Set the prompt parameter
     llama->params.prompt = prompt_chars;
 
-    // Process image path if provided
-    std::string image_path_str = "";
-    if (image_path != nullptr) {
+    // Process image paths if provided
+    std::vector<std::string> image_paths_vector;
+    if (image_paths != nullptr) {
         // Check if multimodal is enabled
         if (!llama->isMultimodalEnabled()) {
             auto result = createWriteableMap(env);
@@ -714,18 +714,36 @@ Java_com_rnllama_LlamaContext_doCompletion(
             return reinterpret_cast<jobject>(result);
         }
 
-        // Get image path
-        const char *image_path_chars = env->GetStringUTFChars(image_path, nullptr);
+        // Get image paths
+        const char *image_paths_chars = env->GetStringUTFChars(image_paths, nullptr);
 
-        // Process the image path to handle file:/// URLs
-        image_path_str = image_path_chars;
-        if (image_path_str.find("file:///") == 0) {
+        // Process the image paths to handle file:/// URLs
+        std::string image_paths_str = image_paths_chars;
+        if (image_paths_str.find("file:///") == 0) {
             // Remove the file:/// prefix
-            image_path_str = image_path_str.substr(7);
-            LOGI("Converted image path from file:/// URL: %s", image_path_str.c_str());
+            image_paths_str = image_paths_str.substr(7);
+            LOGI("Converted image path from file:/// URL: %s", image_paths_str.c_str());
         }
 
-        env->ReleaseStringUTFChars(image_path, image_path_chars);
+        // Support multiple image paths separated by semicolons
+        size_t pos = 0;
+        std::string token;
+        std::string delimiter = ";";
+
+        while ((pos = image_paths_str.find(delimiter)) != std::string::npos) {
+            token = image_paths_str.substr(0, pos);
+            if (!token.empty()) {
+                image_paths_vector.push_back(token);
+            }
+            image_paths_str.erase(0, pos + delimiter.length());
+        }
+
+        // Add the last path if not empty
+        if (!image_paths_str.empty()) {
+            image_paths_vector.push_back(image_paths_str);
+        }
+
+        env->ReleaseStringUTFChars(image_paths, image_paths_chars);
     }
 
     llama->params.sampling.seed = (seed == -1) ? time(NULL) : seed;
@@ -886,7 +904,12 @@ Java_com_rnllama_LlamaContext_doCompletion(
     }
     llama->beginCompletion();
 
-    llama->loadPrompt(image_path_str.c_str());
+    // Load the prompt (including processing images if provided)
+    if (!image_paths_vector.empty()) {
+        llama->loadPrompt(image_paths_vector);
+    } else {
+        llama->loadPrompt();
+    }
 
     if (llama->context_full) {
         auto result = createWriteableMap(env);

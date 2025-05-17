@@ -5,6 +5,7 @@ import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.ReadableArray;
+import com.facebook.react.bridge.ReadableType;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 
@@ -318,8 +319,12 @@ public class LlamaContext {
         this,
         params.hasKey("emit_partial_completion") ? params.getBoolean("emit_partial_completion") : false
       ),
-      // String image_path
-      params.hasKey("image_path") ? params.getString("image_path") : null
+      // String image_paths - we'll convert an array to a semicolon-separated string
+      params.hasKey("image_paths") ?
+          (params.getType("image_paths") == ReadableType.Array) ?
+              ReadableArrayUtils.stringArrayToSemicolonString(params.getArray("image_paths")) :
+              params.getString("image_paths")
+          : null
     );
     if (result.hasKey("error")) {
       throw new IllegalStateException(result.getString("error"));
@@ -584,7 +589,7 @@ public class LlamaContext {
     float top_n_sigma,
     String[] dry_sequence_breakers,
     PartialCompletionCallback partial_completion_callback,
-    String image_path
+    String image_paths
   );
   protected static native void stopCompletion(long contextPtr);
   protected static native boolean isPredicting(long contextPtr);

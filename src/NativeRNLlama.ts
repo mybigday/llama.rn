@@ -120,7 +120,7 @@ export type NativeCompletionParams = {
    * When provided, the image will be processed and added to the context.
    * Requires multimodal support to be enabled via initMultimodal.
    */
-  image_path?: string
+  image_paths?: string | string[]
   /**
    * Specify a JSON array of stopping strings.
    * These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]`
@@ -370,6 +370,7 @@ export type JinjaFormattedChatResult = {
   }>
   preserved_tokens?: Array<string>
   additional_stops?: Array<string>
+  image_paths?: string[]
 }
 
 export type NativeImageProcessingResult = {

@@ -8,7 +8,7 @@ PODS:
     - hermes-engine/Pre-built (= 0.72.3)
   - hermes-engine/Pre-built (0.72.3)
   - libevent (2.1.12)
-  - llama-rn (0.5.10):
+  - llama-rn (0.5.11):
     - hermes-engine
     - RCT-Folly (= 2021.07.22.00)
     - RCTRequired
@@ -1270,7 +1270,7 @@ SPEC CHECKSUMS:
   glog: 04b94705f318337d7ead9e6d17c019bd9b1f6b1b
   hermes-engine: 10fbd3f62405c41ea07e71973ea61e1878d07322
   libevent: 4049cae6c81cdb3654a443be001fb9bdceff7913
-  llama-rn: f35e2bc4a74484d63c86754b6f240597e2bba2a5
+  llama-rn: f8fa2908b9fd8ef1dcb16fa4e42e97a2904c2d3e
   RCT-Folly: 424b8c9a7a0b9ab2886ffe9c3b041ef628fd4fb1
   RCTRequired: a2faf4bad4e438ca37b2040cb8f7799baa065c18
   RCTTypeSafety: cb09f3e4747b6d18331a15eb05271de7441ca0b3
@@ -1296,7 +1296,7 @@ SPEC CHECKSUMS:
   React-perflogger: 6bd153e776e6beed54c56b0847e1220a3ff92ba5
   React-RCTActionSheet: c0b62af44e610e69d9a2049a682f5dba4e9dff17
   React-RCTAnimation: f9bf9719258926aea9ecb8a2aa2595d3ff9a6022
-  React-RCTAppDelegate: 9e26db3e7deb7df94604f25af1be282f5e23fc4d
+  React-RCTAppDelegate: d1d32f7e62d18cd785a875b2ed81d735d5d5176a
   React-RCTBlob: c4f1e69a6ef739aa42586b876d637dab4e3b5bed
   React-RCTFabric: 125e7d77057cb62f94e79ac977fd68be042a3bc5
   React-RCTImage: e5798f01aba248416c02a506cf5e6dfcba827638
@@ -1316,4 +1316,4 @@ SPEC CHECKSUMS:
 
 PODFILE CHECKSUM: 65536592e23bc5ecf357f53e2deda450e33f1c90
 
-COCOAPODS: 1.16.2
+COCOAPODS: 1.15.2

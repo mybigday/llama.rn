@@ -104,7 +104,7 @@ struct llama_rn_context {
       const std::string &chat_template
     ) const;
     void truncatePrompt(std::vector<llama_token> &prompt_tokens);
-    void loadPrompt(const std::string &image_path = "");
+    void loadPrompt(const std::vector<std::string> &image_paths);
     void beginCompletion();
     completion_token_output nextToken();
     size_t findStoppingStrings(const std::string &text, const size_t last_token_size, const stop_type type);
@@ -118,9 +118,9 @@ struct llama_rn_context {
     // Multimodal methods
     bool initMultimodal(const std::string &mmproj_path);
 
-    // Process an image and add it to the context
+    // Process multiple images and add them to the context
     bool processImage(
-        const std::string &image_path,
+        const std::vector<std::string> &image_paths,
         const std::string &prompt,
         std::vector<llama_token> &text_tokens
     );
