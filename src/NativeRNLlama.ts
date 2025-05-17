@@ -76,6 +76,17 @@ export type NativeContextParams = {
   // Embedding params
   embedding?: boolean
   embd_normalize?: number
+
+  // Multimodal params
+  /**
+   * Path to the multimodal projector (mmproj) file for image processing
+   */
+  mmproj?: string
+  /**
+   * Enable GPU acceleration for multimodal processing
+   * @default true
+   */
+  mmproj_use_gpu?: boolean
 }
 
 export type NativeCompletionParams = {
@@ -104,6 +115,12 @@ export type NativeCompletionParams = {
   }>
   preserved_tokens?: Array<string>
   chat_format?: number
+  /**
+   * Path to an image file to process before generating text.
+   * When provided, the image will be processed and added to the context.
+   * Requires multimodal support to be enabled via initMultimodal.
+   */
+  image_paths?: Array<string>
   /**
    * Specify a JSON array of stopping strings.
    * These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]`
@@ -341,8 +358,14 @@ export type NativeLlamaChatMessage = {
   content: string
 }
 
-export type JinjaFormattedChatResult = {
+export type FormattedChatResult = {
+  type: 'jinja' | 'llama-chat'
   prompt: string
+  has_image: boolean
+  image_paths?: Array<string>
+}
+
+export type JinjaFormattedChatResult = FormattedChatResult & {
   chat_format?: number
   grammar?: string
   grammar_lazy?: boolean
@@ -353,6 +376,12 @@ export type JinjaFormattedChatResult = {
   }>
   preserved_tokens?: Array<string>
   additional_stops?: Array<string>
+}
+
+export type NativeImageProcessingResult = {
+  success: boolean
+  prompt: string
+  error?: string
 }
 
 export interface Spec extends TurboModule {
@@ -414,6 +443,16 @@ export interface Spec extends TurboModule {
   getLoadedLoraAdapters(
     contextId: number,
   ): Promise<Array<{ path: string; scaled?: number }>>
+
+  // Multimodal methods
+  initMultimodal(
+    contextId: number,
+    mmproj_path: string,
+  ): Promise<boolean>
+
+  isMultimodalEnabled(
+    contextId: number,
+  ): Promise<boolean>
 
   releaseContext(contextId: number): Promise<void>
 

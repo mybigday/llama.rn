@@ -14,6 +14,8 @@ import type {
   NativeCompletionTokenProbItem,
   NativeCompletionResultTimings,
   JinjaFormattedChatResult,
+  FormattedChatResult,
+  NativeImageProcessingResult,
 } from './NativeRNLlama'
 import type {
   SchemaGrammarConverterPropOrder,
@@ -38,6 +40,7 @@ export type {
   RNLlamaMessagePart,
   RNLlamaOAICompatibleMessage,
   JinjaFormattedChatResult,
+  NativeImageProcessingResult,
 
   // Deprecated
   SchemaGrammarConverterPropOrder,
@@ -129,6 +132,7 @@ export type CompletionBaseParams = {
   parallel_tool_calls?: object
   tool_choice?: string
   response_format?: CompletionResponseFormat
+  image_paths?: string | string[]
 }
 export type CompletionParams = Omit<
   NativeCompletionParams,
@@ -210,23 +214,78 @@ export class LlamaContext {
       parallel_tool_calls?: object
       tool_choice?: string
     },
-  ): Promise<JinjaFormattedChatResult | string> {
-    const chat = formatChat(messages)
+  ): Promise<FormattedChatResult> {
+    const imagePaths: string[] = []
+    const processedMessages = messages.map((msg) => {
+      if (Array.isArray(msg.content)) {
+        const content = msg.content
+          .map((part) => {
+            // Handle multimodal content
+            if (part.type === 'image_url') {
+              let path = part.image_url?.url
+              if (path?.startsWith('file://')) path = path.slice(7)
+              imagePaths.push(path)
+              return {
+                type: 'text',
+                text: '<__image__>',
+              }
+            }
+            return part
+          })
+
+        return {
+          ...msg,
+          content,
+        }
+      }
+      return msg
+    })
+
+    const chat = formatChat(processedMessages)
     const useJinja = this.isJinjaSupported() && params?.jinja
     let tmpl = this.isLlamaChatSupported() || useJinja ? undefined : 'chatml'
     if (template) tmpl = template // Force replace if provided
     const jsonSchema = getJsonSchema(params?.response_format)
-    return RNLlama.getFormattedChat(this.id, JSON.stringify(chat), tmpl, {
-      jinja: useJinja,
-      json_schema: jsonSchema ? JSON.stringify(jsonSchema) : undefined,
-      tools: params?.tools ? JSON.stringify(params.tools) : undefined,
-      parallel_tool_calls: params?.parallel_tool_calls
-        ? JSON.stringify(params.parallel_tool_calls)
-        : undefined,
-      tool_choice: params?.tool_choice,
-    })
+
+    const result = await RNLlama.getFormattedChat(
+      this.id,
+      JSON.stringify(chat),
+      tmpl,
+      {
+        jinja: useJinja,
+        json_schema: jsonSchema ? JSON.stringify(jsonSchema) : undefined,
+        tools: params?.tools ? JSON.stringify(params.tools) : undefined,
+        parallel_tool_calls: params?.parallel_tool_calls
+          ? JSON.stringify(params.parallel_tool_calls)
+          : undefined,
+        tool_choice: params?.tool_choice,
+      },
+    )
+    if (!useJinja) {
+      return {
+        type: 'llama-chat',
+        prompt: result as string,
+        has_image: imagePaths.length > 0,
+        image_paths: imagePaths,
+      }
+    }
+    const jinjaResult = result as JinjaFormattedChatResult
+    jinjaResult.type = 'jinja'
+    jinjaResult.has_image = imagePaths.length > 0
+    jinjaResult.image_paths = imagePaths
+    return jinjaResult
   }
 
+  /**
+   * Generate a completion based on the provided parameters
+   * @param params Completion parameters including prompt or messages
+   * @param callback Optional callback for token-by-token streaming
+   * @returns Promise resolving to the completion result
+   *
+   * Note: For multimodal support, you can include an image_paths parameter.
+   * This will process the images and add them to the context before generating text.
+   * Multimodal support must be enabled via initMultimodal() first.
+   */
   async completion(
     params: CompletionParams,
     callback?: (data: TokenData) => void,
@@ -236,8 +295,8 @@ export class LlamaContext {
       prompt: params.prompt || '',
       emit_partial_completion: !!callback,
     }
+
     if (params.messages) {
-      // messages always win
       const formattedResult = await this.getFormattedChat(
         params.messages,
         params.chat_template || params.chatTemplate,
@@ -248,27 +307,41 @@ export class LlamaContext {
           tool_choice: params.tool_choice,
         },
       )
-      if (typeof formattedResult === 'string') {
-        nativeParams.prompt = formattedResult || ''
-      } else {
-        nativeParams.prompt = formattedResult.prompt || ''
-        if (typeof formattedResult.chat_format === 'number')
-          nativeParams.chat_format = formattedResult.chat_format
-        if (formattedResult.grammar)
-          nativeParams.grammar = formattedResult.grammar
-        if (typeof formattedResult.grammar_lazy === 'boolean')
-          nativeParams.grammar_lazy = formattedResult.grammar_lazy
-        if (formattedResult.grammar_triggers)
-          nativeParams.grammar_triggers = formattedResult.grammar_triggers
-        if (formattedResult.preserved_tokens)
-          nativeParams.preserved_tokens = formattedResult.preserved_tokens
-        if (formattedResult.additional_stops) {
+      if (formattedResult.type === 'jinja') {
+        const jinjaResult = formattedResult as JinjaFormattedChatResult
+
+        nativeParams.prompt = jinjaResult.prompt || ''
+        if (typeof jinjaResult.chat_format === 'number')
+          nativeParams.chat_format = jinjaResult.chat_format
+        if (jinjaResult.grammar)
+          nativeParams.grammar = jinjaResult.grammar
+        if (typeof jinjaResult.grammar_lazy === 'boolean')
+          nativeParams.grammar_lazy = jinjaResult.grammar_lazy
+        if (jinjaResult.grammar_triggers)
+          nativeParams.grammar_triggers = jinjaResult.grammar_triggers
+        if (jinjaResult.preserved_tokens)
+          nativeParams.preserved_tokens = jinjaResult.preserved_tokens
+        if (jinjaResult.additional_stops) {
           if (!nativeParams.stop) nativeParams.stop = []
-          nativeParams.stop.push(...formattedResult.additional_stops)
+          nativeParams.stop.push(...jinjaResult.additional_stops)
+        }
+        if (jinjaResult.has_image) {
+          nativeParams.image_paths = jinjaResult.image_paths
+        }
+      } else if (formattedResult.type === 'llama-chat') {
+        const llamaChatResult = formattedResult as FormattedChatResult
+        nativeParams.prompt = llamaChatResult.prompt || ''
+        if (llamaChatResult.has_image) {
+          nativeParams.image_paths = llamaChatResult.image_paths
         }
       }
     } else {
       nativeParams.prompt = params.prompt || ''
+    }
+
+    // If image_paths were explicitly provided or extracted from messages, use them
+    if (!nativeParams.image_paths && params.image_paths) {
+      nativeParams.image_paths = params.image_paths
     }
 
     if (nativeParams.response_format && !nativeParams.grammar) {
@@ -361,6 +434,28 @@ export class LlamaContext {
     return RNLlama.getLoadedLoraAdapters(this.id)
   }
 
+  /**
+   * Initialize multimodal support with a mmproj file
+   * @param mmprojPath Path to the multimodal projector file
+   * @returns Promise resolving to true if initialization was successful
+   *
+   * Note: GPU acceleration for multimodal processing is controlled by the
+   * mmproj_use_gpu parameter when initializing the context.
+   */
+  async initMultimodal(mmprojPath: string): Promise<boolean> {
+    let path = mmprojPath
+    if (path.startsWith('file://')) path = path.slice(7)
+    return RNLlama.initMultimodal(this.id, path)
+  }
+
+  /**
+   * Check if multimodal support is enabled
+   * @returns Promise resolving to true if multimodal is enabled
+   */
+  async isMultimodalEnabled(): Promise<boolean> {
+    return RNLlama.isMultimodalEnabled(this.id)
+  }
+
   async release(): Promise<void> {
     return RNLlama.releaseContext(this.id)
   }
@@ -394,7 +489,7 @@ const modelInfoSkip = [
   'tokenizer.ggml.tokens',
   'tokenizer.ggml.token_type',
   'tokenizer.ggml.merges',
-  'tokenizer.ggml.scores'
+  'tokenizer.ggml.scores',
 ]
 export async function loadLlamaModelInfo(model: string): Promise<Object> {
   let path = model
@@ -418,6 +513,8 @@ export async function initLlama(
     pooling_type: poolingType,
     lora,
     lora_list: loraList,
+    mmproj,
+    mmproj_use_gpu: mmprojUseGPU,
     ...rest
   }: ContextParams,
   onProgress?: (progress: number) => void,
@@ -427,6 +524,9 @@ export async function initLlama(
 
   let loraPath = lora
   if (loraPath?.startsWith('file://')) loraPath = loraPath.slice(7)
+
+  let mmprojPath = mmproj
+  if (mmprojPath?.startsWith('file://')) mmprojPath = mmprojPath.slice(7)
 
   let loraAdapters: Array<{ path: string; scaled?: number }> = []
   if (loraList)
@@ -462,6 +562,8 @@ export async function initLlama(
     pooling_type: poolType,
     lora: loraPath,
     lora_list: loraAdapters,
+    mmproj: mmprojPath,
+    mmproj_use_gpu: mmprojUseGPU,
     ...rest,
   }).catch((err: any) => {
     removeProgressListener?.remove()

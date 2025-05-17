@@ -1299,6 +1299,10 @@ bool lm_ggml_is_contiguous_2(const struct lm_ggml_tensor * tensor) {
     return lm_ggml_is_contiguous_n(tensor, 2);
 }
 
+bool lm_ggml_is_contiguously_allocated(const struct lm_ggml_tensor * tensor) {
+    return lm_ggml_nbytes(tensor) == lm_ggml_nelements(tensor) * lm_ggml_type_size(tensor->type)/lm_ggml_blck_size(tensor->type);
+}
+
 bool lm_ggml_is_permuted(const struct lm_ggml_tensor * tensor) {
     static_assert(LM_GGML_MAX_DIMS == 4, "LM_GGML_MAX_DIMS is not 4 - update this function");
 
@@ -2728,11 +2732,11 @@ void lm_ggml_mul_mat_set_prec(
     c = lm_ggml_mul_mat_id(ctx, as, b, ids);
 
     as  -> [cols, rows, n_expert]
-    ids -> [n_experts_used, n_tokens] (i32)
     b   -> [cols, n_expert_used, n_tokens]
+    ids -> [n_expert_used, n_tokens] (i32)
     c   -> [rows, n_expert_used, n_tokens]
 
-    in b, n_experts_used can be broadcasted to match the n_expert_used of ids
+    in b, n_expert_used can be broadcasted to match the n_expert_used of ids
 
     c ~= as[:,:,i] @ b[:,i%r,t], i = ids[e,t] for all e,t in ids
 */

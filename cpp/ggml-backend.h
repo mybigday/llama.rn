@@ -38,7 +38,7 @@ extern "C" {
     LM_GGML_API lm_ggml_backend_buffer_t lm_ggml_backend_buft_alloc_buffer  (lm_ggml_backend_buffer_type_t buft, size_t size);
     LM_GGML_API size_t                lm_ggml_backend_buft_get_alignment (lm_ggml_backend_buffer_type_t buft);
     LM_GGML_API size_t                lm_ggml_backend_buft_get_max_size  (lm_ggml_backend_buffer_type_t buft);
-    LM_GGML_API size_t                lm_ggml_backend_buft_get_alloc_size(lm_ggml_backend_buffer_type_t buft, struct lm_ggml_tensor * tensor);
+    LM_GGML_API size_t                lm_ggml_backend_buft_get_alloc_size(lm_ggml_backend_buffer_type_t buft, const struct lm_ggml_tensor * tensor);
     LM_GGML_API bool                  lm_ggml_backend_buft_is_host       (lm_ggml_backend_buffer_type_t buft);
     LM_GGML_API lm_ggml_backend_dev_t    lm_ggml_backend_buft_get_device    (lm_ggml_backend_buffer_type_t buft);
 
@@ -59,7 +59,7 @@ extern "C" {
     LM_GGML_API enum lm_ggml_status               lm_ggml_backend_buffer_init_tensor   (lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor);
     LM_GGML_API size_t                         lm_ggml_backend_buffer_get_alignment (lm_ggml_backend_buffer_t buffer);
     LM_GGML_API size_t                         lm_ggml_backend_buffer_get_max_size  (lm_ggml_backend_buffer_t buffer);
-    LM_GGML_API size_t                         lm_ggml_backend_buffer_get_alloc_size(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor);
+    LM_GGML_API size_t                         lm_ggml_backend_buffer_get_alloc_size(lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * tensor);
     LM_GGML_API void                           lm_ggml_backend_buffer_clear         (lm_ggml_backend_buffer_t buffer, uint8_t value);
     LM_GGML_API bool                           lm_ggml_backend_buffer_is_host       (lm_ggml_backend_buffer_t buffer);
     LM_GGML_API void                           lm_ggml_backend_buffer_set_usage     (lm_ggml_backend_buffer_t buffer, enum lm_ggml_backend_buffer_usage usage);

@@ -40,6 +40,7 @@ const char * llm_type_name(llm_type type) {
         case LLM_TYPE_335M:          return "335M";
         case LLM_TYPE_410M:          return "410M";
         case LLM_TYPE_450M:          return "450M";
+        case LLM_TYPE_475M:          return "475M";
         case LLM_TYPE_770M:          return "770M";
         case LLM_TYPE_780M:          return "780M";
         case LLM_TYPE_0_5B:          return "0.5B";
@@ -79,6 +80,7 @@ const char * llm_type_name(llm_type type) {
         case LLM_TYPE_236B:          return "236B";
         case LLM_TYPE_290B:          return "290B";
         case LLM_TYPE_314B:          return "314B";
+        case LLM_TYPE_405B:          return "405B";
         case LLM_TYPE_671B:          return "671B";
         case LLM_TYPE_SMALL:         return "0.1B";
         case LLM_TYPE_MEDIUM:        return "0.4B";
@@ -297,6 +299,10 @@ static buft_list_t make_cpu_buft_list(const std::vector<lm_ggml_backend_dev_t> &
     // add extra buffer types, only if no GPU device is present
     // ref: https://github.com/ggml-org/llama.cpp/issues/12481#issuecomment-2743136094
     auto * cpu_dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
+    if (cpu_dev == nullptr) {
+        throw std::runtime_error(format("%s: no CPU backend found", __func__));
+    }
+
     auto * cpu_reg = lm_ggml_backend_dev_backend_reg(cpu_dev);
     auto lm_ggml_backend_dev_get_extra_bufts_fn = (lm_ggml_backend_dev_get_extra_bufts_t)
         lm_ggml_backend_reg_get_proc_address(cpu_reg, "lm_ggml_backend_dev_get_extra_bufts");
@@ -581,6 +587,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 switch (hparams.n_layer) {
                     case 32: type = LLM_TYPE_7B; break;
                     case 80: type = LLM_TYPE_70B; break;
+                    case 162: type = LLM_TYPE_405B; break;
                     default: type = LLM_TYPE_UNKNOWN;
                 }
             } break;
@@ -707,7 +714,11 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 ml.get_key(LLM_KV_MOE_EVERY_N_LAYERS,         hparams.moe_every_n_layers, 0);
 
                 if (hparams.n_layer == 12 && hparams.n_embd == 768) {
-                    type = LLM_TYPE_137M;
+                    if (arch == LLM_ARCH_NOMIC_BERT) {
+                        type = LLM_TYPE_137M;
+                    } else if (arch == LLM_ARCH_NOMIC_BERT_MOE && hparams.moe_every_n_layers == 2) {
+                        type = LLM_TYPE_475M;
+                    }
                 }
             } break;
         case LLM_ARCH_BLOOM:
@@ -768,6 +779,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
             // fall through
         case LLM_ARCH_QWEN2:
             {
+                ml.get_key(LLM_KV_POOLING_TYPE, hparams.pooling_type, false);
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
                 switch (hparams.n_layer) {
                     case 24: type = hparams.n_embd == 1024 ? LLM_TYPE_0_5B : LLM_TYPE_1B; break;
@@ -1476,6 +1488,9 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
     }
 
     lm_ggml_backend_dev_t cpu_dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
+    if (cpu_dev == nullptr) {
+        throw std::runtime_error(format("%s: no CPU backend found", __func__));
+    }
     const int i_gpu_start = std::max((int) hparams.n_layer - n_gpu_layers, (int) 0);
     const int act_gpu_layers = devices.empty() ? 0 : std::min(n_gpu_layers, (int)n_layer + 1);
     auto get_layer_buft_list = [&](int il) -> llama_model::impl::layer_dev {
@@ -1643,8 +1658,11 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                 for (const auto * overrides = ml.tensor_buft_overrides; overrides->pattern != nullptr; ++overrides) {
                     std::regex pattern(overrides->pattern);
                     if (std::regex_search(tensor_name, pattern)) {
-                        LLAMA_LOG_DEBUG("tensor %s buffer type overriden to %s\n", tensor_name.c_str(), lm_ggml_backend_buft_name(overrides->buft));
                         buft = overrides->buft;
+                        LLAMA_LOG_DEBUG("tensor %s (%zu MiB %s) buffer type overridden to %s\n",
+                                tensor_name.c_str(),
+                                lm_ggml_nbytes(t_meta) / 1024 / 1024, lm_ggml_type_name(t_meta->type),
+                                lm_ggml_backend_buft_name(buft));
                         break;
                     }
                 }
@@ -1661,6 +1679,9 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
             auto * buft_dev = lm_ggml_backend_buft_get_device(buft);
             if (ml.use_mmap && buft_dev && buft == lm_ggml_backend_dev_host_buffer_type(buft_dev)) {
                 auto * cpu_dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
+                if (!cpu_dev) {
+                    throw std::runtime_error("no CPU backend found");
+                }
                 buft = lm_ggml_backend_dev_buffer_type(cpu_dev);
             }
 
@@ -1842,7 +1863,9 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                         layer.bv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "bias", i), {n_embd_gqa}, TENSOR_NOT_REQUIRED);
                         layer.bo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "bias", i), {n_embd},     TENSOR_NOT_REQUIRED);
 
-                        layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+                        if (n_ff > 0) {
+                            layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+                        }
 
                         if (hparams.rope_scaling_type_train == LLAMA_ROPE_SCALING_TYPE_LONGROPE) {
                             layer.rope_long  = create_tensor(tn(LLM_TENSOR_ROPE_FACTORS_LONG,  "weight", i), {n_rot/2}, TENSOR_NOT_REQUIRED | (i != 0 ? TENSOR_DUPLICATED : 0));
@@ -1852,9 +1875,11 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                             layer.rope_freqs = create_tensor(tn(LLM_TENSOR_ROPE_FREQS, "weight", i), {n_rot/2}, TENSOR_NOT_REQUIRED | (i != 0 ? TENSOR_DUPLICATED : 0));
                         }
 
-                        layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
-                        layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
-                        layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
+                        if (n_ff > 0) {
+                            layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
+                            layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
+                            layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
+                        }
 
                         // optional MLP bias
                         layer.ffn_gate_b = create_tensor(tn(LLM_TENSOR_FFN_GATE, "bias", i), {n_ff}, TENSOR_NOT_REQUIRED);
@@ -3498,7 +3523,11 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
 
                     // output
                     output_norm   = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
-                    output        = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, 0);
+                    output        = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, TENSOR_NOT_REQUIRED);
+                    // if output is NULL, init from the input tok embed
+                    if (output == NULL) {
+                        output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
+                    }
 
                     for (int i = 0; i < n_layer; ++i) {
                         auto & layer = layers[i];
@@ -4103,6 +4132,9 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
         if (!dev) {
             // FIXME: workaround for CPU backend buft having a NULL device
             dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
+            if (!dev) {
+                throw std::runtime_error(format("%s: no CPU backend found", __func__));
+            }
         }
         lm_ggml_backend_dev_props props;
         lm_ggml_backend_dev_get_props(dev, &props);
@@ -4440,6 +4472,19 @@ const lm_ggml_tensor * llama_model::get_tensor(const char * name) const {
     return it->second;
 }
 
+lm_ggml_tensor * llama_model::get_rope_factors(uint32_t n_ctx_per_seq, int il) const {
+    // choose long/short freq factors based on the context size
+    if (layers[il].rope_freqs != nullptr) {
+        return layers[il].rope_freqs;
+    }
+
+    if (n_ctx_per_seq > hparams.n_ctx_orig_yarn) {
+        return layers[il].rope_long;
+    }
+
+    return layers[il].rope_short;
+}
+
 struct llm_build_llama : public llm_graph_context {
     llm_build_llama(const llama_model & model, const llm_graph_params & params, lm_ggml_cgraph * gf) : llm_graph_context(params) {
         const int64_t n_embd_head = hparams.n_embd_head_v;
@@ -4480,7 +4525,7 @@ struct llm_build_llama : public llm_graph_context {
             // self-attention
             {
                 // rope freq factors for llama3; may return nullptr for llama2 and other models
-                lm_ggml_tensor * rope_factors = static_cast<const llama_kv_cache_unified *>(memory)->cbs.get_rope_factors(n_ctx_per_seq, il);
+                lm_ggml_tensor * rope_factors = model.get_rope_factors(n_ctx_per_seq, il);
 
                 // compute Q and K and RoPE them
                 lm_ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
@@ -4686,6 +4731,7 @@ struct llm_build_deci : public llm_graph_context {
             lm_ggml_tensor * inpSA = inpL;
             const int64_t n_head_kv = hparams.n_head_kv(il);
             const int64_t n_head    = hparams.n_head(il);
+            const int64_t n_ff      = hparams.n_ff(il);
 
             if (n_head == 0) {
                 // attention-free layer of Llama-3_1-Nemotron-51B
@@ -4705,7 +4751,7 @@ struct llm_build_deci : public llm_graph_context {
             } else if (n_head > 0) {
                 // self-attention
                 // rope freq factors for llama3; may return nullptr for llama2 and other models
-                lm_ggml_tensor * rope_factors = static_cast<const llama_kv_cache_unified *>(memory)->cbs.get_rope_factors(n_ctx_per_seq, il);
+                lm_ggml_tensor * rope_factors = model.get_rope_factors(n_ctx_per_seq, il);
 
                 // compute Q and K and RoPE them
                 lm_ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
@@ -4759,6 +4805,11 @@ struct llm_build_deci : public llm_graph_context {
                 lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
                 cur   = lm_ggml_get_rows(ctx0,   cur, inp_out_ids);
                 inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            }
+
+            // FFN-free layer of Llama-3_1-Nemotron-Ultra-253B
+            if (n_ff == 0) {
+                continue;
             }
 
             // For Granite architecture
@@ -7187,7 +7238,7 @@ struct llm_build_phi3 : public llm_graph_context {
             // self-attention
             {
                 // rope freq factors for 128k context
-                lm_ggml_tensor * rope_factors = static_cast<const llama_kv_cache_unified *>(memory)->cbs.get_rope_factors(n_ctx_per_seq, il);
+                lm_ggml_tensor * rope_factors = model.get_rope_factors(n_ctx_per_seq, il);
 
                 lm_ggml_tensor* attn_norm_output = build_norm(inpL,
                         model.layers[il].attn_norm,
@@ -7939,7 +7990,7 @@ struct llm_build_minicpm3 : public llm_graph_context {
         for (int il = 0; il < n_layer; ++il) {
             lm_ggml_tensor * inpSA = inpL;
 
-            lm_ggml_tensor * rope_factors = static_cast<const llama_kv_cache_unified *>(memory)->cbs.get_rope_factors(n_ctx_per_seq, il);
+            lm_ggml_tensor * rope_factors = model.get_rope_factors(n_ctx_per_seq, il);
 
             // norm
             cur = build_norm(inpL,
@@ -8706,7 +8757,7 @@ struct llm_build_mamba : public llm_graph_context {
              lm_ggml_tensor * state_mask,
       const llama_ubatch & ubatch,
                      int   il) const {
-        const llama_kv_cache_unified * kv_self = static_cast<const llama_kv_cache_unified *>(memory);
+        const llama_kv_cache_recurrent * kv_self = static_cast<const llama_kv_cache_recurrent *>(memory);
 
         const auto kv_head = kv_self->head;
 
@@ -9007,7 +9058,7 @@ struct llm_build_cohere2 : public llm_graph_context {
             // self-attention
             {
                 // rope freq factors for 128k context
-                lm_ggml_tensor * rope_factors = static_cast<const llama_kv_cache_unified *>(memory)->cbs.get_rope_factors(n_ctx_per_seq, il);
+                lm_ggml_tensor * rope_factors = model.get_rope_factors(n_ctx_per_seq, il);
 
                 // compute Q and K and RoPE them
                 lm_ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
@@ -9945,7 +9996,7 @@ struct llm_build_deepseek : public llm_graph_context {
             // self-attention
             {
                 // rope freq factors for llama3; may return nullptr for llama2 and other models
-                lm_ggml_tensor * rope_factors = static_cast<const llama_kv_cache_unified *>(memory)->cbs.get_rope_factors(n_ctx_per_seq, il);
+                lm_ggml_tensor * rope_factors = model.get_rope_factors(n_ctx_per_seq, il);
 
                 // compute Q and K and RoPE them
                 lm_ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
@@ -11309,7 +11360,7 @@ struct llm_build_exaone : public llm_graph_context {
             // self-attention
             {
                 // rope freq factors for llama3; may return nullptr for llama2 and other models
-                lm_ggml_tensor * rope_factors = static_cast<const llama_kv_cache_unified *>(memory)->cbs.get_rope_factors(n_ctx_per_seq, il);
+                lm_ggml_tensor * rope_factors = model.get_rope_factors(n_ctx_per_seq, il);
 
                 // compute Q and K and RoPE them
                 lm_ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
@@ -11454,7 +11505,7 @@ struct llm_build_rwkv6_base : public llm_graph_context {
             lm_ggml_tensor * state_mask,
             const llama_ubatch & ubatch,
             int   il) const {
-        const llama_kv_cache_unified * kv_self = static_cast<const llama_kv_cache_unified *>(memory);
+        const llama_kv_cache_recurrent * kv_self = static_cast<const llama_kv_cache_recurrent *>(memory);
 
         const auto n_tokens = ubatch.n_tokens;
         const auto n_seqs = ubatch.n_seqs;
@@ -11850,7 +11901,7 @@ struct llm_build_rwkv7_base : public llm_graph_context {
             lm_ggml_tensor *& first_layer_value,
             const llama_ubatch & ubatch,
             int   il) const {
-        const llama_kv_cache_unified * kv_self = static_cast<const llama_kv_cache_unified *>(memory);
+        const llama_kv_cache_recurrent * kv_self = static_cast<const llama_kv_cache_recurrent *>(memory);
 
         const auto n_tokens = ubatch.n_tokens;
         const auto n_seqs = ubatch.n_seqs;
@@ -12690,7 +12741,7 @@ struct llm_build_bailingmoe : public llm_graph_context {
             // self-attention
             {
                 // rope freq factors for llama3; may return nullptr for llama2 and other models
-                lm_ggml_tensor * rope_factors = static_cast<const llama_kv_cache_unified *>(memory)->cbs.get_rope_factors(n_ctx_per_seq, il);
+                lm_ggml_tensor * rope_factors = model.get_rope_factors(n_ctx_per_seq, il);
 
                 // compute Q and K and RoPE them
                 lm_ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
@@ -12810,36 +12861,46 @@ struct llm_build_bailingmoe : public llm_graph_context {
     }
 };
 
-llama_memory_i * llama_model::create_memory() const {
+llama_memory_i * llama_model::create_memory(const llama_memory_params & params, llama_cparams & cparams) const {
     llama_memory_i * res;
 
     switch (arch) {
+        case LLM_ARCH_BERT:
+        case LLM_ARCH_JINA_BERT_V2:
+        case LLM_ARCH_NOMIC_BERT:
+        case LLM_ARCH_NOMIC_BERT_MOE:
+            {
+                res = nullptr;
+            } break;
         case LLM_ARCH_MAMBA:
         case LLM_ARCH_RWKV6:
         case LLM_ARCH_RWKV6QWEN2:
         case LLM_ARCH_RWKV7:
         case LLM_ARCH_ARWKV7:
             {
-                res = new llama_kv_cache_unified(hparams, {
-                    /*.get_rope_factors =*/ nullptr
-                });
+                res = new llama_kv_cache_recurrent(
+                        *this,
+                        LM_GGML_TYPE_F32,
+                        LM_GGML_TYPE_F32,
+                        cparams.offload_kqv,
+                        std::max((uint32_t) 1, cparams.n_seq_max));
             } break;
         default:
             {
-                res = new llama_kv_cache_unified(hparams, {
-                    /*.get_rope_factors =*/ [this](uint32_t n_ctx_per_seq, int il) {
-                        // choose long/short freq factors based on the context size
-                        if (layers[il].rope_freqs != nullptr) {
-                            return layers[il].rope_freqs;
-                        }
+                const auto padding = llama_kv_cache_unified::get_padding(cparams);
 
-                        if (n_ctx_per_seq > hparams.n_ctx_orig_yarn) {
-                            return layers[il].rope_long;
-                        }
+                cparams.n_ctx = LM_GGML_PAD(cparams.n_ctx, padding);
 
-                        return layers[il].rope_short;
-                    }
-                });
+                LLAMA_LOG_DEBUG("%s: n_ctx = %u (padded)\n", __func__, cparams.n_ctx);
+
+                res = new llama_kv_cache_unified(
+                        *this,
+                        params.type_k,
+                        params.type_v,
+                        !cparams.flash_attn,
+                        cparams.offload_kqv,
+                        cparams.n_ctx,
+                        padding);
             }
     }
 
@@ -13221,8 +13282,6 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_DECI:
         case LLM_ARCH_BAICHUAN:
         case LLM_ARCH_STARCODER:
-        case LLM_ARCH_PLAMO:
-        case LLM_ARCH_ORION:
         case LLM_ARCH_INTERNLM2:
         case LLM_ARCH_MINICPM:
         case LLM_ARCH_XVERSE:
@@ -13260,6 +13319,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_PHI2:
         case LLM_ARCH_PHI3:
         case LLM_ARCH_PHIMOE:
+        case LLM_ARCH_PLAMO:
         case LLM_ARCH_GEMMA:
         case LLM_ARCH_GEMMA2:
         case LLM_ARCH_GEMMA3:
@@ -13267,6 +13327,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_OPENELM:
         case LLM_ARCH_GPTNEOX:
         case LLM_ARCH_CODESHELL:
+        case LLM_ARCH_ORION:
         case LLM_ARCH_NEMOTRON:
         case LLM_ARCH_EXAONE:
         case LLM_ARCH_MINICPM3:
@@ -13339,6 +13400,14 @@ const char * llama_model_chat_template(const llama_model * model, const char * n
         : LLM_KV(model->arch)(LLM_KV_TOKENIZER_CHAT_TEMPLATE);
     const auto & it = model->lm_gguf_kv.find(key);
     if (it == model->lm_gguf_kv.end()) {
+        // one-off fix for very popular models (so we are not flooded with issues)
+        // do not extend this list unless absolutely necessary
+        // Mistral-Small-2503 does not have built-in chat template
+        llama_vocab_pre_type pre_type = model->vocab.get_pre_type();
+        if (pre_type == LLAMA_VOCAB_PRE_TYPE_TEKKEN && model->layers.size() == 40) {
+            return "mistral-v7-tekken";
+        }
+
         return nullptr;
     }
 

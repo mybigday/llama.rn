@@ -19,6 +19,7 @@ struct llama_cparams;
 
 class llama_memory_i;
 class llama_kv_cache_unified;
+class llama_kv_cache_recurrent;
 
 // certain models (typically multi-modal) can produce different types of graphs
 enum llm_graph_type {
@@ -186,26 +187,26 @@ public:
 
 class llm_graph_input_s_copy : public llm_graph_input_i {
 public:
-    llm_graph_input_s_copy(const llama_kv_cache_unified * kv_self) : kv_self(kv_self) {}
+    llm_graph_input_s_copy(const llama_kv_cache_recurrent * kv_self) : kv_self(kv_self) {}
     virtual ~llm_graph_input_s_copy() = default;
 
     void set_input(const llama_ubatch * ubatch) override;
 
     lm_ggml_tensor * s_copy; // I32 [kv_size]
 
-    const llama_kv_cache_unified * kv_self;
+    const llama_kv_cache_recurrent * kv_self;
 };
 
 class llm_graph_input_s_mask : public llm_graph_input_i {
 public:
-    llm_graph_input_s_mask(const llama_kv_cache_unified * kv_self) : kv_self(kv_self) {}
+    llm_graph_input_s_mask(const llama_kv_cache_recurrent * kv_self) : kv_self(kv_self) {}
     virtual ~llm_graph_input_s_mask() = default;
 
     void set_input(const llama_ubatch * ubatch) override;
 
     lm_ggml_tensor * s_mask; // F32 [1, n_kv]
 
-    const llama_kv_cache_unified * kv_self;
+    const llama_kv_cache_recurrent * kv_self;
 };
 
 class llm_graph_input_cross_embd : public llm_graph_input_i {
@@ -350,8 +351,8 @@ struct llm_graph_params {
     const llama_cparams & cparams;
     const llama_ubatch  & ubatch;
 
-    lm_ggml_backend_sched * sched;
-    lm_ggml_backend * backend_cpu;
+    lm_ggml_backend_sched_t sched;
+    lm_ggml_backend_t backend_cpu;
 
     const llama_adapter_cvec  * cvec;
     const llama_adapter_loras * loras;
@@ -402,9 +403,9 @@ struct llm_graph_context {
 
     lm_ggml_context * ctx0 = nullptr;
 
-    lm_ggml_backend_sched * sched;
+    lm_ggml_backend_sched_t sched;
 
-    lm_ggml_backend * backend_cpu; // TODO: needed by build_attn_mha, figure out a way to remove?
+    lm_ggml_backend_t backend_cpu; // TODO: needed by build_attn_mha, figure out a way to remove?
 
     const llama_adapter_cvec  * cvec;
     const llama_adapter_loras * loras;
