@@ -995,15 +995,14 @@ bool llama_rn_context::processImage(
         }
     }
 
-    // Evaluate the chunks in the model's context
-    // This is the critical step that makes the model aware of the image
-    LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, params.n_batch);
     llama_pos new_n_past = common_part(embd, all_tokens);
 
     // Update n_past
     n_past = new_n_past;
 
-    LOG_INFO("[DEBUG] New n_past: %d", new_n_past);
+    // Evaluate the chunks in the model's context
+    // This is the critical step that makes the model aware of the image
+    LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, params.n_batch);
 
     if (
       n_past == 0 &&
