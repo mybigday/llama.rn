@@ -232,9 +232,11 @@ export default function App() {
           '- /load-session: load the session tokens',
         ]
 
+        const isMultimodalEnabled = await ctx.isMultimodalEnabled()
+
         // Always include the image command if mmproj file was provided
         // This ensures the command is available even if there's a delay in setting multimodalEnabled
-        if (mmProjFile || multimodalEnabled) {
+        if (isMultimodalEnabled) {
           commands.push(
             '- /image <content>: pick an image and start a conversation',
           )
@@ -247,9 +249,7 @@ export default function App() {
             `Chat Template: ${
               ctx.model.chatTemplates.llamaChat ? 'YES' : 'NO'
             }\n` +
-            `Multimodal: ${
-              multimodalEnabled || mmProjFile ? 'YES' : 'NO'
-            }\n\n` +
+            `Multimodal: ${isMultimodalEnabled ? 'YES' : 'NO'}\n\n` +
             `You can use the following commands:\n\n${commands.join('\n')}`,
         )
       })
@@ -469,7 +469,7 @@ export default function App() {
       textContent = message.text.slice(7)
 
       // Check if multimodal is enabled or if we're in the process of initializing it
-      if (!multimodalEnabled) {
+      if (multimodalEnabled) {
         // Check if multimodal can be enabled
         try {
           const isEnabled = await context.isMultimodalEnabled()
@@ -528,41 +528,6 @@ export default function App() {
           ? `data:image/jpeg;base64,${imageBase64}`
           : imageRes[0].uri
         hasImage = true
-
-        // For Android, we need to copy the content URI to a file path
-        if (Platform.OS === 'android' && imagePath.startsWith('content://')) {
-          try {
-            addSystemMessage('Copying image to temporary file...')
-            const tempDir = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/images`
-            const tempFilePath = `${tempDir}/${Date.now()}.jpg`
-
-            // Create directory if it doesn't exist
-            if (!(await ReactNativeBlobUtil.fs.isDir(tempDir))) {
-              await ReactNativeBlobUtil.fs.mkdir(tempDir)
-            }
-
-            // Copy the file to a temporary location
-            await ReactNativeBlobUtil.MediaCollection.copyToInternal(
-              imagePath,
-              tempFilePath,
-            )
-
-            // Update the image path to the new file path
-            // Add file:// prefix for Android to make it work with React Native's Image component
-            imagePath = `file://${tempFilePath}`
-
-            console.log('Copied image to:', imagePath)
-          } catch (copyError) {
-            addSystemMessage(
-              `Error copying image: ${
-                copyError instanceof Error
-                  ? copyError.message
-                  : String(copyError)
-              }`,
-            )
-            return
-          }
-        }
       } catch (error) {
         addSystemMessage(
           `Error selecting image: ${
