@@ -229,6 +229,9 @@ export class LlamaContext {
             params = {};
           }
           params.image_path = imageParts[0].image_url.url;
+          if (params.image_path?.startsWith('file://')) {
+            params.image_path = params.image_path.slice(7);
+          }
         }
 
         // Convert to text-only content with image markers
