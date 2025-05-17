@@ -519,9 +519,22 @@ export default function App() {
           return
         }
 
-        imagePath = imageRes[0].uri
+        // fs: read image path as base64
+        const imageBase64 =
+          imageRes[0].uri &&
+          (await ReactNativeBlobUtil.fs
+            .readFile(imageRes[0].uri.replace('file://', ''), 'base64')
+            .catch((e) => {
+              console.log('Error reading image:', e.message)
+              return null
+            }))
+
+        console.log('Image path:', imageRes[0].uri)
+
+        imagePath = imageBase64
+          ? `data:image/jpeg;base64,${imageBase64}`
+          : imageRes[0].uri
         hasImage = true
-        console.log('Image path:', imagePath)
 
         // For Android, we need to copy the content URI to a file path
         if (Platform.OS === 'android' && imagePath.startsWith('content://')) {

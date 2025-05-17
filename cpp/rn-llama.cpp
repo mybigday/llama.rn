@@ -14,6 +14,68 @@ static std::string fnv_hash(const uint8_t * data, size_t len) {
     return std::to_string(hash);
 }
 
+static const std::string base64_chars =
+             "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+             "abcdefghijklmnopqrstuvwxyz"
+             "0123456789+/";
+
+// Base64 decoding function
+static std::vector<uint8_t> base64_decode(const std::string &encoded_string) {
+    std::vector<uint8_t> decoded;
+    int in_len = encoded_string.size();
+    int i = 0;
+    int j = 0;
+    int in_ = 0;
+    unsigned char char_array_4[4], char_array_3[3];
+
+    while (in_len-- && (encoded_string[in_] != '=')) {
+        if (isspace(encoded_string[in_])) {
+            in_++;
+            continue;
+        }
+
+        if (encoded_string[in_] == '=' || base64_chars.find(encoded_string[in_]) == std::string::npos) {
+            break;
+        }
+
+        char_array_4[i++] = encoded_string[in_]; in_++;
+        if (i == 4) {
+            for (i = 0; i < 4; i++) {
+                char_array_4[i] = base64_chars.find(char_array_4[i]);
+            }
+
+            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+            char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+            for (i = 0; i < 3; i++) {
+                decoded.push_back(char_array_3[i]);
+            }
+            i = 0;
+        }
+    }
+
+    if (i) {
+        for (j = i; j < 4; j++) {
+            char_array_4[j] = 0;
+        }
+
+        for (j = 0; j < 4; j++) {
+            char_array_4[j] = base64_chars.find(char_array_4[j]);
+        }
+
+        char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+        char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+        char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+        for (j = 0; j < i - 1; j++) {
+            decoded.push_back(char_array_3[j]);
+        }
+    }
+
+    return decoded;
+}
+
 const std::vector<lm_ggml_type> kv_cache_types = {
     LM_GGML_TYPE_F32,
     LM_GGML_TYPE_F16,
@@ -888,37 +950,95 @@ bool llama_rn_context::processImage(
 
     // Load all images
     for (const auto& image_path : image_paths) {
-        LOG_INFO("[DEBUG] Loading image from file: %s", image_path.c_str());
+        LOG_INFO("[DEBUG] Loading image: %s",
+                 image_path.substr(0, 50).c_str()); // Only log part of path for base64
 
-        // Check if file exists
-        FILE* file = fopen(image_path.c_str(), "rb");
-        if (file == nullptr) {
-            LOG_ERROR("[DEBUG] File does not exist or cannot be opened: %s (errno: %d, %s)",
-                     image_path.c_str(), errno, strerror(errno));
+        // Check if it's a base64 image
+        if (image_path.compare(0, 11, "data:image/") == 0) {
+            LOG_INFO("[DEBUG] Detected base64 encoded image");
 
+            // Parse base64 data
+            std::vector<std::string> parts;
+            size_t comma_pos = image_path.find(',');
+            if (comma_pos == std::string::npos) {
+                LOG_ERROR("[DEBUG] Invalid base64 image format, missing comma separator");
+                bitmaps.entries.clear();
+                return false;
+            }
+
+            std::string header = image_path.substr(0, comma_pos);
+            std::string base64_data = image_path.substr(comma_pos + 1);
+
+            if (header.find("base64") == std::string::npos) {
+                LOG_ERROR("[DEBUG] Image must be base64 encoded");
+                bitmaps.entries.clear();
+                return false;
+            }
+
+            // Decode base64
+            try {
+                // Decode base64 to binary
+                std::vector<uint8_t> image_data = base64_decode(base64_data);
+                LOG_INFO("[DEBUG] Base64 decoded, size: %zu bytes", image_data.size());
+
+                // Load bitmap from memory buffer using direct initialization
+                mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_buf(image_data.data(), image_data.size()));
+                if (!bmp.ptr) {
+                    LOG_ERROR("[DEBUG] Failed to load base64 image");
+                    bitmaps.entries.clear();
+                    return false;
+                }
+
+                // Calculate bitmap hash (for KV caching)
+                std::string hash = fnv_hash(bmp.data(), bmp.nx()*bmp.ny()*3);
+                bmp.set_id(hash.c_str());
+                LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
+                bitmaps.entries.push_back(std::move(bmp));
+            } catch (const std::exception& e) {
+                LOG_ERROR("[DEBUG] Failed to decode base64 image: %s", e.what());
+                bitmaps.entries.clear();
+                return false;
+            }
+        } else if (image_path.compare(0, 7, "http://") == 0 || image_path.compare(0, 8, "https://") == 0) {
+            // HTTP URLs are not supported yet
+            LOG_ERROR("[DEBUG] HTTP/HTTPS URLs are not supported yet: %s", image_path.c_str());
             bitmaps.entries.clear();
             return false;
+        } else {
+            // Regular file path
+            LOG_INFO("[DEBUG] Loading image from file");
+
+            // Check if file exists
+            FILE* file = fopen(image_path.c_str(), "rb");
+            if (file == nullptr) {
+                LOG_ERROR("[DEBUG] File does not exist or cannot be opened: %s (errno: %d, %s)",
+                         image_path.c_str(), errno, strerror(errno));
+
+                bitmaps.entries.clear();
+                return false;
+            }
+
+            // Get file size
+            fseek(file, 0, SEEK_END);
+            long file_size = ftell(file);
+            fseek(file, 0, SEEK_SET);
+            LOG_INFO("[DEBUG] File exists and size is %ld bytes", file_size);
+            fclose(file);
+
+            // Create bitmap directly
+            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(image_path.c_str()));
+            if (!bmp.ptr) {
+                LOG_ERROR("[DEBUG] Failed to load image");
+                bitmaps.entries.clear();
+                return false;
+            }
+
+            // Calculate bitmap hash (for KV caching)
+            std::string hash = fnv_hash(bmp.data(), bmp.nx()*bmp.ny()*3);
+            bmp.set_id(hash.c_str());
+            LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
+            bitmaps.entries.push_back(std::move(bmp));
         }
-
-        // Get file size
-        fseek(file, 0, SEEK_END);
-        long file_size = ftell(file);
-        fseek(file, 0, SEEK_SET);
-        LOG_INFO("[DEBUG] File exists and size is %ld bytes", file_size);
-        fclose(file);
-
-        mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(image_path.c_str()));
-        if (!bmp.ptr) {
-            LOG_ERROR("[DEBUG] Failed to load image: %s", image_path.c_str());
-
-            bitmaps.entries.clear();
-            return false;
-        }
-        // calculate bitmap hash (for KV caching)
-        std::string hash = fnv_hash(bmp.data(), bmp.nx()*bmp.ny()*3);
-        bmp.set_id(hash.c_str());
-        LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
-        bitmaps.entries.push_back(std::move(bmp));
     }
 
     // Create input chunks
