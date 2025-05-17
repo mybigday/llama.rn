@@ -54,7 +54,7 @@ struct llama_rn_context {
 
     size_t num_prompt_tokens = 0;
     size_t num_tokens_predicted = 0;
-    size_t n_past = 0;
+    llama_pos n_past = 0;
     size_t n_remain = 0;
 
     std::vector<llama_token> embd;

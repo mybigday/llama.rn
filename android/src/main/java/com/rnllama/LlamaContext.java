@@ -314,17 +314,13 @@ public class LlamaContext {
       params.hasKey("top_n_sigma") ? (float) params.getDouble("top_n_sigma") : -1.0f,
       // String[] dry_sequence_breakers, when undef, we use the default definition from common.h
       params.hasKey("dry_sequence_breakers") ? params.getArray("dry_sequence_breakers").toArrayList().toArray(new String[0]) : new String[]{"\n", ":", "\"", "*"},
+      // String[] image_paths
+      params.hasKey("image_paths") ? params.getArray("image_paths").toArrayList().toArray(new String[0]) : new String[0],
       // PartialCompletionCallback partial_completion_callback
       new PartialCompletionCallback(
         this,
         params.hasKey("emit_partial_completion") ? params.getBoolean("emit_partial_completion") : false
-      ),
-      // String image_paths - we'll convert an array to a semicolon-separated string
-      params.hasKey("image_paths") ?
-          (params.getType("image_paths") == ReadableType.Array) ?
-              ReadableArrayUtils.stringArrayToSemicolonString(params.getArray("image_paths")) :
-              params.getString("image_paths")
-          : null
+      )
     );
     if (result.hasKey("error")) {
       throw new IllegalStateException(result.getString("error"));
@@ -588,8 +584,8 @@ public class LlamaContext {
     int dry_penalty_last_n,
     float top_n_sigma,
     String[] dry_sequence_breakers,
-    PartialCompletionCallback partial_completion_callback,
-    String image_paths
+    String[] image_paths,
+    PartialCompletionCallback partial_completion_callback
   );
   protected static native void stopCompletion(long contextPtr);
   protected static native boolean isPredicting(long contextPtr);
