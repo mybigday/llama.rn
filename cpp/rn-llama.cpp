@@ -828,8 +828,8 @@ bool llama_rn_context::initMultimodal(const std::string &mmproj_path) {
 
     // Initialize mtmd context
     mtmd_context_params mtmd_params = mtmd_context_params_default();
-    mtmd_params.use_gpu = params.mmproj_use_gpu;
-    mtmd_params.print_timings = true;
+    mtmd_params.use_gpu = true;
+    mtmd_params.print_timings = false;
     mtmd_params.n_threads = params.cpuparams.n_threads;
     mtmd_params.verbosity = (lm_ggml_log_level)LM_GGML_LOG_LEVEL_INFO;
 
@@ -998,15 +998,25 @@ bool llama_rn_context::processImage(
     // Evaluate the chunks in the model's context
     // This is the critical step that makes the model aware of the image
     LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, params.n_batch);
-    llama_pos new_n_past = 0;
-    if (mtmd_helper_eval_chunks(mtmd_ctx,
-                ctx, // llama context
-                chunks, // chunks
-                n_past, // n_past
-                0, // seq_id
-                params.n_batch, // n_batch
-                true, // logits_last
-                &new_n_past)) {
+    llama_pos new_n_past = common_part(embd, all_tokens);
+
+    // Update n_past
+    n_past = new_n_past;
+
+    LOG_INFO("[DEBUG] New n_past: %d", new_n_past);
+
+    if (
+      n_past == 0 &&
+      mtmd_helper_eval_chunks(
+        mtmd_ctx,
+        ctx, // llama context
+        chunks, // chunks
+        n_past, // n_past
+        0, // seq_id
+        params.n_batch, // n_batch
+        true, // logits_last
+        &n_past)
+    ) {
         LOG_ERROR("[DEBUG] Failed to evaluate chunks", "");
         mtmd_input_chunks_free(chunks);
         bitmaps.entries.clear();
@@ -1022,9 +1032,6 @@ bool llama_rn_context::processImage(
         LOG_WARNING("[DEBUG] Token count mismatch: new_n_past=%d, expected=%zu",
                    new_n_past, n_past + total_token_count);
     }
-
-    // Update n_past
-    n_past = new_n_past;
 
     // Update embd with all tokens (both text and image)
     embd = all_tokens;
