@@ -962,7 +962,11 @@ bool llama_rn_context::processImage(
     // Track the total number of tokens (both text and image)
     size_t total_token_count = 0;
 
+    // chunk pos
+    std::vector<size_t> chunk_pos;
     for (size_t i = 0; i < num_chunks; i++) {
+        chunk_pos.push_back(total_token_count);
+
         const mtmd_input_chunk* chunk = mtmd_input_chunks_get(chunks, i);
         mtmd_input_chunk_type chunk_type = mtmd_input_chunk_get_type(chunk);
 
@@ -975,7 +979,6 @@ bool llama_rn_context::processImage(
             text_tokens.insert(text_tokens.end(), tokens, tokens + n_tokens);
             all_tokens.insert(all_tokens.end(), tokens, tokens + n_tokens);
             total_token_count += n_tokens;
-
         } else if (chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
             const mtmd_image_tokens* img_tokens = mtmd_input_chunk_get_tokens_image(chunk);
             size_t n_tokens = mtmd_image_tokens_get_n_tokens(img_tokens);
@@ -989,47 +992,52 @@ bool llama_rn_context::processImage(
             for (size_t j = 0; j < n_pos; j++) {
                 // Use a special token ID that won't be confused with real tokens
                 // llama_token_eos(vocab) is a good choice as it's a known special token
-                all_tokens.push_back(0); // Placeholder token
+                all_tokens.push_back(LLAMA_TOKEN_NULL); // Placeholder token
             }
             total_token_count += n_pos;
         }
     }
 
-    llama_pos new_n_past = common_part(embd, all_tokens);
+    n_past = common_part(embd, all_tokens);
 
-    // Update n_past
-    n_past = new_n_past;
+    llama_pos new_n_past = common_part(embd, all_tokens);
 
     // Evaluate the chunks in the model's context
     // This is the critical step that makes the model aware of the image
     LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, params.n_batch);
 
-    if (
-      n_past == 0 &&
-      mtmd_helper_eval_chunks(
-        mtmd_ctx,
-        ctx, // llama context
-        chunks, // chunks
-        n_past, // n_past
-        0, // seq_id
-        params.n_batch, // n_batch
-        true, // logits_last
-        &n_past)
-    ) {
-        LOG_ERROR("[DEBUG] Failed to evaluate chunks", "");
-        mtmd_input_chunks_free(chunks);
-        bitmaps.entries.clear();
-        return false;
+    for (size_t i = 0; i < chunk_pos.size(); i++) {
+
+        LOG_INFO("[DEBUG] Evaluating chunk %zu: n_past=%d, chunk_pos=%zu", i, n_past, chunk_pos[i]);
+
+        // Process chunk only if it's after the current n_past
+        if (chunk_pos[i] >= n_past) {
+            bool chunk_logits_last = (i == num_chunks - 1);
+            auto chunk = mtmd_input_chunks_get(chunks, i);
+
+            int32_t res = mtmd_helper_eval_chunk_single(
+              mtmd_ctx,
+              ctx,
+              chunk,
+              n_past,
+              0,
+              params.n_batch,
+              chunk_logits_last,
+              &new_n_past
+            );
+            if (res != 0) {
+                LOG_ERROR("[DEBUG] Failed to evaluate chunks", "");
+                mtmd_input_chunks_free(chunks);
+                bitmaps.entries.clear();
+                return res;
+            }
+            n_past = new_n_past;
+        }
     }
 
-    // Update the context state to reflect the new tokens
-    LOG_INFO("[DEBUG] Chunks evaluated: old_n_past=%d, new_n_past=%d, total_token_count=%zu",
-             this->n_past, new_n_past, total_token_count);
-
-    // Verify that new_n_past matches our token count
-    if (new_n_past != n_past + total_token_count) {
-        LOG_WARNING("[DEBUG] Token count mismatch: new_n_past=%d, expected=%zu",
-                   new_n_past, n_past + total_token_count);
+    if (n_past == total_token_count) {
+        // we have to evaluate at least 1 token to generate logits.
+        n_past--;
     }
 
     // Update embd with all tokens (both text and image)
@@ -1041,7 +1049,10 @@ bool llama_rn_context::processImage(
 
     // TODO: why?
     // Update sampling context with text tokens only
-    for (auto & token : text_tokens) {
+    for (auto & token : all_tokens) {
+        if (token == LLAMA_TOKEN_NULL) {
+            continue;
+        }
         common_sampler_accept(ctx_sampling, token, false);
     }
 
