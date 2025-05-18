@@ -451,8 +451,6 @@ void llama_rn_context::beginCompletion() {
 
 completion_token_output llama_rn_context::nextToken()
 {
-    LOG_INFO("[DEBUG] nextToken: n_past=%d, embd.size=%zu, n_ctx=%d", n_past, embd.size(), params.n_ctx);
-
     completion_token_output result;
     result.tok = -1;
 
@@ -460,7 +458,7 @@ completion_token_output llama_rn_context::nextToken()
     {
         if (!params.ctx_shift) {
             // If context shifting is disabled, stop generation
-            LOG_WARNING("[DEBUG] Context full, n_ctx: %d, tokens: %d", params.n_ctx, embd.size());
+            LOG_WARNING("context full, n_ctx: %d, tokens: %d", params.n_ctx, embd.size());
             has_next_token = false;
             context_full = true;
             return result;
@@ -527,54 +525,12 @@ completion_token_output llama_rn_context::nextToken()
 
     {
         // out of user input, sample next token
-        LOG_INFO("[DEBUG] Sampling next token from model");
         std::vector<llama_token_data> candidates;
         candidates.reserve(llama_vocab_n_tokens(vocab));
 
-        // Log sampling parameters
-        LOG_INFO("[DEBUG] Sampling parameters: temp=%.2f, top_k=%d, top_p=%.2f, min_p=%.2f, typ_p=%.2f",
-                params.sampling.temp,
-                params.sampling.top_k,
-                params.sampling.top_p,
-                params.sampling.min_p,
-                params.sampling.typ_p);
-
-        // Use -1 to tell common_sampler_sample to use the most recent logits
-        // This matches the behavior of the CLI implementation
-        LOG_INFO("[DEBUG] Using idx=-1 for sampling (use most recent logits)");
         result.tok = common_sampler_sample(ctx_sampling, ctx, -1);
 
-        if (result.tok != -1) {
-            std::string token_text = common_token_to_piece(ctx, result.tok);
-            LOG_INFO("[DEBUG] Sampled token ID: %d, text: '%s'", result.tok, token_text.c_str());
-        }
-
         llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling);
-        LOG_INFO("[DEBUG] Number of candidates: %zu", cur_p.size);
-
-        // Log the selected token index
-        LOG_INFO("[DEBUG] Selected token index: %d", cur_p.selected);
-
-        // Log if the candidates are sorted
-        LOG_INFO("[DEBUG] Candidates sorted: %s", cur_p.sorted ? "true" : "false");
-
-        // Log the vocabulary size
-        const llama_vocab* vocab = llama_model_get_vocab(model);
-        const int n_vocab = llama_vocab_n_tokens(vocab);
-        LOG_INFO("[DEBUG] Vocabulary size: %d", n_vocab);
-
-        // Log top 5 candidates
-        if (cur_p.size > 0) {
-            std::string top_candidates = "";
-            for (size_t i = 0; i < std::min((size_t)5, cur_p.size); ++i) {
-                std::string token_text = common_token_to_piece(ctx, cur_p.data[i].id);
-                top_candidates += string_format("[%d: '%s' (%.4f)] ",
-                    cur_p.data[i].id,
-                    token_text.c_str(),
-                    cur_p.data[i].p);
-            }
-            LOG_INFO("[DEBUG] Top candidates: %s", top_candidates.c_str());
-        }
 
         const int32_t n_probs = params.sampling.n_probs;
 
@@ -600,7 +556,6 @@ completion_token_output llama_rn_context::nextToken()
 
     // add it to the context
     embd.push_back(result.tok);
-
     // decrement remaining sampling budget
     --n_remain;
 
@@ -651,24 +606,10 @@ size_t llama_rn_context::findStoppingStrings(const std::string &text, const size
 
 completion_token_output llama_rn_context::doCompletion()
 {
-    LOG_INFO("[DEBUG] Starting token generation: n_past=%d, n_remain=%d", n_past, n_remain);
-
-    // Log current sampling parameters
-    LOG_INFO("[DEBUG] Current sampling parameters: temp=%.2f, top_k=%d, top_p=%.2f, min_p=%.2f, typ_p=%.2f",
-            params.sampling.temp,
-            params.sampling.top_k,
-            params.sampling.top_p,
-            params.sampling.min_p,
-            params.sampling.typ_p);
-
     const completion_token_output token_with_probs = nextToken();
 
     const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(ctx, token_with_probs.tok);
     generated_text += token_text;
-
-    LOG_INFO("[DEBUG] Sampled token: id=%d, text='%s'",
-             token_with_probs.tok,
-             tokens_to_output_formatted_string(ctx, token_with_probs.tok).c_str());
 
     if (params.sampling.n_probs > 0)
     {
@@ -1058,7 +999,59 @@ bool llama_rn_context::processImage(
     input_text.add_special = n_past == 0;  // Add BOS token if this is the first message
     input_text.parse_special = true;       // Parse special tokens like <__image__>
 
-    // Tokenize the text and images
+    /**
+     * Tokenize the text and images together.
+     *
+     * Example of tokenization for "foo bar <__image__> baz <__image__>":
+     *
+     * 1. Input text with image markers:
+     *
+     *    "foo bar <__image__> baz <__image__>"
+     *
+     * 2. Model-specific markers are added.
+     *
+     * 3. Text is split and tokenized into chunks:
+     *
+     *    ┌─────────────┐  ┌─────────────────────────┐  ┌─────────┐  ┌─────────────────────────┐
+     *    │ TEXT CHUNK  │  │ IMAGE CHUNK             │  │ TEXT    │  │ IMAGE CHUNK             │
+     *    │ "foo bar "  │  │                         │  │ " baz " │  │                         │
+     *    └─────────────┘  └─────────────────────────┘  └─────────┘  └─────────────────────────┘
+     *          │                     │                      │                    │
+     *          ▼                     ▼                      ▼                    ▼
+     *    ┌─────────────┐  ┌─────────────────────────┐  ┌─────────┐  ┌─────────────────────────┐
+     *    │ [1234,5678] │  │ Image Data Structure    │  │ [9012]  │  │ Image Data Structure    │
+     *    └─────────────┘  └─────────────────────────┘  └─────────┘  └─────────────────────────┘
+     *
+     * 4. Image token structure differences:
+     *
+     *    For Qwen2VL (uses M-RoPE with 2D positions):
+     *    ┌─────────────────────────────────────────┐
+     *    │ IMAGE_CHUNK                             │
+     *    │ ┌───────────────────────────────────┐   │
+     *    │ │ mtmd_image_tokens:                │   │
+     *    │ │  nx = 16, ny = 16                 │   │ ← 2D grid (16×16 = 256 tokens)
+     *    │ │  use_mrope_pos = true             │   │ ← Uses M-RoPE positioning
+     *    │ │  batch_f32 = [image_embeddings]   │   │
+     *    │ └───────────────────────────────────┘   │
+     *    └─────────────────────────────────────────┘
+     *
+     *    For other models (uses 1D positions):
+     *    ┌─────────────────────────────────────────┐
+     *    │ IMAGE_CHUNK                             │
+     *    │ ┌───────────────────────────────────┐   │
+     *    │ │ mtmd_image_tokens:                │   │
+     *    │ │  nx = 256, ny = 1                 │   │ ← 1D sequence (256 tokens)
+     *    │ │  use_mrope_pos = false            │   │ ← Uses standard positioning
+     *    │ │  batch_f32 = [image_embeddings]   │   │
+     *    │ └───────────────────────────────────┘   │
+     *    └─────────────────────────────────────────┘
+     *
+     * 5. Final chunks array:
+     *    chunks[0] = TEXT_CHUNK([1234, 5678])
+     *    chunks[1] = IMAGE_CHUNK(first_image)
+     *    chunks[2] = TEXT_CHUNK([9012])
+     *    chunks[3] = IMAGE_CHUNK(second_image)
+     */
     LOG_INFO("[DEBUG] Tokenizing text and %zu images", bitmaps.entries.size());
     auto bitmaps_c_ptr = bitmaps.c_ptr();
     int32_t res = mtmd_tokenize(mtmd_ctx, chunks, &input_text, bitmaps_c_ptr.data(), bitmaps_c_ptr.size());
@@ -1082,7 +1075,23 @@ bool llama_rn_context::processImage(
     // Track the total number of tokens (both text and image)
     size_t total_token_count = 0;
 
-    // chunk pos
+    /**
+     * Evaluate the chunks.
+     *
+     * For our example "foo bar <__image__> baz <__image__>":
+     *
+     * Token organization in memory:
+     *
+     *    all_tokens: [t0][t1][NULL][NULL]...[NULL][t2][NULL][NULL]...[NULL]
+     *    positions:   0   1    2    3   ...  257   258  259  260 ...  514
+     *    chunk_pos:   0        2                   258  259
+     *
+     *    Where:
+     *    - [t0][t1] are text tokens for "foo bar " (positions 0-1)
+     *    - [NULL]x256 are placeholder tokens for the first image (positions 2-257)
+     *    - [t2] is the text token for " baz " (position 258)
+     *    - [NULL]x256 are placeholder tokens for the second image (positions 259-514)
+     */
     std::vector<size_t> chunk_pos;
     for (size_t i = 0; i < num_chunks; i++) {
         chunk_pos.push_back(total_token_count);
@@ -1106,12 +1115,7 @@ bool llama_rn_context::processImage(
             LOG_INFO("[DEBUG] Chunk %zu: type=IMAGE, n_tokens=%zu, n_pos=%zu",
                      i, n_tokens, n_pos);
 
-            // TODO: Need to understand this part better
-            // For image tokens, we need to create placeholder tokens in embd
-            // These won't be used for decoding, but they ensure embd.size() matches n_past
             for (size_t j = 0; j < n_pos; j++) {
-                // Use a special token ID that won't be confused with real tokens
-                // llama_token_eos(vocab) is a good choice as it's a known special token
                 all_tokens.push_back(LLAMA_TOKEN_NULL); // Placeholder token
             }
             total_token_count += n_pos;
@@ -1122,8 +1126,6 @@ bool llama_rn_context::processImage(
 
     llama_pos new_n_past = common_part(embd, all_tokens);
 
-    // Evaluate the chunks in the model's context
-    // This is the critical step that makes the model aware of the image
     LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, params.n_batch);
 
     for (size_t i = 0; i < chunk_pos.size(); i++) {
@@ -1163,11 +1165,9 @@ bool llama_rn_context::processImage(
     // Update embd with all tokens (both text and image)
     embd = all_tokens;
 
-    // TODO: mtmd-cli doesn't have this.
-    // Manage KV cache
+    // Clear all KV cache entries after position n_past
     llama_kv_self_seq_rm(ctx, 0, n_past, -1);
 
-    // TODO: why?
     // Update sampling context with text tokens only
     for (auto & token : all_tokens) {
         if (token == LLAMA_TOKEN_NULL) {
