@@ -1122,6 +1122,16 @@ bool llama_rn_context::processImage(
         }
     }
 
+    // Check if we have enough context space for all tokens
+    if (n_past + all_tokens.size() >= (size_t)n_ctx) {
+        LOG_ERROR("[DEBUG] Not enough context space: n_past=%d, tokens=%zu, n_ctx=%d",
+                 n_past, all_tokens.size(), n_ctx);
+        mtmd_input_chunks_free(chunks);
+        bitmaps.entries.clear();
+        context_full = true;
+        return false;
+    }
+
     n_past = common_part(embd, all_tokens);
 
     llama_pos new_n_past = common_part(embd, all_tokens);
