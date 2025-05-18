@@ -500,8 +500,13 @@ export default function App() {
 
       try {
         // Use DocumentPicker to pick an image
+        // The underlying stb_image library in llama.cpp supports these formats:
+        // JPEG, PNG, BMP, PSD (Photoshop), TGA, GIF, HDR, PIC (Softimage), PNM
+        // We limit to the most common formats (we perhaps need to add webp by converting it to supported formats):
         const imageRes = await DocumentPicker.pick({
-          type: Platform.OS === 'ios' ? 'public.image' : 'image/*',
+          type: Platform.OS === 'ios'
+            ? ['public.jpeg', 'public.png', 'public.gif', 'com.microsoft.bmp']
+            : ['image/jpeg', 'image/png', 'image/gif', 'image/bmp'],
         }).catch((e) => {
           console.log('No image picked, error: ', e.message)
           return null
@@ -511,6 +516,30 @@ export default function App() {
           addSystemMessage('No image selected.')
           return
         }
+
+        // Get the file extension from the URI
+        const getFileExtension = (uri: string) => {
+          const match = uri.match(/\.([\dA-Za-z]+)$/);
+          return match && match[1] ? match[1].toLowerCase() : '';
+        };
+
+        // Map file extension to MIME type
+        const getMimeType = (extension: string) => {
+          const mimeTypes: {[key: string]: string} = {
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'bmp': 'image/bmp',
+            'psd': 'image/vnd.adobe.photoshop',
+            'tga': 'image/x-tga',
+            'hdr': 'image/vnd.radiance',
+            'pic': 'image/x-softimage-pic',
+            'ppm': 'image/x-portable-pixmap',
+            'pgm': 'image/x-portable-graymap',
+          };
+          return mimeTypes[extension] || 'image/jpeg'; // Default to jpeg if unknown
+        };
 
         // fs: read image path as base64
         const imageBase64 =
@@ -524,8 +553,19 @@ export default function App() {
 
         console.log('Image path:', imageRes[0].uri)
 
+        // Get the extension and MIME type
+        // Although, the stb_image library doesn't rely on MIME types but instead detects formats by examining
+        // the file's binary header/signature (magic numbers)
+        // From stb_image.h:
+        /*
+           // test the formats with a very explicit header first (at least a FOURCC
+           // or distinctive magic number first)
+        */
+        // Still, let's get this right.
+        const mimeType = getMimeType(getFileExtension(imageRes[0].uri));
+
         imagePath = imageBase64
-          ? `data:image/jpeg;base64,${imageBase64}`
+          ? `data:${mimeType};base64,${imageBase64}`
           : imageRes[0].uri
         hasImage = true
       } catch (error) {
