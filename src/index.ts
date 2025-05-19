@@ -516,7 +516,6 @@ export async function initLlama(
     pooling_type: poolingType,
     lora,
     lora_list: loraList,
-    mmproj_use_gpu: mmprojUseGPU,
     ...rest
   }: ContextParams,
   onProgress?: (progress: number) => void,
@@ -561,7 +560,6 @@ export async function initLlama(
     pooling_type: poolType,
     lora: loraPath,
     lora_list: loraAdapters,
-    mmproj_use_gpu: mmprojUseGPU,
     ...rest,
   }).catch((err: any) => {
     removeProgressListener?.remove()

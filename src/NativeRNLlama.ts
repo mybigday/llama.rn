@@ -76,13 +76,6 @@ export type NativeContextParams = {
   // Embedding params
   embedding?: boolean
   embd_normalize?: number
-
-  // Multimodal params
-  /**
-   * Enable GPU acceleration for multimodal processing
-   * @default true
-   */
-  mmproj_use_gpu?: boolean
 }
 
 export type NativeCompletionParams = {
