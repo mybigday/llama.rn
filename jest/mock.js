@@ -3,6 +3,7 @@ const { NativeModules, DeviceEventEmitter } = require('react-native')
 if (!NativeModules.RNLlama) {
   const demoEmbedding = new Array(768).fill(0.01)
 
+  const contextMap = {}
   NativeModules.RNLlama = {
     setContextLimit: jest.fn(),
 
@@ -202,15 +203,13 @@ if (!NativeModules.RNLlama) {
     removeLoraAdapters: jest.fn(async () => {}),
     getLoadedLoraAdapters: jest.fn(async () => []),
 
-    _isMultimodalEnabled: false,
-
-    initMultimodal: jest.fn(async () => {
-      this._isMultimodalEnabled = true
+    initMultimodal: jest.fn(async (id) => {
+      contextMap[id] = true
       return true
     }),
-    isMultimodalEnabled: jest.fn(async () => this._isMultimodalEnabled),
-    releaseMultimodal: jest.fn(async () => {
-      this._isMultimodalEnabled = false
+    isMultimodalEnabled: jest.fn(async (id) => contextMap[id] || false),
+    releaseMultimodal: jest.fn(async (id) => {
+      delete contextMap[id]
     }),
   }
 }
