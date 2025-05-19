@@ -348,7 +348,7 @@ RCT_EXPORT_METHOD(getLoadedLoraAdapters:(double)contextId
 }
 
 RCT_EXPORT_METHOD(initMultimodal:(double)contextId
-                 withMmprojPath:(NSString *)mmproj_path
+                 withParams:(NSDictionary *)params
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -363,7 +363,7 @@ RCT_EXPORT_METHOD(initMultimodal:(double)contextId
     }
 
     @try {
-        bool success = [context initMultimodal:mmproj_path];
+        bool success = [context initMultimodal:params];
         resolve(@(success));
     } @catch (NSException *exception) {
         reject(@"llama_cpp_error", exception.reason, nil);

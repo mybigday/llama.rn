@@ -443,7 +443,10 @@ export interface Spec extends TurboModule {
   // Multimodal methods
   initMultimodal(
     contextId: number,
-    mmproj_path: string,
+    params: {
+      path: string
+      use_gpu: boolean
+    },
   ): Promise<boolean>
 
   isMultimodalEnabled(

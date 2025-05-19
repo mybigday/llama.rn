@@ -817,7 +817,7 @@ std::vector<common_adapter_lora_info> llama_rn_context::getLoadedLoraAdapters() 
     return this->lora;
 }
 
-bool llama_rn_context::initMultimodal(const std::string &mmproj_path) {
+bool llama_rn_context::initMultimodal(const std::string &mmproj_path, bool use_gpu) {
     LOG_INFO("[DEBUG] Initializing multimodal with mmproj path: %s", mmproj_path.c_str());
 
     if (model == nullptr) {
@@ -831,7 +831,7 @@ bool llama_rn_context::initMultimodal(const std::string &mmproj_path) {
 
     // Initialize mtmd context
     mtmd_context_params mtmd_params = mtmd_context_params_default();
-    mtmd_params.use_gpu = true;
+    mtmd_params.use_gpu = use_gpu;
     mtmd_params.print_timings = false;
     mtmd_params.n_threads = params.cpuparams.n_threads;
     mtmd_params.verbosity = (lm_ggml_log_level)LM_GGML_LOG_LEVEL_INFO;

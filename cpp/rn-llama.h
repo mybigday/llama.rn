@@ -116,7 +116,7 @@ struct llama_rn_context {
     std::vector<common_adapter_lora_info> getLoadedLoraAdapters();
 
     // Multimodal methods
-    bool initMultimodal(const std::string &mmproj_path);
+    bool initMultimodal(const std::string &mmproj_path, bool use_gpu);
 
     // Process multiple images and add them to the context
     bool processImage(

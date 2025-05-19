@@ -148,8 +148,6 @@ export default function App() {
         use_mlock: true,
         lora_list: loraFile ? [{ path: loraFile.uri, scaled: 1.0 }] : undefined, // Or lora: loraFile?.uri,
 
-        mmproj_use_gpu: true,
-
         // If use deepseek r1 distill
         reasoning_format: 'deepseek',
 
@@ -188,7 +186,10 @@ export default function App() {
             const isEnabled = await ctx.isMultimodalEnabled()
             if (!isEnabled) {
               addSystemMessage('Initializing multimodal support...')
-              const success = await ctx.initMultimodal(mmProjFile.uri)
+              const success = await ctx.initMultimodal({
+                path: mmProjFile.uri,
+                use_gpu: true,
+              })
               setMultimodalEnabled(success)
               if (success) {
                 addSystemMessage('Multimodal support initialized successfully!')

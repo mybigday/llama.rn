@@ -332,8 +332,10 @@
     return llama->is_predicting;
 }
 
-- (bool)initMultimodal:(NSString *)mmproj_path {
-    return llama->initMultimodal([mmproj_path UTF8String]);
+- (bool)initMultimodal:(NSDictionary *)params {
+    NSString *mmproj_path = params[@"path"];
+    BOOL use_gpu = params[@"use_gpu"] ? [params[@"use_gpu"] boolValue] : true;
+    return llama->initMultimodal([mmproj_path UTF8String], use_gpu);
 }
 
 - (bool)isMultimodalEnabled {
