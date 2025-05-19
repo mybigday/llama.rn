@@ -39,6 +39,7 @@ export type {
   NativeCompletionResultTimings,
   RNLlamaMessagePart,
   RNLlamaOAICompatibleMessage,
+  FormattedChatResult,
   JinjaFormattedChatResult,
   NativeImageProcessingResult,
 
@@ -214,7 +215,7 @@ export class LlamaContext {
       parallel_tool_calls?: object
       tool_choice?: string
     },
-  ): Promise<FormattedChatResult> {
+  ): Promise<FormattedChatResult | JinjaFormattedChatResult> {
     const imagePaths: string[] = []
     const processedMessages = messages.map((msg) => {
       if (Array.isArray(msg.content)) {

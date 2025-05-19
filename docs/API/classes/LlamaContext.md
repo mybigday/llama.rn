@@ -24,10 +24,13 @@
 - [embedding](LlamaContext.md#embedding)
 - [getFormattedChat](LlamaContext.md#getformattedchat)
 - [getLoadedLoraAdapters](LlamaContext.md#getloadedloraadapters)
+- [initMultimodal](LlamaContext.md#initmultimodal)
 - [isJinjaSupported](LlamaContext.md#isjinjasupported)
 - [isLlamaChatSupported](LlamaContext.md#isllamachatsupported)
+- [isMultimodalEnabled](LlamaContext.md#ismultimodalenabled)
 - [loadSession](LlamaContext.md#loadsession)
 - [release](LlamaContext.md#release)
+- [releaseMultimodal](LlamaContext.md#releasemultimodal)
 - [removeLoraAdapters](LlamaContext.md#removeloraadapters)
 - [saveSession](LlamaContext.md#savesession)
 - [stopCompletion](LlamaContext.md#stopcompletion)
@@ -47,7 +50,7 @@
 
 #### Defined in
 
-[index.ts:167](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L167)
+[index.ts:173](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L173)
 
 ## Properties
 
@@ -57,7 +60,7 @@
 
 #### Defined in
 
-[index.ts:161](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L161)
+[index.ts:167](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L167)
 
 ___
 
@@ -67,7 +70,7 @@ ___
 
 #### Defined in
 
-[index.ts:159](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L159)
+[index.ts:165](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L165)
 
 ___
 
@@ -107,7 +110,7 @@ ___
 
 #### Defined in
 
-[index.ts:165](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L165)
+[index.ts:171](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L171)
 
 ___
 
@@ -117,7 +120,7 @@ ___
 
 #### Defined in
 
-[index.ts:163](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L163)
+[index.ts:169](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L169)
 
 ## Methods
 
@@ -137,7 +140,7 @@ ___
 
 #### Defined in
 
-[index.ts:341](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L341)
+[index.ts:416](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L416)
 
 ___
 
@@ -160,7 +163,7 @@ ___
 
 #### Defined in
 
-[index.ts:321](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L321)
+[index.ts:396](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L396)
 
 ___
 
@@ -168,20 +171,28 @@ ___
 
 ▸ **completion**(`params`, `callback?`): `Promise`<[`NativeCompletionResult`](../README.md#nativecompletionresult)\>
 
+Generate a completion based on the provided parameters
+
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `params` | [`CompletionParams`](../README.md#completionparams) |
-| `callback?` | (`data`: [`TokenData`](../README.md#tokendata)) => `void` |
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `params` | [`CompletionParams`](../README.md#completionparams) | Completion parameters including prompt or messages |
+| `callback?` | (`data`: [`TokenData`](../README.md#tokendata)) => `void` | Optional callback for token-by-token streaming |
 
 #### Returns
 
 `Promise`<[`NativeCompletionResult`](../README.md#nativecompletionresult)\>
 
+Promise resolving to the completion result
+
+Note: For multimodal support, you can include an image_paths parameter.
+This will process the images and add them to the context before generating text.
+Multimodal support must be enabled via initMultimodal() first.
+
 #### Defined in
 
-[index.ts:229](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L229)
+[index.ts:290](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L290)
 
 ___
 
@@ -201,7 +212,7 @@ ___
 
 #### Defined in
 
-[index.ts:310](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L310)
+[index.ts:385](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L385)
 
 ___
 
@@ -222,13 +233,13 @@ ___
 
 #### Defined in
 
-[index.ts:314](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L314)
+[index.ts:389](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L389)
 
 ___
 
 ### getFormattedChat
 
-▸ **getFormattedChat**(`messages`, `template?`, `params?`): `Promise`<`string` \| [`JinjaFormattedChatResult`](../README.md#jinjaformattedchatresult)\>
+▸ **getFormattedChat**(`messages`, `template?`, `params?`): `Promise`<[`FormattedChatResult`](../README.md#formattedchatresult)\>
 
 #### Parameters
 
@@ -245,11 +256,11 @@ ___
 
 #### Returns
 
-`Promise`<`string` \| [`JinjaFormattedChatResult`](../README.md#jinjaformattedchatresult)\>
+`Promise`<[`FormattedChatResult`](../README.md#formattedchatresult)\>
 
 #### Defined in
 
-[index.ts:202](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L202)
+[index.ts:208](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L208)
 
 ___
 
@@ -263,7 +274,33 @@ ___
 
 #### Defined in
 
-[index.ts:357](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L357)
+[index.ts:432](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L432)
+
+___
+
+### initMultimodal
+
+▸ **initMultimodal**(`params`): `Promise`<`boolean`\>
+
+Initialize multimodal support with a mmproj file
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `params` | `Object` | Parameters for multimodal support |
+| `params.path` | `string` | Path to the multimodal projector file |
+| `params.use_gpu?` | `boolean` | Whether to use GPU |
+
+#### Returns
+
+`Promise`<`boolean`\>
+
+Promise resolving to true if initialization was successful
+
+#### Defined in
+
+[index.ts:445](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L445)
 
 ___
 
@@ -277,7 +314,7 @@ ___
 
 #### Defined in
 
-[index.ts:197](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L197)
+[index.ts:203](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L203)
 
 ___
 
@@ -291,7 +328,25 @@ ___
 
 #### Defined in
 
-[index.ts:193](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L193)
+[index.ts:199](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L199)
+
+___
+
+### isMultimodalEnabled
+
+▸ **isMultimodalEnabled**(): `Promise`<`boolean`\>
+
+Check if multimodal support is enabled
+
+#### Returns
+
+`Promise`<`boolean`\>
+
+Promise resolving to true if multimodal is enabled
+
+#### Defined in
+
+[index.ts:459](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L459)
 
 ___
 
@@ -313,7 +368,7 @@ Load cached prompt & completion state from a file.
 
 #### Defined in
 
-[index.ts:177](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L177)
+[index.ts:183](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L183)
 
 ___
 
@@ -327,7 +382,25 @@ ___
 
 #### Defined in
 
-[index.ts:363](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L363)
+[index.ts:471](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L471)
+
+___
+
+### releaseMultimodal
+
+▸ **releaseMultimodal**(): `Promise`<`void`\>
+
+Release multimodal support
+
+#### Returns
+
+`Promise`<`void`\>
+
+Promise resolving to void
+
+#### Defined in
+
+[index.ts:467](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L467)
 
 ___
 
@@ -341,7 +414,7 @@ ___
 
 #### Defined in
 
-[index.ts:353](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L353)
+[index.ts:428](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L428)
 
 ___
 
@@ -365,7 +438,7 @@ Save current cached prompt & completion state to a file.
 
 #### Defined in
 
-[index.ts:186](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L186)
+[index.ts:192](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L192)
 
 ___
 
@@ -379,7 +452,7 @@ ___
 
 #### Defined in
 
-[index.ts:302](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L302)
+[index.ts:377](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L377)
 
 ___
 
@@ -399,4 +472,4 @@ ___
 
 #### Defined in
 
-[index.ts:306](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L306)
+[index.ts:381](https://github.com/mybigday/llama.rn/blob/67ab8f4/src/index.ts#L381)
