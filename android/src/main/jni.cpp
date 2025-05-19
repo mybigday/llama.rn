@@ -245,7 +245,6 @@ Java_com_rnllama_LlamaContext_initContext(
     jfloat rope_freq_scale,
     jint pooling_type,
     jboolean ctx_shift,
-    jstring mmproj,
     jboolean mmproj_use_gpu,
     jobject load_progress_callback
 ) {

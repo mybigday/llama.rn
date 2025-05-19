@@ -79,10 +79,6 @@ export type NativeContextParams = {
 
   // Multimodal params
   /**
-   * Path to the multimodal projector (mmproj) file for image processing
-   */
-  mmproj?: string
-  /**
    * Enable GPU acceleration for multimodal processing
    * @default true
    */

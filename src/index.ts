@@ -513,7 +513,6 @@ export async function initLlama(
     pooling_type: poolingType,
     lora,
     lora_list: loraList,
-    mmproj,
     mmproj_use_gpu: mmprojUseGPU,
     ...rest
   }: ContextParams,
@@ -524,9 +523,6 @@ export async function initLlama(
 
   let loraPath = lora
   if (loraPath?.startsWith('file://')) loraPath = loraPath.slice(7)
-
-  let mmprojPath = mmproj
-  if (mmprojPath?.startsWith('file://')) mmprojPath = mmprojPath.slice(7)
 
   let loraAdapters: Array<{ path: string; scaled?: number }> = []
   if (loraList)
@@ -562,7 +558,6 @@ export async function initLlama(
     pooling_type: poolType,
     lora: loraPath,
     lora_list: loraAdapters,
-    mmproj: mmprojPath,
     mmproj_use_gpu: mmprojUseGPU,
     ...rest,
   }).catch((err: any) => {

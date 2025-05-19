@@ -112,8 +112,6 @@ public class LlamaContext {
       params.hasKey("pooling_type") ? params.getInt("pooling_type") : -1,
       // boolean ctx_shift,
       params.hasKey("ctx_shift") ? params.getBoolean("ctx_shift") : true,
-      // String mmproj,
-      params.hasKey("mmproj") ? params.getString("mmproj") : "",
       // boolean mmproj_use_gpu,
       params.hasKey("mmproj_use_gpu") ? params.getBoolean("mmproj_use_gpu") : true,
       // LoadProgressCallback load_progress_callback

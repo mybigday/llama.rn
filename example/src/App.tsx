@@ -148,8 +148,7 @@ export default function App() {
         use_mlock: true,
         lora_list: loraFile ? [{ path: loraFile.uri, scaled: 1.0 }] : undefined, // Or lora: loraFile?.uri,
 
-        // Add mmproj file if provided
-        mmproj: mmProjFile?.uri,
+        mmproj_use_gpu: true,
 
         // If use deepseek r1 distill
         reasoning_format: 'deepseek',
@@ -319,7 +318,7 @@ export default function App() {
     loraFile = null
 
     // Ask if user wants to enable multimodal support
-    const enableMultimodal = Alert.alert(
+    Alert.alert(
       'Multimodal Support',
       'Do you want to enable multimodal support? This requires a mmproj file.',
       [
@@ -349,11 +348,6 @@ export default function App() {
         },
       ],
     )
-
-    // Default case if Alert.alert doesn't work as expected
-    if (enableMultimodal === undefined) {
-      handleInitContext(modelFile, loraFile)
-    }
   }
 
   const handleSendPress = async (message: MessageType.PartialText) => {
