@@ -197,6 +197,21 @@ if (!NativeModules.RNLlama) {
     // For NativeEventEmitter
     addListener: jest.fn(),
     removeListeners: jest.fn(),
+
+    applyLoraAdapters: jest.fn(async () => {}),
+    removeLoraAdapters: jest.fn(async () => {}),
+    getLoadedLoraAdapters: jest.fn(async () => []),
+
+    _isMultimodalEnabled: false,
+
+    initMultimodal: jest.fn(async () => {
+      this._isMultimodalEnabled = true
+      return true
+    }),
+    isMultimodalEnabled: jest.fn(async () => this._isMultimodalEnabled),
+    releaseMultimodal: jest.fn(async () => {
+      this._isMultimodalEnabled = false
+    }),
   }
 }
 
