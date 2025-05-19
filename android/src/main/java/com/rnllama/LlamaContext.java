@@ -309,6 +309,8 @@ public class LlamaContext {
       params.hasKey("top_n_sigma") ? (float) params.getDouble("top_n_sigma") : -1.0f,
       // String[] dry_sequence_breakers, when undef, we use the default definition from common.h
       params.hasKey("dry_sequence_breakers") ? params.getArray("dry_sequence_breakers").toArrayList().toArray(new String[0]) : new String[]{"\n", ":", "\"", "*"},
+      // String[] image_paths
+      params.hasKey("image_paths") ? params.getArray("image_paths").toArrayList().toArray(new String[0]) : new String[0],
       // PartialCompletionCallback partial_completion_callback
       new PartialCompletionCallback(
         this,
@@ -377,6 +379,27 @@ public class LlamaContext {
 
   public WritableArray getLoadedLoraAdapters() {
     return getLoadedLoraAdapters(this.context);
+  }
+
+  public boolean initMultimodal(ReadableMap params) {
+    String mmprojPath = params.getString("path");
+    boolean mmprojUseGpu = params.hasKey("use_gpu") ? params.getBoolean("use_gpu") : true;
+    if (mmprojPath == null || mmprojPath.isEmpty()) {
+      throw new IllegalArgumentException("mmproj_path is empty");
+    }
+    File file = new File(mmprojPath);
+    if (!file.exists()) {
+      throw new IllegalArgumentException("mmproj file does not exist: " + mmprojPath);
+    }
+    return initMultimodal(this.context, mmprojPath, mmprojUseGpu);
+  }
+
+  public boolean isMultimodalEnabled() {
+    return isMultimodalEnabled(this.context);
+  }
+
+  public void releaseMultimodal() {
+    releaseMultimodal(this.context);
   }
 
   public void release() {
@@ -497,6 +520,8 @@ public class LlamaContext {
     boolean ctx_shift,
     LoadProgressCallback load_progress_callback
   );
+  protected static native boolean initMultimodal(long contextPtr, String mmproj_path, boolean MMPROJ_USE_GPU);
+  protected static native boolean isMultimodalEnabled(long contextPtr);
   protected static native void interruptLoad(long contextPtr);
   protected static native WritableMap loadModelDetails(
     long contextPtr
@@ -560,6 +585,7 @@ public class LlamaContext {
     int dry_penalty_last_n,
     float top_n_sigma,
     String[] dry_sequence_breakers,
+    String[] image_paths,
     PartialCompletionCallback partial_completion_callback
   );
   protected static native void stopCompletion(long contextPtr);
@@ -579,4 +605,5 @@ public class LlamaContext {
   protected static native void freeContext(long contextPtr);
   protected static native void setupLog(NativeLogCallback logCallback);
   protected static native void unsetLog();
+  protected static native void releaseMultimodal(long contextPtr);
 }

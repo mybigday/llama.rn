@@ -105,6 +105,12 @@ export type NativeCompletionParams = {
   preserved_tokens?: Array<string>
   chat_format?: number
   /**
+   * Path to an image file to process before generating text.
+   * When provided, the image will be processed and added to the context.
+   * Requires multimodal support to be enabled via initMultimodal.
+   */
+  image_paths?: Array<string>
+  /**
    * Specify a JSON array of stopping strings.
    * These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]`
    */
@@ -341,8 +347,14 @@ export type NativeLlamaChatMessage = {
   content: string
 }
 
-export type JinjaFormattedChatResult = {
+export type FormattedChatResult = {
+  type: 'jinja' | 'llama-chat'
   prompt: string
+  has_image: boolean
+  image_paths?: Array<string>
+}
+
+export type JinjaFormattedChatResult = FormattedChatResult & {
   chat_format?: number
   grammar?: string
   grammar_lazy?: boolean
@@ -353,6 +365,12 @@ export type JinjaFormattedChatResult = {
   }>
   preserved_tokens?: Array<string>
   additional_stops?: Array<string>
+}
+
+export type NativeImageProcessingResult = {
+  success: boolean
+  prompt: string
+  error?: string
 }
 
 export interface Spec extends TurboModule {
@@ -414,6 +432,23 @@ export interface Spec extends TurboModule {
   getLoadedLoraAdapters(
     contextId: number,
   ): Promise<Array<{ path: string; scaled?: number }>>
+
+  // Multimodal methods
+  initMultimodal(
+    contextId: number,
+    params: {
+      path: string
+      use_gpu: boolean
+    },
+  ): Promise<boolean>
+
+  isMultimodalEnabled(
+    contextId: number,
+  ): Promise<boolean>
+
+  releaseMultimodal(
+    contextId: number,
+  ): Promise<void>
 
   releaseContext(contextId: number): Promise<void>
 

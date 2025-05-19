@@ -34,6 +34,9 @@
 - (NSDictionary *)modelInfo;
 - (bool)isModelLoaded;
 - (bool)isPredicting;
+- (bool)initMultimodal:(NSDictionary *)params;
+- (bool)isMultimodalEnabled;
+- (void)releaseMultimodal;
 - (NSDictionary *)completion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *tokenResult))onToken;
 - (void)stopCompletion;
 - (NSArray *)tokenize:(NSString *)text;

@@ -1,8 +1,86 @@
 #include "rn-llama.h"
 
+// Include multimodal support
+#include "tools/mtmd/mtmd.h"
+#include "tools/mtmd/clip.h"
+
 namespace rnllama {
 
-const std::vector<lm_ggml_type> kv_cache_types = {
+// Computes FNV-1a hash of the data
+static std::string fnv_hash(const uint8_t * data, size_t len) {
+    const uint64_t fnv_prime = 0x100000001b3ULL;
+    uint64_t hash = 0xcbf29ce484222325ULL;
+
+    for (size_t i = 0; i < len; ++i) {
+        hash ^= data[i];
+        hash *= fnv_prime;
+    }
+    return std::to_string(hash);
+}
+
+static const std::string base64_chars =
+             "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+             "abcdefghijklmnopqrstuvwxyz"
+             "0123456789+/";
+
+// Base64 decoding function
+static std::vector<uint8_t> base64_decode(const std::string &encoded_string) {
+    std::vector<uint8_t> decoded;
+    int in_len = encoded_string.size();
+    int i = 0;
+    int j = 0;
+    int in_ = 0;
+    unsigned char char_array_4[4], char_array_3[3];
+
+    while (in_len-- && (encoded_string[in_] != '=')) {
+        if (isspace(encoded_string[in_])) {
+            in_++;
+            continue;
+        }
+
+        if (encoded_string[in_] == '=' || base64_chars.find(encoded_string[in_]) == std::string::npos) {
+            break;
+        }
+
+        char_array_4[i++] = encoded_string[in_]; in_++;
+        if (i == 4) {
+            for (i = 0; i < 4; i++) {
+                char_array_4[i] = base64_chars.find(char_array_4[i]);
+            }
+
+            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+            char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+            for (i = 0; i < 3; i++) {
+                decoded.push_back(char_array_3[i]);
+            }
+            i = 0;
+        }
+    }
+
+    if (i) {
+        for (j = i; j < 4; j++) {
+            char_array_4[j] = 0;
+        }
+
+        for (j = 0; j < 4; j++) {
+            char_array_4[j] = base64_chars.find(char_array_4[j]);
+        }
+
+        char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+        char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+        char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+        for (j = 0; j < i - 1; j++) {
+            decoded.push_back(char_array_3[j]);
+        }
+    }
+
+    return decoded;
+}
+
+static const std::vector<lm_ggml_type> kv_cache_types = {
     LM_GGML_TYPE_F32,
     LM_GGML_TYPE_F16,
     LM_GGML_TYPE_BF16,
@@ -149,10 +227,16 @@ std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::co
     return ret;
 }
 
+struct llama_rn_context_mtmd {
+  mtmd_context *mtmd_ctx = nullptr;
+};
+
 llama_rn_context::~llama_rn_context() {
     if (ctx_sampling != nullptr) {
         common_sampler_free(ctx_sampling);
     }
+
+    releaseMultimodal();
 }
 
 void llama_rn_context::rewind() {
@@ -287,61 +371,79 @@ void llama_rn_context::truncatePrompt(std::vector<llama_token> &prompt_tokens) {
     prompt_tokens = new_tokens;
 }
 
-void llama_rn_context::loadPrompt() {
-    std::vector<llama_token> prompt_tokens = ::common_tokenize(ctx, params.prompt, true, true);
-    num_prompt_tokens = prompt_tokens.size();
+void llama_rn_context::loadPrompt(const std::vector<std::string> &image_paths) {
+    bool has_images = !image_paths.empty() && isMultimodalEnabled();
 
-    // LOG tokens
-    std::stringstream ss;
-    ss << "\n" << __func__ << ": prompt_tokens = ";
-    for (auto& token : prompt_tokens) {
-        ss << token << " ";
-    }
-    LOG_INFO("%s\n", ss.str().c_str());
+    LOG_INFO("[DEBUG] loadPrompt: has_images=%d, prompt='%s', image_paths_count=%zu",
+             has_images ? 1 : 0, params.prompt.c_str(), image_paths.size());
 
-    if (params.n_keep < 0)
-    {
-        params.n_keep = (int)num_prompt_tokens;
-    }
-    params.n_keep = std::min(n_ctx - 4, params.n_keep);
+    // Step 1: Process input (different for text-only vs. multimodal)
+    std::vector<llama_token> text_tokens;
 
-    // if input prompt is too big, truncate like normal
-    if (num_prompt_tokens >= (size_t) n_ctx)
-    {
-        if (!params.ctx_shift) {
-            context_full = true;
+    if (!has_images) {
+        // Text-only path
+        text_tokens = ::common_tokenize(ctx, params.prompt, true, true);
+        num_prompt_tokens = text_tokens.size();
+
+        // LOG tokens
+        std::stringstream ss;
+        ss << "\n" << __func__ << ": prompt_tokens = ";
+        for (auto& token : text_tokens) {
+            ss << token << " ";
+        }
+        LOG_INFO("%s\n", ss.str().c_str());
+
+        if (params.n_keep < 0) {
+            params.n_keep = (int)num_prompt_tokens;
+        }
+        params.n_keep = std::min(n_ctx - 4, params.n_keep);
+
+        // Handle truncation if needed
+        if (num_prompt_tokens >= (size_t)n_ctx) {
+            if (!params.ctx_shift) {
+                context_full = true;
+                return;
+            }
+            truncatePrompt(text_tokens);
+            num_prompt_tokens = text_tokens.size();
+            LM_GGML_ASSERT(num_prompt_tokens < (size_t)n_ctx);
+        }
+
+        // Update sampling context
+        for (auto & token : text_tokens) {
+            common_sampler_accept(ctx_sampling, token, false);
+        }
+
+        // compare the evaluated prompt with the new prompt
+        n_past = common_part(embd, text_tokens);
+
+        embd = text_tokens;
+        if (n_past == num_prompt_tokens) {
+            // we have to evaluate at least 1 token to generate logits.
+            n_past--;
+        }
+
+        // Manage KV cache
+        llama_kv_self_seq_rm(ctx, 0, n_past, -1);
+
+        LOG_VERBOSE("prompt ingested, n_past: %d, cached: %s, to_eval: %s",
+            n_past,
+            tokens_to_str(ctx, embd.cbegin(), embd.cbegin() + n_past).c_str(),
+            tokens_to_str(ctx, embd.cbegin() + n_past, embd.cend()).c_str()
+        );
+    } else {
+        // Multimodal path - process all images
+        if (!processImage(image_paths, params.prompt, text_tokens)) {
+            LOG_ERROR("[DEBUG] Failed to process images", "");
             return;
         }
-        truncatePrompt(prompt_tokens);
-        num_prompt_tokens = prompt_tokens.size();
-        LM_GGML_ASSERT(num_prompt_tokens < (size_t) n_ctx);
+        num_prompt_tokens = text_tokens.size();
     }
-    // push the prompt into the sampling context (do not apply grammar)
-    for (auto & token : prompt_tokens)
-    {
-        common_sampler_accept(ctx_sampling, token, false);
-    }
-
-    // compare the evaluated prompt with the new prompt
-    n_past = common_part(embd, prompt_tokens);
-
-    embd = prompt_tokens;
-    if (n_past == num_prompt_tokens)
-    {
-        // we have to evaluate at least 1 token to generate logits.
-        n_past--;
-    }
-
-    // since #3228 we now have to manually manage the KV cache
-    llama_kv_self_seq_rm(ctx, 0, n_past, -1);
-
-    LOG_VERBOSE("prompt ingested, n_past: %d, cached: %s, to_eval: %s",
-        n_past,
-        tokens_to_str(ctx, embd.cbegin(), embd.cbegin() + n_past).c_str(),
-        tokens_to_str(ctx, embd.cbegin() + n_past, embd.cend()).c_str()
-    );
 
     has_next_token = true;
+
+    LOG_INFO("[DEBUG] Input processed: n_past=%d, embd.size=%zu, num_prompt_tokens=%zu, has_images=%d",
+             n_past, embd.size(), num_prompt_tokens, has_images ? 1 : 0);
 }
 
 void llama_rn_context::beginCompletion() {
@@ -717,6 +819,398 @@ void llama_rn_context::removeLoraAdapters() {
 
 std::vector<common_adapter_lora_info> llama_rn_context::getLoadedLoraAdapters() {
     return this->lora;
+}
+
+bool llama_rn_context::initMultimodal(const std::string &mmproj_path, bool use_gpu) {
+    LOG_INFO("[DEBUG] Initializing multimodal with mmproj path: %s", mmproj_path.c_str());
+
+    if (model == nullptr) {
+        LOG_ERROR("[DEBUG] Model not loaded, cannot initialize multimodal", "");
+        return false;
+    }
+
+    LOG_INFO("[DEBUG] Model info: n_ctx=%d, n_embd=%d",
+             llama_n_ctx(ctx),
+             llama_model_n_embd(model));
+
+    // Initialize mtmd context
+    mtmd_context_params mtmd_params = mtmd_context_params_default();
+    mtmd_params.use_gpu = use_gpu;
+    mtmd_params.print_timings = false;
+    mtmd_params.n_threads = params.cpuparams.n_threads;
+    mtmd_params.verbosity = (lm_ggml_log_level)LM_GGML_LOG_LEVEL_INFO;
+
+    LOG_INFO("[DEBUG] Initializing mtmd context with threads=%d", mtmd_params.n_threads);
+
+    auto mtmd_ctx = mtmd_init_from_file(mmproj_path.c_str(), model, mtmd_params);
+    if (mtmd_ctx == nullptr) {
+        LOG_ERROR("[DEBUG] Failed to initialize multimodal context with mmproj: %s", mmproj_path.c_str());
+        return false;
+    }
+    mtmd_wrapper = new llama_rn_context_mtmd();
+    mtmd_wrapper->mtmd_ctx = mtmd_ctx;
+
+    has_multimodal = true;
+
+    // Check if the model uses M-RoPE or non-causal attention
+    bool uses_mrope = mtmd_decode_use_mrope(mtmd_ctx);
+    bool uses_non_causal = mtmd_decode_use_non_causal(mtmd_ctx);
+    LOG_INFO("[DEBUG] Model multimodal properties: uses_mrope=%d, uses_non_causal=%d",
+             uses_mrope ? 1 : 0,
+             uses_non_causal ? 1 : 0);
+
+    // Disable context shifting when multimodal is enabled
+    // This is because an image chunk may contain multiple tokens
+    // and context shifting could break the image representation
+    params.ctx_shift = false;
+
+    // params.n_cache_reuse = 0;
+
+    LOG_INFO("Multimodal context initialized successfully with mmproj: %s", mmproj_path.c_str());
+    LOG_INFO("Context shifting disabled for multimodal support");
+    return true;
+}
+
+bool llama_rn_context::processImage(
+    const std::vector<std::string> &image_paths,
+    const std::string &prompt,
+    std::vector<llama_token> &text_tokens
+) {
+    if (!isMultimodalEnabled()) {
+        LOG_ERROR("[DEBUG] Multimodal context not initialized", "");
+        return false;
+    }
+
+    // Multimodal path
+    std::string full_prompt = prompt;
+    // Add image marker if it doesn't already exist
+    if (full_prompt.find("<__image__>") == std::string::npos) {
+        full_prompt += " <__image__>";
+    }
+
+    LOG_INFO("[DEBUG] Processing message with role=user, content=%s", full_prompt.c_str());
+    LOG_INFO("[DEBUG] Processing %zu images with prompt: %s", image_paths.size(), prompt.c_str());
+    LOG_INFO("[DEBUG] Current context state: n_past=%d, n_ctx=%d", n_past, n_ctx);
+
+    // Prepare bitmaps array for all images
+    mtmd::bitmaps bitmaps;
+
+    // Load all images
+    for (const auto& image_path : image_paths) {
+        LOG_INFO("[DEBUG] Loading image: %s",
+                 image_path.substr(0, 50).c_str()); // Only log part of path for base64
+
+        // Check if it's a base64 image
+        if (image_path.compare(0, 11, "data:image/") == 0) {
+            LOG_INFO("[DEBUG] Detected base64 encoded image");
+
+            // Parse base64 data
+            std::vector<std::string> parts;
+            size_t comma_pos = image_path.find(',');
+            if (comma_pos == std::string::npos) {
+                LOG_ERROR("[DEBUG] Invalid base64 image format, missing comma separator");
+                bitmaps.entries.clear();
+                return false;
+            }
+
+            std::string header = image_path.substr(0, comma_pos);
+            std::string base64_data = image_path.substr(comma_pos + 1);
+
+            if (header.find("base64") == std::string::npos) {
+                LOG_ERROR("[DEBUG] Image must be base64 encoded");
+                bitmaps.entries.clear();
+                return false;
+            }
+
+            // Decode base64
+            try {
+                // Decode base64 to binary
+                std::vector<uint8_t> image_data = base64_decode(base64_data);
+                LOG_INFO("[DEBUG] Base64 decoded, size: %zu bytes", image_data.size());
+
+                // Load bitmap from memory buffer using direct initialization
+                mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_buf(image_data.data(), image_data.size()));
+                if (!bmp.ptr) {
+                    LOG_ERROR("[DEBUG] Failed to load base64 image");
+                    bitmaps.entries.clear();
+                    return false;
+                }
+
+                // Calculate bitmap hash (for KV caching)
+                std::string hash = fnv_hash(bmp.data(), bmp.nx()*bmp.ny()*3);
+                bmp.set_id(hash.c_str());
+                LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
+                bitmaps.entries.push_back(std::move(bmp));
+            } catch (const std::exception& e) {
+                LOG_ERROR("[DEBUG] Failed to decode base64 image: %s", e.what());
+                bitmaps.entries.clear();
+                return false;
+            }
+        } else if (image_path.compare(0, 7, "http://") == 0 || image_path.compare(0, 8, "https://") == 0) {
+            // HTTP URLs are not supported yet
+            LOG_ERROR("[DEBUG] HTTP/HTTPS URLs are not supported yet: %s", image_path.c_str());
+            bitmaps.entries.clear();
+            return false;
+        } else {
+            // Regular file path
+            LOG_INFO("[DEBUG] Loading image from file");
+
+            // Check if file exists
+            FILE* file = fopen(image_path.c_str(), "rb");
+            if (file == nullptr) {
+                LOG_ERROR("[DEBUG] File does not exist or cannot be opened: %s (errno: %d, %s)",
+                         image_path.c_str(), errno, strerror(errno));
+
+                bitmaps.entries.clear();
+                return false;
+            }
+
+            // Get file size
+            fseek(file, 0, SEEK_END);
+            long file_size = ftell(file);
+            fseek(file, 0, SEEK_SET);
+            LOG_INFO("[DEBUG] File exists and size is %ld bytes", file_size);
+            fclose(file);
+
+            // Create bitmap directly
+            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(image_path.c_str()));
+            if (!bmp.ptr) {
+                LOG_ERROR("[DEBUG] Failed to load image");
+                bitmaps.entries.clear();
+                return false;
+            }
+
+            // Calculate bitmap hash (for KV caching)
+            std::string hash = fnv_hash(bmp.data(), bmp.nx()*bmp.ny()*3);
+            bmp.set_id(hash.c_str());
+            LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
+            bitmaps.entries.push_back(std::move(bmp));
+        }
+    }
+
+    // Create input chunks
+    LOG_INFO("[DEBUG] Initializing input chunks");
+    mtmd_input_chunks* chunks = mtmd_input_chunks_init();
+    if (chunks == nullptr) {
+        LOG_ERROR("[DEBUG] Failed to initialize input chunks", "");
+        bitmaps.entries.clear();
+        return false;
+    }
+
+    // Create input text
+    LOG_INFO("[DEBUG] Setting up input text with add_special=%d, parse_special=%d",
+             n_past == 0 ? 1 : 0, 1);
+    mtmd_input_text input_text;
+    input_text.text = full_prompt.c_str(); // Use the full prompt with image marker
+    input_text.add_special = n_past == 0;  // Add BOS token if this is the first message
+    input_text.parse_special = true;       // Parse special tokens like <__image__>
+
+    /**
+     * Tokenize the text and images together.
+     *
+     * Example of tokenization for "foo bar <__image__> baz <__image__>":
+     *
+     * 1. Input text with image markers:
+     *
+     *    "foo bar <__image__> baz <__image__>"
+     *
+     * 2. Model-specific markers are added.
+     *
+     * 3. Text is split and tokenized into chunks:
+     *
+     *    ┌─────────────┐  ┌─────────────────────────┐  ┌─────────┐  ┌─────────────────────────┐
+     *    │ TEXT CHUNK  │  │ IMAGE CHUNK             │  │ TEXT    │  │ IMAGE CHUNK             │
+     *    │ "foo bar "  │  │                         │  │ " baz " │  │                         │
+     *    └─────────────┘  └─────────────────────────┘  └─────────┘  └─────────────────────────┘
+     *          │                     │                      │                    │
+     *          ▼                     ▼                      ▼                    ▼
+     *    ┌─────────────┐  ┌─────────────────────────┐  ┌─────────┐  ┌─────────────────────────┐
+     *    │ [1234,5678] │  │ Image Data Structure    │  │ [9012]  │  │ Image Data Structure    │
+     *    └─────────────┘  └─────────────────────────┘  └─────────┘  └─────────────────────────┘
+     *
+     * 4. Image token structure differences:
+     *
+     *    For Qwen2VL (uses M-RoPE with 2D positions):
+     *    ┌─────────────────────────────────────────┐
+     *    │ IMAGE_CHUNK                             │
+     *    │ ┌───────────────────────────────────┐   │
+     *    │ │ mtmd_image_tokens:                │   │
+     *    │ │  nx = 16, ny = 16                 │   │ ← 2D grid (16×16 = 256 tokens)
+     *    │ │  use_mrope_pos = true             │   │ ← Uses M-RoPE positioning
+     *    │ │  batch_f32 = [image_embeddings]   │   │
+     *    │ └───────────────────────────────────┘   │
+     *    └─────────────────────────────────────────┘
+     *
+     *    For other models (uses 1D positions):
+     *    ┌─────────────────────────────────────────┐
+     *    │ IMAGE_CHUNK                             │
+     *    │ ┌───────────────────────────────────┐   │
+     *    │ │ mtmd_image_tokens:                │   │
+     *    │ │  nx = 256, ny = 1                 │   │ ← 1D sequence (256 tokens)
+     *    │ │  use_mrope_pos = false            │   │ ← Uses standard positioning
+     *    │ │  batch_f32 = [image_embeddings]   │   │
+     *    │ └───────────────────────────────────┘   │
+     *    └─────────────────────────────────────────┘
+     *
+     * 5. Final chunks array:
+     *    chunks[0] = TEXT_CHUNK([1234, 5678])
+     *    chunks[1] = IMAGE_CHUNK(first_image)
+     *    chunks[2] = TEXT_CHUNK([9012])
+     *    chunks[3] = IMAGE_CHUNK(second_image)
+     */
+    LOG_INFO("[DEBUG] Tokenizing text and %zu images", bitmaps.entries.size());
+    auto bitmaps_c_ptr = bitmaps.c_ptr();
+    int32_t res = mtmd_tokenize(mtmd_wrapper->mtmd_ctx, chunks, &input_text, bitmaps_c_ptr.data(), bitmaps_c_ptr.size());
+    if (res != 0) {
+        LOG_ERROR("[DEBUG] Failed to tokenize images and text: %d", res);
+        mtmd_input_chunks_free(chunks);
+        bitmaps.entries.clear();
+        return false;
+    }
+
+    // Log chunk information
+    size_t num_chunks = mtmd_input_chunks_size(chunks);
+    LOG_INFO("[DEBUG] Tokenization successful: num_chunks=%zu", num_chunks);
+
+    // Clear text_tokens before adding new tokens
+    text_tokens.clear();
+
+    // Create a vector to store all tokens (both text and image)
+    std::vector<llama_token> all_tokens;
+
+    // Track the total number of tokens (both text and image)
+    size_t total_token_count = 0;
+
+    /**
+     * Evaluate the chunks.
+     *
+     * For our example "foo bar <__image__> baz <__image__>":
+     *
+     * Token organization in memory:
+     *
+     *    all_tokens: [t0][t1][NULL][NULL]...[NULL][t2][NULL][NULL]...[NULL]
+     *    positions:   0   1    2    3   ...  257   258  259  260 ...  514
+     *    chunk_pos:   0        2                   258  259
+     *
+     *    Where:
+     *    - [t0][t1] are text tokens for "foo bar " (positions 0-1)
+     *    - [NULL]x256 are placeholder tokens for the first image (positions 2-257)
+     *    - [t2] is the text token for " baz " (position 258)
+     *    - [NULL]x256 are placeholder tokens for the second image (positions 259-514)
+     */
+    std::vector<size_t> chunk_pos;
+    for (size_t i = 0; i < num_chunks; i++) {
+        chunk_pos.push_back(total_token_count);
+
+        const mtmd_input_chunk* chunk = mtmd_input_chunks_get(chunks, i);
+        mtmd_input_chunk_type chunk_type = mtmd_input_chunk_get_type(chunk);
+
+        if (chunk_type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+            size_t n_tokens;
+            const llama_token* tokens = mtmd_input_chunk_get_tokens_text(chunk, &n_tokens);
+            LOG_INFO("[DEBUG] Chunk %zu: type=TEXT, n_tokens=%zu", i, n_tokens);
+
+            // Add text tokens
+            text_tokens.insert(text_tokens.end(), tokens, tokens + n_tokens);
+            all_tokens.insert(all_tokens.end(), tokens, tokens + n_tokens);
+            total_token_count += n_tokens;
+        } else if (chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+            const mtmd_image_tokens* img_tokens = mtmd_input_chunk_get_tokens_image(chunk);
+            size_t n_tokens = mtmd_image_tokens_get_n_tokens(img_tokens);
+            size_t n_pos = mtmd_image_tokens_get_n_pos(img_tokens);
+            LOG_INFO("[DEBUG] Chunk %zu: type=IMAGE, n_tokens=%zu, n_pos=%zu",
+                     i, n_tokens, n_pos);
+
+            for (size_t j = 0; j < n_pos; j++) {
+                all_tokens.push_back(LLAMA_TOKEN_NULL); // Placeholder token
+            }
+            total_token_count += n_pos;
+        }
+    }
+
+    // Check if we have enough context space for all tokens
+    if (n_past + all_tokens.size() >= (size_t)n_ctx) {
+        LOG_ERROR("[DEBUG] Not enough context space: n_past=%d, tokens=%zu, n_ctx=%d",
+                 n_past, all_tokens.size(), n_ctx);
+        mtmd_input_chunks_free(chunks);
+        bitmaps.entries.clear();
+        context_full = true;
+        return false;
+    }
+
+    n_past = common_part(embd, all_tokens);
+
+    llama_pos new_n_past = common_part(embd, all_tokens);
+
+    LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, params.n_batch);
+
+    for (size_t i = 0; i < chunk_pos.size(); i++) {
+
+        LOG_INFO("[DEBUG] Evaluating chunk %zu: n_past=%d, chunk_pos=%zu", i, n_past, chunk_pos[i]);
+
+        // Process chunk only if it's after the current n_past
+        if (chunk_pos[i] >= n_past) {
+            bool chunk_logits_last = (i == num_chunks - 1);
+            auto chunk = mtmd_input_chunks_get(chunks, i);
+
+            int32_t res = mtmd_helper_eval_chunk_single(
+              mtmd_wrapper->mtmd_ctx,
+              ctx,
+              chunk,
+              n_past,
+              0,
+              params.n_batch,
+              chunk_logits_last,
+              &new_n_past
+            );
+            if (res != 0) {
+                LOG_ERROR("[DEBUG] Failed to evaluate chunks", "");
+                mtmd_input_chunks_free(chunks);
+                bitmaps.entries.clear();
+                return res;
+            }
+            n_past = new_n_past;
+        }
+    }
+
+    if (n_past == total_token_count) {
+        // we have to evaluate at least 1 token to generate logits.
+        n_past--;
+    }
+
+    // Update embd with all tokens (both text and image)
+    embd = all_tokens;
+
+    // Clear all KV cache entries after position n_past
+    llama_kv_self_seq_rm(ctx, 0, n_past, -1);
+
+    // Update sampling context with text tokens only
+    for (auto & token : all_tokens) {
+        if (token == LLAMA_TOKEN_NULL) {
+            continue;
+        }
+        common_sampler_accept(ctx_sampling, token, false);
+    }
+
+    // Clean up image resources
+    LOG_INFO("[DEBUG] Cleaning up resources");
+    mtmd_input_chunks_free(chunks);
+    bitmaps.entries.clear();
+    return true;
+}
+
+bool llama_rn_context::isMultimodalEnabled() const {
+    return has_multimodal && mtmd_wrapper != nullptr;
+}
+
+void llama_rn_context::releaseMultimodal() {
+    if (mtmd_wrapper && mtmd_wrapper->mtmd_ctx != nullptr) {
+        mtmd_free(mtmd_wrapper->mtmd_ctx);
+        mtmd_wrapper->mtmd_ctx = nullptr;
+        delete mtmd_wrapper;
+        mtmd_wrapper = nullptr;
+        has_multimodal = false;
+    }
 }
 
 }

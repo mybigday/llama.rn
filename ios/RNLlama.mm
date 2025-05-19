@@ -347,6 +347,56 @@ RCT_EXPORT_METHOD(getLoadedLoraAdapters:(double)contextId
     resolve([context getLoadedLoraAdapters]);
 }
 
+RCT_EXPORT_METHOD(initMultimodal:(double)contextId
+                 withParams:(NSDictionary *)params
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+    if ([context isPredicting]) {
+        reject(@"llama_error", @"Context is busy", nil);
+        return;
+    }
+
+    @try {
+        bool success = [context initMultimodal:params];
+        resolve(@(success));
+    } @catch (NSException *exception) {
+        reject(@"llama_cpp_error", exception.reason, nil);
+    }
+}
+
+RCT_EXPORT_METHOD(isMultimodalEnabled:(double)contextId
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    resolve(@([context isMultimodalEnabled]));
+}
+
+RCT_EXPORT_METHOD(releaseMultimodal:(double)contextId
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    [context releaseMultimodal];
+    resolve(nil);
+}
+
 RCT_EXPORT_METHOD(releaseContext:(double)contextId
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)

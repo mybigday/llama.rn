@@ -53,6 +53,21 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
+  public void initMultimodal(double id, final ReadableMap params, final Promise promise) {
+    rnllama.initMultimodal(id, params, promise);
+  }
+
+  @ReactMethod
+  public void isMultimodalEnabled(double id, final Promise promise) {
+    rnllama.isMultimodalEnabled(id, promise);
+  }
+
+  @ReactMethod
+  public void releaseMultimodal(double id, final Promise promise) {
+    rnllama.releaseMultimodal(id, promise);
+  }
+
+  @ReactMethod
   public void getFormattedChat(double id, String messages, String chatTemplate, ReadableMap params, Promise promise) {
     rnllama.getFormattedChat(id, messages, chatTemplate, params, promise);
   }

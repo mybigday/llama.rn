@@ -685,6 +685,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jint dry_penalty_last_n,
     jfloat top_n_sigma,
     jobjectArray dry_sequence_breakers,
+    jobjectArray image_paths,
     jobject partial_completion_callback
 ) {
     UNUSED(thiz);
@@ -694,8 +695,32 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     //llama_reset_timings(llama->ctx);
 
-    auto prompt_chars = env->GetStringUTFChars(prompt, nullptr);
+    const char *prompt_chars = env->GetStringUTFChars(prompt, nullptr);
+
+    // Set the prompt parameter
     llama->params.prompt = prompt_chars;
+
+    // Process image paths if provided
+    std::vector<std::string> image_paths_vector;
+
+    jint image_paths_size = env->GetArrayLength(image_paths);
+    if (image_paths_size > 0) {
+        // Check if multimodal is enabled
+        if (!llama->isMultimodalEnabled()) {
+            auto result = createWriteableMap(env);
+            putString(env, result, "error", "Multimodal support not enabled. Call initMultimodal first.");
+            env->ReleaseStringUTFChars(prompt, prompt_chars);
+            return reinterpret_cast<jobject>(result);
+        }
+
+        for (jint i = 0; i < image_paths_size; i++) {
+            jstring image_path = (jstring) env->GetObjectArrayElement(image_paths, i);
+            const char *image_path_chars = env->GetStringUTFChars(image_path, nullptr);
+            image_paths_vector.push_back(image_path_chars);
+            env->ReleaseStringUTFChars(image_path, image_path_chars);
+        }
+    }
+
     llama->params.sampling.seed = (seed == -1) ? time(NULL) : seed;
 
     int max_threads = std::thread::hardware_concurrency();
@@ -853,7 +878,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
         return reinterpret_cast<jobject>(result);
     }
     llama->beginCompletion();
-    llama->loadPrompt();
+    llama->loadPrompt(image_paths_vector);
 
     if (llama->context_full) {
         auto result = createWriteableMap(env);
@@ -922,7 +947,12 @@ Java_com_rnllama_LlamaContext_doCompletion(
     }
 
     env->ReleaseStringUTFChars(grammar, grammar_chars);
-    env->ReleaseStringUTFChars(prompt, prompt_chars);
+
+    // Release prompt_chars if it's still allocated
+    if (prompt_chars != nullptr) {
+        env->ReleaseStringUTFChars(prompt, prompt_chars);
+    }
+
     llama_perf_context_print(llama->ctx);
     llama->is_predicting = false;
 
@@ -1098,7 +1128,7 @@ Java_com_rnllama_LlamaContext_embedding(
     }
 
     llama->beginCompletion();
-    llama->loadPrompt();
+    llama->loadPrompt({});
     llama->doCompletion();
 
     std::vector<float> embedding = llama->getEmbedding(embdParams);
@@ -1265,6 +1295,48 @@ Java_com_rnllama_LlamaContext_unsetLog(JNIEnv *env, jobject thiz) {
     UNUSED(env);
     UNUSED(thiz);
     llama_log_set(rnllama_log_callback_default, NULL);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_rnllama_LlamaContext_initMultimodal(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring mmproj_path,
+    jboolean mmproj_use_gpu
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *mmproj_path_chars = env->GetStringUTFChars(mmproj_path, nullptr);
+    bool result = llama->initMultimodal(mmproj_path_chars, mmproj_use_gpu);
+    env->ReleaseStringUTFChars(mmproj_path, mmproj_path_chars);
+
+    return result;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_rnllama_LlamaContext_isMultimodalEnabled(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    return llama->isMultimodalEnabled();
+}
+
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_releaseMultimodal(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    llama->releaseMultimodal();
 }
 
 } // extern "C"
