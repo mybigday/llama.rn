@@ -13,15 +13,6 @@ function cp_headers() {
   mkdir -p ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/minja
   cp ../cpp/minja/*.hpp ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/minja/
   sed -i '' 's/<json.hpp>/"..\/json.hpp"/g' ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/minja/*.hpp
-
-  mkdir -p ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/tools/mtmd
-  cp ../cpp/tools/mtmd/*.h ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/tools/mtmd/
-  cp ../cpp/tools/mtmd/*.hpp ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/tools/mtmd/ 2>/dev/null || true
-
-  # Fix include paths in mtmd.h and other mtmd headers
-  sed -i '' 's/#include "ggml.h"/#include "..\/..\/ggml.h"/g' ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/tools/mtmd/mtmd.h
-  sed -i '' 's/#include "llama.h"/#include "..\/..\/llama.h"/g' ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/tools/mtmd/mtmd.h
-  sed -i '' 's/#include "ggml.h"/#include "..\/..\/ggml.h"/g' ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/tools/mtmd/clip.h
 }
 
 function build_framework() {

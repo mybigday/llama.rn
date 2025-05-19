@@ -1,5 +1,9 @@
 #include "rn-llama.h"
 
+// Include multimodal support
+#include "tools/mtmd/mtmd.h"
+#include "tools/mtmd/clip.h"
+
 namespace rnllama {
 
 // Computes FNV-1a hash of the data
@@ -76,7 +80,7 @@ static std::vector<uint8_t> base64_decode(const std::string &encoded_string) {
     return decoded;
 }
 
-const std::vector<lm_ggml_type> kv_cache_types = {
+static const std::vector<lm_ggml_type> kv_cache_types = {
     LM_GGML_TYPE_F32,
     LM_GGML_TYPE_F16,
     LM_GGML_TYPE_BF16,
@@ -222,6 +226,10 @@ std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::co
     }
     return ret;
 }
+
+struct llama_rn_context_mtmd {
+  mtmd_context *mtmd_ctx = nullptr;
+};
 
 llama_rn_context::~llama_rn_context() {
     if (ctx_sampling != nullptr) {
@@ -834,11 +842,13 @@ bool llama_rn_context::initMultimodal(const std::string &mmproj_path, bool use_g
 
     LOG_INFO("[DEBUG] Initializing mtmd context with threads=%d", mtmd_params.n_threads);
 
-    mtmd_ctx = mtmd_init_from_file(mmproj_path.c_str(), model, mtmd_params);
+    auto mtmd_ctx = mtmd_init_from_file(mmproj_path.c_str(), model, mtmd_params);
     if (mtmd_ctx == nullptr) {
         LOG_ERROR("[DEBUG] Failed to initialize multimodal context with mmproj: %s", mmproj_path.c_str());
         return false;
     }
+    mtmd_wrapper = new llama_rn_context_mtmd();
+    mtmd_wrapper->mtmd_ctx = mtmd_ctx;
 
     has_multimodal = true;
 
@@ -1050,7 +1060,7 @@ bool llama_rn_context::processImage(
      */
     LOG_INFO("[DEBUG] Tokenizing text and %zu images", bitmaps.entries.size());
     auto bitmaps_c_ptr = bitmaps.c_ptr();
-    int32_t res = mtmd_tokenize(mtmd_ctx, chunks, &input_text, bitmaps_c_ptr.data(), bitmaps_c_ptr.size());
+    int32_t res = mtmd_tokenize(mtmd_wrapper->mtmd_ctx, chunks, &input_text, bitmaps_c_ptr.data(), bitmaps_c_ptr.size());
     if (res != 0) {
         LOG_ERROR("[DEBUG] Failed to tokenize images and text: %d", res);
         mtmd_input_chunks_free(chunks);
@@ -1144,7 +1154,7 @@ bool llama_rn_context::processImage(
             auto chunk = mtmd_input_chunks_get(chunks, i);
 
             int32_t res = mtmd_helper_eval_chunk_single(
-              mtmd_ctx,
+              mtmd_wrapper->mtmd_ctx,
               ctx,
               chunk,
               n_past,
@@ -1190,13 +1200,15 @@ bool llama_rn_context::processImage(
 }
 
 bool llama_rn_context::isMultimodalEnabled() const {
-    return has_multimodal && mtmd_ctx != nullptr;
+    return has_multimodal && mtmd_wrapper != nullptr;
 }
 
 void llama_rn_context::releaseMultimodal() {
-    if (mtmd_ctx != nullptr) {
-        mtmd_free(mtmd_ctx);
-        mtmd_ctx = nullptr;
+    if (mtmd_wrapper && mtmd_wrapper->mtmd_ctx != nullptr) {
+        mtmd_free(mtmd_wrapper->mtmd_ctx);
+        mtmd_wrapper->mtmd_ctx = nullptr;
+        delete mtmd_wrapper;
+        mtmd_wrapper = nullptr;
         has_multimodal = false;
     }
 }

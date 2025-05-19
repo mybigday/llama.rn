@@ -10,9 +10,6 @@
 #include "llama.h"
 #include "llama-impl.h"
 #include "sampling.h"
-// Include multimodal support
-#include "tools/mtmd/mtmd.h"
-#include "tools/mtmd/clip.h"
 #if defined(__ANDROID__)
 #include <android/log.h>
 #endif
@@ -43,6 +40,8 @@ struct completion_token_output
     std::vector<token_prob> probs;
     llama_token tok;
 };
+
+struct llama_rn_context_mtmd;
 
 // Main context class
 struct llama_rn_context {
@@ -81,8 +80,7 @@ struct llama_rn_context {
 
     std::vector<common_adapter_lora_info> lora;
 
-    // Multimodal support
-    mtmd_context *mtmd_ctx = nullptr;
+    llama_rn_context_mtmd *mtmd_wrapper = nullptr;
     bool has_multimodal = false;
 
     ~llama_rn_context();
