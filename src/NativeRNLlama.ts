@@ -342,9 +342,14 @@ export type NativeSessionLoadResult = {
   prompt: string
 }
 
+export type NativeLlamaMessagePart = {
+  type: 'text'
+  text: string
+}
+
 export type NativeLlamaChatMessage = {
   role: string
-  content: string
+  content: string | Array<NativeLlamaMessagePart>
 }
 
 export type FormattedChatResult = {

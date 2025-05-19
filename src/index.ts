@@ -16,14 +16,26 @@ import type {
   JinjaFormattedChatResult,
   FormattedChatResult,
   NativeImageProcessingResult,
+  NativeLlamaChatMessage,
 } from './NativeRNLlama'
 import type {
   SchemaGrammarConverterPropOrder,
   SchemaGrammarConverterBuiltinRule,
 } from './grammar'
 import { SchemaGrammarConverter, convertJsonSchemaToGrammar } from './grammar'
-import type { RNLlamaMessagePart, RNLlamaOAICompatibleMessage } from './chat'
-import { formatChat } from './chat'
+
+export type RNLlamaMessagePart = {
+  type: string,
+  text?: string,
+  image_url?: {
+    url?: string
+  }
+}
+
+export type RNLlamaOAICompatibleMessage = {
+  role: string
+  content?: string | RNLlamaMessagePart[]
+}
 
 export type {
   NativeContextParams,
@@ -37,8 +49,6 @@ export type {
   NativeEmbeddingParams,
   NativeCompletionTokenProbItem,
   NativeCompletionResultTimings,
-  RNLlamaMessagePart,
-  RNLlamaOAICompatibleMessage,
   FormattedChatResult,
   JinjaFormattedChatResult,
   NativeImageProcessingResult,
@@ -217,22 +227,21 @@ export class LlamaContext {
     },
   ): Promise<FormattedChatResult | JinjaFormattedChatResult> {
     const imagePaths: string[] = []
-    const processedMessages = messages.map((msg) => {
+    const chat = messages.map((msg) => {
       if (Array.isArray(msg.content)) {
-        const content = msg.content
-          .map((part) => {
-            // Handle multimodal content
-            if (part.type === 'image_url') {
-              let path = part.image_url?.url
-              if (path?.startsWith('file://')) path = path.slice(7)
-              imagePaths.push(path)
-              return {
-                type: 'text',
-                text: '<__image__>',
-              }
+        const content = msg.content.map((part) => {
+          // Handle multimodal content
+          if (part.type === 'image_url') {
+            let path = part.image_url?.url || ''
+            if (path?.startsWith('file://')) path = path.slice(7)
+            imagePaths.push(path)
+            return {
+              type: 'text',
+              text: '<__image__>',
             }
-            return part
-          })
+          }
+          return part
+        })
 
         return {
           ...msg,
@@ -240,9 +249,8 @@ export class LlamaContext {
         }
       }
       return msg
-    })
+    }) as NativeLlamaChatMessage[]
 
-    const chat = formatChat(processedMessages)
     const useJinja = this.isJinjaSupported() && params?.jinja
     let tmpl = this.isLlamaChatSupported() || useJinja ? undefined : 'chatml'
     if (template) tmpl = template // Force replace if provided
@@ -314,8 +322,7 @@ export class LlamaContext {
         nativeParams.prompt = jinjaResult.prompt || ''
         if (typeof jinjaResult.chat_format === 'number')
           nativeParams.chat_format = jinjaResult.chat_format
-        if (jinjaResult.grammar)
-          nativeParams.grammar = jinjaResult.grammar
+        if (jinjaResult.grammar) nativeParams.grammar = jinjaResult.grammar
         if (typeof jinjaResult.grammar_lazy === 'boolean')
           nativeParams.grammar_lazy = jinjaResult.grammar_lazy
         if (jinjaResult.grammar_triggers)
@@ -442,9 +449,13 @@ export class LlamaContext {
    * @param params.use_gpu Whether to use GPU
    * @returns Promise resolving to true if initialization was successful
    */
-  async initMultimodal(
-    { path, use_gpu: useGpu }: { path: string; use_gpu?: boolean },
-  ): Promise<boolean> {
+  async initMultimodal({
+    path,
+    use_gpu: useGpu,
+  }: {
+    path: string
+    use_gpu?: boolean
+  }): Promise<boolean> {
     if (path.startsWith('file://')) path = path.slice(7)
     return RNLlama.initMultimodal(this.id, {
       path,
