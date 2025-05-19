@@ -398,6 +398,10 @@ public class LlamaContext {
     return isMultimodalEnabled(this.context);
   }
 
+  public void releaseMultimodal() {
+    releaseMultimodal(this.context);
+  }
+
   public void release() {
     freeContext(context);
   }
@@ -601,4 +605,5 @@ public class LlamaContext {
   protected static native void freeContext(long contextPtr);
   protected static native void setupLog(NativeLogCallback logCallback);
   protected static native void unsetLog();
+  protected static native void releaseMultimodal(long contextPtr);
 }

@@ -1327,4 +1327,16 @@ Java_com_rnllama_LlamaContext_isMultimodalEnabled(
     return llama->isMultimodalEnabled();
 }
 
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_releaseMultimodal(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    llama->releaseMultimodal();
+}
+
 } // extern "C"

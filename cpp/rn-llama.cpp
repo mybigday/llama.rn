@@ -228,11 +228,7 @@ llama_rn_context::~llama_rn_context() {
         common_sampler_free(ctx_sampling);
     }
 
-    if (mtmd_ctx != nullptr) {
-        mtmd_free(mtmd_ctx);
-        mtmd_ctx = nullptr;
-        has_multimodal = false;
-    }
+    releaseMultimodal();
 }
 
 void llama_rn_context::rewind() {
@@ -368,7 +364,7 @@ void llama_rn_context::truncatePrompt(std::vector<llama_token> &prompt_tokens) {
 }
 
 void llama_rn_context::loadPrompt(const std::vector<std::string> &image_paths) {
-    bool has_images = !image_paths.empty() && has_multimodal && mtmd_ctx != nullptr;
+    bool has_images = !image_paths.empty() && isMultimodalEnabled();
 
     LOG_INFO("[DEBUG] loadPrompt: has_images=%d, prompt='%s', image_paths_count=%zu",
              has_images ? 1 : 0, params.prompt.c_str(), image_paths.size());
@@ -870,7 +866,7 @@ bool llama_rn_context::processImage(
     const std::string &prompt,
     std::vector<llama_token> &text_tokens
 ) {
-    if (!has_multimodal || mtmd_ctx == nullptr) {
+    if (!isMultimodalEnabled()) {
         LOG_ERROR("[DEBUG] Multimodal context not initialized", "");
         return false;
     }
@@ -1195,6 +1191,14 @@ bool llama_rn_context::processImage(
 
 bool llama_rn_context::isMultimodalEnabled() const {
     return has_multimodal && mtmd_ctx != nullptr;
+}
+
+void llama_rn_context::releaseMultimodal() {
+    if (mtmd_ctx != nullptr) {
+        mtmd_free(mtmd_ctx);
+        mtmd_ctx = nullptr;
+        has_multimodal = false;
+    }
 }
 
 }

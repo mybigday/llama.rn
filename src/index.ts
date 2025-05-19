@@ -456,7 +456,15 @@ export class LlamaContext {
    * @returns Promise resolving to true if multimodal is enabled
    */
   async isMultimodalEnabled(): Promise<boolean> {
-    return RNLlama.isMultimodalEnabled(this.id)
+    return await RNLlama.isMultimodalEnabled(this.id)
+  }
+
+  /**
+   * Release multimodal support
+   * @returns Promise resolving to void
+   */
+  async releaseMultimodal(): Promise<void> {
+    return await RNLlama.releaseMultimodal(this.id)
   }
 
   async release(): Promise<void> {

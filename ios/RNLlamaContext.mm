@@ -342,6 +342,10 @@
     return llama->isMultimodalEnabled();
 }
 
+- (void)releaseMultimodal {
+    llama->releaseMultimodal();
+}
+
 - (NSDictionary *)getFormattedChatWithJinja:(NSString *)messages
     withChatTemplate:(NSString *)chatTemplate
     withJsonSchema:(NSString *)jsonSchema

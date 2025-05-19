@@ -117,6 +117,8 @@ struct llama_rn_context {
 
     // Multimodal methods
     bool initMultimodal(const std::string &mmproj_path, bool use_gpu);
+    bool isMultimodalEnabled() const;
+    void releaseMultimodal();
 
     // Process multiple images and add them to the context
     bool processImage(
@@ -125,8 +127,7 @@ struct llama_rn_context {
         std::vector<llama_token> &text_tokens
     );
 
-    bool isMultimodalEnabled() const;
-};\
+};
 
 // Logging macros
 extern bool rnllama_verbose;

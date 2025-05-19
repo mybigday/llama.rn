@@ -126,6 +126,19 @@ export default function App() {
       })
   }
 
+  const handleReleaseMultimodal = async () => {
+    if (!context) return
+    addSystemMessage('Releasing multimodal context...')
+    context
+      .releaseMultimodal()
+      .then(() => {
+        addSystemMessage('Multimodal context released!')
+      })
+      .catch((err) => {
+        addSystemMessage(`Multimodal context release failed: ${err}`)
+      })
+  }
+
   // Example: Get model info without initializing context
   const getModelInfo = async (model: string) => {
     const t0 = Date.now()
@@ -238,6 +251,7 @@ export default function App() {
         // This ensures the command is available even if there's a delay in setting multimodalEnabled
         if (isMultimodalEnabled) {
           commands.push(
+            '- /release-mtmd: release the multimodal context',
             '- /image <content>: pick an image and start a conversation',
           )
         }
@@ -397,6 +411,9 @@ export default function App() {
         return
       case '/release':
         await handleReleaseContext()
+        return
+      case '/release-mtmd':
+        await handleReleaseMultimodal()
         return
       case '/stop':
         if (inferencing) context.stopCompletion()

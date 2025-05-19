@@ -446,6 +446,10 @@ export interface Spec extends TurboModule {
     contextId: number,
   ): Promise<boolean>
 
+  releaseMultimodal(
+    contextId: number,
+  ): Promise<void>
+
   releaseContext(contextId: number): Promise<void>
 
   releaseAllContexts(): Promise<void>
