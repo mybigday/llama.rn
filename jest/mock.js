@@ -38,12 +38,18 @@ if (!NativeModules.RNLlama) {
       }),
     ),
 
-    getFormattedChat: jest.fn(async (messages, chatTemplate, options) => {
-      if (options.jinja) {
-        return { prompt: '', chat_format: 0 }
-      }
-      return ''
-    }),
+    getFormattedChat: jest.fn(
+      async (contextId, messagesStr, chatTemplate, options) => {
+        const messages = JSON.parse(messagesStr)
+        const fullPrompt = (messages || [])
+          .map((m) => `${m.role}: ${JSON.stringify(m.content)}`)
+          .join('\n')
+        if (options.jinja) {
+          return { type: 'jinja', prompt: fullPrompt, chat_format: 0 }
+        }
+        return { type: 'llama-chat', prompt: fullPrompt }
+      },
+    ),
 
     completion: jest.fn(async (contextId, jobId) => {
       const testResult = {
