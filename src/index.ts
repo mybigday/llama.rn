@@ -448,7 +448,7 @@ export class LlamaContext {
     if (path.startsWith('file://')) path = path.slice(7)
     return RNLlama.initMultimodal(this.id, {
       path,
-      use_gpu: useGpu || true,
+      use_gpu: useGpu ?? true,
     })
   }
 
