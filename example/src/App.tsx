@@ -143,6 +143,19 @@ export default function App() {
     console.log(`Model info (took ${Date.now() - t0}ms): `, info)
   }
 
+  const handleInitMultimodal = async (file: DocumentPickerResponse) => {
+    if (!context) return
+    addSystemMessage('Initializing multimodal support...')
+    const success = await context.initMultimodal({
+      path: file.uri,
+      use_gpu: true,
+    })
+    if (success) {
+      addSystemMessage('Multimodal support initialized successfully!')
+    } else {
+      addSystemMessage('Failed to initialize multimodal support.')
+    }
+  }
   const handleInitContext = async (
     file: DocumentPickerResponse,
     loraFile: DocumentPickerResponse | null,
@@ -192,16 +205,7 @@ export default function App() {
         let isMultimodalEnabled = false
         // Initialize multimodal support if mmproj file was provided
         if (mmProjFile) {
-          addSystemMessage('Initializing multimodal support...')
-          const success = await ctx.initMultimodal({
-            path: mmProjFile.uri,
-            use_gpu: true,
-          })
-          if (success) {
-            addSystemMessage('Multimodal support initialized successfully!')
-          } else {
-            addSystemMessage('Failed to initialize multimodal support.')
-          }
+          await handleInitMultimodal(mmProjFile)
           isMultimodalEnabled = await ctx.isMultimodalEnabled()
         }
 
@@ -214,11 +218,15 @@ export default function App() {
           '- /reset: reset the conversation',
           '- /save-session: save the session tokens',
           '- /load-session: load the session tokens',
+          '- /lora: apply a lora adapter',
+          '- /remove-lora: remove all lora adapters',
+          '- /lora-list: list all lora adapters',
         ]
 
         // Include the image commands if mmproj file was provided
         if (isMultimodalEnabled) {
           commands.push(
+            '- /mtmd: pick mmproj file and initialize multimodal support',
             '- /release-mtmd: release the multimodal context',
             '- /image <content>: pick an image and start a conversation',
           )
@@ -382,6 +390,14 @@ export default function App() {
         return
       case '/release-mtmd':
         await handleReleaseMultimodal()
+        return
+      case '/mtmd':
+        const mmProjFile = await pickMmproj()
+        if (mmProjFile) {
+          await handleInitMultimodal(mmProjFile)
+        } else {
+          addSystemMessage('No mmproj file selected.')
+        }
         return
       case '/stop':
         if (inferencing) context.stopCompletion()
