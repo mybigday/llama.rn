@@ -1152,6 +1152,10 @@ bool llama_rn_context::processImage(
     // Compare bitmap hashes, if they are not the same, backtrack n_past to the position of the first mismatch
     if (mtmd_bitmap_past_hashes.size() > 0) {
         for (size_t i = 0; i < bitmap_hashes.size(); i++) {
+            auto pos = chunk_pos_images[i];
+            if (n_past < pos) {
+                break;
+            }
             if (i >= mtmd_bitmap_past_hashes.size()) {
                 break;
             }
@@ -1162,13 +1166,13 @@ bool llama_rn_context::processImage(
                 );
                 n_past = chunk_pos_images[i];
                 new_n_past = n_past;
-
-                // Clear all KV cache entries after position n_past
-                llama_kv_self_seq_rm(ctx, 0, n_past, -1);
                 break;
             }
         }
     }
+
+    // Clear all KV cache entries after position n_past
+    llama_kv_self_seq_rm(ctx, 0, n_past, -1);
 
     LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, params.n_batch);
 
@@ -1201,7 +1205,7 @@ bool llama_rn_context::processImage(
         }
     }
 
-    if (n_past == total_token_count) {
+    if (n_past == total_token_count && n_past > 0 && all_tokens[n_past - 1] != LLAMA_TOKEN_NULL) {
         // we have to evaluate at least 1 token to generate logits.
         n_past--;
     }
@@ -1210,9 +1214,6 @@ bool llama_rn_context::processImage(
     embd = all_tokens;
 
     mtmd_bitmap_past_hashes = bitmap_hashes;
-
-    // Clear all KV cache entries after position n_past
-    llama_kv_self_seq_rm(ctx, 0, n_past, -1);
 
     // Update sampling context with text tokens only
     for (auto & token : all_tokens) {
