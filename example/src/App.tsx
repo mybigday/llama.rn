@@ -143,10 +143,10 @@ export default function App() {
     console.log(`Model info (took ${Date.now() - t0}ms): `, info)
   }
 
-  const handleInitMultimodal = async (file: DocumentPickerResponse) => {
-    if (!context) return
+  const handleInitMultimodal = async (ctx: LlamaContext, file: DocumentPickerResponse) => {
+    if (!ctx) return
     addSystemMessage('Initializing multimodal support...')
-    const success = await context.initMultimodal({
+    const success = await ctx.initMultimodal({
       path: file.uri,
       use_gpu: true,
     })
@@ -205,7 +205,7 @@ export default function App() {
         let isMultimodalEnabled = false
         // Initialize multimodal support if mmproj file was provided
         if (mmProjFile) {
-          await handleInitMultimodal(mmProjFile)
+          await handleInitMultimodal(ctx, mmProjFile)
           isMultimodalEnabled = await ctx.isMultimodalEnabled()
         }
 
@@ -394,7 +394,7 @@ export default function App() {
       case '/mtmd':
         const mmProjFile = await pickMmproj()
         if (mmProjFile) {
-          await handleInitMultimodal(mmProjFile)
+          await handleInitMultimodal(context, mmProjFile)
         } else {
           addSystemMessage('No mmproj file selected.')
         }
