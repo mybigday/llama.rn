@@ -895,6 +895,8 @@ bool llama_rn_context::processImage(
     // Prepare bitmaps array for all images
     mtmd::bitmaps bitmaps;
 
+    std::vector<std::string> bitmap_hashes;
+
     // Load all images
     for (const auto& image_path : image_paths) {
         LOG_INFO("[DEBUG] Loading image: %s",
@@ -941,6 +943,7 @@ bool llama_rn_context::processImage(
                 bmp.set_id(hash.c_str());
                 LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
                 bitmaps.entries.push_back(std::move(bmp));
+                bitmap_hashes.push_back(hash.c_str());
             } catch (const std::exception& e) {
                 LOG_ERROR("[DEBUG] Failed to decode base64 image: %s", e.what());
                 bitmaps.entries.clear();
@@ -985,6 +988,7 @@ bool llama_rn_context::processImage(
             bmp.set_id(hash.c_str());
             LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
             bitmaps.entries.push_back(std::move(bmp));
+            bitmap_hashes.push_back(hash.c_str());
         }
     }
 
@@ -1099,6 +1103,7 @@ bool llama_rn_context::processImage(
      *    - [NULL]x256 are placeholder tokens for the second image (positions 259-514)
      */
     std::vector<size_t> chunk_pos;
+    std::vector<size_t> chunk_pos_images;
     for (size_t i = 0; i < num_chunks; i++) {
         chunk_pos.push_back(total_token_count);
 
@@ -1115,6 +1120,8 @@ bool llama_rn_context::processImage(
             all_tokens.insert(all_tokens.end(), tokens, tokens + n_tokens);
             total_token_count += n_tokens;
         } else if (chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+            chunk_pos_images.push_back(total_token_count);
+
             const mtmd_image_tokens* img_tokens = mtmd_input_chunk_get_tokens_image(chunk);
             size_t n_tokens = mtmd_image_tokens_get_n_tokens(img_tokens);
             size_t n_pos = mtmd_image_tokens_get_n_pos(img_tokens);
@@ -1140,7 +1147,28 @@ bool llama_rn_context::processImage(
 
     n_past = common_part(embd, all_tokens);
 
-    llama_pos new_n_past = common_part(embd, all_tokens);
+    llama_pos new_n_past = n_past;
+
+    // Compare bitmap hashes, if they are not the same, backtrack n_past to the position of the first mismatch
+    if (mtmd_bitmap_past_hashes.size() > 0) {
+        for (size_t i = 0; i < bitmap_hashes.size(); i++) {
+            if (i >= mtmd_bitmap_past_hashes.size()) {
+                break;
+            }
+            if (bitmap_hashes[i] != mtmd_bitmap_past_hashes[i]) {
+                LOG_INFO(
+                    "[DEBUG] Bitmap hash mismatch at position %zu, %s != %s",
+                    i, bitmap_hashes[i].c_str(), mtmd_bitmap_past_hashes[i].c_str()
+                );
+                n_past = chunk_pos_images[i];
+                new_n_past = n_past;
+
+                // Clear all KV cache entries after position n_past
+                llama_kv_self_seq_rm(ctx, 0, n_past, -1);
+                break;
+            }
+        }
+    }
 
     LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, params.n_batch);
 
@@ -1154,14 +1182,14 @@ bool llama_rn_context::processImage(
             auto chunk = mtmd_input_chunks_get(chunks, i);
 
             int32_t res = mtmd_helper_eval_chunk_single(
-              mtmd_wrapper->mtmd_ctx,
-              ctx,
-              chunk,
-              n_past,
-              0,
-              params.n_batch,
-              chunk_logits_last,
-              &new_n_past
+                mtmd_wrapper->mtmd_ctx,
+                ctx,
+                chunk,
+                n_past,
+                0,
+                params.n_batch,
+                true,
+                &new_n_past
             );
             if (res != 0) {
                 LOG_ERROR("[DEBUG] Failed to evaluate chunks", "");
@@ -1180,6 +1208,8 @@ bool llama_rn_context::processImage(
 
     // Update embd with all tokens (both text and image)
     embd = all_tokens;
+
+    mtmd_bitmap_past_hashes = bitmap_hashes;
 
     // Clear all KV cache entries after position n_past
     llama_kv_self_seq_rm(ctx, 0, n_past, -1);

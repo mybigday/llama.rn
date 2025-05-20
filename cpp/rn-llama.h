@@ -55,6 +55,7 @@ struct llama_rn_context {
     size_t num_tokens_predicted = 0;
     llama_pos n_past = 0;
     size_t n_remain = 0;
+    std::vector<std::string> mtmd_bitmap_past_hashes;
 
     std::vector<llama_token> embd;
     common_params params;
