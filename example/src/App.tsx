@@ -85,9 +85,6 @@ export default function App() {
   const [inferencing, setInferencing] = useState<boolean>(false)
   const [messages, setMessages] = useState<MessageType.Any[]>([])
 
-  // Multimodal state
-  const [multimodalEnabled, setMultimodalEnabled] = useState<boolean>(false)
-
   const conversationIdRef = useRef<string>(defaultConversationId)
 
   const addMessage = (message: MessageType.Any, batching = false) => {
@@ -192,46 +189,20 @@ export default function App() {
         const t1 = Date.now()
         setContext(ctx)
 
+        let isMultimodalEnabled = false
         // Initialize multimodal support if mmproj file was provided
         if (mmProjFile) {
-          try {
-            addSystemMessage('Checking multimodal support status...')
-            const isEnabled = await ctx.isMultimodalEnabled()
-            if (!isEnabled) {
-              addSystemMessage('Initializing multimodal support...')
-              const success = await ctx.initMultimodal({
-                path: mmProjFile.uri,
-                use_gpu: true,
-              })
-              setMultimodalEnabled(success)
-              if (success) {
-                addSystemMessage('Multimodal support initialized successfully!')
-              } else {
-                addSystemMessage('Failed to initialize multimodal support.')
-              }
-            } else {
-              setMultimodalEnabled(true)
-              addSystemMessage('Multimodal support already enabled.')
-            }
-          } catch (error) {
-            addSystemMessage(
-              `Error initializing multimodal support: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            )
+          addSystemMessage('Initializing multimodal support...')
+          const success = await ctx.initMultimodal({
+            path: mmProjFile.uri,
+            use_gpu: true,
+          })
+          if (success) {
+            addSystemMessage('Multimodal support initialized successfully!')
+          } else {
+            addSystemMessage('Failed to initialize multimodal support.')
           }
-        } else {
-          // Even if no mmproj file was explicitly provided, check if multimodal is already enabled
-          try {
-            const isEnabled = await ctx.isMultimodalEnabled()
-            if (isEnabled) {
-              setMultimodalEnabled(true)
-              addSystemMessage('Multimodal support detected and enabled.')
-            }
-          } catch (error) {
-            // Silently ignore errors when checking multimodal status
-            console.log('Error checking multimodal status:', error)
-          }
+          isMultimodalEnabled = await ctx.isMultimodalEnabled()
         }
 
         // Create commands list including multimodal commands if enabled
@@ -245,10 +216,7 @@ export default function App() {
           '- /load-session: load the session tokens',
         ]
 
-        const isMultimodalEnabled = await ctx.isMultimodalEnabled()
-
-        // Always include the image command if mmproj file was provided
-        // This ensures the command is available even if there's a delay in setting multimodalEnabled
+        // Include the image commands if mmproj file was provided
         if (isMultimodalEnabled) {
           commands.push(
             '- /release-mtmd: release the multimodal context',
@@ -480,30 +448,8 @@ export default function App() {
     if (message.text.startsWith('/image ')) {
       textContent = message.text.slice(7)
 
-      // Check if multimodal is enabled or if we're in the process of initializing it
-      if (multimodalEnabled) {
-        // Check if multimodal can be enabled
-        try {
-          const isEnabled = await context.isMultimodalEnabled()
-          if (isEnabled) {
-            // Update state if multimodal is actually enabled but state hasn't caught up
-            setMultimodalEnabled(true)
-            addSystemMessage('Multimodal support is already enabled.')
-          } else {
-            addSystemMessage(
-              'Multimodal support is not enabled. Please initialize a model with a mmproj file.',
-            )
-            return
-          }
-        } catch (error) {
-          addSystemMessage(
-            `Error checking multimodal status: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          )
-          return
-        }
-      } else {
+      // Check if multimodal can be enabled
+      if (!await context.isMultimodalEnabled()) {
         addSystemMessage(
           'Multimodal support is not enabled. Please initialize a model with a mmproj file.',
         )
@@ -553,7 +499,7 @@ export default function App() {
           return mimeTypes[extension] || 'image/jpeg'; // Default to jpeg if unknown
         };
 
-        // fs: read image path as base64
+        // Read image path as base64
         const imageBase64 =
           imageRes[0].uri &&
           (await ReactNativeBlobUtil.fs
