@@ -591,6 +591,12 @@ Java_com_rnllama_LlamaContext_loadSession(
     llama->embd.resize(n_token_count_out);
     env->ReleaseStringUTFChars(path, path_chars);
 
+    // Find LLAMA_TOKEN_NULL in the tokens and resize the array to the index of the null token
+    auto null_token_iter = std::find(llama->embd.begin(), llama->embd.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != llama->embd.end()) {
+        llama->embd.resize(std::distance(llama->embd.begin(), null_token_iter));
+    }
+
     const std::string text = rnllama::tokens_to_str(llama->ctx, llama->embd.cbegin(), llama->embd.cend());
     putInt(env, result, "tokens_loaded", n_token_count_out);
     putString(env, result, "prompt", text.c_str());
@@ -611,6 +617,13 @@ Java_com_rnllama_LlamaContext_saveSession(
     const char *path_chars = env->GetStringUTFChars(path, nullptr);
 
     std::vector<llama_token> session_tokens = llama->embd;
+
+    // Find LLAMA_TOKEN_NULL in the tokens and resize the array to the index of the null token
+    auto null_token_iter = std::find(session_tokens.begin(), session_tokens.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != session_tokens.end()) {
+        session_tokens.resize(std::distance(session_tokens.begin(), null_token_iter));
+    }
+
     int default_size = session_tokens.size();
     int save_size = size > 0 && size <= default_size ? size : default_size;
     if (!llama_state_save_file(llama->ctx, path_chars, session_tokens.data(), save_size)) {
