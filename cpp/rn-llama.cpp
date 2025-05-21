@@ -1149,6 +1149,30 @@ bool llama_rn_context::processImage(
 
     llama_pos new_n_past = n_past;
 
+    // Adjust n_past to position of the text chunk
+    // TODO: Edit the text chunk to remove the tokens before n_past to speed up
+    // need to update the mtmd api
+    auto adjusted_n_past = -1;
+    for (size_t i = 0; i < chunk_pos.size(); i++) {
+        if (n_past < chunk_pos[i]) {
+            break;
+        }
+        bool is_end = i + 1 == chunk_pos.size();
+        if (
+            chunk_pos[i] < n_past &&
+            (!is_end && chunk_pos[i + 1] > n_past)
+            // is_end & n_past < total_token_count:
+            // don't need to adjust and it will skip eval_chunk_single, let nextToken() to finish the job
+        ) {
+            adjusted_n_past = chunk_pos[i];
+        }
+    }
+    if (adjusted_n_past != -1) {
+        n_past = adjusted_n_past;
+        new_n_past = n_past;
+        LOG_INFO("[DEBUG] Adjusted n_past to %d", n_past);
+    }
+
     // Compare bitmap hashes, if they are not the same, backtrack n_past to the position of the first mismatch
     if (mtmd_bitmap_past_hashes.size() > 0) {
         for (size_t i = 0; i < bitmap_hashes.size(); i++) {

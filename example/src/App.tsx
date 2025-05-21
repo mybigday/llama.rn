@@ -583,12 +583,12 @@ export default function App() {
               content: msg.metadata?.hasImage
                 ? [
                     {
-                      type: 'image_url',
-                      image_url: { url: msg.metadata?.imagePath },
-                    },
-                    {
                       type: 'text',
                       text: msg.text,
+                    },
+                    {
+                      type: 'image_url',
+                      image_url: { url: msg.metadata?.imagePath },
                     },
                   ]
                 : msg.text,
@@ -602,12 +602,12 @@ export default function App() {
         content: hasImage
           ? [
               {
-                type: 'image_url',
-                image_url: { url: imagePath },
-              },
-              {
                 type: 'text',
                 text: textContent,
+              },
+              {
+                type: 'image_url',
+                image_url: { url: imagePath },
               },
             ]
           : textContent,
