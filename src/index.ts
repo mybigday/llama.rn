@@ -397,7 +397,7 @@ export class LlamaContext {
       image_paths: imagePaths,
     }: {
       image_paths?: string[]
-    },
+    } = {},
   ): Promise<NativeTokenizeResult> {
     return RNLlama.tokenize(this.id, text, imagePaths)
   }
