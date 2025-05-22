@@ -1238,6 +1238,7 @@ llama_rn_tokenize_result llama_rn_context::tokenize(const std::string &text, con
             throw std::runtime_error("Multimodal is not enabled but image paths are provided");
         }
         auto result = tokenizeWithImages(mtmd_wrapper, text, image_paths);
+        mtmd_input_chunks_free(result.chunks);
         llama_rn_tokenize_result tokenize_result = {
             .tokens = result.tokens,
             .has_images = true,
@@ -1247,7 +1248,6 @@ llama_rn_tokenize_result llama_rn_context::tokenize(const std::string &text, con
         };
         return tokenize_result;
     }
-    // Take logic from processImage
     std::vector<llama_token> text_tokens;
     text_tokens = common_tokenize(ctx, text, false);
     llama_rn_tokenize_result tokenize_result = {
