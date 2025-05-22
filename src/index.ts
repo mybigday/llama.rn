@@ -386,9 +386,9 @@ export class LlamaContext {
   }
 
   /**
-   * Tokenize text and images
+   * Tokenize text or text with images
    * @param text Text to tokenize
-   * @param imagePaths Array of image paths to tokenize
+   * @param params.image_paths Array of image paths to tokenize (if multimodal is enabled)
    * @returns Promise resolving to the tokenize result
    */
   tokenize(

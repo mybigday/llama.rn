@@ -297,6 +297,9 @@ export type NativeTokenizeResult = {
    * Bitmap hashes of the images
    */
   bitmap_hashes: Array<number>
+  /**
+   * Chunk positions of the text and images
+   */
   chunk_pos: Array<number>
   /**
    * Chunk positions of the images
