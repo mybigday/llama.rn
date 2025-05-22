@@ -43,6 +43,14 @@ struct completion_token_output
 
 struct llama_rn_context_mtmd;
 
+struct llama_rn_tokenize_result {
+    std::vector<llama_token> tokens;
+    bool has_images = false;
+    std::vector<std::string> bitmap_hashes;
+    std::vector<size_t> chunk_pos; // both text and image
+    std::vector<size_t> chunk_pos_images; // image only
+};
+
 // Main context class
 struct llama_rn_context {
     bool is_predicting = false;
@@ -125,6 +133,8 @@ struct llama_rn_context {
         const std::string &prompt,
         const std::vector<std::string> &image_paths
     );
+
+    llama_rn_tokenize_result tokenize(const std::string &text, const std::vector<std::string> &image_paths);
 };
 
 // Logging macros

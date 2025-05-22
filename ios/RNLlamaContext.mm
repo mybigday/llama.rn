@@ -724,13 +724,48 @@
     llama->is_interrupted = true;
 }
 
-- (NSArray *)tokenize:(NSString *)text {
-    const std::vector<llama_token> toks = common_tokenize(llama->ctx, [text UTF8String], false);
-    NSMutableArray *result = [[NSMutableArray alloc] init];
-    for (llama_token tok : toks) {
-        [result addObject:@(tok)];
+- (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths {
+    std::vector<std::string> image_paths_vector;
+    if (imagePaths && [imagePaths count] > 0) {
+        for (NSString *path in imagePaths) {
+            if ([path isKindOfClass:[NSString class]]) {
+                image_paths_vector.push_back([path UTF8String]);
+            }
+        }
     }
-    return result;
+    try {
+        rnllama::llama_rn_tokenize_result tokenize_result = llama->tokenize([text UTF8String], image_paths_vector);
+
+        NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
+
+        result[@"tokens"] = [NSMutableArray arrayWithCapacity:tokenize_result.tokens.size()];
+        for (llama_token tok : tokenize_result.tokens) {
+            [result[@"tokens"] addObject:@(tok)];
+        }
+        result[@"has_images"] = @(tokenize_result.has_images);
+
+        NSMutableArray *bitmap_hashes = [[NSMutableArray alloc] init];
+        for (std::string hash : tokenize_result.bitmap_hashes) {
+            [bitmap_hashes addObject:[NSString stringWithUTF8String:hash.c_str()]];
+        }
+        result[@"bitmap_hashes"] = bitmap_hashes;
+
+        NSMutableArray *chunk_pos = [[NSMutableArray alloc] init];
+        for (int pos : tokenize_result.chunk_pos) {
+            [chunk_pos addObject:@(pos)];
+        }
+        result[@"chunk_pos"] = chunk_pos;
+
+        NSMutableArray *chunk_pos_images = [[NSMutableArray alloc] init];
+        for (int pos : tokenize_result.chunk_pos_images) {
+            [chunk_pos_images addObject:@(pos)];
+        }
+        result[@"chunk_pos_images"] = chunk_pos_images;
+
+        return result;
+    } catch (const std::exception &e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
 }
 
 - (NSString *)detokenize:(NSArray *)tokens {
@@ -789,7 +824,7 @@
     }
     resultDict[@"prompt_tokens"] = promptTokens;
 
-    llama->endCompletion();
+    llama->is_predicting = false;
     return resultDict;
 }
 

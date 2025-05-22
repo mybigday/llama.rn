@@ -1066,22 +1066,47 @@ Java_com_rnllama_LlamaContext_isPredicting(
 
 JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_tokenize(
-        JNIEnv *env, jobject thiz, jlong context_ptr, jstring text) {
+        JNIEnv *env, jobject thiz, jlong context_ptr, jstring text, jobjectArray image_paths) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
 
     const char *text_chars = env->GetStringUTFChars(text, nullptr);
-
-    const std::vector<llama_token> toks = common_tokenize(
-        llama->ctx,
-        text_chars,
-        false
-    );
-
-    jobject result = createWritableArray(env);
-    for (const auto &tok : toks) {
-      pushInt(env, result, tok);
+    std::vector<std::string> image_paths_vector;
+    for (int i = 0; i < env->GetArrayLength(image_paths); i++) {
+        jstring image_path = (jstring) env->GetObjectArrayElement(image_paths, i);
+        const char *image_path_chars = env->GetStringUTFChars(image_path, nullptr);
+        image_paths_vector.push_back(image_path_chars);
+        env->ReleaseStringUTFChars(image_path, image_path_chars);
     }
+    auto tokenize_result = llama->tokenize(text_chars, image_paths_vector);
+
+    auto result = createWriteableMap(env);
+
+    auto tokens = createWritableArray(env);
+    for (const auto &tok : tokenize_result.tokens) {
+      pushInt(env, tokens, tok);
+    }
+    putArray(env, result, "tokens", tokens);
+
+    putBoolean(env, result, "has_images", tokenize_result.has_images);
+
+    auto bitmap_hashes = createWritableArray(env);
+    for (const auto &hash : tokenize_result.bitmap_hashes) {
+      pushString(env, bitmap_hashes, hash.c_str());
+    }
+    putArray(env, result, "bitmap_hashes", bitmap_hashes);
+
+    auto chunk_pos = createWritableArray(env);
+    for (const auto &pos : tokenize_result.chunk_pos) {
+      pushInt(env, chunk_pos, pos);
+    }
+    putArray(env, result, "chunk_pos", chunk_pos);
+
+    auto chunk_pos_images = createWritableArray(env);
+    for (const auto &pos : tokenize_result.chunk_pos_images) {
+      pushInt(env, chunk_pos_images, pos);
+    }
+    putArray(env, result, "chunk_pos_images", chunk_pos_images);
 
     env->ReleaseStringUTFChars(text, text_chars);
     return result;

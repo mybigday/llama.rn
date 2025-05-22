@@ -234,6 +234,7 @@ RCT_EXPORT_METHOD(stopCompletion:(double)contextId
 
 RCT_EXPORT_METHOD(tokenize:(double)contextId
                   text:(NSString *)text
+                  imagePaths:(NSArray *)imagePaths
                   withResolver:(RCTPromiseResolveBlock)resolve
                   withRejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -242,9 +243,13 @@ RCT_EXPORT_METHOD(tokenize:(double)contextId
         reject(@"llama_error", @"Context not found", nil);
         return;
     }
-    NSMutableArray *tokens = [context tokenize:text];
-    resolve(@{ @"tokens": tokens });
-    [tokens release];
+    @try {
+        NSMutableDictionary *result = [context tokenize:text imagePaths:imagePaths];
+        resolve(result);
+        [result release];
+    } @catch (NSException *exception) {
+        reject(@"llama_error", exception.reason, nil);
+    }
 }
 
 RCT_EXPORT_METHOD(detokenize:(double)contextId

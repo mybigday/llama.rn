@@ -331,10 +331,8 @@ public class LlamaContext {
     return isPredicting(this.context);
   }
 
-  public WritableMap tokenize(String text) {
-    WritableMap result = Arguments.createMap();
-    result.putArray("tokens", tokenize(this.context, text));
-    return result;
+  public WritableMap tokenize(String text, ReadableArray image_paths) {
+    return tokenize(this.context, text, image_paths == null ? new String[0] : image_paths.toArrayList().toArray(new String[0]));
   }
 
   public String detokenize(ReadableArray tokens) {
@@ -590,7 +588,7 @@ public class LlamaContext {
   );
   protected static native void stopCompletion(long contextPtr);
   protected static native boolean isPredicting(long contextPtr);
-  protected static native WritableArray tokenize(long contextPtr, String text);
+  protected static native WritableMap tokenize(long contextPtr, String text, String[] image_paths);
   protected static native String detokenize(long contextPtr, int[] tokens);
   protected static native boolean isEmbeddingEnabled(long contextPtr);
   protected static native WritableMap embedding(
