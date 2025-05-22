@@ -25,8 +25,8 @@ import type {
 import { SchemaGrammarConverter, convertJsonSchemaToGrammar } from './grammar'
 
 export type RNLlamaMessagePart = {
-  type: string,
-  text?: string,
+  type: string
+  text?: string
   image_url?: {
     url?: string
   }
@@ -385,8 +385,21 @@ export class LlamaContext {
     return RNLlama.stopCompletion(this.id)
   }
 
-  tokenize(text: string): Promise<NativeTokenizeResult> {
-    return RNLlama.tokenize(this.id, text)
+  /**
+   * Tokenize text or text with images
+   * @param text Text to tokenize
+   * @param params.image_paths Array of image paths to tokenize (if multimodal is enabled)
+   * @returns Promise resolving to the tokenize result
+   */
+  tokenize(
+    text: string,
+    {
+      image_paths: imagePaths,
+    }: {
+      image_paths?: string[]
+    },
+  ): Promise<NativeTokenizeResult> {
+    return RNLlama.tokenize(this.id, text, imagePaths)
   }
 
   detokenize(tokens: number[]): Promise<string> {

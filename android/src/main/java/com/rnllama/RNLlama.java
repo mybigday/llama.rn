@@ -322,7 +322,7 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "stopCompletion-" + contextId);
   }
 
-  public void tokenize(double id, final String text, final Promise promise) {
+  public void tokenize(double id, final String text, final ReadableArray image_paths, final Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
@@ -334,7 +334,7 @@ public class RNLlama implements LifecycleEventListener {
           if (context == null) {
             throw new Exception("Context not found");
           }
-          return context.tokenize(text);
+          return context.tokenize(text, image_paths);
         } catch (Exception e) {
           exception = e;
         }

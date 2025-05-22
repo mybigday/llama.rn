@@ -143,7 +143,10 @@ export default function App() {
     console.log(`Model info (took ${Date.now() - t0}ms): `, info)
   }
 
-  const handleInitMultimodal = async (ctx: LlamaContext, file: DocumentPickerResponse) => {
+  const handleInitMultimodal = async (
+    ctx: LlamaContext,
+    file: DocumentPickerResponse,
+  ) => {
     if (!ctx) return
     addSystemMessage('Initializing multimodal support...')
     const success = await ctx.initMultimodal({
@@ -465,7 +468,7 @@ export default function App() {
       textContent = message.text.slice(7)
 
       // Check if multimodal can be enabled
-      if (!await context.isMultimodalEnabled()) {
+      if (!(await context.isMultimodalEnabled())) {
         addSystemMessage(
           'Multimodal support is not enabled. Please initialize a model with a mmproj file.',
         )
@@ -478,9 +481,10 @@ export default function App() {
         // JPEG, PNG, BMP, PSD (Photoshop), TGA, GIF, HDR, PIC (Softimage), PNM
         // We limit to the most common formats (we perhaps need to add webp by converting it to supported formats):
         const imageRes = await DocumentPicker.pick({
-          type: Platform.OS === 'ios'
-            ? ['public.jpeg', 'public.png', 'public.gif', 'com.microsoft.bmp']
-            : ['image/jpeg', 'image/png', 'image/gif', 'image/bmp'],
+          type:
+            Platform.OS === 'ios'
+              ? ['public.jpeg', 'public.png', 'public.gif', 'com.microsoft.bmp']
+              : ['image/jpeg', 'image/png', 'image/gif', 'image/bmp'],
         }).catch((e) => {
           console.log('No image picked, error: ', e.message)
           return null
@@ -493,27 +497,27 @@ export default function App() {
 
         // Get the file extension from the URI
         const getFileExtension = (uri: string) => {
-          const match = uri.match(/\.([\dA-Za-z]+)$/);
-          return match && match[1] ? match[1].toLowerCase() : '';
-        };
+          const match = uri.match(/\.([\dA-Za-z]+)$/)
+          return match && match[1] ? match[1].toLowerCase() : ''
+        }
 
         // Map file extension to MIME type
         const getMimeType = (extension: string) => {
-          const mimeTypes: {[key: string]: string} = {
-            'jpg': 'image/jpeg',
-            'jpeg': 'image/jpeg',
-            'png': 'image/png',
-            'gif': 'image/gif',
-            'bmp': 'image/bmp',
-            'psd': 'image/vnd.adobe.photoshop',
-            'tga': 'image/x-tga',
-            'hdr': 'image/vnd.radiance',
-            'pic': 'image/x-softimage-pic',
-            'ppm': 'image/x-portable-pixmap',
-            'pgm': 'image/x-portable-graymap',
-          };
-          return mimeTypes[extension] || 'image/jpeg'; // Default to jpeg if unknown
-        };
+          const mimeTypes: { [key: string]: string } = {
+            jpg: 'image/jpeg',
+            jpeg: 'image/jpeg',
+            png: 'image/png',
+            gif: 'image/gif',
+            bmp: 'image/bmp',
+            psd: 'image/vnd.adobe.photoshop',
+            tga: 'image/x-tga',
+            hdr: 'image/vnd.radiance',
+            pic: 'image/x-softimage-pic',
+            ppm: 'image/x-portable-pixmap',
+            pgm: 'image/x-portable-graymap',
+          }
+          return mimeTypes[extension] || 'image/jpeg' // Default to jpeg if unknown
+        }
 
         // Read image path as base64
         const imageBase64 =
@@ -536,7 +540,7 @@ export default function App() {
            // or distinctive magic number first)
         */
         // Still, let's get this right.
-        const mimeType = getMimeType(getFileExtension(imageRes[0].uri));
+        const mimeType = getMimeType(getFileExtension(imageRes[0].uri))
 
         imagePath = imageBase64
           ? `data:${mimeType};base64,${imageBase64}`
@@ -709,14 +713,16 @@ export default function App() {
       const prompt =
         typeof formatted === 'string' ? formatted : formatted.prompt
       const t0 = Date.now()
-      const { tokens } = await context.tokenize(prompt)
+      const tokenizeResult = await context.tokenize(prompt, {
+        image_paths: formatted.image_paths,
+      })
       const t1 = Date.now()
       console.log(
         'Formatted:',
         formatted,
         '\nTokenize:',
-        tokens,
-        `(${tokens?.length} tokens, ${t1 - t0}ms})`,
+        tokenizeResult,
+        `(${tokenizeResult.tokens?.length} tokens, ${t1 - t0}ms})`,
       )
 
       // Test embedding

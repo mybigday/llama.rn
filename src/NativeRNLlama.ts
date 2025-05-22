@@ -289,6 +289,22 @@ export type NativeCompletionResult = {
 
 export type NativeTokenizeResult = {
   tokens: Array<number>
+  /**
+   * Whether the tokenization contains images
+   */
+  has_images: boolean
+  /**
+   * Bitmap hashes of the images
+   */
+  bitmap_hashes: Array<number>
+  /**
+   * Chunk positions of the text and images
+   */
+  chunk_pos: Array<number>
+  /**
+   * Chunk positions of the images
+   */
+  chunk_pos_images: Array<number>
 }
 
 export type NativeEmbeddingResult = {
@@ -414,7 +430,7 @@ export interface Spec extends TurboModule {
     params: NativeCompletionParams,
   ): Promise<NativeCompletionResult>
   stopCompletion(contextId: number): Promise<void>
-  tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>
+  tokenize(contextId: number, text: string, imagePaths?: Array<string>): Promise<NativeTokenizeResult>
   detokenize(contextId: number, tokens: number[]): Promise<string>
   embedding(
     contextId: number,
