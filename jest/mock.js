@@ -183,7 +183,13 @@ if (!NativeModules.RNLlama) {
 
     stopCompletion: jest.fn(),
 
-    tokenize: jest.fn(async (_, content) => ({ tokens: content.split('') })),
+    tokenize: jest.fn(async (_, content, imagePaths) => ({
+      tokens: content.split(''),
+      has_images: imagePaths?.length > 0,
+      chunk_pos: imagePaths?.length > 0 ? [0] : [],
+      chunk_pos_images: imagePaths?.length > 0 ? [0] : [],
+      bitmap_hashes: imagePaths?.length > 0 ? [0] : [],
+    })),
     detokenize: jest.fn(async () => ''),
     embedding: jest.fn(async () => ({ embedding: demoEmbedding })),
 
