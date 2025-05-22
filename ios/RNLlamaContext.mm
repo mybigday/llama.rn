@@ -824,7 +824,7 @@
     }
     resultDict[@"prompt_tokens"] = promptTokens;
 
-    llama->is_predicting = false;
+    llama->endCompletion();
     return resultDict;
 }
 
