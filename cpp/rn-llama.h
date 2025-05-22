@@ -105,6 +105,7 @@ struct llama_rn_context {
     void truncatePrompt(std::vector<llama_token> &prompt_tokens);
     void loadPrompt(const std::vector<std::string> &image_paths);
     void beginCompletion();
+    void endCompletion();
     completion_token_output nextToken();
     size_t findStoppingStrings(const std::string &text, const size_t last_token_size, const stop_type type);
     completion_token_output doCompletion();
@@ -120,12 +121,10 @@ struct llama_rn_context {
     void releaseMultimodal();
 
     // Process multiple images and add them to the context
-    bool processImage(
-        const std::vector<std::string> &image_paths,
+    void processImage(
         const std::string &prompt,
-        std::vector<llama_token> &text_tokens
+        const std::vector<std::string> &image_paths
     );
-
 };
 
 // Logging macros

@@ -574,24 +574,30 @@
     if (!llama->initSampling()) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
-    llama->beginCompletion();
 
-    // Use the unified loadPrompt function with image paths if available
-    NSArray *imagePaths = params[@"image_paths"];
-    if (imagePaths && [imagePaths count] > 0) {
-        // Multiple image paths
-        std::vector<std::string> image_paths_vector;
-        for (NSString *path in imagePaths) {
-            if ([path isKindOfClass:[NSString class]]) {
-                image_paths_vector.push_back([path UTF8String]);
+    llama->beginCompletion();
+    try {
+        // Use the unified loadPrompt function with image paths if available
+        NSArray *imagePaths = params[@"image_paths"];
+        if (imagePaths && [imagePaths count] > 0) {
+            // Multiple image paths
+            std::vector<std::string> image_paths_vector;
+            for (NSString *path in imagePaths) {
+                if ([path isKindOfClass:[NSString class]]) {
+                    image_paths_vector.push_back([path UTF8String]);
+                }
             }
+            llama->loadPrompt(image_paths_vector);
+        } else {
+            llama->loadPrompt({});
         }
-        llama->loadPrompt(image_paths_vector);
-    } else {
-        llama->loadPrompt({});
+    } catch (const std::exception &e) {
+        llama->endCompletion();
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
     }
 
     if (llama->context_full) {
+        llama->endCompletion();
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context is full" userInfo:nil];
     }
 
@@ -654,7 +660,7 @@
     }
 
     llama_perf_context_print(llama->ctx);
-    llama->is_predicting = false;
+    llama->endCompletion();
 
     const auto timings = llama_perf_context(llama->ctx);
 
@@ -761,7 +767,12 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
     llama->beginCompletion();
-    llama->loadPrompt({});
+    try {
+      llama->loadPrompt({});
+    } catch (const std::exception &e) {
+      llama->endCompletion();
+      @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
     llama->doCompletion();
 
     std::vector<float> result = llama->getEmbedding(embdParams);
@@ -778,7 +789,7 @@
     }
     resultDict[@"prompt_tokens"] = promptTokens;
 
-    llama->is_predicting = false;
+    llama->endCompletion();
     return resultDict;
 }
 

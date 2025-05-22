@@ -890,10 +890,19 @@ Java_com_rnllama_LlamaContext_doCompletion(
         putString(env, result, "error", "Failed to initialize sampling");
         return reinterpret_cast<jobject>(result);
     }
+
     llama->beginCompletion();
-    llama->loadPrompt(image_paths_vector);
+    try {
+        llama->loadPrompt(image_paths_vector);
+    } catch (const std::exception &e) {
+        llama->endCompletion();
+        auto result = createWriteableMap(env);
+        putString(env, result, "error", e.what());
+        return reinterpret_cast<jobject>(result);
+    }
 
     if (llama->context_full) {
+        llama->endCompletion();
         auto result = createWriteableMap(env);
         putString(env, result, "error", "Context is full");
         return reinterpret_cast<jobject>(result);
@@ -967,7 +976,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     }
 
     llama_perf_context_print(llama->ctx);
-    llama->is_predicting = false;
+    llama->endCompletion();
 
     auto toolCalls = createWritableArray(env);
     std::string reasoningContent = "";
@@ -1141,7 +1150,12 @@ Java_com_rnllama_LlamaContext_embedding(
     }
 
     llama->beginCompletion();
-    llama->loadPrompt({});
+    try {
+        llama->loadPrompt({});
+    } catch (const std::exception &e) {
+        putString(env, result, "error", e.what());
+        return reinterpret_cast<jobject>(result);
+    }
     llama->doCompletion();
 
     std::vector<float> embedding = llama->getEmbedding(embdParams);
