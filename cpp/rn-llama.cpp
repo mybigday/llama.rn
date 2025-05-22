@@ -374,13 +374,8 @@ void llama_rn_context::truncatePrompt(std::vector<llama_token> &prompt_tokens) {
 void llama_rn_context::loadPrompt(const std::vector<std::string> &image_paths) {
     bool has_images = !image_paths.empty() && isMultimodalEnabled();
 
-    LOG_INFO("[DEBUG] loadPrompt: has_images=%d, prompt='%s', image_paths_count=%zu",
-             has_images ? 1 : 0, params.prompt.c_str(), image_paths.size());
-
-    // Step 1: Process input (different for text-only vs. multimodal)
-    std::vector<llama_token> text_tokens;
-
     if (!has_images) {
+        std::vector<llama_token> text_tokens;
         // Text-only path
         text_tokens = ::common_tokenize(ctx, params.prompt, true, true);
         num_prompt_tokens = text_tokens.size();
@@ -433,11 +428,8 @@ void llama_rn_context::loadPrompt(const std::vector<std::string> &image_paths) {
         );
     } else {
         // Multimodal path - process all images
-        if (!processImage(image_paths, params.prompt, text_tokens)) {
-            LOG_ERROR("[DEBUG] Failed to process images", "");
-            return;
-        }
-        num_prompt_tokens = text_tokens.size();
+        processImage(params.prompt, image_paths);
+        num_prompt_tokens = embd.size();
     }
 
     has_next_token = true;
@@ -451,6 +443,10 @@ void llama_rn_context::beginCompletion() {
     n_remain = params.n_predict;
     llama_perf_context_reset(ctx);
     is_predicting = true;
+}
+
+void llama_rn_context::endCompletion() {
+    is_predicting = false;
 }
 
 completion_token_output llama_rn_context::nextToken()
@@ -785,7 +781,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
     }
 
     if (is_interrupted) llama_kv_self_clear(ctx);
-    is_predicting = false;
+    endCompletion();
 
     char model_desc[128];
     llama_model_desc(model, model_desc, sizeof(model_desc));
@@ -871,16 +867,10 @@ bool llama_rn_context::initMultimodal(const std::string &mmproj_path, bool use_g
     return true;
 }
 
-bool llama_rn_context::processImage(
-    const std::vector<std::string> &image_paths,
+void llama_rn_context::processImage(
     const std::string &prompt,
-    std::vector<llama_token> &text_tokens
+    const std::vector<std::string> &image_paths
 ) {
-    if (!isMultimodalEnabled()) {
-        LOG_ERROR("[DEBUG] Multimodal context not initialized", "");
-        return false;
-    }
-
     // Multimodal path
     std::string full_prompt = prompt;
     // Add image marker if it doesn't already exist
@@ -910,50 +900,38 @@ bool llama_rn_context::processImage(
             std::vector<std::string> parts;
             size_t comma_pos = image_path.find(',');
             if (comma_pos == std::string::npos) {
-                LOG_ERROR("[DEBUG] Invalid base64 image format, missing comma separator");
-                bitmaps.entries.clear();
-                return false;
+                throw std::runtime_error("Invalid base64 image format, missing comma separator");
             }
 
             std::string header = image_path.substr(0, comma_pos);
             std::string base64_data = image_path.substr(comma_pos + 1);
 
             if (header.find("base64") == std::string::npos) {
-                LOG_ERROR("[DEBUG] Image must be base64 encoded");
                 bitmaps.entries.clear();
-                return false;
+                throw std::runtime_error("Image must be base64 encoded");
             }
 
             // Decode base64
-            try {
-                // Decode base64 to binary
-                std::vector<uint8_t> image_data = base64_decode(base64_data);
-                LOG_INFO("[DEBUG] Base64 decoded, size: %zu bytes", image_data.size());
+            std::vector<uint8_t> image_data = base64_decode(base64_data);
+            LOG_INFO("[DEBUG] Base64 decoded, size: %zu bytes", image_data.size());
 
-                // Load bitmap from memory buffer using direct initialization
-                mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_buf(image_data.data(), image_data.size()));
-                if (!bmp.ptr) {
-                    LOG_ERROR("[DEBUG] Failed to load base64 image");
-                    bitmaps.entries.clear();
-                    return false;
-                }
-
-                // Calculate bitmap hash (for KV caching)
-                std::string hash = fnv_hash(bmp.data(), bmp.nx()*bmp.ny()*3);
-                bmp.set_id(hash.c_str());
-                LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
-                bitmaps.entries.push_back(std::move(bmp));
-                bitmap_hashes.push_back(hash.c_str());
-            } catch (const std::exception& e) {
-                LOG_ERROR("[DEBUG] Failed to decode base64 image: %s", e.what());
+            // Load bitmap from memory buffer using direct initialization
+            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_buf(image_data.data(), image_data.size()));
+            if (!bmp.ptr) {
                 bitmaps.entries.clear();
-                return false;
+                throw std::runtime_error("Failed to load base64 image");
             }
+
+            // Calculate bitmap hash (for KV caching)
+            std::string hash = fnv_hash(bmp.data(), bmp.nx()*bmp.ny()*3);
+            bmp.set_id(hash.c_str());
+            LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
+            bitmaps.entries.push_back(std::move(bmp));
+            bitmap_hashes.push_back(hash.c_str());
         } else if (image_path.compare(0, 7, "http://") == 0 || image_path.compare(0, 8, "https://") == 0) {
             // HTTP URLs are not supported yet
             LOG_ERROR("[DEBUG] HTTP/HTTPS URLs are not supported yet: %s", image_path.c_str());
-            bitmaps.entries.clear();
-            return false;
+            throw std::runtime_error("HTTP/HTTPS URLs are not supported yet");
         } else {
             // Regular file path
             LOG_INFO("[DEBUG] Loading image from file");
@@ -961,11 +939,8 @@ bool llama_rn_context::processImage(
             // Check if file exists
             FILE* file = fopen(image_path.c_str(), "rb");
             if (file == nullptr) {
-                LOG_ERROR("[DEBUG] File does not exist or cannot be opened: %s (errno: %d, %s)",
-                         image_path.c_str(), errno, strerror(errno));
-
                 bitmaps.entries.clear();
-                return false;
+                throw std::runtime_error("File does not exist or cannot be opened");
             }
 
             // Get file size
@@ -978,9 +953,8 @@ bool llama_rn_context::processImage(
             // Create bitmap directly
             mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(image_path.c_str()));
             if (!bmp.ptr) {
-                LOG_ERROR("[DEBUG] Failed to load image");
                 bitmaps.entries.clear();
-                return false;
+                throw std::runtime_error("Failed to load image");
             }
 
             // Calculate bitmap hash (for KV caching)
@@ -996,9 +970,8 @@ bool llama_rn_context::processImage(
     LOG_INFO("[DEBUG] Initializing input chunks");
     mtmd_input_chunks* chunks = mtmd_input_chunks_init();
     if (chunks == nullptr) {
-        LOG_ERROR("[DEBUG] Failed to initialize input chunks", "");
         bitmaps.entries.clear();
-        return false;
+        throw std::runtime_error("Failed to initialize input chunks");
     }
 
     // Create input text
@@ -1066,18 +1039,14 @@ bool llama_rn_context::processImage(
     auto bitmaps_c_ptr = bitmaps.c_ptr();
     int32_t res = mtmd_tokenize(mtmd_wrapper->mtmd_ctx, chunks, &input_text, bitmaps_c_ptr.data(), bitmaps_c_ptr.size());
     if (res != 0) {
-        LOG_ERROR("[DEBUG] Failed to tokenize images and text: %d", res);
         mtmd_input_chunks_free(chunks);
         bitmaps.entries.clear();
-        return false;
+        throw std::runtime_error("Failed to tokenize images and text");
     }
 
     // Log chunk information
     size_t num_chunks = mtmd_input_chunks_size(chunks);
     LOG_INFO("[DEBUG] Tokenization successful: num_chunks=%zu", num_chunks);
-
-    // Clear text_tokens before adding new tokens
-    text_tokens.clear();
 
     // Create a vector to store all tokens (both text and image)
     std::vector<llama_token> all_tokens;
@@ -1116,7 +1085,6 @@ bool llama_rn_context::processImage(
             LOG_INFO("[DEBUG] Chunk %zu: type=TEXT, n_tokens=%zu", i, n_tokens);
 
             // Add text tokens
-            text_tokens.insert(text_tokens.end(), tokens, tokens + n_tokens);
             all_tokens.insert(all_tokens.end(), tokens, tokens + n_tokens);
             total_token_count += n_tokens;
         } else if (chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
@@ -1137,12 +1105,10 @@ bool llama_rn_context::processImage(
 
     // Check if we have enough context space for all tokens
     if (n_past + all_tokens.size() >= (size_t)n_ctx) {
-        LOG_ERROR("[DEBUG] Not enough context space: n_past=%d, tokens=%zu, n_ctx=%d",
-                 n_past, all_tokens.size(), n_ctx);
         mtmd_input_chunks_free(chunks);
         bitmaps.entries.clear();
         context_full = true;
-        return false;
+        throw std::runtime_error("Not enough context space");
     }
 
     n_past = common_part(embd, all_tokens);
@@ -1216,14 +1182,13 @@ bool llama_rn_context::processImage(
                 n_past,
                 0,
                 params.n_batch,
-                true,
+                chunk_logits_last,
                 &new_n_past
             );
             if (res != 0) {
-                LOG_ERROR("[DEBUG] Failed to evaluate chunks", "");
                 mtmd_input_chunks_free(chunks);
                 bitmaps.entries.clear();
-                return res;
+                throw std::runtime_error("Failed to evaluate chunks");
             }
             n_past = new_n_past;
         }
@@ -1251,7 +1216,6 @@ bool llama_rn_context::processImage(
     LOG_INFO("[DEBUG] Cleaning up resources");
     mtmd_input_chunks_free(chunks);
     bitmaps.entries.clear();
-    return true;
 }
 
 bool llama_rn_context::isMultimodalEnabled() const {
