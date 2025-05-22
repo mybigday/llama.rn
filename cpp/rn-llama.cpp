@@ -375,9 +375,6 @@ void llama_rn_context::loadPrompt(const std::vector<std::string> &image_paths) {
     bool has_images = !image_paths.empty();
 
     if (!has_images) {
-        if (!isMultimodalEnabled()) {
-            throw std::runtime_error("Multimodal is not enabled but image paths are provided");
-        }
         std::vector<llama_token> text_tokens;
         // Text-only path
         text_tokens = ::common_tokenize(ctx, params.prompt, true, true);
@@ -1098,6 +1095,10 @@ void llama_rn_context::processImage(
     const std::string &prompt,
     const std::vector<std::string> &image_paths
 ) {
+    if (!isMultimodalEnabled()) {
+        throw std::runtime_error("Multimodal is not enabled but image paths are provided");
+    }
+
     // Multimodal path
     std::string full_prompt = prompt;
     // Add image marker if it doesn't already exist
