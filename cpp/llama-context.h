@@ -7,6 +7,7 @@
 #include "llama-adapter.h"
 
 #include "ggml-cpp.h"
+#include "ggml-opt.h"
 
 #include <map>
 #include <vector>
@@ -133,6 +134,32 @@ struct llama_context {
     llama_perf_context_data perf_get_data() const;
     void perf_reset();
 
+    //
+    // training
+    //
+
+    void opt_init(struct llama_model * model, struct llama_opt_params lopt_params);
+
+    void opt_epoch(
+            lm_ggml_opt_dataset_t      dataset,
+            lm_ggml_opt_result_t       result_train,
+            lm_ggml_opt_result_t       result_eval,
+            int64_t                 idata_split,
+            lm_ggml_opt_epoch_callback callback_train,
+            lm_ggml_opt_epoch_callback callback_eval);
+
+    void opt_epoch_iter(
+            lm_ggml_opt_dataset_t               dataset,
+            lm_ggml_opt_result_t                result,
+            const std::vector<llama_token> & tokens,
+            const std::vector<llama_token> & labels_sparse,
+            llama_batch                    & batch,
+            lm_ggml_opt_epoch_callback          callback,
+            bool                             train,
+            int64_t                          idata_in_loop,
+            int64_t                          ndata_in_loop,
+            int64_t                          t_loop_start);
+
 private:
     //
     // output
@@ -211,6 +238,9 @@ private:
     std::vector<lm_ggml_backend_ptr> backends;
 
     lm_ggml_context_ptr ctx_compute;
+
+    // training
+    lm_ggml_opt_context_t opt_ctx = nullptr;
 
     lm_ggml_threadpool_t threadpool       = nullptr;
     lm_ggml_threadpool_t threadpool_batch = nullptr;
