@@ -969,16 +969,16 @@ mtmd_tokenize_result tokenizeWithImages(llama_rn_context_mtmd *mtmd_wrapper, con
     mtmd_input_text input_text;
     input_text.text = prompt.c_str(); // Use the full prompt with image marker
     input_text.add_special = true;  // Add BOS token if this is the first message
-    input_text.parse_special = true;       // Parse special tokens like <__image__>
+    input_text.parse_special = true;       // Parse special tokens like <__media__>
 
     /**
      * Tokenize the text and images together.
      *
-     * Example of tokenization for "foo bar <__image__> baz <__image__>":
+     * Example of tokenization for "foo bar <__media__> baz <__media__>":
      *
      * 1. Input text with image markers:
      *
-     *    "foo bar <__image__> baz <__image__>"
+     *    "foo bar <__media__> baz <__media__>"
      *
      * 2. Model-specific markers are added.
      *
@@ -1043,7 +1043,7 @@ mtmd_tokenize_result tokenizeWithImages(llama_rn_context_mtmd *mtmd_wrapper, con
     /**
      * Evaluate the chunks.
      *
-     * For our example "foo bar <__image__> baz <__image__>":
+     * For our example "foo bar <__media__> baz <__media__>":
      *
      * Token organization in memory:
      *
@@ -1074,9 +1074,8 @@ mtmd_tokenize_result tokenizeWithImages(llama_rn_context_mtmd *mtmd_wrapper, con
         } else if (chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
             result.chunk_pos_images.push_back(total_token_count);
 
-            const mtmd_image_tokens* img_tokens = mtmd_input_chunk_get_tokens_image(chunk);
-            size_t n_tokens = mtmd_image_tokens_get_n_tokens(img_tokens);
-            size_t n_pos = mtmd_image_tokens_get_n_pos(img_tokens);
+            size_t n_tokens = mtmd_input_chunk_get_n_tokens(chunk);
+            size_t n_pos = mtmd_input_chunk_get_n_pos(chunk);
             LOG_INFO("[DEBUG] Chunk %zu: type=IMAGE, n_tokens=%zu, n_pos=%zu",
                      i, n_tokens, n_pos);
 
@@ -1084,7 +1083,7 @@ mtmd_tokenize_result tokenizeWithImages(llama_rn_context_mtmd *mtmd_wrapper, con
                 result.tokens.push_back(LLAMA_TOKEN_NULL); // Placeholder token
             }
             total_token_count += n_pos;
-        }
+        } // TODO: Handle MTMD_INPUT_CHUNK_TYPE_AUDIO
     }
 
     bitmaps.entries.clear();
@@ -1101,9 +1100,11 @@ void llama_rn_context::processImage(
 
     // Multimodal path
     std::string full_prompt = prompt;
-    // Add image marker if it doesn't already exist
-    if (full_prompt.find("<__image__>") == std::string::npos) {
-        full_prompt += " <__image__>";
+    auto default_media_marker = mtmd_default_marker();
+    // Add media marker if it doesn't already exist
+    if (full_prompt.find(default_media_marker) == std::string::npos) {
+        full_prompt += " ";
+        full_prompt += default_media_marker;
     }
 
     LOG_INFO("[DEBUG] Processing message with role=user, content=%s", full_prompt.c_str());
