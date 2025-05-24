@@ -69,6 +69,8 @@ cp ./llama.cpp/src/llama-kv-cache.h ./cpp/llama-kv-cache.h
 cp ./llama.cpp/src/llama-kv-cache.cpp ./cpp/llama-kv-cache.cpp
 cp ./llama.cpp/src/llama-model-loader.h ./cpp/llama-model-loader.h
 cp ./llama.cpp/src/llama-model-loader.cpp ./cpp/llama-model-loader.cpp
+cp ./llama.cpp/src/llama-model-saver.h ./cpp/llama-model-saver.h
+cp ./llama.cpp/src/llama-model-saver.cpp ./cpp/llama-model-saver.cpp
 cp ./llama.cpp/src/llama-model.h ./cpp/llama-model.h
 cp ./llama.cpp/src/llama-model.cpp ./cpp/llama-model.cpp
 cp ./llama.cpp/src/llama-adapter.h ./cpp/llama-adapter.h
@@ -126,6 +128,9 @@ cp ./llama.cpp/tools/mtmd/clip.h ./cpp/tools/mtmd/clip.h
 cp ./llama.cpp/tools/mtmd/clip.cpp ./cpp/tools/mtmd/clip.cpp
 cp ./llama.cpp/tools/mtmd/clip-impl.h ./cpp/tools/mtmd/clip-impl.h
 cp ./llama.cpp/tools/mtmd/mtmd-helper.cpp ./cpp/tools/mtmd/mtmd-helper.cpp
+cp ./llama.cpp/tools/mtmd/mtmd-audio.h ./cpp/tools/mtmd/mtmd-audio.h
+cp ./llama.cpp/tools/mtmd/mtmd-audio.cpp ./cpp/tools/mtmd/mtmd-audio.cpp
+cp ./llama.cpp/tools/mtmd/miniaudio.h ./cpp/tools/mtmd/miniaudio.h
 cp ./llama.cpp/common/stb_image.h ./cpp/tools/mtmd/stb_image.h
 
 # List of files to process
@@ -152,6 +157,8 @@ files_add_lm_prefix=(
   "./cpp/llama-kv-cache.cpp"
   "./cpp/llama-model-loader.h"
   "./cpp/llama-model-loader.cpp"
+  "./cpp/llama-model-saver.h"
+  "./cpp/llama-model-saver.cpp"
   "./cpp/llama-model.h"
   "./cpp/llama-model.cpp"
   "./cpp/llama-mmap.h"
@@ -231,6 +238,8 @@ files_add_lm_prefix=(
   "./cpp/tools/mtmd/clip.cpp"
   "./cpp/tools/mtmd/clip-impl.h"
   "./cpp/tools/mtmd/mtmd-helper.cpp"
+  "./cpp/tools/mtmd/mtmd-audio.h"
+  "./cpp/tools/mtmd/mtmd-audio.cpp"
 )
 
 # Loop through each file and run the sed commands

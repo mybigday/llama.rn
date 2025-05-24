@@ -67,6 +67,7 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/llama.cpp
     ${SOURCE_DIR}/llama-model.cpp
     ${SOURCE_DIR}/llama-model-loader.cpp
+    ${SOURCE_DIR}/llama-model-saver.cpp
     ${SOURCE_DIR}/llama-mmap.cpp
     ${SOURCE_DIR}/llama-vocab.cpp
     ${SOURCE_DIR}/llama-memory.cpp
@@ -83,6 +84,7 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/json.hpp
     # Multimodal support
     ${SOURCE_DIR}/tools/mtmd/mtmd.cpp
+    ${SOURCE_DIR}/tools/mtmd/mtmd-audio.cpp
     ${SOURCE_DIR}/tools/mtmd/clip.cpp
     ${SOURCE_DIR}/tools/mtmd/mtmd-helper.cpp
     ${SOURCE_DIR}/rn-llama.cpp

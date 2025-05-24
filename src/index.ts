@@ -58,6 +58,8 @@ export type {
   SchemaGrammarConverterBuiltinRule,
 }
 
+export const RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER = '<__media__>'
+
 export { SchemaGrammarConverter, convertJsonSchemaToGrammar }
 
 const EVENT_ON_INIT_CONTEXT_PROGRESS = '@RNLlama_onInitContextProgress'
@@ -237,7 +239,7 @@ export class LlamaContext {
             imagePaths.push(path)
             return {
               type: 'text',
-              text: '<__image__>',
+              text: RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER,
             }
           }
           return part
