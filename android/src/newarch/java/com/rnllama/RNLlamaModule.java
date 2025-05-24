@@ -63,6 +63,11 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
+  public void getMultimodalSupport(double id, final Promise promise) {
+    rnllama.getMultimodalSupport(id, promise);
+  }
+
+  @ReactMethod
   public void releaseMultimodal(double id, final Promise promise) {
     rnllama.releaseMultimodal(id, promise);
   }
@@ -93,8 +98,8 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
-  public void tokenize(double id, final String text, final ReadableArray image_paths, final Promise promise) {
-    rnllama.tokenize(id, text, image_paths, promise);
+  public void tokenize(double id, final String text, final ReadableArray media_paths, final Promise promise) {
+    rnllama.tokenize(id, text, media_paths, promise);
   }
 
   @ReactMethod

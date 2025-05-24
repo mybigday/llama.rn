@@ -309,8 +309,8 @@ public class LlamaContext {
       params.hasKey("top_n_sigma") ? (float) params.getDouble("top_n_sigma") : -1.0f,
       // String[] dry_sequence_breakers, when undef, we use the default definition from common.h
       params.hasKey("dry_sequence_breakers") ? params.getArray("dry_sequence_breakers").toArrayList().toArray(new String[0]) : new String[]{"\n", ":", "\"", "*"},
-      // String[] image_paths
-      params.hasKey("image_paths") ? params.getArray("image_paths").toArrayList().toArray(new String[0]) : new String[0],
+      // String[] media_paths
+      params.hasKey("media_paths") ? params.getArray("media_paths").toArrayList().toArray(new String[0]) : new String[0],
       // PartialCompletionCallback partial_completion_callback
       new PartialCompletionCallback(
         this,
@@ -331,8 +331,8 @@ public class LlamaContext {
     return isPredicting(this.context);
   }
 
-  public WritableMap tokenize(String text, ReadableArray image_paths) {
-    return tokenize(this.context, text, image_paths == null ? new String[0] : image_paths.toArrayList().toArray(new String[0]));
+  public WritableMap tokenize(String text, ReadableArray media_paths) {
+    return tokenize(this.context, text, media_paths == null ? new String[0] : media_paths.toArrayList().toArray(new String[0]));
   }
 
   public String detokenize(ReadableArray tokens) {
@@ -394,6 +394,13 @@ public class LlamaContext {
 
   public boolean isMultimodalEnabled() {
     return isMultimodalEnabled(this.context);
+  }
+
+  public WritableMap getMultimodalSupport() {
+    if (!isMultimodalEnabled()) {
+      throw new IllegalStateException("Multimodal is not enabled");
+    }
+    return getMultimodalSupport(this.context);
   }
 
   public void releaseMultimodal() {
@@ -520,6 +527,7 @@ public class LlamaContext {
   );
   protected static native boolean initMultimodal(long contextPtr, String mmproj_path, boolean MMPROJ_USE_GPU);
   protected static native boolean isMultimodalEnabled(long contextPtr);
+  protected static native WritableMap getMultimodalSupport(long contextPtr);
   protected static native void interruptLoad(long contextPtr);
   protected static native WritableMap loadModelDetails(
     long contextPtr
@@ -583,12 +591,12 @@ public class LlamaContext {
     int dry_penalty_last_n,
     float top_n_sigma,
     String[] dry_sequence_breakers,
-    String[] image_paths,
+    String[] media_paths,
     PartialCompletionCallback partial_completion_callback
   );
   protected static native void stopCompletion(long contextPtr);
   protected static native boolean isPredicting(long contextPtr);
-  protected static native WritableMap tokenize(long contextPtr, String text, String[] image_paths);
+  protected static native WritableMap tokenize(long contextPtr, String text, String[] media_paths);
   protected static native String detokenize(long contextPtr, int[] tokens);
   protected static native boolean isEmbeddingEnabled(long contextPtr);
   protected static native WritableMap embedding(

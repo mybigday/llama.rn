@@ -338,11 +338,21 @@
     return llama->initMultimodal([mmproj_path UTF8String], use_gpu);
 }
 
+- (NSDictionary *)getMultimodalSupport {
+    if (!is_model_loaded) return nil;
+    return @{
+        @"vision": @(llama->isMultimodalSupportVision()),
+        @"audio": @(llama->isMultimodalSupportAudio())
+    };
+}
+
 - (bool)isMultimodalEnabled {
+    if (!is_model_loaded) return false;
     return llama->isMultimodalEnabled();
 }
 
 - (void)releaseMultimodal {
+    if (!is_model_loaded) return;
     llama->releaseMultimodal();
 }
 
@@ -578,16 +588,16 @@
     llama->beginCompletion();
     try {
         // Use the unified loadPrompt function with image paths if available
-        NSArray *imagePaths = params[@"image_paths"];
+        NSArray *imagePaths = params[@"media_paths"];
         if (imagePaths && [imagePaths count] > 0) {
             // Multiple image paths
-            std::vector<std::string> image_paths_vector;
+            std::vector<std::string> media_paths_vector;
             for (NSString *path in imagePaths) {
                 if ([path isKindOfClass:[NSString class]]) {
-                    image_paths_vector.push_back([path UTF8String]);
+                    media_paths_vector.push_back([path UTF8String]);
                 }
             }
-            llama->loadPrompt(image_paths_vector);
+            llama->loadPrompt(media_paths_vector);
         } else {
             llama->loadPrompt({});
         }
@@ -725,16 +735,16 @@
 }
 
 - (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths {
-    std::vector<std::string> image_paths_vector;
+    std::vector<std::string> media_paths_vector;
     if (imagePaths && [imagePaths count] > 0) {
         for (NSString *path in imagePaths) {
             if ([path isKindOfClass:[NSString class]]) {
-                image_paths_vector.push_back([path UTF8String]);
+                media_paths_vector.push_back([path UTF8String]);
             }
         }
     }
     try {
-        rnllama::llama_rn_tokenize_result tokenize_result = llama->tokenize([text UTF8String], image_paths_vector);
+        rnllama::llama_rn_tokenize_result tokenize_result = llama->tokenize([text UTF8String], media_paths_vector);
 
         NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
 
@@ -742,7 +752,7 @@
         for (llama_token tok : tokenize_result.tokens) {
             [result[@"tokens"] addObject:@(tok)];
         }
-        result[@"has_images"] = @(tokenize_result.has_images);
+        result[@"has_media"] = @(tokenize_result.has_media);
 
         NSMutableArray *bitmap_hashes = [[NSMutableArray alloc] init];
         for (std::string hash : tokenize_result.bitmap_hashes) {
@@ -756,11 +766,11 @@
         }
         result[@"chunk_pos"] = chunk_pos;
 
-        NSMutableArray *chunk_pos_images = [[NSMutableArray alloc] init];
-        for (int pos : tokenize_result.chunk_pos_images) {
-            [chunk_pos_images addObject:@(pos)];
+        NSMutableArray *chunk_pos_media = [[NSMutableArray alloc] init];
+        for (int pos : tokenize_result.chunk_pos_media) {
+            [chunk_pos_media addObject:@(pos)];
         }
-        result[@"chunk_pos_images"] = chunk_pos_images;
+        result[@"chunk_pos_media"] = chunk_pos_media;
 
         return result;
     } catch (const std::exception &e) {

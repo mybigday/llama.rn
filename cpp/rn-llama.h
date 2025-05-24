@@ -45,10 +45,10 @@ struct llama_rn_context_mtmd;
 
 struct llama_rn_tokenize_result {
     std::vector<llama_token> tokens;
-    bool has_images = false;
+    bool has_media = false;
     std::vector<std::string> bitmap_hashes;
-    std::vector<size_t> chunk_pos; // both text and image
-    std::vector<size_t> chunk_pos_images; // image only
+    std::vector<size_t> chunk_pos; // both text and media
+    std::vector<size_t> chunk_pos_media; // media only
 };
 
 // Main context class
@@ -111,7 +111,7 @@ struct llama_rn_context {
       const std::string &chat_template
     ) const;
     void truncatePrompt(std::vector<llama_token> &prompt_tokens);
-    void loadPrompt(const std::vector<std::string> &image_paths);
+    void loadPrompt(const std::vector<std::string> &media_paths);
     void beginCompletion();
     void endCompletion();
     completion_token_output nextToken();
@@ -126,15 +126,17 @@ struct llama_rn_context {
     // Multimodal methods
     bool initMultimodal(const std::string &mmproj_path, bool use_gpu);
     bool isMultimodalEnabled() const;
+    bool isMultimodalSupportVision() const;
+    bool isMultimodalSupportAudio() const;
     void releaseMultimodal();
 
-    // Process multiple images and add them to the context
-    void processImage(
+    // Process multiple media and add them to the context
+    void processMedia(
         const std::string &prompt,
-        const std::vector<std::string> &image_paths
+        const std::vector<std::string> &media_paths
     );
 
-    llama_rn_tokenize_result tokenize(const std::string &text, const std::vector<std::string> &image_paths);
+    llama_rn_tokenize_result tokenize(const std::string &text, const std::vector<std::string> &media_paths);
 };
 
 // Logging macros
