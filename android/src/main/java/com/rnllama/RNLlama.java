@@ -615,6 +615,41 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "isMultimodalEnabled" + contextId);
   }
 
+  public void getMultimodalSupport(double id, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
+      private Exception exception;
+
+      @Override
+      protected WritableMap doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          if (!context.isMultimodalEnabled()) {
+            throw new Exception("Multimodal is not enabled");
+          }
+          return context.getMultimodalSupport();
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(WritableMap result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "getMultimodalSupport-" + contextId);
+  }
+
   @ReactMethod
   public void releaseMultimodal(double id, final Promise promise) {
     final int contextId = (int) id;

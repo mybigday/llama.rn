@@ -698,7 +698,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jint dry_penalty_last_n,
     jfloat top_n_sigma,
     jobjectArray dry_sequence_breakers,
-    jobjectArray image_paths,
+    jobjectArray media_paths,
     jobject partial_completion_callback
 ) {
     UNUSED(thiz);
@@ -714,10 +714,10 @@ Java_com_rnllama_LlamaContext_doCompletion(
     llama->params.prompt = prompt_chars;
 
     // Process image paths if provided
-    std::vector<std::string> image_paths_vector;
+    std::vector<std::string> media_paths_vector;
 
-    jint image_paths_size = env->GetArrayLength(image_paths);
-    if (image_paths_size > 0) {
+    jint media_paths_size = env->GetArrayLength(media_paths);
+    if (media_paths_size > 0) {
         // Check if multimodal is enabled
         if (!llama->isMultimodalEnabled()) {
             auto result = createWriteableMap(env);
@@ -726,10 +726,10 @@ Java_com_rnllama_LlamaContext_doCompletion(
             return reinterpret_cast<jobject>(result);
         }
 
-        for (jint i = 0; i < image_paths_size; i++) {
-            jstring image_path = (jstring) env->GetObjectArrayElement(image_paths, i);
+        for (jint i = 0; i < media_paths_size; i++) {
+            jstring image_path = (jstring) env->GetObjectArrayElement(media_paths, i);
             const char *image_path_chars = env->GetStringUTFChars(image_path, nullptr);
-            image_paths_vector.push_back(image_path_chars);
+            media_paths_vector.push_back(image_path_chars);
             env->ReleaseStringUTFChars(image_path, image_path_chars);
         }
     }
@@ -893,7 +893,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     llama->beginCompletion();
     try {
-        llama->loadPrompt(image_paths_vector);
+        llama->loadPrompt(media_paths_vector);
     } catch (const std::exception &e) {
         llama->endCompletion();
         auto result = createWriteableMap(env);
@@ -1066,19 +1066,19 @@ Java_com_rnllama_LlamaContext_isPredicting(
 
 JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_tokenize(
-        JNIEnv *env, jobject thiz, jlong context_ptr, jstring text, jobjectArray image_paths) {
+        JNIEnv *env, jobject thiz, jlong context_ptr, jstring text, jobjectArray media_paths) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
 
     const char *text_chars = env->GetStringUTFChars(text, nullptr);
-    std::vector<std::string> image_paths_vector;
-    for (int i = 0; i < env->GetArrayLength(image_paths); i++) {
-        jstring image_path = (jstring) env->GetObjectArrayElement(image_paths, i);
+    std::vector<std::string> media_paths_vector;
+    for (int i = 0; i < env->GetArrayLength(media_paths); i++) {
+        jstring image_path = (jstring) env->GetObjectArrayElement(media_paths, i);
         const char *image_path_chars = env->GetStringUTFChars(image_path, nullptr);
-        image_paths_vector.push_back(image_path_chars);
+        media_paths_vector.push_back(image_path_chars);
         env->ReleaseStringUTFChars(image_path, image_path_chars);
     }
-    auto tokenize_result = llama->tokenize(text_chars, image_paths_vector);
+    auto tokenize_result = llama->tokenize(text_chars, media_paths_vector);
 
     auto result = createWriteableMap(env);
 
@@ -1088,7 +1088,7 @@ Java_com_rnllama_LlamaContext_tokenize(
     }
     putArray(env, result, "tokens", tokens);
 
-    putBoolean(env, result, "has_images", tokenize_result.has_images);
+    putBoolean(env, result, "has_media", tokenize_result.has_media);
 
     auto bitmap_hashes = createWritableArray(env);
     for (const auto &hash : tokenize_result.bitmap_hashes) {
@@ -1102,11 +1102,11 @@ Java_com_rnllama_LlamaContext_tokenize(
     }
     putArray(env, result, "chunk_pos", chunk_pos);
 
-    auto chunk_pos_images = createWritableArray(env);
-    for (const auto &pos : tokenize_result.chunk_pos_images) {
-      pushInt(env, chunk_pos_images, pos);
+    auto chunk_pos_media = createWritableArray(env);
+    for (const auto &pos : tokenize_result.chunk_pos_media) {
+      pushInt(env, chunk_pos_media, pos);
     }
-    putArray(env, result, "chunk_pos_images", chunk_pos_images);
+    putArray(env, result, "chunk_pos_media", chunk_pos_media);
 
     env->ReleaseStringUTFChars(text, text_chars);
     return result;
@@ -1377,6 +1377,21 @@ Java_com_rnllama_LlamaContext_isMultimodalEnabled(
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
     return llama->isMultimodalEnabled();
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_getMultimodalSupport(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    auto result = createWriteableMap(env);
+    putBoolean(env, result, "vision", llama->isMultimodalSupportVision());
+    putBoolean(env, result, "audio", llama->isMultimodalSupportAudio());
+    return result;
 }
 
 JNIEXPORT void JNICALL

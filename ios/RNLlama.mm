@@ -388,6 +388,25 @@ RCT_EXPORT_METHOD(isMultimodalEnabled:(double)contextId
     resolve(@([context isMultimodalEnabled]));
 }
 
+RCT_EXPORT_METHOD(getMultimodalSupport:(double)contextId
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    if (![context isMultimodalEnabled]) {
+        reject(@"llama_error", @"Multimodal is not enabled", nil);
+        return;
+    }
+
+    NSDictionary *multimodalSupport = [context getMultimodalSupport];
+    resolve(multimodalSupport);
+}
+
 RCT_EXPORT_METHOD(releaseMultimodal:(double)contextId
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)

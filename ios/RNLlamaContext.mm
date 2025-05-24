@@ -338,11 +338,21 @@
     return llama->initMultimodal([mmproj_path UTF8String], use_gpu);
 }
 
+- (NSDictionary *)getMultimodalSupport {
+    if (!is_model_loaded) return nil;
+    return @{
+        @"vision": @(llama->isMultimodalSupportVision()),
+        @"audio": @(llama->isMultimodalSupportAudio())
+    };
+}
+
 - (bool)isMultimodalEnabled {
+    if (!is_model_loaded) return false;
     return llama->isMultimodalEnabled();
 }
 
 - (void)releaseMultimodal {
+    if (!is_model_loaded) return;
     llama->releaseMultimodal();
 }
 
@@ -742,7 +752,7 @@
         for (llama_token tok : tokenize_result.tokens) {
             [result[@"tokens"] addObject:@(tok)];
         }
-        result[@"has_images"] = @(tokenize_result.has_images);
+        result[@"has_media"] = @(tokenize_result.has_media);
 
         NSMutableArray *bitmap_hashes = [[NSMutableArray alloc] init];
         for (std::string hash : tokenize_result.bitmap_hashes) {
@@ -756,11 +766,11 @@
         }
         result[@"chunk_pos"] = chunk_pos;
 
-        NSMutableArray *chunk_pos_images = [[NSMutableArray alloc] init];
-        for (int pos : tokenize_result.chunk_pos_images) {
-            [chunk_pos_images addObject:@(pos)];
+        NSMutableArray *chunk_pos_media = [[NSMutableArray alloc] init];
+        for (int pos : tokenize_result.chunk_pos_media) {
+            [chunk_pos_media addObject:@(pos)];
         }
-        result[@"chunk_pos_images"] = chunk_pos_images;
+        result[@"chunk_pos_media"] = chunk_pos_media;
 
         return result;
     } catch (const std::exception &e) {

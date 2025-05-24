@@ -63,6 +63,11 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
+  public void getMultimodalSupport(double id, final Promise promise) {
+    rnllama.getMultimodalSupport(id, promise);
+  }
+
+  @ReactMethod
   public void releaseMultimodal(double id, final Promise promise) {
     rnllama.releaseMultimodal(id, promise);
   }

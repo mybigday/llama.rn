@@ -396,6 +396,13 @@ public class LlamaContext {
     return isMultimodalEnabled(this.context);
   }
 
+  public WritableMap getMultimodalSupport() {
+    if (!isMultimodalEnabled()) {
+      throw new IllegalStateException("Multimodal is not enabled");
+    }
+    return getMultimodalSupport(this.context);
+  }
+
   public void releaseMultimodal() {
     releaseMultimodal(this.context);
   }
@@ -520,6 +527,7 @@ public class LlamaContext {
   );
   protected static native boolean initMultimodal(long contextPtr, String mmproj_path, boolean MMPROJ_USE_GPU);
   protected static native boolean isMultimodalEnabled(long contextPtr);
+  protected static native WritableMap getMultimodalSupport(long contextPtr);
   protected static native void interruptLoad(long contextPtr);
   protected static native WritableMap loadModelDetails(
     long contextPtr

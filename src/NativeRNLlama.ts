@@ -467,6 +467,13 @@ export interface Spec extends TurboModule {
     contextId: number,
   ): Promise<boolean>
 
+  getMultimodalSupport(
+    contextId: number,
+  ): Promise<{
+    vision: boolean
+    audio: boolean
+  }>
+
   releaseMultimodal(
     contextId: number,
   ): Promise<void>

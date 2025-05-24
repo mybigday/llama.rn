@@ -487,6 +487,17 @@ export class LlamaContext {
   }
 
   /**
+   * Check multimodal support
+   * @returns Promise resolving to an object with vision and audio support
+   */
+  async getMultimodalSupport(): Promise<{
+    vision: boolean
+    audio: boolean
+  }> {
+    return await RNLlama.getMultimodalSupport(this.id)
+  }
+
+  /**
    * Release multimodal support
    * @returns Promise resolving to void
    */
