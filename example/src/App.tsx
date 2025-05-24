@@ -228,10 +228,16 @@ export default function App() {
 
         // Include the image commands if mmproj file was provided
         if (isMultimodalEnabled) {
+          const { vision, audio } = await ctx.getMultimodalSupport()
           commands.push(
             '- /mtmd: pick mmproj file and initialize multimodal support',
             '- /release-mtmd: release the multimodal context',
-            '- /image <content>: pick an image and start a conversation',
+            ...(vision
+              ? ['- /image <content>: pick an image and start a conversation']
+              : []),
+            ...(audio
+              ? ['- /audio <content>: pick an audio and start a conversation']
+              : []),
           )
         }
 
@@ -460,11 +466,18 @@ export default function App() {
     }
 
     let textContent = message.text
-    let hasImage = false
-    let imagePath = null
-    // Handle /image <content>
-    // TODO: Image picker button without slash command
-    if (message.text.startsWith('/image ')) {
+    let hasMedia = false
+    let mediaType: string | null = null
+    let mediaFormat: string | null = null
+    let mediaPath = null
+    // Handle /image <content> or /audio <content>
+    // TODO: File picker button without slash command
+    if (
+      message.text.startsWith('/image ') ||
+      message.text.startsWith('/audio ')
+    ) {
+      mediaType = message.text.startsWith('/image ') ? 'image' : 'audio'
+
       textContent = message.text.slice(7)
 
       // Check if multimodal can be enabled
@@ -476,22 +489,29 @@ export default function App() {
       }
 
       try {
-        // Use DocumentPicker to pick an image
+        const imageTypes =
+          Platform.OS === 'ios'
+            ? ['public.jpeg', 'public.png', 'public.gif', 'com.microsoft.bmp']
+            : ['image/jpeg', 'image/png', 'image/gif', 'image/bmp']
+        const audioTypes =
+          Platform.OS === 'ios'
+            ? ['public.wav', 'public.mp3']
+            : ['audio/wav', 'audio/mpeg']
+
+        // Use DocumentPicker to pick an image or audio
         // The underlying stb_image library in llama.cpp supports these formats:
-        // JPEG, PNG, BMP, PSD (Photoshop), TGA, GIF, HDR, PIC (Softimage), PNM
+        // Image: JPEG, PNG, BMP, PSD (Photoshop), TGA, GIF, HDR, PIC (Softimage), PNM
+        // Audio: WAV, MP3
         // We limit to the most common formats (we perhaps need to add webp by converting it to supported formats):
-        const imageRes = await DocumentPicker.pick({
-          type:
-            Platform.OS === 'ios'
-              ? ['public.jpeg', 'public.png', 'public.gif', 'com.microsoft.bmp']
-              : ['image/jpeg', 'image/png', 'image/gif', 'image/bmp'],
+        const mediaRes = await DocumentPicker.pick({
+          type: mediaType === 'image' ? imageTypes : audioTypes,
         }).catch((e) => {
-          console.log('No image picked, error: ', e.message)
+          console.log(`No ${mediaType} picked, error: `, e.message)
           return null
         })
 
-        if (!imageRes?.[0]) {
-          addSystemMessage('No image selected.')
+        if (!mediaRes?.[0]) {
+          addSystemMessage(`No ${mediaType} selected.`)
           return
         }
 
@@ -504,6 +524,7 @@ export default function App() {
         // Map file extension to MIME type
         const getMimeType = (extension: string) => {
           const mimeTypes: { [key: string]: string } = {
+            // Image
             jpg: 'image/jpeg',
             jpeg: 'image/jpeg',
             png: 'image/png',
@@ -515,21 +536,30 @@ export default function App() {
             pic: 'image/x-softimage-pic',
             ppm: 'image/x-portable-pixmap',
             pgm: 'image/x-portable-graymap',
+
+            // Audio
+            wav: 'audio/wav',
+            mp3: 'audio/mpeg',
           }
-          return mimeTypes[extension] || 'image/jpeg' // Default to jpeg if unknown
+          if (mediaType === 'image') {
+            return mimeTypes[extension] || 'image/jpeg' // Default to jpeg if unknown
+          } else if (mediaType === 'audio') {
+            return mimeTypes[extension] || 'audio/wav' // Default to wav if unknown
+          }
+          return ''
         }
 
         // Read image path as base64
-        const imageBase64 =
-          imageRes[0].uri &&
+        const mediaBase64 =
+          mediaRes[0].uri &&
           (await ReactNativeBlobUtil.fs
-            .readFile(imageRes[0].uri.replace('file://', ''), 'base64')
+            .readFile(mediaRes[0].uri.replace('file://', ''), 'base64')
             .catch((e) => {
               console.log('Error reading image:', e.message)
               return null
             }))
 
-        console.log('Image path:', imageRes[0].uri)
+        console.log(`${mediaType} path:`, mediaRes[0].uri)
 
         // Get the extension and MIME type
         // Although, the stb_image library doesn't rely on MIME types but instead detects formats by examining
@@ -540,15 +570,16 @@ export default function App() {
            // or distinctive magic number first)
         */
         // Still, let's get this right.
-        const mimeType = getMimeType(getFileExtension(imageRes[0].uri))
+        mediaFormat = getFileExtension(mediaRes[0].uri)
+        const mimeType = getMimeType(mediaFormat)
 
-        imagePath = imageBase64
-          ? `data:${mimeType};base64,${imageBase64}`
-          : imageRes[0].uri
-        hasImage = true
+        mediaPath = mediaBase64
+          ? `data:${mimeType};base64,${mediaBase64}`
+          : mediaRes[0].uri
+        hasMedia = true
       } catch (error) {
         addSystemMessage(
-          `Error selecting image: ${
+          `Error selecting ${mediaType}: ${
             error instanceof Error ? error.message : String(error)
           }`,
         )
@@ -564,8 +595,10 @@ export default function App() {
       metadata: {
         contextId: context?.id,
         conversationId: conversationIdRef.current,
-        hasImage,
-        imagePath,
+        hasMedia,
+        mediaType,
+        mediaFormat,
+        mediaPath,
       },
     }
 
@@ -584,16 +617,24 @@ export default function App() {
           ) {
             return {
               role: msg.author.id === systemId ? 'assistant' : 'user',
-              content: msg.metadata?.hasImage
+              content: msg.metadata?.hasMedia
                 ? [
                     {
                       type: 'text',
                       text: msg.text,
                     },
-                    {
-                      type: 'image_url',
-                      image_url: { url: msg.metadata?.imagePath },
-                    },
+                    msg.metadata?.mediaType === 'image'
+                      ? {
+                          type: 'image_url',
+                          image_url: { url: msg.metadata?.mediaPath },
+                        }
+                      : {
+                          type: 'input_audio',
+                          input_audio: {
+                            data: msg.metadata?.mediaPath,
+                            format: msg.metadata?.mediaFormat,
+                          },
+                        },
                   ]
                 : msg.text,
             }
@@ -603,16 +644,21 @@ export default function App() {
         .filter((msg) => msg.role),
       {
         role: 'user',
-        content: hasImage
+        content: hasMedia
           ? [
               {
                 type: 'text',
                 text: textContent,
               },
-              {
-                type: 'image_url',
-                image_url: { url: imagePath },
-              },
+              mediaType === 'image'
+                ? {
+                    type: 'image_url',
+                    image_url: { url: mediaPath },
+                  }
+                : {
+                    type: 'input_audio',
+                    input_audio: { data: mediaPath, format: mediaFormat },
+                  },
             ]
           : textContent,
       },
