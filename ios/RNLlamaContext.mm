@@ -588,16 +588,16 @@
     llama->beginCompletion();
     try {
         // Use the unified loadPrompt function with image paths if available
-        NSArray *imagePaths = params[@"image_paths"];
+        NSArray *imagePaths = params[@"media_paths"];
         if (imagePaths && [imagePaths count] > 0) {
             // Multiple image paths
-            std::vector<std::string> image_paths_vector;
+            std::vector<std::string> media_paths_vector;
             for (NSString *path in imagePaths) {
                 if ([path isKindOfClass:[NSString class]]) {
-                    image_paths_vector.push_back([path UTF8String]);
+                    media_paths_vector.push_back([path UTF8String]);
                 }
             }
-            llama->loadPrompt(image_paths_vector);
+            llama->loadPrompt(media_paths_vector);
         } else {
             llama->loadPrompt({});
         }
@@ -735,16 +735,16 @@
 }
 
 - (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths {
-    std::vector<std::string> image_paths_vector;
+    std::vector<std::string> media_paths_vector;
     if (imagePaths && [imagePaths count] > 0) {
         for (NSString *path in imagePaths) {
             if ([path isKindOfClass:[NSString class]]) {
-                image_paths_vector.push_back([path UTF8String]);
+                media_paths_vector.push_back([path UTF8String]);
             }
         }
     }
     try {
-        rnllama::llama_rn_tokenize_result tokenize_result = llama->tokenize([text UTF8String], image_paths_vector);
+        rnllama::llama_rn_tokenize_result tokenize_result = llama->tokenize([text UTF8String], media_paths_vector);
 
         NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
 

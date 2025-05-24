@@ -714,7 +714,7 @@ export default function App() {
         typeof formatted === 'string' ? formatted : formatted.prompt
       const t0 = Date.now()
       const tokenizeResult = await context.tokenize(prompt, {
-        image_paths: formatted.image_paths,
+        media_paths: formatted.media_paths,
       })
       const t1 = Date.now()
       console.log(

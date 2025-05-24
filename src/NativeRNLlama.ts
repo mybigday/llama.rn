@@ -109,7 +109,7 @@ export type NativeCompletionParams = {
    * When provided, the image will be processed and added to the context.
    * Requires multimodal support to be enabled via initMultimodal.
    */
-  image_paths?: Array<string>
+  media_paths?: Array<string>
   /**
    * Specify a JSON array of stopping strings.
    * These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]`
@@ -371,8 +371,8 @@ export type NativeLlamaChatMessage = {
 export type FormattedChatResult = {
   type: 'jinja' | 'llama-chat'
   prompt: string
-  has_image: boolean
-  image_paths?: Array<string>
+  has_media: boolean
+  media_paths?: Array<string>
 }
 
 export type JinjaFormattedChatResult = FormattedChatResult & {
