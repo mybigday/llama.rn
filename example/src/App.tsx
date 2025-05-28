@@ -72,6 +72,14 @@ const systemMessage = {
 
 const defaultConversationId = 'default'
 
+const ask = (title: string, message: string): Promise<boolean> =>
+  new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: 'No', style: 'cancel', onPress: () => resolve(false) },
+      { text: 'Yes', onPress: () => resolve(true) },
+    ])
+  })
+
 const renderBubble = ({
   child,
   message,
@@ -196,7 +204,7 @@ export default function App() {
         // no_gpu_devices: true, // (iOS only)
 
         ctx_shift: false,
-        // n_ctx: 8192, // OuteTTS recommends 8192
+        n_ctx: vocoderModelFile ? 8192 : 512, // OuteTTS recommends 8192
       },
       (progress) => {
         setMessages((msgs) => {
@@ -262,6 +270,13 @@ export default function App() {
           )
         }
 
+        if (isTTSEnabled) {
+          commands.push(
+            '- /tts <text>: to speak something',
+            '- /release-tts: to release TTS support',
+          )
+        }
+
         addSystemMessage(
           `Context initialized!\n\n` +
             `Load time: ${t1 - t0}ms\n` +
@@ -272,22 +287,6 @@ export default function App() {
             `Multimodal: ${isMultimodalEnabled ? 'YES' : 'NO'}\n\n` +
             `You can use the following commands:\n\n${commands.join('\n')}`,
         )
-
-        // Test TTS
-        // if (isTTSEnabled) {
-        //   const prompt = await ctx.getFormattedAudioCompletion(null, 'Hello, how are you?')
-        //   const guideTokens = await ctx.getAudioCompletionGuideTokens('Hello, how are you?')
-        //   const { audio_tokens } = await ctx.completion({
-        //     temperature: 0.1,
-        //     penalty_repeat: 1.1,
-        //     prompt,
-        //     guide_tokens: guideTokens,
-        //   }, () => {})
-        //   if (audio_tokens) {
-        //     const audio = await ctx.decodeAudioTokens(audio_tokens)
-        //     console.log('audio length', audio.length / 24000) // WavTokenizer's sample rate is 24000
-        //   }
-        // }
       })
       .catch((err) => {
         addSystemMessage(`Context initialization failed: ${err.message}`)
@@ -362,40 +361,27 @@ export default function App() {
     loraFile = null
 
     let vocoderModelFile: any = null
-    // Example: Apply vocoder model (Currently only select one vocoder model file) (Uncomment to use)
-    // vocoderModelFile = await pickVocoderModel()
 
+    // Ask if user wants to enable TTS support
+    const ttsEnabled = await ask(
+      'TTS Support',
+      'Do you want to enable TTS support? This requires a vocoder model file.',
+    )
+    if (ttsEnabled) {
+      vocoderModelFile = await pickVocoderModel()
+    }
+
+    let mmProjFile: any = null
     // Ask if user wants to enable multimodal support
-    Alert.alert(
+    const mmProjEnabled = await ask(
       'Multimodal Support',
       'Do you want to enable multimodal support? This requires a mmproj file.',
-      [
-        {
-          text: 'No',
-          style: 'cancel',
-          onPress: () => {
-            handleInitContext(modelFile, loraFile, vocoderModelFile)
-          },
-        },
-        {
-          text: 'Yes',
-          onPress: async () => {
-            addSystemMessage(
-              'Please select a mmproj file for multimodal support...',
-            )
-            const mmProjFile = await pickMmproj()
-            if (mmProjFile) {
-              handleInitContext(modelFile, loraFile, vocoderModelFile, mmProjFile)
-            } else {
-              addSystemMessage(
-                'No mmproj file selected, continuing without multimodal support.',
-              )
-              handleInitContext(modelFile, loraFile, vocoderModelFile)
-            }
-          },
-        },
-      ],
     )
+    if (mmProjEnabled) {
+      mmProjFile = await pickMmproj()
+    }
+
+    handleInitContext(modelFile, loraFile, vocoderModelFile, mmProjFile)
   }
 
   const handleSendPress = async (message: MessageType.PartialText) => {
@@ -632,6 +618,23 @@ export default function App() {
           }`,
         )
       }
+    }
+
+    if (message.text.startsWith('/tts ')) {
+      const text = message.text.slice(5)
+      const prompt = await context.getFormattedAudioCompletion(null, text)
+      const guideTokens = await context.getAudioCompletionGuideTokens(text)
+      const { audio_tokens: audioTokens } = await context.completion({
+        temperature: 0.1,
+        penalty_repeat: 1.1,
+        prompt,
+        guide_tokens: guideTokens,
+      }, () => {})
+      if (audioTokens) {
+        const audio = await context.decodeAudioTokens(audioTokens)
+        console.log('audio length', audio.length / 24000) // WavTokenizer's sample rate is 24000
+      }
+      return
     }
 
     const textMessage: MessageType.Text = {
@@ -946,6 +949,8 @@ export default function App() {
         addSystemMessage(`Completion failed: ${e.message}`)
       })
   }
+
+  console.log(!!context, context)
 
   return (
     <SafeAreaProvider>
