@@ -159,9 +159,23 @@ export default function App() {
       addSystemMessage('Failed to initialize multimodal support.')
     }
   }
+  const handleInitVocoder = async (
+    ctx: LlamaContext,
+    file: DocumentPickerResponse,
+  ) => {
+    if (!ctx) return
+    addSystemMessage('Initializing Vocoder support...')
+    const success = await ctx.initVocoder(file.uri)
+    if (success) {
+      addSystemMessage('Vocoder support initialized successfully!')
+    } else {
+      addSystemMessage('Failed to initialize Vocoder support.')
+    }
+  }
   const handleInitContext = async (
     file: DocumentPickerResponse,
     loraFile: DocumentPickerResponse | null,
+    vocoderModelFile: DocumentPickerResponse | null,
     mmProjFile: DocumentPickerResponse | null = null,
   ) => {
     await handleReleaseContext()
@@ -182,6 +196,7 @@ export default function App() {
         // no_gpu_devices: true, // (iOS only)
 
         ctx_shift: false,
+        // n_ctx: 8192, // OuteTTS recommends 8192
       },
       (progress) => {
         setMessages((msgs) => {
@@ -204,6 +219,12 @@ export default function App() {
       .then(async (ctx) => {
         const t1 = Date.now()
         setContext(ctx)
+
+        let isTTSEnabled = false
+        if (vocoderModelFile) {
+          await handleInitVocoder(ctx, vocoderModelFile)
+          isTTSEnabled = await ctx.isVocoderEnabled()
+        }
 
         let isMultimodalEnabled = false
         // Initialize multimodal support if mmproj file was provided
@@ -251,6 +272,22 @@ export default function App() {
             `Multimodal: ${isMultimodalEnabled ? 'YES' : 'NO'}\n\n` +
             `You can use the following commands:\n\n${commands.join('\n')}`,
         )
+
+        // Test TTS
+        // if (isTTSEnabled) {
+        //   const prompt = await ctx.getFormattedAudioCompletion(null, 'Hello, how are you?')
+        //   const guideTokens = await ctx.getAudioCompletionGuideTokens('Hello, how are you?')
+        //   const { audio_tokens } = await ctx.completion({
+        //     temperature: 0.1,
+        //     penalty_repeat: 1.1,
+        //     prompt,
+        //     guide_tokens: guideTokens,
+        //   }, () => {})
+        //   if (audio_tokens) {
+        //     const audio = await ctx.decodeAudioTokens(audio_tokens)
+        //     console.log('audio length', audio.length / 24000) // WavTokenizer's sample rate is 24000
+        //   }
+        // }
       })
       .catch((err) => {
         addSystemMessage(`Context initialization failed: ${err.message}`)
@@ -303,12 +340,19 @@ export default function App() {
     return mmProjFile
   }
 
+  const pickVocoderModel = async () => {
+    let vocoderModelFile
+    const vocoderModelRes = await DocumentPicker.pick({
+      type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
+    }).catch((e) => console.log('No vocoder model file picked, error: ', e.message))
+    if (vocoderModelRes?.[0]) vocoderModelFile = await copyFileIfNeeded('vocoder', vocoderModelRes[0])
+    return vocoderModelFile
+  }
+
   // We'll use this function directly in the /image command handler
 
   const handlePickModel = async () => {
-    const modelRes = await DocumentPicker.pick({
-      type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
-    }).catch((e) => console.log('No model file picked, error: ', e.message))
+    const modelRes = await DocumentPicker.pick().catch((e) => console.log('No model file picked, error: ', e.message))
     if (!modelRes?.[0]) return
     const modelFile = await copyFileIfNeeded('model', modelRes?.[0])
 
@@ -316,6 +360,10 @@ export default function App() {
     // Example: Apply lora adapter (Currently only select one lora file) (Uncomment to use)
     // loraFile = await pickLora()
     loraFile = null
+
+    let vocoderModelFile: any = null
+    // Example: Apply vocoder model (Currently only select one vocoder model file) (Uncomment to use)
+    // vocoderModelFile = await pickVocoderModel()
 
     // Ask if user wants to enable multimodal support
     Alert.alert(
@@ -326,7 +374,7 @@ export default function App() {
           text: 'No',
           style: 'cancel',
           onPress: () => {
-            handleInitContext(modelFile, loraFile)
+            handleInitContext(modelFile, loraFile, vocoderModelFile)
           },
         },
         {
@@ -337,12 +385,12 @@ export default function App() {
             )
             const mmProjFile = await pickMmproj()
             if (mmProjFile) {
-              handleInitContext(modelFile, loraFile, mmProjFile)
+              handleInitContext(modelFile, loraFile, vocoderModelFile, mmProjFile)
             } else {
               addSystemMessage(
                 'No mmproj file selected, continuing without multimodal support.',
               )
-              handleInitContext(modelFile, loraFile)
+              handleInitContext(modelFile, loraFile, vocoderModelFile)
             }
           },
         },
