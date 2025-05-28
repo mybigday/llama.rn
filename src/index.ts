@@ -528,10 +528,53 @@ export class LlamaContext {
     return await RNLlama.releaseMultimodal(this.id)
   }
 
+  /**
+   * Initialize TTS support with a vocoder model
+   * @param vocoderModelPath Path to the vocoder model
+   * @returns Promise resolving to true if initialization was successful
+   */
+  async initVocoder(vocoderModelPath: string): Promise<boolean> {
+    return await RNLlama.initVocoder(this.id, vocoderModelPath)
+  }
+  
+  /**
+   * Check if TTS support is enabled
+   * @returns Promise resolving to true if TTS is enabled
+   */
+  async isVocoderEnabled(): Promise<boolean> {
+    return await RNLlama.isVocoderEnabled(this.id)
+  }
+  
+  /**
+   * Get a formatted audio completion prompt
+   * @param speakerJsonStr JSON string representing the speaker
+   * @param textToSpeak Text to speak
+   * @returns Promise resolving to the formatted audio completion prompt
+   */
+  async getFormattedAudioCompletion(speaker: object | null, textToSpeak: string): Promise<string> {
+    return await RNLlama.getFormattedAudioCompletion(this.id, speaker ? JSON.stringify(speaker) : '', textToSpeak)
+  }
+
+  /**
+   * Decode audio tokens
+   * @param tokens Array of audio tokens
+   * @returns Promise resolving to the decoded audio tokens
+   */
+  async decodeAudioTokens(tokens: number[]): Promise<Array<number>> {
+    return await RNLlama.decodeAudioTokens(this.id, tokens)
+  }
+
+  /**
+   * Release TTS support
+   * @returns Promise resolving to void
+   */
+  async releaseVocoder(): Promise<void> {
+    return await RNLlama.releaseVocoder(this.id)
+  }
+
   async release(): Promise<void> {
     return RNLlama.releaseContext(this.id)
-  }
-}
+  }}
 
 export async function toggleNativeLog(enabled: boolean): Promise<void> {
   return RNLlama.toggleNativeLog(enabled)

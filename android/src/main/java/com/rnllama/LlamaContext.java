@@ -407,6 +407,30 @@ public class LlamaContext {
     releaseMultimodal(this.context);
   }
 
+  public boolean initVocoder(String vocoderModelPath) {
+    return initVocoder(this.context, vocoderModelPath);
+  }
+
+  public boolean isVocoderEnabled() {
+    return isVocoderEnabled(this.context);
+  }
+
+  public String getFormattedAudioCompletion(String speakerJsonStr, String textToSpeak) {
+    return getFormattedAudioCompletion(this.context, speakerJsonStr, textToSpeak);
+  }
+
+  public WritableArray decodeAudioTokens(ReadableArray tokens) {
+    int[] toks = new int[tokens.size()];
+    for (int i = 0; i < tokens.size(); i++) {
+      toks[i] = (int) tokens.getDouble(i);
+    }
+    return decodeAudioTokens(this.context, toks);
+  }
+
+  public void releaseVocoder() {
+    releaseVocoder(this.context);
+  }
+
   public void release() {
     freeContext(context);
   }
@@ -612,4 +636,9 @@ public class LlamaContext {
   protected static native void setupLog(NativeLogCallback logCallback);
   protected static native void unsetLog();
   protected static native void releaseMultimodal(long contextPtr);
+  protected static native boolean isVocoderEnabled(long contextPtr);
+  protected static native String getFormattedAudioCompletion(long contextPtr, String speakerJsonStr, String textToSpeak);
+  protected static native WritableArray decodeAudioTokens(long contextPtr, int[] tokens);
+  protected static native boolean initVocoder(long contextPtr, String vocoderModelPath);
+  protected static native void releaseVocoder(long contextPtr);
 }

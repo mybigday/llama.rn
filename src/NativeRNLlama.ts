@@ -285,6 +285,7 @@ export type NativeCompletionResult = {
   timings: NativeCompletionResultTimings
 
   completion_probabilities?: Array<NativeCompletionTokenProb>
+  audio_tokens?: Array<number>
 }
 
 export type NativeTokenizeResult = {
@@ -477,6 +478,13 @@ export interface Spec extends TurboModule {
   releaseMultimodal(
     contextId: number,
   ): Promise<void>
+
+  // TTS methods
+  initVocoder(contextId: number, vocoderModelPath: string): Promise<boolean>
+  isVocoderEnabled(contextId: number): Promise<boolean>
+  getFormattedAudioCompletion(contextId: number, speakerJsonStr: string, textToSpeak: string): Promise<string>
+  decodeAudioTokens(contextId: number, tokens: number[]): Promise<Array<number>>
+  releaseVocoder(contextId: number): Promise<void>
 
   releaseContext(contextId: number): Promise<void>
 
