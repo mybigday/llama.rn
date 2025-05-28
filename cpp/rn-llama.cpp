@@ -441,6 +441,10 @@ void llama_rn_context::loadPrompt(const std::vector<std::string> &media_paths) {
              n_past, embd.size(), num_prompt_tokens, has_media ? 1 : 0);
 }
 
+void llama_rn_context::setGuideTokens(const std::vector<llama_token> &tokens) {
+    guide_tokens = tokens;
+}
+
 void llama_rn_context::beginCompletion() {
     // number of tokens to keep when resetting context
     n_remain = params.n_predict;
@@ -1301,6 +1305,7 @@ void llama_rn_context::releaseMultimodal() {
 }
 
 struct llama_rn_context_vocoder {
+    common_init_result init_result;
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
     tts_type type = UNKNOWN;
@@ -1315,20 +1320,21 @@ bool llama_rn_context::initVocoder(const std::string &vocoder_model_path) {
     params.ctx_shift = false;
     params.n_ubatch = params.n_batch;
 
-    common_init_result llama_init_cts = common_init_from_params(params);
+    llama_rn_context_vocoder *wrapper = new llama_rn_context_vocoder{
+        .init_result = common_init_from_params(params),
+    };
 
-    llama_model *model_vocoder = llama_init_cts.model.get();
-    llama_context *ctx_vocoder = llama_init_cts.context.get();
+    wrapper->model = wrapper->init_result.model.get();
+    wrapper->ctx = wrapper->init_result.context.get();
 
-    if (model_vocoder == nullptr || ctx_vocoder == nullptr) {
+    if (wrapper->model == nullptr || wrapper->ctx == nullptr) {
         LOG_ERROR("Failed to load vocoder model: %s", vocoder_model_path.c_str());
+        delete wrapper;
         return false;
     }
 
-    vocoder_wrapper = new llama_rn_context_vocoder();
-    vocoder_wrapper->model = model_vocoder;
-    vocoder_wrapper->ctx = ctx_vocoder;
-    vocoder_wrapper->type = getTTSType();
+    wrapper->type = getTTSType();
+    vocoder_wrapper = wrapper;
     has_vocoder = true;
     return true;
 }
@@ -1607,7 +1613,7 @@ lovely<|t_0.56|><|code_start|><|634|><|596|><|1766|><|1556|><|1306|><|1285|><|14
 
 std::vector<llama_token> llama_rn_context::getAudioCompletionGuideTokens(const std::string &text_to_speak) {
     const llama_vocab * vocab = llama_model_get_vocab(model);
-    const tts_type type = getTTSType(speaker);
+    const tts_type type = getTTSType();
     std::string clean_text = process_text(text_to_speak, type);
 
     const std::string& delimiter = (type == OUTETTS_V0_3 ? "<|space|>" : "<|text_sep|>");
@@ -1807,7 +1813,7 @@ std::vector<float> llama_rn_context::decodeAudioTokens(const std::vector<llama_t
     const int n_codes = tokens_audio.size();
     llama_batch batch = llama_batch_init(n_codes, 0, 1);
     for (size_t i = 0; i < tokens_audio.size(); ++i) {
-        common_batch_add(batch, tokens_audio[i], i, { 0 }, true);
+        llama_batch_add(&batch, tokens_audio[i], i, { 0 }, true);
     }
     if (batch.n_tokens != n_codes) {
         LOG_ERROR("batch.n_tokens != n_codes: %d != %d", batch.n_tokens, n_codes);
