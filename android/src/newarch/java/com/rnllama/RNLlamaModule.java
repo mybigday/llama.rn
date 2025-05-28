@@ -148,6 +148,11 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
+  public void getAudioCompletionGuideTokens(double id, final String textToSpeak, final Promise promise) {
+    rnllama.getAudioCompletionGuideTokens(id, textToSpeak, promise);
+  }
+
+  @ReactMethod
   public void decodeAudioTokens(double id, final ReadableArray tokens, final Promise promise) {
     rnllama.decodeAudioTokens(id, tokens, promise);
   }

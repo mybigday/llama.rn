@@ -82,6 +82,9 @@ struct llama_rn_context {
     common_params params;
     common_init_result llama_init;
 
+    bool next_token_uses_guide_token = true;
+    std::vector<llama_token> guide_tokens;
+
     llama_model *model = nullptr;
     float loading_progress = 0;
     bool is_load_interrupted = false;
@@ -128,6 +131,7 @@ struct llama_rn_context {
     ) const;
     void truncatePrompt(std::vector<llama_token> &prompt_tokens);
     void loadPrompt(const std::vector<std::string> &media_paths);
+    void setGuideTokens(const std::vector<llama_token> &tokens);
     void beginCompletion();
     void endCompletion();
     completion_token_output nextToken();
@@ -158,6 +162,7 @@ struct llama_rn_context {
     bool initVocoder(const std::string &vocoder_model_path);
     tts_type getTTSType(json speaker = nullptr);
     std::string getFormattedAudioCompletion(const std::string &speaker_json_str, const std::string &text_to_speak);
+    std::vector<llama_token> getAudioCompletionGuideTokens(const std::string &text_to_speak);
     std::vector<float> decodeAudioTokens(const std::vector<llama_token> &tokens);
     bool isVocoderEnabled() const;
     void releaseVocoder();

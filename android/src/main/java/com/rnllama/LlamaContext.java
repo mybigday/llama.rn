@@ -243,6 +243,8 @@ public class LlamaContext {
       this.context,
       // String prompt,
       params.getString("prompt"),
+      // int[] guide_tokens,
+      params.hasKey("guide_tokens") ? params.getArray("guide_tokens").toArrayList().stream().mapToInt(d -> (int) d).toArray() : null,
       // int chat_format,
       params.hasKey("chat_format") ? params.getInt("chat_format") : 0,
       // String grammar,
@@ -419,6 +421,10 @@ public class LlamaContext {
     return getFormattedAudioCompletion(this.context, speakerJsonStr, textToSpeak);
   }
 
+  public WritableArray getAudioCompletionGuideTokens(String textToSpeak) {
+    return getAudioCompletionGuideTokens(this.context, textToSpeak);
+  }
+
   public WritableArray decodeAudioTokens(ReadableArray tokens) {
     int[] toks = new int[tokens.size()];
     for (int i = 0; i < tokens.size(); i++) {
@@ -582,6 +588,7 @@ public class LlamaContext {
   protected static native WritableMap doCompletion(
     long context_ptr,
     String prompt,
+    int[] guide_tokens,
     int chat_format,
     String grammar,
     String json_schema,
@@ -638,6 +645,7 @@ public class LlamaContext {
   protected static native void releaseMultimodal(long contextPtr);
   protected static native boolean isVocoderEnabled(long contextPtr);
   protected static native String getFormattedAudioCompletion(long contextPtr, String speakerJsonStr, String textToSpeak);
+  protected static native WritableArray getAudioCompletionGuideTokens(long contextPtr, String textToSpeak);
   protected static native WritableArray decodeAudioTokens(long contextPtr, int[] tokens);
   protected static native boolean initVocoder(long contextPtr, String vocoderModelPath);
   protected static native void releaseVocoder(long contextPtr);

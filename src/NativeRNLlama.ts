@@ -225,6 +225,13 @@ export type NativeCompletionParams = {
    */
   seed?: number
 
+  /**
+   * Guide tokens for the completion.
+   * Help prevent hallucinations by forcing the TTS to use the correct words.
+   * Default: `[]`
+   */
+  guide_tokens?: Array<number>
+
   emit_partial_completion: boolean
 }
 
@@ -483,6 +490,7 @@ export interface Spec extends TurboModule {
   initVocoder(contextId: number, vocoderModelPath: string): Promise<boolean>
   isVocoderEnabled(contextId: number): Promise<boolean>
   getFormattedAudioCompletion(contextId: number, speakerJsonStr: string, textToSpeak: string): Promise<string>
+  getAudioCompletionGuideTokens(contextId: number, textToSpeak: string): Promise<Array<number>>
   decodeAudioTokens(contextId: number, tokens: number[]): Promise<Array<number>>
   releaseVocoder(contextId: number): Promise<void>
 

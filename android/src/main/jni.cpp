@@ -677,6 +677,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jobject thiz,
     jlong context_ptr,
     jstring prompt,
+    jintArray guide_tokens,
     jint chat_format,
     jstring grammar,
     jstring json_schema,
@@ -724,6 +725,18 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     // Set the prompt parameter
     llama->params.prompt = prompt_chars;
+
+    // Set the guide tokens parameter
+    if (guide_tokens != nullptr) {
+        int guide_tokens_size = env->GetArrayLength(guide_tokens);
+        int *guide_tokens_array = env->GetIntArrayElements(guide_tokens, nullptr);
+        std::vector<llama_token> guide_tokens_vector(guide_tokens_size);
+        for (int i = 0; i < guide_tokens_size; i++) {
+            guide_tokens_vector[i] = guide_tokens_array[i];
+        }
+        env->ReleaseIntArrayElements(guide_tokens, guide_tokens_array, 0);
+        llama->setGuideTokens(guide_tokens_vector);
+    }
 
     // Process image paths if provided
     std::vector<std::string> media_paths_vector;
@@ -1476,6 +1489,26 @@ Java_com_rnllama_LlamaContext_getFormattedAudioCompletion(
     env->ReleaseStringUTFChars(speaker_json_str, speaker_json_str_chars);
     env->ReleaseStringUTFChars(text_to_speak, text_to_speak_chars);
     return env->NewStringUTF(result.c_str());
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_getAudioCompletionGuideTokens(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring text_to_speak
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    const char *text_to_speak_chars = env->GetStringUTFChars(text_to_speak, nullptr);
+    std::vector<llama_token> guide_tokens = llama->getAudioCompletionGuideTokens(text_to_speak_chars);
+    env->ReleaseStringUTFChars(text_to_speak, text_to_speak_chars);
+    auto result = createWritableArray(env);
+    for (const auto &val : guide_tokens) {
+        pushInt(env, result, (int) val);
+    }
+    return result;
 }
 
 JNIEXPORT jobject JNICALL

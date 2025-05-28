@@ -556,6 +556,15 @@ export class LlamaContext {
   }
 
   /**
+   * Get guide tokens for audio completion
+   * @param textToSpeak Text to speak
+   * @returns Promise resolving to the guide tokens
+   */
+  async getAudioCompletionGuideTokens(textToSpeak: string): Promise<Array<number>> {
+    return await RNLlama.getAudioCompletionGuideTokens(this.id, textToSpeak)
+  }
+
+  /**
    * Decode audio tokens
    * @param tokens Array of audio tokens
    * @returns Promise resolving to the decoded audio tokens

@@ -259,6 +259,8 @@ void llama_rn_context::rewind() {
     n_remain = 0;
     n_past = 0;
     params.sampling.n_prev = n_ctx;
+    next_token_uses_guide_token = true;
+    guide_tokens.clear();
 }
 
 bool llama_rn_context::initSampling() {
@@ -529,7 +531,14 @@ completion_token_output llama_rn_context::nextToken()
         std::vector<llama_token_data> candidates;
         candidates.reserve(llama_vocab_n_tokens(vocab));
 
-        result.tok = common_sampler_sample(ctx_sampling, ctx, -1);
+        llama_token new_token_id = common_sampler_sample(ctx_sampling, ctx, -1);
+
+        if (next_token_uses_guide_token && !guide_tokens.empty() && !llama_vocab_is_control(vocab, new_token_id) && !llama_vocab_is_eog(vocab, new_token_id)) {
+            new_token_id = guide_tokens[0];
+            guide_tokens.erase(guide_tokens.begin());
+        }
+        next_token_uses_guide_token = (new_token_id == 198);
+        result.tok = new_token_id;
 
         llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling);
 
@@ -1576,7 +1585,7 @@ looks<|t_0.27|><|code_start|><|1281|><|1266|><|1755|><|572|><|248|><|1751|><|125
 lovely<|t_0.56|><|code_start|><|634|><|596|><|1766|><|1556|><|1306|><|1285|><|1481|><|1721|><|1123|><|438|><|1246|><|1251|><|795|><|659|><|1381|><|1658|><|217|><|1772|><|562|><|952|><|107|><|1129|><|1112|><|467|><|550|><|1079|><|840|><|1615|><|1469|><|1380|><|168|><|917|><|836|><|1827|><|437|><|583|><|67|><|595|><|1087|><|1646|><|1493|><|1677|><|code_end|>)";
 
     json speaker = speaker_json_str.empty() ? json::object() : json::parse(speaker_json_str);
-    tts_type type = getTTSType(speaker);
+    const tts_type type = getTTSType(speaker);
     if (type == UNKNOWN) {
         LOG_ERROR("Unknown TTS version");
         return "";
@@ -1594,6 +1603,37 @@ lovely<|t_0.56|><|code_start|><|634|><|596|><|1766|><|1556|><|1306|><|1285|><|14
     }
 
     return "<|im_start|>\n" + audio_text + process_text(text_to_speak, type) + "<|text_end|>\n" + audio_data + "\n";
+}
+
+std::vector<llama_token> llama_rn_context::getAudioCompletionGuideTokens(const std::string &text_to_speak) {
+    const llama_vocab * vocab = llama_model_get_vocab(model);
+    const tts_type type = getTTSType(speaker);
+    std::string clean_text = process_text(text_to_speak, type);
+
+    const std::string& delimiter = (type == OUTETTS_V0_3 ? "<|space|>" : "<|text_sep|>");
+
+    std::vector<llama_token> result;
+    size_t start = 0;
+    size_t end = clean_text.find(delimiter);
+
+    //first token is always a newline, as it was not previously added
+    result.push_back(common_tokenize(vocab, "\n", false, true)[0]);
+
+    while (end != std::string::npos) {
+        std::string current_word = clean_text.substr(start, end - start);
+        auto tmp = common_tokenize(vocab, current_word, false, true);
+        result.push_back(tmp[0]);
+        start = end + delimiter.length();
+        end = clean_text.find(delimiter, start);
+    }
+
+    // Add the last part
+    std::string current_word = clean_text.substr(start);
+    auto tmp = common_tokenize(vocab, current_word, false, true);
+    if (tmp.size() > 0) {
+        result.push_back(tmp[0]);
+    }
+    return result;
 }
 
 static void fill_hann_window(int length, bool periodic, float * output) {

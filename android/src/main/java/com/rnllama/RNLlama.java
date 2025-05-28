@@ -818,6 +818,41 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "getFormattedAudioCompletion-" + contextId);
   }
 
+  public void getAudioCompletionGuideTokens(double id, final String textToSpeak, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, WritableArray>() {
+      private Exception exception;
+
+      @Override
+      protected WritableArray doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          if (!context.isVocoderEnabled()) {
+            throw new Exception("Vocoder is not enabled");
+          }
+          return context.getAudioCompletionGuideTokens(textToSpeak);
+        } catch (Exception e) {
+          exception = e;
+          return null;
+        }
+      }
+
+      @Override
+      protected void onPostExecute(WritableArray result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "getAudioCompletionGuideTokens-" + contextId);
+  }
+
   public void decodeAudioTokens(double id, final ReadableArray tokens, final Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, WritableArray>() {
