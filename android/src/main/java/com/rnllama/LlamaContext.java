@@ -239,12 +239,21 @@ public class LlamaContext {
       }
     }
 
+    int[] guide_tokens = null;
+    if (params.hasKey("guide_tokens")) {
+      ReadableArray guide_tokens_array = params.getArray("guide_tokens");
+      guide_tokens = new int[guide_tokens_array.size()];
+      for (int i = 0; i < guide_tokens_array.size(); i++) {
+        guide_tokens[i] = (int) guide_tokens_array.getDouble(i);
+      }
+    }
+
     WritableMap result = doCompletion(
       this.context,
       // String prompt,
       params.getString("prompt"),
       // int[] guide_tokens,
-      params.hasKey("guide_tokens") ? params.getArray("guide_tokens").toArrayList().stream().mapToInt(d -> (int) d).toArray() : null,
+      guide_tokens,
       // int chat_format,
       params.hasKey("chat_format") ? params.getInt("chat_format") : 0,
       // String grammar,
