@@ -1,6 +1,6 @@
 import React, { useContext, useState, useEffect, useRef, useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native'
+import { View, Text, TouchableOpacity, Image, StyleSheet, Button } from 'react-native'
 import Clipboard from '@react-native-clipboard/clipboard'
 import { ThemeContext, UserContext } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
@@ -35,42 +35,33 @@ const AudioPlayer = ({ audio, sr }: { audio: Float32Array; sr: number }) => {
 
   useEffect(() => {
     if (isPlaying) {
+      setProgress(0)
+      const interval = setInterval(() => {
+        setProgress(ctxRef.current?.currentTime ?? 0)
+      }, 10)
       ctxRef.current ??= new AudioContext()
       const audioBuffer = ctxRef.current.createBuffer(1, audio.length, sr)
-      audioBuffer.copyToChannel(new Float32Array(audio), 0, 0)
+      audioBuffer.copyToChannel(new Float32Array(audio), 0)
       const source = ctxRef.current.createBufferSource()
       source.buffer = audioBuffer
       source.connect(ctxRef.current.destination)
       source.start()
-
       source.onended = () => {
+        clearInterval(interval)
         setIsPlaying(false)
-        setProgress(0)
+        setProgress(duration)
       }
-
-      const interval = setInterval(() => {
-        setProgress((v) => v + 0.01)
-      }, 10)
       return () => clearInterval(interval)
     } else {
       ctxRef.current?.close()
       ctxRef.current = null
-
-      setProgress(0)
       return () => {}
     }
-  }, [isPlaying, audio, sr])
+  }, [isPlaying, audio, sr, duration])
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity
-        onPressIn={() => {
-          setIsPlaying((v) => !v)
-        }}
-        style={styles.button}
-      >
-        <Text style={styles.text}>{isPlaying ? '⏹️' : '▶️'}</Text>
-      </TouchableOpacity>
+      <Button title={isPlaying ? '⏹️' : '▶️'} onPress={() => setIsPlaying((v) => !v)} />
       <Text style={styles.text}>
         {progress.toFixed(2)}
         {' '}
