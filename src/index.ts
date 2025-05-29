@@ -534,9 +534,11 @@ export class LlamaContext {
    * @returns Promise resolving to true if initialization was successful
    */
   async initVocoder(vocoderModelPath: string): Promise<boolean> {
+    if (vocoderModelPath.startsWith('file://'))
+      vocoderModelPath = vocoderModelPath.slice(7)
     return await RNLlama.initVocoder(this.id, vocoderModelPath)
   }
-  
+
   /**
    * Check if TTS support is enabled
    * @returns Promise resolving to true if TTS is enabled
@@ -544,15 +546,22 @@ export class LlamaContext {
   async isVocoderEnabled(): Promise<boolean> {
     return await RNLlama.isVocoderEnabled(this.id)
   }
-  
+
   /**
    * Get a formatted audio completion prompt
    * @param speakerJsonStr JSON string representing the speaker
    * @param textToSpeak Text to speak
    * @returns Promise resolving to the formatted audio completion prompt
    */
-  async getFormattedAudioCompletion(speaker: object | null, textToSpeak: string): Promise<string> {
-    return await RNLlama.getFormattedAudioCompletion(this.id, speaker ? JSON.stringify(speaker) : '', textToSpeak)
+  async getFormattedAudioCompletion(
+    speaker: object | null,
+    textToSpeak: string,
+  ): Promise<string> {
+    return await RNLlama.getFormattedAudioCompletion(
+      this.id,
+      speaker ? JSON.stringify(speaker) : '',
+      textToSpeak,
+    )
   }
 
   /**
@@ -560,7 +569,9 @@ export class LlamaContext {
    * @param textToSpeak Text to speak
    * @returns Promise resolving to the guide tokens
    */
-  async getAudioCompletionGuideTokens(textToSpeak: string): Promise<Array<number>> {
+  async getAudioCompletionGuideTokens(
+    textToSpeak: string,
+  ): Promise<Array<number>> {
     return await RNLlama.getAudioCompletionGuideTokens(this.id, textToSpeak)
   }
 
@@ -583,7 +594,8 @@ export class LlamaContext {
 
   async release(): Promise<void> {
     return RNLlama.releaseContext(this.id)
-  }}
+  }
+}
 
 export async function toggleNativeLog(enabled: boolean): Promise<void> {
   return RNLlama.toggleNativeLog(enabled)
