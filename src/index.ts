@@ -530,13 +530,13 @@ export class LlamaContext {
 
   /**
    * Initialize TTS support with a vocoder model
-   * @param vocoderModelPath Path to the vocoder model
+   * @param params Parameters for TTS support
+   * @param params.path Path to the vocoder model
    * @returns Promise resolving to true if initialization was successful
    */
-  async initVocoder(vocoderModelPath: string): Promise<boolean> {
-    if (vocoderModelPath.startsWith('file://'))
-      vocoderModelPath = vocoderModelPath.slice(7)
-    return await RNLlama.initVocoder(this.id, vocoderModelPath)
+  async initVocoder({ path }: { path: string }): Promise<boolean> {
+    if (path.startsWith('file://')) path = path.slice(7)
+    return await RNLlama.initVocoder(this.id, path)
   }
 
   /**
