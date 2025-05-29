@@ -96,9 +96,7 @@ export const Bubble = ({
   const currentUserIsAuthor = user?.id === message.author.id
   const { copyable, timings } = message.metadata || {}
 
-  const Container: React.ComponentClass<any> = copyable
-    ? TouchableOpacity
-    : View
+  const Container = copyable ? TouchableOpacity : View
 
   return (
     <Container

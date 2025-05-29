@@ -2,13 +2,13 @@ import React, { useState, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { Platform, Alert } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import DocumentPicker from 'react-native-document-picker'
-import type { DocumentPickerResponse } from 'react-native-document-picker'
+import DocumentPicker from '@react-native-documents/picker'
+import type { DocumentPickerResponse } from '@react-native-documents/picker'
 import { Chat, darkTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import json5 from 'json5'
 import ReactNativeBlobUtil from 'react-native-blob-util'
-import type { LlamaContext } from 'llama.rn'
+import type { CompletionParams, LlamaContext } from 'llama.rn'
 import {
   initLlama,
   loadLlamaModelInfo,
@@ -622,7 +622,7 @@ export default function App() {
       }
     }
 
-    let audioParams = null
+    let audioParams: Partial<CompletionParams> | null = null
     if (message.text.startsWith('/tts ')) {
       const text = message.text.slice(5)
       const prompt = await context.getFormattedAudioCompletion(null, text)
