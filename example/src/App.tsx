@@ -950,8 +950,6 @@ export default function App() {
       })
   }
 
-  console.log(!!context, context)
-
   return (
     <SafeAreaProvider>
       <Chat
