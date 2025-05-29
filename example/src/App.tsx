@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { Platform, Alert } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import DocumentPicker from '@react-native-documents/picker'
+import { pick } from '@react-native-documents/picker'
 import type { DocumentPickerResponse } from '@react-native-documents/picker'
 import { Chat, darkTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
@@ -324,7 +324,7 @@ export default function App() {
 
   const pickLora = async () => {
     let loraFile
-    const loraRes = await DocumentPicker.pick({
+    const loraRes = await pick({
       type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
     }).catch((e) => console.log('No lora file picked, error: ', e.message))
     if (loraRes?.[0]) loraFile = await copyFileIfNeeded('lora', loraRes[0])
@@ -333,7 +333,7 @@ export default function App() {
 
   const pickMmproj = async () => {
     let mmProjFile
-    const mmProjRes = await DocumentPicker.pick({
+    const mmProjRes = await pick({
       type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
     }).catch((e) => console.log('No mmproj file picked, error: ', e.message))
     if (mmProjRes?.[0])
@@ -343,7 +343,7 @@ export default function App() {
 
   const pickVocoderModel = async () => {
     let vocoderModelFile
-    const vocoderModelRes = await DocumentPicker.pick({
+    const vocoderModelRes = await pick({
       type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
     }).catch((e) => console.log('No vocoder model file picked, error: ', e.message))
     if (vocoderModelRes?.[0]) vocoderModelFile = await copyFileIfNeeded('vocoder', vocoderModelRes[0])
@@ -353,7 +353,7 @@ export default function App() {
   // We'll use this function directly in the /image command handler
 
   const handlePickModel = async () => {
-    const modelRes = await DocumentPicker.pick().catch((e) => console.log('No model file picked, error: ', e.message))
+    const modelRes = await pick().catch((e) => console.log('No model file picked, error: ', e.message))
     if (!modelRes?.[0]) return
     const modelFile = await copyFileIfNeeded('model', modelRes?.[0])
 
@@ -539,7 +539,7 @@ export default function App() {
         // Image: JPEG, PNG, BMP, PSD (Photoshop), TGA, GIF, HDR, PIC (Softimage), PNM
         // Audio: WAV, MP3
         // We limit to the most common formats (we perhaps need to add webp by converting it to supported formats):
-        const mediaRes = await DocumentPicker.pick({
+        const mediaRes = await pick({
           type: mediaType === 'image' ? imageTypes : audioTypes,
         }).catch((e) => {
           console.log(`No ${mediaType} picked, error: `, e.message)
