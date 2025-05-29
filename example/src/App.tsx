@@ -229,6 +229,7 @@ export default function App() {
         setContext(ctx)
 
         let isTTSEnabled = false
+        console.log('vocoderModelFile', vocoderModelFile)
         if (vocoderModelFile) {
           await handleInitVocoder(ctx, vocoderModelFile)
           isTTSEnabled = await ctx.isVocoderEnabled()
@@ -285,6 +286,7 @@ export default function App() {
               ctx.model.chatTemplates.llamaChat ? 'YES' : 'NO'
             }\n` +
             `Multimodal: ${isMultimodalEnabled ? 'YES' : 'NO'}\n\n` +
+            `Vocoder: ${isTTSEnabled ? 'YES' : 'NO'}\n\n` +
             `You can use the following commands:\n\n${commands.join('\n')}`,
         )
       })
