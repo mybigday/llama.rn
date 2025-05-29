@@ -622,21 +622,19 @@ export default function App() {
       }
     }
 
+    let audioParams = null
     if (message.text.startsWith('/tts ')) {
       const text = message.text.slice(5)
       const prompt = await context.getFormattedAudioCompletion(null, text)
       const guideTokens = await context.getAudioCompletionGuideTokens(text)
-      const { audio_tokens: audioTokens } = await context.completion({
-        temperature: 0.1,
-        penalty_repeat: 1.1,
+      audioParams = {
         prompt,
         guide_tokens: guideTokens,
-      }, () => {})
-      if (audioTokens) {
-        const audio = await context.decodeAudioTokens(audioTokens)
-        console.log('audio length', audio.length / 24000) // WavTokenizer's sample rate is 24000
+        temperature: 0.1,
+        penalty_repeat: 1.1,
+        n_predict: 4096,
+        messages: undefined,
       }
-      return
     }
 
     const textMessage: MessageType.Text = {
@@ -886,6 +884,8 @@ export default function App() {
           ],
           // n_threads: 4,
           // logit_bias: [[15043,1.0]],
+
+          ...audioParams,
         },
         (data) => {
           const { token } = data
@@ -908,7 +908,7 @@ export default function App() {
                 createdAt,
                 id,
                 text: token,
-                type: 'text',
+                type: audioParams ? 'custom' : 'text',
                 metadata: {
                   contextId: context?.id,
                   conversationId: conversationIdRef.current,
@@ -924,26 +924,55 @@ export default function App() {
         const timings = `${completionResult.timings.predicted_per_token_ms.toFixed()}ms per token, ${completionResult.timings.predicted_per_second.toFixed(
           2,
         )} tokens per second`
-        setMessages((currentMsgs) => {
-          const index = currentMsgs.findIndex((msg) => msg.id === id)
-          if (index >= 0) {
-            return currentMsgs.map((msg, i) => {
-              if (msg.type == 'text' && i === index) {
-                return {
-                  ...msg,
-                  metadata: {
-                    ...msg.metadata,
-                    timings,
-                  },
+        if (!audioParams) {
+          setMessages((currentMsgs) => {
+            const index = currentMsgs.findIndex((msg) => msg.id === id)
+            if (index >= 0) {
+              return currentMsgs.map((msg, i) => {
+                if (msg.type == 'text' && i === index) {
+                  return {
+                    ...msg,
+                    metadata: {
+                      ...msg.metadata,
+                      timings,
+                    },
+                  }
                 }
-              }
-              return msg
-            })
-          }
-          return currentMsgs
-        })
+                return msg
+              })
+            }
+            return currentMsgs
+          })
+          setInferencing(false)
 
-        setInferencing(false)
+          return
+        } else {
+          return context.decodeAudioTokens(completionResult.audio_tokens!).then((audio) => {
+            console.log('audio length', audio.length / 24000)
+
+            setMessages((currentMsgs) => {
+              const index = currentMsgs.findIndex((msg) => msg.id === id)
+              if (index >= 0) {
+                return currentMsgs.map((msg, i) => {
+                  if (msg.type == 'custom' && i === index) {
+                    return {
+                      ...msg,
+                      metadata: {
+                        ...msg.metadata,
+                        audio,
+                        sr: 24000,
+                        timings,
+                      },
+                    }
+                  }
+                  return msg
+                })
+              }
+              return currentMsgs
+            })
+            setInferencing(false)
+          })
+        }
       })
       .catch((e) => {
         console.log('completion error: ', e)
