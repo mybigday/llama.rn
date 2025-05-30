@@ -1,4 +1,4 @@
-/* eslint-disable import/no-extraneous-dependencies */
+/* eslint-disable import/no-extraneous-dependencies, import/no-unresolved */
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config')
 const path = require('path')
 const escape = require('escape-string-regexp')
