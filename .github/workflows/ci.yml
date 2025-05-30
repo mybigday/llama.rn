@@ -66,8 +66,6 @@ jobs:
       - name: Install cocoapods
         run: |
           yarn example pods
-        env:
-          NO_FLIPPER: 1
 
       - name: Build example for iOS
         run: |
@@ -101,7 +99,6 @@ jobs:
         run: |
           yarn example pods
         env:
-          NO_FLIPPER: 1
           RNLLAMA_BUILD_FROM_SOURCE: 0
 
       - name: Build frameworks
