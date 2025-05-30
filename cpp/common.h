@@ -6,6 +6,7 @@
 
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <sstream>
 
@@ -42,17 +43,6 @@ extern const char * LLAMA_BUILD_TARGET;
 
 struct common_control_vector_load_info;
 
-#define print_build_info() do {                                                                     \
-    fprintf(stderr, "%s: build = %d (%s)\n", __func__, LLAMA_BUILD_NUMBER, LLAMA_COMMIT);           \
-    fprintf(stderr, "%s: built with %s for %s\n", __func__, LLAMA_COMPILER, LLAMA_BUILD_TARGET);    \
-} while(0)
-
-// build info
-extern int LLAMA_BUILD_NUMBER;
-extern char const *LLAMA_COMMIT;
-extern char const *LLAMA_COMPILER;
-extern char const *LLAMA_BUILD_TARGET;
-
 //
 // CPU utils
 //
@@ -77,7 +67,6 @@ enum llama_example {
     LLAMA_EXAMPLE_COMMON,
     LLAMA_EXAMPLE_SPECULATIVE,
     LLAMA_EXAMPLE_MAIN,
-    LLAMA_EXAMPLE_INFILL,
     LLAMA_EXAMPLE_EMBEDDING,
     LLAMA_EXAMPLE_PERPLEXITY,
     LLAMA_EXAMPLE_RETRIEVAL,
@@ -87,7 +76,7 @@ enum llama_example {
     LLAMA_EXAMPLE_SERVER,
     LLAMA_EXAMPLE_CVECTOR_GENERATOR,
     LLAMA_EXAMPLE_EXPORT_LORA,
-    LLAMA_EXAMPLE_LLAVA,
+    LLAMA_EXAMPLE_MTMD,
     LLAMA_EXAMPLE_LOOKUP,
     LLAMA_EXAMPLE_PARALLEL,
     LLAMA_EXAMPLE_TTS,
@@ -107,6 +96,7 @@ enum common_sampler_type {
     COMMON_SAMPLER_TYPE_XTC         = 8,
     COMMON_SAMPLER_TYPE_INFILL      = 9,
     COMMON_SAMPLER_TYPE_PENALTIES   = 10,
+    COMMON_SAMPLER_TYPE_TOP_N_SIGMA = 11,
 };
 
 // dimensionality reduction methods, used by cvector-generator
@@ -132,10 +122,6 @@ struct common_grammar_trigger {
     common_grammar_trigger_type type;
     std::string value;
     llama_token token = LLAMA_TOKEN_NULL;
-
-    // T can only be nlohmann::ordered_json
-    template <class T> T to_json() const;
-    template <class T> static common_grammar_trigger from_json(const T & in);
 };
 
 // sampling parameters
@@ -176,6 +162,7 @@ struct common_params_sampling {
     std::vector<enum common_sampler_type> samplers = {
         COMMON_SAMPLER_TYPE_PENALTIES,
         COMMON_SAMPLER_TYPE_DRY,
+        COMMON_SAMPLER_TYPE_TOP_N_SIGMA,
         COMMON_SAMPLER_TYPE_TOP_K,
         COMMON_SAMPLER_TYPE_TYPICAL_P,
         COMMON_SAMPLER_TYPE_TOP_P,
@@ -195,6 +182,13 @@ struct common_params_sampling {
     std::string print() const;
 };
 
+struct common_params_model {
+    std::string path    = ""; // model local path                                           // NOLINT
+    std::string url     = ""; // model url to download                                      // NOLINT
+    std::string hf_repo = ""; // HF repo                                                    // NOLINT
+    std::string hf_file = ""; // HF file                                                    // NOLINT
+};
+
 struct common_params_speculative {
     std::vector<lm_ggml_backend_dev_t> devices; // devices to use for offloading
 
@@ -208,19 +202,11 @@ struct common_params_speculative {
     struct cpu_params cpuparams;
     struct cpu_params cpuparams_batch;
 
-    std::string hf_repo = ""; // HF repo                                                     // NOLINT
-    std::string hf_file = ""; // HF file                                                     // NOLINT
-
-    std::string model = "";     // draft model for speculative decoding                      // NOLINT
-    std::string model_url = ""; // model url to download                                     // NOLINT
+    struct common_params_model model;
 };
 
 struct common_params_vocoder {
-    std::string hf_repo = ""; // HF repo                                                     // NOLINT
-    std::string hf_file = ""; // HF file                                                     // NOLINT
-
-    std::string model     = ""; // model path                                                // NOLINT
-    std::string model_url = ""; // model url to download                                     // NOLINT
+    struct common_params_model model;
 
     std::string speaker_file = ""; // speaker file path                                      // NOLINT
 
@@ -279,12 +265,10 @@ struct common_params {
     struct common_params_speculative speculative;
     struct common_params_vocoder     vocoder;
 
-    std::string model                = ""; // model path                                                    // NOLINT
+    struct common_params_model model;
+
     std::string model_alias          = ""; // model alias                                                   // NOLINT
-    std::string model_url            = ""; // model url to download                                         // NOLINT
     std::string hf_token             = ""; // HF token                                                      // NOLINT
-    std::string hf_repo              = ""; // HF repo                                                       // NOLINT
-    std::string hf_file              = ""; // HF file                                                       // NOLINT
     std::string prompt               = "";                                                                  // NOLINT
     std::string system_prompt        = "";                                                                  // NOLINT
     std::string prompt_file          = ""; // store the external prompt file name                           // NOLINT
@@ -298,6 +282,7 @@ struct common_params {
     std::vector<std::string> in_files;   // all input files
     std::vector<std::string> antiprompt; // strings upon which more user input is prompted (a.k.a. reverse prompts)
     std::vector<llama_model_kv_override> kv_overrides;
+    std::vector<llama_model_tensor_buft_override> tensor_buft_overrides;
 
     bool lora_init_without_apply = false; // only load lora to memory, but do not apply it to ctx (user can manually apply lora later using llama_adapter_lora_apply)
     std::vector<common_adapter_lora_info> lora_adapters; // lora adapter path with user defined scale
@@ -339,17 +324,17 @@ struct common_params {
     bool flash_attn        = false; // flash attention
     bool no_perf           = false; // disable performance metrics
     bool ctx_shift         = true;  // context shift on inifinite text generation
+    bool swa_full          = false; // use full-size SWA cache (https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
 
     bool input_prefix_bos  = false; // prefix BOS to user inputs, preceding input_prefix
-    bool logits_all        = false; // return logits for all tokens in the batch
     bool use_mmap          = true;  // use mmap for faster loads
     bool use_mlock         = false; // use mlock to keep model in memory
     bool verbose_prompt    = false; // print prompt tokens before generation
     bool display_prompt    = true;  // print prompt before generation
-    bool dump_kv_cache     = false; // dump the KV cache contents for debugging purposes
     bool no_kv_offload     = false; // disable KV offloading
     bool warmup            = true;  // warmup run
     bool check_tensors     = false; // validate tensor data
+    bool no_op_offload     = false; // globally disable offload host tensor operations to device
 
     bool single_turn       = false; // single turn chat conversation
 
@@ -361,8 +346,10 @@ struct common_params {
 
     common_conversation_mode conversation_mode = COMMON_CONVERSATION_MODE_AUTO;
 
-    // multimodal models (see examples/llava)
-    std::string mmproj = "";        // path to multimodal projector                                         // NOLINT
+    // multimodal models (see tools/mtmd)
+    struct common_params_model mmproj;
+    bool mmproj_use_gpu = true;     // use GPU for multimodal model
+    bool no_mmproj = false;         // explicitly disable multimodal model
     std::vector<std::string> image; // path to image file(s)
 
     // embedding
@@ -385,6 +372,7 @@ struct common_params {
     bool use_jinja = false;                                                                                 // NOLINT
     bool enable_chat_template = true;
     common_reasoning_format reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+    bool prefill_assistant = true;                                                                          // if true, any trailing assistant message will be prefilled into the response
 
     std::vector<std::string> api_keys;
 
@@ -428,13 +416,14 @@ struct common_params {
 
     bool process_output = false; // collect data for the output tensor
     bool compute_ppl    = true;  // whether to compute perplexity
+    bool parse_special  = false; // whether to parse special tokens during imatrix tokenization
 
     // cvector-generator params
     int n_pca_batch = 100;
     int n_pca_iterations = 1000;
     dimre_method cvector_dimre_method = DIMRE_METHOD_PCA;
-    std::string cvector_positive_file = "examples/cvector-generator/positive.txt";
-    std::string cvector_negative_file = "examples/cvector-generator/negative.txt";
+    std::string cvector_positive_file = "tools/cvector-generator/positive.txt";
+    std::string cvector_negative_file = "tools/cvector-generator/negative.txt";
 
     bool spm_infill = false; // suffix/prefix/middle pattern for infill
 
@@ -443,6 +432,11 @@ struct common_params {
 
     // common params
     std::string out_file; // output filename for all example programs
+    // optional callback for model loading progress and cancellation:
+    // called with a progress value between 0.0 and 1.0.
+    // return false from callback to abort model loading or true to continue
+    llama_progress_callback load_progress_callback = NULL;
+    void *                  load_progress_callback_user_data = NULL;
 };
 
 // call once at the start of a program if it uses libcommon
@@ -520,10 +514,9 @@ static bool string_starts_with(const std::string & str,
     return str.rfind(prefix, 0) == 0;
 }
 
-static bool string_ends_with(const std::string & str,
-                               const std::string & suffix) {  // While we wait for C++20's std::string::ends_with...
-    return str.size() >= suffix.size() && str.compare(str.size()-suffix.size(), suffix.size(), suffix) == 0;
-}
+// While we wait for C++20's std::string::ends_with...
+bool string_ends_with(const std::string_view & str, const std::string_view & suffix);
+size_t string_find_partial_stop(const std::string_view & str, const std::string_view & stop);
 
 bool string_parse_kv_override(const char * data, std::vector<llama_model_kv_override> & overrides);
 void string_process_escapes(std::string & input);
@@ -563,6 +556,8 @@ struct lm_ggml_threadpool_params lm_ggml_threadpool_params_from_cpu_params(const
 
 // clear LoRA adapters from context, then apply new list of adapters
 void common_set_adapter_lora(struct llama_context * ctx, std::vector<common_adapter_lora_info> & lora);
+
+std::string                   get_model_endpoint();
 
 //
 // Batch utils
@@ -631,16 +626,6 @@ std::string common_detokenize(
                                   bool   special = true);
 
 //
-// KV cache utils
-//
-
-// Dump the KV cache view with the number of sequences per cell.
-void common_kv_cache_dump_view(const llama_kv_cache_view & view, int row_size = 80);
-
-// Dump the KV cache view showing individual sequences in each cell (long output).
-void common_kv_cache_dump_view_seqs(const llama_kv_cache_view & view, int row_size = 40);
-
-//
 // Embedding utils
 //
 
@@ -681,3 +666,9 @@ const char * const LLM_KV_SPLIT_COUNT         = "split.count";
 const char * const LLM_KV_SPLIT_TENSORS_COUNT = "split.tensors.count";
 
 }
+
+//
+// training utils
+//
+
+lm_ggml_opt_dataset_t common_opt_dataset_init(struct llama_context * ctx, const std::vector<llama_token> & tokens, int64_t stride);

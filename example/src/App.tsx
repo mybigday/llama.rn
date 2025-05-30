@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react'
 import type { ReactNode } from 'react'
-import { Platform } from 'react-native'
+import { Platform, Alert } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import DocumentPicker from 'react-native-document-picker'
 import type { DocumentPickerResponse } from 'react-native-document-picker'
@@ -25,9 +25,7 @@ addNativeLogListener((level, text) => {
   let log = (t: string) => t // noop
   // Uncomment to test:
   // ({log} = console)
-  log(
-    ['[rnllama]', level ? `[${level}]` : '', text].filter(Boolean).join(' '),
-  )
+  log(['[rnllama]', level ? `[${level}]` : '', text].filter(Boolean).join(' '))
 })
 
 const { dirs } = ReactNativeBlobUtil.fs
@@ -84,7 +82,6 @@ const renderBubble = ({
 
 export default function App() {
   const [context, setContext] = useState<LlamaContext | undefined>(undefined)
-
   const [inferencing, setInferencing] = useState<boolean>(false)
   const [messages, setMessages] = useState<MessageType.Any[]>([])
 
@@ -126,6 +123,19 @@ export default function App() {
       })
   }
 
+  const handleReleaseMultimodal = async () => {
+    if (!context) return
+    addSystemMessage('Releasing multimodal context...')
+    context
+      .releaseMultimodal()
+      .then(() => {
+        addSystemMessage('Multimodal context released!')
+      })
+      .catch((err) => {
+        addSystemMessage(`Multimodal context release failed: ${err}`)
+      })
+  }
+
   // Example: Get model info without initializing context
   const getModelInfo = async (model: string) => {
     const t0 = Date.now()
@@ -133,9 +143,26 @@ export default function App() {
     console.log(`Model info (took ${Date.now() - t0}ms): `, info)
   }
 
+  const handleInitMultimodal = async (
+    ctx: LlamaContext,
+    file: DocumentPickerResponse,
+  ) => {
+    if (!ctx) return
+    addSystemMessage('Initializing multimodal support...')
+    const success = await ctx.initMultimodal({
+      path: file.uri,
+      use_gpu: true,
+    })
+    if (success) {
+      addSystemMessage('Multimodal support initialized successfully!')
+    } else {
+      addSystemMessage('Failed to initialize multimodal support.')
+    }
+  }
   const handleInitContext = async (
     file: DocumentPickerResponse,
     loraFile: DocumentPickerResponse | null,
+    mmProjFile: DocumentPickerResponse | null = null,
   ) => {
     await handleReleaseContext()
     await getModelInfo(file.uri)
@@ -153,6 +180,8 @@ export default function App() {
         // Currently only for iOS
         n_gpu_layers: Platform.OS === 'ios' ? 99 : 0,
         // no_gpu_devices: true, // (iOS only)
+
+        ctx_shift: false,
       },
       (progress) => {
         setMessages((msgs) => {
@@ -172,23 +201,55 @@ export default function App() {
         })
       },
     )
-      .then((ctx) => {
+      .then(async (ctx) => {
         const t1 = Date.now()
         setContext(ctx)
+
+        let isMultimodalEnabled = false
+        // Initialize multimodal support if mmproj file was provided
+        if (mmProjFile) {
+          await handleInitMultimodal(ctx, mmProjFile)
+          isMultimodalEnabled = await ctx.isMultimodalEnabled()
+        }
+
+        // Create commands list including multimodal commands if enabled
+        const commands = [
+          '- /info: to get the model info',
+          '- /bench: to benchmark the model',
+          '- /release: release the context',
+          '- /stop: stop the current completion',
+          '- /reset: reset the conversation',
+          '- /save-session: save the session tokens',
+          '- /load-session: load the session tokens',
+          '- /lora: apply a lora adapter',
+          '- /remove-lora: remove all lora adapters',
+          '- /lora-list: list all lora adapters',
+        ]
+
+        // Include the image commands if mmproj file was provided
+        if (isMultimodalEnabled) {
+          const { vision, audio } = await ctx.getMultimodalSupport()
+          commands.push(
+            '- /mtmd: pick mmproj file and initialize multimodal support',
+            '- /release-mtmd: release the multimodal context',
+            ...(vision
+              ? ['- /image <content>: pick an image and start a conversation']
+              : []),
+            ...(audio
+              ? ['- /audio <content>: pick an audio and start a conversation']
+              : []),
+          )
+        }
+
         addSystemMessage(
-          `Context initialized!\n\nLoad time: ${t1 - t0}ms\nGPU: ${
-            ctx.gpu ? 'YES' : 'NO'
-          } (${ctx.reasonNoGPU})\nChat Template: ${
-            ctx.model.chatTemplates.llamaChat ? 'YES' : 'NO'
-          }\n\n` +
-            'You can use the following commands:\n\n' +
-            '- /info: to get the model info\n' +
-            '- /bench: to benchmark the model\n' +
-            '- /release: release the context\n' +
-            '- /stop: stop the current completion\n' +
-            '- /reset: reset the conversation' +
-            '- /save-session: save the session tokens\n' +
-            '- /load-session: load the session tokens',
+          `Context initialized!\n\n` +
+            `Load time: ${t1 - t0}ms\n` +
+            `GPU: ${ctx.gpu ? 'YES' : 'NO'} (${ctx.reasonNoGPU})\n` +
+            `Chat Template: ${
+              ctx.model.chatTemplates.llamaChat ? 'YES' : 'NO'
+            }\n` +
+            `Multimodal: ${isMultimodalEnabled ? 'YES' : 'NO'}\n\n` +
+            `You can use the following commands:\n\n${commands.join('\n')}`,
         )
       })
       .catch((err) => {
@@ -232,6 +293,18 @@ export default function App() {
     return loraFile
   }
 
+  const pickMmproj = async () => {
+    let mmProjFile
+    const mmProjRes = await DocumentPicker.pick({
+      type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
+    }).catch((e) => console.log('No mmproj file picked, error: ', e.message))
+    if (mmProjRes?.[0])
+      mmProjFile = await copyFileIfNeeded('mmproj', mmProjRes[0])
+    return mmProjFile
+  }
+
+  // We'll use this function directly in the /image command handler
+
   const handlePickModel = async () => {
     const modelRes = await DocumentPicker.pick({
       type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
@@ -244,126 +317,288 @@ export default function App() {
     // loraFile = await pickLora()
     loraFile = null
 
-    handleInitContext(modelFile, loraFile)
+    // Ask if user wants to enable multimodal support
+    Alert.alert(
+      'Multimodal Support',
+      'Do you want to enable multimodal support? This requires a mmproj file.',
+      [
+        {
+          text: 'No',
+          style: 'cancel',
+          onPress: () => {
+            handleInitContext(modelFile, loraFile)
+          },
+        },
+        {
+          text: 'Yes',
+          onPress: async () => {
+            addSystemMessage(
+              'Please select a mmproj file for multimodal support...',
+            )
+            const mmProjFile = await pickMmproj()
+            if (mmProjFile) {
+              handleInitContext(modelFile, loraFile, mmProjFile)
+            } else {
+              addSystemMessage(
+                'No mmproj file selected, continuing without multimodal support.',
+              )
+              handleInitContext(modelFile, loraFile)
+            }
+          },
+        },
+      ],
+    )
   }
 
   const handleSendPress = async (message: MessageType.PartialText) => {
-    if (context) {
-      switch (message.text) {
-        case '/info':
-          addSystemMessage(
-            `// Model Info\n${json5.stringify(context.model, null, 2)}`,
-            { copyable: true },
-          )
+    if (!context) return
+    switch (message.text) {
+      case '/info':
+        addSystemMessage(
+          `// Model Info\n${json5.stringify(context.model, null, 2)}`,
+          { copyable: true },
+        )
+        return
+      case '/bench':
+        addSystemMessage('Heating up the model...')
+        const t0 = Date.now()
+        await context.bench(8, 4, 1, 1)
+        const tHeat = Date.now() - t0
+        if (tHeat > 1e4) {
+          addSystemMessage('Heat up time is too long, please try again.')
           return
-        case '/bench':
-          addSystemMessage('Heating up the model...')
-          const t0 = Date.now()
-          await context.bench(8, 4, 1, 1)
-          const tHeat = Date.now() - t0
-          if (tHeat > 1e4) {
-            addSystemMessage('Heat up time is too long, please try again.')
-            return
-          }
-          addSystemMessage(`Heat up time: ${tHeat}ms`)
+        }
+        addSystemMessage(`Heat up time: ${tHeat}ms`)
 
-          addSystemMessage('Benchmarking the model...')
-          const {
-            modelDesc,
-            modelSize,
-            modelNParams,
-            ppAvg,
-            ppStd,
-            tgAvg,
-            tgStd,
-          } = await context.bench(512, 128, 1, 3)
+        addSystemMessage('Benchmarking the model...')
+        const {
+          modelDesc,
+          modelSize,
+          modelNParams,
+          ppAvg,
+          ppStd,
+          tgAvg,
+          tgStd,
+        } = await context.bench(512, 128, 1, 3)
 
-          const size = `${(modelSize / 1024.0 / 1024.0 / 1024.0).toFixed(
+        const size = `${(modelSize / 1024.0 / 1024.0 / 1024.0).toFixed(2)} GiB`
+        const nParams = `${(modelNParams / 1e9).toFixed(2)}B`
+        const md =
+          '| model | size | params | test | t/s |\n' +
+          '| --- | --- | --- | --- | --- |\n' +
+          `| ${modelDesc} | ${size} | ${nParams} | pp 512 | ${ppAvg.toFixed(
             2,
-          )} GiB`
-          const nParams = `${(modelNParams / 1e9).toFixed(2)}B`
-          const md =
-            '| model | size | params | test | t/s |\n' +
-            '| --- | --- | --- | --- | --- |\n' +
-            `| ${modelDesc} | ${size} | ${nParams} | pp 512 | ${ppAvg.toFixed(
-              2,
-            )} ± ${ppStd.toFixed(2)} |\n` +
-            `| ${modelDesc} | ${size} | ${nParams} | tg 128 | ${tgAvg.toFixed(
-              2,
-            )} ± ${tgStd.toFixed(2)}`
-          addSystemMessage(md, { copyable: true })
-          return
-        case '/release':
-          await handleReleaseContext()
-          return
-        case '/stop':
-          if (inferencing) context.stopCompletion()
-          return
-        case '/reset':
-          conversationIdRef.current = randId()
-          addSystemMessage('Conversation reset!')
-          return
-        case '/save-session':
-          context
-            .saveSession(`${dirs.DocumentDir}/llama-session.bin`)
-            .then((tokensSaved) => {
-              console.log('Session tokens saved:', tokensSaved)
-              addSystemMessage(`Session saved! ${tokensSaved} tokens saved.`)
-            })
-            .catch((e) => {
-              console.log('Session save failed:', e)
-              addSystemMessage(`Session save failed: ${e.message}`)
-            })
-          return
-        case '/load-session':
-          context
-            .loadSession(`${dirs.DocumentDir}/llama-session.bin`)
-            .then((details) => {
-              console.log('Session loaded:', details)
-              addSystemMessage(
-                `Session loaded! ${details.tokens_loaded} tokens loaded.`,
-              )
-            })
-            .catch((e) => {
-              console.log('Session load failed:', e)
-              addSystemMessage(`Session load failed: ${e.message}`)
-            })
-          return
-        case '/lora':
-          pickLora()
-            .then((loraFile) => {
-              if (loraFile) context.applyLoraAdapters([{ path: loraFile.uri }])
-            })
-            .then(() => context.getLoadedLoraAdapters())
-            .then((loraList) =>
-              addSystemMessage(
-                `Loaded lora adapters: ${JSON.stringify(loraList)}`,
-              ),
-            )
-          return
-        case '/remove-lora':
-          context.removeLoraAdapters().then(() => {
-            addSystemMessage('Lora adapters removed!')
+          )} ± ${ppStd.toFixed(2)} |\n` +
+          `| ${modelDesc} | ${size} | ${nParams} | tg 128 | ${tgAvg.toFixed(
+            2,
+          )} ± ${tgStd.toFixed(2)}`
+        addSystemMessage(md, { copyable: true })
+        return
+      case '/release':
+        await handleReleaseContext()
+        return
+      case '/release-mtmd':
+        await handleReleaseMultimodal()
+        return
+      case '/mtmd':
+        const mmProjFile = await pickMmproj()
+        if (mmProjFile) {
+          await handleInitMultimodal(context, mmProjFile)
+        } else {
+          addSystemMessage('No mmproj file selected.')
+        }
+        return
+      case '/stop':
+        if (inferencing) context.stopCompletion()
+        return
+      case '/reset':
+        conversationIdRef.current = randId()
+        addSystemMessage('Conversation reset!')
+        return
+      case '/save-session':
+        context
+          .saveSession(`${dirs.DocumentDir}/llama-session.bin`)
+          .then((tokensSaved) => {
+            console.log('Session tokens saved:', tokensSaved)
+            addSystemMessage(`Session saved! ${tokensSaved} tokens saved.`)
           })
-          return
-        case '/lora-list':
-          context.getLoadedLoraAdapters().then((loraList) => {
+          .catch((e) => {
+            console.log('Session save failed:', e)
+            addSystemMessage(`Session save failed: ${e.message}`)
+          })
+        return
+      case '/load-session':
+        context
+          .loadSession(`${dirs.DocumentDir}/llama-session.bin`)
+          .then((details) => {
+            console.log('Session loaded:', details)
+            addSystemMessage(
+              `Session loaded! ${details.tokens_loaded} tokens loaded.`,
+            )
+          })
+          .catch((e) => {
+            console.log('Session load failed:', e)
+            addSystemMessage(`Session load failed: ${e.message}`)
+          })
+        return
+      case '/lora':
+        pickLora()
+          .then((loraFile) => {
+            if (loraFile) context.applyLoraAdapters([{ path: loraFile.uri }])
+          })
+          .then(() => context.getLoadedLoraAdapters())
+          .then((loraList) =>
             addSystemMessage(
               `Loaded lora adapters: ${JSON.stringify(loraList)}`,
-            )
-          })
+            ),
+          )
+        return
+      case '/remove-lora':
+        context.removeLoraAdapters().then(() => {
+          addSystemMessage('Lora adapters removed!')
+        })
+        return
+      case '/lora-list':
+        context.getLoadedLoraAdapters().then((loraList) => {
+          addSystemMessage(`Loaded lora adapters: ${JSON.stringify(loraList)}`)
+        })
+        return
+    }
+
+    let textContent = message.text
+    let hasMedia = false
+    let mediaType: string | null = null
+    let mediaFormat: string | null = null
+    let mediaPath = null
+    // Handle /image <content> or /audio <content>
+    // TODO: File picker button without slash command
+    if (
+      message.text.startsWith('/image ') ||
+      message.text.startsWith('/audio ')
+    ) {
+      mediaType = message.text.startsWith('/image ') ? 'image' : 'audio'
+
+      textContent = message.text.slice(7)
+
+      // Check if multimodal can be enabled
+      if (!(await context.isMultimodalEnabled())) {
+        addSystemMessage(
+          'Multimodal support is not enabled. Please initialize a model with a mmproj file.',
+        )
+        return
+      }
+
+      try {
+        const imageTypes =
+          Platform.OS === 'ios'
+            ? ['public.jpeg', 'public.png', 'public.gif', 'com.microsoft.bmp']
+            : ['image/jpeg', 'image/png', 'image/gif', 'image/bmp']
+        const audioTypes =
+          Platform.OS === 'ios'
+            ? ['public.wav', 'public.mp3']
+            : ['audio/wav', 'audio/mpeg']
+
+        // Use DocumentPicker to pick an image or audio
+        // The underlying stb_image library in llama.cpp supports these formats:
+        // Image: JPEG, PNG, BMP, PSD (Photoshop), TGA, GIF, HDR, PIC (Softimage), PNM
+        // Audio: WAV, MP3
+        // We limit to the most common formats (we perhaps need to add webp by converting it to supported formats):
+        const mediaRes = await DocumentPicker.pick({
+          type: mediaType === 'image' ? imageTypes : audioTypes,
+        }).catch((e) => {
+          console.log(`No ${mediaType} picked, error: `, e.message)
+          return null
+        })
+
+        if (!mediaRes?.[0]) {
+          addSystemMessage(`No ${mediaType} selected.`)
           return
+        }
+
+        // Get the file extension from the URI
+        const getFileExtension = (uri: string) => {
+          const match = uri.match(/\.([\dA-Za-z]+)$/)
+          return match && match[1] ? match[1].toLowerCase() : ''
+        }
+
+        // Map file extension to MIME type
+        const getMimeType = (extension: string) => {
+          const mimeTypes: { [key: string]: string } = {
+            // Image
+            jpg: 'image/jpeg',
+            jpeg: 'image/jpeg',
+            png: 'image/png',
+            gif: 'image/gif',
+            bmp: 'image/bmp',
+            psd: 'image/vnd.adobe.photoshop',
+            tga: 'image/x-tga',
+            hdr: 'image/vnd.radiance',
+            pic: 'image/x-softimage-pic',
+            ppm: 'image/x-portable-pixmap',
+            pgm: 'image/x-portable-graymap',
+
+            // Audio
+            wav: 'audio/wav',
+            mp3: 'audio/mpeg',
+          }
+          if (mediaType === 'image') {
+            return mimeTypes[extension] || 'image/jpeg' // Default to jpeg if unknown
+          } else if (mediaType === 'audio') {
+            return mimeTypes[extension] || 'audio/wav' // Default to wav if unknown
+          }
+          return ''
+        }
+
+        // Read image path as base64
+        const mediaBase64 =
+          mediaRes[0].uri &&
+          (await ReactNativeBlobUtil.fs
+            .readFile(mediaRes[0].uri.replace('file://', ''), 'base64')
+            .catch((e) => {
+              console.log('Error reading image:', e.message)
+              return null
+            }))
+
+        console.log(`${mediaType} path:`, mediaRes[0].uri)
+
+        // Get the extension and MIME type
+        // Although, the stb_image library doesn't rely on MIME types but instead detects formats by examining
+        // the file's binary header/signature (magic numbers)
+        // From stb_image.h:
+        /*
+           // test the formats with a very explicit header first (at least a FOURCC
+           // or distinctive magic number first)
+        */
+        // Still, let's get this right.
+        mediaFormat = getFileExtension(mediaRes[0].uri)
+        const mimeType = getMimeType(mediaFormat)
+
+        mediaPath = mediaBase64
+          ? `data:${mimeType};base64,${mediaBase64}`
+          : mediaRes[0].uri
+        hasMedia = true
+      } catch (error) {
+        addSystemMessage(
+          `Error selecting ${mediaType}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
       }
     }
+
     const textMessage: MessageType.Text = {
       author: user,
       createdAt: Date.now(),
       id: randId(),
-      text: message.text,
+      text: textContent,
       type: 'text',
       metadata: {
         contextId: context?.id,
         conversationId: conversationIdRef.current,
+        hasMedia,
+        mediaType,
+        mediaFormat,
+        mediaPath,
       },
     }
 
@@ -382,13 +617,51 @@ export default function App() {
           ) {
             return {
               role: msg.author.id === systemId ? 'assistant' : 'user',
-              content: msg.text,
+              content: msg.metadata?.hasMedia
+                ? [
+                    {
+                      type: 'text',
+                      text: msg.text,
+                    },
+                    msg.metadata?.mediaType === 'image'
+                      ? {
+                          type: 'image_url',
+                          image_url: { url: msg.metadata?.mediaPath },
+                        }
+                      : {
+                          type: 'input_audio',
+                          input_audio: {
+                            data: msg.metadata?.mediaPath,
+                            format: msg.metadata?.mediaFormat,
+                          },
+                        },
+                  ]
+                : msg.text,
             }
           }
           return { role: '', content: '' }
         })
         .filter((msg) => msg.role),
-      { role: 'user', content: message.text },
+      {
+        role: 'user',
+        content: hasMedia
+          ? [
+              {
+                type: 'text',
+                text: textContent,
+              },
+              mediaType === 'image'
+                ? {
+                    type: 'image_url',
+                    image_url: { url: mediaPath },
+                  }
+                : {
+                    type: 'input_audio',
+                    input_audio: { data: mediaPath, format: mediaFormat },
+                  },
+            ]
+          : textContent,
+      },
     ]
     addMessage(textMessage)
     setInferencing(true)
@@ -482,34 +755,36 @@ export default function App() {
     // Test area
     {
       // Test tokenize
-      const formatted =
-        (await context?.getFormattedChat(msgs, null, jinjaParams)) || ''
+      const formatted = await context.getFormattedChat(msgs, null, jinjaParams)
       const prompt =
         typeof formatted === 'string' ? formatted : formatted.prompt
       const t0 = Date.now()
-      const { tokens } = (await context?.tokenize(prompt)) || {}
+      const tokenizeResult = await context.tokenize(prompt, {
+        media_paths: formatted.media_paths,
+      })
       const t1 = Date.now()
       console.log(
         'Formatted:',
         formatted,
         '\nTokenize:',
-        tokens,
-        `(${tokens?.length} tokens, ${t1 - t0}ms})`,
+        tokenizeResult,
+        `(${tokenizeResult.tokens?.length} tokens, ${t1 - t0}ms})`,
       )
 
       // Test embedding
-      // await context?.embedding(prompt).then((result) => {
+      // await context.embedding(prompt).then((result) => {
       //   console.log('Embedding:', result)
       // })
 
       // Test detokenize
-      // await context?.detokenize(tokens).then((result) => {
+      // await context.detokenize(tokens).then((result) => {
       //   console.log('Detokenize:', result)
       // })
     }
 
+    console.log('msgs: ', msgs)
     context
-      ?.completion(
+      .completion(
         {
           messages: msgs,
           n_predict: 2048,
@@ -561,10 +836,10 @@ export default function App() {
         },
         (data) => {
           const { token } = data
-          setMessages((msgs) => {
-            const index = msgs.findIndex((msg) => msg.id === id)
+          setMessages((currentMsgs) => {
+            const index = currentMsgs.findIndex((msg) => msg.id === id)
             if (index >= 0) {
-              return msgs.map((msg, i) => {
+              return currentMsgs.map((msg, i) => {
                 if (msg.type == 'text' && i === index) {
                   return {
                     ...msg,
@@ -586,7 +861,7 @@ export default function App() {
                   conversationId: conversationIdRef.current,
                 },
               },
-              ...msgs,
+              ...currentMsgs,
             ]
           })
         },
@@ -596,10 +871,10 @@ export default function App() {
         const timings = `${completionResult.timings.predicted_per_token_ms.toFixed()}ms per token, ${completionResult.timings.predicted_per_second.toFixed(
           2,
         )} tokens per second`
-        setMessages((msgs) => {
-          const index = msgs.findIndex((msg) => msg.id === id)
+        setMessages((currentMsgs) => {
+          const index = currentMsgs.findIndex((msg) => msg.id === id)
           if (index >= 0) {
-            return msgs.map((msg, i) => {
+            return currentMsgs.map((msg, i) => {
               if (msg.type == 'text' && i === index) {
                 return {
                   ...msg,
@@ -612,8 +887,9 @@ export default function App() {
               return msg
             })
           }
-          return msgs
+          return currentMsgs
         })
+
         setInferencing(false)
       })
       .catch((e) => {

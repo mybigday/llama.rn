@@ -82,7 +82,7 @@
     BOOL isAsset = [params[@"is_model_asset"] boolValue];
     NSString *path = modelPath;
     if (isAsset) path = [[NSBundle mainBundle] pathForResource:modelPath ofType:nil];
-    defaultParams.model = [path UTF8String];
+    defaultParams.model.path = [path UTF8String];
 
     NSString *chatTemplate = params[@"chat_template"];
     if (chatTemplate) {
@@ -106,37 +106,27 @@
     NSString *reasonNoMetal = @"";
     defaultParams.n_gpu_layers = 0;
 #ifdef LM_GGML_USE_METAL
-    // Check ggml-metal availability
-    NSError * error = nil;
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-    id<MTLLibrary> library = [device
-        newLibraryWithSource:@"#include <metal_stdlib>\n"
-                                "using namespace metal;"
-                                "typedef matrix<bfloat, 4, 4> bfloat4x4;"
-                                "kernel void test() { simd_sum(0); }"
-        options:nil
-        error:&error
-    ];
-    if (error) {
-        reasonNoMetal = [error localizedDescription];
-        skipGpuDevices = true;
-    } else {
-        id<MTLFunction> kernel = [library newFunctionWithName:@"test"];
-        id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:kernel error:&error];
-        if (pipeline == nil) {
-            reasonNoMetal = [error localizedDescription];
-            skipGpuDevices = true;
-        } else {
-#if TARGET_OS_SIMULATOR
-            // Use the backend, but no layers because not supported fully on simulator
-            defaultParams.n_gpu_layers = 0;
-            isMetalEnabled = true;
-#else
-            defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
-            isMetalEnabled = true;
-#endif
-        }
+
+    // Check ggml-metal availability
+    BOOL supportsGgmlMetal = [device supportsFamily:MTLGPUFamilyApple7];
+    if (@available(iOS 16.0, tvOS 16.0, *)) {
+        supportsGgmlMetal = supportsGgmlMetal && [device supportsFamily:MTLGPUFamilyMetal3];
     }
+    if (!supportsGgmlMetal) {
+        reasonNoMetal = @"Metal is not supported in this device";
+        skipGpuDevices = true;
+    }
+
+#if TARGET_OS_SIMULATOR
+    // Use the backend, but no layers because not supported fully on simulator
+    defaultParams.n_gpu_layers = 0;
+    isMetalEnabled = true;
+#else
+    defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
+    isMetalEnabled = true;
+#endif
+
     device = nil;
 #else
     reasonNoMetal = @"Metal is not enabled in this build";
@@ -158,6 +148,8 @@
         }
         if (cpu_devs.size() > 0) {
             defaultParams.devices = cpu_devs;
+            defaultParams.n_gpu_layers = 0;
+            isMetalEnabled = false;
         }
     }
 
@@ -338,6 +330,30 @@
 
 - (bool)isPredicting {
     return llama->is_predicting;
+}
+
+- (bool)initMultimodal:(NSDictionary *)params {
+    NSString *mmproj_path = params[@"path"];
+    BOOL use_gpu = params[@"use_gpu"] ? [params[@"use_gpu"] boolValue] : true;
+    return llama->initMultimodal([mmproj_path UTF8String], use_gpu);
+}
+
+- (NSDictionary *)getMultimodalSupport {
+    if (!is_model_loaded) return nil;
+    return @{
+        @"vision": @(llama->isMultimodalSupportVision()),
+        @"audio": @(llama->isMultimodalSupportAudio())
+    };
+}
+
+- (bool)isMultimodalEnabled {
+    if (!is_model_loaded) return false;
+    return llama->isMultimodalEnabled();
+}
+
+- (void)releaseMultimodal {
+    if (!is_model_loaded) return;
+    llama->releaseMultimodal();
 }
 
 - (NSDictionary *)getFormattedChatWithJinja:(NSString *)messages
@@ -568,9 +584,30 @@
     if (!llama->initSampling()) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
+
     llama->beginCompletion();
-    llama->loadPrompt();
+    try {
+        // Use the unified loadPrompt function with image paths if available
+        NSArray *imagePaths = params[@"media_paths"];
+        if (imagePaths && [imagePaths count] > 0) {
+            // Multiple image paths
+            std::vector<std::string> media_paths_vector;
+            for (NSString *path in imagePaths) {
+                if ([path isKindOfClass:[NSString class]]) {
+                    media_paths_vector.push_back([path UTF8String]);
+                }
+            }
+            llama->loadPrompt(media_paths_vector);
+        } else {
+            llama->loadPrompt({});
+        }
+    } catch (const std::exception &e) {
+        llama->endCompletion();
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
+
     if (llama->context_full) {
+        llama->endCompletion();
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context is full" userInfo:nil];
     }
 
@@ -633,7 +670,7 @@
     }
 
     llama_perf_context_print(llama->ctx);
-    llama->is_predicting = false;
+    llama->endCompletion();
 
     const auto timings = llama_perf_context(llama->ctx);
 
@@ -660,7 +697,7 @@
                 }];
             }
         } catch (const std::exception &e) {
-            // NSLog(@"Error parsing tool calls: %s", e.what());
+        } catch (...) {
         }
     }
 
@@ -697,13 +734,48 @@
     llama->is_interrupted = true;
 }
 
-- (NSArray *)tokenize:(NSString *)text {
-    const std::vector<llama_token> toks = common_tokenize(llama->ctx, [text UTF8String], false);
-    NSMutableArray *result = [[NSMutableArray alloc] init];
-    for (llama_token tok : toks) {
-        [result addObject:@(tok)];
+- (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths {
+    std::vector<std::string> media_paths_vector;
+    if (imagePaths && [imagePaths count] > 0) {
+        for (NSString *path in imagePaths) {
+            if ([path isKindOfClass:[NSString class]]) {
+                media_paths_vector.push_back([path UTF8String]);
+            }
+        }
     }
-    return result;
+    try {
+        rnllama::llama_rn_tokenize_result tokenize_result = llama->tokenize([text UTF8String], media_paths_vector);
+
+        NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
+
+        result[@"tokens"] = [NSMutableArray arrayWithCapacity:tokenize_result.tokens.size()];
+        for (llama_token tok : tokenize_result.tokens) {
+            [result[@"tokens"] addObject:@(tok)];
+        }
+        result[@"has_media"] = @(tokenize_result.has_media);
+
+        NSMutableArray *bitmap_hashes = [[NSMutableArray alloc] init];
+        for (std::string hash : tokenize_result.bitmap_hashes) {
+            [bitmap_hashes addObject:[NSString stringWithUTF8String:hash.c_str()]];
+        }
+        result[@"bitmap_hashes"] = bitmap_hashes;
+
+        NSMutableArray *chunk_pos = [[NSMutableArray alloc] init];
+        for (int pos : tokenize_result.chunk_pos) {
+            [chunk_pos addObject:@(pos)];
+        }
+        result[@"chunk_pos"] = chunk_pos;
+
+        NSMutableArray *chunk_pos_media = [[NSMutableArray alloc] init];
+        for (int pos : tokenize_result.chunk_pos_media) {
+            [chunk_pos_media addObject:@(pos)];
+        }
+        result[@"chunk_pos_media"] = chunk_pos_media;
+
+        return result;
+    } catch (const std::exception &e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
 }
 
 - (NSString *)detokenize:(NSArray *)tokens {
@@ -740,7 +812,12 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
     llama->beginCompletion();
-    llama->loadPrompt();
+    try {
+      llama->loadPrompt({});
+    } catch (const std::exception &e) {
+      llama->endCompletion();
+      @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
     llama->doCompletion();
 
     std::vector<float> result = llama->getEmbedding(embdParams);
@@ -757,7 +834,7 @@
     }
     resultDict[@"prompt_tokens"] = promptTokens;
 
-    llama->is_predicting = false;
+    llama->endCompletion();
     return resultDict;
 }
 
@@ -775,6 +852,11 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to load session" userInfo:nil];
     }
     llama->embd.resize(n_token_count_out);
+    // Find LLAMA_TOKEN_NULL in the tokens and resize the array to the index of the null token
+    auto null_token_iter = std::find(llama->embd.begin(), llama->embd.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != llama->embd.end()) {
+        llama->embd.resize(std::distance(llama->embd.begin(), null_token_iter));
+    }
     const std::string text = rnllama::tokens_to_str(llama->ctx, llama->embd.cbegin(), llama->embd.cend());
     return @{
         @"tokens_loaded": @(n_token_count_out),
@@ -787,6 +869,11 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Session path is empty" userInfo:nil];
     }
     std::vector<llama_token> session_tokens = llama->embd;
+    // Find LLAMA_TOKEN_NULL in the tokens and resize the array to the index of the null token
+    auto null_token_iter = std::find(session_tokens.begin(), session_tokens.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != session_tokens.end()) {
+        session_tokens.resize(std::distance(session_tokens.begin(), null_token_iter));
+    }
     int default_size = session_tokens.size();
     int save_size = size > 0 && size <= default_size ? size : default_size;
     if (!llama_state_save_file(llama->ctx, [path UTF8String], session_tokens.data(), save_size)) {

@@ -1,6 +1,6 @@
 {
   "name": "inferra-llama.rn",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "React Native binding of llama.cpp for Inferra",
   "main": "lib/commonjs/index",
   "module": "lib/module/index",
@@ -233,5 +233,6 @@
     "name": "RNLlamaSpec",
     "type": "modules",
     "jsSrcsDir": "src"
-  }
+  },
+  "packageManager": "yarn@1.22.22"
 }

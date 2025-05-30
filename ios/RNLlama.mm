@@ -108,8 +108,13 @@ RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
         } else {
             resolve([context getFormattedChat:messages withChatTemplate:chatTemplate]);
         }
+    } catch (const nlohmann::json_abi_v3_11_3::detail::parse_error& e) {
+        NSString *errorMessage = [NSString stringWithUTF8String:e.what()];
+        reject(@"llama_error", [NSString stringWithFormat:@"JSON parse error in getFormattedChat: %@", errorMessage], nil);
     } catch (const std::exception& e) { // catch cpp exceptions
         reject(@"llama_error", [NSString stringWithUTF8String:e.what()], nil);
+    } catch (...) {
+        reject(@"llama_error", @"Unknown error in getFormattedChat", nil);
     }
 }
 
@@ -229,6 +234,7 @@ RCT_EXPORT_METHOD(stopCompletion:(double)contextId
 
 RCT_EXPORT_METHOD(tokenize:(double)contextId
                   text:(NSString *)text
+                  imagePaths:(NSArray *)imagePaths
                   withResolver:(RCTPromiseResolveBlock)resolve
                   withRejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -237,9 +243,13 @@ RCT_EXPORT_METHOD(tokenize:(double)contextId
         reject(@"llama_error", @"Context not found", nil);
         return;
     }
-    NSMutableArray *tokens = [context tokenize:text];
-    resolve(@{ @"tokens": tokens });
-    [tokens release];
+    @try {
+        NSMutableDictionary *result = [context tokenize:text imagePaths:imagePaths];
+        resolve(result);
+        [result release];
+    } @catch (NSException *exception) {
+        reject(@"llama_error", exception.reason, nil);
+    }
 }
 
 RCT_EXPORT_METHOD(detokenize:(double)contextId
@@ -340,6 +350,75 @@ RCT_EXPORT_METHOD(getLoadedLoraAdapters:(double)contextId
         return;
     }
     resolve([context getLoadedLoraAdapters]);
+}
+
+RCT_EXPORT_METHOD(initMultimodal:(double)contextId
+                 withParams:(NSDictionary *)params
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+    if ([context isPredicting]) {
+        reject(@"llama_error", @"Context is busy", nil);
+        return;
+    }
+
+    @try {
+        bool success = [context initMultimodal:params];
+        resolve(@(success));
+    } @catch (NSException *exception) {
+        reject(@"llama_cpp_error", exception.reason, nil);
+    }
+}
+
+RCT_EXPORT_METHOD(isMultimodalEnabled:(double)contextId
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    resolve(@([context isMultimodalEnabled]));
+}
+
+RCT_EXPORT_METHOD(getMultimodalSupport:(double)contextId
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    if (![context isMultimodalEnabled]) {
+        reject(@"llama_error", @"Multimodal is not enabled", nil);
+        return;
+    }
+
+    NSDictionary *multimodalSupport = [context getMultimodalSupport];
+    resolve(multimodalSupport);
+}
+
+RCT_EXPORT_METHOD(releaseMultimodal:(double)contextId
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    [context releaseMultimodal];
+    resolve(nil);
 }
 
 RCT_EXPORT_METHOD(releaseContext:(double)contextId

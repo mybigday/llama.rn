@@ -322,7 +322,7 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "stopCompletion-" + contextId);
   }
 
-  public void tokenize(double id, final String text, final Promise promise) {
+  public void tokenize(double id, final String text, final ReadableArray media_paths, final Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
@@ -334,7 +334,7 @@ public class RNLlama implements LifecycleEventListener {
           if (context == null) {
             throw new Exception("Context not found");
           }
-          return context.tokenize(text);
+          return context.tokenize(text, media_paths);
         } catch (Exception e) {
           exception = e;
         }
@@ -546,6 +546,141 @@ public class RNLlama implements LifecycleEventListener {
       }
     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "getLoadedLoraAdapters-" + contextId);
+  }
+
+  public void initMultimodal(double id, final ReadableMap params, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, Boolean>() {
+      private Exception exception;
+
+      @Override
+      protected Boolean doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          if (context.isPredicting()) {
+            throw new Exception("Context is busy");
+          }
+          return context.initMultimodal(params);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return false;
+      }
+
+      @Override
+      protected void onPostExecute(Boolean result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "initMultimodal-" + contextId);
+  }
+
+  public void isMultimodalEnabled(double id, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, Boolean>() {
+      private Exception exception;
+
+      @Override
+      protected Boolean doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          return context.isMultimodalEnabled();
+        } catch (Exception e) {
+          exception = e;
+        }
+        return false;
+      }
+
+      @Override
+      protected void onPostExecute(Boolean result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "isMultimodalEnabled" + contextId);
+  }
+
+  public void getMultimodalSupport(double id, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
+      private Exception exception;
+
+      @Override
+      protected WritableMap doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          if (!context.isMultimodalEnabled()) {
+            throw new Exception("Multimodal is not enabled");
+          }
+          return context.getMultimodalSupport();
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(WritableMap result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "getMultimodalSupport-" + contextId);
+  }
+
+  @ReactMethod
+  public void releaseMultimodal(double id, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, Void>() {
+      private Exception exception;
+
+      @Override
+      protected Void doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          context.releaseMultimodal();
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(Void result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(null);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "releaseMultimodal" + id);
   }
 
   public void releaseContext(double id, Promise promise) {

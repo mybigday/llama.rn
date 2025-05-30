@@ -9,9 +9,20 @@
 #pragma once
 
 #include "minja.hpp"
-#include <json.hpp>
+
+#include <chrono>
+#include <cstddef>
+#include <cstdio>
+#include <ctime>
+#include <exception>
+#include <iomanip>
+#include <memory>
+#include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
+
+#include <json.hpp>
 
 using json = nlohmann::ordered_json;
 
@@ -384,8 +395,8 @@ class chat_template {
 
             for (const auto & message_ : adjusted_messages) {
                 auto message = message_;
-                if (!message.contains("role") || !message.contains("content")) {
-                    throw std::runtime_error("message must have 'role' and 'content' fields: " + message.dump());
+                if (!message.contains("role") || (!message.contains("content") && !message.contains("tool_calls"))) {
+                    throw std::runtime_error("message must have 'role' and one of 'content' or 'tool_calls' fields: " + message.dump());
                 }
                 std::string role = message.at("role");
 
@@ -406,7 +417,6 @@ class chat_template {
                         }
                     }
                     if (polyfill_tool_calls) {
-                        auto content = message.at("content");
                         auto tool_calls = json::array();
                         for (const auto & tool_call : message.at("tool_calls")) {
                             if (tool_call.at("type") != "function") {
@@ -425,8 +435,11 @@ class chat_template {
                         auto obj = json {
                             {"tool_calls", tool_calls},
                         };
-                        if (!content.is_null() && content != "") {
-                            obj["content"] = content;
+                        if (message.contains("content")) {
+                            auto content = message.at("content");
+                            if (!content.is_null() && !content.empty()) {
+                                obj["content"] = content;
+                            }
                         }
                         message["content"] = obj.dump(2);
                         message.erase("tool_calls");
@@ -435,13 +448,12 @@ class chat_template {
                 if (polyfill_tool_responses && role == "tool") {
                     message["role"] = "user";
                     auto obj = json {
-                        {"tool_response", {
-                            {"content", message.at("content")},
-                        }},
+                        {"tool_response", json::object()},
                     };
                     if (message.contains("name")) {
-                        obj["tool_response"]["name"] = message.at("name");
+                        obj["tool_response"]["tool"] = message.at("name");
                     }
+                    obj["tool_response"]["content"] = message.at("content");
                     if (message.contains("tool_call_id")) {
                         obj["tool_response"]["tool_call_id"] = message.at("tool_call_id");
                     }
@@ -510,7 +522,7 @@ class chat_template {
     static nlohmann::ordered_json add_system(const nlohmann::ordered_json & messages, const std::string & system_prompt) {
         json messages_with_system = messages;
 
-        if (messages_with_system.size() > 0 && messages_with_system[0].at("role") == "system") {
+        if (!messages_with_system.empty() && messages_with_system[0].at("role") == "system") {
             std::string existing_system = messages_with_system.at(0).at("content");
             messages_with_system[0] = json {
                 {"role", "system"},

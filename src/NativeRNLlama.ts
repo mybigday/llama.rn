@@ -105,6 +105,12 @@ export type NativeCompletionParams = {
   preserved_tokens?: Array<string>
   chat_format?: number
   /**
+   * Path to an image file to process before generating text.
+   * When provided, the image will be processed and added to the context.
+   * Requires multimodal support to be enabled via initMultimodal.
+   */
+  media_paths?: Array<string>
+  /**
    * Specify a JSON array of stopping strings.
    * These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]`
    */
@@ -283,6 +289,22 @@ export type NativeCompletionResult = {
 
 export type NativeTokenizeResult = {
   tokens: Array<number>
+  /**
+   * Whether the tokenization contains images
+   */
+  has_images: boolean
+  /**
+   * Bitmap hashes of the images
+   */
+  bitmap_hashes: Array<number>
+  /**
+   * Chunk positions of the text and images
+   */
+  chunk_pos: Array<number>
+  /**
+   * Chunk positions of the images
+   */
+  chunk_pos_images: Array<number>
 }
 
 export type NativeEmbeddingResult = {
@@ -336,13 +358,24 @@ export type NativeSessionLoadResult = {
   prompt: string
 }
 
-export type NativeLlamaChatMessage = {
-  role: string
-  content: string
+export type NativeLlamaMessagePart = {
+  type: 'text'
+  text: string
 }
 
-export type JinjaFormattedChatResult = {
+export type NativeLlamaChatMessage = {
+  role: string
+  content: string | Array<NativeLlamaMessagePart>
+}
+
+export type FormattedChatResult = {
+  type: 'jinja' | 'llama-chat'
   prompt: string
+  has_media: boolean
+  media_paths?: Array<string>
+}
+
+export type JinjaFormattedChatResult = FormattedChatResult & {
   chat_format?: number
   grammar?: string
   grammar_lazy?: boolean
@@ -353,6 +386,12 @@ export type JinjaFormattedChatResult = {
   }>
   preserved_tokens?: Array<string>
   additional_stops?: Array<string>
+}
+
+export type NativeImageProcessingResult = {
+  success: boolean
+  prompt: string
+  error?: string
 }
 
 export interface Spec extends TurboModule {
@@ -391,7 +430,7 @@ export interface Spec extends TurboModule {
     params: NativeCompletionParams,
   ): Promise<NativeCompletionResult>
   stopCompletion(contextId: number): Promise<void>
-  tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>
+  tokenize(contextId: number, text: string, imagePaths?: Array<string>): Promise<NativeTokenizeResult>
   detokenize(contextId: number, tokens: number[]): Promise<string>
   embedding(
     contextId: number,
@@ -414,6 +453,30 @@ export interface Spec extends TurboModule {
   getLoadedLoraAdapters(
     contextId: number,
   ): Promise<Array<{ path: string; scaled?: number }>>
+
+  // Multimodal methods
+  initMultimodal(
+    contextId: number,
+    params: {
+      path: string
+      use_gpu: boolean
+    },
+  ): Promise<boolean>
+
+  isMultimodalEnabled(
+    contextId: number,
+  ): Promise<boolean>
+
+  getMultimodalSupport(
+    contextId: number,
+  ): Promise<{
+    vision: boolean
+    audio: boolean
+  }>
+
+  releaseMultimodal(
+    contextId: number,
+  ): Promise<void>
 
   releaseContext(contextId: number): Promise<void>
 
