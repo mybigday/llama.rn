@@ -29,6 +29,14 @@ test('Mock', async () => {
   await context.releaseMultimodal()
   expect(await context.isMultimodalEnabled()).toBe(false)
 
+  await context.initVocoder({
+    path: 'vocoder-test.gguf',
+  })
+  expect(await context.isVocoderEnabled()).toBe(true)
+
+  await context.releaseVocoder()
+  expect(await context.isVocoderEnabled()).toBe(false)
+
   await context.release()
   await releaseAllLlama()
 })
