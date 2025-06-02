@@ -54,7 +54,9 @@ if (!NativeModules.RNLlama) {
 
     completion: jest.fn(async (contextId, jobId) => {
       const testResult = {
-        audio_tokens: [1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010],
+        audio_tokens: [
+          1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010,
+        ],
         text: '*giggles*',
         completion_probabilities: [
           {
@@ -234,8 +236,9 @@ if (!NativeModules.RNLlama) {
       delete vocoderMap[id]
     }),
     isVocoderEnabled: jest.fn(async (id) => vocoderMap[id] || false),
-    getFormattedAudioCompletion: jest.fn(async (id, speakerJsonStr, textToSpeak) =>
-      `${speakerJsonStr || '<default speaker>'}<sep>${textToSpeak}`,
+    getFormattedAudioCompletion: jest.fn(
+      async (id, speakerJsonStr, textToSpeak) =>
+        `${speakerJsonStr || '<default speaker>'}<sep>${textToSpeak}`,
     ),
     getAudioCompletionGuideTokens: jest.fn(async (id, textToSpeak) =>
       textToSpeak.split('').map((char) => char.charCodeAt(0) + 1000),
