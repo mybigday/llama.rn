@@ -1,14 +1,14 @@
 import React, { useState, useRef } from 'react'
 import type { ReactNode } from 'react'
-import { Platform, Alert } from 'react-native'
+import { Platform } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import DocumentPicker from 'react-native-document-picker'
-import type { DocumentPickerResponse } from 'react-native-document-picker'
+import { pick } from '@react-native-documents/picker'
+import type { DocumentPickerResponse } from '@react-native-documents/picker'
 import { Chat, darkTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import json5 from 'json5'
 import ReactNativeBlobUtil from 'react-native-blob-util'
-import type { LlamaContext } from 'inferra-llama.rn'
+import type { CompletionParams, LlamaContext } from 'inferra-llama.rn'
 import {
   initLlama,
   loadLlamaModelInfo,
@@ -136,11 +136,25 @@ export default function App() {
       })
   }
 
+  const handleReleaseVocoder = async () => {
+    if (!context) return
+    addSystemMessage('Releasing vocoder context...')
+    context
+      .releaseVocoder()
+      .then(() => {
+        addSystemMessage('Vocoder context released!')
+      })
+      .catch((err) => {
+        addSystemMessage(`Vocoder context release failed: ${err}`)
+      })
+  }
+
   // Example: Get model info without initializing context
-  const getModelInfo = async (model: string) => {
+  const getModelInfo = async (model: string): Promise<any> => {
     const t0 = Date.now()
     const info = await loadLlamaModelInfo(model)
     console.log(`Model info (took ${Date.now() - t0}ms): `, info)
+    return info
   }
 
   const handleInitMultimodal = async (
@@ -159,13 +173,25 @@ export default function App() {
       addSystemMessage('Failed to initialize multimodal support.')
     }
   }
+  const handleInitVocoder = async (
+    ctx: LlamaContext,
+    file: DocumentPickerResponse,
+  ) => {
+    if (!ctx) return
+    addSystemMessage('Initializing Vocoder support...')
+    const success = await ctx.initVocoder({ path: file.uri })
+    if (success) {
+      addSystemMessage('Vocoder support initialized successfully!')
+    } else {
+      addSystemMessage('Failed to initialize Vocoder support.')
+    }
+  }
   const handleInitContext = async (
     file: DocumentPickerResponse,
     loraFile: DocumentPickerResponse | null,
-    mmProjFile: DocumentPickerResponse | null = null,
   ) => {
     await handleReleaseContext()
-    await getModelInfo(file.uri)
+    const info = await getModelInfo(file.uri)
     const msgId = addSystemMessage('Initializing context...')
     const t0 = Date.now()
     initLlama(
@@ -182,6 +208,8 @@ export default function App() {
         // no_gpu_devices: true, // (iOS only)
 
         ctx_shift: false,
+        // OuteTTS recommends 8192
+        n_ctx: info['general.basename']?.startsWith('OuteTTS') ? 8192 : 512,
       },
       (progress) => {
         setMessages((msgs) => {
@@ -205,14 +233,7 @@ export default function App() {
         const t1 = Date.now()
         setContext(ctx)
 
-        let isMultimodalEnabled = false
-        // Initialize multimodal support if mmproj file was provided
-        if (mmProjFile) {
-          await handleInitMultimodal(ctx, mmProjFile)
-          isMultimodalEnabled = await ctx.isMultimodalEnabled()
-        }
-
-        // Create commands list including multimodal commands if enabled
+        // Create commands list
         const commands = [
           '- /info: to get the model info',
           '- /bench: to benchmark the model',
@@ -224,22 +245,9 @@ export default function App() {
           '- /lora: apply a lora adapter',
           '- /remove-lora: remove all lora adapters',
           '- /lora-list: list all lora adapters',
+          '- /mtmd: pick mmproj file and initialize multimodal support',
+          '- /vocoder: pick vocoder model file and initialize TTS support',
         ]
-
-        // Include the image commands if mmproj file was provided
-        if (isMultimodalEnabled) {
-          const { vision, audio } = await ctx.getMultimodalSupport()
-          commands.push(
-            '- /mtmd: pick mmproj file and initialize multimodal support',
-            '- /release-mtmd: release the multimodal context',
-            ...(vision
-              ? ['- /image <content>: pick an image and start a conversation']
-              : []),
-            ...(audio
-              ? ['- /audio <content>: pick an audio and start a conversation']
-              : []),
-          )
-        }
 
         addSystemMessage(
           `Context initialized!\n\n` +
@@ -248,7 +256,8 @@ export default function App() {
             `Chat Template: ${
               ctx.model.chatTemplates.llamaChat ? 'YES' : 'NO'
             }\n` +
-            `Multimodal: ${isMultimodalEnabled ? 'YES' : 'NO'}\n\n` +
+            `Multimodal: NO (use /mtmd to enable)\n` +
+            `Vocoder: NO (use /vocoder to enable)\n\n` +
             `You can use the following commands:\n\n${commands.join('\n')}`,
         )
       })
@@ -286,7 +295,7 @@ export default function App() {
 
   const pickLora = async () => {
     let loraFile
-    const loraRes = await DocumentPicker.pick({
+    const loraRes = await pick({
       type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
     }).catch((e) => console.log('No lora file picked, error: ', e.message))
     if (loraRes?.[0]) loraFile = await copyFileIfNeeded('lora', loraRes[0])
@@ -295,7 +304,7 @@ export default function App() {
 
   const pickMmproj = async () => {
     let mmProjFile
-    const mmProjRes = await DocumentPicker.pick({
+    const mmProjRes = await pick({
       type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
     }).catch((e) => console.log('No mmproj file picked, error: ', e.message))
     if (mmProjRes?.[0])
@@ -303,12 +312,24 @@ export default function App() {
     return mmProjFile
   }
 
+  const pickVocoderModel = async () => {
+    let vocoderModelFile
+    const vocoderModelRes = await pick({
+      type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
+    }).catch((e) =>
+      console.log('No vocoder model file picked, error: ', e.message),
+    )
+    if (vocoderModelRes?.[0])
+      vocoderModelFile = await copyFileIfNeeded('vocoder', vocoderModelRes[0])
+    return vocoderModelFile
+  }
+
   // We'll use this function directly in the /image command handler
 
   const handlePickModel = async () => {
-    const modelRes = await DocumentPicker.pick({
-      type: Platform.OS === 'ios' ? 'public.data' : 'application/octet-stream',
-    }).catch((e) => console.log('No model file picked, error: ', e.message))
+    const modelRes = await pick().catch((e) =>
+      console.log('No model file picked, error: ', e.message),
+    )
     if (!modelRes?.[0]) return
     const modelFile = await copyFileIfNeeded('model', modelRes?.[0])
 
@@ -317,37 +338,7 @@ export default function App() {
     // loraFile = await pickLora()
     loraFile = null
 
-    // Ask if user wants to enable multimodal support
-    Alert.alert(
-      'Multimodal Support',
-      'Do you want to enable multimodal support? This requires a mmproj file.',
-      [
-        {
-          text: 'No',
-          style: 'cancel',
-          onPress: () => {
-            handleInitContext(modelFile, loraFile)
-          },
-        },
-        {
-          text: 'Yes',
-          onPress: async () => {
-            addSystemMessage(
-              'Please select a mmproj file for multimodal support...',
-            )
-            const mmProjFile = await pickMmproj()
-            if (mmProjFile) {
-              handleInitContext(modelFile, loraFile, mmProjFile)
-            } else {
-              addSystemMessage(
-                'No mmproj file selected, continuing without multimodal support.',
-              )
-              handleInitContext(modelFile, loraFile)
-            }
-          },
-        },
-      ],
-    )
+    handleInitContext(modelFile, loraFile)
   }
 
   const handleSendPress = async (message: MessageType.PartialText) => {
@@ -397,16 +388,53 @@ export default function App() {
       case '/release':
         await handleReleaseContext()
         return
-      case '/release-mtmd':
-        await handleReleaseMultimodal()
-        return
       case '/mtmd':
         const mmProjFile = await pickMmproj()
         if (mmProjFile) {
           await handleInitMultimodal(context, mmProjFile)
+          // Update commands after successful initialization
+          const { vision, audio } = await context.getMultimodalSupport()
+          const additionalCommands = [
+            '- /release-mtmd: release the multimodal context',
+            ...(vision
+              ? ['- /image <content>: pick an image and start a conversation']
+              : []),
+            ...(audio
+              ? ['- /audio <content>: pick an audio and start a conversation']
+              : []),
+          ]
+          addSystemMessage(
+            `Additional commands available:\n${additionalCommands.join('\n')}`,
+          )
         } else {
           addSystemMessage('No mmproj file selected.')
         }
+        return
+      case '/release-mtmd':
+        await handleReleaseMultimodal()
+        return
+      case '/vocoder':
+        const vocoderModelFile = await pickVocoderModel()
+        if (vocoderModelFile) {
+          await handleInitVocoder(context, vocoderModelFile)
+          const isTTSEnabled = await context.isVocoderEnabled()
+          if (isTTSEnabled) {
+            const additionalCommands = [
+              '- /tts <text>: to speak something',
+              '- /release-vocoder: to release TTS support',
+            ]
+            addSystemMessage(
+              `TTS enabled! Additional commands available:\n${additionalCommands.join(
+                '\n',
+              )}`,
+            )
+          }
+        } else {
+          addSystemMessage('No vocoder model file selected.')
+        }
+        return
+      case '/release-vocoder':
+        await handleReleaseVocoder()
         return
       case '/stop':
         if (inferencing) context.stopCompletion()
@@ -503,7 +531,7 @@ export default function App() {
         // Image: JPEG, PNG, BMP, PSD (Photoshop), TGA, GIF, HDR, PIC (Softimage), PNM
         // Audio: WAV, MP3
         // We limit to the most common formats (we perhaps need to add webp by converting it to supported formats):
-        const mediaRes = await DocumentPicker.pick({
+        const mediaRes = await pick({
           type: mediaType === 'image' ? imageTypes : audioTypes,
         }).catch((e) => {
           console.log(`No ${mediaType} picked, error: `, e.message)
@@ -583,6 +611,21 @@ export default function App() {
             error instanceof Error ? error.message : String(error)
           }`,
         )
+      }
+    }
+
+    let audioParams: Partial<CompletionParams> | null = null
+    if (message.text.startsWith('/tts ')) {
+      const text = message.text.slice(5)
+      const prompt = await context.getFormattedAudioCompletion(null, text)
+      const guideTokens = await context.getAudioCompletionGuideTokens(text)
+      audioParams = {
+        prompt,
+        guide_tokens: guideTokens,
+        temperature: 0.1,
+        penalty_repeat: 1.1,
+        n_predict: 4096,
+        messages: undefined,
       }
     }
 
@@ -829,10 +872,12 @@ export default function App() {
             '<|endoftext|>',
             '<end_of_turn>',
             '<eos>',
-            '<｜end▁of▁sentence｜>',
+            '',
           ],
           // n_threads: 4,
           // logit_bias: [[15043,1.0]],
+
+          ...audioParams,
         },
         (data) => {
           const { token } = data
@@ -855,7 +900,7 @@ export default function App() {
                 createdAt,
                 id,
                 text: token,
-                type: 'text',
+                type: audioParams ? 'custom' : 'text',
                 metadata: {
                   contextId: context?.id,
                   conversationId: conversationIdRef.current,
@@ -871,26 +916,57 @@ export default function App() {
         const timings = `${completionResult.timings.predicted_per_token_ms.toFixed()}ms per token, ${completionResult.timings.predicted_per_second.toFixed(
           2,
         )} tokens per second`
-        setMessages((currentMsgs) => {
-          const index = currentMsgs.findIndex((msg) => msg.id === id)
-          if (index >= 0) {
-            return currentMsgs.map((msg, i) => {
-              if (msg.type == 'text' && i === index) {
-                return {
-                  ...msg,
-                  metadata: {
-                    ...msg.metadata,
-                    timings,
-                  },
+        if (!audioParams) {
+          setMessages((currentMsgs) => {
+            const index = currentMsgs.findIndex((msg) => msg.id === id)
+            if (index >= 0) {
+              return currentMsgs.map((msg, i) => {
+                if (msg.type == 'text' && i === index) {
+                  return {
+                    ...msg,
+                    metadata: {
+                      ...msg.metadata,
+                      timings,
+                    },
+                  }
                 }
-              }
-              return msg
-            })
-          }
-          return currentMsgs
-        })
+                return msg
+              })
+            }
+            return currentMsgs
+          })
+          setInferencing(false)
 
-        setInferencing(false)
+          return
+        } else {
+          return context
+            .decodeAudioTokens(completionResult.audio_tokens!)
+            .then((audio) => {
+              console.log('audio length', audio.length / 24000)
+
+              setMessages((currentMsgs) => {
+                const index = currentMsgs.findIndex((msg) => msg.id === id)
+                if (index >= 0) {
+                  return currentMsgs.map((msg, i) => {
+                    if (msg.type == 'custom' && i === index) {
+                      return {
+                        ...msg,
+                        metadata: {
+                          ...msg.metadata,
+                          audio,
+                          sr: 24000,
+                          timings,
+                        },
+                      }
+                    }
+                    return msg
+                  })
+                }
+                return currentMsgs
+              })
+              setInferencing(false)
+            })
+        }
       })
       .catch((e) => {
         console.log('completion error: ', e)

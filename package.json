@@ -17,7 +17,6 @@
     "*.podspec",
     "!lib/typescript/example",
     "!ios/build",
-    "!android/build",
     "!android/gradle",
     "!android/gradlew",
     "!android/gradlew.bat",

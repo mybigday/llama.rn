@@ -581,6 +581,16 @@
         }
     }
 
+    if (params[@"guide_tokens"] && [params[@"guide_tokens"] isKindOfClass:[NSArray class]]) {
+        NSArray *guide_tokens_array = params[@"guide_tokens"];
+        std::vector<llama_token> guide_tokens;
+        guide_tokens.reserve([guide_tokens_array count]);
+        for (NSNumber *token_num in guide_tokens_array) {
+            guide_tokens.push_back([token_num intValue]);
+        }
+        llama->setGuideTokens(guide_tokens);
+    }
+
     if (!llama->initSampling()) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
@@ -716,6 +726,15 @@
     result[@"stopped_limit"] = @(llama->stopped_limit);
     result[@"stopping_word"] = [NSString stringWithUTF8String:llama->stopping_word.c_str()];
     result[@"tokens_cached"] = @(llama->n_past);
+    
+    if (llama->isVocoderEnabled() && !llama->audio_tokens.empty()) {
+        NSMutableArray *audioTokens = [[NSMutableArray alloc] init];
+        for (llama_token token : llama->audio_tokens) {
+            [audioTokens addObject:@(token)];
+        }
+        result[@"audio_tokens"] = audioTokens;
+    }
+    
     result[@"timings"] = @{
         @"prompt_n": @(timings.n_p_eval),
         @"prompt_ms": @(timings.t_p_eval_ms),
@@ -918,6 +937,45 @@
         }];
     }
     return result;
+}
+
+- (bool)initVocoder:(NSString *)vocoderModelPath {
+    return llama->initVocoder([vocoderModelPath UTF8String]);
+}
+
+- (bool)isVocoderEnabled {
+    return llama->isVocoderEnabled();
+}
+
+- (NSString *)getFormattedAudioCompletion:(NSString *)speakerJsonStr textToSpeak:(NSString *)textToSpeak {
+    std::string speakerStr = speakerJsonStr ? [speakerJsonStr UTF8String] : "";
+    return [NSString stringWithUTF8String:llama->getFormattedAudioCompletion(speakerStr, [textToSpeak UTF8String]).c_str()];
+}
+
+- (NSArray *)getAudioCompletionGuideTokens:(NSString *)textToSpeak {
+    std::vector<llama_token> guide_tokens = llama->getAudioCompletionGuideTokens([textToSpeak UTF8String]);
+    NSMutableArray *result = [[NSMutableArray alloc] init];
+    for (llama_token token : guide_tokens) {
+        [result addObject:@(token)];
+    }
+    return result;
+}
+
+- (NSArray *)decodeAudioTokens:(NSArray *)tokens {
+    std::vector<llama_token> token_vector;
+    for (NSNumber *token in tokens) {
+        token_vector.push_back([token intValue]);
+    }
+    std::vector<float> audio_data = llama->decodeAudioTokens(token_vector);
+    NSMutableArray *result = [[NSMutableArray alloc] init];
+    for (float sample : audio_data) {
+        [result addObject:@(sample)];
+    }
+    return result;
+}
+
+- (void)releaseVocoder {
+    llama->releaseVocoder();
 }
 
 - (void)invalidate {
