@@ -1312,13 +1312,16 @@ struct llama_rn_context_vocoder {
     tts_type type = UNKNOWN;
 };
 
-bool llama_rn_context::initVocoder(const std::string &vocoder_model_path) {
+bool llama_rn_context::initVocoder(const std::string &vocoder_model_path, int batch_size) {
     if (vocoder_wrapper != nullptr) {
         return true;
     }
     params.model.path = vocoder_model_path;
     params.embedding = true;
     params.ctx_shift = false;
+    if (batch_size > 0) {
+        params.n_batch = batch_size;
+    }
     params.n_ubatch = params.n_batch;
 
     llama_rn_context_vocoder *wrapper = new llama_rn_context_vocoder{
