@@ -1516,15 +1516,27 @@ static std::string replace_numbers_with_words(const std::string & input_text) {
     return result;
 }
 
-// Based on: https://github.com/edwko/OuteTTS/blob/a613e79c489d8256dd657ea9168d78de75895d82/outetts/version/v1/prompt_processor.py#L39
+static std::string anyascii_string(const std::string &input) {
+    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
+    auto wstr = converter.from_bytes(input);
+    std::string output;
+    for (char32_t c : wstr) {
+        const char *r;
+        size_t rlen = anyascii(c, &r);
+        output.append(r, rlen);
+    }
+    return output;
+}
+
 static std::string process_text(const std::string & text, const tts_type tts_type = OUTETTS_V0_2) {
-
-    // For now I skipped text romanization as I am unsure how to handle
-    // uroman and MeCab implementations in C++
-    // maybe something like https://github.com/anyascii/anyascii/ could work.
-    // currently only English would be supported in this function
-
     std::string processed_text = replace_numbers_with_words(text);
+
+    if (tts_type == OUTETTS_V0_2 || tts_type == OUTETTS_V0_3) {
+        processed_text = anyascii_string(processed_text);
+
+        std::regex dashes(R"([—–-])");
+        processed_text = std::regex_replace(processed_text, dashes, " ");
+    }
 
     std::transform(processed_text.begin(), processed_text.end(),
                   processed_text.begin(), ::tolower);
