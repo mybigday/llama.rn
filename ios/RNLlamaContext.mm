@@ -939,8 +939,9 @@
     return result;
 }
 
-- (bool)initVocoder:(NSString *)vocoderModelPath {
-    return llama->initVocoder([vocoderModelPath UTF8String]);
+- (bool)initVocoder:(NSDictionary *)params {
+    int batch_size = params[@"batch_size"] ? [params[@"batch_size"] intValue] : 512;
+    return llama->initVocoder([params[@"path"] UTF8String], batch_size);
 }
 
 - (bool)isVocoderEnabled {

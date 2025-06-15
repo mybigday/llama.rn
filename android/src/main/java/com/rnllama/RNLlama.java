@@ -684,7 +684,7 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "releaseMultimodal" + id);
   }
 
-  public void initVocoder(double id, final String vocoderModelPath, final Promise promise) {
+  public void initVocoder(double id, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, Boolean>() {
       private Exception exception;
@@ -699,7 +699,7 @@ public class RNLlama implements LifecycleEventListener {
           if (context.isPredicting()) {
             throw new Exception("Context is busy");
           }
-          return context.initVocoder(vocoderModelPath);
+          return context.initVocoder(params);
         } catch (Exception e) {
           exception = e;
         }
