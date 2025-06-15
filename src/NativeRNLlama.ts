@@ -491,7 +491,7 @@ export interface Spec extends TurboModule {
     contextId: number,
     params: {
       path: string
-      batch_size?: number
+      n_batch?: number
     },
   ): Promise<boolean>
   isVocoderEnabled(contextId: number): Promise<boolean>

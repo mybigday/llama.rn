@@ -419,7 +419,7 @@ public class LlamaContext {
   }
 
   public boolean initVocoder(ReadableMap params) {
-    return initVocoder(this.context, params.getString("path"), params.hasKey("batch_size") ? params.getInt("batch_size") : 512);
+    return initVocoder(this.context, params.getString("path"), params.hasKey("n_batch") ? params.getInt("n_batch") : 512);
   }
 
   public boolean isVocoderEnabled() {
