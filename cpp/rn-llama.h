@@ -11,7 +11,7 @@
 #include "llama.h"
 #include "llama-impl.h"
 #include "sampling.h"
-#include "json.hpp"
+#include <nlohmann/json.hpp>
 #if defined(__ANDROID__)
 #include <android/log.h>
 #endif

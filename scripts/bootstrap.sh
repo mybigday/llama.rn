@@ -121,10 +121,14 @@ cp ./llama.cpp/common/sampling.h ./cpp/sampling.h
 cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
 cp ./llama.cpp/common/json-schema-to-grammar.h ./cpp/json-schema-to-grammar.h
 cp ./llama.cpp/common/json-schema-to-grammar.cpp ./cpp/json-schema-to-grammar.cpp
-
+cp ./llama.cpp/common/json-partial.h ./cpp/json-partial.h
+cp ./llama.cpp/common/json-partial.cpp ./cpp/json-partial.cpp
+cp ./llama.cpp/common/regex-partial.h ./cpp/regex-partial.h
+cp ./llama.cpp/common/regex-partial.cpp ./cpp/regex-partial.cpp
 cp ./llama.cpp/common/chat.h ./cpp/chat.h
 cp ./llama.cpp/common/chat.cpp ./cpp/chat.cpp
-
+cp ./llama.cpp/common/chat-parser.h ./cpp/chat-parser.h
+cp ./llama.cpp/common/chat-parser.cpp ./cpp/chat-parser.cpp
 
 # Copy multimodal files from tools/mtmd
 cp ./llama.cpp/tools/mtmd/mtmd.h ./cpp/tools/mtmd/mtmd.h
@@ -179,6 +183,7 @@ files_add_lm_prefix=(
   "./cpp/llama-memory-hybrid.h"
   "./cpp/llama-memory-hybrid.cpp"
   "./cpp/llama-memory-recurrent.h"
+  "./cpp/llama-memory-recurrent.cpp"
   "./cpp/llama-mmap.h"
   "./cpp/llama-mmap.cpp"
   "./cpp/llama-hparams.h"

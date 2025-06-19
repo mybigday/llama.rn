@@ -325,7 +325,6 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
     if (!json_schema.empty()) {
         inputs.json_schema = json::parse(json_schema);
     }
-    inputs.extract_reasoning = params.reasoning_format != COMMON_REASONING_FORMAT_NONE;
 
     // If chat_template is provided, create new one and use it (probably slow)
     if (!chat_template.empty()) {
@@ -930,7 +929,7 @@ mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrapper, cons
             LOG_INFO("[DEBUG] Base64 decoded, size: %zu bytes", media_data.size());
 
             // Load bitmap from memory buffer using direct initialization
-            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_buf(media_data.data(), media_data.size()));
+            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_buf(mtmd_wrapper->mtmd_ctx, media_data.data(), media_data.size()));
             if (!bmp.ptr) {
                 bitmaps.entries.clear();
                 throw std::runtime_error("Failed to load base64 media");
@@ -965,7 +964,7 @@ mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrapper, cons
             fclose(file);
 
             // Create bitmap directly
-            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(media_path.c_str()));
+            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(mtmd_wrapper->mtmd_ctx, media_path.c_str()));
             if (!bmp.ptr) {
                 bitmaps.entries.clear();
                 throw std::runtime_error("Failed to load media");
