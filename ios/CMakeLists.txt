@@ -38,9 +38,9 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/ggml-cpu/amx/mmq.cpp
     ${SOURCE_DIR}/ggml-cpu/ggml-cpu.c
     ${SOURCE_DIR}/ggml-cpu/ggml-cpu.cpp
-    ${SOURCE_DIR}/ggml-cpu/ggml-cpu-aarch64.cpp
-    ${SOURCE_DIR}/ggml-cpu/ggml-cpu-quants.c
-    ${SOURCE_DIR}/ggml-cpu/ggml-cpu-traits.cpp
+    ${SOURCE_DIR}/ggml-cpu/quants.c
+    ${SOURCE_DIR}/ggml-cpu/traits.cpp
+    ${SOURCE_DIR}/ggml-cpu/repack.cpp
     ${SOURCE_DIR}/ggml-cpu/unary-ops.cpp
     ${SOURCE_DIR}/ggml-cpu/binary-ops.cpp
     ${SOURCE_DIR}/ggml-cpu/sgemm.cpp
@@ -59,7 +59,6 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/llama-adapter.cpp
     ${SOURCE_DIR}/llama-chat.cpp
     ${SOURCE_DIR}/llama-context.cpp
-    ${SOURCE_DIR}/llama-kv-cache.cpp
     ${SOURCE_DIR}/llama-arch.cpp
     ${SOURCE_DIR}/llama-batch.cpp
     ${SOURCE_DIR}/llama-cparams.cpp
@@ -69,6 +68,10 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/llama-model-loader.cpp
     ${SOURCE_DIR}/llama-model-saver.cpp
     ${SOURCE_DIR}/llama-mmap.cpp
+    ${SOURCE_DIR}/llama-kv-cache-unified.cpp
+    ${SOURCE_DIR}/llama-kv-cache-unified-iswa.cpp
+    ${SOURCE_DIR}/llama-memory-hybrid.cpp
+    ${SOURCE_DIR}/llama-memory-recurrent.cpp
     ${SOURCE_DIR}/llama-vocab.cpp
     ${SOURCE_DIR}/llama-memory.cpp
     ${SOURCE_DIR}/llama-io.cpp

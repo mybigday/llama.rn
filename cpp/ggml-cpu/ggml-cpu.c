@@ -3,11 +3,11 @@
 
 #include "ggml-backend-impl.h"
 #include "ggml-backend.h"
-#include "ggml-cpu-traits.h"
+#include "traits.h"
 #include "ggml-cpu-impl.h"
 #include "ggml-cpu.h"
 #include "ggml-impl.h"
-#include "ggml-cpu-quants.h"
+#include "quants.h"
 #include "ggml-threading.h"
 #include "unary-ops.h"
 #include "binary-ops.h"
@@ -270,7 +270,11 @@ static const struct lm_ggml_type_traits_cpu type_traits_cpu[LM_GGML_TYPE_COUNT] 
         .from_float               = quantize_row_q4_K,
         .vec_dot                  = lm_ggml_vec_dot_q4_K_q8_K,
         .vec_dot_type             = LM_GGML_TYPE_Q8_K,
+#if defined (__ARM_FEATURE_MATMUL_INT8)
+        .nrows                    = 2,
+#else
         .nrows                    = 1,
+#endif
     },
     [LM_GGML_TYPE_Q5_K] = {
         .from_float               = quantize_row_q5_K,
@@ -553,6 +557,14 @@ void lm_ggml_barrier(struct lm_ggml_threadpool * tp) {
     atomic_thread_fence(memory_order_seq_cst);
     #endif
 #endif
+}
+
+void lm_ggml_threadpool_chunk_set(struct lm_ggml_threadpool * tp, int value) {
+    atomic_store_explicit(&tp->current_chunk, value, memory_order_relaxed);
+}
+
+int lm_ggml_threadpool_chunk_add(struct lm_ggml_threadpool * tp, int value) {
+    return atomic_fetch_add_explicit(&tp->current_chunk, value, memory_order_relaxed);
 }
 
 #if defined(__gnu_linux__)
@@ -2414,10 +2426,30 @@ static bool lm_ggml_thread_apply_priority(int32_t prio) {
     // This is up to the applications.
     DWORD p = THREAD_PRIORITY_NORMAL;
     switch (prio) {
+        case LM_GGML_SCHED_PRIO_LOW:      p = THREAD_PRIORITY_BELOW_NORMAL;  break;
         case LM_GGML_SCHED_PRIO_NORMAL:   p = THREAD_PRIORITY_NORMAL;        break;
         case LM_GGML_SCHED_PRIO_MEDIUM:   p = THREAD_PRIORITY_ABOVE_NORMAL;  break;
         case LM_GGML_SCHED_PRIO_HIGH:     p = THREAD_PRIORITY_HIGHEST;       break;
         case LM_GGML_SCHED_PRIO_REALTIME: p = THREAD_PRIORITY_TIME_CRITICAL; break;
+    }
+
+    if (prio != LM_GGML_SCHED_PRIO_LOW) {
+        // Tell Windows that this thread should not be throttled (needs its own CPU core).
+        // Newer Windows 11 versions aggresively park (offline) CPU cores and often place
+        // all our threads onto the first 4 cores which results in terrible performance with
+        // n_threads > 4
+        #if _WIN32_WINNT >= 0x0602
+        THREAD_POWER_THROTTLING_STATE t;
+        ZeroMemory(&t, sizeof(t));
+        t.Version     = THREAD_POWER_THROTTLING_CURRENT_VERSION;
+        t.ControlMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
+        t.StateMask   = 0;
+
+        if (!SetThreadInformation(GetCurrentThread(), ThreadPowerThrottling, &t, sizeof(t))) {
+            LM_GGML_LOG_DEBUG("failed to disable thread power throttling %d : (%d)\n", prio, (int) GetLastError());
+            return false;
+        }
+        #endif
     }
 
     if (prio == LM_GGML_SCHED_PRIO_NORMAL) {
@@ -2447,6 +2479,8 @@ static bool lm_ggml_thread_apply_priority(int32_t prio) {
     struct sched_param p;
     int32_t policy = SCHED_OTHER;
     switch (prio) {
+        // TODO: there seems to be no way to set lower prio on Apple platforms
+        case LM_GGML_SCHED_PRIO_LOW:      policy = SCHED_OTHER; p.sched_priority = 0;  break;
         case LM_GGML_SCHED_PRIO_NORMAL:   policy = SCHED_OTHER; p.sched_priority = 0;  break;
         case LM_GGML_SCHED_PRIO_MEDIUM:   policy = SCHED_FIFO;  p.sched_priority = 40; break;
         case LM_GGML_SCHED_PRIO_HIGH:     policy = SCHED_FIFO;  p.sched_priority = 80; break;
@@ -2503,6 +2537,7 @@ static bool lm_ggml_thread_apply_priority(int32_t prio) {
     struct sched_param p;
     int32_t policy = SCHED_OTHER;
     switch (prio) {
+        case LM_GGML_SCHED_PRIO_LOW:      policy = SCHED_BATCH; p.sched_priority = 0;  break;
         case LM_GGML_SCHED_PRIO_NORMAL:   policy = SCHED_OTHER; p.sched_priority = 0;  break;
         case LM_GGML_SCHED_PRIO_MEDIUM:   policy = SCHED_FIFO;  p.sched_priority = 40; break;
         case LM_GGML_SCHED_PRIO_HIGH:     policy = SCHED_FIFO;  p.sched_priority = 80; break;
@@ -3484,6 +3519,19 @@ void lm_ggml_cpu_init(void) {
             const uint64_t t_end = lm_ggml_time_us(); UNUSED(t_end);
 
             LM_GGML_PRINT_DEBUG("%s: GELU, Quick GELU, SILU and EXP tables initialized in %f ms\n", __func__, (t_end - t_start)/1000.0);
+
+#ifdef LM_GGML_USE_OPENMP
+            //if (!getenv("OMP_WAIT_POLICY")) {
+            //    // set the wait policy to active, so that OpenMP threads don't sleep
+            //    putenv("OMP_WAIT_POLICY=active");
+            //}
+
+            if (!getenv("KMP_BLOCKTIME")) {
+                // set the time to wait before sleeping a thread
+                // this is less aggressive than setting the wait policy to active, but should achieve similar results in most cases
+                putenv("KMP_BLOCKTIME=200"); // 200ms
+            }
+#endif
         }
 
 #if defined(__ARM_ARCH)

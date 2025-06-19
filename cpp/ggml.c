@@ -133,7 +133,7 @@ static void lm_ggml_print_backtrace_symbols(void) {
 }
 #endif
 
-static void lm_ggml_print_backtrace(void) {
+void lm_ggml_print_backtrace(void) {
     const char * LM_GGML_NO_BACKTRACE = getenv("LM_GGML_NO_BACKTRACE");
     if (LM_GGML_NO_BACKTRACE) {
         return;
@@ -160,6 +160,10 @@ static void lm_ggml_print_backtrace(void) {
     const int parent_pid = getpid();
     const int child_pid = fork();
     if (child_pid < 0) { // error
+#if defined(__linux__)
+        close(lock[1]);
+        close(lock[0]);
+#endif
         return;
     } else if (child_pid == 0) { // child
         char attach[32];
@@ -167,6 +171,7 @@ static void lm_ggml_print_backtrace(void) {
 #if defined(__linux__)
         close(lock[1]);
         (void) !read(lock[0], lock, 1);
+        close(lock[0]);
 #endif
         // try gdb
         execlp("gdb", "gdb", "--batch",
@@ -195,7 +200,7 @@ static void lm_ggml_print_backtrace(void) {
     }
 }
 #else
-static void lm_ggml_print_backtrace(void) {
+void lm_ggml_print_backtrace(void) {
     // platform not supported
 }
 #endif
@@ -215,6 +220,8 @@ void lm_ggml_abort(const char * file, int line, const char * fmt, ...) {
     lm_ggml_print_backtrace();
     abort();
 }
+
+// lm_ggml_print_backtrace is registered with std::set_terminate by ggml.cpp
 
 //
 // logging
@@ -879,12 +886,6 @@ struct lm_ggml_context {
 
     struct lm_ggml_object * objects_begin;
     struct lm_ggml_object * objects_end;
-};
-
-struct lm_ggml_context_container {
-    bool used;
-
-    struct lm_ggml_context context;
 };
 
 //
@@ -2305,6 +2306,26 @@ struct lm_ggml_tensor * lm_ggml_repeat(
     LM_GGML_ASSERT(lm_ggml_can_repeat(a, b));
 
     struct lm_ggml_tensor * result = lm_ggml_new_tensor(ctx, a->type, LM_GGML_MAX_DIMS, b->ne);
+
+    result->op     = LM_GGML_OP_REPEAT;
+    result->src[0] = a;
+
+    return result;
+}
+
+struct lm_ggml_tensor * lm_ggml_repeat_4d(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor * a,
+        int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3) {
+    const bool can_repeat = lm_ggml_is_empty(a) || (
+        (ne0 % a->ne[0] == 0) &&
+        (ne1 % a->ne[1] == 0) &&
+        (ne2 % a->ne[2] == 0) &&
+        (ne3 % a->ne[3] == 0)
+    );
+    LM_GGML_ASSERT(can_repeat);
+
+    struct lm_ggml_tensor * result = lm_ggml_new_tensor_4d(ctx, a->type, ne0, ne1, ne2, ne3);
 
     result->op     = LM_GGML_OP_REPEAT;
     result->src[0] = a;

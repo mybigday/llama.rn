@@ -21,9 +21,9 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml-cpu/amx/mmq.cpp
     ${RNLLAMA_LIB_DIR}/ggml-cpu/ggml-cpu.c
     ${RNLLAMA_LIB_DIR}/ggml-cpu/ggml-cpu.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/ggml-cpu-aarch64.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/ggml-cpu-quants.c
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/ggml-cpu-traits.cpp
+    ${RNLLAMA_LIB_DIR}/ggml-cpu/quants.c
+    ${RNLLAMA_LIB_DIR}/ggml-cpu/traits.cpp
+    ${RNLLAMA_LIB_DIR}/ggml-cpu/repack.cpp
     ${RNLLAMA_LIB_DIR}/ggml-cpu/unary-ops.cpp
     ${RNLLAMA_LIB_DIR}/ggml-cpu/binary-ops.cpp
     ${RNLLAMA_LIB_DIR}/ggml-cpu/sgemm.cpp
@@ -46,7 +46,6 @@ set(
     ${RNLLAMA_LIB_DIR}/llama-adapter.cpp
     ${RNLLAMA_LIB_DIR}/llama-chat.cpp
     ${RNLLAMA_LIB_DIR}/llama-context.cpp
-    ${RNLLAMA_LIB_DIR}/llama-kv-cache.cpp
     ${RNLLAMA_LIB_DIR}/llama-arch.cpp
     ${RNLLAMA_LIB_DIR}/llama-batch.cpp
     ${RNLLAMA_LIB_DIR}/llama-cparams.cpp
@@ -54,6 +53,10 @@ set(
     ${RNLLAMA_LIB_DIR}/llama.cpp
     ${RNLLAMA_LIB_DIR}/llama-model.cpp
     ${RNLLAMA_LIB_DIR}/llama-model-loader.cpp
+    ${RNLLAMA_LIB_DIR}/llama-kv-cache-unified.cpp
+    ${RNLLAMA_LIB_DIR}/llama-kv-cache-unified-iswa.cpp
+    ${RNLLAMA_LIB_DIR}/llama-memory-hybrid.cpp
+    ${RNLLAMA_LIB_DIR}/llama-memory-recurrent.cpp
     ${RNLLAMA_LIB_DIR}/llama-mmap.cpp
     ${RNLLAMA_LIB_DIR}/llama-vocab.cpp
     ${RNLLAMA_LIB_DIR}/llama-memory.cpp

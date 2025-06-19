@@ -935,6 +935,15 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * b);
 
+    // repeat a to the specified shape
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_repeat_4d(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+                       int64_t    ne0,
+                       int64_t    ne1,
+                       int64_t    ne2,
+                       int64_t    ne3);
+
     // sums repetitions in a into shape of b
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_repeat_back(
             struct lm_ggml_context * ctx,
@@ -2086,9 +2095,6 @@ extern "C" {
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_graph_get_grad    (const struct lm_ggml_cgraph * cgraph, const struct lm_ggml_tensor * node);
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_graph_get_grad_acc(const struct lm_ggml_cgraph * cgraph, const struct lm_ggml_tensor * node);
 
-    LM_GGML_API void                 lm_ggml_graph_export(const struct lm_ggml_cgraph * cgraph, const char * fname);
-    LM_GGML_API struct lm_ggml_cgraph * lm_ggml_graph_import(const char * fname, struct lm_ggml_context ** ctx_data, struct lm_ggml_context ** ctx_eval);
-
     // print info and performance information for the graph
     LM_GGML_API void lm_ggml_graph_print(const struct lm_ggml_cgraph * cgraph);
 
@@ -2172,6 +2178,7 @@ extern "C" {
 
     // scheduling priorities
     enum lm_ggml_sched_priority {
+        LM_GGML_SCHED_PRIO_LOW = -1,
         LM_GGML_SCHED_PRIO_NORMAL,
         LM_GGML_SCHED_PRIO_MEDIUM,
         LM_GGML_SCHED_PRIO_HIGH,

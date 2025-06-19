@@ -53,7 +53,6 @@
 #include "ggml-cpu-impl.h"
 #include "ggml-quants.h"
 
-#include <atomic>
 #include <array>
 #include <type_traits>
 
@@ -394,8 +393,6 @@ class tinyBLAS {
 
     template <int RM, int RN, int BM>
     NOINLINE void gemm(int64_t m, int64_t n, int64_t BN) {
-        static std::atomic<int64_t> current_chunk;
-
         LM_GGML_ASSERT(m % (RM * BM) == 0);
         const int64_t ytiles = m / (RM * BM);
         const int64_t xtiles = (n + RN -1) / RN;
@@ -410,7 +407,7 @@ class tinyBLAS {
         if (params->ith == 0) {
             LM_GGML_ASSERT( jj_BN * SIZE_BN + (NB_BN - jj_BN) * (SIZE_BN - 1) == xtiles);
             // Every thread starts at ith, so the first unprocessed chunk is nth.  This save a bit of coordination right at the start.
-            std::atomic_store_explicit(&current_chunk, (int64_t)params->nth, std::memory_order_relaxed);
+            lm_ggml_threadpool_chunk_set(params->threadpool, params->nth);
         }
 
         lm_ggml_barrier(params->threadpool);
@@ -439,8 +436,7 @@ class tinyBLAS {
                 LM_GGML_ASSERT(jj == jj2);
             }
 
-            // next step.
-            job = std::atomic_fetch_add_explicit(&current_chunk, (int64_t)1, std::memory_order_relaxed);
+            job = lm_ggml_threadpool_chunk_add(params->threadpool, 1);
         }
 
         lm_ggml_barrier(params->threadpool);
