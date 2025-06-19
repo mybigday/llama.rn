@@ -924,6 +924,11 @@ Java_com_rnllama_LlamaContext_doCompletion(
         auto result = createWriteableMap(env);
         putString(env, result, "error", e.what());
         return reinterpret_cast<jobject>(result);
+    } catch (const std::runtime_error& e) {
+        llama->endCompletion();
+        auto result = createWriteableMap(env);
+        putString(env, result, "error", e.what());
+        return reinterpret_cast<jobject>(result);
     }
 
     if (llama->context_full) {
@@ -1204,6 +1209,9 @@ Java_com_rnllama_LlamaContext_embedding(
     try {
         llama->loadPrompt({});
     } catch (const std::exception &e) {
+        putString(env, result, "error", e.what());
+        return reinterpret_cast<jobject>(result);
+    } catch (const std::runtime_error& e) {
         putString(env, result, "error", e.what());
         return reinterpret_cast<jobject>(result);
     }

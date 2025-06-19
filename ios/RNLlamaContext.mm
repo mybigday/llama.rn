@@ -614,6 +614,9 @@
     } catch (const std::exception &e) {
         llama->endCompletion();
         @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    } catch (const std::runtime_error& e) {
+        llama->endCompletion();
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
     }
 
     if (llama->context_full) {
@@ -726,7 +729,7 @@
     result[@"stopped_limit"] = @(llama->stopped_limit);
     result[@"stopping_word"] = [NSString stringWithUTF8String:llama->stopping_word.c_str()];
     result[@"tokens_cached"] = @(llama->n_past);
-    
+
     if (llama->isVocoderEnabled() && !llama->audio_tokens.empty()) {
         NSMutableArray *audioTokens = [[NSMutableArray alloc] init];
         for (llama_token token : llama->audio_tokens) {
@@ -734,7 +737,7 @@
         }
         result[@"audio_tokens"] = audioTokens;
     }
-    
+
     result[@"timings"] = @{
         @"prompt_n": @(timings.n_p_eval),
         @"prompt_ms": @(timings.t_p_eval_ms),
@@ -794,6 +797,8 @@
         return result;
     } catch (const std::exception &e) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    } catch (const std::runtime_error& e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
     }
 }
 
@@ -834,6 +839,9 @@
     try {
       llama->loadPrompt({});
     } catch (const std::exception &e) {
+      llama->endCompletion();
+      @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    } catch (const std::runtime_error& e) {
       llama->endCompletion();
       @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
     }
