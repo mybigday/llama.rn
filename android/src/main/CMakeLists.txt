@@ -26,7 +26,6 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml-cpu/repack.cpp
     ${RNLLAMA_LIB_DIR}/ggml-cpu/unary-ops.cpp
     ${RNLLAMA_LIB_DIR}/ggml-cpu/binary-ops.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/sgemm.cpp
     ${RNLLAMA_LIB_DIR}/ggml-cpu/vec.cpp
     ${RNLLAMA_LIB_DIR}/ggml-cpu/ops.cpp
     ${RNLLAMA_LIB_DIR}/ggml-opt.cpp
