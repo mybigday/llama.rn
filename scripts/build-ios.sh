@@ -14,7 +14,6 @@ function cp_headers() {
 
   mkdir -p ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/nlohmann
   cp ../cpp/nlohmann/*.hpp ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/nlohmann/
-  # sed -i '' 's/<json.hpp>/"..\/json.hpp"/g' ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/minja/*.hpp
 }
 
 function build_framework() {
