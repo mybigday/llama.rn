@@ -68,7 +68,8 @@ set(
     ${RNLLAMA_LIB_DIR}/common.cpp
     ${RNLLAMA_LIB_DIR}/chat.cpp
     ${RNLLAMA_LIB_DIR}/json-schema-to-grammar.cpp
-    ${RNLLAMA_LIB_DIR}/json.hpp
+    ${RNLLAMA_LIB_DIR}/nlohmann/json.hpp
+    ${RNLLAMA_LIB_DIR}/nlohmann/json_fwd.hpp
     ${RNLLAMA_LIB_DIR}/minja/minja.hpp
     ${RNLLAMA_LIB_DIR}/minja/chat-template.hpp
     ${RNLLAMA_LIB_DIR}/rn-llama.cpp
@@ -78,7 +79,13 @@ set(
 
 find_library(LOG_LIB log)
 
-function(build_library target_name cpu_flags)
+function(build_library target_name arch cpu_flags)
+    if (NOT ${arch} STREQUAL "")
+        list(APPEND GGML_CPU_SOURCES
+            ${RNLLAMA_LIB_DIR}/ggml-cpu/arch/${arch}/quants.c
+            ${RNLLAMA_LIB_DIR}/ggml-cpu/arch/${arch}/repack.cpp
+        )
+    endif ()
     add_library(
         ${target_name}
         SHARED
@@ -107,17 +114,17 @@ function(build_library target_name cpu_flags)
 endfunction()
 
 # Default target (no specific CPU features)
-build_library("rnllama" "")
+build_library("rnllama" "" "")
 
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
     # ARM64 targets
     # Removing fp16 for now as it leads to issues with some models like deepseek r1 distills
     # https://github.com/mybigday/llama.rn/pull/110#issuecomment-2609918310
-    build_library("rnllama_v8" "-march=armv8-a")
-    build_library("rnllama_v8_2" "-march=armv8.2-a")
-    build_library("rnllama_v8_2_dotprod" "-march=armv8.2-a+dotprod")
-    build_library("rnllama_v8_2_i8mm" "-march=armv8.2-a+i8mm")
-    build_library("rnllama_v8_2_dotprod_i8mm" "-march=armv8.2-a+dotprod+i8mm")
+    build_library("rnllama_v8" "arm" "-march=armv8-a")
+    build_library("rnllama_v8_2" "arm" "-march=armv8.2-a")
+    build_library("rnllama_v8_2_dotprod" "arm" "-march=armv8.2-a+dotprod")
+    build_library("rnllama_v8_2_i8mm" "arm" "-march=armv8.2-a+i8mm")
+    build_library("rnllama_v8_2_dotprod_i8mm" "arm" "-march=armv8.2-a+dotprod+i8mm")
 
     # https://github.com/ggerganov/llama.cpp/blob/master/docs/android.md#cross-compile-using-android-ndk
     # llama.cpp will deal with the cpu features
@@ -127,6 +134,6 @@ if (${ANDROID_ABI} STREQUAL "arm64-v8a")
 
 elseif (${ANDROID_ABI} STREQUAL "x86_64")
     # x86_64 target
-    build_library("rnllama_x86_64" "-march=x86-64" "-mtune=intel" "-msse4.2" "-mpopcnt")
+    build_library("rnllama_x86_64" "x86" "-march=x86-64" "-mtune=intel" "-msse4.2" "-mpopcnt")
 
 endif ()

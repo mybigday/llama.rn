@@ -2,7 +2,7 @@
 
 #include "log.h"
 
-#include <nlohmann/json.hpp>
+#include "nlohmann/json.hpp"
 
 #include <string>
 
@@ -90,7 +90,7 @@ bool common_json_parse(
             return true;
         }
         bool end_object() override {
-            GGML_ASSERT(!stack.empty() && stack.back().type == COMMON_JSON_STACK_ELEMENT_OBJECT);
+            LM_GGML_ASSERT(!stack.empty() && stack.back().type == COMMON_JSON_STACK_ELEMENT_OBJECT);
             stack.pop_back();
             close_value();
             return true;
@@ -104,7 +104,7 @@ bool common_json_parse(
             return true;
         }
         bool end_array() override {
-            GGML_ASSERT(!stack.empty() && stack.back().type == COMMON_JSON_STACK_ELEMENT_ARRAY);
+            LM_GGML_ASSERT(!stack.empty() && stack.back().type == COMMON_JSON_STACK_ELEMENT_ARRAY);
             stack.pop_back();
             close_value();
             return true;

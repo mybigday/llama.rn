@@ -41,9 +41,9 @@ cp ./llama.cpp/ggml/src/ggml-cpu/ops.h ./cpp/ggml-cpu/ops.h
 cp ./llama.cpp/ggml/src/ggml-cpu/ops.cpp ./cpp/ggml-cpu/ops.cpp
 
 cp -r ./llama.cpp/ggml/src/ggml-cpu/amx ./cpp/ggml-cpu/
-
-cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.h ./cpp/ggml-cpu/sgemm.h
-cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.cpp ./cpp/ggml-cpu/sgemm.cpp
+mkdir -p ./cpp/ggml-cpu/arch
+cp -r ./llama.cpp/ggml/src/ggml-cpu/arch/arm ./cpp/ggml-cpu/arch/
+cp -r ./llama.cpp/ggml/src/ggml-cpu/arch/x86 ./cpp/ggml-cpu/arch/
 
 cp ./llama.cpp/ggml/src/ggml.c ./cpp/ggml.c
 cp ./llama.cpp/ggml/src/ggml-impl.h ./cpp/ggml-impl.h
@@ -201,11 +201,12 @@ files_add_lm_prefix=(
   "./cpp/llama.h"
   "./cpp/llama.cpp"
   "./cpp/sampling.cpp"
-  "./cpp/ggml-cpu/sgemm.h"
-  "./cpp/ggml-cpu/sgemm.cpp"
   "./cpp/common.h"
   "./cpp/common.cpp"
-  "./cpp/json-schema-to-grammar.h"
+  "./cpp/json-partial.h"
+  "./cpp/json-partial.cpp"
+  "./cpp/chat-parser.h"
+  "./cpp/chat-parser.cpp"
   "./cpp/chat.cpp"
   "./cpp/ggml-common.h"
   "./cpp/ggml.h"
@@ -255,6 +256,12 @@ files_add_lm_prefix=(
   "./cpp/ggml-cpu/simd-mappings.h"
   "./cpp/ggml-cpu/ops.h"
   "./cpp/ggml-cpu/ops.cpp"
+  "./cpp/ggml-cpu/arch/arm/cpu-feats.cpp"
+  "./cpp/ggml-cpu/arch/arm/quants.c"
+  "./cpp/ggml-cpu/arch/arm/repack.cpp"
+  "./cpp/ggml-cpu/arch/x86/cpu-feats.cpp"
+  "./cpp/ggml-cpu/arch/x86/quants.c"
+  "./cpp/ggml-cpu/arch/x86/repack.cpp"
   # Multimodal files
   "./cpp/tools/mtmd/mtmd.h"
   "./cpp/tools/mtmd/mtmd.cpp"

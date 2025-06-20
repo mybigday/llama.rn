@@ -25,7 +25,7 @@ common_chat_msg_parser::common_chat_msg_parser(const std::string & input, bool i
 }
 
 std::string common_chat_msg_parser::str(const common_string_range & rng) const {
-    GGML_ASSERT(rng.begin <= rng.end);
+    LM_GGML_ASSERT(rng.begin <= rng.end);
     return input_.substr(rng.begin, rng.end - rng.begin);
 }
 

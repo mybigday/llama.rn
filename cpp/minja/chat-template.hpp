@@ -24,7 +24,6 @@
 
 #include "../nlohmann/json.hpp"
 
-
 using json = nlohmann::ordered_json;
 
 namespace minja {

@@ -3,6 +3,7 @@
 
 // Include multimodal support
 #include "tools/mtmd/mtmd.h"
+#include "tools/mtmd/mtmd-helper.h"
 #include "tools/mtmd/clip.h"
 
 namespace rnllama {
@@ -24,38 +25,39 @@ static const std::string base64_chars =
              "abcdefghijklmnopqrstuvwxyz"
              "0123456789+/";
 
-// Base64 decoding function
-static std::vector<uint8_t> base64_decode(const std::string &encoded_string) {
-    std::vector<uint8_t> decoded;
-    int in_len = encoded_string.size();
+static inline bool is_base64(uint8_t c) {
+    return (isalnum(c) || (c == '+') || (c == '/'));
+}
+
+using raw_buffer = std::vector<uint8_t>;
+
+static inline raw_buffer base64_decode(const std::string & encoded_string) {
     int i = 0;
     int j = 0;
     int in_ = 0;
-    unsigned char char_array_4[4], char_array_3[3];
 
-    while (in_len-- && (encoded_string[in_] != '=')) {
-        if (isspace(encoded_string[in_])) {
-            in_++;
-            continue;
-        }
+    int in_len = encoded_string.size();
 
-        if (encoded_string[in_] == '=' || base64_chars.find(encoded_string[in_]) == std::string::npos) {
-            break;
-        }
+    uint8_t char_array_4[4];
+    uint8_t char_array_3[3];
 
+    raw_buffer ret;
+
+    while (in_len-- && (encoded_string[in_] != '=') && is_base64(encoded_string[in_])) {
         char_array_4[i++] = encoded_string[in_]; in_++;
         if (i == 4) {
             for (i = 0; i < 4; i++) {
                 char_array_4[i] = base64_chars.find(char_array_4[i]);
             }
 
-            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+            char_array_3[0] = ((char_array_4[0]      ) << 2) + ((char_array_4[1] & 0x30) >> 4);
             char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) +   char_array_4[3];
 
-            for (i = 0; i < 3; i++) {
-                decoded.push_back(char_array_3[i]);
+            for (i = 0; (i < 3); i++) {
+                ret.push_back(char_array_3[i]);
             }
+
             i = 0;
         }
     }
@@ -69,16 +71,16 @@ static std::vector<uint8_t> base64_decode(const std::string &encoded_string) {
             char_array_4[j] = base64_chars.find(char_array_4[j]);
         }
 
-        char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+        char_array_3[0] = ((char_array_4[0]      ) << 2) + ((char_array_4[1] & 0x30) >> 4);
         char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-        char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+        char_array_3[2] = ((char_array_4[2] & 0x3) << 6) +   char_array_4[3];
 
         for (j = 0; j < i - 1; j++) {
-            decoded.push_back(char_array_3[j]);
+            ret.push_back(char_array_3[j]);
         }
     }
 
-    return decoded;
+    return ret;
 }
 
 static const std::vector<lm_ggml_type> kv_cache_types = {
@@ -925,7 +927,7 @@ mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrapper, cons
             }
 
             // Decode base64
-            std::vector<uint8_t> media_data = base64_decode(base64_data);
+            raw_buffer media_data = base64_decode(base64_data);
             LOG_INFO("[DEBUG] Base64 decoded, size: %zu bytes", media_data.size());
 
             // Load bitmap from memory buffer using direct initialization
