@@ -131,6 +131,8 @@ cp ./llama.cpp/common/chat-parser.h ./cpp/chat-parser.h
 cp ./llama.cpp/common/chat-parser.cpp ./cpp/chat-parser.cpp
 
 # Copy multimodal files from tools/mtmd
+rm -rf ./cpp/tools/mtmd
+mkdir -p ./cpp/tools/mtmd
 cp ./llama.cpp/tools/mtmd/mtmd.h ./cpp/tools/mtmd/mtmd.h
 cp ./llama.cpp/tools/mtmd/mtmd.cpp ./cpp/tools/mtmd/mtmd.cpp
 cp ./llama.cpp/tools/mtmd/clip.h ./cpp/tools/mtmd/clip.h
@@ -141,14 +143,14 @@ cp ./llama.cpp/tools/mtmd/mtmd-helper.h ./cpp/tools/mtmd/mtmd-helper.h
 cp ./llama.cpp/tools/mtmd/mtmd-audio.h ./cpp/tools/mtmd/mtmd-audio.h
 cp ./llama.cpp/tools/mtmd/mtmd-audio.cpp ./cpp/tools/mtmd/mtmd-audio.cpp
 
-rm -rf ./cpp/miniaudio
 rm -rf ./cpp/minja
 rm -rf ./cpp/nlohmann
-rm -rf ./cpp/stb
-cp -r ./llama.cpp/vendor/miniaudio ./cpp/miniaudio
 cp -r ./llama.cpp/vendor/minja ./cpp/minja
 cp -r ./llama.cpp/vendor/nlohmann ./cpp/nlohmann
-cp -r ./llama.cpp/vendor/stb ./cpp/stb
+rm -rf ./cpp/tools/mtmd/miniaudio
+rm -rf ./cpp/tools/mtmd/stb
+cp -r ./llama.cpp/vendor/miniaudio ./cpp/tools/mtmd/miniaudio
+cp -r ./llama.cpp/vendor/stb ./cpp/tools/mtmd/stb
 
 # List of files to process
 files_add_lm_prefix=(
@@ -203,11 +205,14 @@ files_add_lm_prefix=(
   "./cpp/sampling.cpp"
   "./cpp/common.h"
   "./cpp/common.cpp"
-  "./cpp/json-partial.h"
-  "./cpp/json-partial.cpp"
+  "./cpp/chat.h"
+  "./cpp/chat.cpp"
   "./cpp/chat-parser.h"
   "./cpp/chat-parser.cpp"
-  "./cpp/chat.cpp"
+  "./cpp/json-schema-to-grammar.h"
+  "./cpp/json-schema-to-grammar.cpp"
+  "./cpp/json-partial.h"
+  "./cpp/json-partial.cpp"
   "./cpp/ggml-common.h"
   "./cpp/ggml.h"
   "./cpp/ggml.c"
@@ -283,12 +288,24 @@ for file in "${files_add_lm_prefix[@]}"; do
     sed -i '' 's/GGUF_/LM_GGUF_/g' $file
     sed -i '' 's/gguf_/lm_gguf_/g' $file
     sed -i '' 's/GGMLMetalClass/LMGGMLMetalClass/g' $file
+
+    # <nlohmann/json.hpp> -> "nlohmann/json.hpp"
+    sed -i '' 's/<nlohmann\/json.hpp>/"nlohmann\/json.hpp"/g' $file
+
+    # <nlohmann/json_fwd.hpp> -> "nlohmann/json_fwd.hpp"
+    sed -i '' 's/<nlohmann\/json_fwd.hpp>/"nlohmann\/json_fwd.hpp"/g' $file
   else
     sed -i 's/GGML_/LM_GGML_/g' $file
     sed -i 's/ggml_/lm_ggml_/g' $file
     sed -i 's/GGUF_/LM_GGUF_/g' $file
     sed -i 's/gguf_/lm_gguf_/g' $file
     sed -i 's/GGMLMetalClass/LMGGMLMetalClass/g' $file
+
+    # <nlohmann/json.hpp> -> "nlohmann/json.hpp"
+    sed -i 's/<nlohmann\/json.hpp>/"nlohmann\/json.hpp"/g' $file
+
+    # <nlohmann/json_fwd.hpp> -> "nlohmann/json_fwd.hpp"
+    sed -i 's/<nlohmann\/json_fwd.hpp>/"nlohmann\/json_fwd.hpp"/g' $file
   fi
 done
 
@@ -327,6 +344,8 @@ patch -p0 -d ./cpp < ./scripts/patches/ggml-metal.m.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml-quants.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/llama-mmap.cpp.patch
+patch -p0 -d ./cpp/minja < ./scripts/patches/minja.hpp.patch
+patch -p0 -d ./cpp/minja < ./scripts/patches/chat-template.hpp.patch
 rm -rf ./cpp/*.orig
 
 if [ "$OS" = "Darwin" ]; then
