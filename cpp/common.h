@@ -199,6 +199,9 @@ struct common_params_speculative {
     float   p_split      =  0.1f; // speculative decoding split probability
     float   p_min        = 0.75f; // minimum speculative decoding probability (greedy)
 
+    lm_ggml_type cache_type_k = LM_GGML_TYPE_F16; // KV cache data type for the K
+    lm_ggml_type cache_type_v = LM_GGML_TYPE_F16; // KV cache data type for the V
+
     struct cpu_params cpuparams;
     struct cpu_params cpuparams_batch;
 
