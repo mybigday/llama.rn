@@ -84,7 +84,11 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/json-schema-to-grammar.cpp
     ${SOURCE_DIR}/minja/minja.hpp
     ${SOURCE_DIR}/minja/chat-template.hpp
-    ${SOURCE_DIR}/json.hpp
+    ${SOURCE_DIR}/nlohmann/json.hpp
+    ${SOURCE_DIR}/nlohmann/json_fwd.hpp
+    ${SOURCE_DIR}/chat-parser.cpp
+    ${SOURCE_DIR}/json-partial.cpp
+    ${SOURCE_DIR}/regex-partial.cpp
     # Multimodal support
     ${SOURCE_DIR}/tools/mtmd/mtmd.cpp
     ${SOURCE_DIR}/tools/mtmd/mtmd-audio.cpp

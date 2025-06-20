@@ -35,6 +35,9 @@ set(
     ${RNLLAMA_LIB_DIR}/gguf.cpp
     ${RNLLAMA_LIB_DIR}/log.cpp
     ${RNLLAMA_LIB_DIR}/llama-impl.cpp
+    ${RNLLAMA_LIB_DIR}/chat-parser.cpp
+    ${RNLLAMA_LIB_DIR}/json-partial.cpp
+    ${RNLLAMA_LIB_DIR}/regex-partial.cpp
     # Multimodal support
     ${RNLLAMA_LIB_DIR}/tools/mtmd/mtmd.cpp
     ${RNLLAMA_LIB_DIR}/tools/mtmd/mtmd-audio.cpp
@@ -80,21 +83,27 @@ set(
 find_library(LOG_LIB log)
 
 function(build_library target_name arch cpu_flags)
-    if (NOT ${arch} STREQUAL "")
-        list(APPEND GGML_CPU_SOURCES
+    if (NOT ${arch} STREQUAL "generic")
+        set(SOURCE_FILES_ARCH
             ${RNLLAMA_LIB_DIR}/ggml-cpu/arch/${arch}/quants.c
             ${RNLLAMA_LIB_DIR}/ggml-cpu/arch/${arch}/repack.cpp
         )
     endif ()
+
     add_library(
         ${target_name}
         SHARED
         ${SOURCE_FILES}
+        ${SOURCE_FILES_ARCH}
     )
 
     target_link_libraries(${target_name} ${LOG_LIB} android)
 
-    target_compile_options(${target_name} PRIVATE -DLM_GGML_USE_CPU -DLM_GGML_USE_CPU_AARCH64 -pthread ${cpu_flags})
+    if (${arch} STREQUAL "generic")
+        target_compile_options(${target_name} PRIVATE -DLM_GGML_CPU_GENERIC)
+    endif ()
+
+    target_compile_options(${target_name} PRIVATE -DLM_GGML_USE_CPU -pthread ${cpu_flags})
 
     if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
         target_compile_options(${target_name} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
@@ -114,7 +123,7 @@ function(build_library target_name arch cpu_flags)
 endfunction()
 
 # Default target (no specific CPU features)
-build_library("rnllama" "" "")
+build_library("rnllama" "generic" "")
 
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
     # ARM64 targets
