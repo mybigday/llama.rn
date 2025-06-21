@@ -12,8 +12,6 @@ export type NativeContextParams = {
    */
   chat_template?: string
 
-  reasoning_format?: string
-
   is_model_asset?: boolean
   use_progress_callback?: boolean
 
@@ -104,6 +102,7 @@ export type NativeCompletionParams = {
   }>
   preserved_tokens?: Array<string>
   chat_format?: number
+  reasoning_format?: string
   /**
    * Path to an image file to process before generating text.
    * When provided, the image will be processed and added to the context.
