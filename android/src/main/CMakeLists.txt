@@ -102,7 +102,7 @@ function(build_library target_name arch cpu_flags)
         target_compile_options(${target_name} PRIVATE -DLM_GGML_CPU_GENERIC)
     endif ()
 
-    target_compile_options(${target_name} PRIVATE -DLM_GGML_USE_CPU -pthread ${cpu_flags})
+    target_compile_options(${target_name} PRIVATE -DLM_GGML_USE_CPU -DLM_GGML_USE_CPU_REPACK -pthread ${cpu_flags})
 
     if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
         target_compile_options(${target_name} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
