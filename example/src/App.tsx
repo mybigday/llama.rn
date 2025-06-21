@@ -179,7 +179,7 @@ export default function App() {
   ) => {
     if (!ctx) return
     addSystemMessage('Initializing Vocoder support...')
-    const success = await ctx.initVocoder({ path: file.uri })
+    const success = await ctx.initVocoder({ path: file.uri, n_batch: 2048 })
     if (success) {
       addSystemMessage('Vocoder support initialized successfully!')
     } else {
