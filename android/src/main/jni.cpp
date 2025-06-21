@@ -8,7 +8,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
-#include "json.hpp"
+#include <nlohmann/json.hpp>
 #include "json-schema-to-grammar.h"
 #include "llama.h"
 #include "llama-impl.h"
@@ -224,7 +224,6 @@ Java_com_rnllama_LlamaContext_initContext(
     jobject thiz,
     jstring model_path_str,
     jstring chat_template,
-    jstring reasoning_format,
     jboolean embedding,
     jint embd_normalize,
     jint n_ctx,
@@ -261,13 +260,6 @@ Java_com_rnllama_LlamaContext_initContext(
 
     const char *chat_template_chars = env->GetStringUTFChars(chat_template, nullptr);
     defaultParams.chat_template = chat_template_chars;
-
-    const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
-    if (strcmp(reasoning_format_chars, "deepseek") == 0) {
-        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
-    } else {
-        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_NONE;
-    }
 
     defaultParams.n_ctx = n_ctx;
     defaultParams.n_batch = n_batch;
@@ -337,7 +329,6 @@ Java_com_rnllama_LlamaContext_initContext(
 
     env->ReleaseStringUTFChars(model_path_str, model_path_chars);
     env->ReleaseStringUTFChars(chat_template, chat_template_chars);
-    env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
     env->ReleaseStringUTFChars(cache_type_k, cache_type_k_chars);
     env->ReleaseStringUTFChars(cache_type_v, cache_type_v_chars);
 
@@ -528,7 +519,7 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
             pushString(env, additional_stops, stop.c_str());
         }
         putArray(env, result, "additional_stops", additional_stops);
-    } catch (const nlohmann::json_abi_v3_11_3::detail::parse_error& e) {
+    } catch (const nlohmann::json_abi_v3_12_0::detail::parse_error& e) {
         std::string errorMessage = "JSON parse error in getFormattedChat: " + std::string(e.what());
         putString(env, result, "_error", errorMessage.c_str());
         LOGI("[RNLlama] %s", errorMessage.c_str());
@@ -679,6 +670,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jstring prompt,
     jintArray guide_tokens,
     jint chat_format,
+    jstring reasoning_format,
     jstring grammar,
     jstring json_schema,
     jboolean grammar_lazy,
@@ -1014,7 +1006,23 @@ Java_com_rnllama_LlamaContext_doCompletion(
     auto toolCallsSize = 0;
     if (!llama->is_interrupted) {
         try {
-            common_chat_msg message = common_chat_parse(llama->generated_text, static_cast<common_chat_format>(chat_format));
+            common_chat_syntax chat_syntax;
+            chat_syntax.format = static_cast<common_chat_format>(chat_format);
+
+            const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
+            if (strcmp(reasoning_format_chars, "deepseek") == 0) {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+            } else if (strcmp(reasoning_format_chars, "deepseek-legacy") == 0) {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY;
+            } else {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
+            }
+            env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
+            common_chat_msg message = common_chat_parse(
+              llama->generated_text,
+              false,
+              chat_syntax
+            );
             if (!message.reasoning_content.empty()) {
                 reasoningContent = message.reasoning_content;
             }

@@ -498,6 +498,7 @@ enum lm_ggml_metal_kernel_type {
     LM_GGML_METAL_KERNEL_TYPE_COS,
     LM_GGML_METAL_KERNEL_TYPE_NEG,
     LM_GGML_METAL_KERNEL_TYPE_SUM_ROWS,
+    LM_GGML_METAL_KERNEL_TYPE_MEAN,
     LM_GGML_METAL_KERNEL_TYPE_POOL_2D_AVG_F32,
     LM_GGML_METAL_KERNEL_TYPE_POOL_2D_MAX_F32,
     LM_GGML_METAL_KERNEL_TYPE_ARGMAX,
@@ -1458,6 +1459,7 @@ static struct lm_ggml_backend_metal_context * lm_ggml_metal_init(lm_ggml_backend
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_COS,                             cos,                             true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_NEG,                             neg,                             true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_SUM_ROWS,                        sum_rows,                        true);
+        LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_MEAN,                            mean,                            true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_ARGMAX,                          argmax,                          true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_POOL_2D_AVG_F32,                 pool_2d_avg_f32,                 true);
         LM_GGML_METAL_ADD_KERNEL(LM_GGML_METAL_KERNEL_TYPE_POOL_2D_MAX_F32,                 pool_2d_max_f32,                 true);
@@ -1657,6 +1659,7 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_backend_metal_device_
         case LM_GGML_OP_LOG:
             return false; // TODO: implement
         case LM_GGML_OP_SUM_ROWS:
+        case LM_GGML_OP_MEAN:
         case LM_GGML_OP_SOFT_MAX:
         case LM_GGML_OP_GROUP_NORM:
             return has_simdgroup_reduction && lm_ggml_is_contiguous(op->src[0]);
@@ -2404,11 +2407,30 @@ static bool lm_ggml_metal_encode_node(
                 [encoder dispatchThreadgroups:MTLSizeMake(n, 1, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
             } break;
         case LM_GGML_OP_SUM_ROWS:
+        case LM_GGML_OP_MEAN:
             {
                 LM_GGML_ASSERT(src0->nb[0] == lm_ggml_type_size(src0->type));
 
-                id<MTLComputePipelineState> pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_SUM_ROWS].pipeline;
+                id<MTLComputePipelineState> pipeline = nil;
 
+                switch (dst->op) {
+                    case LM_GGML_OP_SUM_ROWS:
+                        pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_SUM_ROWS].pipeline;
+                        break;
+                    case LM_GGML_OP_MEAN:
+                        pipeline = ctx->kernels[LM_GGML_METAL_KERNEL_TYPE_MEAN].pipeline;
+                        break;
+                    default:
+                        LM_GGML_ABORT("fatal error");
+                }
+
+                int nth = 32; // SIMD width
+
+                while (nth < ne00 && nth < (int) pipeline.maxTotalThreadsPerThreadgroup) {
+                    nth *= 2;
+                }
+
+                nth = MIN(nth, ne00);
 
                 lm_ggml_metal_kargs_sum_rows args = {
                    /*.ne00 =*/ ne00,
@@ -2438,11 +2460,12 @@ static bool lm_ggml_metal_encode_node(
                 };
 
                 [encoder setComputePipelineState:pipeline];
-                [encoder setBuffer:id_src0 offset:offs_src0 atIndex:0];
-                [encoder setBuffer:id_dst  offset:offs_dst  atIndex:1];
-                [encoder setBytes:&args length:sizeof(args) atIndex:2];
+                [encoder setBytes:&args length:sizeof(args) atIndex:0];
+                [encoder setBuffer:id_src0 offset:offs_src0 atIndex:1];
+                [encoder setBuffer:id_dst  offset:offs_dst  atIndex:2];
+                [encoder setThreadgroupMemoryLength:32*sizeof(float) atIndex:0];
 
-                [encoder dispatchThreadgroups:MTLSizeMake(ne01, ne02, ne03) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+                [encoder dispatchThreadgroups:MTLSizeMake(ne01, ne02, ne03) threadsPerThreadgroup:MTLSizeMake(nth, 1, 1)];
             } break;
         case LM_GGML_OP_SOFT_MAX:
             {
@@ -4770,6 +4793,8 @@ static bool lm_ggml_metal_encode_node(
                     LM_GGML_ASSERT(nqptg  % 8  == 0);
                     LM_GGML_ASSERT(ncpsg  % 32 == 0);
 
+                    const int is_q = lm_ggml_is_quantized(src1->type) ? 1 : 0;
+
                     // 2*(2*ncpsg + nqptg)*(nsg)
                     // ncpsg soft_max values + ncpsg mask values + a diagonal scaling matrix (in float)
                     //
@@ -4777,7 +4802,7 @@ static bool lm_ggml_metal_encode_node(
                     // the shared memory needed for the simdgroups to load the KV cache
                     // each thread loads (dequantizes) 16 head elements, there are 32 threads in th SG
                     //
-#define FATTN_SMEM(nsg) (LM_GGML_PAD((nqptg*(ne00 + 2*(2*ncpsg + nqptg)*(nsg)) + 16*32*(nsg))*(sizeof(float)/2), 16))
+#define FATTN_SMEM(nsg) (LM_GGML_PAD((nqptg*(2*ne00 + 2*(2*ncpsg + nqptg)*(nsg)) + is_q*(16*32*(nsg)))*(sizeof(float)/2), 16))
 
                     int64_t nsgmax = 2;
 
@@ -4814,9 +4839,9 @@ static bool lm_ggml_metal_encode_node(
                     // and store the soft_max values and the mask
                     //
                     // ne00*(nsg)
-                    // each simdgroup has a full f16 head vector in shared mem to accumulate results
+                    // each simdgroup has a full f32 head vector in shared mem to accumulate results
                     //
-#define FATTN_SMEM(nsg) (LM_GGML_PAD((nqptg*(LM_GGML_PAD(ne00, 128) + 4*ncpsg*(nsg)) + ne20*(nsg))*(sizeof(float)/2), 16))
+#define FATTN_SMEM(nsg) (LM_GGML_PAD((nqptg*(LM_GGML_PAD(ne00, 128) + 4*ncpsg*(nsg)) + 2*ne20*(nsg))*(sizeof(float)/2), 16))
 
                     int64_t nsgmax = 2;
                     while (true) {

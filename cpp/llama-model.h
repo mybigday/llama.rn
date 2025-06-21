@@ -73,6 +73,7 @@ enum llm_type {
     LLM_TYPE_40B,
     LLM_TYPE_65B,
     LLM_TYPE_70B,
+    LLM_TYPE_142B,
     LLM_TYPE_236B,
     LLM_TYPE_290B,
     LLM_TYPE_314B,
@@ -328,6 +329,9 @@ struct llama_model {
 
     llama_hparams hparams = {};
     llama_vocab   vocab;
+
+    // for classifier models
+    std::vector<std::string> classifier_labels;
 
     struct lm_ggml_tensor * tok_embd   = nullptr;
     struct lm_ggml_tensor * type_embd  = nullptr;

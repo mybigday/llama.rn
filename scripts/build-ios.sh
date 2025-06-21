@@ -8,11 +8,12 @@ fi
 function cp_headers() {
   mkdir -p ../ios/rnllama.xcframework/$1/rnllama.framework/Headers
   cp ../cpp/*.h ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/
-  cp ../cpp/*.hpp ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/
 
   mkdir -p ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/minja
   cp ../cpp/minja/*.hpp ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/minja/
-  sed -i '' 's/<json.hpp>/"..\/json.hpp"/g' ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/minja/*.hpp
+
+  mkdir -p ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/nlohmann
+  cp ../cpp/nlohmann/*.hpp ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/nlohmann/
 }
 
 function build_framework() {

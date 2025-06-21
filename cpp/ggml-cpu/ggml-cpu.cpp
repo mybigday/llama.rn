@@ -1,8 +1,8 @@
 #include "ggml-backend.h"
 #include "ggml-backend-impl.h"
 #include "ggml-cpu.h"
-#include "ggml-cpu-aarch64.h"
-#include "ggml-cpu-traits.h"
+#include "repack.h"
+#include "traits.h"
 #include "ggml-impl.h"
 #include "amx/amx.h"
 
@@ -11,7 +11,7 @@
 #include <vector>
 
 #ifdef LM_GGML_USE_CPU_HBM
-#    include "ggml-cpu-hbm.h"
+#    include "hbm.h"
 #endif
 
 #ifdef LM_GGML_USE_CPU_KLEIDIAI
@@ -51,9 +51,9 @@ std::vector<lm_ggml_backend_buffer_type_t>& lm_ggml_backend_cpu_get_extra_buffer
         }
 #endif
 
-#ifdef LM_GGML_USE_CPU_AARCH64
-        if (lm_ggml_backend_cpu_aarch64_buffer_type()) {
-            bufts.push_back(lm_ggml_backend_cpu_aarch64_buffer_type());
+#ifdef LM_GGML_USE_CPU_REPACK
+        if (lm_ggml_backend_cpu_repack_buffer_type()) {
+            bufts.push_back(lm_ggml_backend_cpu_repack_buffer_type());
         }
 #endif
 
@@ -596,8 +596,8 @@ static lm_ggml_backend_feature * lm_ggml_backend_cpu_get_features(lm_ggml_backen
     #ifdef LM_GGML_USE_CPU_KLEIDIAI
         features.push_back({ "KLEIDIAI", "1" });
     #endif
-    #ifdef LM_GGML_USE_CPU_AARCH64
-        features.push_back({ "AARCH64_REPACK", "1" });
+    #ifdef LM_GGML_USE_CPU_REPACK
+        features.push_back({ "REPACK", "1" });
     #endif
 
         features.push_back({ nullptr, nullptr });

@@ -115,7 +115,7 @@ enum common_grammar_trigger_type {
     COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN,
     COMMON_GRAMMAR_TRIGGER_TYPE_WORD,
     COMMON_GRAMMAR_TRIGGER_TYPE_PATTERN,
-    COMMON_GRAMMAR_TRIGGER_TYPE_PATTERN_START,
+    COMMON_GRAMMAR_TRIGGER_TYPE_PATTERN_FULL,
 };
 
 struct common_grammar_trigger {
@@ -199,6 +199,9 @@ struct common_params_speculative {
     float   p_split      =  0.1f; // speculative decoding split probability
     float   p_min        = 0.75f; // minimum speculative decoding probability (greedy)
 
+    lm_ggml_type cache_type_k = LM_GGML_TYPE_F16; // KV cache data type for the K
+    lm_ggml_type cache_type_v = LM_GGML_TYPE_F16; // KV cache data type for the V
+
     struct cpu_params cpuparams;
     struct cpu_params cpuparams_batch;
 
@@ -215,7 +218,8 @@ struct common_params_vocoder {
 
 enum common_reasoning_format {
     COMMON_REASONING_FORMAT_NONE,
-    COMMON_REASONING_FORMAT_DEEPSEEK, // Extract thinking tag contents and return as `message.reasoning_content`
+    COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY, // Extract thinking tag contents and return as `message.reasoning_content`, or leave inline in <think> tags in stream mode
+    COMMON_REASONING_FORMAT_DEEPSEEK,        // Extract thinking tag contents and return as `message.reasoning_content`, including in streaming deltas.
 };
 
 struct common_params {
@@ -292,6 +296,7 @@ struct common_params {
     int32_t verbosity                  = 0;
     int32_t control_vector_layer_start = -1; // layer range for control vector
     int32_t control_vector_layer_end   = -1; // layer range for control vector
+    bool    offline                    = false;
 
     int32_t ppl_stride      = 0;     // stride for perplexity calculations. If left at 0, the pre-existing approach will be used.
     int32_t ppl_output_type = 0;     // = 0 -> ppl output is as usual, = 1 -> ppl output is num_tokens, ppl, one per line
@@ -357,7 +362,6 @@ struct common_params {
     int32_t embd_normalize = 2;     // normalisation for embeddings (-1=none, 0=max absolute int16, 1=taxicab, 2=euclidean, >2=p-norm)
     std::string embd_out   = "";    // empty = default, "array" = [[],[]...], "json" = openai style, "json+" = same "json" + cosine similarity matrix
     std::string embd_sep   = "\n";  // separator of embeddings
-    bool reranking         = false; // enable reranking support on server
 
     // server params
     int32_t port           = 8080;         // server listens on this network port
@@ -372,6 +376,7 @@ struct common_params {
     bool use_jinja = false;                                                                                 // NOLINT
     bool enable_chat_template = true;
     common_reasoning_format reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+    int reasoning_budget = -1;
     bool prefill_assistant = true;                                                                          // if true, any trailing assistant message will be prefilled into the response
 
     std::vector<std::string> api_keys;

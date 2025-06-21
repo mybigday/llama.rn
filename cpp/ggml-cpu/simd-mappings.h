@@ -17,7 +17,123 @@
 //   number of elements to fit in a single register
 //
 
-#if defined(__ARM_NEON) && defined(__ARM_FEATURE_FMA)
+#if defined(__ARM_FEATURE_SVE) && defined(__ARM_FEATURE_FMA)
+
+#define LM_GGML_SIMD
+
+// F32 SVE
+#define LM_GGML_F32_EPR 8
+#define DEFAULT_PG svptrue_b32()
+
+#define LM_GGML_F32xt                        svfloat32_t
+#define LM_GGML_F32xt_ZERO                   svdup_n_f32(0.0f)
+#define LM_GGML_F32xt_SET1(x)                svdup_n_f32(x)
+#define LM_GGML_F32xt_LOAD_IMPL(pg, a, ...)  svld1_f32(pg, a)
+#define LM_GGML_F32xt_LOAD(...)              LM_GGML_F32xt_LOAD_IMPL(DEFAULT_PG, __VA_ARGS__)
+#define LM_GGML_F32xt_STORE_IMPL(pg,a,b)     svst1_f32(pg, a, b)
+#define LM_GGML_F32xt_STORE(...)             LM_GGML_F32xt_STORE_IMPL(DEFAULT_PG, __VA_ARGS__)
+#define LM_GGML_F32xt_FMA_IMPL(pg, a, b, c)  svmad_f32_m(pg, a, b, c)
+#define LM_GGML_F32xt_FMA(...)               LM_GGML_F32xt_FMA_IMPL(DEFAULT_PG, __VA_ARGS__)
+#define LM_GGML_F32xt_ADD_IMPL(pg, a, b)     svadd_f32_m(pg, a, b)
+#define LM_GGML_F32xt_ADD(...)               LM_GGML_F32xt_ADD_IMPL(DEFAULT_PG, __VA_ARGS__)
+#define LM_GGML_F32xt_MUL_IMPL(pg, a, b)     svmul_f32_m(pg, a, b)
+#define LM_GGML_F32xt_MUL(...)               LM_GGML_F32xt_MUL_IMPL(DEFAULT_PG, __VA_ARGS__)
+#define LM_GGML_F32xt_REDUCE_ONE_IMPL(pg, a) svaddv(pg, a)
+#define LM_GGML_F32xt_REDUCE_ONE(...)        LM_GGML_F32xt_REDUCE_ONE_IMPL(DEFAULT_PG, __VA_ARGS__)
+#define LM_GGML_F32xt_REDUCE_IMPL(pg, res, sum1, sum2, sum3, sum4, sum5, sum6, sum7, sum8)  \
+{                                                      \
+    sum1 = svadd_f32_m(DEFAULT_PG, sum1, sum2);        \
+    sum3 = svadd_f32_m(DEFAULT_PG, sum3, sum4);        \
+    sum5 = svadd_f32_m(DEFAULT_PG, sum5, sum6);        \
+    sum7 = svadd_f32_m(DEFAULT_PG, sum7, sum8);        \
+    sum1 = svadd_f32_m(DEFAULT_PG, sum1, sum3);        \
+    sum5 = svadd_f32_m(DEFAULT_PG, sum5, sum7);        \
+    sum1 = svadd_f32_m(DEFAULT_PG, sum1, sum5);        \
+    (res) = (lm_ggml_float) LM_GGML_F32xt_REDUCE_ONE(sum1);  \
+}
+#define LM_GGML_F32xt_REDUCE(...) LM_GGML_F32xt_REDUCE_IMPL(DEFAULT_PG, __VA_ARGS__)
+
+#define LM_GGML_F32_VEC        LM_GGML_F32xt
+#define LM_GGML_F32_VEC_ZERO   LM_GGML_F32xt_ZERO
+#define LM_GGML_F32_VEC_SET1   LM_GGML_F32xt_SET1
+#define LM_GGML_F32_VEC_LOAD   LM_GGML_F32xt_LOAD
+#define LM_GGML_F32_VEC_STORE  LM_GGML_F32xt_STORE
+#define LM_GGML_F32_VEC_FMA    LM_GGML_F32xt_FMA
+#define LM_GGML_F32_VEC_ADD    LM_GGML_F32xt_ADD
+#define LM_GGML_F32_VEC_MUL    LM_GGML_F32xt_MUL
+#define LM_GGML_F32_VEC_REDUCE LM_GGML_F32xt_REDUCE
+
+// F16 NEON
+
+#if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
+    #define LM_GGML_F16_STEP 32
+    #define LM_GGML_F16_EPR  8
+
+    #define LM_GGML_F16x8              float16x8_t
+    #define LM_GGML_F16x8_ZERO         vdupq_n_f16(0.0f)
+    #define LM_GGML_F16x8_SET1(x)      vdupq_n_f16(x)
+    #define LM_GGML_F16x8_LOAD(x)      vld1q_f16((const __fp16 *)(x))
+    #define LM_GGML_F16x8_STORE        vst1q_f16
+    #define LM_GGML_F16x8_FMA(a, b, c) vfmaq_f16(a, b, c)
+    #define LM_GGML_F16x8_ADD          vaddq_f16
+    #define LM_GGML_F16x8_MUL          vmulq_f16
+    #define LM_GGML_F16x8_REDUCE(res, x)                               \
+    do {                                                            \
+        int offset = LM_GGML_F16_ARR >> 1;                             \
+        for (int i = 0; i < offset; ++i) {                          \
+            (x)[i] = vaddq_f16((x)[i], (x)[offset+i]);              \
+        }                                                           \
+        offset >>= 1;                                               \
+        for (int i = 0; i < offset; ++i) {                          \
+            (x)[i] = vaddq_f16((x)[i], (x)[offset+i]);              \
+        }                                                           \
+        offset >>= 1;                                               \
+        for (int i = 0; i < offset; ++i) {                          \
+            (x)[i] = vaddq_f16((x)[i], (x)[offset+i]);              \
+        }                                                           \
+        const float32x4_t t0 = vcvt_f32_f16(vget_low_f16 ((x)[0])); \
+        const float32x4_t t1 = vcvt_f32_f16(vget_high_f16((x)[0])); \
+        (res) = (lm_ggml_float) vaddvq_f32(vaddq_f32(t0, t1));         \
+    } while (0)
+
+    #define LM_GGML_F16_VEC                LM_GGML_F16x8
+    #define LM_GGML_F16_VEC_ZERO           LM_GGML_F16x8_ZERO
+    #define LM_GGML_F16_VEC_SET1           LM_GGML_F16x8_SET1
+    #define LM_GGML_F16_VEC_LOAD(p, i)     LM_GGML_F16x8_LOAD(p)
+    #define LM_GGML_F16_VEC_STORE(p, r, i) LM_GGML_F16x8_STORE((__fp16 *)(p), (r)[i])
+    #define LM_GGML_F16_VEC_FMA            LM_GGML_F16x8_FMA
+    #define LM_GGML_F16_VEC_ADD            LM_GGML_F16x8_ADD
+    #define LM_GGML_F16_VEC_MUL            LM_GGML_F16x8_MUL
+    #define LM_GGML_F16_VEC_REDUCE         LM_GGML_F16x8_REDUCE
+#else
+    // if FP16 vector arithmetic is not supported, we use FP32 instead
+    // and take advantage of the vcvt_ functions to convert to/from FP16
+
+    #define LM_GGML_F16_STEP 16
+    #define LM_GGML_F16_EPR  4
+
+    #define LM_GGML_F32Cx4              float32x4_t
+    #define LM_GGML_F32Cx4_ZERO         vdupq_n_f32(0.0f)
+    #define LM_GGML_F32Cx4_SET1(x)      vdupq_n_f32(x)
+    #define LM_GGML_F32Cx4_LOAD(x)      vcvt_f32_f16(vld1_f16((const __fp16 *)(x)))
+    #define LM_GGML_F32Cx4_STORE(x, y)  vst1_f16(x, vcvt_f16_f32(y))
+    #define LM_GGML_F32Cx4_FMA(a, b, c) vfmaq_f32(a, b, c)
+    #define LM_GGML_F32Cx4_ADD          vaddq_f32
+    #define LM_GGML_F32Cx4_MUL          vmulq_f32
+    #define LM_GGML_F32Cx4_REDUCE       LM_GGML_F32x4_REDUCE
+
+    #define LM_GGML_F16_VEC                LM_GGML_F32Cx4
+    #define LM_GGML_F16_VEC_ZERO           LM_GGML_F32Cx4_ZERO
+    #define LM_GGML_F16_VEC_SET1           LM_GGML_F32Cx4_SET1
+    #define LM_GGML_F16_VEC_LOAD(p, i)     LM_GGML_F32Cx4_LOAD(p)
+    #define LM_GGML_F16_VEC_STORE(p, r, i) LM_GGML_F32Cx4_STORE((__fp16 *)(p), r[i])
+    #define LM_GGML_F16_VEC_FMA            LM_GGML_F32Cx4_FMA
+    #define LM_GGML_F16_VEC_ADD            LM_GGML_F32Cx4_ADD
+    #define LM_GGML_F16_VEC_MUL            LM_GGML_F32Cx4_MUL
+    #define LM_GGML_F16_VEC_REDUCE         LM_GGML_F32Cx4_REDUCE
+#endif
+
+#elif defined(__ARM_NEON) && defined(__ARM_FEATURE_FMA)
 
 #define LM_GGML_SIMD
 
@@ -828,10 +944,8 @@ static inline void __lsx_f16x4_store(lm_ggml_fp16_t * x, __m128 y) {
     for (int i = 0; i < offset; ++i) {              \
         x[i] = vec_add(x[i], x[offset + i]);        \
     }                                               \
-    res = vec_extract(x[0], 0) +                    \
-          vec_extract(x[0], 1) +                    \
-          vec_extract(x[0], 2) +                    \
-          vec_extract(x[0], 3);                     \
+    float32x4_t tmp = x[0] + vec_reve(x[0]);        \
+    res = tmp[0] + tmp[1];                          \
 }
 
 #define LM_GGML_F32_VEC        LM_GGML_F32x4

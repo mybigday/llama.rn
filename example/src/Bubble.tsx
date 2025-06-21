@@ -65,7 +65,7 @@ const AudioPlayer = ({ audio, sr }: { audio: Float32Array; sr: number }) => {
       <Text style={styles.text}>
         {progress.toFixed(2)}
         {' '}
-        / 
+        /
         {' '}
         {duration.toFixed(2)}
         {' '}
@@ -115,9 +115,9 @@ export const Bubble = ({
       {message?.metadata?.audio && (
         <AudioPlayer audio={message.metadata.audio} sr={message.metadata.sr} />
       )}
-      {message?.metadata?.imagePath && (
+      {message?.metadata?.mediaPath && (
         <Image
-          source={{ uri: message.metadata.imagePath }}
+          source={{ uri: message.metadata.mediaPath }}
           resizeMode="cover"
           style={{
             width: 100,
