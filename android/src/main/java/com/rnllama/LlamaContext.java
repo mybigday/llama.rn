@@ -141,6 +141,7 @@ public class LlamaContext {
     String tools = params.hasKey("tools") ? params.getString("tools") : "";
     Boolean parallelToolCalls = params.hasKey("parallel_tool_calls") ? params.getBoolean("parallel_tool_calls") : false;
     String toolChoice = params.hasKey("tool_choice") ? params.getString("tool_choice") : "";
+    Boolean enableThinking = params.hasKey("enable_thinking") ? params.getBoolean("enable_thinking") : false;
     return getFormattedChatWithJinja(
       this.context,
       messages,
@@ -148,7 +149,8 @@ public class LlamaContext {
       jsonSchema,
       tools,
       parallelToolCalls,
-      toolChoice
+      toolChoice,
+      enableThinking
     );
   }
 
@@ -266,6 +268,8 @@ public class LlamaContext {
       params.hasKey("grammar_triggers") ? params.getArray("grammar_triggers") : null,
       // ReadableArray preserved_tokens,
       params.hasKey("preserved_tokens") ? params.getArray("preserved_tokens") : null,
+      // boolean thinking_forced_open,
+      params.hasKey("thinking_forced_open") ? params.getBoolean("thinking_forced_open") : false,
       // float temperature,
       params.hasKey("temperature") ? (float) params.getDouble("temperature") : 0.7f,
       // int n_threads,
@@ -577,7 +581,8 @@ public class LlamaContext {
     String jsonSchema,
     String tools,
     boolean parallelToolCalls,
-    String toolChoice
+    String toolChoice,
+    boolean enableThinking
   );
   protected static native String getFormattedChat(
     long contextPtr,
@@ -604,6 +609,7 @@ public class LlamaContext {
     boolean grammar_lazy,
     ReadableArray grammar_triggers,
     ReadableArray preserved_tokens,
+    boolean thinking_forced_open,
     float temperature,
     int n_threads,
     int n_predict,

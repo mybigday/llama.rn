@@ -230,7 +230,8 @@ export class LlamaContext {
       response_format?: CompletionResponseFormat
       tools?: object
       parallel_tool_calls?: object
-      tool_choice?: string
+      tool_choice?: string,
+      enable_thinking?: boolean,
     },
   ): Promise<FormattedChatResult | JinjaFormattedChatResult> {
     const mediaPaths: string[] = []
@@ -293,6 +294,7 @@ export class LlamaContext {
           ? JSON.stringify(params.parallel_tool_calls)
           : undefined,
         tool_choice: params?.tool_choice,
+        enable_thinking: params?.enable_thinking ?? true,
       },
     )
     if (!useJinja) {
@@ -339,6 +341,7 @@ export class LlamaContext {
           tools: params.tools,
           parallel_tool_calls: params.parallel_tool_calls,
           tool_choice: params.tool_choice,
+          enable_thinking: params.enable_thinking,
         },
       )
       if (formattedResult.type === 'jinja') {

@@ -123,7 +123,8 @@ struct llama_rn_context {
       const std::string &json_schema,
       const std::string &tools,
       const bool &parallel_tool_calls,
-      const std::string &tool_choice
+      const std::string &tool_choice,
+      const bool &enable_thinking
     ) const;
     std::string getFormattedChat(
       const std::string &messages,

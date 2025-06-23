@@ -80,6 +80,10 @@ export type NativeCompletionParams = {
   prompt: string
   n_threads?: number
   /**
+   * Enable Jinja. Default: true if supported by the model
+   */
+  jinja?: boolean
+  /**
    * JSON schema for convert to grammar for structured JSON output.
    * It will be override by grammar if both are set.
    */
@@ -92,6 +96,14 @@ export type NativeCompletionParams = {
    * Lazy grammar sampling, trigger by grammar_triggers. Default: false
    */
   grammar_lazy?: boolean
+  /**
+   * Enable thinking if jinja is enabled. Default: true
+   */
+  enable_thinking?: boolean
+  /**
+   * Force thinking to be open. Default: false
+   */
+  thinking_forced_open?: boolean
   /**
    * Lazy grammar triggers. Default: []
    */
@@ -391,6 +403,7 @@ export type JinjaFormattedChatResult = FormattedChatResult & {
     value: string
     token: number
   }>
+  thinking_forced_open?: boolean
   preserved_tokens?: Array<string>
   additional_stops?: Array<string>
 }
@@ -421,6 +434,7 @@ export interface Spec extends TurboModule {
       tools?: string
       parallel_tool_calls?: string
       tool_choice?: string
+      enable_thinking?: boolean
     },
   ): Promise<JinjaFormattedChatResult | string>
   loadSession(

@@ -787,9 +787,10 @@ export default function App() {
             },
           },
         ],
+        enable_thinking: true,
       }
       // Comment to test:
-      jinjaParams = { jinja: true }
+      jinjaParams = { jinja: true, enable_thinking: true }
     }
 
     // Test area

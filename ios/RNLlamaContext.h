@@ -48,7 +48,8 @@
     withJsonSchema:(NSString *)jsonSchema
     withTools:(NSString *)tools
     withParallelToolCalls:(BOOL)parallelToolCalls
-    withToolChoice:(NSString *)toolChoice;
+    withToolChoice:(NSString *)toolChoice
+    withEnableThinking:(BOOL)enableThinking;
 - (NSString *)getFormattedChat:(NSString *)messages withChatTemplate:(NSString *)chatTemplate;
 - (NSDictionary *)loadSession:(NSString *)path;
 - (int)saveSession:(NSString *)path size:(int)size;

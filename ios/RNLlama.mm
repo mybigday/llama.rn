@@ -102,9 +102,17 @@ RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
         if ([params[@"jinja"] boolValue]) {
             NSString *jsonSchema = params[@"json_schema"];
             NSString *tools = params[@"tools"];
-            bool parallelToolCalls = [params[@"parallel_tool_calls"] boolValue];
+            BOOL parallelToolCalls = [params[@"parallel_tool_calls"] boolValue];
             NSString *toolChoice = params[@"tool_choice"];
-            resolve([context getFormattedChatWithJinja:messages withChatTemplate:chatTemplate withJsonSchema:jsonSchema withTools:tools withParallelToolCalls:parallelToolCalls withToolChoice:toolChoice]);
+            BOOL enableThinking = [params[@"enable_thinking"] boolValue];
+            resolve([context getFormattedChatWithJinja:messages
+                withChatTemplate:chatTemplate
+                withJsonSchema:jsonSchema
+                withTools:tools
+                withParallelToolCalls:parallelToolCalls
+                withToolChoice:toolChoice
+                withEnableThinking:enableThinking
+            ]);
         } else {
             resolve([context getFormattedChat:messages withChatTemplate:chatTemplate]);
         }

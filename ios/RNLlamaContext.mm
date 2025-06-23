@@ -355,6 +355,7 @@
     withTools:(NSString *)tools
     withParallelToolCalls:(BOOL)parallelToolCalls
     withToolChoice:(NSString *)toolChoice
+    withEnableThinking:(BOOL)enableThinking
 {
     auto tmpl_str = chatTemplate == nil ? "" : [chatTemplate UTF8String];
 
@@ -365,7 +366,8 @@
         jsonSchema == nil ? "" : [jsonSchema UTF8String],
         tools == nil ? "" : [tools UTF8String],
         parallelToolCalls,
-        toolChoice == nil ? "" : [toolChoice UTF8String]
+        toolChoice == nil ? "" : [toolChoice UTF8String],
+        enableThinking
     );
     result[@"prompt"] = [NSString stringWithUTF8String:chatParams.prompt.c_str()];
     result[@"chat_format"] = @(static_cast<int>(chatParams.format));
@@ -379,6 +381,7 @@
             @"token": @(trigger.token),
         }];
     }
+    result[@"thinking_forced_open"] = @(chatParams.thinking_forced_open);
     result[@"grammar_triggers"] = grammar_triggers;
     NSMutableArray *preserved_tokens = [[NSMutableArray alloc] init];
     for (const auto & token : chatParams.preserved_tokens) {
@@ -697,6 +700,7 @@
             } else {
                 chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
             }
+            chat_syntax.thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
 
             common_chat_msg message = common_chat_parse(llama->generated_text, false, chat_syntax);
             if (!message.reasoning_content.empty()) {

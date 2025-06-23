@@ -475,7 +475,8 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     jstring json_schema,
     jstring tools,
     jboolean parallel_tool_calls,
-    jstring tool_choice
+    jstring tool_choice,
+    jboolean enable_thinking
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
@@ -494,7 +495,8 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
             json_schema_chars,
             tools_chars,
             parallel_tool_calls,
-            tool_choice_chars
+            tool_choice_chars,
+            enable_thinking
         );
         putString(env, result, "prompt", formatted.prompt.c_str());
         putInt(env, result, "chat_format", static_cast<int>(formatted.format));
@@ -508,6 +510,7 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
             putInt(env, trigger_map, "token", trigger.token);
             pushMap(env, grammar_triggers, trigger_map);
         }
+        putBoolean(env, result, "thinking_forced_open", formatted.thinking_forced_open);
         putArray(env, result, "grammar_triggers", grammar_triggers);
         auto preserved_tokens = createWritableArray(env);
         for (const auto &token : formatted.preserved_tokens) {
@@ -676,6 +679,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jboolean grammar_lazy,
     jobject grammar_triggers,
     jobject preserved_tokens,
+    jboolean thinking_forced_open,
     jfloat temperature,
     jint n_threads,
     jint n_predict,
@@ -1017,6 +1021,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
             } else {
                 chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
             }
+            chat_syntax.thinking_forced_open = thinking_forced_open;
             env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
             common_chat_msg message = common_chat_parse(
               llama->generated_text,

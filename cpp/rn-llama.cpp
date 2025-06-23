@@ -311,7 +311,8 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
   const std::string &json_schema,
   const std::string &tools,
   const bool &parallel_tool_calls,
-  const std::string &tool_choice
+  const std::string &tool_choice,
+  const bool &enable_thinking
 ) const {
     common_chat_templates_inputs inputs;
     inputs.use_jinja = true;
@@ -327,6 +328,7 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
     if (!json_schema.empty()) {
         inputs.json_schema = json::parse(json_schema);
     }
+    inputs.enable_thinking = enable_thinking;
 
     // If chat_template is provided, create new one and use it (probably slow)
     if (!chat_template.empty()) {
