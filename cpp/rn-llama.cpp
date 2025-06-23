@@ -424,7 +424,8 @@ void llama_rn_context::loadPrompt(const std::vector<std::string> &media_paths) {
         }
 
         // Manage KV cache
-        llama_kv_self_seq_rm(ctx, 0, n_past, -1);
+        auto * kv = llama_get_memory(ctx);
+        llama_memory_seq_rm(kv, 0, n_past, -1);
 
         LOG_VERBOSE("prompt ingested, n_past: %d, cached: %s, to_eval: %s",
             n_past,
@@ -478,8 +479,9 @@ completion_token_output llama_rn_context::nextToken()
         const int n_left    = n_past - params.n_keep - 1;
         const int n_discard = n_left/2;
 
-        llama_kv_self_seq_rm (ctx, 0, params.n_keep + 1            , params.n_keep + n_discard + 1);
-        llama_kv_self_seq_add(ctx, 0, params.n_keep + 1 + n_discard, n_past, -n_discard);
+        auto * kv = llama_get_memory(ctx);
+        llama_memory_seq_rm (kv, 0, params.n_keep + 1            , params.n_keep + n_discard + 1);
+        llama_memory_seq_add(kv, 0, params.n_keep + 1 + n_discard, n_past, -n_discard);
 
         for (size_t i = params.n_keep + 1 + n_discard; i < embd.size(); i++)
         {
@@ -745,7 +747,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
         }
         batch.logits[batch.n_tokens - 1] = 1; // true
 
-        llama_kv_self_clear(ctx);
+        llama_memory_clear(llama_get_memory(ctx), true);
 
         const int64_t t_pp_start = llama_time_us();
         if (llama_decode(ctx, batch) != 0)
@@ -753,7 +755,8 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
             LOG_ERROR("llama_decode() failed during prompt", "");
         }
         const int64_t t_pp_end = llama_time_us();
-        llama_kv_self_clear(ctx);
+
+        llama_memory_clear(llama_get_memory(ctx), true);
 
         if (is_interrupted) break;
 
@@ -777,7 +780,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
 
         const int64_t t_tg_end = llama_time_us();
 
-        llama_kv_self_clear(ctx);
+        llama_memory_clear(llama_get_memory(ctx), true);
 
         const double t_pp = (t_pp_end - t_pp_start) / 1000000.0;
         const double t_tg = (t_tg_end - t_tg_start) / 1000000.0;
@@ -803,7 +806,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
         tg_std = 0;
     }
 
-    if (is_interrupted) llama_kv_self_clear(ctx);
+    if (is_interrupted) llama_memory_clear(llama_get_memory(ctx), true);
     endCompletion();
 
     char model_desc[128];
@@ -1200,7 +1203,8 @@ void llama_rn_context::processMedia(
     }
 
     // Clear all KV cache entries after position n_past
-    llama_kv_self_seq_rm(ctx, 0, n_past, -1);
+    auto * kv = llama_get_memory(ctx);
+    llama_memory_seq_rm(kv, 0, n_past, -1);
 
     LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, params.n_batch);
 
