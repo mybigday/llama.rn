@@ -6793,6 +6793,73 @@ void lm_ggml_compute_forward_pad_reflect_1d(
     }
 }
 
+// lm_ggml_compute_forward_roll
+
+static int64_t lm_ggml_wrap_index(int64_t i, int64_t ne) {
+    if (i < 0) {
+        return i + ne;
+    } else if (i >= ne) {
+        return i - ne;
+    }
+    return i;
+}
+
+static void lm_ggml_compute_forward_roll_f32(
+        const lm_ggml_compute_params * params,
+        lm_ggml_tensor * dst) {
+
+    const lm_ggml_tensor * src0 = dst->src[0];
+    const float * src_data = (const float *) src0->data;
+    float * dst_data = (float *) dst->data;
+
+    LM_GGML_TENSOR_UNARY_OP_LOCALS
+
+    const int s0 = lm_ggml_get_op_params_i32(dst, 0);
+    const int s1 = lm_ggml_get_op_params_i32(dst, 1);
+    const int s2 = lm_ggml_get_op_params_i32(dst, 2);
+    const int s3 = lm_ggml_get_op_params_i32(dst, 3);
+
+    const int64_t total = ne1 * ne2 * ne3;
+    const int64_t per_thread = (total + params->nth) / params->nth;
+    const int64_t start = params->ith * per_thread;
+    const int64_t end   = std::min(start + per_thread, total);
+
+    for (int64_t i = start; i < end; ++i) {
+        const int64_t i1 = i % ne1;
+        const int64_t i2 = (i / ne1) % ne2;
+        const int64_t i3 = i / (ne2 * ne1);
+        float * dst_row = dst_data + (i3*nb3 + i2*nb2 + i1*nb1) / sizeof(float);
+
+        const int64_t i01 = lm_ggml_wrap_index(i1 - s1, ne01);
+        const int64_t i02 = lm_ggml_wrap_index(i2 - s2, ne02);
+        const int64_t i03 = lm_ggml_wrap_index(i3 - s3, ne03);
+        const float * src_row = src_data + (i03*nb03 + i02*nb02 + i01*nb01) / sizeof(float);
+
+        const int64_t s = lm_ggml_wrap_index(-s0, ne00);
+        const int64_t n = ne00 - s;
+        lm_ggml_vec_cpy_f32(n, dst_row,     src_row + s);
+        lm_ggml_vec_cpy_f32(s, dst_row + n, src_row);
+    }
+}
+
+void lm_ggml_compute_forward_roll(
+        const lm_ggml_compute_params * params,
+        lm_ggml_tensor * dst) {
+
+    const lm_ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case LM_GGML_TYPE_F32:
+            {
+                lm_ggml_compute_forward_roll_f32(params, dst);
+            } break;
+        default:
+            {
+                LM_GGML_ABORT("fatal error");
+            }
+    }
+}
+
 // lm_ggml_compute_forward_arange
 
 static void lm_ggml_compute_forward_arange_f32(

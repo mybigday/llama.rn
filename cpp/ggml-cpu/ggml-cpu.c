@@ -1890,6 +1890,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_pad_reflect_1d(params, tensor);
             } break;
+        case LM_GGML_OP_ROLL:
+            {
+                lm_ggml_compute_forward_roll(params, tensor);
+            } break;
         case LM_GGML_OP_ARANGE:
             {
                 lm_ggml_compute_forward_arange(params, tensor);
@@ -2214,6 +2218,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
         case LM_GGML_OP_UPSCALE:
         case LM_GGML_OP_PAD:
         case LM_GGML_OP_PAD_REFLECT_1D:
+        case LM_GGML_OP_ROLL:
         case LM_GGML_OP_ARANGE:
         case LM_GGML_OP_TIMESTEP_EMBEDDING:
         case LM_GGML_OP_ARGSORT:
