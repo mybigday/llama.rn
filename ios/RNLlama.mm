@@ -292,6 +292,25 @@ RCT_EXPORT_METHOD(embedding:(double)contextId
     }
 }
 
+RCT_EXPORT_METHOD(rerank:(double)contextId
+                  query:(NSString *)query
+                  documents:(NSArray<NSString *> *)documents
+                  params:(NSDictionary *)params
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject) {
+  RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+  if (context == nil) {
+    reject(@"context_not_found", @"Context not found", nil);
+    return;
+  }
+  @try {
+    NSArray *result = [context rerank:query documents:documents params:params];
+    resolve(result);
+  } @catch (NSException *exception) {
+    reject(@"rerank_error", exception.reason, nil);
+  }
+}
+
 RCT_EXPORT_METHOD(bench:(double)contextId
                   pp:(int)pp
                   tg:(int)tg

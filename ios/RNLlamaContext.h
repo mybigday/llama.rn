@@ -43,6 +43,7 @@
 - (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths;
 - (NSString *)detokenize:(NSArray *)tokens;
 - (NSDictionary *)embedding:(NSString *)text params:(NSDictionary *)params;
+- (NSArray *)rerank:(NSString *)query documents:(NSArray<NSString *> *)documents params:(NSDictionary *)params;
 - (NSDictionary *)getFormattedChatWithJinja:(NSString *)messages
     withChatTemplate:(NSString *)chatTemplate
     withJsonSchema:(NSString *)jsonSchema

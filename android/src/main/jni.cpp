@@ -1248,6 +1248,54 @@ Java_com_rnllama_LlamaContext_embedding(
     return result;
 }
 
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_rerank(
+        JNIEnv *env, jobject thiz,
+        jlong context_ptr,
+        jstring query,
+        jobjectArray documents,
+        jint normalize
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *query_chars = env->GetStringUTFChars(query, nullptr);
+
+    // Convert Java string array to C++ vector
+    std::vector<std::string> documents_vector;
+    int documents_size = env->GetArrayLength(documents);
+    for (int i = 0; i < documents_size; i++) {
+        jstring document = (jstring) env->GetObjectArrayElement(documents, i);
+        const char *document_chars = env->GetStringUTFChars(document, nullptr);
+        documents_vector.push_back(document_chars);
+        env->ReleaseStringUTFChars(document, document_chars);
+    }
+
+    auto result = createWritableArray(env);
+
+    try {
+        std::vector<float> scores = llama->rerank(query_chars, documents_vector);
+
+        for (size_t i = 0; i < scores.size(); i++) {
+            auto item = createWriteableMap(env);
+            putDouble(env, item, "score", (double) scores[i]);
+            putInt(env, item, "index", (int) i);
+            pushMap(env, result, item);
+        }
+    } catch (const std::exception &e) {
+        auto error_item = createWriteableMap(env);
+        putString(env, error_item, "error", e.what());
+        pushMap(env, result, error_item);
+    } catch (const std::runtime_error& e) {
+        auto error_item = createWriteableMap(env);
+        putString(env, error_item, "error", e.what());
+        pushMap(env, result, error_item);
+    }
+
+    env->ReleaseStringUTFChars(query, query_chars);
+    return result;
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_rnllama_LlamaContext_bench(
     JNIEnv *env,

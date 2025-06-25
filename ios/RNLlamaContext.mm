@@ -874,6 +874,34 @@
     return resultDict;
 }
 
+- (NSArray *)rerank:(NSString *)query documents:(NSArray<NSString *> *)documents params:(NSDictionary *)params {
+    // Convert NSArray to std::vector
+    std::vector<std::string> documentsVector;
+    for (NSString *doc in documents) {
+        documentsVector.push_back(std::string([doc UTF8String]));
+    }
+
+    NSMutableArray *resultArray = [[NSMutableArray alloc] init];
+
+    try {
+        std::vector<float> scores = llama->rerank(std::string([query UTF8String]), documentsVector);
+
+        // Create result array with score and index
+        for (size_t i = 0; i < scores.size(); i++) {
+            NSMutableDictionary *item = [[NSMutableDictionary alloc] init];
+            item[@"score"] = @(scores[i]);
+            item[@"index"] = @((int)i);
+            [resultArray addObject:item];
+        }
+    } catch (const std::exception &e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    } catch (const std::runtime_error& e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
+
+    return resultArray;
+}
+
 - (NSDictionary *)loadSession:(NSString *)path {
     if (!path || [path length] == 0) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Session path is empty" userInfo:nil];

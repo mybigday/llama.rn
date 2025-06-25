@@ -11,6 +11,8 @@ import type {
   NativeEmbeddingResult,
   NativeSessionLoadResult,
   NativeEmbeddingParams,
+  NativeRerankParams,
+  NativeRerankResult,
   NativeCompletionTokenProbItem,
   NativeCompletionResultTimings,
   JinjaFormattedChatResult,
@@ -52,6 +54,8 @@ export type {
   NativeEmbeddingResult,
   NativeSessionLoadResult,
   NativeEmbeddingParams,
+  NativeRerankParams,
+  NativeRerankResult,
   NativeCompletionTokenProbItem,
   NativeCompletionResultTimings,
   FormattedChatResult,
@@ -130,6 +134,16 @@ export type ContextParams = Omit<
 }
 
 export type EmbeddingParams = NativeEmbeddingParams
+
+export type RerankParams = {
+  normalize?: number
+}
+
+export type RerankResult = {
+  score: number
+  index: number
+  document?: string
+}
 
 export type CompletionResponseFormat = {
   type: 'text' | 'json_object' | 'json_schema'
@@ -439,6 +453,29 @@ export class LlamaContext {
     params?: EmbeddingParams,
   ): Promise<NativeEmbeddingResult> {
     return RNLlama.embedding(this.id, text, params || {})
+  }
+
+  /**
+   * Rerank documents based on relevance to a query
+   * @param query The query text to rank documents against
+   * @param documents Array of document texts to rank
+   * @param params Optional reranking parameters
+   * @returns Promise resolving to an array of ranking results with scores and indices
+   */
+  async rerank(
+    query: string,
+    documents: string[],
+    params?: RerankParams,
+  ): Promise<RerankResult[]> {
+    const results = await RNLlama.rerank(this.id, query, documents, params || {})
+
+    // Sort by score descending and add document text if requested
+    return results
+      .map((result) => ({
+        ...result,
+        document: documents[result.index],
+      }))
+      .sort((a, b) => b.score - a.score)
   }
 
   async bench(
