@@ -715,6 +715,94 @@ std::vector<float> llama_rn_context::getEmbedding(common_params &embd_params)
     return out;
 }
 
+// Helper function to format rerank task: [BOS]query[EOS][SEP]doc[EOS]
+static std::vector<llama_token> format_rerank(const llama_vocab * vocab, const std::vector<llama_token> & query, const std::vector<llama_token> & doc) {
+    std::vector<llama_token> result;
+
+    // Get EOS token - use SEP token as fallback if EOS is not available
+    llama_token eos_token = llama_vocab_eos(vocab);
+    if (eos_token == LLAMA_TOKEN_NULL) {
+        eos_token = llama_vocab_sep(vocab);
+    }
+
+    result.reserve(doc.size() + query.size() + 4);
+    if (llama_vocab_get_add_bos(vocab)) {
+        result.push_back(llama_vocab_bos(vocab));
+    }
+    result.insert(result.end(), query.begin(), query.end());
+    if (llama_vocab_get_add_eos(vocab)) {
+        result.push_back(eos_token);
+    }
+    if (llama_vocab_get_add_sep(vocab)) {
+        result.push_back(llama_vocab_sep(vocab));
+    }
+    result.insert(result.end(), doc.begin(), doc.end());
+    if (llama_vocab_get_add_eos(vocab)) {
+        result.push_back(eos_token);
+    }
+
+    return result;
+}
+
+std::vector<float> llama_rn_context::rerank(const std::string &query, const std::vector<std::string> &documents)
+{
+    std::vector<float> scores;
+
+    // Check if this model supports reranking (requires rank pooling type)
+    const enum llama_pooling_type pooling_type = llama_pooling_type(ctx);
+    if (pooling_type != LLAMA_POOLING_TYPE_RANK) {
+        throw std::runtime_error("reranking not supported, pooling_type: " + std::to_string(pooling_type));
+    }
+
+    if (!params.embedding) {
+        throw std::runtime_error("embedding disabled but required for reranking");
+    }
+
+    const llama_vocab * vocab = llama_model_get_vocab(model);
+    std::vector<llama_token> query_tokens = common_tokenize(vocab, query, false, true);
+
+    scores.reserve(documents.size());
+
+    for (size_t i = 0; i < documents.size(); ++i) {
+        rewind();
+        embd = {};
+
+        const std::string & document = documents[i];
+
+        std::vector<llama_token> doc_tokens = common_tokenize(vocab, document, false, true);
+
+        std::vector<llama_token> rerank_tokens = format_rerank(vocab, query_tokens, doc_tokens);
+
+        llama_memory_clear(llama_get_memory(ctx), false);
+
+        // Process the rerank input
+        try {
+            params.prompt = tokens_to_str(ctx, rerank_tokens.begin(), rerank_tokens.end());
+            initSampling();
+            loadPrompt({}); // No media paths for rerank
+            beginCompletion();
+            doCompletion();
+
+            // Get the rerank score (single embedding value for rank pooling)
+            float *data = llama_get_embeddings_seq(ctx, 0);
+            if (data) {
+                scores.push_back(data[0]); // For rank pooling, the score is the first (and only) dimension
+            } else {
+                scores.push_back(-1e6f); // Default low score if computation failed
+            }
+        } catch (const std::exception &e) {
+            LOG_WARNING("rerank computation failed for document %zu: %s", i, e.what());
+            scores.push_back(-1e6f);
+        }
+        endCompletion();
+
+        // Clear KV cache again to prepare for next document or restore original state
+        llama_memory_clear(llama_get_memory(ctx), false);
+    }
+
+    return scores;
+}
+
 std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
 {
     if (is_predicting) {

@@ -374,6 +374,27 @@ public class LlamaContext {
     return result;
   }
 
+  public WritableArray getRerank(String query, ReadableArray documents, ReadableMap params) {
+    if (isEmbeddingEnabled(this.context) == false) {
+      throw new IllegalStateException("Embedding is not enabled but required for reranking");
+    }
+
+    // Convert ReadableArray to Java string array
+    String[] documentsArray = new String[documents.size()];
+    for (int i = 0; i < documents.size(); i++) {
+      documentsArray[i] = documents.getString(i);
+    }
+
+    WritableArray result = rerank(
+      this.context,
+      query,
+      documentsArray,
+      // int normalize,
+      params.hasKey("normalize") ? params.getInt("normalize") : -1
+    );
+    return result;
+  }
+
   public String bench(int pp, int tg, int pl, int nr) {
     return bench(this.context, pp, tg, pl, nr);
   }
@@ -650,6 +671,7 @@ public class LlamaContext {
     String text,
     int embd_normalize
   );
+  protected static native WritableArray rerank(long contextPtr, String query, String[] documents, int normalize);
   protected static native String bench(long contextPtr, int pp, int tg, int pl, int nr);
   protected static native int applyLoraAdapters(long contextPtr, ReadableArray loraAdapters);
   protected static native void removeLoraAdapters(long contextPtr);

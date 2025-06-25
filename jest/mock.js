@@ -196,6 +196,7 @@ if (!NativeModules.RNLlama) {
     })),
     detokenize: jest.fn(async () => ''),
     embedding: jest.fn(async () => ({ embedding: demoEmbedding })),
+    rerank: jest.fn(async () => []),
 
     loadSession: jest.fn(async () => ({
       tokens_loaded: 1,

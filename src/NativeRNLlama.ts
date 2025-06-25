@@ -414,6 +414,15 @@ export type NativeImageProcessingResult = {
   error?: string
 }
 
+export type NativeRerankParams = {
+  normalize?: number
+}
+
+export type NativeRerankResult = {
+  score: number
+  index: number
+}
+
 export interface Spec extends TurboModule {
   toggleNativeLog(enabled: boolean): Promise<void>
   setContextLimit(limit: number): Promise<void>
@@ -458,6 +467,12 @@ export interface Spec extends TurboModule {
     text: string,
     params: NativeEmbeddingParams,
   ): Promise<NativeEmbeddingResult>
+  rerank(
+    contextId: number,
+    query: string,
+    documents: Array<string>,
+    params?: NativeRerankParams,
+  ): Promise<Array<NativeRerankResult>>
   bench(
     contextId: number,
     pp: number,
