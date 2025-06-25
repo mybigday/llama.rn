@@ -207,9 +207,6 @@ export default function App() {
         ctx_shift: false,
         // OuteTTS recommends 8192
         n_ctx: info['general.basename']?.startsWith('OuteTTS') ? 8192 : 512,
-
-        embedding: true,
-        pooling_type: 'rank'
       },
       (progress) => {
         setMessages((msgs) => {
@@ -349,14 +346,6 @@ export default function App() {
           `// Model Info\n${json5.stringify(context.model, null, 2)}`,
           { copyable: true },
         )
-        return
-      case '/rerank':
-        const results = await context.rerank(
-          'What is artificial intelligence?',
-          ['AI is a branch of computer science.', 'The weather is nice today.', 'Machine learning is a subset of AI.', 'I like pizza.'],
-          { normalize: 1 }
-        )
-        addSystemMessage(`Rerank results: ${JSON.stringify(results)}`)
         return
       case '/bench':
         addSystemMessage('Heating up the model...')
