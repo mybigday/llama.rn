@@ -2,7 +2,7 @@
   "compilerOptions": {
     "baseUrl": "./",
     "paths": {
-      "inferra-llama.rn": ["./src/index"]
+      "inferra-llama": ["./src/index"]
     },
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,

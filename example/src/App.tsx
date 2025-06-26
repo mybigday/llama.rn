@@ -15,7 +15,7 @@ import {
   toggleNativeLog,
   addNativeLogListener,
   // eslint-disable-next-line import/no-unresolved
-} from 'inferra-llama.rn'
+} from 'inferra-llama'
 import { Bubble } from './Bubble'
 
 // Example: Catch logs from llama.cpp

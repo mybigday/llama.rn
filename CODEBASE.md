@@ -2,7 +2,7 @@
 
 ## Overview
 
-**inferra-llama.rn** is a React Native library that provides JavaScript/TypeScript bindings for running Large Language Models (LLMs) locally on mobile devices using the llama.cpp engine. This library enables developers to build AI-powered mobile applications that work offline with full privacy.
+**inferra-llama** is a React Native library that provides JavaScript/TypeScript bindings for running Large Language Models (LLMs) locally on mobile devices using the llama.cpp engine. This library enables developers to build AI-powered mobile applications that work offline with full privacy.
 
 ## Project Structure (ASCII Tree)
 

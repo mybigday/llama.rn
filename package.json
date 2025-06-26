@@ -1,6 +1,6 @@
 {
-  "name": "inferra-llama.rn",
-  "version": "1.8.1",
+  "name": "inferra-llama",
+  "version": "1.8.2",
   "description": "React Native binding of llama.cpp for Inferra",
   "main": "lib/commonjs/index",
   "module": "lib/module/index",
@@ -17,6 +17,7 @@
     "*.podspec",
     "!lib/typescript/example",
     "!ios/build",
+    "!android/build",
     "!android/gradle",
     "!android/gradlew",
     "!android/gradlew.bat",
@@ -53,13 +54,13 @@
     "llama",
     "llama-2"
   ],
-  "repository": "https://github.com/sbhjt-gr/inferra-llama.rn",
+  "repository": "https://github.com/mybigday/llama.rn",
   "author": "Jhen-Jie Hong <developer@jhen.me> (https://github.com/mybigday)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/sbhjt-gr/inferra-llama.rn/issues"
+    "url": "https://github.com/mybigday/llama.rn/issues"
   },
-  "homepage": "https://github.com/sbhjt-gr/inferra-llama.rn#readme",
+  "homepage": "https://github.com/mybigday/llama.rn#readme",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"
   },
@@ -74,12 +75,8 @@
     "@types/react-native": "0.70.0",
     "commitlint": "^17.0.2",
     "del-cli": "^5.0.0",
-    "escape-string-regexp": "^5.0.0",
     "eslint": "^8.4.1",
-    "eslint-import-resolver-babel-module": "^5.3.2",
-    "eslint-import-resolver-typescript": "^4.2.7",
     "jest": "^28.1.1",
-    "metro-config": "^0.82.1",
     "pod-install": "^0.1.0",
     "prettier": "^2.0.5",
     "react": "18.2.0",
