@@ -219,11 +219,11 @@ void lm_ggml_vec_dot_f16(int n, float * LM_GGML_RESTRICT s, size_t bs, lm_ggml_f
 
     // leftovers
     for (int i = np; i < n; ++i) {
-        sumf += (lm_ggml_float)(LM_GGML_FP16_TO_FP32(x[i])*LM_GGML_FP16_TO_FP32(y[i]));
+        sumf += (lm_ggml_float)(LM_GGML_CPU_FP16_TO_FP32(x[i])*LM_GGML_CPU_FP16_TO_FP32(y[i]));
     }
 #else
     for (int i = 0; i < n; ++i) {
-        sumf += (lm_ggml_float)(LM_GGML_FP16_TO_FP32(x[i])*LM_GGML_FP16_TO_FP32(y[i]));
+        sumf += (lm_ggml_float)(LM_GGML_CPU_FP16_TO_FP32(x[i])*LM_GGML_CPU_FP16_TO_FP32(y[i]));
     }
 #endif
 

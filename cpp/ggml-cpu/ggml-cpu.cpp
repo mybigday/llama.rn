@@ -578,6 +578,9 @@ static lm_ggml_backend_feature * lm_ggml_backend_cpu_get_features(lm_ggml_backen
         if (lm_ggml_cpu_has_vxe()) {
             features.push_back({ "VXE", "1" });
         }
+        if (lm_ggml_cpu_has_nnpa()) {
+            features.push_back({ "NNPA", "1" });
+        }
         if (lm_ggml_cpu_has_wasm_simd()) {
             features.push_back({ "WASM_SIMD", "1" });
         }

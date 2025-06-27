@@ -3,9 +3,7 @@
 git submodule init
 git submodule update --recursive
 
-cp ./llama.cpp/include/llama.h ./cpp/llama.h
-cp ./llama.cpp/include/llama-cpp.h ./cpp/llama-cpp.h
-
+# ggml api
 cp ./llama.cpp/ggml/include/ggml.h ./cpp/ggml.h
 cp ./llama.cpp/ggml/include/ggml-alloc.h ./cpp/ggml-alloc.h
 cp ./llama.cpp/ggml/include/ggml-backend.h ./cpp/ggml-backend.h
@@ -59,6 +57,9 @@ cp ./llama.cpp/ggml/src/ggml-threading.cpp ./cpp/ggml-threading.cpp
 cp ./llama.cpp/ggml/src/ggml-threading.h ./cpp/ggml-threading.h
 cp ./llama.cpp/ggml/src/gguf.cpp ./cpp/gguf.cpp
 
+# llama api
+cp ./llama.cpp/include/llama.h ./cpp/llama.h
+cp ./llama.cpp/include/llama-cpp.h ./cpp/llama-cpp.h
 cp ./llama.cpp/src/llama.cpp ./cpp/llama.cpp
 cp ./llama.cpp/src/llama-chat.h ./cpp/llama-chat.h
 cp ./llama.cpp/src/llama-chat.cpp ./cpp/llama-chat.cpp
@@ -154,7 +155,64 @@ cp -r ./llama.cpp/vendor/stb ./cpp/tools/mtmd/stb
 
 # List of files to process
 files_add_lm_prefix=(
-  "./cpp/llama-impl.h"
+  # ggml api
+  "./cpp/ggml-common.h"
+  "./cpp/ggml.h"
+  "./cpp/ggml.c"
+  "./cpp/gguf.h"
+  "./cpp/gguf.cpp"
+  "./cpp/ggml-impl.h"
+  "./cpp/ggml-cpp.h"
+  "./cpp/ggml-opt.h"
+  "./cpp/ggml-opt.cpp"
+  "./cpp/ggml-metal.h"
+  "./cpp/ggml-metal.m"
+  "./cpp/ggml-metal-impl.h"
+  "./cpp/ggml-quants.h"
+  "./cpp/ggml-quants.c"
+  "./cpp/ggml-alloc.h"
+  "./cpp/ggml-alloc.c"
+  "./cpp/ggml-backend.h"
+  "./cpp/ggml-backend.cpp"
+  "./cpp/ggml-backend-impl.h"
+  "./cpp/ggml-backend-reg.cpp"
+  "./cpp/ggml-cpu.h"
+  "./cpp/ggml-cpu/ggml-cpu-impl.h"
+  "./cpp/ggml-cpu/ggml-cpu.c"
+  "./cpp/ggml-cpu/ggml-cpu.cpp"
+  "./cpp/ggml-cpu/quants.h"
+  "./cpp/ggml-cpu/quants.c"
+  "./cpp/ggml-cpu/traits.h"
+  "./cpp/ggml-cpu/traits.cpp"
+  "./cpp/ggml-cpu/arch-fallback.h"
+  "./cpp/ggml-cpu/repack.cpp"
+  "./cpp/ggml-cpu/repack.h"
+  "./cpp/ggml-cpu/common.h"
+  "./cpp/ggml-threading.h"
+  "./cpp/ggml-threading.cpp"
+  "./cpp/ggml-cpu/amx/amx.h"
+  "./cpp/ggml-cpu/amx/amx.cpp"
+  "./cpp/ggml-cpu/amx/mmq.h"
+  "./cpp/ggml-cpu/amx/mmq.cpp"
+  "./cpp/ggml-cpu/amx/common.h"
+  "./cpp/ggml-cpu/unary-ops.h"
+  "./cpp/ggml-cpu/unary-ops.cpp"
+  "./cpp/ggml-cpu/binary-ops.h"
+  "./cpp/ggml-cpu/binary-ops.cpp"
+  "./cpp/ggml-cpu/vec.h"
+  "./cpp/ggml-cpu/vec.cpp"
+  "./cpp/ggml-cpu/simd-mappings.h"
+  "./cpp/ggml-cpu/ops.h"
+  "./cpp/ggml-cpu/ops.cpp"
+  "./cpp/ggml-cpu/arch/arm/cpu-feats.cpp"
+  "./cpp/ggml-cpu/arch/arm/quants.c"
+  "./cpp/ggml-cpu/arch/arm/repack.cpp"
+  "./cpp/ggml-cpu/arch/x86/cpu-feats.cpp"
+  "./cpp/ggml-cpu/arch/x86/quants.c"
+  "./cpp/ggml-cpu/arch/x86/repack.cpp"
+
+  # llama api
+    "./cpp/llama-impl.h"
   "./cpp/llama-impl.cpp"
   "./cpp/llama-vocab.h"
   "./cpp/llama-vocab.cpp"
@@ -213,60 +271,7 @@ files_add_lm_prefix=(
   "./cpp/json-schema-to-grammar.cpp"
   "./cpp/json-partial.h"
   "./cpp/json-partial.cpp"
-  "./cpp/ggml-common.h"
-  "./cpp/ggml.h"
-  "./cpp/ggml.c"
-  "./cpp/gguf.h"
-  "./cpp/gguf.cpp"
-  "./cpp/ggml-impl.h"
-  "./cpp/ggml-cpp.h"
-  "./cpp/ggml-opt.h"
-  "./cpp/ggml-opt.cpp"
-  "./cpp/ggml-metal.h"
-  "./cpp/ggml-metal.m"
-  "./cpp/ggml-metal-impl.h"
-  "./cpp/ggml-quants.h"
-  "./cpp/ggml-quants.c"
-  "./cpp/ggml-alloc.h"
-  "./cpp/ggml-alloc.c"
-  "./cpp/ggml-backend.h"
-  "./cpp/ggml-backend.cpp"
-  "./cpp/ggml-backend-impl.h"
-  "./cpp/ggml-backend-reg.cpp"
-  "./cpp/ggml-cpu.h"
-  "./cpp/ggml-cpu/ggml-cpu-impl.h"
-  "./cpp/ggml-cpu/ggml-cpu.c"
-  "./cpp/ggml-cpu/ggml-cpu.cpp"
-  "./cpp/ggml-cpu/quants.h"
-  "./cpp/ggml-cpu/quants.c"
-  "./cpp/ggml-cpu/traits.h"
-  "./cpp/ggml-cpu/traits.cpp"
-  "./cpp/ggml-cpu/arch-fallback.h"
-  "./cpp/ggml-cpu/repack.cpp"
-  "./cpp/ggml-cpu/repack.h"
-  "./cpp/ggml-cpu/common.h"
-  "./cpp/ggml-threading.h"
-  "./cpp/ggml-threading.cpp"
-  "./cpp/ggml-cpu/amx/amx.h"
-  "./cpp/ggml-cpu/amx/amx.cpp"
-  "./cpp/ggml-cpu/amx/mmq.h"
-  "./cpp/ggml-cpu/amx/mmq.cpp"
-  "./cpp/ggml-cpu/amx/common.h"
-  "./cpp/ggml-cpu/unary-ops.h"
-  "./cpp/ggml-cpu/unary-ops.cpp"
-  "./cpp/ggml-cpu/binary-ops.h"
-  "./cpp/ggml-cpu/binary-ops.cpp"
-  "./cpp/ggml-cpu/vec.h"
-  "./cpp/ggml-cpu/vec.cpp"
-  "./cpp/ggml-cpu/simd-mappings.h"
-  "./cpp/ggml-cpu/ops.h"
-  "./cpp/ggml-cpu/ops.cpp"
-  "./cpp/ggml-cpu/arch/arm/cpu-feats.cpp"
-  "./cpp/ggml-cpu/arch/arm/quants.c"
-  "./cpp/ggml-cpu/arch/arm/repack.cpp"
-  "./cpp/ggml-cpu/arch/x86/cpu-feats.cpp"
-  "./cpp/ggml-cpu/arch/x86/quants.c"
-  "./cpp/ggml-cpu/arch/x86/repack.cpp"
+
   # Multimodal files
   "./cpp/tools/mtmd/mtmd.h"
   "./cpp/tools/mtmd/mtmd.cpp"

@@ -72,6 +72,9 @@
 #define UNUSED LM_GGML_UNUSED
 #define SWAP(x, y, T) do { T SWAP = x; (x) = y; (y) = SWAP; } while (0)
 
+// precomputed f32 table for f16 (256 KB) (simd-mappings.h)
+float lm_ggml_table_f32_f16[1 << 16];
+
 #if defined(__ARM_ARCH)
 struct lm_ggml_arm_arch_features_type {
     int sve_cnt;
@@ -736,7 +739,7 @@ struct lm_ggml_tensor * lm_ggml_set_i32 (struct lm_ggml_tensor * tensor, int32_t
             {
                 assert(tensor->nb[0] == sizeof(lm_ggml_fp16_t));
                 for (int i = 0; i < n; i++) {
-                    lm_ggml_vec_set_f16(nc, (lm_ggml_fp16_t *)(data + i*n1), LM_GGML_FP32_TO_FP16(value));
+                    lm_ggml_vec_set_f16(nc, (lm_ggml_fp16_t *)(data + i*n1), LM_GGML_CPU_FP32_TO_FP16(value));
                 }
             } break;
         case LM_GGML_TYPE_BF16:
@@ -795,7 +798,7 @@ struct lm_ggml_tensor * lm_ggml_set_f32(struct lm_ggml_tensor * tensor, float va
             {
                 assert(tensor->nb[0] == sizeof(lm_ggml_fp16_t));
                 for (int i = 0; i < n; i++) {
-                    lm_ggml_vec_set_f16(nc, (lm_ggml_fp16_t *)(data + i*n1), LM_GGML_FP32_TO_FP16(value));
+                    lm_ggml_vec_set_f16(nc, (lm_ggml_fp16_t *)(data + i*n1), LM_GGML_CPU_FP32_TO_FP16(value));
                 }
             } break;
         case LM_GGML_TYPE_BF16:
@@ -846,7 +849,7 @@ int32_t lm_ggml_get_i32_1d(const struct lm_ggml_tensor * tensor, int i) {
         case LM_GGML_TYPE_F16:
             {
                 LM_GGML_ASSERT(tensor->nb[0] == sizeof(lm_ggml_fp16_t));
-                return LM_GGML_FP16_TO_FP32(((lm_ggml_fp16_t *)(tensor->data))[i]);
+                return LM_GGML_CPU_FP16_TO_FP32(((lm_ggml_fp16_t *)(tensor->data))[i]);
             }
         case LM_GGML_TYPE_BF16:
             {
@@ -891,7 +894,7 @@ void lm_ggml_set_i32_1d(const struct lm_ggml_tensor * tensor, int i, int32_t val
         case LM_GGML_TYPE_F16:
             {
                 LM_GGML_ASSERT(tensor->nb[0] == sizeof(lm_ggml_fp16_t));
-                ((lm_ggml_fp16_t *)(tensor->data))[i] = LM_GGML_FP32_TO_FP16(value);
+                ((lm_ggml_fp16_t *)(tensor->data))[i] = LM_GGML_CPU_FP32_TO_FP16(value);
             } break;
         case LM_GGML_TYPE_BF16:
             {
@@ -920,7 +923,7 @@ int32_t lm_ggml_get_i32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1,
         case LM_GGML_TYPE_I32:
             return ((int32_t *) data)[0];
         case LM_GGML_TYPE_F16:
-            return LM_GGML_FP16_TO_FP32(((lm_ggml_fp16_t *) data)[0]);
+            return LM_GGML_CPU_FP16_TO_FP32(((lm_ggml_fp16_t *) data)[0]);
         case LM_GGML_TYPE_BF16:
             return LM_GGML_BF16_TO_FP32(((lm_ggml_bf16_t *) data)[0]);
         case LM_GGML_TYPE_F32:
@@ -947,7 +950,7 @@ void lm_ggml_set_i32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1, in
             } break;
         case LM_GGML_TYPE_F16:
             {
-                ((lm_ggml_fp16_t *)(data))[0] = LM_GGML_FP32_TO_FP16(value);
+                ((lm_ggml_fp16_t *)(data))[0] = LM_GGML_CPU_FP32_TO_FP16(value);
             } break;
         case LM_GGML_TYPE_BF16:
             {
@@ -985,7 +988,7 @@ float lm_ggml_get_f32_1d(const struct lm_ggml_tensor * tensor, int i) {
             }
         case LM_GGML_TYPE_F16:
             {
-                return LM_GGML_FP16_TO_FP32(((lm_ggml_fp16_t *)(tensor->data))[i]);
+                return LM_GGML_CPU_FP16_TO_FP32(((lm_ggml_fp16_t *)(tensor->data))[i]);
             }
         case LM_GGML_TYPE_BF16:
             {
@@ -1024,7 +1027,7 @@ void lm_ggml_set_f32_1d(const struct lm_ggml_tensor * tensor, int i, float value
             } break;
         case LM_GGML_TYPE_F16:
             {
-                ((lm_ggml_fp16_t *)(tensor->data))[i] = LM_GGML_FP32_TO_FP16(value);
+                ((lm_ggml_fp16_t *)(tensor->data))[i] = LM_GGML_CPU_FP32_TO_FP16(value);
             } break;
         case LM_GGML_TYPE_BF16:
             {
@@ -1051,7 +1054,7 @@ float lm_ggml_get_f32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1, i
         case LM_GGML_TYPE_I32:
             return ((int32_t *) data)[0];
         case LM_GGML_TYPE_F16:
-            return LM_GGML_FP16_TO_FP32(((lm_ggml_fp16_t *) data)[0]);
+            return LM_GGML_CPU_FP16_TO_FP32(((lm_ggml_fp16_t *) data)[0]);
         case LM_GGML_TYPE_BF16:
             return LM_GGML_BF16_TO_FP32(((lm_ggml_bf16_t *) data)[0]);
         case LM_GGML_TYPE_F32:
@@ -1078,7 +1081,7 @@ void lm_ggml_set_f32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1, in
             } break;
         case LM_GGML_TYPE_F16:
             {
-                ((lm_ggml_fp16_t *)(data))[0] = LM_GGML_FP32_TO_FP16(value);
+                ((lm_ggml_fp16_t *)(data))[0] = LM_GGML_CPU_FP32_TO_FP16(value);
             } break;
         case LM_GGML_TYPE_BF16:
             {
@@ -3141,9 +3144,24 @@ void lm_ggml_cpu_fp32_to_fp16(const float * x, lm_ggml_fp16_t * y, int64_t n) {
         __m128i y_vec = _mm_cvtps_ph(x_vec, _MM_FROUND_TO_NEAREST_INT);
         _mm_storel_epi64((__m128i *)(y + i), y_vec);
     }
+#elif defined(__NNPA__)
+    for (; i + 7 < n; i += 8) {
+        float32x4_t v_xh = vec_xl(0, (const float *)(x + i + 0));
+        float32x4_t v_xl = vec_xl(0, (const float *)(x + i + 4));
+        uint16x8_t v_yd = vec_round_from_fp32(v_xh, v_xl, 0);
+        uint16x8_t v_y = vec_convert_to_fp16(v_yd, 0);
+        vec_xst(v_y, 0, (lm_ggml_fp16_t *)(y + i));
+    }
+    for (; i + 3 < n; i += 4) {
+        float32x4_t v_x = vec_xl(0, (const float *)(x + i));
+        float32x4_t v_zero = vec_splats(0.0f);
+        uint16x8_t v_yd = vec_round_from_fp32(v_x, v_zero, 0);
+        uint16x8_t v_y = vec_convert_to_fp16(v_yd, 0);
+        vec_xst(v_y, 0, (lm_ggml_fp16_t *)(y + i));
+    }
 #endif
     for (; i < n; ++i) {
-        y[i] = LM_GGML_FP32_TO_FP16(x[i]);
+        y[i] = LM_GGML_CPU_FP32_TO_FP16(x[i]);
     }
 }
 
@@ -3167,9 +3185,25 @@ void lm_ggml_cpu_fp16_to_fp32(const lm_ggml_fp16_t * x, float * y, int64_t n) {
         __m128 y_vec = _mm_cvtph_ps(x_vec);
         _mm_storeu_ps(y + i, y_vec);
     }
+#elif defined(__NNPA__)
+    for (; i + 7 < n; i += 8) {
+        uint16x8_t v_x = vec_xl(0, (const lm_ggml_fp16_t *)(x + i));
+        uint16x8_t v_yd = vec_convert_from_fp16(v_x, 0);
+        float32x4_t v_yh = vec_extend_to_fp32_hi(v_yd, 0);
+        float32x4_t v_yl = vec_extend_to_fp32_lo(v_yd, 0);
+        vec_xst(v_yh, 0, (float *)(y + i + 0));
+        vec_xst(v_yl, 0, (float *)(y + i + 4));
+    }
+    for (; i + 3 < n; i += 4) {
+        uint16x8_t v_x = vec_xl(0, (const lm_ggml_fp16_t *)(x + i));
+        uint16x8_t v_yd = vec_convert_from_fp16(v_x, 0);
+        float32x4_t v_yh = vec_extend_to_fp32_hi(v_yd, 0);
+        vec_xst(v_yh, 0, (float *)(y + i));
+    }
 #endif
+
     for (; i < n; ++i) {
-        y[i] = LM_GGML_FP16_TO_FP32(x[i]);
+        y[i] = LM_GGML_CPU_FP16_TO_FP32(x[i]);
     }
 }
 
@@ -3369,6 +3403,14 @@ int lm_ggml_cpu_has_vxe(void) {
 #endif
 }
 
+int lm_ggml_cpu_has_nnpa(void) {
+#if defined(LM_GGML_NNPA)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
 int lm_ggml_cpu_has_neon(void) {
 #if defined(__ARM_ARCH) && defined(__ARM_NEON)
     return 1;
@@ -3418,7 +3460,7 @@ int lm_ggml_cpu_has_sme(void) {
 }
 
 void lm_ggml_cpu_init(void) {
-    // needed to initialize f16 tables
+    // needed to initialize lm_ggml_time
     {
         struct lm_ggml_init_params params = { 0, NULL, false };
         struct lm_ggml_context * ctx = lm_ggml_init(params);
@@ -3439,9 +3481,10 @@ void lm_ggml_cpu_init(void) {
                     uint16_t u16;
                     lm_ggml_fp16_t fp16;
                 } u = {i};
-                float f = LM_GGML_FP16_TO_FP32(u.fp16);
-                lm_ggml_table_gelu_f16[i] = LM_GGML_FP32_TO_FP16(lm_ggml_gelu_f32(f));
-                lm_ggml_table_gelu_quick_f16[i] = LM_GGML_FP32_TO_FP16(lm_ggml_gelu_quick_f32(f));
+                float f = LM_GGML_COMPUTE_FP16_TO_FP32(u.fp16);
+                lm_ggml_table_f32_f16[i] = f;
+                lm_ggml_table_gelu_f16[i] = LM_GGML_CPU_FP32_TO_FP16(lm_ggml_gelu_f32(f));
+                lm_ggml_table_gelu_quick_f16[i] = LM_GGML_CPU_FP32_TO_FP16(lm_ggml_gelu_quick_f32(f));
             }
 
             const uint64_t t_end = lm_ggml_time_us(); UNUSED(t_end);

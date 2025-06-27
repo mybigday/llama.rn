@@ -329,6 +329,17 @@ public:
     const llama_memory_hybrid_context * mctx;
 };
 
+// TODO: remove this when lm_ggml_scale_add is implemented
+class llm_graph_input_one : public llm_graph_input_i {
+public:
+    llm_graph_input_one() {}
+    virtual ~llm_graph_input_one() = default;
+
+    void set_input(const llama_ubatch *) override;
+
+    lm_ggml_tensor * one = nullptr; // F32
+};
+
 //
 // llm_graph_result
 //
@@ -589,14 +600,15 @@ struct llm_graph_context {
 
     llm_graph_input_attn_kv_unified_iswa * build_attn_inp_kv_unified_iswa() const;
 
+    // note: if k_cur or v_cur are not provided, they will not be stored in the memory
     lm_ggml_tensor * build_attn(
             llm_graph_input_attn_kv_unified_iswa * inp,
             lm_ggml_cgraph * gf,
             lm_ggml_tensor * wo,
             lm_ggml_tensor * wo_b,
             lm_ggml_tensor * q_cur, // [n_embd_head_q, n_head_q, n_tokens]
-            lm_ggml_tensor * k_cur, // [n_embd_head_k, n_head_k, n_tokens]
-            lm_ggml_tensor * v_cur, // [n_embd_head_v, n_head_v, n_tokens]
+            lm_ggml_tensor * k_cur, // [n_embd_head_k, n_head_k, n_tokens] optional
+            lm_ggml_tensor * v_cur, // [n_embd_head_v, n_head_v, n_tokens] optional
             lm_ggml_tensor * kq_b,
             lm_ggml_tensor * v_mla, // [n_embd_head_v_mla, n_embd_head_v, n_head_v]
                   float   kq_scale,
