@@ -72,6 +72,7 @@ void lm_ggml_compute_forward_pool_2d_back(const struct lm_ggml_compute_params * 
 void lm_ggml_compute_forward_upscale(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_pad(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_pad_reflect_1d(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
+void lm_ggml_compute_forward_roll(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_arange(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_timestep_embedding(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_argsort(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);

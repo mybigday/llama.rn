@@ -8,7 +8,7 @@ import { Chat, darkTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import json5 from 'json5'
 import ReactNativeBlobUtil from 'react-native-blob-util'
-import type { CompletionParams, LlamaContext } from 'inferra-llama.rn'
+import type { CompletionParams, LlamaContext } from 'inferra-llama'
 import {
   initLlama,
   loadLlamaModelInfo,
@@ -118,7 +118,7 @@ export default function App() {
         setContext(undefined)
         addSystemMessage('Context released!')
       })
-      .catch((err) => {
+      .catch((err: any) => {
         addSystemMessage(`Context release failed: ${err}`)
       })
   }
@@ -131,7 +131,7 @@ export default function App() {
       .then(() => {
         addSystemMessage('Multimodal context released!')
       })
-      .catch((err) => {
+      .catch((err: any) => {
         addSystemMessage(`Multimodal context release failed: ${err}`)
       })
   }
@@ -144,7 +144,7 @@ export default function App() {
       .then(() => {
         addSystemMessage('Vocoder context released!')
       })
-      .catch((err) => {
+      .catch((err: any) => {
         addSystemMessage(`Vocoder context release failed: ${err}`)
       })
   }
@@ -199,9 +199,6 @@ export default function App() {
         model: file.uri,
         use_mlock: true,
         lora_list: loraFile ? [{ path: loraFile.uri, scaled: 1.0 }] : undefined, // Or lora: loraFile?.uri,
-
-        // If use deepseek r1 distill
-        reasoning_format: 'deepseek',
 
         // Currently only for iOS
         n_gpu_layers: Platform.OS === 'ios' ? 99 : 0,
@@ -446,11 +443,11 @@ export default function App() {
       case '/save-session':
         context
           .saveSession(`${dirs.DocumentDir}/llama-session.bin`)
-          .then((tokensSaved) => {
+          .then((tokensSaved: any) => {
             console.log('Session tokens saved:', tokensSaved)
             addSystemMessage(`Session saved! ${tokensSaved} tokens saved.`)
           })
-          .catch((e) => {
+          .catch((e: any) => {
             console.log('Session save failed:', e)
             addSystemMessage(`Session save failed: ${e.message}`)
           })
@@ -458,13 +455,13 @@ export default function App() {
       case '/load-session':
         context
           .loadSession(`${dirs.DocumentDir}/llama-session.bin`)
-          .then((details) => {
+          .then((details: any) => {
             console.log('Session loaded:', details)
             addSystemMessage(
               `Session loaded! ${details.tokens_loaded} tokens loaded.`,
             )
           })
-          .catch((e) => {
+          .catch((e: any) => {
             console.log('Session load failed:', e)
             addSystemMessage(`Session load failed: ${e.message}`)
           })
@@ -475,7 +472,7 @@ export default function App() {
             if (loraFile) context.applyLoraAdapters([{ path: loraFile.uri }])
           })
           .then(() => context.getLoadedLoraAdapters())
-          .then((loraList) =>
+          .then((loraList: any) =>
             addSystemMessage(
               `Loaded lora adapters: ${JSON.stringify(loraList)}`,
             ),
@@ -487,7 +484,7 @@ export default function App() {
         })
         return
       case '/lora-list':
-        context.getLoadedLoraAdapters().then((loraList) => {
+        context.getLoadedLoraAdapters().then((loraList: any) => {
           addSystemMessage(`Loaded lora adapters: ${JSON.stringify(loraList)}`)
         })
         return
@@ -533,7 +530,7 @@ export default function App() {
         // We limit to the most common formats (we perhaps need to add webp by converting it to supported formats):
         const mediaRes = await pick({
           type: mediaType === 'image' ? imageTypes : audioTypes,
-        }).catch((e) => {
+        }).catch((e: any) => {
           console.log(`No ${mediaType} picked, error: `, e.message)
           return null
         })
@@ -790,9 +787,10 @@ export default function App() {
             },
           },
         ],
+        enable_thinking: true,
       }
       // Comment to test:
-      jinjaParams = { jinja: true }
+      jinjaParams = { jinja: true, enable_thinking: true }
     }
 
     // Test area
@@ -834,6 +832,8 @@ export default function App() {
 
           response_format: responseFormat,
           grammar,
+          // If use deepseek r1 distill
+          reasoning_format: 'deepseek',
           ...jinjaParams,
 
           seed: -1,
@@ -879,7 +879,7 @@ export default function App() {
 
           ...audioParams,
         },
-        (data) => {
+        (data: any) => {
           const { token } = data
           setMessages((currentMsgs) => {
             const index = currentMsgs.findIndex((msg) => msg.id === id)
@@ -911,7 +911,7 @@ export default function App() {
           })
         },
       )
-      .then((completionResult) => {
+      .then((completionResult: any) => {
         console.log('completionResult: ', completionResult)
         const timings = `${completionResult.timings.predicted_per_token_ms.toFixed()}ms per token, ${completionResult.timings.predicted_per_second.toFixed(
           2,
@@ -941,7 +941,7 @@ export default function App() {
         } else {
           return context
             .decodeAudioTokens(completionResult.audio_tokens!)
-            .then((audio) => {
+            .then((audio: any) => {
               console.log('audio length', audio.length / 24000)
 
               setMessages((currentMsgs) => {

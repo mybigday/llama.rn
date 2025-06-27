@@ -489,6 +489,7 @@ extern "C" {
         LM_GGML_OP_UPSCALE, // nearest interpolate
         LM_GGML_OP_PAD,
         LM_GGML_OP_PAD_REFLECT_1D,
+        LM_GGML_OP_ROLL,
         LM_GGML_OP_ARANGE,
         LM_GGML_OP_TIMESTEP_EMBEDDING,
         LM_GGML_OP_ARGSORT,
@@ -934,6 +935,15 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * b);
+
+    // repeat a to the specified shape
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_repeat_4d(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+                       int64_t    ne0,
+                       int64_t    ne1,
+                       int64_t    ne2,
+                       int64_t    ne3);
 
     // sums repetitions in a into shape of b
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_repeat_back(
@@ -1792,6 +1802,17 @@ extern "C" {
             int                   p0,
             int                   p1);
 
+    // Move tensor elements by an offset given for each dimension. Elements that
+    // are shifted beyond the last position are wrapped around to the beginning.
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_roll(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            int                   shift0,
+            int                   shift1,
+            int                   shift2,
+            int                   shift3);
+
+
     // Ref: https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/diffusionmodules/util.py#L151
     // timesteps: [N,]
     // return: [N, dim]
@@ -2086,9 +2107,6 @@ extern "C" {
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_graph_get_grad    (const struct lm_ggml_cgraph * cgraph, const struct lm_ggml_tensor * node);
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_graph_get_grad_acc(const struct lm_ggml_cgraph * cgraph, const struct lm_ggml_tensor * node);
 
-    LM_GGML_API void                 lm_ggml_graph_export(const struct lm_ggml_cgraph * cgraph, const char * fname);
-    LM_GGML_API struct lm_ggml_cgraph * lm_ggml_graph_import(const char * fname, struct lm_ggml_context ** ctx_data, struct lm_ggml_context ** ctx_eval);
-
     // print info and performance information for the graph
     LM_GGML_API void lm_ggml_graph_print(const struct lm_ggml_cgraph * cgraph);
 
@@ -2172,6 +2190,7 @@ extern "C" {
 
     // scheduling priorities
     enum lm_ggml_sched_priority {
+        LM_GGML_SCHED_PRIO_LOW = -1,
         LM_GGML_SCHED_PRIO_NORMAL,
         LM_GGML_SCHED_PRIO_MEDIUM,
         LM_GGML_SCHED_PRIO_HIGH,

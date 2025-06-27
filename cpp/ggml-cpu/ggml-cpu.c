@@ -3,11 +3,11 @@
 
 #include "ggml-backend-impl.h"
 #include "ggml-backend.h"
-#include "ggml-cpu-traits.h"
+#include "traits.h"
 #include "ggml-cpu-impl.h"
 #include "ggml-cpu.h"
 #include "ggml-impl.h"
-#include "ggml-cpu-quants.h"
+#include "quants.h"
 #include "ggml-threading.h"
 #include "unary-ops.h"
 #include "binary-ops.h"
@@ -72,15 +72,13 @@
 #define UNUSED LM_GGML_UNUSED
 #define SWAP(x, y, T) do { T SWAP = x; (x) = y; (y) = SWAP; } while (0)
 
+// precomputed f32 table for f16 (256 KB) (simd-mappings.h)
+float lm_ggml_table_f32_f16[1 << 16];
+
 #if defined(__ARM_ARCH)
 struct lm_ggml_arm_arch_features_type {
-    int has_neon;
-    int has_dotprod;
-    int has_i8mm;
-    int has_sve;
     int sve_cnt;
-    int has_sme;
-} lm_ggml_arm_arch_features = {-1, -1, -1, -1, 0, -1};
+} lm_ggml_arm_arch_features = { 0 };
 #endif
 
 
@@ -270,7 +268,11 @@ static const struct lm_ggml_type_traits_cpu type_traits_cpu[LM_GGML_TYPE_COUNT] 
         .from_float               = quantize_row_q4_K,
         .vec_dot                  = lm_ggml_vec_dot_q4_K_q8_K,
         .vec_dot_type             = LM_GGML_TYPE_Q8_K,
+#if defined (__ARM_FEATURE_MATMUL_INT8)
+        .nrows                    = 2,
+#else
         .nrows                    = 1,
+#endif
     },
     [LM_GGML_TYPE_Q5_K] = {
         .from_float               = quantize_row_q5_K,
@@ -555,6 +557,14 @@ void lm_ggml_barrier(struct lm_ggml_threadpool * tp) {
 #endif
 }
 
+void lm_ggml_threadpool_chunk_set(struct lm_ggml_threadpool * tp, int value) {
+    atomic_store_explicit(&tp->current_chunk, value, memory_order_relaxed);
+}
+
+int lm_ggml_threadpool_chunk_add(struct lm_ggml_threadpool * tp, int value) {
+    return atomic_fetch_add_explicit(&tp->current_chunk, value, memory_order_relaxed);
+}
+
 #if defined(__gnu_linux__)
 static cpu_set_t lm_ggml_get_numa_affinity(void) {
     cpu_set_t cpuset;
@@ -666,87 +676,15 @@ bool lm_ggml_is_numa(void) {
 
 #if defined(__linux__) && defined(__aarch64__)
 #include <sys/auxv.h>
-#elif defined(__APPLE__)
-#include <sys/sysctl.h>
-#endif
-
-#if !defined(HWCAP2_I8MM)
-#define HWCAP2_I8MM (1 << 13)
-#endif
-
-#if !defined(HWCAP2_SME)
-#define HWCAP2_SME (1 << 23)
 #endif
 
 static void lm_ggml_init_arm_arch_features(void) {
-#if defined(__linux__) && defined(__aarch64__)
-    uint32_t hwcap = getauxval(AT_HWCAP);
-    uint32_t hwcap2 = getauxval(AT_HWCAP2);
-
-    lm_ggml_arm_arch_features.has_neon    = !!(hwcap & HWCAP_ASIMD);
-    lm_ggml_arm_arch_features.has_dotprod = !!(hwcap & HWCAP_ASIMDDP);
-    lm_ggml_arm_arch_features.has_i8mm    = !!(hwcap2 & HWCAP2_I8MM);
-    lm_ggml_arm_arch_features.has_sve     = !!(hwcap & HWCAP_SVE);
-    lm_ggml_arm_arch_features.has_sme     = !!(hwcap2 & HWCAP2_SME);
-
-#if defined(__ARM_FEATURE_SVE)
+#if defined(__linux__) && defined(__aarch64__) && defined(__ARM_FEATURE_SVE)
     lm_ggml_arm_arch_features.sve_cnt = PR_SVE_VL_LEN_MASK & prctl(PR_SVE_GET_VL);
 #endif
-#elif defined(__APPLE__)
-    int oldp = 0;
-    size_t size = sizeof(oldp);
-    if (sysctlbyname("hw.optional.AdvSIMD", &oldp, &size, NULL, 0) != 0) {
-        oldp = 0;
-    }
-    lm_ggml_arm_arch_features.has_neon = oldp;
-
-    if (sysctlbyname("hw.optional.arm.FEAT_DotProd", &oldp, &size, NULL, 0) != 0) {
-        oldp = 0;
-    }
-    lm_ggml_arm_arch_features.has_dotprod = oldp;
-
-    if (sysctlbyname("hw.optional.arm.FEAT_I8MM", &oldp, &size, NULL, 0) != 0) {
-        oldp = 0;
-    }
-    lm_ggml_arm_arch_features.has_i8mm = oldp;
-
-    if (sysctlbyname("hw.optional.arm.FEAT_SME", &oldp, &size, NULL, 0) != 0) {
-        oldp = 0;
-    }
-    lm_ggml_arm_arch_features.has_sme = oldp;
-
-    lm_ggml_arm_arch_features.has_sve = 0;
-    lm_ggml_arm_arch_features.sve_cnt = 0;
-#else
-// Run-time CPU feature detection not implemented for this platform, fallback to compile time
-#if defined(__ARM_NEON)
-    lm_ggml_arm_arch_features.has_neon = 1;
-#else
-    lm_ggml_arm_arch_features.has_neon = 0;
-#endif
-
-#if defined(__ARM_FEATURE_MATMUL_INT8)
-    lm_ggml_arm_arch_features.has_i8mm = 1;
-#else
-    lm_ggml_arm_arch_features.has_i8mm = 0;
-#endif
-
-#if defined(__ARM_FEATURE_SVE)
-    lm_ggml_arm_arch_features.has_sve = 1;
-    lm_ggml_arm_arch_features.sve_cnt = 16;
-#else
-    lm_ggml_arm_arch_features.has_sve = 0;
-    lm_ggml_arm_arch_features.sve_cnt = 0;
-#endif
-
-#if defined(__ARM_FEATURE_SME) || defined(__ARM_FEATURE_SME2)
-    lm_ggml_arm_arch_features.has_sme = 1;
-#else
-    lm_ggml_arm_arch_features.has_sme = 0;
-#endif
-#endif
 }
-#endif
+
+#endif // __ARM_ARCH
 
 struct lm_ggml_tensor * lm_ggml_new_i32(struct lm_ggml_context * ctx, int32_t value) {
     LM_GGML_ASSERT(!lm_ggml_get_no_alloc(ctx));
@@ -801,7 +739,7 @@ struct lm_ggml_tensor * lm_ggml_set_i32 (struct lm_ggml_tensor * tensor, int32_t
             {
                 assert(tensor->nb[0] == sizeof(lm_ggml_fp16_t));
                 for (int i = 0; i < n; i++) {
-                    lm_ggml_vec_set_f16(nc, (lm_ggml_fp16_t *)(data + i*n1), LM_GGML_FP32_TO_FP16(value));
+                    lm_ggml_vec_set_f16(nc, (lm_ggml_fp16_t *)(data + i*n1), LM_GGML_CPU_FP32_TO_FP16(value));
                 }
             } break;
         case LM_GGML_TYPE_BF16:
@@ -860,7 +798,7 @@ struct lm_ggml_tensor * lm_ggml_set_f32(struct lm_ggml_tensor * tensor, float va
             {
                 assert(tensor->nb[0] == sizeof(lm_ggml_fp16_t));
                 for (int i = 0; i < n; i++) {
-                    lm_ggml_vec_set_f16(nc, (lm_ggml_fp16_t *)(data + i*n1), LM_GGML_FP32_TO_FP16(value));
+                    lm_ggml_vec_set_f16(nc, (lm_ggml_fp16_t *)(data + i*n1), LM_GGML_CPU_FP32_TO_FP16(value));
                 }
             } break;
         case LM_GGML_TYPE_BF16:
@@ -911,7 +849,7 @@ int32_t lm_ggml_get_i32_1d(const struct lm_ggml_tensor * tensor, int i) {
         case LM_GGML_TYPE_F16:
             {
                 LM_GGML_ASSERT(tensor->nb[0] == sizeof(lm_ggml_fp16_t));
-                return LM_GGML_FP16_TO_FP32(((lm_ggml_fp16_t *)(tensor->data))[i]);
+                return LM_GGML_CPU_FP16_TO_FP32(((lm_ggml_fp16_t *)(tensor->data))[i]);
             }
         case LM_GGML_TYPE_BF16:
             {
@@ -956,7 +894,7 @@ void lm_ggml_set_i32_1d(const struct lm_ggml_tensor * tensor, int i, int32_t val
         case LM_GGML_TYPE_F16:
             {
                 LM_GGML_ASSERT(tensor->nb[0] == sizeof(lm_ggml_fp16_t));
-                ((lm_ggml_fp16_t *)(tensor->data))[i] = LM_GGML_FP32_TO_FP16(value);
+                ((lm_ggml_fp16_t *)(tensor->data))[i] = LM_GGML_CPU_FP32_TO_FP16(value);
             } break;
         case LM_GGML_TYPE_BF16:
             {
@@ -985,7 +923,7 @@ int32_t lm_ggml_get_i32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1,
         case LM_GGML_TYPE_I32:
             return ((int32_t *) data)[0];
         case LM_GGML_TYPE_F16:
-            return LM_GGML_FP16_TO_FP32(((lm_ggml_fp16_t *) data)[0]);
+            return LM_GGML_CPU_FP16_TO_FP32(((lm_ggml_fp16_t *) data)[0]);
         case LM_GGML_TYPE_BF16:
             return LM_GGML_BF16_TO_FP32(((lm_ggml_bf16_t *) data)[0]);
         case LM_GGML_TYPE_F32:
@@ -1012,7 +950,7 @@ void lm_ggml_set_i32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1, in
             } break;
         case LM_GGML_TYPE_F16:
             {
-                ((lm_ggml_fp16_t *)(data))[0] = LM_GGML_FP32_TO_FP16(value);
+                ((lm_ggml_fp16_t *)(data))[0] = LM_GGML_CPU_FP32_TO_FP16(value);
             } break;
         case LM_GGML_TYPE_BF16:
             {
@@ -1050,7 +988,7 @@ float lm_ggml_get_f32_1d(const struct lm_ggml_tensor * tensor, int i) {
             }
         case LM_GGML_TYPE_F16:
             {
-                return LM_GGML_FP16_TO_FP32(((lm_ggml_fp16_t *)(tensor->data))[i]);
+                return LM_GGML_CPU_FP16_TO_FP32(((lm_ggml_fp16_t *)(tensor->data))[i]);
             }
         case LM_GGML_TYPE_BF16:
             {
@@ -1089,7 +1027,7 @@ void lm_ggml_set_f32_1d(const struct lm_ggml_tensor * tensor, int i, float value
             } break;
         case LM_GGML_TYPE_F16:
             {
-                ((lm_ggml_fp16_t *)(tensor->data))[i] = LM_GGML_FP32_TO_FP16(value);
+                ((lm_ggml_fp16_t *)(tensor->data))[i] = LM_GGML_CPU_FP32_TO_FP16(value);
             } break;
         case LM_GGML_TYPE_BF16:
             {
@@ -1116,7 +1054,7 @@ float lm_ggml_get_f32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1, i
         case LM_GGML_TYPE_I32:
             return ((int32_t *) data)[0];
         case LM_GGML_TYPE_F16:
-            return LM_GGML_FP16_TO_FP32(((lm_ggml_fp16_t *) data)[0]);
+            return LM_GGML_CPU_FP16_TO_FP32(((lm_ggml_fp16_t *) data)[0]);
         case LM_GGML_TYPE_BF16:
             return LM_GGML_BF16_TO_FP32(((lm_ggml_bf16_t *) data)[0]);
         case LM_GGML_TYPE_F32:
@@ -1143,7 +1081,7 @@ void lm_ggml_set_f32_nd(const struct lm_ggml_tensor * tensor, int i0, int i1, in
             } break;
         case LM_GGML_TYPE_F16:
             {
-                ((lm_ggml_fp16_t *)(data))[0] = LM_GGML_FP32_TO_FP16(value);
+                ((lm_ggml_fp16_t *)(data))[0] = LM_GGML_CPU_FP32_TO_FP16(value);
             } break;
         case LM_GGML_TYPE_BF16:
             {
@@ -1955,6 +1893,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_pad_reflect_1d(params, tensor);
             } break;
+        case LM_GGML_OP_ROLL:
+            {
+                lm_ggml_compute_forward_roll(params, tensor);
+            } break;
         case LM_GGML_OP_ARANGE:
             {
                 lm_ggml_compute_forward_arange(params, tensor);
@@ -2279,6 +2221,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
         case LM_GGML_OP_UPSCALE:
         case LM_GGML_OP_PAD:
         case LM_GGML_OP_PAD_REFLECT_1D:
+        case LM_GGML_OP_ROLL:
         case LM_GGML_OP_ARANGE:
         case LM_GGML_OP_TIMESTEP_EMBEDDING:
         case LM_GGML_OP_ARGSORT:
@@ -2414,10 +2357,30 @@ static bool lm_ggml_thread_apply_priority(int32_t prio) {
     // This is up to the applications.
     DWORD p = THREAD_PRIORITY_NORMAL;
     switch (prio) {
+        case LM_GGML_SCHED_PRIO_LOW:      p = THREAD_PRIORITY_BELOW_NORMAL;  break;
         case LM_GGML_SCHED_PRIO_NORMAL:   p = THREAD_PRIORITY_NORMAL;        break;
         case LM_GGML_SCHED_PRIO_MEDIUM:   p = THREAD_PRIORITY_ABOVE_NORMAL;  break;
         case LM_GGML_SCHED_PRIO_HIGH:     p = THREAD_PRIORITY_HIGHEST;       break;
         case LM_GGML_SCHED_PRIO_REALTIME: p = THREAD_PRIORITY_TIME_CRITICAL; break;
+    }
+
+    if (prio != LM_GGML_SCHED_PRIO_LOW) {
+        // Tell Windows that this thread should not be throttled (needs its own CPU core).
+        // Newer Windows 11 versions aggresively park (offline) CPU cores and often place
+        // all our threads onto the first 4 cores which results in terrible performance with
+        // n_threads > 4
+        #if _WIN32_WINNT >= 0x0602
+        THREAD_POWER_THROTTLING_STATE t;
+        ZeroMemory(&t, sizeof(t));
+        t.Version     = THREAD_POWER_THROTTLING_CURRENT_VERSION;
+        t.ControlMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
+        t.StateMask   = 0;
+
+        if (!SetThreadInformation(GetCurrentThread(), ThreadPowerThrottling, &t, sizeof(t))) {
+            LM_GGML_LOG_DEBUG("failed to disable thread power throttling %d : (%d)\n", prio, (int) GetLastError());
+            return false;
+        }
+        #endif
     }
 
     if (prio == LM_GGML_SCHED_PRIO_NORMAL) {
@@ -2447,6 +2410,8 @@ static bool lm_ggml_thread_apply_priority(int32_t prio) {
     struct sched_param p;
     int32_t policy = SCHED_OTHER;
     switch (prio) {
+        // TODO: there seems to be no way to set lower prio on Apple platforms
+        case LM_GGML_SCHED_PRIO_LOW:      policy = SCHED_OTHER; p.sched_priority = 0;  break;
         case LM_GGML_SCHED_PRIO_NORMAL:   policy = SCHED_OTHER; p.sched_priority = 0;  break;
         case LM_GGML_SCHED_PRIO_MEDIUM:   policy = SCHED_FIFO;  p.sched_priority = 40; break;
         case LM_GGML_SCHED_PRIO_HIGH:     policy = SCHED_FIFO;  p.sched_priority = 80; break;
@@ -2503,6 +2468,7 @@ static bool lm_ggml_thread_apply_priority(int32_t prio) {
     struct sched_param p;
     int32_t policy = SCHED_OTHER;
     switch (prio) {
+        case LM_GGML_SCHED_PRIO_LOW:      policy = SCHED_BATCH; p.sched_priority = 0;  break;
         case LM_GGML_SCHED_PRIO_NORMAL:   policy = SCHED_OTHER; p.sched_priority = 0;  break;
         case LM_GGML_SCHED_PRIO_MEDIUM:   policy = SCHED_FIFO;  p.sched_priority = 40; break;
         case LM_GGML_SCHED_PRIO_HIGH:     policy = SCHED_FIFO;  p.sched_priority = 80; break;
@@ -3178,9 +3144,24 @@ void lm_ggml_cpu_fp32_to_fp16(const float * x, lm_ggml_fp16_t * y, int64_t n) {
         __m128i y_vec = _mm_cvtps_ph(x_vec, _MM_FROUND_TO_NEAREST_INT);
         _mm_storel_epi64((__m128i *)(y + i), y_vec);
     }
+#elif defined(__NNPA__)
+    for (; i + 7 < n; i += 8) {
+        float32x4_t v_xh = vec_xl(0, (const float *)(x + i + 0));
+        float32x4_t v_xl = vec_xl(0, (const float *)(x + i + 4));
+        uint16x8_t v_yd = vec_round_from_fp32(v_xh, v_xl, 0);
+        uint16x8_t v_y = vec_convert_to_fp16(v_yd, 0);
+        vec_xst(v_y, 0, (lm_ggml_fp16_t *)(y + i));
+    }
+    for (; i + 3 < n; i += 4) {
+        float32x4_t v_x = vec_xl(0, (const float *)(x + i));
+        float32x4_t v_zero = vec_splats(0.0f);
+        uint16x8_t v_yd = vec_round_from_fp32(v_x, v_zero, 0);
+        uint16x8_t v_y = vec_convert_to_fp16(v_yd, 0);
+        vec_xst(v_y, 0, (lm_ggml_fp16_t *)(y + i));
+    }
 #endif
     for (; i < n; ++i) {
-        y[i] = LM_GGML_FP32_TO_FP16(x[i]);
+        y[i] = LM_GGML_CPU_FP32_TO_FP16(x[i]);
     }
 }
 
@@ -3204,9 +3185,25 @@ void lm_ggml_cpu_fp16_to_fp32(const lm_ggml_fp16_t * x, float * y, int64_t n) {
         __m128 y_vec = _mm_cvtph_ps(x_vec);
         _mm_storeu_ps(y + i, y_vec);
     }
+#elif defined(__NNPA__)
+    for (; i + 7 < n; i += 8) {
+        uint16x8_t v_x = vec_xl(0, (const lm_ggml_fp16_t *)(x + i));
+        uint16x8_t v_yd = vec_convert_from_fp16(v_x, 0);
+        float32x4_t v_yh = vec_extend_to_fp32_hi(v_yd, 0);
+        float32x4_t v_yl = vec_extend_to_fp32_lo(v_yd, 0);
+        vec_xst(v_yh, 0, (float *)(y + i + 0));
+        vec_xst(v_yl, 0, (float *)(y + i + 4));
+    }
+    for (; i + 3 < n; i += 4) {
+        uint16x8_t v_x = vec_xl(0, (const lm_ggml_fp16_t *)(x + i));
+        uint16x8_t v_yd = vec_convert_from_fp16(v_x, 0);
+        float32x4_t v_yh = vec_extend_to_fp32_hi(v_yd, 0);
+        vec_xst(v_yh, 0, (float *)(y + i));
+    }
 #endif
+
     for (; i < n; ++i) {
-        y[i] = LM_GGML_FP16_TO_FP32(x[i]);
+        y[i] = LM_GGML_CPU_FP16_TO_FP32(x[i]);
     }
 }
 
@@ -3406,9 +3403,17 @@ int lm_ggml_cpu_has_vxe(void) {
 #endif
 }
 
+int lm_ggml_cpu_has_nnpa(void) {
+#if defined(LM_GGML_NNPA)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
 int lm_ggml_cpu_has_neon(void) {
 #if defined(__ARM_ARCH) && defined(__ARM_NEON)
-    return lm_ggml_arm_arch_features.has_neon;
+    return 1;
 #else
     return 0;
 #endif
@@ -3416,7 +3421,7 @@ int lm_ggml_cpu_has_neon(void) {
 
 int lm_ggml_cpu_has_dotprod(void) {
 #if defined(__ARM_ARCH) && defined(__ARM_FEATURE_DOTPROD)
-    return lm_ggml_arm_arch_features.has_dotprod;
+    return 1;
 #else
     return 0;
 #endif
@@ -3424,7 +3429,7 @@ int lm_ggml_cpu_has_dotprod(void) {
 
 int lm_ggml_cpu_has_sve(void) {
 #if defined(__ARM_ARCH) && defined(__ARM_FEATURE_SVE)
-    return lm_ggml_arm_arch_features.has_sve;
+    return 1;
 #else
     return 0;
 #endif
@@ -3432,7 +3437,7 @@ int lm_ggml_cpu_has_sve(void) {
 
 int lm_ggml_cpu_has_matmul_int8(void) {
 #if defined(__ARM_ARCH) && defined(__ARM_FEATURE_MATMUL_INT8)
-    return lm_ggml_arm_arch_features.has_i8mm;
+    return 1;
 #else
     return 0;
 #endif
@@ -3448,14 +3453,14 @@ int lm_ggml_cpu_get_sve_cnt(void) {
 
 int lm_ggml_cpu_has_sme(void) {
 #if defined(__ARM_ARCH) && defined(__ARM_FEATURE_SME)
-    return lm_ggml_arm_arch_features.has_sme;
+    return 1;
 #else
     return 0;
 #endif
 }
 
 void lm_ggml_cpu_init(void) {
-    // needed to initialize f16 tables
+    // needed to initialize lm_ggml_time
     {
         struct lm_ggml_init_params params = { 0, NULL, false };
         struct lm_ggml_context * ctx = lm_ggml_init(params);
@@ -3476,14 +3481,28 @@ void lm_ggml_cpu_init(void) {
                     uint16_t u16;
                     lm_ggml_fp16_t fp16;
                 } u = {i};
-                float f = LM_GGML_FP16_TO_FP32(u.fp16);
-                lm_ggml_table_gelu_f16[i] = LM_GGML_FP32_TO_FP16(lm_ggml_gelu_f32(f));
-                lm_ggml_table_gelu_quick_f16[i] = LM_GGML_FP32_TO_FP16(lm_ggml_gelu_quick_f32(f));
+                float f = LM_GGML_COMPUTE_FP16_TO_FP32(u.fp16);
+                lm_ggml_table_f32_f16[i] = f;
+                lm_ggml_table_gelu_f16[i] = LM_GGML_CPU_FP32_TO_FP16(lm_ggml_gelu_f32(f));
+                lm_ggml_table_gelu_quick_f16[i] = LM_GGML_CPU_FP32_TO_FP16(lm_ggml_gelu_quick_f32(f));
             }
 
             const uint64_t t_end = lm_ggml_time_us(); UNUSED(t_end);
 
             LM_GGML_PRINT_DEBUG("%s: GELU, Quick GELU, SILU and EXP tables initialized in %f ms\n", __func__, (t_end - t_start)/1000.0);
+
+#ifdef LM_GGML_USE_OPENMP
+            //if (!getenv("OMP_WAIT_POLICY")) {
+            //    // set the wait policy to active, so that OpenMP threads don't sleep
+            //    putenv("OMP_WAIT_POLICY=active");
+            //}
+
+            if (!getenv("KMP_BLOCKTIME")) {
+                // set the time to wait before sleeping a thread
+                // this is less aggressive than setting the wait policy to active, but should achieve similar results in most cases
+                putenv("KMP_BLOCKTIME=200"); // 200ms
+            }
+#endif
         }
 
 #if defined(__ARM_ARCH)
