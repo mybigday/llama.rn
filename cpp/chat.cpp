@@ -6,9 +6,6 @@
 #include "log.h"
 #include "regex-partial.h"
 
-#include <minja/chat-template.hpp>
-#include <minja/minja.hpp>
-
 #include <cstdio>
 #include <exception>
 #include <iostream>
@@ -122,14 +119,6 @@ std::vector<common_chat_msg_diff> common_chat_msg_diff::compute_diffs(const comm
     }
     return diffs;
 }
-
-typedef minja::chat_template common_chat_template;
-
-struct common_chat_templates {
-    bool has_explicit_template; // Model had builtin template or template overridde was specified.
-    std::unique_ptr<common_chat_template> template_default; // always set (defaults to chatml)
-    std::unique_ptr<common_chat_template> template_tool_use;
-};
 
 struct templates_params {
     json messages;
