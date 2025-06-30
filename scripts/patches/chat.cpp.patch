@@ -10,7 +10,7 @@
  #include <cstdio>
  #include <exception>
  #include <iostream>
-@@ -121,14 +118,6 @@
+@@ -123,14 +120,6 @@
      return diffs;
  }
 

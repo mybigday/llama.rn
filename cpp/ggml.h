@@ -470,6 +470,7 @@ extern "C" {
         LM_GGML_OP_TRANSPOSE,
         LM_GGML_OP_GET_ROWS,
         LM_GGML_OP_GET_ROWS_BACK,
+        LM_GGML_OP_SET_ROWS,
         LM_GGML_OP_DIAG,
         LM_GGML_OP_DIAG_MASK_INF,
         LM_GGML_OP_DIAG_MASK_ZERO,
@@ -519,6 +520,8 @@ extern "C" {
         LM_GGML_OP_CROSS_ENTROPY_LOSS_BACK,
         LM_GGML_OP_OPT_STEP_ADAMW,
 
+        LM_GGML_OP_GLU,
+
         LM_GGML_OP_COUNT,
     };
 
@@ -540,6 +543,14 @@ extern "C" {
         LM_GGML_UNARY_OP_GELU_ERF,
 
         LM_GGML_UNARY_OP_COUNT,
+    };
+
+    enum lm_ggml_glu_op {
+        LM_GGML_GLU_OP_REGLU,
+        LM_GGML_GLU_OP_GEGLU,
+        LM_GGML_GLU_OP_SWIGLU,
+
+        LM_GGML_GLU_OP_COUNT,
     };
 
     enum lm_ggml_object_type {
@@ -657,6 +668,7 @@ extern "C" {
     LM_GGML_API const char * lm_ggml_op_symbol(enum lm_ggml_op   op);
 
     LM_GGML_API const char * lm_ggml_unary_op_name(enum lm_ggml_unary_op op);
+    LM_GGML_API const char * lm_ggml_glu_op_name(enum lm_ggml_glu_op op);
     LM_GGML_API const char * lm_ggml_op_desc(const struct lm_ggml_tensor * t); // unary or op name
 
     LM_GGML_API size_t  lm_ggml_element_size(const struct lm_ggml_tensor * tensor);
@@ -686,6 +698,9 @@ extern "C" {
 
     // true for tensor that is stored in memory as CxWxHxN and has been permuted to WxHxCxN
     LM_GGML_API bool lm_ggml_is_contiguous_channels(const struct lm_ggml_tensor * tensor);
+
+    // true if the elements in dimension 0 are contiguous, or there is just 1 block of elements
+    LM_GGML_API bool lm_ggml_is_contiguous_rows(const struct lm_ggml_tensor * tensor);
 
     LM_GGML_API bool lm_ggml_are_same_shape (const struct lm_ggml_tensor * t0, const struct lm_ggml_tensor * t1);
     LM_GGML_API bool lm_ggml_are_same_stride(const struct lm_ggml_tensor * t0, const struct lm_ggml_tensor * t1);
@@ -758,6 +773,7 @@ extern "C" {
     LM_GGML_API void lm_ggml_unravel_index(const struct lm_ggml_tensor * tensor, int64_t i, int64_t * i0, int64_t * i1, int64_t * i2, int64_t * i3);
 
     LM_GGML_API enum lm_ggml_unary_op lm_ggml_get_unary_op(const struct lm_ggml_tensor * tensor);
+    LM_GGML_API enum lm_ggml_glu_op lm_ggml_get_glu_op(const struct lm_ggml_tensor * tensor);
 
     LM_GGML_API void *  lm_ggml_get_data    (const struct lm_ggml_tensor * tensor);
     LM_GGML_API float * lm_ggml_get_data_f32(const struct lm_ggml_tensor * tensor);
@@ -1086,6 +1102,63 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
 
+    // gated linear unit ops
+    // A: n columns, r rows,
+    // result is n / 2 columns, r rows,
+    // expects gate in second half of row, unless swapped is true
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_glu(
+            struct lm_ggml_context * ctx,
+             struct lm_ggml_tensor * a,
+             enum lm_ggml_glu_op     op,
+             bool                 swapped);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_reglu(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_reglu_swapped(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_geglu(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_geglu_swapped(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_swiglu(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_swiglu_swapped(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    // A: n columns, r rows,
+    // B: n columns, r rows,
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_glu_split(
+            struct lm_ggml_context * ctx,
+             struct lm_ggml_tensor * a,
+             struct lm_ggml_tensor * b,
+             enum lm_ggml_glu_op     op);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_reglu_split(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_geglu_split(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_swiglu_split(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b);
+
     // normalize along rows
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_norm(
             struct lm_ggml_context * ctx,
@@ -1374,6 +1447,23 @@ extern "C" {
             struct lm_ggml_tensor  * a,  // gradients of lm_ggml_get_rows result
             struct lm_ggml_tensor  * b,  // row indices
             struct lm_ggml_tensor  * c); // data for lm_ggml_get_rows, only used for its shape
+
+    // a TD  [n_embd, ne1,    ne2,    ne3]
+    // b TS  [n_embd, n_rows, ne02,   ne03] | ne02 == ne2, ne03 == ne3
+    // c I64 [n_rows, ne11,   ne12,   1]    | c[i] in [0, ne1)
+    //
+    // undefined behavior if destination rows overlap
+    //
+    // broadcast:
+    //   ne2 % ne11 == 0
+    //   ne3 % ne12 == 0
+    //
+    // return view(a)
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_set_rows(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,  // destination
+            struct lm_ggml_tensor  * b,  // source
+            struct lm_ggml_tensor  * c); // row indices
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_diag(
         struct lm_ggml_context     * ctx,

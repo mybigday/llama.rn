@@ -195,6 +195,7 @@ typedef pthread_t lm_ggml_thread_t;
 
 static const struct lm_ggml_type_traits_cpu type_traits_cpu[LM_GGML_TYPE_COUNT] = {
     [LM_GGML_TYPE_F32] = {
+        .from_float               = (lm_ggml_from_float_t) lm_ggml_cpu_fp32_to_fp32,
         .vec_dot                  = (lm_ggml_vec_dot_t) lm_ggml_vec_dot_f32,
         .vec_dot_type             = LM_GGML_TYPE_F32,
         .nrows                    = 1,
@@ -1817,6 +1818,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_get_rows_back(params, tensor);
             } break;
+        case LM_GGML_OP_SET_ROWS:
+            {
+                lm_ggml_compute_forward_set_rows(params, tensor);
+            } break;
         case LM_GGML_OP_DIAG:
             {
                 lm_ggml_compute_forward_diag(params, tensor);
@@ -1943,6 +1948,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
         case LM_GGML_OP_UNARY:
             {
                 lm_ggml_compute_forward_unary(params, tensor);
+            } break;
+        case LM_GGML_OP_GLU:
+            {
+                lm_ggml_compute_forward_glu(params, tensor);
             } break;
         case LM_GGML_OP_GET_REL_POS:
             {
@@ -2154,6 +2163,18 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
                     LM_GGML_ABORT("fatal error");
             }
             break;
+        case LM_GGML_OP_GLU:
+            switch (lm_ggml_get_glu_op(node)) {
+                case LM_GGML_GLU_OP_REGLU:
+                case LM_GGML_GLU_OP_GEGLU:
+                case LM_GGML_GLU_OP_SWIGLU:
+                    {
+                        n_tasks = n_threads;
+                    } break;
+                default:
+                    LM_GGML_ABORT("fatal error");
+            }
+            break;
         case LM_GGML_OP_SILU_BACK:
         case LM_GGML_OP_MUL:
         case LM_GGML_OP_DIV:
@@ -2170,6 +2191,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
                 n_tasks = n_threads;
             } break;
         case LM_GGML_OP_GET_ROWS:
+        case LM_GGML_OP_SET_ROWS:
             {
                 // FIXME: get_rows can use additional threads, but the cost of launching additional threads
                 // decreases performance with GPU offloading
@@ -3122,6 +3144,10 @@ enum lm_ggml_status lm_ggml_graph_compute_with_ctx(struct lm_ggml_context * ctx,
     cplan.work_data = (uint8_t *)lm_ggml_new_buffer(ctx, cplan.work_size);
 
     return lm_ggml_graph_compute(cgraph, &cplan);
+}
+
+void lm_ggml_cpu_fp32_to_fp32(const float * x, float * y, int64_t n) {
+    memcpy(y, x, n * sizeof(float));
 }
 
 void lm_ggml_cpu_fp32_to_fp16(const float * x, lm_ggml_fp16_t * y, int64_t n) {
