@@ -301,6 +301,7 @@ struct lm_ggml_cgraph {
     struct lm_ggml_tensor ** grads;     // the outputs of these tensors are the gradients of the nodes
     struct lm_ggml_tensor ** grad_accs; // accumulators for node gradients
     struct lm_ggml_tensor ** leafs;     // tensors with constant data
+    int32_t             * use_counts;// number of uses of each tensor, indexed by hash table slot
 
     struct lm_ggml_hash_set visited_hash_set;
 
@@ -467,12 +468,75 @@ static inline lm_ggml_bf16_t lm_ggml_compute_fp32_to_bf16(float s) {
 #define LM_GGML_FP32_TO_BF16(x) lm_ggml_compute_fp32_to_bf16(x)
 #define LM_GGML_BF16_TO_FP32(x) lm_ggml_compute_bf16_to_fp32(x)
 
+// return true if the node's results are only used by N other nodes
+// and can be fused into their calculations.
+static inline bool lm_ggml_node_has_n_uses(const struct lm_ggml_cgraph * cgraph, int node_idx, int32_t n_uses) {
+    const struct lm_ggml_tensor * node = cgraph->nodes[node_idx];
+
+    // check the use count against how many we're replacing
+    size_t hash_pos = lm_ggml_hash_find(&cgraph->visited_hash_set, node);
+    if (!lm_ggml_bitset_get(cgraph->visited_hash_set.used, hash_pos) || cgraph->use_counts[hash_pos] != n_uses) {
+        return false;
+    }
+
+    // if node is a view, some other node might be using the intermediate result
+    // via the view source.
+    if (node->view_src) {
+        return false;
+    }
+
+    // If the user requested output for the node, can't fuse
+    if (node->flags & LM_GGML_TENSOR_FLAG_OUTPUT) {
+        return false;
+    }
+
+    return true;
+}
+
+// Returns true if nodes [i, i+ops.size()) are the sequence of lm_ggml_ops in ops[]
+// and are fusable. Nodes are considered fusable according to this function if:
+// - all nodes except the last have only one use and are not views/outputs (see lm_ggml_node_has_N_uses).
+// - all nodes except the last are a src of the following node.
+// - all nodes are the same shape.
+// TODO: Consider allowing LM_GGML_OP_NONE nodes in between
+static inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int node_idx, const enum lm_ggml_op * ops, int num_ops) {
+    if (node_idx + num_ops > cgraph->n_nodes) {
+        return false;
+    }
+
+    for (int i = 0; i < num_ops; ++i) {
+        struct lm_ggml_tensor * node = cgraph->nodes[node_idx + i];
+        if (node->op != ops[i]) {
+            return false;
+        }
+        if (i < num_ops - 1 && !lm_ggml_node_has_n_uses(cgraph, node_idx + i, 1)) {
+            return false;
+        }
+        if (i > 0) {
+            struct lm_ggml_tensor * prev = cgraph->nodes[node_idx + i - 1];
+            if (node->src[0] != prev && node->src[1] != prev) {
+                return false;
+            }
+            if (!lm_ggml_are_same_shape(node, prev)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 #ifdef __cplusplus
 }
 #endif
 
 #ifdef __cplusplus
+#include <initializer_list>
 #include <vector>
+
+// nicer C++ syntax for lm_ggml_can_fuse
+inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int node_idx, std::initializer_list<enum lm_ggml_op> ops) {
+    return lm_ggml_can_fuse(cgraph, node_idx, ops.begin(), (int)ops.size());
+}
 
 // expose GGUF internals for test code
 LM_GGML_API size_t lm_gguf_type_size(enum lm_gguf_type type);

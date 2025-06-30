@@ -416,6 +416,7 @@ static bool lm_ggml_backend_cpu_device_supports_op(lm_ggml_backend_dev_t dev, co
 
     switch (op->op) {
         case LM_GGML_OP_CPY:
+        case LM_GGML_OP_SET_ROWS:
             return
                 op->type != LM_GGML_TYPE_IQ3_XXS &&
                 op->type != LM_GGML_TYPE_IQ3_S   &&
