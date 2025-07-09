@@ -202,19 +202,34 @@ void lm_ggml_print_backtrace(void) {
 }
 #endif
 
+static lm_ggml_abort_callback_t g_abort_callback = NULL;
+
+// Set the abort callback (passing null will restore original abort functionality: printing a message to stdout)
+LM_GGML_API lm_ggml_abort_callback_t lm_ggml_set_abort_callback(lm_ggml_abort_callback_t callback) {
+    lm_ggml_abort_callback_t ret_val = g_abort_callback;
+    g_abort_callback = callback;
+    return ret_val;
+}
+
 void lm_ggml_abort(const char * file, int line, const char * fmt, ...) {
     fflush(stdout);
 
-    fprintf(stderr, "%s:%d: ", file, line);
+    char message[2048];
+    int offset = snprintf(message, sizeof(message), "%s:%d: ", file, line);
 
     va_list args;
     va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
+    vsnprintf(message + offset, sizeof(message) - offset, fmt, args);
     va_end(args);
 
-    fprintf(stderr, "\n");
+    if (g_abort_callback) {
+        g_abort_callback(message);
+    } else {
+        // default: print error and backtrace to stderr
+        fprintf(stderr, "%s\n", message);
+        lm_ggml_print_backtrace();
+    }
 
-    lm_ggml_print_backtrace();
     abort();
 }
 
@@ -456,6 +471,14 @@ void lm_ggml_fp32_to_bf16_row(const float * x, lm_ggml_bf16_t * y, int64_t n) {
 
 bool lm_ggml_guid_matches(lm_ggml_guid_t guid_a, lm_ggml_guid_t guid_b) {
     return memcmp(guid_a, guid_b, sizeof(lm_ggml_guid)) == 0;
+}
+
+const char * lm_ggml_version(void) {
+    return LM_GGML_VERSION;
+}
+
+const char * lm_ggml_commit(void) {
+    return LM_GGML_COMMIT;
 }
 
 //
@@ -945,6 +968,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "CONV_TRANSPOSE_1D",
     "IM2COL",
     "IM2COL_BACK",
+    "CONV_2D",
     "CONV_2D_DW",
     "CONV_TRANSPOSE_2D",
     "POOL_1D",
@@ -986,7 +1010,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "GLU",
 };
 
-static_assert(LM_GGML_OP_COUNT == 85, "LM_GGML_OP_COUNT != 85");
+static_assert(LM_GGML_OP_COUNT == 86, "LM_GGML_OP_COUNT != 86");
 
 static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "none",
@@ -1044,6 +1068,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "conv_transpose_1d(x)",
     "im2col(x)",
     "im2col_back(x)",
+    "conv_2d(x)",
     "conv_2d_dw(x)",
     "conv_transpose_2d(x)",
     "pool_1d(x)",
@@ -1085,7 +1110,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "glu(x)",
 };
 
-static_assert(LM_GGML_OP_COUNT == 85, "LM_GGML_OP_COUNT != 85");
+static_assert(LM_GGML_OP_COUNT == 86, "LM_GGML_OP_COUNT != 86");
 
 static_assert(LM_GGML_OP_POOL_COUNT == 2, "LM_GGML_OP_POOL_COUNT != 2");
 
@@ -1115,9 +1140,11 @@ static const char * LM_GGML_GLU_OP_NAME[LM_GGML_GLU_OP_COUNT] = {
     "REGLU",
     "GEGLU",
     "SWIGLU",
+    "GEGLU_ERF",
+    "GEGLU_QUICK",
 };
 
-static_assert(LM_GGML_GLU_OP_COUNT == 3, "LM_GGML_GLU_OP_COUNT != 3");
+static_assert(LM_GGML_GLU_OP_COUNT == 5, "LM_GGML_GLU_OP_COUNT != 5");
 
 
 static_assert(sizeof(struct lm_ggml_object)%LM_GGML_MEM_ALIGN == 0, "lm_ggml_object size must be a multiple of LM_GGML_MEM_ALIGN");
@@ -2743,6 +2770,48 @@ struct lm_ggml_tensor * lm_ggml_swiglu_split(
     return lm_ggml_glu_impl(ctx, a, b, LM_GGML_GLU_OP_SWIGLU, false);
 }
 
+// lm_ggml_geglu_erf
+
+struct lm_ggml_tensor * lm_ggml_geglu_erf(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_glu_impl(ctx, a, NULL, LM_GGML_GLU_OP_GEGLU_ERF, false);
+}
+
+struct lm_ggml_tensor * lm_ggml_geglu_erf_swapped(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_glu_impl(ctx, a, NULL, LM_GGML_GLU_OP_GEGLU_ERF, true);
+}
+
+struct lm_ggml_tensor * lm_ggml_geglu_erf_split(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b) {
+    return lm_ggml_glu_impl(ctx, a, b, LM_GGML_GLU_OP_GEGLU_ERF, false);
+}
+
+// lm_ggml_geglu_quick
+
+struct lm_ggml_tensor * lm_ggml_geglu_quick(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_glu_impl(ctx, a, NULL, LM_GGML_GLU_OP_GEGLU_QUICK, false);
+}
+
+struct lm_ggml_tensor * lm_ggml_geglu_quick_swapped(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_glu_impl(ctx, a, NULL, LM_GGML_GLU_OP_GEGLU_QUICK, true);
+}
+
+struct lm_ggml_tensor * lm_ggml_geglu_quick_split(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b) {
+    return lm_ggml_glu_impl(ctx, a, b, LM_GGML_GLU_OP_GEGLU_QUICK, false);
+}
+
 // lm_ggml_norm
 
 static struct lm_ggml_tensor * lm_ggml_norm_impl(
@@ -3649,9 +3718,10 @@ static struct lm_ggml_tensor * lm_ggml_soft_max_impl(
     if (mask) {
         LM_GGML_ASSERT(mask->type == LM_GGML_TYPE_F16 || mask->type == LM_GGML_TYPE_F32);
         LM_GGML_ASSERT(lm_ggml_is_contiguous(mask));
-        LM_GGML_ASSERT(lm_ggml_is_matrix(mask));
         LM_GGML_ASSERT(mask->ne[0] == a->ne[0]);
         LM_GGML_ASSERT(mask->ne[1] >= a->ne[1]);
+        LM_GGML_ASSERT(a->ne[2]%mask->ne[2] == 0);
+        LM_GGML_ASSERT(a->ne[3]%mask->ne[3] == 0);
     }
 
     if (max_bias > 0.0f) {
@@ -4291,6 +4361,44 @@ struct lm_ggml_tensor * lm_ggml_conv_2d_dw_direct(
     return result;
 }
 
+// lm_ggml_conv_2d_direct
+
+struct lm_ggml_tensor * lm_ggml_conv_2d_direct(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,   // convolution kernel [KW, KH, IC, OC]
+        struct lm_ggml_tensor  * b,   // input data [W, H, C, N]
+        int                   s0,  // stride dimension 0
+        int                   s1,  // stride dimension 1
+        int                   p0,  // padding dimension 0
+        int                   p1,  // padding dimension 1
+        int                   d0,  // dilation dimension 0
+        int                   d1) {// dilation dimension 1
+
+    LM_GGML_ASSERT(a->ne[2] == b->ne[2]);
+    //LM_GGML_ASSERT(a->type == b->type);
+
+    int64_t ne[4];
+    ne[0] = lm_ggml_calc_conv_output_size(b->ne[0], a->ne[0], s0, p0, d0);
+    ne[1] = lm_ggml_calc_conv_output_size(b->ne[1], a->ne[1], s1, p1, d1);
+    ne[2] = a->ne[3];
+    ne[3] = b->ne[3];
+
+    struct lm_ggml_tensor * result = lm_ggml_new_tensor(ctx, b->type, 4, ne);
+
+    lm_ggml_set_op_params_i32(result, 0, s0);
+    lm_ggml_set_op_params_i32(result, 1, s1);
+    lm_ggml_set_op_params_i32(result, 2, p0);
+    lm_ggml_set_op_params_i32(result, 3, p1);
+    lm_ggml_set_op_params_i32(result, 4, d0);
+    lm_ggml_set_op_params_i32(result, 5, d1);
+
+    result->op = LM_GGML_OP_CONV_2D;
+    result->src[0] = a;
+    result->src[1] = b;
+
+    return result;
+}
+
 // lm_ggml_conv_transpose_2d_p0
 
 static int64_t lm_ggml_calc_conv_transpose_output_size(int64_t ins, int64_t ks, int s, int p) {
@@ -4407,24 +4515,21 @@ struct lm_ggml_tensor * lm_ggml_pool_2d_back(
     return result;
 }
 
-// lm_ggml_upscale
+// lm_ggml_upscale / lm_ggml_interpolate
 
-static struct lm_ggml_tensor * lm_ggml_upscale_impl(
+static struct lm_ggml_tensor * lm_ggml_interpolate_impl(
         struct lm_ggml_context * ctx,
         struct lm_ggml_tensor  * a,
-        int                   ne0,
-        int                   ne1,
-        int                   ne2,
-        int                   ne3,
-        enum lm_ggml_scale_mode  mode) {
-    LM_GGML_ASSERT(a->ne[0] <= ne0);
-    LM_GGML_ASSERT(a->ne[1] <= ne1);
-    LM_GGML_ASSERT(a->ne[2] <= ne2);
-    LM_GGML_ASSERT(a->ne[3] <= ne3);
+        int64_t               ne0,
+        int64_t               ne1,
+        int64_t               ne2,
+        int64_t               ne3,
+        uint32_t              mode) {
+    LM_GGML_ASSERT((mode & 0xFF) < LM_GGML_SCALE_MODE_COUNT);
 
     struct lm_ggml_tensor * result = lm_ggml_new_tensor_4d(ctx, a->type, ne0, ne1, ne2, ne3);
 
-    lm_ggml_set_op_params_i32(result, 0, mode);
+    lm_ggml_set_op_params_i32(result, 0, (int32_t)mode);
 
     result->op     = LM_GGML_OP_UPSCALE;
     result->src[0] = a;
@@ -4437,7 +4542,8 @@ struct lm_ggml_tensor * lm_ggml_upscale(
         struct lm_ggml_tensor  * a,
         int                   scale_factor,
         enum lm_ggml_scale_mode  mode) {
-    return lm_ggml_upscale_impl(ctx, a, a->ne[0] * scale_factor, a->ne[1] * scale_factor, a->ne[2], a->ne[3], mode);
+    LM_GGML_ASSERT(scale_factor > 1);
+    return lm_ggml_interpolate_impl(ctx, a, a->ne[0] * scale_factor, a->ne[1] * scale_factor, a->ne[2], a->ne[3], mode);
 }
 
 struct lm_ggml_tensor * lm_ggml_upscale_ext(
@@ -4448,7 +4554,18 @@ struct lm_ggml_tensor * lm_ggml_upscale_ext(
         int                   ne2,
         int                   ne3,
         enum lm_ggml_scale_mode  mode) {
-    return lm_ggml_upscale_impl(ctx, a, ne0, ne1, ne2, ne3, mode);
+    return lm_ggml_interpolate_impl(ctx, a, ne0, ne1, ne2, ne3, mode);
+}
+
+struct lm_ggml_tensor * lm_ggml_interpolate(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        int64_t               ne0,
+        int64_t               ne1,
+        int64_t               ne2,
+        int64_t               ne3,
+        uint32_t              mode) {
+    return lm_ggml_interpolate_impl(ctx, a, ne0, ne1, ne2, ne3, mode);
 }
 
 // lm_ggml_pad
@@ -4625,13 +4742,17 @@ struct lm_ggml_tensor * lm_ggml_flash_attn_ext(
     LM_GGML_ASSERT(lm_ggml_can_mul_mat(k, q));
     // TODO: check if vT can be multiplied by (k*qT)
 
+    LM_GGML_ASSERT(q->ne[3] == k->ne[3]);
+    LM_GGML_ASSERT(q->ne[3] == v->ne[3]);
+
     if (mask) {
         LM_GGML_ASSERT(lm_ggml_is_contiguous(mask));
-        LM_GGML_ASSERT(mask->ne[2] == 1);
-        LM_GGML_ASSERT(mask->ne[3] == 1);
         LM_GGML_ASSERT(mask->ne[1] >= LM_GGML_PAD(q->ne[1], LM_GGML_KQ_MASK_PAD) &&
                 "the Flash-Attention kernel requires the mask to be padded to LM_GGML_KQ_MASK_PAD and at least n_queries big");
         //LM_GGML_ASSERT(lm_ggml_can_repeat_rows(mask, qk));
+
+        LM_GGML_ASSERT(q->ne[2] % mask->ne[2] == 0);
+        LM_GGML_ASSERT(q->ne[3] % mask->ne[3] == 0);
     }
 
     if (max_bias > 0.0f) {
@@ -4759,7 +4880,6 @@ struct lm_ggml_tensor * lm_ggml_ssm_conv(
     const int64_t n_s     = sx->ne[2];
 
     // TODO: maybe support other strides than 1?
-    // FIXME: this is always true?
     LM_GGML_ASSERT(sx->ne[0] == d_conv - 1 + n_t);
     LM_GGML_ASSERT(sx->ne[1] == d_inner);
     LM_GGML_ASSERT(n_t >= 0);
@@ -4782,36 +4902,49 @@ struct lm_ggml_tensor * lm_ggml_ssm_scan(
         struct lm_ggml_tensor  * dt,
         struct lm_ggml_tensor  * A,
         struct lm_ggml_tensor  * B,
-        struct lm_ggml_tensor  * C) {
+        struct lm_ggml_tensor  * C,
+        struct lm_ggml_tensor  * ids) {
     LM_GGML_ASSERT(lm_ggml_is_contiguous(s));
-    LM_GGML_ASSERT(lm_ggml_is_contiguous(x));
     LM_GGML_ASSERT(lm_ggml_is_contiguous(dt));
     LM_GGML_ASSERT(lm_ggml_is_contiguous(A));
-    LM_GGML_ASSERT(lm_ggml_is_matrix(A));
-    LM_GGML_ASSERT(lm_ggml_is_3d(B));
-    LM_GGML_ASSERT(lm_ggml_is_3d(s));
+    LM_GGML_ASSERT(x->nb[0] == lm_ggml_type_size(x->type));
     LM_GGML_ASSERT(B->nb[0] == lm_ggml_type_size(B->type));
     LM_GGML_ASSERT(C->nb[0] == lm_ggml_type_size(C->type));
-    LM_GGML_ASSERT(lm_ggml_are_same_shape(x, dt));
+    LM_GGML_ASSERT(x->nb[1] == x->ne[0]*x->nb[0]);
+    LM_GGML_ASSERT(B->nb[1] == B->ne[0]*B->nb[0]);
+    LM_GGML_ASSERT(C->nb[1] == C->ne[0]*C->nb[0]);
     LM_GGML_ASSERT(lm_ggml_are_same_shape(B, C));
+    LM_GGML_ASSERT(ids->type == LM_GGML_TYPE_I32);
 
     {
         const int64_t d_state      = s->ne[0];
-        const int64_t d_inner      = s->ne[1];
-        const int64_t n_seq_tokens = x->ne[1];
-        const int64_t n_seqs       = x->ne[2];
+        const int64_t head_dim     = x->ne[0];
+        const int64_t n_head       = x->ne[1];
+        const int64_t n_seq_tokens = x->ne[2];
+        const int64_t n_seqs       = x->ne[3];
 
-        LM_GGML_ASSERT(s->ne[2] == n_seqs);
-        LM_GGML_ASSERT(x->ne[0] == d_inner);
-        LM_GGML_ASSERT(A->ne[0] == d_state);
-        LM_GGML_ASSERT(A->ne[1] == d_inner);
+        LM_GGML_ASSERT(dt->ne[0] == n_head);
+        LM_GGML_ASSERT(dt->ne[1] == n_seq_tokens);
+        LM_GGML_ASSERT(dt->ne[2] == n_seqs);
+        LM_GGML_ASSERT(lm_ggml_is_3d(dt));
+        LM_GGML_ASSERT(s->ne[1] == head_dim);
+        LM_GGML_ASSERT(s->ne[2] == n_head);
         LM_GGML_ASSERT(B->ne[0] == d_state);
-        LM_GGML_ASSERT(B->ne[1] == n_seq_tokens);
-        LM_GGML_ASSERT(B->ne[2] == n_seqs);
+        LM_GGML_ASSERT(B->ne[2] == n_seq_tokens);
+        LM_GGML_ASSERT(B->ne[3] == n_seqs);
+        LM_GGML_ASSERT(ids->ne[0] == n_seqs);
+        LM_GGML_ASSERT(lm_ggml_is_vector(ids));
+        LM_GGML_ASSERT(A->ne[1] == n_head);
+        LM_GGML_ASSERT(lm_ggml_is_matrix(A));
+
+        if (A->ne[0] != 1) {
+            // Mamba-1 has more granular decay factors
+            LM_GGML_ASSERT(A->ne[0] == d_state);
+        }
     }
 
     // concatenated y + ssm_states
-    struct lm_ggml_tensor * result = lm_ggml_new_tensor_1d(ctx, LM_GGML_TYPE_F32, lm_ggml_nelements(x) + lm_ggml_nelements(s));
+    struct lm_ggml_tensor * result = lm_ggml_new_tensor_1d(ctx, LM_GGML_TYPE_F32, lm_ggml_nelements(x) + s->ne[0]*s->ne[1]*s->ne[2]*ids->ne[0]);
 
     result->op   = LM_GGML_OP_SSM_SCAN;
     result->src[0] = s;
@@ -4820,6 +4953,7 @@ struct lm_ggml_tensor * lm_ggml_ssm_scan(
     result->src[3] = A;
     result->src[4] = B;
     result->src[5] = C;
+    result->src[6] = ids;
 
     return result;
 }
@@ -5960,13 +6094,28 @@ static void lm_ggml_compute_backward(
             }
             LM_GGML_ASSERT(!src1_needs_grads && "backward pass for labels not implemented");
         } break;
+        case LM_GGML_OP_GLU: {
+            switch (lm_ggml_get_glu_op(tensor)) {
+                case LM_GGML_GLU_OP_SWIGLU: {
+                    if (src0_needs_grads) {
+                        LM_GGML_ASSERT(src1 && "backward pass only implemented for split swiglu");
+                        lm_ggml_add_or_set(ctx, cgraph, isrc0, lm_ggml_silu_back(ctx, lm_ggml_mul(ctx, grad, src1), src0));
+                    }
+                    if (src1_needs_grads) {
+                        lm_ggml_add_or_set(ctx, cgraph, isrc1, lm_ggml_mul(ctx, lm_ggml_silu(ctx, src0), grad));
+                    }
+                } break;
+                default: {
+                    LM_GGML_ABORT("unsupported glu op for backward pass: %s", lm_ggml_glu_op_name(lm_ggml_get_glu_op(tensor)));
+                } //break;
+            }
+        } break;
         case LM_GGML_OP_NONE: {
             // noop
         } break;
         case LM_GGML_OP_COUNT:
         default: {
-            fprintf(stderr, "%s: unsupported ggml op for backward pass: %s\n", __func__, lm_ggml_op_name(tensor->op));
-            LM_GGML_ABORT("fatal error");
+            LM_GGML_ABORT("%s: unsupported ggml op for backward pass: %s\n", __func__, lm_ggml_op_name(tensor->op));
         } //break;
     }
 

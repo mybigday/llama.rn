@@ -1193,7 +1193,7 @@ static void lm_ggml_compute_forward_mul_mat_one_chunk(
     }
 }
 
-static void lm_ggml_compute_forward_mul_mat(
+void lm_ggml_compute_forward_mul_mat(
         const struct lm_ggml_compute_params * params,
               struct lm_ggml_tensor * dst) {
 
@@ -1866,6 +1866,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_im2col_back_f32(params, tensor);
             } break;
+        case LM_GGML_OP_CONV_2D:
+            {
+                lm_ggml_compute_forward_conv_2d(params, tensor);
+            } break;
         case LM_GGML_OP_CONV_2D_DW:
             {
                 lm_ggml_compute_forward_conv_2d_dw(params, tensor);
@@ -2168,6 +2172,8 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
                 case LM_GGML_GLU_OP_REGLU:
                 case LM_GGML_GLU_OP_GEGLU:
                 case LM_GGML_GLU_OP_SWIGLU:
+                case LM_GGML_GLU_OP_GEGLU_ERF:
+                case LM_GGML_GLU_OP_GEGLU_QUICK:
                     {
                         n_tasks = n_threads;
                     } break;
@@ -2228,6 +2234,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
             } break;
         case LM_GGML_OP_IM2COL:
         case LM_GGML_OP_IM2COL_BACK:
+        case LM_GGML_OP_CONV_2D:
         case LM_GGML_OP_CONV_2D_DW:
         case LM_GGML_OP_CONV_TRANSPOSE_1D:
         case LM_GGML_OP_CONV_TRANSPOSE_2D:
@@ -2745,6 +2752,10 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
                         } else {
                             LM_GGML_ABORT("fatal error");
                         }
+                    } break;
+                case LM_GGML_OP_CONV_2D:
+                    {
+                        cur = LM_GGML_IM2COL_WORK_SIZE;
                     } break;
                 case LM_GGML_OP_CONV_TRANSPOSE_2D:
                     {

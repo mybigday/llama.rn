@@ -1405,8 +1405,7 @@ struct clip_graph {
                 lm_ggml_tensor * x = embeddings;
                 embeddings = lm_ggml_mul_mat(ctx0, model.mm_model_mlp_2_w, embeddings);
                 x = lm_ggml_mul_mat(ctx0, model.mm_model_mlp_1_w,x);
-                embeddings = lm_ggml_silu_inplace(ctx0, embeddings);
-                embeddings = lm_ggml_mul(ctx0, embeddings,x);
+                embeddings = lm_ggml_swiglu_split(ctx0, embeddings, x);
                 embeddings = lm_ggml_mul_mat(ctx0, model.mm_model_mlp_3_w, embeddings);
             }
             // arrangement of BOI/EOI token embeddings
@@ -1502,15 +1501,8 @@ struct clip_graph {
                 cur = lm_ggml_mul_mat(ctx0, model.mm_1_w, cur);
 
                 // swiglu
-                {
-                    int64_t split_point = cur->ne[0] / 2;
-                    lm_ggml_tensor * x0 = lm_ggml_cont(ctx0, lm_ggml_view_2d(ctx0, cur, split_point, cur->ne[1], cur->nb[1], 0));
-                    lm_ggml_tensor * x1 = lm_ggml_cont(ctx0, lm_ggml_view_2d(ctx0, cur, split_point, cur->ne[1], cur->nb[1], split_point * lm_ggml_element_size(cur)));
-
-                    // see SwiGLU in ultravox_model.py, the second half passed through is silu, not the first half
-                    x1 = lm_ggml_silu(ctx0, x1);
-                    cur = lm_ggml_mul(ctx0, x0, x1);
-                }
+                // see SwiGLU in ultravox_model.py, the second half passed through is silu, not the first half
+                cur = lm_ggml_swiglu_swapped(ctx0, cur);
 
                 // mid-norm
                 cur = lm_ggml_rms_norm(ctx0, cur, 1e-6);
@@ -1769,33 +1761,40 @@ private:
             cur = tmp;
         }
 
+        // we only support parallel ffn for now
         switch (type_op) {
             case FFN_SILU:
-                {
+                if (gate) {
+                    cur = lm_ggml_swiglu_split(ctx0, cur, tmp);
+                    cb(cur, "ffn_swiglu", il);
+                } else {
                     cur = lm_ggml_silu(ctx0, cur);
                     cb(cur, "ffn_silu", il);
                 } break;
             case FFN_GELU:
-                {
+                if (gate) {
+                    cur = lm_ggml_geglu_split(ctx0, cur, tmp);
+                    cb(cur, "ffn_geglu", il);
+                } else {
                     cur = lm_ggml_gelu(ctx0, cur);
                     cb(cur, "ffn_gelu", il);
                 } break;
             case FFN_GELU_ERF:
-                {
+                if (gate) {
+                    cur = lm_ggml_geglu_erf_split(ctx0, cur, tmp);
+                    cb(cur, "ffn_geglu_erf", il);
+                } else {
                     cur = lm_ggml_gelu_erf(ctx0, cur);
-                    cb(cur, "lm_ggml_gelu_erf", il);
+                    cb(cur, "ffn_gelu_erf", il);
                 } break;
             case FFN_GELU_QUICK:
-                {
+                if (gate) {
+                    cur = lm_ggml_geglu_quick_split(ctx0, cur, tmp);
+                    cb(cur, "ffn_geglu_quick", il);
+                } else {
                     cur = lm_ggml_gelu_quick(ctx0, cur);
-                    cb(cur, "ffn_relu", il);
+                    cb(cur, "ffn_gelu_quick", il);
                 } break;
-        }
-
-        // we only support parallel ffn for now
-        if (gate) {
-            cur = lm_ggml_mul(ctx0, cur, tmp);
-            cb(cur, "ffn_gate_par", il);
         }
 
         if (down) {
