@@ -139,8 +139,8 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void initVocoder(double id, final String vocoderModelPath, final Promise promise) {
-    rnllama.initVocoder(id, vocoderModelPath, promise);
+  public void initVocoder(double id, final ReadableMap params, final Promise promise) {
+    rnllama.initVocoder(id, params, promise);
   }
 
   @ReactMethod

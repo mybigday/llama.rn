@@ -163,7 +163,7 @@ struct llama_rn_context {
     llama_rn_tokenize_result tokenize(const std::string &text, const std::vector<std::string> &media_paths);
 
     // Vocoder methods
-    bool initVocoder(const std::string &vocoder_model_path);
+    bool initVocoder(const std::string &vocoder_model_path, int batch_size = -1);
     tts_type getTTSType(json speaker = nullptr);
     std::string getFormattedAudioCompletion(const std::string &speaker_json_str, const std::string &text_to_speak);
     std::vector<llama_token> getAudioCompletionGuideTokens(const std::string &text_to_speak);
