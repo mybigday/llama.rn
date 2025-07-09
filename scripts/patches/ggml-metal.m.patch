@@ -1,6 +1,6 @@
 --- ggml-metal.m.orig	2025-03-13 11:13:58
 +++ ggml-metal.m	2025-03-13 11:14:54
-@@ -887,7 +887,11 @@ @implementation LMGGMLMetalClass
+@@ -890,7 +890,11 @@ @implementation LMGGMLMetalClass
      NSBundle * bundle = [NSBundle bundleForClass:[LMGGMLMetalClass class]];
  #endif
  
