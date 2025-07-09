@@ -61,10 +61,6 @@
 #include "ggml-cann.h"
 #endif
 
-#ifdef LM_GGML_USE_KOMPUTE
-#include "ggml-kompute.h"
-#endif
-
 // disable C++17 deprecation warning for std::codecvt_utf8
 #if defined(__clang__)
 #    pragma clang diagnostic push
@@ -188,9 +184,6 @@ struct lm_ggml_backend_registry {
 #endif
 #ifdef LM_GGML_USE_RPC
         register_backend(lm_ggml_backend_rpc_reg());
-#endif
-#ifdef LM_GGML_USE_KOMPUTE
-        register_backend(lm_ggml_backend_kompute_reg());
 #endif
 #ifdef LM_GGML_USE_CPU
         register_backend(lm_ggml_backend_cpu_reg());
@@ -575,7 +568,6 @@ void lm_ggml_backend_load_all_from_path(const char * dir_path) {
     lm_ggml_backend_load_best("cann", silent, dir_path);
     lm_ggml_backend_load_best("cuda", silent, dir_path);
     lm_ggml_backend_load_best("hip", silent, dir_path);
-    lm_ggml_backend_load_best("kompute", silent, dir_path);
     lm_ggml_backend_load_best("metal", silent, dir_path);
     lm_ggml_backend_load_best("rpc", silent, dir_path);
     lm_ggml_backend_load_best("sycl", silent, dir_path);
