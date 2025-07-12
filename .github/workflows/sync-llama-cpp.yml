@@ -63,9 +63,6 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Run bootstrap
-        run: yarn bootstrap
-
       - name: Build iOS frameworks
         run: yarn build:ios-frameworks
 
@@ -99,9 +96,6 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
-
-      - name: Run bootstrap
-        run: yarn bootstrap
 
       - name: Build Android libraries
         run: yarn build:android-libs

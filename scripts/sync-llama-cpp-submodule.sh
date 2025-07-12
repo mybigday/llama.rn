@@ -25,6 +25,16 @@ echo "📦 Current tag in llama.cpp: $CURRENT_TAG"
 
 if [[ "$LATEST_TAG" == "$CURRENT_TAG" ]]; then
   echo "✅ Already synced to $LATEST_TAG"
+  echo "🛠 Running bootstrap to ensure cpp/ directory is up to date..."
+  yarn bootstrap
+
+  # Check if bootstrap created any changes
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "💾 Committing bootstrap changes..."
+    git add -A
+    git commit -m "chore(sync): update cpp/ directory with bootstrap (no llama.cpp version change)"
+  fi
+
   # Still need to push the staging branch for the workflow to continue
   git push origin "$STAGING_BRANCH"
   exit 0
@@ -38,6 +48,19 @@ cd ..
 
 git add "$LLAMA_DIR"
 git commit -m "chore: update llama.cpp to $LATEST_TAG (submodule ref)"
+
+echo "🛠 Running bootstrap to copy files and apply patches..."
+yarn bootstrap
+
+# Check if bootstrap created any changes in cpp/ directory
+if git diff --quiet && git diff --cached --quiet; then
+  echo "✅ No changes after bootstrap — cpp/ directory already up to date."
+else
+  echo "💾 Committing bootstrap changes..."
+  git add -A
+  git commit -m "chore(sync): update cpp/ directory after llama.cpp $LATEST_TAG bootstrap"
+fi
+
 git push origin "$STAGING_BRANCH"
 
-echo "🚀 Submodule updated and committed to staging branch"
+echo "🚀 Submodule updated, bootstrap completed, and committed to staging branch"
