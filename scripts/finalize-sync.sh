@@ -6,24 +6,8 @@ STAGING_BRANCH="auto/sync-llama.cpp-staging"
 
 echo "🔄 Finalizing sync after successful builds..."
 
-# Checkout the staging branch
-git fetch origin "$STAGING_BRANCH"
-git checkout "$STAGING_BRANCH"
-
-# Run TypeScript build to complete the sync
-echo "🛠 Running TypeScript build..."
-yarn build
-
-# Check if there are any additional changes after TypeScript build
-if git diff --quiet && git diff --cached --quiet; then
-  echo "✅ No additional changes after TypeScript build."
-else
-  echo "💾 Committing TypeScript build changes..."
-  git add -A
-  git commit -m "chore(sync): regenerate TypeScript build artifacts"
-fi
-
-echo "✅ Build successful! Moving to persistent sync branch..."
+# We're already on the staging branch, just need to move to persistent branch
+echo "✅ All builds successful! Moving to persistent sync branch..."
 
 # Check if the persistent sync branch exists
 if git show-ref --verify --quiet refs/remotes/origin/"$WORK_BRANCH"; then
