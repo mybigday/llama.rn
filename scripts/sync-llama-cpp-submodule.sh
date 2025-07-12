@@ -6,6 +6,11 @@ LLAMA_DIR="llama.cpp"
 
 echo "🌱 Preparing staging branch: $STAGING_BRANCH"
 git fetch origin main
+
+# Clean up any existing staging branch to ensure fresh start
+git push origin --delete "$STAGING_BRANCH" 2>/dev/null || echo "No existing staging branch to delete"
+git branch -D "$STAGING_BRANCH" 2>/dev/null || echo "No local staging branch to delete"
+
 git checkout -B "$STAGING_BRANCH" origin/main
 
 echo "🔍 Checking latest llama.cpp release..."
