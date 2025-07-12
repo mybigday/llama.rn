@@ -38,5 +38,6 @@ cd ..
 
 git add "$LLAMA_DIR"
 git commit -m "chore: update llama.cpp to $LATEST_TAG (submodule ref)"
+git push origin "$STAGING_BRANCH"
 
 echo "🚀 Submodule updated and committed to staging branch"
