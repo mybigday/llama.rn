@@ -3077,12 +3077,14 @@ static struct lm_ggml_tensor * lm_ggml_scale_impl(
         struct lm_ggml_context * ctx,
         struct lm_ggml_tensor  * a,
         float                 s,
+        float                 b,
         bool                  inplace) {
     LM_GGML_ASSERT(lm_ggml_is_padded_1d(a));
 
     struct lm_ggml_tensor * result = inplace ? lm_ggml_view_tensor(ctx, a) : lm_ggml_dup_tensor(ctx, a);
 
-    lm_ggml_set_op_params(result, &s, sizeof(s));
+    float params[2] = { s, b };
+    lm_ggml_set_op_params(result, &params, sizeof(params));
 
     result->op     = LM_GGML_OP_SCALE;
     result->src[0] = a;
@@ -3094,14 +3096,30 @@ struct lm_ggml_tensor * lm_ggml_scale(
         struct lm_ggml_context * ctx,
         struct lm_ggml_tensor  * a,
         float                 s) {
-    return lm_ggml_scale_impl(ctx, a, s, false);
+    return lm_ggml_scale_impl(ctx, a, s, 0.0, false);
 }
 
 struct lm_ggml_tensor * lm_ggml_scale_inplace(
         struct lm_ggml_context * ctx,
         struct lm_ggml_tensor  * a,
         float                 s) {
-    return lm_ggml_scale_impl(ctx, a, s, true);
+    return lm_ggml_scale_impl(ctx, a, s, 0.0, true);
+}
+
+struct lm_ggml_tensor * lm_ggml_scale_bias(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        float                 s,
+        float                 b) {
+    return lm_ggml_scale_impl(ctx, a, s, b, false);
+}
+
+struct lm_ggml_tensor * lm_ggml_scale_bias_inplace(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        float                 s,
+        float                 b) {
+    return lm_ggml_scale_impl(ctx, a, s, b, true);
 }
 
 // lm_ggml_set
@@ -5785,7 +5803,7 @@ static void lm_ggml_compute_backward(
         } break;
         case LM_GGML_OP_MEAN: {
             if (src0_needs_grads) {
-                lm_ggml_add1_or_set(ctx, cgraph, isrc0, lm_ggml_scale_impl(ctx, grad, 1.0f/src0->ne[0], false));
+                lm_ggml_add1_or_set(ctx, cgraph, isrc0, lm_ggml_scale_impl(ctx, grad, 1.0f/src0->ne[0], 0.0, false));
             }
         } break;
         case LM_GGML_OP_REPEAT: {
@@ -5862,7 +5880,7 @@ static void lm_ggml_compute_backward(
             if (src0_needs_grads) {
                 float s;
                 memcpy(&s, tensor->op_params, sizeof(float));
-                lm_ggml_add_or_set(ctx, cgraph, isrc0, lm_ggml_scale_impl(ctx, grad, s, false));
+                lm_ggml_add_or_set(ctx, cgraph, isrc0, lm_ggml_scale_impl(ctx, grad, s, 0.0, false));
             }
         } break;
         case LM_GGML_OP_SET: {

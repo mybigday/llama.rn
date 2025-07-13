@@ -351,6 +351,45 @@ inline static void lm_ggml_vec_mad_f32_unroll(const int n, const int xs, const i
 #endif
 }
 
+inline static void lm_ggml_vec_mad1_f32(const int n, float * y, const float * x, const float s, const float b) {
+#if defined(LM_GGML_USE_ACCELERATE)
+    vDSP_vsmsa(x, 1, &s, &b, y, 1, n);
+#elif defined(LM_GGML_SIMD)
+    #if defined(__ARM_FEATURE_SVE)
+        // scalar ; TODO: Write SVE code
+        for (int i = 0; i < n; ++i) {
+            y[i] = x[i]*s + b;
+        }
+    #else
+        const int np = (n & ~(LM_GGML_F32_STEP - 1));
+
+        LM_GGML_F32_VEC vs = LM_GGML_F32_VEC_SET1(s);
+        LM_GGML_F32_VEC vb = LM_GGML_F32_VEC_SET1(b);
+
+        LM_GGML_F32_VEC ay[LM_GGML_F32_ARR];
+
+        for (int i = 0; i < np; i += LM_GGML_F32_STEP) {
+            for (int j = 0; j < LM_GGML_F32_ARR; j++) {
+                ay[j] = LM_GGML_F32_VEC_LOAD(x + i + j*LM_GGML_F32_EPR);
+                ay[j] = LM_GGML_F32_VEC_FMA(ay[j], vs, vb);
+
+                LM_GGML_F32_VEC_STORE(y + i + j*LM_GGML_F32_EPR, ay[j]);
+            }
+        }
+
+        // leftovers
+        for (int i = np; i < n; ++i) {
+            y[i] = x[i]*s + b;
+        }
+    #endif
+#else
+    // scalar
+    for (int i = 0; i < n; ++i) {
+        y[i] = x[i]*s + b;
+    }
+#endif
+}
+
 //inline static void lm_ggml_vec_scale_f32(const int n, float * y, const float   v) { for (int i = 0; i < n; ++i) y[i] *= v;          }
 inline static void lm_ggml_vec_scale_f32(const int n, float * y, const float   v) {
 #if defined(LM_GGML_USE_ACCELERATE)
