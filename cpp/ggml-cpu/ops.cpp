@@ -4015,6 +4015,9 @@ static void lm_ggml_compute_forward_rms_norm_f32(
 
                 const float scale = 1.0f/sqrtf(mean + eps);
 
+                // if you hit this, likely you got an inf somewhere earlier
+                assert(scale > 0.0f);
+
                 lm_ggml_vec_scale_f32(ne00, y, scale);
             }
         }
