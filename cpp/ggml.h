@@ -1297,6 +1297,19 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             float                 s);
 
+    // x = s * a + b
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_scale_bias(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        float                 s,
+        float                 b);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_scale_bias_inplace(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        float                 s,
+        float                 b);
+
     // b -> view(a,offset,nb1,nb2,3), return modified a
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_set(
             struct lm_ggml_context * ctx,

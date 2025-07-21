@@ -73,6 +73,22 @@ static inline int lm_ggml_up(int n, int m) {
     return (n + m - 1) & ~(m - 1);
 }
 
+// TODO: move to ggml.h?
+static bool lm_ggml_are_same_layout(const struct lm_ggml_tensor * a, const struct lm_ggml_tensor * b) {
+    if (a->type != b->type) {
+        return false;
+    }
+    for (int i = 0; i < LM_GGML_MAX_DIMS; i++) {
+        if (a->ne[i] != b->ne[i]) {
+            return false;
+        }
+        if (a->nb[i] != b->nb[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 //
 // logging
 //

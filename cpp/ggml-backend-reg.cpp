@@ -45,6 +45,10 @@
 #include "ggml-vulkan.h"
 #endif
 
+#ifdef LM_GGML_USE_WEBGPU
+#include "ggml-webgpu.h"
+#endif
+
 #ifdef LM_GGML_USE_OPENCL
 #include "ggml-opencl.h"
 #endif
@@ -172,6 +176,9 @@ struct lm_ggml_backend_registry {
 #endif
 #ifdef LM_GGML_USE_VULKAN
         register_backend(lm_ggml_backend_vk_reg());
+#endif
+#ifdef LM_GGML_USE_WEBGPU
+        register_backend(lm_ggml_backend_webgpu_reg());
 #endif
 #ifdef LM_GGML_USE_OPENCL
         register_backend(lm_ggml_backend_opencl_reg());
