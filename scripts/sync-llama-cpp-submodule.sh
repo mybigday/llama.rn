@@ -14,7 +14,11 @@ git branch -D "$STAGING_BRANCH" 2>/dev/null || echo "No local staging branch to 
 git checkout -B "$STAGING_BRANCH" origin/main
 
 echo "🔍 Checking latest llama.cpp release..."
-LATEST_TAG=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r .tag_name)
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  LATEST_TAG=$(curl -s -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r .tag_name)
+else
+  LATEST_TAG=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r .tag_name)
+fi
 
 if [[ -z "$LATEST_TAG" || "$LATEST_TAG" == "null" ]]; then
   echo "❌ Failed to fetch latest tag"

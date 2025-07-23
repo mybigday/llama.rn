@@ -44,6 +44,8 @@ jobs:
         run: |
           chmod +x scripts/sync-llama-cpp-submodule.sh scripts/finalize-sync.sh
           ./scripts/sync-llama-cpp-submodule.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build iOS frameworks
         run: yarn build:ios-frameworks
