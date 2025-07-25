@@ -591,12 +591,15 @@ export class LlamaContext {
    * Get a formatted audio completion prompt
    * @param speakerJsonStr JSON string representing the speaker
    * @param textToSpeak Text to speak
-   * @returns Promise resolving to the formatted audio completion prompt
+   * @returns Promise resolving to the formatted audio completion result with prompt and grammar
    */
   async getFormattedAudioCompletion(
     speaker: object | null,
     textToSpeak: string,
-  ): Promise<string> {
+  ): Promise<{
+    prompt: string
+    grammar?: string
+  }> {
     return await RNLlama.getFormattedAudioCompletion(
       this.id,
       speaker ? JSON.stringify(speaker) : '',

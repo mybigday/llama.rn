@@ -992,9 +992,17 @@
     return llama->isVocoderEnabled();
 }
 
-- (NSString *)getFormattedAudioCompletion:(NSString *)speakerJsonStr textToSpeak:(NSString *)textToSpeak {
+- (NSDictionary *)getFormattedAudioCompletion:(NSString *)speakerJsonStr textToSpeak:(NSString *)textToSpeak {
     std::string speakerStr = speakerJsonStr ? [speakerJsonStr UTF8String] : "";
-    return [NSString stringWithUTF8String:llama->getFormattedAudioCompletion(speakerStr, [textToSpeak UTF8String]).c_str()];
+    try {
+        llama_rn_audio_completion_result audio_result = llama->getFormattedAudioCompletion(speakerStr, [textToSpeak UTF8String]);
+        return @{
+            @"prompt": [NSString stringWithUTF8String:audio_result.prompt.c_str()],
+            @"grammar": [NSString stringWithUTF8String:audio_result.grammar.c_str()]
+        };
+    } catch (const std::exception &e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
 }
 
 - (NSArray *)getAudioCompletionGuideTokens:(NSString *)textToSpeak {

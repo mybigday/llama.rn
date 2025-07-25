@@ -614,10 +614,10 @@ export default function App() {
     let audioParams: Partial<CompletionParams> | null = null
     if (message.text.startsWith('/tts ')) {
       const text = message.text.slice(5)
-      const prompt = await context.getFormattedAudioCompletion(null, text)
+      const params = await context.getFormattedAudioCompletion(null, text)
       const guideTokens = await context.getAudioCompletionGuideTokens(text)
       audioParams = {
-        prompt,
+        ...params,
         guide_tokens: guideTokens,
         temperature: 0.1,
         penalty_repeat: 1.1,

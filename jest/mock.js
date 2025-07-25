@@ -238,8 +238,9 @@ if (!NativeModules.RNLlama) {
     }),
     isVocoderEnabled: jest.fn(async (id) => vocoderMap[id] || false),
     getFormattedAudioCompletion: jest.fn(
-      async (id, speakerJsonStr, textToSpeak) =>
-        `${speakerJsonStr || '<default speaker>'}<sep>${textToSpeak}`,
+      async (id, speakerJsonStr, textToSpeak) => ({
+        prompt: `${speakerJsonStr || '<default speaker>'}<sep>${textToSpeak}`,
+      }),
     ),
     getAudioCompletionGuideTokens: jest.fn(async (id, textToSpeak) =>
       textToSpeak.split('').map((char) => char.charCodeAt(0) + 1000),
@@ -249,5 +250,5 @@ if (!NativeModules.RNLlama) {
     ),
   }
 }
-
 module.exports = jest.requireActual('llama.rn')
+

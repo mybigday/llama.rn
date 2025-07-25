@@ -817,11 +817,11 @@ public class RNLlama implements LifecycleEventListener {
 
   public void getFormattedAudioCompletion(double id, final String speakerJsonStr, final String textToSpeak, Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, String>() {
+    AsyncTask task = new AsyncTask<Void, Void, Object>() {
       private Exception exception;
 
       @Override
-      protected String doInBackground(Void... voids) {
+      protected Object doInBackground(Void... voids) {
         try {
           LlamaContext context = contexts.get(contextId);
           if (context == null) {
@@ -838,7 +838,7 @@ public class RNLlama implements LifecycleEventListener {
       }
 
       @Override
-      protected void onPostExecute(String result) {
+      protected void onPostExecute(Object result) {
         if (exception != null) {
           promise.reject(exception);
           return;

@@ -451,7 +451,7 @@ public class LlamaContext {
     return isVocoderEnabled(this.context);
   }
 
-  public String getFormattedAudioCompletion(String speakerJsonStr, String textToSpeak) {
+  public WritableMap getFormattedAudioCompletion(String speakerJsonStr, String textToSpeak) {
     return getFormattedAudioCompletion(this.context, speakerJsonStr, textToSpeak);
   }
 
@@ -681,7 +681,7 @@ public class LlamaContext {
   protected static native void unsetLog();
   protected static native void releaseMultimodal(long contextPtr);
   protected static native boolean isVocoderEnabled(long contextPtr);
-  protected static native String getFormattedAudioCompletion(long contextPtr, String speakerJsonStr, String textToSpeak);
+  protected static native WritableMap getFormattedAudioCompletion(long contextPtr, String speakerJsonStr, String textToSpeak);
   protected static native WritableArray getAudioCompletionGuideTokens(long contextPtr, String textToSpeak);
   protected static native WritableArray decodeAudioTokens(long contextPtr, int[] tokens);
   protected static native boolean initVocoder(long contextPtr, String vocoderModelPath);

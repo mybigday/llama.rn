@@ -517,7 +517,10 @@ export interface Spec extends TurboModule {
   // TTS methods
   initVocoder(contextId: number, vocoderModelPath: string): Promise<boolean>
   isVocoderEnabled(contextId: number): Promise<boolean>
-  getFormattedAudioCompletion(contextId: number, speakerJsonStr: string, textToSpeak: string): Promise<string>
+  getFormattedAudioCompletion(contextId: number, speakerJsonStr: string, textToSpeak: string): Promise<{
+    prompt: string
+    grammar?: string
+  }>
   getAudioCompletionGuideTokens(contextId: number, textToSpeak: string): Promise<Array<number>>
   decodeAudioTokens(contextId: number, tokens: number[]): Promise<Array<number>>
   releaseVocoder(contextId: number): Promise<void>
