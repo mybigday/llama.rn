@@ -124,14 +124,14 @@ function App() {
                   return (
                     <HeaderButton
                       onPress={params.showContextSettings}
-                      title="Context"
+                      title="Context Params"
                     />
                   )
                 } else if (params?.showCompletionSettings) {
                   return (
                     <HeaderButton
                       onPress={params.showCompletionSettings}
-                      title="Chat"
+                      title="Params"
                     />
                   )
                 }
@@ -150,14 +150,14 @@ function App() {
                   return (
                     <HeaderButton
                       onPress={params.showContextSettings}
-                      title="Context"
+                      title="Context Params"
                     />
                   )
                 } else if (params?.showCompletionSettings) {
                   return (
                     <HeaderButton
                       onPress={params.showCompletionSettings}
-                      title="Chat"
+                      title="Params"
                     />
                   )
                 }
@@ -176,14 +176,14 @@ function App() {
                   return (
                     <HeaderButton
                       onPress={params.showContextSettings}
-                      title="Context"
+                      title="Context Params"
                     />
                   )
                 } else if (params?.showCompletionSettings) {
                   return (
                     <HeaderButton
                       onPress={params.showCompletionSettings}
-                      title="Chat"
+                      title="Params"
                     />
                   )
                 }
@@ -202,14 +202,14 @@ function App() {
                   return (
                     <HeaderButton
                       onPress={params.showContextSettings}
-                      title="Context"
+                      title="Context Params"
                     />
                   )
                 } else if (params?.showCompletionSettings) {
                   return (
                     <HeaderButton
                       onPress={params.showCompletionSettings}
-                      title="Chat"
+                      title="Params"
                     />
                   )
                 }

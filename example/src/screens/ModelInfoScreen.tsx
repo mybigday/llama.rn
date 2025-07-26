@@ -8,6 +8,8 @@ import {
   Modal,
   TouchableOpacity,
   Dimensions,
+  Clipboard,
+  Alert,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { loadLlamaModelInfo } from '../../../src'
@@ -94,11 +96,29 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 12,
   },
+  infoLabelContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   infoLabel: {
     fontSize: 14,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 4,
+    flex: 1,
+  },
+  copyButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#007AFF',
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  copyButtonText: {
+    fontSize: 12,
+    color: 'white',
+    fontWeight: '600',
   },
   infoValue: {
     fontSize: 14,
@@ -262,23 +282,9 @@ export default function ModelInfoScreen() {
     setInfoError(null)
   }
 
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes'
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
-  }
-
-  const formatNumber = (num: number): string => {
-    if (num >= 1e9) {
-      return `${(num / 1e9).toFixed(1)}B`
-    } else if (num >= 1e6) {
-      return `${(num / 1e6).toFixed(1)}M`
-    } else if (num >= 1e3) {
-      return `${(num / 1e3).toFixed(1)}K`
-    }
-    return num.toString()
+  const copyToClipboard = (value: string, label: string) => {
+    Clipboard.setString(value)
+    Alert.alert('Copied', `${label} copied to clipboard`)
   }
 
   const renderSingleModelInfo = (fileInfo: ModelFileInfo) => {
@@ -287,83 +293,36 @@ export default function ModelInfoScreen() {
     if (info.error) {
       return (
         <View style={styles.infoContainer}>
-          <Text style={styles.errorText}>{info.error}</Text>
+          <Text style={styles.errorText} selectable>
+            {info.error}
+          </Text>
         </View>
       )
     }
 
-    return (
-      <>
-        {info.desc && (
-          <View style={styles.infoContainer}>
-            <Text style={styles.infoLabel}>Description</Text>
-            <Text style={styles.infoValue}>{info.desc}</Text>
-          </View>
-        )}
+    return Object.entries(info).map(([key, value]) => {
+      const displayValue =
+        typeof value === 'object'
+          ? JSON.stringify(value, null, 2)
+          : String(value)
 
-        {info.nParams && info.nParams > 0 && (
-          <View style={styles.infoContainer}>
-            <Text style={styles.infoLabel}>Parameters</Text>
-            <Text style={styles.infoValue}>{formatNumber(info.nParams)}</Text>
+      return (
+        <View key={key} style={styles.infoContainer}>
+          <View style={styles.infoLabelContainer}>
+            <Text style={styles.infoLabel}>{key}</Text>
+            <TouchableOpacity
+              style={styles.copyButton}
+              onPress={() => copyToClipboard(displayValue, key)}
+            >
+              <Text style={styles.copyButtonText}>Copy</Text>
+            </TouchableOpacity>
           </View>
-        )}
-
-        {info.nEmbd && (
-          <View style={styles.infoContainer}>
-            <Text style={styles.infoLabel}>Embedding Dimensions</Text>
-            <Text style={styles.infoValue}>{info.nEmbd.toLocaleString()}</Text>
-          </View>
-        )}
-
-        {info.size > 0 && (
-          <View style={styles.infoContainer}>
-            <Text style={styles.infoLabel}>Model Size</Text>
-            <Text style={styles.infoValue}>{formatBytes(info.size)}</Text>
-          </View>
-        )}
-
-        {info.chatTemplates && (
-          <View style={styles.infoContainer}>
-            <Text style={styles.infoLabel}>Chat Templates</Text>
-            <Text style={styles.infoValue}>
-              {`Llama Chat: ${info.chatTemplates.llamaChat ? 'Yes' : 'No'}`}
-              {'\n'}
-              {`Jinja Default: ${
-                info.chatTemplates.minja?.default ? 'Yes' : 'No'
-              }`}
-              {'\n'}
-              {`Jinja Tool Use: ${
-                info.chatTemplates.minja?.toolUse ? 'Yes' : 'No'
-              }`}
-            </Text>
-          </View>
-        )}
-
-        {/* Show other metadata */}
-        {Object.entries(info)
-          .filter(
-            ([key]) =>
-              ![
-                'desc',
-                'nEmbd',
-                'nParams',
-                'size',
-                'chatTemplates',
-                'error',
-              ].includes(key),
-          )
-          .map(([key, value]) => (
-            <View key={key} style={styles.infoContainer}>
-              <Text style={styles.infoLabel}>{key}</Text>
-              <Text style={styles.infoValue}>
-                {typeof value === 'object'
-                  ? JSON.stringify(value, null, 2)
-                  : String(value)}
-              </Text>
-            </View>
-          ))}
-      </>
-    )
+          <Text style={styles.infoValue} selectable>
+            {displayValue}
+          </Text>
+        </View>
+      )
+    })
   }
 
   const renderModelInfo = () => {
@@ -377,12 +336,18 @@ export default function ModelInfoScreen() {
     }
 
     if (infoError) {
-      return <Text style={styles.errorText}>{infoError}</Text>
+      return (
+        <Text style={styles.errorText} selectable>
+          {infoError}
+        </Text>
+      )
     }
 
     if (modelFiles.length === 0) {
       return (
-        <Text style={styles.errorText}>No model information available</Text>
+        <Text style={styles.errorText} selectable>
+          No model information available
+        </Text>
       )
     }
 
