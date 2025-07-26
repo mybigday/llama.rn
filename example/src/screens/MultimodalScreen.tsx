@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Image,
   TouchableOpacity,
+  Platform,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
@@ -109,6 +110,9 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
   const [isModelReady, setIsModelReady] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
   const [pendingImage, setPendingImage] = useState<string | null>(null) // base64 data URL
+  const [pendingImageMimeType, setPendingImageMimeType] = useState<
+    string | null
+  >(null)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
@@ -172,7 +176,10 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     addMessage(textMessage)
   }
 
-  const convertImageToBase64 = async (imagePath: string): Promise<string> => {
+  const convertImageToBase64 = async (
+    imagePath: string,
+    mimeType: string,
+  ): Promise<string> => {
     try {
       // Remove file:// prefix if present
       const cleanPath = imagePath.replace(/^file:\/\//, '')
@@ -181,7 +188,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       const base64 = await ReactNativeBlobUtil.fs.readFile(cleanPath, 'base64')
 
       // Return with data URL prefix (assuming JPEG, but could be enhanced to detect type)
-      return `data:image/jpeg;base64,${base64}`
+      return `data:${mimeType};base64,${base64}`
     } catch (error: any) {
       console.error('Error converting image to base64:', error)
       throw new Error(`Failed to convert image to base64: ${error.message}`)
@@ -240,6 +247,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
   const handleMultimodalMessage = async (
     imageBase64: string,
+    mimeType: string,
     question?: string,
   ) => {
     if (!context || isLoading) return
@@ -252,10 +260,13 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         author: user,
         createdAt: Date.now(),
         id: randId(),
-        name: 'image.jpg',
+        name: 'image',
         size: 0,
         type: 'image',
         uri: imageBase64,
+        metadata: {
+          mimeType,
+        },
       }
       addMessage(imageMessage)
 
@@ -338,6 +349,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     if (pendingImage) {
       await handleMultimodalMessage(
         pendingImage,
+        pendingImageMimeType || 'image/jpeg',
         message.text.trim() || undefined,
       )
       setPendingImage(null) // Clear pending image after processing
@@ -405,6 +417,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
               // Convert image to base64 for conversation context
               const imageBase64 = await convertImageToBase64(
                 (msg as MessageType.Image).uri,
+                (msg as MessageType.Image).metadata?.mimeType || 'image/jpeg',
               )
               return {
                 role: 'user' as const,
@@ -511,18 +524,63 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
   const handleAttachmentPress = async () => {
     try {
+      const imageTypes =
+        Platform.OS === 'ios'
+          ? ['public.jpeg', 'public.png', 'public.gif', 'com.microsoft.bmp']
+          : ['image/jpeg', 'image/png', 'image/gif', 'image/bmp']
       const result = await pick({
-        type: 'image/*',
+        type: imageTypes,
         copyTo: 'documentDirectory',
       })
+
+      // Get the file extension from the URI
+      const getFileExtension = (uri: string) => {
+        const match = uri.match(/\.([\dA-Za-z]+)$/)
+        return match && match[1] ? match[1].toLowerCase() : ''
+      }
+
+      // Map file extension to MIME type
+      const getMimeType = (extension: string) => {
+        const mimeTypes: { [key: string]: string } = {
+          // Image
+          jpg: 'image/jpeg',
+          jpeg: 'image/jpeg',
+          png: 'image/png',
+          gif: 'image/gif',
+          bmp: 'image/bmp',
+          psd: 'image/vnd.adobe.photoshop',
+          tga: 'image/x-tga',
+          hdr: 'image/vnd.radiance',
+          pic: 'image/x-softimage-pic',
+          ppm: 'image/x-portable-pixmap',
+          pgm: 'image/x-portable-graymap',
+
+          // Audio
+          wav: 'audio/wav',
+          mp3: 'audio/mpeg',
+        }
+        return mimeTypes[extension] || 'image/jpeg' // Default to jpeg if unknown
+      }
 
       if (result && result.length > 0) {
         const file = result[0]
         if (file.uri) {
+          // Get the extension and MIME type
+          // Although, the stb_image library doesn't rely on MIME types but instead detects formats by examining
+          // the file's binary header/signature (magic numbers)
+          // From stb_image.h:
+          /*
+              // test the formats with a very explicit header first (at least a FOURCC
+              // or distinctive magic number first)
+          */
+          // Still, let's get this right.
+          const mediaFormat = getFileExtension(file.uri)
+          const mimeType = getMimeType(mediaFormat)
           // Convert to base64 immediately to prevent file access issues later
           try {
-            const imageBase64 = await convertImageToBase64(file.uri)
+            const imageBase64 = await convertImageToBase64(file.uri, mimeType)
             setPendingImage(imageBase64)
+            setPendingImageMimeType(mimeType)
           } catch (conversionError: any) {
             Alert.alert(
               'Error',
