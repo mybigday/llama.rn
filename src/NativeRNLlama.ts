@@ -71,6 +71,12 @@ export type NativeContextParams = {
    */
   ctx_shift?: boolean
 
+  /**
+   * Use a unified buffer across the input sequences when computing the attention.
+   * Try to disable when n_seq_max > 1 for improved performance when the sequences do not share a large prefix.
+   */
+  kv_unified?: boolean
+
   // Embedding params
   embedding?: boolean
   embd_normalize?: number

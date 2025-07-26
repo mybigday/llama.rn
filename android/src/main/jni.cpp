@@ -244,6 +244,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jfloat rope_freq_scale,
     jint pooling_type,
     jboolean ctx_shift,
+    jboolean kv_unified,
     jobject load_progress_callback
 ) {
     UNUSED(thiz);
@@ -265,6 +266,7 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.n_batch = n_batch;
     defaultParams.n_ubatch = n_ubatch;
     defaultParams.ctx_shift = ctx_shift;
+    defaultParams.kv_unified = kv_unified;
 
     if (pooling_type != -1) {
         defaultParams.pooling_type = static_cast<enum llama_pooling_type>(pooling_type);
