@@ -16,8 +16,8 @@ import { pick } from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
 import { initLlama, LlamaContext } from '../../../src'
 import { VLMModelDownloadCard } from '../components/ModelDownloadCard'
+import { Bubble } from '../components/Bubble'
 import { MODELS } from '../utils/constants'
-import { Bubble } from '../Bubble'
 
 const user = { id: 'user' }
 const assistant = { id: 'assistant' }

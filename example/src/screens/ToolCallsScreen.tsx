@@ -14,8 +14,8 @@ import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { initLlama, LlamaContext } from '../../../src'
 import ModelDownloadCard from '../components/ModelDownloadCard'
+import { Bubble } from '../components/Bubble'
 import { MODELS } from '../utils/constants'
-import { Bubble } from '../Bubble'
 
 const user = { id: 'user' }
 const assistant = { id: 'assistant' }

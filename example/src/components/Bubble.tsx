@@ -4,7 +4,6 @@ import { View, Text, TouchableOpacity, Image } from 'react-native'
 import Clipboard from '@react-native-clipboard/clipboard'
 import { ThemeContext, UserContext } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
-import { AudioPlayer } from './components/AudioPlayer'
 
 export const Bubble = ({
   child,
@@ -43,9 +42,6 @@ export const Bubble = ({
       }}
     >
       {child}
-      {message?.metadata?.audio && (
-        <AudioPlayer audio={message.metadata.audio} sr={message.metadata.sr} />
-      )}
       {message?.metadata?.mediaPath && (
         <Image
           source={{ uri: message.metadata.mediaPath }}
