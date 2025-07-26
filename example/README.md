@@ -2,11 +2,6 @@
 
 This is an example of how to use the llama.rn library.
 
-This example used [react-native-document-picker](https://github.com/rnmods/react-native-document-picker) for select model.
-
-- iOS: You can move the model to iOS Simulator, or iCloud for real device.
-- Android: Selected file will be copied or downloaded to cache directory so it may be slow.
-
 ## Requirements
 
 Please back to the root directory and run the following command:
