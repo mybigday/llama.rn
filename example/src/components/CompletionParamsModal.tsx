@@ -220,17 +220,17 @@ export default function CompletionParamsModal({
   }
 
   const addStopSequence = () => {
-    const newStop = [...params.stop, '']
+    const newStop = [...(params.stop || []), '']
     updateParam('stop', newStop)
   }
 
   const removeStopSequence = (index: number) => {
-    const newStop = params.stop.filter((_, i) => i !== index)
+    const newStop = (params.stop || []).filter((_, i) => i !== index)
     updateParam('stop', newStop)
   }
 
   const updateStopSequence = (index: number, value: string) => {
-    const newStop = [...params.stop]
+    const newStop = [...(params.stop || [])]
     newStop[index] = value
     updateParam('stop', newStop)
   }
@@ -271,7 +271,7 @@ export default function CompletionParamsModal({
             </Text>
             <TextInput
               style={styles.textInput}
-              value={params.n_predict.toString()}
+              value={params.n_predict?.toString()}
               onChangeText={(text) => {
                 const value = validateInteger(text, 1, 4096)
                 if (value !== undefined) updateParam('n_predict', value)
@@ -291,7 +291,7 @@ export default function CompletionParamsModal({
             </Text>
             <TextInput
               style={styles.textInput}
-              value={params.temperature.toString()}
+              value={params.temperature?.toString()}
               onChangeText={(text) => {
                 const value = validateNumber(text, 0.0, 2.0)
                 if (value !== undefined) updateParam('temperature', value)
@@ -311,7 +311,7 @@ export default function CompletionParamsModal({
             </Text>
             <TextInput
               style={styles.textInput}
-              value={params.top_p.toString()}
+              value={params.top_p?.toString()}
               onChangeText={(text) => {
                 const value = validateNumber(text, 0.0, 1.0)
                 if (value !== undefined) updateParam('top_p', value)
@@ -329,7 +329,7 @@ export default function CompletionParamsModal({
               examples: &lt;|im_end|&gt;, &lt;end_of_turn&gt;, User:
             </Text>
 
-            {params.stop.map((stopSeq, index) => (
+            {(params.stop || []).map((stopSeq, index) => (
               <View key={index} style={styles.stopSequenceContainer}>
                 <TextInput
                   style={[styles.textInput, styles.stopSequenceInput]}

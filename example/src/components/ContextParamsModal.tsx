@@ -245,7 +245,7 @@ export default function ContextParamsModal({
             </Text>
             <TextInput
               style={styles.textInput}
-              value={params.n_ctx.toString()}
+              value={params.n_ctx?.toString()}
               onChangeText={(text) => {
                 const value = validateNumber(text, 512, 32768)
                 if (value !== undefined) updateParam('n_ctx', value)
@@ -264,7 +264,7 @@ export default function ContextParamsModal({
             </Text>
             <TextInput
               style={styles.textInput}
-              value={params.n_gpu_layers.toString()}
+              value={params.n_gpu_layers?.toString()}
               onChangeText={(text) => {
                 const value = validateNumber(text, 0, 99)
                 if (value !== undefined) updateParam('n_gpu_layers', value)
@@ -379,6 +379,24 @@ export default function ContextParamsModal({
                 onValueChange={(value) => updateParam('ctx_shift', value)}
                 trackColor={{ false: '#E0E0E0', true: '#007AFF' }}
                 thumbColor={params.ctx_shift ? '#FFFFFF' : '#FFFFFF'}
+              />
+            </View>
+          </View>
+
+          {/* KV Unified */}
+          <View style={styles.paramGroup}>
+            <View style={styles.switchRow}>
+              <View style={styles.switchInfo}>
+                <Text style={styles.paramLabel}>KV Unified (kv_unified)</Text>
+                <Text style={styles.paramDescription}>
+                  Use unified key-value store for better performance.
+                </Text>
+              </View>
+              <Switch
+                value={params.kv_unified || false}
+                onValueChange={(value) => updateParam('kv_unified', value)}
+                trackColor={{ false: '#E0E0E0', true: '#007AFF' }}
+                thumbColor={params.kv_unified ? '#FFFFFF' : '#FFFFFF'}
               />
             </View>
           </View>

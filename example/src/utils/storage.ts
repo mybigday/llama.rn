@@ -1,4 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import type {
+  ContextParams as LlamaContextParams,
+  CompletionParams as LlamaCompletionParams,
+} from '../../../src'
+
+export type ContextParams = Omit<LlamaContextParams, 'model'>
+export type CompletionParams = Omit<LlamaCompletionParams, 'prompt'>
 
 // Storage keys
 const CONTEXT_PARAMS_KEY = '@llama_context_params'
@@ -14,6 +21,7 @@ export const DEFAULT_CONTEXT_PARAMS = {
   n_ubatch: 512,
   // n_threads: 4,
   ctx_shift: false,
+  kv_unified: true,
 }
 
 export const DEFAULT_COMPLETION_PARAMS = {
@@ -21,26 +29,6 @@ export const DEFAULT_COMPLETION_PARAMS = {
   temperature: 0.7,
   top_p: 0.9,
   stop: ['<|im_end|>', '<end_of_turn>'],
-}
-
-// Context parameters interface
-export interface ContextParams {
-  n_ctx: number
-  n_gpu_layers: number
-  use_mlock: boolean
-  use_mmap: boolean
-  n_batch?: number
-  n_ubatch?: number
-  n_threads?: number
-  ctx_shift?: boolean
-}
-
-// Completion parameters interface
-export interface CompletionParams {
-  n_predict: number
-  temperature: number
-  top_p: number
-  stop: string[]
 }
 
 // Storage functions for context parameters
