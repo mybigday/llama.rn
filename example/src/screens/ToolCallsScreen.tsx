@@ -17,6 +17,7 @@ import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
 import { Bubble } from '../components/Bubble'
+import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
 import { loadContextParams, loadCompletionParams } from '../utils/storage'
@@ -27,69 +28,28 @@ const assistant = { id: 'assistant' }
 const randId = () => Math.random().toString(36).substr(2, 9)
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
-  },
+  // Using shared styles for common patterns
+  container: CommonStyles.container,
   header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    ...CommonStyles.header,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-    textAlign: 'center',
-  },
+  headerTitle: CommonStyles.headerTitle,
   headerSubtitle: {
     fontSize: 12,
     color: '#666',
     textAlign: 'center',
     marginTop: 4,
   },
-  setupContainer: {
-    flex: 1,
-    padding: 16,
-  },
-  setupDescription: {
-    fontSize: 16,
-    color: '#666',
-    lineHeight: 24,
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    marginTop: 24,
-  },
-  loadingText: {
-    marginTop: 8,
-    fontSize: 16,
-    color: '#666',
-  },
-  progressContainer: {
-    marginTop: 16,
-    width: '100%',
-    alignItems: 'center',
-  },
-  progressBar: {
-    width: '80%',
-    height: 8,
-    backgroundColor: '#E0E0E0',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#007AFF',
-    borderRadius: 4,
-  },
+  setupContainer: CommonStyles.setupContainer,
+  setupDescription: CommonStyles.setupDescription,
+  loadingContainer: CommonStyles.loadingContainer,
+  loadingText: CommonStyles.loadingText,
+  progressContainer: CommonStyles.progressContainer,
+  progressBar: CommonStyles.progressBar,
+  progressFill: CommonStyles.progressFill,
   settingsContainer: {
     alignItems: 'center',
     marginTop: 20,

@@ -10,6 +10,7 @@ import {
   Switch,
   Alert,
 } from 'react-native'
+import { CommonStyles } from '../styles/commonStyles'
 import type { ContextParams } from '../utils/storage'
 import {
   saveContextParams,
@@ -25,37 +26,16 @@ interface ContextParamsModalProps {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-  },
-  cancelButton: {
-    fontSize: 16,
-    color: '#007AFF',
-  },
+  // Using shared styles for common patterns
+  container: CommonStyles.container,
+  header: CommonStyles.modalHeader,
+  title: CommonStyles.modalTitle,
+  cancelButton: CommonStyles.headerButtonText,
   saveButton: {
-    fontSize: 16,
-    color: '#007AFF',
+    ...CommonStyles.headerButtonText,
     fontWeight: '600',
   },
-  disabledButton: {
-    opacity: 0.5,
-  },
+  disabledButton: CommonStyles.disabledButton,
   content: {
     flex: 1,
     paddingHorizontal: 16,
@@ -67,33 +47,10 @@ const styles = StyleSheet.create({
     marginVertical: 16,
     textAlign: 'center',
   },
-  paramGroup: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  paramLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 4,
-  },
-  paramDescription: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 18,
-    marginBottom: 12,
-  },
-  textInput: {
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    backgroundColor: '#F8F8F8',
-  },
+  paramGroup: CommonStyles.paramGroup,
+  paramLabel: CommonStyles.paramLabel,
+  paramDescription: CommonStyles.paramDescription,
+  textInput: CommonStyles.textInput,
   switchRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

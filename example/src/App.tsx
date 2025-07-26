@@ -14,6 +14,8 @@ import MultimodalScreen from './screens/MultimodalScreen'
 import TTSScreen from './screens/TTSScreen'
 import ToolCallsScreen from './screens/ToolCallsScreen'
 import ModelInfoScreen from './screens/ModelInfoScreen'
+import { HeaderButton } from './components/HeaderButton'
+import { CommonStyles } from './styles/commonStyles'
 
 // Example: Catch logs from llama.cpp
 toggleNativeLog(true)
@@ -28,49 +30,35 @@ addNativeLogListener((level, text) => {
 enableScreens()
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  container: CommonStyles.centerContainer,
+  button: CommonStyles.button,
+  buttonText: CommonStyles.buttonText,
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+    textAlign: 'center',
   },
-  button: {
-    margin: 10,
-    padding: 10,
-    backgroundColor: '#333',
-    borderRadius: 5,
-  },
-  buttonText: {
-    color: 'white',
+  description: {
     fontSize: 16,
-  },
-  headerButton: {
-    marginRight: 15,
-  },
-  headerButtonText: {
-    color: '#007AFF',
-    fontSize: 16,
-    fontWeight: '500',
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 30,
+    paddingHorizontal: 32,
+    lineHeight: 22,
   },
 })
-
-// Header button component
-function HeaderButton({
-  onPress,
-  title,
-}: {
-  onPress: () => void
-  title: string
-}) {
-  return (
-    <TouchableOpacity style={styles.headerButton} onPress={onPress}>
-      <Text style={styles.headerButtonText}>{title}</Text>
-    </TouchableOpacity>
-  )
-}
 
 function HomeScreen({ navigation }: { navigation: any }) {
   return (
     <View style={styles.container}>
+      <Text style={styles.title}>🦙 llama.rn</Text>
+      <Text style={styles.description}>
+        Experience the power of large language models running locally on your
+        mobile device. Explore different AI capabilities including chat, vision,
+        tool calling, and text-to-speech.
+      </Text>
       <TouchableOpacity
         style={styles.button}
         onPress={() => navigation.navigate('SimpleChat')}

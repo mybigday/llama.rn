@@ -17,68 +17,38 @@ import ModelDownloadCard, {
   TTSModelDownloadCard,
   VLMModelDownloadCard,
 } from '../components/ModelDownloadCard'
+import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 
 const { width, height } = Dimensions.get('window')
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-    textAlign: 'center',
-  },
+  // Using shared styles for common patterns
+  container: CommonStyles.container,
+  header: CommonStyles.header,
+  headerTitle: CommonStyles.headerTitle,
   description: {
-    fontSize: 16,
-    color: '#666',
-    lineHeight: 24,
-    marginVertical: 16,
+    ...CommonStyles.description,
     marginHorizontal: 16,
-    textAlign: 'center',
   },
   scrollContent: {
     paddingBottom: 20,
   },
-  // Modal styles
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  // Modal styles - using shared base with customizations
+  modalContainer: CommonStyles.modalContainer,
   modalContent: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 20,
-    margin: 20,
+    ...CommonStyles.modalContent,
     maxHeight: height * 0.8,
     maxWidth: width * 0.95,
     minWidth: width * 0.85,
   },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    ...CommonStyles.modalHeader,
     marginBottom: 16,
     paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+    ...CommonStyles.modalTitle,
     flex: 1,
   },
   closeButton: {

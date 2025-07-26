@@ -15,6 +15,7 @@ import { TTSModelDownloadCard } from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
 import { AudioPlayer } from '../components/AudioPlayer'
+import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
 import { loadContextParams, loadCompletionParams } from '../utils/storage'
@@ -23,46 +24,18 @@ import { loadContextParams, loadCompletionParams } from '../utils/storage'
 const speakerConfig = null
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
-  },
-  setupContainer: {
-    flex: 1,
-    padding: 16,
-  },
-  setupTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  setupDescription: {
-    fontSize: 16,
-    color: '#666',
-    lineHeight: 24,
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    marginTop: 24,
-  },
-  loadingText: {
-    marginTop: 8,
-    fontSize: 16,
-    color: '#666',
-  },
+  // Using shared styles for common patterns
+  container: CommonStyles.container,
+  setupContainer: CommonStyles.setupContainer,
+  setupTitle: CommonStyles.setupTitle,
+  setupDescription: CommonStyles.setupDescription,
+  loadingContainer: CommonStyles.loadingContainer,
+  loadingText: CommonStyles.loadingText,
   header: {
+    ...CommonStyles.header,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
   },
   headerTitle: {
     fontSize: 18,

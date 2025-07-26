@@ -1,12 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect } from 'react'
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-} from 'react-native'
+import { Text, ScrollView, Alert } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
@@ -15,6 +8,9 @@ import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
 import { Bubble } from '../components/Bubble'
+import { LoadingIndicator } from '../components/LoadingIndicator'
+import { ProgressBar } from '../components/ProgressBar'
+import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
 import { loadContextParams, loadCompletionParams } from '../utils/storage'
@@ -24,82 +20,12 @@ const assistant = { id: 'assistant' }
 
 const randId = () => Math.random().toString(36).substr(2, 9)
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-    textAlign: 'center',
-  },
-  setupContainer: {
-    flex: 1,
-    padding: 16,
-  },
-  setupDescription: {
-    fontSize: 16,
-    color: '#666',
-    lineHeight: 24,
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    marginTop: 24,
-  },
-  loadingText: {
-    marginTop: 8,
-    fontSize: 16,
-    color: '#666',
-  },
-  settingsButton: {
-    fontSize: 16,
-    color: '#007AFF',
-    fontWeight: '500',
-  },
-  settingsContainer: {
-    alignItems: 'center',
-    marginVertical: 16,
-  },
-  settingsButtonStyle: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  settingsButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  progressContainer: {
-    marginTop: 16,
-    width: '100%',
-    alignItems: 'center',
-  },
-  progressBar: {
-    width: '80%',
-    height: 8,
-    backgroundColor: '#E0E0E0',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#007AFF',
-    borderRadius: 4,
-  },
-})
+// Using shared styles, keeping only component-specific styles if needed
+const styles = {
+  container: CommonStyles.container,
+  setupContainer: CommonStyles.setupContainer,
+  setupDescription: CommonStyles.setupDescription,
+}
 
 export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   const [messages, setMessages] = useState<MessageType.Any[]>([])
@@ -338,24 +264,12 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           })}
 
           {isLoading && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#007AFF" />
-              <Text style={styles.loadingText}>
-                {`Initializing model... ${initProgress}%`}
-              </Text>
-              {initProgress > 0 && (
-                <View style={styles.progressContainer}>
-                  <View style={styles.progressBar}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        { width: `${initProgress}%` },
-                      ]}
-                    />
-                  </View>
-                </View>
-              )}
-            </View>
+            <>
+              <LoadingIndicator
+                text={`Initializing model... ${initProgress}%`}
+              />
+              {initProgress > 0 && <ProgressBar progress={initProgress} />}
+            </>
           )}
         </ScrollView>
 
