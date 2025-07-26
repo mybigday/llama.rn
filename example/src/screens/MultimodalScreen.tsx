@@ -196,7 +196,7 @@ export default function MultimodalScreen() {
       setInitProgress(100)
 
       addSystemMessage(
-        'SmolVLM model loaded! You can now chat about images. Send an image to start the conversation.',
+        'You can now chat about images. Send an image to start the conversation.',
       )
     } catch (error: any) {
       Alert.alert('Error', `Failed to initialize model: ${error.message}`)
@@ -271,7 +271,7 @@ export default function MultimodalScreen() {
           n_predict: 512,
           temperature: 0.7,
           top_p: 0.9,
-          stop: ['<|im_end|>'],
+          stop: ['<|im_end|>', '<end_of_turn>'],
         },
         (data) => {
           const { token } = data
@@ -504,20 +504,26 @@ export default function MultimodalScreen() {
       <SafeAreaView style={styles.container}>
         <ScrollView style={styles.setupContainer}>
           <Text style={styles.setupDescription}>
-            Download the SmolVLM model to start analyzing images. This model can
+            Download the model to start analyzing images. This model can
             understand and describe images, answer questions about visual
             content, and engage in vision-language conversations.
           </Text>
 
-          <VLMModelDownloadCard
-            title={MODELS.SMOL_VLM.name}
-            description={MODELS.SMOL_VLM.description}
-            repo={MODELS.SMOL_VLM.repo}
-            filename={MODELS.SMOL_VLM.filename}
-            mmproj={MODELS.SMOL_VLM.mmproj}
-            size={MODELS.SMOL_VLM.size}
-            onInitialize={initializeModel}
-          />
+          {['SMOL_VLM', 'GEMMA_3'].map((model) => {
+            const modelInfo = MODELS[model as keyof typeof MODELS]
+            return (
+              <VLMModelDownloadCard
+                key={model}
+                title={modelInfo.name}
+                description={modelInfo.description}
+                repo={modelInfo.repo}
+                filename={modelInfo.filename}
+                mmproj={modelInfo.mmproj || ''}
+                size={modelInfo.size}
+                onInitialize={initializeModel}
+              />
+            )
+          })}
 
           {isLoading && (
             <View style={styles.loadingContainer}>

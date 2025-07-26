@@ -132,7 +132,7 @@ export default function SimpleChatScreen() {
 
       // Add welcome message
       addSystemMessage(
-        "Hello! I'm SmolLM2, ready to chat with you. How can I help you today?",
+        "Hello! I'm ready to chat with you. How can I help you today?",
       )
     } catch (error: any) {
       Alert.alert('Error', `Failed to initialize model: ${error.message}`)
@@ -204,7 +204,7 @@ export default function SimpleChatScreen() {
           n_predict: 512,
           temperature: 0.7,
           top_p: 0.9,
-          stop: ['<|im_end|>']
+          stop: ['<|im_end|>', '<end_of_turn>']
         },
         (data) => {
           const { token } = data
@@ -267,18 +267,24 @@ export default function SimpleChatScreen() {
       <SafeAreaView style={styles.container}>
         <ScrollView style={styles.setupContainer}>
           <Text style={styles.setupDescription}>
-            Download the SmolLM2 model to start chatting. This model provides
+            Download the model to start chatting. This model provides
             fast, efficient text generation for conversational AI.
           </Text>
 
-          <ModelDownloadCard
-            title={MODELS.SMOL_LM.name}
-            description={MODELS.SMOL_LM.description}
-            repo={MODELS.SMOL_LM.repo}
-            filename={MODELS.SMOL_LM.filename}
-            size={MODELS.SMOL_LM.size}
-            onInitialize={initializeModel}
-          />
+          {['SMOL_LM', 'GEMMA_3N'].map((model) => {
+            const modelInfo = MODELS[model as keyof typeof MODELS]
+            return (
+              <ModelDownloadCard
+                key={model}
+                title={modelInfo.name}
+                description={modelInfo.description}
+                repo={modelInfo.repo}
+                filename={modelInfo.filename}
+                size={modelInfo.size}
+                onInitialize={initializeModel}
+              />
+            )
+          })}
 
           {isLoading && (
             <View style={styles.loadingContainer}>

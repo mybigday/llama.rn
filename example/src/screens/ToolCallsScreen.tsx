@@ -355,7 +355,7 @@ export default function ToolCallsScreen() {
           n_predict: 512,
           temperature: 0.7,
           top_p: 0.9,
-          stop: ['<|im_end|>'],
+          stop: ['<|im_end|>', '<end_of_turn>'],
         },
         (data) => {
           const { token } = data
@@ -469,7 +469,7 @@ export default function ToolCallsScreen() {
             n_predict: 512,
             temperature: 0.7,
             top_p: 0.9,
-            stop: ['<|im_end|>'],
+            stop: ['<|im_end|>', '<end_of_turn>'],
           },
           (data) => {
             const { token } = data
@@ -522,14 +522,20 @@ export default function ToolCallsScreen() {
             calculations, and time lookups.
           </Text>
 
-          <ModelDownloadCard
-            title={MODELS.SMOL_LM.name}
-            description="Compatible model for tool calling demonstrations"
-            repo={MODELS.SMOL_LM.repo}
-            filename={MODELS.SMOL_LM.filename}
-            size={MODELS.SMOL_LM.size}
-            onInitialize={initializeModel}
-          />
+          {['SMOL_LM', 'GEMMA_3N'].map((model) => {
+            const modelInfo = MODELS[model as keyof typeof MODELS]
+            return (
+              <ModelDownloadCard
+                key={model}
+                title={modelInfo.name}
+                description={modelInfo.description}
+                repo={modelInfo.repo}
+                filename={modelInfo.filename}
+                size={modelInfo.size}
+                onInitialize={initializeModel}
+              />
+            )
+          })}
 
           {isLoading && (
             <View style={styles.loadingContainer}>
