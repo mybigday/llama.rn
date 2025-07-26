@@ -27,7 +27,7 @@ export const MODELS = {
     mmproj: 'mmproj-BF16.gguf',
     size: '1.95GB (model) + 881MB (mmproj)',
   },
-  OUTE_TTS: {
+  OUTE_TTS_0_3: {
     name: 'OuteTTS 0.3 500M (Q4_K_M) + WavTokenizer (Q5_1)',
     repo: 'OuteAI/OuteTTS-0.3-500M-GGUF',
     filename: 'OuteTTS-0.3-500M-Q4_K_M.gguf',

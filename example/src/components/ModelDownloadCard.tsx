@@ -1,5 +1,5 @@
 /* eslint-disable react/require-default-props */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react'
 import {
   View,
   Text,
@@ -7,59 +7,59 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
-} from 'react-native';
-import { ModelDownloader } from '../services/ModelDownloader';
-import type { DownloadProgress } from '../services/ModelDownloader';
+} from 'react-native'
+import { ModelDownloader } from '../services/ModelDownloader'
+import type { DownloadProgress } from '../services/ModelDownloader'
 
 // Common interfaces and types
 interface ModelFile {
-  repo: string;
-  filename: string;
-  size?: string;
-  label?: string; // For display purposes (e.g., "TTS model", "vocoder")
+  repo: string
+  filename: string
+  size?: string
+  label?: string // For display purposes (e.g., "TTS model", "vocoder")
 }
 
 interface BaseModelDownloadCardProps {
-  title: string;
-  size: string;
-  files: ModelFile[]; // Array of files to download
-  onInitialize?: (...paths: string[]) => void;
-  downloadButtonText?: string;
-  initializeButtonText?: string;
+  title: string
+  size: string
+  files: ModelFile[] // Array of files to download
+  onInitialize?: (...paths: string[]) => void
+  downloadButtonText?: string
+  initializeButtonText?: string
 }
 
 interface ModelDownloadCardProps {
-  title: string;
-  repo: string;
-  filename: string;
-  size: string;
-  onDownloaded?: (path: string) => void;
-  onInitialize?: (path: string) => void;
-  initializeButtonText?: string;
+  title: string
+  repo: string
+  filename: string
+  size: string
+  onDownloaded?: (path: string) => void
+  onInitialize?: (path: string) => void
+  initializeButtonText?: string
 }
 
 interface TTSModelDownloadCardProps {
-  title: string;
-  repo: string;
-  filename: string;
-  size: string;
+  title: string
+  repo: string
+  filename: string
+  size: string
   vocoder: {
-    repo: string;
-    filename: string;
-    size: string;
-  };
-  onInitialize: (ttsPath: string, vocoderPath: string) => void;
-  initializeButtonText?: string;
+    repo: string
+    filename: string
+    size: string
+  }
+  onInitialize: (ttsPath: string, vocoderPath: string) => void
+  initializeButtonText?: string
 }
 
 interface VLMModelDownloadCardProps {
-  title: string;
-  repo: string;
-  filename: string;
-  mmproj: string;
-  size: string;
-  onInitialize: (modelPath: string, mmprojPath: string) => void;
-  initializeButtonText?: string;
+  title: string
+  repo: string
+  filename: string
+  mmproj: string
+  size: string
+  onInitialize: (modelPath: string, mmprojPath: string) => void
+  initializeButtonText?: string
 }
 
 // Common styles
@@ -77,21 +77,33 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   header: {
+    marginBottom: 8,
+  },
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+  },
+  headerColumn: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
   },
   title: {
     fontSize: 18,
     fontWeight: '600',
     color: '#000',
-    flex: 1,
+    flexShrink: 1,
   },
   size: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
+  },
+  sizeColumn: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+    marginTop: 4,
   },
   description: {
     fontSize: 14,
@@ -194,16 +206,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-});
+})
 
 // Common utility functions
 const formatSize = (bytes: number): string => {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${Math.round(bytes / Math.pow(k, i) * 100) / 100} ${sizes[i]}`;
-};
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100} ${sizes[i]}`
+}
 
 // Base component with shared logic
 function BaseModelDownloadCard({
@@ -214,103 +226,113 @@ function BaseModelDownloadCard({
   downloadButtonText = 'Download',
   initializeButtonText = 'Initialize',
 }: BaseModelDownloadCardProps) {
-  const [isDownloaded, setIsDownloaded] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [progress, setProgress] = useState<DownloadProgress | null>(null);
-  const [filePaths, setFilePaths] = useState<string[]>([]);
-  const [downloadStatus, setDownloadStatus] = useState<string>('');
+  const [isDownloaded, setIsDownloaded] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
+  const [progress, setProgress] = useState<DownloadProgress | null>(null)
+  const [filePaths, setFilePaths] = useState<string[]>([])
+  const [downloadStatus, setDownloadStatus] = useState<string>('')
+  const [useRowLayout, setUseRowLayout] = useState(true)
 
-  const downloader = new ModelDownloader();
+  const downloader = new ModelDownloader()
 
   const checkIfDownloaded = React.useCallback(async () => {
     try {
       const downloadStatuses = await Promise.all(
-        files.map(file => ModelDownloader.isModelDownloaded(file.filename))
-      );
+        files.map((file) => ModelDownloader.isModelDownloaded(file.filename)),
+      )
 
-      const allDownloaded = downloadStatuses.every(status => status);
-      setIsDownloaded(allDownloaded);
+      const allDownloaded = downloadStatuses.every((status) => status)
+      setIsDownloaded(allDownloaded)
 
       if (allDownloaded) {
-        const pathPromises = files.map(file => ModelDownloader.getModelPath(file.filename));
-        const paths = await Promise.all(pathPromises);
+        const pathPromises = files.map((file) =>
+          ModelDownloader.getModelPath(file.filename),
+        )
+        const paths = await Promise.all(pathPromises)
         // Filter out any null paths
-        const validPaths = paths.filter((path): path is string => path !== null);
+        const validPaths = paths.filter((path): path is string => path !== null)
         if (validPaths.length === files.length) {
-          setFilePaths(validPaths);
+          setFilePaths(validPaths)
         }
       }
     } catch (error) {
-      console.error('Error checking model status:', error);
+      console.error('Error checking model status:', error)
     }
-  }, [files]);
+  }, [files])
 
   useEffect(() => {
-    checkIfDownloaded();
-  }, [checkIfDownloaded]);
+    checkIfDownloaded()
+  }, [checkIfDownloaded])
 
   const handleDownload = async () => {
-    if (isDownloading) return;
+    if (isDownloading) return
 
     try {
-      setIsDownloading(true);
-      setProgress({ written: 0, total: 0, percentage: 0 });
+      setIsDownloading(true)
+      setProgress({ written: 0, total: 0, percentage: 0 })
 
-      const paths: string[] = [];
-      const progressWeight = 1 / files.length;
+      const paths: string[] = []
+      const progressWeight = 1 / files.length
 
-            // ESLint disable for intentional sequential downloads
+      // ESLint disable for intentional sequential downloads
       /* eslint-disable no-await-in-loop */
       for (let i = 0; i < files.length; i += 1) {
-        const file = files[i];
+        const file = files[i]
         if (file) {
-          const statusText = file.label || `file ${i + 1}`;
-          setDownloadStatus(`Downloading ${statusText}...`);
+          const statusText = file.label || `file ${i + 1}`
+          setDownloadStatus(`Downloading ${statusText}...`)
 
-          const path = await downloader.downloadModel(file.repo, file.filename, (prog) => {
-            const baseProgress = i * progressWeight * 100;
-            const currentProgress = prog.percentage * progressWeight;
-            setProgress({
-              ...prog,
-              percentage: Math.round(baseProgress + currentProgress),
-            });
-          });
+          const path = await downloader.downloadModel(
+            file.repo,
+            file.filename,
+            (prog) => {
+              const baseProgress = i * progressWeight * 100
+              const currentProgress = prog.percentage * progressWeight
+              setProgress({
+                ...prog,
+                percentage: Math.round(baseProgress + currentProgress),
+              })
+            },
+          )
 
-          paths.push(path);
+          paths.push(path)
         }
       }
       /* eslint-enable no-await-in-loop */
 
-      setFilePaths(paths);
-      setIsDownloaded(true);
-      setProgress(null);
-      setDownloadStatus('');
+      setFilePaths(paths)
+      setIsDownloaded(true)
+      setProgress(null)
+      setDownloadStatus('')
 
-      Alert.alert('Success', `${title} downloaded successfully!`);
+      Alert.alert('Success', `${title} downloaded successfully!`)
     } catch (error: any) {
-      Alert.alert('Download Failed', error.message || 'Failed to download model(s)');
-      setProgress(null);
-      setDownloadStatus('');
+      Alert.alert(
+        'Download Failed',
+        error.message || 'Failed to download model(s)',
+      )
+      setProgress(null)
+      setDownloadStatus('')
     } finally {
-      setIsDownloading(false);
+      setIsDownloading(false)
     }
-  };
+  }
 
   const handleInitialize = async () => {
     if (!isDownloaded || filePaths.length !== files.length) {
-      Alert.alert('Error', 'Model(s) not downloaded yet.');
-      return;
+      Alert.alert('Error', 'Model(s) not downloaded yet.')
+      return
     }
 
     if (onInitialize) {
-      onInitialize(...filePaths);
+      onInitialize(...filePaths)
     } else {
-      Alert.alert('Error', 'No initialization handler provided.');
+      Alert.alert('Error', 'No initialization handler provided.')
     }
-  };
+  }
 
   const handleDelete = async () => {
-    const modelText = files.length > 1 ? 'Models' : 'Model';
+    const modelText = files.length > 1 ? 'Models' : 'Model'
     Alert.alert(
       `Delete ${modelText}`,
       `Are you sure you want to delete ${title}?`,
@@ -322,26 +344,46 @@ function BaseModelDownloadCard({
           onPress: async () => {
             try {
               await Promise.all(
-                files.map(file => ModelDownloader.deleteModel(file.filename))
-              );
-              setIsDownloaded(false);
-              setFilePaths([]);
+                files.map((file) => ModelDownloader.deleteModel(file.filename)),
+              )
+              setIsDownloaded(false)
+              setFilePaths([])
             } catch (error: any) {
-              Alert.alert('Error', `Failed to delete ${modelText.toLowerCase()}`);
+              Alert.alert(
+                'Error',
+                `Failed to delete ${modelText.toLowerCase()}`,
+              )
             }
           },
         },
-      ]
-    );
-  };
+      ],
+    )
+  }
 
-  const repoDisplay = files.length === 1 && files[0] ? files[0].repo : `${files.length} files`;
+  const repoDisplay =
+    files.length === 1 && files[0] ? files[0].repo : `${files.length} files`
+
+  const handleLayout = (event: any) => {
+    const { width } = event.nativeEvent.layout
+    // Switch to column layout if width is less than 300px (adjusted for Android)
+    const shouldUseRow = width < 300
+    if (shouldUseRow !== useRowLayout) {
+      setUseRowLayout(shouldUseRow)
+    }
+  }
 
   return (
-    <View style={styles.card}>
-      <View style={styles.header}>
+    <View style={styles.card} onLayout={handleLayout}>
+      <View
+        style={[
+          styles.header,
+          useRowLayout ? styles.headerRow : styles.headerColumn,
+        ]}
+      >
         <Text style={styles.title}>{title}</Text>
-        <Text style={styles.size}>{size}</Text>
+        <Text style={useRowLayout ? styles.size : styles.sizeColumn}>
+          {size}
+        </Text>
       </View>
 
       <Text style={styles.description}>{repoDisplay}</Text>
@@ -350,11 +392,14 @@ function BaseModelDownloadCard({
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
             <View
-              style={[styles.progressFill, { width: `${progress.percentage}%` }]}
+              style={[
+                styles.progressFill,
+                { width: `${progress.percentage}%` },
+              ]}
             />
           </View>
           <Text style={styles.progressText}>
-            {downloadStatus}
+            {downloadStatus} 
             {' '}
             {`${progress.percentage}%`}
           </Text>
@@ -372,7 +417,10 @@ function BaseModelDownloadCard({
 
       <View style={styles.buttonContainer}>
         {!isDownloaded && !isDownloading && (
-          <TouchableOpacity style={styles.downloadButton} onPress={handleDownload}>
+          <TouchableOpacity
+            style={styles.downloadButton}
+            onPress={handleDownload}
+          >
             <Text style={styles.downloadButtonText}>{downloadButtonText}</Text>
           </TouchableOpacity>
         )}
@@ -391,18 +439,26 @@ function BaseModelDownloadCard({
               <Text style={styles.downloadedText}>Downloaded</Text>
             </View>
             <View style={styles.actionButtonsContainer}>
-              <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={handleDelete}
+              >
                 <Text style={styles.deleteButtonText}>Delete</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.initializeButton} onPress={handleInitialize}>
-                <Text style={styles.initializeButtonText}>{initializeButtonText}</Text>
+              <TouchableOpacity
+                style={styles.initializeButton}
+                onPress={handleInitialize}
+              >
+                <Text style={styles.initializeButtonText}>
+                  {initializeButtonText}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
       </View>
     </View>
-  );
+  )
 }
 
 // Simple single-model download card
@@ -415,7 +471,7 @@ function ModelDownloadCard({
   onInitialize,
   initializeButtonText,
 }: ModelDownloadCardProps) {
-  const files: ModelFile[] = [{ repo, filename }];
+  const files: ModelFile[] = [{ repo, filename }]
 
   return (
     <BaseModelDownloadCard
@@ -426,7 +482,7 @@ function ModelDownloadCard({
       downloadButtonText="Download"
       initializeButtonText={initializeButtonText}
     />
-  );
+  )
 }
 
 // TTS-specific download card that handles both TTS model and vocoder together
@@ -442,7 +498,7 @@ export function TTSModelDownloadCard({
   const files: ModelFile[] = [
     { repo, filename, label: 'TTS model' },
     { repo: vocoder.repo, filename: vocoder.filename, label: 'vocoder' },
-  ];
+  ]
 
   return (
     <BaseModelDownloadCard
@@ -453,7 +509,7 @@ export function TTSModelDownloadCard({
       downloadButtonText="Download Both Models"
       initializeButtonText={initializeButtonText}
     />
-  );
+  )
 }
 
 // VLM-specific download card that handles both model and mmproj files
@@ -469,7 +525,7 @@ export function VLMModelDownloadCard({
   const files: ModelFile[] = [
     { repo, filename, label: 'VLM model' },
     { repo, filename: mmproj, label: 'mmproj' },
-  ];
+  ]
 
   return (
     <BaseModelDownloadCard
@@ -480,7 +536,7 @@ export function VLMModelDownloadCard({
       downloadButtonText="Download VLM & MMProj"
       initializeButtonText={initializeButtonText}
     />
-  );
+  )
 }
 
-export default ModelDownloadCard;
+export default ModelDownloadCard

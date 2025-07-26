@@ -1691,6 +1691,27 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
+  - RNCAsyncStorage (2.2.0):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.01.01.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - Yoga
   - RNCClipboard (1.13.1):
     - DoubleConversion
     - glog
@@ -1850,6 +1871,7 @@ DEPENDENCIES:
   - ReactCodegen (from `build/generated/ios`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - RNAudioAPI (from `../node_modules/react-native-audio-api`)
+  - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - "RNCClipboard (from `../node_modules/@react-native-clipboard/clipboard`)"
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
   - RNScreens (from `../node_modules/react-native-screens`)
@@ -1993,6 +2015,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon"
   RNAudioAPI:
     :path: "../node_modules/react-native-audio-api"
+  RNCAsyncStorage:
+    :path: "../node_modules/@react-native-async-storage/async-storage"
   RNCClipboard:
     :path: "../node_modules/@react-native-clipboard/clipboard"
   RNGestureHandler:
@@ -2069,6 +2093,7 @@ SPEC CHECKSUMS:
   ReactCodegen: 60973d382704c793c605b9be0fc7f31cb279442f
   ReactCommon: 6ef348087d250257c44c0204461c03f036650e9b
   RNAudioAPI: 7cbb6cb001dd8c679503c6561343ec7d31ec08d2
+  RNCAsyncStorage: e261f5fef2092b11db2e9dfd0cf3620b1d88dca3
   RNCClipboard: 78c95c6cc60f009894dde5c5ff297bd2fd7b774d
   RNGestureHandler: 2a0d67d2378072a9be03cdd954bf4e4474c46c22
   RNScreens: d022507f2b6d76c73335e9e35aedcf7bb2f791b0

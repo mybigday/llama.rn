@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useLayoutEffect } from 'react'
 import {
   View,
   Text,
@@ -12,8 +12,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { initLlama, LlamaContext } from '../../../src'
 import { TTSModelDownloadCard } from '../components/ModelDownloadCard'
+import ContextParamsModal from '../components/ContextParamsModal'
+import CompletionParamsModal from '../components/CompletionParamsModal'
 import { AudioPlayer } from '../components/AudioPlayer'
 import { MODELS } from '../utils/constants'
+import type { ContextParams, CompletionParams } from '../utils/storage'
+import { loadContextParams, loadCompletionParams } from '../utils/storage'
 
 // Sample speaker configuration for OuteTTS
 const speakerConfig = null
@@ -176,7 +180,7 @@ const styles = StyleSheet.create({
   },
 })
 
-export default function TTSScreen() {
+export default function TTSScreen({ navigation }: { navigation: any }) {
   const [inputText, setInputText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [context, setContext] = useState<LlamaContext | null>(null)
@@ -186,23 +190,53 @@ export default function TTSScreen() {
   const [audioData, setAudioData] = useState<Float32Array | null>(null)
   const [sampleRate, setSampleRate] = useState<number>(24000)
   const [initProgress, setInitProgress] = useState(0)
+  const [showContextParamsModal, setShowContextParamsModal] = useState(false)
+  const [showCompletionParamsModal, setShowCompletionParamsModal] =
+    useState(false)
+  const [contextParams, setContextParams] = useState<ContextParams | null>(null)
+  const [completionParams, setCompletionParams] =
+    useState<CompletionParams | null>(null)
+
+  const handleSaveContextParams = (params: ContextParams) => {
+    setContextParams(params)
+  }
+
+  const handleSaveCompletionParams = (params: CompletionParams) => {
+    setCompletionParams(params)
+  }
+
+  // Set up navigation header button
+  useLayoutEffect(() => {
+    if (isModelReady) {
+      navigation.setParams({
+        showCompletionSettings: () => setShowCompletionParamsModal(true),
+        showContextSettings: null,
+      })
+    } else {
+      navigation.setParams({
+        showContextSettings: () => setShowContextParamsModal(true),
+        showCompletionSettings: null,
+      })
+    }
+  }, [navigation, isModelReady])
 
   const initializeModels = async (ttsPath: string, vocoderPath: string) => {
     try {
       setIsLoading(true)
       setInitProgress(0)
 
+      const params = contextParams || (await loadContextParams())
       // Initialize the TTS model
       const llamaContext = await initLlama(
         {
           model: ttsPath,
-          n_ctx: 8192,
-          n_batch: 512,
-          n_ubatch: 512,
-          n_threads: 8,
-          n_gpu_layers: 99,
-          use_mlock: true,
-          ctx_shift: false,
+          n_ctx: params.n_ctx || 8192,
+          n_batch: params.n_batch || 512,
+          n_ubatch: params.n_ubatch || 512,
+          n_threads: params.n_threads || 8,
+          n_gpu_layers: params.n_gpu_layers || 99,
+          use_mlock: params.use_mlock,
+          ctx_shift: params.ctx_shift || false,
         },
         (progress) => {
           // Progress is reported as 1 to 100
@@ -274,13 +308,16 @@ export default function TTSScreen() {
       const prompt = formattedPrompt
 
       const collectedTokens: number[] = []
+      const params = completionParams || (await loadCompletionParams())
 
       const result = await context.completion(
         {
           prompt,
           guide_tokens: guideTokens,
-          n_predict: 4096,
-          stop: ['<|im_end|>'],
+          n_predict: params.n_predict || 4096,
+          temperature: params.temperature || 0.7,
+          top_p: params.top_p || 0.9,
+          stop: params.stop || ['<|im_end|>'],
         },
         (data) => {
           // Collect tokens for potential audio processing
@@ -345,12 +382,6 @@ export default function TTSScreen() {
     }
   }
 
-  const clearAll = () => {
-    setInputText('')
-    setGeneratedAudio(null)
-    setAudioData(null)
-  }
-
   if (!isModelReady) {
     return (
       <SafeAreaView style={styles.container}>
@@ -362,11 +393,11 @@ export default function TTSScreen() {
           </Text>
 
           <TTSModelDownloadCard
-            title={MODELS.OUTE_TTS.name}
-            repo={MODELS.OUTE_TTS.repo}
-            filename={MODELS.OUTE_TTS.filename}
-            size={MODELS.OUTE_TTS.size}
-            vocoder={MODELS.OUTE_TTS.vocoder}
+            title={MODELS.OUTE_TTS_0_3.name}
+            repo={MODELS.OUTE_TTS_0_3.repo}
+            filename={MODELS.OUTE_TTS_0_3.filename}
+            size={MODELS.OUTE_TTS_0_3.size}
+            vocoder={MODELS.OUTE_TTS_0_3.vocoder}
             onInitialize={initializeModels}
           />
 
@@ -393,19 +424,18 @@ export default function TTSScreen() {
             </View>
           )}
         </ScrollView>
+
+        <ContextParamsModal
+          visible={showContextParamsModal}
+          onClose={() => setShowContextParamsModal(false)}
+          onSave={handleSaveContextParams}
+        />
       </SafeAreaView>
     )
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Text-to-Speech</Text>
-        <TouchableOpacity style={styles.clearButton} onPress={clearAll}>
-          <Text style={styles.clearButtonText}>Clear</Text>
-        </TouchableOpacity>
-      </View>
-
       <ScrollView style={styles.content}>
         <View style={styles.inputSection}>
           <Text style={styles.sectionTitle}>Enter Text to Speak</Text>
@@ -481,6 +511,18 @@ export default function TTSScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      <ContextParamsModal
+        visible={showContextParamsModal}
+        onClose={() => setShowContextParamsModal(false)}
+        onSave={handleSaveContextParams}
+      />
+
+      <CompletionParamsModal
+        visible={showCompletionParamsModal}
+        onClose={() => setShowCompletionParamsModal(false)}
+        onSave={handleSaveCompletionParams}
+      />
     </SafeAreaView>
   )
 }

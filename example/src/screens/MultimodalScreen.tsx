@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useLayoutEffect } from 'react'
 import {
   View,
   Text,
@@ -16,8 +16,12 @@ import { pick } from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
 import { initLlama, LlamaContext } from '../../../src'
 import { VLMModelDownloadCard } from '../components/ModelDownloadCard'
+import ContextParamsModal from '../components/ContextParamsModal'
+import CompletionParamsModal from '../components/CompletionParamsModal'
 import { Bubble } from '../components/Bubble'
 import { MODELS } from '../utils/constants'
+import type { ContextParams, CompletionParams } from '../utils/storage'
+import { loadContextParams, loadCompletionParams } from '../utils/storage'
 
 const user = { id: 'user' }
 const assistant = { id: 'assistant' }
@@ -35,6 +39,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 18,
@@ -81,47 +88,72 @@ const styles = StyleSheet.create({
   },
   pendingImageContainer: {
     position: 'absolute',
-    bottom: 60,
+    bottom: 80,
     left: 16,
     right: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    borderRadius: 8,
     padding: 12,
-    flexDirection: 'row',
     alignItems: 'center',
-    zIndex: 1000,
   },
   pendingImage: {
-    width: 60,
-    height: 60,
+    width: 100,
+    height: 100,
     borderRadius: 8,
-    marginRight: 12,
+    marginBottom: 8,
   },
   pendingImageText: {
-    flex: 1,
     color: 'white',
     fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 8,
   },
   removePendingButton: {
     backgroundColor: '#FF3B30',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 6,
   },
   removePendingText: {
     color: 'white',
     fontSize: 12,
+    fontWeight: '500',
+  },
+  settingsContainer: {
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  settingsButtonStyle: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  settingsButtonText: {
+    color: 'white',
+    fontSize: 16,
     fontWeight: '600',
+  },
+  settingsButton: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '500',
   },
 })
 
-export default function MultimodalScreen() {
+export default function MultimodalScreen({ navigation }: { navigation: any }) {
   const [messages, setMessages] = useState<MessageType.Any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [context, setContext] = useState<LlamaContext | null>(null)
   const [isModelReady, setIsModelReady] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
   const [pendingImage, setPendingImage] = useState<string | null>(null) // base64 data URL
+  const [showContextParamsModal, setShowContextParamsModal] = useState(false)
+  const [showCompletionParamsModal, setShowCompletionParamsModal] =
+    useState(false)
+  const [contextParams, setContextParams] = useState<ContextParams | null>(null)
+  const [completionParams, setCompletionParams] =
+    useState<CompletionParams | null>(null)
 
   useEffect(
     () => () => {
@@ -131,6 +163,29 @@ export default function MultimodalScreen() {
     },
     [context],
   )
+
+  const handleSaveContextParams = (params: ContextParams) => {
+    setContextParams(params)
+  }
+
+  const handleSaveCompletionParams = (params: CompletionParams) => {
+    setCompletionParams(params)
+  }
+
+  // Set up navigation header button
+  useLayoutEffect(() => {
+    if (isModelReady) {
+      navigation.setParams({
+        showCompletionSettings: () => setShowCompletionParamsModal(true),
+        showContextSettings: null,
+      })
+    } else {
+      navigation.setParams({
+        showContextSettings: () => setShowContextParamsModal(true),
+        showCompletionSettings: null,
+      })
+    }
+  }, [navigation, isModelReady])
 
   const addMessage = (message: MessageType.Any) => {
     setMessages((msgs) => [message, ...msgs])
@@ -169,16 +224,24 @@ export default function MultimodalScreen() {
       setIsLoading(true)
       setInitProgress(0)
 
-      const llamaContext = await initLlama({
-        model: modelPath,
-        n_ctx: 4096,
-        n_gpu_layers: 99,
-        use_mlock: true,
-        use_mmap: true,
-      }, (progress) => {
-        // Progress is reported as 1 to 100
-        setInitProgress(Math.round(progress * 0.8)) // 80% for model loading
-      })
+      const params = contextParams || (await loadContextParams())
+      const llamaContext = await initLlama(
+        {
+          model: modelPath,
+          n_ctx: params.n_ctx,
+          n_gpu_layers: params.n_gpu_layers,
+          use_mlock: params.use_mlock,
+          use_mmap: params.use_mmap,
+          n_batch: params.n_batch,
+          n_ubatch: params.n_ubatch,
+          n_threads: params.n_threads,
+          ctx_shift: params.ctx_shift,
+        },
+        (progress) => {
+          // Progress is reported as 1 to 100
+          setInitProgress(Math.round(progress * 0.8)) // 80% for model loading
+        },
+      )
 
       // Initialize multimodal support
       setInitProgress(85)
@@ -196,7 +259,7 @@ export default function MultimodalScreen() {
       setInitProgress(100)
 
       addSystemMessage(
-        'You can now chat about images. Send an image to start the conversation.',
+        "Hello! I'm a vision-capable AI assistant. You can share images with me and I'll analyze them, answer questions about what I see, or engage in conversations about visual content. How can I help you today?",
       )
     } catch (error: any) {
       Alert.alert('Error', `Failed to initialize model: ${error.message}`)
@@ -206,7 +269,10 @@ export default function MultimodalScreen() {
     }
   }
 
-  const handleMultimodalMessage = async (imageBase64: string, question?: string) => {
+  const handleMultimodalMessage = async (
+    imageBase64: string,
+    question?: string,
+  ) => {
     if (!context || isLoading) return
 
     try {
@@ -240,6 +306,8 @@ export default function MultimodalScreen() {
 
       let response = ''
 
+      const completionParameters =
+        completionParams || (await loadCompletionParams())
       await context.completion(
         {
           messages: [
@@ -268,10 +336,7 @@ export default function MultimodalScreen() {
               ],
             },
           ],
-          n_predict: 512,
-          temperature: 0.7,
-          top_p: 0.9,
-          stop: ['<|im_end|>', '<end_of_turn>'],
+          ...completionParameters,
         },
         (data) => {
           const { token } = data
@@ -302,7 +367,10 @@ export default function MultimodalScreen() {
 
     // If there's a pending image, handle it as a multimodal message
     if (pendingImage) {
-      await handleMultimodalMessage(pendingImage, message.text.trim() || undefined)
+      await handleMultimodalMessage(
+        pendingImage,
+        message.text.trim() || undefined,
+      )
       setPendingImage(null) // Clear pending image after processing
       return
     }
@@ -344,13 +412,17 @@ export default function MultimodalScreen() {
         messages
           .filter(
             (msg): msg is MessageType.Text | MessageType.Image =>
-              (msg.type === 'text' && !msg.metadata?.system) || msg.type === 'image'
+              (msg.type === 'text' && !msg.metadata?.system) ||
+              msg.type === 'image',
           )
           .reverse() // Reverse to get chronological order
           .slice(-10) // Keep last 10 messages for context
           .map(async (msg) => {
             if (msg.type === 'text') {
-              const role = msg.author.id === user.id ? 'user' as const : 'assistant' as const
+              const role =
+                msg.author.id === user.id
+                  ? ('user' as const)
+                  : ('assistant' as const)
               return {
                 role,
                 content: [
@@ -362,7 +434,9 @@ export default function MultimodalScreen() {
               }
             } else if (msg.type === 'image' && msg.author.id === 'user') {
               // Convert image to base64 for conversation context
-              const imageBase64 = await convertImageToBase64((msg as MessageType.Image).uri)
+              const imageBase64 = await convertImageToBase64(
+                (msg as MessageType.Image).uri,
+              )
               return {
                 role: 'user' as const,
                 content: [
@@ -376,11 +450,13 @@ export default function MultimodalScreen() {
               }
             }
             return null
-          })
+          }),
       )
 
       // Filter out null values and add to conversation
-      const validRecentMessages = recentMessages.filter((msg): msg is NonNullable<typeof msg> => msg !== null)
+      const validRecentMessages = recentMessages.filter(
+        (msg): msg is NonNullable<typeof msg> => msg !== null,
+      )
       conversationMessages.push(...validRecentMessages)
 
       // Add current user message
@@ -406,13 +482,12 @@ export default function MultimodalScreen() {
 
       addMessage(responseMessage)
 
+      const completionParameters =
+        completionParams || (await loadCompletionParams())
       await context.completion(
         {
           messages: conversationMessages,
-          n_predict: 512,
-          temperature: 0.7,
-          top_p: 0.9,
-          stop: ['<|im_end|>', 'User:', '\n\n'],
+          ...completionParameters,
         },
         (data) => {
           const { token } = data
@@ -465,7 +540,7 @@ export default function MultimodalScreen() {
     }
   }
 
-    const handleAttachmentPress = async () => {
+  const handleAttachmentPress = async () => {
     try {
       const result = await pick({
         type: 'image/*',
@@ -480,7 +555,10 @@ export default function MultimodalScreen() {
             const imageBase64 = await convertImageToBase64(file.uri)
             setPendingImage(imageBase64)
           } catch (conversionError: any) {
-            Alert.alert('Error', `Failed to process image: ${conversionError.message}`)
+            Alert.alert(
+              'Error',
+              `Failed to process image: ${conversionError.message}`,
+            )
           }
         }
       }
@@ -536,7 +614,7 @@ export default function MultimodalScreen() {
                     <View
                       style={[
                         styles.progressFill,
-                        { width: `${initProgress}%` }
+                        { width: `${initProgress}%` },
                       ]}
                     />
                   </View>
@@ -545,6 +623,12 @@ export default function MultimodalScreen() {
             </View>
           )}
         </ScrollView>
+
+        <ContextParamsModal
+          visible={showContextParamsModal}
+          onClose={() => setShowContextParamsModal(false)}
+          onSave={handleSaveContextParams}
+        />
       </SafeAreaView>
     )
   }
@@ -601,6 +685,12 @@ export default function MultimodalScreen() {
           <Text style={{ color: 'white', marginTop: 10 }}>Processing...</Text>
         </View>
       )}
+
+      <CompletionParamsModal
+        visible={showCompletionParamsModal}
+        onClose={() => setShowCompletionParamsModal(false)}
+        onSave={handleSaveCompletionParams}
+      />
     </SafeAreaView>
   )
 }

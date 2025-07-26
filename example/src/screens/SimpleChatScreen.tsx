@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useLayoutEffect } from 'react'
 import {
   View,
   Text,
@@ -12,8 +12,12 @@ import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { initLlama, LlamaContext } from '../../../src'
 import ModelDownloadCard from '../components/ModelDownloadCard'
+import ContextParamsModal from '../components/ContextParamsModal'
+import CompletionParamsModal from '../components/CompletionParamsModal'
 import { Bubble } from '../components/Bubble'
 import { MODELS } from '../utils/constants'
+import type { ContextParams, CompletionParams } from '../utils/storage'
+import { loadContextParams, loadCompletionParams } from '../utils/storage'
 
 const user = { id: 'user' }
 const assistant = { id: 'assistant' }
@@ -58,6 +62,26 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
+  settingsButton: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '500',
+  },
+  settingsContainer: {
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  settingsButtonStyle: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  settingsButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
   progressContainer: {
     marginTop: 16,
     width: '100%',
@@ -77,12 +101,18 @@ const styles = StyleSheet.create({
   },
 })
 
-export default function SimpleChatScreen() {
+export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   const [messages, setMessages] = useState<MessageType.Any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [context, setContext] = useState<LlamaContext | null>(null)
   const [isModelReady, setIsModelReady] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
+  const [showContextParamsModal, setShowContextParamsModal] = useState(false)
+  const [showCompletionParamsModal, setShowCompletionParamsModal] =
+    useState(false)
+  const [contextParams, setContextParams] = useState<ContextParams | null>(null)
+  const [completionParams, setCompletionParams] =
+    useState<CompletionParams | null>(null)
 
   useEffect(
     () => () => {
@@ -92,6 +122,29 @@ export default function SimpleChatScreen() {
     },
     [context],
   )
+
+  const handleSaveContextParams = (params: ContextParams) => {
+    setContextParams(params)
+  }
+
+  const handleSaveCompletionParams = (params: CompletionParams) => {
+    setCompletionParams(params)
+  }
+
+  // Set up navigation header button
+  useLayoutEffect(() => {
+    if (isModelReady) {
+      navigation.setParams({
+        showCompletionSettings: () => setShowCompletionParamsModal(true),
+        showContextSettings: null,
+      })
+    } else {
+      navigation.setParams({
+        showContextSettings: () => setShowContextParamsModal(true),
+        showCompletionSettings: null,
+      })
+    }
+  }, [navigation, isModelReady])
 
   const addMessage = (message: MessageType.Any) => {
     setMessages((msgs) => [message, ...msgs])
@@ -115,16 +168,17 @@ export default function SimpleChatScreen() {
       setIsLoading(true)
       setInitProgress(0)
 
-      const llamaContext = await initLlama({
-        model: modelPath,
-        n_ctx: 4096,
-        n_gpu_layers: 99, // Use GPU acceleration on iOS
-        use_mlock: true,
-        use_mmap: true,
-      }, (progress) => {
-        // Progress is reported as 1 to 100
-        setInitProgress(progress)
-      })
+      const params = contextParams || (await loadContextParams())
+      const llamaContext = await initLlama(
+        {
+          model: modelPath,
+          ...params,
+        },
+        (progress) => {
+          // Progress is reported as 1 to 100
+          setInitProgress(progress)
+        },
+      )
 
       setContext(llamaContext)
       setIsModelReady(true)
@@ -198,13 +252,11 @@ export default function SimpleChatScreen() {
 
       addMessage(responseMessage)
 
+      const params = completionParams || (await loadCompletionParams())
       await context.completion(
         {
           messages: conversationMessages,
-          n_predict: 512,
-          temperature: 0.7,
-          top_p: 0.9,
-          stop: ['<|im_end|>', '<end_of_turn>']
+          ...params,
         },
         (data) => {
           const { token } = data
@@ -267,8 +319,8 @@ export default function SimpleChatScreen() {
       <SafeAreaView style={styles.container}>
         <ScrollView style={styles.setupContainer}>
           <Text style={styles.setupDescription}>
-            Download the model to start chatting. This model provides
-            fast, efficient text generation for conversational AI.
+            Download the model to start chatting. This model provides fast,
+            efficient text generation for conversational AI.
           </Text>
 
           {['SMOL_LM', 'GEMMA_3N'].map((model) => {
@@ -297,7 +349,7 @@ export default function SimpleChatScreen() {
                     <View
                       style={[
                         styles.progressFill,
-                        { width: `${initProgress}%` }
+                        { width: `${initProgress}%` },
                       ]}
                     />
                   </View>
@@ -306,6 +358,12 @@ export default function SimpleChatScreen() {
             </View>
           )}
         </ScrollView>
+
+        <ContextParamsModal
+          visible={showContextParamsModal}
+          onClose={() => setShowContextParamsModal(false)}
+          onSave={handleSaveContextParams}
+        />
       </SafeAreaView>
     )
   }
@@ -324,6 +382,12 @@ export default function SimpleChatScreen() {
             ? 'AI is thinking...'
             : 'Type your message here',
         }}
+      />
+
+      <CompletionParamsModal
+        visible={showCompletionParamsModal}
+        onClose={() => setShowCompletionParamsModal(false)}
+        onSave={handleSaveCompletionParams}
       />
     </SafeAreaView>
   )

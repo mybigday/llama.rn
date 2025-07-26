@@ -77,13 +77,22 @@ const styles = StyleSheet.create({
   },
 })
 
-export const AudioPlayer = ({ audio, sr }: { audio: Float32Array; sr: number }) => {
+export const AudioPlayer = ({
+  audio,
+  sr,
+}: {
+  audio: Float32Array
+  sr: number
+}) => {
   const ctxRef = useRef<AudioContext | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
   const [isPressed, setIsPressed] = useState(false)
   const duration = useMemo(() => audio.length / sr, [audio, sr])
-  const progressPercentage = useMemo(() => (progress / duration) * 100, [progress, duration])
+  const progressPercentage = useMemo(
+    () => (progress / duration) * 100,
+    [progress, duration],
+  )
 
   useEffect(() => {
     if (isPlaying) {
@@ -138,7 +147,9 @@ export const AudioPlayer = ({ audio, sr }: { audio: Float32Array; sr: number }) 
         </View>
       </View>
       <View style={styles.progressContainer}>
-        <View style={[styles.progressBar, { width: `${progressPercentage}%` }]} />
+        <View
+          style={[styles.progressBar, { width: `${progressPercentage}%` }]}
+        />
       </View>
       <Text style={styles.progressText}>
         {isPlaying ? 'Playing...' : 'Ready to play'}

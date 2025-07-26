@@ -43,7 +43,30 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
   },
+  headerButton: {
+    marginRight: 15,
+  },
+  headerButtonText: {
+    color: '#007AFF',
+    fontSize: 16,
+    fontWeight: '500',
+  },
 })
+
+// Header button component
+function HeaderButton({
+  onPress,
+  title,
+}: {
+  onPress: () => void
+  title: string
+}) {
+  return (
+    <TouchableOpacity style={styles.headerButton} onPress={onPress}>
+      <Text style={styles.headerButtonText}>{title}</Text>
+    </TouchableOpacity>
+  )
+}
 
 function HomeScreen({ navigation }: { navigation: any }) {
   return (
@@ -90,10 +113,110 @@ function App() {
       <NavigationContainer>
         <Stack.Navigator>
           <Stack.Screen name="Home" component={HomeScreen} />
-          <Stack.Screen name="SimpleChat" component={SimpleChatScreen} />
-          <Stack.Screen name="Multimodal" component={MultimodalScreen} />
-          <Stack.Screen name="TTS" component={TTSScreen} />
-          <Stack.Screen name="ToolCalling" component={ToolCallsScreen} />
+          <Stack.Screen
+            name="SimpleChat"
+            component={SimpleChatScreen}
+            options={({ route }) => ({
+              title: 'Simple Chat',
+              headerRight: () => {
+                const params = route.params as any
+                if (params?.showContextSettings) {
+                  return (
+                    <HeaderButton
+                      onPress={params.showContextSettings}
+                      title="Context"
+                    />
+                  )
+                } else if (params?.showCompletionSettings) {
+                  return (
+                    <HeaderButton
+                      onPress={params.showCompletionSettings}
+                      title="Chat"
+                    />
+                  )
+                }
+                return null
+              },
+            })}
+          />
+          <Stack.Screen
+            name="Multimodal"
+            component={MultimodalScreen}
+            options={({ route }) => ({
+              title: 'Vision Chat',
+              headerRight: () => {
+                const params = route.params as any
+                if (params?.showContextSettings) {
+                  return (
+                    <HeaderButton
+                      onPress={params.showContextSettings}
+                      title="Context"
+                    />
+                  )
+                } else if (params?.showCompletionSettings) {
+                  return (
+                    <HeaderButton
+                      onPress={params.showCompletionSettings}
+                      title="Chat"
+                    />
+                  )
+                }
+                return null
+              },
+            })}
+          />
+          <Stack.Screen
+            name="ToolCalling"
+            component={ToolCallsScreen}
+            options={({ route }) => ({
+              title: 'Tool Calling',
+              headerRight: () => {
+                const params = route.params as any
+                if (params?.showContextSettings) {
+                  return (
+                    <HeaderButton
+                      onPress={params.showContextSettings}
+                      title="Context"
+                    />
+                  )
+                } else if (params?.showCompletionSettings) {
+                  return (
+                    <HeaderButton
+                      onPress={params.showCompletionSettings}
+                      title="Chat"
+                    />
+                  )
+                }
+                return null
+              },
+            })}
+          />
+          <Stack.Screen
+            name="TTS"
+            component={TTSScreen}
+            options={({ route }) => ({
+              title: 'Text-to-Speech',
+              headerRight: () => {
+                const params = route.params as any
+                if (params?.showContextSettings) {
+                  return (
+                    <HeaderButton
+                      onPress={params.showContextSettings}
+                      title="Context"
+                    />
+                  )
+                } else if (params?.showCompletionSettings) {
+                  return (
+                    <HeaderButton
+                      onPress={params.showCompletionSettings}
+                      title="Chat"
+                    />
+                  )
+                }
+                return null
+              },
+            })}
+          />
           <Stack.Screen name="ModalInfo" component={ModalInfoScreen} />
         </Stack.Navigator>
       </NavigationContainer>

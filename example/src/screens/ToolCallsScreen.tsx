@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useLayoutEffect } from 'react'
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import {
@@ -14,8 +14,12 @@ import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { initLlama, LlamaContext } from '../../../src'
 import ModelDownloadCard from '../components/ModelDownloadCard'
+import ContextParamsModal from '../components/ContextParamsModal'
+import CompletionParamsModal from '../components/CompletionParamsModal'
 import { Bubble } from '../components/Bubble'
 import { MODELS } from '../utils/constants'
+import type { ContextParams, CompletionParams } from '../utils/storage'
+import { loadContextParams, loadCompletionParams } from '../utils/storage'
 
 const user = { id: 'user' }
 const assistant = { id: 'assistant' }
@@ -33,6 +37,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 18,
@@ -82,6 +89,26 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#007AFF',
     borderRadius: 4,
+  },
+  settingsContainer: {
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  settingsButtonStyle: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  settingsButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  settingsButton: {
+    color: '#007AFF',
+    fontSize: 14,
+    textDecorationLine: 'underline',
   },
 })
 
@@ -146,12 +173,18 @@ const AVAILABLE_TOOLS = [
   },
 ]
 
-export default function ToolCallsScreen() {
+export default function ToolCallsScreen({ navigation }: { navigation: any }) {
   const [messages, setMessages] = useState<MessageType.Any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [context, setContext] = useState<LlamaContext | null>(null)
   const [isModelReady, setIsModelReady] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
+  const [showContextParamsModal, setShowContextParamsModal] = useState(false)
+  const [showCompletionParamsModal, setShowCompletionParamsModal] =
+    useState(false)
+  const [contextParams, setContextParams] = useState<ContextParams | null>(null)
+  const [completionParams, setCompletionParams] =
+    useState<CompletionParams | null>(null)
 
   useEffect(
     () => () => {
@@ -161,6 +194,29 @@ export default function ToolCallsScreen() {
     },
     [context],
   )
+
+  const handleSaveContextParams = (params: ContextParams) => {
+    setContextParams(params)
+  }
+
+  const handleSaveCompletionParams = (params: CompletionParams) => {
+    setCompletionParams(params)
+  }
+
+  // Set up navigation header button
+  useLayoutEffect(() => {
+    if (isModelReady) {
+      navigation.setParams({
+        showCompletionSettings: () => setShowCompletionParamsModal(true),
+        showContextSettings: null,
+      })
+    } else {
+      navigation.setParams({
+        showContextSettings: () => setShowContextParamsModal(true),
+        showCompletionSettings: null,
+      })
+    }
+  }, [navigation, isModelReady])
 
   const addMessage = (message: MessageType.Any) => {
     setMessages((msgs) => [message, ...msgs])
@@ -184,13 +240,11 @@ export default function ToolCallsScreen() {
       setIsLoading(true)
       setInitProgress(0)
 
+      const params = contextParams || (await loadContextParams())
       const llamaContext = await initLlama(
         {
           model: modelPath,
-          n_ctx: 4096,
-          n_gpu_layers: 99,
-          use_mlock: true,
-          use_mmap: true,
+          ...params,
         },
         (progress) => {
           // Progress is reported as 1 to 100
@@ -346,16 +400,15 @@ export default function ToolCallsScreen() {
 
       addMessage(responseMessage)
 
+      const completionParameters =
+        completionParams || (await loadCompletionParams())
       const completionResult = await context.completion(
         {
           messages: conversationMessages,
           tools: AVAILABLE_TOOLS,
           tool_choice: 'auto',
           jinja: true,
-          n_predict: 512,
-          temperature: 0.7,
-          top_p: 0.9,
-          stop: ['<|im_end|>', '<end_of_turn>'],
+          ...completionParameters,
         },
         (data) => {
           const { token } = data
@@ -557,6 +610,12 @@ export default function ToolCallsScreen() {
             </View>
           )}
         </ScrollView>
+
+        <ContextParamsModal
+          visible={showContextParamsModal}
+          onClose={() => setShowContextParamsModal(false)}
+          onSave={handleSaveContextParams}
+        />
       </SafeAreaView>
     )
   }
@@ -575,6 +634,12 @@ export default function ToolCallsScreen() {
             ? 'Executing tools...'
             : 'Ask me to use tools...',
         }}
+      />
+
+      <CompletionParamsModal
+        visible={showCompletionParamsModal}
+        onClose={() => setShowCompletionParamsModal(false)}
+        onSave={handleSaveCompletionParams}
       />
     </SafeAreaView>
   )

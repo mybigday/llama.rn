@@ -87,8 +87,7 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     fontWeight: '600',
   },
-  modalBody: {
-  },
+  modalBody: {},
   infoContainer: {
     backgroundColor: '#F8F9FA',
     borderRadius: 8,
@@ -178,7 +177,7 @@ export default function ModalInfoScreen() {
     setModelFiles([])
     setSelectedModel(modelName)
 
-        try {
+    try {
       const fileInfoPromises = files.map(async (file) => {
         try {
           const info = await loadLlamaModelInfo(file.path)
@@ -194,7 +193,9 @@ export default function ModalInfoScreen() {
             name: file.name,
             path: file.path,
             info: {
-              error: `Failed to load: ${fileError instanceof Error ? fileError.message : 'Unknown error'}`,
+              error: `Failed to load: ${
+                fileError instanceof Error ? fileError.message : 'Unknown error'
+              }`,
             },
           }
         }
@@ -222,9 +223,7 @@ export default function ModalInfoScreen() {
     if (!model) return
 
     // Show model info modal
-    await loadModelInfo(model.name, [
-      { name: 'Model', path: modelPath },
-    ])
+    await loadModelInfo(model.name, [{ name: 'Model', path: modelPath }])
   }
 
   const handleVLMModelInitialize = async (
@@ -305,18 +304,14 @@ export default function ModalInfoScreen() {
         {info.nParams && info.nParams > 0 && (
           <View style={styles.infoContainer}>
             <Text style={styles.infoLabel}>Parameters</Text>
-            <Text style={styles.infoValue}>
-              {formatNumber(info.nParams)}
-            </Text>
+            <Text style={styles.infoValue}>{formatNumber(info.nParams)}</Text>
           </View>
         )}
 
         {info.nEmbd && (
           <View style={styles.infoContainer}>
             <Text style={styles.infoLabel}>Embedding Dimensions</Text>
-            <Text style={styles.infoValue}>
-              {info.nEmbd.toLocaleString()}
-            </Text>
+            <Text style={styles.infoValue}>{info.nEmbd.toLocaleString()}</Text>
           </View>
         )}
 
@@ -331,9 +326,7 @@ export default function ModalInfoScreen() {
           <View style={styles.infoContainer}>
             <Text style={styles.infoLabel}>Chat Templates</Text>
             <Text style={styles.infoValue}>
-              {`Llama Chat: ${
-                info.chatTemplates.llamaChat ? 'Yes' : 'No'
-              }`}
+              {`Llama Chat: ${info.chatTemplates.llamaChat ? 'Yes' : 'No'}`}
               {'\n'}
               {`Jinja Default: ${
                 info.chatTemplates.minja?.default ? 'Yes' : 'No'
@@ -350,9 +343,14 @@ export default function ModalInfoScreen() {
         {Object.entries(info)
           .filter(
             ([key]) =>
-              !['desc', 'nEmbd', 'nParams', 'size', 'chatTemplates', 'error'].includes(
-                key,
-              ),
+              ![
+                'desc',
+                'nEmbd',
+                'nParams',
+                'size',
+                'chatTemplates',
+                'error',
+              ].includes(key),
           )
           .map(([key, value]) => (
             <View key={key} style={styles.infoContainer}>
@@ -423,7 +421,6 @@ export default function ModalInfoScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-
       <Text style={styles.description}>
         Download and explore detailed information about available AI models. Tap
         &quot;See&quot; on any model to view its metadata and specifications.
