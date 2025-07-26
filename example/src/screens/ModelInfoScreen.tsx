@@ -162,7 +162,7 @@ interface ModelFileInfo {
   info: any
 }
 
-export default function ModalInfoScreen() {
+export default function ModelInfoScreen() {
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [modelFiles, setModelFiles] = useState<ModelFileInfo[]>([])
   const [isLoadingInfo, setIsLoadingInfo] = useState(false)
