@@ -363,7 +363,6 @@ export default function TTSScreen() {
 
           <TTSModelDownloadCard
             title={MODELS.OUTE_TTS.name}
-            description={MODELS.OUTE_TTS.description}
             repo={MODELS.OUTE_TTS.repo}
             filename={MODELS.OUTE_TTS.filename}
             size={MODELS.OUTE_TTS.size}

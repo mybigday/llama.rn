@@ -5,7 +5,6 @@ export const MODELS = {
     filename: 'SmolLM3-Q4_K_M.gguf',
     mmproj: undefined,
     size: '1.78GB',
-    description: 'Fast, efficient text generation model',
   },
   GEMMA_3N: {
     name: 'Gemma 3N E4B IT (Q4_0)',
@@ -13,7 +12,6 @@ export const MODELS = {
     filename: 'gemma-3n-E4B-it-Q4_0.gguf',
     mmproj: undefined,
     size: '4.09GB',
-    description: 'Fast, efficient text generation model',
   },
   SMOL_VLM: {
     name: 'SmolVLM2 2.2B Instruct (Q4_K_M)',
@@ -21,7 +19,6 @@ export const MODELS = {
     filename: 'SmolVLM2-2.2B-Instruct-Q4_K_M.gguf',
     mmproj: 'mmproj-SmolVLM2-2.2B-Instruct-Q8_0.gguf',
     size: '1.8GB (model) + 565MB (mmproj)',
-    description: 'Vision-language model for image understanding',
   },
   GEMMA_3: {
    name: 'Gemma 3 4B IT (Q3_K_M)',
@@ -29,7 +26,6 @@ export const MODELS = {
     filename: 'gemma-3-4b-it-Q3_K_M.gguf',
     mmproj: 'mmproj-BF16.gguf',
     size: '1.95GB (model) + 881MB (mmproj)',
-    description: 'Vision-language model for image understanding',
   },
   OUTE_TTS: {
     name: 'OuteTTS 0.3 500M (Q4_K_M) + WavTokenizer (Q5_1)',
@@ -37,7 +33,6 @@ export const MODELS = {
     filename: 'OuteTTS-0.3-500M-Q4_K_M.gguf',
     mmproj: undefined,
     size: '454MB (model) + 70MB (vocoder)',
-    description: 'Text-to-speech generation model with WavTokenizer vocoder',
     vocoder: {
       repo: 'ggml-org/WavTokenizer',
       filename: 'WavTokenizer-Large-75-Q5_1.gguf',

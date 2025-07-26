@@ -528,7 +528,6 @@ export default function ToolCallsScreen() {
               <ModelDownloadCard
                 key={model}
                 title={modelInfo.name}
-                description={modelInfo.description}
                 repo={modelInfo.repo}
                 filename={modelInfo.filename}
                 size={modelInfo.size}

@@ -504,7 +504,7 @@ export default function MultimodalScreen() {
       <SafeAreaView style={styles.container}>
         <ScrollView style={styles.setupContainer}>
           <Text style={styles.setupDescription}>
-            Download the model to start analyzing images. This model can
+            Download the SmolVLM model to start analyzing images. This model can
             understand and describe images, answer questions about visual
             content, and engage in vision-language conversations.
           </Text>
@@ -515,7 +515,6 @@ export default function MultimodalScreen() {
               <VLMModelDownloadCard
                 key={model}
                 title={modelInfo.name}
-                description={modelInfo.description}
                 repo={modelInfo.repo}
                 filename={modelInfo.filename}
                 mmproj={modelInfo.mmproj || ''}

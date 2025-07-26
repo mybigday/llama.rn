@@ -61,7 +61,7 @@ function HomeScreen({ navigation }: { navigation: any }) {
       </TouchableOpacity>
       <TouchableOpacity
         style={styles.button}
-        onPress={() => navigation.navigate('ToolCalls')}
+        onPress={() => navigation.navigate('ToolCalling')}
       >
         <Text style={styles.buttonText}>🛠️ Tool Calling</Text>
       </TouchableOpacity>
@@ -86,7 +86,7 @@ function App() {
           <Stack.Screen name="SimpleChat" component={SimpleChatScreen} />
           <Stack.Screen name="Multimodal" component={MultimodalScreen} />
           <Stack.Screen name="TTS" component={TTSScreen} />
-          <Stack.Screen name="ToolCalls" component={ToolCallsScreen} />
+          <Stack.Screen name="ToolCalling" component={ToolCallsScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </GestureHandlerRootView>
