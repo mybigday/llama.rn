@@ -110,6 +110,8 @@ public class LlamaContext {
       params.hasKey("pooling_type") ? params.getInt("pooling_type") : -1,
       // boolean ctx_shift,
       params.hasKey("ctx_shift") ? params.getBoolean("ctx_shift") : true,
+      // boolean kv_unified,
+      params.hasKey("kv_unified") ? params.getBoolean("kv_unified") : true,
       // LoadProgressCallback load_progress_callback
       params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
     );
@@ -586,6 +588,7 @@ public class LlamaContext {
     float rope_freq_scale,
     int pooling_type,
     boolean ctx_shift,
+    boolean kv_unified,
     LoadProgressCallback load_progress_callback
   );
   protected static native boolean initMultimodal(long contextPtr, String mmproj_path, boolean MMPROJ_USE_GPU);

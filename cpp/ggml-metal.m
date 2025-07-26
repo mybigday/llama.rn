@@ -1959,6 +1959,7 @@ static bool lm_ggml_metal_supports_op(const struct lm_ggml_backend_metal_device_
 static int lm_ggml_metal_encode_node(
                         lm_ggml_backend_t   backend,
                                    int   idx,
+                                   int   idx_end,
           id<MTLComputeCommandEncoder>   encoder,
             struct lm_ggml_metal_mem_pool * mem_pool) {
     struct lm_ggml_backend_metal_context        * ctx     = backend->context;
@@ -2185,7 +2186,9 @@ static int lm_ggml_metal_encode_node(
                     size_t offs_fuse;
                     id<MTLBuffer> id_fuse;
 
-                    for (n_fuse = 0; n_fuse <= 6; ++n_fuse) {
+                    // note: in metal, we sometimes encode the graph in parallel so we have to avoid fusing nodes
+                    //       across splits. idx_end indicates the last node in the current split
+                    for (n_fuse = 0; n_fuse <= 6 && idx + n_fuse + 1 < idx_end; ++n_fuse) {
                         if (!lm_ggml_can_fuse(gf, idx + n_fuse, ops + n_fuse, 2)) {
                             break;
                         }
@@ -3142,6 +3145,7 @@ static int lm_ggml_metal_encode_node(
                     /*.n_group      =*/ n_group,
                     /*.n_seq_tokens =*/ n_seq_tokens,
                     /*.n_seqs       =*/ n_seqs,
+                    /*.s_off        =*/ lm_ggml_nelements(src1) * sizeof(float),
                     /*.nb01         =*/ nb01,
                     /*.nb02         =*/ nb02,
                     /*.nb03         =*/ nb03,
@@ -3170,12 +3174,22 @@ static int lm_ggml_metal_encode_node(
                 [encoder setBuffer:id_dst  offset:offs_dst  atIndex:7];
                 [encoder setBytes:&args    length:sizeof(args) atIndex:8];
 
+                // One shared memory bucket for each simd group in the threadgroup
+                // NOTE: Metal kernels require the buffer size to be multiple of 16 bytes
+                //  https://developer.apple.com/documentation/metal/mtlcomputecommandencoder/1443142-setthreadgroupmemorylength
+                if (d_state >= 32) {
+                    LM_GGML_ASSERT((int64_t)(d_state / 32) <= 32);
+                    const int64_t shmem_size = 32;
+                    LM_GGML_ASSERT(d_state <= (int64_t)pipeline.maxTotalThreadsPerThreadgroup);
+                    [encoder setThreadgroupMemoryLength:(shmem_size)*sizeof(float) atIndex:0];
+                }
+
                 if (ne30 == 1) {
                     // Mamba-2
-                    [encoder dispatchThreadgroups:MTLSizeMake(d_inner, n_head, n_seqs) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+                    [encoder dispatchThreadgroups:MTLSizeMake(d_inner, n_head, n_seqs) threadsPerThreadgroup:MTLSizeMake(d_state, 1, 1)];
                 } else {
                     LM_GGML_ASSERT(d_inner == 1);
-                    [encoder dispatchThreadgroups:MTLSizeMake(n_head, n_seqs, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+                    [encoder dispatchThreadgroups:MTLSizeMake(n_head, n_seqs, 1) threadsPerThreadgroup:MTLSizeMake(d_state, 1, 1)];
                 }
             } break;
         case LM_GGML_OP_RWKV_WKV6:
@@ -4292,7 +4306,7 @@ static int lm_ggml_metal_encode_node(
                     ops[1] = LM_GGML_OP_MUL;
                     ops[2] = LM_GGML_OP_ADD;
 
-                    for (n_fuse = 0; n_fuse <= 1; ++n_fuse) {
+                    for (n_fuse = 0; n_fuse <= 1 && idx + n_fuse + 1 < idx_end; ++n_fuse) {
                         if (!lm_ggml_can_fuse(gf, idx + n_fuse, ops + n_fuse, 2)) {
                             break;
                         }
@@ -6275,7 +6289,11 @@ static void lm_ggml_backend_metal_set_n_cb(lm_ggml_backend_t backend, int n_cb) 
                 [encoder pushDebugGroup:[NSString stringWithCString:lm_ggml_op_desc(lm_ggml_graph_node(ctx->gf, idx)) encoding:NSUTF8StringEncoding]];
             }
 
-            const int res = lm_ggml_metal_encode_node(backend, idx, encoder, mem_pool);
+            const int res = lm_ggml_metal_encode_node(backend, idx, node_end, encoder, mem_pool);
+            if (idx + res > node_end) {
+                LM_GGML_ABORT("fusion error: nodes spanning multiple encoders have been fused. this indicates a bug in the fusion logic %s",
+                        "https://github.com/ggml-org/llama.cpp/pull/14849");
+            }
 
             if (should_capture) {
                 [encoder popDebugGroup];
