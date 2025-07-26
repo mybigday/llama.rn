@@ -111,7 +111,7 @@ public class LlamaContext {
       // boolean ctx_shift,
       params.hasKey("ctx_shift") ? params.getBoolean("ctx_shift") : true,
       // boolean kv_unified,
-      params.hasKey("kv_unified") ? params.getBoolean("kv_unified") : true,
+      params.hasKey("kv_unified") ? params.getBoolean("kv_unified") : false,
       // LoadProgressCallback load_progress_callback
       params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
     );
