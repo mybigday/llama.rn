@@ -12,7 +12,7 @@ const CONTEXT_PARAMS_KEY = '@llama_context_params'
 const COMPLETION_PARAMS_KEY = '@llama_completion_params'
 
 // Default parameter values
-export const DEFAULT_CONTEXT_PARAMS = {
+export const DEFAULT_CONTEXT_PARAMS: ContextParams = {
   n_ctx: 8192,
   n_gpu_layers: 99,
   use_mlock: true,
@@ -21,10 +21,12 @@ export const DEFAULT_CONTEXT_PARAMS = {
   n_ubatch: 512,
   // n_threads: 4,
   ctx_shift: false,
+  cache_type_k: 'f16',
+  cache_type_v: 'f16',
   kv_unified: true,
 }
 
-export const DEFAULT_COMPLETION_PARAMS = {
+export const DEFAULT_COMPLETION_PARAMS: CompletionParams = {
   n_predict: 512,
   temperature: 0.7,
   top_p: 0.9,

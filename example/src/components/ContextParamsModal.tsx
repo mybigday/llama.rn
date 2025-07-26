@@ -383,6 +383,36 @@ export default function ContextParamsModal({
             </View>
           </View>
 
+          {/* Cache Type K */}
+          <View style={styles.paramGroup}>
+            <Text style={styles.paramLabel}>Cache Type K (cache_type_k)</Text>
+            <Text style={styles.paramDescription}>
+              Cache type for key values. Available values: f16, f32, q8_0, q4_0,
+              q4_1, iq4_nl, q5_0, q5_1
+            </Text>
+            <TextInput
+              style={styles.textInput}
+              value={params.cache_type_k}
+              onChangeText={(text) => updateParam('cache_type_k', text)}
+              placeholder="f16"
+            />
+          </View>
+
+          {/* Cache Type V */}
+          <View style={styles.paramGroup}>
+            <Text style={styles.paramLabel}>Cache Type V (cache_type_v)</Text>
+            <Text style={styles.paramDescription}>
+              Cache type for key values. Available values: f16, f32, q8_0, q4_0,
+              q4_1, iq4_nl, q5_0, q5_1
+            </Text>
+            <TextInput
+              style={styles.textInput}
+              value={params.cache_type_v}
+              onChangeText={(text) => updateParam('cache_type_v', text)}
+              placeholder="f16"
+            />
+          </View>
+
           {/* KV Unified */}
           <View style={styles.paramGroup}>
             <View style={styles.switchRow}>
