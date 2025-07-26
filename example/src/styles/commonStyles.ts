@@ -71,7 +71,7 @@ export const CommonStyles = StyleSheet.create({
     textAlign: 'center',
   },
   headerButton: {
-    marginRight: 15,
+    marginRight: 4,
   },
   headerButtonText: {
     color: Colors.primary,
