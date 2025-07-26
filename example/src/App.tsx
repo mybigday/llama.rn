@@ -14,7 +14,6 @@ import MultimodalScreen from './screens/MultimodalScreen'
 import TTSScreen from './screens/TTSScreen'
 import ToolCallsScreen from './screens/ToolCallsScreen'
 import ModelInfoScreen from './screens/ModelInfoScreen'
-import { HeaderButton } from './components/HeaderButton'
 import { CommonStyles } from './styles/commonStyles'
 
 // Example: Catch logs from llama.cpp
@@ -104,106 +103,30 @@ function App() {
           <Stack.Screen
             name="SimpleChat"
             component={SimpleChatScreen}
-            options={({ route }) => ({
+            options={{
               title: 'Simple Chat',
-              headerRight: () => {
-                const params = route.params as any
-                if (params?.showContextSettings) {
-                  return (
-                    <HeaderButton
-                      onPress={params.showContextSettings}
-                      title="Context Params"
-                    />
-                  )
-                } else if (params?.showCompletionSettings) {
-                  return (
-                    <HeaderButton
-                      onPress={params.showCompletionSettings}
-                      title="Params"
-                    />
-                  )
-                }
-                return null
-              },
-            })}
+            }}
           />
           <Stack.Screen
             name="Multimodal"
             component={MultimodalScreen}
-            options={({ route }) => ({
+            options={{
               title: 'Vision Chat',
-              headerRight: () => {
-                const params = route.params as any
-                if (params?.showContextSettings) {
-                  return (
-                    <HeaderButton
-                      onPress={params.showContextSettings}
-                      title="Context Params"
-                    />
-                  )
-                } else if (params?.showCompletionSettings) {
-                  return (
-                    <HeaderButton
-                      onPress={params.showCompletionSettings}
-                      title="Params"
-                    />
-                  )
-                }
-                return null
-              },
-            })}
+            }}
           />
           <Stack.Screen
             name="ToolCalling"
             component={ToolCallsScreen}
-            options={({ route }) => ({
+            options={{
               title: 'Tool Calling',
-              headerRight: () => {
-                const params = route.params as any
-                if (params?.showContextSettings) {
-                  return (
-                    <HeaderButton
-                      onPress={params.showContextSettings}
-                      title="Context Params"
-                    />
-                  )
-                } else if (params?.showCompletionSettings) {
-                  return (
-                    <HeaderButton
-                      onPress={params.showCompletionSettings}
-                      title="Params"
-                    />
-                  )
-                }
-                return null
-              },
-            })}
+            }}
           />
           <Stack.Screen
             name="TTS"
             component={TTSScreen}
-            options={({ route }) => ({
+            options={{
               title: 'Text-to-Speech',
-              headerRight: () => {
-                const params = route.params as any
-                if (params?.showContextSettings) {
-                  return (
-                    <HeaderButton
-                      onPress={params.showContextSettings}
-                      title="Context Params"
-                    />
-                  )
-                } else if (params?.showCompletionSettings) {
-                  return (
-                    <HeaderButton
-                      onPress={params.showCompletionSettings}
-                      title="Params"
-                    />
-                  )
-                }
-                return null
-              },
-            })}
+            }}
           />
           <Stack.Screen name="ModelInfo" component={ModelInfoScreen} />
         </Stack.Navigator>

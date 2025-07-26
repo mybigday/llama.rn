@@ -17,6 +17,7 @@ import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
 import { Bubble } from '../components/Bubble'
+import { HeaderButton } from '../components/HeaderButton'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
@@ -166,14 +167,22 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
   // Set up navigation header button
   useLayoutEffect(() => {
     if (isModelReady) {
-      navigation.setParams({
-        showCompletionSettings: () => setShowCompletionParamsModal(true),
-        showContextSettings: null,
+      navigation.setOptions({
+        headerRight: () => (
+          <HeaderButton
+            title="Params"
+            onPress={() => setShowCompletionParamsModal(true)}
+          />
+        ),
       })
     } else {
-      navigation.setParams({
-        showContextSettings: () => setShowContextParamsModal(true),
-        showCompletionSettings: null,
+      navigation.setOptions({
+        headerRight: () => (
+          <HeaderButton
+            title="Context Params"
+            onPress={() => setShowContextParamsModal(true)}
+          />
+        ),
       })
     }
   }, [navigation, isModelReady])
