@@ -1053,6 +1053,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     }
 
     auto result = createWriteableMap(env);
+    putInt(env, result, "chat_format", chat_format);
     putString(env, result, "text", llama->generated_text.c_str());
     if (!content.empty()) {
         putString(env, result, "content", content.c_str());

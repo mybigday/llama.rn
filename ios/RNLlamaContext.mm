@@ -688,9 +688,12 @@
     NSMutableArray *toolCalls = nil;
     NSString *reasoningContent = nil;
     NSString *content = nil;
+    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
+    auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
+    result[@"chat_format"] = @(chat_format);
+
     if (!llama->is_interrupted) {
         try {
-            auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
             common_chat_syntax chat_syntax;
             chat_syntax.format = static_cast<common_chat_format>(chat_format);
 
@@ -725,7 +728,6 @@
         }
     }
 
-    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
     result[@"text"] = [NSString stringWithUTF8String:llama->generated_text.c_str()]; // Original text
     if (content) result[@"content"] = content;
     if (reasoningContent) result[@"reasoning_content"] = reasoningContent;

@@ -298,6 +298,8 @@ export type NativeCompletionResult = {
    */
   content: string
 
+  chat_format: number
+
   tokens_predicted: number
   tokens_evaluated: number
   truncated: boolean
