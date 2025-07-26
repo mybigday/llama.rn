@@ -28,6 +28,7 @@ const styles = StyleSheet.create({
   // Using shared styles for common patterns
   container: CommonStyles.container,
   setupContainer: CommonStyles.setupContainer,
+  scrollContent: CommonStyles.scrollContent,
   setupTitle: CommonStyles.setupTitle,
   setupDescription: CommonStyles.setupDescription,
   loadingContainer: CommonStyles.loadingContainer,
@@ -212,13 +213,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       const llamaContext = await initLlama(
         {
           model: ttsPath,
-          n_ctx: params.n_ctx || 8192,
-          n_batch: params.n_batch || 512,
-          n_ubatch: params.n_ubatch || 512,
-          n_threads: params.n_threads || 8,
-          n_gpu_layers: params.n_gpu_layers || 99,
-          use_mlock: params.use_mlock,
-          ctx_shift: params.ctx_shift || false,
+          ...params,
         },
         (progress) => {
           // Progress is reported as 1 to 100
@@ -367,7 +362,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
   if (!isModelReady) {
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView style={styles.setupContainer}>
+        <ScrollView style={styles.setupContainer} contentContainerStyle={styles.scrollContent}>
           <Text style={styles.setupDescription}>
             Download the OuteTTS model to convert text into natural-sounding
             speech. For full audio generation and playback, you&apos;ll also

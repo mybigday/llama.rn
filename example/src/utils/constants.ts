@@ -6,12 +6,19 @@ export const MODELS = {
     mmproj: undefined,
     size: '1.78GB',
   },
-  GEMMA_3N: {
-    name: 'Gemma 3N E4B IT (Q4_0)',
-    repo: 'unsloth/gemma-3n-E4B-it-GGUF',
-    filename: 'gemma-3n-E4B-it-Q4_0.gguf',
+  GEMMA_3N_E2B: {
+    name: 'Gemma 3N E2B IT (Q3_K_M)',
+    repo: 'unsloth/gemma-3n-E2B-it-GGUF',
+    filename: 'gemma-3n-E2B-it-Q3_K_M.gguf',
     mmproj: undefined,
-    size: '4.09GB',
+    size: '2.31GB',
+  },
+  GEMMA_3N_E4B: {
+    name: 'Gemma 3N E4B IT (Q3_K_M)',
+    repo: 'unsloth/gemma-3n-E4B-it-GGUF',
+    filename: 'gemma-3n-E4B-it-Q3_K_M.gguf',
+    mmproj: undefined,
+    size: '3.44GB',
   },
   SMOL_VLM: {
     name: 'SmolVLM2 2.2B Instruct (Q4_K_M)',

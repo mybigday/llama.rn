@@ -25,6 +25,7 @@ const randId = () => Math.random().toString(36).substr(2, 9)
 const styles = {
   container: CommonStyles.container,
   setupContainer: CommonStyles.setupContainer,
+  scrollContent: CommonStyles.scrollContent,
   setupDescription: CommonStyles.setupDescription,
 }
 
@@ -252,13 +253,13 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   if (!isModelReady) {
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView style={styles.setupContainer}>
+        <ScrollView style={styles.setupContainer} contentContainerStyle={styles.scrollContent}>
           <Text style={styles.setupDescription}>
             Download the model to start chatting. This model provides fast,
             efficient text generation for conversational AI.
           </Text>
 
-          {['SMOL_LM', 'GEMMA_3N'].map((model) => {
+          {['SMOL_LM', 'GEMMA_3N_E2B', 'GEMMA_3N_E4B', 'GEMMA_3'].map((model) => {
             const modelInfo = MODELS[model as keyof typeof MODELS]
             return (
               <ModelDownloadCard

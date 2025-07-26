@@ -31,9 +31,7 @@ const styles = StyleSheet.create({
     ...CommonStyles.description,
     marginHorizontal: 16,
   },
-  scrollContent: {
-    paddingBottom: 20,
-  },
+  scrollContent: CommonStyles.scrollContent,
   // Modal styles - using shared base with customizations
   modalContainer: CommonStyles.modalContainer,
   modalContent: {

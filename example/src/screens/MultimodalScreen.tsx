@@ -42,6 +42,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: CommonStyles.headerTitle,
   setupContainer: CommonStyles.setupContainer,
+  scrollContent: CommonStyles.scrollContent,
   setupDescription: CommonStyles.setupDescription,
   loadingContainer: CommonStyles.loadingContainer,
   loadingText: CommonStyles.loadingText,
@@ -206,14 +207,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       const llamaContext = await initLlama(
         {
           model: modelPath,
-          n_ctx: params.n_ctx,
-          n_gpu_layers: params.n_gpu_layers,
-          use_mlock: params.use_mlock,
-          use_mmap: params.use_mmap,
-          n_batch: params.n_batch,
-          n_ubatch: params.n_ubatch,
-          n_threads: params.n_threads,
-          ctx_shift: params.ctx_shift,
+          ...params,
         },
         (progress) => {
           // Progress is reported as 1 to 100
@@ -609,7 +603,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
   if (!isModelReady) {
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView style={styles.setupContainer}>
+        <ScrollView style={styles.setupContainer} contentContainerStyle={styles.scrollContent}>
           <Text style={styles.setupDescription}>
             Download the SmolVLM model to start analyzing images. This model can
             understand and describe images, answer questions about visual

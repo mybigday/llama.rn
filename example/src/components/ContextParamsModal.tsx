@@ -340,11 +340,31 @@ export default function ContextParamsModal({
             </View>
           </View>
 
+          {/* Flash Attention */}
+          <View style={styles.paramGroup}>
+            <View style={styles.switchRow}>
+              <View style={styles.switchInfo}>
+                <Text style={styles.paramLabel}>
+                  Flash Attention (flash_attn)
+                </Text>
+                <Text style={styles.paramDescription}>
+                  Only recommended in GPU device.
+                </Text>
+              </View>
+              <Switch
+                value={params.flash_attn || false}
+                onValueChange={(value) => updateParam('flash_attn', value)}
+                trackColor={{ false: '#E0E0E0', true: '#007AFF' }}
+                thumbColor={params.flash_attn ? '#FFFFFF' : '#FFFFFF'}
+              />
+            </View>
+          </View>
+
           {/* Cache Type K */}
           <View style={styles.paramGroup}>
             <Text style={styles.paramLabel}>Cache Type K (cache_type_k)</Text>
             <Text style={styles.paramDescription}>
-              Cache type for key values. Available values: f16, f32, q8_0, q4_0,
+              KV cache data type for the K. Need enable flash_attn to change this. Available values: f16, f32, q8_0, q4_0,
               q4_1, iq4_nl, q5_0, q5_1
             </Text>
             <TextInput
@@ -359,7 +379,7 @@ export default function ContextParamsModal({
           <View style={styles.paramGroup}>
             <Text style={styles.paramLabel}>Cache Type V (cache_type_v)</Text>
             <Text style={styles.paramDescription}>
-              Cache type for key values. Available values: f16, f32, q8_0, q4_0,
+              KV cache data type for the V. Need enable flash_attn if change this. Available values: f16, f32, q8_0, q4_0,
               q4_1, iq4_nl, q5_0, q5_1
             </Text>
             <TextInput

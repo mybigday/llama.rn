@@ -50,6 +50,9 @@ export const CommonStyles = StyleSheet.create({
     flex: 1,
     padding: Spacing.lg,
   },
+  scrollContent: {
+    paddingBottom: 20,
+  },
 
   // Header styles
   header: {

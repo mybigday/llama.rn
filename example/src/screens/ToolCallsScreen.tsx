@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useLayoutEffect } from 'react'
+import React, {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useRef,
+} from 'react'
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import {
@@ -45,6 +51,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   setupContainer: CommonStyles.setupContainer,
+  scrollContent: CommonStyles.scrollContent,
   setupDescription: CommonStyles.setupDescription,
   loadingContainer: CommonStyles.loadingContainer,
   loadingText: CommonStyles.loadingText,
@@ -135,7 +142,8 @@ const AVAILABLE_TOOLS = [
 ]
 
 export default function ToolCallsScreen({ navigation }: { navigation: any }) {
-  const [messages, setMessages] = useState<MessageType.Any[]>([])
+  const messagesRef = useRef<MessageType.Any[]>([])
+  const [, setMessagesVersion] = useState(0) // For UI updates
   const [isLoading, setIsLoading] = useState(false)
   const [context, setContext] = useState<LlamaContext | null>(null)
   const [isModelReady, setIsModelReady] = useState(false)
@@ -188,7 +196,24 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
   }, [navigation, isModelReady])
 
   const addMessage = (message: MessageType.Any) => {
-    setMessages((msgs) => [message, ...msgs])
+    messagesRef.current = [message, ...messagesRef.current]
+    setMessagesVersion((prev) => prev + 1)
+  }
+
+  const updateMessage = (
+    messageId: string,
+    updateFn: (msg: MessageType.Any) => MessageType.Any,
+  ) => {
+    const index = messagesRef.current.findIndex((msg) => msg.id === messageId)
+    if (index >= 0) {
+      messagesRef.current = messagesRef.current.map((msg, i) => {
+        if (i === index) {
+          return updateFn(msg)
+        }
+        return msg
+      })
+      setMessagesVersion((prev) => prev + 1)
+    }
   }
 
   const addSystemMessage = (text: string, metadata = {}) => {
@@ -310,220 +335,244 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
     }
   }
 
-  const handleSendPress = async (message: MessageType.PartialText) => {
-    if (!context || isLoading) return
+  const performCompletion = useCallback(
+    async (userMessageText?: string) => {
+      if (!context || isLoading) return
 
-    const userMessage: MessageType.Text = {
-      author: user,
-      createdAt: Date.now(),
-      id: randId(),
-      text: message.text,
-      type: 'text',
-    }
-
-    addMessage(userMessage)
-    setIsLoading(true)
-
-    try {
-      // Build messages array for conversation context
-      const conversationMessages = [
-        {
-          role: 'system' as const,
-          content:
-            'You are a helpful AI assistant with access to tools. You can call tools to help answer user questions.',
-        },
-        // Add previous messages from chat history
-        ...messages
-          .filter(
-            (msg): msg is MessageType.Text =>
-              msg.type === 'text' &&
-              !msg.metadata?.system &&
-              !msg.metadata?.toolCalls &&
-              !msg.metadata?.toolResults,
-          )
-          .reverse() // Reverse to get chronological order
-          .slice(-8) // Keep fewer messages when tools are involved
-          .map((msg) => ({
-            role:
-              msg.author.id === user.id
-                ? ('user' as const)
-                : ('assistant' as const),
-            content: msg.text,
-          })),
-        // Add current user message
-        {
-          role: 'user' as const,
-          content: message.text,
-        },
-      ]
-
-      let response = ''
-      const responseId = randId()
-      const responseMessage: MessageType.Text = {
-        author: assistant,
-        createdAt: Date.now(),
-        id: responseId,
-        text: '',
-        type: 'text',
+      if (userMessageText) {
+        const userMessage: MessageType.Text = {
+          author: user,
+          createdAt: Date.now(),
+          id: randId(),
+          text: userMessageText,
+          type: 'text',
+        }
+        addMessage(userMessage)
       }
 
-      addMessage(responseMessage)
+      setIsLoading(true)
 
-      const completionParameters =
-        completionParams || (await loadCompletionParams())
-      const completionResult = await context.completion(
-        {
-          messages: conversationMessages,
-          tools: AVAILABLE_TOOLS,
-          tool_choice: 'auto',
-          jinja: true,
-          ...completionParameters,
-        },
-        (data) => {
-          const { token } = data
-
-          if (token) {
-            response += token
-
-            setMessages((currentMsgs) => {
-              const index = currentMsgs.findIndex(
-                (msg) => msg.id === responseId,
-              )
-              if (index >= 0) {
-                return currentMsgs.map((msg, i) => {
-                  if (msg.type === 'text' && i === index) {
-                    return {
-                      ...msg,
-                      text: response.replace(/^\s+/, ''),
-                    }
-                  }
-                  return msg
+      try {
+        // Build messages array for conversation context
+        const conversationMessages = [
+          {
+            role: 'system' as const,
+            content:
+              'You are a helpful AI assistant with access to tools. You can call tools to help answer user questions.',
+          },
+          // Add previous messages from chat history
+          ...messagesRef.current
+            .filter(
+              (msg): msg is MessageType.Text =>
+                msg.type === 'text' && !msg.metadata?.system,
+            )
+            .reverse() // Reverse to get chronological order
+            .reduce((acc: any[], msg) => {
+              if (msg.metadata?.toolCalls) {
+                // This is an assistant message that made tool calls
+                acc.push({
+                  role: 'assistant' as const,
+                  content: msg.text,
+                  tool_calls: msg.metadata.storedToolCalls || [],
+                })
+              } else if (msg.metadata?.toolResults) {
+                // This contains tool results, add them as individual tool messages
+                const toolResults = msg.metadata.storedToolResults || []
+                toolResults.forEach((toolResult: any) => {
+                  acc.push({
+                    role: 'tool' as const,
+                    tool_call_id: toolResult.tool_call_id,
+                    content: toolResult.content,
+                  })
+                })
+              } else if (msg.author.id === user.id) {
+                // Regular user message
+                acc.push({
+                  role: 'user' as const,
+                  content: msg.text,
+                })
+              } else if (
+                !msg.metadata?.toolCalls &&
+                !msg.metadata?.toolResults
+              ) {
+                // Regular assistant message (only if not tool-related)
+                acc.push({
+                  role: 'assistant',
+                  content: msg.text,
                 })
               }
-              return currentMsgs
-            })
-          }
-        },
-      )
-
-      const toolCalls = completionResult.tool_calls || []
-
-      // Handle tool calls if any were made
-      if (toolCalls && toolCalls.length > 0) {
-        // Ensure all tool calls have IDs
-        toolCalls.forEach((toolCall) => {
-          if (!toolCall.id) toolCall.id = randId()
-        })
-
-        // Show tool execution message
-        const toolMessage: MessageType.Text = {
-          author: assistant,
-          createdAt: Date.now() + 1,
-          id: randId(),
-          text: `🛠️ Executing ${toolCalls.length} tool(s):\n${toolCalls
-            .map((t) => `• ${t.function.name}(${t.function.arguments})`)
-            .join('\n')}`,
-          type: 'text',
-          metadata: { system: true, toolCalls: true },
-        }
-        addMessage(toolMessage)
-
-        // Execute tool calls
-        const toolResults = await Promise.all(
-          toolCalls.map(async (toolCall) => {
-            const result = await executeTool({
-              id: toolCall.id!,
-              name: toolCall.function.name,
-              arguments: JSON.parse(toolCall.function.arguments),
-            })
-            return {
-              tool_call_id: toolCall.id!,
-              role: 'tool' as const,
-              content: result.error
-                ? result.error
-                : JSON.stringify(result.result),
-            }
-          }),
-        )
-
-        // Show tool results
-        const resultsMessage: MessageType.Text = {
-          author: assistant,
-          createdAt: Date.now() + 2,
-          id: randId(),
-          text: `📊 Tool Results:\n${toolResults
-            .map((r) => `• ${r.tool_call_id}: ✅ ${r.content}`)
-            .join('\n')}`,
-          type: 'text',
-          metadata: { system: true, toolResults: true },
-        }
-        addMessage(resultsMessage)
-
-        // Generate final response with tool results
-        const followUpMessages = [
-          ...conversationMessages,
-          {
-            role: 'assistant' as const,
-            content: completionResult.content || response,
-            tool_calls: toolCalls,
-          },
-          ...toolResults,
+              return acc
+            }, []),
         ]
 
-        response = ''
-        const finalResponseId = randId()
-        const finalResponseMessage: MessageType.Text = {
+        let response = ''
+        const responseId = randId()
+        const responseMessage: MessageType.Text = {
           author: assistant,
-          createdAt: Date.now() + 3,
-          id: finalResponseId,
+          createdAt: Date.now(),
+          id: responseId,
           text: '',
           type: 'text',
         }
 
-        addMessage(finalResponseMessage)
+        addMessage(responseMessage)
 
-        await context.completion(
+        const completionParameters =
+          completionParams || (await loadCompletionParams())
+        const completionResult = await context.completion(
           {
-            messages: followUpMessages,
+            messages: conversationMessages,
             tools: AVAILABLE_TOOLS,
             tool_choice: 'auto',
             jinja: true,
-            n_predict: 512,
-            temperature: 0.7,
-            top_p: 0.9,
-            stop: ['<|im_end|>', '<end_of_turn>'],
+            ...completionParameters,
           },
           (data) => {
             const { token } = data
+
             if (token) {
               response += token
 
-              setMessages((currentMsgs) => {
-                const index = currentMsgs.findIndex(
-                  (msg) => msg.id === finalResponseId,
-                )
-                if (index >= 0) {
-                  return currentMsgs.map((msg, i) => {
-                    if (msg.type === 'text' && i === index) {
-                      return {
-                        ...msg,
-                        text: response.replace(/^\s+/, ''),
-                      }
-                    }
-                    return msg
-                  })
+              updateMessage(responseId, (msg) => {
+                if (msg.type === 'text') {
+                  return {
+                    ...msg,
+                    text: response.replace(/^\s+/, ''),
+                  }
                 }
-                return currentMsgs
+                return msg
               })
             }
           },
         )
+
+        const toolCalls = completionResult.tool_calls || []
+
+        // Handle tool calls if any were made
+        if (toolCalls && toolCalls.length > 0) {
+          // Ensure all tool calls have IDs
+          toolCalls.forEach((toolCall) => {
+            if (!toolCall.id) toolCall.id = randId()
+          })
+
+          // Update the response message to store tool calls in metadata
+          updateMessage(responseId, (msg) => {
+            if (msg.type === 'text') {
+              return {
+                ...msg,
+                // text: completionResult.content,
+                metadata: {
+                  ...msg.metadata,
+                  toolCalls: true,
+                  storedToolCalls: toolCalls,
+                },
+              }
+            }
+            return msg
+          })
+
+          // Ask user for confirmation before executing tools
+          const shouldExecute = await new Promise<boolean>((resolve) => {
+            Alert.alert(
+              'Tool Execution Request',
+              `The AI wants to execute ${
+                toolCalls.length
+              } tool(s):\n\n${toolCalls
+                .map((t) => `• ${t.function.name}(${t.function.arguments})`)
+                .join('\n')}\n\nDo you want to allow this?`,
+              [
+                {
+                  text: 'Cancel',
+                  style: 'cancel',
+                  onPress: () => resolve(false),
+                },
+                {
+                  text: 'Allow',
+                  onPress: () => resolve(true),
+                },
+              ],
+            )
+          })
+
+          let toolResults
+          if (!shouldExecute) {
+            // User declined tool execution - create error results
+            toolResults = toolCalls.map((toolCall) => ({
+              tool_call_id: toolCall.id!,
+              role: 'tool' as const,
+              content: 'Tool execution was declined by the user',
+            }))
+
+            const declineMessage: MessageType.Text = {
+              author: assistant,
+              createdAt: Date.now() + 1,
+              id: randId(),
+              text: '❌ Tool execution declined by user',
+              type: 'text',
+              metadata: {
+                toolResults: true,
+                storedToolResults: toolResults,
+              },
+            }
+            addMessage(declineMessage)
+          } else {
+            // Execute tool calls
+            toolResults = await Promise.all(
+              toolCalls.map(async (toolCall) => {
+                const result = await executeTool({
+                  id: toolCall.id!,
+                  name: toolCall.function.name,
+                  arguments: JSON.parse(toolCall.function.arguments),
+                })
+                return {
+                  tool_call_id: toolCall.id!,
+                  role: 'tool' as const,
+                  content: result.error
+                    ? result.error
+                    : JSON.stringify(result.result),
+                }
+              }),
+            )
+
+            // Show tool results
+            const resultsMessage: MessageType.Text = {
+              author: assistant,
+              createdAt: Date.now() + 2,
+              id: randId(),
+              text: `📊 Tool Results:\n${toolResults
+                .map(
+                  (r) =>
+                    `• ${r.tool_call_id}: ${shouldExecute ? '✅' : '❌'} ${
+                      r.content
+                    }`,
+                )
+                .join('\n')}`,
+              type: 'text',
+              metadata: {
+                toolResults: true,
+                storedToolResults: toolResults,
+              },
+            }
+            addMessage(resultsMessage)
+          }
+
+          // Continue the conversation with tool results by calling performCompletion recursively
+          // Wait a bit to let the UI update, then continue recursively
+          setTimeout(() => {
+            performCompletion()
+          }, 1000)
+        }
+      } catch (error: any) {
+        Alert.alert('Error', `Failed to generate response: ${error.message}`)
+      } finally {
+        setIsLoading(false)
       }
-    } catch (error: any) {
-      Alert.alert('Error', `Failed to generate response: ${error.message}`)
-    } finally {
-      setIsLoading(false)
-    }
+    },
+    [context, isLoading, completionParams],
+  )
+
+  const handleSendPress = async (message: MessageType.PartialText) => {
+    await performCompletion(message.text)
   }
 
   const renderBubble = ({
@@ -537,26 +586,31 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
   if (!isModelReady) {
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView style={styles.setupContainer}>
+        <ScrollView
+          style={styles.setupContainer}
+          contentContainerStyle={styles.scrollContent}
+        >
           <Text style={styles.setupDescription}>
             Download a compatible model to demonstrate tool calling
             capabilities. The AI can execute functions like weather queries,
             calculations, and time lookups.
           </Text>
 
-          {['SMOL_LM', 'GEMMA_3N'].map((model) => {
-            const modelInfo = MODELS[model as keyof typeof MODELS]
-            return (
-              <ModelDownloadCard
-                key={model}
-                title={modelInfo.name}
-                repo={modelInfo.repo}
-                filename={modelInfo.filename}
-                size={modelInfo.size}
-                onInitialize={initializeModel}
-              />
-            )
-          })}
+          {['SMOL_LM', 'GEMMA_3N_E2B', 'GEMMA_3N_E4B', 'GEMMA_3'].map(
+            (model) => {
+              const modelInfo = MODELS[model as keyof typeof MODELS]
+              return (
+                <ModelDownloadCard
+                  key={model}
+                  title={modelInfo.name}
+                  repo={modelInfo.repo}
+                  filename={modelInfo.filename}
+                  size={modelInfo.size}
+                  onInitialize={initializeModel}
+                />
+              )
+            },
+          )}
 
           {isLoading && (
             <View style={styles.loadingContainer}>
@@ -594,7 +648,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
       <Chat
         renderBubble={renderBubble}
         theme={defaultTheme}
-        messages={messages}
+        messages={messagesRef.current}
         onSendPress={handleSendPress}
         user={user}
         textInputProps={{
