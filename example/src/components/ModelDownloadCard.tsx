@@ -25,6 +25,7 @@ interface BaseModelDownloadCardProps {
   files: ModelFile[]; // Array of files to download
   onInitialize?: (...paths: string[]) => void;
   downloadButtonText?: string;
+  initializeButtonText?: string;
 }
 
 interface ModelDownloadCardProps {
@@ -34,6 +35,7 @@ interface ModelDownloadCardProps {
   size: string;
   onDownloaded?: (path: string) => void;
   onInitialize?: (path: string) => void;
+  initializeButtonText?: string;
 }
 
 interface TTSModelDownloadCardProps {
@@ -47,6 +49,7 @@ interface TTSModelDownloadCardProps {
     size: string;
   };
   onInitialize: (ttsPath: string, vocoderPath: string) => void;
+  initializeButtonText?: string;
 }
 
 interface VLMModelDownloadCardProps {
@@ -56,6 +59,7 @@ interface VLMModelDownloadCardProps {
   mmproj: string;
   size: string;
   onInitialize: (modelPath: string, mmprojPath: string) => void;
+  initializeButtonText?: string;
 }
 
 // Common styles
@@ -208,6 +212,7 @@ function BaseModelDownloadCard({
   files,
   onInitialize,
   downloadButtonText = 'Download',
+  initializeButtonText = 'Initialize',
 }: BaseModelDownloadCardProps) {
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -390,7 +395,7 @@ function BaseModelDownloadCard({
                 <Text style={styles.deleteButtonText}>Delete</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.initializeButton} onPress={handleInitialize}>
-                <Text style={styles.initializeButtonText}>Initialize</Text>
+                <Text style={styles.initializeButtonText}>{initializeButtonText}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -408,6 +413,7 @@ function ModelDownloadCard({
   size,
   onDownloaded: _onDownloaded,
   onInitialize,
+  initializeButtonText,
 }: ModelDownloadCardProps) {
   const files: ModelFile[] = [{ repo, filename }];
 
@@ -418,6 +424,7 @@ function ModelDownloadCard({
       files={files}
       onInitialize={onInitialize}
       downloadButtonText="Download"
+      initializeButtonText={initializeButtonText}
     />
   );
 }
@@ -430,6 +437,7 @@ export function TTSModelDownloadCard({
   size,
   vocoder,
   onInitialize,
+  initializeButtonText,
 }: TTSModelDownloadCardProps) {
   const files: ModelFile[] = [
     { repo, filename, label: 'TTS model' },
@@ -443,6 +451,7 @@ export function TTSModelDownloadCard({
       files={files}
       onInitialize={onInitialize}
       downloadButtonText="Download Both Models"
+      initializeButtonText={initializeButtonText}
     />
   );
 }
@@ -455,6 +464,7 @@ export function VLMModelDownloadCard({
   mmproj,
   size,
   onInitialize,
+  initializeButtonText,
 }: VLMModelDownloadCardProps) {
   const files: ModelFile[] = [
     { repo, filename, label: 'VLM model' },
@@ -468,6 +478,7 @@ export function VLMModelDownloadCard({
       files={files}
       onInitialize={onInitialize}
       downloadButtonText="Download VLM & MMProj"
+      initializeButtonText={initializeButtonText}
     />
   );
 }

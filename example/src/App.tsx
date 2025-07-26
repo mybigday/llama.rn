@@ -13,6 +13,7 @@ import SimpleChatScreen from './screens/SimpleChatScreen'
 import MultimodalScreen from './screens/MultimodalScreen'
 import TTSScreen from './screens/TTSScreen'
 import ToolCallsScreen from './screens/ToolCallsScreen'
+import ModalInfoScreen from './screens/ModalInfoScreen'
 
 // Example: Catch logs from llama.cpp
 toggleNativeLog(true)
@@ -71,6 +72,12 @@ function HomeScreen({ navigation }: { navigation: any }) {
       >
         <Text style={styles.buttonText}>🔊 Text-to-Speech (OuteTTS)</Text>
       </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.button}
+        onPress={() => navigation.navigate('ModalInfo')}
+      >
+        <Text style={styles.buttonText}>📊 Modal Info</Text>
+      </TouchableOpacity>
     </View>
   )
 }
@@ -87,6 +94,7 @@ function App() {
           <Stack.Screen name="Multimodal" component={MultimodalScreen} />
           <Stack.Screen name="TTS" component={TTSScreen} />
           <Stack.Screen name="ToolCalling" component={ToolCallsScreen} />
+          <Stack.Screen name="ModalInfo" component={ModalInfoScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </GestureHandlerRootView>
