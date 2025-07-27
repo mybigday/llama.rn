@@ -501,8 +501,6 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           if (!toolCall.id) toolCall.id = randId()
         })
 
-        console.log('toolCalls', toolCalls)
-
         // Update the response message to store tool calls in metadata
         updateMessage(responseId, (msg) => {
           if (msg.type === 'text') {
@@ -553,8 +551,8 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           // User declined tool execution - create error results
           toolResults = toolCalls.map((toolCall) => ({
             tool_call_id: toolCall.id!,
-            role: 'tool' as const,
-            content: 'Tool execution was declined by the user',
+            role: 'tool',
+            content: 'Error: Tool execution was declined by the user',
           }))
 
           const declineMessage: MessageType.Text = {
@@ -580,7 +578,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
               })
               return {
                 tool_call_id: toolCall.id!,
-                role: 'tool' as const,
+                role: 'tool',
                 content: result.error
                   ? result.error
                   : JSON.stringify(result.result),
@@ -648,7 +646,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
             calculations, and time lookups.
           </Text>
 
-          {['SMOL_LM', 'GEMMA_3N_E2B', 'GEMMA_3N_E4B', 'GEMMA_3'].map(
+          {['SMOL_LM_3', 'GEMMA_3_4B_QAT', 'QWEN_3_4B', 'GEMMA_3N_E2B', 'GEMMA_3N_E4B'].map(
             (model) => {
               const modelInfo = MODELS[model as keyof typeof MODELS]
               return (

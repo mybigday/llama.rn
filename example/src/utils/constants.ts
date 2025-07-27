@@ -1,5 +1,5 @@
 export const MODELS = {
-  SMOL_LM: {
+  SMOL_LM_3: {
     name: 'SmolLM3 3B (Q4_K_M)',
     repo: 'ggml-org/SmolLM3-3B-GGUF',
     filename: 'SmolLM3-Q4_K_M.gguf',
@@ -20,17 +20,32 @@ export const MODELS = {
     mmproj: undefined,
     size: '3.44GB',
   },
-  SMOL_VLM: {
+  QWEN_3_4B: {
+    name: 'Qwen 3 4B (Q3_K_M)',
+    repo: 'unsloth/Qwen3-4B-GGUF',
+    filename: 'Qwen3-4B-Q3_K_M.gguf',
+    mmproj: undefined,
+    size: '1.93GB',
+  },
+  SMOL_VLM_500M: {
+    // https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/SmolVLM-500M-Instruct-Q8_0.gguf?download=true
+    name: 'SmolVLM 500M (Q8_0)',
+    repo: 'ggml-org/SmolVLM-500M-Instruct-GGUF',
+    filename: 'SmolVLM-500M-Instruct-Q8_0.gguf',
+    mmproj: 'mmproj-SmolVLM-500M-Instruct-Q8_0.gguf',
+    size: '416MB',
+  },
+  SMOL_VLM_2_2B: {
     name: 'SmolVLM2 2.2B Instruct (Q4_K_M)',
     repo: 'ggml-org/SmolVLM2-2.2B-Instruct-GGUF',
     filename: 'SmolVLM2-2.2B-Instruct-Q4_K_M.gguf',
     mmproj: 'mmproj-SmolVLM2-2.2B-Instruct-Q8_0.gguf',
     size: '1.8GB (model) + 565MB (mmproj)',
   },
-  GEMMA_3: {
-   name: 'Gemma 3 4B IT (Q3_K_M)',
-    repo: 'unsloth/gemma-3-4b-it-GGUF',
-    filename: 'gemma-3-4b-it-Q3_K_M.gguf',
+  GEMMA_3_4B_QAT: {
+    name: 'Gemma 3 4B IT QAT (Q3_K_M)',
+    repo: 'unsloth/gemma-3-4b-it-qat-GGUF',
+    filename: 'gemma-3-4b-it-qat-Q3_K_M.gguf',
     mmproj: 'mmproj-BF16.gguf',
     size: '1.95GB (model) + 881MB (mmproj)',
   },
@@ -46,10 +61,9 @@ export const MODELS = {
       size: '70MB',
     },
   },
-} as const;
+} as const
 
-
-export const HUGGINGFACE_BASE_URL = 'https://huggingface.co';
+export const HUGGINGFACE_BASE_URL = 'https://huggingface.co'
 
 export const getModelDownloadUrl = (repo: string, filename: string) =>
-  `${HUGGINGFACE_BASE_URL}/${repo}/resolve/main/${filename}?download=true`;
+  `${HUGGINGFACE_BASE_URL}/${repo}/resolve/main/${filename}?download=true`

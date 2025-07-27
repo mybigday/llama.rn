@@ -300,7 +300,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
             efficient text generation for conversational AI.
           </Text>
 
-          {['SMOL_LM', 'GEMMA_3N_E2B', 'GEMMA_3N_E4B', 'GEMMA_3'].map((model) => {
+          {['SMOL_LM_3', 'GEMMA_3_4B_QAT', 'QWEN_3_4B', 'GEMMA_3N_E2B', 'GEMMA_3N_E4B'].map((model) => {
             const modelInfo = MODELS[model as keyof typeof MODELS]
             return (
               <ModelDownloadCard
