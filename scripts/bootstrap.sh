@@ -337,7 +337,7 @@ done
 
 echo "Replacement completed successfully!"
 
-yarn example
+cd example && npm install && cd ..
 
 # Apply patch
 patch -p0 -d ./cpp < ./scripts/patches/common.h.patch
