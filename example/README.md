@@ -17,7 +17,7 @@ The example app demonstrates various local LLM capabilities:
 Please back to the root directory and run the following command:
 
 ```bash
-yarn && yarn bootstrap
+npm install && npm run bootstrap
 ```
 
 ## iOS
@@ -25,26 +25,26 @@ yarn && yarn bootstrap
 1. Install pods
 
 ```bash
-yarn pods
+npm run pods
 ```
 
 2. Run the example
 
 ```bash
-yarn ios
+npm run ios
 # Use device
-yarn ios --device "<device name>"
+npm run ios -- --device "<device name>"
 # With release mode
-yarn ios --mode Release
+npm run ios -- --mode Release
 ```
 
 ## Android
 
 Run the example:
 ```bash
-yarn android
+npm run android
 # With release mode
-yarn android --mode release
+npm run android -- --mode release
 ```
 
 ## Build with frameworks/libs
@@ -53,16 +53,16 @@ This example is build llama.rn from source code by default, you can also build w
 
 ```bash
 # Build iOS frameworks
-yarn build:ios-frameworks
+npm run build:ios-frameworks
 # Build Android libs
-yarn build:android-libs
+npm run build:android-libs
 ```
 
 Then you can setup the environment variable / properties in your project:
 
 iOS:
 ```bash
-RNLLAMA_BUILD_FROM_SOURCE=0 yarn pods
+RNLLAMA_BUILD_FROM_SOURCE=0 npm run pods
 ```
 
 Android: Edit `android/gradle.properties` and set `rnllamaBuildFromSource` to `false`.

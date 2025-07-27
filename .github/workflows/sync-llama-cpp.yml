@@ -28,7 +28,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'yarn'
+          cache: 'npm'
 
       - name: Setup JDK 17 for Android builds
         uses: actions/setup-java@v4
@@ -38,7 +38,7 @@ jobs:
           cache: 'gradle'
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: npm ci
 
       - name: Run complete sync
         run: |
@@ -48,13 +48,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build iOS frameworks
-        run: yarn build:ios-frameworks
+        run: npm run build:ios-frameworks
 
       - name: Build Android libraries
-        run: yarn build:android-libs
+        run: npm run build:android-libs
 
       - name: Build TypeScript library
-        run: yarn build
+        run: npm run build
 
       - name: Finalize sync
         run: ./scripts/finalize-sync.sh
