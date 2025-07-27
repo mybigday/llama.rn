@@ -21,15 +21,19 @@ import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
 import { Bubble } from '../components/Bubble'
 import { HeaderButton } from '../components/HeaderButton'
+import { MessagesModal } from '../components/MessagesModal'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
 import { loadContextParams, loadCompletionParams } from '../utils/storage'
+import type { LLMMessage } from '../utils/llmMessages'
 
 const user = { id: 'user' }
 const assistant = { id: 'assistant' }
 
 const randId = () => Math.random().toString(36).substr(2, 9)
+
+const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant with vision capabilities. You can see and analyze images that users share. Be descriptive when analyzing images and helpful in answering questions about visual content. Be concise and helpful in your responses.'
 
 const styles = StyleSheet.create({
   // Using shared styles for common patterns
@@ -120,9 +124,11 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
+  const [showMessagesModal, setShowMessagesModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [completionParams, setCompletionParams] =
     useState<CompletionParams | null>(null)
+  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT)
 
   useEffect(
     () => () => {
@@ -141,24 +147,142 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     setCompletionParams(params)
   }
 
-  // Set up navigation header button
+  const buildLLMMessages = (
+    currentUserContent?: Array<{
+      type: 'text' | 'image_url'
+      text?: string
+      image_url?: { url: string }
+    }>,
+  ): LLMMessage[] => {
+    const conversationMessages: LLMMessage[] = [
+      {
+        role: 'system',
+        content: [
+          {
+            type: 'text',
+            text: systemPrompt,
+          },
+        ],
+      },
+    ]
+
+    // Add previous messages from chat history (excluding system messages)
+    const recentMessages = messagesRef.current
+      .filter(
+        (msg): msg is MessageType.Text | MessageType.Image =>
+          (msg.type === 'text' && !msg.metadata?.system) ||
+          msg.type === 'image',
+      )
+      .reverse() // Reverse to get chronological order
+      .slice(-20) // Keep more messages to account for images
+
+    // Group consecutive messages by author and merge content
+    const groupedMessages = recentMessages.reduce<LLMMessage[]>((acc, msg) => {
+      const role =
+        msg.author.id === user.id ? ('user' as const) : ('assistant' as const)
+      const lastGroup = acc[acc.length - 1]
+
+      // If this is a new author or we don't have a previous group, start a new group
+      if (!lastGroup || lastGroup.role !== role) {
+        acc.push({ role, content: [] })
+      }
+
+      const currentGroup = acc[acc.length - 1]!
+
+      // Add message content to the current group
+      if (msg.type === 'text') {
+        if (Array.isArray(currentGroup.content)) {
+          currentGroup.content.push({
+            type: 'text',
+            text: msg.text,
+          })
+        } else {
+          currentGroup.content = [
+            {
+              type: 'text',
+              text:
+                typeof currentGroup.content === 'string'
+                  ? currentGroup.content
+                  : '',
+            },
+            {
+              type: 'text',
+              text: msg.text,
+            },
+          ]
+        }
+      } else if (msg.type === 'image') {
+        if (Array.isArray(currentGroup.content)) {
+          currentGroup.content.push({
+            type: 'image_url',
+            image_url: {
+              url: msg.uri,
+            },
+          })
+        } else {
+          currentGroup.content = [
+            {
+              type: 'text',
+              text:
+                typeof currentGroup.content === 'string'
+                  ? currentGroup.content
+                  : '',
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: msg.uri,
+              },
+            },
+          ]
+        }
+      }
+
+      return acc
+    }, [])
+
+    const finalMessages = [
+      ...conversationMessages,
+      ...groupedMessages.slice(-10),
+    ]
+
+    // Add current user content if provided
+    if (currentUserContent && currentUserContent.length > 0) {
+      finalMessages.push({
+        role: 'user',
+        content: currentUserContent,
+      })
+    }
+
+    return finalMessages
+  }
+
+  // Set up navigation header buttons
   useLayoutEffect(() => {
     if (isModelReady) {
       navigation.setOptions({
         headerRight: () => (
-          <HeaderButton
-            title="Params"
-            onPress={() => setShowCompletionParamsModal(true)}
-          />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <HeaderButton
+              title="Messages"
+              onPress={() => setShowMessagesModal(true)}
+            />
+            <HeaderButton
+              title="Params"
+              onPress={() => setShowCompletionParamsModal(true)}
+            />
+          </View>
         ),
       })
     } else {
       navigation.setOptions({
         headerRight: () => (
-          <HeaderButton
-            title="Context Params"
-            onPress={() => setShowContextParamsModal(true)}
-          />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <HeaderButton
+              title="Context Params"
+              onPress={() => setShowContextParamsModal(true)}
+            />
+          </View>
         ),
       })
     }
@@ -195,6 +319,25 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       metadata: { system: true, ...metadata },
     }
     addMessage(textMessage)
+  }
+
+  const handleImportMessages = (newMessages: MessageType.Any[]) => {
+    // Reset messages and add system message back
+    messagesRef.current = []
+    setMessagesVersion((prev) => prev + 1)
+
+    // Add the initial system message
+    addSystemMessage(
+      "Hello! I'm a vision-capable AI assistant. You can share images with me and I'll analyze them, answer questions about what I see, or engage in conversations about visual content. How can I help you today?",
+    )
+
+    // Add imported messages
+    messagesRef.current = [...newMessages.reverse(), ...messagesRef.current]
+    setMessagesVersion((prev) => prev + 1)
+  }
+
+  const handleUpdateSystemPrompt = (newSystemPrompt: string) => {
+    setSystemPrompt(newSystemPrompt)
   }
 
   const convertImageToBase64 = async (
@@ -298,81 +441,8 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         return
       }
 
-      // Build conversation messages array with context
-      const conversationMessages = [
-        {
-          role: 'system',
-          content: [
-            {
-              type: 'text',
-              text: 'You are a helpful AI assistant with vision capabilities. You can see and analyze images that users share. Be descriptive when analyzing images and helpful in answering questions about visual content. Be concise and helpful in your responses.',
-            },
-          ],
-        },
-        // Add previous messages from chat history (excluding system messages)
-        ...(() => {
-          const recentMessages = messagesRef.current
-            .filter(
-              (msg): msg is MessageType.Text | MessageType.Image =>
-                (msg.type === 'text' && !msg.metadata?.system) ||
-                msg.type === 'image',
-            )
-            .reverse() // Reverse to get chronological order
-            .slice(-20) // Keep more messages to account for images
-
-          // Group consecutive messages by author and merge content
-          const groupedMessages = recentMessages.reduce<
-            Array<{
-              role: 'user' | 'assistant'
-              content: Array<{
-                type: 'text' | 'image_url'
-                text?: string
-                image_url?: { url: string }
-              }>
-            }>
-          >((acc, msg) => {
-            const role =
-              msg.author.id === user.id
-                ? ('user')
-                : ('assistant')
-            const lastGroup = acc[acc.length - 1]
-
-            // If this is a new author or we don't have a previous group, start a new group
-            if (!lastGroup || lastGroup.role !== role) {
-              acc.push({ role, content: [] })
-            }
-
-            const currentGroup = acc[acc.length - 1]!
-
-            // Add message content to the current group
-            if (msg.type === 'text') {
-              currentGroup.content.push({
-                type: 'text',
-                text: msg.text,
-              })
-            } else if (msg.type === 'image') {
-              currentGroup.content.push({
-                type: 'image_url',
-                image_url: {
-                  url: msg.uri,
-                },
-              })
-            }
-
-            return acc
-          }, [])
-
-          return groupedMessages.slice(-10) // Keep last 10 grouped messages
-        })(),
-      ]
-
-      // Add current user message to conversation
-      if (currentUserContent.length > 0) {
-        conversationMessages.push({
-          role: 'user',
-          content: currentUserContent as any, // Allow mixed content types for multimodal
-        })
-      }
+      // Build conversation messages using the reusable function, including current user content
+      const conversationMessages = buildLLMMessages(currentUserContent)
 
       // Now add the user messages to the chat UI
       if (pendingImage) {
@@ -662,6 +732,16 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         visible={showCompletionParamsModal}
         onClose={() => setShowCompletionParamsModal(false)}
         onSave={handleSaveCompletionParams}
+      />
+
+      <MessagesModal
+        visible={showMessagesModal}
+        onClose={() => setShowMessagesModal(false)}
+        messages={buildLLMMessages()}
+        context={context}
+        onImportMessages={handleImportMessages}
+        onUpdateSystemPrompt={handleUpdateSystemPrompt}
+        defaultSystemPrompt={DEFAULT_SYSTEM_PROMPT}
       />
     </SafeAreaView>
   )

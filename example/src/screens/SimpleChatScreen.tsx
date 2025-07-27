@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { Text, ScrollView, Alert } from 'react-native'
+import { View, Text, ScrollView, Alert } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
@@ -11,15 +11,19 @@ import { Bubble } from '../components/Bubble'
 import { LoadingIndicator } from '../components/LoadingIndicator'
 import { ProgressBar } from '../components/ProgressBar'
 import { HeaderButton } from '../components/HeaderButton'
+import { MessagesModal } from '../components/MessagesModal'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
 import { loadContextParams, loadCompletionParams } from '../utils/storage'
+import type { LLMMessage } from '../utils/llmMessages'
 
 const user = { id: 'user' }
 const assistant = { id: 'assistant' }
 
 const randId = () => Math.random().toString(36).substr(2, 9)
+
+const DEFAULT_SYSTEM_PROMPT = 'You are a helpful, harmless, and honest AI assistant. Be concise and helpful in your responses.'
 
 // Using shared styles, keeping only component-specific styles if needed
 const styles = {
@@ -39,9 +43,11 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
+  const [showMessagesModal, setShowMessagesModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [completionParams, setCompletionParams] =
     useState<CompletionParams | null>(null)
+  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT)
 
   useEffect(
     () => () => {
@@ -60,24 +66,59 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
     setCompletionParams(params)
   }
 
-  // Set up navigation header button
+  const buildLLMMessages = (): LLMMessage[] => {
+    const conversationMessages: LLMMessage[] = [
+      {
+        role: 'system',
+        content: systemPrompt,
+      },
+    ]
+
+    // Add previous messages from chat history
+    const recentMessages = messagesRef.current
+      .filter(
+        (msg): msg is MessageType.Text =>
+          msg.type === 'text' && !msg.metadata?.system,
+      )
+      .reverse() // Reverse to get chronological order
+      .slice(-10) // Keep last 10 messages for context
+      .map((msg) => ({
+        role:
+          msg.author.id === user.id
+            ? ('user' as const)
+            : ('assistant' as const),
+        content: msg.text,
+      }))
+
+    return [...conversationMessages, ...recentMessages]
+  }
+
+  // Set up navigation header buttons
   useLayoutEffect(() => {
     if (isModelReady) {
       navigation.setOptions({
         headerRight: () => (
-          <HeaderButton
-            title="Params"
-            onPress={() => setShowCompletionParamsModal(true)}
-          />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <HeaderButton
+              title="Messages"
+              onPress={() => setShowMessagesModal(true)}
+            />
+            <HeaderButton
+              title="Params"
+              onPress={() => setShowCompletionParamsModal(true)}
+            />
+          </View>
         ),
       })
     } else {
       navigation.setOptions({
         headerRight: () => (
-          <HeaderButton
-            title="Context Params"
-            onPress={() => setShowContextParamsModal(true)}
-          />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <HeaderButton
+              title="Context Params"
+              onPress={() => setShowContextParamsModal(true)}
+            />
+          </View>
         ),
       })
     }
@@ -115,6 +156,25 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
     }
     addMessage(textMessage)
     return textMessage.id
+  }
+
+  const handleImportMessages = (newMessages: MessageType.Any[]) => {
+    // Reset messages and add system message back
+    messagesRef.current = []
+    setMessagesVersion((prev) => prev + 1)
+
+    // Add the initial system message
+    addSystemMessage(
+      "Hello! I'm ready to chat with you. How can I help you today?",
+    )
+
+    // Add imported messages
+    messagesRef.current = [...newMessages.reverse(), ...messagesRef.current]
+    setMessagesVersion((prev) => prev + 1)
+  }
+
+  const handleUpdateSystemPrompt = (newSystemPrompt: string) => {
+    setSystemPrompt(newSystemPrompt)
   }
 
   const initializeModel = async (modelPath: string) => {
@@ -165,29 +225,8 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
     setIsLoading(true)
 
     try {
-      // Build messages array for conversation context
-      const conversationMessages = [
-        {
-          role: 'system',
-          content:
-            'You are a helpful, harmless, and honest AI assistant. Be concise and helpful in your responses.',
-        },
-        // Add previous messages from chat history
-        ...messagesRef.current
-          .filter(
-            (msg): msg is MessageType.Text =>
-              msg.type === 'text' && !msg.metadata?.system,
-          )
-          .reverse() // Reverse to get chronological order
-          .slice(-10) // Keep last 10 messages for context
-          .map((msg) => ({
-            role:
-              msg.author.id === user.id
-                ? ('user')
-                : ('assistant'),
-            content: msg.text,
-          })),
-      ]
+      // Build conversation messages using the reusable function
+      const conversationMessages = buildLLMMessages()
 
       let response = ''
       const responseId = randId()
@@ -314,6 +353,16 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
         visible={showCompletionParamsModal}
         onClose={() => setShowCompletionParamsModal(false)}
         onSave={handleSaveCompletionParams}
+      />
+
+      <MessagesModal
+        visible={showMessagesModal}
+        onClose={() => setShowMessagesModal(false)}
+        messages={buildLLMMessages()}
+        context={context}
+        onImportMessages={handleImportMessages}
+        onUpdateSystemPrompt={handleUpdateSystemPrompt}
+        defaultSystemPrompt={DEFAULT_SYSTEM_PROMPT}
       />
     </SafeAreaView>
   )
