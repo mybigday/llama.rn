@@ -335,7 +335,11 @@ struct lm_gguf_context * lm_gguf_init_from_file_impl(FILE * file, struct lm_gguf
 
         for (uint32_t i = 0; i < magic.size(); i++) {
             if (magic[i] != LM_GGUF_MAGIC[i]) {
-                LM_GGML_LOG_ERROR("%s: invalid magic characters: '%c%c%c%c', expected 'GGUF'\n", __func__, magic[0], magic[1], magic[2], magic[3]);
+                char c0 = isprint(magic[0]) ? magic[0] : '?';
+                char c1 = isprint(magic[1]) ? magic[1] : '?';
+                char c2 = isprint(magic[2]) ? magic[2] : '?';
+                char c3 = isprint(magic[3]) ? magic[3] : '?';
+                LM_GGML_LOG_ERROR("%s: invalid magic characters: '%c%c%c%c', expected 'GGUF'\n", __func__, c0, c1, c2, c3);
                 lm_gguf_free(ctx);
                 return nullptr;
             }
@@ -347,11 +351,28 @@ struct lm_gguf_context * lm_gguf_init_from_file_impl(FILE * file, struct lm_gguf
     int64_t n_tensors = 0;
 
     if (ok && gr.read(ctx->version)) {
-        if (ctx->version == 1) {
+        if (ok && ctx->version == 0) {
+            LM_GGML_LOG_ERROR("%s: bad GGUF version: %" PRIu32 "\n", __func__, ctx->version);
+            ok = false;
+        }
+
+        /*
+         * bit layout is different when reading non-native endian models.
+         * assuming that the GGUF version is 3, the non-native endian model
+         * would read it as 0x30000000. we can use the AND operation against
+         * the last 4 hexadecimal digits to check if the model is the same
+         * endianness as the host system.
+        */
+        if (ok && (ctx->version & 0x0000FFFF) == 0x00000000) {
+            LM_GGML_LOG_ERROR("%s: failed to load model: this GGUF file version %" PRIu32 " is extremely large, is there a mismatch between the host and model endianness?\n", __func__, ctx->version);
+            ok = false;
+        }
+
+        if (ok && ctx->version == 1) {
             LM_GGML_LOG_ERROR("%s: GGUFv1 is no longer supported, please use a more up-to-date version\n", __func__);
             ok = false;
         }
-        if (ctx->version > LM_GGUF_VERSION) {
+        if (ok && ctx->version > LM_GGUF_VERSION) {
             LM_GGML_LOG_ERROR("%s: this GGUF file is version %" PRIu32 " but this software only supports up to version %d\n",
                 __func__, ctx->version, LM_GGUF_VERSION);
             ok = false;
@@ -610,7 +631,14 @@ struct lm_gguf_context * lm_gguf_init_from_file_impl(FILE * file, struct lm_gguf
                 lm_gguf_free(ctx);
                 return nullptr;
             }
-            ctx->size += LM_GGML_PAD(lm_ggml_nbytes(&ti.t), ctx->alignment);
+            size_t padded_size = LM_GGML_PAD(lm_ggml_nbytes(&ti.t), ctx->alignment);
+            if (SIZE_MAX - ctx->size < padded_size) {
+                LM_GGML_LOG_ERROR("%s: tensor '%s' size overflow, cannot accumulate size %zu + %zu\n",
+                    __func__, ti.t.name, ctx->size, padded_size);
+                lm_gguf_free(ctx);
+                return nullptr;
+            }
+            ctx->size += padded_size;
         }
     }
 

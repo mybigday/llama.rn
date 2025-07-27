@@ -70,8 +70,6 @@ public class LlamaContext {
       params.getString("model"),
       // String chat_template,
       params.hasKey("chat_template") ? params.getString("chat_template") : "",
-      // String reasoning_format,
-      params.hasKey("reasoning_format") ? params.getString("reasoning_format") : "none",
       // boolean embedding,
       params.hasKey("embedding") ? params.getBoolean("embedding") : false,
       // int embd_normalize,
@@ -112,6 +110,8 @@ public class LlamaContext {
       params.hasKey("pooling_type") ? params.getInt("pooling_type") : -1,
       // boolean ctx_shift,
       params.hasKey("ctx_shift") ? params.getBoolean("ctx_shift") : true,
+      // boolean kv_unified,
+      params.hasKey("kv_unified") ? params.getBoolean("kv_unified") : false,
       // LoadProgressCallback load_progress_callback
       params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
     );
@@ -143,6 +143,7 @@ public class LlamaContext {
     String tools = params.hasKey("tools") ? params.getString("tools") : "";
     Boolean parallelToolCalls = params.hasKey("parallel_tool_calls") ? params.getBoolean("parallel_tool_calls") : false;
     String toolChoice = params.hasKey("tool_choice") ? params.getString("tool_choice") : "";
+    Boolean enableThinking = params.hasKey("enable_thinking") ? params.getBoolean("enable_thinking") : false;
     return getFormattedChatWithJinja(
       this.context,
       messages,
@@ -150,7 +151,8 @@ public class LlamaContext {
       jsonSchema,
       tools,
       parallelToolCalls,
-      toolChoice
+      toolChoice,
+      enableThinking
     );
   }
 
@@ -256,6 +258,8 @@ public class LlamaContext {
       guide_tokens,
       // int chat_format,
       params.hasKey("chat_format") ? params.getInt("chat_format") : 0,
+      // String reasoning_format,
+      params.hasKey("reasoning_format") ? params.getString("reasoning_format") : "none",
       // String grammar,
       params.hasKey("grammar") ? params.getString("grammar") : "",
       // String json_schema,
@@ -266,6 +270,8 @@ public class LlamaContext {
       params.hasKey("grammar_triggers") ? params.getArray("grammar_triggers") : null,
       // ReadableArray preserved_tokens,
       params.hasKey("preserved_tokens") ? params.getArray("preserved_tokens") : null,
+      // boolean thinking_forced_open,
+      params.hasKey("thinking_forced_open") ? params.getBoolean("thinking_forced_open") : false,
       // float temperature,
       params.hasKey("temperature") ? (float) params.getDouble("temperature") : 0.7f,
       // int n_threads,
@@ -367,6 +373,27 @@ public class LlamaContext {
     if (result.hasKey("error")) {
       throw new IllegalStateException(result.getString("error"));
     }
+    return result;
+  }
+
+  public WritableArray getRerank(String query, ReadableArray documents, ReadableMap params) {
+    if (isEmbeddingEnabled(this.context) == false) {
+      throw new IllegalStateException("Embedding is not enabled but required for reranking");
+    }
+
+    // Convert ReadableArray to Java string array
+    String[] documentsArray = new String[documents.size()];
+    for (int i = 0; i < documents.size(); i++) {
+      documentsArray[i] = documents.getString(i);
+    }
+
+    WritableArray result = rerank(
+      this.context,
+      query,
+      documentsArray,
+      // int normalize,
+      params.hasKey("normalize") ? params.getInt("normalize") : -1
+    );
     return result;
   }
 
@@ -541,7 +568,6 @@ public class LlamaContext {
   protected static native long initContext(
     String model_path,
     String chat_template,
-    String reasoning_format,
     boolean embedding,
     int embd_normalize,
     int n_ctx,
@@ -562,6 +588,7 @@ public class LlamaContext {
     float rope_freq_scale,
     int pooling_type,
     boolean ctx_shift,
+    boolean kv_unified,
     LoadProgressCallback load_progress_callback
   );
   protected static native boolean initMultimodal(long contextPtr, String mmproj_path, boolean MMPROJ_USE_GPU);
@@ -578,7 +605,8 @@ public class LlamaContext {
     String jsonSchema,
     String tools,
     boolean parallelToolCalls,
-    String toolChoice
+    String toolChoice,
+    boolean enableThinking
   );
   protected static native String getFormattedChat(
     long contextPtr,
@@ -599,11 +627,13 @@ public class LlamaContext {
     String prompt,
     int[] guide_tokens,
     int chat_format,
+    String reasoning_format,
     String grammar,
     String json_schema,
     boolean grammar_lazy,
     ReadableArray grammar_triggers,
     ReadableArray preserved_tokens,
+    boolean thinking_forced_open,
     float temperature,
     int n_threads,
     int n_predict,
@@ -644,6 +674,7 @@ public class LlamaContext {
     String text,
     int embd_normalize
   );
+  protected static native WritableArray rerank(long contextPtr, String query, String[] documents, int normalize);
   protected static native String bench(long contextPtr, int pp, int tg, int pl, int nr);
   protected static native int applyLoraAdapters(long contextPtr, ReadableArray loraAdapters);
   protected static native void removeLoraAdapters(long contextPtr);

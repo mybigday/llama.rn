@@ -1,6 +1,6 @@
 {
   "name": "llama.rn",
-  "version": "0.6.0-rc.5",
+  "version": "0.6.2",
   "description": "React Native binding of llama.cpp",
   "main": "lib/commonjs/index",
   "module": "lib/module/index",
@@ -181,7 +181,8 @@
                 ".tsx"
               ]
             }
-          ]
+          ],
+          "react/require-default-props": "off"
         }
       }
     ],

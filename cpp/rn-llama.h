@@ -4,6 +4,8 @@
 #include <sstream>
 #include <iostream>
 #include <thread>
+#include <codecvt>
+#include "anyascii.h"
 #include "chat.h"
 #include "common.h"
 #include "ggml.h"
@@ -11,7 +13,7 @@
 #include "llama.h"
 #include "llama-impl.h"
 #include "sampling.h"
-#include "json.hpp"
+#include "nlohmann/json.hpp"
 #if defined(__ANDROID__)
 #include <android/log.h>
 #endif
@@ -123,7 +125,8 @@ struct llama_rn_context {
       const std::string &json_schema,
       const std::string &tools,
       const bool &parallel_tool_calls,
-      const std::string &tool_choice
+      const std::string &tool_choice,
+      const bool &enable_thinking
     ) const;
     std::string getFormattedChat(
       const std::string &messages,
@@ -138,6 +141,7 @@ struct llama_rn_context {
     size_t findStoppingStrings(const std::string &text, const size_t last_token_size, const stop_type type);
     completion_token_output doCompletion();
     std::vector<float> getEmbedding(common_params &embd_params);
+    std::vector<float> rerank(const std::string &query, const std::vector<std::string> &documents);
     std::string bench(int pp, int tg, int pl, int nr);
     int applyLoraAdapters(std::vector<common_adapter_lora_info> lora);
     void removeLoraAdapters();

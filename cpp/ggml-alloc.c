@@ -22,21 +22,6 @@ static bool lm_ggml_is_view(const struct lm_ggml_tensor * t) {
     return t->view_src != NULL;
 }
 
-static bool lm_ggml_are_same_layout(const struct lm_ggml_tensor * a, const struct lm_ggml_tensor * b) {
-    if (a->type != b->type) {
-        return false;
-    }
-    for (int i = 0; i < LM_GGML_MAX_DIMS; i++) {
-        if (a->ne[i] != b->ne[i]) {
-            return false;
-        }
-        if (a->nb[i] != b->nb[i]) {
-            return false;
-        }
-    }
-    return true;
-}
-
 // ops that return true for this function must not use restrict pointers for their backend implementations
 static bool lm_ggml_op_can_inplace(enum lm_ggml_op op) {
     switch (op) {

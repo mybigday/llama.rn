@@ -20,6 +20,9 @@
 
 static const size_t CACHE_LINE_SIZE_F32 = CACHE_LINE_SIZE/sizeof(float);
 
+// Work buffer size for im2col operations in CONV2D
+#define LM_GGML_IM2COL_WORK_SIZE (16 * 1024 * 1024)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -53,6 +56,7 @@ void lm_ggml_compute_forward_permute(const struct lm_ggml_compute_params * param
 void lm_ggml_compute_forward_transpose(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_get_rows(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_get_rows_back(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
+void lm_ggml_compute_forward_set_rows(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_diag(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_diag_mask_inf(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_diag_mask_zero(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
@@ -64,6 +68,7 @@ void lm_ggml_compute_forward_clamp(const struct lm_ggml_compute_params * params,
 void lm_ggml_compute_forward_conv_transpose_1d(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_im2col(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_im2col_back_f32(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
+void lm_ggml_compute_forward_conv_2d(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_conv_transpose_2d(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_conv_2d_dw(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_pool_1d(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
@@ -72,6 +77,7 @@ void lm_ggml_compute_forward_pool_2d_back(const struct lm_ggml_compute_params * 
 void lm_ggml_compute_forward_upscale(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_pad(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_pad_reflect_1d(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
+void lm_ggml_compute_forward_roll(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_arange(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_timestep_embedding(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_argsort(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
@@ -92,6 +98,7 @@ void lm_ggml_compute_forward_ssm_scan(const struct lm_ggml_compute_params * para
 void lm_ggml_compute_forward_win_part(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_win_unpart(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_unary(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
+void lm_ggml_compute_forward_glu(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_get_rel_pos(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_add_rel_pos(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_rwkv_wkv6(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
@@ -104,6 +111,7 @@ void lm_ggml_compute_forward_custom(const struct lm_ggml_compute_params * params
 void lm_ggml_compute_forward_cross_entropy_loss(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_cross_entropy_loss_back(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_opt_step_adamw(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
+void lm_ggml_compute_forward_mul_mat(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 
 #ifdef __cplusplus
 }

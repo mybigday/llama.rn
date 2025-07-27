@@ -32,6 +32,8 @@
 extern "C" {
 #endif
 
+void lm_ggml_print_backtrace(void);
+
 #ifndef MIN
 #    define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif
@@ -69,6 +71,22 @@ static inline int lm_ggml_up(int n, int m) {
     // assert m is a power of 2
     LM_GGML_ASSERT((m & (m - 1)) == 0);
     return (n + m - 1) & ~(m - 1);
+}
+
+// TODO: move to ggml.h?
+static bool lm_ggml_are_same_layout(const struct lm_ggml_tensor * a, const struct lm_ggml_tensor * b) {
+    if (a->type != b->type) {
+        return false;
+    }
+    for (int i = 0; i < LM_GGML_MAX_DIMS; i++) {
+        if (a->ne[i] != b->ne[i]) {
+            return false;
+        }
+        if (a->nb[i] != b->nb[i]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 //
@@ -299,6 +317,7 @@ struct lm_ggml_cgraph {
     struct lm_ggml_tensor ** grads;     // the outputs of these tensors are the gradients of the nodes
     struct lm_ggml_tensor ** grad_accs; // accumulators for node gradients
     struct lm_ggml_tensor ** leafs;     // tensors with constant data
+    int32_t             * use_counts;// number of uses of each tensor, indexed by hash table slot
 
     struct lm_ggml_hash_set visited_hash_set;
 
@@ -315,203 +334,81 @@ struct lm_ggml_cgraph lm_ggml_graph_view(struct lm_ggml_cgraph * cgraph, int i0,
 LM_GGML_API void * lm_ggml_aligned_malloc(size_t size);
 LM_GGML_API void lm_ggml_aligned_free(void * ptr, size_t size);
 
-// FP16 to FP32 conversion
+// FP16 <-> FP32
+// ref: https://github.com/Maratyszcza/FP16
 
-// 16-bit float
-// on Arm, we use __fp16
-// on x86, we use uint16_t
-//
-// for old CUDA compilers (<= 11), we use uint16_t: ref https://github.com/ggml-org/llama.cpp/pull/10616
-// for     MUSA compilers        , we use uint16_t: ref https://github.com/ggml-org/llama.cpp/pull/11843
-//
-#if defined(__ARM_NEON) && !(defined(__CUDACC__) && __CUDACC_VER_MAJOR__ <= 11) && !defined(__MUSACC__)
-    #define LM_GGML_COMPUTE_FP16_TO_FP32(x) lm_ggml_compute_fp16_to_fp32(x)
-    #define LM_GGML_COMPUTE_FP32_TO_FP16(x) lm_ggml_compute_fp32_to_fp16(x)
-
-    #define LM_GGML_FP16_TO_FP32(x) lm_ggml_compute_fp16_to_fp32(x)
-
-    static inline float lm_ggml_compute_fp16_to_fp32(lm_ggml_fp16_t h) {
-        __fp16 tmp;
-        memcpy(&tmp, &h, sizeof(lm_ggml_fp16_t));
-        return (float)tmp;
-    }
-
-    static inline lm_ggml_fp16_t lm_ggml_compute_fp32_to_fp16(float f) {
-        lm_ggml_fp16_t res;
-        __fp16 tmp = f;
-        memcpy(&res, &tmp, sizeof(lm_ggml_fp16_t));
-        return res;
-    }
-
-#elif defined(__F16C__)
-
-    #ifdef _MSC_VER
-        #define LM_GGML_COMPUTE_FP16_TO_FP32(x) _mm_cvtss_f32(_mm_cvtph_ps(_mm_cvtsi32_si128(x)))
-        #define LM_GGML_COMPUTE_FP32_TO_FP16(x) _mm_extract_epi16(_mm_cvtps_ph(_mm_set_ss(x), 0), 0)
-    #else
-        #define LM_GGML_COMPUTE_FP16_TO_FP32(x) _cvtsh_ss(x)
-        #define LM_GGML_COMPUTE_FP32_TO_FP16(x) _cvtss_sh(x, 0)
-    #endif
-
-#elif defined(__POWER9_VECTOR__)
-
-    #define LM_GGML_COMPUTE_FP16_TO_FP32(x) lm_ggml_compute_fp16_to_fp32(x)
-    #define LM_GGML_COMPUTE_FP32_TO_FP16(x) lm_ggml_compute_fp32_to_fp16(x)
-    /* the inline asm below is about 12% faster than the lookup method */
-    #define LM_GGML_FP16_TO_FP32(x) LM_GGML_COMPUTE_FP16_TO_FP32(x)
-    #define LM_GGML_FP32_TO_FP16(x) LM_GGML_COMPUTE_FP32_TO_FP16(x)
-
-    static inline float lm_ggml_compute_fp16_to_fp32(lm_ggml_fp16_t h) {
-        float f;
-        double d;
-        __asm__(
-            "mtfprd %0,%2\n"
-            "xscvhpdp %0,%0\n"
-            "frsp %1,%0\n" :
-            /* temp */ "=d"(d),
-            /* out */  "=f"(f):
-            /* in */   "r"(h));
-        return f;
-    }
-
-    static inline lm_ggml_fp16_t lm_ggml_compute_fp32_to_fp16(float f) {
-        double d;
-        lm_ggml_fp16_t r;
-        __asm__( /* xscvdphp can work on double or single precision */
-            "xscvdphp %0,%2\n"
-            "mffprd %1,%0\n" :
-            /* temp */ "=d"(d),
-            /* out */  "=r"(r):
-            /* in */   "f"(f));
-        return r;
-    }
-
-#elif defined(__riscv) && defined(LM_GGML_RV_ZFH)
-
-    static inline float lm_ggml_compute_fp16_to_fp32(lm_ggml_fp16_t h) {
-        float f;
-        __asm__(
-            "fmv.h.x %[f], %[h]\n\t"
-            "fcvt.s.h %[f], %[f]"
-            : [f] "=&f" (f)
-            : [h] "r" (h)
-        );
-        return f;
-    }
-
-    static inline lm_ggml_fp16_t lm_ggml_compute_fp32_to_fp16(float f) {
-        lm_ggml_fp16_t res;
-        __asm__(
-            "fcvt.h.s %[f], %[f]\n\t"
-            "fmv.x.h %[h], %[f]"
-            : [h] "=&r" (res)
-            : [f] "f" (f)
-        );
-        return res;
-    }
-
-    #define LM_GGML_COMPUTE_FP16_TO_FP32(x) lm_ggml_compute_fp16_to_fp32(x)
-    #define LM_GGML_COMPUTE_FP32_TO_FP16(x) lm_ggml_compute_fp32_to_fp16(x)
-    #define LM_GGML_FP16_TO_FP32(x) LM_GGML_COMPUTE_FP16_TO_FP32(x)
-    #define LM_GGML_FP32_TO_FP16(x) LM_GGML_COMPUTE_FP32_TO_FP16(x)
-
-#else
-
-    // FP16 <-> FP32
-    // ref: https://github.com/Maratyszcza/FP16
-
-    static inline float fp32_from_bits(uint32_t w) {
-        union {
-            uint32_t as_bits;
-            float as_value;
-        } fp32;
-        fp32.as_bits = w;
-        return fp32.as_value;
-    }
-
-    static inline uint32_t fp32_to_bits(float f) {
-        union {
-            float as_value;
-            uint32_t as_bits;
-        } fp32;
-        fp32.as_value = f;
-        return fp32.as_bits;
-    }
-
-    static inline float lm_ggml_compute_fp16_to_fp32(lm_ggml_fp16_t h) {
-        const uint32_t w = (uint32_t) h << 16;
-        const uint32_t sign = w & UINT32_C(0x80000000);
-        const uint32_t two_w = w + w;
-
-        const uint32_t exp_offset = UINT32_C(0xE0) << 23;
-    #if (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) || defined(__GNUC__) && !defined(__STRICT_ANSI__)) && (!defined(__cplusplus) || __cplusplus >= 201703L)
-        const float exp_scale = 0x1.0p-112f;
-    #else
-        const float exp_scale = fp32_from_bits(UINT32_C(0x7800000));
-    #endif
-        const float normalized_value = fp32_from_bits((two_w >> 4) + exp_offset) * exp_scale;
-
-        const uint32_t magic_mask = UINT32_C(126) << 23;
-        const float magic_bias = 0.5f;
-        const float denormalized_value = fp32_from_bits((two_w >> 17) | magic_mask) - magic_bias;
-
-        const uint32_t denormalized_cutoff = UINT32_C(1) << 27;
-        const uint32_t result = sign |
-            (two_w < denormalized_cutoff ? fp32_to_bits(denormalized_value) : fp32_to_bits(normalized_value));
-        return fp32_from_bits(result);
-    }
-
-    static inline lm_ggml_fp16_t lm_ggml_compute_fp32_to_fp16(float f) {
-    #if (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) || defined(__GNUC__) && !defined(__STRICT_ANSI__)) && (!defined(__cplusplus) || __cplusplus >= 201703L)
-        const float scale_to_inf = 0x1.0p+112f;
-        const float scale_to_zero = 0x1.0p-110f;
-    #else
-        const float scale_to_inf = fp32_from_bits(UINT32_C(0x77800000));
-        const float scale_to_zero = fp32_from_bits(UINT32_C(0x08800000));
-    #endif
-        float base = (fabsf(f) * scale_to_inf) * scale_to_zero;
-
-        const uint32_t w = fp32_to_bits(f);
-        const uint32_t shl1_w = w + w;
-        const uint32_t sign = w & UINT32_C(0x80000000);
-        uint32_t bias = shl1_w & UINT32_C(0xFF000000);
-        if (bias < UINT32_C(0x71000000)) {
-            bias = UINT32_C(0x71000000);
-        }
-
-        base = fp32_from_bits((bias >> 1) + UINT32_C(0x07800000)) + base;
-        const uint32_t bits = fp32_to_bits(base);
-        const uint32_t exp_bits = (bits >> 13) & UINT32_C(0x00007C00);
-        const uint32_t mantissa_bits = bits & UINT32_C(0x00000FFF);
-        const uint32_t nonsign = exp_bits + mantissa_bits;
-        return (sign >> 16) | (shl1_w > UINT32_C(0xFF000000) ? UINT16_C(0x7E00) : nonsign);
-    }
-
-    #define LM_GGML_COMPUTE_FP16_TO_FP32(x) lm_ggml_compute_fp16_to_fp32(x)
-    #define LM_GGML_COMPUTE_FP32_TO_FP16(x) lm_ggml_compute_fp32_to_fp16(x)
-
-#endif // defined(__ARM_NEON) && !(defined(__CUDACC__) && __CUDACC_VER_MAJOR__ <= 11) && !defined(__MUSACC__)
-
-// precomputed f32 table for f16 (256 KB)
-// defined in ggml.c, initialized in lm_ggml_init()
-LM_GGML_API float lm_ggml_table_f32_f16[1 << 16];
-
-// On ARM NEON, it's quicker to directly convert x -> x instead of calling into lm_ggml_lookup_fp16_to_fp32,
-// so we define LM_GGML_FP16_TO_FP32 and LM_GGML_FP32_TO_FP16 elsewhere for NEON.
-// This is also true for POWER9.
-#if !defined(LM_GGML_FP16_TO_FP32)
-inline static float lm_ggml_lookup_fp16_to_fp32(lm_ggml_fp16_t f) {
-    uint16_t s;
-    memcpy(&s, &f, sizeof(uint16_t));
-    return lm_ggml_table_f32_f16[s];
+static inline float fp32_from_bits(uint32_t w) {
+    union {
+        uint32_t as_bits;
+        float as_value;
+    } fp32;
+    fp32.as_bits = w;
+    return fp32.as_value;
 }
 
-#define LM_GGML_FP16_TO_FP32(x) lm_ggml_lookup_fp16_to_fp32(x)
-#endif
+static inline uint32_t fp32_to_bits(float f) {
+    union {
+        float as_value;
+        uint32_t as_bits;
+    } fp32;
+    fp32.as_value = f;
+    return fp32.as_bits;
+}
 
-#if !defined(LM_GGML_FP32_TO_FP16)
-#define LM_GGML_FP32_TO_FP16(x) LM_GGML_COMPUTE_FP32_TO_FP16(x)
+static inline float lm_ggml_compute_fp16_to_fp32(lm_ggml_fp16_t h) {
+    const uint32_t w = (uint32_t) h << 16;
+    const uint32_t sign = w & UINT32_C(0x80000000);
+    const uint32_t two_w = w + w;
+
+    const uint32_t exp_offset = UINT32_C(0xE0) << 23;
+#if (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) || defined(__GNUC__) && !defined(__STRICT_ANSI__)) && (!defined(__cplusplus) || __cplusplus >= 201703L)
+    const float exp_scale = 0x1.0p-112f;
+#else
+    const float exp_scale = fp32_from_bits(UINT32_C(0x7800000));
 #endif
+    const float normalized_value = fp32_from_bits((two_w >> 4) + exp_offset) * exp_scale;
+
+    const uint32_t magic_mask = UINT32_C(126) << 23;
+    const float magic_bias = 0.5f;
+    const float denormalized_value = fp32_from_bits((two_w >> 17) | magic_mask) - magic_bias;
+
+    const uint32_t denormalized_cutoff = UINT32_C(1) << 27;
+    const uint32_t result = sign |
+        (two_w < denormalized_cutoff ? fp32_to_bits(denormalized_value) : fp32_to_bits(normalized_value));
+    return fp32_from_bits(result);
+}
+
+static inline lm_ggml_fp16_t lm_ggml_compute_fp32_to_fp16(float f) {
+#if (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) || defined(__GNUC__) && !defined(__STRICT_ANSI__)) && (!defined(__cplusplus) || __cplusplus >= 201703L)
+    const float scale_to_inf = 0x1.0p+112f;
+    const float scale_to_zero = 0x1.0p-110f;
+#else
+    const float scale_to_inf = fp32_from_bits(UINT32_C(0x77800000));
+    const float scale_to_zero = fp32_from_bits(UINT32_C(0x08800000));
+#endif
+    float base = (fabsf(f) * scale_to_inf) * scale_to_zero;
+
+    const uint32_t w = fp32_to_bits(f);
+    const uint32_t shl1_w = w + w;
+    const uint32_t sign = w & UINT32_C(0x80000000);
+    uint32_t bias = shl1_w & UINT32_C(0xFF000000);
+    if (bias < UINT32_C(0x71000000)) {
+        bias = UINT32_C(0x71000000);
+    }
+
+    base = fp32_from_bits((bias >> 1) + UINT32_C(0x07800000)) + base;
+    const uint32_t bits = fp32_to_bits(base);
+    const uint32_t exp_bits = (bits >> 13) & UINT32_C(0x00007C00);
+    const uint32_t mantissa_bits = bits & UINT32_C(0x00000FFF);
+    const uint32_t nonsign = exp_bits + mantissa_bits;
+    return (sign >> 16) | (shl1_w > UINT32_C(0xFF000000) ? UINT16_C(0x7E00) : nonsign);
+}
+
+#define LM_GGML_COMPUTE_FP16_TO_FP32(x) lm_ggml_compute_fp16_to_fp32(x)
+#define LM_GGML_COMPUTE_FP32_TO_FP16(x) lm_ggml_compute_fp32_to_fp16(x)
+
+#define LM_GGML_FP16_TO_FP32(x) LM_GGML_COMPUTE_FP16_TO_FP32(x)
+#define LM_GGML_FP32_TO_FP16(x) LM_GGML_COMPUTE_FP32_TO_FP16(x)
 
 /**
  * Converts brain16 to float32.
@@ -587,12 +484,75 @@ static inline lm_ggml_bf16_t lm_ggml_compute_fp32_to_bf16(float s) {
 #define LM_GGML_FP32_TO_BF16(x) lm_ggml_compute_fp32_to_bf16(x)
 #define LM_GGML_BF16_TO_FP32(x) lm_ggml_compute_bf16_to_fp32(x)
 
+// return true if the node's results are only used by N other nodes
+// and can be fused into their calculations.
+static inline bool lm_ggml_node_has_n_uses(const struct lm_ggml_cgraph * cgraph, int node_idx, int32_t n_uses) {
+    const struct lm_ggml_tensor * node = cgraph->nodes[node_idx];
+
+    // check the use count against how many we're replacing
+    size_t hash_pos = lm_ggml_hash_find(&cgraph->visited_hash_set, node);
+    if (!lm_ggml_bitset_get(cgraph->visited_hash_set.used, hash_pos) || cgraph->use_counts[hash_pos] != n_uses) {
+        return false;
+    }
+
+    // if node is a view, some other node might be using the intermediate result
+    // via the view source.
+    if (node->view_src) {
+        return false;
+    }
+
+    // If the user requested output for the node, can't fuse
+    if (node->flags & LM_GGML_TENSOR_FLAG_OUTPUT) {
+        return false;
+    }
+
+    return true;
+}
+
+// Returns true if nodes [i, i+ops.size()) are the sequence of lm_ggml_ops in ops[]
+// and are fusable. Nodes are considered fusable according to this function if:
+// - all nodes except the last have only one use and are not views/outputs (see lm_ggml_node_has_N_uses).
+// - all nodes except the last are a src of the following node.
+// - all nodes are the same shape.
+// TODO: Consider allowing LM_GGML_OP_NONE nodes in between
+static inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int node_idx, const enum lm_ggml_op * ops, int num_ops) {
+    if (node_idx + num_ops > cgraph->n_nodes) {
+        return false;
+    }
+
+    for (int i = 0; i < num_ops; ++i) {
+        struct lm_ggml_tensor * node = cgraph->nodes[node_idx + i];
+        if (node->op != ops[i]) {
+            return false;
+        }
+        if (i < num_ops - 1 && !lm_ggml_node_has_n_uses(cgraph, node_idx + i, 1)) {
+            return false;
+        }
+        if (i > 0) {
+            struct lm_ggml_tensor * prev = cgraph->nodes[node_idx + i - 1];
+            if (node->src[0] != prev && node->src[1] != prev) {
+                return false;
+            }
+            if (!lm_ggml_are_same_shape(node, prev)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 #ifdef __cplusplus
 }
 #endif
 
 #ifdef __cplusplus
+#include <initializer_list>
 #include <vector>
+
+// nicer C++ syntax for lm_ggml_can_fuse
+inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int node_idx, std::initializer_list<enum lm_ggml_op> ops) {
+    return lm_ggml_can_fuse(cgraph, node_idx, ops.begin(), (int)ops.size());
+}
 
 // expose GGUF internals for test code
 LM_GGML_API size_t lm_gguf_type_size(enum lm_gguf_type type);

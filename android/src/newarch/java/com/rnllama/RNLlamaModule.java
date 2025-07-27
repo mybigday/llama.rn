@@ -113,6 +113,11 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
+  public void rerank(double id, final String query, final ReadableArray documents, final ReadableMap params, final Promise promise) {
+    rnllama.rerank(id, query, documents, params, promise);
+  }
+
+  @ReactMethod
   public void bench(double id, final double pp, final double tg, final double pl, final double nr, final Promise promise) {
     rnllama.bench(id, pp, tg, pl, nr, promise);
   }

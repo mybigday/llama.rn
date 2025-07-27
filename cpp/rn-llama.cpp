@@ -3,6 +3,7 @@
 
 // Include multimodal support
 #include "tools/mtmd/mtmd.h"
+#include "tools/mtmd/mtmd-helper.h"
 #include "tools/mtmd/clip.h"
 
 namespace rnllama {
@@ -24,38 +25,39 @@ static const std::string base64_chars =
              "abcdefghijklmnopqrstuvwxyz"
              "0123456789+/";
 
-// Base64 decoding function
-static std::vector<uint8_t> base64_decode(const std::string &encoded_string) {
-    std::vector<uint8_t> decoded;
-    int in_len = encoded_string.size();
+static inline bool is_base64(uint8_t c) {
+    return (isalnum(c) || (c == '+') || (c == '/'));
+}
+
+using raw_buffer = std::vector<uint8_t>;
+
+static inline raw_buffer base64_decode(const std::string & encoded_string) {
     int i = 0;
     int j = 0;
     int in_ = 0;
-    unsigned char char_array_4[4], char_array_3[3];
 
-    while (in_len-- && (encoded_string[in_] != '=')) {
-        if (isspace(encoded_string[in_])) {
-            in_++;
-            continue;
-        }
+    int in_len = encoded_string.size();
 
-        if (encoded_string[in_] == '=' || base64_chars.find(encoded_string[in_]) == std::string::npos) {
-            break;
-        }
+    uint8_t char_array_4[4];
+    uint8_t char_array_3[3];
 
+    raw_buffer ret;
+
+    while (in_len-- && (encoded_string[in_] != '=') && is_base64(encoded_string[in_])) {
         char_array_4[i++] = encoded_string[in_]; in_++;
         if (i == 4) {
             for (i = 0; i < 4; i++) {
                 char_array_4[i] = base64_chars.find(char_array_4[i]);
             }
 
-            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+            char_array_3[0] = ((char_array_4[0]      ) << 2) + ((char_array_4[1] & 0x30) >> 4);
             char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) +   char_array_4[3];
 
-            for (i = 0; i < 3; i++) {
-                decoded.push_back(char_array_3[i]);
+            for (i = 0; (i < 3); i++) {
+                ret.push_back(char_array_3[i]);
             }
+
             i = 0;
         }
     }
@@ -69,16 +71,16 @@ static std::vector<uint8_t> base64_decode(const std::string &encoded_string) {
             char_array_4[j] = base64_chars.find(char_array_4[j]);
         }
 
-        char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+        char_array_3[0] = ((char_array_4[0]      ) << 2) + ((char_array_4[1] & 0x30) >> 4);
         char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-        char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+        char_array_3[2] = ((char_array_4[2] & 0x3) << 6) +   char_array_4[3];
 
         for (j = 0; j < i - 1; j++) {
-            decoded.push_back(char_array_3[j]);
+            ret.push_back(char_array_3[j]);
         }
     }
 
-    return decoded;
+    return ret;
 }
 
 static const std::vector<lm_ggml_type> kv_cache_types = {
@@ -309,7 +311,8 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
   const std::string &json_schema,
   const std::string &tools,
   const bool &parallel_tool_calls,
-  const std::string &tool_choice
+  const std::string &tool_choice,
+  const bool &enable_thinking
 ) const {
     common_chat_templates_inputs inputs;
     inputs.use_jinja = true;
@@ -325,7 +328,7 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
     if (!json_schema.empty()) {
         inputs.json_schema = json::parse(json_schema);
     }
-    inputs.extract_reasoning = params.reasoning_format != COMMON_REASONING_FORMAT_NONE;
+    inputs.enable_thinking = enable_thinking;
 
     // If chat_template is provided, create new one and use it (probably slow)
     if (!chat_template.empty()) {
@@ -423,7 +426,8 @@ void llama_rn_context::loadPrompt(const std::vector<std::string> &media_paths) {
         }
 
         // Manage KV cache
-        llama_kv_self_seq_rm(ctx, 0, n_past, -1);
+        auto * kv = llama_get_memory(ctx);
+        llama_memory_seq_rm(kv, 0, n_past, -1);
 
         LOG_VERBOSE("prompt ingested, n_past: %d, cached: %s, to_eval: %s",
             n_past,
@@ -477,8 +481,9 @@ completion_token_output llama_rn_context::nextToken()
         const int n_left    = n_past - params.n_keep - 1;
         const int n_discard = n_left/2;
 
-        llama_kv_self_seq_rm (ctx, 0, params.n_keep + 1            , params.n_keep + n_discard + 1);
-        llama_kv_self_seq_add(ctx, 0, params.n_keep + 1 + n_discard, n_past, -n_discard);
+        auto * kv = llama_get_memory(ctx);
+        llama_memory_seq_rm (kv, 0, params.n_keep + 1            , params.n_keep + n_discard + 1);
+        llama_memory_seq_add(kv, 0, params.n_keep + 1 + n_discard, n_past, -n_discard);
 
         for (size_t i = params.n_keep + 1 + n_discard; i < embd.size(); i++)
         {
@@ -710,6 +715,94 @@ std::vector<float> llama_rn_context::getEmbedding(common_params &embd_params)
     return out;
 }
 
+// Helper function to format rerank task: [BOS]query[EOS][SEP]doc[EOS]
+static std::vector<llama_token> format_rerank(const llama_vocab * vocab, const std::vector<llama_token> & query, const std::vector<llama_token> & doc) {
+    std::vector<llama_token> result;
+
+    // Get EOS token - use SEP token as fallback if EOS is not available
+    llama_token eos_token = llama_vocab_eos(vocab);
+    if (eos_token == LLAMA_TOKEN_NULL) {
+        eos_token = llama_vocab_sep(vocab);
+    }
+
+    result.reserve(doc.size() + query.size() + 4);
+    if (llama_vocab_get_add_bos(vocab)) {
+        result.push_back(llama_vocab_bos(vocab));
+    }
+    result.insert(result.end(), query.begin(), query.end());
+    if (llama_vocab_get_add_eos(vocab)) {
+        result.push_back(eos_token);
+    }
+    if (llama_vocab_get_add_sep(vocab)) {
+        result.push_back(llama_vocab_sep(vocab));
+    }
+    result.insert(result.end(), doc.begin(), doc.end());
+    if (llama_vocab_get_add_eos(vocab)) {
+        result.push_back(eos_token);
+    }
+
+    return result;
+}
+
+std::vector<float> llama_rn_context::rerank(const std::string &query, const std::vector<std::string> &documents)
+{
+    std::vector<float> scores;
+
+    // Check if this model supports reranking (requires rank pooling type)
+    const enum llama_pooling_type pooling_type = llama_pooling_type(ctx);
+    if (pooling_type != LLAMA_POOLING_TYPE_RANK) {
+        throw std::runtime_error("reranking not supported, pooling_type: " + std::to_string(pooling_type));
+    }
+
+    if (!params.embedding) {
+        throw std::runtime_error("embedding disabled but required for reranking");
+    }
+
+    const llama_vocab * vocab = llama_model_get_vocab(model);
+    std::vector<llama_token> query_tokens = common_tokenize(vocab, query, false, true);
+
+    scores.reserve(documents.size());
+
+    for (size_t i = 0; i < documents.size(); ++i) {
+        rewind();
+        embd = {};
+
+        const std::string & document = documents[i];
+
+        std::vector<llama_token> doc_tokens = common_tokenize(vocab, document, false, true);
+
+        std::vector<llama_token> rerank_tokens = format_rerank(vocab, query_tokens, doc_tokens);
+
+        llama_memory_clear(llama_get_memory(ctx), false);
+
+        // Process the rerank input
+        try {
+            params.prompt = tokens_to_str(ctx, rerank_tokens.begin(), rerank_tokens.end());
+            initSampling();
+            loadPrompt({}); // No media paths for rerank
+            beginCompletion();
+            doCompletion();
+
+            // Get the rerank score (single embedding value for rank pooling)
+            float *data = llama_get_embeddings_seq(ctx, 0);
+            if (data) {
+                scores.push_back(data[0]); // For rank pooling, the score is the first (and only) dimension
+            } else {
+                scores.push_back(-1e6f); // Default low score if computation failed
+            }
+        } catch (const std::exception &e) {
+            LOG_WARNING("rerank computation failed for document %zu: %s", i, e.what());
+            scores.push_back(-1e6f);
+        }
+        endCompletion();
+
+        // Clear KV cache again to prepare for next document or restore original state
+        llama_memory_clear(llama_get_memory(ctx), false);
+    }
+
+    return scores;
+}
+
 std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
 {
     if (is_predicting) {
@@ -744,7 +837,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
         }
         batch.logits[batch.n_tokens - 1] = 1; // true
 
-        llama_kv_self_clear(ctx);
+        llama_memory_clear(llama_get_memory(ctx), true);
 
         const int64_t t_pp_start = llama_time_us();
         if (llama_decode(ctx, batch) != 0)
@@ -752,7 +845,8 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
             LOG_ERROR("llama_decode() failed during prompt", "");
         }
         const int64_t t_pp_end = llama_time_us();
-        llama_kv_self_clear(ctx);
+
+        llama_memory_clear(llama_get_memory(ctx), true);
 
         if (is_interrupted) break;
 
@@ -776,7 +870,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
 
         const int64_t t_tg_end = llama_time_us();
 
-        llama_kv_self_clear(ctx);
+        llama_memory_clear(llama_get_memory(ctx), true);
 
         const double t_pp = (t_pp_end - t_pp_start) / 1000000.0;
         const double t_tg = (t_tg_end - t_tg_start) / 1000000.0;
@@ -802,7 +896,7 @@ std::string llama_rn_context::bench(int pp, int tg, int pl, int nr)
         tg_std = 0;
     }
 
-    if (is_interrupted) llama_kv_self_clear(ctx);
+    if (is_interrupted) llama_memory_clear(llama_get_memory(ctx), true);
     endCompletion();
 
     char model_desc[128];
@@ -926,11 +1020,11 @@ mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrapper, cons
             }
 
             // Decode base64
-            std::vector<uint8_t> media_data = base64_decode(base64_data);
+            raw_buffer media_data = base64_decode(base64_data);
             LOG_INFO("[DEBUG] Base64 decoded, size: %zu bytes", media_data.size());
 
             // Load bitmap from memory buffer using direct initialization
-            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_buf(media_data.data(), media_data.size()));
+            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_buf(mtmd_wrapper->mtmd_ctx, media_data.data(), media_data.size()));
             if (!bmp.ptr) {
                 bitmaps.entries.clear();
                 throw std::runtime_error("Failed to load base64 media");
@@ -965,7 +1059,7 @@ mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrapper, cons
             fclose(file);
 
             // Create bitmap directly
-            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(media_path.c_str()));
+            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(mtmd_wrapper->mtmd_ctx, media_path.c_str()));
             if (!bmp.ptr) {
                 bitmaps.entries.clear();
                 throw std::runtime_error("Failed to load media");
@@ -1199,7 +1293,8 @@ void llama_rn_context::processMedia(
     }
 
     // Clear all KV cache entries after position n_past
-    llama_kv_self_seq_rm(ctx, 0, n_past, -1);
+    auto * kv = llama_get_memory(ctx);
+    llama_memory_seq_rm(kv, 0, n_past, -1);
 
     LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, params.n_batch);
 
@@ -1519,15 +1614,27 @@ static std::string replace_numbers_with_words(const std::string & input_text) {
     return result;
 }
 
-// Based on: https://github.com/edwko/OuteTTS/blob/a613e79c489d8256dd657ea9168d78de75895d82/outetts/version/v1/prompt_processor.py#L39
+static std::string anyascii_string(const std::string &input) {
+    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
+    auto wstr = converter.from_bytes(input);
+    std::string output;
+    for (char32_t c : wstr) {
+        const char *r;
+        size_t rlen = anyascii(c, &r);
+        output.append(r, rlen);
+    }
+    return output;
+}
+
 static std::string process_text(const std::string & text, const tts_type tts_type = OUTETTS_V0_2) {
-
-    // For now I skipped text romanization as I am unsure how to handle
-    // uroman and MeCab implementations in C++
-    // maybe something like https://github.com/anyascii/anyascii/ could work.
-    // currently only English would be supported in this function
-
     std::string processed_text = replace_numbers_with_words(text);
+
+    if (tts_type == OUTETTS_V0_2 || tts_type == OUTETTS_V0_3) {
+        processed_text = anyascii_string(processed_text);
+
+        std::regex dashes(R"([—–-])");
+        processed_text = std::regex_replace(processed_text, dashes, " ");
+    }
 
     std::transform(processed_text.begin(), processed_text.end(),
                   processed_text.begin(), ::tolower);

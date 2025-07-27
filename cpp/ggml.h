@@ -314,6 +314,13 @@
 extern "C" {
 #endif
 
+    // Function type used in fatal error callbacks
+    typedef void (*lm_ggml_abort_callback_t)(const char * error_message);
+
+    // Set the abort callback (passing null will restore original abort functionality: printing a message to stdout)
+    // Returns the old callback for chaining
+    LM_GGML_API lm_ggml_abort_callback_t lm_ggml_set_abort_callback(lm_ggml_abort_callback_t callback);
+
     LM_GGML_NORETURN LM_GGML_ATTRIBUTE_FORMAT(3, 4)
     LM_GGML_API void lm_ggml_abort(const char * file, int line, const char * fmt, ...);
 
@@ -470,6 +477,7 @@ extern "C" {
         LM_GGML_OP_TRANSPOSE,
         LM_GGML_OP_GET_ROWS,
         LM_GGML_OP_GET_ROWS_BACK,
+        LM_GGML_OP_SET_ROWS,
         LM_GGML_OP_DIAG,
         LM_GGML_OP_DIAG_MASK_INF,
         LM_GGML_OP_DIAG_MASK_ZERO,
@@ -481,14 +489,16 @@ extern "C" {
         LM_GGML_OP_CONV_TRANSPOSE_1D,
         LM_GGML_OP_IM2COL,
         LM_GGML_OP_IM2COL_BACK,
+        LM_GGML_OP_CONV_2D,
         LM_GGML_OP_CONV_2D_DW,
         LM_GGML_OP_CONV_TRANSPOSE_2D,
         LM_GGML_OP_POOL_1D,
         LM_GGML_OP_POOL_2D,
         LM_GGML_OP_POOL_2D_BACK,
-        LM_GGML_OP_UPSCALE, // nearest interpolate
+        LM_GGML_OP_UPSCALE,
         LM_GGML_OP_PAD,
         LM_GGML_OP_PAD_REFLECT_1D,
+        LM_GGML_OP_ROLL,
         LM_GGML_OP_ARANGE,
         LM_GGML_OP_TIMESTEP_EMBEDDING,
         LM_GGML_OP_ARGSORT,
@@ -518,6 +528,8 @@ extern "C" {
         LM_GGML_OP_CROSS_ENTROPY_LOSS_BACK,
         LM_GGML_OP_OPT_STEP_ADAMW,
 
+        LM_GGML_OP_GLU,
+
         LM_GGML_OP_COUNT,
     };
 
@@ -539,6 +551,16 @@ extern "C" {
         LM_GGML_UNARY_OP_GELU_ERF,
 
         LM_GGML_UNARY_OP_COUNT,
+    };
+
+    enum lm_ggml_glu_op {
+        LM_GGML_GLU_OP_REGLU,
+        LM_GGML_GLU_OP_GEGLU,
+        LM_GGML_GLU_OP_SWIGLU,
+        LM_GGML_GLU_OP_GEGLU_ERF,
+        LM_GGML_GLU_OP_GEGLU_QUICK,
+
+        LM_GGML_GLU_OP_COUNT,
     };
 
     enum lm_ggml_object_type {
@@ -626,6 +648,9 @@ extern "C" {
 
     // misc
 
+    LM_GGML_API const char * lm_ggml_version(void);
+    LM_GGML_API const char * lm_ggml_commit(void);
+
     LM_GGML_API void    lm_ggml_time_init(void); // call this once at the beginning of the program
     LM_GGML_API int64_t lm_ggml_time_ms(void);
     LM_GGML_API int64_t lm_ggml_time_us(void);
@@ -656,6 +681,7 @@ extern "C" {
     LM_GGML_API const char * lm_ggml_op_symbol(enum lm_ggml_op   op);
 
     LM_GGML_API const char * lm_ggml_unary_op_name(enum lm_ggml_unary_op op);
+    LM_GGML_API const char * lm_ggml_glu_op_name(enum lm_ggml_glu_op op);
     LM_GGML_API const char * lm_ggml_op_desc(const struct lm_ggml_tensor * t); // unary or op name
 
     LM_GGML_API size_t  lm_ggml_element_size(const struct lm_ggml_tensor * tensor);
@@ -685,6 +711,9 @@ extern "C" {
 
     // true for tensor that is stored in memory as CxWxHxN and has been permuted to WxHxCxN
     LM_GGML_API bool lm_ggml_is_contiguous_channels(const struct lm_ggml_tensor * tensor);
+
+    // true if the elements in dimension 0 are contiguous, or there is just 1 block of elements
+    LM_GGML_API bool lm_ggml_is_contiguous_rows(const struct lm_ggml_tensor * tensor);
 
     LM_GGML_API bool lm_ggml_are_same_shape (const struct lm_ggml_tensor * t0, const struct lm_ggml_tensor * t1);
     LM_GGML_API bool lm_ggml_are_same_stride(const struct lm_ggml_tensor * t0, const struct lm_ggml_tensor * t1);
@@ -757,6 +786,7 @@ extern "C" {
     LM_GGML_API void lm_ggml_unravel_index(const struct lm_ggml_tensor * tensor, int64_t i, int64_t * i0, int64_t * i1, int64_t * i2, int64_t * i3);
 
     LM_GGML_API enum lm_ggml_unary_op lm_ggml_get_unary_op(const struct lm_ggml_tensor * tensor);
+    LM_GGML_API enum lm_ggml_glu_op lm_ggml_get_glu_op(const struct lm_ggml_tensor * tensor);
 
     LM_GGML_API void *  lm_ggml_get_data    (const struct lm_ggml_tensor * tensor);
     LM_GGML_API float * lm_ggml_get_data_f32(const struct lm_ggml_tensor * tensor);
@@ -935,6 +965,15 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * b);
 
+    // repeat a to the specified shape
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_repeat_4d(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+                       int64_t    ne0,
+                       int64_t    ne1,
+                       int64_t    ne2,
+                       int64_t    ne3);
+
     // sums repetitions in a into shape of b
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_repeat_back(
             struct lm_ggml_context * ctx,
@@ -1076,6 +1115,89 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
 
+    // gated linear unit ops
+    // A: n columns, r rows,
+    // result is n / 2 columns, r rows,
+    // expects gate in second half of row, unless swapped is true
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_glu(
+            struct lm_ggml_context * ctx,
+             struct lm_ggml_tensor * a,
+             enum lm_ggml_glu_op     op,
+             bool                 swapped);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_reglu(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_reglu_swapped(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_geglu(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_geglu_swapped(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_swiglu(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_swiglu_swapped(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_geglu_erf(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_geglu_erf_swapped(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_geglu_quick(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_geglu_quick_swapped(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    // A: n columns, r rows,
+    // B: n columns, r rows,
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_glu_split(
+            struct lm_ggml_context * ctx,
+             struct lm_ggml_tensor * a,
+             struct lm_ggml_tensor * b,
+             enum lm_ggml_glu_op     op);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_reglu_split(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_geglu_split(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_swiglu_split(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_geglu_erf_split(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_geglu_quick_split(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b);
+
     // normalize along rows
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_norm(
             struct lm_ggml_context * ctx,
@@ -1174,6 +1296,19 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             float                 s);
+
+    // x = s * a + b
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_scale_bias(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        float                 s,
+        float                 b);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_scale_bias_inplace(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        float                 s,
+        float                 b);
 
     // b -> view(a,offset,nb1,nb2,3), return modified a
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_set(
@@ -1365,6 +1500,23 @@ extern "C" {
             struct lm_ggml_tensor  * b,  // row indices
             struct lm_ggml_tensor  * c); // data for lm_ggml_get_rows, only used for its shape
 
+    // a TD  [n_embd, ne1,    ne2,    ne3]
+    // b TS  [n_embd, n_rows, ne02,   ne03] | ne02 == ne2, ne03 == ne3
+    // c I64 [n_rows, ne11,   ne12,   1]    | c[i] in [0, ne1)
+    //
+    // undefined behavior if destination rows overlap
+    //
+    // broadcast:
+    //   ne2 % ne11 == 0
+    //   ne3 % ne12 == 0
+    //
+    // return view(a)
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_set_rows(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,  // destination
+            struct lm_ggml_tensor  * b,  // source
+            struct lm_ggml_tensor  * c); // row indices
+
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_diag(
         struct lm_ggml_context     * ctx,
         struct lm_ggml_tensor      * a);
@@ -1402,8 +1554,14 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
 
+    // a    [ne0, ne01, ne02, ne03]
+    // mask [ne0, ne11, ne12, ne13] | ne11 >= ne01, F16 or F32, optional
+    //
+    // broadcast:
+    //   ne02 % ne12 == 0
+    //   ne03 % ne13 == 0
+    //
     // fused soft_max(a*scale + mask*(ALiBi slope))
-    // mask is optional
     // max_bias = 0.0f for no ALiBi
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_soft_max_ext(
             struct lm_ggml_context * ctx,
@@ -1713,6 +1871,17 @@ extern "C" {
             struct lm_ggml_tensor  * b,
             int                   stride);
 
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_2d_direct(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,   // convolution kernel [KW, KH, IC, OC]
+            struct lm_ggml_tensor  * b,   // input data [W, H, C, N]
+            int                   s0,  // stride dimension 0
+            int                   s1,  // stride dimension 1
+            int                   p0,  // padding dimension 0
+            int                   p1,  // padding dimension 1
+            int                   d0,  // dilation dimension 0
+            int                   d1); // dilation dimension 1
+
     enum lm_ggml_op_pool {
         LM_GGML_OP_POOL_MAX,
         LM_GGML_OP_POOL_AVG,
@@ -1755,6 +1924,12 @@ extern "C" {
     enum lm_ggml_scale_mode {
         LM_GGML_SCALE_MODE_NEAREST  = 0,
         LM_GGML_SCALE_MODE_BILINEAR = 1,
+
+        LM_GGML_SCALE_MODE_COUNT
+    };
+
+    enum lm_ggml_scale_flag {
+        LM_GGML_SCALE_FLAG_ALIGN_CORNERS = (1 << 8)
     };
 
     // interpolate
@@ -1767,14 +1942,26 @@ extern "C" {
 
     // interpolate
     // interpolate scale to specified dimensions
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_upscale_ext(
+    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_upscale_ext(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             int                   ne0,
             int                   ne1,
             int                   ne2,
             int                   ne3,
-            enum lm_ggml_scale_mode  mode);
+            enum lm_ggml_scale_mode  mode),
+        "use lm_ggml_interpolate instead");
+
+    // Up- or downsamples the input to the specified size.
+    // 2D scale modes (eg. bilinear) are applied to the first two dimensions.
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_interpolate(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            int64_t               ne0,
+            int64_t               ne1,
+            int64_t               ne2,
+            int64_t               ne3,
+            uint32_t              mode); // lm_ggml_scale_mode [ | lm_ggml_scale_flag...]
 
     // pad each dimension with zeros: [x, ..., x] -> [x, ..., x, 0, ..., 0]
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_pad(
@@ -1791,6 +1978,17 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             int                   p0,
             int                   p1);
+
+    // Move tensor elements by an offset given for each dimension. Elements that
+    // are shifted beyond the last position are wrapped around to the beginning.
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_roll(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            int                   shift0,
+            int                   shift1,
+            int                   shift2,
+            int                   shift3);
+
 
     // Ref: https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/diffusionmodules/util.py#L151
     // timesteps: [N,]
@@ -1826,11 +2024,17 @@ extern "C" {
 
 #define LM_GGML_KQ_MASK_PAD 64
 
-    // q:    [n_embd_k, n_batch,     n_head,    1]
-    // k:    [n_embd_k, n_kv,        n_head_kv, 1]
-    // v:    [n_embd_v, n_kv,        n_head_kv, 1] !! not transposed !!
-    // mask: [n_kv,     n_batch_pad, 1,         1] !! n_batch_pad = LM_GGML_PAD(n_batch, LM_GGML_KQ_MASK_PAD) !!
-    // res:  [n_embd_v, n_head,      n_batch,   1] !! permuted !!
+    // q:    [n_embd_k, n_batch,     n_head,    ne3 ]
+    // k:    [n_embd_k, n_kv,        n_head_kv, ne3 ]
+    // v:    [n_embd_v, n_kv,        n_head_kv, ne3 ] !! not transposed !!
+    // mask: [n_kv,     n_batch_pad, ne32,      ne33] !! n_batch_pad = LM_GGML_PAD(n_batch, LM_GGML_KQ_MASK_PAD) !!
+    // res:  [n_embd_v, n_head,      n_batch,   ne3 ] !! permuted !!
+    //
+    // broadcast:
+    //   n_head % n_head_kv == 0
+    //   n_head % ne32      == 0
+    //   ne3    % ne33      == 0
+    //
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_flash_attn_ext(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * q,
@@ -1869,7 +2073,8 @@ extern "C" {
             struct lm_ggml_tensor  * dt,
             struct lm_ggml_tensor  * A,
             struct lm_ggml_tensor  * B,
-            struct lm_ggml_tensor  * C);
+            struct lm_ggml_tensor  * C,
+            struct lm_ggml_tensor  * ids);
 
     // partition into non-overlapping windows with padding if needed
     // example:
@@ -2086,9 +2291,6 @@ extern "C" {
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_graph_get_grad    (const struct lm_ggml_cgraph * cgraph, const struct lm_ggml_tensor * node);
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_graph_get_grad_acc(const struct lm_ggml_cgraph * cgraph, const struct lm_ggml_tensor * node);
 
-    LM_GGML_API void                 lm_ggml_graph_export(const struct lm_ggml_cgraph * cgraph, const char * fname);
-    LM_GGML_API struct lm_ggml_cgraph * lm_ggml_graph_import(const char * fname, struct lm_ggml_context ** ctx_data, struct lm_ggml_context ** ctx_eval);
-
     // print info and performance information for the graph
     LM_GGML_API void lm_ggml_graph_print(const struct lm_ggml_cgraph * cgraph);
 
@@ -2172,6 +2374,7 @@ extern "C" {
 
     // scheduling priorities
     enum lm_ggml_sched_priority {
+        LM_GGML_SCHED_PRIO_LOW = -1,
         LM_GGML_SCHED_PRIO_NORMAL,
         LM_GGML_SCHED_PRIO_MEDIUM,
         LM_GGML_SCHED_PRIO_HIGH,

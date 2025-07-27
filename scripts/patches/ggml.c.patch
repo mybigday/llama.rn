@@ -1,6 +1,21 @@
 --- ggml.c.orig	2024-12-20 13:38:33
 +++ ggml.c	2024-12-20 13:38:34
-@@ -118,9 +118,9 @@ static void lm_ggml_print_backtrace_symbols(void) {
+@@ -1,6 +1,14 @@
+ #define _CRT_SECURE_NO_DEPRECATE // Disables "unsafe" warnings on Windows
+ #define _USE_MATH_DEFINES // For M_PI on MSVC
+ 
++// GGML build info
++#ifndef LM_GGML_VERSION
++#define LM_GGML_VERSION "unknown"
++#endif
++#ifndef LM_GGML_COMMIT
++#define LM_GGML_COMMIT "unknown"
++#endif
++
+ #include "ggml-backend.h"
+ #include "ggml-impl.h"
+ #include "ggml-threading.h"
+@@ -120,9 +128,9 @@ static void lm_ggml_print_backtrace_symbols(void) {
  #elif defined(__linux__) && defined(__GLIBC__)
  #include <execinfo.h>
  static void lm_ggml_print_backtrace_symbols(void) {

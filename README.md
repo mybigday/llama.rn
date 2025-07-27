@@ -108,12 +108,13 @@ console.log('Result:', textResult.text)
 console.log('Timings:', textResult.timings)
 ```
 
-The binding’s deisgn inspired by [server.cpp](https://github.com/ggerganov/llama.cpp/tree/master/examples/server) example in llama.cpp:
+The binding's deisgn inspired by [server.cpp](https://github.com/ggerganov/llama.cpp/tree/master/examples/server) example in llama.cpp:
 
 - `/completion` and `/chat/completions`: `context.completion(params, partialCompletionCallback)`
 - `/tokenize`: `context.tokenize(content)`
 - `/detokenize`: `context.detokenize(tokens)`
 - `/embedding`: `context.embedding(content)`
+- `/rerank`: `context.rerank(query, documents, params)`
 - ... Other methods
 
 Please visit the [Documentation](docs/API) for more details.
@@ -421,7 +422,55 @@ const { embedding } = await context.embedding('Hello, world!')
 
 - You can use model like [nomic-ai/nomic-embed-text-v1.5-GGUF](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF) for better embedding quality.
 - You can use DB like [op-sqlite](https://github.com/OP-Engineering/op-sqlite) with sqlite-vec support to store and search embeddings.
-=
+
+## Rerank
+
+The rerank API is used to rank documents based on their relevance to a query. This is particularly useful for improving search results and implementing retrieval-augmented generation (RAG) systems.
+
+```js
+const context = await initLlama({
+  ...params,
+  embedding: true, // Required for reranking
+  pooling_type: 'rank', // Use rank pooling for rerank models
+})
+
+// Rerank documents based on relevance to query
+const results = await context.rerank(
+  'What is artificial intelligence?', // query
+  [
+    'AI is a branch of computer science.',
+    'The weather is nice today.',
+    'Machine learning is a subset of AI.',
+    'I like pizza.',
+  ], // documents to rank
+  {
+    normalize: 1, // Optional: normalize scores (default: from model config)
+  }
+)
+
+// Results are automatically sorted by score (highest first)
+results.forEach((result, index) => {
+  console.log(`Rank ${index + 1}:`, {
+    score: result.score,
+    document: result.document,
+    originalIndex: result.index,
+  })
+})
+```
+
+### Notes
+
+- **Model Requirements**: Reranking requires models with `RANK` pooling type (e.g., reranker models)
+- **Embedding Enabled**: The context must have `embedding: true` to use rerank functionality
+- **Automatic Sorting**: Results are returned sorted by relevance score in descending order
+- **Document Access**: Each result includes the original document text and its index in the input array
+- **Score Interpretation**: Higher scores indicate higher relevance to the query
+
+### Recommended Models
+
+- [jinaai - jina-reranker-v2-base-multilingual-GGUF](https://huggingface.co/gpustack/jina-reranker-v2-base-multilingual-GGUF)
+- [BAAI - bge-reranker-v2-m3-GGUF](https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF)
+- Other models with "rerank" or "reranker" in their name and GGUF format
 
 ## Mock `llama.rn`
 

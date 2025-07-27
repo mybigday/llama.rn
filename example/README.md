@@ -2,10 +2,15 @@
 
 This is an example of how to use the llama.rn library.
 
-This example used [react-native-document-picker](https://github.com/rnmods/react-native-document-picker) for select model.
+## Examples
 
-- iOS: You can move the model to iOS Simulator, or iCloud for real device.
-- Android: Selected file will be copied or downloaded to cache directory so it may be slow.
+The example app demonstrates various local LLM capabilities:
+
+- **💬 Simple Chat** - Basic chat interface with text generation ([SimpleChatScreen.tsx](src/screens/SimpleChatScreen.tsx))
+- **👁️ Vision/Multimodal** - Image analysis and visual question answering ([MultimodalScreen.tsx](src/screens/MultimodalScreen.tsx))
+- **🛠️ Tool Calling** - Advanced function calling capabilities ([ToolCallsScreen.tsx](src/screens/ToolCallsScreen.tsx))
+- **🔊 Text-to-Speech** - Local voice synthesis with OuteTTS ([TTSScreen.tsx](src/screens/TTSScreen.tsx))
+- **📊 Model Info** - Model diagnostics and system information ([ModelInfoScreen.tsx](src/screens/ModelInfoScreen.tsx))
 
 ## Requirements
 

@@ -90,13 +90,6 @@
         NSLog(@"chatTemplate: %@", chatTemplate);
     }
 
-    NSString *reasoningFormat = params[@"reasoning_format"];
-    if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek"]) {
-        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
-    } else {
-        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_NONE;
-    }
-
     if (params[@"n_ctx"]) defaultParams.n_ctx = [params[@"n_ctx"] intValue];
     if (params[@"use_mlock"]) defaultParams.use_mlock = [params[@"use_mlock"]boolValue];
 
@@ -177,6 +170,8 @@
     if (params[@"flash_attn"] && [params[@"flash_attn"] boolValue]) defaultParams.flash_attn = true;
 
     if (params[@"ctx_shift"]) defaultParams.ctx_shift = [params[@"ctx_shift"] boolValue];
+
+    if (params[@"kv_unified"]) defaultParams.kv_unified = [params[@"kv_unified"] boolValue];
 
     if (params[@"cache_type_k"]) defaultParams.cache_type_k = rnllama::kv_cache_type_from_str([params[@"cache_type_k"] UTF8String]);
     if (params[@"cache_type_v"]) defaultParams.cache_type_v = rnllama::kv_cache_type_from_str([params[@"cache_type_v"] UTF8String]);
@@ -362,6 +357,7 @@
     withTools:(NSString *)tools
     withParallelToolCalls:(BOOL)parallelToolCalls
     withToolChoice:(NSString *)toolChoice
+    withEnableThinking:(BOOL)enableThinking
 {
     auto tmpl_str = chatTemplate == nil ? "" : [chatTemplate UTF8String];
 
@@ -372,7 +368,8 @@
         jsonSchema == nil ? "" : [jsonSchema UTF8String],
         tools == nil ? "" : [tools UTF8String],
         parallelToolCalls,
-        toolChoice == nil ? "" : [toolChoice UTF8String]
+        toolChoice == nil ? "" : [toolChoice UTF8String],
+        enableThinking
     );
     result[@"prompt"] = [NSString stringWithUTF8String:chatParams.prompt.c_str()];
     result[@"chat_format"] = @(static_cast<int>(chatParams.format));
@@ -386,6 +383,7 @@
             @"token": @(trigger.token),
         }];
     }
+    result[@"thinking_forced_open"] = @(chatParams.thinking_forced_open);
     result[@"grammar_triggers"] = grammar_triggers;
     NSMutableArray *preserved_tokens = [[NSMutableArray alloc] init];
     for (const auto & token : chatParams.preserved_tokens) {
@@ -614,6 +612,9 @@
     } catch (const std::exception &e) {
         llama->endCompletion();
         @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    } catch (const std::runtime_error& e) {
+        llama->endCompletion();
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
     }
 
     if (llama->context_full) {
@@ -687,10 +688,26 @@
     NSMutableArray *toolCalls = nil;
     NSString *reasoningContent = nil;
     NSString *content = nil;
+    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
+    auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
+    result[@"chat_format"] = @(chat_format);
+
     if (!llama->is_interrupted) {
         try {
-            auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
-            common_chat_msg message = common_chat_parse(llama->generated_text, static_cast<common_chat_format>(chat_format));
+            common_chat_syntax chat_syntax;
+            chat_syntax.format = static_cast<common_chat_format>(chat_format);
+
+            NSString *reasoningFormat = params[@"reasoning_format"];
+            if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek"]) {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+            } else if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek-legacy"]) {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY;
+            } else {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
+            }
+            chat_syntax.thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
+
+            common_chat_msg message = common_chat_parse(llama->generated_text, false, chat_syntax);
             if (!message.reasoning_content.empty()) {
                 reasoningContent = [NSString stringWithUTF8String:message.reasoning_content.c_str()];
             }
@@ -711,7 +728,6 @@
         }
     }
 
-    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
     result[@"text"] = [NSString stringWithUTF8String:llama->generated_text.c_str()]; // Original text
     if (content) result[@"content"] = content;
     if (reasoningContent) result[@"reasoning_content"] = reasoningContent;
@@ -726,7 +742,7 @@
     result[@"stopped_limit"] = @(llama->stopped_limit);
     result[@"stopping_word"] = [NSString stringWithUTF8String:llama->stopping_word.c_str()];
     result[@"tokens_cached"] = @(llama->n_past);
-    
+
     if (llama->isVocoderEnabled() && !llama->audio_tokens.empty()) {
         NSMutableArray *audioTokens = [[NSMutableArray alloc] init];
         for (llama_token token : llama->audio_tokens) {
@@ -734,7 +750,7 @@
         }
         result[@"audio_tokens"] = audioTokens;
     }
-    
+
     result[@"timings"] = @{
         @"prompt_n": @(timings.n_p_eval),
         @"prompt_ms": @(timings.t_p_eval_ms),
@@ -794,6 +810,8 @@
         return result;
     } catch (const std::exception &e) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    } catch (const std::runtime_error& e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
     }
 }
 
@@ -836,6 +854,9 @@
     } catch (const std::exception &e) {
       llama->endCompletion();
       @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    } catch (const std::runtime_error& e) {
+      llama->endCompletion();
+      @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
     }
     llama->doCompletion();
 
@@ -855,6 +876,34 @@
 
     llama->endCompletion();
     return resultDict;
+}
+
+- (NSArray *)rerank:(NSString *)query documents:(NSArray<NSString *> *)documents params:(NSDictionary *)params {
+    // Convert NSArray to std::vector
+    std::vector<std::string> documentsVector;
+    for (NSString *doc in documents) {
+        documentsVector.push_back(std::string([doc UTF8String]));
+    }
+
+    NSMutableArray *resultArray = [[NSMutableArray alloc] init];
+
+    try {
+        std::vector<float> scores = llama->rerank(std::string([query UTF8String]), documentsVector);
+
+        // Create result array with score and index
+        for (size_t i = 0; i < scores.size(); i++) {
+            NSMutableDictionary *item = [[NSMutableDictionary alloc] init];
+            item[@"score"] = @(scores[i]);
+            item[@"index"] = @((int)i);
+            [resultArray addObject:item];
+        }
+    } catch (const std::exception &e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    } catch (const std::runtime_error& e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
+
+    return resultArray;
 }
 
 - (NSDictionary *)loadSession:(NSString *)path {

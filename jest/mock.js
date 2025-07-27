@@ -4,6 +4,7 @@ if (!NativeModules.RNLlama) {
   const demoEmbedding = new Array(768).fill(0.01)
 
   const contextMap = {}
+  const vocoderMap = {}
   NativeModules.RNLlama = {
     setContextLimit: jest.fn(),
 
@@ -53,6 +54,10 @@ if (!NativeModules.RNLlama) {
 
     completion: jest.fn(async (contextId, jobId) => {
       const testResult = {
+        audio_tokens: [
+          1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010,
+        ],
+        content: '*giggles*',
         text: '*giggles*',
         completion_probabilities: [
           {
@@ -192,6 +197,7 @@ if (!NativeModules.RNLlama) {
     })),
     detokenize: jest.fn(async () => ''),
     embedding: jest.fn(async () => ({ embedding: demoEmbedding })),
+    rerank: jest.fn(async () => []),
 
     loadSession: jest.fn(async () => ({
       tokens_loaded: 1,
@@ -223,6 +229,25 @@ if (!NativeModules.RNLlama) {
     releaseMultimodal: jest.fn(async (id) => {
       delete contextMap[id]
     }),
+
+    initVocoder: jest.fn(async (id) => {
+      vocoderMap[id] = true
+      return true
+    }),
+    releaseVocoder: jest.fn(async (id) => {
+      delete vocoderMap[id]
+    }),
+    isVocoderEnabled: jest.fn(async (id) => vocoderMap[id] || false),
+    getFormattedAudioCompletion: jest.fn(
+      async (id, speakerJsonStr, textToSpeak) =>
+        `${speakerJsonStr || '<default speaker>'}<sep>${textToSpeak}`,
+    ),
+    getAudioCompletionGuideTokens: jest.fn(async (id, textToSpeak) =>
+      textToSpeak.split('').map((char) => char.charCodeAt(0) + 1000),
+    ),
+    decodeAudioTokens: jest.fn(async (id, tokens) =>
+      tokens.map((token) => token - 1000).map((token) => token / 1024),
+    ),
   }
 }
 

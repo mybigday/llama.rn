@@ -1,0 +1,114 @@
+name: Sync llama.cpp
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  sync:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for submodules and branch operations
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+
+      - name: Setup JDK 17 for Android builds
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Run complete sync
+        run: |
+          chmod +x scripts/sync-llama-cpp-submodule.sh scripts/finalize-sync.sh
+          ./scripts/sync-llama-cpp-submodule.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build iOS frameworks
+        run: yarn build:ios-frameworks
+
+      - name: Build Android libraries
+        run: yarn build:android-libs
+
+      - name: Build TypeScript library
+        run: yarn build
+
+      - name: Finalize sync
+        run: ./scripts/finalize-sync.sh
+
+      - name: Create Pull Request
+        if: success()
+        run: |
+          # Check if PR already exists
+          EXISTING_PR=$(gh pr list --head auto/sync-llama.cpp --base main --json number --jq '.[0].number' || echo "")
+
+          if [[ -n "$EXISTING_PR" && "$EXISTING_PR" != "null" ]]; then
+            echo "✅ PR #$EXISTING_PR already exists, updating it..."
+            gh pr edit "$EXISTING_PR" --title "chore: sync llama.cpp to latest release" --body "🤖 **Automated llama.cpp sync**
+
+            This PR was automatically updated by the daily sync workflow.
+
+            **Changes:**
+            - Updated llama.cpp submodule to latest release
+            - Regenerated bindings and build files
+
+            **Verification:**
+            - ✅ Bootstrap script completed successfully (including iOS Metal compilation)
+            - ✅ iOS frameworks build completed successfully
+            - ✅ Android libraries build completed successfully
+            - ✅ TypeScript build completed successfully
+
+            Please review and merge if all checks pass."
+          else
+            echo "🆕 Creating new PR..."
+            gh pr create \
+              --head auto/sync-llama.cpp \
+              --base main \
+              --title "chore: sync llama.cpp to latest release" \
+              --body "🤖 **Automated llama.cpp sync**
+
+            This PR was automatically created by the daily sync workflow.
+
+            **Changes:**
+            - Updated llama.cpp submodule to latest release
+            - Regenerated bindings and build files
+
+            **Verification:**
+            - ✅ Bootstrap script completed successfully (including iOS Metal compilation)
+            - ✅ iOS frameworks build completed successfully
+            - ✅ Android libraries build completed successfully
+            - ✅ TypeScript build completed successfully
+
+            Please review and merge if all checks pass."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Sync failed. Check the workflow logs for details."
+          echo "The persistent sync branch was not updated due to build failure."
