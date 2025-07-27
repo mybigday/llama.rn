@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { Text, ScrollView, Alert } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
@@ -30,7 +30,8 @@ const styles = {
 }
 
 export default function SimpleChatScreen({ navigation }: { navigation: any }) {
-  const [messages, setMessages] = useState<MessageType.Any[]>([])
+  const messagesRef = useRef<MessageType.Any[]>([])
+  const [, setMessagesVersion] = useState(0) // For UI updates
   const [isLoading, setIsLoading] = useState(false)
   const [context, setContext] = useState<LlamaContext | null>(null)
   const [isModelReady, setIsModelReady] = useState(false)
@@ -83,7 +84,24 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   }, [navigation, isModelReady])
 
   const addMessage = (message: MessageType.Any) => {
-    setMessages((msgs) => [message, ...msgs])
+    messagesRef.current = [message, ...messagesRef.current]
+    setMessagesVersion((prev) => prev + 1)
+  }
+
+  const updateMessage = (
+    messageId: string,
+    updateFn: (msg: MessageType.Any) => MessageType.Any,
+  ) => {
+    const index = messagesRef.current.findIndex((msg) => msg.id === messageId)
+    if (index >= 0) {
+      messagesRef.current = messagesRef.current.map((msg, i) => {
+        if (i === index) {
+          return updateFn(msg)
+        }
+        return msg
+      })
+      setMessagesVersion((prev) => prev + 1)
+    }
   }
 
   const addSystemMessage = (text: string, metadata = {}) => {
@@ -150,12 +168,12 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
       // Build messages array for conversation context
       const conversationMessages = [
         {
-          role: 'system' as const,
+          role: 'system',
           content:
             'You are a helpful, harmless, and honest AI assistant. Be concise and helpful in your responses.',
         },
         // Add previous messages from chat history
-        ...messages
+        ...messagesRef.current
           .filter(
             (msg): msg is MessageType.Text =>
               msg.type === 'text' && !msg.metadata?.system,
@@ -165,15 +183,10 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           .map((msg) => ({
             role:
               msg.author.id === user.id
-                ? ('user' as const)
-                : ('assistant' as const),
+                ? ('user')
+                : ('assistant'),
             content: msg.text,
           })),
-        // Add current user message
-        {
-          role: 'user' as const,
-          content: message.text,
-        },
       ]
 
       let response = ''
@@ -189,7 +202,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
       addMessage(responseMessage)
 
       const params = completionParams || (await loadCompletionParams())
-      await context.completion(
+      const completionResult = await context.completion(
         {
           messages: conversationMessages,
           ...params,
@@ -198,42 +211,31 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           const { token } = data
           response += token
 
-          setMessages((currentMsgs) => {
-            const index = currentMsgs.findIndex((msg) => msg.id === responseId)
-            if (index >= 0) {
-              return currentMsgs.map((msg, i) => {
-                if (msg.type === 'text' && i === index) {
-                  return {
-                    ...msg,
-                    text: response.replace(/^\s+/, ''),
-                  }
-                }
-                return msg
-              })
+          updateMessage(responseId, (msg) => {
+            if (msg.type === 'text') {
+              return {
+                ...msg,
+                text: response.replace(/^\s+/, ''),
+              }
             }
-            return currentMsgs
+            return msg
           })
         },
       )
 
       // Update final message with timing info
-      setMessages((currentMsgs) => {
-        const index = currentMsgs.findIndex((msg) => msg.id === responseId)
-        if (index >= 0) {
-          return currentMsgs.map((msg, i) => {
-            if (msg.type === 'text' && i === index) {
-              return {
-                ...msg,
-                metadata: {
-                  ...msg.metadata,
-                  timings: 'Response completed',
-                },
-              }
-            }
-            return msg
-          })
+      updateMessage(responseId, (msg) => {
+        if (msg.type === 'text') {
+          return {
+            ...msg,
+            text: completionResult.content,
+            metadata: {
+              ...msg.metadata,
+              timings: 'Response completed',
+            },
+          }
         }
-        return currentMsgs
+        return msg
       })
     } catch (error: any) {
       Alert.alert('Error', `Failed to generate response: ${error.message}`)
@@ -297,7 +299,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
       <Chat
         renderBubble={renderBubble}
         theme={defaultTheme}
-        messages={messages}
+        messages={messagesRef.current}
         onSendPress={handleSendPress}
         user={user}
         textInputProps={{

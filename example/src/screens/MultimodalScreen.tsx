@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import {
   View,
   Text,
@@ -107,7 +107,8 @@ const styles = StyleSheet.create({
 })
 
 export default function MultimodalScreen({ navigation }: { navigation: any }) {
-  const [messages, setMessages] = useState<MessageType.Any[]>([])
+  const messagesRef = useRef<MessageType.Any[]>([])
+  const [, setMessagesVersion] = useState(0) // For UI updates
   const [isLoading, setIsLoading] = useState(false)
   const [context, setContext] = useState<LlamaContext | null>(null)
   const [isModelReady, setIsModelReady] = useState(false)
@@ -164,7 +165,24 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
   }, [navigation, isModelReady])
 
   const addMessage = (message: MessageType.Any) => {
-    setMessages((msgs) => [message, ...msgs])
+    messagesRef.current = [message, ...messagesRef.current]
+    setMessagesVersion((prev) => prev + 1)
+  }
+
+  const updateMessage = (
+    messageId: string,
+    updateFn: (msg: MessageType.Any) => MessageType.Any,
+  ) => {
+    const index = messagesRef.current.findIndex((msg) => msg.id === messageId)
+    if (index >= 0) {
+      messagesRef.current = messagesRef.current.map((msg, i) => {
+        if (i === index) {
+          return updateFn(msg)
+        }
+        return msg
+      })
+      setMessagesVersion((prev) => prev + 1)
+    }
   }
 
   const addSystemMessage = (text: string, metadata = {}) => {
@@ -241,212 +259,148 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     }
   }
 
-  const handleMultimodalMessage = async (
-    imageBase64: string,
-    mimeType: string,
-    question?: string,
-  ) => {
-    if (!context || isLoading) return
-
-    try {
-      setIsLoading(true)
-
-      // Add user image message (using base64 as URI for display)
-      const imageMessage: MessageType.Image = {
-        author: user,
-        createdAt: Date.now(),
-        id: randId(),
-        name: 'image',
-        size: 0,
-        type: 'image',
-        uri: imageBase64,
-        metadata: {
-          mimeType,
-        },
-      }
-      addMessage(imageMessage)
-
-      // Add user text if provided
-      if (question) {
-        const userMessage: MessageType.Text = {
-          author: user,
-          createdAt: Date.now(),
-          id: randId(),
-          text: question,
-          type: 'text',
-        }
-        addMessage(userMessage)
-      }
-
-      const text = question || 'Describe this image in detail.'
-
-      let response = ''
-
-      const completionParameters =
-        completionParams || (await loadCompletionParams())
-      await context.completion(
-        {
-          messages: [
-            {
-              role: 'system',
-              content: [
-                {
-                  type: 'text',
-                  text: 'You are a helpful AI assistant with vision capabilities. You can see and analyze images that users share. Be descriptive when analyzing images and helpful in answering questions about visual content.',
-                },
-              ],
-            },
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text,
-                },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: imageBase64,
-                  },
-                },
-              ],
-            },
-          ],
-          ...completionParameters,
-        },
-        (data) => {
-          const { token } = data
-          response += token
-        },
-      )
-
-      if (response.trim()) {
-        const botMessage: MessageType.Text = {
-          author: assistant,
-          createdAt: Date.now(),
-          id: randId(),
-          text: response.trim(),
-          type: 'text',
-        }
-        addMessage(botMessage)
-      }
-    } catch (error: any) {
-      console.error('Vision error:', error)
-      addSystemMessage(`Error: ${error.message}`)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   const handleSendPress = async (message: MessageType.PartialText) => {
     if (!context || isLoading) return
 
-    // If there's a pending image, handle it as a multimodal message
-    if (pendingImage) {
-      await handleMultimodalMessage(
-        pendingImage,
-        pendingImageMimeType || 'image/jpeg',
-        message.text.trim() || undefined,
-      )
-      setPendingImage(null) // Clear pending image after processing
-      return
-    }
-
-    const userMessage: MessageType.Text = {
-      author: user,
-      createdAt: Date.now(),
-      id: randId(),
-      text: message.text,
-      type: 'text',
-    }
-    addMessage(userMessage)
-
     try {
       setIsLoading(true)
 
-      // Build messages array for conversation context with system prompt
-      const conversationMessages: Array<{
-        role: 'system' | 'user' | 'assistant'
-        content: Array<{
-          type: 'text' | 'image_url'
-          text?: string
-          image_url?: { url: string }
-        }>
-      }> = [
+      // Prepare current user message content for AI context (don't add to chat yet)
+      const currentUserContent: Array<{
+        type: 'text' | 'image_url'
+        text?: string
+        image_url?: { url: string }
+      }> = []
+
+      // Add text content if provided
+      const textContent =
+        message.text.trim() ||
+        (pendingImage ? 'Describe this image in detail.' : '')
+      if (textContent) {
+        currentUserContent.push({
+          type: 'text',
+          text: textContent,
+        })
+      }
+
+      // Add image content if there's a pending image
+      if (pendingImage) {
+        currentUserContent.push({
+          type: 'image_url',
+          image_url: {
+            url: pendingImage,
+          },
+        })
+      }
+
+      // If no content to send, return early
+      if (currentUserContent.length === 0) {
+        return
+      }
+
+      // Build conversation messages array with context
+      const conversationMessages = [
         {
-          role: 'system' as const,
+          role: 'system',
           content: [
             {
-              type: 'text' as const,
+              type: 'text',
               text: 'You are a helpful AI assistant with vision capabilities. You can see and analyze images that users share. Be descriptive when analyzing images and helpful in answering questions about visual content. Be concise and helpful in your responses.',
             },
           ],
         },
+        // Add previous messages from chat history (excluding system messages)
+        ...(() => {
+          const recentMessages = messagesRef.current
+            .filter(
+              (msg): msg is MessageType.Text | MessageType.Image =>
+                (msg.type === 'text' && !msg.metadata?.system) ||
+                msg.type === 'image',
+            )
+            .reverse() // Reverse to get chronological order
+            .slice(-20) // Keep more messages to account for images
+
+          // Group consecutive messages by author and merge content
+          const groupedMessages = recentMessages.reduce<
+            Array<{
+              role: 'user' | 'assistant'
+              content: Array<{
+                type: 'text' | 'image_url'
+                text?: string
+                image_url?: { url: string }
+              }>
+            }>
+          >((acc, msg) => {
+            const role =
+              msg.author.id === user.id
+                ? ('user')
+                : ('assistant')
+            const lastGroup = acc[acc.length - 1]
+
+            // If this is a new author or we don't have a previous group, start a new group
+            if (!lastGroup || lastGroup.role !== role) {
+              acc.push({ role, content: [] })
+            }
+
+            const currentGroup = acc[acc.length - 1]!
+
+            // Add message content to the current group
+            if (msg.type === 'text') {
+              currentGroup.content.push({
+                type: 'text',
+                text: msg.text,
+              })
+            } else if (msg.type === 'image') {
+              currentGroup.content.push({
+                type: 'image_url',
+                image_url: {
+                  url: msg.uri,
+                },
+              })
+            }
+
+            return acc
+          }, [])
+
+          return groupedMessages.slice(-10) // Keep last 10 grouped messages
+        })(),
       ]
 
-      // Add previous messages from chat history (excluding system messages)
-      const recentMessages = await Promise.all(
-        messages
-          .filter(
-            (msg): msg is MessageType.Text | MessageType.Image =>
-              (msg.type === 'text' && !msg.metadata?.system) ||
-              msg.type === 'image',
-          )
-          .reverse() // Reverse to get chronological order
-          .slice(-10) // Keep last 10 messages for context
-          .map(async (msg) => {
-            if (msg.type === 'text') {
-              const role =
-                msg.author.id === user.id
-                  ? ('user' as const)
-                  : ('assistant' as const)
-              return {
-                role,
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: (msg as MessageType.Text).text,
-                  },
-                ],
-              }
-            } else if (msg.type === 'image' && msg.author.id === 'user') {
-              // Convert image to base64 for conversation context
-              const imageBase64 = await convertImageToBase64(
-                (msg as MessageType.Image).uri,
-                (msg as MessageType.Image).metadata?.mimeType || 'image/jpeg',
-              )
-              return {
-                role: 'user' as const,
-                content: [
-                  {
-                    type: 'image_url' as const,
-                    image_url: {
-                      url: imageBase64,
-                    },
-                  },
-                ],
-              }
-            }
-            return null
-          }),
-      )
+      // Add current user message to conversation
+      if (currentUserContent.length > 0) {
+        conversationMessages.push({
+          role: 'user',
+          content: currentUserContent as any, // Allow mixed content types for multimodal
+        })
+      }
 
-      // Filter out null values and add to conversation
-      const validRecentMessages = recentMessages.filter(
-        (msg): msg is NonNullable<typeof msg> => msg !== null,
-      )
-      conversationMessages.push(...validRecentMessages)
-
-      // Add current user message
-      conversationMessages.push({
-        role: 'user' as const,
-        content: [
-          {
-            type: 'text' as const,
-            text: message.text,
+      // Now add the user messages to the chat UI
+      if (pendingImage) {
+        const imageMessage: MessageType.Image = {
+          author: user,
+          createdAt: Date.now(),
+          id: randId(),
+          name: 'image',
+          size: 0,
+          type: 'image',
+          uri: pendingImage,
+          metadata: {
+            mimeType: pendingImageMimeType || 'image/jpeg',
           },
-        ],
-      })
+        }
+        addMessage(imageMessage)
+      }
+
+      if (message.text.trim()) {
+        const userMessage: MessageType.Text = {
+          author: user,
+          createdAt: Date.now(),
+          id: randId(),
+          text: message.text,
+          type: 'text',
+        }
+        addMessage(userMessage)
+      }
 
       let response = ''
       const responseId = randId()
@@ -462,7 +416,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
       const completionParameters =
         completionParams || (await loadCompletionParams())
-      await context.completion(
+      const completionResult = await context.completion(
         {
           messages: conversationMessages,
           ...completionParameters,
@@ -472,44 +426,36 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           response += token
 
           // Update message in real-time
-          setMessages((currentMsgs) => {
-            const index = currentMsgs.findIndex((msg) => msg.id === responseId)
-            if (index >= 0) {
-              return currentMsgs.map((msg, i) => {
-                if (msg.type === 'text' && i === index) {
-                  return {
-                    ...msg,
-                    text: response.replace(/^\s+/, ''),
-                  }
-                }
-                return msg
-              })
+          updateMessage(responseId, (msg) => {
+            if (msg.type === 'text') {
+              return {
+                ...msg,
+                text: response.replace(/^\s+/, ''),
+              }
             }
-            return currentMsgs
+            return msg
           })
         },
       )
 
       // Update final message with completion status
-      setMessages((currentMsgs) => {
-        const index = currentMsgs.findIndex((msg) => msg.id === responseId)
-        if (index >= 0) {
-          return currentMsgs.map((msg, i) => {
-            if (msg.type === 'text' && i === index) {
-              return {
-                ...msg,
-                text: response.trim(),
-                metadata: {
-                  ...msg.metadata,
-                  timings: 'Response completed',
-                },
-              }
-            }
-            return msg
-          })
+      updateMessage(responseId, (msg) => {
+        if (msg.type === 'text') {
+          return {
+            ...msg,
+            text: completionResult.content,
+            metadata: {
+              ...msg.metadata,
+              timings: 'Response completed',
+            },
+          }
         }
-        return currentMsgs
+        return msg
       })
+
+      // Clear pending image after processing
+      setPendingImage(null)
+      setPendingImageMimeType(null)
     } catch (error: any) {
       console.error('Chat error:', error)
       addSystemMessage(`Error: ${error.message}`)
@@ -603,7 +549,10 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
   if (!isModelReady) {
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView style={styles.setupContainer} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          style={styles.setupContainer}
+          contentContainerStyle={styles.scrollContent}
+        >
           <Text style={styles.setupDescription}>
             Download the SmolVLM model to start analyzing images. This model can
             understand and describe images, answer questions about visual
@@ -659,7 +608,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
   return (
     <SafeAreaView style={styles.container}>
       <Chat
-        messages={messages}
+        messages={messagesRef.current}
         onSendPress={handleSendPress}
         onAttachmentPress={handleAttachmentPress}
         user={user}

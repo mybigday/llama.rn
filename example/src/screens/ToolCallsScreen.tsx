@@ -445,6 +445,17 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
             }
           },
         )
+        // update last message
+        updateMessage(responseId, (msg) => {
+          // if not tool_calls, update the text
+          if (msg.type === 'text' && !msg.metadata?.toolCalls) {
+            return {
+              ...msg,
+              text: completionResult.content,
+            }
+          }
+          return msg
+        })
 
         const toolCalls = completionResult.tool_calls || []
 
@@ -458,9 +469,18 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           // Update the response message to store tool calls in metadata
           updateMessage(responseId, (msg) => {
             if (msg.type === 'text') {
+              const { content } = completionResult
               return {
                 ...msg,
-                // text: completionResult.content,
+                // NOTE: Special case for Gemma3 - keep content for good response
+                text: !content
+                  ? `Call: ${toolCalls
+                      .map(
+                        (t: any) =>
+                          `${t.function.name}(${t.function.arguments})`,
+                      )
+                      .join(', ')}`
+                  : content,
                 metadata: {
                   ...msg.metadata,
                   toolCalls: true,
