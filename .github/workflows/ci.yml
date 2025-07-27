@@ -66,7 +66,7 @@ jobs:
 
       - name: Install cocoapods
         run: |
-          npm run example pods
+          npm run example run pods
 
       - name: Build example for iOS
         run: |
@@ -98,7 +98,7 @@ jobs:
 
       - name: Install cocoapods
         run: |
-          npm run example pods
+          npm run example run pods
         env:
           RNLLAMA_BUILD_FROM_SOURCE: 0
 

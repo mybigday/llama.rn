@@ -76,7 +76,7 @@ The `package.json` file contains various scripts for common tasks:
 - `npm run lint`: lint files with ESLint.
 - `npm test`: run unit tests with Jest.
 - `npm run example start`: start the Metro server for the example app.
-- `npm run example ios`: run the example app on iOS.
+- `npm run example run ios`: run the example app on iOS.
 
 ### Sending a pull request
 
