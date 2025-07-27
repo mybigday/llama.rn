@@ -11,7 +11,6 @@ import {
   Clipboard,
   Platform,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import type { LlamaContext } from '../../../src'
 import { CommonStyles } from '../styles/commonStyles'
@@ -417,12 +416,7 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
 
   const copyToClipboard = async (content: string, type: string) => {
     try {
-      if (Platform.OS === 'ios') {
-        await Clipboard.setString(content)
-      } else {
-        // For Android, we'll use the same method
-        await Clipboard.setString(content)
-      }
+      await Clipboard.setString(content)
     } catch (error) {
       Alert.alert('Error', `Failed to copy ${type}`)
     }
@@ -506,7 +500,7 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -627,7 +621,7 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
             </TouchableOpacity>
           </View>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </Modal>
   )
 }

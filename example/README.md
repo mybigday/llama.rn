@@ -1,6 +1,6 @@
 # llama.rn example
 
-This is an example of how to use the llama.rn library.
+This is an example project to show how to use the llama.rn library.
 
 ## Examples
 
@@ -11,6 +11,8 @@ The example app demonstrates various local LLM capabilities:
 - **🛠️ Tool Calling** - Advanced function calling capabilities ([ToolCallsScreen.tsx](src/screens/ToolCallsScreen.tsx))
 - **🔊 Text-to-Speech** - Local voice synthesis with OuteTTS ([TTSScreen.tsx](src/screens/TTSScreen.tsx))
 - **📊 Model Info** - Model diagnostics and system information ([ModelInfoScreen.tsx](src/screens/ModelInfoScreen.tsx))
+
+Used models are listed in [src/utils/constants.ts](src/utils/constants.ts).
 
 ## Requirements
 

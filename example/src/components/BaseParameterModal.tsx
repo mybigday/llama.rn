@@ -6,12 +6,34 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
+  Platform,
 } from 'react-native'
 import { CommonStyles } from '../styles/commonStyles'
 
 const styles = StyleSheet.create({
   container: CommonStyles.container,
-  header: CommonStyles.modalHeader,
+  header: {
+    ...CommonStyles.modalHeader,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
   title: CommonStyles.modalTitle,
   cancelButton: CommonStyles.headerButtonText,
   saveButton: {
@@ -83,6 +105,7 @@ export default function BaseParameterModal({
   return (
     <Modal
       visible={visible}
+      animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >

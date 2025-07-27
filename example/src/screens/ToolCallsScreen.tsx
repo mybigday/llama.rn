@@ -1,20 +1,7 @@
-import React, {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-} from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-} from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native'
 import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { initLlama, LlamaContext } from '../../../src'
@@ -24,6 +11,7 @@ import CompletionParamsModal from '../components/CompletionParamsModal'
 import { Bubble } from '../components/Bubble'
 import { HeaderButton } from '../components/HeaderButton'
 import { MessagesModal } from '../components/MessagesModal'
+import { MaskedProgress } from '../components/MaskedProgress'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
@@ -33,7 +21,7 @@ import type { LLMMessage } from '../utils/llmMessages'
 const user = { id: 'user' }
 const assistant = { id: 'assistant' }
 
-const randId = () => Math.random().toString(36).substr(2, 9)
+const randId = () => Math.random().toString(36).substr(2, 7)
 
 const DEFAULT_SYSTEM_PROMPT =
   'You are a helpful AI assistant with access to tools. You can call tools to help answer user questions.'
@@ -94,6 +82,12 @@ interface ToolResult {
   id: string
   result: any
   error?: string
+}
+
+interface ToolMessage {
+  tool_call_id: string
+  role: string
+  content: string
 }
 
 // Generate tool definitions using zodToJsonSchema
@@ -201,16 +195,10 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
             content: msg.text,
             tool_calls: msg.metadata.storedToolCalls || [],
           })
-        } else if (msg.metadata?.toolResults) {
+        } else if (msg.metadata?.toolMessage) {
           // This contains tool results, add them as individual tool messages
-          const toolResults = msg.metadata.storedToolResults || []
-          toolResults.forEach((toolResult: any) => {
-            acc.push({
-              role: 'tool',
-              tool_call_id: toolResult.tool_call_id,
-              content: toolResult.content,
-            })
-          })
+          const { toolMessage } = msg.metadata
+          acc.push(toolMessage)
         } else if (msg.author.id === user.id) {
           // Regular user message
           acc.push({
@@ -250,12 +238,10 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
     } else {
       navigation.setOptions({
         headerRight: () => (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton
-              title="Context Params"
-              onPress={() => setShowContextParamsModal(true)}
-            />
-          </View>
+          <HeaderButton
+            title="Context Params"
+            onPress={() => setShowContextParamsModal(true)}
+          />
         ),
       })
     }
@@ -525,88 +511,57 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           return msg
         })
 
-        // Ask user for confirmation before executing tools
-        const shouldExecute = await new Promise<boolean>((resolve) => {
-          Alert.alert(
-            'Tool Execution Request',
-            `The AI wants to execute ${toolCalls.length} tool(s):\n\n${toolCalls
-              .map((t) => `• ${t.function.name}(${t.function.arguments})`)
-              .join('\n')}\n\nDo you want to allow this?`,
-            [
-              {
-                text: 'Cancel',
-                style: 'cancel',
-                onPress: () => resolve(false),
-              },
-              {
-                text: 'Allow',
-                onPress: () => resolve(true),
-              },
-            ],
-          )
-        })
-
-        let toolResults
-        if (!shouldExecute) {
-          // User declined tool execution - create error results
-          toolResults = toolCalls.map((toolCall) => ({
-            tool_call_id: toolCall.id!,
-            role: 'tool',
-            content: 'Error: Tool execution was declined by the user',
-          }))
-
-          const declineMessage: MessageType.Text = {
-            author: assistant,
-            createdAt: Date.now() + 1,
-            id: randId(),
-            text: 'Tool execution was declined by the user',
-            type: 'text',
-            metadata: {
-              toolResults: true,
-              storedToolResults: toolResults,
-            },
+        // Execute tool calls
+        await toolCalls.reduce(async (promise, toolCall) => {
+          await promise
+          // Ask user for confirmation before executing tools
+          const shouldExecute = await new Promise<boolean>((resolve) => {
+            Alert.alert(
+              'Tool Execution Request',
+              `The AI wants to execute tool:\n\n${toolCall.function.name}(${toolCall.function.arguments})`,
+              [
+                {
+                  text: 'Cancel',
+                  style: 'cancel',
+                  onPress: () => resolve(false),
+                },
+                {
+                  text: 'Allow',
+                  onPress: () => resolve(true),
+                },
+              ],
+            )
+          })
+          let toolMessage: ToolMessage
+          if (!shouldExecute) {
+            toolMessage = {
+              tool_call_id: toolCall.id!,
+              role: 'tool',
+              content: 'Error: Tool execution was declined by the user',
+            }
+          } else {
+            const result = await executeTool({
+              id: toolCall.id!,
+              name: toolCall.function.name,
+              arguments: JSON.parse(toolCall.function.arguments),
+            })
+            toolMessage = {
+              tool_call_id: toolCall.id!,
+              role: 'tool',
+              content: result.error
+                ? result.error
+                : JSON.stringify(result.result),
+            }
           }
-          addMessage(declineMessage)
-        } else {
-          // Execute tool calls
-          toolResults = await Promise.all(
-            toolCalls.map(async (toolCall) => {
-              const result = await executeTool({
-                id: toolCall.id!,
-                name: toolCall.function.name,
-                arguments: JSON.parse(toolCall.function.arguments),
-              })
-              return {
-                tool_call_id: toolCall.id!,
-                role: 'tool',
-                content: result.error
-                  ? result.error
-                  : JSON.stringify(result.result),
-              }
-            }),
-          )
-
-          // Show tool results
-          const resultsMessage: MessageType.Text = {
+          addMessage({
             author: assistant,
             createdAt: Date.now() + 2,
             id: randId(),
-            text: `📊 Tool Results:\n${toolResults
-              .map(
-                (r) =>
-                  `• ${r.tool_call_id}: ${shouldExecute ? '✅' : '❌'} ${
-                    r.content
-                  }`,
-              )
-              .join('\n')}`,
+            text: `📊 Tool Result:\n${toolMessage.content}`,
             type: 'text',
-            metadata: {
-              toolResults: true,
-              storedToolResults: toolResults,
-            },
-          }
-          addMessage(resultsMessage)
-        }
+            metadata: { toolMessage },
+          })
+        }, Promise.resolve())
 
         // Continue the conversation with tool results by calling performCompletion recursively
         // Wait a bit to let the UI update, then continue recursively
@@ -635,7 +590,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
 
   if (!isModelReady) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         <ScrollView
           style={styles.setupContainer}
           contentContainerStyle={styles.scrollContent}
@@ -646,42 +601,25 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
             calculations, and time lookups.
           </Text>
 
-          {['SMOL_LM_3', 'GEMMA_3_4B_QAT', 'QWEN_3_4B', 'GEMMA_3N_E2B', 'GEMMA_3N_E4B'].map(
-            (model) => {
-              const modelInfo = MODELS[model as keyof typeof MODELS]
-              return (
-                <ModelDownloadCard
-                  key={model}
-                  title={modelInfo.name}
-                  repo={modelInfo.repo}
-                  filename={modelInfo.filename}
-                  size={modelInfo.size}
-                  onInitialize={initializeModel}
-                />
-              )
-            },
-          )}
-
-          {isLoading && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#007AFF" />
-              <Text style={styles.loadingText}>
-                {`Initializing tool-calling model... ${initProgress}%`}
-              </Text>
-              {initProgress > 0 && (
-                <View style={styles.progressContainer}>
-                  <View style={styles.progressBar}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        { width: `${initProgress}%` },
-                      ]}
-                    />
-                  </View>
-                </View>
-              )}
-            </View>
-          )}
+          {[
+            'SMOL_LM_3',
+            'GEMMA_3_4B_QAT',
+            'QWEN_3_4B',
+            'GEMMA_3N_E2B',
+            'GEMMA_3N_E4B',
+          ].map((model) => {
+            const modelInfo = MODELS[model as keyof typeof MODELS]
+            return (
+              <ModelDownloadCard
+                key={model}
+                title={modelInfo.name}
+                repo={modelInfo.repo}
+                filename={modelInfo.filename}
+                size={modelInfo.size}
+                onInitialize={initializeModel}
+              />
+            )
+          })}
         </ScrollView>
 
         <ContextParamsModal
@@ -689,12 +627,19 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
         />
-      </SafeAreaView>
+
+        <MaskedProgress
+          visible={isLoading}
+          text={`Initializing model... ${initProgress}%`}
+          progress={initProgress}
+          showProgressBar={initProgress > 0}
+        />
+      </View>
     )
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <Chat
         renderBubble={renderBubble}
         theme={defaultTheme}
@@ -725,6 +670,6 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
         defaultSystemPrompt={DEFAULT_SYSTEM_PROMPT}
       />
-    </SafeAreaView>
+    </View>
   )
 }

@@ -28,8 +28,7 @@ export const MODELS = {
     size: '1.93GB',
   },
   SMOL_VLM_500M: {
-    // https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/SmolVLM-500M-Instruct-Q8_0.gguf?download=true
-    name: 'SmolVLM 500M (Q8_0)',
+    name: 'SmolVLM 500M Instruct (Q8_0)',
     repo: 'ggml-org/SmolVLM-500M-Instruct-GGUF',
     filename: 'SmolVLM-500M-Instruct-Q8_0.gguf',
     mmproj: 'mmproj-SmolVLM-500M-Instruct-Q8_0.gguf',
@@ -61,7 +60,7 @@ export const MODELS = {
       size: '70MB',
     },
   },
-} as const
+}
 
 export const HUGGINGFACE_BASE_URL = 'https://huggingface.co'
 

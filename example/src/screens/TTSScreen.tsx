@@ -9,7 +9,6 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { initLlama, LlamaContext } from '../../../src'
 import { TTSModelDownloadCard } from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
@@ -20,6 +19,7 @@ import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
 import { loadContextParams, loadCompletionParams } from '../utils/storage'
 import { HeaderButton } from '../components/HeaderButton'
+import { MaskedProgress } from '../components/MaskedProgress'
 
 // Sample speaker configuration for OuteTTS
 const speakerConfig = null
@@ -228,10 +228,6 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       try {
         await llamaContext.initVocoder({ path: vocoderPath })
         setIsVocoderReady(true)
-        Alert.alert(
-          'Success',
-          'OuteTTS model and WavTokenizer vocoder loaded successfully! You can now generate and play speech audio.',
-        )
       } catch (vocoderError) {
         console.log('Vocoder initialization error:', vocoderError)
         Alert.alert(
@@ -361,7 +357,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
 
   if (!isModelReady) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         <ScrollView style={styles.setupContainer} contentContainerStyle={styles.scrollContent}>
           <Text style={styles.setupDescription}>
             Download the OuteTTS model to convert text into natural-sounding
@@ -378,28 +374,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
             onInitialize={initializeModels}
           />
 
-          {isLoading && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#007AFF" />
-              <Text style={styles.loadingText}>
-                {context
-                  ? 'Initializing vocoder...'
-                  : `Initializing TTS model... ${initProgress}%`}
-              </Text>
-              {!context && initProgress > 0 && (
-                <View style={styles.progressContainer}>
-                  <View style={styles.progressBar}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        { width: `${initProgress}%` },
-                      ]}
-                    />
-                  </View>
-                </View>
-              )}
-            </View>
-          )}
+
         </ScrollView>
 
         <ContextParamsModal
@@ -407,12 +382,23 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
         />
-      </SafeAreaView>
+
+        <MaskedProgress
+          visible={isLoading}
+          text={
+            context
+              ? 'Initializing vocoder...'
+              : `Initializing TTS model... ${initProgress}%`
+          }
+          progress={initProgress}
+          showProgressBar={!context && initProgress > 0}
+        />
+      </View>
     )
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <ScrollView style={styles.content}>
         <View style={styles.inputSection}>
           <Text style={styles.sectionTitle}>Enter Text to Speak</Text>
@@ -500,6 +486,6 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         onClose={() => setShowCompletionParamsModal(false)}
         onSave={handleSaveCompletionParams}
       />
-    </SafeAreaView>
+    </View>
   )
 }

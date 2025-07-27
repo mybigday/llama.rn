@@ -20,6 +20,7 @@ export const DEFAULT_CONTEXT_PARAMS: ContextParams = {
   n_batch: 512,
   n_ubatch: 512,
   ctx_shift: false,
+  flash_attn: false,
   cache_type_k: 'f16',
   cache_type_v: 'f16',
   kv_unified: true,
