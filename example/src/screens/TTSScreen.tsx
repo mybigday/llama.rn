@@ -213,6 +213,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       const llamaContext = await initLlama(
         {
           model: ttsPath,
+          n_batch: 8192,
           ...params,
         },
         (progress) => {
@@ -226,7 +227,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
 
       // Initialize vocoder directly after TTS model
       try {
-        await llamaContext.initVocoder({ path: vocoderPath, n_batch: 512 })
+        await llamaContext.initVocoder({ path: vocoderPath, n_batch: 4096 })
         setIsVocoderReady(true)
         Alert.alert(
           'Success',

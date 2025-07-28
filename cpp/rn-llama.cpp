@@ -1402,6 +1402,7 @@ void llama_rn_context::releaseMultimodal() {
 
 struct llama_rn_context_vocoder {
     common_init_result init_result;
+    common_params params;
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
     tts_type type = UNKNOWN;
@@ -1411,6 +1412,7 @@ bool llama_rn_context::initVocoder(const std::string &vocoder_model_path, int ba
     if (vocoder_wrapper != nullptr) {
         return true;
     }
+    common_params params = this->params;
     params.model.path = vocoder_model_path;
     params.embedding = true;
     params.ctx_shift = false;
@@ -1419,8 +1421,10 @@ bool llama_rn_context::initVocoder(const std::string &vocoder_model_path, int ba
     }
     params.n_ubatch = params.n_batch;
 
+
     llama_rn_context_vocoder *wrapper = new llama_rn_context_vocoder{
         .init_result = common_init_from_params(params),
+        .params = params,
     };
 
     wrapper->model = wrapper->init_result.model.get();
