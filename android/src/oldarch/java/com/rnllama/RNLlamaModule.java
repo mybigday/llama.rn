@@ -168,6 +168,7 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
     rnllama.releaseVocoder(id, promise);
   }
 
+  @ReactMethod
   public void releaseContext(double id, Promise promise) {
     rnllama.releaseContext(id, promise);
   }
