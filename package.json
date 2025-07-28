@@ -1,6 +1,6 @@
 {
   "name": "llama.rn",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "React Native binding of llama.cpp",
   "main": "lib/commonjs/index",
   "module": "lib/module/index",
@@ -36,7 +36,7 @@
     "build": "bob build",
     "prepack": "./scripts/build-ios.sh && ./scripts/build-android.sh && bob build",
     "release": "release-it",
-    "example": "yarn --cwd example",
+    "example": "npm --prefix example",
     "build:ios-frameworks": "./scripts/build-ios.sh",
     "build:ios": "cd example/ios && xcodebuild -workspace RNLlamaExample.xcworkspace -scheme RNLlamaExample -configuration Debug -sdk iphonesimulator CC=clang CPLUSPLUS=clang++ LD=clang LDPLUSPLUS=clang++ GCC_OPTIMIZATION_LEVEL=0 GCC_PRECOMPILE_PREFIX_HEADER=YES ASSETCATALOG_COMPILER_OPTIMIZATION=time DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=NO",
     "build:android-libs": "./scripts/build-android.sh",
@@ -181,7 +181,8 @@
                 ".tsx"
               ]
             }
-          ]
+          ],
+          "react/require-default-props": "off"
         }
       }
     ],
@@ -229,6 +230,5 @@
     "name": "RNLlamaSpec",
     "type": "modules",
     "jsSrcsDir": "src"
-  },
-  "packageManager": "yarn@1.22.22"
+  }
 }

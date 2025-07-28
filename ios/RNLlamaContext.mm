@@ -171,6 +171,8 @@
 
     if (params[@"ctx_shift"]) defaultParams.ctx_shift = [params[@"ctx_shift"] boolValue];
 
+    if (params[@"kv_unified"]) defaultParams.kv_unified = [params[@"kv_unified"] boolValue];
+
     if (params[@"cache_type_k"]) defaultParams.cache_type_k = rnllama::kv_cache_type_from_str([params[@"cache_type_k"] UTF8String]);
     if (params[@"cache_type_v"]) defaultParams.cache_type_v = rnllama::kv_cache_type_from_str([params[@"cache_type_v"] UTF8String]);
 
@@ -686,9 +688,12 @@
     NSMutableArray *toolCalls = nil;
     NSString *reasoningContent = nil;
     NSString *content = nil;
+    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
+    auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
+    result[@"chat_format"] = @(chat_format);
+
     if (!llama->is_interrupted) {
         try {
-            auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
             common_chat_syntax chat_syntax;
             chat_syntax.format = static_cast<common_chat_format>(chat_format);
 
@@ -723,7 +728,6 @@
         }
     }
 
-    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
     result[@"text"] = [NSString stringWithUTF8String:llama->generated_text.c_str()]; // Original text
     if (content) result[@"content"] = content;
     if (reasoningContent) result[@"reasoning_content"] = reasoningContent;

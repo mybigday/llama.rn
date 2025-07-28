@@ -647,6 +647,7 @@ struct lm_ggml_backend_sched {
     // pipeline parallelism support
     int n_copies;
     int cur_copy;
+    int next_copy;
     lm_ggml_backend_event_t events[LM_GGML_SCHED_MAX_BACKENDS][LM_GGML_SCHED_MAX_COPIES];
     struct lm_ggml_tensor * graph_inputs[LM_GGML_SCHED_MAX_SPLIT_INPUTS];
     int n_graph_inputs;
@@ -1433,8 +1434,6 @@ static enum lm_ggml_status lm_ggml_backend_sched_compute_splits(lm_ggml_backend_
         }
     }
 
-    sched->cur_copy = (sched->cur_copy + 1) % sched->n_copies;
-
     return LM_GGML_STATUS_SUCCESS;
 }
 
@@ -1535,9 +1534,9 @@ void lm_ggml_backend_sched_reset(lm_ggml_backend_sched_t sched) {
 bool lm_ggml_backend_sched_reserve(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * measure_graph) {
     LM_GGML_ASSERT((int)sched->hash_set.size >= measure_graph->n_nodes + measure_graph->n_leafs);
 
-    lm_ggml_backend_sched_split_graph(sched, measure_graph);
-
     lm_ggml_backend_sched_synchronize(sched);
+
+    lm_ggml_backend_sched_split_graph(sched, measure_graph);
 
     if (!lm_ggml_gallocr_reserve_n(sched->galloc, &sched->graph, sched->node_backend_ids, sched->leaf_backend_ids)) {
         return false;
@@ -1550,6 +1549,10 @@ bool lm_ggml_backend_sched_reserve(lm_ggml_backend_sched_t sched, struct lm_ggml
 
 bool lm_ggml_backend_sched_alloc_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph) {
     LM_GGML_ASSERT((int)sched->hash_set.size >= graph->n_nodes + graph->n_leafs);
+    LM_GGML_ASSERT(!sched->is_alloc);
+
+    sched->cur_copy = sched->next_copy;
+    sched->next_copy = (sched->next_copy + 1) % sched->n_copies;
 
     lm_ggml_backend_sched_split_graph(sched, graph);
 
@@ -1590,7 +1593,7 @@ void lm_ggml_backend_sched_synchronize(lm_ggml_backend_sched_t sched) {
         // if the graph is not already allocated, always use copy 0 after a synchronization
         // this ensures that during generation the same copy is used every time,
         // which avoids changes in the graph that could cause CUDA or other graphs to be disabled
-        sched->cur_copy = 0;
+        sched->next_copy = 0;
     }
 }
 

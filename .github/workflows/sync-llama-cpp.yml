@@ -28,7 +28,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'yarn'
+          cache: 'npm'
 
       - name: Setup JDK 17 for Android builds
         uses: actions/setup-java@v4
@@ -38,7 +38,7 @@ jobs:
           cache: 'gradle'
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: npm ci
 
       - name: Run complete sync
         run: |
@@ -48,13 +48,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build iOS frameworks
-        run: yarn build:ios-frameworks
+        run: npm run build:ios-frameworks
 
       - name: Build Android libraries
-        run: yarn build:android-libs
+        run: npm run build:android-libs
 
       - name: Build TypeScript library
-        run: yarn build
+        run: npm run build
 
       - name: Finalize sync
         run: ./scripts/finalize-sync.sh
@@ -62,47 +62,74 @@ jobs:
       - name: Create Pull Request
         if: success()
         run: |
+          # Get current llama.cpp commit and tag from sync branch
+          CURRENT_COMMIT=$(git rev-parse HEAD:llama.cpp)
+          cd llama.cpp
+          git fetch --tags
+          CURRENT_TAG=$(git describe --tags --exact-match "$CURRENT_COMMIT" 2>/dev/null || git describe --tags --abbrev=0 "$CURRENT_COMMIT" 2>/dev/null || echo "${CURRENT_COMMIT:0:7}")
+          cd ..
+
+          # Get previous llama.cpp commit and tag from main branch
+          PREVIOUS_COMMIT=$(git rev-parse main:llama.cpp)
+          cd llama.cpp
+          PREVIOUS_TAG=$(git describe --tags --exact-match "$PREVIOUS_COMMIT" 2>/dev/null || git describe --tags --abbrev=0 "$PREVIOUS_COMMIT" 2>/dev/null || echo "${PREVIOUS_COMMIT:0:7}")
+          cd ..
+
+          # Generate llama.cpp changelog if versions differ
+          LLAMA_CHANGELOG=""
+          if [[ "$CURRENT_TAG" != "$PREVIOUS_TAG" && "$CURRENT_TAG" != "unknown" && "$PREVIOUS_TAG" != "unknown" ]]; then
+            echo "📝 Generating llama.cpp changelog from $PREVIOUS_TAG to $CURRENT_TAG..."
+            cd llama.cpp
+            while IFS= read -r line; do
+              COMMIT_HASH=$(echo "$line" | cut -d' ' -f1)
+              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
+              LLAMA_CHANGELOG+="- [\`${COMMIT_HASH:0:7}\`](https://github.com/ggml-org/llama.cpp/commit/$COMMIT_HASH) $COMMIT_MSG"$'\n'
+            done < <(git log "${PREVIOUS_TAG}..${CURRENT_TAG}" --oneline --no-merges | head -20)
+            cd ..
+
+            if [[ -z "$LLAMA_CHANGELOG" ]]; then
+              LLAMA_CHANGELOG="- No commits found between $PREVIOUS_TAG and $CURRENT_TAG"
+            fi
+          else
+            LLAMA_CHANGELOG="- Version unchanged: $CURRENT_TAG"
+          fi
+
+          # Prepare PR body with llama.cpp changes
+          PR_BODY="🤖 **Automated llama.cpp sync**
+
+          This PR was automatically created/updated by the daily sync workflow.
+
+          **Changes:**
+          - Updated llama.cpp submodule from \`$PREVIOUS_TAG\` to \`$CURRENT_TAG\`
+          - Regenerated bindings and build files
+
+          **Verification:**
+          - ✅ Bootstrap script completed successfully (including iOS Metal compilation)
+          - ✅ iOS frameworks build completed successfully
+          - ✅ Android libraries build completed successfully
+          - ✅ TypeScript build completed successfully
+
+          <details>
+          <summary>📋 llama.cpp changes ($PREVIOUS_TAG → $CURRENT_TAG)</summary>
+
+          $LLAMA_CHANGELOG
+          </details>
+
+          Please review and merge if all checks pass."
+
           # Check if PR already exists
           EXISTING_PR=$(gh pr list --head auto/sync-llama.cpp --base main --json number --jq '.[0].number' || echo "")
 
           if [[ -n "$EXISTING_PR" && "$EXISTING_PR" != "null" ]]; then
             echo "✅ PR #$EXISTING_PR already exists, updating it..."
-            gh pr edit "$EXISTING_PR" --title "chore: sync llama.cpp to latest release" --body "🤖 **Automated llama.cpp sync**
-
-            This PR was automatically updated by the daily sync workflow.
-
-            **Changes:**
-            - Updated llama.cpp submodule to latest release
-            - Regenerated bindings and build files
-
-            **Verification:**
-            - ✅ Bootstrap script completed successfully (including iOS Metal compilation)
-            - ✅ iOS frameworks build completed successfully
-            - ✅ Android libraries build completed successfully
-            - ✅ TypeScript build completed successfully
-
-            Please review and merge if all checks pass."
+            gh pr edit "$EXISTING_PR" --title "chore: sync llama.cpp to latest release" --body "$PR_BODY"
           else
             echo "🆕 Creating new PR..."
             gh pr create \
               --head auto/sync-llama.cpp \
               --base main \
               --title "chore: sync llama.cpp to latest release" \
-              --body "🤖 **Automated llama.cpp sync**
-
-            This PR was automatically created by the daily sync workflow.
-
-            **Changes:**
-            - Updated llama.cpp submodule to latest release
-            - Regenerated bindings and build files
-
-            **Verification:**
-            - ✅ Bootstrap script completed successfully (including iOS Metal compilation)
-            - ✅ iOS frameworks build completed successfully
-            - ✅ Android libraries build completed successfully
-            - ✅ TypeScript build completed successfully
-
-            Please review and merge if all checks pass."
+              --body "$PR_BODY"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
