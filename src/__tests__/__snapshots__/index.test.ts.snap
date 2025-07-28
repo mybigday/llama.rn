@@ -1,6 +1,94 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`Mock 1`] = `Array []`;
+exports[`Mock 1`] = `
+Array [
+  Object {
+    "completion_probabilities": Array [
+      Object {
+        "prob": 0.9658700227737427,
+        "tok_str": " *",
+      },
+      Object {
+        "prob": 0.021654844284057617,
+        "tok_str": " Hi",
+      },
+      Object {
+        "prob": 0.012475099414587021,
+        "tok_str": " Hello",
+      },
+    ],
+    "token": " *",
+  },
+  Object {
+    "completion_probabilities": Array [
+      Object {
+        "prob": 0.5133139491081238,
+        "tok_str": "g",
+      },
+      Object {
+        "prob": 0.3046242296695709,
+        "tok_str": "ch",
+      },
+      Object {
+        "prob": 0.18206188082695007,
+        "tok_str": "bl",
+      },
+    ],
+    "token": "g",
+  },
+  Object {
+    "completion_probabilities": Array [
+      Object {
+        "prob": 0.9886618852615356,
+        "tok_str": "igg",
+      },
+      Object {
+        "prob": 0.008458126336336136,
+        "tok_str": "ig",
+      },
+      Object {
+        "prob": 0.002879939740523696,
+        "tok_str": "reet",
+      },
+    ],
+    "token": "igg",
+  },
+  Object {
+    "completion_probabilities": Array [
+      Object {
+        "prob": 1,
+        "tok_str": "les",
+      },
+      Object {
+        "prob": 1.8753286923356427e-8,
+        "tok_str": "ling",
+      },
+      Object {
+        "prob": 3.312444318837038e-9,
+        "tok_str": "LES",
+      },
+    ],
+    "token": "les",
+  },
+  Object {
+    "completion_probabilities": Array [
+      Object {
+        "prob": 1,
+        "tok_str": "*",
+      },
+      Object {
+        "prob": 4.459857905203535e-8,
+        "tok_str": "*.",
+      },
+      Object {
+        "prob": 3.274198334679568e-8,
+        "tok_str": "**",
+      },
+    ],
+    "token": "*",
+  },
+]
+`;
 
 exports[`Mock: bench 1`] = `
 Object {
