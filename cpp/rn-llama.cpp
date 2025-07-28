@@ -1674,7 +1674,7 @@ llama_rn_audio_completion_result llama_rn_context::getFormattedAudioCompletion(c
     const tts_type type = getTTSType(speaker);
     if (type == UNKNOWN) {
         LOG_ERROR("Unknown TTS version");
-        return "";
+        return {"", nullptr};
     }
 
     if (type == OUTETTS_V0_3) {

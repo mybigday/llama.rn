@@ -995,10 +995,10 @@
 - (NSDictionary *)getFormattedAudioCompletion:(NSString *)speakerJsonStr textToSpeak:(NSString *)textToSpeak {
     std::string speakerStr = speakerJsonStr ? [speakerJsonStr UTF8String] : "";
     try {
-        llama_rn_audio_completion_result audio_result = llama->getFormattedAudioCompletion(speakerStr, [textToSpeak UTF8String]);
+        auto audio_result = llama->getFormattedAudioCompletion(speakerStr, [textToSpeak UTF8String]);
         return @{
             @"prompt": [NSString stringWithUTF8String:audio_result.prompt.c_str()],
-            @"grammar": [NSString stringWithUTF8String:audio_result.grammar.c_str()]
+            @"grammar": [NSString stringWithUTF8String:audio_result.grammar]
         };
     } catch (const std::exception &e) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];

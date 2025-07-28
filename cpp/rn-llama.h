@@ -11,6 +11,7 @@
 #include "ggml.h"
 #include "gguf.h"
 #include "llama.h"
+#include "llama-model.h"
 #include "llama-impl.h"
 #include "sampling.h"
 #include "nlohmann/json.hpp"

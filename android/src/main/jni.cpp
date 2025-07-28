@@ -1556,7 +1556,7 @@ Java_com_rnllama_LlamaContext_getFormattedAudioCompletion(
 
     auto result = createWriteableMap(env);
     try {
-        llama_rn_audio_completion_result audio_result = llama->getFormattedAudioCompletion(speaker_json_str_chars, text_to_speak_chars);
+        auto audio_result = llama->getFormattedAudioCompletion(speaker_json_str_chars, text_to_speak_chars);
         putString(env, result, "prompt", audio_result.prompt.c_str());
         if (audio_result.grammar != nullptr) {
             putString(env, result, "grammar", audio_result.grammar);
