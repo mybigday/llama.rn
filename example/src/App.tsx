@@ -14,6 +14,7 @@ import MultimodalScreen from './screens/MultimodalScreen'
 import TTSScreen from './screens/TTSScreen'
 import ToolCallsScreen from './screens/ToolCallsScreen'
 import ModelInfoScreen from './screens/ModelInfoScreen'
+import BenchScreen from './screens/BenchScreen'
 import { CommonStyles } from './styles/commonStyles'
 
 // Example: Catch logs from llama.cpp
@@ -88,6 +89,12 @@ function HomeScreen({ navigation }: { navigation: any }) {
       >
         <Text style={styles.buttonText}>📊 Model Info</Text>
       </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.button}
+        onPress={() => navigation.navigate('Bench')}
+      >
+        <Text style={styles.buttonText}>🏋️ Bench</Text>
+      </TouchableOpacity>
     </View>
   )
 }
@@ -129,6 +136,7 @@ function App() {
             }}
           />
           <Stack.Screen name="ModelInfo" component={ModelInfoScreen} />
+          <Stack.Screen name="Bench" component={BenchScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </GestureHandlerRootView>
