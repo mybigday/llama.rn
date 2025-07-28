@@ -2,6 +2,8 @@
 
 This is an example project to show how to use the llama.rn library.
 
+For iPhone/iPad/Mac, you can try it by downloading our test app from [TestFlight](https://testflight.apple.com/join/MmzGSneU).
+
 ## Examples
 
 The example app demonstrates various local LLM capabilities:
