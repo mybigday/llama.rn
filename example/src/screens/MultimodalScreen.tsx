@@ -278,7 +278,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
-            title="Context Params"
+            title="Context"
             onPress={() => setShowContextParamsModal(true)}
           />
         ),

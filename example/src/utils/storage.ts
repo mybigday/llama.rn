@@ -7,9 +7,14 @@ import type {
 export type ContextParams = Omit<LlamaContextParams, 'model'>
 export type CompletionParams = Omit<LlamaCompletionParams, 'prompt'>
 
+export interface TTSParams {
+  speakerConfig: any | null
+}
+
 // Storage keys
 const CONTEXT_PARAMS_KEY = '@llama_context_params'
 const COMPLETION_PARAMS_KEY = '@llama_completion_params'
+const TTS_PARAMS_KEY = '@llama_tts_params'
 
 // Default parameter values
 export const DEFAULT_CONTEXT_PARAMS: ContextParams = {
@@ -32,6 +37,10 @@ export const DEFAULT_COMPLETION_PARAMS: CompletionParams = {
   temperature: 0.7,
   top_p: 0.9,
   stop: ['<|im_end|>', '<end_of_turn>'],
+}
+
+export const DEFAULT_TTS_PARAMS: TTSParams = {
+  speakerConfig: null,
 }
 
 // Storage functions for context parameters
@@ -105,6 +114,41 @@ export const resetCompletionParams = async (): Promise<void> => {
     await AsyncStorage.removeItem(COMPLETION_PARAMS_KEY)
   } catch (error) {
     console.error('Error resetting completion params:', error)
+    throw error
+  }
+}
+
+// Storage functions for TTS parameters
+export const saveTTSParams = async (params: TTSParams): Promise<void> => {
+  try {
+    const jsonValue = JSON.stringify(params)
+    await AsyncStorage.setItem(TTS_PARAMS_KEY, jsonValue)
+  } catch (error) {
+    console.error('Error saving TTS params:', error)
+    throw error
+  }
+}
+
+export const loadTTSParams = async (): Promise<TTSParams> => {
+  try {
+    const jsonValue = await AsyncStorage.getItem(TTS_PARAMS_KEY)
+    if (jsonValue != null) {
+      const params = JSON.parse(jsonValue)
+      // Merge with defaults to ensure all required fields exist
+      return { ...DEFAULT_TTS_PARAMS, ...params }
+    }
+    return DEFAULT_TTS_PARAMS
+  } catch (error) {
+    console.error('Error loading TTS params:', error)
+    return DEFAULT_TTS_PARAMS
+  }
+}
+
+export const resetTTSParams = async (): Promise<void> => {
+  try {
+    await AsyncStorage.removeItem(TTS_PARAMS_KEY)
+  } catch (error) {
+    console.error('Error resetting TTS params:', error)
     throw error
   }
 }

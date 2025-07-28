@@ -9,20 +9,29 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native'
+import { saveDocuments } from '@react-native-documents/picker'
+import ReactNativeBlobUtil from 'react-native-blob-util'
 import { initLlama, LlamaContext } from '../../../src'
 import { TTSModelDownloadCard } from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
+import TTSParamsModal from '../components/TTSParamsModal'
 import { AudioPlayer } from '../components/AudioPlayer'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
-import type { ContextParams, CompletionParams } from '../utils/storage'
-import { loadContextParams, loadCompletionParams } from '../utils/storage'
+import type {
+  ContextParams,
+  CompletionParams,
+  TTSParams,
+} from '../utils/storage'
+import {
+  loadContextParams,
+  loadCompletionParams,
+  loadTTSParams,
+} from '../utils/storage'
 import { HeaderButton } from '../components/HeaderButton'
 import { MaskedProgress } from '../components/MaskedProgress'
-
-// Sample speaker configuration for OuteTTS
-const speakerConfig = null
+import { createWavFile } from '../utils/audioUtils'
 
 const styles = StyleSheet.create({
   // Using shared styles for common patterns
@@ -168,9 +177,11 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
+  const [showTTSParamsModal, setShowTTSParamsModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [completionParams, setCompletionParams] =
     useState<CompletionParams | null>(null)
+  const [ttsParams, setTtsParams] = useState<TTSParams | null>(null)
 
   const handleSaveContextParams = (params: ContextParams) => {
     setContextParams(params)
@@ -180,22 +191,112 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
     setCompletionParams(params)
   }
 
+  const handleSaveTTSParams = (params: TTSParams) => {
+    setTtsParams(params)
+  }
+
+  const saveAudioAsWav = async () => {
+    if (!audioData || audioData.length === 0) {
+      Alert.alert('No Audio', 'No audio data available to save.')
+      return
+    }
+
+    try {
+      console.log('Starting WAV file creation...')
+
+      // Create WAV file from audio data
+      const wavBuffer = createWavFile(audioData, sampleRate || 24000, 16)
+      console.log('WAV buffer created, size:', wavBuffer.byteLength)
+
+      // Convert to base64 for proper binary file handling
+      const uint8Array = new Uint8Array(wavBuffer)
+      // Convert Uint8Array to string for base64 encoding
+      const binaryString = String.fromCharCode.apply(
+        null,
+        Array.from(uint8Array),
+      )
+      const base64Data = ReactNativeBlobUtil.base64.encode(binaryString)
+      console.log('Base64 data length:', base64Data.length)
+
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[.:]/g, '-')
+      const filename = `generated-speech-${timestamp}.wav`
+
+      // Create temporary file path in a more accessible location
+      const tempFilePath = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/${filename}`
+
+      // Write the WAV file as base64 binary data
+      await ReactNativeBlobUtil.fs.writeFile(tempFilePath, base64Data, 'base64')
+
+      // Save using documents picker with proper file URI
+      await saveDocuments({
+        sourceUris: [`file://${tempFilePath}`],
+        fileName: filename,
+        mimeType: 'audio/wav',
+        copy: false,
+      })
+
+      // Clean up temp file
+      try {
+        await ReactNativeBlobUtil.fs.unlink(tempFilePath)
+      } catch (cleanupError) {
+        console.warn('Failed to cleanup temp file:', cleanupError)
+      }
+
+      Alert.alert('Success', `Audio saved as ${filename}`)
+    } catch (error: any) {
+      console.error('Error saving audio:', error)
+
+      // Provide more detailed error information
+      if (error.message?.includes('User cancelled')) {
+        // User cancelled the save dialog, don't show error
+        return
+      }
+
+      Alert.alert(
+        'Error',
+        `Failed to save audio: ${
+          error.message || 'Unknown error'
+        }\n\nPlease check the console for more details.`,
+      )
+    }
+  }
+
+  // Load TTS parameters on mount
+  useLayoutEffect(() => {
+    const loadTTSParamsAsync = async () => {
+      try {
+        const params = await loadTTSParams()
+        setTtsParams(params)
+      } catch (error) {
+        console.error('Failed to load TTS params:', error)
+      }
+    }
+    loadTTSParamsAsync()
+  }, [])
+
   // Set up navigation header button
   useLayoutEffect(() => {
     if (isModelReady) {
       navigation.setOptions({
         headerRight: () => (
-          <HeaderButton
-            title="Params"
-            onPress={() => setShowCompletionParamsModal(true)}
-          />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <HeaderButton
+              title="TTS"
+              onPress={() => setShowTTSParamsModal(true)}
+            />
+            <HeaderButton
+              title="Params"
+              onPress={() => setShowCompletionParamsModal(true)}
+            />
+          </View>
         ),
       })
     } else {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
-            title="Context Params"
+            title="Context"
             onPress={() => setShowContextParamsModal(true)}
           />
         ),
@@ -259,7 +360,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
           typeof (context as any).getFormattedAudioCompletion === 'function'
         ) {
           formattedPrompt = await (context as any).getFormattedAudioCompletion(
-            speakerConfig,
+            ttsParams?.speakerConfig || null,
             inputText.trim(),
           )
         } else {
@@ -358,7 +459,10 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
   if (!isModelReady) {
     return (
       <View style={styles.container}>
-        <ScrollView style={styles.setupContainer} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          style={styles.setupContainer}
+          contentContainerStyle={styles.scrollContent}
+        >
           <Text style={styles.setupDescription}>
             Download the OuteTTS model to convert text into natural-sounding
             speech. For full audio generation and playback, you&apos;ll also
@@ -373,14 +477,18 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
             vocoder={MODELS.OUTE_TTS_0_3.vocoder}
             onInitialize={initializeModels}
           />
-
-
         </ScrollView>
 
         <ContextParamsModal
           visible={showContextParamsModal}
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
+        />
+
+        <TTSParamsModal
+          visible={showTTSParamsModal}
+          onClose={() => setShowTTSParamsModal(false)}
+          onSave={handleSaveTTSParams}
         />
 
         <MaskedProgress
@@ -441,7 +549,18 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
               <Text style={styles.audioDescription}>{generatedAudio}</Text>
 
               {audioData && audioData.length > 0 ? (
-                <AudioPlayer audio={audioData} sr={sampleRate} />
+                <>
+                  <AudioPlayer audio={audioData} sr={sampleRate} />
+                  <TouchableOpacity
+                    style={[
+                      styles.generateButton,
+                      { marginTop: 12, backgroundColor: '#34C759' },
+                    ]}
+                    onPress={saveAudioAsWav}
+                  >
+                    <Text style={styles.generateButtonText}>Save as WAV</Text>
+                  </TouchableOpacity>
+                </>
               ) : (
                 <Text style={styles.infoText}>
                   {isVocoderReady
@@ -462,15 +581,19 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
             pronunciation.
           </Text>
 
+          <Text style={styles.infoTitle}>Speaker Configuration</Text>
+          <Text style={styles.infoText}>
+            Tap the &quot;TTS&quot; button in the header to configure a custom
+            speaker voice. You can import speaker configurations from the
+            OuteTTS Speaker Creator or leave it empty to use the default voice.
+          </Text>
+
           <Text style={styles.infoTitle}>Tips for Better Results</Text>
           <Text style={styles.infoText}>
-            • Use clear, well-punctuated text
-            {'\n'}
-            • Shorter texts often produce better quality
-            {'\n'}
-            • Try different speaking styles or emotions
-            {'\n'}
-            • Avoid special characters and abbreviations
+            {`• Use clear, well-punctuated text
+• Shorter texts often produce better quality
+• Configure custom speaker for different voices
+• Avoid special characters and abbreviations`}
           </Text>
         </View>
       </ScrollView>
@@ -485,6 +608,12 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         visible={showCompletionParamsModal}
         onClose={() => setShowCompletionParamsModal(false)}
         onSave={handleSaveCompletionParams}
+      />
+
+      <TTSParamsModal
+        visible={showTTSParamsModal}
+        onClose={() => setShowTTSParamsModal(false)}
+        onSave={handleSaveTTSParams}
       />
     </View>
   )

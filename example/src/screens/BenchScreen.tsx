@@ -164,7 +164,7 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
-            title="Context Params"
+            title="Context"
             onPress={() => setShowContextParamsModal(true)}
           />
         ),

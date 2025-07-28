@@ -112,7 +112,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
-            title="Context Params"
+            title="Context"
             onPress={() => setShowContextParamsModal(true)}
           />
         ),
