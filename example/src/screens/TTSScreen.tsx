@@ -350,35 +350,16 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
     try {
       setIsLoading(true)
 
-      // Get formatted prompt and guide tokens using OuteTTS format
-      let grammar: string | undefined
-      let formattedPrompt: string
-      let guideTokens: number[] | undefined
+      const text = inputText.trim()
+      const { prompt: formattedPrompt, grammar } =
+        await context.getFormattedAudioCompletion(
+          ttsParams?.speakerConfig || null,
+          text,
+        )
 
-      try {
-        // Try to get formatted prompt if the method exists
-        if (
-          typeof (context as any).getFormattedAudioCompletion === 'function'
-        ) {
-          ({ prompt: formattedPrompt, grammar } = await (context as any).getFormattedAudioCompletion(
-            ttsParams?.speakerConfig || null,
-            inputText.trim(),
-          ))
-        } else {
-          formattedPrompt = `[SPEECH]${inputText.trim()}[/SPEECH]`
-        }
-
-        // Try to get guide tokens if the method exists
-        if (
-          typeof (context as any).getAudioCompletionGuideTokens === 'function'
-        ) {
-          guideTokens = await (context as any).getAudioCompletionGuideTokens(
-            inputText.trim(),
-          )
-        }
-      } catch (e) {
-        formattedPrompt = `[SPEECH]${inputText.trim()}[/SPEECH]`
-      }
+      const guideTokens: number[] = await context.getAudioCompletionGuideTokens(
+        text,
+      )
 
       const prompt = formattedPrompt
 
