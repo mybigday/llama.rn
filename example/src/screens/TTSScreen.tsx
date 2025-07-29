@@ -314,7 +314,6 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       const llamaContext = await initLlama(
         {
           model: ttsPath,
-          n_batch: 8192,
           ...params,
         },
         (progress) => {
