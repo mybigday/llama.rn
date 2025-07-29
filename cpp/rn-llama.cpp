@@ -1734,6 +1734,10 @@ std::vector<llama_token> llama_rn_context::getAudioCompletionGuideTokens(const s
     if (tmp.size() > 0) {
         result.push_back(tmp[0]);
     }
+
+    // Add Audio End, forcing stop generation
+    result.push_back(common_tokenize(vocab, "<|audio_end|>", false, true)[0]);
+
     return result;
 }
 
