@@ -32,7 +32,7 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app may use the microphone to enable voice input features for AI interactions.</string>
 	<key>UILaunchStoryboardName</key>
@@ -57,5 +57,9 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>MaterialIcons.ttf</string>
+	</array>
 </dict>
 </plist>

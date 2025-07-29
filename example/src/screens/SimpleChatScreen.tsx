@@ -98,11 +98,11 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <HeaderButton
-              title="Messages"
+              iconName="chat"
               onPress={() => setShowMessagesModal(true)}
             />
             <HeaderButton
-              title="Params"
+              iconName="settings"
               onPress={() => setShowCompletionParamsModal(true)}
             />
           </View>
@@ -112,7 +112,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
-            title="Context"
+            iconName="settings"
             onPress={() => setShowContextParamsModal(true)}
           />
         ),

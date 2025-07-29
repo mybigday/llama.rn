@@ -1,16 +1,20 @@
 import React from 'react'
-import { TouchableOpacity, Text } from 'react-native'
+import { TouchableOpacity } from 'react-native'
+import Icon from '@react-native-vector-icons/material-icons'
 import { CommonStyles } from '../styles/commonStyles'
+
+type IconName = 'chat' | 'settings' | 'volume-up' | 'clear'
 
 interface HeaderButtonProps {
   onPress: () => void
-  title: string
+  iconName: IconName
+  size?: number
 }
 
-export function HeaderButton({ onPress, title }: HeaderButtonProps) {
+export function HeaderButton({ onPress, iconName, size = 24 }: HeaderButtonProps) {
   return (
     <TouchableOpacity style={CommonStyles.headerButton} onPress={onPress}>
-      <Text style={CommonStyles.headerButtonText}>{title}</Text>
+      <Icon name={iconName} size={size} color="#007AFF" />
     </TouchableOpacity>
   )
 }
