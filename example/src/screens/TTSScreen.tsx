@@ -350,43 +350,22 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
     try {
       setIsLoading(true)
 
+      const text = inputText.trim()
       // Get formatted prompt and guide tokens using OuteTTS format
-      let formattedPrompt: string
-      let guideTokens: number[] | undefined
-
-      try {
-        // Try to get formatted prompt if the method exists
-        if (
-          typeof (context as any).getFormattedAudioCompletion === 'function'
-        ) {
-          formattedPrompt = await (context as any).getFormattedAudioCompletion(
-            ttsParams?.speakerConfig || null,
-            inputText.trim(),
-          )
-        } else {
-          formattedPrompt = `[SPEECH]${inputText.trim()}[/SPEECH]`
-        }
-
-        // Try to get guide tokens if the method exists
-        if (
-          typeof (context as any).getAudioCompletionGuideTokens === 'function'
-        ) {
-          guideTokens = await (context as any).getAudioCompletionGuideTokens(
-            inputText.trim(),
-          )
-        }
-      } catch (e) {
-        formattedPrompt = `[SPEECH]${inputText.trim()}[/SPEECH]`
-      }
-
-      const prompt = formattedPrompt
+      const formattedPrompt: string = await context.getFormattedAudioCompletion(
+        ttsParams?.speakerConfig || null,
+        text,
+      )
+      const guideTokens: number[] = await context.getAudioCompletionGuideTokens(
+        text,
+      )
 
       const collectedTokens: number[] = []
       const params = completionParams || (await loadCompletionParams())
 
       const result = await context.completion(
         {
-          prompt,
+          prompt: formattedPrompt,
           guide_tokens: guideTokens,
           n_predict: params.n_predict || 4096,
           temperature: params.temperature || 0.7,
