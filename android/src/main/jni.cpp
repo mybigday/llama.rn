@@ -1545,7 +1545,7 @@ Java_com_rnllama_LlamaContext_isVocoderEnabled(
     return llama->isVocoderEnabled();
 }
 
-JNIEXPORT jstring JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_getFormattedAudioCompletion(
     JNIEnv *env,
     jobject thiz,
@@ -1553,15 +1553,29 @@ Java_com_rnllama_LlamaContext_getFormattedAudioCompletion(
     jstring speaker_json_str,
     jstring text_to_speak
 ) {
-    UNUSED(env);
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
     const char *speaker_json_str_chars = env->GetStringUTFChars(speaker_json_str, nullptr);
     const char *text_to_speak_chars = env->GetStringUTFChars(text_to_speak, nullptr);
-    std::string result = llama->getFormattedAudioCompletion(speaker_json_str_chars, text_to_speak_chars);
+
+    auto result = createWriteableMap(env);
+    try {
+        auto audio_result = llama->getFormattedAudioCompletion(speaker_json_str_chars, text_to_speak_chars);
+        putString(env, result, "prompt", audio_result.prompt.c_str());
+        if (audio_result.grammar != nullptr) {
+            putString(env, result, "grammar", audio_result.grammar);
+        }
+    } catch (const std::exception &e) {
+        env->ReleaseStringUTFChars(speaker_json_str, speaker_json_str_chars);
+        env->ReleaseStringUTFChars(text_to_speak, text_to_speak_chars);
+        jclass exceptionClass = env->FindClass("java/lang/RuntimeException");
+        env->ThrowNew(exceptionClass, e.what());
+        return nullptr;
+    }
+
     env->ReleaseStringUTFChars(speaker_json_str, speaker_json_str_chars);
     env->ReleaseStringUTFChars(text_to_speak, text_to_speak_chars);
-    return env->NewStringUTF(result.c_str());
+    return result;
 }
 
 JNIEXPORT jobject JNICALL

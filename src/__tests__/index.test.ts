@@ -34,6 +34,8 @@ test('Mock', async () => {
   })
   expect(await context.isVocoderEnabled()).toBe(true)
 
+  expect(await context.getFormattedAudioCompletion(null, 'Hello world')).toHaveProperty('prompt')
+
   await context.releaseVocoder()
   expect(await context.isVocoderEnabled()).toBe(false)
 

@@ -11,6 +11,7 @@
 #include "ggml.h"
 #include "gguf.h"
 #include "llama.h"
+#include "llama-model.h"
 #include "llama-impl.h"
 #include "sampling.h"
 #include "nlohmann/json.hpp"
@@ -59,8 +60,14 @@ struct llama_rn_tokenize_result {
     std::vector<size_t> chunk_pos_media; // media only
 };
 
+struct llama_rn_audio_completion_result {
+    std::string prompt;
+    const char *grammar;
+};
+
 enum tts_type {
     UNKNOWN = -1,
+    OUTETTS_V0_1 = 0,
     OUTETTS_V0_2 = 1,
     OUTETTS_V0_3 = 2,
 };
@@ -165,7 +172,7 @@ struct llama_rn_context {
     // Vocoder methods
     bool initVocoder(const std::string &vocoder_model_path, int batch_size = -1);
     tts_type getTTSType(json speaker = nullptr);
-    std::string getFormattedAudioCompletion(const std::string &speaker_json_str, const std::string &text_to_speak);
+    llama_rn_audio_completion_result getFormattedAudioCompletion(const std::string &speaker_json_str, const std::string &text_to_speak);
     std::vector<llama_token> getAudioCompletionGuideTokens(const std::string &text_to_speak);
     std::vector<float> decodeAudioTokens(const std::vector<llama_token> &tokens);
     bool isVocoderEnabled() const;

@@ -1475,6 +1475,9 @@ tts_type llama_rn_context::getTTSType(json speaker) {
     if (chat_template && std::string(chat_template) == "outetts-0.3") {
         return OUTETTS_V0_3;
     }
+    if (model->name.find("OuteTTS 0.1") != std::string::npos) {
+        return OUTETTS_V0_1;
+    }
     return OUTETTS_V0_2;
 }
 
@@ -1667,7 +1670,7 @@ static std::string process_text(const std::string & text, const tts_type tts_typ
     return processed_text;
 }
 
-std::string llama_rn_context::getFormattedAudioCompletion(const std::string &speaker_json_str, const std::string &text_to_speak) {
+llama_rn_audio_completion_result llama_rn_context::getFormattedAudioCompletion(const std::string &speaker_json_str, const std::string &text_to_speak) {
     if (!isVocoderEnabled()) {
         throw std::runtime_error("Vocoder is not enabled but audio completion is requested");
     }
@@ -1678,7 +1681,7 @@ std::string llama_rn_context::getFormattedAudioCompletion(const std::string &spe
     const tts_type type = getTTSType(speaker);
     if (type == UNKNOWN) {
         LOG_ERROR("Unknown TTS version");
-        return "";
+        return {"", nullptr};
     }
 
     if (type == OUTETTS_V0_3) {
@@ -1692,7 +1695,15 @@ std::string llama_rn_context::getFormattedAudioCompletion(const std::string &spe
         audio_data = audio_data_from_speaker(speaker, type);
     }
 
-    return "<|im_start|>\n" + audio_text + process_text(text_to_speak, type) + "<|text_end|>\n" + audio_data + "\n";
+    std::string prompt = "<|im_start|>\n" + audio_text + process_text(text_to_speak, type) + "<|text_end|>\n" + audio_data + "\n";
+    
+    if (type == OUTETTS_V0_1) {
+        return {prompt, OUTETTS_V1_GRAMMAR};
+    } else if (type == OUTETTS_V0_2 || type == OUTETTS_V0_3) {
+        return {prompt, OUTETTS_V2_GRAMMAR};
+    } else {
+        return {prompt, nullptr};
+    }
 }
 
 std::vector<llama_token> llama_rn_context::getAudioCompletionGuideTokens(const std::string &text_to_speak) {
@@ -1723,6 +1734,10 @@ std::vector<llama_token> llama_rn_context::getAudioCompletionGuideTokens(const s
     if (tmp.size() > 0) {
         result.push_back(tmp[0]);
     }
+
+    // Add Audio End, forcing stop generation
+    result.push_back(common_tokenize(vocab, "<|audio_end|>", false, true)[0]);
+
     return result;
 }
 

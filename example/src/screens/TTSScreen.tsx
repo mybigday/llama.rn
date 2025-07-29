@@ -352,10 +352,12 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
 
       const text = inputText.trim()
       // Get formatted prompt and guide tokens using OuteTTS format
-      const formattedPrompt: string = await context.getFormattedAudioCompletion(
-        ttsParams?.speakerConfig || null,
-        text,
-      )
+      const { prompt: formattedPrompt, grammar } =
+        await context.getFormattedAudioCompletion(
+          ttsParams?.speakerConfig || null,
+          text,
+        )
+
       const guideTokens: number[] = await context.getAudioCompletionGuideTokens(
         text,
       )
@@ -366,6 +368,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       const result = await context.completion(
         {
           prompt: formattedPrompt,
+          grammar,
           guide_tokens: guideTokens,
           n_predict: params.n_predict || 4096,
           temperature: params.temperature || 0.7,

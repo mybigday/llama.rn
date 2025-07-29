@@ -502,7 +502,7 @@ RCT_EXPORT_METHOD(getFormattedAudioCompletion:(double)contextId
     }
 
     @try {
-        NSString *result = [context getFormattedAudioCompletion:speakerJsonStr textToSpeak:textToSpeak];
+        NSDictionary *result = [context getFormattedAudioCompletion:speakerJsonStr textToSpeak:textToSpeak];
         resolve(result);
     } @catch (NSException *exception) {
         reject(@"llama_cpp_error", exception.reason, nil);

@@ -60,7 +60,7 @@
 - (NSArray *)getLoadedLoraAdapters;
 - (bool)initVocoder:(NSDictionary *)params;
 - (bool)isVocoderEnabled;
-- (NSString *)getFormattedAudioCompletion:(NSString *)speakerJsonStr textToSpeak:(NSString *)textToSpeak;
+- (NSDictionary *)getFormattedAudioCompletion:(NSString *)speakerJsonStr textToSpeak:(NSString *)textToSpeak;
 - (NSArray *)getAudioCompletionGuideTokens:(NSString *)textToSpeak;
 - (NSArray *)decodeAudioTokens:(NSArray *)tokens;
 - (void)releaseVocoder;
