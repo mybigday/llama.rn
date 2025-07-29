@@ -4,14 +4,11 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  ActivityIndicator,
   Modal,
   TouchableOpacity,
   Dimensions,
   Clipboard,
-  Alert,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { loadLlamaModelInfo } from '../../../src'
 import ModelDownloadCard, {
   TTSModelDownloadCard,
@@ -19,6 +16,7 @@ import ModelDownloadCard, {
 } from '../components/ModelDownloadCard'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
+import { MaskedProgress } from '../components/MaskedProgress'
 
 const { width, height } = Dimensions.get('window')
 
@@ -250,9 +248,8 @@ export default function ModelInfoScreen() {
     setInfoError(null)
   }
 
-  const copyToClipboard = (value: string, label: string) => {
+  const copyToClipboard = (value: string) => {
     Clipboard.setString(value)
-    Alert.alert('Copied', `${label} copied to clipboard`)
   }
 
   const renderSingleModelInfo = (fileInfo: ModelFileInfo) => {
@@ -280,7 +277,7 @@ export default function ModelInfoScreen() {
             <Text style={styles.infoLabel}>{key}</Text>
             <TouchableOpacity
               style={styles.copyButton}
-              onPress={() => copyToClipboard(displayValue, key)}
+              onPress={() => copyToClipboard(displayValue)}
             >
               <Text style={styles.copyButtonText}>Copy</Text>
             </TouchableOpacity>
@@ -295,12 +292,7 @@ export default function ModelInfoScreen() {
 
   const renderModelInfo = () => {
     if (isLoadingInfo) {
-      return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
-          <Text style={styles.loadingText}>Loading model information...</Text>
-        </View>
-      )
+      return null // Loading will be handled by MaskedProgress
     }
 
     if (infoError) {
@@ -353,7 +345,7 @@ export default function ModelInfoScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <Text style={styles.description}>
         Download and explore detailed information about available AI models. Tap
         &quot;See&quot; on any model to view its metadata and specifications.
@@ -453,6 +445,13 @@ export default function ModelInfoScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+
+      <MaskedProgress
+        visible={isLoadingInfo}
+        text="Loading model information..."
+        progress={0}
+        showProgressBar={false}
+      />
+    </View>
   )
 }

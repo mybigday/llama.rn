@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { View, Text, ScrollView, Alert } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { initLlama, LlamaContext } from '../../../src'
@@ -8,8 +7,7 @@ import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
 import { Bubble } from '../components/Bubble'
-import { LoadingIndicator } from '../components/LoadingIndicator'
-import { ProgressBar } from '../components/ProgressBar'
+import { MaskedProgress } from '../components/MaskedProgress'
 import { HeaderButton } from '../components/HeaderButton'
 import { MessagesModal } from '../components/MessagesModal'
 import { CommonStyles } from '../styles/commonStyles'
@@ -113,12 +111,10 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
     } else {
       navigation.setOptions({
         headerRight: () => (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton
-              title="Context Params"
-              onPress={() => setShowContextParamsModal(true)}
-            />
-          </View>
+          <HeaderButton
+            title="Context"
+            onPress={() => setShowContextParamsModal(true)}
+          />
         ),
       })
     }
@@ -293,14 +289,14 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
 
   if (!isModelReady) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         <ScrollView style={styles.setupContainer} contentContainerStyle={styles.scrollContent}>
           <Text style={styles.setupDescription}>
             Download the model to start chatting. This model provides fast,
             efficient text generation for conversational AI.
           </Text>
 
-          {['SMOL_LM', 'GEMMA_3N_E2B', 'GEMMA_3N_E4B', 'GEMMA_3'].map((model) => {
+          {['SMOL_LM_3', 'GEMMA_3_4B_QAT', 'QWEN_3_4B', 'GEMMA_3N_E2B', 'GEMMA_3N_E4B'].map((model) => {
             const modelInfo = MODELS[model as keyof typeof MODELS]
             return (
               <ModelDownloadCard
@@ -314,14 +310,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
             )
           })}
 
-          {isLoading && (
-            <>
-              <LoadingIndicator
-                text={`Initializing model... ${initProgress}%`}
-              />
-              {initProgress > 0 && <ProgressBar progress={initProgress} />}
-            </>
-          )}
+
         </ScrollView>
 
         <ContextParamsModal
@@ -329,12 +318,19 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
         />
-      </SafeAreaView>
+
+        <MaskedProgress
+          visible={isLoading}
+          text={`Initializing model... ${initProgress}%`}
+          progress={initProgress}
+          showProgressBar={initProgress > 0}
+        />
+      </View>
     )
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <Chat
         renderBubble={renderBubble}
         theme={defaultTheme}
@@ -364,6 +360,6 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
         defaultSystemPrompt={DEFAULT_SYSTEM_PROMPT}
       />
-    </SafeAreaView>
+    </View>
   )
 }

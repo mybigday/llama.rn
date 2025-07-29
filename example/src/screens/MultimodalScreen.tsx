@@ -5,12 +5,10 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
-  ActivityIndicator,
   Image,
   TouchableOpacity,
   Platform,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { pick } from '@react-native-documents/picker'
@@ -22,6 +20,7 @@ import CompletionParamsModal from '../components/CompletionParamsModal'
 import { Bubble } from '../components/Bubble'
 import { HeaderButton } from '../components/HeaderButton'
 import { MessagesModal } from '../components/MessagesModal'
+import { MaskedProgress } from '../components/MaskedProgress'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
@@ -33,7 +32,8 @@ const assistant = { id: 'assistant' }
 
 const randId = () => Math.random().toString(36).substr(2, 9)
 
-const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant with vision capabilities. You can see and analyze images that users share. Be descriptive when analyzing images and helpful in answering questions about visual content. Be concise and helpful in your responses.'
+const DEFAULT_SYSTEM_PROMPT =
+  'You are a helpful AI assistant with vision capabilities. You can see and analyze images that users share. Be descriptive when analyzing images and helpful in answering questions about visual content. Be concise and helpful in your responses.'
 
 const styles = StyleSheet.create({
   // Using shared styles for common patterns
@@ -277,12 +277,10 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     } else {
       navigation.setOptions({
         headerRight: () => (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton
-              title="Context Params"
-              onPress={() => setShowContextParamsModal(true)}
-            />
-          </View>
+          <HeaderButton
+            title="Context"
+            onPress={() => setShowContextParamsModal(true)}
+          />
         ),
       })
     }
@@ -618,7 +616,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
   if (!isModelReady) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         <ScrollView
           style={styles.setupContainer}
           contentContainerStyle={styles.scrollContent}
@@ -629,7 +627,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             content, and engage in vision-language conversations.
           </Text>
 
-          {['SMOL_VLM', 'GEMMA_3'].map((model) => {
+          {['SMOL_VLM_500M', 'SMOL_VLM_2_2B', 'GEMMA_3_4B_QAT'].map((model) => {
             const modelInfo = MODELS[model as keyof typeof MODELS]
             return (
               <VLMModelDownloadCard
@@ -643,27 +641,6 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
               />
             )
           })}
-
-          {isLoading && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#007AFF" />
-              <Text style={styles.loadingText}>
-                {`Initializing model... ${initProgress}%`}
-              </Text>
-              {initProgress > 0 && (
-                <View style={styles.progressContainer}>
-                  <View style={styles.progressBar}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        { width: `${initProgress}%` },
-                      ]}
-                    />
-                  </View>
-                </View>
-              )}
-            </View>
-          )}
         </ScrollView>
 
         <ContextParamsModal
@@ -671,12 +648,19 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
         />
-      </SafeAreaView>
+
+        <MaskedProgress
+          visible={isLoading}
+          text={`Initializing model... ${initProgress}%`}
+          progress={initProgress}
+          showProgressBar={initProgress > 0}
+        />
+      </View>
     )
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <Chat
         messages={messagesRef.current}
         onSendPress={handleSendPress}
@@ -710,24 +694,6 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         </View>
       )}
 
-      {isLoading && (
-        <View
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.3)',
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
-        >
-          <ActivityIndicator size="large" color="#007AFF" />
-          <Text style={{ color: 'white', marginTop: 10 }}>Processing...</Text>
-        </View>
-      )}
-
       <CompletionParamsModal
         visible={showCompletionParamsModal}
         onClose={() => setShowCompletionParamsModal(false)}
@@ -743,6 +709,13 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
         defaultSystemPrompt={DEFAULT_SYSTEM_PROMPT}
       />
-    </SafeAreaView>
+
+      <MaskedProgress
+        visible={isLoading}
+        text="Processing..."
+        progress={0}
+        showProgressBar={false}
+      />
+    </View>
   )
 }

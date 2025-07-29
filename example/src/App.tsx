@@ -1,6 +1,6 @@
 /* eslint-disable jsx-a11y/accessible-emoji */
 import * as React from 'react'
-import { View, Text, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet, ScrollView, Linking } from 'react-native'
 import {
   GestureHandlerRootView,
   TouchableOpacity,
@@ -14,6 +14,7 @@ import MultimodalScreen from './screens/MultimodalScreen'
 import TTSScreen from './screens/TTSScreen'
 import ToolCallsScreen from './screens/ToolCallsScreen'
 import ModelInfoScreen from './screens/ModelInfoScreen'
+import BenchScreen from './screens/BenchScreen'
 import { CommonStyles } from './styles/commonStyles'
 
 // Example: Catch logs from llama.cpp
@@ -30,6 +31,11 @@ enableScreens()
 
 const styles = StyleSheet.create({
   container: CommonStyles.centerContainer,
+  scrollContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
   button: CommonStyles.button,
   buttonText: CommonStyles.buttonText,
   title: {
@@ -43,52 +49,81 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
-    marginBottom: 30,
     paddingHorizontal: 32,
     lineHeight: 22,
+  },
+  repoLink: {
+    marginTop: 8,
+    marginBottom: 24,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+  },
+  repoLinkText: {
+    fontSize: 16,
+    color: '#007AFF',
+    textAlign: 'center',
   },
 })
 
 function HomeScreen({ navigation }: { navigation: any }) {
+  const openRepo = () => {
+    Linking.openURL('https://github.com/mybigday/llama.rn/tree/main/example')
+  }
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>🦙 llama.rn</Text>
-      <Text style={styles.description}>
-        Experience the power of large language models running locally on your
-        mobile device. Explore different AI capabilities including chat, vision,
-        tool calling, and text-to-speech.
-      </Text>
-      <TouchableOpacity
-        style={styles.button}
-        onPress={() => navigation.navigate('SimpleChat')}
-      >
-        <Text style={styles.buttonText}>💬 Simple Chat</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.button}
-        onPress={() => navigation.navigate('Multimodal')}
-      >
-        <Text style={styles.buttonText}>👁️ Vision/Multimodal</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.button}
-        onPress={() => navigation.navigate('ToolCalling')}
-      >
-        <Text style={styles.buttonText}>🛠️ Tool Calling</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.button}
-        onPress={() => navigation.navigate('TTS')}
-      >
-        <Text style={styles.buttonText}>🔊 Text-to-Speech (OuteTTS)</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.button}
-        onPress={() => navigation.navigate('ModelInfo')}
-      >
-        <Text style={styles.buttonText}>📊 Model Info</Text>
-      </TouchableOpacity>
-    </View>
+    <ScrollView contentContainerStyle={styles.scrollContainer}>
+      <View style={styles.container}>
+        <Text style={styles.title}>🦙 llama.rn</Text>
+        <Text style={styles.description}>
+          Experience the power of large language models running locally on your
+          mobile device. Explore different AI capabilities including chat,
+          vision, tool calling, and text-to-speech.
+        </Text>
+        <View style={styles.repoLink}>
+          <TouchableOpacity onPress={openRepo}>
+            <Text style={styles.repoLinkText}>
+              📂 https://github.com/mybigday/llama.rn/tree/main/example
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => navigation.navigate('SimpleChat')}
+        >
+          <Text style={styles.buttonText}>💬 Simple Chat</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => navigation.navigate('Multimodal')}
+        >
+          <Text style={styles.buttonText}>👁️ Vision/Multimodal</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => navigation.navigate('ToolCalling')}
+        >
+          <Text style={styles.buttonText}>🛠️ Tool Calling</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => navigation.navigate('TTS')}
+        >
+          <Text style={styles.buttonText}>🔊 Text-to-Speech (OuteTTS)</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => navigation.navigate('ModelInfo')}
+        >
+          <Text style={styles.buttonText}>📊 Model Info</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => navigation.navigate('Bench')}
+        >
+          <Text style={styles.buttonText}>🏋️ Bench</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
   )
 }
 
@@ -129,6 +164,7 @@ function App() {
             }}
           />
           <Stack.Screen name="ModelInfo" component={ModelInfoScreen} />
+          <Stack.Screen name="Bench" component={BenchScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </GestureHandlerRootView>
