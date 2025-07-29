@@ -282,11 +282,11 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <HeaderButton
-              title="TTS"
+              iconName="volume-up"
               onPress={() => setShowTTSParamsModal(true)}
             />
             <HeaderButton
-              title="Params"
+              iconName="settings"
               onPress={() => setShowCompletionParamsModal(true)}
             />
           </View>
@@ -296,7 +296,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
-            title="Context"
+            iconName="settings"
             onPress={() => setShowContextParamsModal(true)}
           />
         ),
@@ -327,7 +327,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
 
       // Initialize vocoder directly after TTS model
       try {
-        await llamaContext.initVocoder({ path: vocoderPath })
+        await llamaContext.initVocoder({ path: vocoderPath, n_batch: 4096 })
         setIsVocoderReady(true)
       } catch (vocoderError) {
         console.log('Vocoder initialization error:', vocoderError)
@@ -351,6 +351,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       setIsLoading(true)
 
       const text = inputText.trim()
+      // Get formatted prompt and guide tokens using OuteTTS format
       const { prompt: formattedPrompt, grammar } =
         await context.getFormattedAudioCompletion(
           ttsParams?.speakerConfig || null,
@@ -361,14 +362,12 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         text,
       )
 
-      const prompt = formattedPrompt
-
       const collectedTokens: number[] = []
       const params = completionParams || (await loadCompletionParams())
 
       const result = await context.completion(
         {
-          prompt,
+          prompt: formattedPrompt,
           grammar,
           guide_tokens: guideTokens,
           n_predict: params.n_predict || 4096,

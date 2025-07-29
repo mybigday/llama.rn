@@ -449,7 +449,7 @@ RCT_EXPORT_METHOD(releaseMultimodal:(double)contextId
 }
 
 RCT_EXPORT_METHOD(initVocoder:(double)contextId
-                 withVocoderModelPath:(NSString *)vocoderModelPath
+                 withParams:(NSDictionary *)params
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -464,7 +464,7 @@ RCT_EXPORT_METHOD(initVocoder:(double)contextId
     }
 
     @try {
-        bool success = [context initVocoder:vocoderModelPath];
+        bool success = [context initVocoder:params];
         resolve(@(success));
     } @catch (NSException *exception) {
         reject(@"llama_cpp_error", exception.reason, nil);

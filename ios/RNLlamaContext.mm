@@ -3,6 +3,37 @@
 
 @implementation RNLlamaContext
 
++ (BOOL)isGpuAvailable:(NSDictionary *)params {
+    BOOL skipGpuDevices = params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue];
+
+    if (skipGpuDevices) {
+        return false;
+    }
+
+#ifdef LM_GGML_USE_METAL
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+
+    // Check ggml-metal availability
+    BOOL supportsGgmlMetal = [device supportsFamily:MTLGPUFamilyApple7];
+    if (@available(iOS 16.0, tvOS 16.0, *)) {
+        supportsGgmlMetal = supportsGgmlMetal && [device supportsFamily:MTLGPUFamilyMetal3];
+    }
+
+#if TARGET_OS_SIMULATOR
+    // GPU acceleration not fully supported on simulator
+    device = nil;
+    return false;
+#else
+    device = nil;
+    return supportsGgmlMetal;
+#endif
+
+#else
+    // Metal is not enabled in this build
+    return false;
+#endif
+}
+
 + (void)toggleNativeLog:(BOOL)enabled onEmitLog:(void (^)(NSString *level, NSString *text))onEmitLog {
   if (enabled) {
       void (^copiedBlock)(NSString *, NSString *) = [onEmitLog copy];
@@ -93,38 +124,34 @@
     if (params[@"n_ctx"]) defaultParams.n_ctx = [params[@"n_ctx"] intValue];
     if (params[@"use_mlock"]) defaultParams.use_mlock = [params[@"use_mlock"]boolValue];
 
-    BOOL skipGpuDevices = params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue];
+    BOOL isGpuAvailable = [self isGpuAvailable:params];
+    BOOL skipGpuDevices = !isGpuAvailable || (params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue]);
 
     BOOL isMetalEnabled = false;
     NSString *reasonNoMetal = @"";
     defaultParams.n_gpu_layers = 0;
-#ifdef LM_GGML_USE_METAL
-    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
 
-    // Check ggml-metal availability
-    BOOL supportsGgmlMetal = [device supportsFamily:MTLGPUFamilyApple7];
-    if (@available(iOS 16.0, tvOS 16.0, *)) {
-        supportsGgmlMetal = supportsGgmlMetal && [device supportsFamily:MTLGPUFamilyMetal3];
-    }
-    if (!supportsGgmlMetal) {
-        reasonNoMetal = @"Metal is not supported in this device";
-        skipGpuDevices = true;
-    }
-
+    if (isGpuAvailable) {
 #if TARGET_OS_SIMULATOR
-    // Use the backend, but no layers because not supported fully on simulator
-    defaultParams.n_gpu_layers = 0;
-    isMetalEnabled = true;
+        // Use the backend, but no layers because not supported fully on simulator
+        defaultParams.n_gpu_layers = 0;
+        isMetalEnabled = true;
 #else
-    defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
-    isMetalEnabled = true;
+        defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
+        isMetalEnabled = true;
 #endif
-
-    device = nil;
+    } else {
+        if (params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue]) {
+            reasonNoMetal = @"GPU devices disabled by user";
+        } else {
+#ifdef LM_GGML_USE_METAL
+            reasonNoMetal = @"Metal is not supported in this device";
 #else
-    reasonNoMetal = @"Metal is not enabled in this build";
-    isMetalEnabled = false;
+            reasonNoMetal = @"Metal is not enabled in this build";
 #endif
+        }
+        isMetalEnabled = false;
+    }
 
     if (skipGpuDevices) {
         std::vector<lm_ggml_backend_dev_t> cpu_devs;
@@ -330,6 +357,12 @@
 - (bool)initMultimodal:(NSDictionary *)params {
     NSString *mmproj_path = params[@"path"];
     BOOL use_gpu = params[@"use_gpu"] ? [params[@"use_gpu"] boolValue] : true;
+
+    // Check GPU availability using utility function
+    if (use_gpu) {
+        use_gpu = [RNLlamaContext isGpuAvailable:params];
+    }
+
     return llama->initMultimodal([mmproj_path UTF8String], use_gpu);
 }
 
@@ -988,8 +1021,9 @@
     return result;
 }
 
-- (bool)initVocoder:(NSString *)vocoderModelPath {
-    return llama->initVocoder([vocoderModelPath UTF8String]);
+- (bool)initVocoder:(NSDictionary *)params {
+    int n_batch = params[@"n_batch"] ? [params[@"n_batch"] intValue] : 512;
+    return llama->initVocoder([params[@"path"] UTF8String], n_batch);
 }
 
 - (bool)isVocoderEnabled {

@@ -157,14 +157,14 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
     if (isModelReady) {
       navigation.setOptions({
         headerRight: () => (
-          <HeaderButton title="Clear Logs" onPress={clearLogs} />
+          <HeaderButton iconName="clear" onPress={clearLogs} />
         ),
       })
     } else {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
-            title="Context"
+            iconName="settings"
             onPress={() => setShowContextParamsModal(true)}
           />
         ),

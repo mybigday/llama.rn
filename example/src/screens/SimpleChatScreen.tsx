@@ -10,6 +10,7 @@ import { Bubble } from '../components/Bubble'
 import { MaskedProgress } from '../components/MaskedProgress'
 import { HeaderButton } from '../components/HeaderButton'
 import { MessagesModal } from '../components/MessagesModal'
+import SessionModal from '../components/SessionModal'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
@@ -42,6 +43,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
   const [showMessagesModal, setShowMessagesModal] = useState(false)
+  const [showSessionModal, setShowSessionModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [completionParams, setCompletionParams] =
     useState<CompletionParams | null>(null)
@@ -98,11 +100,15 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <HeaderButton
-              title="Messages"
+              iconName="folder"
+              onPress={() => setShowSessionModal(true)}
+            />
+            <HeaderButton
+              iconName="chat"
               onPress={() => setShowMessagesModal(true)}
             />
             <HeaderButton
-              title="Params"
+              iconName="settings"
               onPress={() => setShowCompletionParamsModal(true)}
             />
           </View>
@@ -112,7 +118,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
-            title="Context"
+            iconName="settings"
             onPress={() => setShowContextParamsModal(true)}
           />
         ),
@@ -359,6 +365,12 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
         onImportMessages={handleImportMessages}
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
         defaultSystemPrompt={DEFAULT_SYSTEM_PROMPT}
+      />
+
+      <SessionModal
+        visible={showSessionModal}
+        onClose={() => setShowSessionModal(false)}
+        context={context}
       />
     </View>
   )
