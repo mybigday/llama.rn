@@ -19,12 +19,13 @@ else
   git checkout -b "$WORK_BRANCH"
 fi
 
-# Fast-forward merge the staging branch changes
-echo "🔄 Fast-forwarding persistent branch..."
-git merge --ff-only "$STAGING_BRANCH"
+# Reset the persistent branch to match staging branch exactly
+# This handles cases where branches have diverged
+echo "🔄 Updating persistent branch to match staging branch..."
+git reset --hard "$STAGING_BRANCH"
 
-# Push the persistent branch
-git push origin "$WORK_BRANCH"
+# Push the persistent branch (force push since we may have reset)
+git push origin "$WORK_BRANCH" --force-with-lease
 
 # Clean up staging branch
 git push origin --delete "$STAGING_BRANCH" || echo "Staging branch already deleted"
