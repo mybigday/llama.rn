@@ -625,6 +625,18 @@ struct llm_graph_context {
             llama_expert_gating_func_type gating_op,
                      int   il) const;
 
+    lm_ggml_tensor * build_moe_ffn_from_probs(
+             lm_ggml_tensor * cur,
+             lm_ggml_tensor * probs,
+             lm_ggml_tensor * up_exps,
+             lm_ggml_tensor * gate_exps,
+             lm_ggml_tensor * down_exps,
+             lm_ggml_tensor * exp_probs_b,
+                 int64_t   n_expert,
+                 int64_t   n_expert_used,
+            llama_expert_gating_func_type gating_op,
+                     int   il) const;
+
     //
     // inputs
     //
