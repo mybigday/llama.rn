@@ -1509,13 +1509,14 @@ Java_com_rnllama_LlamaContext_initVocoder(
     JNIEnv *env,
     jobject thiz,
     jlong context_ptr,
-    jstring vocoder_model_path
+    jstring vocoder_model_path,
+    jint batch_size
 ) {
     UNUSED(env);
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
     const char *vocoder_model_path_chars = env->GetStringUTFChars(vocoder_model_path, nullptr);
-    bool result = llama->initVocoder(vocoder_model_path_chars);
+    bool result = llama->initVocoder(vocoder_model_path_chars, batch_size);
     env->ReleaseStringUTFChars(vocoder_model_path, vocoder_model_path_chars);
     return result;
 }

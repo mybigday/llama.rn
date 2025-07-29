@@ -327,7 +327,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
 
       // Initialize vocoder directly after TTS model
       try {
-        await llamaContext.initVocoder({ path: vocoderPath })
+        await llamaContext.initVocoder({ path: vocoderPath, n_batch: 4096 })
         setIsVocoderReady(true)
       } catch (vocoderError) {
         console.log('Vocoder initialization error:', vocoderError)

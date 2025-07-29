@@ -445,8 +445,8 @@ public class LlamaContext {
     releaseMultimodal(this.context);
   }
 
-  public boolean initVocoder(String vocoderModelPath) {
-    return initVocoder(this.context, vocoderModelPath);
+  public boolean initVocoder(ReadableMap params) {
+    return initVocoder(this.context, params.getString("path"), params.hasKey("n_batch") ? params.getInt("n_batch") : 512);
   }
 
   public boolean isVocoderEnabled() {
@@ -687,6 +687,6 @@ public class LlamaContext {
   protected static native String getFormattedAudioCompletion(long contextPtr, String speakerJsonStr, String textToSpeak);
   protected static native WritableArray getAudioCompletionGuideTokens(long contextPtr, String textToSpeak);
   protected static native WritableArray decodeAudioTokens(long contextPtr, int[] tokens);
-  protected static native boolean initVocoder(long contextPtr, String vocoderModelPath);
+  protected static native boolean initVocoder(long contextPtr, String vocoderModelPath, int batchSize);
   protected static native void releaseVocoder(long contextPtr);
 }
