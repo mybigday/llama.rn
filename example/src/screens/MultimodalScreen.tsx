@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   Platform,
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { pick } from '@react-native-documents/picker'
@@ -21,6 +22,7 @@ import { Bubble } from '../components/Bubble'
 import { HeaderButton } from '../components/HeaderButton'
 import { MessagesModal } from '../components/MessagesModal'
 import { MaskedProgress } from '../components/MaskedProgress'
+import SessionModal from '../components/SessionModal'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
@@ -125,10 +127,12 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
   const [showMessagesModal, setShowMessagesModal] = useState(false)
+  const [showSessionModal, setShowSessionModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [completionParams, setCompletionParams] =
     useState<CompletionParams | null>(null)
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT)
+  const insets = useSafeAreaInsets()
 
   useEffect(
     () => () => {
@@ -263,6 +267,10 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       navigation.setOptions({
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
+            <HeaderButton
+              iconName="folder"
+              onPress={() => setShowSessionModal(true)}
+            />
             <HeaderButton
               iconName="chat"
               onPress={() => setShowMessagesModal(true)}
@@ -600,7 +608,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         }
       }
     } catch (error: any) {
-      if (error.message !== 'User canceled the picker') {
+      if (!error.message.includes('user canceled the document picker')) {
         Alert.alert('Error', `Failed to pick image: ${error.message}`)
       }
     }
@@ -680,11 +688,8 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
       {/* Pending Image Preview */}
       {pendingImage && (
-        <View style={styles.pendingImageContainer}>
+        <View style={[styles.pendingImageContainer, { bottom: insets.bottom + 80 }]}>
           <Image source={{ uri: pendingImage }} style={styles.pendingImage} />
-          <Text style={styles.pendingImageText}>
-            Image ready to send. Type a question or tap send.
-          </Text>
           <TouchableOpacity
             style={styles.removePendingButton}
             onPress={() => setPendingImage(null)}
@@ -708,6 +713,12 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         onImportMessages={handleImportMessages}
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
         defaultSystemPrompt={DEFAULT_SYSTEM_PROMPT}
+      />
+
+      <SessionModal
+        visible={showSessionModal}
+        onClose={() => setShowSessionModal(false)}
+        context={context}
       />
 
       <MaskedProgress
