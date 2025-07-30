@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react'
+import { Alert } from 'react-native'
 import type { ContextParams } from '../utils/storage'
 import {
   saveContextParams,
@@ -7,7 +8,6 @@ import {
   DEFAULT_CONTEXT_PARAMS,
 } from '../utils/storage'
 import { useParameterModal } from '../hooks/useParameterModal'
-import { validateInteger } from '../utils/validation'
 import { ParameterTextInput, ParameterSwitch } from './ParameterFormFields'
 import BaseParameterModal from './BaseParameterModal'
 
@@ -40,8 +40,89 @@ export default function ContextParamsModal({
     if (visible) loadParamsAsync()
   }, [loadParamsAsync, visible])
 
+  const handleTextInput = (text: string, paramKey: keyof ContextParams) => {
+    if (text === '') {
+      updateParam(paramKey, undefined)
+    } else {
+      const parsedValue = parseInt(text, 10)
+      updateParam(paramKey, Number.isNaN(parsedValue) ? text : parsedValue)
+    }
+  }
+
+  const validateIntegerParam = (
+    value: any,
+    min: number,
+    max: number,
+    fieldName: string,
+  ): string | null => {
+    if (value === undefined || value === null) return null
+
+    const num = typeof value === 'string' ? parseInt(value, 10) : value
+    if (Number.isNaN(num) || num < min || num > max) {
+      return `${fieldName} must be between ${min} and ${max}`
+    }
+    return null
+  }
+
+  const validateParams = (): { isValid: boolean; errors: string[] } => {
+    const validations = [
+      validateIntegerParam(params.n_ctx, 128, 99999, 'Context Size'),
+      validateIntegerParam(params.n_gpu_layers, 0, 99, 'GPU Layers'),
+      validateIntegerParam(params.n_batch, 1, 99999, 'Batch Size'),
+      validateIntegerParam(params.n_ubatch, 1, 99999, 'Micro Batch Size'),
+      validateIntegerParam(params.n_threads, 1, 32, 'Threads'),
+    ]
+
+    const errors = validations.filter((error): error is string => error !== null)
+    return { isValid: errors.length === 0, errors }
+  }
+
+  const convertStringParamsToNumbers = (
+    stringParams: ContextParams,
+  ): ContextParams => {
+    const converted = { ...stringParams }
+
+    if (typeof converted.n_ctx === 'string') {
+      const num = parseInt(converted.n_ctx, 10)
+      converted.n_ctx = Number.isNaN(num) ? undefined : num
+    }
+
+    if (typeof converted.n_gpu_layers === 'string') {
+      const num = parseInt(converted.n_gpu_layers, 10)
+      converted.n_gpu_layers = Number.isNaN(num) ? undefined : num
+    }
+
+    if (typeof converted.n_batch === 'string') {
+      const num = parseInt(converted.n_batch, 10)
+      converted.n_batch = Number.isNaN(num) ? undefined : num
+    }
+
+    if (typeof converted.n_ubatch === 'string') {
+      const num = parseInt(converted.n_ubatch, 10)
+      converted.n_ubatch = Number.isNaN(num) ? undefined : num
+    }
+
+    if (typeof converted.n_threads === 'string') {
+      const num = parseInt(converted.n_threads, 10)
+      converted.n_threads = Number.isNaN(num) ? undefined : num
+    }
+
+    return converted
+  }
+
   const onSaveHandler = () => {
-    handleSave(onSave, onClose)
+    const validation = validateParams()
+    if (!validation.isValid) {
+      Alert.alert(
+        'Validation Error',
+        `Please fix the following errors:\n\n${validation.errors.join('\n')}`,
+        [{ text: 'OK' }],
+      )
+      return
+    }
+
+    const convertedParams = convertStringParamsToNumbers(params)
+    handleSave((_params) => onSave(convertedParams), onClose)
   }
 
   return (
@@ -62,11 +143,16 @@ export default function ContextParamsModal({
         description="Maximum context length in tokens. Higher values use more memory."
         value={params.n_ctx?.toString()}
         onChangeText={(text) => {
-          const value = validateInteger(text, 512, 32768)
-          if (value !== undefined) updateParam('n_ctx', value)
+          // Allow any text input, validation happens on save
+          if (text === '') {
+            updateParam('n_ctx', undefined)
+          } else {
+            const parsedValue = parseInt(text, 10)
+            updateParam('n_ctx', Number.isNaN(parsedValue) ? text : parsedValue)
+          }
         }}
         keyboardType="numeric"
-        placeholder="4096"
+        placeholder="8192"
       />
 
       {/* GPU Layers */}
@@ -75,8 +161,16 @@ export default function ContextParamsModal({
         description="Number of layers to run on GPU. Use 99 for all layers, 0 for CPU only."
         value={params.n_gpu_layers?.toString()}
         onChangeText={(text) => {
-          const value = validateInteger(text, 0, 99)
-          if (value !== undefined) updateParam('n_gpu_layers', value)
+          // Allow any text input, validation happens on save
+          if (text === '') {
+            updateParam('n_gpu_layers', undefined)
+          } else {
+            const parsedValue = parseInt(text, 10)
+            updateParam(
+              'n_gpu_layers',
+              Number.isNaN(parsedValue) ? text : parsedValue,
+            )
+          }
         }}
         keyboardType="numeric"
         placeholder="99"
@@ -103,10 +197,7 @@ export default function ContextParamsModal({
         label="Batch Size (n_batch)"
         description="Number of tokens to process in parallel. Higher values use more memory."
         value={params.n_batch?.toString() || '512'}
-        onChangeText={(text) => {
-          const value = validateInteger(text, 1, 2048)
-          if (value !== undefined) updateParam('n_batch', value)
-        }}
+        onChangeText={(text) => handleTextInput(text, 'n_batch')}
         keyboardType="numeric"
         placeholder="512"
       />
@@ -116,10 +207,7 @@ export default function ContextParamsModal({
         label="Micro Batch Size (n_ubatch)"
         description="Internal batch size for processing. Should be ≤ n_batch."
         value={params.n_ubatch?.toString() || '512'}
-        onChangeText={(text) => {
-          const value = validateInteger(text, 1, 2048)
-          if (value !== undefined) updateParam('n_ubatch', value)
-        }}
+        onChangeText={(text) => handleTextInput(text, 'n_ubatch')}
         keyboardType="numeric"
         placeholder="512"
       />
@@ -129,10 +217,7 @@ export default function ContextParamsModal({
         label="Threads (n_threads)"
         description="Number of CPU threads to use. Usually set to number of CPU cores."
         value={params.n_threads?.toString()}
-        onChangeText={(text) => {
-          const value = validateInteger(text, 1, 32)
-          if (value !== undefined) updateParam('n_threads', value)
-        }}
+        onChangeText={(text) => handleTextInput(text, 'n_threads')}
         keyboardType="numeric"
         placeholder="8"
       />

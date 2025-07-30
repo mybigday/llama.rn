@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react'
+import { Alert } from 'react-native'
 import type { CompletionParams } from '../utils/storage'
 import {
   saveCompletionParams,
@@ -7,7 +8,6 @@ import {
   DEFAULT_COMPLETION_PARAMS,
 } from '../utils/storage'
 import { useParameterModal } from '../hooks/useParameterModal'
-import { validateNumber, validateInteger } from '../utils/validation'
 import {
   ParameterTextInput,
   ParameterSwitch,
@@ -44,8 +44,92 @@ export default function CompletionParamsModal({
     if (visible) loadParamsAsync()
   }, [loadParamsAsync, visible])
 
-  const onSaveHandler = () => {
-    handleSave(onSave, onClose)
+  const handleTextInput = (text: string, paramKey: keyof CompletionParams) => {
+    if (text === '') {
+      updateParam(paramKey, undefined)
+    } else {
+      const parsedInt = parseInt(text, 10)
+      const parsedFloat = parseFloat(text)
+
+      // For integer fields
+      if (paramKey === 'n_predict') {
+        updateParam(paramKey, Number.isNaN(parsedInt) ? text : parsedInt)
+      } else {
+        // For float fields (temperature, top_p)
+        updateParam(paramKey, Number.isNaN(parsedFloat) ? text : parsedFloat)
+      }
+    }
+  }
+
+  const validateIntegerParam = (
+    value: any,
+    min: number,
+    max: number,
+    fieldName: string,
+  ): string | null => {
+    if (value === undefined || value === null) return null
+
+    const num = typeof value === 'string' ? parseInt(value, 10) : value
+    if (Number.isNaN(num) || num < min || num > max) {
+      return `${fieldName} must be between ${min} and ${max}`
+    }
+    return null
+  }
+
+  const validateNumberParam = (
+    value: any,
+    min: number,
+    max: number,
+    fieldName: string,
+  ): string | null => {
+    if (value === undefined || value === null) return null
+
+    const num = typeof value === 'string' ? parseFloat(value) : value
+    if (Number.isNaN(num) || num < min || num > max) {
+      return `${fieldName} must be between ${min} and ${max}`
+    }
+    return null
+  }
+
+  const validateParams = (): { isValid: boolean; errors: string[] } => {
+    const validations = [
+      validateIntegerParam(
+        params.n_predict,
+        -1,
+        4096,
+        'Max Tokens (-1 for no limit)',
+      ),
+      validateNumberParam(params.temperature, 0.0, 2.0, 'Temperature'),
+      validateNumberParam(params.top_p, 0.0, 1.0, 'Top-p'),
+    ]
+
+    const errors = validations.filter(
+      (error): error is string => error !== null,
+    )
+    return { isValid: errors.length === 0, errors }
+  }
+
+  const convertStringParamsToNumbers = (
+    stringParams: CompletionParams,
+  ): CompletionParams => {
+    const converted = { ...stringParams }
+
+    if (typeof converted.n_predict === 'string') {
+      const num = parseInt(converted.n_predict, 10)
+      converted.n_predict = Number.isNaN(num) ? undefined : num
+    }
+
+    if (typeof converted.temperature === 'string') {
+      const num = parseFloat(converted.temperature)
+      converted.temperature = Number.isNaN(num) ? undefined : num
+    }
+
+    if (typeof converted.top_p === 'string') {
+      const num = parseFloat(converted.top_p)
+      converted.top_p = Number.isNaN(num) ? undefined : num
+    }
+
+    return converted
   }
 
   const addStopSequence = () => {
@@ -64,6 +148,21 @@ export default function CompletionParamsModal({
     updateParam('stop', newStop)
   }
 
+  const onSaveHandler = () => {
+    const validation = validateParams()
+    if (!validation.isValid) {
+      Alert.alert(
+        'Validation Error',
+        `Please fix the following errors:\n\n${validation.errors.join('\n')}`,
+        [{ text: 'OK' }],
+      )
+      return
+    }
+
+    const convertedParams = convertStringParamsToNumbers(params)
+    handleSave((_params) => onSave(convertedParams), onClose)
+  }
+
   return (
     <BaseParameterModal
       visible={visible}
@@ -79,10 +178,7 @@ export default function CompletionParamsModal({
         label="Max Tokens (n_predict)"
         description="Maximum number of tokens to generate in response. Higher values allow longer responses."
         value={params.n_predict?.toString()}
-        onChangeText={(text) => {
-          const value = validateInteger(text, 1, 4096)
-          if (value !== undefined) updateParam('n_predict', value)
-        }}
+        onChangeText={(text) => handleTextInput(text, 'n_predict')}
         keyboardType="numeric"
         placeholder="512"
       />
@@ -92,10 +188,7 @@ export default function CompletionParamsModal({
         label="Temperature"
         description="Controls randomness in responses. Lower values (0.1-0.3) are more focused and deterministic, higher values (0.7-1.0) are more creative and varied."
         value={params.temperature?.toString()}
-        onChangeText={(text) => {
-          const value = validateNumber(text, 0.0, 2.0)
-          if (value !== undefined) updateParam('temperature', value)
-        }}
+        onChangeText={(text) => handleTextInput(text, 'temperature')}
         keyboardType="decimal-pad"
         placeholder="0.7"
       />
@@ -105,10 +198,7 @@ export default function CompletionParamsModal({
         label="Top-p (Nucleus Sampling)"
         description="Controls diversity by considering only tokens with cumulative probability up to p. Lower values (0.1-0.5) are more focused, higher values (0.8-0.95) are more diverse."
         value={params.top_p?.toString()}
-        onChangeText={(text) => {
-          const value = validateNumber(text, 0.0, 1.0)
-          if (value !== undefined) updateParam('top_p', value)
-        }}
+        onChangeText={(text) => handleTextInput(text, 'top_p')}
         keyboardType="decimal-pad"
         placeholder="0.9"
       />
