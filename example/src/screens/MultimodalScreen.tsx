@@ -23,6 +23,7 @@ import { HeaderButton } from '../components/HeaderButton'
 import { MessagesModal } from '../components/MessagesModal'
 import { MaskedProgress } from '../components/MaskedProgress'
 import SessionModal from '../components/SessionModal'
+import { StopButton } from '../components/StopButton'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
@@ -514,12 +515,16 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         },
       )
 
+      const content = completionResult.interrupted
+        ? completionResult.text
+        : completionResult.content
+
       // Update final message with completion status
       updateMessage(responseId, (msg) => {
         if (msg.type === 'text') {
           return {
             ...msg,
-            text: completionResult.content,
+            text: content,
             metadata: {
               ...msg.metadata,
               timings: 'Response completed',
@@ -688,7 +693,9 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
       {/* Pending Image Preview */}
       {pendingImage && (
-        <View style={[styles.pendingImageContainer, { bottom: insets.bottom + 80 }]}>
+        <View
+          style={[styles.pendingImageContainer, { bottom: insets.bottom + 80 }]}
+        >
           <Image source={{ uri: pendingImage }} style={styles.pendingImage} />
           <TouchableOpacity
             style={styles.removePendingButton}
@@ -698,6 +705,8 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           </TouchableOpacity>
         </View>
       )}
+
+      <StopButton context={context} insets={insets} isLoading={isLoading} />
 
       <CompletionParamsModal
         visible={showCompletionParamsModal}

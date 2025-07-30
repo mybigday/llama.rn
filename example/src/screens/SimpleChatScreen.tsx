@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { View, Text, ScrollView, Alert } from 'react-native'
+import { View, Text, ScrollView, Alert, StyleSheet } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { initLlama, LlamaContext } from '../../../src'
@@ -11,6 +12,7 @@ import { MaskedProgress } from '../components/MaskedProgress'
 import { HeaderButton } from '../components/HeaderButton'
 import { MessagesModal } from '../components/MessagesModal'
 import SessionModal from '../components/SessionModal'
+import { StopButton } from '../components/StopButton'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
@@ -22,15 +24,16 @@ const assistant = { id: 'assistant' }
 
 const randId = () => Math.random().toString(36).substr(2, 9)
 
-const DEFAULT_SYSTEM_PROMPT = 'You are a helpful, harmless, and honest AI assistant. Be concise and helpful in your responses.'
+const DEFAULT_SYSTEM_PROMPT =
+  'You are a helpful, harmless, and honest AI assistant. Be concise and helpful in your responses.'
 
 // Using shared styles, keeping only component-specific styles if needed
-const styles = {
+const styles = StyleSheet.create({
   container: CommonStyles.container,
   setupContainer: CommonStyles.setupContainer,
   scrollContent: CommonStyles.scrollContent,
   setupDescription: CommonStyles.setupDescription,
-}
+})
 
 export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   const messagesRef = useRef<MessageType.Any[]>([])
@@ -48,6 +51,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   const [completionParams, setCompletionParams] =
     useState<CompletionParams | null>(null)
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT)
+  const insets = useSafeAreaInsets()
 
   useEffect(
     () => () => {
@@ -264,12 +268,16 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
         },
       )
 
+      const content = completionResult.interrupted
+        ? completionResult.text
+        : completionResult.content
+
       // Update final message with timing info
       updateMessage(responseId, (msg) => {
         if (msg.type === 'text') {
           return {
             ...msg,
-            text: completionResult.content,
+            text: content,
             metadata: {
               ...msg.metadata,
               timings: 'Response completed',
@@ -296,13 +304,22 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   if (!isModelReady) {
     return (
       <View style={styles.container}>
-        <ScrollView style={styles.setupContainer} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          style={styles.setupContainer}
+          contentContainerStyle={styles.scrollContent}
+        >
           <Text style={styles.setupDescription}>
             Download the model to start chatting. This model provides fast,
             efficient text generation for conversational AI.
           </Text>
 
-          {['SMOL_LM_3', 'GEMMA_3_4B_QAT', 'QWEN_3_4B', 'GEMMA_3N_E2B', 'GEMMA_3N_E4B'].map((model) => {
+          {[
+            'SMOL_LM_3',
+            'GEMMA_3_4B_QAT',
+            'QWEN_3_4B',
+            'GEMMA_3N_E2B',
+            'GEMMA_3N_E4B',
+          ].map((model) => {
             const modelInfo = MODELS[model as keyof typeof MODELS]
             return (
               <ModelDownloadCard
@@ -315,8 +332,6 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
               />
             )
           })}
-
-
         </ScrollView>
 
         <ContextParamsModal
@@ -350,6 +365,8 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
             : 'Type your message here',
         }}
       />
+
+      <StopButton context={context} insets={insets} isLoading={isLoading} />
 
       <CompletionParamsModal
         visible={showCompletionParamsModal}

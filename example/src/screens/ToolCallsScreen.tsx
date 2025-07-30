@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { initLlama, LlamaContext } from '../../../src'
@@ -13,6 +14,7 @@ import { HeaderButton } from '../components/HeaderButton'
 import { MessagesModal } from '../components/MessagesModal'
 import { MaskedProgress } from '../components/MaskedProgress'
 import SessionModal from '../components/SessionModal'
+import { StopButton } from '../components/StopButton'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CompletionParams } from '../utils/storage'
@@ -156,6 +158,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
   const [completionParams, setCompletionParams] =
     useState<CompletionParams | null>(null)
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT)
+  const insets = useSafeAreaInsets()
 
   useEffect(
     () => () => {
@@ -472,13 +475,18 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           }
         },
       )
+
+      const content = completionResult.interrupted
+        ? completionResult.text
+        : completionResult.content
+
       // update last message
       updateMessage(responseId, (msg) => {
         // if not tool_calls, update the text
         if (msg.type === 'text' && !msg.metadata?.toolCalls) {
           return {
             ...msg,
-            text: completionResult.content,
+            text: content,
           }
         }
         return msg
@@ -659,6 +667,8 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
             : 'Ask me to use tools...',
         }}
       />
+
+      <StopButton context={context} insets={insets} isLoading={isLoading} />
 
       <CompletionParamsModal
         visible={showCompletionParamsModal}
