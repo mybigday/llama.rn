@@ -307,6 +307,8 @@ export type NativeCompletionResult = {
   stopped_word: string
   stopped_limit: number
   stopping_word: string
+  context_full: boolean
+  interrupted: boolean
   tokens_cached: number
   timings: NativeCompletionResultTimings
 

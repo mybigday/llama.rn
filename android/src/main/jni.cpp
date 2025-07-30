@@ -1070,6 +1070,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     putInt(env, result, "tokens_evaluated", llama->num_prompt_tokens);
     putInt(env, result, "truncated", llama->truncated);
     putBoolean(env, result, "context_full", llama->context_full);
+    putBoolean(env, result, "interrupted", llama->is_interrupted);
     putInt(env, result, "stopped_eos", llama->stopped_eos);
     putInt(env, result, "stopped_word", llama->stopped_word);
     putInt(env, result, "stopped_limit", llama->stopped_limit);

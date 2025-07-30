@@ -770,6 +770,7 @@
     result[@"tokens_evaluated"] = @(llama->num_prompt_tokens);
     result[@"truncated"] = @(llama->truncated);
     result[@"context_full"] = @(llama->context_full);
+    result[@"interrupted"] = @(llama->is_interrupted);
     result[@"stopped_eos"] = @(llama->stopped_eos);
     result[@"stopped_word"] = @(llama->stopped_word);
     result[@"stopped_limit"] = @(llama->stopped_limit);
