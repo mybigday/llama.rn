@@ -492,7 +492,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         return msg
       })
 
-      const toolCalls = completionResult.tool_calls || []
+      let toolCalls = completionResult.tool_calls || []
 
       // Handle tool calls if any were made
       if (toolCalls && toolCalls.length > 0) {
@@ -500,11 +500,16 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         toolCalls.forEach((toolCall) => {
           if (!toolCall.id) toolCall.id = randId()
         })
+        // Unique by id
+        toolCalls = toolCalls.filter(
+          (toolCall, index, self) =>
+            index ===
+            self.findIndex((t) => t.id === toolCall.id),
+        )
 
         // Update the response message to store tool calls in metadata
         updateMessage(responseId, (msg) => {
           if (msg.type === 'text') {
-            const { content } = completionResult
             return {
               ...msg,
               // NOTE: Special case for Gemma3 - keep content for good response
