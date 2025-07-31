@@ -422,17 +422,6 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         image_url?: { url: string }
       }> = []
 
-      // Add text content if provided
-      const textContent =
-        message.text.trim() ||
-        (pendingImage ? 'Describe this image in detail.' : '')
-      if (textContent) {
-        currentUserContent.push({
-          type: 'text',
-          text: textContent,
-        })
-      }
-
       // Add image content if there's a pending image
       if (pendingImage) {
         currentUserContent.push({
@@ -440,6 +429,18 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           image_url: {
             url: pendingImage,
           },
+        })
+      }
+
+      // Add text content if provided
+      const textContent =
+        message.text.trim() ||
+        (pendingImage ? 'Describe this image in detail.' : '')
+
+      if (textContent) {
+        currentUserContent.push({
+          type: 'text',
+          text: textContent,
         })
       }
 
