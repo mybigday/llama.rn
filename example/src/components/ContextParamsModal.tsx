@@ -263,6 +263,14 @@ export default function ContextParamsModal({
         value={params.kv_unified || false}
         onValueChange={(value) => updateParam('kv_unified', value)}
       />
+
+      {/* SWA Full */}
+      <ParameterSwitch
+        label="SWA Full (swa_full)"
+        description="Use full-size SWA cache. May improve performance for multiple sequences but uses more memory."
+        value={params.swa_full || false}
+        onValueChange={(value) => updateParam('swa_full', value)}
+      />
     </BaseParameterModal>
   )
 }

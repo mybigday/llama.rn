@@ -28,7 +28,8 @@ export const DEFAULT_CONTEXT_PARAMS: ContextParams = {
   flash_attn: false,
   cache_type_k: 'f16',
   cache_type_v: 'f16',
-  kv_unified: true,
+  kv_unified: false,
+  swa_full: false,
 }
 
 export const DEFAULT_COMPLETION_PARAMS: CompletionParams = {

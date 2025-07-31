@@ -200,6 +200,8 @@
 
     if (params[@"kv_unified"]) defaultParams.kv_unified = [params[@"kv_unified"] boolValue];
 
+    if (params[@"swa_full"]) defaultParams.swa_full = [params[@"swa_full"] boolValue];
+
     if (params[@"cache_type_k"]) defaultParams.cache_type_k = rnllama::kv_cache_type_from_str([params[@"cache_type_k"] UTF8String]);
     if (params[@"cache_type_v"]) defaultParams.cache_type_v = rnllama::kv_cache_type_from_str([params[@"cache_type_v"] UTF8String]);
 

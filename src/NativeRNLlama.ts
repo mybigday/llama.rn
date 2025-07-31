@@ -77,6 +77,11 @@ export type NativeContextParams = {
    */
   kv_unified?: boolean
 
+  /**
+   * Use full-size SWA cache (https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+   */
+  swa_full?: boolean
+
   // Embedding params
   embedding?: boolean
   embd_normalize?: number

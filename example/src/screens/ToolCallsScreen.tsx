@@ -500,11 +500,10 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         toolCalls.forEach((toolCall) => {
           if (!toolCall.id) toolCall.id = randId()
         })
-        // Unique by id
+        // Unique by id (last one wins)
         toolCalls = toolCalls.filter(
           (toolCall, index, self) =>
-            index ===
-            self.findIndex((t) => t.id === toolCall.id),
+            index === self.findLastIndex((t) => t.id === toolCall.id),
         )
 
         // Update the response message to store tool calls in metadata
