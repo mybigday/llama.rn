@@ -105,6 +105,9 @@ RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
             BOOL parallelToolCalls = [params[@"parallel_tool_calls"] boolValue];
             NSString *toolChoice = params[@"tool_choice"];
             BOOL enableThinking = [params[@"enable_thinking"] boolValue];
+            BOOL addGenerationPrompt = params[@"add_generation_prompt"] ? [params[@"add_generation_prompt"] boolValue] : YES;
+            NSString *nowStr = params[@"now"] ?: @"";
+            NSString *chatTemplateKwargs = params[@"chat_template_kwargs"] ?: @"";
             resolve([context getFormattedChatWithJinja:messages
                 withChatTemplate:chatTemplate
                 withJsonSchema:jsonSchema
@@ -112,6 +115,9 @@ RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
                 withParallelToolCalls:parallelToolCalls
                 withToolChoice:toolChoice
                 withEnableThinking:enableThinking
+                withAddGenerationPrompt:addGenerationPrompt
+                withNow:nowStr
+                withChatTemplateKwargs:chatTemplateKwargs
             ]);
         } else {
             resolve([context getFormattedChat:messages withChatTemplate:chatTemplate]);

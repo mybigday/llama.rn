@@ -480,7 +480,10 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     jstring tools,
     jboolean parallel_tool_calls,
     jstring tool_choice,
-    jboolean enable_thinking
+    jboolean enable_thinking,
+    jboolean add_generation_prompt,
+    jstring now_str,
+    jstring chat_template_kwargs
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
@@ -490,6 +493,22 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     const char *json_schema_chars = env->GetStringUTFChars(json_schema, nullptr);
     const char *tools_chars = env->GetStringUTFChars(tools, nullptr);
     const char *tool_choice_chars = env->GetStringUTFChars(tool_choice, nullptr);
+    const char *now_chars = env->GetStringUTFChars(now_str, nullptr);
+    const char *kwargs_chars = env->GetStringUTFChars(chat_template_kwargs, nullptr);
+
+    std::map<std::string, std::string> kwargs_map;
+    if (strlen(kwargs_chars) > 0) {
+        try {
+            auto kwargs_json = json::parse(kwargs_chars);
+            for (auto& [key, value] : kwargs_json.items()) {
+                if (value.is_string()) {
+                    kwargs_map[key] = value.get<std::string>();
+                }
+            }
+        } catch (...) {
+            // Ignore JSON parsing errors for kwargs
+        }
+    }
 
     auto result = createWriteableMap(env);
     try {
@@ -500,7 +519,10 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
             tools_chars,
             parallel_tool_calls,
             tool_choice_chars,
-            enable_thinking
+            enable_thinking,
+            add_generation_prompt,
+            now_chars,
+            kwargs_map
         );
         putString(env, result, "prompt", formatted.prompt.c_str());
         putInt(env, result, "chat_format", static_cast<int>(formatted.format));
@@ -541,6 +563,8 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     env->ReleaseStringUTFChars(chat_template, tmpl_chars);
     env->ReleaseStringUTFChars(json_schema, json_schema_chars);
     env->ReleaseStringUTFChars(tool_choice, tool_choice_chars);
+    env->ReleaseStringUTFChars(now_str, now_chars);
+    env->ReleaseStringUTFChars(chat_template_kwargs, kwargs_chars);
     return reinterpret_cast<jobject>(result);
 }
 

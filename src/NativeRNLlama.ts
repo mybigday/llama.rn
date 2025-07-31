@@ -459,6 +459,9 @@ export interface Spec extends TurboModule {
       parallel_tool_calls?: string
       tool_choice?: string
       enable_thinking?: boolean
+      add_generation_prompt?: boolean
+      now?: string | number
+      chat_template_kwargs?: string
     },
   ): Promise<JinjaFormattedChatResult | string>
   loadSession(

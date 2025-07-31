@@ -140,7 +140,7 @@ public class LlamaContext {
     return loadedLibrary;
   }
 
-  public WritableMap getFormattedChatWithJinja(String messages, String chatTemplate, ReadableMap params) {
+  public WritableMap getFormattedChatWithJinja(String messages, String chatTemplate, ReadableMap params, boolean addGenerationPrompt, String nowStr, String chatTemplateKwargs) {
     String jsonSchema = params.hasKey("json_schema") ? params.getString("json_schema") : "";
     String tools = params.hasKey("tools") ? params.getString("tools") : "";
     Boolean parallelToolCalls = params.hasKey("parallel_tool_calls") ? params.getBoolean("parallel_tool_calls") : false;
@@ -154,7 +154,10 @@ public class LlamaContext {
       tools,
       parallelToolCalls,
       toolChoice,
-      enableThinking
+      enableThinking,
+      addGenerationPrompt,
+      nowStr,
+      chatTemplateKwargs
     );
   }
 
@@ -609,7 +612,10 @@ public class LlamaContext {
     String tools,
     boolean parallelToolCalls,
     String toolChoice,
-    boolean enableThinking
+    boolean enableThinking,
+    boolean addGenerationPrompt,
+    String nowStr,
+    String chatTemplateKwargs
   );
   protected static native String getFormattedChat(
     long contextPtr,

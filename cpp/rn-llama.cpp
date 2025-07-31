@@ -306,13 +306,16 @@ bool llama_rn_context::validateModelChatTemplate(bool use_jinja, const char *nam
 }
 
 common_chat_params llama_rn_context::getFormattedChatWithJinja(
-  const std::string &messages,
-  const std::string &chat_template,
-  const std::string &json_schema,
-  const std::string &tools,
-  const bool &parallel_tool_calls,
-  const std::string &tool_choice,
-  const bool &enable_thinking
+        const std::string& messages,
+        const std::string& chat_template,
+        const std::string& json_schema,
+        const std::string& tools,
+        const bool& parallel_tool_calls,
+        const std::string& tool_choice,
+        const bool& enable_thinking,
+        const bool& add_generation_prompt,
+        const std::string& now_str,
+        const std::map<std::string, std::string>& chat_template_kwargs
 ) const {
     common_chat_templates_inputs inputs;
     inputs.use_jinja = true;
@@ -329,6 +332,21 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
         inputs.json_schema = json::parse(json_schema);
     }
     inputs.enable_thinking = enable_thinking;
+    inputs.add_generation_prompt = add_generation_prompt;
+
+    // Handle now parameter - parse timestamp or use current time
+    if (!now_str.empty()) {
+        try {
+            // Try to parse as timestamp (seconds since epoch)
+            auto timestamp = std::stoll(now_str);
+            inputs.now = std::chrono::system_clock::from_time_t(timestamp);
+        } catch (...) {
+            // If parsing fails, use current time
+            inputs.now = std::chrono::system_clock::now();
+        }
+    }
+
+    inputs.chat_template_kwargs = chat_template_kwargs;
 
     // If chat_template is provided, create new one and use it (probably slow)
     if (!chat_template.empty()) {
@@ -1696,7 +1714,7 @@ llama_rn_audio_completion_result llama_rn_context::getFormattedAudioCompletion(c
     }
 
     std::string prompt = "<|im_start|>\n" + audio_text + process_text(text_to_speak, type) + "<|text_end|>\n" + audio_data + "\n";
-    
+
     if (type == OUTETTS_V0_1) {
         return {prompt, OUTETTS_V1_GRAMMAR};
     } else if (type == OUTETTS_V0_2 || type == OUTETTS_V0_3) {

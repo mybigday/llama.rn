@@ -165,6 +165,9 @@ export type CompletionBaseParams = {
   tool_choice?: string
   response_format?: CompletionResponseFormat
   media_paths?: string | string[]
+  add_generation_prompt?: boolean
+  now?: string | number
+  chat_template_kwargs?: Record<string, string>
 }
 export type CompletionParams = Omit<
   NativeCompletionParams,
@@ -246,6 +249,9 @@ export class LlamaContext {
       parallel_tool_calls?: object
       tool_choice?: string,
       enable_thinking?: boolean,
+      add_generation_prompt?: boolean,
+      now?: string | number,
+      chat_template_kwargs?: Record<string, string>,
     },
   ): Promise<FormattedChatResult | JinjaFormattedChatResult> {
     const mediaPaths: string[] = []
@@ -309,6 +315,9 @@ export class LlamaContext {
           : undefined,
         tool_choice: params?.tool_choice,
         enable_thinking: params?.enable_thinking ?? true,
+        add_generation_prompt: params?.add_generation_prompt,
+        now: typeof params?.now === 'number' ? params.now.toString() : params?.now,
+        chat_template_kwargs: params?.chat_template_kwargs ? JSON.stringify(params.chat_template_kwargs) : undefined,
       },
     )
     if (!useJinja) {
@@ -356,6 +365,9 @@ export class LlamaContext {
           parallel_tool_calls: params.parallel_tool_calls,
           tool_choice: params.tool_choice,
           enable_thinking: params.enable_thinking,
+          add_generation_prompt: params.add_generation_prompt,
+          now: params.now,
+          chat_template_kwargs: params.chat_template_kwargs,
         },
       )
       if (formattedResult.type === 'jinja') {

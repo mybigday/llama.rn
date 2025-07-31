@@ -127,13 +127,16 @@ struct llama_rn_context {
     bool loadModel(common_params &params_);
     bool validateModelChatTemplate(bool use_jinja, const char *name) const;
     common_chat_params getFormattedChatWithJinja(
-      const std::string &messages,
-      const std::string &chat_template,
-      const std::string &json_schema,
-      const std::string &tools,
-      const bool &parallel_tool_calls,
-      const std::string &tool_choice,
-      const bool &enable_thinking
+      const std::string& messages,
+      const std::string& chat_template,
+      const std::string& json_schema,
+      const std::string& tools,
+      const bool& parallel_tool_calls,
+      const std::string& tool_choice,
+      const bool& enable_thinking,
+      const bool& add_generation_prompt = true,
+      const std::string& now_str = "",
+      const std::map<std::string, std::string>& chat_template_kwargs = {}
     ) const;
     std::string getFormattedChat(
       const std::string &messages,

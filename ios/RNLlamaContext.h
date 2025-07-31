@@ -45,12 +45,15 @@
 - (NSDictionary *)embedding:(NSString *)text params:(NSDictionary *)params;
 - (NSArray *)rerank:(NSString *)query documents:(NSArray<NSString *> *)documents params:(NSDictionary *)params;
 - (NSDictionary *)getFormattedChatWithJinja:(NSString *)messages
-    withChatTemplate:(NSString *)chatTemplate
-    withJsonSchema:(NSString *)jsonSchema
-    withTools:(NSString *)tools
-    withParallelToolCalls:(BOOL)parallelToolCalls
-    withToolChoice:(NSString *)toolChoice
-    withEnableThinking:(BOOL)enableThinking;
+                           withChatTemplate:(NSString *)chatTemplate
+                             withJsonSchema:(NSString *)jsonSchema
+                                  withTools:(NSString *)tools
+                      withParallelToolCalls:(BOOL)parallelToolCalls
+                             withToolChoice:(NSString *)toolChoice
+                         withEnableThinking:(BOOL)enableThinking
+                    withAddGenerationPrompt:(BOOL)addGenerationPrompt
+                                    withNow:(NSString *)nowStr
+                     withChatTemplateKwargs:(NSString *)chatTemplateKwargs;
 - (NSString *)getFormattedChat:(NSString *)messages withChatTemplate:(NSString *)chatTemplate;
 - (NSDictionary *)loadSession:(NSString *)path;
 - (int)saveSession:(NSString *)path size:(int)size;

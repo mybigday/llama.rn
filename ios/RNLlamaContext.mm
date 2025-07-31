@@ -393,8 +393,26 @@
     withParallelToolCalls:(BOOL)parallelToolCalls
     withToolChoice:(NSString *)toolChoice
     withEnableThinking:(BOOL)enableThinking
+    withAddGenerationPrompt:(BOOL)addGenerationPrompt
+    withNow:(NSString *)nowStr
+    withChatTemplateKwargs:(NSString *)chatTemplateKwargs
 {
     auto tmpl_str = chatTemplate == nil ? "" : [chatTemplate UTF8String];
+
+    // Parse chat template kwargs
+    std::map<std::string, std::string> kwargs_map;
+    if (chatTemplateKwargs != nil && [chatTemplateKwargs length] > 0) {
+        try {
+            auto kwargs_json = json::parse([chatTemplateKwargs UTF8String]);
+            for (auto& [key, value] : kwargs_json.items()) {
+                if (value.is_string()) {
+                    kwargs_map[key] = value.get<std::string>();
+                }
+            }
+        } catch (...) {
+            // Ignore JSON parsing errors for kwargs
+        }
+    }
 
     NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
     auto chatParams = llama->getFormattedChatWithJinja(
@@ -404,7 +422,10 @@
         tools == nil ? "" : [tools UTF8String],
         parallelToolCalls,
         toolChoice == nil ? "" : [toolChoice UTF8String],
-        enableThinking
+        enableThinking,
+        addGenerationPrompt,
+        nowStr == nil ? "" : [nowStr UTF8String],
+        kwargs_map
     );
     result[@"prompt"] = [NSString stringWithUTF8String:chatParams.prompt.c_str()];
     result[@"chat_format"] = @(static_cast<int>(chatParams.format));
