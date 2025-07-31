@@ -460,7 +460,7 @@ export interface Spec extends TurboModule {
       tool_choice?: string
       enable_thinking?: boolean
       add_generation_prompt?: boolean
-      now?: string | number
+      now?: string
       chat_template_kwargs?: string
     },
   ): Promise<JinjaFormattedChatResult | string>
