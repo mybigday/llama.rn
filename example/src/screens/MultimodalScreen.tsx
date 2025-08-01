@@ -641,7 +641,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             content, and engage in vision-language conversations.
           </Text>
 
-          {['SMOL_VLM_500M', 'SMOL_VLM_2_2B', 'GEMMA_3_4B_QAT'].map((model) => {
+          {['SMOL_VLM_500M', 'SMOL_VLM_2_2B', 'INTERNVL3_2B', 'QWEN2_5_VL_3B', 'GEMMA_3_4B_QAT'].map((model) => {
             const modelInfo = MODELS[model as keyof typeof MODELS]
             return (
               <VLMModelDownloadCard

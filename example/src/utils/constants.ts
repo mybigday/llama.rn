@@ -41,6 +41,20 @@ export const MODELS = {
     mmproj: 'mmproj-SmolVLM2-2.2B-Instruct-Q8_0.gguf',
     size: '1.8GB (model) + 565MB (mmproj)',
   },
+  INTERNVL3_2B: {
+    name: 'InternVL3 2B (Q8_0)',
+    repo: 'ggml-org/InternVL3-2B-Instruct-GGUF',
+    filename: 'InternVL3-2B-Instruct-Q8_0.gguf',
+    mmproj: 'mmproj-InternVL3-2B-Instruct-Q8_0.gguf',
+    size: '1.89GB (model) + 337MB (mmproj)',
+  },
+  QWEN2_5_VL_3B: {
+    name: 'Qwen2.5 VL 3B (Q4_K_M)',
+    repo: 'ggml-org/Qwen2.5-VL-3B-Instruct-GGUF',
+    filename: 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf',
+    mmproj: 'mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf',
+    size: '1.93GB (model) + 845MB (mmproj)',
+  },
   GEMMA_3_4B_QAT: {
     name: 'Gemma 3 4B IT QAT (Q3_K_M)',
     repo: 'unsloth/gemma-3-4b-it-qat-GGUF',
