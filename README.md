@@ -39,7 +39,7 @@ For get a GGUF model or quantize manually, see [`Prepare and Quantize`](https://
 
 ## Usage
 
-> **💡 New!** `llama.rn` now supports **multimodal models** with vision and audio capabilities! See the [Multimodal section](#multimodal-vision--audio) for details.
+> **💡** You can find complete examples in the [example](example) project.
 
 Load model info only:
 
