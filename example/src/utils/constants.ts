@@ -55,12 +55,26 @@ export const MODELS = {
     mmproj: 'mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf',
     size: '1.93GB (model) + 845MB (mmproj)',
   },
+  QWEN2_5_OMNI_3B: {
+    name: 'Qwen2.5 Omni 3B (Q4_K_M)',
+    repo: 'ggml-org/Qwen2.5-Omni-3B-GGUF',
+    filename: 'Qwen2.5-Omni-3B-Q4_K_M.gguf',
+    mmproj: 'mmproj-Qwen2.5-Omni-3B-Q8_0.gguf',
+    size: '2.1GB (model) + 1.54GB (mmproj)',
+  },
   GEMMA_3_4B_QAT: {
     name: 'Gemma 3 4B IT QAT (Q3_K_M)',
     repo: 'unsloth/gemma-3-4b-it-qat-GGUF',
     filename: 'gemma-3-4b-it-qat-Q3_K_M.gguf',
     mmproj: 'mmproj-BF16.gguf',
     size: '1.95GB (model) + 881MB (mmproj)',
+  },
+  ULTRAVOX_V0_5_LLAMA_3_2_1B: {
+    name: 'Ultravox V0.5 Llama 3.2 1B (Q4_K_M)',
+    repo: 'ggml-org/ultravox-v0_5-llama-3_2-1b-GGUF',
+    filename: 'Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+    mmproj: 'mmproj-ultravox-v0_5-llama-3_2-1b-f16.gguf',
+    size: '808MB (model) + 1.37GB (mmproj)',
   },
   OUTE_TTS_0_3: {
     name: 'OuteTTS 0.3 500M (Q4_K_M) + WavTokenizer (Q5_1)',

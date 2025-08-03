@@ -15,7 +15,7 @@ import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { pick } from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
 import { initLlama, LlamaContext } from '../../../src'
-import { VLMModelDownloadCard } from '../components/ModelDownloadCard'
+import { MtmdModelDownloadCard } from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
 import { Bubble } from '../components/Bubble'
@@ -36,7 +36,90 @@ const assistant = { id: 'assistant' }
 const randId = () => Math.random().toString(36).substr(2, 9)
 
 const DEFAULT_SYSTEM_PROMPT =
-  'You are a helpful AI assistant with vision capabilities. You can see and analyze images that users share. Be descriptive when analyzing images and helpful in answering questions about visual content. Be concise and helpful in your responses.'
+  'You are a helpful AI assistant. Be concise and helpful in your responses.'
+
+const createSystemPrompt = (
+  multimodalSupport: { vision: boolean; audio: boolean } | null,
+) => {
+  if (!multimodalSupport) {
+    return DEFAULT_SYSTEM_PROMPT
+  }
+
+  const capabilities = []
+  if (multimodalSupport.vision) capabilities.push('vision')
+  if (multimodalSupport.audio) capabilities.push('audio')
+
+  if (capabilities.length === 0) {
+    return DEFAULT_SYSTEM_PROMPT
+  }
+
+  const capabilityText =
+    capabilities.length > 1
+      ? `${capabilities.slice(0, -1).join(', ')} and ${
+          capabilities[capabilities.length - 1]
+        }`
+      : capabilities[0]
+
+  const mediaTypes = []
+  if (multimodalSupport.vision) mediaTypes.push('images')
+  if (multimodalSupport.audio) mediaTypes.push('audio')
+
+  const mediaText =
+    mediaTypes.length > 1
+      ? `${mediaTypes.slice(0, -1).join(', ')} and ${
+          mediaTypes[mediaTypes.length - 1]
+        }`
+      : mediaTypes[0]
+  let analysisText
+  if (multimodalSupport.vision && multimodalSupport.audio) {
+    analysisText = 'see and analyze images and listen to and analyze audio'
+  } else if (multimodalSupport.vision) {
+    analysisText = 'see and analyze images'
+  } else {
+    analysisText = 'listen to and analyze audio'
+  }
+
+  return `You are a helpful AI assistant with ${capabilityText} capabilities. You can ${analysisText} that users share. Be descriptive when analyzing ${mediaText} and helpful in answering questions about multimedia content. Be concise and helpful in your responses.`
+}
+
+const createWelcomeMessage = (
+  multimodalSupport: { vision: boolean; audio: boolean } | null,
+) => {
+  if (!multimodalSupport) {
+    return "Hello! I'm an AI assistant ready to help with text conversations. How can I help you today?"
+  }
+
+  const capabilities = []
+  if (multimodalSupport.vision) capabilities.push('images')
+  if (multimodalSupport.audio) capabilities.push('audio files')
+
+  if (capabilities.length === 0) {
+    return "Hello! I'm an AI assistant ready to help with text conversations. How can I help you today?"
+  }
+
+  const capabilityText =
+    capabilities.length > 1
+      ? `${capabilities.slice(0, -1).join(', ')} and ${
+          capabilities[capabilities.length - 1]
+        }`
+      : capabilities[0]
+
+  let senseText
+  if (multimodalSupport.vision && multimodalSupport.audio) {
+    senseText = 'see or hear'
+  } else if (multimodalSupport.vision) {
+    senseText = 'see'
+  } else {
+    senseText = 'hear'
+  }
+
+  const contentType =
+    capabilities.length > 1
+      ? 'multimedia'
+      : capabilities[0]?.replace(' files', '')
+
+  return `Hello! I'm a multimodal AI assistant. You can share ${capabilityText} with me and I'll analyze them, answer questions about what I ${senseText}, or engage in conversations about ${contentType} content. How can I help you today?`
+}
 
 const styles = StyleSheet.create({
   // Using shared styles for common patterns
@@ -56,7 +139,7 @@ const styles = StyleSheet.create({
   progressContainer: CommonStyles.progressContainer,
   progressBar: CommonStyles.progressBar,
   progressFill: CommonStyles.progressFill,
-  pendingImageContainer: {
+  pendingMediaContainer: {
     position: 'absolute',
     bottom: 80,
     left: 16,
@@ -68,17 +151,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  pendingImage: {
+  pendingMediaPreview: {
     width: 60,
     height: 60,
     borderRadius: 8,
     marginBottom: 4,
   },
-  pendingImageText: {
+  pendingMediaIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  pendingMediaText: {
     color: 'white',
     fontSize: 14,
     textAlign: 'center',
     marginLeft: 16,
+    flex: 1,
   },
   removePendingButton: {
     backgroundColor: '#FF3B30',
@@ -120,10 +213,15 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
   const [context, setContext] = useState<LlamaContext | null>(null)
   const [isModelReady, setIsModelReady] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
-  const [pendingImage, setPendingImage] = useState<string | null>(null) // base64 data URL
-  const [pendingImageMimeType, setPendingImageMimeType] = useState<
-    string | null
-  >(null)
+  const [pendingMedia, setPendingMedia] = useState<{
+    data: string // base64 data URL
+    mimeType: string
+    type: 'image' | 'audio'
+  } | null>(null)
+  const [multimodalSupport, setMultimodalSupport] = useState<{
+    vision: boolean
+    audio: boolean
+  } | null>(null)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
@@ -154,9 +252,10 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
   const buildLLMMessages = (
     currentUserContent?: Array<{
-      type: 'text' | 'image_url'
+      type: 'text' | 'image_url' | 'input_audio'
       text?: string
       image_url?: { url: string }
+      input_audio?: { format: string; data: string }
     }>,
   ): LLMMessage[] => {
     const conversationMessages: LLMMessage[] = [
@@ -333,10 +432,9 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     messagesRef.current = []
     setMessagesVersion((prev) => prev + 1)
 
-    // Add the initial system message
-    addSystemMessage(
-      "Hello! I'm a vision-capable AI assistant. You can share images with me and I'll analyze them, answer questions about what I see, or engage in conversations about visual content. How can I help you today?",
-    )
+    // Add the initial system message based on current capabilities
+    const welcomeMessage = createWelcomeMessage(multimodalSupport)
+    addSystemMessage(welcomeMessage)
 
     // Add imported messages
     messagesRef.current = [...newMessages.reverse(), ...messagesRef.current]
@@ -347,22 +445,25 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     setSystemPrompt(newSystemPrompt)
   }
 
-  const convertImageToBase64 = async (
-    imagePath: string,
+  const convertMediaToBase64 = async (
+    mediaPath: string,
     mimeType: string,
   ): Promise<string> => {
     try {
       // Remove file:// prefix if present
-      const cleanPath = imagePath.replace(/^file:\/\//, '')
+      const cleanPath = mediaPath.replace(/^file:\/\//, '')
 
       // Read file as base64
       const base64 = await ReactNativeBlobUtil.fs.readFile(cleanPath, 'base64')
 
-      // Return with data URL prefix (assuming JPEG, but could be enhanced to detect type)
+      // Return with data URL prefix
       return `data:${mimeType};base64,${base64}`
     } catch (error: any) {
-      console.error('Error converting image to base64:', error)
-      throw new Error(`Failed to convert image to base64: ${error.message}`)
+      const mediaType = mimeType.startsWith('image/') ? 'image' : 'audio'
+      console.error(`Error converting ${mediaType} to base64:`, error)
+      throw new Error(
+        `Failed to convert ${mediaType} to base64: ${error.message}`,
+      )
     }
   }
 
@@ -394,13 +495,22 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         throw new Error('Failed to initialize multimodal support')
       }
 
+      // Check what multimodal capabilities are supported
+      setInitProgress(95)
+      const support = await llamaContext.getMultimodalSupport()
+      setMultimodalSupport(support)
+
+      // Update system prompt based on actual capabilities
+      const dynamicSystemPrompt = createSystemPrompt(support)
+      setSystemPrompt(dynamicSystemPrompt)
+
       setContext(llamaContext)
       setIsModelReady(true)
       setInitProgress(100)
 
-      addSystemMessage(
-        "Hello! I'm a vision-capable AI assistant. You can share images with me and I'll analyze them, answer questions about what I see, or engage in conversations about visual content. How can I help you today?",
-      )
+      // Create dynamic welcome message based on capabilities
+      const welcomeMessage = createWelcomeMessage(support)
+      addSystemMessage(welcomeMessage)
     } catch (error: any) {
       Alert.alert('Error', `Failed to initialize model: ${error.message}`)
     } finally {
@@ -417,25 +527,39 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
       // Prepare current user message content for AI context (don't add to chat yet)
       const currentUserContent: Array<{
-        type: 'text' | 'image_url'
+        type: 'text' | 'image_url' | 'input_audio'
         text?: string
         image_url?: { url: string }
+        input_audio?: { format: string; data: string }
       }> = []
 
-      // Add image content if there's a pending image
-      if (pendingImage) {
-        currentUserContent.push({
-          type: 'image_url',
-          image_url: {
-            url: pendingImage,
-          },
-        })
+      // Add media content if there's pending media
+      if (pendingMedia) {
+        if (pendingMedia.type === 'image') {
+          currentUserContent.push({
+            type: 'image_url',
+            image_url: {
+              url: pendingMedia.data,
+            },
+          })
+        } else if (pendingMedia.type === 'audio') {
+          currentUserContent.push({
+            type: 'input_audio',
+            input_audio: {
+              format: pendingMedia.mimeType.split('/')[1] || 'wav',
+              data: pendingMedia.data,
+            },
+          })
+        }
       }
 
       // Add text content if provided
       const textContent =
         message.text.trim() ||
-        (pendingImage ? 'Describe this image in detail.' : '')
+        (pendingMedia?.type === 'image'
+          ? 'Describe this image in detail.'
+          : '') ||
+        (pendingMedia?.type === 'audio' ? 'Describe this audio in detail.' : '')
 
       if (textContent) {
         currentUserContent.push({
@@ -453,7 +577,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       const conversationMessages = buildLLMMessages(currentUserContent)
 
       // Now add the user messages to the chat UI
-      if (pendingImage) {
+      if (pendingMedia && pendingMedia.type === 'image') {
         const imageMessage: MessageType.Image = {
           author: user,
           createdAt: Date.now(),
@@ -461,9 +585,9 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           name: 'image',
           size: 0,
           type: 'image',
-          uri: pendingImage,
+          uri: pendingMedia.data,
           metadata: {
-            mimeType: pendingImageMimeType || 'image/jpeg',
+            mimeType: pendingMedia.mimeType,
           },
         }
         addMessage(imageMessage)
@@ -535,9 +659,8 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         return msg
       })
 
-      // Clear pending image after processing
-      setPendingImage(null)
-      setPendingImageMimeType(null)
+      // Clear pending media after processing
+      setPendingMedia(null)
     } catch (error: any) {
       console.error('Chat error:', error)
       addSystemMessage(`Error: ${error.message}`)
@@ -547,13 +670,37 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
   }
 
   const handleAttachmentPress = async () => {
+    if (!multimodalSupport) {
+      Alert.alert('Error', 'Multimodal capabilities not yet determined')
+      return
+    }
+
     try {
-      const imageTypes =
-        Platform.OS === 'ios'
-          ? ['public.jpeg', 'public.png', 'public.gif', 'com.microsoft.bmp']
-          : ['image/jpeg', 'image/png', 'image/gif', 'image/bmp']
+      const supportedTypes: string[] = []
+
+      if (multimodalSupport.vision) {
+        const imageTypes =
+          Platform.OS === 'ios'
+            ? ['public.jpeg', 'public.png', 'public.gif', 'com.microsoft.bmp']
+            : ['image/jpeg', 'image/png', 'image/gif', 'image/bmp']
+        supportedTypes.push(...imageTypes)
+      }
+
+      if (multimodalSupport.audio) {
+        const audioTypes =
+          Platform.OS === 'ios'
+            ? ['public.audio', 'com.microsoft.waveform-audio', 'public.mp3']
+            : ['audio/wav', 'audio/mpeg', 'audio/mp3']
+        supportedTypes.push(...audioTypes)
+      }
+
+      if (supportedTypes.length === 0) {
+        Alert.alert('Info', 'This model does not support image or audio input')
+        return
+      }
+
       const result = await pick({
-        type: imageTypes,
+        type: supportedTypes,
         copyTo: 'documentDirectory',
       })
 
@@ -589,33 +736,54 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       if (result && result.length > 0) {
         const file = result[0]
         if (file.uri) {
-          // Get the extension and MIME type
-          // Although, the stb_image library doesn't rely on MIME types but instead detects formats by examining
-          // the file's binary header/signature (magic numbers)
-          // From stb_image.h:
-          /*
-              // test the formats with a very explicit header first (at least a FOURCC
-              // or distinctive magic number first)
-          */
-          // Still, let's get this right.
           const mediaFormat = getFileExtension(file.uri)
           const mimeType = getMimeType(mediaFormat)
-          // Convert to base64 immediately to prevent file access issues later
+
           try {
-            const imageBase64 = await convertImageToBase64(file.uri, mimeType)
-            setPendingImage(imageBase64)
-            setPendingImageMimeType(mimeType)
+            // Determine if it's an image or audio file and check if supported
+            if (mimeType.startsWith('image/')) {
+              if (!multimodalSupport.vision) {
+                Alert.alert('Error', 'This model does not support image input')
+                return
+              }
+              const mediaBase64 = await convertMediaToBase64(file.uri, mimeType)
+              setPendingMedia({
+                data: mediaBase64,
+                mimeType,
+                type: 'image',
+              })
+            } else if (mimeType.startsWith('audio/')) {
+              if (!multimodalSupport.audio) {
+                Alert.alert('Error', 'This model does not support audio input')
+                return
+              }
+              const mediaBase64 = await convertMediaToBase64(file.uri, mimeType)
+              setPendingMedia({
+                data: mediaBase64,
+                mimeType,
+                type: 'audio',
+              })
+            } else {
+              const supportedFormats = []
+              if (multimodalSupport.vision) supportedFormats.push('images')
+              if (multimodalSupport.audio) supportedFormats.push('audio')
+              const formatText = supportedFormats.join(' or ')
+              Alert.alert(
+                'Error',
+                `Unsupported file format. Please select ${formatText} files.`,
+              )
+            }
           } catch (conversionError: any) {
             Alert.alert(
               'Error',
-              `Failed to process image: ${conversionError.message}`,
+              `Failed to process file: ${conversionError.message}`,
             )
           }
         }
       }
     } catch (error: any) {
       if (!error.message.includes('user canceled the document picker')) {
-        Alert.alert('Error', `Failed to pick image: ${error.message}`)
+        Alert.alert('Error', `Failed to pick file: ${error.message}`)
       }
     }
   }
@@ -636,16 +804,17 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           contentContainerStyle={styles.scrollContent}
         >
           <Text style={styles.setupDescription}>
-            Download the SmolVLM model to start analyzing images. This model can
-            understand and describe images, answer questions about visual
-            content, and engage in vision-language conversations.
+            Download a multimodal model to start analyzing images and audio.
+            These models can understand and describe images and audio, answer
+            questions about visual and audio content, and engage in multimodal
+            conversations.
           </Text>
 
-          {['SMOL_VLM_500M', 'SMOL_VLM_2_2B', 'INTERNVL3_2B', 'QWEN2_5_VL_3B', 'GEMMA_3_4B_QAT'].map((model) => {
-            const modelInfo = MODELS[model as keyof typeof MODELS]
-            return (
-              <VLMModelDownloadCard
-                key={model}
+          {Object.values(MODELS)
+            .filter((model) => model.mmproj)
+            .map((modelInfo) => (
+              <MtmdModelDownloadCard
+                key={modelInfo.name}
                 title={modelInfo.name}
                 repo={modelInfo.repo}
                 filename={modelInfo.filename}
@@ -653,8 +822,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
                 size={modelInfo.size}
                 onInitialize={initializeModel}
               />
-            )
-          })}
+            ))}
         </ScrollView>
 
         <ContextParamsModal
@@ -678,7 +846,12 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       <Chat
         messages={messagesRef.current}
         onSendPress={handleSendPress}
-        onAttachmentPress={handleAttachmentPress}
+        onAttachmentPress={
+          multimodalSupport &&
+          (multimodalSupport.vision || multimodalSupport.audio)
+            ? handleAttachmentPress
+            : undefined
+        }
         user={user}
         renderBubble={renderBubble}
         theme={defaultTheme}
@@ -686,21 +859,37 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         showUserNames
         disableImageGallery={false}
         textInputProps={{
-          placeholder: pendingImage
-            ? 'Ask about the image above or send without text...'
+          placeholder: pendingMedia
+            ? `Ask about the ${pendingMedia.type} above or send without text...`
             : 'Type your message...',
         }}
       />
 
-      {/* Pending Image Preview */}
-      {pendingImage && (
+      {/* Pending Media Preview */}
+      {pendingMedia && (
         <View
-          style={[styles.pendingImageContainer, { bottom: insets.bottom + 80 }]}
+          style={[styles.pendingMediaContainer, { bottom: insets.bottom + 80 }]}
         >
-          <Image source={{ uri: pendingImage }} style={styles.pendingImage} />
+          {pendingMedia.type === 'image' ? (
+            <Image
+              source={{ uri: pendingMedia.data }}
+              style={styles.pendingMediaPreview}
+            />
+          ) : (
+            <View style={styles.pendingMediaIcon}>
+              <Text style={{ color: 'white', fontSize: 24 }}>♪</Text>
+            </View>
+          )}
+          <Text style={styles.pendingMediaText}>
+            {pendingMedia.type === 'image'
+              ? 'Image ready'
+              : `Audio file ready (${pendingMedia.mimeType
+                  .split('/')[1]
+                  ?.toUpperCase()})`}
+          </Text>
           <TouchableOpacity
             style={styles.removePendingButton}
-            onPress={() => setPendingImage(null)}
+            onPress={() => setPendingMedia(null)}
           >
             <Text style={styles.removePendingText}>Remove</Text>
           </TouchableOpacity>
@@ -722,7 +911,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         context={context}
         onImportMessages={handleImportMessages}
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
-        defaultSystemPrompt={DEFAULT_SYSTEM_PROMPT}
+        defaultSystemPrompt={createSystemPrompt(multimodalSupport)}
       />
 
       <SessionModal

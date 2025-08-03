@@ -96,7 +96,7 @@ function HomeScreen({ navigation }: { navigation: any }) {
           style={styles.button}
           onPress={() => navigation.navigate('Multimodal')}
         >
-          <Text style={styles.buttonText}>👁️ Vision/Multimodal</Text>
+          <Text style={styles.buttonText}>👁️ Multimodal</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}
@@ -146,7 +146,7 @@ function App() {
             name="Multimodal"
             component={MultimodalScreen}
             options={{
-              title: 'Vision Chat',
+              title: 'Multimodal Chat',
             }}
           />
           <Stack.Screen

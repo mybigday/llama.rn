@@ -12,7 +12,7 @@ import {
 import { loadLlamaModelInfo } from '../../../src'
 import ModelDownloadCard, {
   TTSModelDownloadCard,
-  VLMModelDownloadCard,
+  MtmdModelDownloadCard,
 } from '../components/ModelDownloadCard'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
@@ -222,7 +222,7 @@ export default function ModelInfoScreen() {
 
     // Show model info modal for both model and mmproj
     await loadModelInfo(model.name, [
-      { name: 'Vision Model', path: modelPath },
+      { name: 'Model', path: modelPath },
       { name: 'MMProj', path: mmprojPath },
     ])
   }
@@ -376,9 +376,9 @@ export default function ModelInfoScreen() {
               />
             )
           } else if (model.mmproj) {
-            // Vision/multi-modal model
+            // Multi-modal model
             return (
-              <VLMModelDownloadCard
+              <MtmdModelDownloadCard
                 key={key}
                 title={model.name}
                 repo={model.repo}

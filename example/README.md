@@ -9,7 +9,7 @@ For iPhone/iPad/Mac, you can try it by downloading our test app from [TestFlight
 The example app demonstrates various local LLM capabilities:
 
 - **💬 Simple Chat** - Basic chat interface with text generation ([SimpleChatScreen.tsx](src/screens/SimpleChatScreen.tsx))
-- **👁️ Vision/Multimodal** - Image analysis and visual question answering ([MultimodalScreen.tsx](src/screens/MultimodalScreen.tsx))
+- **👁️ Multimodal** - Image/audio analysis and visual/audio question answering ([MultimodalScreen.tsx](src/screens/MultimodalScreen.tsx))
 - **🛠️ Tool Calling** - Advanced function calling capabilities ([ToolCallsScreen.tsx](src/screens/ToolCallsScreen.tsx))
 - **🔊 Text-to-Speech** - Local voice synthesis with OuteTTS ([TTSScreen.tsx](src/screens/TTSScreen.tsx))
 - **📊 Model Info** - Model diagnostics and system information ([ModelInfoScreen.tsx](src/screens/ModelInfoScreen.tsx))
