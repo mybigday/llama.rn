@@ -291,4 +291,43 @@ export const CommonStyles = StyleSheet.create({
   marginTop: {
     marginTop: Spacing.lg,
   },
+
+  // Custom Model Styles
+  customModelsSection: {
+    backgroundColor: '#f8fafc',
+    marginHorizontal: 16,
+    marginVertical: 12,
+    borderRadius: 16,
+    padding: 20,
+  },
+  customModelSectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1e293b',
+    marginBottom: 16,
+    letterSpacing: -0.3,
+  },
+  addCustomModelButton: {
+    backgroundColor: '#2563eb',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    marginHorizontal: 16,
+    marginVertical: 12,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  addCustomModelButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+    letterSpacing: -0.2,
+  },
+  customModelRecommendedSection: {
+    marginTop: 8,
+  },
 })

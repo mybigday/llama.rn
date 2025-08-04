@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   View,
   Text,
@@ -14,9 +14,13 @@ import ModelDownloadCard, {
   TTSModelDownloadCard,
   MtmdModelDownloadCard,
 } from '../components/ModelDownloadCard'
+import CustomModelModal from '../components/CustomModelModal'
+import CustomModelCard from '../components/CustomModelCard'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import { MaskedProgress } from '../components/MaskedProgress'
+import type { CustomModel } from '../utils/storage'
+import { loadCustomModels } from '../utils/storage'
 
 const { width, height } = Dimensions.get('window')
 
@@ -153,6 +157,33 @@ export default function ModelInfoScreen() {
   const [modelFiles, setModelFiles] = useState<ModelFileInfo[]>([])
   const [isLoadingInfo, setIsLoadingInfo] = useState(false)
   const [infoError, setInfoError] = useState<string | null>(null)
+  const [showCustomModelModal, setShowCustomModelModal] = useState(false)
+  const [customModels, setCustomModels] = useState<CustomModel[]>([])
+
+  // Load custom models on mount
+  useEffect(() => {
+    const loadCustomModelsData = async () => {
+      try {
+        const models = await loadCustomModels()
+        setCustomModels(models)
+      } catch (error) {
+        console.error('Error loading custom models:', error)
+      }
+    }
+    loadCustomModelsData()
+  }, [])
+
+  const handleCustomModelAdded = async (_model: CustomModel) => {
+    // Reload custom models to reflect the new addition
+    const models = await loadCustomModels()
+    setCustomModels(models)
+  }
+
+  const handleCustomModelRemoved = async () => {
+    // Reload custom models to reflect the removal
+    const models = await loadCustomModels()
+    setCustomModels(models)
+  }
 
   const loadModelInfo = async (
     modelName: string,
@@ -212,7 +243,7 @@ export default function ModelInfoScreen() {
     await loadModelInfo(model.name, [{ name: 'Model', path: modelPath }])
   }
 
-  const handleVLMModelInitialize = async (
+  const handleMultimodalModelInitialize = async (
     modelPath: string,
     mmprojPath: string,
     modelKey: string,
@@ -240,6 +271,25 @@ export default function ModelInfoScreen() {
       { name: 'TTS Model', path: ttsPath },
       { name: 'Vocoder', path: vocoderPath },
     ])
+  }
+
+  const handleCustomModelInitialize = async (
+    customModel: CustomModel,
+    modelPath: string,
+    mmprojPath?: string,
+  ) => {
+    if (customModel.mmprojFilename && mmprojPath) {
+      // Custom multimodal model
+      await loadModelInfo(`${customModel.id} (${customModel.quantization})`, [
+        { name: 'Model', path: modelPath },
+        { name: 'MMProj', path: mmprojPath },
+      ])
+    } else {
+      // Custom regular model
+      await loadModelInfo(`${customModel.id} (${customModel.quantization})`, [
+        { name: 'Model', path: modelPath },
+      ])
+    }
   }
 
   const closeModal = () => {
@@ -355,6 +405,44 @@ export default function ModelInfoScreen() {
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
       >
+        {/* Custom Models Section */}
+        {customModels.length > 0 && (
+          <View style={CommonStyles.customModelsSection}>
+            <Text style={CommonStyles.customModelSectionTitle}>
+              Custom Models
+            </Text>
+            {customModels.map((customModel) => (
+              <CustomModelCard
+                key={customModel.id}
+                model={customModel}
+                onInitialize={(modelPath: string, mmprojPath?: string) => {
+                  handleCustomModelInitialize(
+                    customModel,
+                    modelPath,
+                    mmprojPath,
+                  )
+                }}
+                onModelRemoved={handleCustomModelRemoved}
+                initializeButtonText="See"
+              />
+            ))}
+          </View>
+        )}
+
+        {/* Add Custom Model Button */}
+        <TouchableOpacity
+          style={CommonStyles.addCustomModelButton}
+          onPress={() => setShowCustomModelModal(true)}
+        >
+          <Text style={CommonStyles.addCustomModelButtonText}>
+            + Add Custom Model
+          </Text>
+        </TouchableOpacity>
+
+        {/* Predefined Models Section */}
+        <View style={CommonStyles.customModelRecommendedSection}>
+          <Text style={CommonStyles.setupTitle}>All Available Models</Text>
+        </View>
         {Object.entries(MODELS).map(([key, model]) => {
           // Type assertion to access potential vocoder property
           const modelWithVocoder = model as typeof model & { vocoder?: any }
@@ -387,7 +475,7 @@ export default function ModelInfoScreen() {
                 size={model.size}
                 initializeButtonText="See"
                 onInitialize={(modelPath: string, mmprojPath: string) => {
-                  handleVLMModelInitialize(modelPath, mmprojPath, key)
+                  handleMultimodalModelInitialize(modelPath, mmprojPath, key)
                 }}
               />
             )
@@ -438,13 +526,20 @@ export default function ModelInfoScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{selectedModel}</Text>
               <TouchableOpacity style={styles.closeButton} onPress={closeModal}>
-                <Text style={styles.closeButtonText}>✕</Text>
+                <Text style={styles.closeButtonText}>X</Text>
               </TouchableOpacity>
             </View>
             <View style={styles.modalBody}>{renderModelInfo()}</View>
           </View>
         </View>
       </Modal>
+
+      <CustomModelModal
+        visible={showCustomModelModal}
+        onClose={() => setShowCustomModelModal(false)}
+        onModelAdded={handleCustomModelAdded}
+        title="Add Custom Model"
+      />
 
       <MaskedProgress
         visible={isLoadingInfo}

@@ -16,16 +16,6 @@ The example app demonstrates various local LLM capabilities:
 
 Used models are listed in [src/utils/constants.ts](src/utils/constants.ts).
 
-## Roadmap
-
-The following features are planned for future releases:
-
-- [x] **🔧 Add custom model modal** - Interface for loading and managing custom models
-- [ ] **🛠️ ToolCallsScreen: Support MCP** - Integrate Model Context Protocol via [`mcp-sdk-client-ssejs`](https://github.com/mybigday/mcp-sdk-client-ssejs)
-- [ ] **📊 Add embedding example** - Demonstrate text embedding and similarity search capabilities
-- [ ] **🔍 Add reranker example** - Show document reranking for improved search relevance
-- [ ] **⚙️ Check hardware requirement for model** - Validate device capabilities before model loading
-
 ## Requirements
 
 Please back to the root directory and run the following command:
@@ -80,3 +70,13 @@ RNLLAMA_BUILD_FROM_SOURCE=0 npm run pods
 ```
 
 Android: Edit `android/gradle.properties` and set `rnllamaBuildFromSource` to `false`.
+
+## Roadmap
+
+The following features are planned for future updates:
+
+- [x] **🔧 Add custom model modal** - Interface for loading and managing custom models
+- [ ] **🛠️ ToolCallsScreen: Support MCP** - Integrate Model Context Protocol via [`mcp-sdk-client-ssejs`](https://github.com/mybigday/mcp-sdk-client-ssejs)
+- [ ] **📊 Add embedding example** - Demonstrate text embedding and similarity search capabilities
+- [ ] **🔍 Add reranker example** - Show document reranking for improved search relevance
+- [ ] **⚙️ Check hardware requirement for model** - Validate device capabilities before model loading

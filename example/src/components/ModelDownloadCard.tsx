@@ -512,7 +512,7 @@ export function TTSModelDownloadCard({
   )
 }
 
-// VLM-specific download card that handles both model and mmproj files
+// Multimodal-specific download card that handles both model and mmproj files
 export function MtmdModelDownloadCard({
   title,
   repo,
@@ -523,7 +523,7 @@ export function MtmdModelDownloadCard({
   initializeButtonText,
 }: MtmdModelDownloadCardProps) {
   const files: ModelFile[] = [
-    { repo, filename, label: 'VLM model' },
+    { repo, filename, label: 'Model' },
     { repo, filename: mmproj, label: 'mmproj' },
   ]
 
@@ -533,7 +533,7 @@ export function MtmdModelDownloadCard({
       size={size}
       files={files}
       onInitialize={onInitialize}
-      downloadButtonText="Download VLM & MMProj"
+      downloadButtonText="Download Model & MMProj"
       initializeButtonText={initializeButtonText}
     />
   )

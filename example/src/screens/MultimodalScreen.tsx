@@ -18,6 +18,8 @@ import { initLlama, LlamaContext } from '../../../src'
 import { MtmdModelDownloadCard } from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
+import CustomModelModal from '../components/CustomModelModal'
+import CustomModelCard from '../components/CustomModelCard'
 import { Bubble } from '../components/Bubble'
 import { HeaderButton } from '../components/HeaderButton'
 import { MessagesModal } from '../components/MessagesModal'
@@ -26,8 +28,16 @@ import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
-import type { ContextParams, CompletionParams } from '../utils/storage'
-import { loadContextParams, loadCompletionParams } from '../utils/storage'
+import type {
+  ContextParams,
+  CompletionParams,
+  CustomModel,
+} from '../utils/storage'
+import {
+  loadContextParams,
+  loadCompletionParams,
+  loadCustomModels,
+} from '../utils/storage'
 import type { LLMMessage } from '../utils/llmMessages'
 
 const user = { id: 'user' }
@@ -227,10 +237,12 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     useState(false)
   const [showMessagesModal, setShowMessagesModal] = useState(false)
   const [showSessionModal, setShowSessionModal] = useState(false)
+  const [showCustomModelModal, setShowCustomModelModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [completionParams, setCompletionParams] =
     useState<CompletionParams | null>(null)
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT)
+  const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const insets = useSafeAreaInsets()
 
   useEffect(
@@ -242,12 +254,37 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     [context],
   )
 
+  // Load custom models on mount
+  useEffect(() => {
+    const loadCustomModelsData = async () => {
+      try {
+        const models = await loadCustomModels()
+        setCustomModels(models)
+      } catch (error) {
+        console.error('Error loading custom models:', error)
+      }
+    }
+    loadCustomModelsData()
+  }, [])
+
   const handleSaveContextParams = (params: ContextParams) => {
     setContextParams(params)
   }
 
   const handleSaveCompletionParams = (params: CompletionParams) => {
     setCompletionParams(params)
+  }
+
+  const handleCustomModelAdded = async (_model: CustomModel) => {
+    // Reload custom models to reflect the new addition
+    const models = await loadCustomModels()
+    setCustomModels(models)
+  }
+
+  const handleCustomModelRemoved = async () => {
+    // Reload custom models to reflect the removal
+    const models = await loadCustomModels()
+    setCustomModels(models)
   }
 
   const buildLLMMessages = (
@@ -810,6 +847,44 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             conversations.
           </Text>
 
+          {/* Custom Models Section */}
+          {customModels.filter((model) => model.mmprojFilename).length > 0 && (
+            <View style={CommonStyles.customModelsSection}>
+              <Text style={CommonStyles.customModelSectionTitle}>
+                Custom Multimodal Models
+              </Text>
+              {customModels
+                .filter((model) => model.mmprojFilename) // Only show models with mmproj
+                .map((model) => (
+                  <CustomModelCard
+                    key={model.id}
+                    model={model}
+                    onInitialize={(modelPath, mmprojPath) =>
+                      initializeModel(modelPath, mmprojPath || '')
+                    }
+                    onModelRemoved={handleCustomModelRemoved}
+                    initializeButtonText="Initialize"
+                  />
+                ))}
+            </View>
+          )}
+
+          {/* Add Custom Model Button */}
+          <TouchableOpacity
+            style={CommonStyles.addCustomModelButton}
+            onPress={() => setShowCustomModelModal(true)}
+          >
+            <Text style={CommonStyles.addCustomModelButtonText}>
+              + Add Custom Multimodal Model
+            </Text>
+          </TouchableOpacity>
+
+          {/* Predefined Models Section */}
+          <View style={CommonStyles.customModelRecommendedSection}>
+            <Text style={CommonStyles.setupTitle}>
+              Recommended Multimodal Models
+            </Text>
+          </View>
           {Object.values(MODELS)
             .filter((model) => model.mmproj)
             .map((modelInfo) => (
@@ -829,6 +904,14 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           visible={showContextParamsModal}
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
+        />
+
+        <CustomModelModal
+          visible={showCustomModelModal}
+          onClose={() => setShowCustomModelModal(false)}
+          onModelAdded={handleCustomModelAdded}
+          requireMMProj
+          title="Add Custom Multimodal Model"
         />
 
         <MaskedProgress

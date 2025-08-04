@@ -11,10 +11,21 @@ export interface TTSParams {
   speakerConfig: any | null
 }
 
+export interface CustomModel {
+  id: string
+  repo: string
+  filename: string
+  quantization: string
+  mmprojFilename?: string
+  mmprojQuantization?: string
+  addedAt: number
+}
+
 // Storage keys
 const CONTEXT_PARAMS_KEY = '@llama_context_params'
 const COMPLETION_PARAMS_KEY = '@llama_completion_params'
 const TTS_PARAMS_KEY = '@llama_tts_params'
+const CUSTOM_MODELS_KEY = '@llama_custom_models'
 
 // Default parameter values
 export const DEFAULT_CONTEXT_PARAMS: ContextParams = {
@@ -151,5 +162,58 @@ export const resetTTSParams = async (): Promise<void> => {
   } catch (error) {
     console.error('Error resetting TTS params:', error)
     throw error
+  }
+}
+
+export const loadCustomModels = async (): Promise<CustomModel[]> => {
+  try {
+    const jsonValue = await AsyncStorage.getItem(CUSTOM_MODELS_KEY)
+    if (jsonValue != null) {
+      return JSON.parse(jsonValue)
+    }
+    return []
+  } catch (error) {
+    console.error('Error loading custom models:', error)
+    return []
+  }
+}
+
+// Storage functions for custom models
+export const saveCustomModel = async (model: CustomModel): Promise<void> => {
+  try {
+    const existingModels = await loadCustomModels()
+    const updatedModels = [
+      ...existingModels.filter((m) => m.id !== model.id),
+      model,
+    ]
+    const jsonValue = JSON.stringify(updatedModels)
+    await AsyncStorage.setItem(CUSTOM_MODELS_KEY, jsonValue)
+  } catch (error) {
+    console.error('Error saving custom model:', error)
+    throw error
+  }
+}
+
+export const deleteCustomModel = async (modelId: string): Promise<void> => {
+  try {
+    const existingModels = await loadCustomModels()
+    const updatedModels = existingModels.filter((m) => m.id !== modelId)
+    const jsonValue = JSON.stringify(updatedModels)
+    await AsyncStorage.setItem(CUSTOM_MODELS_KEY, jsonValue)
+  } catch (error) {
+    console.error('Error deleting custom model:', error)
+    throw error
+  }
+}
+
+export const getCustomModel = async (
+  modelId: string,
+): Promise<CustomModel | null> => {
+  try {
+    const models = await loadCustomModels()
+    return models.find((m) => m.id === modelId) || null
+  } catch (error) {
+    console.error('Error getting custom model:', error)
+    return null
   }
 }

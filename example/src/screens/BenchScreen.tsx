@@ -11,12 +11,14 @@ import {
 import { initLlama, LlamaContext } from '../../../src'
 import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
+import CustomModelModal from '../components/CustomModelModal'
+import CustomModelCard from '../components/CustomModelCard'
 import { MaskedProgress } from '../components/MaskedProgress'
 import { HeaderButton } from '../components/HeaderButton'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
-import type { ContextParams } from '../utils/storage'
-import { loadContextParams } from '../utils/storage'
+import type { ContextParams, CustomModel } from '../utils/storage'
+import { loadContextParams, loadCustomModels } from '../utils/storage'
 
 const styles = {
   container: CommonStyles.container,
@@ -115,7 +117,9 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
   const [isBenching, setIsBenching] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
+  const [showCustomModelModal, setShowCustomModelModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
+  const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const [logs, setLogs] = useState<string[]>([])
   const [modelInfo, setModelInfo] = useState<{
     name: string
@@ -137,6 +141,19 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
     },
     [context],
   )
+
+  // Load custom models on mount
+  useEffect(() => {
+    const loadCustomModelsData = async () => {
+      try {
+        const models = await loadCustomModels()
+        setCustomModels(models)
+      } catch (error) {
+        console.error('Error loading custom models:', error)
+      }
+    }
+    loadCustomModelsData()
+  }, [])
 
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString()
@@ -176,15 +193,36 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
     setContextParams(params)
   }
 
-  const initializeModel = async (modelPath: string, modelKey: string) => {
+  const handleCustomModelAdded = async (_model: CustomModel) => {
+    // Reload custom models to reflect the new addition
+    const models = await loadCustomModels()
+    setCustomModels(models)
+  }
+
+  const handleCustomModelRemoved = async () => {
+    // Reload custom models to reflect the removal
+    const models = await loadCustomModels()
+    setCustomModels(models)
+  }
+
+  const initializeModel = async (modelPath: string, modelKey?: string) => {
     try {
       setIsLoading(true)
       setInitProgress(0)
 
-      const model = MODELS[modelKey as keyof typeof MODELS]
-      setModelInfo({ name: model.name, path: modelPath })
+      let modelName: string
+      if (modelKey) {
+        // Predefined model
+        const model = MODELS[modelKey as keyof typeof MODELS]
+        modelName = model.name
+      } else {
+        // Custom model - extract name from path
+        modelName = modelPath.split('/').pop() || 'Custom Model'
+      }
 
-      addLog(`Initializing model: ${model.name}`)
+      setModelInfo({ name: modelName, path: modelPath })
+
+      addLog(`Initializing model: ${modelName}`)
       addLog(`Model path: ${modelPath}`)
 
       const params = contextParams || (await loadContextParams())
@@ -204,10 +242,10 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
       setIsModelReady(true)
       setInitProgress(100)
 
-      addLog('✅ Model initialized successfully!')
+      addLog('Model initialized successfully!')
       addLog('Ready to run benchmarks.')
     } catch (error: any) {
-      addLog(`❌ Failed to initialize model: ${error.message}`)
+      addLog(`Failed to initialize model: ${error.message}`)
       Alert.alert('Error', `Failed to initialize model: ${error.message}`)
     } finally {
       setIsLoading(false)
@@ -275,6 +313,42 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
             measure prompt processing and text generation speeds.
           </Text>
 
+          {/* Custom Models Section */}
+          {customModels.filter((model) => !model.mmprojFilename).length > 0 && (
+            <View style={CommonStyles.customModelsSection}>
+              <Text style={CommonStyles.customModelSectionTitle}>
+                Custom Models
+              </Text>
+              {customModels
+                .filter((model) => !model.mmprojFilename) // Only show non-multimodal models
+                .map((model) => (
+                  <CustomModelCard
+                    key={model.id}
+                    model={model}
+                    onInitialize={(modelPath: string) =>
+                      initializeModel(modelPath)
+                    }
+                    onModelRemoved={handleCustomModelRemoved}
+                    initializeButtonText="Bench"
+                  />
+                ))}
+            </View>
+          )}
+
+          {/* Add Custom Model Button */}
+          <TouchableOpacity
+            style={CommonStyles.addCustomModelButton}
+            onPress={() => setShowCustomModelModal(true)}
+          >
+            <Text style={CommonStyles.addCustomModelButtonText}>
+              + Add Custom Model
+            </Text>
+          </TouchableOpacity>
+
+          {/* Predefined Models Section */}
+          <View style={CommonStyles.customModelRecommendedSection}>
+            <Text style={CommonStyles.setupTitle}>Recommended Models</Text>
+          </View>
           {LLM_MODELS.map(([key, model]) => (
             <ModelDownloadCard
               key={key}
@@ -294,6 +368,13 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
           visible={showContextParamsModal}
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
+        />
+
+        <CustomModelModal
+          visible={showCustomModelModal}
+          onClose={() => setShowCustomModelModal(false)}
+          onModelAdded={handleCustomModelAdded}
+          title="Add Custom Benchmark Model"
         />
 
         <MaskedProgress
