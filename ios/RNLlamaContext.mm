@@ -758,6 +758,8 @@
                 chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
             } else if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek-legacy"]) {
                 chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY;
+            } else if (reasoningFormat && [reasoningFormat isEqualToString:@"auto"]) {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
             } else {
                 chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
             }

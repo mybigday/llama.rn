@@ -1046,6 +1046,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
                 chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
             } else if (strcmp(reasoning_format_chars, "deepseek-legacy") == 0) {
                 chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY;
+            } else if (strcmp(reasoning_format_chars, "auto") == 0) {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
             } else {
                 chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
             }
