@@ -96,6 +96,7 @@ export class HuggingFaceAPI {
       /[_-](q\d+_k_[lmsx]+)/i, // Q4_K_M, Q3_K_L, etc.
       /[_-](q\d+_\d+)/i, // Q4_0, Q5_1, etc.
       /[_-](q\d+)/i, // Q4, Q8, etc.
+      /[_-](mxfp\d+)/i, // MXFP4, MXFP8, etc.
       /[_-](f\d+)/i, // F16, F32
       /[_-](bf\d+)/i, // BF16
     ]
