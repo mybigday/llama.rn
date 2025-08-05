@@ -29,6 +29,7 @@ extern "C" {
 
 void lm_ggml_compute_forward_dup(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_add(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
+void lm_ggml_compute_forward_add_id(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_add1(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_acc(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_sum(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
@@ -82,13 +83,7 @@ void lm_ggml_compute_forward_arange(const struct lm_ggml_compute_params * params
 void lm_ggml_compute_forward_timestep_embedding(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_argsort(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_leaky_relu(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
-void lm_ggml_compute_forward_flash_attn_ext(
-    const struct lm_ggml_compute_params * params,
-    const struct lm_ggml_tensor * q,
-    const struct lm_ggml_tensor * k,
-    const struct lm_ggml_tensor * v,
-    const struct lm_ggml_tensor * mask,
-    struct lm_ggml_tensor * dst);
+void lm_ggml_compute_forward_flash_attn_ext(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_flash_attn_back(
         const struct lm_ggml_compute_params * params,
         const bool masked,

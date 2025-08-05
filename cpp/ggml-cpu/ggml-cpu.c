@@ -253,6 +253,12 @@ static const struct lm_ggml_type_traits_cpu type_traits_cpu[LM_GGML_TYPE_COUNT] 
         .vec_dot_type             = LM_GGML_TYPE_Q8_1,
         .nrows                    = 1,
     },
+    [LM_GGML_TYPE_MXFP4] = {
+        .from_float               = quantize_row_mxfp4,
+        .vec_dot                  = lm_ggml_vec_dot_mxfp4_q8_0,
+        .vec_dot_type             = LM_GGML_TYPE_Q8_0,
+        .nrows                    = 1,
+    },
     [LM_GGML_TYPE_Q2_K] = {
         .from_float               = quantize_row_q2_K,
         .vec_dot                  = lm_ggml_vec_dot_q2_K_q8_K,
@@ -1670,6 +1676,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_add(params, tensor);
             } break;
+        case LM_GGML_OP_ADD_ID:
+            {
+                lm_ggml_compute_forward_add_id(params, tensor);
+            } break;
         case LM_GGML_OP_ADD1:
             {
                 lm_ggml_compute_forward_add1(params, tensor);
@@ -1924,7 +1934,7 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             } break;
         case LM_GGML_OP_FLASH_ATTN_EXT:
             {
-                lm_ggml_compute_forward_flash_attn_ext(params, tensor->src[0], tensor->src[1], tensor->src[2], tensor->src[3], tensor);
+                lm_ggml_compute_forward_flash_attn_ext(params, tensor);
             } break;
         case LM_GGML_OP_FLASH_ATTN_BACK:
             {
@@ -2111,6 +2121,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
         case LM_GGML_OP_DUP:
         case LM_GGML_OP_CONT:
         case LM_GGML_OP_ADD:
+        case LM_GGML_OP_ADD_ID:
         case LM_GGML_OP_ADD1:
         case LM_GGML_OP_ACC:
             {
@@ -2172,6 +2183,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
                 case LM_GGML_GLU_OP_REGLU:
                 case LM_GGML_GLU_OP_GEGLU:
                 case LM_GGML_GLU_OP_SWIGLU:
+                case LM_GGML_GLU_OP_SWIGLU_OAI:
                 case LM_GGML_GLU_OP_GEGLU_ERF:
                 case LM_GGML_GLU_OP_GEGLU_QUICK:
                     {
@@ -2673,6 +2685,7 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
                         }
                     } break;
                 case LM_GGML_OP_ADD:
+                case LM_GGML_OP_ADD_ID:
                 case LM_GGML_OP_ADD1:
                     {
                         if (lm_ggml_is_quantized(node->src[0]->type)) {

@@ -304,6 +304,16 @@
     LM_GGML_TENSOR_LOCALS(int64_t, ne,  dst,  ne) \
     LM_GGML_TENSOR_LOCALS(size_t,  nb,  dst,  nb)
 
+#define LM_GGML_TENSOR_TERNARY_OP_LOCALS \
+    LM_GGML_TENSOR_LOCALS(int64_t, ne0, src0, ne) \
+    LM_GGML_TENSOR_LOCALS(size_t,  nb0, src0, nb) \
+    LM_GGML_TENSOR_LOCALS(int64_t, ne1, src1, ne) \
+    LM_GGML_TENSOR_LOCALS(size_t,  nb1, src1, nb) \
+    LM_GGML_TENSOR_LOCALS(int64_t, ne2, src2, ne) \
+    LM_GGML_TENSOR_LOCALS(size_t,  nb2, src2, nb) \
+    LM_GGML_TENSOR_LOCALS(int64_t, ne,  dst,  ne) \
+    LM_GGML_TENSOR_LOCALS(size_t,  nb,  dst,  nb)
+
 #define LM_GGML_TENSOR_BINARY_OP_LOCALS01 \
     LM_GGML_TENSOR_LOCALS(int64_t, ne0, src0, ne) \
     LM_GGML_TENSOR_LOCALS(size_t,  nb0, src0, nb) \
@@ -395,7 +405,8 @@ extern "C" {
         // LM_GGML_TYPE_IQ4_NL_4_4 = 36,
         // LM_GGML_TYPE_IQ4_NL_4_8 = 37,
         // LM_GGML_TYPE_IQ4_NL_8_8 = 38,
-        LM_GGML_TYPE_COUNT   = 39,
+        LM_GGML_TYPE_MXFP4   = 39, // MXFP4 (1 block)
+        LM_GGML_TYPE_COUNT   = 40,
     };
 
     // precision
@@ -430,6 +441,7 @@ extern "C" {
         LM_GGML_FTYPE_MOSTLY_IQ4_XS  = 22, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_IQ1_M   = 23, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_BF16    = 24, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_MXFP4   = 25, // except 1d tensors
     };
 
     // available tensor operations:
@@ -438,6 +450,7 @@ extern "C" {
 
         LM_GGML_OP_DUP,
         LM_GGML_OP_ADD,
+        LM_GGML_OP_ADD_ID,
         LM_GGML_OP_ADD1,
         LM_GGML_OP_ACC,
         LM_GGML_OP_SUB,
@@ -557,6 +570,7 @@ extern "C" {
         LM_GGML_GLU_OP_REGLU,
         LM_GGML_GLU_OP_GEGLU,
         LM_GGML_GLU_OP_SWIGLU,
+        LM_GGML_GLU_OP_SWIGLU_OAI,
         LM_GGML_GLU_OP_GEGLU_ERF,
         LM_GGML_GLU_OP_GEGLU_QUICK,
 
@@ -830,6 +844,13 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * b,
             enum   lm_ggml_type      type);
+
+    // dst[i0, i1, i2] = a[i0, i1, i2] + b[i0, ids[i1, i2]]
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_add_id(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b,
+            struct lm_ggml_tensor  * ids);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_add1(
             struct lm_ggml_context * ctx,
@@ -1197,6 +1218,13 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * b);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_swiglu_oai(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b,
+            float                 alpha,
+            float                 limit);
 
     // normalize along rows
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_norm(
@@ -1569,6 +1597,10 @@ extern "C" {
             struct lm_ggml_tensor  * mask,
             float                 scale,
             float                 max_bias);
+
+    LM_GGML_API void lm_ggml_soft_max_add_sinks(
+            struct lm_ggml_tensor * a,
+            struct lm_ggml_tensor * sinks);
 
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_soft_max_ext_back(
             struct lm_ggml_context * ctx,
@@ -2051,6 +2083,10 @@ extern "C" {
 
     LM_GGML_API enum lm_ggml_prec lm_ggml_flash_attn_ext_get_prec(
             const struct lm_ggml_tensor * a);
+
+    LM_GGML_API void lm_ggml_flash_attn_ext_add_sinks(
+            struct lm_ggml_tensor * a,
+            struct lm_ggml_tensor * sinks);
 
     // TODO: needs to be adapted to lm_ggml_flash_attn_ext
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_flash_attn_back(

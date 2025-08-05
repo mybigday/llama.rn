@@ -29,6 +29,7 @@ static bool lm_ggml_op_can_inplace(enum lm_ggml_op op) {
         case LM_GGML_OP_DIAG_MASK_ZERO:
         case LM_GGML_OP_DIAG_MASK_INF:
         case LM_GGML_OP_ADD:
+        case LM_GGML_OP_ADD_ID:
         case LM_GGML_OP_ADD1:
         case LM_GGML_OP_SUB:
         case LM_GGML_OP_MUL:

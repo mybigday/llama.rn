@@ -1,21 +1,23 @@
---- chat.h.orig	2025-03-13 13:05:46
-+++ chat.h	2025-03-13 13:02:13
-@@ -8,8 +8,17 @@
- #include <string>
+--- chat.h.orig	2025-08-06 06:21:00
++++ chat.h	2025-08-06 06:21:56
+@@ -9,8 +9,19 @@
  #include <vector>
  #include <map>
+
+-struct common_chat_templates;
 +#include "minja/chat-template.hpp"
 +#include "minja/minja.hpp"
-+
+
 +typedef minja::chat_template common_chat_template;
 +
 +struct common_chat_templates {
++    bool add_bos;
++    bool add_eos;
 +    bool has_explicit_template; // Model had builtin template or template overridde was specified.
 +    std::unique_ptr<common_chat_template> template_default; // always set (defaults to chatml)
 +    std::unique_ptr<common_chat_template> template_tool_use;
 +};
- 
--struct common_chat_templates;
- 
++
  struct common_chat_tool_call {
      std::string name;
+     std::string arguments;

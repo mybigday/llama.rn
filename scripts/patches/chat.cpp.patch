@@ -1,5 +1,5 @@
---- chat.cpp.orig	2025-06-19 14:36:02
-+++ chat.cpp	2025-06-19 14:35:55
+--- chat.cpp.orig	2025-08-06 06:18:56
++++ chat.cpp	2025-08-06 06:19:36
 @@ -6,9 +6,6 @@
  #include "log.h"
  #include "regex-partial.h"
@@ -10,13 +10,15 @@
  #include <cstdio>
  #include <exception>
  #include <iostream>
-@@ -123,14 +120,6 @@
+@@ -123,16 +120,6 @@
      return diffs;
  }
 
 -typedef minja::chat_template common_chat_template;
 -
 -struct common_chat_templates {
+-    bool add_bos;
+-    bool add_eos;
 -    bool has_explicit_template; // Model had builtin template or template overridde was specified.
 -    std::unique_ptr<common_chat_template> template_default; // always set (defaults to chatml)
 -    std::unique_ptr<common_chat_template> template_tool_use;

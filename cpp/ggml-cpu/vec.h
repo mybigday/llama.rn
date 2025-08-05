@@ -55,7 +55,22 @@ inline static void lm_ggml_vec_cpy_i32(const int n, int32_t * y, const int32_t *
 
 inline static void lm_ggml_vec_set_f16(const int n, lm_ggml_fp16_t * x, const lm_ggml_fp16_t v) { for (int i = 0; i < n; ++i) x[i] = v; }
 inline static void lm_ggml_vec_set_bf16(const int n, lm_ggml_bf16_t * x, const lm_ggml_bf16_t v) { for (int i = 0; i < n; ++i) x[i] = v; }
-inline static void lm_ggml_vec_add_f32 (const int n, float * z, const float * x, const float * y) { for (int i = 0; i < n; ++i) z[i]  = x[i] + y[i]; }
+
+inline static void lm_ggml_vec_add_f32 (const int n, float * z, const float * x, const float * y) {
+    int i = 0;
+#if defined(__AVX2__)
+    for (; i + 7 < n; i += 8) {
+        __m256 vx = _mm256_loadu_ps(x + i);
+        __m256 vy = _mm256_loadu_ps(y + i);
+        __m256 vz = _mm256_add_ps(vx, vy);
+        _mm256_storeu_ps(z + i, vz);
+    }
+#endif
+    for (; i < n; ++i) {
+        z[i] = x[i] + y[i];
+    }
+}
+
 inline static void lm_ggml_vec_add_f16 (const int n, lm_ggml_fp16_t * z, const lm_ggml_fp16_t * x, const lm_ggml_fp16_t * y) {
     for (int i = 0; i < n; ++i) {
         z[i] = LM_GGML_CPU_FP32_TO_FP16(LM_GGML_CPU_FP16_TO_FP32(x[i]) + LM_GGML_CPU_FP16_TO_FP32(y[i]));
@@ -992,9 +1007,9 @@ void lm_ggml_vec_swiglu_f32(const int n, float * y, const float * x, const float
 
 inline static void lm_ggml_vec_swiglu_f16(const int n, lm_ggml_fp16_t * y, const lm_ggml_fp16_t * x, const lm_ggml_fp16_t * g) {
     for (int i = 0; i < n; ++i) {
-        float v = LM_GGML_CPU_FP16_TO_FP32(x[i]);
-        float w = LM_GGML_CPU_FP16_TO_FP32(g[i]);
-        y[i] = LM_GGML_CPU_FP32_TO_FP16((v/(1.0f + expf(-v))) * w);
+        float xi = LM_GGML_CPU_FP16_TO_FP32(x[i]);
+        float gi = LM_GGML_CPU_FP16_TO_FP32(g[i]);
+        y[i] = LM_GGML_CPU_FP32_TO_FP16((xi/(1.0f + expf(-xi))) * gi);
     }
 }
 

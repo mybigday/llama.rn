@@ -8,17 +8,19 @@
 #include <string>
 #include <vector>
 #include <map>
+
 #include "minja/chat-template.hpp"
 #include "minja/minja.hpp"
 
 typedef minja::chat_template common_chat_template;
 
 struct common_chat_templates {
+    bool add_bos;
+    bool add_eos;
     bool has_explicit_template; // Model had builtin template or template overridde was specified.
     std::unique_ptr<common_chat_template> template_default; // always set (defaults to chatml)
     std::unique_ptr<common_chat_template> template_tool_use;
 };
-
 
 struct common_chat_tool_call {
     std::string name;
@@ -118,6 +120,7 @@ enum common_chat_format {
     COMMON_CHAT_FORMAT_FUNCTIONARY_V3_1_LLAMA_3_1,
     COMMON_CHAT_FORMAT_HERMES_2_PRO,
     COMMON_CHAT_FORMAT_COMMAND_R7B,
+    COMMON_CHAT_FORMAT_GPT_OSS,
 
     COMMON_CHAT_FORMAT_COUNT, // Not a format, just the # formats
 };
@@ -136,6 +139,8 @@ struct common_chat_templates_inputs {
     bool enable_thinking = true;
     std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
     std::map<std::string, std::string> chat_template_kwargs;
+    bool add_bos = false;
+    bool add_eos = false;
 };
 
 struct common_chat_params {
