@@ -315,8 +315,8 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
 
           {/* Custom Models Section */}
           {customModels.filter((model) => !model.mmprojFilename).length > 0 && (
-            <View style={CommonStyles.customModelsSection}>
-              <Text style={CommonStyles.customModelSectionTitle}>
+            <>
+              <Text style={CommonStyles.modelSectionTitle}>
                 Custom Models
               </Text>
               {customModels
@@ -332,7 +332,7 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
                     initializeButtonText="Bench"
                   />
                 ))}
-            </View>
+            </>
           )}
 
           {/* Add Custom Model Button */}
@@ -346,9 +346,7 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
           </TouchableOpacity>
 
           {/* Predefined Models Section */}
-          <View style={CommonStyles.customModelRecommendedSection}>
-            <Text style={CommonStyles.setupTitle}>Recommended Models</Text>
-          </View>
+          <Text style={CommonStyles.modelSectionTitle}>Default Models</Text>
           {LLM_MODELS.map(([key, model]) => (
             <ModelDownloadCard
               key={key}

@@ -38,7 +38,6 @@ const styles = StyleSheet.create({
   container: CommonStyles.container,
   setupContainer: CommonStyles.setupContainer,
   scrollContent: CommonStyles.scrollContent,
-  setupTitle: CommonStyles.setupTitle,
   setupDescription: CommonStyles.setupDescription,
   loadingContainer: CommonStyles.loadingContainer,
   loadingText: CommonStyles.loadingText,

@@ -392,7 +392,7 @@ export default function CustomModelModal({
             <Text
               style={[styles.saveButton, !canSave && styles.disabledButton]}
             >
-              Add Model
+              Add
             </Text>
           </TouchableOpacity>
         </View>

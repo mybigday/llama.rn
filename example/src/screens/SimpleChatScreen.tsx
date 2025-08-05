@@ -359,8 +359,8 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
 
           {/* Custom Models Section */}
           {customModels.length > 0 && (
-            <View style={CommonStyles.customModelsSection}>
-              <Text style={CommonStyles.customModelSectionTitle}>
+            <>
+              <Text style={CommonStyles.modelSectionTitle}>
                 Custom Models
               </Text>
               {customModels.map((model) => (
@@ -372,7 +372,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
                   initializeButtonText="Initialize"
                 />
               ))}
-            </View>
+            </>
           )}
 
           {/* Add Custom Model Button */}
@@ -386,9 +386,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           </TouchableOpacity>
 
           {/* Predefined Models Section */}
-          <View style={CommonStyles.customModelRecommendedSection}>
-            <Text style={CommonStyles.setupTitle}>Recommended Models</Text>
-          </View>
+          <Text style={CommonStyles.modelSectionTitle}>Default Models</Text>
           {[
             'SMOL_LM_3',
             'GEMMA_3_4B_QAT',
@@ -420,7 +418,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           visible={showCustomModelModal}
           onClose={() => setShowCustomModelModal(false)}
           onModelAdded={handleCustomModelAdded}
-          title="Add Custom Chat Model"
+          title="Add Custom Model"
         />
 
         <MaskedProgress

@@ -407,8 +407,8 @@ export default function ModelInfoScreen() {
       >
         {/* Custom Models Section */}
         {customModels.length > 0 && (
-          <View style={CommonStyles.customModelsSection}>
-            <Text style={CommonStyles.customModelSectionTitle}>
+          <>
+            <Text style={CommonStyles.modelSectionTitle}>
               Custom Models
             </Text>
             {customModels.map((customModel) => (
@@ -426,7 +426,7 @@ export default function ModelInfoScreen() {
                 initializeButtonText="See"
               />
             ))}
-          </View>
+          </>
         )}
 
         {/* Add Custom Model Button */}
@@ -440,9 +440,7 @@ export default function ModelInfoScreen() {
         </TouchableOpacity>
 
         {/* Predefined Models Section */}
-        <View style={CommonStyles.customModelRecommendedSection}>
-          <Text style={CommonStyles.setupTitle}>All Available Models</Text>
-        </View>
+        <Text style={CommonStyles.modelSectionTitle}>Default Models</Text>
         {Object.entries(MODELS).map(([key, model]) => {
           // Type assertion to access potential vocoder property
           const modelWithVocoder = model as typeof model & { vocoder?: any }

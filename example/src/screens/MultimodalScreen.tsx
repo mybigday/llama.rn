@@ -849,10 +849,8 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
           {/* Custom Models Section */}
           {customModels.filter((model) => model.mmprojFilename).length > 0 && (
-            <View style={CommonStyles.customModelsSection}>
-              <Text style={CommonStyles.customModelSectionTitle}>
-                Custom Multimodal Models
-              </Text>
+            <>
+              <Text style={CommonStyles.modelSectionTitle}>Custom Models</Text>
               {customModels
                 .filter((model) => model.mmprojFilename) // Only show models with mmproj
                 .map((model) => (
@@ -866,7 +864,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
                     initializeButtonText="Initialize"
                   />
                 ))}
-            </View>
+            </>
           )}
 
           {/* Add Custom Model Button */}
@@ -875,16 +873,12 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             onPress={() => setShowCustomModelModal(true)}
           >
             <Text style={CommonStyles.addCustomModelButtonText}>
-              + Add Custom Multimodal Model
+              + Add Custom Model
             </Text>
           </TouchableOpacity>
 
           {/* Predefined Models Section */}
-          <View style={CommonStyles.customModelRecommendedSection}>
-            <Text style={CommonStyles.setupTitle}>
-              Recommended Multimodal Models
-            </Text>
-          </View>
+          <Text style={CommonStyles.modelSectionTitle}>Default Models</Text>
           {Object.values(MODELS)
             .filter((model) => model.mmproj)
             .map((modelInfo) => (
@@ -911,7 +905,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           onClose={() => setShowCustomModelModal(false)}
           onModelAdded={handleCustomModelAdded}
           requireMMProj
-          title="Add Custom Multimodal Model"
+          title="Add Custom Model"
         />
 
         <MaskedProgress
