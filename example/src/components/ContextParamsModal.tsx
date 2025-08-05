@@ -243,7 +243,7 @@ export default function ContextParamsModal({
         label="Cache Type K (cache_type_k)"
         description="KV cache data type for the K. Need enable flash_attn to change this. Available values: f16, f32, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1"
         value={params.cache_type_k}
-        onChangeText={(text) => updateParam('cache_type_k', text)}
+        onChangeText={(text) => updateParam('cache_type_k', text.toLowerCase())}
         placeholder="f16"
       />
 
@@ -252,7 +252,7 @@ export default function ContextParamsModal({
         label="Cache Type V (cache_type_v)"
         description="KV cache data type for the V. Need enable flash_attn if change this. Available values: f16, f32, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1"
         value={params.cache_type_v}
-        onChangeText={(text) => updateParam('cache_type_v', text)}
+        onChangeText={(text) => updateParam('cache_type_v', text.toLowerCase())}
         placeholder="f16"
       />
 

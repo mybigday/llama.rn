@@ -48,7 +48,7 @@ export const DEFAULT_COMPLETION_PARAMS: CompletionParams = {
   n_predict: 1024,
   temperature: 0.7,
   top_p: 0.9,
-  stop: ['<|im_end|>', '<end_of_turn>', '<end_of_utterance>', '<|eot_id|>'],
+  stop: ['<|end|>', '<|im_end|>', '<end_of_turn>', '<end_of_utterance>', '<|eot_id|>'],
 }
 
 export const DEFAULT_TTS_PARAMS: TTSParams = {

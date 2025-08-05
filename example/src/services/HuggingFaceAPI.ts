@@ -133,6 +133,7 @@ export class HuggingFaceAPI {
       'IQ2_XXS',
       'IQ1_M',
       'IQ1_S',
+      'MXFP4',
       'Q8_0',
       'F16',
       'F32',
