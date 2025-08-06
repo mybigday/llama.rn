@@ -133,6 +133,18 @@ export type ContextParams = Omit<
   pooling_type?: 'none' | 'mean' | 'cls' | 'last' | 'rank'
 }
 
+const validCacheTypes = [
+  'f16',
+  'f32',
+  'bf16',
+  'q8_0',
+  'q4_0',
+  'q4_1',
+  'iq4_nl',
+  'q5_0',
+  'q5_1',
+]
+
 export type EmbeddingParams = NativeEmbeddingParams
 
 export type RerankParams = {
@@ -737,6 +749,16 @@ export async function initLlama(
   }
 
   const poolType = poolTypeMap[poolingType as keyof typeof poolTypeMap]
+
+  if (rest.cache_type_k && !validCacheTypes.includes(rest.cache_type_k)) {
+    console.warn(`[RNLlama] initLlama: Invalid cache K type: ${rest.cache_type_k}, falling back to f16`)
+    delete rest.cache_type_k
+  }
+  if (rest.cache_type_v && !validCacheTypes.includes(rest.cache_type_v)) {
+    console.warn(`[RNLlama] initLlama: Invalid cache V type: ${rest.cache_type_v}, falling back to f16`)
+    delete rest.cache_type_v
+  }
+
   const {
     gpu,
     reasonNoGPU,

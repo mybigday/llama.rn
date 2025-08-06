@@ -291,10 +291,22 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.n_gpu_layers = n_gpu_layers;
     defaultParams.flash_attn = flash_attn;
 
-    const char *cache_type_k_chars = env->GetStringUTFChars(cache_type_k, nullptr);
-    const char *cache_type_v_chars = env->GetStringUTFChars(cache_type_v, nullptr);
-    defaultParams.cache_type_k = rnllama::kv_cache_type_from_str(cache_type_k_chars);
-    defaultParams.cache_type_v = rnllama::kv_cache_type_from_str(cache_type_v_chars);
+    const char *cache_type_k_chars = nullptr;
+    const char *cache_type_v_chars = nullptr;
+    
+    if (cache_type_k) {
+        cache_type_k_chars = env->GetStringUTFChars(cache_type_k, nullptr);
+        if (cache_type_k_chars) {
+            defaultParams.cache_type_k = rnllama::kv_cache_type_from_str(cache_type_k_chars);
+        }
+    }
+    
+    if (cache_type_v) {
+        cache_type_v_chars = env->GetStringUTFChars(cache_type_v, nullptr);
+        if (cache_type_v_chars) {
+            defaultParams.cache_type_v = rnllama::kv_cache_type_from_str(cache_type_v_chars);
+        }
+    }
 
     defaultParams.use_mlock = use_mlock;
     defaultParams.use_mmap = use_mmap;
@@ -333,8 +345,8 @@ Java_com_rnllama_LlamaContext_initContext(
 
     env->ReleaseStringUTFChars(model_path_str, model_path_chars);
     env->ReleaseStringUTFChars(chat_template, chat_template_chars);
-    env->ReleaseStringUTFChars(cache_type_k, cache_type_k_chars);
-    env->ReleaseStringUTFChars(cache_type_v, cache_type_v_chars);
+    if (cache_type_k_chars) env->ReleaseStringUTFChars(cache_type_k, cache_type_k_chars);
+    if (cache_type_v_chars) env->ReleaseStringUTFChars(cache_type_v, cache_type_v_chars);
 
     LOGI("[RNLlama] is_model_loaded %s", (is_model_loaded ? "true" : "false"));
     if (is_model_loaded) {

@@ -202,8 +202,18 @@
 
     if (params[@"swa_full"]) defaultParams.swa_full = [params[@"swa_full"] boolValue];
 
-    if (params[@"cache_type_k"]) defaultParams.cache_type_k = rnllama::kv_cache_type_from_str([params[@"cache_type_k"] UTF8String]);
-    if (params[@"cache_type_v"]) defaultParams.cache_type_v = rnllama::kv_cache_type_from_str([params[@"cache_type_v"] UTF8String]);
+    if (params[@"cache_type_k"] && [params[@"cache_type_k"] isKindOfClass:[NSString class]]) {
+        const char* cache_type_k_str = [params[@"cache_type_k"] UTF8String];
+        if (cache_type_k_str) {
+            defaultParams.cache_type_k = rnllama::kv_cache_type_from_str(cache_type_k_str);
+        }
+    }
+    if (params[@"cache_type_v"] && [params[@"cache_type_v"] isKindOfClass:[NSString class]]) {
+        const char* cache_type_v_str = [params[@"cache_type_v"] UTF8String];
+        if (cache_type_v_str) {
+            defaultParams.cache_type_v = rnllama::kv_cache_type_from_str(cache_type_v_str);
+        }
+    }
 
     int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : 0;
     const int maxThreads = (int) [[NSProcessInfo processInfo] processorCount];

@@ -96,12 +96,18 @@ static const std::vector<lm_ggml_type> kv_cache_types = {
 };
 
 lm_ggml_type kv_cache_type_from_str(const std::string & s) {
+    if (s.empty()) {
+        return LM_GGML_TYPE_F16; // Default to F16 if empty string
+    }
+    
     for (const auto & type : kv_cache_types) {
         if (lm_ggml_type_name(type) == s) {
             return type;
         }
     }
-    throw std::runtime_error("Unsupported cache type: " + s);
+    
+    // Return default type instead of throwing to avoid crashes
+    return LM_GGML_TYPE_F16;
 }
 
 static void llama_batch_clear(llama_batch *batch) {
