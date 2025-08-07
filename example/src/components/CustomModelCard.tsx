@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   View,
   TouchableOpacity,
@@ -57,6 +57,101 @@ export default function CustomModelCard({
   showRemoveButton = true,
 }: CustomModelCardProps) {
   const [isRemoving, setIsRemoving] = useState(false)
+  const [modelSize, setModelSize] = useState<string>('Size unknown')
+  const [mmprojSize, setMmprojSize] = useState<string>('Size unknown')
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+
+  useEffect(() => {
+    const calculateSizes = async () => {
+      try {
+        // Check if model is downloaded first
+        const isDownloaded = await ModelDownloader.isModelDownloaded(model.filename)
+        
+        if (isDownloaded) {
+          // Calculate model size for downloaded files
+          const modelSizeFormatted = await ModelDownloader.getModelSizeFormatted(model.filename)
+          if (modelSizeFormatted) {
+            setModelSize(modelSizeFormatted)
+          }
+
+          // Calculate mmproj size if exists
+          if (model.mmprojFilename) {
+            const mmprojSizeFormatted = await ModelDownloader.getModelSizeFormatted(model.mmprojFilename)
+            if (mmprojSizeFormatted) {
+              setMmprojSize(mmprojSizeFormatted)
+            }
+          }
+        } else {
+          // For undownloaded models, try to get remote size first
+          try {
+            const remoteSizeFormatted = await ModelDownloader.getModelSizeFromRemoteFormatted(model.repo, model.filename)
+            if (remoteSizeFormatted) {
+              const splitInfo = await ModelDownloader.getSplitFileInfo(model.filename)
+              if (splitInfo) {
+                setModelSize(`${remoteSizeFormatted} (${splitInfo.totalParts} parts)`)
+              } else {
+                setModelSize(remoteSizeFormatted)
+              }
+            } else {
+              // Fallback to split info only
+              const splitInfo = await ModelDownloader.getSplitFileInfo(model.filename)
+              if (splitInfo) {
+                setModelSize(`Split model (${splitInfo.totalParts} parts)`)
+              } else {
+                setModelSize('Size unknown')
+              }
+            }
+          } catch {
+            // If remote size fails, fallback to split info
+            const splitInfo = await ModelDownloader.getSplitFileInfo(model.filename)
+            if (splitInfo) {
+              setModelSize(`Split model (${splitInfo.totalParts} parts)`)
+            } else {
+              setModelSize('Size unknown')
+            }
+          }
+          
+          // Same for mmproj if exists
+          if (model.mmprojFilename) {
+            try {
+              const mmprojRemoteSizeFormatted = await ModelDownloader.getModelSizeFromRemoteFormatted(model.repo, model.mmprojFilename)
+              if (mmprojRemoteSizeFormatted) {
+                const mmprojSplitInfo = await ModelDownloader.getSplitFileInfo(model.mmprojFilename)
+                if (mmprojSplitInfo) {
+                  setMmprojSize(`${mmprojRemoteSizeFormatted} (${mmprojSplitInfo.totalParts} parts)`)
+                } else {
+                  setMmprojSize(mmprojRemoteSizeFormatted)
+                }
+              } else {
+                const mmprojSplitInfo = await ModelDownloader.getSplitFileInfo(model.mmprojFilename)
+                if (mmprojSplitInfo) {
+                  setMmprojSize(`Split file (${mmprojSplitInfo.totalParts} parts)`)
+                } else {
+                  setMmprojSize('Size unknown')
+                }
+              }
+            } catch {
+              const mmprojSplitInfo = await ModelDownloader.getSplitFileInfo(model.mmprojFilename)
+              if (mmprojSplitInfo) {
+                setMmprojSize(`Split file (${mmprojSplitInfo.totalParts} parts)`)
+              } else {
+                setMmprojSize('Size unknown')
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to calculate model sizes:', error)
+      }
+    }
+
+    calculateSizes()
+  }, [model.filename, model.mmprojFilename, model.repo, refreshTrigger])
+
+  // Function to refresh sizes (can be called after download completion)
+  const refreshSizes = () => {
+    setRefreshTrigger(prev => prev + 1)
+  }
 
   const handleRemoveModel = async () => {
     if (isRemoving) return
@@ -134,10 +229,13 @@ export default function CustomModelCard({
             repo={model.repo}
             filename={model.filename}
             mmproj={model.mmprojFilename}
-            size="Size unknown"
+            size={`Model: ${modelSize} + MMProj: ${mmprojSize}`}
             initializeButtonText={initializeButtonText}
             onInitialize={(modelPath: string, mmprojPath: string) => {
               handleInitialize(modelPath, mmprojPath)
+            }}
+            onDownloaded={() => {
+              refreshSizes()
             }}
           />
         ) : (
@@ -145,10 +243,13 @@ export default function CustomModelCard({
             title={`${model.id} (${model.quantization})`}
             repo={model.repo}
             filename={model.filename}
-            size="Size unknown"
+            size={modelSize}
             initializeButtonText={initializeButtonText}
             onInitialize={(modelPath: string) => {
               handleInitialize(modelPath)
+            }}
+            onDownloaded={() => {
+              refreshSizes()
             }}
           />
         )}

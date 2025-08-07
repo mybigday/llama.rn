@@ -24,6 +24,7 @@ interface BaseModelDownloadCardProps {
   size: string
   files: ModelFile[] // Array of files to download
   onInitialize?: (...paths: string[]) => void
+  onDownloaded?: (...paths: string[]) => void
   downloadButtonText?: string
   initializeButtonText?: string
 }
@@ -49,6 +50,7 @@ interface TTSModelDownloadCardProps {
     size: string
   }
   onInitialize: (ttsPath: string, vocoderPath: string) => void
+  onDownloaded?: (ttsPath: string, vocoderPath: string) => void
   initializeButtonText?: string
 }
 
@@ -59,6 +61,7 @@ interface MtmdModelDownloadCardProps {
   mmproj: string
   size: string
   onInitialize: (modelPath: string, mmprojPath: string) => void
+  onDownloaded?: (modelPath: string, mmprojPath: string) => void
   initializeButtonText?: string
 }
 
@@ -223,6 +226,7 @@ function BaseModelDownloadCard({
   size,
   files,
   onInitialize,
+  onDownloaded,
   downloadButtonText = 'Download',
   initializeButtonText = 'Initialize',
 }: BaseModelDownloadCardProps) {
@@ -304,6 +308,11 @@ function BaseModelDownloadCard({
       setIsDownloaded(true)
       setProgress(null)
       setDownloadStatus('')
+
+      // Call onDownloaded callback if provided
+      if (onDownloaded) {
+        onDownloaded(...paths)
+      }
 
       Alert.alert('Success', `${title} downloaded successfully!`)
     } catch (error: any) {
@@ -493,6 +502,7 @@ export function TTSModelDownloadCard({
   size,
   vocoder,
   onInitialize,
+  onDownloaded,
   initializeButtonText,
 }: TTSModelDownloadCardProps) {
   const files: ModelFile[] = [
@@ -506,6 +516,7 @@ export function TTSModelDownloadCard({
       size={size}
       files={files}
       onInitialize={onInitialize}
+      onDownloaded={onDownloaded}
       downloadButtonText="Download Both Models"
       initializeButtonText={initializeButtonText}
     />
@@ -520,6 +531,7 @@ export function MtmdModelDownloadCard({
   mmproj,
   size,
   onInitialize,
+  onDownloaded,
   initializeButtonText,
 }: MtmdModelDownloadCardProps) {
   const files: ModelFile[] = [
@@ -533,6 +545,7 @@ export function MtmdModelDownloadCard({
       size={size}
       files={files}
       onInitialize={onInitialize}
+      onDownloaded={onDownloaded}
       downloadButtonText="Download Model & MMProj"
       initializeButtonText={initializeButtonText}
     />
