@@ -15,6 +15,7 @@ import TTSScreen from './screens/TTSScreen'
 import ToolCallsScreen from './screens/ToolCallsScreen'
 import ModelInfoScreen from './screens/ModelInfoScreen'
 import BenchScreen from './screens/BenchScreen'
+import TextCompletionScreen from './screens/TextCompletionScreen'
 import { CommonStyles } from './styles/commonStyles'
 
 // Example: Catch logs from llama.cpp
@@ -101,6 +102,12 @@ function HomeScreen({ navigation }: { navigation: any }) {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}
+          onPress={() => navigation.navigate('TextCompletion')}
+        >
+          <Text style={styles.buttonText}>✏️ Text Completion</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
           onPress={() => navigation.navigate('Multimodal')}
         >
           <Text style={styles.buttonText}>👁️ Multimodal</Text>
@@ -154,6 +161,13 @@ function App() {
             component={SimpleChatScreen}
             options={{
               title: 'Simple Chat',
+            }}
+          />
+          <Stack.Screen
+            name="TextCompletion"
+            component={TextCompletionScreen}
+            options={{
+              title: 'Text Completion',
             }}
           />
           <Stack.Screen
