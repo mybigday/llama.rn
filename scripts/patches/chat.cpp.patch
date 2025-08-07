@@ -1,21 +1,29 @@
---- chat.cpp.orig	2025-03-13 13:05:47
-+++ chat.cpp	2025-03-13 13:02:10
-@@ -1,18 +1,8 @@
- #include "chat.h"
- #include "json-schema-to-grammar.h"
+--- chat.cpp.orig	2025-08-06 06:18:56
++++ chat.cpp	2025-08-06 06:19:36
+@@ -6,9 +6,6 @@
  #include "log.h"
--#include "minja/chat-template.hpp"
--#include "minja/minja.hpp"
- 
- #include <optional>
+ #include "regex-partial.h"
+
+-#include <minja/chat-template.hpp>
+-#include <minja/minja.hpp>
 -
+ #include <cstdio>
+ #include <exception>
+ #include <iostream>
+@@ -123,16 +120,6 @@
+     return diffs;
+ }
+
 -typedef minja::chat_template common_chat_template;
 -
 -struct common_chat_templates {
+-    bool add_bos;
+-    bool add_eos;
 -    bool has_explicit_template; // Model had builtin template or template overridde was specified.
 -    std::unique_ptr<common_chat_template> template_default; // always set (defaults to chatml)
 -    std::unique_ptr<common_chat_template> template_tool_use;
 -};
- 
+-
  struct templates_params {
      json messages;
+     json tools;

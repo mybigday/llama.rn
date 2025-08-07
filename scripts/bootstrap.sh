@@ -3,9 +3,7 @@
 git submodule init
 git submodule update --recursive
 
-cp ./llama.cpp/include/llama.h ./cpp/llama.h
-cp ./llama.cpp/include/llama-cpp.h ./cpp/llama-cpp.h
-
+# ggml api
 cp ./llama.cpp/ggml/include/ggml.h ./cpp/ggml.h
 cp ./llama.cpp/ggml/include/ggml-alloc.h ./cpp/ggml-alloc.h
 cp ./llama.cpp/ggml/include/ggml-backend.h ./cpp/ggml-backend.h
@@ -21,12 +19,13 @@ cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal-impl.h ./cpp/ggml-metal-impl.h
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu/ggml-cpu.c
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu/ggml-cpu.cpp
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-impl.h ./cpp/ggml-cpu/ggml-cpu-impl.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.h ./cpp/ggml-cpu/ggml-cpu-aarch64.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-aarch64.cpp ./cpp/ggml-cpu/ggml-cpu-aarch64.cpp
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.h ./cpp/ggml-cpu/ggml-cpu-quants.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-quants.c ./cpp/ggml-cpu/ggml-cpu-quants.c
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-traits.h ./cpp/ggml-cpu/ggml-cpu-traits.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-traits.cpp ./cpp/ggml-cpu/ggml-cpu-traits.cpp
+cp ./llama.cpp/ggml/src/ggml-cpu/quants.h ./cpp/ggml-cpu/quants.h
+cp ./llama.cpp/ggml/src/ggml-cpu/quants.c ./cpp/ggml-cpu/quants.c
+cp ./llama.cpp/ggml/src/ggml-cpu/arch-fallback.h ./cpp/ggml-cpu/arch-fallback.h
+cp ./llama.cpp/ggml/src/ggml-cpu/repack.cpp ./cpp/ggml-cpu/repack.cpp
+cp ./llama.cpp/ggml/src/ggml-cpu/repack.h ./cpp/ggml-cpu/repack.h
+cp ./llama.cpp/ggml/src/ggml-cpu/traits.h ./cpp/ggml-cpu/traits.h
+cp ./llama.cpp/ggml/src/ggml-cpu/traits.cpp ./cpp/ggml-cpu/traits.cpp
 cp ./llama.cpp/ggml/src/ggml-cpu/common.h ./cpp/ggml-cpu/common.h
 
 cp ./llama.cpp/ggml/src/ggml-cpu/unary-ops.h ./cpp/ggml-cpu/unary-ops.h
@@ -40,9 +39,9 @@ cp ./llama.cpp/ggml/src/ggml-cpu/ops.h ./cpp/ggml-cpu/ops.h
 cp ./llama.cpp/ggml/src/ggml-cpu/ops.cpp ./cpp/ggml-cpu/ops.cpp
 
 cp -r ./llama.cpp/ggml/src/ggml-cpu/amx ./cpp/ggml-cpu/
-
-cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.h ./cpp/ggml-cpu/sgemm.h
-cp ./llama.cpp/ggml/src/ggml-cpu/llamafile/sgemm.cpp ./cpp/ggml-cpu/sgemm.cpp
+mkdir -p ./cpp/ggml-cpu/arch
+cp -r ./llama.cpp/ggml/src/ggml-cpu/arch/arm ./cpp/ggml-cpu/arch/
+cp -r ./llama.cpp/ggml/src/ggml-cpu/arch/x86 ./cpp/ggml-cpu/arch/
 
 cp ./llama.cpp/ggml/src/ggml.c ./cpp/ggml.c
 cp ./llama.cpp/ggml/src/ggml-impl.h ./cpp/ggml-impl.h
@@ -58,6 +57,9 @@ cp ./llama.cpp/ggml/src/ggml-threading.cpp ./cpp/ggml-threading.cpp
 cp ./llama.cpp/ggml/src/ggml-threading.h ./cpp/ggml-threading.h
 cp ./llama.cpp/ggml/src/gguf.cpp ./cpp/gguf.cpp
 
+# llama api
+cp ./llama.cpp/include/llama.h ./cpp/llama.h
+cp ./llama.cpp/include/llama-cpp.h ./cpp/llama-cpp.h
 cp ./llama.cpp/src/llama.cpp ./cpp/llama.cpp
 cp ./llama.cpp/src/llama-chat.h ./cpp/llama-chat.h
 cp ./llama.cpp/src/llama-chat.cpp ./cpp/llama-chat.cpp
@@ -65,12 +67,21 @@ cp ./llama.cpp/src/llama-context.h ./cpp/llama-context.h
 cp ./llama.cpp/src/llama-context.cpp ./cpp/llama-context.cpp
 cp ./llama.cpp/src/llama-mmap.h ./cpp/llama-mmap.h
 cp ./llama.cpp/src/llama-mmap.cpp ./cpp/llama-mmap.cpp
-cp ./llama.cpp/src/llama-kv-cache.h ./cpp/llama-kv-cache.h
-cp ./llama.cpp/src/llama-kv-cache.cpp ./cpp/llama-kv-cache.cpp
 cp ./llama.cpp/src/llama-model-loader.h ./cpp/llama-model-loader.h
 cp ./llama.cpp/src/llama-model-loader.cpp ./cpp/llama-model-loader.cpp
+cp ./llama.cpp/src/llama-model-saver.h ./cpp/llama-model-saver.h
+cp ./llama.cpp/src/llama-model-saver.cpp ./cpp/llama-model-saver.cpp
 cp ./llama.cpp/src/llama-model.h ./cpp/llama-model.h
 cp ./llama.cpp/src/llama-model.cpp ./cpp/llama-model.cpp
+cp ./llama.cpp/src/llama-kv-cells.h ./cpp/llama-kv-cells.h
+cp ./llama.cpp/src/llama-kv-cache-unified.h ./cpp/llama-kv-cache-unified.h
+cp ./llama.cpp/src/llama-kv-cache-unified.cpp ./cpp/llama-kv-cache-unified.cpp
+cp ./llama.cpp/src/llama-kv-cache-unified-iswa.h ./cpp/llama-kv-cache-unified-iswa.h
+cp ./llama.cpp/src/llama-kv-cache-unified-iswa.cpp ./cpp/llama-kv-cache-unified-iswa.cpp
+cp ./llama.cpp/src/llama-memory-hybrid.h ./cpp/llama-memory-hybrid.h
+cp ./llama.cpp/src/llama-memory-hybrid.cpp ./cpp/llama-memory-hybrid.cpp
+cp ./llama.cpp/src/llama-memory-recurrent.h ./cpp/llama-memory-recurrent.h
+cp ./llama.cpp/src/llama-memory-recurrent.cpp ./cpp/llama-memory-recurrent.cpp
 cp ./llama.cpp/src/llama-adapter.h ./cpp/llama-adapter.h
 cp ./llama.cpp/src/llama-adapter.cpp ./cpp/llama-adapter.cpp
 cp ./llama.cpp/src/llama-arch.h ./cpp/llama-arch.h
@@ -111,63 +122,40 @@ cp ./llama.cpp/common/sampling.h ./cpp/sampling.h
 cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
 cp ./llama.cpp/common/json-schema-to-grammar.h ./cpp/json-schema-to-grammar.h
 cp ./llama.cpp/common/json-schema-to-grammar.cpp ./cpp/json-schema-to-grammar.cpp
-cp ./llama.cpp/common/json.hpp ./cpp/json.hpp
-
+cp ./llama.cpp/common/json-partial.h ./cpp/json-partial.h
+cp ./llama.cpp/common/json-partial.cpp ./cpp/json-partial.cpp
+cp ./llama.cpp/common/regex-partial.h ./cpp/regex-partial.h
+cp ./llama.cpp/common/regex-partial.cpp ./cpp/regex-partial.cpp
 cp ./llama.cpp/common/chat.h ./cpp/chat.h
 cp ./llama.cpp/common/chat.cpp ./cpp/chat.cpp
+cp ./llama.cpp/common/chat-parser.h ./cpp/chat-parser.h
+cp ./llama.cpp/common/chat-parser.cpp ./cpp/chat-parser.cpp
 
-cp ./llama.cpp/common/minja/minja.hpp ./cpp/minja/minja.hpp
-cp ./llama.cpp/common/minja/chat-template.hpp ./cpp/minja/chat-template.hpp
+# Copy multimodal files from tools/mtmd
+rm -rf ./cpp/tools/mtmd
+mkdir -p ./cpp/tools/mtmd
+cp ./llama.cpp/tools/mtmd/mtmd.h ./cpp/tools/mtmd/mtmd.h
+cp ./llama.cpp/tools/mtmd/mtmd.cpp ./cpp/tools/mtmd/mtmd.cpp
+cp ./llama.cpp/tools/mtmd/clip.h ./cpp/tools/mtmd/clip.h
+cp ./llama.cpp/tools/mtmd/clip.cpp ./cpp/tools/mtmd/clip.cpp
+cp ./llama.cpp/tools/mtmd/clip-impl.h ./cpp/tools/mtmd/clip-impl.h
+cp ./llama.cpp/tools/mtmd/mtmd-helper.cpp ./cpp/tools/mtmd/mtmd-helper.cpp
+cp ./llama.cpp/tools/mtmd/mtmd-helper.h ./cpp/tools/mtmd/mtmd-helper.h
+cp ./llama.cpp/tools/mtmd/mtmd-audio.h ./cpp/tools/mtmd/mtmd-audio.h
+cp ./llama.cpp/tools/mtmd/mtmd-audio.cpp ./cpp/tools/mtmd/mtmd-audio.cpp
+
+rm -rf ./cpp/minja
+rm -rf ./cpp/nlohmann
+cp -r ./llama.cpp/vendor/minja ./cpp/minja
+cp -r ./llama.cpp/vendor/nlohmann ./cpp/nlohmann
+rm -rf ./cpp/tools/mtmd/miniaudio
+rm -rf ./cpp/tools/mtmd/stb
+cp -r ./llama.cpp/vendor/miniaudio ./cpp/tools/mtmd/miniaudio
+cp -r ./llama.cpp/vendor/stb ./cpp/tools/mtmd/stb
 
 # List of files to process
 files_add_lm_prefix=(
-  "./cpp/llama-impl.h"
-  "./cpp/llama-impl.cpp"
-  "./cpp/llama-vocab.h"
-  "./cpp/llama-vocab.cpp"
-  "./cpp/llama-grammar.h"
-  "./cpp/llama-grammar.cpp"
-  "./cpp/llama-sampling.h"
-  "./cpp/llama-sampling.cpp"
-  "./cpp/llama-adapter.h"
-  "./cpp/llama-adapter.cpp"
-  "./cpp/llama-arch.h"
-  "./cpp/llama-arch.cpp"
-  "./cpp/llama-batch.h"
-  "./cpp/llama-batch.cpp"
-  "./cpp/llama-chat.h"
-  "./cpp/llama-chat.cpp"
-  "./cpp/llama-context.h"
-  "./cpp/llama-context.cpp"
-  "./cpp/llama-kv-cache.h"
-  "./cpp/llama-kv-cache.cpp"
-  "./cpp/llama-model-loader.h"
-  "./cpp/llama-model-loader.cpp"
-  "./cpp/llama-model.h"
-  "./cpp/llama-model.cpp"
-  "./cpp/llama-mmap.h"
-  "./cpp/llama-mmap.cpp"
-  "./cpp/llama-hparams.h"
-  "./cpp/llama-hparams.cpp"
-  "./cpp/llama-cparams.h"
-  "./cpp/llama-cparams.cpp"
-  "./cpp/llama-graph.h"
-  "./cpp/llama-graph.cpp"
-  "./cpp/llama-io.h"
-  "./cpp/llama-io.cpp"
-  "./cpp/llama-memory.h"
-  "./cpp/llama-memory.cpp"
-  "./cpp/log.h"
-  "./cpp/log.cpp"
-  "./cpp/llama.h"
-  "./cpp/llama.cpp"
-  "./cpp/sampling.cpp"
-  "./cpp/ggml-cpu/sgemm.h"
-  "./cpp/ggml-cpu/sgemm.cpp"
-  "./cpp/common.h"
-  "./cpp/common.cpp"
-  "./cpp/json-schema-to-grammar.h"
-  "./cpp/chat.cpp"
+  # ggml api
   "./cpp/ggml-common.h"
   "./cpp/ggml.h"
   "./cpp/ggml.c"
@@ -192,12 +180,13 @@ files_add_lm_prefix=(
   "./cpp/ggml-cpu/ggml-cpu-impl.h"
   "./cpp/ggml-cpu/ggml-cpu.c"
   "./cpp/ggml-cpu/ggml-cpu.cpp"
-  "./cpp/ggml-cpu/ggml-cpu-aarch64.h"
-  "./cpp/ggml-cpu/ggml-cpu-aarch64.cpp"
-  "./cpp/ggml-cpu/ggml-cpu-quants.h"
-  "./cpp/ggml-cpu/ggml-cpu-quants.c"
-  "./cpp/ggml-cpu/ggml-cpu-traits.h"
-  "./cpp/ggml-cpu/ggml-cpu-traits.cpp"
+  "./cpp/ggml-cpu/quants.h"
+  "./cpp/ggml-cpu/quants.c"
+  "./cpp/ggml-cpu/traits.h"
+  "./cpp/ggml-cpu/traits.cpp"
+  "./cpp/ggml-cpu/arch-fallback.h"
+  "./cpp/ggml-cpu/repack.cpp"
+  "./cpp/ggml-cpu/repack.h"
   "./cpp/ggml-cpu/common.h"
   "./cpp/ggml-threading.h"
   "./cpp/ggml-threading.cpp"
@@ -215,6 +204,83 @@ files_add_lm_prefix=(
   "./cpp/ggml-cpu/simd-mappings.h"
   "./cpp/ggml-cpu/ops.h"
   "./cpp/ggml-cpu/ops.cpp"
+  "./cpp/ggml-cpu/arch/arm/cpu-feats.cpp"
+  "./cpp/ggml-cpu/arch/arm/quants.c"
+  "./cpp/ggml-cpu/arch/arm/repack.cpp"
+  "./cpp/ggml-cpu/arch/x86/cpu-feats.cpp"
+  "./cpp/ggml-cpu/arch/x86/quants.c"
+  "./cpp/ggml-cpu/arch/x86/repack.cpp"
+
+  # llama api
+    "./cpp/llama-impl.h"
+  "./cpp/llama-impl.cpp"
+  "./cpp/llama-vocab.h"
+  "./cpp/llama-vocab.cpp"
+  "./cpp/llama-grammar.h"
+  "./cpp/llama-grammar.cpp"
+  "./cpp/llama-sampling.h"
+  "./cpp/llama-sampling.cpp"
+  "./cpp/llama-adapter.h"
+  "./cpp/llama-adapter.cpp"
+  "./cpp/llama-arch.h"
+  "./cpp/llama-arch.cpp"
+  "./cpp/llama-batch.h"
+  "./cpp/llama-batch.cpp"
+  "./cpp/llama-chat.h"
+  "./cpp/llama-chat.cpp"
+  "./cpp/llama-context.h"
+  "./cpp/llama-context.cpp"
+  "./cpp/llama-model-loader.h"
+  "./cpp/llama-model-loader.cpp"
+  "./cpp/llama-model-saver.h"
+  "./cpp/llama-model-saver.cpp"
+  "./cpp/llama-model.h"
+  "./cpp/llama-model.cpp"
+  "./cpp/llama-kv-cache-unified.h"
+  "./cpp/llama-kv-cache-unified.cpp"
+  "./cpp/llama-kv-cache-unified-iswa.h"
+  "./cpp/llama-kv-cache-unified-iswa.cpp"
+  "./cpp/llama-memory-hybrid.h"
+  "./cpp/llama-memory-hybrid.cpp"
+  "./cpp/llama-memory-recurrent.h"
+  "./cpp/llama-memory-recurrent.cpp"
+  "./cpp/llama-mmap.h"
+  "./cpp/llama-mmap.cpp"
+  "./cpp/llama-hparams.h"
+  "./cpp/llama-hparams.cpp"
+  "./cpp/llama-cparams.h"
+  "./cpp/llama-cparams.cpp"
+  "./cpp/llama-graph.h"
+  "./cpp/llama-graph.cpp"
+  "./cpp/llama-io.h"
+  "./cpp/llama-io.cpp"
+  "./cpp/llama-memory.h"
+  "./cpp/llama-memory.cpp"
+  "./cpp/log.h"
+  "./cpp/log.cpp"
+  "./cpp/llama.h"
+  "./cpp/llama.cpp"
+  "./cpp/sampling.cpp"
+  "./cpp/common.h"
+  "./cpp/common.cpp"
+  "./cpp/chat.h"
+  "./cpp/chat.cpp"
+  "./cpp/chat-parser.h"
+  "./cpp/chat-parser.cpp"
+  "./cpp/json-schema-to-grammar.h"
+  "./cpp/json-schema-to-grammar.cpp"
+  "./cpp/json-partial.h"
+  "./cpp/json-partial.cpp"
+
+  # Multimodal files
+  "./cpp/tools/mtmd/mtmd.h"
+  "./cpp/tools/mtmd/mtmd.cpp"
+  "./cpp/tools/mtmd/clip.h"
+  "./cpp/tools/mtmd/clip.cpp"
+  "./cpp/tools/mtmd/clip-impl.h"
+  "./cpp/tools/mtmd/mtmd-helper.cpp"
+  "./cpp/tools/mtmd/mtmd-audio.h"
+  "./cpp/tools/mtmd/mtmd-audio.cpp"
 )
 
 # Loop through each file and run the sed commands
@@ -227,12 +293,24 @@ for file in "${files_add_lm_prefix[@]}"; do
     sed -i '' 's/GGUF_/LM_GGUF_/g' $file
     sed -i '' 's/gguf_/lm_gguf_/g' $file
     sed -i '' 's/GGMLMetalClass/LMGGMLMetalClass/g' $file
+
+    # <nlohmann/json.hpp> -> "nlohmann/json.hpp"
+    sed -i '' 's/<nlohmann\/json.hpp>/"nlohmann\/json.hpp"/g' $file
+
+    # <nlohmann/json_fwd.hpp> -> "nlohmann/json_fwd.hpp"
+    sed -i '' 's/<nlohmann\/json_fwd.hpp>/"nlohmann\/json_fwd.hpp"/g' $file
   else
     sed -i 's/GGML_/LM_GGML_/g' $file
     sed -i 's/ggml_/lm_ggml_/g' $file
     sed -i 's/GGUF_/LM_GGUF_/g' $file
     sed -i 's/gguf_/lm_gguf_/g' $file
     sed -i 's/GGMLMetalClass/LMGGMLMetalClass/g' $file
+
+    # <nlohmann/json.hpp> -> "nlohmann/json.hpp"
+    sed -i 's/<nlohmann\/json.hpp>/"nlohmann\/json.hpp"/g' $file
+
+    # <nlohmann/json_fwd.hpp> -> "nlohmann/json_fwd.hpp"
+    sed -i 's/<nlohmann\/json_fwd.hpp>/"nlohmann\/json_fwd.hpp"/g' $file
   fi
 done
 
@@ -259,7 +337,7 @@ done
 
 echo "Replacement completed successfully!"
 
-yarn example
+cd example && npm install && cd ..
 
 # Apply patch
 patch -p0 -d ./cpp < ./scripts/patches/common.h.patch
@@ -271,6 +349,8 @@ patch -p0 -d ./cpp < ./scripts/patches/ggml-metal.m.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml-quants.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/llama-mmap.cpp.patch
+patch -p0 -d ./cpp/minja < ./scripts/patches/minja.hpp.patch
+patch -p0 -d ./cpp/minja < ./scripts/patches/chat-template.hpp.patch
 rm -rf ./cpp/*.orig
 
 if [ "$OS" = "Darwin" ]; then
@@ -298,4 +378,18 @@ if [ "$OS" = "Darwin" ]; then
   # Generate .xcode.env.local in iOS example
   cd example/ios
   echo export NODE_BINARY=$(command -v node) > .xcode.env.local
+
+  cd -
 fi
+
+# Get version info
+cd llama.cpp
+BUILD_NUMBER=$(git rev-list --count HEAD)
+BUILD_COMMIT=$(git rev-parse --short=7 HEAD)
+
+# Put to ../version.ts
+# clean up version.ts
+rm -f ../src/version.ts
+
+echo "export const BUILD_NUMBER = '$BUILD_NUMBER';" > ../src/version.ts
+echo "export const BUILD_COMMIT = '$BUILD_COMMIT';" >> ../src/version.ts

@@ -39,6 +39,8 @@ For get a GGUF model or quantize manually, see [`Prepare and Quantize`](https://
 
 ## Usage
 
+> **💡** You can find complete examples in the [example](example) project.
+
 Load model info only:
 
 ```js
@@ -106,21 +108,162 @@ console.log('Result:', textResult.text)
 console.log('Timings:', textResult.timings)
 ```
 
-The binding’s deisgn inspired by [server.cpp](https://github.com/ggerganov/llama.cpp/tree/master/examples/server) example in llama.cpp, so you can map its API to LlamaContext:
+The binding's deisgn inspired by [server.cpp](https://github.com/ggerganov/llama.cpp/tree/master/examples/server) example in llama.cpp:
 
 - `/completion` and `/chat/completions`: `context.completion(params, partialCompletionCallback)`
 - `/tokenize`: `context.tokenize(content)`
 - `/detokenize`: `context.detokenize(tokens)`
 - `/embedding`: `context.embedding(content)`
-- Other methods
-  - `context.loadSession(path)`
-  - `context.saveSession(path)`
-  - `context.stopCompletion()`
-  - `context.release()`
+- `/rerank`: `context.rerank(query, documents, params)`
+- ... Other methods
 
 Please visit the [Documentation](docs/API) for more details.
 
 You can also visit the [example](example) to see how to use it.
+
+## Multimodal (Vision & Audio)
+
+`llama.rn` supports multimodal capabilities including vision (images) and audio processing. This allows you to interact with models that can understand both text and media content.
+
+### Supported Media Formats
+
+**Images (Vision):**
+- JPEG, PNG, BMP, GIF, TGA, HDR, PIC, PNM
+- Base64 encoded images (data URLs)
+- Local file paths
+- \* Not supported HTTP URLs yet
+
+**Audio:**
+- WAV, MP3 formats
+- Base64 encoded audio (data URLs)
+- Local file paths
+- \* Not supported HTTP URLs yet
+
+### Setup
+
+First, you need a multimodal model and its corresponding multimodal projector (mmproj) file, see [how to obtain mmproj](https://github.com/ggml-org/llama.cpp/tree/master/tools/mtmd#how-to-obtain-mmproj) for more details.
+
+### Initialize Multimodal Support
+
+```js
+import { initLlama } from 'llama.rn'
+
+// First initialize the model context
+const context = await initLlama({
+  model: 'path/to/your/multimodal-model.gguf',
+  n_ctx: 4096,
+  n_gpu_layers: 99, // Recommended for multimodal models
+  // Important: Disable context shifting for multimodal
+  ctx_shift: false,
+})
+
+// Initialize multimodal support with mmproj file
+const success = await context.initMultimodal({
+  path: 'path/to/your/mmproj-model.gguf',
+  use_gpu: true, // Recommended for better performance
+})
+
+// Check if multimodal is enabled
+console.log('Multimodal enabled:', await context.isMultimodalEnabled())
+
+if (success) {
+  console.log('Multimodal support initialized!')
+
+  // Check what modalities are supported
+  const support = await context.getMultimodalSupport()
+  console.log('Vision support:', support.vision)
+  console.log('Audio support:', support.audio)
+} else {
+  console.log('Failed to initialize multimodal support')
+}
+
+// Release multimodal context
+await context.releaseMultimodal()
+```
+
+### Usage Examples
+
+#### Vision (Image Processing)
+
+```js
+const result = await context.completion({
+  messages: [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: 'What do you see in this image?',
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: 'file:///path/to/image.jpg',
+            // or base64: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD...'
+          },
+        },
+      ],
+    },
+  ],
+  n_predict: 100,
+  temperature: 0.1,
+})
+
+console.log('AI Response:', result.text)
+```
+
+#### Audio Processing
+
+```js
+// Method 1: Using structured message content (Recommended)
+const result = await context.completion({
+  messages: [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: 'Transcribe or describe this audio:',
+        },
+        {
+          type: 'input_audio',
+          input_audio: {
+            data: 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10...',
+            // or url: 'file:///path/to/audio.wav',
+            format: 'wav', // or 'mp3'
+          },
+        },
+      ],
+    },
+  ],
+  n_predict: 200,
+})
+
+console.log('Transcription:', result.text)
+```
+
+### Tokenization with Media
+
+```js
+// Tokenize text with media
+const tokenizeResult = await context.tokenize(
+  'Describe this image: <__media__>',
+  {
+    media_paths: ['file:///path/to/image.jpg']
+  }
+)
+
+console.log('Tokens:', tokenizeResult.tokens)
+console.log('Has media:', tokenizeResult.has_media)
+console.log('Media positions:', tokenizeResult.chunk_pos_media)
+```
+
+### Notes
+
+- **Context Shifting**: Multimodal models require `ctx_shift: false` to maintain media token positioning
+- **Memory**: Multimodal models require more memory; use adequate `n_ctx` and consider GPU offloading
+- **Media Markers**: The system automatically handles `<__media__>` markers in prompts. When using structured message content, media items are automatically replaced with this marker
+- **Model Compatibility**: Ensure your model supports the media type you're trying to process
 
 ## Tool Calling
 
@@ -244,6 +387,91 @@ console.log('Result:', text)
 
 Also, this is how `json_schema` works in `response_format` during completion, it converts the json_schema to gbnf grammar.
 
+## Session (State)
+
+The session file is a binary file that contains the state of the context, it can saves time of prompt processing.
+
+```js
+const context = await initLlama({ ...params })
+
+// After prompt processing or completion ...
+
+// Save the session
+await context.saveSession('<path to save session>')
+
+// Load the session
+await context.loadSession('<path to load session>')
+```
+
+### Notes
+
+- \* Session is currently not supported save state from multimodal context, so it only stores the text chunk before the first media chunk.
+
+## Embedding
+
+The embedding API is used to get the embedding of a text.
+
+```js
+const context = await initLlama({
+  ...params,
+  embedding: true,
+})
+
+const { embedding } = await context.embedding('Hello, world!')
+```
+
+- You can use model like [nomic-ai/nomic-embed-text-v1.5-GGUF](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF) for better embedding quality.
+- You can use DB like [op-sqlite](https://github.com/OP-Engineering/op-sqlite) with sqlite-vec support to store and search embeddings.
+
+## Rerank
+
+The rerank API is used to rank documents based on their relevance to a query. This is particularly useful for improving search results and implementing retrieval-augmented generation (RAG) systems.
+
+```js
+const context = await initLlama({
+  ...params,
+  embedding: true, // Required for reranking
+  pooling_type: 'rank', // Use rank pooling for rerank models
+})
+
+// Rerank documents based on relevance to query
+const results = await context.rerank(
+  'What is artificial intelligence?', // query
+  [
+    'AI is a branch of computer science.',
+    'The weather is nice today.',
+    'Machine learning is a subset of AI.',
+    'I like pizza.',
+  ], // documents to rank
+  {
+    normalize: 1, // Optional: normalize scores (default: from model config)
+  }
+)
+
+// Results are automatically sorted by score (highest first)
+results.forEach((result, index) => {
+  console.log(`Rank ${index + 1}:`, {
+    score: result.score,
+    document: result.document,
+    originalIndex: result.index,
+  })
+})
+```
+
+### Notes
+
+- **Model Requirements**: Reranking requires models with `RANK` pooling type (e.g., reranker models)
+- **Embedding Enabled**: The context must have `embedding: true` to use rerank functionality
+- **Automatic Sorting**: Results are returned sorted by relevance score in descending order
+- **Document Access**: Each result includes the original document text and its index in the input array
+- **Score Interpretation**: Higher scores indicate higher relevance to the query
+
+### Recommended Models
+
+- [jinaai - jina-reranker-v2-base-multilingual-GGUF](https://huggingface.co/gpustack/jina-reranker-v2-base-multilingual-GGUF)
+- [BAAI - bge-reranker-v2-m3-GGUF](https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF)
+- Other models with "rerank" or "reranker" in their name and GGUF format
+
 ## Mock `llama.rn`
 
 We have provided a mock version of `llama.rn` for testing purpose you can use on Jest:
@@ -256,7 +484,7 @@ jest.mock('llama.rn', () => require('llama.rn/jest/mock'))
 
 iOS:
 
-- The [Extended Virtual Addressing](https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_developer_kernel_extended-virtual-addressing) capability is recommended to enable on iOS project.
+- The [Extended Virtual Addressing](https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_developer_kernel_extended-virtual-addressing) and [Increased Memory Limit](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.kernel.increased-memory-limit?language=objc) capabilities are recommended to enable on iOS project.
 - Metal:
   - We have tested to know some devices is not able to use Metal (GPU) due to llama.cpp used SIMD-scoped operation, you can check if your device is supported in [Metal feature set tables](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf), Apple7 GPU will be the minimum requirement.
   - It's also not supported in iOS simulator due to [this limitation](https://developer.apple.com/documentation/metal/developing_metal_apps_that_run_in_simulator#3241609), we used constant buffers more than 14.

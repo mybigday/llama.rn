@@ -3,6 +3,8 @@ const { NativeModules, DeviceEventEmitter } = require('react-native')
 if (!NativeModules.RNLlama) {
   const demoEmbedding = new Array(768).fill(0.01)
 
+  const contextMap = {}
+  const vocoderMap = {}
   NativeModules.RNLlama = {
     setContextLimit: jest.fn(),
 
@@ -37,15 +39,25 @@ if (!NativeModules.RNLlama) {
       }),
     ),
 
-    getFormattedChat: jest.fn(async (messages, chatTemplate, options) => {
-      if (options.jinja) {
-        return { prompt: '', chat_format: 0 }
-      }
-      return ''
-    }),
+    getFormattedChat: jest.fn(
+      async (contextId, messagesStr, chatTemplate, options) => {
+        const messages = JSON.parse(messagesStr)
+        const fullPrompt = (messages || [])
+          .map((m) => `${m.role}: ${JSON.stringify(m.content)}`)
+          .join('\n')
+        if (options.jinja) {
+          return { type: 'jinja', prompt: fullPrompt, chat_format: 0 }
+        }
+        return { type: 'llama-chat', prompt: fullPrompt }
+      },
+    ),
 
     completion: jest.fn(async (contextId, jobId) => {
       const testResult = {
+        audio_tokens: [
+          1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010,
+        ],
+        content: '*giggles*',
         text: '*giggles*',
         completion_probabilities: [
           {
@@ -176,9 +188,16 @@ if (!NativeModules.RNLlama) {
 
     stopCompletion: jest.fn(),
 
-    tokenize: jest.fn(async (_, content) => ({ tokens: content.split('') })),
+    tokenize: jest.fn(async (_, content, imagePaths) => ({
+      tokens: content.split(''),
+      has_images: imagePaths?.length > 0,
+      chunk_pos: imagePaths?.length > 0 ? [0] : [],
+      chunk_pos_images: imagePaths?.length > 0 ? [0] : [],
+      bitmap_hashes: imagePaths?.length > 0 ? [0] : [],
+    })),
     detokenize: jest.fn(async () => ''),
     embedding: jest.fn(async () => ({ embedding: demoEmbedding })),
+    rerank: jest.fn(async () => []),
 
     loadSession: jest.fn(async () => ({
       tokens_loaded: 1,
@@ -197,6 +216,39 @@ if (!NativeModules.RNLlama) {
     // For NativeEventEmitter
     addListener: jest.fn(),
     removeListeners: jest.fn(),
+
+    applyLoraAdapters: jest.fn(async () => {}),
+    removeLoraAdapters: jest.fn(async () => {}),
+    getLoadedLoraAdapters: jest.fn(async () => []),
+
+    initMultimodal: jest.fn(async (id) => {
+      contextMap[id] = true
+      return true
+    }),
+    isMultimodalEnabled: jest.fn(async (id) => contextMap[id] || false),
+    releaseMultimodal: jest.fn(async (id) => {
+      delete contextMap[id]
+    }),
+
+    initVocoder: jest.fn(async (id) => {
+      vocoderMap[id] = true
+      return true
+    }),
+    releaseVocoder: jest.fn(async (id) => {
+      delete vocoderMap[id]
+    }),
+    isVocoderEnabled: jest.fn(async (id) => vocoderMap[id] || false),
+    getFormattedAudioCompletion: jest.fn(
+      async (id, speakerJsonStr, textToSpeak) => ({
+        prompt: `${speakerJsonStr || '<default speaker>'}<sep>${textToSpeak}`,
+      }),
+    ),
+    getAudioCompletionGuideTokens: jest.fn(async (id, textToSpeak) =>
+      textToSpeak.split('').map((char) => char.charCodeAt(0) + 1000),
+    ),
+    decodeAudioTokens: jest.fn(async (id, tokens) =>
+      tokens.map((token) => token - 1000).map((token) => token / 1024),
+    ),
   }
 }
 

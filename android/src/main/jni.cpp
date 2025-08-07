@@ -8,6 +8,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <nlohmann/json.hpp>
 #include "json-schema-to-grammar.h"
 #include "llama.h"
 #include "llama-impl.h"
@@ -223,7 +224,6 @@ Java_com_rnllama_LlamaContext_initContext(
     jobject thiz,
     jstring model_path_str,
     jstring chat_template,
-    jstring reasoning_format,
     jboolean embedding,
     jint embd_normalize,
     jint n_ctx,
@@ -244,6 +244,8 @@ Java_com_rnllama_LlamaContext_initContext(
     jfloat rope_freq_scale,
     jint pooling_type,
     jboolean ctx_shift,
+    jboolean kv_unified,
+    jboolean swa_full,
     jobject load_progress_callback
 ) {
     UNUSED(thiz);
@@ -261,17 +263,12 @@ Java_com_rnllama_LlamaContext_initContext(
     const char *chat_template_chars = env->GetStringUTFChars(chat_template, nullptr);
     defaultParams.chat_template = chat_template_chars;
 
-    const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
-    if (strcmp(reasoning_format_chars, "deepseek") == 0) {
-        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
-    } else {
-        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_NONE;
-    }
-
     defaultParams.n_ctx = n_ctx;
     defaultParams.n_batch = n_batch;
     defaultParams.n_ubatch = n_ubatch;
     defaultParams.ctx_shift = ctx_shift;
+    defaultParams.kv_unified = kv_unified;
+    defaultParams.swa_full = swa_full;
 
     if (pooling_type != -1) {
         defaultParams.pooling_type = static_cast<enum llama_pooling_type>(pooling_type);
@@ -294,10 +291,22 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.n_gpu_layers = n_gpu_layers;
     defaultParams.flash_attn = flash_attn;
 
-    const char *cache_type_k_chars = env->GetStringUTFChars(cache_type_k, nullptr);
-    const char *cache_type_v_chars = env->GetStringUTFChars(cache_type_v, nullptr);
-    defaultParams.cache_type_k = rnllama::kv_cache_type_from_str(cache_type_k_chars);
-    defaultParams.cache_type_v = rnllama::kv_cache_type_from_str(cache_type_v_chars);
+    const char *cache_type_k_chars = nullptr;
+    const char *cache_type_v_chars = nullptr;
+    
+    if (cache_type_k) {
+        cache_type_k_chars = env->GetStringUTFChars(cache_type_k, nullptr);
+        if (cache_type_k_chars) {
+            defaultParams.cache_type_k = rnllama::kv_cache_type_from_str(cache_type_k_chars);
+        }
+    }
+    
+    if (cache_type_v) {
+        cache_type_v_chars = env->GetStringUTFChars(cache_type_v, nullptr);
+        if (cache_type_v_chars) {
+            defaultParams.cache_type_v = rnllama::kv_cache_type_from_str(cache_type_v_chars);
+        }
+    }
 
     defaultParams.use_mlock = use_mlock;
     defaultParams.use_mmap = use_mmap;
@@ -336,9 +345,8 @@ Java_com_rnllama_LlamaContext_initContext(
 
     env->ReleaseStringUTFChars(model_path_str, model_path_chars);
     env->ReleaseStringUTFChars(chat_template, chat_template_chars);
-    env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
-    env->ReleaseStringUTFChars(cache_type_k, cache_type_k_chars);
-    env->ReleaseStringUTFChars(cache_type_v, cache_type_v_chars);
+    if (cache_type_k_chars) env->ReleaseStringUTFChars(cache_type_k, cache_type_k_chars);
+    if (cache_type_v_chars) env->ReleaseStringUTFChars(cache_type_v, cache_type_v_chars);
 
     LOGI("[RNLlama] is_model_loaded %s", (is_model_loaded ? "true" : "false"));
     if (is_model_loaded) {
@@ -416,7 +424,7 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
     for (int i = 0; i < count; i++) {
         char key[256];
         llama_model_meta_key_by_index(llama->model, i, key, sizeof(key));
-        char val[4096];
+        char val[16384];  // gpt-oss's chat template is 12kb 
         llama_model_meta_val_str_by_index(llama->model, i, val, sizeof(val));
 
         putString(env, meta, key, val);
@@ -483,7 +491,11 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     jstring json_schema,
     jstring tools,
     jboolean parallel_tool_calls,
-    jstring tool_choice
+    jstring tool_choice,
+    jboolean enable_thinking,
+    jboolean add_generation_prompt,
+    jstring now_str,
+    jstring chat_template_kwargs
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
@@ -493,6 +505,22 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     const char *json_schema_chars = env->GetStringUTFChars(json_schema, nullptr);
     const char *tools_chars = env->GetStringUTFChars(tools, nullptr);
     const char *tool_choice_chars = env->GetStringUTFChars(tool_choice, nullptr);
+    const char *now_chars = env->GetStringUTFChars(now_str, nullptr);
+    const char *kwargs_chars = env->GetStringUTFChars(chat_template_kwargs, nullptr);
+
+    std::map<std::string, std::string> kwargs_map;
+    if (strlen(kwargs_chars) > 0) {
+        try {
+            auto kwargs_json = json::parse(kwargs_chars);
+            for (auto& [key, value] : kwargs_json.items()) {
+                if (value.is_string()) {
+                    kwargs_map[key] = value.get<std::string>();
+                }
+            }
+        } catch (...) {
+            // Ignore JSON parsing errors for kwargs
+        }
+    }
 
     auto result = createWriteableMap(env);
     try {
@@ -502,7 +530,11 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
             json_schema_chars,
             tools_chars,
             parallel_tool_calls,
-            tool_choice_chars
+            tool_choice_chars,
+            enable_thinking,
+            add_generation_prompt,
+            now_chars,
+            kwargs_map
         );
         putString(env, result, "prompt", formatted.prompt.c_str());
         putInt(env, result, "chat_format", static_cast<int>(formatted.format));
@@ -516,6 +548,7 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
             putInt(env, trigger_map, "token", trigger.token);
             pushMap(env, grammar_triggers, trigger_map);
         }
+        putBoolean(env, result, "thinking_forced_open", formatted.thinking_forced_open);
         putArray(env, result, "grammar_triggers", grammar_triggers);
         auto preserved_tokens = createWritableArray(env);
         for (const auto &token : formatted.preserved_tokens) {
@@ -527,15 +560,23 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
             pushString(env, additional_stops, stop.c_str());
         }
         putArray(env, result, "additional_stops", additional_stops);
+    } catch (const nlohmann::json_abi_v3_12_0::detail::parse_error& e) {
+        std::string errorMessage = "JSON parse error in getFormattedChat: " + std::string(e.what());
+        putString(env, result, "_error", errorMessage.c_str());
+        LOGI("[RNLlama] %s", errorMessage.c_str());
     } catch (const std::runtime_error &e) {
-        LOGI("[RNLlama] Error: %s", e.what());
         putString(env, result, "_error", e.what());
+        LOGI("[RNLlama] Error: %s", e.what());
+    } catch (...) {
+        putString(env, result, "_error", "Unknown error in getFormattedChat");
     }
     env->ReleaseStringUTFChars(tools, tools_chars);
     env->ReleaseStringUTFChars(messages, messages_chars);
     env->ReleaseStringUTFChars(chat_template, tmpl_chars);
     env->ReleaseStringUTFChars(json_schema, json_schema_chars);
     env->ReleaseStringUTFChars(tool_choice, tool_choice_chars);
+    env->ReleaseStringUTFChars(now_str, now_chars);
+    env->ReleaseStringUTFChars(chat_template_kwargs, kwargs_chars);
     return reinterpret_cast<jobject>(result);
 }
 
@@ -584,6 +625,12 @@ Java_com_rnllama_LlamaContext_loadSession(
     llama->embd.resize(n_token_count_out);
     env->ReleaseStringUTFChars(path, path_chars);
 
+    // Find LLAMA_TOKEN_NULL in the tokens and resize the array to the index of the null token
+    auto null_token_iter = std::find(llama->embd.begin(), llama->embd.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != llama->embd.end()) {
+        llama->embd.resize(std::distance(llama->embd.begin(), null_token_iter));
+    }
+
     const std::string text = rnllama::tokens_to_str(llama->ctx, llama->embd.cbegin(), llama->embd.cend());
     putInt(env, result, "tokens_loaded", n_token_count_out);
     putString(env, result, "prompt", text.c_str());
@@ -604,6 +651,13 @@ Java_com_rnllama_LlamaContext_saveSession(
     const char *path_chars = env->GetStringUTFChars(path, nullptr);
 
     std::vector<llama_token> session_tokens = llama->embd;
+
+    // Find LLAMA_TOKEN_NULL in the tokens and resize the array to the index of the null token
+    auto null_token_iter = std::find(session_tokens.begin(), session_tokens.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != session_tokens.end()) {
+        session_tokens.resize(std::distance(session_tokens.begin(), null_token_iter));
+    }
+
     int default_size = session_tokens.size();
     int save_size = size > 0 && size <= default_size ? size : default_size;
     if (!llama_state_save_file(llama->ctx, path_chars, session_tokens.data(), save_size)) {
@@ -639,18 +693,33 @@ static inline jobject tokenProbsToMap(
     return result;
 }
 
+static inline jobject tokensToArray(
+    JNIEnv *env,
+    rnllama::llama_rn_context *llama,
+    std::vector<llama_token> tokens
+) {
+    auto result = createWritableArray(env);
+    for (const auto &token : tokens) {
+        pushInt(env, result, token);
+    }
+    return result;
+}
+
 JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_doCompletion(
     JNIEnv *env,
     jobject thiz,
     jlong context_ptr,
     jstring prompt,
+    jintArray guide_tokens,
     jint chat_format,
+    jstring reasoning_format,
     jstring grammar,
     jstring json_schema,
     jboolean grammar_lazy,
     jobject grammar_triggers,
     jobject preserved_tokens,
+    jboolean thinking_forced_open,
     jfloat temperature,
     jint n_threads,
     jint n_predict,
@@ -678,6 +747,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jint dry_penalty_last_n,
     jfloat top_n_sigma,
     jobjectArray dry_sequence_breakers,
+    jobjectArray media_paths,
     jobject partial_completion_callback
 ) {
     UNUSED(thiz);
@@ -687,8 +757,44 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     //llama_reset_timings(llama->ctx);
 
-    auto prompt_chars = env->GetStringUTFChars(prompt, nullptr);
+    const char *prompt_chars = env->GetStringUTFChars(prompt, nullptr);
+
+    // Set the prompt parameter
     llama->params.prompt = prompt_chars;
+
+    // Set the guide tokens parameter
+    if (guide_tokens != nullptr) {
+        int guide_tokens_size = env->GetArrayLength(guide_tokens);
+        int *guide_tokens_array = env->GetIntArrayElements(guide_tokens, nullptr);
+        std::vector<llama_token> guide_tokens_vector(guide_tokens_size);
+        for (int i = 0; i < guide_tokens_size; i++) {
+            guide_tokens_vector[i] = guide_tokens_array[i];
+        }
+        env->ReleaseIntArrayElements(guide_tokens, guide_tokens_array, 0);
+        llama->setGuideTokens(guide_tokens_vector);
+    }
+
+    // Process image paths if provided
+    std::vector<std::string> media_paths_vector;
+
+    jint media_paths_size = env->GetArrayLength(media_paths);
+    if (media_paths_size > 0) {
+        // Check if multimodal is enabled
+        if (!llama->isMultimodalEnabled()) {
+            auto result = createWriteableMap(env);
+            putString(env, result, "error", "Multimodal support not enabled. Call initMultimodal first.");
+            env->ReleaseStringUTFChars(prompt, prompt_chars);
+            return reinterpret_cast<jobject>(result);
+        }
+
+        for (jint i = 0; i < media_paths_size; i++) {
+            jstring image_path = (jstring) env->GetObjectArrayElement(media_paths, i);
+            const char *image_path_chars = env->GetStringUTFChars(image_path, nullptr);
+            media_paths_vector.push_back(image_path_chars);
+            env->ReleaseStringUTFChars(image_path, image_path_chars);
+        }
+    }
+
     llama->params.sampling.seed = (seed == -1) ? time(NULL) : seed;
 
     int max_threads = std::thread::hardware_concurrency();
@@ -845,10 +951,24 @@ Java_com_rnllama_LlamaContext_doCompletion(
         putString(env, result, "error", "Failed to initialize sampling");
         return reinterpret_cast<jobject>(result);
     }
+
     llama->beginCompletion();
-    llama->loadPrompt();
+    try {
+        llama->loadPrompt(media_paths_vector);
+    } catch (const std::exception &e) {
+        llama->endCompletion();
+        auto result = createWriteableMap(env);
+        putString(env, result, "error", e.what());
+        return reinterpret_cast<jobject>(result);
+    } catch (const std::runtime_error& e) {
+        llama->endCompletion();
+        auto result = createWriteableMap(env);
+        putString(env, result, "error", e.what());
+        return reinterpret_cast<jobject>(result);
+    }
 
     if (llama->context_full) {
+        llama->endCompletion();
         auto result = createWriteableMap(env);
         putString(env, result, "error", "Context is full");
         return reinterpret_cast<jobject>(result);
@@ -915,9 +1035,14 @@ Java_com_rnllama_LlamaContext_doCompletion(
     }
 
     env->ReleaseStringUTFChars(grammar, grammar_chars);
-    env->ReleaseStringUTFChars(prompt, prompt_chars);
+
+    // Release prompt_chars if it's still allocated
+    if (prompt_chars != nullptr) {
+        env->ReleaseStringUTFChars(prompt, prompt_chars);
+    }
+
     llama_perf_context_print(llama->ctx);
-    llama->is_predicting = false;
+    llama->endCompletion();
 
     auto toolCalls = createWritableArray(env);
     std::string reasoningContent = "";
@@ -925,7 +1050,26 @@ Java_com_rnllama_LlamaContext_doCompletion(
     auto toolCallsSize = 0;
     if (!llama->is_interrupted) {
         try {
-            common_chat_msg message = common_chat_parse(llama->generated_text, static_cast<common_chat_format>(chat_format));
+            common_chat_syntax chat_syntax;
+            chat_syntax.format = static_cast<common_chat_format>(chat_format);
+
+            const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
+            if (strcmp(reasoning_format_chars, "deepseek") == 0) {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+            } else if (strcmp(reasoning_format_chars, "deepseek-legacy") == 0) {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY;
+            } else if (strcmp(reasoning_format_chars, "auto") == 0) {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
+            } else {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
+            }
+            chat_syntax.thinking_forced_open = thinking_forced_open;
+            env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
+            common_chat_msg message = common_chat_parse(
+              llama->generated_text,
+              false,
+              chat_syntax
+            );
             if (!message.reasoning_content.empty()) {
                 reasoningContent = message.reasoning_content;
             }
@@ -944,11 +1088,12 @@ Java_com_rnllama_LlamaContext_doCompletion(
                 toolCallsSize++;
             }
         } catch (const std::exception &e) {
-            // LOGI("Error parsing tool calls: %s", e.what());
+        } catch (...) {
         }
     }
 
     auto result = createWriteableMap(env);
+    putInt(env, result, "chat_format", chat_format);
     putString(env, result, "text", llama->generated_text.c_str());
     if (!content.empty()) {
         putString(env, result, "content", content.c_str());
@@ -959,11 +1104,13 @@ Java_com_rnllama_LlamaContext_doCompletion(
     if (toolCallsSize > 0) {
         putArray(env, result, "tool_calls", toolCalls);
     }
+    putArray(env, result, "audio_tokens", tokensToArray(env, llama, llama->audio_tokens));
     putArray(env, result, "completion_probabilities", tokenProbsToMap(env, llama, llama->generated_token_probs));
     putInt(env, result, "tokens_predicted", llama->num_tokens_predicted);
     putInt(env, result, "tokens_evaluated", llama->num_prompt_tokens);
     putInt(env, result, "truncated", llama->truncated);
     putBoolean(env, result, "context_full", llama->context_full);
+    putBoolean(env, result, "interrupted", llama->is_interrupted);
     putInt(env, result, "stopped_eos", llama->stopped_eos);
     putInt(env, result, "stopped_word", llama->stopped_word);
     putInt(env, result, "stopped_limit", llama->stopped_limit);
@@ -1007,22 +1154,47 @@ Java_com_rnllama_LlamaContext_isPredicting(
 
 JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_tokenize(
-        JNIEnv *env, jobject thiz, jlong context_ptr, jstring text) {
+        JNIEnv *env, jobject thiz, jlong context_ptr, jstring text, jobjectArray media_paths) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
 
     const char *text_chars = env->GetStringUTFChars(text, nullptr);
-
-    const std::vector<llama_token> toks = common_tokenize(
-        llama->ctx,
-        text_chars,
-        false
-    );
-
-    jobject result = createWritableArray(env);
-    for (const auto &tok : toks) {
-      pushInt(env, result, tok);
+    std::vector<std::string> media_paths_vector;
+    for (int i = 0; i < env->GetArrayLength(media_paths); i++) {
+        jstring image_path = (jstring) env->GetObjectArrayElement(media_paths, i);
+        const char *image_path_chars = env->GetStringUTFChars(image_path, nullptr);
+        media_paths_vector.push_back(image_path_chars);
+        env->ReleaseStringUTFChars(image_path, image_path_chars);
     }
+    auto tokenize_result = llama->tokenize(text_chars, media_paths_vector);
+
+    auto result = createWriteableMap(env);
+
+    auto tokens = createWritableArray(env);
+    for (const auto &tok : tokenize_result.tokens) {
+      pushInt(env, tokens, tok);
+    }
+    putArray(env, result, "tokens", tokens);
+
+    putBoolean(env, result, "has_media", tokenize_result.has_media);
+
+    auto bitmap_hashes = createWritableArray(env);
+    for (const auto &hash : tokenize_result.bitmap_hashes) {
+      pushString(env, bitmap_hashes, hash.c_str());
+    }
+    putArray(env, result, "bitmap_hashes", bitmap_hashes);
+
+    auto chunk_pos = createWritableArray(env);
+    for (const auto &pos : tokenize_result.chunk_pos) {
+      pushInt(env, chunk_pos, pos);
+    }
+    putArray(env, result, "chunk_pos", chunk_pos);
+
+    auto chunk_pos_media = createWritableArray(env);
+    for (const auto &pos : tokenize_result.chunk_pos_media) {
+      pushInt(env, chunk_pos_media, pos);
+    }
+    putArray(env, result, "chunk_pos_media", chunk_pos_media);
 
     env->ReleaseStringUTFChars(text, text_chars);
     return result;
@@ -1091,7 +1263,15 @@ Java_com_rnllama_LlamaContext_embedding(
     }
 
     llama->beginCompletion();
-    llama->loadPrompt();
+    try {
+        llama->loadPrompt({});
+    } catch (const std::exception &e) {
+        putString(env, result, "error", e.what());
+        return reinterpret_cast<jobject>(result);
+    } catch (const std::runtime_error& e) {
+        putString(env, result, "error", e.what());
+        return reinterpret_cast<jobject>(result);
+    }
     llama->doCompletion();
 
     std::vector<float> embedding = llama->getEmbedding(embdParams);
@@ -1109,6 +1289,54 @@ Java_com_rnllama_LlamaContext_embedding(
     putArray(env, result, "prompt_tokens", promptTokens);
 
     env->ReleaseStringUTFChars(text, text_chars);
+    return result;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_rerank(
+        JNIEnv *env, jobject thiz,
+        jlong context_ptr,
+        jstring query,
+        jobjectArray documents,
+        jint normalize
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *query_chars = env->GetStringUTFChars(query, nullptr);
+
+    // Convert Java string array to C++ vector
+    std::vector<std::string> documents_vector;
+    int documents_size = env->GetArrayLength(documents);
+    for (int i = 0; i < documents_size; i++) {
+        jstring document = (jstring) env->GetObjectArrayElement(documents, i);
+        const char *document_chars = env->GetStringUTFChars(document, nullptr);
+        documents_vector.push_back(document_chars);
+        env->ReleaseStringUTFChars(document, document_chars);
+    }
+
+    auto result = createWritableArray(env);
+
+    try {
+        std::vector<float> scores = llama->rerank(query_chars, documents_vector);
+
+        for (size_t i = 0; i < scores.size(); i++) {
+            auto item = createWriteableMap(env);
+            putDouble(env, item, "score", (double) scores[i]);
+            putInt(env, item, "index", (int) i);
+            pushMap(env, result, item);
+        }
+    } catch (const std::exception &e) {
+        auto error_item = createWriteableMap(env);
+        putString(env, error_item, "error", e.what());
+        pushMap(env, result, error_item);
+    } catch (const std::runtime_error& e) {
+        auto error_item = createWriteableMap(env);
+        putString(env, error_item, "error", e.what());
+        pushMap(env, result, error_item);
+    }
+
+    env->ReleaseStringUTFChars(query, query_chars);
     return result;
 }
 
@@ -1258,6 +1486,182 @@ Java_com_rnllama_LlamaContext_unsetLog(JNIEnv *env, jobject thiz) {
     UNUSED(env);
     UNUSED(thiz);
     llama_log_set(rnllama_log_callback_default, NULL);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_rnllama_LlamaContext_initMultimodal(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring mmproj_path,
+    jboolean mmproj_use_gpu
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *mmproj_path_chars = env->GetStringUTFChars(mmproj_path, nullptr);
+    bool result = llama->initMultimodal(mmproj_path_chars, mmproj_use_gpu);
+    env->ReleaseStringUTFChars(mmproj_path, mmproj_path_chars);
+
+    return result;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_rnllama_LlamaContext_isMultimodalEnabled(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    return llama->isMultimodalEnabled();
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_getMultimodalSupport(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    auto result = createWriteableMap(env);
+    putBoolean(env, result, "vision", llama->isMultimodalSupportVision());
+    putBoolean(env, result, "audio", llama->isMultimodalSupportAudio());
+    return result;
+}
+
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_releaseMultimodal(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    llama->releaseMultimodal();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_rnllama_LlamaContext_initVocoder(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring vocoder_model_path,
+    jint batch_size
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    const char *vocoder_model_path_chars = env->GetStringUTFChars(vocoder_model_path, nullptr);
+    bool result = llama->initVocoder(vocoder_model_path_chars, batch_size);
+    env->ReleaseStringUTFChars(vocoder_model_path, vocoder_model_path_chars);
+    return result;
+}
+
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_releaseVocoder(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    llama->releaseVocoder();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_rnllama_LlamaContext_isVocoderEnabled(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    return llama->isVocoderEnabled();
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_getFormattedAudioCompletion(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring speaker_json_str,
+    jstring text_to_speak
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    const char *speaker_json_str_chars = env->GetStringUTFChars(speaker_json_str, nullptr);
+    const char *text_to_speak_chars = env->GetStringUTFChars(text_to_speak, nullptr);
+
+    auto result = createWriteableMap(env);
+    try {
+        auto audio_result = llama->getFormattedAudioCompletion(speaker_json_str_chars, text_to_speak_chars);
+        putString(env, result, "prompt", audio_result.prompt.c_str());
+        if (audio_result.grammar != nullptr) {
+            putString(env, result, "grammar", audio_result.grammar);
+        }
+    } catch (const std::exception &e) {
+        env->ReleaseStringUTFChars(speaker_json_str, speaker_json_str_chars);
+        env->ReleaseStringUTFChars(text_to_speak, text_to_speak_chars);
+        jclass exceptionClass = env->FindClass("java/lang/RuntimeException");
+        env->ThrowNew(exceptionClass, e.what());
+        return nullptr;
+    }
+
+    env->ReleaseStringUTFChars(speaker_json_str, speaker_json_str_chars);
+    env->ReleaseStringUTFChars(text_to_speak, text_to_speak_chars);
+    return result;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_getAudioCompletionGuideTokens(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring text_to_speak
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    const char *text_to_speak_chars = env->GetStringUTFChars(text_to_speak, nullptr);
+    std::vector<llama_token> guide_tokens = llama->getAudioCompletionGuideTokens(text_to_speak_chars);
+    env->ReleaseStringUTFChars(text_to_speak, text_to_speak_chars);
+    auto result = createWritableArray(env);
+    for (const auto &val : guide_tokens) {
+        pushInt(env, result, (int) val);
+    }
+    return result;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_decodeAudioTokens(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jintArray tokens
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    jsize tokens_size = env->GetArrayLength(tokens);
+    jint *tokens_ptr = env->GetIntArrayElements(tokens, nullptr);
+    std::vector<llama_token> tokens_vec(tokens_size);
+    for (int i = 0; i < tokens_size; i++) {
+        tokens_vec[i] = tokens_ptr[i];
+    }
+    env->ReleaseIntArrayElements(tokens, tokens_ptr, 0);
+    std::vector<float> audio = llama->decodeAudioTokens(tokens_vec);
+    auto result = createWritableArray(env);
+    for (const auto &val : audio) {
+      pushDouble(env, result, (double) val);
+    }
+    return result;
 }
 
 } // extern "C"

@@ -56,7 +56,7 @@ size_t lm_ggml_backend_buft_get_max_size(lm_ggml_backend_buffer_type_t buft) {
     return SIZE_MAX;
 }
 
-size_t lm_ggml_backend_buft_get_alloc_size(lm_ggml_backend_buffer_type_t buft, struct lm_ggml_tensor * tensor) {
+size_t lm_ggml_backend_buft_get_alloc_size(lm_ggml_backend_buffer_type_t buft, const struct lm_ggml_tensor * tensor) {
     // get_alloc_size is optional, defaults to lm_ggml_nbytes
     if (buft->iface.get_alloc_size) {
         size_t size = buft->iface.get_alloc_size(buft, tensor);
@@ -152,7 +152,7 @@ size_t lm_ggml_backend_buffer_get_max_size(lm_ggml_backend_buffer_t buffer) {
     return lm_ggml_backend_buft_get_max_size(lm_ggml_backend_buffer_get_type(buffer));
 }
 
-size_t lm_ggml_backend_buffer_get_alloc_size(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor) {
+size_t lm_ggml_backend_buffer_get_alloc_size(lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * tensor) {
     return lm_ggml_backend_buft_get_alloc_size(lm_ggml_backend_buffer_get_type(buffer), tensor);
 }
 
@@ -351,21 +351,6 @@ lm_ggml_backend_dev_t lm_ggml_backend_get_device(lm_ggml_backend_t backend) {
 }
 
 // backend copy
-
-static bool lm_ggml_are_same_layout(const struct lm_ggml_tensor * a, const struct lm_ggml_tensor * b) {
-    if (a->type != b->type) {
-        return false;
-    }
-    for (int i = 0; i < LM_GGML_MAX_DIMS; i++) {
-        if (a->ne[i] != b->ne[i]) {
-            return false;
-        }
-        if (a->nb[i] != b->nb[i]) {
-            return false;
-        }
-    }
-    return true;
-}
 
 void lm_ggml_backend_tensor_copy(struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst) {
     LM_GGML_ASSERT(lm_ggml_are_same_layout(src, dst) && "cannot copy tensors with different layouts");
@@ -662,6 +647,7 @@ struct lm_ggml_backend_sched {
     // pipeline parallelism support
     int n_copies;
     int cur_copy;
+    int next_copy;
     lm_ggml_backend_event_t events[LM_GGML_SCHED_MAX_BACKENDS][LM_GGML_SCHED_MAX_COPIES];
     struct lm_ggml_tensor * graph_inputs[LM_GGML_SCHED_MAX_SPLIT_INPUTS];
     int n_graph_inputs;
@@ -673,6 +659,8 @@ struct lm_ggml_backend_sched {
 
     char * context_buffer;
     size_t context_buffer_size;
+
+    bool op_offload;
 
     int debug;
 };
@@ -766,7 +754,7 @@ static int lm_ggml_backend_sched_backend_id_from_cur(lm_ggml_backend_sched_t sch
         if (tensor->op != LM_GGML_OP_ROPE && src->buffer != NULL && src->buffer->usage == LM_GGML_BACKEND_BUFFER_USAGE_WEIGHTS) {
             int src_backend_id = lm_ggml_backend_sched_backend_from_buffer(sched, src, tensor);
             // check if a backend with higher prio wants to offload the op
-            if (src_backend_id == sched->n_backends - 1 && lm_ggml_backend_buffer_is_host(src->buffer)) {
+            if (sched->op_offload && src_backend_id == sched->n_backends - 1 && lm_ggml_backend_buffer_is_host(src->buffer)) {
                 for (int b = 0; b < src_backend_id; b++) {
                     if (lm_ggml_backend_supports_op(sched->backends[b], tensor) && lm_ggml_backend_offload_op(sched->backends[b], tensor)) {
                         SET_CAUSE(tensor, "1.off");
@@ -815,8 +803,9 @@ static void lm_ggml_backend_sched_print_assignments(lm_ggml_backend_sched_t sche
         }
         if (sched->debug > 1) {
             lm_ggml_backend_t tensor_backend = lm_ggml_backend_sched_get_tensor_backend(sched, node);
-            LM_GGML_LOG_DEBUG("node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s]:", i, lm_ggml_op_name(node->op), node->name,
-                fmt_size(lm_ggml_nbytes(node)), tensor_backend ? lm_ggml_backend_name(tensor_backend) : "NULL", GET_CAUSE(node));
+            LM_GGML_LOG_DEBUG("node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s] use=%d:", i, lm_ggml_op_name(node->op), node->name,
+                fmt_size(lm_ggml_nbytes(node)), tensor_backend ? lm_ggml_backend_name(tensor_backend) : "NULL", GET_CAUSE(node),
+                graph->use_counts[lm_ggml_hash_find(&graph->visited_hash_set, node)]);
             for (int j = 0; j < LM_GGML_MAX_SRC; j++) {
                 struct lm_ggml_tensor * src = node->src[j];
                 if (src == NULL) {
@@ -1109,7 +1098,7 @@ static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, str
 
             const int node_backend_id = tensor_backend_id(node);
 
-            assert(node_backend_id != -1); // all nodes should be assigned by now
+            assert(node_backend_id != -1); // all nodes should be assigned by now, this can happen if there is no CPU fallback
 
             // check if we should start a new split based on the sources of the current node
             bool need_new_split = false;
@@ -1338,7 +1327,10 @@ static bool lm_ggml_backend_sched_alloc_splits(lm_ggml_backend_sched_t sched) {
     // allocate graph
     if (backend_ids_changed || !lm_ggml_gallocr_alloc_graph(sched->galloc, &sched->graph)) {
         // the re-allocation may cause the split inputs to be moved to a different address
-        lm_ggml_backend_sched_synchronize(sched);
+        // synchronize without lm_ggml_backend_sched_synchronize to avoid changing cur_copy
+        for (int i = 0; i < sched->n_backends; i++) {
+            lm_ggml_backend_synchronize(sched->backends[i]);
+        }
 #ifndef NDEBUG
         LM_GGML_LOG_DEBUG("%s: failed to allocate graph, reserving (backend_ids_changed = %d)\n", __func__, backend_ids_changed);
 #endif
@@ -1442,8 +1434,6 @@ static enum lm_ggml_status lm_ggml_backend_sched_compute_splits(lm_ggml_backend_
         }
     }
 
-    sched->cur_copy = (sched->cur_copy + 1) % sched->n_copies;
-
     return LM_GGML_STATUS_SUCCESS;
 }
 
@@ -1452,7 +1442,8 @@ lm_ggml_backend_sched_t lm_ggml_backend_sched_new(
         lm_ggml_backend_buffer_type_t * bufts,
         int n_backends,
         size_t graph_size,
-        bool parallel) {
+        bool parallel,
+        bool op_offload) {
     LM_GGML_ASSERT(n_backends > 0);
     LM_GGML_ASSERT(n_backends <= LM_GGML_SCHED_MAX_BACKENDS);
     LM_GGML_ASSERT(lm_ggml_backend_dev_type(lm_ggml_backend_get_device(backends[n_backends - 1])) == LM_GGML_BACKEND_DEVICE_TYPE_CPU);
@@ -1497,6 +1488,7 @@ lm_ggml_backend_sched_t lm_ggml_backend_sched_new(
     }
 
     sched->galloc = lm_ggml_gallocr_new_n(sched->bufts, n_backends);
+    sched->op_offload = op_offload;
 
     lm_ggml_backend_sched_reset(sched);
 
@@ -1542,9 +1534,9 @@ void lm_ggml_backend_sched_reset(lm_ggml_backend_sched_t sched) {
 bool lm_ggml_backend_sched_reserve(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * measure_graph) {
     LM_GGML_ASSERT((int)sched->hash_set.size >= measure_graph->n_nodes + measure_graph->n_leafs);
 
-    lm_ggml_backend_sched_split_graph(sched, measure_graph);
-
     lm_ggml_backend_sched_synchronize(sched);
+
+    lm_ggml_backend_sched_split_graph(sched, measure_graph);
 
     if (!lm_ggml_gallocr_reserve_n(sched->galloc, &sched->graph, sched->node_backend_ids, sched->leaf_backend_ids)) {
         return false;
@@ -1557,9 +1549,12 @@ bool lm_ggml_backend_sched_reserve(lm_ggml_backend_sched_t sched, struct lm_ggml
 
 bool lm_ggml_backend_sched_alloc_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph) {
     LM_GGML_ASSERT((int)sched->hash_set.size >= graph->n_nodes + graph->n_leafs);
+    LM_GGML_ASSERT(!sched->is_alloc);
+
+    sched->cur_copy = sched->next_copy;
+    sched->next_copy = (sched->next_copy + 1) % sched->n_copies;
 
     lm_ggml_backend_sched_split_graph(sched, graph);
-
 
     if (!lm_ggml_backend_sched_alloc_splits(sched)) {
         return false;
@@ -1593,6 +1588,12 @@ enum lm_ggml_status lm_ggml_backend_sched_graph_compute_async(lm_ggml_backend_sc
 void lm_ggml_backend_sched_synchronize(lm_ggml_backend_sched_t sched) {
     for (int i = 0; i < sched->n_backends; i++) {
         lm_ggml_backend_synchronize(sched->backends[i]);
+    }
+    if (!sched->is_alloc) {
+        // if the graph is not already allocated, always use copy 0 after a synchronization
+        // this ensures that during generation the same copy is used every time,
+        // which avoids changes in the graph that could cause CUDA or other graphs to be disabled
+        sched->next_copy = 0;
     }
 }
 
@@ -1814,7 +1815,7 @@ void lm_ggml_backend_graph_copy_free(struct lm_ggml_backend_graph_copy copy) {
     lm_ggml_free(copy.ctx_unallocated);
 }
 
-bool lm_ggml_backend_compare_graph_backend(lm_ggml_backend_t backend1, lm_ggml_backend_t backend2, struct lm_ggml_cgraph * graph, lm_ggml_backend_eval_callback callback, void * user_data) {
+bool lm_ggml_backend_compare_graph_backend(lm_ggml_backend_t backend1, lm_ggml_backend_t backend2, struct lm_ggml_cgraph * graph, lm_ggml_backend_eval_callback callback, void * user_data, struct lm_ggml_tensor * test_node) {
     struct lm_ggml_backend_graph_copy copy = lm_ggml_backend_graph_copy(backend2, graph);
     if (copy.buffer == NULL) {
         return false;
@@ -1825,28 +1826,45 @@ bool lm_ggml_backend_compare_graph_backend(lm_ggml_backend_t backend1, lm_ggml_b
 
     assert(g1->n_nodes == g2->n_nodes);
 
-    for (int i = 0; i < g1->n_nodes; i++) {
-        struct lm_ggml_tensor * t1 = g1->nodes[i];
-        struct lm_ggml_tensor * t2 = g2->nodes[i];
+    if (test_node != nullptr) {
+        // Compute the whole graph and only test the output for a specific tensor
+        lm_ggml_backend_graph_compute(backend1, g1);
+        lm_ggml_backend_graph_compute(backend2, g2);
 
-        assert(t1->op == t2->op && lm_ggml_are_same_layout(t1, t2));
-
-        struct lm_ggml_cgraph g1v = lm_ggml_graph_view(g1, i, i + 1);
-        struct lm_ggml_cgraph g2v = lm_ggml_graph_view(g2, i, i + 1);
-
-        lm_ggml_backend_graph_compute(backend1, &g1v);
-        lm_ggml_backend_graph_compute(backend2, &g2v);
-
-        if (lm_ggml_is_view_op(t1->op)) {
-            continue;
+        int test_node_idx = -1;
+        for (int i = 0; i < g1->n_nodes; i++) {
+            struct lm_ggml_tensor * t1 = g1->nodes[i];
+            if (t1 == test_node) {
+                test_node_idx = i;
+                break;
+            }
         }
+        LM_GGML_ASSERT(test_node_idx != -1);
 
-        // compare results, calculate rms etc
-        if (!callback(i, t1, t2, user_data)) {
-            break;
+        callback(test_node_idx, g1->nodes[test_node_idx], g2->nodes[test_node_idx], user_data);
+    } else {
+        for (int i = 0; i < g1->n_nodes; i++) {
+            struct lm_ggml_tensor * t1 = g1->nodes[i];
+            struct lm_ggml_tensor * t2 = g2->nodes[i];
+
+            assert(t1->op == t2->op && lm_ggml_are_same_layout(t1, t2));
+
+            struct lm_ggml_cgraph g1v = lm_ggml_graph_view(g1, i, i + 1);
+            struct lm_ggml_cgraph g2v = lm_ggml_graph_view(g2, i, i + 1);
+
+            lm_ggml_backend_graph_compute(backend1, &g1v);
+            lm_ggml_backend_graph_compute(backend2, &g2v);
+
+            if (lm_ggml_is_view_op(t1->op)) {
+                continue;
+            }
+
+            // compare results, calculate rms etc
+            if (!callback(i, t1, t2, user_data)) {
+                break;
+            }
         }
     }
-
     lm_ggml_backend_graph_copy_free(copy);
 
     return true;

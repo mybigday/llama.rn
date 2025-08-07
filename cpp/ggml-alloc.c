@@ -22,21 +22,6 @@ static bool lm_ggml_is_view(const struct lm_ggml_tensor * t) {
     return t->view_src != NULL;
 }
 
-static bool lm_ggml_are_same_layout(const struct lm_ggml_tensor * a, const struct lm_ggml_tensor * b) {
-    if (a->type != b->type) {
-        return false;
-    }
-    for (int i = 0; i < LM_GGML_MAX_DIMS; i++) {
-        if (a->ne[i] != b->ne[i]) {
-            return false;
-        }
-        if (a->nb[i] != b->nb[i]) {
-            return false;
-        }
-    }
-    return true;
-}
-
 // ops that return true for this function must not use restrict pointers for their backend implementations
 static bool lm_ggml_op_can_inplace(enum lm_ggml_op op) {
     switch (op) {
@@ -44,6 +29,7 @@ static bool lm_ggml_op_can_inplace(enum lm_ggml_op op) {
         case LM_GGML_OP_DIAG_MASK_ZERO:
         case LM_GGML_OP_DIAG_MASK_INF:
         case LM_GGML_OP_ADD:
+        case LM_GGML_OP_ADD_ID:
         case LM_GGML_OP_ADD1:
         case LM_GGML_OP_SUB:
         case LM_GGML_OP_MUL:
@@ -816,7 +802,10 @@ static void lm_ggml_gallocr_init_tensor(lm_ggml_gallocr_t galloc, struct lm_ggml
 static bool lm_ggml_gallocr_node_needs_realloc(lm_ggml_gallocr_t galloc, struct lm_ggml_tensor * node, struct tensor_alloc * talloc) {
     size_t node_size = 0;
     if (!node->data && !node->view_src) {
-        LM_GGML_ASSERT(talloc->buffer_id >= 0); // prevent segfault when misusing the API
+        // If we previously had data but don't now then reallocate
+        if (talloc->buffer_id < 0) {
+            return false;
+        }
         node_size = lm_ggml_backend_buft_get_alloc_size(galloc->bufts[talloc->buffer_id], node);
     }
     return talloc->size_max >= node_size;

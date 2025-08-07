@@ -6,6 +6,11 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
@@ -18,10 +23,10 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Lint files
-        run: yarn lint
+        run: npm run lint
 
       - name: Typecheck files
-        run: yarn typecheck
+        run: npm run typecheck
 
   test:
     runs-on: ubuntu-latest
@@ -33,7 +38,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Run unit tests
-        run: yarn test --maxWorkers=2 --coverage
+        run: npm test -- --maxWorkers=2 --coverage
 
   build-ios-from-source:
     runs-on: macos-latest
@@ -61,13 +66,11 @@ jobs:
 
       - name: Install cocoapods
         run: |
-          yarn example pods
-        env:
-          NO_FLIPPER: 1
+          npm run example run pods
 
       - name: Build example for iOS
         run: |
-          yarn build:ios
+          npm run build:ios
 
   build-ios-frameworks:
     runs-on: macos-latest
@@ -95,18 +98,17 @@ jobs:
 
       - name: Install cocoapods
         run: |
-          yarn example pods
+          npm run example run pods
         env:
-          NO_FLIPPER: 1
           RNLLAMA_BUILD_FROM_SOURCE: 0
 
       - name: Build frameworks
         run: |
-          yarn build:ios-frameworks
+          npm run build:ios-frameworks
 
       - name: Build example for iOS
         run: |
-          yarn build:ios
+          npm run build:ios
 
   build-android-from-source:
     runs-on: ubuntu-latest
@@ -119,7 +121,7 @@ jobs:
 
       - name: Build example for Android
         run: |
-          yarn build:android
+          npm run build:android
 
   build-android-libs:
     runs-on: ubuntu-latest
@@ -132,9 +134,9 @@ jobs:
 
       - name: Build libraries
         run: |
-          yarn build:android-libs
+          npm run build:android-libs
 
       - name: Build example for Android
         run: |
           sed -i 's/rnllamaBuildFromSource=true/rnllamaBuildFromSource=false/g' example/android/gradle.properties
-          yarn build:android
+          npm run build:android

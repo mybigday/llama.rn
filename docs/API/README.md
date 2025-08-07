@@ -22,6 +22,7 @@ llama.rn
 - [CompletionResponseFormat](README.md#completionresponseformat)
 - [ContextParams](README.md#contextparams)
 - [EmbeddingParams](README.md#embeddingparams)
+- [FormattedChatResult](README.md#formattedchatresult)
 - [JinjaFormattedChatResult](README.md#jinjaformattedchatresult)
 - [NativeCompletionParams](README.md#nativecompletionparams)
 - [NativeCompletionResult](README.md#nativecompletionresult)
@@ -31,12 +32,17 @@ llama.rn
 - [NativeContextParams](README.md#nativecontextparams)
 - [NativeEmbeddingParams](README.md#nativeembeddingparams)
 - [NativeEmbeddingResult](README.md#nativeembeddingresult)
+- [NativeImageProcessingResult](README.md#nativeimageprocessingresult)
 - [NativeLlamaContext](README.md#nativellamacontext)
 - [NativeSessionLoadResult](README.md#nativesessionloadresult)
 - [NativeTokenizeResult](README.md#nativetokenizeresult)
 - [RNLlamaMessagePart](README.md#rnllamamessagepart)
 - [RNLlamaOAICompatibleMessage](README.md#rnllamaoaicompatiblemessage)
 - [TokenData](README.md#tokendata)
+
+### Variables
+
+- [RNLLAMA\_MTMD\_DEFAULT\_MEDIA\_MARKER](README.md#rnllama_mtmd_default_media_marker)
 
 ### Functions
 
@@ -68,7 +74,7 @@ llama.rn
 
 #### Defined in
 
-[index.ts:138](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L138)
+[index.ts:161](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L161)
 
 ___
 
@@ -83,6 +89,7 @@ ___
 | `chatTemplate?` | `string` |
 | `chat_template?` | `string` |
 | `jinja?` | `boolean` |
+| `media_paths?` | `string` \| `string`[] |
 | `messages?` | [`RNLlamaOAICompatibleMessage`](README.md#rnllamaoaicompatiblemessage)[] |
 | `parallel_tool_calls?` | `object` |
 | `prompt?` | `string` |
@@ -92,7 +99,7 @@ ___
 
 #### Defined in
 
-[index.ts:121](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L121)
+[index.ts:143](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L143)
 
 ___
 
@@ -102,7 +109,7 @@ ___
 
 #### Defined in
 
-[index.ts:132](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L132)
+[index.ts:155](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L155)
 
 ___
 
@@ -122,7 +129,7 @@ ___
 
 #### Defined in
 
-[index.ts:112](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L112)
+[index.ts:134](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L134)
 
 ___
 
@@ -132,7 +139,7 @@ ___
 
 #### Defined in
 
-[index.ts:85](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L85)
+[index.ts:107](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L107)
 
 ___
 
@@ -142,29 +149,36 @@ ___
 
 #### Defined in
 
-[index.ts:110](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L110)
+[index.ts:132](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L132)
 
 ___
 
-### JinjaFormattedChatResult
+### FormattedChatResult
 
-Ƭ **JinjaFormattedChatResult**: `Object`
+Ƭ **FormattedChatResult**: `Object`
 
 #### Type declaration
 
 | Name | Type |
 | :------ | :------ |
-| `additional_stops?` | `string`[] |
-| `chat_format?` | `number` |
-| `grammar?` | `string` |
-| `grammar_lazy?` | `boolean` |
-| `grammar_triggers?` | { `at_start`: `boolean` ; `word`: `string`  }[] |
-| `preserved_tokens?` | `string`[] |
+| `has_media` | `boolean` |
+| `media_paths?` | `string`[] |
 | `prompt` | `string` |
+| `type` | ``"jinja"`` \| ``"llama-chat"`` |
 
 #### Defined in
 
-[NativeRNLlama.ts:309](https://github.com/mybigday/llama.rn/blob/64b02c4/src/NativeRNLlama.ts#L309)
+[NativeRNLlama.ts:371](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L371)
+
+___
+
+### JinjaFormattedChatResult
+
+Ƭ **JinjaFormattedChatResult**: [`FormattedChatResult`](README.md#formattedchatresult) & { `additional_stops?`: `string`[] ; `chat_format?`: `number` ; `grammar?`: `string` ; `grammar_lazy?`: `boolean` ; `grammar_triggers?`: { `token`: `number` ; `type`: `number` ; `value`: `string`  }[] ; `preserved_tokens?`: `string`[]  }
+
+#### Defined in
+
+[NativeRNLlama.ts:378](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L378)
 
 ___
 
@@ -185,10 +199,11 @@ ___
 | `emit_partial_completion` | `boolean` | - |
 | `grammar?` | `string` | Set grammar for grammar-based sampling. Default: no grammar |
 | `grammar_lazy?` | `boolean` | Lazy grammar sampling, trigger by grammar_triggers. Default: false |
-| `grammar_triggers?` | { `at_start`: `boolean` ; `word`: `string`  }[] | Lazy grammar triggers. Default: [] |
+| `grammar_triggers?` | { `token`: `number` ; `type`: `number` ; `value`: `string`  }[] | Lazy grammar triggers. Default: [] |
 | `ignore_eos?` | `boolean` | Ignore end of stream token and continue generating. Default: `false` |
 | `json_schema?` | `string` | JSON schema for convert to grammar for structured JSON output. It will be override by grammar if both are set. |
 | `logit_bias?` | `number`[][] | Modify the likelihood of a token appearing in the generated text completion. For example, use `"logit_bias": [[15043,1.0]]` to increase the likelihood of the token 'Hello', or `"logit_bias": [[15043,-1.0]]` to decrease its likelihood. Setting the value to false, `"logit_bias": [[15043,false]]` ensures that the token `Hello` is never produced. The tokens can also be represented as strings, e.g.`[["Hello, World!",-0.5]]` will reduce the likelihood of all the individual tokens that represent the string `Hello, World!`, just like the `presence_penalty` does. Default: `[]` |
+| `media_paths?` | `string`[] | Path to an image file to process before generating text. When provided, the image will be processed and added to the context. Requires multimodal support to be enabled via initMultimodal. |
 | `min_p?` | `number` | The minimum probability for a token to be considered, relative to the probability of the most likely token. Default: `0.05` |
 | `mirostat?` | `number` | Enable Mirostat sampling, controlling perplexity during text generation. Default: `0`, where `0` is disabled, `1` is Mirostat, and `2` is Mirostat 2.0. |
 | `mirostat_eta?` | `number` | Set the Mirostat learning rate, parameter eta. Default: `0.1` |
@@ -206,6 +221,7 @@ ___
 | `stop?` | `string`[] | Specify a JSON array of stopping strings. These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]` |
 | `temperature?` | `number` | Adjust the randomness of the generated text. Default: `0.8` |
 | `top_k?` | `number` | Limit the next token selection to the K most probable tokens. Default: `40` |
+| `top_n_sigma?` | `number` | Top n sigma sampling as described in academic paper "Top-nσ: Not All Logits Are You Need" https://arxiv.org/pdf/2411.07641. Default: `-1.0` (Disabled) |
 | `top_p?` | `number` | Limit the next token selection to a subset of tokens with a cumulative probability above a threshold P. Default: `0.95` |
 | `typical_p?` | `number` | Enable locally typical sampling with parameter p. Default: `1.0`, which is disabled. |
 | `xtc_probability?` | `number` | Set the chance for token removal via XTC sampler. Default: `0.0`, which is disabled. |
@@ -213,7 +229,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:74](https://github.com/mybigday/llama.rn/blob/64b02c4/src/NativeRNLlama.ts#L74)
+[NativeRNLlama.ts:81](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L81)
 
 ___
 
@@ -223,23 +239,26 @@ ___
 
 #### Type declaration
 
-| Name | Type |
-| :------ | :------ |
-| `completion_probabilities?` | [`NativeCompletionTokenProb`](README.md#nativecompletiontokenprob)[] |
-| `stopped_eos` | `boolean` |
-| `stopped_limit` | `number` |
-| `stopped_word` | `string` |
-| `stopping_word` | `string` |
-| `text` | `string` |
-| `timings` | [`NativeCompletionResultTimings`](README.md#nativecompletionresulttimings) |
-| `tokens_cached` | `number` |
-| `tokens_evaluated` | `number` |
-| `tokens_predicted` | `number` |
-| `truncated` | `boolean` |
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `completion_probabilities?` | [`NativeCompletionTokenProb`](README.md#nativecompletiontokenprob)[] | - |
+| `content` | `string` | Content text (Filtered text by reasoning_content / tool_calls) |
+| `reasoning_content` | `string` | Reasoning content (parsed for reasoning model) |
+| `stopped_eos` | `boolean` | - |
+| `stopped_limit` | `number` | - |
+| `stopped_word` | `string` | - |
+| `stopping_word` | `string` | - |
+| `text` | `string` | Original text (Ignored reasoning_content / tool_calls) |
+| `timings` | [`NativeCompletionResultTimings`](README.md#nativecompletionresulttimings) | - |
+| `tokens_cached` | `number` | - |
+| `tokens_evaluated` | `number` | - |
+| `tokens_predicted` | `number` | - |
+| `tool_calls` | { `function`: { `arguments`: `string` ; `name`: `string`  } ; `id?`: `string` ; `type`: ``"function"``  }[] | Tool calls |
+| `truncated` | `boolean` | - |
 
 #### Defined in
 
-[NativeRNLlama.ts:233](https://github.com/mybigday/llama.rn/blob/64b02c4/src/NativeRNLlama.ts#L233)
+[NativeRNLlama.ts:252](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L252)
 
 ___
 
@@ -262,7 +281,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:222](https://github.com/mybigday/llama.rn/blob/64b02c4/src/NativeRNLlama.ts#L222)
+[NativeRNLlama.ts:241](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L241)
 
 ___
 
@@ -279,7 +298,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:217](https://github.com/mybigday/llama.rn/blob/64b02c4/src/NativeRNLlama.ts#L217)
+[NativeRNLlama.ts:236](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L236)
 
 ___
 
@@ -296,7 +315,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:212](https://github.com/mybigday/llama.rn/blob/64b02c4/src/NativeRNLlama.ts#L212)
+[NativeRNLlama.ts:231](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L231)
 
 ___
 
@@ -311,6 +330,7 @@ ___
 | `cache_type_k?` | `string` | KV cache data type for the K (Experimental in llama.cpp) |
 | `cache_type_v?` | `string` | KV cache data type for the V (Experimental in llama.cpp) |
 | `chat_template?` | `string` | Chat template to override the default one from the model. |
+| `ctx_shift?` | `boolean` | Enable context shifting to handle prompts larger than context size |
 | `embd_normalize?` | `number` | - |
 | `embedding?` | `boolean` | - |
 | `flash_attn?` | `boolean` | Enable flash attention, only recommended in GPU device (Experimental in llama.cpp) |
@@ -326,6 +346,7 @@ ___
 | `n_ubatch?` | `number` | - |
 | `no_gpu_devices?` | `boolean` | Skip GPU devices (iOS only) |
 | `pooling_type?` | `number` | - |
+| `reasoning_format?` | `string` | - |
 | `rope_freq_base?` | `number` | - |
 | `rope_freq_scale?` | `number` | - |
 | `use_mlock?` | `boolean` | - |
@@ -335,7 +356,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:8](https://github.com/mybigday/llama.rn/blob/64b02c4/src/NativeRNLlama.ts#L8)
+[NativeRNLlama.ts:8](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L8)
 
 ___
 
@@ -351,7 +372,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:4](https://github.com/mybigday/llama.rn/blob/64b02c4/src/NativeRNLlama.ts#L4)
+[NativeRNLlama.ts:4](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L4)
 
 ___
 
@@ -367,7 +388,25 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:253](https://github.com/mybigday/llama.rn/blob/64b02c4/src/NativeRNLlama.ts#L253)
+[NativeRNLlama.ts:310](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L310)
+
+___
+
+### NativeImageProcessingResult
+
+Ƭ **NativeImageProcessingResult**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `error?` | `string` |
+| `prompt` | `string` |
+| `success` | `boolean` |
+
+#### Defined in
+
+[NativeRNLlama.ts:391](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L391)
 
 ___
 
@@ -412,7 +451,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:257](https://github.com/mybigday/llama.rn/blob/64b02c4/src/NativeRNLlama.ts#L257)
+[NativeRNLlama.ts:314](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L314)
 
 ___
 
@@ -429,7 +468,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:299](https://github.com/mybigday/llama.rn/blob/64b02c4/src/NativeRNLlama.ts#L299)
+[NativeRNLlama.ts:356](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L356)
 
 ___
 
@@ -439,13 +478,17 @@ ___
 
 #### Type declaration
 
-| Name | Type |
-| :------ | :------ |
-| `tokens` | `number`[] |
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `bitmap_hashes` | `number`[] | Bitmap hashes of the images |
+| `chunk_pos` | `number`[] | Chunk positions of the text and images |
+| `chunk_pos_images` | `number`[] | Chunk positions of the images |
+| `has_images` | `boolean` | Whether the tokenization contains images |
+| `tokens` | `number`[] | - |
 
 #### Defined in
 
-[NativeRNLlama.ts:249](https://github.com/mybigday/llama.rn/blob/64b02c4/src/NativeRNLlama.ts#L249)
+[NativeRNLlama.ts:290](https://github.com/mybigday/llama.rn/blob/1571b49/src/NativeRNLlama.ts#L290)
 
 ___
 
@@ -457,11 +500,18 @@ ___
 
 | Name | Type |
 | :------ | :------ |
+| `image_url?` | { `url?`: `string`  } |
+| `image_url.url?` | `string` |
+| `input_audio?` | { `data?`: `string` ; `format`: `string` ; `url?`: `string`  } |
+| `input_audio.data?` | `string` |
+| `input_audio.format` | `string` |
+| `input_audio.url?` | `string` |
 | `text?` | `string` |
+| `type` | `string` |
 
 #### Defined in
 
-[chat.ts:3](https://github.com/mybigday/llama.rn/blob/64b02c4/src/chat.ts#L3)
+[index.ts:27](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L27)
 
 ___
 
@@ -473,12 +523,12 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `content?` | `string` \| [`RNLlamaMessagePart`](README.md#rnllamamessagepart)[] \| `any` |
+| `content?` | `string` \| [`RNLlamaMessagePart`](README.md#rnllamamessagepart)[] |
 | `role` | `string` |
 
 #### Defined in
 
-[chat.ts:7](https://github.com/mybigday/llama.rn/blob/64b02c4/src/chat.ts#L7)
+[index.ts:40](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L40)
 
 ___
 
@@ -495,7 +545,17 @@ ___
 
 #### Defined in
 
-[index.ts:75](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L75)
+[index.ts:97](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L97)
+
+## Variables
+
+### RNLLAMA\_MTMD\_DEFAULT\_MEDIA\_MARKER
+
+• `Const` **RNLLAMA\_MTMD\_DEFAULT\_MEDIA\_MARKER**: ``"<__media__>"``
+
+#### Defined in
+
+[index.ts:66](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L66)
 
 ## Functions
 
@@ -519,7 +579,7 @@ ___
 
 #### Defined in
 
-[index.ts:372](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L372)
+[index.ts:540](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L540)
 
 ___
 
@@ -543,7 +603,7 @@ ___
 
 #### Defined in
 
-[grammar.ts:829](https://github.com/mybigday/llama.rn/blob/64b02c4/src/grammar.ts#L829)
+[grammar.ts:829](https://github.com/mybigday/llama.rn/blob/1571b49/src/grammar.ts#L829)
 
 ___
 
@@ -564,7 +624,7 @@ ___
 
 #### Defined in
 
-[index.ts:412](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L412)
+[index.ts:581](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L581)
 
 ___
 
@@ -584,7 +644,7 @@ ___
 
 #### Defined in
 
-[index.ts:397](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L397)
+[index.ts:566](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L566)
 
 ___
 
@@ -598,7 +658,7 @@ ___
 
 #### Defined in
 
-[index.ts:478](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L478)
+[index.ts:647](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L647)
 
 ___
 
@@ -618,7 +678,7 @@ ___
 
 #### Defined in
 
-[index.ts:383](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L383)
+[index.ts:551](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L551)
 
 ___
 
@@ -638,4 +698,4 @@ ___
 
 #### Defined in
 
-[index.ts:368](https://github.com/mybigday/llama.rn/blob/64b02c4/src/index.ts#L368)
+[index.ts:536](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L536)

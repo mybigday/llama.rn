@@ -104,6 +104,19 @@ Object {
 
 exports[`Mock: completion result 1`] = `
 Object {
+  "audio_tokens": Array [
+    1000,
+    1001,
+    1002,
+    1003,
+    1004,
+    1005,
+    1006,
+    1007,
+    1008,
+    1009,
+    1010,
+  ],
   "completion_probabilities": Array [
     Object {
       "content": " *",
@@ -191,6 +204,7 @@ Object {
       ],
     },
   ],
+  "content": "*giggles*",
   "stopped_eos": true,
   "stopped_limit": false,
   "stopped_word": false,

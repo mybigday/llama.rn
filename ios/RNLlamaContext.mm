@@ -3,6 +3,37 @@
 
 @implementation RNLlamaContext
 
++ (BOOL)isGpuAvailable:(NSDictionary *)params {
+    BOOL skipGpuDevices = params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue];
+
+    if (skipGpuDevices) {
+        return false;
+    }
+
+#ifdef LM_GGML_USE_METAL
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+
+    // Check ggml-metal availability
+    BOOL supportsGgmlMetal = [device supportsFamily:MTLGPUFamilyApple7];
+    if (@available(iOS 16.0, tvOS 16.0, *)) {
+        supportsGgmlMetal = supportsGgmlMetal && [device supportsFamily:MTLGPUFamilyMetal3];
+    }
+
+#if TARGET_OS_SIMULATOR
+    // GPU acceleration not fully supported on simulator
+    device = nil;
+    return false;
+#else
+    device = nil;
+    return supportsGgmlMetal;
+#endif
+
+#else
+    // Metal is not enabled in this build
+    return false;
+#endif
+}
+
 + (void)toggleNativeLog:(BOOL)enabled onEmitLog:(void (^)(NSString *level, NSString *text))onEmitLog {
   if (enabled) {
       void (^copiedBlock)(NSString *, NSString *) = [onEmitLog copy];
@@ -90,58 +121,37 @@
         NSLog(@"chatTemplate: %@", chatTemplate);
     }
 
-    NSString *reasoningFormat = params[@"reasoning_format"];
-    if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek"]) {
-        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
-    } else {
-        defaultParams.reasoning_format = COMMON_REASONING_FORMAT_NONE;
-    }
-
     if (params[@"n_ctx"]) defaultParams.n_ctx = [params[@"n_ctx"] intValue];
     if (params[@"use_mlock"]) defaultParams.use_mlock = [params[@"use_mlock"]boolValue];
 
-    BOOL skipGpuDevices = params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue];
+    BOOL isGpuAvailable = [self isGpuAvailable:params];
+    BOOL skipGpuDevices = !isGpuAvailable || (params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue]);
 
     BOOL isMetalEnabled = false;
     NSString *reasonNoMetal = @"";
     defaultParams.n_gpu_layers = 0;
-#ifdef LM_GGML_USE_METAL
-    // Check ggml-metal availability
-    NSError * error = nil;
-    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-    id<MTLLibrary> library = [device
-        newLibraryWithSource:@"#include <metal_stdlib>\n"
-                                "using namespace metal;"
-                                "typedef matrix<bfloat, 4, 4> bfloat4x4;"
-                                "kernel void test() { simd_sum(0); }"
-        options:nil
-        error:&error
-    ];
-    if (error) {
-        reasonNoMetal = [error localizedDescription];
-        skipGpuDevices = true;
-    } else {
-        id<MTLFunction> kernel = [library newFunctionWithName:@"test"];
-        id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:kernel error:&error];
-        if (pipeline == nil) {
-            reasonNoMetal = [error localizedDescription];
-            skipGpuDevices = true;
-        } else {
+
+    if (isGpuAvailable) {
 #if TARGET_OS_SIMULATOR
-            // Use the backend, but no layers because not supported fully on simulator
-            defaultParams.n_gpu_layers = 0;
-            isMetalEnabled = true;
+        // Use the backend, but no layers because not supported fully on simulator
+        defaultParams.n_gpu_layers = 0;
+        isMetalEnabled = true;
 #else
-            defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
-            isMetalEnabled = true;
+        defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
+        isMetalEnabled = true;
+#endif
+    } else {
+        if (params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue]) {
+            reasonNoMetal = @"GPU devices disabled by user";
+        } else {
+#ifdef LM_GGML_USE_METAL
+            reasonNoMetal = @"Metal is not supported in this device";
+#else
+            reasonNoMetal = @"Metal is not enabled in this build";
 #endif
         }
+        isMetalEnabled = false;
     }
-    device = nil;
-#else
-    reasonNoMetal = @"Metal is not enabled in this build";
-    isMetalEnabled = false;
-#endif
 
     if (skipGpuDevices) {
         std::vector<lm_ggml_backend_dev_t> cpu_devs;
@@ -158,6 +168,8 @@
         }
         if (cpu_devs.size() > 0) {
             defaultParams.devices = cpu_devs;
+            defaultParams.n_gpu_layers = 0;
+            isMetalEnabled = false;
         }
     }
 
@@ -186,8 +198,22 @@
 
     if (params[@"ctx_shift"]) defaultParams.ctx_shift = [params[@"ctx_shift"] boolValue];
 
-    if (params[@"cache_type_k"]) defaultParams.cache_type_k = rnllama::kv_cache_type_from_str([params[@"cache_type_k"] UTF8String]);
-    if (params[@"cache_type_v"]) defaultParams.cache_type_v = rnllama::kv_cache_type_from_str([params[@"cache_type_v"] UTF8String]);
+    if (params[@"kv_unified"]) defaultParams.kv_unified = [params[@"kv_unified"] boolValue];
+
+    if (params[@"swa_full"]) defaultParams.swa_full = [params[@"swa_full"] boolValue];
+
+    if (params[@"cache_type_k"] && [params[@"cache_type_k"] isKindOfClass:[NSString class]]) {
+        const char* cache_type_k_str = [params[@"cache_type_k"] UTF8String];
+        if (cache_type_k_str) {
+            defaultParams.cache_type_k = rnllama::kv_cache_type_from_str(cache_type_k_str);
+        }
+    }
+    if (params[@"cache_type_v"] && [params[@"cache_type_v"] isKindOfClass:[NSString class]]) {
+        const char* cache_type_v_str = [params[@"cache_type_v"] UTF8String];
+        if (cache_type_v_str) {
+            defaultParams.cache_type_v = rnllama::kv_cache_type_from_str(cache_type_v_str);
+        }
+    }
 
     int nThreads = params[@"n_threads"] ? [params[@"n_threads"] intValue] : 0;
     const int maxThreads = (int) [[NSProcessInfo processInfo] processorCount];
@@ -279,7 +305,7 @@
     for (int i = 0; i < count; i++) {
         char key[256];
         llama_model_meta_key_by_index(llama->model, i, key, sizeof(key));
-        char val[4096];
+        char val[16384];  // gpt-oss's chat template is 12kb 
         llama_model_meta_val_str_by_index(llama->model, i, val, sizeof(val));
 
         NSString *keyStr = [NSString stringWithUTF8String:key];
@@ -340,14 +366,63 @@
     return llama->is_predicting;
 }
 
+- (bool)initMultimodal:(NSDictionary *)params {
+    NSString *mmproj_path = params[@"path"];
+    BOOL use_gpu = params[@"use_gpu"] ? [params[@"use_gpu"] boolValue] : true;
+
+    // Check GPU availability using utility function
+    if (use_gpu) {
+        use_gpu = [RNLlamaContext isGpuAvailable:params];
+    }
+
+    return llama->initMultimodal([mmproj_path UTF8String], use_gpu);
+}
+
+- (NSDictionary *)getMultimodalSupport {
+    if (!is_model_loaded) return nil;
+    return @{
+        @"vision": @(llama->isMultimodalSupportVision()),
+        @"audio": @(llama->isMultimodalSupportAudio())
+    };
+}
+
+- (bool)isMultimodalEnabled {
+    if (!is_model_loaded) return false;
+    return llama->isMultimodalEnabled();
+}
+
+- (void)releaseMultimodal {
+    if (!is_model_loaded) return;
+    llama->releaseMultimodal();
+}
+
 - (NSDictionary *)getFormattedChatWithJinja:(NSString *)messages
     withChatTemplate:(NSString *)chatTemplate
     withJsonSchema:(NSString *)jsonSchema
     withTools:(NSString *)tools
     withParallelToolCalls:(BOOL)parallelToolCalls
     withToolChoice:(NSString *)toolChoice
+    withEnableThinking:(BOOL)enableThinking
+    withAddGenerationPrompt:(BOOL)addGenerationPrompt
+    withNow:(NSString *)nowStr
+    withChatTemplateKwargs:(NSString *)chatTemplateKwargs
 {
     auto tmpl_str = chatTemplate == nil ? "" : [chatTemplate UTF8String];
+
+    // Parse chat template kwargs
+    std::map<std::string, std::string> kwargs_map;
+    if (chatTemplateKwargs != nil && [chatTemplateKwargs length] > 0) {
+        try {
+            auto kwargs_json = json::parse([chatTemplateKwargs UTF8String]);
+            for (auto& [key, value] : kwargs_json.items()) {
+                if (value.is_string()) {
+                    kwargs_map[key] = value.get<std::string>();
+                }
+            }
+        } catch (...) {
+            // Ignore JSON parsing errors for kwargs
+        }
+    }
 
     NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
     auto chatParams = llama->getFormattedChatWithJinja(
@@ -356,7 +431,11 @@
         jsonSchema == nil ? "" : [jsonSchema UTF8String],
         tools == nil ? "" : [tools UTF8String],
         parallelToolCalls,
-        toolChoice == nil ? "" : [toolChoice UTF8String]
+        toolChoice == nil ? "" : [toolChoice UTF8String],
+        enableThinking,
+        addGenerationPrompt,
+        nowStr == nil ? "" : [nowStr UTF8String],
+        kwargs_map
     );
     result[@"prompt"] = [NSString stringWithUTF8String:chatParams.prompt.c_str()];
     result[@"chat_format"] = @(static_cast<int>(chatParams.format));
@@ -370,6 +449,7 @@
             @"token": @(trigger.token),
         }];
     }
+    result[@"thinking_forced_open"] = @(chatParams.thinking_forced_open);
     result[@"grammar_triggers"] = grammar_triggers;
     NSMutableArray *preserved_tokens = [[NSMutableArray alloc] init];
     for (const auto & token : chatParams.preserved_tokens) {
@@ -565,12 +645,46 @@
         }
     }
 
+    if (params[@"guide_tokens"] && [params[@"guide_tokens"] isKindOfClass:[NSArray class]]) {
+        NSArray *guide_tokens_array = params[@"guide_tokens"];
+        std::vector<llama_token> guide_tokens;
+        guide_tokens.reserve([guide_tokens_array count]);
+        for (NSNumber *token_num in guide_tokens_array) {
+            guide_tokens.push_back([token_num intValue]);
+        }
+        llama->setGuideTokens(guide_tokens);
+    }
+
     if (!llama->initSampling()) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
+
     llama->beginCompletion();
-    llama->loadPrompt();
+    try {
+        // Use the unified loadPrompt function with image paths if available
+        NSArray *imagePaths = params[@"media_paths"];
+        if (imagePaths && [imagePaths count] > 0) {
+            // Multiple image paths
+            std::vector<std::string> media_paths_vector;
+            for (NSString *path in imagePaths) {
+                if ([path isKindOfClass:[NSString class]]) {
+                    media_paths_vector.push_back([path UTF8String]);
+                }
+            }
+            llama->loadPrompt(media_paths_vector);
+        } else {
+            llama->loadPrompt({});
+        }
+    } catch (const std::exception &e) {
+        llama->endCompletion();
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    } catch (const std::runtime_error& e) {
+        llama->endCompletion();
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
+
     if (llama->context_full) {
+        llama->endCompletion();
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context is full" userInfo:nil];
     }
 
@@ -633,17 +747,35 @@
     }
 
     llama_perf_context_print(llama->ctx);
-    llama->is_predicting = false;
+    llama->endCompletion();
 
     const auto timings = llama_perf_context(llama->ctx);
 
     NSMutableArray *toolCalls = nil;
     NSString *reasoningContent = nil;
     NSString *content = nil;
+    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
+    auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
+    result[@"chat_format"] = @(chat_format);
+
     if (!llama->is_interrupted) {
         try {
-            auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
-            common_chat_msg message = common_chat_parse(llama->generated_text, static_cast<common_chat_format>(chat_format));
+            common_chat_syntax chat_syntax;
+            chat_syntax.format = static_cast<common_chat_format>(chat_format);
+
+            NSString *reasoningFormat = params[@"reasoning_format"];
+            if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek"]) {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+            } else if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek-legacy"]) {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY;
+            } else if (reasoningFormat && [reasoningFormat isEqualToString:@"auto"]) {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
+            } else {
+                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
+            }
+            chat_syntax.thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
+
+            common_chat_msg message = common_chat_parse(llama->generated_text, false, chat_syntax);
             if (!message.reasoning_content.empty()) {
                 reasoningContent = [NSString stringWithUTF8String:message.reasoning_content.c_str()];
             }
@@ -660,11 +792,10 @@
                 }];
             }
         } catch (const std::exception &e) {
-            // NSLog(@"Error parsing tool calls: %s", e.what());
+        } catch (...) {
         }
     }
 
-    NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
     result[@"text"] = [NSString stringWithUTF8String:llama->generated_text.c_str()]; // Original text
     if (content) result[@"content"] = content;
     if (reasoningContent) result[@"reasoning_content"] = reasoningContent;
@@ -674,11 +805,21 @@
     result[@"tokens_evaluated"] = @(llama->num_prompt_tokens);
     result[@"truncated"] = @(llama->truncated);
     result[@"context_full"] = @(llama->context_full);
+    result[@"interrupted"] = @(llama->is_interrupted);
     result[@"stopped_eos"] = @(llama->stopped_eos);
     result[@"stopped_word"] = @(llama->stopped_word);
     result[@"stopped_limit"] = @(llama->stopped_limit);
     result[@"stopping_word"] = [NSString stringWithUTF8String:llama->stopping_word.c_str()];
     result[@"tokens_cached"] = @(llama->n_past);
+
+    if (llama->isVocoderEnabled() && !llama->audio_tokens.empty()) {
+        NSMutableArray *audioTokens = [[NSMutableArray alloc] init];
+        for (llama_token token : llama->audio_tokens) {
+            [audioTokens addObject:@(token)];
+        }
+        result[@"audio_tokens"] = audioTokens;
+    }
+
     result[@"timings"] = @{
         @"prompt_n": @(timings.n_p_eval),
         @"prompt_ms": @(timings.t_p_eval_ms),
@@ -697,13 +838,50 @@
     llama->is_interrupted = true;
 }
 
-- (NSArray *)tokenize:(NSString *)text {
-    const std::vector<llama_token> toks = common_tokenize(llama->ctx, [text UTF8String], false);
-    NSMutableArray *result = [[NSMutableArray alloc] init];
-    for (llama_token tok : toks) {
-        [result addObject:@(tok)];
+- (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths {
+    std::vector<std::string> media_paths_vector;
+    if (imagePaths && [imagePaths count] > 0) {
+        for (NSString *path in imagePaths) {
+            if ([path isKindOfClass:[NSString class]]) {
+                media_paths_vector.push_back([path UTF8String]);
+            }
+        }
     }
-    return result;
+    try {
+        rnllama::llama_rn_tokenize_result tokenize_result = llama->tokenize([text UTF8String], media_paths_vector);
+
+        NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
+
+        result[@"tokens"] = [NSMutableArray arrayWithCapacity:tokenize_result.tokens.size()];
+        for (llama_token tok : tokenize_result.tokens) {
+            [result[@"tokens"] addObject:@(tok)];
+        }
+        result[@"has_media"] = @(tokenize_result.has_media);
+
+        NSMutableArray *bitmap_hashes = [[NSMutableArray alloc] init];
+        for (std::string hash : tokenize_result.bitmap_hashes) {
+            [bitmap_hashes addObject:[NSString stringWithUTF8String:hash.c_str()]];
+        }
+        result[@"bitmap_hashes"] = bitmap_hashes;
+
+        NSMutableArray *chunk_pos = [[NSMutableArray alloc] init];
+        for (int pos : tokenize_result.chunk_pos) {
+            [chunk_pos addObject:@(pos)];
+        }
+        result[@"chunk_pos"] = chunk_pos;
+
+        NSMutableArray *chunk_pos_media = [[NSMutableArray alloc] init];
+        for (int pos : tokenize_result.chunk_pos_media) {
+            [chunk_pos_media addObject:@(pos)];
+        }
+        result[@"chunk_pos_media"] = chunk_pos_media;
+
+        return result;
+    } catch (const std::exception &e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    } catch (const std::runtime_error& e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
 }
 
 - (NSString *)detokenize:(NSArray *)tokens {
@@ -740,7 +918,15 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
     llama->beginCompletion();
-    llama->loadPrompt();
+    try {
+      llama->loadPrompt({});
+    } catch (const std::exception &e) {
+      llama->endCompletion();
+      @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    } catch (const std::runtime_error& e) {
+      llama->endCompletion();
+      @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
     llama->doCompletion();
 
     std::vector<float> result = llama->getEmbedding(embdParams);
@@ -757,8 +943,36 @@
     }
     resultDict[@"prompt_tokens"] = promptTokens;
 
-    llama->is_predicting = false;
+    llama->endCompletion();
     return resultDict;
+}
+
+- (NSArray *)rerank:(NSString *)query documents:(NSArray<NSString *> *)documents params:(NSDictionary *)params {
+    // Convert NSArray to std::vector
+    std::vector<std::string> documentsVector;
+    for (NSString *doc in documents) {
+        documentsVector.push_back(std::string([doc UTF8String]));
+    }
+
+    NSMutableArray *resultArray = [[NSMutableArray alloc] init];
+
+    try {
+        std::vector<float> scores = llama->rerank(std::string([query UTF8String]), documentsVector);
+
+        // Create result array with score and index
+        for (size_t i = 0; i < scores.size(); i++) {
+            NSMutableDictionary *item = [[NSMutableDictionary alloc] init];
+            item[@"score"] = @(scores[i]);
+            item[@"index"] = @((int)i);
+            [resultArray addObject:item];
+        }
+    } catch (const std::exception &e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    } catch (const std::runtime_error& e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
+
+    return resultArray;
 }
 
 - (NSDictionary *)loadSession:(NSString *)path {
@@ -775,6 +989,11 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to load session" userInfo:nil];
     }
     llama->embd.resize(n_token_count_out);
+    // Find LLAMA_TOKEN_NULL in the tokens and resize the array to the index of the null token
+    auto null_token_iter = std::find(llama->embd.begin(), llama->embd.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != llama->embd.end()) {
+        llama->embd.resize(std::distance(llama->embd.begin(), null_token_iter));
+    }
     const std::string text = rnllama::tokens_to_str(llama->ctx, llama->embd.cbegin(), llama->embd.cend());
     return @{
         @"tokens_loaded": @(n_token_count_out),
@@ -787,6 +1006,11 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Session path is empty" userInfo:nil];
     }
     std::vector<llama_token> session_tokens = llama->embd;
+    // Find LLAMA_TOKEN_NULL in the tokens and resize the array to the index of the null token
+    auto null_token_iter = std::find(session_tokens.begin(), session_tokens.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != session_tokens.end()) {
+        session_tokens.resize(std::distance(session_tokens.begin(), null_token_iter));
+    }
     int default_size = session_tokens.size();
     int save_size = size > 0 && size <= default_size ? size : default_size;
     if (!llama_state_save_file(llama->ctx, [path UTF8String], session_tokens.data(), save_size)) {
@@ -831,6 +1055,54 @@
         }];
     }
     return result;
+}
+
+- (bool)initVocoder:(NSDictionary *)params {
+    int n_batch = params[@"n_batch"] ? [params[@"n_batch"] intValue] : 512;
+    return llama->initVocoder([params[@"path"] UTF8String], n_batch);
+}
+
+- (bool)isVocoderEnabled {
+    return llama->isVocoderEnabled();
+}
+
+- (NSDictionary *)getFormattedAudioCompletion:(NSString *)speakerJsonStr textToSpeak:(NSString *)textToSpeak {
+    std::string speakerStr = speakerJsonStr ? [speakerJsonStr UTF8String] : "";
+    try {
+        auto audio_result = llama->getFormattedAudioCompletion(speakerStr, [textToSpeak UTF8String]);
+        return @{
+            @"prompt": [NSString stringWithUTF8String:audio_result.prompt.c_str()],
+            @"grammar": [NSString stringWithUTF8String:audio_result.grammar]
+        };
+    } catch (const std::exception &e) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+    }
+}
+
+- (NSArray *)getAudioCompletionGuideTokens:(NSString *)textToSpeak {
+    std::vector<llama_token> guide_tokens = llama->getAudioCompletionGuideTokens([textToSpeak UTF8String]);
+    NSMutableArray *result = [[NSMutableArray alloc] init];
+    for (llama_token token : guide_tokens) {
+        [result addObject:@(token)];
+    }
+    return result;
+}
+
+- (NSArray *)decodeAudioTokens:(NSArray *)tokens {
+    std::vector<llama_token> token_vector;
+    for (NSNumber *token in tokens) {
+        token_vector.push_back([token intValue]);
+    }
+    std::vector<float> audio_data = llama->decodeAudioTokens(token_vector);
+    NSMutableArray *result = [[NSMutableArray alloc] init];
+    for (float sample : audio_data) {
+        [result addObject:@(sample)];
+    }
+    return result;
+}
+
+- (void)releaseVocoder {
+    llama->releaseVocoder();
 }
 
 - (void)invalidate {

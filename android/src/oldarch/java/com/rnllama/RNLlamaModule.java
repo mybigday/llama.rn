@@ -54,6 +54,26 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
+  public void initMultimodal(double id, final ReadableMap params, final Promise promise) {
+    rnllama.initMultimodal(id, params, promise);
+  }
+
+  @ReactMethod
+  public void isMultimodalEnabled(double id, final Promise promise) {
+    rnllama.isMultimodalEnabled(id, promise);
+  }
+
+  @ReactMethod
+  public void getMultimodalSupport(double id, final Promise promise) {
+    rnllama.getMultimodalSupport(id, promise);
+  }
+
+  @ReactMethod
+  public void releaseMultimodal(double id, final Promise promise) {
+    rnllama.releaseMultimodal(id, promise);
+  }
+
+  @ReactMethod
   public void getFormattedChat(double id, String messages, String chatTemplate, ReadableMap params, Promise promise) {
     rnllama.getFormattedChat(id, messages, chatTemplate, params, promise);
   }
@@ -79,8 +99,8 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void tokenize(double id, final String text, final Promise promise) {
-    rnllama.tokenize(id, text, promise);
+  public void tokenize(double id, final String text, final ReadableArray media_paths, final Promise promise) {
+    rnllama.tokenize(id, text, media_paths, promise);
   }
 
   @ReactMethod
@@ -91,6 +111,11 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   @ReactMethod
   public void embedding(double id, final String text, final ReadableMap params, final Promise promise) {
     rnllama.embedding(id, text, params, promise);
+  }
+
+  @ReactMethod
+  public void rerank(double id, final String query, final ReadableArray documents, final ReadableMap params, final Promise promise) {
+    rnllama.rerank(id, query, documents, params, promise);
   }
 
   @ReactMethod
@@ -111,6 +136,36 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   @ReactMethod
   public void getLoadedLoraAdapters(double id, final Promise promise) {
     rnllama.getLoadedLoraAdapters(id, promise);
+  }
+
+  @ReactMethod
+  public void initVocoder(double id, final ReadableMap params, final Promise promise) {
+    rnllama.initVocoder(id, params, promise);
+  }
+
+  @ReactMethod
+  public void isVocoderEnabled(double id, final Promise promise) {
+    rnllama.isVocoderEnabled(id, promise);
+  }
+
+  @ReactMethod
+  public void getFormattedAudioCompletion(double id, final String speakerJsonStr, final String textToSpeak, final Promise promise) {
+    rnllama.getFormattedAudioCompletion(id, speakerJsonStr, textToSpeak, promise);
+  }
+
+  @ReactMethod
+  public void getAudioCompletionGuideTokens(double id, final String textToSpeak, final Promise promise) {
+    rnllama.getAudioCompletionGuideTokens(id, textToSpeak, promise);
+  }
+
+  @ReactMethod
+  public void decodeAudioTokens(double id, final ReadableArray tokens, final Promise promise) {
+    rnllama.decodeAudioTokens(id, tokens, promise);
+  }
+
+  @ReactMethod
+  public void releaseVocoder(double id, final Promise promise) {
+    rnllama.releaseVocoder(id, promise);
   }
 
   @ReactMethod

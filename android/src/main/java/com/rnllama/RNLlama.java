@@ -13,6 +13,7 @@ import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.Arguments;
 
 import java.util.HashMap;
@@ -155,7 +156,10 @@ public class RNLlama implements LifecycleEventListener {
             throw new Exception("Context not found");
           }
           if (params.hasKey("jinja") && params.getBoolean("jinja")) {
-            ReadableMap result = context.getFormattedChatWithJinja(messages, chatTemplate, params);
+            boolean addGenerationPrompt = params.hasKey("add_generation_prompt") ? params.getBoolean("add_generation_prompt") : true;
+            String nowStr = params.hasKey("now") ? params.getString("now") : "";
+            String chatTemplateKwargs = params.hasKey("chat_template_kwargs") ? params.getString("chat_template_kwargs") : "";
+            ReadableMap result = context.getFormattedChatWithJinja(messages, chatTemplate, params, addGenerationPrompt, nowStr, chatTemplateKwargs);
             if (result.hasKey("_error")) {
               throw new Exception(result.getString("_error"));
             }
@@ -322,7 +326,7 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "stopCompletion-" + contextId);
   }
 
-  public void tokenize(double id, final String text, final Promise promise) {
+  public void tokenize(double id, final String text, final ReadableArray media_paths, final Promise promise) {
     final int contextId = (int) id;
     AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
@@ -334,7 +338,7 @@ public class RNLlama implements LifecycleEventListener {
           if (context == null) {
             throw new Exception("Context not found");
           }
-          return context.tokenize(text);
+          return context.tokenize(text, media_paths);
         } catch (Exception e) {
           exception = e;
         }
@@ -416,6 +420,38 @@ public class RNLlama implements LifecycleEventListener {
       }
     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "embedding-" + contextId);
+  }
+
+  public void rerank(double id, final String query, final ReadableArray documents, final ReadableMap params, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, WritableArray>() {
+      private Exception exception;
+
+      @Override
+      protected WritableArray doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          return context.getRerank(query, documents, params);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(WritableArray result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "rerank-" + contextId);
   }
 
   public void bench(double id, final double pp, final double tg, final double pl, final double nr, final Promise promise) {
@@ -546,6 +582,345 @@ public class RNLlama implements LifecycleEventListener {
       }
     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     tasks.put(task, "getLoadedLoraAdapters-" + contextId);
+  }
+
+  public void initMultimodal(double id, final ReadableMap params, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, Boolean>() {
+      private Exception exception;
+
+      @Override
+      protected Boolean doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          if (context.isPredicting()) {
+            throw new Exception("Context is busy");
+          }
+          return context.initMultimodal(params);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return false;
+      }
+
+      @Override
+      protected void onPostExecute(Boolean result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "initMultimodal-" + contextId);
+  }
+
+  public void isMultimodalEnabled(double id, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, Boolean>() {
+      private Exception exception;
+
+      @Override
+      protected Boolean doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          return context.isMultimodalEnabled();
+        } catch (Exception e) {
+          exception = e;
+        }
+        return false;
+      }
+
+      @Override
+      protected void onPostExecute(Boolean result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "isMultimodalEnabled" + contextId);
+  }
+
+  public void getMultimodalSupport(double id, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
+      private Exception exception;
+
+      @Override
+      protected WritableMap doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          if (!context.isMultimodalEnabled()) {
+            throw new Exception("Multimodal is not enabled");
+          }
+          return context.getMultimodalSupport();
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(WritableMap result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "getMultimodalSupport-" + contextId);
+  }
+
+  @ReactMethod
+  public void releaseMultimodal(double id, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, Void>() {
+      private Exception exception;
+
+      @Override
+      protected Void doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          context.releaseMultimodal();
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(Void result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(null);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "releaseMultimodal" + id);
+  }
+
+  public void initVocoder(double id, final ReadableMap params, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, Boolean>() {
+      private Exception exception;
+
+      @Override
+      protected Boolean doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          if (context.isPredicting()) {
+            throw new Exception("Context is busy");
+          }
+          return context.initVocoder(params);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return false;
+      }
+
+      @Override
+      protected void onPostExecute(Boolean result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "initVocoder-" + contextId);
+  }
+
+  public void releaseVocoder(double id, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, Void>() {
+      private Exception exception;
+
+      @Override
+      protected Void doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          context.releaseVocoder();
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(Void result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(null);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "releaseVocoder-" + contextId);
+  }
+
+  public void isVocoderEnabled(double id, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, Boolean>() {
+      private Exception exception;
+
+      @Override
+      protected Boolean doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          return context.isVocoderEnabled();
+        } catch (Exception e) {
+          exception = e;
+        }
+        return false;
+      }
+
+      @Override
+      protected void onPostExecute(Boolean result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "isVocoderEnabled-" + contextId);
+  }
+
+  public void getFormattedAudioCompletion(double id, final String speakerJsonStr, final String textToSpeak, Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, Object>() {
+      private Exception exception;
+
+      @Override
+      protected Object doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          if (!context.isVocoderEnabled()) {
+            throw new Exception("Vocoder is not enabled");
+          }
+          return context.getFormattedAudioCompletion(speakerJsonStr, textToSpeak);
+        } catch (Exception e) {
+          exception = e;
+          return null;
+        }
+      }
+
+      @Override
+      protected void onPostExecute(Object result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "getFormattedAudioCompletion-" + contextId);
+  }
+
+  public void getAudioCompletionGuideTokens(double id, final String textToSpeak, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, WritableArray>() {
+      private Exception exception;
+
+      @Override
+      protected WritableArray doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          if (!context.isVocoderEnabled()) {
+            throw new Exception("Vocoder is not enabled");
+          }
+          return context.getAudioCompletionGuideTokens(textToSpeak);
+        } catch (Exception e) {
+          exception = e;
+          return null;
+        }
+      }
+
+      @Override
+      protected void onPostExecute(WritableArray result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "getAudioCompletionGuideTokens-" + contextId);
+  }
+
+  public void decodeAudioTokens(double id, final ReadableArray tokens, final Promise promise) {
+    final int contextId = (int) id;
+    AsyncTask task = new AsyncTask<Void, Void, WritableArray>() {
+      private Exception exception;
+
+      @Override
+      protected WritableArray doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          if (!context.isVocoderEnabled()) {
+            throw new Exception("Vocoder is not enabled");
+          }
+          return context.decodeAudioTokens(tokens);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(WritableArray result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+        tasks.remove(this);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    tasks.put(task, "decodeAudioTokens-" + contextId);
   }
 
   public void releaseContext(double id, Promise promise) {

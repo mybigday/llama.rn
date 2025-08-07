@@ -12,8 +12,6 @@ export type NativeContextParams = {
    */
   chat_template?: string
 
-  reasoning_format?: string
-
   is_model_asset?: boolean
   use_progress_callback?: boolean
 
@@ -73,6 +71,17 @@ export type NativeContextParams = {
    */
   ctx_shift?: boolean
 
+  /**
+   * Use a unified buffer across the input sequences when computing the attention.
+   * Try to disable when n_seq_max > 1 for improved performance when the sequences do not share a large prefix.
+   */
+  kv_unified?: boolean
+
+  /**
+   * Use full-size SWA cache (https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+   */
+  swa_full?: boolean
+
   // Embedding params
   embedding?: boolean
   embd_normalize?: number
@@ -81,6 +90,10 @@ export type NativeContextParams = {
 export type NativeCompletionParams = {
   prompt: string
   n_threads?: number
+  /**
+   * Enable Jinja. Default: true if supported by the model
+   */
+  jinja?: boolean
   /**
    * JSON schema for convert to grammar for structured JSON output.
    * It will be override by grammar if both are set.
@@ -95,6 +108,14 @@ export type NativeCompletionParams = {
    */
   grammar_lazy?: boolean
   /**
+   * Enable thinking if jinja is enabled. Default: true
+   */
+  enable_thinking?: boolean
+  /**
+   * Force thinking to be open. Default: false
+   */
+  thinking_forced_open?: boolean
+  /**
    * Lazy grammar triggers. Default: []
    */
   grammar_triggers?: Array<{
@@ -104,6 +125,13 @@ export type NativeCompletionParams = {
   }>
   preserved_tokens?: Array<string>
   chat_format?: number
+  reasoning_format?: string
+  /**
+   * Path to an image file to process before generating text.
+   * When provided, the image will be processed and added to the context.
+   * Requires multimodal support to be enabled via initMultimodal.
+   */
+  media_paths?: Array<string>
   /**
    * Specify a JSON array of stopping strings.
    * These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]`
@@ -219,6 +247,13 @@ export type NativeCompletionParams = {
    */
   seed?: number
 
+  /**
+   * Guide tokens for the completion.
+   * Help prevent hallucinations by forcing the TTS to use the correct words.
+   * Default: `[]`
+   */
+  guide_tokens?: Array<number>
+
   emit_partial_completion: boolean
 }
 
@@ -268,6 +303,8 @@ export type NativeCompletionResult = {
    */
   content: string
 
+  chat_format: number
+
   tokens_predicted: number
   tokens_evaluated: number
   truncated: boolean
@@ -275,14 +312,33 @@ export type NativeCompletionResult = {
   stopped_word: string
   stopped_limit: number
   stopping_word: string
+  context_full: boolean
+  interrupted: boolean
   tokens_cached: number
   timings: NativeCompletionResultTimings
 
   completion_probabilities?: Array<NativeCompletionTokenProb>
+  audio_tokens?: Array<number>
 }
 
 export type NativeTokenizeResult = {
   tokens: Array<number>
+  /**
+   * Whether the tokenization contains images
+   */
+  has_images: boolean
+  /**
+   * Bitmap hashes of the images
+   */
+  bitmap_hashes: Array<number>
+  /**
+   * Chunk positions of the text and images
+   */
+  chunk_pos: Array<number>
+  /**
+   * Chunk positions of the images
+   */
+  chunk_pos_images: Array<number>
 }
 
 export type NativeEmbeddingResult = {
@@ -336,13 +392,24 @@ export type NativeSessionLoadResult = {
   prompt: string
 }
 
-export type NativeLlamaChatMessage = {
-  role: string
-  content: string
+export type NativeLlamaMessagePart = {
+  type: 'text'
+  text: string
 }
 
-export type JinjaFormattedChatResult = {
+export type NativeLlamaChatMessage = {
+  role: string
+  content: string | Array<NativeLlamaMessagePart>
+}
+
+export type FormattedChatResult = {
+  type: 'jinja' | 'llama-chat'
   prompt: string
+  has_media: boolean
+  media_paths?: Array<string>
+}
+
+export type JinjaFormattedChatResult = FormattedChatResult & {
   chat_format?: number
   grammar?: string
   grammar_lazy?: boolean
@@ -351,8 +418,24 @@ export type JinjaFormattedChatResult = {
     value: string
     token: number
   }>
+  thinking_forced_open?: boolean
   preserved_tokens?: Array<string>
   additional_stops?: Array<string>
+}
+
+export type NativeImageProcessingResult = {
+  success: boolean
+  prompt: string
+  error?: string
+}
+
+export type NativeRerankParams = {
+  normalize?: number
+}
+
+export type NativeRerankResult = {
+  score: number
+  index: number
 }
 
 export interface Spec extends TurboModule {
@@ -375,6 +458,10 @@ export interface Spec extends TurboModule {
       tools?: string
       parallel_tool_calls?: string
       tool_choice?: string
+      enable_thinking?: boolean
+      add_generation_prompt?: boolean
+      now?: string
+      chat_template_kwargs?: string
     },
   ): Promise<JinjaFormattedChatResult | string>
   loadSession(
@@ -391,13 +478,19 @@ export interface Spec extends TurboModule {
     params: NativeCompletionParams,
   ): Promise<NativeCompletionResult>
   stopCompletion(contextId: number): Promise<void>
-  tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>
+  tokenize(contextId: number, text: string, imagePaths?: Array<string>): Promise<NativeTokenizeResult>
   detokenize(contextId: number, tokens: number[]): Promise<string>
   embedding(
     contextId: number,
     text: string,
     params: NativeEmbeddingParams,
   ): Promise<NativeEmbeddingResult>
+  rerank(
+    contextId: number,
+    query: string,
+    documents: Array<string>,
+    params?: NativeRerankParams,
+  ): Promise<Array<NativeRerankResult>>
   bench(
     contextId: number,
     pp: number,
@@ -414,6 +507,47 @@ export interface Spec extends TurboModule {
   getLoadedLoraAdapters(
     contextId: number,
   ): Promise<Array<{ path: string; scaled?: number }>>
+
+  // Multimodal methods
+  initMultimodal(
+    contextId: number,
+    params: {
+      path: string
+      use_gpu: boolean
+    },
+  ): Promise<boolean>
+
+  isMultimodalEnabled(
+    contextId: number,
+  ): Promise<boolean>
+
+  getMultimodalSupport(
+    contextId: number,
+  ): Promise<{
+    vision: boolean
+    audio: boolean
+  }>
+
+  releaseMultimodal(
+    contextId: number,
+  ): Promise<void>
+
+  // TTS methods
+  initVocoder(
+    contextId: number,
+    params: {
+      path: string
+      n_batch?: number
+    },
+  ): Promise<boolean>
+  isVocoderEnabled(contextId: number): Promise<boolean>
+  getFormattedAudioCompletion(contextId: number, speakerJsonStr: string, textToSpeak: string): Promise<{
+    prompt: string
+    grammar?: string
+  }>
+  getAudioCompletionGuideTokens(contextId: number, textToSpeak: string): Promise<Array<number>>
+  decodeAudioTokens(contextId: number, tokens: number[]): Promise<Array<number>>
+  releaseVocoder(contextId: number): Promise<void>
 
   releaseContext(contextId: number): Promise<void>
 

@@ -1,0 +1,11 @@
+--- chat-template.hpp.orig	2025-06-20 14:38:44
++++ chat-template.hpp	2025-06-20 14:37:19
+@@ -22,7 +22,7 @@
+ #include <string>
+ #include <vector>
+
+-#include <nlohmann/json.hpp>
++#include "../nlohmann/json.hpp"
+
+ using json = nlohmann::ordered_json;
+

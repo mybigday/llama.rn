@@ -10,23 +10,23 @@ runs:
         node-version: 20.x
 
     - name: Cache dependencies
-      id: yarn-cache
+      id: npm-cache
       uses: actions/cache@v3
       with:
         path: |
           **/node_modules
-        key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}-${{ hashFiles('**/package.json') }}
+        key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/package.json') }}
         restore-keys: |
-          ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
-          ${{ runner.os }}-yarn-
+          ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          ${{ runner.os }}-npm-
 
     - name: Install dependencies
-      if: steps.yarn-cache.outputs.cache-hit != 'true'
+      if: steps.npm-cache.outputs.cache-hit != 'true'
       run: |
-        yarn install --cwd example --frozen-lockfile
-        yarn install --frozen-lockfile
+        npm ci --prefix example
+        npm ci
       shell: bash
 
     - name: Bootstrap & Build
-      run: yarn bootstrap && yarn build
+      run: npm run bootstrap && npm run build
       shell: bash
