@@ -424,7 +424,7 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
     for (int i = 0; i < count; i++) {
         char key[256];
         llama_model_meta_key_by_index(llama->model, i, key, sizeof(key));
-        char val[4096];
+        char val[16384];  // gpt-oss's chat template is 12kb 
         llama_model_meta_val_str_by_index(llama->model, i, val, sizeof(val));
 
         putString(env, meta, key, val);
