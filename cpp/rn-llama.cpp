@@ -99,13 +99,13 @@ lm_ggml_type kv_cache_type_from_str(const std::string & s) {
     if (s.empty()) {
         return LM_GGML_TYPE_F16; // Default to F16 if empty string
     }
-    
+
     for (const auto & type : kv_cache_types) {
         if (lm_ggml_type_name(type) == s) {
             return type;
         }
     }
-    
+
     // Return default type instead of throwing to avoid crashes
     return LM_GGML_TYPE_F16;
 }
@@ -567,7 +567,14 @@ completion_token_output llama_rn_context::nextToken()
 
         llama_token new_token_id = common_sampler_sample(ctx_sampling, ctx, -1);
 
-        if (next_token_uses_guide_token && !guide_tokens.empty() && !llama_vocab_is_control(vocab, new_token_id) && !llama_vocab_is_eog(vocab, new_token_id)) {
+        if (llama_vocab_is_eog(vocab, new_token_id)) {
+            has_next_token = false;
+            stopped_eos = true;
+            LOG_VERBOSE("EOS: %s", common_token_to_piece(ctx, new_token_id).c_str());
+            return result;
+        }
+
+        if (next_token_uses_guide_token && !guide_tokens.empty() && !llama_vocab_is_control(vocab, new_token_id)) {
             new_token_id = guide_tokens[0];
             guide_tokens.erase(guide_tokens.begin());
         }
@@ -602,15 +609,6 @@ completion_token_output llama_rn_context::nextToken()
     embd.push_back(result.tok);
     // decrement remaining sampling budget
     --n_remain;
-
-    if (!embd.empty() && embd.back() == llama_vocab_eos(vocab))
-    {
-        // stopping_word = llama_token_to_piece(ctx, embd.back());
-        has_next_token = false;
-        stopped_eos = true;
-        LOG_VERBOSE("eos token found", "");
-        return result;
-    }
 
     has_next_token = params.n_predict == -1 || n_remain != 0;
     return result;
