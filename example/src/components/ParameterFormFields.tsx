@@ -138,7 +138,7 @@ export function StopSequenceField({
       <Text style={styles.paramLabel}>Stop Sequences</Text>
       <Text style={styles.paramDescription}>
         Text sequences that will stop generation when encountered. Common
-        examples: &lt;|im_end|&gt;, &lt;end_of_turn&gt;, User:
+        examples: `User:`, `Llama:`, `Assistant:`
       </Text>
 
       {stopSequences.map((stopSeq, index) => (
