@@ -8,6 +8,7 @@ import {
   ScrollView,
   Platform,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { CommonStyles } from '../styles/commonStyles'
 
 const styles = StyleSheet.create({
@@ -109,7 +110,7 @@ export default function BaseParameterModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose}>
             <Text style={styles.cancelButton}>Cancel</Text>
@@ -141,7 +142,7 @@ export default function BaseParameterModal({
 
           <View style={styles.bottomPadding} />
         </ScrollView>
-      </View>
+      </SafeAreaView>
     </Modal>
   )
 }
