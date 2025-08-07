@@ -25,6 +25,7 @@ import type {
   SchemaGrammarConverterBuiltinRule,
 } from './grammar'
 import { SchemaGrammarConverter, convertJsonSchemaToGrammar } from './grammar'
+import { BUILD_NUMBER, BUILD_COMMIT } from './version'
 
 export type RNLlamaMessagePart = {
   type: string
@@ -788,4 +789,9 @@ export async function initLlama(
 
 export async function releaseAllLlama(): Promise<void> {
   return RNLlama.releaseAllContexts()
+}
+
+export const BuildInfo = {
+  number: BUILD_NUMBER,
+  commit: BUILD_COMMIT,
 }

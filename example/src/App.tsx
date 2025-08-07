@@ -8,7 +8,7 @@ import {
 import { enableScreens } from 'react-native-screens'
 import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
-import { toggleNativeLog, addNativeLogListener } from '../../src'
+import { toggleNativeLog, addNativeLogListener, BuildInfo } from '../../src'
 import SimpleChatScreen from './screens/SimpleChatScreen'
 import MultimodalScreen from './screens/MultimodalScreen'
 import TTSScreen from './screens/TTSScreen'
@@ -51,6 +51,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 32,
     lineHeight: 22,
+    marginTop: 4,
   },
   repoLink: {
     marginTop: 8,
@@ -68,6 +69,12 @@ const styles = StyleSheet.create({
 function HomeScreen({ navigation }: { navigation: any }) {
   const openRepo = () => {
     Linking.openURL('https://github.com/mybigday/llama.rn/tree/main/example')
+  }
+
+  const openLlamaCppRepo = () => {
+    Linking.openURL(
+      `https://github.com/ggml-org/llama.cpp/releases/b${BuildInfo.number}`,
+    )
   }
 
   return (
@@ -122,6 +129,13 @@ function HomeScreen({ navigation }: { navigation: any }) {
         >
           <Text style={styles.buttonText}>🏋️ Bench</Text>
         </TouchableOpacity>
+        <View style={styles.repoLink}>
+          <TouchableOpacity onPress={openLlamaCppRepo}>
+            <Text style={styles.repoLinkText}>
+              {`llama.cpp b${BuildInfo.number}`}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </ScrollView>
   )

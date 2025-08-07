@@ -378,4 +378,18 @@ if [ "$OS" = "Darwin" ]; then
   # Generate .xcode.env.local in iOS example
   cd example/ios
   echo export NODE_BINARY=$(command -v node) > .xcode.env.local
+
+  cd -
 fi
+
+# Get version info
+cd llama.cpp
+BUILD_NUMBER=$(git rev-list --count HEAD)
+BUILD_COMMIT=$(git rev-parse --short=7 HEAD)
+
+# Put to ../version.ts
+# clean up version.ts
+rm -f ../src/version.ts
+
+echo "export const BUILD_NUMBER = '$BUILD_NUMBER';" > ../src/version.ts
+echo "export const BUILD_COMMIT = '$BUILD_COMMIT';" >> ../src/version.ts
