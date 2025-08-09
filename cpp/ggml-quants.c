@@ -288,7 +288,7 @@ void quantize_row_mxfp4_ref(const float * LM_GGML_RESTRICT x, block_mxfp4 * LM_G
             }
         }
 
-        const uint8_t e = (uint8_t) (floorf(log2f(amax)) - 2 + 127);
+        const uint8_t e = amax > 0.0f ? (uint8_t) (floorf(log2f(amax)) - 2 + 127) : 0;
 
         const float d = LM_GGML_E8M0_TO_FP32_HALF(e);
 

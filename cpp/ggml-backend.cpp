@@ -1071,6 +1071,11 @@ static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, str
                 }
             }
         }
+        // if the node is still unassigned, assign it to the first backend that supports it
+        for (int b = 0; b < sched->n_backends && *cur_backend_id == -1; b++) {
+            lm_ggml_backend_sched_set_if_supported(sched, node, b, cur_backend_id);
+        }
+        LM_GGML_ASSERT(*cur_backend_id != -1);
     }
 
     // pass 5: split graph, find tensors that need to be copied
@@ -1098,7 +1103,7 @@ static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, str
 
             const int node_backend_id = tensor_backend_id(node);
 
-            assert(node_backend_id != -1); // all nodes should be assigned by now, this can happen if there is no CPU fallback
+            LM_GGML_ASSERT(node_backend_id != -1); // all nodes should be assigned by now, this can happen if there is no CPU fallback
 
             // check if we should start a new split based on the sources of the current node
             bool need_new_split = false;
@@ -1156,7 +1161,7 @@ static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, str
 
                 size_t src_id = hash_id(src);
                 const int src_backend_id = sched->hv_tensor_backend_ids[src_id];
-                assert(src_backend_id != -1); // all inputs should be assigned by now
+                LM_GGML_ASSERT(src_backend_id != -1); // all inputs should be assigned by now
 
                 if (src->flags & LM_GGML_TENSOR_FLAG_INPUT && sched->n_copies > 1) {
                     if (tensor_id_copy(src_id, src_backend_id, 0) == NULL) {
