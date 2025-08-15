@@ -202,6 +202,7 @@ struct common_params_speculative {
     float   p_split      =  0.1f; // speculative decoding split probability
     float   p_min        = 0.75f; // minimum speculative decoding probability (greedy)
     std::vector<std::pair<std::string, std::string>> replacements; // main to speculative model replacements
+    std::vector<llama_model_tensor_buft_override> tensor_buft_overrides;
 
     lm_ggml_type cache_type_k = LM_GGML_TYPE_F16; // KV cache data type for the K
     lm_ggml_type cache_type_v = LM_GGML_TYPE_F16; // KV cache data type for the V
@@ -239,6 +240,7 @@ enum common_reasoning_format {
     COMMON_REASONING_FORMAT_AUTO,
     COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY, // Extract thinking tag contents and return as `message.reasoning_content`, or leave inline in <think> tags in stream mode
     COMMON_REASONING_FORMAT_DEEPSEEK,        // Extract thinking tag contents and return as `message.reasoning_content`, including in streaming deltas.
+    COMMON_REASONING_FORMAT_GRANITE,         // Extract thinking tag contents and return as `message.reasoning_content`, including in streaming deltas.
 };
 
 struct common_params {
