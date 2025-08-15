@@ -99,9 +99,25 @@ if (EventEmitter) {
   RNLlama?.toggleNativeLog?.(false)?.catch?.(() => {})
 }
 
+export type ToolCall = {
+  type: 'function'
+  id?: string
+  function: {
+    name: string
+    arguments: string  // JSON string
+  }
+}
+
 export type TokenData = {
   token: string
   completion_probabilities?: Array<NativeCompletionTokenProb>
+  // Status flags for current unfinished content
+  is_reasoning_content?: boolean
+  is_tool_calling?: boolean
+  // Parsed content from accumulated text
+  reasoning_content?: string
+  tool_calls?: Array<ToolCall>
+  accumulated_text?: string
 }
 
 type TokenNativeEvent = {

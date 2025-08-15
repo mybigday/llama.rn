@@ -305,7 +305,7 @@
     for (int i = 0; i < count; i++) {
         char key[256];
         llama_model_meta_key_by_index(llama->model, i, key, sizeof(key));
-        char val[16384];  // gpt-oss's chat template is 12kb 
+        char val[16384];  // gpt-oss's chat template is 12kb
         llama_model_meta_val_str_by_index(llama->model, i, val, sizeof(val));
 
         NSString *keyStr = [NSString stringWithUTF8String:key];
@@ -659,7 +659,14 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
 
-    llama->beginCompletion();
+    auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
+    bool thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
+
+    NSString *reasoningFormat = params[@"reasoning_format"];
+    std::string reasoningFormatStr = reasoningFormat ? [reasoningFormat UTF8String] : "";
+    common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
+
+    llama->beginCompletion(chat_format, reasoning_format, thinking_forced_open);
     try {
         // Use the unified loadPrompt function with image paths if available
         NSArray *imagePaths = params[@"media_paths"];
@@ -742,6 +749,27 @@
                 tokenResult[@"completion_probabilities"] = [self tokenProbsToDict:probs_output];
             }
 
+            // Add token-level flags and parsed content (available regardless of n_probs)
+            const auto& latest_token = llama->latest_token_for_parsing;
+
+            tokenResult[@"is_reasoning_content"] = @(latest_token.is_reasoning_content);
+            tokenResult[@"is_tool_calling"] = @(latest_token.is_tool_calling);
+
+            if (!latest_token.reasoning_content.empty()) {
+                tokenResult[@"reasoning_content"] = [NSString stringWithUTF8String:latest_token.reasoning_content.c_str()];
+            }
+            if (!latest_token.tool_calls_json.empty()) {
+                NSError *error;
+                NSData *jsonData = [NSData dataWithBytes:latest_token.tool_calls_json.c_str() length:latest_token.tool_calls_json.length()];
+                id toolCallsObj = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&error];
+                if (!error && toolCallsObj) {
+                    tokenResult[@"tool_calls"] = toolCallsObj;
+                }
+            }
+            if (!latest_token.accumulated_text.empty()) {
+                tokenResult[@"accumulated_text"] = [NSString stringWithUTF8String:latest_token.accumulated_text.c_str()];
+            }
+
             onToken(tokenResult);
         }
     }
@@ -755,7 +783,6 @@
     NSString *reasoningContent = nil;
     NSString *content = nil;
     NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
-    auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
     result[@"chat_format"] = @(chat_format);
 
     if (!llama->is_interrupted) {
@@ -764,15 +791,8 @@
             chat_syntax.format = static_cast<common_chat_format>(chat_format);
 
             NSString *reasoningFormat = params[@"reasoning_format"];
-            if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek"]) {
-                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
-            } else if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek-legacy"]) {
-                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY;
-            } else if (reasoningFormat && [reasoningFormat isEqualToString:@"auto"]) {
-                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
-            } else {
-                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
-            }
+            std::string reasoningFormatStr = reasoningFormat ? [reasoningFormat UTF8String] : "";
+            chat_syntax.reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
             chat_syntax.thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
 
             common_chat_msg message = common_chat_parse(llama->generated_text, false, chat_syntax);

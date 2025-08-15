@@ -293,14 +293,14 @@ Java_com_rnllama_LlamaContext_initContext(
 
     const char *cache_type_k_chars = nullptr;
     const char *cache_type_v_chars = nullptr;
-    
+
     if (cache_type_k) {
         cache_type_k_chars = env->GetStringUTFChars(cache_type_k, nullptr);
         if (cache_type_k_chars) {
             defaultParams.cache_type_k = rnllama::kv_cache_type_from_str(cache_type_k_chars);
         }
     }
-    
+
     if (cache_type_v) {
         cache_type_v_chars = env->GetStringUTFChars(cache_type_v, nullptr);
         if (cache_type_v_chars) {
@@ -424,7 +424,7 @@ Java_com_rnllama_LlamaContext_loadModelDetails(
     for (int i = 0; i < count; i++) {
         char key[256];
         llama_model_meta_key_by_index(llama->model, i, key, sizeof(key));
-        char val[16384];  // gpt-oss's chat template is 12kb 
+        char val[16384];  // gpt-oss's chat template is 12kb
         llama_model_meta_val_str_by_index(llama->model, i, val, sizeof(val));
 
         putString(env, meta, key, val);
@@ -952,7 +952,12 @@ Java_com_rnllama_LlamaContext_doCompletion(
         return reinterpret_cast<jobject>(result);
     }
 
-    llama->beginCompletion();
+    const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
+    std::string reasoning_format_str = reasoning_format_chars ? reasoning_format_chars : "";
+    common_reasoning_format reasoning_format_enum = common_reasoning_format_from_name(reasoning_format_str);
+    env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
+
+    llama->beginCompletion(chat_format, reasoning_format_enum, thinking_forced_open);
     try {
         llama->loadPrompt(media_paths_vector);
     } catch (const std::exception &e) {
@@ -1028,6 +1033,48 @@ Java_com_rnllama_LlamaContext_doCompletion(
               putArray(env, tokenResult, "completion_probabilities", tokenProbsToMap(env, llama, probs_output));
             }
 
+            const auto& latest_token = llama->latest_token_for_parsing;
+
+            putBoolean(env, tokenResult, "is_reasoning_content", latest_token.is_reasoning_content);
+            putBoolean(env, tokenResult, "is_tool_calling", latest_token.is_tool_calling);
+
+            if (!latest_token.reasoning_content.empty()) {
+                putString(env, tokenResult, "reasoning_content", latest_token.reasoning_content.c_str());
+            }
+            if (!latest_token.tool_calls_json.empty()) {
+                try {
+                    json tool_calls_json = json::parse(latest_token.tool_calls_json);
+                    auto toolCallsArray = createWritableArray(env);
+                    for (const auto& tc : tool_calls_json) {
+                        auto toolCallMap = createWriteableMap(env);
+                        if (tc.contains("type")) {
+                            putString(env, toolCallMap, "type", tc.at("type").get<std::string>().c_str());
+                        }
+                        if (tc.contains("function")) {
+                            auto functionMap = createWriteableMap(env);
+                            const auto& func = tc.at("function");
+                            if (func.contains("name")) {
+                                putString(env, functionMap, "name", func.at("name").get<std::string>().c_str());
+                            }
+                            if (func.contains("arguments")) {
+                                putString(env, functionMap, "arguments", func.at("arguments").dump().c_str());
+                            }
+                            putMap(env, toolCallMap, "function", functionMap);
+                        }
+                        if (tc.contains("id")) {
+                            putString(env, toolCallMap, "id", tc.at("id").get<std::string>().c_str());
+                        }
+                        pushMap(env, toolCallsArray, toolCallMap);
+                    }
+                    putArray(env, tokenResult, "tool_calls", toolCallsArray);
+                } catch (...) {
+                    // If JSON parsing fails, ignore
+                }
+            }
+            if (!latest_token.accumulated_text.empty()) {
+                putString(env, tokenResult, "accumulated_text", latest_token.accumulated_text.c_str());
+            }
+
             jclass cb_class = env->GetObjectClass(partial_completion_callback);
             jmethodID onPartialCompletion = env->GetMethodID(cb_class, "onPartialCompletion", "(Lcom/facebook/react/bridge/WritableMap;)V");
             env->CallVoidMethod(partial_completion_callback, onPartialCompletion, tokenResult);
@@ -1054,15 +1101,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
             chat_syntax.format = static_cast<common_chat_format>(chat_format);
 
             const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
-            if (strcmp(reasoning_format_chars, "deepseek") == 0) {
-                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
-            } else if (strcmp(reasoning_format_chars, "deepseek-legacy") == 0) {
-                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY;
-            } else if (strcmp(reasoning_format_chars, "auto") == 0) {
-                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
-            } else {
-                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
-            }
+            std::string reasoning_format_str = reasoning_format_chars ? reasoning_format_chars : "";
+            chat_syntax.reasoning_format = common_reasoning_format_from_name(reasoning_format_str);
             chat_syntax.thinking_forced_open = thinking_forced_open;
             env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
             common_chat_msg message = common_chat_parse(

@@ -475,10 +475,20 @@ void llama_rn_context::setGuideTokens(const std::vector<llama_token> &tokens) {
 }
 
 void llama_rn_context::beginCompletion() {
+    beginCompletion(COMMON_CHAT_FORMAT_CONTENT_ONLY, COMMON_REASONING_FORMAT_NONE, false);
+}
+
+void llama_rn_context::beginCompletion(int chat_format, common_reasoning_format reasoning_format, bool thinking_forced_open) {
     // number of tokens to keep when resetting context
     n_remain = params.n_predict;
     llama_perf_context_reset(ctx);
     is_predicting = true;
+    
+    // Reset accumulated text for partial parsing and store completion parameters
+    accumulated_text.clear();
+    current_chat_format = chat_format;
+    current_reasoning_format = reasoning_format;
+    current_thinking_forced_open = thinking_forced_open;
 }
 
 void llama_rn_context::endCompletion() {
@@ -648,10 +658,15 @@ size_t llama_rn_context::findStoppingStrings(const std::string &text, const size
 
 completion_token_output llama_rn_context::doCompletion()
 {
-    const completion_token_output token_with_probs = nextToken();
+    completion_token_output token_with_probs = nextToken();
 
     const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(ctx, token_with_probs.tok);
     generated_text += token_text;
+    
+    // Update token flags using proper chat parsing
+    if (!token_text.empty()) {
+        updateTokenFlags(token_with_probs, token_text);
+    }
 
     if (isVocoderEnabled()) {
         tts_type type = getTTSType();
@@ -660,6 +675,9 @@ completion_token_output llama_rn_context::doCompletion()
         }
     }
 
+    // Always store the latest token for content parsing (regardless of n_probs)
+    latest_token_for_parsing = token_with_probs;
+    
     if (params.sampling.n_probs > 0)
     {
         generated_token_probs.push_back(token_with_probs);
@@ -709,6 +727,56 @@ completion_token_output llama_rn_context::doCompletion()
         stopping_word.c_str()
     );
     return token_with_probs;
+}
+
+void llama_rn_context::updateTokenFlags(completion_token_output &token, const std::string &token_text) {
+    // Add token to accumulated text
+    accumulated_text += token_text;
+    
+    // Use common_chat_parse to properly detect reasoning and tool calling content
+    // Create syntax configuration for parsing using the current completion parameters
+    common_chat_syntax syntax;
+    syntax.format = static_cast<common_chat_format>(current_chat_format);
+    syntax.reasoning_format = current_reasoning_format; // Use the reasoning format from completion parameters
+    syntax.thinking_forced_open = current_thinking_forced_open;
+    syntax.parse_tool_calls = true; // Enable tool call parsing
+    
+    // Parse accumulated text as partial content
+    // Note: common_chat_parse internally handles partial parsing exceptions by falling back to content-only parsing
+    common_chat_msg parsed_msg = common_chat_parse(accumulated_text, true, syntax);
+    
+    // Set flags based on parsed content
+    token.is_reasoning_content = !parsed_msg.reasoning_content.empty();
+    token.is_tool_calling = !parsed_msg.tool_calls.empty();
+    
+    // Expose the parsed content
+    token.reasoning_content = parsed_msg.reasoning_content;
+    token.accumulated_text = accumulated_text;
+    
+    // Convert tool_calls to JSON string to avoid duplication issues
+    if (!parsed_msg.tool_calls.empty()) {
+        json tool_calls_array = json::array();
+        for (const auto& tool_call : parsed_msg.tool_calls) {
+            json tc;
+            tc["type"] = "function";
+            tc["function"]["name"] = tool_call.name;
+            if (!tool_call.arguments.empty()) {
+                try {
+                    tc["function"]["arguments"] = json::parse(tool_call.arguments);
+                } catch (...) {
+                    // If parsing fails, store as string
+                    tc["function"]["arguments"] = tool_call.arguments;
+                }
+            }
+            if (!tool_call.id.empty()) {
+                tc["id"] = tool_call.id;
+            }
+            tool_calls_array.push_back(tc);
+        }
+        token.tool_calls_json = tool_calls_array.dump();
+    } else {
+        token.tool_calls_json.clear();
+    }
 }
 
 std::vector<float> llama_rn_context::getEmbedding(common_params &embd_params)
