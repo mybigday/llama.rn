@@ -10,7 +10,7 @@ extra_buffer_type::~extra_buffer_type() {}
 }  // namespace ggml::cpu
 
 bool lm_ggml_cpu_extra_compute_forward(struct lm_ggml_compute_params * params, struct lm_ggml_tensor * op) {
-    for (auto extra : lm_ggml_backend_cpu_get_extra_buffers_type()) {
+    for (auto extra : lm_ggml_backend_cpu_get_extra_buffer_types()) {
         if (extra && extra->context) {
             auto buf_extra     = (ggml::cpu::extra_buffer_type *) extra->context;
             auto tensor_traits = buf_extra->get_tensor_traits(op);
@@ -23,7 +23,7 @@ bool lm_ggml_cpu_extra_compute_forward(struct lm_ggml_compute_params * params, s
 }
 
 bool lm_ggml_cpu_extra_work_size(int n_threads, const struct lm_ggml_tensor * op, size_t * size) {
-    for (auto extra : lm_ggml_backend_cpu_get_extra_buffers_type()) {
+    for (auto extra : lm_ggml_backend_cpu_get_extra_buffer_types()) {
         if (extra && extra->context) {
             auto buf_extra     = (ggml::cpu::extra_buffer_type *) extra->context;
             auto tensor_traits = buf_extra->get_tensor_traits(op);
