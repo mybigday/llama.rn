@@ -1103,7 +1103,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
             chat_syntax.format = static_cast<common_chat_format>(chat_format);
 
             const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
-            if (!reasoning_format_chars) reasoning_format_chars = @"none";
+            if (!reasoning_format_chars) reasoning_format_chars = "none";
             std::string reasoning_format_str = reasoning_format_chars;
             chat_syntax.reasoning_format = common_reasoning_format_from_name(reasoning_format_str);
             chat_syntax.thinking_forced_open = thinking_forced_open;
