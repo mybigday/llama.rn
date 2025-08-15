@@ -542,6 +542,7 @@ extern "C" {
         LM_GGML_OP_CROSS_ENTROPY_LOSS,
         LM_GGML_OP_CROSS_ENTROPY_LOSS_BACK,
         LM_GGML_OP_OPT_STEP_ADAMW,
+        LM_GGML_OP_OPT_STEP_SGD,
 
         LM_GGML_OP_GLU,
 
@@ -2311,7 +2312,14 @@ extern "C" {
             struct lm_ggml_tensor  * grad,
             struct lm_ggml_tensor  * m,
             struct lm_ggml_tensor  * v,
-            struct lm_ggml_tensor  * adamw_params); // parameters such a the learning rate
+            struct lm_ggml_tensor  * adamw_params); // parameters such as the learning rate
+
+    // stochastic gradient descent step (with weight decay)
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_opt_step_sgd(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor *  a,
+        struct lm_ggml_tensor *  grad,
+        struct lm_ggml_tensor *  sgd_params); // alpha, weight decay
 
     //
     // automatic differentiation

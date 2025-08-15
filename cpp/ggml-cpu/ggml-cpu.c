@@ -2022,6 +2022,11 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
                 lm_ggml_compute_forward_opt_step_adamw(params, tensor);
             }
             break;
+        case LM_GGML_OP_OPT_STEP_SGD:
+            {
+                lm_ggml_compute_forward_opt_step_sgd(params, tensor);
+            }
+            break;
         case LM_GGML_OP_NONE:
             {
                 // nop
@@ -2325,6 +2330,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
         case LM_GGML_OP_CROSS_ENTROPY_LOSS:
         case LM_GGML_OP_CROSS_ENTROPY_LOSS_BACK:
         case LM_GGML_OP_OPT_STEP_ADAMW:
+        case LM_GGML_OP_OPT_STEP_SGD:
             {
                 n_tasks = n_threads;
             } break;

@@ -1020,11 +1020,12 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "CROSS_ENTROPY_LOSS",
     "CROSS_ENTROPY_LOSS_BACK",
     "OPT_STEP_ADAMW",
+    "OPT_STEP_SGD",
 
     "GLU",
 };
 
-static_assert(LM_GGML_OP_COUNT == 87, "LM_GGML_OP_COUNT != 87");
+static_assert(LM_GGML_OP_COUNT == 88, "LM_GGML_OP_COUNT != 88");
 
 static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "none",
@@ -1121,14 +1122,14 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "cross_entropy_loss(x,y)",
     "cross_entropy_loss_back(x,y)",
     "adamw(x)",
+    "sgd(x)",
 
     "glu(x)",
 };
 
-static_assert(LM_GGML_OP_COUNT == 87, "LM_GGML_OP_COUNT != 87");
+static_assert(LM_GGML_OP_COUNT == 88, "LM_GGML_OP_COUNT != 88");
 
 static_assert(LM_GGML_OP_POOL_COUNT == 2, "LM_GGML_OP_POOL_COUNT != 2");
-
 
 static const char * LM_GGML_UNARY_OP_NAME[LM_GGML_UNARY_OP_COUNT] = {
     "ABS",
@@ -4279,14 +4280,13 @@ struct lm_ggml_tensor * lm_ggml_conv_1d_dw(
         int                   s0,
         int                   p0,
         int                   d0) {
-    struct lm_ggml_tensor * new_a = lm_ggml_reshape_4d(ctx, a, a->ne[0], 1, a->ne[1], a->ne[2]);
     struct lm_ggml_tensor * new_b = lm_ggml_reshape_4d(ctx, b, b->ne[0], 1, b->ne[1], b->ne[2]);
 
-    struct lm_ggml_tensor * im2col = lm_ggml_im2col(ctx, new_a, new_b, s0, 0, p0, 0, d0, 0, false, LM_GGML_TYPE_F16);
+    struct lm_ggml_tensor * im2col = lm_ggml_im2col(ctx, a, new_b, s0, 0, p0, 0, d0, 0, false, LM_GGML_TYPE_F16);
 
     struct lm_ggml_tensor * result = lm_ggml_mul_mat(ctx, im2col, a);
 
-    result = lm_ggml_reshape_3d(ctx, result, b->ne[0], b->ne[1], 1);
+    result = lm_ggml_reshape_3d(ctx, result, result->ne[0], result->ne[2], 1);
 
     return result;
 }
@@ -5610,6 +5610,28 @@ struct lm_ggml_tensor * lm_ggml_opt_step_adamw(
     result->src[2] = m;
     result->src[3] = v;
     result->src[4] = adamw_params;
+
+    return result;
+}
+
+// opt_step_sgd
+
+struct lm_ggml_tensor * lm_ggml_opt_step_sgd(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * grad,
+        struct lm_ggml_tensor  * params) {
+    LM_GGML_ASSERT(a->flags & LM_GGML_TENSOR_FLAG_PARAM);
+    LM_GGML_ASSERT(lm_ggml_are_same_shape(a, grad));
+    LM_GGML_ASSERT(params->type == LM_GGML_TYPE_F32);
+    LM_GGML_ASSERT(lm_ggml_nelements(params) == 2);
+
+    struct lm_ggml_tensor * result = lm_ggml_view_tensor(ctx, a);
+
+    result->op     = LM_GGML_OP_OPT_STEP_SGD;
+    result->src[0] = a;
+    result->src[1] = grad;
+    result->src[2] = params;
 
     return result;
 }
