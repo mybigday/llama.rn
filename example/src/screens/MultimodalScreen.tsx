@@ -641,7 +641,6 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         addMessage(userMessage)
       }
 
-      let response = ''
       const responseId = randId()
       const responseMessage: MessageType.Text = {
         author: assistant,
@@ -657,19 +656,26 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         completionParams || (await loadCompletionParams())
       const completionResult = await context.completion(
         {
-          messages: conversationMessages,
           ...completionParameters,
+          reasoning_format: 'auto',
+          messages: conversationMessages,
         },
         (data) => {
-          const { token } = data
-          response += token
+          const { content = '', reasoning_content: reasoningContent } = data
 
           // Update message in real-time
           updateMessage(responseId, (msg) => {
             if (msg.type === 'text') {
               return {
                 ...msg,
-                text: response.replace(/^\s+/, ''),
+                text: content.replace(/^\s+/, ''),
+                metadata: {
+                  ...msg.metadata,
+                  partialCompletionResult: {
+                    reasoning_content: reasoningContent,
+                    content: content.replace(/^\s+/, ''),
+                  },
+                },
               }
             }
             return msg
@@ -690,6 +696,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             metadata: {
               ...msg.metadata,
               timings: 'Response completed',
+              completionResult,
             },
           }
         }

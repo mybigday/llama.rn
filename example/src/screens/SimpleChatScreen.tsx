@@ -278,7 +278,6 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
       // Build conversation messages using the reusable function
       const conversationMessages = buildLLMMessages()
 
-      let response = ''
       const responseId = randId()
       const responseMessage: MessageType.Text = {
         author: assistant,
@@ -293,18 +292,29 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
       const params = completionParams || (await loadCompletionParams())
       const completionResult = await context.completion(
         {
-          messages: conversationMessages,
           ...params,
+          messages: conversationMessages,
+          reasoning_format: 'auto',
+          jinja: true,
         },
         (data) => {
-          const { token } = data
-          response += token
+          const {
+            content = '',
+            reasoning_content: reasoningContent,
+          } = data
 
           updateMessage(responseId, (msg) => {
             if (msg.type === 'text') {
               return {
                 ...msg,
-                text: response.replace(/^\s+/, ''),
+                text: content.replace(/^\s+/, ''),
+                metadata: {
+                  ...msg.metadata,
+                  partialCompletionResult: {
+                    reasoning_content: reasoningContent,
+                    content: content.replace(/^\s+/, ''),
+                  },
+                },
               }
             }
             return msg
@@ -325,6 +335,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
             metadata: {
               ...msg.metadata,
               timings: 'Response completed',
+              completionResult,
             },
           }
         }
@@ -360,9 +371,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           {/* Custom Models Section */}
           {customModels.length > 0 && (
             <>
-              <Text style={CommonStyles.modelSectionTitle}>
-                Custom Models
-              </Text>
+              <Text style={CommonStyles.modelSectionTitle}>Custom Models</Text>
               {customModels.map((model) => (
                 <CustomModelCard
                   key={model.id}
