@@ -47,8 +47,7 @@ struct completion_token_output
     std::vector<token_prob> probs;
     llama_token tok;
 
-    bool is_reasoning_content = false;
-    bool is_tool_calling = false;
+    std::string content;
     std::string reasoning_content;
     std::string tool_calls_json;  // JSON string to avoid duplication issues
     std::string accumulated_text;

@@ -111,10 +111,8 @@ export type ToolCall = {
 export type TokenData = {
   token: string
   completion_probabilities?: Array<NativeCompletionTokenProb>
-  // Status flags for current unfinished content
-  is_reasoning_content?: boolean
-  is_tool_calling?: boolean
   // Parsed content from accumulated text
+  content?: string
   reasoning_content?: string
   tool_calls?: Array<ToolCall>
   accumulated_text?: string

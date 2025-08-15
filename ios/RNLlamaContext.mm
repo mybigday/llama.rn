@@ -663,7 +663,8 @@
     bool thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
 
     NSString *reasoningFormat = params[@"reasoning_format"];
-    std::string reasoningFormatStr = reasoningFormat ? [reasoningFormat UTF8String] : "";
+    if (!reasoningFormat) reasoningFormat = @"none";
+    std::string reasoningFormatStr = [reasoningFormat UTF8String];
     common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
 
     llama->beginCompletion(chat_format, reasoning_format, thinking_forced_open);
@@ -752,17 +753,17 @@
             // Add token-level flags and parsed content (available regardless of n_probs)
             const auto& latest_token = llama->latest_token_for_parsing;
 
-            tokenResult[@"is_reasoning_content"] = @(latest_token.is_reasoning_content);
-            tokenResult[@"is_tool_calling"] = @(latest_token.is_tool_calling);
-
+            if (!latest_token.content.empty()) {
+                tokenResult[@"content"] = [NSString stringWithUTF8String:latest_token.content.c_str()];
+            }
             if (!latest_token.reasoning_content.empty()) {
                 tokenResult[@"reasoning_content"] = [NSString stringWithUTF8String:latest_token.reasoning_content.c_str()];
             }
             if (!latest_token.tool_calls_json.empty()) {
                 NSError *error;
                 NSData *jsonData = [NSData dataWithBytes:latest_token.tool_calls_json.c_str() length:latest_token.tool_calls_json.length()];
-                id toolCallsObj = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&error];
-                if (!error && toolCallsObj) {
+                NSArray *toolCallsObj = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&error];
+                if (toolCallsObj) {
                     tokenResult[@"tool_calls"] = toolCallsObj;
                 }
             }
@@ -791,7 +792,8 @@
             chat_syntax.format = static_cast<common_chat_format>(chat_format);
 
             NSString *reasoningFormat = params[@"reasoning_format"];
-            std::string reasoningFormatStr = reasoningFormat ? [reasoningFormat UTF8String] : "";
+            if (!reasoningFormat) reasoningFormat = @"none";
+            std::string reasoningFormatStr = [reasoningFormat UTF8String];
             chat_syntax.reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
             chat_syntax.thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
 

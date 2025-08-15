@@ -953,7 +953,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
     }
 
     const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
-    std::string reasoning_format_str = reasoning_format_chars ? reasoning_format_chars : "";
+    if (!reasoning_format_chars) reasoning_format_chars = "none";
+    std::string reasoning_format_str = reasoning_format_chars;
     common_reasoning_format reasoning_format_enum = common_reasoning_format_from_name(reasoning_format_str);
     env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
 
@@ -1035,8 +1036,9 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
             const auto& latest_token = llama->latest_token_for_parsing;
 
-            putBoolean(env, tokenResult, "is_reasoning_content", latest_token.is_reasoning_content);
-            putBoolean(env, tokenResult, "is_tool_calling", latest_token.is_tool_calling);
+            if (!latest_token.content.empty()) {
+                putString(env, tokenResult, "content", latest_token.content.c_str());
+            }
 
             if (!latest_token.reasoning_content.empty()) {
                 putString(env, tokenResult, "reasoning_content", latest_token.reasoning_content.c_str());
@@ -1101,7 +1103,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
             chat_syntax.format = static_cast<common_chat_format>(chat_format);
 
             const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
-            std::string reasoning_format_str = reasoning_format_chars ? reasoning_format_chars : "";
+            if (!reasoning_format_chars) reasoning_format_chars = @"none";
+            std::string reasoning_format_str = reasoning_format_chars;
             chat_syntax.reasoning_format = common_reasoning_format_from_name(reasoning_format_str);
             chat_syntax.thinking_forced_open = thinking_forced_open;
             env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
