@@ -20,19 +20,26 @@
 - [applyLoraAdapters](LlamaContext.md#applyloraadapters)
 - [bench](LlamaContext.md#bench)
 - [completion](LlamaContext.md#completion)
+- [decodeAudioTokens](LlamaContext.md#decodeaudiotokens)
 - [detokenize](LlamaContext.md#detokenize)
 - [embedding](LlamaContext.md#embedding)
+- [getAudioCompletionGuideTokens](LlamaContext.md#getaudiocompletionguidetokens)
+- [getFormattedAudioCompletion](LlamaContext.md#getformattedaudiocompletion)
 - [getFormattedChat](LlamaContext.md#getformattedchat)
 - [getLoadedLoraAdapters](LlamaContext.md#getloadedloraadapters)
 - [getMultimodalSupport](LlamaContext.md#getmultimodalsupport)
 - [initMultimodal](LlamaContext.md#initmultimodal)
+- [initVocoder](LlamaContext.md#initvocoder)
 - [isJinjaSupported](LlamaContext.md#isjinjasupported)
 - [isLlamaChatSupported](LlamaContext.md#isllamachatsupported)
 - [isMultimodalEnabled](LlamaContext.md#ismultimodalenabled)
+- [isVocoderEnabled](LlamaContext.md#isvocoderenabled)
 - [loadSession](LlamaContext.md#loadsession)
 - [release](LlamaContext.md#release)
 - [releaseMultimodal](LlamaContext.md#releasemultimodal)
+- [releaseVocoder](LlamaContext.md#releasevocoder)
 - [removeLoraAdapters](LlamaContext.md#removeloraadapters)
+- [rerank](LlamaContext.md#rerank)
 - [saveSession](LlamaContext.md#savesession)
 - [stopCompletion](LlamaContext.md#stopcompletion)
 - [tokenize](LlamaContext.md#tokenize)
@@ -51,7 +58,7 @@
 
 #### Defined in
 
-[index.ts:190](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L190)
+[index.ts:234](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L234)
 
 ## Properties
 
@@ -61,7 +68,7 @@
 
 #### Defined in
 
-[index.ts:184](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L184)
+[index.ts:228](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L228)
 
 ___
 
@@ -71,7 +78,7 @@ ___
 
 #### Defined in
 
-[index.ts:182](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L182)
+[index.ts:226](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L226)
 
 ___
 
@@ -111,7 +118,7 @@ ___
 
 #### Defined in
 
-[index.ts:188](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L188)
+[index.ts:232](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L232)
 
 ___
 
@@ -121,7 +128,7 @@ ___
 
 #### Defined in
 
-[index.ts:186](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L186)
+[index.ts:230](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L230)
 
 ## Methods
 
@@ -141,7 +148,7 @@ ___
 
 #### Defined in
 
-[index.ts:461](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L461)
+[index.ts:540](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L540)
 
 ___
 
@@ -164,7 +171,7 @@ ___
 
 #### Defined in
 
-[index.ts:441](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L441)
+[index.ts:520](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L520)
 
 ___
 
@@ -193,7 +200,31 @@ Multimodal support must be enabled via initMultimodal() first.
 
 #### Defined in
 
-[index.ts:323](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L323)
+[index.ts:375](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L375)
+
+___
+
+### decodeAudioTokens
+
+▸ **decodeAudioTokens**(`tokens`): `Promise`<`number`[]\>
+
+Decode audio tokens
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `tokens` | `number`[] | Array of audio tokens |
+
+#### Returns
+
+`Promise`<`number`[]\>
+
+Promise resolving to the decoded audio tokens
+
+#### Defined in
+
+[index.ts:666](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L666)
 
 ___
 
@@ -213,7 +244,7 @@ ___
 
 #### Defined in
 
-[index.ts:430](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L430)
+[index.ts:486](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L486)
 
 ___
 
@@ -234,7 +265,56 @@ ___
 
 #### Defined in
 
-[index.ts:434](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L434)
+[index.ts:490](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L490)
+
+___
+
+### getAudioCompletionGuideTokens
+
+▸ **getAudioCompletionGuideTokens**(`textToSpeak`): `Promise`<`number`[]\>
+
+Get guide tokens for audio completion
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `textToSpeak` | `string` | Text to speak |
+
+#### Returns
+
+`Promise`<`number`[]\>
+
+Promise resolving to the guide tokens
+
+#### Defined in
+
+[index.ts:655](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L655)
+
+___
+
+### getFormattedAudioCompletion
+
+▸ **getFormattedAudioCompletion**(`speaker`, `textToSpeak`): `Promise`<{ `grammar?`: `string` ; `prompt`: `string`  }\>
+
+Get a formatted audio completion prompt
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `speaker` | ``null`` \| `object` | - |
+| `textToSpeak` | `string` | Text to speak |
+
+#### Returns
+
+`Promise`<{ `grammar?`: `string` ; `prompt`: `string`  }\>
+
+Promise resolving to the formatted audio completion result with prompt and grammar
+
+#### Defined in
+
+[index.ts:636](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L636)
 
 ___
 
@@ -249,7 +329,11 @@ ___
 | `messages` | [`RNLlamaOAICompatibleMessage`](../README.md#rnllamaoaicompatiblemessage)[] |
 | `template?` | ``null`` \| `string` |
 | `params?` | `Object` |
+| `params.add_generation_prompt?` | `boolean` |
+| `params.chat_template_kwargs?` | `Record`<`string`, `string`\> |
+| `params.enable_thinking?` | `boolean` |
 | `params.jinja?` | `boolean` |
+| `params.now?` | `string` \| `number` |
 | `params.parallel_tool_calls?` | `object` |
 | `params.response_format?` | [`CompletionResponseFormat`](../README.md#completionresponseformat) |
 | `params.tool_choice?` | `string` |
@@ -261,7 +345,7 @@ ___
 
 #### Defined in
 
-[index.ts:225](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L225)
+[index.ts:269](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L269)
 
 ___
 
@@ -275,7 +359,7 @@ ___
 
 #### Defined in
 
-[index.ts:477](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L477)
+[index.ts:556](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L556)
 
 ___
 
@@ -293,7 +377,7 @@ Promise resolving to an object with vision and audio support
 
 #### Defined in
 
-[index.ts:516](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L516)
+[index.ts:595](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L595)
 
 ___
 
@@ -319,7 +403,33 @@ Promise resolving to true if initialization was successful
 
 #### Defined in
 
-[index.ts:490](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L490)
+[index.ts:569](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L569)
+
+___
+
+### initVocoder
+
+▸ **initVocoder**(`params`): `Promise`<`boolean`\>
+
+Initialize TTS support with a vocoder model
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `params` | `Object` | Parameters for TTS support |
+| `params.n_batch?` | `number` | Batch size for the vocoder model |
+| `params.path` | `string` | Path to the vocoder model |
+
+#### Returns
+
+`Promise`<`boolean`\>
+
+Promise resolving to true if initialization was successful
+
+#### Defined in
+
+[index.ts:617](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L617)
 
 ___
 
@@ -333,7 +443,7 @@ ___
 
 #### Defined in
 
-[index.ts:220](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L220)
+[index.ts:264](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L264)
 
 ___
 
@@ -347,7 +457,7 @@ ___
 
 #### Defined in
 
-[index.ts:216](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L216)
+[index.ts:260](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L260)
 
 ___
 
@@ -365,7 +475,25 @@ Promise resolving to true if multimodal is enabled
 
 #### Defined in
 
-[index.ts:508](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L508)
+[index.ts:587](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L587)
+
+___
+
+### isVocoderEnabled
+
+▸ **isVocoderEnabled**(): `Promise`<`boolean`\>
+
+Check if TTS support is enabled
+
+#### Returns
+
+`Promise`<`boolean`\>
+
+Promise resolving to true if TTS is enabled
+
+#### Defined in
+
+[index.ts:626](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L626)
 
 ___
 
@@ -387,7 +515,7 @@ Load cached prompt & completion state from a file.
 
 #### Defined in
 
-[index.ts:200](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L200)
+[index.ts:244](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L244)
 
 ___
 
@@ -401,7 +529,7 @@ ___
 
 #### Defined in
 
-[index.ts:531](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L531)
+[index.ts:678](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L678)
 
 ___
 
@@ -419,7 +547,25 @@ Promise resolving to void
 
 #### Defined in
 
-[index.ts:527](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L527)
+[index.ts:606](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L606)
+
+___
+
+### releaseVocoder
+
+▸ **releaseVocoder**(): `Promise`<`void`\>
+
+Release TTS support
+
+#### Returns
+
+`Promise`<`void`\>
+
+Promise resolving to void
+
+#### Defined in
+
+[index.ts:674](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L674)
 
 ___
 
@@ -433,7 +579,33 @@ ___
 
 #### Defined in
 
-[index.ts:473](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L473)
+[index.ts:552](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L552)
+
+___
+
+### rerank
+
+▸ **rerank**(`query`, `documents`, `params?`): `Promise`<[`RerankResult`](../README.md#rerankresult)[]\>
+
+Rerank documents based on relevance to a query
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `query` | `string` | The query text to rank documents against |
+| `documents` | `string`[] | Array of document texts to rank |
+| `params?` | [`RerankParams`](../README.md#rerankparams) | Optional reranking parameters |
+
+#### Returns
+
+`Promise`<[`RerankResult`](../README.md#rerankresult)[]\>
+
+Promise resolving to an array of ranking results with scores and indices
+
+#### Defined in
+
+[index.ts:504](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L504)
 
 ___
 
@@ -457,7 +629,7 @@ Save current cached prompt & completion state to a file.
 
 #### Defined in
 
-[index.ts:209](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L209)
+[index.ts:253](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L253)
 
 ___
 
@@ -471,7 +643,7 @@ ___
 
 #### Defined in
 
-[index.ts:409](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L409)
+[index.ts:465](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L465)
 
 ___
 
@@ -497,4 +669,4 @@ Promise resolving to the tokenize result
 
 #### Defined in
 
-[index.ts:419](https://github.com/mybigday/llama.rn/blob/1571b49/src/index.ts#L419)
+[index.ts:475](https://github.com/mybigday/llama.rn/blob/79c1d25/src/index.ts#L475)
