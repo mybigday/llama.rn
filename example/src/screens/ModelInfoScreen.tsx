@@ -9,7 +9,6 @@ import {
   Dimensions,
   Clipboard,
 } from 'react-native'
-import { loadLlamaModelInfo } from '../../../src'
 import ModelDownloadCard, {
   TTSModelDownloadCard,
   MtmdModelDownloadCard,
@@ -21,6 +20,7 @@ import { MODELS } from '../utils/constants'
 import { MaskedProgress } from '../components/MaskedProgress'
 import type { CustomModel } from '../utils/storage'
 import { loadCustomModels } from '../utils/storage'
+import { loadLlamaModelInfo } from '../../../src' // import 'llama.rn'
 
 const { width, height } = Dimensions.get('window')
 
@@ -33,6 +33,7 @@ const styles = StyleSheet.create({
     ...CommonStyles.description,
     marginHorizontal: 16,
   },
+  setupContainer: CommonStyles.setupContainer,
   scrollContent: CommonStyles.scrollContent,
   // Modal styles - using shared base with customizations
   modalContainer: CommonStyles.modalContainer,
@@ -402,7 +403,7 @@ export default function ModelInfoScreen() {
       </Text>
 
       <ScrollView
-        style={styles.container}
+        style={styles.setupContainer}
         contentContainerStyle={styles.scrollContent}
       >
         {/* Custom Models Section */}

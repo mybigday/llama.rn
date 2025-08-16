@@ -16,7 +16,6 @@ import {
   Modal,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { initLlama, LlamaContext } from '../../../src'
 import type { TokenData } from '../../../src'
 import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
@@ -38,6 +37,7 @@ import {
   loadCompletionParams,
   loadCustomModels,
 } from '../utils/storage'
+import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
 
 const styles = StyleSheet.create({
   container: CommonStyles.container,

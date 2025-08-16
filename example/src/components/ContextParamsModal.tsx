@@ -9,6 +9,7 @@ import {
 } from '../utils/storage'
 import { useParameterModal } from '../hooks/useParameterModal'
 import { ParameterTextInput, ParameterSwitch } from './ParameterFormFields'
+import { ParameterMenu } from './ParameterMenu'
 import BaseParameterModal from './BaseParameterModal'
 
 interface ContextParamsModalProps {
@@ -16,6 +17,8 @@ interface ContextParamsModalProps {
   onClose: () => void
   onSave: (params: ContextParams) => void
 }
+
+const CACHE_TYPE_OPTIONS = ['f16', 'f32', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1']
 
 export default function ContextParamsModal({
   visible,
@@ -239,20 +242,22 @@ export default function ContextParamsModal({
       />
 
       {/* Cache Type K */}
-      <ParameterTextInput
+      <ParameterMenu
         label="Cache Type K (cache_type_k)"
-        description="KV cache data type for the K. Need enable flash_attn to change this. Available values: f16, f32, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1"
+        description="KV cache data type for the K. Need enable flash_attn to change this."
         value={params.cache_type_k}
-        onChangeText={(text) => updateParam('cache_type_k', text.toLowerCase())}
+        options={CACHE_TYPE_OPTIONS}
+        onSelect={(value) => updateParam('cache_type_k', value)}
         placeholder="f16"
       />
 
       {/* Cache Type V */}
-      <ParameterTextInput
+      <ParameterMenu
         label="Cache Type V (cache_type_v)"
-        description="KV cache data type for the V. Need enable flash_attn if change this. Available values: f16, f32, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1"
+        description="KV cache data type for the V. Need enable flash_attn if change this."
         value={params.cache_type_v}
-        onChangeText={(text) => updateParam('cache_type_v', text.toLowerCase())}
+        options={CACHE_TYPE_OPTIONS}
+        onSelect={(value) => updateParam('cache_type_v', value)}
         placeholder="f16"
       />
 

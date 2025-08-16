@@ -20,7 +20,6 @@ import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { pick, keepLocalCopy } from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
-import { initLlama, LlamaContext } from '../../../src'
 import { MtmdModelDownloadCard } from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
@@ -28,6 +27,7 @@ import CustomModelModal from '../components/CustomModelModal'
 import CustomModelCard from '../components/CustomModelCard'
 import { Bubble } from '../components/Bubble'
 import { HeaderButton } from '../components/HeaderButton'
+import { Menu } from '../components/Menu'
 import { MessagesModal } from '../components/MessagesModal'
 import { MaskedProgress } from '../components/MaskedProgress'
 import SessionModal from '../components/SessionModal'
@@ -45,6 +45,7 @@ import {
   loadCustomModels,
 } from '../utils/storage'
 import type { LLMMessage } from '../utils/llmMessages'
+import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
 
 const user = { id: 'user' }
 const assistant = { id: 'assistant' }
@@ -477,16 +478,24 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <HeaderButton iconName="refresh" onPress={handleReset} />
             <HeaderButton
-              iconName="folder"
-              onPress={() => setShowSessionModal(true)}
-            />
-            <HeaderButton
-              iconName="chat"
-              onPress={() => setShowMessagesModal(true)}
-            />
-            <HeaderButton
               iconName="settings"
               onPress={() => setShowCompletionParamsModal(true)}
+            />
+            <Menu
+              actions={[
+                {
+                  id: 'messages',
+                  title: 'Messages',
+                  onPress: () => setShowMessagesModal(true),
+                  systemIcon: 'message',
+                },
+                {
+                  id: 'sessions',
+                  title: 'Sessions',
+                  onPress: () => setShowSessionModal(true),
+                  systemIcon: 'folder',
+                },
+              ]}
             />
           </View>
         ),

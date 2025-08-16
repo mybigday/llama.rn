@@ -1300,6 +1300,27 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
+  - react-native-menu (1.2.4):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.01.01.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - Yoga
   - react-native-safe-area-context (5.5.2):
     - DoubleConversion
     - glog
@@ -1844,6 +1865,7 @@ DEPENDENCIES:
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - react-native-blob-util (from `../node_modules/react-native-blob-util`)
   - "react-native-document-picker (from `../node_modules/@react-native-documents/picker`)"
+  - "react-native-menu (from `../node_modules/@react-native-menu/menu`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - "react-native-vector-icons-material-icons (from `../node_modules/@react-native-vector-icons/material-icons`)"
   - React-nativeconfig (from `../node_modules/react-native/ReactCommon`)
@@ -1961,6 +1983,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-blob-util"
   react-native-document-picker:
     :path: "../node_modules/@react-native-documents/picker"
+  react-native-menu:
+    :path: "../node_modules/@react-native-menu/menu"
   react-native-safe-area-context:
     :path: "../node_modules/react-native-safe-area-context"
   react-native-vector-icons-material-icons:
@@ -2069,6 +2093,7 @@ SPEC CHECKSUMS:
   React-microtasksnativemodule: f13f03163b6a5ec66665dfe80a0df4468bb766a6
   react-native-blob-util: fb64c0d0a817afed53fc51cb2ea911c556fa0c88
   react-native-document-picker: f3740d35efcb60524c62fbdeb410fbbe7dd7d895
+  react-native-menu: 3db5a3167de8e9c00ffcde84e7b7480a3e192b41
   react-native-safe-area-context: e62e5018aa79e6679071eab7206fb92053329c4c
   react-native-vector-icons-material-icons: 12d355a04254d9dcf4dd17c9c6f625793f6690cc
   React-nativeconfig: 57781b79e11d5af7573e6f77cbf1143b71802a6d
