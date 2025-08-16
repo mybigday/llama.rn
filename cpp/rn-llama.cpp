@@ -475,10 +475,18 @@ void llama_rn_context::setGuideTokens(const std::vector<llama_token> &tokens) {
 }
 
 void llama_rn_context::beginCompletion() {
+    beginCompletion(COMMON_CHAT_FORMAT_CONTENT_ONLY, COMMON_REASONING_FORMAT_NONE, false);
+}
+
+void llama_rn_context::beginCompletion(int chat_format, common_reasoning_format reasoning_format, bool thinking_forced_open) {
     // number of tokens to keep when resetting context
     n_remain = params.n_predict;
     llama_perf_context_reset(ctx);
     is_predicting = true;
+
+    current_chat_format = chat_format;
+    current_reasoning_format = reasoning_format;
+    current_thinking_forced_open = thinking_forced_open;
 }
 
 void llama_rn_context::endCompletion() {
@@ -648,7 +656,7 @@ size_t llama_rn_context::findStoppingStrings(const std::string &text, const size
 
 completion_token_output llama_rn_context::doCompletion()
 {
-    const completion_token_output token_with_probs = nextToken();
+    completion_token_output token_with_probs = nextToken();
 
     const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(ctx, token_with_probs.tok);
     generated_text += token_text;
@@ -709,6 +717,25 @@ completion_token_output llama_rn_context::doCompletion()
         stopping_word.c_str()
     );
     return token_with_probs;
+}
+
+completion_partial_output llama_rn_context::getPartialOutput(const std::string &token_text) {
+    common_chat_syntax syntax;
+    syntax.format = static_cast<common_chat_format>(current_chat_format);
+    syntax.reasoning_format = current_reasoning_format;
+    syntax.thinking_forced_open = current_thinking_forced_open;
+    syntax.parse_tool_calls = true;
+
+    common_chat_msg parsed_msg = common_chat_parse(generated_text, true, syntax);
+
+    completion_partial_output result;
+
+    result.content = parsed_msg.content;
+    result.reasoning_content = parsed_msg.reasoning_content;
+    result.accumulated_text = generated_text;
+    result.tool_calls = parsed_msg.tool_calls;
+
+    return result;
 }
 
 std::vector<float> llama_rn_context::getEmbedding(common_params &embd_params)

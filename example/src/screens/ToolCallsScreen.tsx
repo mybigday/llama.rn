@@ -237,12 +237,12 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
       )
       .reverse() // Reverse to get chronological order
       .reduce((acc: LLMMessage[], msg) => {
-        if (msg.metadata?.toolCalls) {
+        if (msg.metadata?.tool_calls) {
           // This is an assistant message that made tool calls
           acc.push({
             role: 'assistant',
             content: msg.text,
-            tool_calls: msg.metadata.storedToolCalls || [],
+            tool_calls: msg.metadata.tool_calls || [],
           })
         } else if (msg.metadata?.toolMessage) {
           // This contains tool results, add them as individual tool messages
@@ -254,7 +254,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
             role: 'user',
             content: msg.text,
           })
-        } else if (!msg.metadata?.toolCalls && !msg.metadata?.toolResults) {
+        } else if (!msg.metadata?.tool_calls) {
           // Regular assistant message (only if not tool-related)
           acc.push({
             role: 'assistant',
@@ -479,7 +479,6 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
       // Build conversation messages using the reusable function
       const conversationMessages = buildLLMMessages()
 
-      let response = ''
       const responseId = randId()
       const responseMessage: MessageType.Text = {
         author: assistant,
@@ -495,28 +494,34 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         completionParams || (await loadCompletionParams())
       const completionResult = await context.completion(
         {
+          ...completionParameters,
+          reasoning_format: 'auto',
           messages: conversationMessages,
           tools: AVAILABLE_TOOLS,
           tool_choice: 'auto',
           jinja: true,
-          ...completionParameters,
         },
         (data) => {
-          const { token } = data
+          const { content = '', reasoning_content: reasoningContent, tool_calls: toolCalls } = data
 
-          if (token) {
-            response += token
-
-            updateMessage(responseId, (msg) => {
-              if (msg.type === 'text') {
-                return {
-                  ...msg,
-                  text: response.replace(/^\s+/, ''),
-                }
+          // Update message with streaming data
+          updateMessage(responseId, (msg) => {
+            if (msg.type === 'text') {
+              return {
+                ...msg,
+                text: content.replace(/^\s+/, ''),
+                metadata: {
+                  ...msg.metadata,
+                  partialCompletionResult: {
+                    reasoning_content: reasoningContent,
+                    tool_calls: toolCalls,
+                    content: content.replace(/^\s+/, ''),
+                  },
+                },
               }
-              return msg
-            })
-          }
+            }
+            return msg
+          })
         },
       )
 
@@ -527,10 +532,14 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
       // update last message
       updateMessage(responseId, (msg) => {
         // if not tool_calls, update the text
-        if (msg.type === 'text' && !msg.metadata?.toolCalls) {
+        if (msg.type === 'text' && !msg.metadata?.tool_calls) {
           return {
             ...msg,
             text: content,
+            metadata: {
+              ...msg.metadata,
+              completionResult,
+            },
           }
         }
         return msg
@@ -565,8 +574,8 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
                 : content,
               metadata: {
                 ...msg.metadata,
-                toolCalls: true,
-                storedToolCalls: toolCalls,
+                tool_calls: toolCalls,
+                completionResult,
               },
             }
           }

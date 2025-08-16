@@ -305,7 +305,7 @@
     for (int i = 0; i < count; i++) {
         char key[256];
         llama_model_meta_key_by_index(llama->model, i, key, sizeof(key));
-        char val[16384];  // gpt-oss's chat template is 12kb 
+        char val[16384];  // gpt-oss's chat template is 12kb
         llama_model_meta_val_str_by_index(llama->model, i, val, sizeof(val));
 
         NSString *keyStr = [NSString stringWithUTF8String:key];
@@ -659,7 +659,15 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
 
-    llama->beginCompletion();
+    auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
+    bool thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
+
+    NSString *reasoningFormat = params[@"reasoning_format"];
+    if (!reasoningFormat) reasoningFormat = @"none";
+    std::string reasoningFormatStr = [reasoningFormat UTF8String];
+    common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
+
+    llama->beginCompletion(chat_format, reasoning_format, thinking_forced_open);
     try {
         // Use the unified loadPrompt function with image paths if available
         NSArray *imagePaths = params[@"media_paths"];
@@ -742,6 +750,31 @@
                 tokenResult[@"completion_probabilities"] = [self tokenProbsToDict:probs_output];
             }
 
+            auto partial_output = llama->getPartialOutput(token_text);
+            if (!partial_output.content.empty()) {
+                tokenResult[@"content"] = [NSString stringWithUTF8String:partial_output.content.c_str()];
+            }
+            if (!partial_output.reasoning_content.empty()) {
+                tokenResult[@"reasoning_content"] = [NSString stringWithUTF8String:partial_output.reasoning_content.c_str()];
+            }
+            if (!partial_output.tool_calls.empty()) {
+                NSMutableArray *toolCalls = [[NSMutableArray alloc] init];
+                for (const auto &tc : partial_output.tool_calls) {
+                    [toolCalls addObject:@{
+                        @"type": @"function",
+                        @"function": @{
+                            @"name": [NSString stringWithUTF8String:tc.name.c_str()],
+                            @"arguments": [NSString stringWithUTF8String:tc.arguments.c_str()],
+                        },
+                        @"id": tc.id.empty() ? [NSNull null] : [NSString stringWithUTF8String:tc.id.c_str()],
+                    }];
+                }
+                tokenResult[@"tool_calls"] = toolCalls;
+            }
+            if (!partial_output.accumulated_text.empty()) {
+                tokenResult[@"accumulated_text"] = [NSString stringWithUTF8String:partial_output.accumulated_text.c_str()];
+            }
+
             onToken(tokenResult);
         }
     }
@@ -755,7 +788,6 @@
     NSString *reasoningContent = nil;
     NSString *content = nil;
     NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
-    auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
     result[@"chat_format"] = @(chat_format);
 
     if (!llama->is_interrupted) {
@@ -764,15 +796,9 @@
             chat_syntax.format = static_cast<common_chat_format>(chat_format);
 
             NSString *reasoningFormat = params[@"reasoning_format"];
-            if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek"]) {
-                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
-            } else if (reasoningFormat && [reasoningFormat isEqualToString:@"deepseek-legacy"]) {
-                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY;
-            } else if (reasoningFormat && [reasoningFormat isEqualToString:@"auto"]) {
-                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
-            } else {
-                chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
-            }
+            if (!reasoningFormat) reasoningFormat = @"none";
+            std::string reasoningFormatStr = [reasoningFormat UTF8String];
+            chat_syntax.reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
             chat_syntax.thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
 
             common_chat_msg message = common_chat_parse(llama->generated_text, false, chat_syntax);

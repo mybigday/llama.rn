@@ -48,6 +48,14 @@ struct completion_token_output
     llama_token tok;
 };
 
+struct completion_partial_output
+{
+  std::string content;
+  std::string reasoning_content;
+  std::vector<common_chat_tool_call> tool_calls;
+  std::string accumulated_text;
+};
+
 struct llama_rn_context_mtmd;
 
 struct llama_rn_context_vocoder;
@@ -120,6 +128,11 @@ struct llama_rn_context {
     llama_rn_context_vocoder *vocoder_wrapper = nullptr;
     bool has_vocoder = false;
 
+    // Current completion parameters for chat parsing
+    int current_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
+    common_reasoning_format current_reasoning_format = COMMON_REASONING_FORMAT_NONE;
+    bool current_thinking_forced_open = false;
+
     ~llama_rn_context();
 
     void rewind();
@@ -146,10 +159,12 @@ struct llama_rn_context {
     void loadPrompt(const std::vector<std::string> &media_paths);
     void setGuideTokens(const std::vector<llama_token> &tokens);
     void beginCompletion();
+    void beginCompletion(int chat_format, common_reasoning_format reasoning_format, bool thinking_forced_open);
     void endCompletion();
     completion_token_output nextToken();
     size_t findStoppingStrings(const std::string &text, const size_t last_token_size, const stop_type type);
     completion_token_output doCompletion();
+    completion_partial_output getPartialOutput(const std::string &token_text);
     std::vector<float> getEmbedding(common_params &embd_params);
     std::vector<float> rerank(const std::string &query, const std::vector<std::string> &documents);
     std::string bench(int pp, int tg, int pl, int nr);
