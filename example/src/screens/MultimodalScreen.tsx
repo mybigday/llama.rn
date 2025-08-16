@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import {
   View,
   Text,
@@ -398,12 +398,73 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     return finalMessages
   }
 
+  const addMessage = useCallback((message: MessageType.Any) => {
+    messagesRef.current = [message, ...messagesRef.current]
+    setMessagesVersion((prev) => prev + 1)
+  }, [])
+
+  const updateMessage = (
+    messageId: string,
+    updateFn: (msg: MessageType.Any) => MessageType.Any,
+  ) => {
+    const index = messagesRef.current.findIndex((msg) => msg.id === messageId)
+    if (index >= 0) {
+      messagesRef.current = messagesRef.current.map((msg, i) => {
+        if (i === index) {
+          return updateFn(msg)
+        }
+        return msg
+      })
+      setMessagesVersion((prev) => prev + 1)
+    }
+  }
+
+  const addSystemMessage = useCallback((text: string, metadata = {}) => {
+    const textMessage: MessageType.Text = {
+      author: assistant,
+      createdAt: Date.now(),
+      id: randId(),
+      text,
+      type: 'text',
+      metadata: { system: true, ...metadata },
+    }
+    addMessage(textMessage)
+  }, [addMessage])
+
+  const handleReset = useCallback(() => {
+    Alert.alert(
+      'Reset Chat',
+      'Are you sure you want to clear all messages? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: () => {
+            messagesRef.current = []
+            setMessagesVersion((prev) => prev + 1)
+            setPendingMedia(null)
+            const welcomeMessage = createWelcomeMessage(multimodalSupport)
+            addSystemMessage(welcomeMessage)
+          },
+        },
+      ],
+    )
+  }, [multimodalSupport, addSystemMessage])
+
   // Set up navigation header buttons
   useLayoutEffect(() => {
     if (isModelReady) {
       navigation.setOptions({
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
+            <HeaderButton
+              iconName="refresh"
+              onPress={handleReset}
+            />
             <HeaderButton
               iconName="folder"
               onPress={() => setShowSessionModal(true)}
@@ -429,40 +490,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         ),
       })
     }
-  }, [navigation, isModelReady])
-
-  const addMessage = (message: MessageType.Any) => {
-    messagesRef.current = [message, ...messagesRef.current]
-    setMessagesVersion((prev) => prev + 1)
-  }
-
-  const updateMessage = (
-    messageId: string,
-    updateFn: (msg: MessageType.Any) => MessageType.Any,
-  ) => {
-    const index = messagesRef.current.findIndex((msg) => msg.id === messageId)
-    if (index >= 0) {
-      messagesRef.current = messagesRef.current.map((msg, i) => {
-        if (i === index) {
-          return updateFn(msg)
-        }
-        return msg
-      })
-      setMessagesVersion((prev) => prev + 1)
-    }
-  }
-
-  const addSystemMessage = (text: string, metadata = {}) => {
-    const textMessage: MessageType.Text = {
-      author: assistant,
-      createdAt: Date.now(),
-      id: randId(),
-      text,
-      type: 'text',
-      metadata: { system: true, ...metadata },
-    }
-    addMessage(textMessage)
-  }
+  }, [navigation, isModelReady, handleReset])
 
   const handleImportMessages = (newMessages: MessageType.Any[]) => {
     // Reset messages and add system message back

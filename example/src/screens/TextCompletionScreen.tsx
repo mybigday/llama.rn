@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useLayoutEffect } from 'react'
+import React, { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react'
 import {
   View,
   Text,
@@ -275,12 +275,60 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
     loadParams()
   }, [])
 
+  const handleReset = useCallback(() => {
+    Alert.alert(
+      'Reset Text Completion',
+      'Are you sure you want to clear all generated text and reset to default prompt? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            setTokens([])
+            setIsEditingResult(false)
+            setEditableResult('')
+            if (context) {
+              try {
+                const defaultMessages = [
+                  { role: 'system' as const, content: 'You are a helpful AI assistant.' },
+                  { role: 'user' as const, content: 'Hello! Please introduce yourself.' }
+                ]
+                const formatted = await context.getFormattedChat(defaultMessages)
+                setPrompt(formatted.prompt)
+                setFormattedPrompt(formatted.prompt)
+                const tokenized = await context.tokenize(formatted.prompt)
+                const detokenizedTokens = await Promise.all(
+                  tokenized.tokens.map(token => context.detokenize([token]))
+                )
+                setPromptTokens(detokenizedTokens)
+              } catch (formatError) {
+                console.warn('Failed to format default prompt:', formatError)
+                const fallbackPrompt = 'Hello! Please introduce yourself.'
+                setPrompt(fallbackPrompt)
+                setFormattedPrompt(fallbackPrompt)
+                setPromptTokens([])
+              }
+            }
+          },
+        },
+      ],
+    )
+  }, [context])
+
   // Set up navigation header buttons
   useLayoutEffect(() => {
     if (isModelReady) {
       navigation.setOptions({
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
+            <HeaderButton
+              iconName="refresh"
+              onPress={handleReset}
+            />
             <HeaderButton
               iconName="settings"
               onPress={() => setShowCompletionParamsModal(true)}
@@ -298,7 +346,7 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
         ),
       })
     }
-  }, [navigation, isModelReady])
+  }, [navigation, isModelReady, handleReset])
 
   const handleInitModel = async (modelUri: string, params?: ContextParams) => {
     setIsLoading(true)

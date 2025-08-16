@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import {
@@ -267,12 +267,74 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
     return [...conversationMessages, ...recentMessages]
   }
 
+  const addMessage = useCallback((message: MessageType.Any) => {
+    messagesRef.current = [message, ...messagesRef.current]
+    setMessagesVersion((prev) => prev + 1)
+  }, [])
+
+  const updateMessage = (
+    messageId: string,
+    updateFn: (msg: MessageType.Any) => MessageType.Any,
+  ) => {
+    const index = messagesRef.current.findIndex((msg) => msg.id === messageId)
+    if (index >= 0) {
+      messagesRef.current = messagesRef.current.map((msg, i) => {
+        if (i === index) {
+          return updateFn(msg)
+        }
+        return msg
+      })
+      setMessagesVersion((prev) => prev + 1)
+    }
+  }
+
+  const addSystemMessage = useCallback((text: string, metadata = {}) => {
+    const textMessage: MessageType.Text = {
+      author: assistant,
+      createdAt: Date.now(),
+      id: randId(),
+      text,
+      type: 'text',
+      metadata: { system: true, ...metadata },
+    }
+    addMessage(textMessage)
+    return textMessage.id
+  }, [addMessage])
+
+  const handleReset = useCallback(() => {
+    Alert.alert(
+      'Reset Chat',
+      'Are you sure you want to clear all messages? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: () => {
+            messagesRef.current = []
+            setMessagesVersion((prev) => prev + 1)
+            addSystemMessage(
+              `Hello! I'm a tool-calling AI assistant. I can help you with:\n\n• Weather information ("What's the weather in New York?")\n• Calculations ("Calculate 15 * 24 + 37")\n• Time queries ("What time is it in Tokyo?")\n\nTry asking me something!`,
+            )
+          },
+        },
+      ],
+    )
+  }, [addSystemMessage])
+
   // Set up navigation header buttons
   useLayoutEffect(() => {
     if (isModelReady) {
       navigation.setOptions({
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
+            <HeaderButton
+              iconName="refresh"
+              onPress={handleReset}
+            />
             <HeaderButton
               iconName="folder"
               onPress={() => setShowSessionModal(true)}
@@ -298,41 +360,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         ),
       })
     }
-  }, [navigation, isModelReady])
-
-  const addMessage = (message: MessageType.Any) => {
-    messagesRef.current = [message, ...messagesRef.current]
-    setMessagesVersion((prev) => prev + 1)
-  }
-
-  const updateMessage = (
-    messageId: string,
-    updateFn: (msg: MessageType.Any) => MessageType.Any,
-  ) => {
-    const index = messagesRef.current.findIndex((msg) => msg.id === messageId)
-    if (index >= 0) {
-      messagesRef.current = messagesRef.current.map((msg, i) => {
-        if (i === index) {
-          return updateFn(msg)
-        }
-        return msg
-      })
-      setMessagesVersion((prev) => prev + 1)
-    }
-  }
-
-  const addSystemMessage = (text: string, metadata = {}) => {
-    const textMessage: MessageType.Text = {
-      author: assistant,
-      createdAt: Date.now(),
-      id: randId(),
-      text,
-      type: 'text',
-      metadata: { system: true, ...metadata },
-    }
-    addMessage(textMessage)
-    return textMessage.id
-  }
+  }, [navigation, isModelReady, handleReset])
 
   const handleImportMessages = (newMessages: MessageType.Any[]) => {
     // Reset messages and add system message back
