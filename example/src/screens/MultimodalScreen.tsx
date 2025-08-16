@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import React, {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+} from 'react'
 import {
   View,
   Text,
@@ -419,17 +425,20 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     }
   }
 
-  const addSystemMessage = useCallback((text: string, metadata = {}) => {
-    const textMessage: MessageType.Text = {
-      author: assistant,
-      createdAt: Date.now(),
-      id: randId(),
-      text,
-      type: 'text',
-      metadata: { system: true, ...metadata },
-    }
-    addMessage(textMessage)
-  }, [addMessage])
+  const addSystemMessage = useCallback(
+    (text: string, metadata = {}) => {
+      const textMessage: MessageType.Text = {
+        author: assistant,
+        createdAt: Date.now(),
+        id: randId(),
+        text,
+        type: 'text',
+        metadata: { system: true, ...metadata },
+      }
+      addMessage(textMessage)
+    },
+    [addMessage],
+  )
 
   const handleReset = useCallback(() => {
     Alert.alert(
@@ -461,10 +470,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       navigation.setOptions({
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton
-              iconName="refresh"
-              onPress={handleReset}
-            />
+            <HeaderButton iconName="refresh" onPress={handleReset} />
             <HeaderButton
               iconName="folder"
               onPress={() => setShowSessionModal(true)}
@@ -827,7 +833,10 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
                 Alert.alert('Error', 'This model does not support image input')
                 return
               }
-              const mediaBase64 = await convertMediaToBase64(localCopy.localUri, mimeType)
+              const mediaBase64 = await convertMediaToBase64(
+                localCopy.localUri,
+                mimeType,
+              )
               setPendingMedia({
                 data: mediaBase64,
                 mimeType,
@@ -838,7 +847,10 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
                 Alert.alert('Error', 'This model does not support audio input')
                 return
               }
-              const mediaBase64 = await convertMediaToBase64(localCopy.localUri, mimeType)
+              const mediaBase64 = await convertMediaToBase64(
+                localCopy.localUri,
+                mimeType,
+              )
               setPendingMedia({
                 data: mediaBase64,
                 mimeType,
@@ -861,10 +873,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             )
           }
         } else {
-          Alert.alert(
-            'Error',
-            `Failed to copy file: ${localCopy.copyError}`,
-          )
+          Alert.alert('Error', `Failed to copy file: ${localCopy.copyError}`)
         }
       }
     } catch (error: any) {
