@@ -1043,33 +1043,20 @@ Java_com_rnllama_LlamaContext_doCompletion(
                 putString(env, tokenResult, "reasoning_content", partial_output.reasoning_content.c_str());
             }
             if (!partial_output.tool_calls.empty()) {
-                  try {
-                    auto toolCallsArray = createWritableArray(env);
-                    for (const auto& tc : partial_output.tool_calls) {
-                        auto toolCallMap = createWriteableMap(env);
-                        if (tc.contains("type")) {
-                            putString(env, toolCallMap, "type", tc.at("type").get<std::string>().c_str());
-                        }
-                        if (tc.contains("function")) {
-                            auto functionMap = createWriteableMap(env);
-                            const auto& func = tc.at("function");
-                            if (func.contains("name")) {
-                                putString(env, functionMap, "name", func.at("name").get<std::string>().c_str());
-                            }
-                            if (func.contains("arguments")) {
-                                putString(env, functionMap, "arguments", func.at("arguments").dump().c_str());
-                            }
-                            putMap(env, toolCallMap, "function", functionMap);
-                        }
-                        if (tc.contains("id")) {
-                            putString(env, toolCallMap, "id", tc.at("id").get<std::string>().c_str());
-                        }
-                        pushMap(env, toolCallsArray, toolCallMap);
+                auto toolCallsArray = createWritableArray(env);
+                for (const auto& tc : partial_output.tool_calls) {
+                    auto toolCall = createWriteableMap(env);
+                    putString(env, toolCall, "type", "function");
+                    auto functionMap = createWriteableMap(env);
+                    putString(env, functionMap, "name", tc.name.c_str());
+                    putString(env, functionMap, "arguments", tc.arguments.c_str());
+                    putMap(env, toolCall, "function", functionMap);
+                    if (!tc.id.empty()) {
+                      putString(env, toolCall, "id", tc.id.c_str());
                     }
-                    putArray(env, tokenResult, "tool_calls", toolCallsArray);
-                } catch (...) {
-                    // If JSON parsing fails, ignore
+                    pushMap(env, toolCallsArray, toolCall);
                 }
+                putArray(env, tokenResult, "tool_calls", toolCallsArray);
             }
             if (!partial_output.accumulated_text.empty()) {
                 putString(env, tokenResult, "accumulated_text", partial_output.accumulated_text.c_str());
