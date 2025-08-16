@@ -336,6 +336,11 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
       const currentGroup = acc[acc.length - 1]!
 
+      const reasoningContent = msg.metadata?.completionResult?.reasoning_content
+      if (!currentGroup.reasoning_content) {
+        currentGroup.reasoning_content = reasoningContent
+      }
+
       // Add message content to the current group
       if (msg.type === 'text') {
         if (Array.isArray(currentGroup.content)) {

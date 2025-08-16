@@ -265,6 +265,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           acc.push({
             role: 'assistant',
             content: msg.text,
+            reasoning_content: msg.metadata?.completionResult?.reasoning_content,
           })
         }
         return acc

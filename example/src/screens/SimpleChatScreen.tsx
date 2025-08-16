@@ -142,6 +142,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
             ? ('user' as const)
             : ('assistant' as const),
         content: msg.text,
+        reasoning_content: msg.metadata?.completionResult?.reasoning_content,
       }))
 
     return [...conversationMessages, ...recentMessages]

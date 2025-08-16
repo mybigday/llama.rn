@@ -10,6 +10,7 @@ export interface LLMMessage {
     image_url?: { url: string }
     input_audio?: { format: string; data: string }
   }>
+  reasoning_content?: string
   tool_call_id?: string
   tool_calls?: any[]
 }
