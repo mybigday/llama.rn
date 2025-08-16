@@ -563,12 +563,23 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     } catch (const nlohmann::json_abi_v3_12_0::detail::parse_error& e) {
         std::string errorMessage = "JSON parse error in getFormattedChat: " + std::string(e.what());
         putString(env, result, "_error", errorMessage.c_str());
-        LOGI("[RNLlama] %s", errorMessage.c_str());
-    } catch (const std::runtime_error &e) {
-        putString(env, result, "_error", e.what());
-        LOGI("[RNLlama] Error: %s", e.what());
-    } catch (...) {
-        putString(env, result, "_error", "Unknown error in getFormattedChat");
+        putString(env, result, "_error_type", "json_parse_error");
+        LOGI("[RNLlama] JSON parse error: %s", e.what());
+    } catch (const std::invalid_argument& e) {
+        std::string errorMessage = "Invalid argument in getFormattedChat: " + std::string(e.what());
+        putString(env, result, "_error", errorMessage.c_str());
+        putString(env, result, "_error_type", "invalid_argument");
+        LOGI("[RNLlama] Invalid argument: %s", e.what());
+    } catch (const std::runtime_error& e) {
+        std::string errorMessage = "Runtime error in getFormattedChat: " + std::string(e.what());
+        putString(env, result, "_error", errorMessage.c_str());
+        putString(env, result, "_error_type", "runtime_error");
+        LOGI("[RNLlama] Runtime error: %s", e.what());
+    } catch (const std::exception& e) {
+        std::string errorMessage = "C++ exception in getFormattedChat: " + std::string(e.what());
+        putString(env, result, "_error", errorMessage.c_str());
+        putString(env, result, "_error_type", "cpp_exception");
+        LOGI("[RNLlama] C++ exception: %s", e.what());
     }
     env->ReleaseStringUTFChars(tools, tools_chars);
     env->ReleaseStringUTFChars(messages, messages_chars);
@@ -580,7 +591,7 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
     return reinterpret_cast<jobject>(result);
 }
 
-JNIEXPORT jobject JNICALL
+JNIEXPORT jstring JNICALL
 Java_com_rnllama_LlamaContext_getFormattedChat(
     JNIEnv *env,
     jobject thiz,
@@ -589,17 +600,51 @@ Java_com_rnllama_LlamaContext_getFormattedChat(
     jstring chat_template
 ) {
     UNUSED(thiz);
-    auto llama = context_map[(long) context_ptr];
+    
+    try {
+        auto llama = context_map[(long) context_ptr];
+        if (!llama) {
+            LOGI("[RNLlama] Error: Context pointer %ld not found in context_map", (long) context_ptr);
+            env->ThrowNew(env->FindClass("java/lang/RuntimeException"), "Invalid context pointer in getFormattedChat");
+            return nullptr;
+        }
 
-    const char *messages_chars = env->GetStringUTFChars(messages, nullptr);
-    const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
+        const char *messages_chars = env->GetStringUTFChars(messages, nullptr);
+        const char *tmpl_chars = env->GetStringUTFChars(chat_template, nullptr);
 
-    std::string formatted_chat = llama->getFormattedChat(messages_chars, tmpl_chars);
+        if (!messages_chars) {
+            env->ReleaseStringUTFChars(chat_template, tmpl_chars);
+            env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Messages parameter is null in getFormattedChat");
+            return nullptr;
+        }
 
-    env->ReleaseStringUTFChars(messages, messages_chars);
-    env->ReleaseStringUTFChars(chat_template, tmpl_chars);
+        std::string formatted_chat = llama->getFormattedChat(messages_chars, tmpl_chars);
 
-    return env->NewStringUTF(formatted_chat.c_str());
+        env->ReleaseStringUTFChars(messages, messages_chars);
+        env->ReleaseStringUTFChars(chat_template, tmpl_chars);
+
+        return env->NewStringUTF(formatted_chat.c_str());
+    } catch (const nlohmann::json_abi_v3_12_0::detail::parse_error& e) {
+        LOGI("[RNLlama] JSON parse error in getFormattedChat: %s", e.what());
+        std::string errorMessage = "JSON parse error in getFormattedChat: " + std::string(e.what());
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), errorMessage.c_str());
+        return nullptr;
+    } catch (const std::invalid_argument& e) {
+        LOGI("[RNLlama] Invalid argument in getFormattedChat: %s", e.what());
+        std::string errorMessage = "Invalid argument in getFormattedChat: " + std::string(e.what());
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), errorMessage.c_str());
+        return nullptr;
+    } catch (const std::runtime_error& e) {
+        LOGI("[RNLlama] Runtime error in getFormattedChat: %s", e.what());
+        std::string errorMessage = "Runtime error in getFormattedChat: " + std::string(e.what());
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), errorMessage.c_str());
+        return nullptr;
+    } catch (const std::exception& e) {
+        LOGI("[RNLlama] C++ exception in getFormattedChat: %s", e.what());
+        std::string errorMessage = "C++ exception in getFormattedChat: " + std::string(e.what());
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), errorMessage.c_str());
+        return nullptr;
+    }
 }
 
 JNIEXPORT jobject JNICALL

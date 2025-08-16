@@ -124,11 +124,18 @@ RCT_EXPORT_METHOD(getFormattedChat:(double)contextId
         }
     } catch (const nlohmann::json_abi_v3_12_0::detail::parse_error& e) {
         NSString *errorMessage = [NSString stringWithUTF8String:e.what()];
-        reject(@"llama_error", [NSString stringWithFormat:@"JSON parse error in getFormattedChat: %@", errorMessage], nil);
-    } catch (const std::exception& e) { // catch cpp exceptions
-        reject(@"llama_error", [NSString stringWithUTF8String:e.what()], nil);
-    } catch (...) {
-        reject(@"llama_error", @"Unknown error in getFormattedChat", nil);
+        reject(@"llama_json_parse_error", [NSString stringWithFormat:@"JSON parse error in getFormattedChat: %@", errorMessage], nil);
+    } catch (const std::invalid_argument& e) {
+        NSString *errorMessage = [NSString stringWithUTF8String:e.what()];
+        reject(@"llama_invalid_argument", [NSString stringWithFormat:@"Invalid argument in getFormattedChat: %@", errorMessage], nil);
+    } catch (const std::runtime_error& e) {
+        NSString *errorMessage = [NSString stringWithUTF8String:e.what()];
+        reject(@"llama_runtime_error", [NSString stringWithFormat:@"Runtime error in getFormattedChat: %@", errorMessage], nil);
+    } catch (const std::exception& e) {
+        NSString *errorMessage = [NSString stringWithUTF8String:e.what()];
+        reject(@"llama_cpp_error", [NSString stringWithFormat:@"C++ exception in getFormattedChat: %@", errorMessage], nil);
+    } catch (NSException *nsException) {
+        reject(@"llama_objc_error", [NSString stringWithFormat:@"Objective-C exception in getFormattedChat: %@", nsException.reason], nil);
     }
 }
 
