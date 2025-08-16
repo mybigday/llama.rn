@@ -46,11 +46,14 @@ struct completion_token_output
 
     std::vector<token_prob> probs;
     llama_token tok;
+};
 
-    std::string content;
-    std::string reasoning_content;
-    std::string tool_calls_json;  // JSON string to avoid duplication issues
-    std::string accumulated_text;
+struct completion_partial_output
+{
+  std::string content;
+  std::string reasoning_content;
+  std::vector<common_chat_tool_call> tool_calls;
+  std::string accumulated_text;
 };
 
 struct llama_rn_context_mtmd;
@@ -125,16 +128,10 @@ struct llama_rn_context {
     llama_rn_context_vocoder *vocoder_wrapper = nullptr;
     bool has_vocoder = false;
 
-    // State tracking for partial parsing using common_chat_parse
-    std::string accumulated_text;
-
     // Current completion parameters for chat parsing
     int current_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
     common_reasoning_format current_reasoning_format = COMMON_REASONING_FORMAT_NONE;
     bool current_thinking_forced_open = false;
-
-    // Latest token for content parsing (always available, regardless of n_probs)
-    completion_token_output latest_token_for_parsing;
 
     ~llama_rn_context();
 
@@ -167,7 +164,7 @@ struct llama_rn_context {
     completion_token_output nextToken();
     size_t findStoppingStrings(const std::string &text, const size_t last_token_size, const stop_type type);
     completion_token_output doCompletion();
-    void updateTokenFlags(completion_token_output &token, const std::string &token_text);
+    completion_partial_output getPartialOutput(const std::string &token_text);
     std::vector<float> getEmbedding(common_params &embd_params);
     std::vector<float> rerank(const std::string &query, const std::vector<std::string> &documents);
     std::string bench(int pp, int tg, int pl, int nr);

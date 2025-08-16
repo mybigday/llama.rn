@@ -484,8 +484,6 @@ void llama_rn_context::beginCompletion(int chat_format, common_reasoning_format 
     llama_perf_context_reset(ctx);
     is_predicting = true;
 
-    // Reset accumulated text for partial parsing and store completion parameters
-    accumulated_text.clear();
     current_chat_format = chat_format;
     current_reasoning_format = reasoning_format;
     current_thinking_forced_open = thinking_forced_open;
@@ -663,20 +661,12 @@ completion_token_output llama_rn_context::doCompletion()
     const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(ctx, token_with_probs.tok);
     generated_text += token_text;
 
-    // Update token flags using proper chat parsing
-    if (!token_text.empty()) {
-        updateTokenFlags(token_with_probs, token_text);
-    }
-
     if (isVocoderEnabled()) {
         tts_type type = getTTSType();
         if ((type == OUTETTS_V0_2 || type == OUTETTS_V0_3) && (token_with_probs.tok >= 151672 && token_with_probs.tok <= 155772)) {
             audio_tokens.push_back(token_with_probs.tok);
         }
     }
-
-    // Always store the latest token for content parsing (regardless of n_probs)
-    latest_token_for_parsing = token_with_probs;
 
     if (params.sampling.n_probs > 0)
     {
@@ -729,46 +719,23 @@ completion_token_output llama_rn_context::doCompletion()
     return token_with_probs;
 }
 
-void llama_rn_context::updateTokenFlags(completion_token_output &token, const std::string &token_text) {
-    // Add token to accumulated text
-    accumulated_text += token_text;
-
-    // Use common_chat_parse to properly detect reasoning and tool calling content
-    // Create syntax configuration for parsing using the current completion parameters
+completion_partial_output llama_rn_context::getPartialOutput(const std::string &token_text) {
     common_chat_syntax syntax;
     syntax.format = static_cast<common_chat_format>(current_chat_format);
-    syntax.reasoning_format = current_reasoning_format; // Use the reasoning format from completion parameters
+    syntax.reasoning_format = current_reasoning_format;
     syntax.thinking_forced_open = current_thinking_forced_open;
-    syntax.parse_tool_calls = true; // Enable tool call parsing
+    syntax.parse_tool_calls = true;
 
-    // Parse accumulated text as partial content
-    // Note: common_chat_parse internally handles partial parsing exceptions by falling back to content-only parsing
-    common_chat_msg parsed_msg = common_chat_parse(accumulated_text, true, syntax);
+    common_chat_msg parsed_msg = common_chat_parse(generated_text, true, syntax);
 
-    // Expose the parsed content
-    token.content = parsed_msg.content;
-    token.reasoning_content = parsed_msg.reasoning_content;
-    token.accumulated_text = accumulated_text;
+    completion_partial_output result;
 
-    // Convert tool_calls to JSON string to avoid duplication issues
-    if (!parsed_msg.tool_calls.empty()) {
-        json tool_calls_array = json::array();
-        for (const auto& tool_call : parsed_msg.tool_calls) {
-            json tc;
-            tc["type"] = "function";
-            tc["function"]["name"] = tool_call.name;
-            if (!tool_call.arguments.empty()) {
-                tc["function"]["arguments"] = tool_call.arguments;
-            }
-            if (!tool_call.id.empty()) {
-                tc["id"] = tool_call.id;
-            }
-            tool_calls_array.push_back(tc);
-        }
-        token.tool_calls_json = tool_calls_array.dump();
-    } else {
-        token.tool_calls_json.clear();
-    }
+    result.content = parsed_msg.content;
+    result.reasoning_content = parsed_msg.reasoning_content;
+    result.accumulated_text = generated_text;
+    result.tool_calls = parsed_msg.tool_calls;
+
+    return result;
 }
 
 std::vector<float> llama_rn_context::getEmbedding(common_params &embd_params)

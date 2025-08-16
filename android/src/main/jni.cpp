@@ -1034,20 +1034,18 @@ Java_com_rnllama_LlamaContext_doCompletion(
               putArray(env, tokenResult, "completion_probabilities", tokenProbsToMap(env, llama, probs_output));
             }
 
-            const auto& latest_token = llama->latest_token_for_parsing;
-
-            if (!latest_token.content.empty()) {
-                putString(env, tokenResult, "content", latest_token.content.c_str());
+            auto partial_output = llama->getPartialOutput(token_text);
+            if (!partial_output.content.empty()) {
+                putString(env, tokenResult, "content", partial_output.content.c_str());
             }
 
-            if (!latest_token.reasoning_content.empty()) {
-                putString(env, tokenResult, "reasoning_content", latest_token.reasoning_content.c_str());
+            if (!partial_output.reasoning_content.empty()) {
+                putString(env, tokenResult, "reasoning_content", partial_output.reasoning_content.c_str());
             }
-            if (!latest_token.tool_calls_json.empty()) {
-                try {
-                    json tool_calls_json = json::parse(latest_token.tool_calls_json);
+            if (!partial_output.tool_calls.empty()) {
+                  try {
                     auto toolCallsArray = createWritableArray(env);
-                    for (const auto& tc : tool_calls_json) {
+                    for (const auto& tc : partial_output.tool_calls) {
                         auto toolCallMap = createWriteableMap(env);
                         if (tc.contains("type")) {
                             putString(env, toolCallMap, "type", tc.at("type").get<std::string>().c_str());
@@ -1073,8 +1071,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
                     // If JSON parsing fails, ignore
                 }
             }
-            if (!latest_token.accumulated_text.empty()) {
-                putString(env, tokenResult, "accumulated_text", latest_token.accumulated_text.c_str());
+            if (!partial_output.accumulated_text.empty()) {
+                putString(env, tokenResult, "accumulated_text", partial_output.accumulated_text.c_str());
             }
 
             jclass cb_class = env->GetObjectClass(partial_completion_callback);

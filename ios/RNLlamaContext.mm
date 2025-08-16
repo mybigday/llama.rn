@@ -750,25 +750,29 @@
                 tokenResult[@"completion_probabilities"] = [self tokenProbsToDict:probs_output];
             }
 
-            // Add token-level flags and parsed content (available regardless of n_probs)
-            const auto& latest_token = llama->latest_token_for_parsing;
-
-            if (!latest_token.content.empty()) {
-                tokenResult[@"content"] = [NSString stringWithUTF8String:latest_token.content.c_str()];
+            auto partial_output = llama->getPartialOutput(token_text);
+            if (!partial_output.content.empty()) {
+                tokenResult[@"content"] = [NSString stringWithUTF8String:partial_output.content.c_str()];
             }
-            if (!latest_token.reasoning_content.empty()) {
-                tokenResult[@"reasoning_content"] = [NSString stringWithUTF8String:latest_token.reasoning_content.c_str()];
+            if (!partial_output.reasoning_content.empty()) {
+                tokenResult[@"reasoning_content"] = [NSString stringWithUTF8String:partial_output.reasoning_content.c_str()];
             }
-            if (!latest_token.tool_calls_json.empty()) {
-                NSError *error;
-                NSData *jsonData = [NSData dataWithBytes:latest_token.tool_calls_json.c_str() length:latest_token.tool_calls_json.length()];
-                NSArray *toolCallsObj = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&error];
-                if (toolCallsObj) {
-                    tokenResult[@"tool_calls"] = toolCallsObj;
+            if (!partial_output.tool_calls.empty()) {
+                NSMutableArray *toolCalls = [[NSMutableArray alloc] init];
+                for (const auto &tc : partial_output.tool_calls) {
+                    [toolCalls addObject:@{
+                        @"type": @"function",
+                        @"function": @{
+                            @"name": [NSString stringWithUTF8String:tc.name.c_str()],
+                            @"arguments": [NSString stringWithUTF8String:tc.arguments.c_str()],
+                        },
+                        @"id": tc.id.empty() ? [NSNull null] : [NSString stringWithUTF8String:tc.id.c_str()],
+                    }];
                 }
+                tokenResult[@"tool_calls"] = toolCalls;
             }
-            if (!latest_token.accumulated_text.empty()) {
-                tokenResult[@"accumulated_text"] = [NSString stringWithUTF8String:latest_token.accumulated_text.c_str()];
+            if (!partial_output.accumulated_text.empty()) {
+                tokenResult[@"accumulated_text"] = [NSString stringWithUTF8String:partial_output.accumulated_text.c_str()];
             }
 
             onToken(tokenResult);
