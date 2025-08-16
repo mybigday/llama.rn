@@ -30,6 +30,7 @@ import { MessagesModal } from '../components/MessagesModal'
 import { MaskedProgress } from '../components/MaskedProgress'
 import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
+import ToolsModal from '../components/ToolsModal'
 import { CommonStyles } from '../styles/commonStyles'
 import { MODELS } from '../utils/constants'
 import type {
@@ -178,11 +179,18 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
   const [showMessagesModal, setShowMessagesModal] = useState(false)
   const [showSessionModal, setShowSessionModal] = useState(false)
   const [showCustomModelModal, setShowCustomModelModal] = useState(false)
+  const [showToolsModal, setShowToolsModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [completionParams, setCompletionParams] =
     useState<CompletionParams | null>(null)
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT)
   const [customModels, setCustomModels] = useState<CustomModel[]>([])
+  const [currentTools, setCurrentTools] = useState(AVAILABLE_TOOLS)
+  const [mockResponses, setMockResponses] = useState<Record<string, string>>({
+    get_weather: "It's sunny and 72°F in your location with light clouds.",
+    calculate: 'The calculation result is 42.',
+    get_time: 'The current time is 2:30 PM on Tuesday, January 15, 2025.',
+  })
   const insets = useSafeAreaInsets()
 
   useEffect(
@@ -265,7 +273,8 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           acc.push({
             role: 'assistant',
             content: msg.text,
-            reasoning_content: msg.metadata?.completionResult?.reasoning_content,
+            reasoning_content:
+              msg.metadata?.completionResult?.reasoning_content,
           })
         }
         return acc
@@ -327,7 +336,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
             messagesRef.current = []
             setMessagesVersion((prev) => prev + 1)
             addSystemMessage(
-              `Hello! I'm a tool-calling AI assistant. I can help you with:\n\n• Weather information ("What's the weather in New York?")\n• Calculations ("Calculate 15 * 24 + 37")\n• Time queries ("What time is it in Tokyo?")\n\nTry asking me something!`,
+              `Hello! I'm a tool-calling AI assistant. You can customize my tools using the tools button in the header. Try asking me something!`,
             )
           },
         },
@@ -349,6 +358,10 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
             <HeaderButton
               iconName="chat"
               onPress={() => setShowMessagesModal(true)}
+            />
+            <HeaderButton
+              iconName="build"
+              onPress={() => setShowToolsModal(true)}
             />
             <HeaderButton
               iconName="settings"
@@ -376,7 +389,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
 
     // Add the initial system message
     addSystemMessage(
-      `Hello! I'm a tool-calling AI assistant. I can help you with:\n\n• Weather information ("What's the weather in New York?")\n• Calculations ("Calculate 15 * 24 + 37")\n• Time queries ("What time is it in Tokyo?")\n\nTry asking me something!`,
+      `Hello! I'm a tool-calling AI assistant. You can customize my tools using the tools button in the header. Try asking me something!`,
     )
 
     // Add imported messages
@@ -386,6 +399,14 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
 
   const handleUpdateSystemPrompt = (newSystemPrompt: string) => {
     setSystemPrompt(newSystemPrompt)
+  }
+
+  const handleSaveTools = (
+    tools: any[],
+    newMockResponses: Record<string, string>,
+  ) => {
+    setCurrentTools(tools)
+    setMockResponses(newMockResponses)
   }
 
   const initializeModel = async (modelPath: string) => {
@@ -410,7 +431,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
       setInitProgress(100)
 
       addSystemMessage(
-        `Hello! I'm a tool-calling AI assistant. I can help you with:\n\n• Weather information ("What's the weather in New York?")\n• Calculations ("Calculate 15 * 24 + 37")\n• Time queries ("What time is it in Tokyo?")\n\nTry asking me something!`,
+        `Hello! I'm a tool-calling AI assistant. You can customize my tools using the tools button in the header. Try asking me something!`,
       )
     } catch (error: any) {
       Alert.alert('Error', `Failed to initialize model: ${error.message}`)
@@ -423,74 +444,23 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
   const executeTool = async (toolCall: ToolCall): Promise<ToolResult> => {
     const { name, arguments: args } = toolCall
 
-    try {
-      switch (name) {
-        case 'get_weather':
-          // Simulate weather API call
-          const weather = {
-            location: args.location,
-            temperature: Math.floor(Math.random() * 30) + 10,
-            condition: ['Sunny', 'Cloudy', 'Rainy', 'Partly Cloudy'][
-              Math.floor(Math.random() * 4)
-            ],
-            humidity: Math.floor(Math.random() * 50) + 30,
-          }
-          return {
-            id: toolCall.id,
-            result: weather,
-          }
-
-        case 'calculate':
-          // Simple expression evaluation (in a real app, use a safer evaluator)
-          try {
-            // Convert ^ to ** for exponentiation and sanitize input
-            const sanitizedExpression = args.expression
-              .replace(/\^/g, '**') // Convert ^ to ** for exponentiation
-              .replace(/[^\d\s()*+./\-]/g, '') // Remove unsafe characters
-
-            const result = eval(sanitizedExpression)
-            return {
-              id: toolCall.id,
-              result: { expression: args.expression, result },
-            }
-          } catch {
-            return {
-              id: toolCall.id,
-              result: null,
-              error: 'Invalid mathematical expression',
-            }
-          }
-
-        case 'get_time':
-          const now = new Date()
-          const timeString = now.toLocaleString('en-US', {
-            timeZone: args.timezone || 'UTC',
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-          })
-          return {
-            id: toolCall.id,
-            result: { timezone: args.timezone, time: timeString },
-          }
-
-        default:
-          return {
-            id: toolCall.id,
-            result: null,
-            error: `Unknown tool: ${name}`,
-          }
-      }
-    } catch (error: any) {
+    if (!currentTools.find((tool) => tool.function.name === name)) {
       return {
         id: toolCall.id,
-        result: null,
-        error: error.message,
+        result: `Error: Tool not found: ${name}`,
       }
+    }
+
+    // Check if we have a mock response for this tool
+    if (mockResponses[name]) {
+      return {
+        id: toolCall.id,
+        result: mockResponses[name],
+      }
+    }
+    return {
+      id: toolCall.id,
+      result: `Error: Response not implemented for: ${name}(${args})`,
     }
   }
 
@@ -532,7 +502,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           ...completionParameters,
           reasoning_format: 'auto',
           messages: conversationMessages,
-          tools: AVAILABLE_TOOLS,
+          tools: currentTools,
           tool_choice: 'auto',
           jinja: true,
         },
@@ -799,7 +769,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         textInputProps={{
           editable: !isLoading,
           placeholder: isLoading
-            ? 'Executing tools...'
+            ? 'Responding...'
             : 'Ask me to use tools...',
         }}
       />
@@ -816,7 +786,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         visible={showMessagesModal}
         onClose={() => setShowMessagesModal(false)}
         messages={buildLLMMessages()}
-        tools={AVAILABLE_TOOLS}
+        tools={currentTools}
         context={context}
         onImportMessages={handleImportMessages}
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
@@ -827,6 +797,14 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         visible={showSessionModal}
         onClose={() => setShowSessionModal(false)}
         context={context}
+      />
+
+      <ToolsModal
+        visible={showToolsModal}
+        onClose={() => setShowToolsModal(false)}
+        tools={currentTools}
+        onSave={handleSaveTools}
+        mockResponses={mockResponses}
       />
     </View>
   )
