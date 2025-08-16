@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import React, {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+} from 'react'
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import {
@@ -288,18 +294,21 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
     }
   }
 
-  const addSystemMessage = useCallback((text: string, metadata = {}) => {
-    const textMessage: MessageType.Text = {
-      author: assistant,
-      createdAt: Date.now(),
-      id: randId(),
-      text,
-      type: 'text',
-      metadata: { system: true, ...metadata },
-    }
-    addMessage(textMessage)
-    return textMessage.id
-  }, [addMessage])
+  const addSystemMessage = useCallback(
+    (text: string, metadata = {}) => {
+      const textMessage: MessageType.Text = {
+        author: assistant,
+        createdAt: Date.now(),
+        id: randId(),
+        text,
+        type: 'text',
+        metadata: { system: true, ...metadata },
+      }
+      addMessage(textMessage)
+      return textMessage.id
+    },
+    [addMessage],
+  )
 
   const handleReset = useCallback(() => {
     Alert.alert(
@@ -331,10 +340,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
       navigation.setOptions({
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton
-              iconName="refresh"
-              onPress={handleReset}
-            />
+            <HeaderButton iconName="refresh" onPress={handleReset} />
             <HeaderButton
               iconName="folder"
               onPress={() => setShowSessionModal(true)}
@@ -530,7 +536,11 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           jinja: true,
         },
         (data) => {
-          const { content = '', reasoning_content: reasoningContent, tool_calls: toolCalls } = data
+          const {
+            content = '',
+            reasoning_content: reasoningContent,
+            tool_calls: toolCalls,
+          } = data
 
           // Update message with streaming data
           updateMessage(responseId, (msg) => {
@@ -703,9 +713,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           {/* Custom Models Section */}
           {customModels.filter((model) => !model.mmprojFilename).length > 0 && (
             <>
-              <Text style={CommonStyles.modelSectionTitle}>
-                Custom Models
-              </Text>
+              <Text style={CommonStyles.modelSectionTitle}>Custom Models</Text>
               {customModels
                 .filter((model) => !model.mmprojFilename) // Only show non-multimodal models
                 .map((model) => (
@@ -766,6 +774,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           onClose={() => setShowCustomModelModal(false)}
           onModelAdded={handleCustomModelAdded}
           title="Add Custom Model"
+          enableFileSelection
         />
 
         <MaskedProgress

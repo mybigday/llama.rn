@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import React, {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+} from 'react'
 import {
   View,
   Text,
@@ -162,18 +168,21 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
     }
   }
 
-  const addSystemMessage = useCallback((text: string, metadata = {}) => {
-    const textMessage: MessageType.Text = {
-      author: assistant,
-      createdAt: Date.now(),
-      id: randId(),
-      text,
-      type: 'text',
-      metadata: { system: true, ...metadata },
-    }
-    addMessage(textMessage)
-    return textMessage.id
-  }, [addMessage])
+  const addSystemMessage = useCallback(
+    (text: string, metadata = {}) => {
+      const textMessage: MessageType.Text = {
+        author: assistant,
+        createdAt: Date.now(),
+        id: randId(),
+        text,
+        type: 'text',
+        metadata: { system: true, ...metadata },
+      }
+      addMessage(textMessage)
+      return textMessage.id
+    },
+    [addMessage],
+  )
 
   const handleReset = useCallback(() => {
     Alert.alert(
@@ -205,10 +214,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
       navigation.setOptions({
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton
-              iconName="refresh"
-              onPress={handleReset}
-            />
+            <HeaderButton iconName="refresh" onPress={handleReset} />
             <HeaderButton
               iconName="folder"
               onPress={() => setShowSessionModal(true)}
@@ -326,10 +332,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           jinja: true,
         },
         (data) => {
-          const {
-            content = '',
-            reasoning_content: reasoningContent,
-          } = data
+          const { content = '', reasoning_content: reasoningContent } = data
 
           updateMessage(responseId, (msg) => {
             if (msg.type === 'text') {
@@ -456,6 +459,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           onClose={() => setShowCustomModelModal(false)}
           onModelAdded={handleCustomModelAdded}
           title="Add Custom Model"
+          enableFileSelection
         />
 
         <MaskedProgress

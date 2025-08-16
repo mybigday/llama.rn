@@ -27,6 +27,7 @@ interface BaseModelDownloadCardProps {
   onDownloaded?: (...paths: string[]) => void
   downloadButtonText?: string
   initializeButtonText?: string
+  isLocalFile?: boolean
 }
 
 interface ModelDownloadCardProps {
@@ -37,6 +38,7 @@ interface ModelDownloadCardProps {
   onDownloaded?: (path: string) => void
   onInitialize?: (path: string) => void
   initializeButtonText?: string
+  isLocalFile?: boolean
 }
 
 interface TTSModelDownloadCardProps {
@@ -63,6 +65,7 @@ interface MtmdModelDownloadCardProps {
   onInitialize: (modelPath: string, mmprojPath: string) => void
   onDownloaded?: (modelPath: string, mmprojPath: string) => void
   initializeButtonText?: string
+  isLocalFile?: boolean
 }
 
 // Common styles
@@ -229,6 +232,7 @@ function BaseModelDownloadCard({
   onDownloaded,
   downloadButtonText = 'Download',
   initializeButtonText = 'Initialize',
+  isLocalFile = false,
 }: BaseModelDownloadCardProps) {
   const [isDownloaded, setIsDownloaded] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -265,8 +269,14 @@ function BaseModelDownloadCard({
   }, [files])
 
   useEffect(() => {
-    checkIfDownloaded()
-  }, [checkIfDownloaded])
+    if (isLocalFile) {
+      // For local files, mark as downloaded immediately
+      setIsDownloaded(true)
+      setFilePaths([]) // We'll handle paths differently for local files
+    } else {
+      checkIfDownloaded()
+    }
+  }, [checkIfDownloaded, isLocalFile])
 
   const handleDownload = async () => {
     if (isDownloading) return
@@ -328,15 +338,25 @@ function BaseModelDownloadCard({
   }
 
   const handleInitialize = async () => {
-    if (!isDownloaded || filePaths.length !== files.length) {
-      Alert.alert('Error', 'Model(s) not downloaded yet.')
-      return
-    }
-
-    if (onInitialize) {
-      onInitialize(...filePaths)
+    if (isLocalFile) {
+      // For local files, just call onInitialize
+      if (onInitialize) {
+        onInitialize('')
+      } else {
+        Alert.alert('Error', 'No initialization handler provided.')
+      }
     } else {
-      Alert.alert('Error', 'No initialization handler provided.')
+      // For downloaded files, check paths
+      if (!isDownloaded || filePaths.length !== files.length) {
+        Alert.alert('Error', 'Model(s) not downloaded yet.')
+        return
+      }
+
+      if (onInitialize) {
+        onInitialize(...filePaths)
+      } else {
+        Alert.alert('Error', 'No initialization handler provided.')
+      }
     }
   }
 
@@ -408,17 +428,11 @@ function BaseModelDownloadCard({
             />
           </View>
           <Text style={styles.progressText}>
-            {downloadStatus}
-            {' '}
-            {`${progress.percentage}%`}
+            {`${downloadStatus} ${progress.percentage}%`}
           </Text>
           {progress.total > 0 && (
             <Text style={styles.progressText}>
-              (
-              {formatSize(progress.written)}
-              {' / '}
-              {formatSize(progress.total)}
-              )
+              {`(${formatSize(progress.written)} / ${formatSize(progress.total)})`}
             </Text>
           )}
         </View>
@@ -479,6 +493,7 @@ function ModelDownloadCard({
   onDownloaded: _onDownloaded,
   onInitialize,
   initializeButtonText,
+  isLocalFile = false,
 }: ModelDownloadCardProps) {
   const files: ModelFile[] = [{ repo, filename }]
 
@@ -490,6 +505,7 @@ function ModelDownloadCard({
       onInitialize={onInitialize}
       downloadButtonText="Download"
       initializeButtonText={initializeButtonText}
+      isLocalFile={isLocalFile}
     />
   )
 }
@@ -533,6 +549,7 @@ export function MtmdModelDownloadCard({
   onInitialize,
   onDownloaded,
   initializeButtonText,
+  isLocalFile = false,
 }: MtmdModelDownloadCardProps) {
   const files: ModelFile[] = [
     { repo, filename, label: 'Model' },
@@ -548,6 +565,7 @@ export function MtmdModelDownloadCard({
       onDownloaded={onDownloaded}
       downloadButtonText="Download Model & MMProj"
       initializeButtonText={initializeButtonText}
+      isLocalFile={isLocalFile}
     />
   )
 }

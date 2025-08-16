@@ -12,7 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
-import { pick } from '@react-native-documents/picker'
+import { pick, keepLocalCopy } from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
 import { initLlama, LlamaContext } from '../../../src'
 import { MtmdModelDownloadCard } from '../components/ModelDownloadCard'
@@ -771,9 +771,8 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         return
       }
 
-      const result = await pick({
+      const [file] = await pick({
         type: supportedTypes,
-        copyTo: 'documentDirectory',
       })
 
       // Get the file extension from the URI
@@ -805,9 +804,19 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         return mimeTypes[extension] || 'image/jpeg' // Default to jpeg if unknown
       }
 
-      if (result && result.length > 0) {
-        const file = result[0]
-        if (file.uri) {
+      if (file?.uri) {
+        // Keep a local copy of the file
+        const [localCopy] = await keepLocalCopy({
+          files: [
+            {
+              uri: file.uri,
+              fileName: file.name ?? 'media_file',
+            },
+          ],
+          destination: 'documentDirectory',
+        })
+
+        if (localCopy.status === 'success') {
           const mediaFormat = getFileExtension(file.uri)
           const mimeType = getMimeType(mediaFormat)
 
@@ -818,7 +827,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
                 Alert.alert('Error', 'This model does not support image input')
                 return
               }
-              const mediaBase64 = await convertMediaToBase64(file.uri, mimeType)
+              const mediaBase64 = await convertMediaToBase64(localCopy.localUri, mimeType)
               setPendingMedia({
                 data: mediaBase64,
                 mimeType,
@@ -829,7 +838,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
                 Alert.alert('Error', 'This model does not support audio input')
                 return
               }
-              const mediaBase64 = await convertMediaToBase64(file.uri, mimeType)
+              const mediaBase64 = await convertMediaToBase64(localCopy.localUri, mimeType)
               setPendingMedia({
                 data: mediaBase64,
                 mimeType,
@@ -851,6 +860,11 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
               `Failed to process file: ${conversionError.message}`,
             )
           }
+        } else {
+          Alert.alert(
+            'Error',
+            `Failed to copy file: ${localCopy.copyError}`,
+          )
         }
       }
     } catch (error: any) {
@@ -941,6 +955,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           onModelAdded={handleCustomModelAdded}
           requireMMProj
           title="Add Custom Model"
+          enableFileSelection
         />
 
         <MaskedProgress

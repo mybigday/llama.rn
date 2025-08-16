@@ -1073,6 +1073,7 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
           setCustomModels(models)
         }}
         title="Add Custom Model"
+        enableFileSelection
       />
     </View>
   )

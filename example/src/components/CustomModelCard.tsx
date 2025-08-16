@@ -1,11 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import {
-  View,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-} from 'react-native'
+import { View, TouchableOpacity, StyleSheet, Alert } from 'react-native'
 import Icon from '@react-native-vector-icons/material-icons'
+import ReactNativeBlobUtil from 'react-native-blob-util'
 import ModelDownloadCard, { MtmdModelDownloadCard } from './ModelDownloadCard'
 import { deleteCustomModel, type CustomModel } from '../utils/storage'
 import { ModelDownloader } from '../services/ModelDownloader'
@@ -64,19 +60,53 @@ export default function CustomModelCard({
   useEffect(() => {
     const calculateSizes = async () => {
       try {
+        // Handle local files differently
+        if (model.localPath) {
+          // For local files, calculate size directly from file system
+          try {
+            const cleanPath = model.localPath.replace(/^file:\/\//, '')
+            const stat = await ReactNativeBlobUtil.fs.stat(cleanPath)
+            const sizeInMB = (stat.size / (1024 * 1024)).toFixed(1)
+            setModelSize(`${sizeInMB} MB`)
+
+            if (model.mmprojLocalPath) {
+              const cleanMmprojPath = model.mmprojLocalPath.replace(
+                /^file:\/\//,
+                '',
+              )
+              const mmprojStat = await ReactNativeBlobUtil.fs.stat(
+                cleanMmprojPath,
+              )
+              const mmprojSizeInMB = (mmprojStat.size / (1024 * 1024)).toFixed(
+                1,
+              )
+              setMmprojSize(`${mmprojSizeInMB} MB`)
+            }
+          } catch (localFileError) {
+            console.warn('Failed to get local file size:', localFileError)
+            setModelSize('Size unknown')
+            setMmprojSize('Size unknown')
+          }
+          return
+        }
+
         // Check if model is downloaded first
-        const isDownloaded = await ModelDownloader.isModelDownloaded(model.filename)
-        
+        const isDownloaded = await ModelDownloader.isModelDownloaded(
+          model.filename,
+        )
+
         if (isDownloaded) {
           // Calculate model size for downloaded files
-          const modelSizeFormatted = await ModelDownloader.getModelSizeFormatted(model.filename)
+          const modelSizeFormatted =
+            await ModelDownloader.getModelSizeFormatted(model.filename)
           if (modelSizeFormatted) {
             setModelSize(modelSizeFormatted)
           }
 
           // Calculate mmproj size if exists
           if (model.mmprojFilename) {
-            const mmprojSizeFormatted = await ModelDownloader.getModelSizeFormatted(model.mmprojFilename)
+            const mmprojSizeFormatted =
+              await ModelDownloader.getModelSizeFormatted(model.mmprojFilename)
             if (mmprojSizeFormatted) {
               setMmprojSize(mmprojSizeFormatted)
             }
@@ -84,17 +114,27 @@ export default function CustomModelCard({
         } else {
           // For undownloaded models, try to get remote size first
           try {
-            const remoteSizeFormatted = await ModelDownloader.getModelSizeFromRemoteFormatted(model.repo, model.filename)
+            const remoteSizeFormatted =
+              await ModelDownloader.getModelSizeFromRemoteFormatted(
+                model.repo,
+                model.filename,
+              )
             if (remoteSizeFormatted) {
-              const splitInfo = await ModelDownloader.getSplitFileInfo(model.filename)
+              const splitInfo = await ModelDownloader.getSplitFileInfo(
+                model.filename,
+              )
               if (splitInfo) {
-                setModelSize(`${remoteSizeFormatted} (${splitInfo.totalParts} parts)`)
+                setModelSize(
+                  `${remoteSizeFormatted} (${splitInfo.totalParts} parts)`,
+                )
               } else {
                 setModelSize(remoteSizeFormatted)
               }
             } else {
               // Fallback to split info only
-              const splitInfo = await ModelDownloader.getSplitFileInfo(model.filename)
+              const splitInfo = await ModelDownloader.getSplitFileInfo(
+                model.filename,
+              )
               if (splitInfo) {
                 setModelSize(`Split model (${splitInfo.totalParts} parts)`)
               } else {
@@ -103,37 +143,55 @@ export default function CustomModelCard({
             }
           } catch {
             // If remote size fails, fallback to split info
-            const splitInfo = await ModelDownloader.getSplitFileInfo(model.filename)
+            const splitInfo = await ModelDownloader.getSplitFileInfo(
+              model.filename,
+            )
             if (splitInfo) {
               setModelSize(`Split model (${splitInfo.totalParts} parts)`)
             } else {
               setModelSize('Size unknown')
             }
           }
-          
+
           // Same for mmproj if exists
           if (model.mmprojFilename) {
             try {
-              const mmprojRemoteSizeFormatted = await ModelDownloader.getModelSizeFromRemoteFormatted(model.repo, model.mmprojFilename)
+              const mmprojRemoteSizeFormatted =
+                await ModelDownloader.getModelSizeFromRemoteFormatted(
+                  model.repo,
+                  model.mmprojFilename,
+                )
               if (mmprojRemoteSizeFormatted) {
-                const mmprojSplitInfo = await ModelDownloader.getSplitFileInfo(model.mmprojFilename)
+                const mmprojSplitInfo = await ModelDownloader.getSplitFileInfo(
+                  model.mmprojFilename,
+                )
                 if (mmprojSplitInfo) {
-                  setMmprojSize(`${mmprojRemoteSizeFormatted} (${mmprojSplitInfo.totalParts} parts)`)
+                  setMmprojSize(
+                    `${mmprojRemoteSizeFormatted} (${mmprojSplitInfo.totalParts} parts)`,
+                  )
                 } else {
                   setMmprojSize(mmprojRemoteSizeFormatted)
                 }
               } else {
-                const mmprojSplitInfo = await ModelDownloader.getSplitFileInfo(model.mmprojFilename)
+                const mmprojSplitInfo = await ModelDownloader.getSplitFileInfo(
+                  model.mmprojFilename,
+                )
                 if (mmprojSplitInfo) {
-                  setMmprojSize(`Split file (${mmprojSplitInfo.totalParts} parts)`)
+                  setMmprojSize(
+                    `Split file (${mmprojSplitInfo.totalParts} parts)`,
+                  )
                 } else {
                   setMmprojSize('Size unknown')
                 }
               }
             } catch {
-              const mmprojSplitInfo = await ModelDownloader.getSplitFileInfo(model.mmprojFilename)
+              const mmprojSplitInfo = await ModelDownloader.getSplitFileInfo(
+                model.mmprojFilename,
+              )
               if (mmprojSplitInfo) {
-                setMmprojSize(`Split file (${mmprojSplitInfo.totalParts} parts)`)
+                setMmprojSize(
+                  `Split file (${mmprojSplitInfo.totalParts} parts)`,
+                )
               } else {
                 setMmprojSize('Size unknown')
               }
@@ -146,19 +204,114 @@ export default function CustomModelCard({
     }
 
     calculateSizes()
-  }, [model.filename, model.mmprojFilename, model.repo, refreshTrigger])
+  }, [
+    model.filename,
+    model.mmprojFilename,
+    model.repo,
+    model.localPath,
+    model.mmprojLocalPath,
+    refreshTrigger,
+  ])
 
   // Function to refresh sizes (can be called after download completion)
   const refreshSizes = () => {
-    setRefreshTrigger(prev => prev + 1)
+    setRefreshTrigger((prev) => prev + 1)
+  }
+
+  const handleInitialize = (modelPath: string, mmprojPath?: string) => {
+    // For local files, use the local path directly
+    if (model.localPath) {
+      onInitialize(model.localPath, model.mmprojLocalPath)
+    } else {
+      onInitialize(modelPath, mmprojPath)
+    }
+  }
+
+  const renderLocalFileCard = () => {
+    if (model.mmprojLocalPath) {
+      return (
+        <MtmdModelDownloadCard
+          title={`${model.id} (Local File)`}
+          repo="Local"
+          filename={model.filename}
+          mmproj={model.mmprojFilename || ''}
+          size="Local files ready"
+          initializeButtonText={initializeButtonText}
+          isLocalFile
+          onInitialize={() => {
+            handleInitialize('', '')
+          }}
+          onDownloaded={() => {
+            // No-op for local files
+          }}
+        />
+      )
+    }
+    return (
+      <ModelDownloadCard
+        title={`${model.id} (Local File)`}
+        repo="Local"
+        filename={model.filename}
+        size="Local file ready"
+        initializeButtonText={initializeButtonText}
+        isLocalFile
+        onInitialize={() => {
+          handleInitialize('')
+        }}
+        onDownloaded={() => {
+          // No-op for local files
+        }}
+      />
+    )
+  }
+
+  const renderHuggingFaceCard = () => {
+    if (model.mmprojFilename) {
+      return (
+        <MtmdModelDownloadCard
+          title={`${model.id} (${model.quantization})`}
+          repo={model.repo}
+          filename={model.filename}
+          mmproj={model.mmprojFilename}
+          size={`Model: ${modelSize} + MMProj: ${mmprojSize}`}
+          initializeButtonText={initializeButtonText}
+          onInitialize={(modelPath: string, mmprojPath: string) => {
+            handleInitialize(modelPath, mmprojPath)
+          }}
+          onDownloaded={() => {
+            refreshSizes()
+          }}
+        />
+      )
+    }
+    return (
+      <ModelDownloadCard
+        title={`${model.id} (${model.quantization})`}
+        repo={model.repo}
+        filename={model.filename}
+        size={modelSize}
+        initializeButtonText={initializeButtonText}
+        onInitialize={(modelPath: string) => {
+          handleInitialize(modelPath)
+        }}
+        onDownloaded={() => {
+          refreshSizes()
+        }}
+      />
+    )
   }
 
   const handleRemoveModel = async () => {
     if (isRemoving) return
 
+    const isLocalFile = !!model.localPath
     Alert.alert(
       'Remove Custom Model',
-      `Are you sure you want to remove "${model.id}" from your custom models? This will also delete the downloaded files if they exist.`,
+      `Are you sure you want to remove "${
+        model.id
+      }" from your custom models? This will also delete the ${
+        isLocalFile ? 'local copied files' : 'downloaded files'
+      } if they exist.`,
       [
         {
           text: 'Cancel',
@@ -171,11 +324,30 @@ export default function CustomModelCard({
             try {
               setIsRemoving(true)
 
-              // Delete downloaded model files
+              // Delete model files (either local or downloaded)
               try {
-                await ModelDownloader.deleteModel(model.filename)
-                if (model.mmprojFilename) {
-                  await ModelDownloader.deleteModel(model.mmprojFilename)
+                if (model.localPath) {
+                  // Handle local files created by keepLocalCopy
+                  const cleanPath = model.localPath.replace(/^file:\/\//, '')
+                  if (await ReactNativeBlobUtil.fs.exists(cleanPath)) {
+                    await ReactNativeBlobUtil.fs.unlink(cleanPath)
+                  }
+
+                  if (model.mmprojLocalPath) {
+                    const cleanMmprojPath = model.mmprojLocalPath.replace(
+                      /^file:\/\//,
+                      '',
+                    )
+                    if (await ReactNativeBlobUtil.fs.exists(cleanMmprojPath)) {
+                      await ReactNativeBlobUtil.fs.unlink(cleanMmprojPath)
+                    }
+                  }
+                } else {
+                  // Handle downloaded files via ModelDownloader
+                  await ModelDownloader.deleteModel(model.filename)
+                  if (model.mmprojFilename) {
+                    await ModelDownloader.deleteModel(model.mmprojFilename)
+                  }
                 }
               } catch (fileError) {
                 console.warn('Failed to delete model files:', fileError)
@@ -185,7 +357,10 @@ export default function CustomModelCard({
               // Remove from custom models storage
               await deleteCustomModel(model.id)
 
-              Alert.alert('Success', `"${model.id}" has been removed from your custom models.`)
+              Alert.alert(
+                'Success',
+                `"${model.id}" has been removed from your custom models.`,
+              )
               onModelRemoved()
             } catch (error) {
               console.error('Error removing custom model:', error)
@@ -200,10 +375,6 @@ export default function CustomModelCard({
         },
       ],
     )
-  }
-
-  const handleInitialize = (modelPath: string, mmprojPath?: string) => {
-    onInitialize(modelPath, mmprojPath)
   }
 
   return (
@@ -223,36 +394,7 @@ export default function CustomModelCard({
       )}
 
       <View style={styles.modelCard}>
-        {model.mmprojFilename ? (
-          <MtmdModelDownloadCard
-            title={`${model.id} (${model.quantization})`}
-            repo={model.repo}
-            filename={model.filename}
-            mmproj={model.mmprojFilename}
-            size={`Model: ${modelSize} + MMProj: ${mmprojSize}`}
-            initializeButtonText={initializeButtonText}
-            onInitialize={(modelPath: string, mmprojPath: string) => {
-              handleInitialize(modelPath, mmprojPath)
-            }}
-            onDownloaded={() => {
-              refreshSizes()
-            }}
-          />
-        ) : (
-          <ModelDownloadCard
-            title={`${model.id} (${model.quantization})`}
-            repo={model.repo}
-            filename={model.filename}
-            size={modelSize}
-            initializeButtonText={initializeButtonText}
-            onInitialize={(modelPath: string) => {
-              handleInitialize(modelPath)
-            }}
-            onDownloaded={() => {
-              refreshSizes()
-            }}
-          />
-        )}
+        {model.localPath ? renderLocalFileCard() : renderHuggingFaceCard()}
       </View>
     </View>
   )

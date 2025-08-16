@@ -19,6 +19,8 @@ export interface CustomModel {
   mmprojFilename?: string
   mmprojQuantization?: string
   addedAt: number
+  localPath?: string
+  mmprojLocalPath?: string
 }
 
 // Storage keys

@@ -408,9 +408,7 @@ export default function ModelInfoScreen() {
         {/* Custom Models Section */}
         {customModels.length > 0 && (
           <>
-            <Text style={CommonStyles.modelSectionTitle}>
-              Custom Models
-            </Text>
+            <Text style={CommonStyles.modelSectionTitle}>Custom Models</Text>
             {customModels.map((customModel) => (
               <CustomModelCard
                 key={customModel.id}

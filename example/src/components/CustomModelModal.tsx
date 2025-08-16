@@ -9,7 +9,9 @@ import {
   TextInput,
   ScrollView,
   Modal,
+  Platform,
 } from 'react-native'
+import { pick, keepLocalCopy } from '@react-native-documents/picker'
 import {
   HuggingFaceAPI,
   type CustomModelInfo,
@@ -23,6 +25,7 @@ interface CustomModelModalProps {
   onModelAdded?: (model: CustomModel) => void
   requireMMProj?: boolean // For multimodal screens
   title?: string
+  enableFileSelection?: boolean // Enable file selection mode
 }
 
 const styles = StyleSheet.create({
@@ -261,6 +264,7 @@ export default function CustomModelModal({
   onModelAdded,
   requireMMProj = false,
   title = 'Add Custom Model',
+  enableFileSelection = false,
 }: CustomModelModalProps) {
   const [modelId, setModelId] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -274,6 +278,17 @@ export default function CustomModelModal({
     quantization: string
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [selectedModelFile, setSelectedModelFile] = useState<{
+    uri: string
+    name: string
+    size?: number | null
+  } | null>(null)
+  const [selectedMmprojFile, setSelectedMmprojFile] = useState<{
+    uri: string
+    name: string
+    size?: number | null
+  } | null>(null)
+  const [useFileSelection, setUseFileSelection] = useState(false)
 
   useEffect(() => {
     if (!visible) {
@@ -283,6 +298,9 @@ export default function CustomModelModal({
       setModelInfo(null)
       setSelectedFile(null)
       setSelectedMMProjFile(null)
+      setSelectedModelFile(null)
+      setSelectedMmprojFile(null)
+      setUseFileSelection(false)
       setError(null)
     }
   }, [visible])
@@ -337,43 +355,177 @@ export default function CustomModelModal({
     }
   }
 
-  const handleSave = async () => {
-    if (!modelInfo || !selectedFile) {
-      setError('Please select a model file')
-      return
-    }
-
-    if (requireMMProj && !selectedMMProjFile) {
-      setError('Please select an mmproj file for multimodal functionality')
-      return
-    }
-
+  const handlePickModelFile = async () => {
     try {
-      const customModel: CustomModel = {
-        id: modelInfo.id,
-        repo: modelInfo.id,
-        filename: selectedFile.filename,
-        quantization: selectedFile.quantization,
-        mmprojFilename: selectedMMProjFile?.filename,
-        mmprojQuantization: selectedMMProjFile?.quantization,
-        addedAt: Date.now(),
+      const supportedTypes = Platform.OS === 'ios'
+        ? ['public.data'] // iOS: Allow all file types
+        : ['*/*'] // Android: Allow all file types
+
+      const [file] = await pick({
+        type: supportedTypes,
+      })
+
+      if (file?.uri && file?.name) {
+        // Check if it's a GGUF file
+        if (!file.name.toLowerCase().endsWith('.gguf')) {
+          Alert.alert('Invalid File', 'Please select a GGUF model file (.gguf extension)')
+          return
+        }
+
+        // Keep a local copy of the file
+        const [localCopy] = await keepLocalCopy({
+          files: [
+            {
+              uri: file.uri,
+              fileName: file.name,
+            },
+          ],
+          destination: 'documentDirectory',
+        })
+
+        if (localCopy.status === 'success') {
+          setSelectedModelFile({
+            uri: localCopy.localUri,
+            name: file.name,
+            size: file.size ?? null,
+          })
+        } else {
+          setError(`Failed to copy model file: ${localCopy.copyError}`)
+          return
+        }
+        setError(null)
       }
-
-      await saveCustomModel(customModel)
-      Alert.alert('Success', 'Custom model added successfully!')
-
-      if (onModelAdded) {
-        onModelAdded(customModel)
+    } catch (err: any) {
+      if (!err.message.includes('user canceled')) {
+        setError(`Failed to pick model file: ${err.message}`)
       }
-
-      onClose()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save model')
     }
   }
 
-  const canSave =
-    modelInfo?.exists && selectedFile && (!requireMMProj || selectedMMProjFile)
+  const handlePickMmprojFile = async () => {
+    try {
+      const supportedTypes = Platform.OS === 'ios'
+        ? ['public.data'] // iOS: Allow all file types
+        : ['*/*'] // Android: Allow all file types
+
+      const [file] = await pick({
+        type: supportedTypes,
+      })
+
+      if (file?.uri && file?.name) {
+        // Check if it's a GGUF file
+        if (!file.name.toLowerCase().endsWith('.gguf')) {
+          Alert.alert('Invalid File', 'Please select a GGUF mmproj file (.gguf extension)')
+          return
+        }
+
+        // Keep a local copy of the file
+        const [localCopy] = await keepLocalCopy({
+          files: [
+            {
+              uri: file.uri,
+              fileName: file.name,
+            },
+          ],
+          destination: 'documentDirectory',
+        })
+
+        if (localCopy.status === 'success') {
+          setSelectedMmprojFile({
+            uri: localCopy.localUri,
+            name: file.name,
+            size: file.size ?? null,
+          })
+        } else {
+          setError(`Failed to copy mmproj file: ${localCopy.copyError}`)
+          return
+        }
+        setError(null)
+      }
+    } catch (err: any) {
+      if (!err.message.includes('user canceled')) {
+        setError(`Failed to pick mmproj file: ${err.message}`)
+      }
+    }
+  }
+
+  const handleSave = async () => {
+    if (useFileSelection) {
+      // File selection mode
+      if (!selectedModelFile) {
+        setError('Please select a model file')
+        return
+      }
+
+      if (requireMMProj && !selectedMmprojFile) {
+        setError('Please select an mmproj file for multimodal functionality')
+        return
+      }
+
+      try {
+        const customModel: CustomModel = {
+          id: selectedModelFile.name.replace('.gguf', ''),
+          repo: 'local-file',
+          filename: selectedModelFile.name,
+          quantization: 'Unknown',
+          mmprojFilename: selectedMmprojFile?.name,
+          mmprojQuantization: selectedMmprojFile ? 'Unknown' : undefined,
+          addedAt: Date.now(),
+          localPath: selectedModelFile.uri,
+          mmprojLocalPath: selectedMmprojFile?.uri,
+        }
+
+        await saveCustomModel(customModel)
+        Alert.alert('Success', 'Custom model added successfully!')
+
+        if (onModelAdded) {
+          onModelAdded(customModel)
+        }
+
+        onClose()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save model')
+      }
+    } else {
+      // HuggingFace download mode
+      if (!modelInfo || !selectedFile) {
+        setError('Please select a model file')
+        return
+      }
+
+      if (requireMMProj && !selectedMMProjFile) {
+        setError('Please select an mmproj file for multimodal functionality')
+        return
+      }
+
+      try {
+        const customModel: CustomModel = {
+          id: modelInfo.id,
+          repo: modelInfo.id,
+          filename: selectedFile.filename,
+          quantization: selectedFile.quantization,
+          mmprojFilename: selectedMMProjFile?.filename,
+          mmprojQuantization: selectedMMProjFile?.quantization,
+          addedAt: Date.now(),
+        }
+
+        await saveCustomModel(customModel)
+        Alert.alert('Success', 'Custom model added successfully!')
+
+        if (onModelAdded) {
+          onModelAdded(customModel)
+        }
+
+        onClose()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save model')
+      }
+    }
+  }
+
+  const canSave = useFileSelection
+    ? selectedModelFile && (!requireMMProj || selectedMmprojFile)
+    : modelInfo?.exists && selectedFile && (!requireMMProj || selectedMMProjFile)
 
   return (
     <Modal
@@ -398,45 +550,151 @@ export default function CustomModelModal({
         </View>
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Model ID</Text>
-            <TextInput
-              style={styles.input}
-              value={modelId}
-              onChangeText={setModelId}
-              placeholder="e.g., microsoft/DialoGPT-medium"
-              autoCapitalize="none"
-              autoCorrect={false}
-              onSubmitEditing={handleFetchModel}
-            />
-            <Text style={styles.helpText}>
-              Enter the HuggingFace model ID (format: username/model-name)
-            </Text>
-          </View>
+          {enableFileSelection && (
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Add Model From</Text>
+              <View style={{ flexDirection: 'row', marginBottom: 16 }}>
+                <TouchableOpacity
+                  style={[
+                    CommonStyles.primaryButton,
+                    { flex: 1, marginRight: 8 },
+                    !useFileSelection && CommonStyles.primaryButtonActive,
+                  ]}
+                  onPress={() => {
+                    setUseFileSelection(false)
+                    setError(null)
+                  }}
+                >
+                  <Text style={CommonStyles.primaryButtonText}>
+                    HuggingFace
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    CommonStyles.primaryButton,
+                    { flex: 1, marginLeft: 8 },
+                    useFileSelection && CommonStyles.primaryButtonActive,
+                  ]}
+                  onPress={() => {
+                    setUseFileSelection(true)
+                    setError(null)
+                  }}
+                >
+                  <Text style={CommonStyles.primaryButtonText}>
+                    Select File
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
-          <View style={styles.noteContainer}>
-            <Text style={styles.noteText}>
-              <Text style={styles.noteTitle}>Note:</Text>
-              {' '}
-              Some models may
-              require granting access or accepting license agreements on
-              HuggingFace before they can be downloaded. If download fails with
-              access errors, visit the model page on huggingface.co to accept
-              the license.
-            </Text>
-          </View>
+          {useFileSelection ? (
+            <>
+              {/* File Selection Mode */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Model File</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.input,
+                    {
+                      justifyContent: 'center',
+                      backgroundColor: selectedModelFile ? '#f0f9ff' : '#ffffff',
+                      borderColor: selectedModelFile ? '#2563eb' : '#e2e8f0',
+                    },
+                  ]}
+                  onPress={handlePickModelFile}
+                >
+                  <Text
+                    style={{
+                      color: selectedModelFile ? '#2563eb' : '#64748b',
+                      fontSize: 16,
+                    }}
+                  >
+                    {selectedModelFile
+                      ? selectedModelFile.name
+                      : 'Tap to select model file (.gguf)'}
+                  </Text>
+                </TouchableOpacity>
+                <Text style={styles.helpText}>
+                  Select a GGUF model file from your device
+                </Text>
+              </View>
 
-          <TouchableOpacity
-            style={CommonStyles.primaryButton}
-            onPress={handleFetchModel}
-            disabled={isLoading}
-          >
-            <Text style={CommonStyles.primaryButtonText}>
-              {isLoading ? 'Fetching...' : 'Check Model'}
-            </Text>
-          </TouchableOpacity>
+              {requireMMProj && (
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>MMProj File (Required)</Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.input,
+                      {
+                        justifyContent: 'center',
+                        backgroundColor: selectedMmprojFile ? '#f0f9ff' : '#ffffff',
+                        borderColor: selectedMmprojFile ? '#2563eb' : '#e2e8f0',
+                      },
+                    ]}
+                    onPress={handlePickMmprojFile}
+                  >
+                    <Text
+                      style={{
+                        color: selectedMmprojFile ? '#2563eb' : '#64748b',
+                        fontSize: 16,
+                      }}
+                    >
+                      {selectedMmprojFile
+                        ? selectedMmprojFile.name
+                        : 'Tap to select mmproj file (.gguf)'}
+                    </Text>
+                  </TouchableOpacity>
+                  <Text style={styles.helpText}>
+                    Select an mmproj GGUF file for multimodal support
+                  </Text>
+                </View>
+              )}
+            </>
+          ) : (
+            <>
+              {/* HuggingFace Download Mode */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Model ID</Text>
+                <TextInput
+                  style={styles.input}
+                  value={modelId}
+                  onChangeText={setModelId}
+                  placeholder="e.g., microsoft/DialoGPT-medium"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onSubmitEditing={handleFetchModel}
+                />
+                <Text style={styles.helpText}>
+                  Enter the HuggingFace model ID (format: username/model-name)
+                </Text>
+              </View>
 
-          {isLoading && (
+              <View style={styles.noteContainer}>
+                <Text style={styles.noteText}>
+                  <Text style={styles.noteTitle}>Note:</Text>
+                  {' '}
+                  Some models may
+                  require granting access or accepting license agreements on
+                  HuggingFace before they can be downloaded. If download fails with
+                  access errors, visit the model page on huggingface.co to accept
+                  the license.
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={CommonStyles.primaryButton}
+                onPress={handleFetchModel}
+                disabled={isLoading}
+              >
+                <Text style={CommonStyles.primaryButtonText}>
+                  {isLoading ? 'Fetching...' : 'Check Model'}
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {isLoading && !useFileSelection && (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#007AFF" />
               <Text style={styles.loadingText}>
@@ -454,7 +712,7 @@ export default function CustomModelModal({
             </View>
           )}
 
-          {modelInfo?.exists && (
+          {modelInfo?.exists && !useFileSelection && (
             <View style={styles.infoContainer}>
               <Text style={styles.infoText}>
                 Model found! Select quantization below.
@@ -464,7 +722,8 @@ export default function CustomModelModal({
 
           {requireMMProj &&
             modelInfo?.exists &&
-            modelInfo.mmprojFiles.length === 0 && (
+            modelInfo.mmprojFiles.length === 0 &&
+            !useFileSelection && (
               <View style={styles.warningContainer}>
                 <Text style={styles.warningText}>
                   Warning: This model doesn&apos;t have mmproj files. Multimodal
@@ -473,7 +732,7 @@ export default function CustomModelModal({
               </View>
             )}
 
-          {modelInfo?.exists && modelInfo.files.length > 0 && (
+          {modelInfo?.exists && modelInfo.files.length > 0 && !useFileSelection && (
             <>
               <Text style={styles.sectionTitle}>Select Model Quantization</Text>
               {modelInfo.files.map((file) => (
@@ -493,7 +752,7 @@ export default function CustomModelModal({
             </>
           )}
 
-          {modelInfo?.exists && modelInfo.mmprojFiles.length > 0 && (
+          {modelInfo?.exists && modelInfo.mmprojFiles.length > 0 && !useFileSelection && (
             <>
               <Text style={styles.sectionTitle}>
                 Select MMProj File

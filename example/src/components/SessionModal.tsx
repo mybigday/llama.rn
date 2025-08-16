@@ -8,7 +8,11 @@ import {
   Alert,
   Platform,
 } from 'react-native'
-import { pick, saveDocuments } from '@react-native-documents/picker'
+import {
+  pick,
+  saveDocuments,
+  keepLocalCopy,
+} from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
 import type { LlamaContext } from '../../../src'
 import { CommonStyles } from '../styles/commonStyles'
@@ -140,17 +144,26 @@ export default function SessionModal({
     try {
       setIsLoading(true)
 
-      const result = await pick({
+      const [file] = await pick({
         type: ['application/octet-stream', '*/*'],
-        copyTo: 'documentDirectory',
         allowMultiSelection: false,
       })
 
-      if (result && result.length > 0) {
-        const file = result[0]
-        if (file.uri) {
+      if (file?.uri) {
+        // Keep a local copy of the file
+        const [localCopy] = await keepLocalCopy({
+          files: [
+            {
+              uri: file.uri,
+              fileName: file.name ?? 'session.bin',
+            },
+          ],
+          destination: 'documentDirectory',
+        })
+
+        if (localCopy.status === 'success') {
           // Clean the file path
-          const filePath = file.uri.replace(/^file:\/\//, '')
+          const filePath = localCopy.localUri.replace(/^file:\/\//, '')
 
           // Load the session
           const sessionResult = await context.loadSession(filePath)
@@ -161,6 +174,11 @@ export default function SessionModal({
           )
 
           onClose()
+        } else {
+          Alert.alert(
+            'Error',
+            `Failed to copy session file: ${localCopy.copyError}`,
+          )
         }
       }
     } catch (error: any) {

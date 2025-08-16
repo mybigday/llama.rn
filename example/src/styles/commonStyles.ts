@@ -123,6 +123,10 @@ export const CommonStyles = StyleSheet.create({
   primaryButtonDisabled: {
     backgroundColor: Colors.disabled,
   },
+  primaryButtonActive: {
+    backgroundColor: '#1d4ed8', // Darker blue for active state
+    transform: [{ scale: 0.98 }],
+  },
   secondaryButton: {
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
