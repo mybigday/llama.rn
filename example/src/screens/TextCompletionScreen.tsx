@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react'
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useLayoutEffect,
+  useCallback,
+} from 'react'
 import {
   View,
   Text,
@@ -182,23 +188,18 @@ interface ProbabilityDropdownProps {
   onClose: () => void
 }
 
-function ProbabilityDropdown({ token, position, onClose }: ProbabilityDropdownProps) {
+function ProbabilityDropdown({
+  token,
+  position,
+  onClose,
+}: ProbabilityDropdownProps) {
   return (
-    <Modal
-      transparent
-      visible
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <TouchableOpacity
-        style={{ flex: 1 }}
-        activeOpacity={1}
-        onPress={onClose}
-      >
+    <Modal transparent visible animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose}>
         <View
           style={[
             styles.probabilityDropdown,
-            { top: position.y, left: position.x }
+            { top: position.y, left: position.x },
           ]}
         >
           {token.completion_probabilities?.[0]?.probs?.map((prob, idx) => (
@@ -217,7 +218,11 @@ function ProbabilityDropdown({ token, position, onClose }: ProbabilityDropdownPr
   )
 }
 
-export default function TextCompletionScreen({ navigation }: { navigation: any }) {
+export default function TextCompletionScreen({
+  navigation,
+}: {
+  navigation: any
+}) {
   const [prompt, setPrompt] = useState('')
   const [grammar, setGrammar] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -226,13 +231,18 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
   const [isModelReady, setIsModelReady] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
-  const [showCompletionParamsModal, setShowCompletionParamsModal] = useState(false)
+  const [showCompletionParamsModal, setShowCompletionParamsModal] =
+    useState(false)
   const [showCustomModelModal, setShowCustomModelModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
-  const [completionParams, setCompletionParams] = useState<CompletionParams | null>(null)
+  const [completionParams, setCompletionParams] =
+    useState<CompletionParams | null>(null)
   const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const [tokens, setTokens] = useState<TokenData[]>([])
-  const [selectedToken, setSelectedToken] = useState<{ token: TokenData; position: { x: number; y: number } } | null>(null)
+  const [selectedToken, setSelectedToken] = useState<{
+    token: TokenData
+    position: { x: number; y: number }
+  } | null>(null)
   const [isEditingResult, setIsEditingResult] = useState(false)
   const [editableResult, setEditableResult] = useState('')
   const [formattedPrompt, setFormattedPrompt] = useState('')
@@ -240,11 +250,14 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
   const abortControllerRef = useRef<AbortController | null>(null)
   const insets = useSafeAreaInsets()
 
-  useEffect(() => () => {
-    if (context) {
-      context.release()
-    }
-  }, [context])
+  useEffect(
+    () => () => {
+      if (context) {
+        context.release()
+      }
+    },
+    [context],
+  )
 
   useEffect(() => {
     const loadCustomModelsData = async () => {
@@ -294,15 +307,23 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             if (context) {
               try {
                 const defaultMessages = [
-                  { role: 'system' as const, content: 'You are a helpful AI assistant.' },
-                  { role: 'user' as const, content: 'Hello! Please introduce yourself.' }
+                  {
+                    role: 'system' as const,
+                    content: 'You are a helpful AI assistant.',
+                  },
+                  {
+                    role: 'user' as const,
+                    content: 'Hello! Please introduce yourself.',
+                  },
                 ]
-                const formatted = await context.getFormattedChat(defaultMessages)
+                const formatted = await context.getFormattedChat(
+                  defaultMessages,
+                )
                 setPrompt(formatted.prompt)
                 setFormattedPrompt(formatted.prompt)
                 const tokenized = await context.tokenize(formatted.prompt)
                 const detokenizedTokens = await Promise.all(
-                  tokenized.tokens.map(token => context.detokenize([token]))
+                  tokenized.tokens.map((token) => context.detokenize([token])),
                 )
                 setPromptTokens(detokenizedTokens)
               } catch (formatError) {
@@ -325,10 +346,7 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
       navigation.setOptions({
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton
-              iconName="refresh"
-              onPress={handleReset}
-            />
+            <HeaderButton iconName="refresh" onPress={handleReset} />
             <HeaderButton
               iconName="settings"
               onPress={() => setShowCompletionParamsModal(true)}
@@ -370,7 +388,7 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
       // Set default system/user message format as initial prompt
       const defaultMessages = [
         { role: 'system' as const, content: 'You are a helpful AI assistant.' },
-        { role: 'user' as const, content: 'Hello! Please introduce yourself.' }
+        { role: 'user' as const, content: 'Hello! Please introduce yourself.' },
       ]
       try {
         const formatted = await ctx.getFormattedChat(defaultMessages)
@@ -379,7 +397,7 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
         // Tokenize the prompt to show individual tokens
         const tokenized = await ctx.tokenize(formatted.prompt)
         const detokenizedTokens = await Promise.all(
-          tokenized.tokens.map(token => ctx.detokenize([token]))
+          tokenized.tokens.map((token) => ctx.detokenize([token])),
         )
         setPromptTokens(detokenizedTokens)
       } catch (formatError) {
@@ -427,7 +445,7 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
     abortControllerRef.current = controller
 
     // Use the complete text (formatted prompt + any existing generated tokens) as the prompt
-    const existingGenerated = tokens.map(t => t.token).join('')
+    const existingGenerated = tokens.map((t) => t.token).join('')
     const fullPrompt = formattedPrompt + existingGenerated
 
     try {
@@ -439,7 +457,7 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
           ...completionParams,
         },
         (tokenData) => {
-          setTokens(prev => [...prev, tokenData])
+          setTokens((prev) => [...prev, tokenData])
         },
       )
       console.log('Completion finished')
@@ -469,12 +487,21 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
   const handleTokenPress = (event: any, token: TokenData) => {
     if (!token.completion_probabilities?.[0]?.probs) return
 
-    event.currentTarget.measure((_x: number, _y: number, _width: number, _height: number, pageX: number, pageY: number) => {
-      setSelectedToken({
-        token,
-        position: { x: pageX, y: pageY + _height }
-      })
-    })
+    event.currentTarget.measure(
+      (
+        _x: number,
+        _y: number,
+        _width: number,
+        _height: number,
+        pageX: number,
+        pageY: number,
+      ) => {
+        setSelectedToken({
+          token,
+          position: { x: pageX, y: pageY + _height },
+        })
+      },
+    )
   }
 
   const renderContent = () => {
@@ -554,42 +581,15 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
         <View style={styles.textAreaContainer}>
           <Text style={styles.label}>Text Completion</Text>
           {(() => {
-            if (tokens.length === 0) {
-              if (promptTokens.length > 0) {
-                return (
-                  <View style={[styles.textArea, styles.promptTextArea]}>
-                    <View style={styles.tokenContainer}>
-                      {promptTokens.map((token, index) => (
-                        <View key={`prompt-${index}`} style={[styles.token, { backgroundColor: '#e3f2fd' }]}>
-                          <Text style={styles.tokenText}>{token}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                )
-              }
-              return (
-                <TextInput
-                  style={[styles.textArea, styles.promptTextArea]}
-                  multiline
-                  scrollEnabled={false}
-                  value={prompt}
-                  onChangeText={(text) => {
-                    setPrompt(text)
-                    setFormattedPrompt(text) // Update formatted prompt when manually editing
-                    setPromptTokens([]) // Clear tokens when manually editing
-                  }}
-                  placeholder="Enter your prompt here..."
-                  editable={!isGenerating}
-                />
-              )
-            }
-
             if (isEditingResult) {
               return (
                 <View>
                   <TextInput
-                    style={[styles.textArea, styles.promptTextArea, { minHeight: 200 }]}
+                    style={[
+                      styles.textArea,
+                      styles.promptTextArea,
+                      { minHeight: 200 },
+                    ]}
                     multiline
                     scrollEnabled={false}
                     value={editableResult}
@@ -602,15 +602,20 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
                       style={styles.editButton}
                       onPress={async () => {
                         // Check if the text has actually changed before re-tokenizing
-                        const originalText = formattedPrompt + tokens.map(t => t.token).join('')
+                        const originalText =
+                          formattedPrompt + tokens.map((t) => t.token).join('')
                         const hasChanges = editableResult !== originalText
 
                         if (context && editableResult && hasChanges) {
                           try {
                             // Tokenize the entire edited text to show as prompt tokens
-                            const tokenized = await context.tokenize(editableResult)
+                            const tokenized = await context.tokenize(
+                              editableResult,
+                            )
                             const detokenizedTokens = await Promise.all(
-                              tokenized.tokens.map(token => context.detokenize([token]))
+                              tokenized.tokens.map((token) =>
+                                context.detokenize([token]),
+                              ),
                             )
                             setPromptTokens(detokenizedTokens)
 
@@ -621,7 +626,10 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
                             // Clear the generated tokens since we're now showing everything as prompt
                             setTokens([])
                           } catch (error) {
-                            console.warn('Failed to tokenize edited text:', error)
+                            console.warn(
+                              'Failed to tokenize edited text:',
+                              error,
+                            )
                           }
                         }
                         setIsEditingResult(false)
@@ -638,19 +646,23 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
               <View style={[styles.textArea, styles.promptTextArea]}>
                 <View style={styles.tokenContainer}>
                   {promptTokens.map((token, index) => (
-                    <View key={`prompt-${index}`} style={[styles.token, { backgroundColor: '#e3f2fd' }]}>
+                    <View
+                      key={`prompt-${index}`}
+                      style={[styles.token, { backgroundColor: '#e3f2fd' }]}
+                    >
                       <Text style={styles.tokenText}>{token}</Text>
                     </View>
                   ))}
                   {tokens.map((token, index) => {
-                    const firstProb = token.completion_probabilities?.[0]?.probs?.[0]?.prob
+                    const firstProb =
+                      token.completion_probabilities?.[0]?.probs?.[0]?.prob
                     return (
                       <TouchableOpacity
                         key={`gen-${index}`}
                         onPress={(e) => handleTokenPress(e, token)}
                         style={[
                           styles.token,
-                          { backgroundColor: getTokenColor(firstProb) }
+                          { backgroundColor: getTokenColor(firstProb) },
                         ]}
                       >
                         <Text style={styles.tokenText}>{token.token}</Text>
@@ -658,21 +670,20 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
                     )
                   })}
                 </View>
-                {tokens.length > 0 && (
-                  <View style={styles.editButtonContainer}>
-                    <TouchableOpacity
-                      style={styles.editButton}
-                      onPress={() => {
-                        // Combine formatted prompt + generated text for editing
-                        const fullText = formattedPrompt + tokens.map(t => t.token).join('')
-                        setEditableResult(fullText)
-                        setIsEditingResult(true)
-                      }}
-                    >
-                      <Text style={styles.editButtonText}>Edit</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
+                <View style={styles.editButtonContainer}>
+                  <TouchableOpacity
+                    style={styles.editButton}
+                    onPress={() => {
+                      // Combine formatted prompt + generated text for editing
+                      const fullText =
+                        formattedPrompt + tokens.map((t) => t.token).join('')
+                      setEditableResult(fullText)
+                      setIsEditingResult(true)
+                    }}
+                  >
+                    <Text style={styles.editButtonText}>Edit</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             )
           })()}
@@ -718,11 +729,11 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.top_k?.toString() || '40'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, top_k: undefined }))
+                setCompletionParams((prev) => ({ ...prev!, top_k: undefined }))
               } else {
                 const value = parseInt(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, top_k: value }))
+                  setCompletionParams((prev) => ({ ...prev!, top_k: value }))
                 }
               }
             }}
@@ -736,11 +747,11 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.min_p?.toString() || '0.05'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, min_p: undefined }))
+                setCompletionParams((prev) => ({ ...prev!, min_p: undefined }))
               } else {
                 const value = parseFloat(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, min_p: value }))
+                  setCompletionParams((prev) => ({ ...prev!, min_p: value }))
                 }
               }
             }}
@@ -754,11 +765,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.typical_p?.toString() || '1.0'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, typical_p: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  typical_p: undefined,
+                }))
               } else {
                 const value = parseFloat(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, typical_p: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    typical_p: value,
+                  }))
                 }
               }
             }}
@@ -772,11 +789,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.penalty_repeat?.toString() || '1.0'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, penalty_repeat: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  penalty_repeat: undefined,
+                }))
               } else {
                 const value = parseFloat(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, penalty_repeat: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    penalty_repeat: value,
+                  }))
                 }
               }
             }}
@@ -790,11 +813,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.xtc_probability?.toString() || '0.0'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, xtc_probability: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  xtc_probability: undefined,
+                }))
               } else {
                 const value = parseFloat(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, xtc_probability: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    xtc_probability: value,
+                  }))
                 }
               }
             }}
@@ -808,11 +837,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.xtc_threshold?.toString() || '0.1'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, xtc_threshold: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  xtc_threshold: undefined,
+                }))
               } else {
                 const value = parseFloat(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, xtc_threshold: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    xtc_threshold: value,
+                  }))
                 }
               }
             }}
@@ -826,11 +861,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.penalty_last_n?.toString() || '64'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, penalty_last_n: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  penalty_last_n: undefined,
+                }))
               } else {
                 const value = parseInt(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, penalty_last_n: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    penalty_last_n: value,
+                  }))
                 }
               }
             }}
@@ -844,11 +885,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.penalty_freq?.toString() || '0.0'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, penalty_freq: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  penalty_freq: undefined,
+                }))
               } else {
                 const value = parseFloat(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, penalty_freq: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    penalty_freq: value,
+                  }))
                 }
               }
             }}
@@ -862,11 +909,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.penalty_present?.toString() || '0.0'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, penalty_present: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  penalty_present: undefined,
+                }))
               } else {
                 const value = parseFloat(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, penalty_present: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    penalty_present: value,
+                  }))
                 }
               }
             }}
@@ -880,11 +933,14 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.mirostat?.toString() || '0'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, mirostat: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  mirostat: undefined,
+                }))
               } else {
                 const value = parseInt(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, mirostat: value }))
+                  setCompletionParams((prev) => ({ ...prev!, mirostat: value }))
                 }
               }
             }}
@@ -898,11 +954,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.mirostat_tau?.toString() || '5.0'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, mirostat_tau: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  mirostat_tau: undefined,
+                }))
               } else {
                 const value = parseFloat(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, mirostat_tau: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    mirostat_tau: value,
+                  }))
                 }
               }
             }}
@@ -916,11 +978,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.mirostat_eta?.toString() || '0.1'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, mirostat_eta: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  mirostat_eta: undefined,
+                }))
               } else {
                 const value = parseFloat(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, mirostat_eta: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    mirostat_eta: value,
+                  }))
                 }
               }
             }}
@@ -934,11 +1002,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.dry_multiplier?.toString() || '0.0'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, dry_multiplier: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  dry_multiplier: undefined,
+                }))
               } else {
                 const value = parseFloat(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, dry_multiplier: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    dry_multiplier: value,
+                  }))
                 }
               }
             }}
@@ -952,11 +1026,14 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.dry_base?.toString() || '1.75'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, dry_base: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  dry_base: undefined,
+                }))
               } else {
                 const value = parseFloat(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, dry_base: value }))
+                  setCompletionParams((prev) => ({ ...prev!, dry_base: value }))
                 }
               }
             }}
@@ -970,11 +1047,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.dry_allowed_length?.toString() || '2'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, dry_allowed_length: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  dry_allowed_length: undefined,
+                }))
               } else {
                 const value = parseInt(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, dry_allowed_length: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    dry_allowed_length: value,
+                  }))
                 }
               }
             }}
@@ -988,11 +1071,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.dry_penalty_last_n?.toString() || '-1'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, dry_penalty_last_n: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  dry_penalty_last_n: undefined,
+                }))
               } else {
                 const value = parseInt(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, dry_penalty_last_n: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    dry_penalty_last_n: value,
+                  }))
                 }
               }
             }}
@@ -1006,11 +1095,17 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.top_n_sigma?.toString() || '-1.0'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, top_n_sigma: undefined }))
+                setCompletionParams((prev) => ({
+                  ...prev!,
+                  top_n_sigma: undefined,
+                }))
               } else {
                 const value = parseFloat(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, top_n_sigma: value }))
+                  setCompletionParams((prev) => ({
+                    ...prev!,
+                    top_n_sigma: value,
+                  }))
                 }
               }
             }}
@@ -1024,11 +1119,11 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             value={completionParams?.seed?.toString() || '-1'}
             onChangeText={(text) => {
               if (text === '') {
-                setCompletionParams(prev => ({ ...prev!, seed: undefined }))
+                setCompletionParams((prev) => ({ ...prev!, seed: undefined }))
               } else {
                 const value = parseInt(text)
                 if (!Number.isNaN(value)) {
-                  setCompletionParams(prev => ({ ...prev!, seed: value }))
+                  setCompletionParams((prev) => ({ ...prev!, seed: value }))
                 }
               }
             }}
@@ -1036,7 +1131,6 @@ export default function TextCompletionScreen({ navigation }: { navigation: any }
             keyboardType="numeric"
           />
         </View>
-
       </ScrollView>
     )
   }
