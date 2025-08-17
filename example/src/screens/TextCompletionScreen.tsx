@@ -348,7 +348,7 @@ export default function TextCompletionScreen({
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <HeaderButton iconName="refresh" onPress={handleReset} />
             <HeaderButton
-              iconName="settings"
+              iconName="cog-outline"
               onPress={() => setShowCompletionParamsModal(true)}
             />
           </View>
@@ -358,7 +358,7 @@ export default function TextCompletionScreen({
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
-            iconName="settings"
+            iconName="cog-outline"
             onPress={() => setShowContextParamsModal(true)}
           />
         ),

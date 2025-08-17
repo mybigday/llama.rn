@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { View, TouchableOpacity, StyleSheet, Alert } from 'react-native'
-import Icon from '@react-native-vector-icons/material-icons'
+import Icon from '@react-native-vector-icons/material-design-icons'
 import ReactNativeBlobUtil from 'react-native-blob-util'
 import ModelDownloadCard, { MtmdModelDownloadCard } from './ModelDownloadCard'
 import { deleteCustomModel, type CustomModel } from '../utils/storage'
@@ -386,7 +386,7 @@ export default function CustomModelCard({
           disabled={isRemoving}
         >
           <Icon
-            name={isRemoving ? 'hourglass-empty' : 'close'}
+            name={isRemoving ? 'timer-sand-empty' : 'close'}
             size={16}
             color="#ffffff"
           />

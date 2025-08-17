@@ -218,7 +218,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <HeaderButton iconName="refresh" onPress={handleReset} />
             <HeaderButton
-              iconName="settings"
+              iconName="cog-outline"
               onPress={() => setShowCompletionParamsModal(true)}
             />
             <Menu
@@ -227,13 +227,11 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
                   id: 'messages',
                   title: 'Messages',
                   onPress: () => setShowMessagesModal(true),
-                  systemIcon: 'message',
                 },
                 {
                   id: 'sessions',
                   title: 'Sessions',
                   onPress: () => setShowSessionModal(true),
-                  systemIcon: 'folder',
                 },
               ]}
             />
@@ -244,7 +242,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
-            iconName="settings"
+            iconName="cog-outline"
             onPress={() => setShowContextParamsModal(true)}
           />
         ),

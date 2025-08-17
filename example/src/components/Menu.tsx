@@ -1,7 +1,7 @@
 import React from 'react'
 import { Platform } from 'react-native'
 import { MenuView } from '@react-native-menu/menu'
-import Icon from '@react-native-vector-icons/material-icons'
+import Icon from '@react-native-vector-icons/material-design-icons'
 
 interface MenuAction {
   id: string
@@ -34,7 +34,7 @@ export function Menu({ actions }: MenuProps) {
       onPressAction={handleMenuAction}
       actions={menuActions}
     >
-      <Icon name="more-vert" size={24} color="#007AFF" />
+      <Icon name="dots-vertical" size={24} color="#007AFF" />
     </MenuView>
   )
 }

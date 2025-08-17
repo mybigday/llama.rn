@@ -281,11 +281,11 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <HeaderButton
-              iconName="volume-up"
+              iconName="speaker"
               onPress={() => setShowTTSParamsModal(true)}
             />
             <HeaderButton
-              iconName="settings"
+              iconName="cog-outline"
               onPress={() => setShowCompletionParamsModal(true)}
             />
           </View>
@@ -295,7 +295,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
-            iconName="settings"
+            iconName="cog-outline"
             onPress={() => setShowContextParamsModal(true)}
           />
         ),

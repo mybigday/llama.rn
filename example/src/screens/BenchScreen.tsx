@@ -174,14 +174,14 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
     if (isModelReady) {
       navigation.setOptions({
         headerRight: () => (
-          <HeaderButton iconName="clear" onPress={clearLogs} />
+          <HeaderButton iconName="refresh" onPress={clearLogs} />
         ),
       })
     } else {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
-            iconName="settings"
+            iconName="cog-outline"
             onPress={() => setShowContextParamsModal(true)}
           />
         ),

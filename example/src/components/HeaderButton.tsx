@@ -1,16 +1,14 @@
 import React from 'react'
 import { TouchableOpacity } from 'react-native-gesture-handler'
-import Icon from '@react-native-vector-icons/material-icons'
+import Icon from '@react-native-vector-icons/material-design-icons'
 import { CommonStyles } from '../styles/commonStyles'
 
 type IconName =
-  | 'chat'
-  | 'settings'
-  | 'volume-up'
-  | 'clear'
-  | 'folder'
   | 'refresh'
-  | 'build'
+  | 'cog-outline'
+  | 'speaker'
+  | 'close'
+  | 'timer-sand-empty'
 
 interface HeaderButtonProps {
   onPress: () => void

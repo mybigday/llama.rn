@@ -1,7 +1,7 @@
 import React from 'react'
 import { View, Text, TouchableOpacity, Platform } from 'react-native'
 import { MenuView } from '@react-native-menu/menu'
-import Icon from '@react-native-vector-icons/material-icons'
+import Icon from '@react-native-vector-icons/material-design-icons'
 import { CommonStyles } from '../styles/commonStyles'
 
 interface ParameterMenuProps {
@@ -39,7 +39,7 @@ export function ParameterMenu({
       {description && (
         <Text style={CommonStyles.paramDescription}>{description}</Text>
       )}
-      
+
       <MenuView
         onPressAction={handleMenuAction}
         actions={menuActions}
@@ -67,7 +67,7 @@ export function ParameterMenu({
           >
             {value || placeholder}
           </Text>
-          <Icon name="arrow-drop-down" size={24} color="#666" />
+          <Icon name="menu-down" size={24} color="#666" />
         </TouchableOpacity>
       </MenuView>
     </View>
