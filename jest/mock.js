@@ -170,17 +170,19 @@ if (!NativeModules.RNLlama) {
         DeviceEventEmitter.emit('@RNLlama_onToken', data)
       }
       await testResult.completion_probabilities.reduce(
-        (promise, item) =>
-          promise.then(() =>
+        (promise, item, index) =>
+          promise.then(() => {
+            const content = testResult.completion_probabilities.slice(0, index + 1).map((p) => p.content).join('')
             emitEvent({
               contextId,
               jobId,
               tokenResult: {
                 token: item.content,
+                content,
                 completion_probabilities: item.probs,
               },
-            }),
-          ),
+            })
+          }),
         Promise.resolve(),
       )
       return Promise.resolve(testResult)
