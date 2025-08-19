@@ -34,6 +34,7 @@ endif ()
 # Define public headers
 set(PUBLIC_HEADERS
     ${SOURCE_DIR}/rn-llama.h
+    ${SOURCE_DIR}/rn-tts.h
     ${SOURCE_DIR}/llama.h
     ${SOURCE_DIR}/llama-impl.h
     ${SOURCE_DIR}/ggml.h
