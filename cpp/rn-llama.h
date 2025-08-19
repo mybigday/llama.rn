@@ -71,48 +71,35 @@ struct llama_rn_tokenize_result {
 
 // Main context class
 struct llama_rn_context {
+    // Model state fields
+    llama_model *model = nullptr;
+    float loading_progress = 0;
+    bool is_load_interrupted = false;
+    common_params params;
+    common_init_result llama_init;
+    llama_context *ctx = nullptr;
+    common_chat_templates_ptr templates;
+    int n_ctx;
+    common_sampler *ctx_sampling = nullptr;
+
+    // Completion state fields
     bool is_predicting = false;
     bool is_interrupted = false;
     bool has_next_token = false;
     std::string generated_text;
     std::vector<completion_token_output> generated_token_probs;
-
     size_t num_prompt_tokens = 0;
     size_t num_tokens_predicted = 0;
     llama_pos n_past = 0;
     size_t n_remain = 0;
-    std::vector<std::string> mtmd_bitmap_past_hashes;
-
     std::vector<llama_token> embd;
-    common_params params;
-    common_init_result llama_init;
-
-    llama_model *model = nullptr;
-    float loading_progress = 0;
-    bool is_load_interrupted = false;
-
-    llama_context *ctx = nullptr;
-    common_sampler *ctx_sampling = nullptr;
-    common_chat_templates_ptr templates;
-
-    int n_ctx;
-
+    bool incomplete = false;
     bool context_full = false;
     bool truncated = false;
     bool stopped_eos = false;
     bool stopped_word = false;
     bool stopped_limit = false;
     std::string stopping_word;
-    bool incomplete = false;
-
-    std::vector<common_adapter_lora_info> lora;
-
-    llama_rn_context_mtmd *mtmd_wrapper = nullptr;
-    bool has_multimodal = false;
-
-    llama_rn_context_tts *tts_wrapper = nullptr;
-    bool has_vocoder = false;
-
     // Current completion parameters for chat parsing
     int current_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
     common_reasoning_format current_reasoning_format = COMMON_REASONING_FORMAT_NONE;
@@ -121,8 +108,9 @@ struct llama_rn_context {
     ~llama_rn_context();
 
     void rewind();
-    bool initSampling();
     bool loadModel(common_params &params_);
+
+    // Model methods
     bool validateModelChatTemplate(bool use_jinja, const char *name) const;
     common_chat_params getFormattedChatWithJinja(
       const std::string& messages,
@@ -140,6 +128,10 @@ struct llama_rn_context {
       const std::string &messages,
       const std::string &chat_template
     ) const;
+    llama_rn_tokenize_result tokenize(const std::string &text, const std::vector<std::string> &media_paths);
+
+    // Completion processing methods
+    bool initSampling();
     void truncatePrompt(std::vector<llama_token> &prompt_tokens);
     void loadPrompt(const std::vector<std::string> &media_paths);
     void beginCompletion();
@@ -149,33 +141,42 @@ struct llama_rn_context {
     size_t findStoppingStrings(const std::string &text, const size_t last_token_size, const stop_type type);
     completion_token_output doCompletion();
     completion_partial_output getPartialOutput(const std::string &token_text);
+
+    // Embedding methods
     std::vector<float> getEmbedding(common_params &embd_params);
     std::vector<float> rerank(const std::string &query, const std::vector<std::string> &documents);
+
+    // Benchmarking methods
     std::string bench(int pp, int tg, int pl, int nr);
+
+    // Lora methods
+    std::vector<common_adapter_lora_info> lora;
     int applyLoraAdapters(std::vector<common_adapter_lora_info> lora);
     void removeLoraAdapters();
     std::vector<common_adapter_lora_info> getLoadedLoraAdapters();
 
-    // Multimodal methods
+    // Multimodal fields and methods
+    std::vector<std::string> mtmd_bitmap_past_hashes;
+    llama_rn_context_mtmd *mtmd_wrapper = nullptr;
+    bool has_multimodal = false;
     bool initMultimodal(const std::string &mmproj_path, bool use_gpu);
     bool isMultimodalEnabled() const;
     bool isMultimodalSupportVision() const;
     bool isMultimodalSupportAudio() const;
     void releaseMultimodal();
 
-    // Process multiple media and add them to the context
+    // Multimodal processing methods
     void processMedia(
-        const std::string &prompt,
-        const std::vector<std::string> &media_paths
+      const std::string &prompt,
+      const std::vector<std::string> &media_paths
     );
 
-    llama_rn_tokenize_result tokenize(const std::string &text, const std::vector<std::string> &media_paths);
-
-    // Vocoder methods (delegated to TTS context)
+    // TTS fields and methods (delegated to TTS context)
+    llama_rn_context_tts *tts_wrapper = nullptr;
+    bool has_vocoder = false;
     bool initVocoder(const std::string &vocoder_model_path, int batch_size = -1);
     bool isVocoderEnabled() const;
     void releaseVocoder();
-
 };
 
 // Utility functions
