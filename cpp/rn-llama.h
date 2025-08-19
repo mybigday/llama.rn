@@ -156,7 +156,6 @@ struct llama_rn_context {
     std::vector<common_adapter_lora_info> getLoadedLoraAdapters();
 
     // Multimodal fields and methods
-    std::vector<std::string> mtmd_bitmap_past_hashes;
     llama_rn_context_mtmd *mtmd_wrapper = nullptr;
     bool has_multimodal = false;
     bool initMultimodal(const std::string &mmproj_path, bool use_gpu);
