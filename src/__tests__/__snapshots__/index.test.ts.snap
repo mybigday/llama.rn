@@ -17,6 +17,7 @@ Array [
         "tok_str": " Hello",
       },
     ],
+    "content": " *",
     "token": " *",
   },
   Object {
@@ -34,6 +35,7 @@ Array [
         "tok_str": "bl",
       },
     ],
+    "content": " *g",
     "token": "g",
   },
   Object {
@@ -51,6 +53,7 @@ Array [
         "tok_str": "reet",
       },
     ],
+    "content": " *gigg",
     "token": "igg",
   },
   Object {
@@ -68,6 +71,7 @@ Array [
         "tok_str": "LES",
       },
     ],
+    "content": " *giggles",
     "token": "les",
   },
   Object {
@@ -85,6 +89,7 @@ Array [
         "tok_str": "**",
       },
     ],
+    "content": " *giggles*",
     "token": "*",
   },
 ]

@@ -173,7 +173,7 @@ if (!NativeModules.RNLlama) {
         (promise, item, index) =>
           promise.then(() => {
             const content = testResult.completion_probabilities.slice(0, index + 1).map((p) => p.content).join('')
-            emitEvent({
+            return emitEvent({
               contextId,
               jobId,
               tokenResult: {
