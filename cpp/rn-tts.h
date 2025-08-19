@@ -3,7 +3,7 @@
 
 #include <vector>
 #include <string>
-#include <llama.h>
+#include "llama.h"
 #include "nlohmann/json.hpp"
 #include "common.h"
 
@@ -34,18 +34,18 @@ struct llama_rn_tts_context {
     std::vector<llama_token> audio_tokens;
     std::vector<llama_token> guide_tokens;
     bool next_token_uses_guide_token = true;
-    
+
     // Constructor and destructor
     llama_rn_tts_context() = default;
     ~llama_rn_tts_context() = default;
-    
+
     // TTS utility methods
     tts_type getTTSType(llama_rn_context* main_ctx, json speaker = nullptr);
     llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak);
     std::vector<llama_token> getAudioCompletionGuideTokens(llama_rn_context* main_ctx, const std::string &text_to_speak);
     std::vector<float> decodeAudioTokens(llama_rn_context* main_ctx, const std::vector<llama_token> &tokens);
     void setGuideTokens(const std::vector<llama_token> &tokens);
-    
+
 };
 
 // TTS processing functions
