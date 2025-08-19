@@ -76,6 +76,7 @@ set(
     ${RNLLAMA_LIB_DIR}/minja/chat-template.hpp
     ${RNLLAMA_LIB_DIR}/anyascii.c
     ${RNLLAMA_LIB_DIR}/rn-llama.cpp
+    ${RNLLAMA_LIB_DIR}/rn-tts.cpp
     ${CMAKE_SOURCE_DIR}/jni-utils.h
     ${CMAKE_SOURCE_DIR}/jni.cpp
 )

@@ -15,6 +15,7 @@
 #include "llama-impl.h"
 #include "sampling.h"
 #include "nlohmann/json.hpp"
+#include "rn-tts.h"
 #if defined(__ANDROID__)
 #include <android/log.h>
 #endif
@@ -58,7 +59,15 @@ struct completion_partial_output
 
 struct llama_rn_context_mtmd;
 
-struct llama_rn_context_vocoder;
+struct llama_rn_context_vocoder {
+  common_init_result init_result;
+  common_params params;
+  llama_model *model = nullptr;
+  llama_context *ctx = nullptr;
+  tts_type type = UNKNOWN;
+};
+
+struct llama_rn_tts_context;
 
 struct llama_rn_tokenize_result {
     std::vector<llama_token> tokens;
@@ -68,18 +77,6 @@ struct llama_rn_tokenize_result {
     std::vector<size_t> chunk_pos_media; // media only
 };
 
-struct llama_rn_audio_completion_result {
-    std::string prompt;
-    const char *grammar;
-};
-
-enum tts_type {
-    UNKNOWN = -1,
-    OUTETTS_V0_1 = 0,
-    OUTETTS_V0_2 = 1,
-    OUTETTS_V0_3 = 2,
-};
-
 // Main context class
 struct llama_rn_context {
     bool is_predicting = false;
@@ -87,7 +84,6 @@ struct llama_rn_context {
     bool has_next_token = false;
     std::string generated_text;
     std::vector<completion_token_output> generated_token_probs;
-    std::vector<llama_token> audio_tokens;
 
     size_t num_prompt_tokens = 0;
     size_t num_tokens_predicted = 0;
@@ -99,8 +95,6 @@ struct llama_rn_context {
     common_params params;
     common_init_result llama_init;
 
-    bool next_token_uses_guide_token = true;
-    std::vector<llama_token> guide_tokens;
 
     llama_model *model = nullptr;
     float loading_progress = 0;
@@ -127,6 +121,9 @@ struct llama_rn_context {
 
     llama_rn_context_vocoder *vocoder_wrapper = nullptr;
     bool has_vocoder = false;
+
+    // TTS context
+    llama_rn_tts_context *tts_ctx = nullptr;
 
     // Current completion parameters for chat parsing
     int current_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
@@ -157,7 +154,6 @@ struct llama_rn_context {
     ) const;
     void truncatePrompt(std::vector<llama_token> &prompt_tokens);
     void loadPrompt(const std::vector<std::string> &media_paths);
-    void setGuideTokens(const std::vector<llama_token> &tokens);
     void beginCompletion();
     void beginCompletion(int chat_format, common_reasoning_format reasoning_format, bool thinking_forced_open);
     void endCompletion();
@@ -189,13 +185,25 @@ struct llama_rn_context {
 
     // Vocoder methods
     bool initVocoder(const std::string &vocoder_model_path, int batch_size = -1);
-    tts_type getTTSType(json speaker = nullptr);
-    llama_rn_audio_completion_result getFormattedAudioCompletion(const std::string &speaker_json_str, const std::string &text_to_speak);
-    std::vector<llama_token> getAudioCompletionGuideTokens(const std::string &text_to_speak);
-    std::vector<float> decodeAudioTokens(const std::vector<llama_token> &tokens);
     bool isVocoderEnabled() const;
     void releaseVocoder();
+
 };
+
+// Utility functions
+inline void llama_batch_add(llama_batch *batch, llama_token id, llama_pos pos, std::vector<llama_seq_id> seq_ids, bool logits) {
+    batch->token   [batch->n_tokens] = id;
+    batch->pos     [batch->n_tokens] = pos;
+    batch->n_seq_id[batch->n_tokens] = seq_ids.size();
+    for (size_t i = 0; i < seq_ids.size(); i++) {
+        batch->seq_id[batch->n_tokens][i] = seq_ids[i];
+    }
+    batch->logits  [batch->n_tokens] = logits ? 1 : 0;
+    batch->n_tokens += 1;
+}
+
+// Logging functions
+void log(const char *level, const char *function, int line, const char *format, ...);
 
 // Logging macros
 extern bool rnllama_verbose;

@@ -106,6 +106,7 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/tools/mtmd/mtmd-helper.cpp
     ${SOURCE_DIR}/anyascii.c
     ${SOURCE_DIR}/rn-llama.cpp
+    ${SOURCE_DIR}/rn-tts.cpp
     ${SOURCE_FILES_ARCH}
 )
 
