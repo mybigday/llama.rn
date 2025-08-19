@@ -600,7 +600,7 @@ Java_com_rnllama_LlamaContext_getFormattedChat(
     jstring chat_template
 ) {
     UNUSED(thiz);
-    
+
     try {
         auto llama = context_map[(long) context_ptr];
         if (!llama) {
@@ -816,8 +816,8 @@ Java_com_rnllama_LlamaContext_doCompletion(
             guide_tokens_vector[i] = guide_tokens_array[i];
         }
         env->ReleaseIntArrayElements(guide_tokens, guide_tokens_array, 0);
-        if (llama->tts_ctx != nullptr) {
-            llama->tts_ctx->setGuideTokens(guide_tokens_vector);
+        if (llama->vocoder_wrapper->tts_ctx != nullptr) {
+            llama->vocoder_wrapper->tts_ctx->setGuideTokens(guide_tokens_vector);
         }
     }
 
@@ -1179,11 +1179,10 @@ Java_com_rnllama_LlamaContext_doCompletion(
     if (toolCallsSize > 0) {
         putArray(env, result, "tool_calls", toolCalls);
     }
-    std::vector<llama_token> audio_tokens;
-    if (llama->tts_ctx != nullptr) {
-        audio_tokens = llama->tts_ctx->audio_tokens;
+    if (llama->vocoder_wrapper->tts_ctx != nullptr) {
+        std::vector<llama_token> audio_tokens = llama->vocoder_wrapper->tts_ctx->audio_tokens;
+        putArray(env, result, "audio_tokens", tokensToArray(env, llama, audio_tokens));
     }
-    putArray(env, result, "audio_tokens", tokensToArray(env, llama, audio_tokens));
     putArray(env, result, "completion_probabilities", tokenProbsToMap(env, llama, llama->generated_token_probs));
     putInt(env, result, "tokens_predicted", llama->num_tokens_predicted);
     putInt(env, result, "tokens_evaluated", llama->num_prompt_tokens);
@@ -1680,7 +1679,7 @@ Java_com_rnllama_LlamaContext_getFormattedAudioCompletion(
 
     auto result = createWriteableMap(env);
     try {
-        auto audio_result = llama->tts_ctx->getFormattedAudioCompletion(llama, speaker_json_str_chars, text_to_speak_chars);
+        auto audio_result = llama->vocoder_wrapper->tts_ctx->getFormattedAudioCompletion(llama, speaker_json_str_chars, text_to_speak_chars);
         putString(env, result, "prompt", audio_result.prompt.c_str());
         if (audio_result.grammar != nullptr) {
             putString(env, result, "grammar", audio_result.grammar);
@@ -1709,7 +1708,7 @@ Java_com_rnllama_LlamaContext_getAudioCompletionGuideTokens(
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
     const char *text_to_speak_chars = env->GetStringUTFChars(text_to_speak, nullptr);
-    std::vector<llama_token> guide_tokens = llama->tts_ctx->getAudioCompletionGuideTokens(llama, text_to_speak_chars);
+    std::vector<llama_token> guide_tokens = llama->vocoder_wrapper->tts_ctx->getAudioCompletionGuideTokens(llama, text_to_speak_chars);
     env->ReleaseStringUTFChars(text_to_speak, text_to_speak_chars);
     auto result = createWritableArray(env);
     for (const auto &val : guide_tokens) {
@@ -1735,7 +1734,7 @@ Java_com_rnllama_LlamaContext_decodeAudioTokens(
         tokens_vec[i] = tokens_ptr[i];
     }
     env->ReleaseIntArrayElements(tokens, tokens_ptr, 0);
-    std::vector<float> audio = llama->tts_ctx->decodeAudioTokens(llama, tokens_vec);
+    std::vector<float> audio = llama->vocoder_wrapper->tts_ctx->decodeAudioTokens(llama, tokens_vec);
     auto result = createWritableArray(env);
     for (const auto &val : audio) {
       pushDouble(env, result, (double) val);

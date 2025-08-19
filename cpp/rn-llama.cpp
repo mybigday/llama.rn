@@ -233,11 +233,7 @@ llama_rn_context::~llama_rn_context() {
     }
 
     releaseMultimodal();
-
-    if (tts_ctx != nullptr) {
-        delete tts_ctx;
-        tts_ctx = nullptr;
-    }
+    releaseVocoder();
 }
 
 void llama_rn_context::rewind() {
@@ -248,10 +244,6 @@ void llama_rn_context::rewind() {
     num_tokens_predicted = 0;
     generated_text = "";
     generated_text.reserve(params.n_ctx);
-    generated_token_probs.clear();
-    if (tts_ctx != nullptr) {
-        tts_ctx->audio_tokens.clear();
-    }
     truncated = false;
     context_full = false;
     stopped_eos = false;
@@ -262,9 +254,10 @@ void llama_rn_context::rewind() {
     n_remain = 0;
     n_past = 0;
     params.sampling.n_prev = n_ctx;
-    if (tts_ctx != nullptr) {
-        tts_ctx->next_token_uses_guide_token = true;
-        tts_ctx->guide_tokens.clear();
+    if (vocoder_wrapper != nullptr && vocoder_wrapper->tts_ctx != nullptr) {
+        vocoder_wrapper->tts_ctx->audio_tokens.clear();
+        vocoder_wrapper->tts_ctx->next_token_uses_guide_token = true;
+        vocoder_wrapper->tts_ctx->guide_tokens.clear();
     }
 }
 
@@ -575,6 +568,7 @@ completion_token_output llama_rn_context::nextToken()
             return result;
         }
 
+        auto tts_ctx = vocoder_wrapper->tts_ctx;
         if (tts_ctx != nullptr && tts_ctx->next_token_uses_guide_token && !tts_ctx->guide_tokens.empty() && !llama_vocab_is_control(vocab, new_token_id)) {
             new_token_id = tts_ctx->guide_tokens[0];
             tts_ctx->guide_tokens.erase(tts_ctx->guide_tokens.begin());
@@ -656,6 +650,7 @@ completion_token_output llama_rn_context::doCompletion()
     const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(ctx, token_with_probs.tok);
     generated_text += token_text;
 
+    auto tts_ctx = vocoder_wrapper->tts_ctx;
     if (isVocoderEnabled() && tts_ctx != nullptr) {
         tts_type type = tts_ctx->getTTSType(this);
         if (vocoder_wrapper->type == UNKNOWN) {
@@ -1471,12 +1466,9 @@ bool llama_rn_context::initVocoder(const std::string &vocoder_model_path, int ba
         return false;
     }
     wrapper->type = UNKNOWN; // Will be determined when used
+    wrapper->tts_ctx = new llama_rn_tts_context();
     vocoder_wrapper = wrapper;
     has_vocoder = true;
-    // Initialize TTS context if not already initialized
-    if (tts_ctx == nullptr) {
-        tts_ctx = new llama_rn_tts_context();
-    }
     return true;
 }
 

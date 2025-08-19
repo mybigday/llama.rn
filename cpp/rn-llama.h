@@ -59,15 +59,16 @@ struct completion_partial_output
 
 struct llama_rn_context_mtmd;
 
+struct llama_rn_tts_context;
+
 struct llama_rn_context_vocoder {
   common_init_result init_result;
   common_params params;
   llama_model *model = nullptr;
   llama_context *ctx = nullptr;
   tts_type type = UNKNOWN;
+  llama_rn_tts_context *tts_ctx = nullptr;
 };
-
-struct llama_rn_tts_context;
 
 struct llama_rn_tokenize_result {
     std::vector<llama_token> tokens;
@@ -121,9 +122,6 @@ struct llama_rn_context {
 
     llama_rn_context_vocoder *vocoder_wrapper = nullptr;
     bool has_vocoder = false;
-
-    // TTS context
-    llama_rn_tts_context *tts_ctx = nullptr;
 
     // Current completion parameters for chat parsing
     int current_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
