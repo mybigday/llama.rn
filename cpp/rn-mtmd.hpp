@@ -460,7 +460,13 @@ inline void llama_rn_context_mtmd::processMedia(
 
     // Clear all KV cache entries after position n_past
     auto * kv = llama_get_memory(ctx);
-    llama_memory_seq_rm(kv, 0, n_past, -1);
+
+    bool clear_result = llama_memory_seq_rm(kv, 0, n_past, -1);
+    if (!clear_result) {
+        LOG_ERROR("[DEBUG] llama_memory_seq_rm failed (likely using a non-Transformer model)! Trying full clear...");
+        llama_memory_clear(kv, false);
+    }
+
 
     LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, n_batch);
 
