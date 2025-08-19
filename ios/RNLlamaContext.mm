@@ -652,8 +652,8 @@
         for (NSNumber *token_num in guide_tokens_array) {
             guide_tokens.push_back([token_num intValue]);
         }
-        if (llama->vocoder_wrapper->tts_ctx != nullptr) {
-            llama->vocoder_wrapper->tts_ctx->setGuideTokens(guide_tokens);
+        if (llama->tts_wrapper != nullptr) {
+            llama->tts_wrapper->setGuideTokens(guide_tokens);
         }
     }
 
@@ -840,9 +840,9 @@
     result[@"stopping_word"] = [NSString stringWithUTF8String:llama->stopping_word.c_str()];
     result[@"tokens_cached"] = @(llama->n_past);
 
-    if (llama->isVocoderEnabled() && llama->vocoder_wrapper->tts_ctx != nullptr && !llama->vocoder_wrapper->tts_ctx->audio_tokens.empty()) {
+    if (llama->isVocoderEnabled() && llama->tts_wrapper != nullptr && !llama->tts_wrapper->audio_tokens.empty()) {
         NSMutableArray *audioTokens = [[NSMutableArray alloc] init];
-        for (llama_token token : llama->vocoder_wrapper->tts_ctx->audio_tokens) {
+        for (llama_token token : llama->tts_wrapper->audio_tokens) {
             [audioTokens addObject:@(token)];
         }
         result[@"audio_tokens"] = audioTokens;
@@ -1097,7 +1097,7 @@
 - (NSDictionary *)getFormattedAudioCompletion:(NSString *)speakerJsonStr textToSpeak:(NSString *)textToSpeak {
     std::string speakerStr = speakerJsonStr ? [speakerJsonStr UTF8String] : "";
     try {
-        auto audio_result = llama->vocoder_wrapper->tts_ctx->getFormattedAudioCompletion(llama, speakerStr, [textToSpeak UTF8String]);
+        auto audio_result = llama->tts_wrapper->getFormattedAudioCompletion(llama, speakerStr, [textToSpeak UTF8String]);
         return @{
             @"prompt": [NSString stringWithUTF8String:audio_result.prompt.c_str()],
             @"grammar": [NSString stringWithUTF8String:audio_result.grammar]
@@ -1108,7 +1108,7 @@
 }
 
 - (NSArray *)getAudioCompletionGuideTokens:(NSString *)textToSpeak {
-    std::vector<llama_token> guide_tokens = llama->vocoder_wrapper->tts_ctx->getAudioCompletionGuideTokens(llama, [textToSpeak UTF8String]);
+    std::vector<llama_token> guide_tokens = llama->tts_wrapper->getAudioCompletionGuideTokens(llama, [textToSpeak UTF8String]);
     NSMutableArray *result = [[NSMutableArray alloc] init];
     for (llama_token token : guide_tokens) {
         [result addObject:@(token)];
@@ -1121,7 +1121,7 @@
     for (NSNumber *token in tokens) {
         token_vector.push_back([token intValue]);
     }
-    std::vector<float> audio_data = llama->vocoder_wrapper->tts_ctx->decodeAudioTokens(llama, token_vector);
+    std::vector<float> audio_data = llama->tts_wrapper->decodeAudioTokens(llama, token_vector);
     NSMutableArray *result = [[NSMutableArray alloc] init];
     for (float sample : audio_data) {
         [result addObject:@(sample)];

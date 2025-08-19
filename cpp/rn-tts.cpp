@@ -268,7 +268,37 @@ std::string audio_data_from_speaker(json speaker, const tts_type type) {
     return audio_data;
 }
 
-void llama_rn_tts_context::setGuideTokens(const std::vector<llama_token> &tokens) {
+// Constructor and destructor implementations
+llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path, int batch_size) {
+  common_params vocoder_params;
+  vocoder_params.model.path = vocoder_model_path;
+  vocoder_params.embedding = true;
+  vocoder_params.ctx_shift = false;
+  if (batch_size > 0) {
+      vocoder_params.n_batch = batch_size;
+  }
+  vocoder_params.n_ubatch = vocoder_params.n_batch;
+
+  init_result = common_init_from_params(vocoder_params);
+  params = vocoder_params;
+  model = init_result.model.get();
+  ctx = init_result.context.get();
+
+  if (model == nullptr || ctx == nullptr) {
+      LOG_ERROR("Failed to load vocoder model: %s", vocoder_model_path.c_str());
+      throw std::runtime_error("Failed to load vocoder model");
+  }
+  type = UNKNOWN; // Will be determined when used
+}
+
+llama_rn_context_tts::~llama_rn_context_tts() {
+  // init_result will handle cleanup automatically when it goes out of scope
+  model = nullptr;
+  ctx = nullptr;
+  type = UNKNOWN;
+}
+
+void llama_rn_context_tts::setGuideTokens(const std::vector<llama_token> &tokens) {
     guide_tokens = tokens;
 }
 
@@ -435,10 +465,7 @@ void log(const char *level, const char *function, int line, const char *format, 
 #define LOG_INFO(MSG, ...) log("INFO", __func__, __LINE__, MSG, ##__VA_ARGS__)
 
 // TTS member functions
-tts_type llama_rn_tts_context::getTTSType(llama_rn_context* main_ctx, json speaker) {
-    if (!main_ctx->isVocoderEnabled()) {
-        return UNKNOWN;
-    }
+tts_type llama_rn_context_tts::getTTSType(llama_rn_context* main_ctx, json speaker) {
     if (speaker.is_object() && speaker.contains("version")) {
         std::string version = speaker["version"].get<std::string>();
         if (version == "0.2") {
@@ -449,8 +476,8 @@ tts_type llama_rn_tts_context::getTTSType(llama_rn_context* main_ctx, json speak
             LOG_ERROR("Unsupported speaker version '%s'\n", version.c_str());
         }
     }
-    if (main_ctx->vocoder_wrapper->type != UNKNOWN) {
-        return main_ctx->vocoder_wrapper->type;
+    if (type != UNKNOWN) {
+        return type;
     }
     const char *chat_template = llama_model_chat_template(main_ctx->model, nullptr);
     if (chat_template && std::string(chat_template) == "outetts-0.3") {
@@ -462,10 +489,7 @@ tts_type llama_rn_tts_context::getTTSType(llama_rn_context* main_ctx, json speak
     return OUTETTS_V0_2;
 }
 
-llama_rn_audio_completion_result llama_rn_tts_context::getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak) {
-    if (!main_ctx->isVocoderEnabled()) {
-        throw std::runtime_error("Vocoder is not enabled but audio completion is requested");
-    }
+llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak) {
     std::string audio_text = default_audio_text;
     std::string audio_data = default_audio_data;
 
@@ -498,7 +522,7 @@ llama_rn_audio_completion_result llama_rn_tts_context::getFormattedAudioCompleti
     }
 }
 
-std::vector<llama_token> llama_rn_tts_context::getAudioCompletionGuideTokens(llama_rn_context* main_ctx, const std::string &text_to_speak) {
+std::vector<llama_token> llama_rn_context_tts::getAudioCompletionGuideTokens(llama_rn_context* main_ctx, const std::string &text_to_speak) {
     const llama_vocab * vocab = llama_model_get_vocab(main_ctx->model);
     const tts_type tts_type = getTTSType(main_ctx);
     std::string clean_text = process_text(text_to_speak, tts_type);
@@ -533,10 +557,7 @@ std::vector<llama_token> llama_rn_tts_context::getAudioCompletionGuideTokens(lla
     return result;
 }
 
-std::vector<float> llama_rn_tts_context::decodeAudioTokens(llama_rn_context* main_ctx, const std::vector<llama_token> &tokens) {
-    if (!main_ctx->isVocoderEnabled()) {
-        throw std::runtime_error("Vocoder is not enabled but audio completion is requested");
-    }
+std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* main_ctx, const std::vector<llama_token> &tokens) {
     std::vector<llama_token> tokens_audio = tokens;
     tts_type tts_type = getTTSType(main_ctx);
     if (tts_type == OUTETTS_V0_3 || tts_type == OUTETTS_V0_2) {
@@ -557,15 +578,14 @@ std::vector<float> llama_rn_tts_context::decodeAudioTokens(llama_rn_context* mai
         LOG_ERROR("batch.n_tokens != n_codes: %d != %d", batch.n_tokens, n_codes);
         return std::vector<float>();
     }
-    if (llama_encode(main_ctx->vocoder_wrapper->ctx, batch) != 0) {
+    if (llama_encode(ctx, batch) != 0) {
         LOG_ERROR("llama_encode() failed");
         return std::vector<float>();
     }
-    llama_synchronize(main_ctx->vocoder_wrapper->ctx);
-    const int n_embd = llama_model_n_embd(main_ctx->vocoder_wrapper->model);
-    const float * embd = llama_get_embeddings(main_ctx->vocoder_wrapper->ctx);
+    llama_synchronize(ctx);
+    const int n_embd = llama_model_n_embd(model);
+    const float * embd = llama_get_embeddings(ctx);
     return embd_to_audio(embd, n_codes, n_embd, main_ctx->params.cpuparams.n_threads);
 }
-
 
 }

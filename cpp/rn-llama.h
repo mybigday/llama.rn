@@ -59,16 +59,7 @@ struct completion_partial_output
 
 struct llama_rn_context_mtmd;
 
-struct llama_rn_tts_context;
-
-struct llama_rn_context_vocoder {
-  common_init_result init_result;
-  common_params params;
-  llama_model *model = nullptr;
-  llama_context *ctx = nullptr;
-  tts_type type = UNKNOWN;
-  llama_rn_tts_context *tts_ctx = nullptr;
-};
+struct llama_rn_context_tts;
 
 struct llama_rn_tokenize_result {
     std::vector<llama_token> tokens;
@@ -96,7 +87,6 @@ struct llama_rn_context {
     common_params params;
     common_init_result llama_init;
 
-
     llama_model *model = nullptr;
     float loading_progress = 0;
     bool is_load_interrupted = false;
@@ -120,7 +110,7 @@ struct llama_rn_context {
     llama_rn_context_mtmd *mtmd_wrapper = nullptr;
     bool has_multimodal = false;
 
-    llama_rn_context_vocoder *vocoder_wrapper = nullptr;
+    llama_rn_context_tts *tts_wrapper = nullptr;
     bool has_vocoder = false;
 
     // Current completion parameters for chat parsing
@@ -181,7 +171,7 @@ struct llama_rn_context {
 
     llama_rn_tokenize_result tokenize(const std::string &text, const std::vector<std::string> &media_paths);
 
-    // Vocoder methods
+    // Vocoder methods (delegated to TTS context)
     bool initVocoder(const std::string &vocoder_model_path, int batch_size = -1);
     bool isVocoderEnabled() const;
     void releaseVocoder();

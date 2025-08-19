@@ -254,10 +254,10 @@ void llama_rn_context::rewind() {
     n_remain = 0;
     n_past = 0;
     params.sampling.n_prev = n_ctx;
-    if (vocoder_wrapper != nullptr && vocoder_wrapper->tts_ctx != nullptr) {
-        vocoder_wrapper->tts_ctx->audio_tokens.clear();
-        vocoder_wrapper->tts_ctx->next_token_uses_guide_token = true;
-        vocoder_wrapper->tts_ctx->guide_tokens.clear();
+    if (isVocoderEnabled()) {
+        tts_wrapper->audio_tokens.clear();
+        tts_wrapper->next_token_uses_guide_token = true;
+        tts_wrapper->guide_tokens.clear();
     }
 }
 
@@ -568,13 +568,12 @@ completion_token_output llama_rn_context::nextToken()
             return result;
         }
 
-        auto tts_ctx = vocoder_wrapper->tts_ctx;
-        if (tts_ctx != nullptr && tts_ctx->next_token_uses_guide_token && !tts_ctx->guide_tokens.empty() && !llama_vocab_is_control(vocab, new_token_id)) {
-            new_token_id = tts_ctx->guide_tokens[0];
-            tts_ctx->guide_tokens.erase(tts_ctx->guide_tokens.begin());
+        if (tts_wrapper != nullptr && tts_wrapper->next_token_uses_guide_token && !tts_wrapper->guide_tokens.empty() && !llama_vocab_is_control(vocab, new_token_id)) {
+            new_token_id = tts_wrapper->guide_tokens[0];
+            tts_wrapper->guide_tokens.erase(tts_wrapper->guide_tokens.begin());
         }
-        if (tts_ctx != nullptr) {
-            tts_ctx->next_token_uses_guide_token = (new_token_id == 198);
+        if (tts_wrapper != nullptr) {
+            tts_wrapper->next_token_uses_guide_token = (new_token_id == 198);
         }
         result.tok = new_token_id;
 
@@ -650,14 +649,13 @@ completion_token_output llama_rn_context::doCompletion()
     const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(ctx, token_with_probs.tok);
     generated_text += token_text;
 
-    auto tts_ctx = vocoder_wrapper->tts_ctx;
-    if (isVocoderEnabled() && tts_ctx != nullptr) {
-        tts_type type = tts_ctx->getTTSType(this);
-        if (vocoder_wrapper->type == UNKNOWN) {
-            vocoder_wrapper->type = type;
+    if (isVocoderEnabled()) {
+        tts_type type = tts_wrapper->getTTSType(this);
+        if (tts_wrapper->type == UNKNOWN) {
+            tts_wrapper->type = type;
         }
         if ((type == OUTETTS_V0_2 || type == OUTETTS_V0_3) && (token_with_probs.tok >= 151672 && token_with_probs.tok <= 155772)) {
-            tts_ctx->audio_tokens.push_back(token_with_probs.tok);
+            tts_wrapper->audio_tokens.push_back(token_with_probs.tok);
         }
     }
 
@@ -1443,43 +1441,24 @@ void llama_rn_context::releaseMultimodal() {
 }
 
 bool llama_rn_context::initVocoder(const std::string &vocoder_model_path, int batch_size) {
-    if (vocoder_wrapper != nullptr) {
+    try {
+        tts_wrapper = new llama_rn_context_tts(vocoder_model_path, batch_size);
+        has_vocoder = true;
         return true;
-    }
-    common_params params = this->params;
-    params.model.path = vocoder_model_path;
-    params.embedding = true;
-    params.ctx_shift = false;
-    if (batch_size > 0) {
-        params.n_batch = batch_size;
-    }
-    params.n_ubatch = params.n_batch;
-    llama_rn_context_vocoder *wrapper = new llama_rn_context_vocoder{
-        .init_result = common_init_from_params(params),
-        .params = params,
-    };
-    wrapper->model = wrapper->init_result.model.get();
-    wrapper->ctx = wrapper->init_result.context.get();
-    if (wrapper->model == nullptr || wrapper->ctx == nullptr) {
-        LOG_ERROR("Failed to load vocoder model: %s", vocoder_model_path.c_str());
-        delete wrapper;
+    } catch (const std::exception& e) {
+        has_vocoder = false;
         return false;
     }
-    wrapper->type = UNKNOWN; // Will be determined when used
-    wrapper->tts_ctx = new llama_rn_tts_context();
-    vocoder_wrapper = wrapper;
-    has_vocoder = true;
-    return true;
 }
 
 bool llama_rn_context::isVocoderEnabled() const {
-    return has_vocoder && vocoder_wrapper != nullptr;
+    return has_vocoder && tts_wrapper != nullptr;
 }
 
 void llama_rn_context::releaseVocoder() {
-    if (vocoder_wrapper != nullptr) {
-        delete vocoder_wrapper;
-        vocoder_wrapper = nullptr;
+    if (tts_wrapper != nullptr) {
+        delete tts_wrapper;
+        tts_wrapper = nullptr;
     }
     has_vocoder = false;
 }
