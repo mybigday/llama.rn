@@ -73,7 +73,6 @@
 #define lm_ggml_vec_dot_tq1_0_q8_K_generic lm_ggml_vec_dot_tq1_0_q8_K
 #define lm_ggml_vec_dot_tq2_0_q8_K_generic lm_ggml_vec_dot_tq2_0_q8_K
 #define lm_ggml_vec_dot_iq1_m_q8_K_generic lm_ggml_vec_dot_iq1_m_q8_K
-#define lm_ggml_vec_dot_mxfp4_q8_0_generic lm_ggml_vec_dot_mxfp4_q8_0
 // repack.cpp
 #define lm_ggml_quantize_mat_q8_0_4x4_generic lm_ggml_quantize_mat_q8_0_4x4
 #define lm_ggml_quantize_mat_q8_0_4x8_generic lm_ggml_quantize_mat_q8_0_4x8
