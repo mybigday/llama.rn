@@ -465,6 +465,8 @@ inline void llama_rn_context_mtmd::processMedia(
     if (!clear_result) {
         LOG_ERROR("[DEBUG] llama_memory_seq_rm failed (likely using a non-Transformer model)! Trying full clear...");
         llama_memory_clear(kv, false);
+        n_past = 0;
+        new_n_past = n_past;
     }
 
 
