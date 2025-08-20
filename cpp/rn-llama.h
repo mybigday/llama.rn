@@ -5,7 +5,6 @@
 #include <iostream>
 #include <thread>
 #include <codecvt>
-#include "anyascii.h"
 #include "chat.h"
 #include "common.h"
 #include "ggml.h"
