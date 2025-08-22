@@ -8,6 +8,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <list>
 #include <nlohmann/json.hpp>
 #include "json-schema-to-grammar.h"
 #include "llama.h"
