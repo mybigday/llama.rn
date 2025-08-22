@@ -82,6 +82,11 @@ export type NativeContextParams = {
    */
   swa_full?: boolean
 
+  /**
+   * Number of layers to keep MoE weights on CPU
+   */
+  n_cpu_moe?: number
+
   // Embedding params
   embedding?: boolean
   embd_normalize?: number

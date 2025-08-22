@@ -202,6 +202,19 @@
 
     if (params[@"swa_full"]) defaultParams.swa_full = [params[@"swa_full"] boolValue];
 
+    // Handle n_cpu_moe parameter
+    if (params[@"n_cpu_moe"] && [params[@"n_cpu_moe"] isKindOfClass:[NSNumber class]]) {
+        int nCpuMoe = [params[@"n_cpu_moe"] intValue];
+        if (nCpuMoe > 0) {
+            for (int i = 0; i < nCpuMoe; ++i) {
+                static std::list<std::string> buft_overrides;
+                std::string pattern = "blk\\." + std::to_string(i) + "\\.ffn_(up|down|gate)_exps";
+                buft_overrides.push_back(pattern);
+                defaultParams.tensor_buft_overrides.push_back({buft_overrides.back().c_str(), lm_ggml_backend_cpu_buffer_type()});
+            }
+        }
+    }
+
     if (params[@"cache_type_k"] && [params[@"cache_type_k"] isKindOfClass:[NSString class]]) {
         const char* cache_type_k_str = [params[@"cache_type_k"] UTF8String];
         if (cache_type_k_str) {

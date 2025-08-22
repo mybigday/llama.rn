@@ -246,6 +246,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jboolean ctx_shift,
     jboolean kv_unified,
     jboolean swa_full,
+    jint n_cpu_moe,
     jobject load_progress_callback
 ) {
     UNUSED(thiz);
@@ -269,6 +270,16 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.ctx_shift = ctx_shift;
     defaultParams.kv_unified = kv_unified;
     defaultParams.swa_full = swa_full;
+
+    // Handle n_cpu_moe parameter
+    if (n_cpu_moe > 0) {
+        for (int i = 0; i < n_cpu_moe; ++i) {
+            static std::list<std::string> buft_overrides;
+            std::string pattern = "blk\\." + std::to_string(i) + "\\.ffn_(up|down|gate)_exps";
+            buft_overrides.push_back(pattern);
+            defaultParams.tensor_buft_overrides.push_back({buft_overrides.back().c_str(), lm_ggml_backend_cpu_buffer_type()});
+        }
+    }
 
     if (pooling_type != -1) {
         defaultParams.pooling_type = static_cast<enum llama_pooling_type>(pooling_type);
