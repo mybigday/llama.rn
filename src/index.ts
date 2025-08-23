@@ -344,7 +344,12 @@ export class LlamaContext {
         enable_thinking: params?.enable_thinking ?? true,
         add_generation_prompt: params?.add_generation_prompt,
         now: typeof params?.now === 'number' ? params.now.toString() : params?.now,
-        chat_template_kwargs: params?.chat_template_kwargs ? JSON.stringify(params.chat_template_kwargs) : undefined,
+        chat_template_kwargs: params?.chat_template_kwargs ? JSON.stringify(
+          Object.entries(params.chat_template_kwargs).reduce((acc, [key, value]) => {
+            acc[key] = JSON.stringify(value) // Each value is a stringified JSON object
+            return acc
+          }, {} as Record<string, any>)
+        ) : undefined,
       },
     )
     if (!useJinja) {
