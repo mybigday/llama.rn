@@ -64,7 +64,6 @@ const styles = StyleSheet.create({
     padding: 10,
     fontSize: 14,
     minHeight: 60,
-    maxHeight: 400,
     textAlignVertical: 'top',
     backgroundColor: '#fff',
   },
@@ -651,7 +650,11 @@ export default function TextCompletionScreen({
                       key={`prompt-${index}`}
                       style={[styles.token, { backgroundColor: '#e3f2fd' }]}
                     >
-                      <Text style={styles.tokenText}>{token}</Text>
+                      <Text style={styles.tokenText}>
+                        {token?.includes('\n')
+                          ? token.replaceAll('\n', '\\n')
+                          : token}
+                      </Text>
                     </View>
                   ))}
                   {tokens.map((token, index) => {
@@ -666,7 +669,11 @@ export default function TextCompletionScreen({
                           { backgroundColor: getTokenColor(firstProb) },
                         ]}
                       >
-                        <Text style={styles.tokenText}>{token.token}</Text>
+                        <Text style={styles.tokenText}>
+                          {token.token?.includes('\n')
+                            ? token.token.replaceAll('\n', '\\n')
+                            : token.token}
+                        </Text>
                       </TouchableOpacity>
                     )
                   })}
