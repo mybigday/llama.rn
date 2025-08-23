@@ -1,4 +1,5 @@
 #ifdef __cplusplus
+#include <list>
 #if RNLLAMA_BUILD_FROM_SOURCE
 #import "llama.h"
 #import "llama-impl.h"

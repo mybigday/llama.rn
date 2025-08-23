@@ -74,6 +74,7 @@ export default function ContextParamsModal({
       validateIntegerParam(params.n_batch, 1, 99999, 'Batch Size'),
       validateIntegerParam(params.n_ubatch, 1, 99999, 'Micro Batch Size'),
       validateIntegerParam(params.n_threads, 1, 32, 'Threads'),
+      validateIntegerParam(params.n_cpu_moe, 0, 99, 'CPU MoE Layers'),
     ]
 
     const errors = validations.filter((error): error is string => error !== null)
@@ -108,6 +109,11 @@ export default function ContextParamsModal({
     if (typeof converted.n_threads === 'string') {
       const num = parseInt(converted.n_threads, 10)
       converted.n_threads = Number.isNaN(num) ? undefined : num
+    }
+
+    if (typeof converted.n_cpu_moe === 'string') {
+      const num = parseInt(converted.n_cpu_moe, 10)
+      converted.n_cpu_moe = Number.isNaN(num) ? undefined : num
     }
 
     return converted
@@ -223,6 +229,16 @@ export default function ContextParamsModal({
         onChangeText={(text) => handleTextInput(text, 'n_threads')}
         keyboardType="numeric"
         placeholder="8"
+      />
+
+      {/* CPU MoE Layers */}
+      <ParameterTextInput
+        label="CPU MoE Layers (n_cpu_moe)"
+        description="Number of MoE layers to keep on CPU. Use 0 to disable, higher values for more CPU processing."
+        value={params.n_cpu_moe?.toString() || '0'}
+        onChangeText={(text) => handleTextInput(text, 'n_cpu_moe')}
+        keyboardType="numeric"
+        placeholder="0"
       />
 
       {/* Context Shift */}

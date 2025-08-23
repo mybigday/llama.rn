@@ -114,6 +114,8 @@ public class LlamaContext {
       params.hasKey("kv_unified") ? params.getBoolean("kv_unified") : false,
       // boolean swa_full,
       params.hasKey("swa_full") ? params.getBoolean("swa_full") : false,
+      // int n_cpu_moe,
+      params.hasKey("n_cpu_moe") ? params.getInt("n_cpu_moe") : 0,
       // LoadProgressCallback load_progress_callback
       params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
     );
@@ -595,6 +597,7 @@ public class LlamaContext {
     boolean ctx_shift,
     boolean kv_unified,
     boolean swa_full,
+    int n_cpu_moe,
     LoadProgressCallback load_progress_callback
   );
   protected static native boolean initMultimodal(long contextPtr, String mmproj_path, boolean MMPROJ_USE_GPU);
