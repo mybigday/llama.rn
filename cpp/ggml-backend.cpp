@@ -19,9 +19,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <string>
-#include <vector>
 #include <algorithm>
+#include <vector>
 
 #ifdef __APPLE__
 #include <sys/types.h>
@@ -1352,15 +1351,19 @@ static bool lm_ggml_backend_sched_alloc_splits(lm_ggml_backend_sched_t sched) {
 static enum lm_ggml_status lm_ggml_backend_sched_compute_splits(lm_ggml_backend_sched_t sched) {
     struct lm_ggml_backend_sched_split * splits = sched->splits;
 
-    for (int i = 0; i < sched->n_splits; i++) {
-        struct lm_ggml_backend_sched_split * split = &splits[i];
+    lm_ggml_tensor * prev_ids_tensor = nullptr;
+    std::vector<int32_t> ids;
+    std::vector<lm_ggml_bitset_t> used_ids;
+
+    for (int split_id = 0; split_id < sched->n_splits; split_id++) {
+        struct lm_ggml_backend_sched_split * split = &splits[split_id];
         int split_backend_id = split->backend_id;
         lm_ggml_backend_t split_backend = sched->backends[split_backend_id];
 
         // copy the input tensors to the split backend
-        for (int j = 0; j < split->n_inputs; j++) {
-            lm_ggml_backend_t input_backend = lm_ggml_backend_sched_get_tensor_backend(sched, split->inputs[j]);
-            struct lm_ggml_tensor * input = split->inputs[j];
+        for (int input_id = 0; input_id < split->n_inputs; input_id++) {
+            lm_ggml_backend_t input_backend = lm_ggml_backend_sched_get_tensor_backend(sched, split->inputs[input_id]);
+            struct lm_ggml_tensor * input = split->inputs[input_id];
             struct lm_ggml_tensor * input_cpy = tensor_copy(input, split_backend_id, sched->cur_copy);
 
             if (input->flags & LM_GGML_TENSOR_FLAG_INPUT) {
@@ -1378,16 +1381,104 @@ static enum lm_ggml_status lm_ggml_backend_sched_compute_splits(lm_ggml_backend_
                 } else {
                     lm_ggml_backend_synchronize(split_backend);
                 }
-                // try async copy, but if not possible, we can still use a sync copy without synchronizing the dst backend, since we handle the synchronization here with multiple copies and events
-                // TODO: add public function to facilitate this, since applications do not have direct access to the backend interface
-                if (!split_backend->iface.cpy_tensor_async || !split_backend->iface.cpy_tensor_async(input_backend, split_backend, input, input_cpy)) {
+
+                // when offloading MoE weights, we can reduce the amount of data copied by copying only the experts that are used
+                lm_ggml_tensor * node = split->graph.nodes[0];
+                if (split->graph.n_nodes > 0 &&
+                    lm_ggml_backend_buffer_get_usage(input->buffer) == LM_GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
+                    lm_ggml_backend_buffer_is_host(input->buffer) && (
+                    (node->src[0] == input_cpy && node->op == LM_GGML_OP_MUL_MAT_ID)
+                    //|| (node->src[1] == input_cpy && node->op == LM_GGML_OP_ADD_ID) /* LM_GGML_OP_ADD_ID weights are small and not worth splitting */
+                    )) {
+
+                    const int64_t n_expert   = node->op == LM_GGML_OP_MUL_MAT_ID ? input->ne[2] : input->ne[1];
+                    const size_t expert_size = node->op == LM_GGML_OP_MUL_MAT_ID ? input->nb[2] : input->nb[1];
+
                     lm_ggml_backend_synchronize(input_backend);
-                    if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
-                        lm_ggml_backend_event_synchronize(sched->events[split_backend_id][sched->cur_copy]);
-                    } else {
-                        lm_ggml_backend_synchronize(split_backend);
+
+                    // get the ids
+                    lm_ggml_tensor * ids_tensor = node->src[2];
+                    lm_ggml_backend_t ids_backend = split_backend;
+
+                    // if the ids tensor is also an input of the split, it may not have been copied yet to the split backend
+                    // in that case, we use the original ids tensor
+                    for (int i = input_id + 1; i < split->n_inputs; i++) {
+                        if (ids_tensor == tensor_copy(split->inputs[i], split_backend_id, sched->cur_copy)) {
+                            ids_tensor = split->inputs[i];
+                            ids_backend = lm_ggml_backend_sched_get_tensor_backend(sched, split->inputs[i]);
+                            break;
+                        }
                     }
-                    lm_ggml_backend_tensor_copy(input, input_cpy);
+
+                    if (ids_tensor != prev_ids_tensor) {
+                        ids.resize(lm_ggml_nbytes(ids_tensor) / sizeof(int32_t));
+                        lm_ggml_backend_tensor_get_async(ids_backend, ids_tensor, ids.data(), 0, lm_ggml_nbytes(ids_tensor));
+                        lm_ggml_backend_synchronize(ids_backend);
+
+                        // find the used experts
+                        used_ids.clear();
+                        used_ids.resize(lm_ggml_bitset_size(n_expert));
+                        for (int64_t i1 = 0; i1 < ids_tensor->ne[1]; i1++) {
+                            for (int64_t i0 = 0; i0 < ids_tensor->ne[0]; i0++) {
+                                int32_t id = ids[i1 * ids_tensor->nb[1]/sizeof(int32_t) + i0 * ids_tensor->nb[0]/sizeof(int32_t)];
+                                LM_GGML_ASSERT(id >= 0 && id < n_expert);
+                                lm_ggml_bitset_set(used_ids.data(), id);
+                            }
+                        }
+
+                        prev_ids_tensor = ids_tensor;
+                    }
+
+                    // group consecutive experts and copy them together
+                    auto copy_experts = [&](int32_t first_id, int32_t last_id) {
+                        const size_t expert_offset = first_id * expert_size;
+                        const size_t expert_size_copy =  (last_id - first_id + 1) * expert_size;
+                        const size_t padding = std::min<size_t>(expert_size, 512);
+                        const size_t padding_end = last_id < n_expert - 1 ? padding : 0;
+
+                        lm_ggml_backend_tensor_set_async(split_backend,
+                            input_cpy,
+                            (const uint8_t *)input->data + expert_offset, expert_offset,
+                            // copy a bit extra at the to ensure there are no NaNs in the padding of the last expert
+                            // this is necessary for MMQ in the CUDA backend
+                            expert_size_copy + padding_end);
+                    };
+
+                    int id = 0;
+                    while (!lm_ggml_bitset_get(used_ids.data(), id)) {
+                        id++;
+                    }
+                    int32_t first_id = id;
+                    int32_t last_id = first_id;
+
+                    for (++id; id < n_expert; ++id) {
+                        if (!lm_ggml_bitset_get(used_ids.data(), id)) {
+                            continue;
+                        }
+
+                        if (id == last_id + 1) {
+                            last_id = id;
+                            continue;
+                        }
+
+                        copy_experts(first_id, last_id);
+
+                        first_id = id;
+                        last_id = id;
+                    }
+                    copy_experts(first_id, last_id);
+                } else {
+                    // try async copy, but if not possible, we can still use a sync copy without synchronizing the dst backend, since we handle the synchronization here with multiple copies and events
+                    // TODO: add public function to facilitate this, since applications do not have direct access to the backend interface
+                    if (!split_backend->iface.cpy_tensor_async || !split_backend->iface.cpy_tensor_async(input_backend, split_backend, input, input_cpy)) {
+                        lm_ggml_backend_synchronize(input_backend);
+                        if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
+                            lm_ggml_backend_event_synchronize(sched->events[split_backend_id][sched->cur_copy]);
+                        } else {
+                            lm_ggml_backend_synchronize(split_backend);
+                        }
+                        lm_ggml_backend_tensor_copy(input, input_cpy);
+                    }
                 }
             }
         }

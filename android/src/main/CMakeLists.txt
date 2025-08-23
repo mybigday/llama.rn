@@ -55,8 +55,8 @@ set(
     ${RNLLAMA_LIB_DIR}/llama.cpp
     ${RNLLAMA_LIB_DIR}/llama-model.cpp
     ${RNLLAMA_LIB_DIR}/llama-model-loader.cpp
-    ${RNLLAMA_LIB_DIR}/llama-kv-cache-unified.cpp
-    ${RNLLAMA_LIB_DIR}/llama-kv-cache-unified-iswa.cpp
+    ${RNLLAMA_LIB_DIR}/llama-kv-cache.cpp
+    ${RNLLAMA_LIB_DIR}/llama-kv-cache-iswa.cpp
     ${RNLLAMA_LIB_DIR}/llama-memory-hybrid.cpp
     ${RNLLAMA_LIB_DIR}/llama-memory-recurrent.cpp
     ${RNLLAMA_LIB_DIR}/llama-mmap.cpp

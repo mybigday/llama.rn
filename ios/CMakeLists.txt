@@ -79,8 +79,8 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/llama-model-loader.cpp
     ${SOURCE_DIR}/llama-model-saver.cpp
     ${SOURCE_DIR}/llama-mmap.cpp
-    ${SOURCE_DIR}/llama-kv-cache-unified.cpp
-    ${SOURCE_DIR}/llama-kv-cache-unified-iswa.cpp
+    ${SOURCE_DIR}/llama-kv-cache.cpp
+    ${SOURCE_DIR}/llama-kv-cache-iswa.cpp
     ${SOURCE_DIR}/llama-memory-hybrid.cpp
     ${SOURCE_DIR}/llama-memory-recurrent.cpp
     ${SOURCE_DIR}/llama-vocab.cpp

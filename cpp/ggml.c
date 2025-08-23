@@ -983,6 +983,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "IM2COL",
     "IM2COL_BACK",
     "CONV_2D",
+    "CONV_3D",
     "CONV_2D_DW",
     "CONV_TRANSPOSE_2D",
     "POOL_1D",
@@ -1025,7 +1026,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "GLU",
 };
 
-static_assert(LM_GGML_OP_COUNT == 88, "LM_GGML_OP_COUNT != 88");
+static_assert(LM_GGML_OP_COUNT == 89, "LM_GGML_OP_COUNT != 89");
 
 static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "none",
@@ -1085,6 +1086,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "im2col(x)",
     "im2col_back(x)",
     "conv_2d(x)",
+    "conv_3d(x)",
     "conv_2d_dw(x)",
     "conv_transpose_2d(x)",
     "pool_1d(x)",
@@ -1127,7 +1129,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "glu(x)",
 };
 
-static_assert(LM_GGML_OP_COUNT == 88, "LM_GGML_OP_COUNT != 88");
+static_assert(LM_GGML_OP_COUNT == 89, "LM_GGML_OP_COUNT != 89");
 
 static_assert(LM_GGML_OP_POOL_COUNT == 2, "LM_GGML_OP_POOL_COUNT != 2");
 
@@ -4482,6 +4484,56 @@ struct lm_ggml_tensor * lm_ggml_conv_2d_direct(
     lm_ggml_set_op_params_i32(result, 5, d1);
 
     result->op = LM_GGML_OP_CONV_2D;
+    result->src[0] = a;
+    result->src[1] = b;
+
+    return result;
+}
+
+// lm_ggml_conv_3d
+
+struct lm_ggml_tensor * lm_ggml_conv_3d(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        int                   s0,
+        int                   s1,
+        int                   s2,
+        int                   p0,
+        int                   p1,
+        int                   p2,
+        int                   d0,
+        int                   d1,
+        int                   d2,
+        int                   c,
+        int                   n,
+        int                   oc) {
+
+    LM_GGML_ASSERT(a->ne[3] == (int64_t) c * oc);
+    LM_GGML_ASSERT(b->ne[3] == (int64_t) c * n);
+
+    int64_t ne[4];
+    ne[0] = lm_ggml_calc_conv_output_size(b->ne[0], a->ne[0], s0, p0, d0);
+    ne[1] = lm_ggml_calc_conv_output_size(b->ne[1], a->ne[1], s1, p1, d1);
+    ne[2] = lm_ggml_calc_conv_output_size(b->ne[2], a->ne[2], s2, p2, d2);
+    ne[3] = (int64_t) oc * n;
+
+    struct lm_ggml_tensor * result = lm_ggml_new_tensor(ctx, LM_GGML_TYPE_F32, 4, ne);
+
+    lm_ggml_set_op_params_i32(result, 0,  s0);
+    lm_ggml_set_op_params_i32(result, 1,  s1);
+    lm_ggml_set_op_params_i32(result, 2,  s2);
+    lm_ggml_set_op_params_i32(result, 3,  p0);
+    lm_ggml_set_op_params_i32(result, 4,  p1);
+    lm_ggml_set_op_params_i32(result, 5,  p2);
+    lm_ggml_set_op_params_i32(result, 6,  d0);
+    lm_ggml_set_op_params_i32(result, 7,  d1);
+    lm_ggml_set_op_params_i32(result, 8,  d2);
+    lm_ggml_set_op_params_i32(result, 9,  c);
+    lm_ggml_set_op_params_i32(result, 10, n);
+    lm_ggml_set_op_params_i32(result, 11, oc);
+
+    result->op = LM_GGML_OP_CONV_3D;
     result->src[0] = a;
     result->src[1] = b;
 
