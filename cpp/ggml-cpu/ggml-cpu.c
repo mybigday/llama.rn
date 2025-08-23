@@ -1880,6 +1880,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_conv_2d(params, tensor);
             } break;
+        case LM_GGML_OP_CONV_3D:
+            {
+                lm_ggml_compute_forward_conv_3d(params, tensor);
+            } break;
         case LM_GGML_OP_CONV_2D_DW:
             {
                 lm_ggml_compute_forward_conv_2d_dw(params, tensor);
@@ -2252,6 +2256,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
         case LM_GGML_OP_IM2COL:
         case LM_GGML_OP_IM2COL_BACK:
         case LM_GGML_OP_CONV_2D:
+        case LM_GGML_OP_CONV_3D:
         case LM_GGML_OP_CONV_2D_DW:
         case LM_GGML_OP_CONV_TRANSPOSE_1D:
         case LM_GGML_OP_CONV_TRANSPOSE_2D:
@@ -2773,6 +2778,7 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
                         }
                     } break;
                 case LM_GGML_OP_CONV_2D:
+                case LM_GGML_OP_CONV_3D:
                     {
                         cur = LM_GGML_IM2COL_WORK_SIZE;
                     } break;

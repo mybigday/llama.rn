@@ -244,6 +244,13 @@
 #define LM_GGML_MROPE_SECTIONS   4
 
 #define LM_GGML_UNUSED(x) (void)(x)
+#ifdef __CUDACC__
+template<typename... Args>
+__host__ __device__ constexpr inline void lm_ggml_unused_vars_impl(Args&&...) noexcept {}
+#define LM_GGML_UNUSED_VARS(...) lm_ggml_unused_vars_impl(__VA_ARGS__)
+#else
+#define LM_GGML_UNUSED_VARS(...) do { (void)sizeof((__VA_ARGS__, 0)); } while(0)
+#endif // __CUDACC__
 
 #define LM_GGML_PAD(x, n) (((x) + (n) - 1) & ~((n) - 1))
 
@@ -505,6 +512,7 @@ extern "C" {
         LM_GGML_OP_IM2COL,
         LM_GGML_OP_IM2COL_BACK,
         LM_GGML_OP_CONV_2D,
+        LM_GGML_OP_CONV_3D,
         LM_GGML_OP_CONV_2D_DW,
         LM_GGML_OP_CONV_TRANSPOSE_2D,
         LM_GGML_OP_POOL_1D,
@@ -1932,6 +1940,23 @@ extern "C" {
             int                   p1,  // padding dimension 1
             int                   d0,  // dilation dimension 0
             int                   d1); // dilation dimension 1
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_conv_3d(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,   // kernel [KW, KH, KD, IC * OC]
+            struct lm_ggml_tensor  * b,   // input  [W, H, D, C * N]
+            int                   s0,  // stride
+            int                   s1,
+            int                   s2,
+            int                   p0,  // padding
+            int                   p1,
+            int                   p2,
+            int                   d0,  // dilation
+            int                   d1,
+            int                   d2,
+            int                   n_channels,
+            int                   n_batch,
+            int                   n_channels_out);
 
     enum lm_ggml_op_pool {
         LM_GGML_OP_POOL_MAX,

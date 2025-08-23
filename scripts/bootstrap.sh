@@ -74,10 +74,10 @@ cp ./llama.cpp/src/llama-model-saver.cpp ./cpp/llama-model-saver.cpp
 cp ./llama.cpp/src/llama-model.h ./cpp/llama-model.h
 cp ./llama.cpp/src/llama-model.cpp ./cpp/llama-model.cpp
 cp ./llama.cpp/src/llama-kv-cells.h ./cpp/llama-kv-cells.h
-cp ./llama.cpp/src/llama-kv-cache-unified.h ./cpp/llama-kv-cache-unified.h
-cp ./llama.cpp/src/llama-kv-cache-unified.cpp ./cpp/llama-kv-cache-unified.cpp
-cp ./llama.cpp/src/llama-kv-cache-unified-iswa.h ./cpp/llama-kv-cache-unified-iswa.h
-cp ./llama.cpp/src/llama-kv-cache-unified-iswa.cpp ./cpp/llama-kv-cache-unified-iswa.cpp
+cp ./llama.cpp/src/llama-kv-cache.h ./cpp/llama-kv-cache.h
+cp ./llama.cpp/src/llama-kv-cache.cpp ./cpp/llama-kv-cache.cpp
+cp ./llama.cpp/src/llama-kv-cache-iswa.h ./cpp/llama-kv-cache-iswa.h
+cp ./llama.cpp/src/llama-kv-cache-iswa.cpp ./cpp/llama-kv-cache-iswa.cpp
 cp ./llama.cpp/src/llama-memory-hybrid.h ./cpp/llama-memory-hybrid.h
 cp ./llama.cpp/src/llama-memory-hybrid.cpp ./cpp/llama-memory-hybrid.cpp
 cp ./llama.cpp/src/llama-memory-recurrent.h ./cpp/llama-memory-recurrent.h
@@ -236,10 +236,10 @@ files_add_lm_prefix=(
   "./cpp/llama-model-saver.cpp"
   "./cpp/llama-model.h"
   "./cpp/llama-model.cpp"
-  "./cpp/llama-kv-cache-unified.h"
-  "./cpp/llama-kv-cache-unified.cpp"
-  "./cpp/llama-kv-cache-unified-iswa.h"
-  "./cpp/llama-kv-cache-unified-iswa.cpp"
+  "./cpp/llama-kv-cache.h"
+  "./cpp/llama-kv-cache.cpp"
+  "./cpp/llama-kv-cache-iswa.h"
+  "./cpp/llama-kv-cache-iswa.cpp"
   "./cpp/llama-memory-hybrid.h"
   "./cpp/llama-memory-hybrid.cpp"
   "./cpp/llama-memory-recurrent.h"
