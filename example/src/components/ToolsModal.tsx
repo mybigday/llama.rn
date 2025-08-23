@@ -305,7 +305,7 @@ export default function ToolsModal({
         const updated = { ...prev }
         // Only fill if the field is empty
         Object.entries(extractedMockResponses).forEach(([toolName, mockResponse]) => {
-          if (!updated[toolName] || updated[toolName].trim() === '') {
+          if (!updated[toolName] || updated[toolName]?.trim() === '') {
             updated[toolName] = mockResponse
           }
         })
