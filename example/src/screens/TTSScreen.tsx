@@ -499,6 +499,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
             multiline
             textAlignVertical="top"
             maxLength={500}
+            keyboardType="ascii-capable"
           />
           <Text style={styles.characterCount}>
             {inputText.length}

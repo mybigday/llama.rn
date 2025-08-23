@@ -596,6 +596,7 @@ export default function TextCompletionScreen({
                     onChangeText={setEditableResult}
                     placeholder="Edit complete text (formatted prompt + generated)..."
                     autoFocus
+                    keyboardType="ascii-capable"
                   />
                   <View style={styles.editButtonContainer}>
                     <TouchableOpacity
@@ -699,6 +700,10 @@ export default function TextCompletionScreen({
             onChangeText={setGrammar}
             placeholder="Enter grammar rules (GBNF format)..."
             editable={!isGenerating}
+            autoCorrect={false}
+            autoComplete="off"
+            autoCapitalize="none"
+            keyboardType="ascii-capable"
           />
         </View>
 

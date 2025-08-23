@@ -268,6 +268,7 @@ export default function ToolsModal({
               multiline
               placeholder="Enter tools JSON schema..."
               placeholderTextColor="#999"
+              keyboardType="ascii-capable"
             />
           </View>
 
@@ -298,6 +299,7 @@ export default function ToolsModal({
                       multiline
                       placeholder={`Enter mock response for ${tool.function.name}...`}
                       placeholderTextColor="#999"
+                      keyboardType="ascii-capable"
                     />
                   </View>
                 ))

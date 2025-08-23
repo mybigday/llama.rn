@@ -1010,6 +1010,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           placeholder: pendingMedia
             ? `Ask about the ${pendingMedia.type} above or send without text...`
             : 'Type your message...',
+          keyboardType: 'ascii-capable',
         }}
       />
 
