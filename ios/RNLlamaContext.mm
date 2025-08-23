@@ -212,6 +212,7 @@
                 buft_overrides.push_back(pattern);
                 defaultParams.tensor_buft_overrides.push_back({buft_overrides.back().c_str(), lm_ggml_backend_cpu_buffer_type()});
             }
+            defaultParams.tensor_buft_overrides.push_back({nullptr, nullptr});
         }
     }
 
