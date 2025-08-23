@@ -779,6 +779,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           placeholder: isLoading
             ? 'Responding...'
             : 'Ask me to use tools...',
+          keyboardType: 'ascii-capable',
         }}
       />
 

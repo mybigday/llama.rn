@@ -493,6 +493,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           placeholder: isLoading
             ? 'AI is thinking...'
             : 'Type your message here',
+          keyboardType: 'ascii-capable',
         }}
       />
 

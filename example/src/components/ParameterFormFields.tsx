@@ -63,7 +63,7 @@ interface ParameterTextInputProps {
   value?: string
   onChangeText: (text: string) => void
   placeholder?: string
-  keyboardType?: 'default' | 'numeric' | 'decimal-pad'
+  keyboardType?: 'default' | 'numeric' | 'decimal-pad' | 'ascii-capable'
 }
 
 export function ParameterTextInput({
@@ -72,7 +72,7 @@ export function ParameterTextInput({
   value,
   onChangeText,
   placeholder,
-  keyboardType = 'default',
+  keyboardType = 'ascii-capable',
 }: ParameterTextInputProps) {
   return (
     <View style={styles.paramGroup}>
@@ -148,6 +148,10 @@ export function StopSequenceField({
             value={stopSeq}
             onChangeText={(text) => onUpdateStopSequence(index, text)}
             placeholder="Enter stop sequence"
+            autoCorrect={false}
+            autoComplete="off"
+            autoCapitalize="none"
+            keyboardType="ascii-capable"
           />
           <TouchableOpacity
             style={styles.removeButton}

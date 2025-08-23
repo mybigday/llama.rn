@@ -543,6 +543,9 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
               onChangeText={handleSystemPromptChange}
               multiline
               textAlignVertical="top"
+              autoComplete="off"
+              autoCapitalize="none"
+              keyboardType="ascii-capable"
             />
           </View>
 
@@ -600,6 +603,7 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
               onBlur={() => setTextAreaFocused(false)}
               multiline
               textAlignVertical="top"
+              keyboardType="ascii-capable"
             />
             <TouchableOpacity
               style={[

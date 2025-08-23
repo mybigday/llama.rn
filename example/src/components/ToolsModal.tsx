@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   Modal,
   View,
@@ -13,20 +13,30 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { CommonStyles } from '../styles/commonStyles'
 
-interface Tool {
+interface OpenAITool {
   type: string
   function: {
     name: string
     description: string
     parameters: any
   }
+  mock_response?: string
 }
+
+interface AnthropicTool {
+  name: string
+  description: string
+  input_schema: any
+  mock_response?: string
+}
+
+type Tool = OpenAITool | AnthropicTool
 
 interface ToolsModalProps {
   visible: boolean
   onClose: () => void
-  tools: Tool[]
-  onSave: (tools: Tool[], mockResponses: Record<string, string>) => void
+  tools: OpenAITool[]
+  onSave: (tools: OpenAITool[], mockResponses: Record<string, string>) => void
   mockResponses?: Record<string, string>
 }
 
@@ -99,6 +109,31 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontWeight: '500',
   },
+  formatToggle: {
+    flexDirection: 'row',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 4,
+    marginBottom: 16,
+  },
+  formatButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  formatButtonActive: {
+    backgroundColor: '#007AFF',
+  },
+  formatButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#666',
+  },
+  formatButtonTextActive: {
+    color: 'white',
+  },
   section: {
     marginBottom: 24,
   },
@@ -143,7 +178,102 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     color: '#495057',
   },
+  autoFillSingleButton: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#007AFF',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  autoFillSingleButtonText: {
+    color: '#007AFF',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  autoFillSchemaButton: {
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginTop: 12,
+    alignSelf: 'center',
+  },
+  autoFillSchemaButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
 })
+
+// Schema converter functions
+function convertOpenAIToAnthropic(openAITools: OpenAITool[]): AnthropicTool[] {
+  return openAITools
+    .filter(tool => tool.type === 'function')
+    .map(tool => ({
+      name: tool.function.name,
+      description: tool.function.description,
+      input_schema: tool.function.parameters,
+      ...(tool.mock_response && { mock_response: tool.mock_response })
+    }))
+}
+
+function convertAnthropicToOpenAI(anthropicTools: AnthropicTool[]): OpenAITool[] {
+  return anthropicTools.map(tool => ({
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input_schema
+    },
+    ...(tool.mock_response && { mock_response: tool.mock_response })
+  }))
+}
+
+function detectSchemaFormat(tools: any[]): 'openai' | 'anthropic' | 'unknown' {
+  if (tools.length === 0) return 'openai' // default
+
+  const firstTool = tools[0]
+  if (firstTool.type === 'function' && firstTool.function) {
+    return 'openai'
+  }
+  if (firstTool.name && firstTool.description && firstTool.input_schema) {
+    return 'anthropic'
+  }
+  return 'unknown'
+}
+
+function getToolName(tool: Tool): string {
+  if ('function' in tool) {
+    return tool.function.name
+  }
+  return tool.name
+}
+
+function getToolDescription(tool: Tool): string {
+  if ('function' in tool) {
+    return tool.function.description
+  }
+  return tool.description
+}
+
+function extractMockResponsesFromTools(tools: any[]): Record<string, string> {
+  const mockResponses: Record<string, string> = {}
+
+  tools.forEach(tool => {
+    const toolName = getToolName(tool)
+    const mockResponse = tool.mock_response || (tool.function && tool.function.mock_response)
+
+    if (mockResponse) {
+      mockResponses[toolName] = mockResponse
+    }
+  })
+
+  return mockResponses
+}
 
 export default function ToolsModal({
   visible,
@@ -158,14 +288,49 @@ export default function ToolsModal({
   >({})
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [currentFormat, setCurrentFormat] = useState<'openai' | 'anthropic'>('openai')
+
+  const updateToolsDisplay = useCallback(() => {
+    const displayTools = currentFormat === 'anthropic'
+      ? convertOpenAIToAnthropic(tools)
+      : tools
+    setToolsJson(JSON.stringify(displayTools, null, 2))
+  }, [currentFormat, tools])
+
+  const autoFillEmptyMockResponses = useCallback((parsedTools: any[]) => {
+    const extractedMockResponses = extractMockResponsesFromTools(parsedTools)
+
+    if (Object.keys(extractedMockResponses).length > 0) {
+      setCurrentMockResponses(prev => {
+        const updated = { ...prev }
+        // Only fill if the field is empty
+        Object.entries(extractedMockResponses).forEach(([toolName, mockResponse]) => {
+          if (!updated[toolName] || updated[toolName].trim() === '') {
+            updated[toolName] = mockResponse
+          }
+        })
+        return updated
+      })
+    }
+  }, [])
 
   useEffect(() => {
     if (visible) {
-      setToolsJson(JSON.stringify(tools, null, 2))
+      updateToolsDisplay()
       setCurrentMockResponses(mockResponses)
       setError('')
+
+      // Auto-fill mock responses from tools schema
+      try {
+        const displayTools = currentFormat === 'anthropic'
+          ? convertOpenAIToAnthropic(tools)
+          : tools
+        autoFillEmptyMockResponses(displayTools)
+      } catch (e) {
+        // Ignore JSON parsing errors
+      }
     }
-  }, [visible, tools, mockResponses])
+  }, [updateToolsDisplay, visible, tools, mockResponses, currentFormat, autoFillEmptyMockResponses])
 
   const handleSave = () => {
     setIsLoading(true)
@@ -179,7 +344,20 @@ export default function ToolsModal({
         throw new TypeError('Tools must be an array')
       }
 
-      parsedTools.forEach((tool) => {
+      // Convert to OpenAI format for saving (since the app expects OpenAI format)
+      let toolsToSave: OpenAITool[]
+      const detectedFormat = detectSchemaFormat(parsedTools)
+
+      if (detectedFormat === 'anthropic') {
+        toolsToSave = convertAnthropicToOpenAI(parsedTools)
+      } else if (detectedFormat === 'openai') {
+        toolsToSave = parsedTools
+      } else {
+        throw new TypeError('Invalid tool schema format')
+      }
+
+      // Validate OpenAI format
+      toolsToSave.forEach((tool) => {
         if (!tool.type || tool.type !== 'function') {
           throw new TypeError('Each tool must have type: "function"')
         }
@@ -197,7 +375,7 @@ export default function ToolsModal({
         }
       })
 
-      onSave(parsedTools, currentMockResponses)
+      onSave(toolsToSave, currentMockResponses)
       onClose()
     } catch (parseError: any) {
       setError(`Invalid JSON: ${parseError.message}`)
@@ -219,7 +397,8 @@ export default function ToolsModal({
           text: 'Reset',
           style: 'destructive',
           onPress: () => {
-            setToolsJson(JSON.stringify(tools, null, 2))
+            setCurrentFormat('openai')
+            updateToolsDisplay()
             setCurrentMockResponses(mockResponses)
             setError('')
           },
@@ -253,11 +432,12 @@ export default function ToolsModal({
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <Text style={styles.description}>
             Edit the JSON schema for available tools and configure mock
-            responses for testing.
+            responses for testing. Toggle between OpenAI and Anthropic formats using the buttons above.
           </Text>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Tools JSON Schema</Text>
+
             <TextInput
               style={styles.textArea}
               value={toolsJson}
@@ -268,7 +448,21 @@ export default function ToolsModal({
               multiline
               placeholder="Enter tools JSON schema..."
               placeholderTextColor="#999"
+              keyboardType="ascii-capable"
             />
+            <TouchableOpacity
+              style={styles.autoFillSchemaButton}
+              onPress={() => {
+                try {
+                  const parsedTools = JSON.parse(toolsJson)
+                  autoFillEmptyMockResponses(parsedTools)
+                } catch (e) {
+                  // Invalid JSON - ignore
+                }
+              }}
+            >
+              <Text style={styles.autoFillSchemaButtonText}>Auto Fill Mock Responses from Schema</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.section}>
@@ -276,31 +470,37 @@ export default function ToolsModal({
             {(() => {
               try {
                 const parsedTools = JSON.parse(toolsJson)
-                return parsedTools.map((tool: Tool, index: number) => (
-                  <View
-                    key={`${tool.function.name}-${index}`}
-                    style={styles.toolCard}
-                  >
-                    <Text style={styles.toolName}>{tool.function.name}</Text>
-                    <Text style={styles.toolDescription}>
-                      {tool.function.description}
-                    </Text>
-                    <Text style={styles.mockResponseLabel}>Mock Response:</Text>
-                    <TextInput
-                      style={styles.mockResponseInput}
-                      value={currentMockResponses[tool.function.name] || ''}
-                      onChangeText={(text) => {
-                        setCurrentMockResponses((prev) => ({
-                          ...prev,
-                          [tool.function.name]: text,
-                        }))
-                      }}
-                      multiline
-                      placeholder={`Enter mock response for ${tool.function.name}...`}
-                      placeholderTextColor="#999"
-                    />
-                  </View>
-                ))
+                return parsedTools.map((tool: any, index: number) => {
+                  const toolName = getToolName(tool)
+                  const toolDescription = getToolDescription(tool)
+
+                  return (
+                    <View
+                      key={`${toolName}-${index}`}
+                      style={styles.toolCard}
+                    >
+                      <Text style={styles.toolName}>{toolName}</Text>
+                      <Text style={styles.toolDescription}>
+                        {toolDescription}
+                      </Text>
+                      <Text style={styles.mockResponseLabel}>Mock Response:</Text>
+                      <TextInput
+                        style={styles.mockResponseInput}
+                        value={currentMockResponses[toolName] || ''}
+                        onChangeText={(text) => {
+                          setCurrentMockResponses((prev) => ({
+                            ...prev,
+                            [toolName]: text,
+                          }))
+                        }}
+                        multiline
+                        placeholder={`Enter mock response for ${toolName}...`}
+                        placeholderTextColor="#999"
+                        keyboardType="ascii-capable"
+                      />
+                    </View>
+                  )
+                })
               } catch (e: any) {
                 return (
                   <Text style={styles.errorText}>
