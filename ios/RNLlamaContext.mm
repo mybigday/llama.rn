@@ -498,14 +498,18 @@
         for (const auto &p : prob.probs)
         {
             std::string tokStr = rnllama::tokens_to_output_formatted_string(llama->ctx, p.tok);
+            NSString *tokStrString = [NSString stringWithUTF8String:tokStr.c_str()];
+            if (tokStrString == nil) tokStrString = @"<UNKNOWN>";
             [probsForToken addObject:@{
-                @"tok_str": [NSString stringWithUTF8String:tokStr.c_str()],
+                @"tok_str": tokStrString,
                 @"prob": [NSNumber numberWithDouble:p.prob]
             }];
         }
         std::string tokStr = rnllama::tokens_to_output_formatted_string(llama->ctx, prob.tok);
+        NSString *tokStrString = [NSString stringWithUTF8String:tokStr.c_str()];
+        if (tokStrString == nil) tokStrString = @"<UNKNOWN>";
         [out addObject:@{
-            @"content": [NSString stringWithUTF8String:tokStr.c_str()],
+            @"content": tokStrString,
             @"probs": probsForToken
         }];
     }
