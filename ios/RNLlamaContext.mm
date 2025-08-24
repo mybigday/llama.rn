@@ -877,6 +877,9 @@
 }
 
 - (void)stopCompletion {
+    if (llama->completion == nullptr) {
+        return;
+    }
     llama->completion->is_interrupted = true;
 }
 

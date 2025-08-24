@@ -1232,6 +1232,9 @@ Java_com_rnllama_LlamaContext_stopCompletion(
     UNUSED(env);
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
+    if (llama->completion == nullptr) {
+        return;
+    }
     llama->completion->is_interrupted = true;
 }
 
