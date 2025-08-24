@@ -520,14 +520,7 @@
     onToken:(void (^)(NSMutableDictionary * tokenResult))onToken
 {
     if (llama->completion == nullptr) {
-        return @{
-            @"text": @"",
-            @"usage": @{
-                @"prompt_tokens": @0,
-                @"completion_tokens": @0,
-                @"total_tokens": @0
-            }
-        };
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Completion not initialized" userInfo:nil];
     }
     llama->completion->rewind();
 
