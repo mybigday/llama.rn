@@ -113,6 +113,7 @@ export default function SessionModal({
       const result = await saveDocuments({
         sourceUris: [`file://${tempFilePath}`],
         fileName: defaultFilename,
+        mimeType: 'application/octet-stream',
       })
 
       if (result && result.length > 0) {
