@@ -377,6 +377,9 @@
 }
 
 - (bool)isPredicting {
+    if (llama->completion == nullptr) {
+        return false;
+    }
     return llama->completion->is_predicting;
 }
 
@@ -512,6 +515,16 @@
 - (NSDictionary *)completion:(NSDictionary *)params
     onToken:(void (^)(NSMutableDictionary * tokenResult))onToken
 {
+    if (llama->completion == nullptr) {
+        return @{
+            @"text": @"",
+            @"usage": @{
+                @"prompt_tokens": @0,
+                @"completion_tokens": @0,
+                @"total_tokens": @0
+            }
+        };
+    }
     llama->completion->rewind();
 
     //llama_reset_timings(llama->ctx);
@@ -884,6 +897,9 @@
 }
 
 - (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths {
+    if (llama->completion == nullptr) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context has been released" userInfo:nil];
+    }
     std::vector<std::string> media_paths_vector;
     if (imagePaths && [imagePaths count] > 0) {
         for (NSString *path in imagePaths) {
@@ -939,6 +955,9 @@
 }
 
 - (NSDictionary *)embedding:(NSString *)text params:(NSDictionary *)params {
+    if (llama->completion == nullptr) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context has been released" userInfo:nil];
+    }
     if (llama->params.embedding != true) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not enabled" userInfo:nil];
     }
@@ -993,6 +1012,9 @@
 }
 
 - (NSArray *)rerank:(NSString *)query documents:(NSArray<NSString *> *)documents params:(NSDictionary *)params {
+    if (llama->completion == nullptr) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context has been released" userInfo:nil];
+    }
     // Convert NSArray to std::vector
     std::vector<std::string> documentsVector;
     for (NSString *doc in documents) {
@@ -1021,6 +1043,9 @@
 }
 
 - (NSDictionary *)loadSession:(NSString *)path {
+    if (llama->completion == nullptr) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context has been released" userInfo:nil];
+    }
     if (!path || [path length] == 0) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Session path is empty" userInfo:nil];
     }
@@ -1047,6 +1072,9 @@
 }
 
 - (int)saveSession:(NSString *)path size:(int)size {
+    if (llama->completion == nullptr) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context has been released" userInfo:nil];
+    }
     if (!path || [path length] == 0) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Session path is empty" userInfo:nil];
     }
@@ -1065,6 +1093,9 @@
 }
 
 - (NSString *)bench:(int)pp tg:(int)tg pl:(int)pl nr:(int)nr {
+    if (llama->completion == nullptr) {
+        return @"";
+    }
     return [NSString stringWithUTF8String:llama->completion->bench(pp, tg, pl, nr).c_str()];
 }
 

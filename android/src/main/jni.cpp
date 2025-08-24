@@ -670,6 +670,13 @@ Java_com_rnllama_LlamaContext_loadSession(
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
+
+    if (llama->completion == nullptr) {
+        auto result = createWriteableMap(env);
+        putString(env, result, "error", "Context has been released");
+        return reinterpret_cast<jobject>(result);
+    }
+
     const char *path_chars = env->GetStringUTFChars(path, nullptr);
 
     auto result = createWriteableMap(env);
@@ -696,7 +703,7 @@ Java_com_rnllama_LlamaContext_loadSession(
     return reinterpret_cast<jobject>(result);
 }
 
-JNIEXPORT jint JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_saveSession(
     JNIEnv *env,
     jobject thiz,
@@ -706,6 +713,14 @@ Java_com_rnllama_LlamaContext_saveSession(
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
+
+    auto result = createWriteableMap(env);
+
+    if (llama->completion == nullptr) {
+        putString(env, result, "error", "Context has been released");
+        putInt(env, result, "tokens_saved", 0);
+        return result;
+    }
 
     const char *path_chars = env->GetStringUTFChars(path, nullptr);
 
@@ -721,11 +736,14 @@ Java_com_rnllama_LlamaContext_saveSession(
     int save_size = size > 0 && size <= default_size ? size : default_size;
     if (!llama_state_save_file(llama->ctx, path_chars, session_tokens.data(), save_size)) {
       env->ReleaseStringUTFChars(path, path_chars);
-      return -1;
+      putString(env, result, "error", "Failed to save session file");
+      putInt(env, result, "tokens_saved", 0);
+      return result;
     }
 
     env->ReleaseStringUTFChars(path, path_chars);
-    return session_tokens.size();
+    putInt(env, result, "tokens_saved", save_size);
+    return result;
 }
 
 static inline jobject tokenProbsToMap(
@@ -811,6 +829,12 @@ Java_com_rnllama_LlamaContext_doCompletion(
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
+
+    if (llama->completion == nullptr) {
+        auto result = createWriteableMap(env);
+        putString(env, result, "error", "Context has been released");
+        return reinterpret_cast<jobject>(result);
+    }
 
     llama->completion->rewind();
 
@@ -1244,6 +1268,9 @@ Java_com_rnllama_LlamaContext_isPredicting(
     UNUSED(env);
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
+    if (llama->completion == nullptr) {
+        return false;
+    }
     return llama->completion->is_predicting;
 }
 
@@ -1252,6 +1279,12 @@ Java_com_rnllama_LlamaContext_tokenize(
         JNIEnv *env, jobject thiz, jlong context_ptr, jstring text, jobjectArray media_paths) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
+
+    if (llama->completion == nullptr) {
+        auto result = createWriteableMap(env);
+        putString(env, result, "error", "Context has been released");
+        return result;
+    }
 
     const char *text_chars = env->GetStringUTFChars(text, nullptr);
     std::vector<std::string> media_paths_vector;
@@ -1334,6 +1367,12 @@ Java_com_rnllama_LlamaContext_embedding(
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
 
+    if (llama->completion == nullptr) {
+        auto result = createWriteableMap(env);
+        putString(env, result, "error", "Context has been released");
+        return result;
+    }
+
     common_params embdParams;
     embdParams.embedding = true;
     embdParams.embd_normalize = llama->params.embd_normalize;
@@ -1398,6 +1437,13 @@ Java_com_rnllama_LlamaContext_rerank(
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
 
+    auto response = createWriteableMap(env);
+
+    if (llama->completion == nullptr) {
+        putString(env, response, "error", "Context has been released");
+        return response;
+    }
+
     const char *query_chars = env->GetStringUTFChars(query, nullptr);
 
     // Convert Java string array to C++ vector
@@ -1421,18 +1467,19 @@ Java_com_rnllama_LlamaContext_rerank(
             putInt(env, item, "index", (int) i);
             pushMap(env, result, item);
         }
+        putArray(env, response, "result", result);
     } catch (const std::exception &e) {
-        auto error_item = createWriteableMap(env);
-        putString(env, error_item, "error", e.what());
-        pushMap(env, result, error_item);
+        putString(env, response, "error", e.what());
+        auto emptyResult = createWritableArray(env);
+        putArray(env, response, "result", emptyResult);
     } catch (const std::runtime_error& e) {
-        auto error_item = createWriteableMap(env);
-        putString(env, error_item, "error", e.what());
-        pushMap(env, result, error_item);
+        putString(env, response, "error", e.what());
+        auto emptyResult = createWritableArray(env);
+        putArray(env, response, "result", emptyResult);
     }
 
     env->ReleaseStringUTFChars(query, query_chars);
-    return result;
+    return response;
 }
 
 JNIEXPORT jstring JNICALL
@@ -1447,6 +1494,9 @@ Java_com_rnllama_LlamaContext_bench(
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
+    if (llama->completion == nullptr) {
+        return env->NewStringUTF("");
+    }
     std::string result = llama->completion->bench(pp, tg, pl, nr);
     return env->NewStringUTF(result.c_str());
 }
