@@ -317,6 +317,8 @@ export default function TextCompletionScreen({
                 ]
                 const formatted = await context.getFormattedChat(
                   defaultMessages,
+                  null,
+                  { jinja: true },
                 )
                 setPrompt(formatted.prompt)
                 setFormattedPrompt(formatted.prompt)
@@ -390,7 +392,9 @@ export default function TextCompletionScreen({
         { role: 'user' as const, content: 'Hello! Please introduce yourself.' },
       ]
       try {
-        const formatted = await ctx.getFormattedChat(defaultMessages)
+        const formatted = await ctx.getFormattedChat(defaultMessages, null, {
+          jinja: true,
+        })
         setPrompt(formatted.prompt)
         setFormattedPrompt(formatted.prompt) // Store the formatted prompt
         // Tokenize the prompt to show individual tokens
