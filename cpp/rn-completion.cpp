@@ -67,7 +67,7 @@ static std::vector<llama_token> format_rerank(const llama_vocab * vocab, const s
 }
 
 // Constructor
-llama_rn_context_completion::llama_rn_context_completion(llama_rn_context* parent) 
+llama_rn_context_completion::llama_rn_context_completion(llama_rn_context* parent)
     : parent_ctx(parent) {
 }
 
@@ -322,15 +322,6 @@ completion_token_output llama_rn_context_completion::nextToken()
         llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling);
 
         const int32_t n_probs = parent_ctx->params.sampling.n_probs;
-
-        // deprecated
-        /*if (params.sampling.temp <= 0 && n_probs > 0)
-        {
-            // For llama_sample_token_greedy we need to sort candidates
-            llama_sampler_init_softmax();
-
-        }*/
-
 
         for (size_t i = 0; i < std::min(cur_p.size, (size_t)n_probs); ++i)
         {
