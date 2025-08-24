@@ -5,12 +5,14 @@
 #import "llama-impl.h"
 #import "ggml.h"
 #import "rn-llama.h"
+#import "rn-completion.h"
 #import "json-schema-to-grammar.h"
 #else
 #import <rnllama/llama.h>
 #import <rnllama/llama-impl.h>
 #import <rnllama/ggml.h>
 #import <rnllama/rn-llama.h>
+#import <rnllama/rn-completion.h>
 #import <rnllama/json-schema-to-grammar.h>
 #endif
 #endif

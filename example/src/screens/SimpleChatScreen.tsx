@@ -338,6 +338,9 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           messages: conversationMessages,
           reasoning_format: 'auto',
           jinja: true,
+          chat_template_kwargs: {
+            reasoning_effort: JSON.stringify('low'),
+          },
         },
         (data) => {
           const { content = '', reasoning_content: reasoningContent } = data

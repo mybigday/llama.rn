@@ -15,6 +15,7 @@
 #include "llama-impl.h"
 #include "ggml.h"
 #include "rn-llama.h"
+#include "rn-completion.h"
 #include "jni-utils.h"
 #define UNUSED(x) (void)(x)
 #define TAG "RNLLAMA_ANDROID_JNI"
@@ -673,23 +674,23 @@ Java_com_rnllama_LlamaContext_loadSession(
 
     auto result = createWriteableMap(env);
     size_t n_token_count_out = 0;
-    llama->embd.resize(llama->params.n_ctx);
-    if (!llama_state_load_file(llama->ctx, path_chars, llama->embd.data(), llama->embd.capacity(), &n_token_count_out)) {
+    llama->completion->embd.resize(llama->params.n_ctx);
+    if (!llama_state_load_file(llama->ctx, path_chars, llama->completion->embd.data(), llama->completion->embd.capacity(), &n_token_count_out)) {
       env->ReleaseStringUTFChars(path, path_chars);
 
       putString(env, result, "error", "Failed to load session");
       return reinterpret_cast<jobject>(result);
     }
-    llama->embd.resize(n_token_count_out);
+    llama->completion->embd.resize(n_token_count_out);
     env->ReleaseStringUTFChars(path, path_chars);
 
     // Find LLAMA_TOKEN_NULL in the tokens and resize the array to the index of the null token
-    auto null_token_iter = std::find(llama->embd.begin(), llama->embd.end(), LLAMA_TOKEN_NULL);
-    if (null_token_iter != llama->embd.end()) {
-        llama->embd.resize(std::distance(llama->embd.begin(), null_token_iter));
+    auto null_token_iter = std::find(llama->completion->embd.begin(), llama->completion->embd.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != llama->completion->embd.end()) {
+        llama->completion->embd.resize(std::distance(llama->completion->embd.begin(), null_token_iter));
     }
 
-    const std::string text = rnllama::tokens_to_str(llama->ctx, llama->embd.cbegin(), llama->embd.cend());
+    const std::string text = rnllama::tokens_to_str(llama->ctx, llama->completion->embd.cbegin(), llama->completion->embd.cend());
     putInt(env, result, "tokens_loaded", n_token_count_out);
     putString(env, result, "prompt", text.c_str());
     return reinterpret_cast<jobject>(result);
@@ -708,7 +709,7 @@ Java_com_rnllama_LlamaContext_saveSession(
 
     const char *path_chars = env->GetStringUTFChars(path, nullptr);
 
-    std::vector<llama_token> session_tokens = llama->embd;
+    std::vector<llama_token> session_tokens = llama->completion->embd;
 
     // Find LLAMA_TOKEN_NULL in the tokens and resize the array to the index of the null token
     auto null_token_iter = std::find(session_tokens.begin(), session_tokens.end(), LLAMA_TOKEN_NULL);
@@ -811,7 +812,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
 
-    llama->rewind();
+    llama->completion->rewind();
 
     //llama_reset_timings(llama->ctx);
 
@@ -1006,7 +1007,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
         env->ReleaseStringUTFChars(stop_str, stop_chars);
     }
 
-    if (!llama->initSampling()) {
+    if (!llama->completion->initSampling()) {
         auto result = createWriteableMap(env);
         putString(env, result, "error", "Failed to initialize sampling");
         return reinterpret_cast<jobject>(result);
@@ -1018,23 +1019,23 @@ Java_com_rnllama_LlamaContext_doCompletion(
     common_reasoning_format reasoning_format_enum = common_reasoning_format_from_name(reasoning_format_str);
     env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
 
-    llama->beginCompletion(chat_format, reasoning_format_enum, thinking_forced_open);
+    llama->completion->beginCompletion(chat_format, reasoning_format_enum, thinking_forced_open);
     try {
-        llama->loadPrompt(media_paths_vector);
+        llama->completion->loadPrompt(media_paths_vector);
     } catch (const std::exception &e) {
-        llama->endCompletion();
+        llama->completion->endCompletion();
         auto result = createWriteableMap(env);
         putString(env, result, "error", e.what());
         return reinterpret_cast<jobject>(result);
     } catch (const std::runtime_error& e) {
-        llama->endCompletion();
+        llama->completion->endCompletion();
         auto result = createWriteableMap(env);
         putString(env, result, "error", e.what());
         return reinterpret_cast<jobject>(result);
     }
 
-    if (llama->context_full) {
-        llama->endCompletion();
+    if (llama->completion->context_full) {
+        llama->completion->endCompletion();
         auto result = createWriteableMap(env);
         putString(env, result, "error", "Context is full");
         return reinterpret_cast<jobject>(result);
@@ -1043,37 +1044,37 @@ Java_com_rnllama_LlamaContext_doCompletion(
     size_t sent_count = 0;
     size_t sent_token_probs_index = 0;
 
-    while (llama->has_next_token && !llama->is_interrupted) {
-        const rnllama::completion_token_output token_with_probs = llama->doCompletion();
-        if (token_with_probs.tok == -1 || llama->incomplete) {
+    while (llama->completion->has_next_token && !llama->completion->is_interrupted) {
+        const rnllama::completion_token_output token_with_probs = llama->completion->doCompletion();
+        if (token_with_probs.tok == -1 || llama->completion->incomplete) {
             continue;
         }
         const std::string token_text = common_token_to_piece(llama->ctx, token_with_probs.tok);
 
-        size_t pos = std::min(sent_count, llama->generated_text.size());
+        size_t pos = std::min(sent_count, llama->completion->generated_text.size());
 
-        const std::string str_test = llama->generated_text.substr(pos);
+        const std::string str_test = llama->completion->generated_text.substr(pos);
         bool is_stop_full = false;
         size_t stop_pos =
-            llama->findStoppingStrings(str_test, token_text.size(), rnllama::STOP_FULL);
+            llama->completion->findStoppingStrings(str_test, token_text.size(), rnllama::STOP_FULL);
         if (stop_pos != std::string::npos) {
             is_stop_full = true;
-            llama->generated_text.erase(
-                llama->generated_text.begin() + pos + stop_pos,
-                llama->generated_text.end());
-            pos = std::min(sent_count, llama->generated_text.size());
+            llama->completion->generated_text.erase(
+                llama->completion->generated_text.begin() + pos + stop_pos,
+                llama->completion->generated_text.end());
+            pos = std::min(sent_count, llama->completion->generated_text.size());
         } else {
             is_stop_full = false;
-            stop_pos = llama->findStoppingStrings(str_test, token_text.size(),
+            stop_pos = llama->completion->findStoppingStrings(str_test, token_text.size(),
                 rnllama::STOP_PARTIAL);
         }
 
         if (
             stop_pos == std::string::npos ||
             // Send rest of the text if we are at the end of the generation
-            (!llama->has_next_token && !is_stop_full && stop_pos > 0)
+            (!llama->completion->has_next_token && !is_stop_full && stop_pos > 0)
         ) {
-            const std::string to_send = llama->generated_text.substr(pos, std::string::npos);
+            const std::string to_send = llama->completion->generated_text.substr(pos, std::string::npos);
 
             sent_count += to_send.size();
 
@@ -1084,17 +1085,17 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
             if (llama->params.sampling.n_probs > 0) {
               const std::vector<llama_token> to_send_toks = common_tokenize(llama->ctx, to_send, false);
-              size_t probs_pos = std::min(sent_token_probs_index, llama->generated_token_probs.size());
-              size_t probs_stop_pos = std::min(sent_token_probs_index + to_send_toks.size(), llama->generated_token_probs.size());
+              size_t probs_pos = std::min(sent_token_probs_index, llama->completion->generated_token_probs.size());
+              size_t probs_stop_pos = std::min(sent_token_probs_index + to_send_toks.size(), llama->completion->generated_token_probs.size());
               if (probs_pos < probs_stop_pos) {
-                  probs_output = std::vector<rnllama::completion_token_output>(llama->generated_token_probs.begin() + probs_pos, llama->generated_token_probs.begin() + probs_stop_pos);
+                  probs_output = std::vector<rnllama::completion_token_output>(llama->completion->generated_token_probs.begin() + probs_pos, llama->completion->generated_token_probs.begin() + probs_stop_pos);
               }
               sent_token_probs_index = probs_stop_pos;
 
               putArray(env, tokenResult, "completion_probabilities", tokenProbsToMap(env, llama, probs_output));
             }
 
-            auto partial_output = llama->getPartialOutput(token_text);
+            auto partial_output = llama->completion->getPartialOutput(token_text);
             if (!partial_output.content.empty()) {
                 putString(env, tokenResult, "content", partial_output.content.c_str());
             }
@@ -1136,13 +1137,13 @@ Java_com_rnllama_LlamaContext_doCompletion(
     }
 
     llama_perf_context_print(llama->ctx);
-    llama->endCompletion();
+    llama->completion->endCompletion();
 
     auto toolCalls = createWritableArray(env);
     std::string reasoningContent = "";
     std::string content;
     auto toolCallsSize = 0;
-    if (!llama->is_interrupted) {
+    if (!llama->completion->is_interrupted) {
         try {
             common_chat_syntax chat_syntax;
             chat_syntax.format = static_cast<common_chat_format>(chat_format);
@@ -1154,7 +1155,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
             chat_syntax.thinking_forced_open = thinking_forced_open;
             env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
             common_chat_msg message = common_chat_parse(
-              llama->generated_text,
+              llama->completion->generated_text,
               false,
               chat_syntax
             );
@@ -1182,7 +1183,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     auto result = createWriteableMap(env);
     putInt(env, result, "chat_format", chat_format);
-    putString(env, result, "text", llama->generated_text.c_str());
+    putString(env, result, "text", llama->completion->generated_text.c_str());
     if (!content.empty()) {
         putString(env, result, "content", content.c_str());
     }
@@ -1196,17 +1197,17 @@ Java_com_rnllama_LlamaContext_doCompletion(
         std::vector<llama_token> audio_tokens = llama->tts_wrapper->audio_tokens;
         putArray(env, result, "audio_tokens", tokensToArray(env, llama, audio_tokens));
     }
-    putArray(env, result, "completion_probabilities", tokenProbsToMap(env, llama, llama->generated_token_probs));
-    putInt(env, result, "tokens_predicted", llama->num_tokens_predicted);
-    putInt(env, result, "tokens_evaluated", llama->num_prompt_tokens);
-    putInt(env, result, "truncated", llama->truncated);
-    putBoolean(env, result, "context_full", llama->context_full);
-    putBoolean(env, result, "interrupted", llama->is_interrupted);
-    putInt(env, result, "stopped_eos", llama->stopped_eos);
-    putInt(env, result, "stopped_word", llama->stopped_word);
-    putInt(env, result, "stopped_limit", llama->stopped_limit);
-    putString(env, result, "stopping_word", llama->stopping_word.c_str());
-    putInt(env, result, "tokens_cached", llama->n_past);
+    putArray(env, result, "completion_probabilities", tokenProbsToMap(env, llama, llama->completion->generated_token_probs));
+    putInt(env, result, "tokens_predicted", llama->completion->num_tokens_predicted);
+    putInt(env, result, "tokens_evaluated", llama->completion->num_prompt_tokens);
+    putInt(env, result, "truncated", llama->completion->truncated);
+    putBoolean(env, result, "context_full", llama->completion->context_full);
+    putBoolean(env, result, "interrupted", llama->completion->is_interrupted);
+    putInt(env, result, "stopped_eos", llama->completion->stopped_eos);
+    putInt(env, result, "stopped_word", llama->completion->stopped_word);
+    putInt(env, result, "stopped_limit", llama->completion->stopped_limit);
+    putString(env, result, "stopping_word", llama->completion->stopping_word.c_str());
+    putInt(env, result, "tokens_cached", llama->completion->n_past);
 
     const auto timings_token = llama_perf_context(llama -> ctx);
 
@@ -1231,7 +1232,7 @@ Java_com_rnllama_LlamaContext_stopCompletion(
     UNUSED(env);
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
-    llama->is_interrupted = true;
+    llama->completion->is_interrupted = true;
 }
 
 JNIEXPORT jboolean JNICALL
@@ -1240,7 +1241,7 @@ Java_com_rnllama_LlamaContext_isPredicting(
     UNUSED(env);
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
-    return llama->is_predicting;
+    return llama->completion->is_predicting;
 }
 
 JNIEXPORT jobject JNICALL
@@ -1257,7 +1258,7 @@ Java_com_rnllama_LlamaContext_tokenize(
         media_paths_vector.push_back(image_path_chars);
         env->ReleaseStringUTFChars(image_path, image_path_chars);
     }
-    auto tokenize_result = llama->tokenize(text_chars, media_paths_vector);
+    auto tokenize_result = llama->completion->tokenize(text_chars, media_paths_vector);
 
     auto result = createWriteableMap(env);
 
@@ -1339,7 +1340,7 @@ Java_com_rnllama_LlamaContext_embedding(
 
     const char *text_chars = env->GetStringUTFChars(text, nullptr);
 
-    llama->rewind();
+    llama->completion->rewind();
 
     llama_perf_context_reset(llama->ctx);
 
@@ -1348,14 +1349,14 @@ Java_com_rnllama_LlamaContext_embedding(
     llama->params.n_predict = 0;
 
     auto result = createWriteableMap(env);
-    if (!llama->initSampling()) {
+    if (!llama->completion->initSampling()) {
         putString(env, result, "error", "Failed to initialize sampling");
         return reinterpret_cast<jobject>(result);
     }
 
-    llama->beginCompletion();
+    llama->completion->beginCompletion();
     try {
-        llama->loadPrompt({});
+        llama->completion->loadPrompt({});
     } catch (const std::exception &e) {
         putString(env, result, "error", e.what());
         return reinterpret_cast<jobject>(result);
@@ -1363,9 +1364,9 @@ Java_com_rnllama_LlamaContext_embedding(
         putString(env, result, "error", e.what());
         return reinterpret_cast<jobject>(result);
     }
-    llama->doCompletion();
+    llama->completion->doCompletion();
 
-    std::vector<float> embedding = llama->getEmbedding(embdParams);
+    std::vector<float> embedding = llama->completion->getEmbedding(embdParams);
 
     auto embeddings = createWritableArray(env);
     for (const auto &val : embedding) {
@@ -1374,7 +1375,7 @@ Java_com_rnllama_LlamaContext_embedding(
     putArray(env, result, "embedding", embeddings);
 
     auto promptTokens = createWritableArray(env);
-    for (const auto &tok : llama->embd) {
+    for (const auto &tok : llama->completion->embd) {
       pushString(env, promptTokens, common_token_to_piece(llama->ctx, tok).c_str());
     }
     putArray(env, result, "prompt_tokens", promptTokens);
@@ -1409,7 +1410,7 @@ Java_com_rnllama_LlamaContext_rerank(
     auto result = createWritableArray(env);
 
     try {
-        std::vector<float> scores = llama->rerank(query_chars, documents_vector);
+        std::vector<float> scores = llama->completion->rerank(query_chars, documents_vector);
 
         for (size_t i = 0; i < scores.size(); i++) {
             auto item = createWriteableMap(env);
@@ -1443,7 +1444,7 @@ Java_com_rnllama_LlamaContext_bench(
 ) {
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
-    std::string result = llama->bench(pp, tg, pl, nr);
+    std::string result = llama->completion->bench(pp, tg, pl, nr);
     return env->NewStringUTF(result.c_str());
 }
 

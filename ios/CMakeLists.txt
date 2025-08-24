@@ -34,6 +34,7 @@ endif ()
 # Define public headers
 set(PUBLIC_HEADERS
     ${SOURCE_DIR}/rn-llama.h
+    ${SOURCE_DIR}/rn-completion.h
     ${SOURCE_DIR}/rn-tts.h
     ${SOURCE_DIR}/llama.h
     ${SOURCE_DIR}/llama-impl.h
@@ -107,6 +108,7 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/tools/mtmd/mtmd-helper.cpp
     ${SOURCE_DIR}/anyascii.c
     ${SOURCE_DIR}/rn-llama.cpp
+    ${SOURCE_DIR}/rn-completion.cpp
     ${SOURCE_DIR}/rn-tts.cpp
     ${SOURCE_FILES_ARCH}
 )
