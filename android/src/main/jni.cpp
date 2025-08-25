@@ -1280,12 +1280,6 @@ Java_com_rnllama_LlamaContext_tokenize(
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
 
-    if (llama->completion == nullptr) {
-        auto result = createWriteableMap(env);
-        putString(env, result, "error", "Context has been released");
-        return result;
-    }
-
     const char *text_chars = env->GetStringUTFChars(text, nullptr);
     std::vector<std::string> media_paths_vector;
     for (int i = 0; i < env->GetArrayLength(media_paths); i++) {
@@ -1294,7 +1288,7 @@ Java_com_rnllama_LlamaContext_tokenize(
         media_paths_vector.push_back(image_path_chars);
         env->ReleaseStringUTFChars(image_path, image_path_chars);
     }
-    auto tokenize_result = llama->completion->tokenize(text_chars, media_paths_vector);
+    auto tokenize_result = llama->tokenize(text_chars, media_paths_vector);
 
     auto result = createWriteableMap(env);
 

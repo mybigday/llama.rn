@@ -46,19 +46,11 @@ struct completion_partial_output
   std::string accumulated_text;
 };
 
-struct llama_rn_tokenize_result {
-    std::vector<llama_token> tokens;
-    bool has_media = false;
-    std::vector<std::string> bitmap_hashes;
-    std::vector<size_t> chunk_pos; // both text and media
-    std::vector<size_t> chunk_pos_media; // media only
-};
-
 // Completion context class
 struct llama_rn_context_completion {
     // Reference to parent context
     llama_rn_context* parent_ctx;
-    
+
     // Completion state fields
     bool is_predicting = false;
     bool is_interrupted = false;
@@ -81,13 +73,13 @@ struct llama_rn_context_completion {
     int current_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
     common_reasoning_format current_reasoning_format = COMMON_REASONING_FORMAT_NONE;
     bool current_thinking_forced_open = false;
-    
+
     // Sampling context
     common_sampler *ctx_sampling = nullptr;
 
     // Constructor
     llama_rn_context_completion(llama_rn_context* parent);
-    
+
     // Destructor
     ~llama_rn_context_completion();
 
@@ -116,9 +108,6 @@ struct llama_rn_context_completion {
       const std::string &prompt,
       const std::vector<std::string> &media_paths
     );
-
-    // Tokenization methods
-    llama_rn_tokenize_result tokenize(const std::string &text, const std::vector<std::string> &media_paths);
 };
 
 } // namespace rnllama

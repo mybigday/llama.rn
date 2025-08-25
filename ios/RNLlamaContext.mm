@@ -894,9 +894,6 @@
 }
 
 - (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths {
-    if (llama->completion == nullptr) {
-        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context has been released" userInfo:nil];
-    }
     std::vector<std::string> media_paths_vector;
     if (imagePaths && [imagePaths count] > 0) {
         for (NSString *path in imagePaths) {
@@ -906,7 +903,7 @@
         }
     }
     try {
-        rnllama::llama_rn_tokenize_result tokenize_result = llama->completion->tokenize([text UTF8String], media_paths_vector);
+        rnllama::llama_rn_tokenize_result tokenize_result = llama->tokenize([text UTF8String], media_paths_vector);
 
         NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
 

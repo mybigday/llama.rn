@@ -677,32 +677,4 @@ void llama_rn_context_completion::processMedia(
     );
 }
 
-llama_rn_tokenize_result llama_rn_context_completion::tokenize(const std::string &text, const std::vector<std::string> &media_paths) {
-    if (media_paths.size() > 0) {
-        if (!parent_ctx->isMultimodalEnabled()) {
-            throw std::runtime_error("Multimodal is not enabled but media paths are provided");
-        }
-        auto result = tokenizeWithMedia(parent_ctx->mtmd_wrapper, text, media_paths);
-        mtmd_input_chunks_free(result.chunks);
-        llama_rn_tokenize_result tokenize_result = {
-            .tokens = result.tokens,
-            .has_media = true,
-            .bitmap_hashes = result.bitmap_hashes,
-            .chunk_pos = result.chunk_pos,
-            .chunk_pos_media = result.chunk_pos_media,
-        };
-        return tokenize_result;
-    }
-    std::vector<llama_token> text_tokens;
-    text_tokens = common_tokenize(parent_ctx->ctx, text, false);
-    llama_rn_tokenize_result tokenize_result = {
-        .tokens = text_tokens,
-        .has_media = false,
-        .bitmap_hashes = {},
-        .chunk_pos = {},
-        .chunk_pos_media = {},
-    };
-    return tokenize_result;
-}
-
 } // namespace rnllama

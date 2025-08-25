@@ -33,13 +33,19 @@ lm_ggml_type kv_cache_type_from_str(const std::string & s);
 // Note: enum forward declarations not allowed in C++, using include in implementation file
 struct completion_token_output;
 struct completion_partial_output;
-struct llama_rn_tokenize_result;
-
 struct llama_rn_context_mtmd;
 
 struct llama_rn_context_tts;
 
 struct llama_rn_context_completion;
+
+struct llama_rn_tokenize_result {
+  std::vector<llama_token> tokens;
+  bool has_media = false;
+  std::vector<std::string> bitmap_hashes;
+  std::vector<size_t> chunk_pos; // both text and media
+  std::vector<size_t> chunk_pos_media; // media only
+};
 
 // Main context class
 struct llama_rn_context {
@@ -78,6 +84,7 @@ struct llama_rn_context {
       const std::string &messages,
       const std::string &chat_template
     ) const;
+    llama_rn_tokenize_result tokenize(const std::string &text, const std::vector<std::string> &media_paths);
 
     // Lora methods
     std::vector<common_adapter_lora_info> lora;
