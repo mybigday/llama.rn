@@ -16,13 +16,13 @@
 //
 
 llama_memory_recurrent::llama_memory_recurrent(
-        const llama_model &  model,
-          layer_filter_cb && filter,
-                lm_ggml_type    type_r,
-                lm_ggml_type    type_s,
-                     bool    offload,
-                 uint32_t    mem_size,
-                 uint32_t    n_seq_max) : hparams(model.hparams), n_seq_max(n_seq_max) {
+        const llama_model & model,
+                lm_ggml_type   type_r,
+                lm_ggml_type   type_s,
+                     bool   offload,
+                 uint32_t   mem_size,
+                 uint32_t   n_seq_max,
+    const layer_filter_cb & filter) : hparams(model.hparams), n_seq_max(n_seq_max) {
     const int32_t n_layer = hparams.n_layer;
 
     head = 0;
