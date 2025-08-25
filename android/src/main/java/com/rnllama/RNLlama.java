@@ -198,6 +198,9 @@ public class RNLlama implements LifecycleEventListener {
             throw new Exception("Context not found");
           }
           WritableMap result = context.loadSession(path);
+          if (result != null && result.hasKey("error")) {
+            throw new Exception(result.getString("error"));
+          }
           return result;
         } catch (Exception e) {
           exception = e;
@@ -220,31 +223,39 @@ public class RNLlama implements LifecycleEventListener {
 
   public void saveSession(double id, final String path, double size, Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Integer>() {
+    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
 
       @Override
-      protected Integer doInBackground(Void... voids) {
+      protected WritableMap doInBackground(Void... voids) {
         try {
           LlamaContext context = contexts.get(contextId);
           if (context == null) {
             throw new Exception("Context not found");
           }
-          Integer count = context.saveSession(path, (int) size);
-          return count;
+          WritableMap result = context.saveSession(path, (int) size);
+          if (result != null && result.hasKey("error")) {
+            throw new Exception(result.getString("error"));
+          }
+          return result;
         } catch (Exception e) {
           exception = e;
         }
-        return -1;
+        return null;
       }
 
       @Override
-      protected void onPostExecute(Integer result) {
+      protected void onPostExecute(WritableMap result) {
         if (exception != null) {
           promise.reject(exception);
           return;
         }
-        promise.resolve(result);
+        // Return the tokens_saved count to maintain backward compatibility
+        if (result != null && result.hasKey("tokens_saved")) {
+          promise.resolve(result.getInt("tokens_saved"));
+        } else {
+          promise.resolve(0);
+        }
         tasks.remove(this);
       }
     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
@@ -267,6 +278,9 @@ public class RNLlama implements LifecycleEventListener {
             throw new Exception("Context is busy");
           }
           WritableMap result = context.completion(params);
+          if (result != null && result.hasKey("error")) {
+            throw new Exception(result.getString("error"));
+          }
           return result;
         } catch (Exception e) {
           exception = e;
@@ -338,7 +352,11 @@ public class RNLlama implements LifecycleEventListener {
           if (context == null) {
             throw new Exception("Context not found");
           }
-          return context.tokenize(text, media_paths);
+          WritableMap result = context.tokenize(text, media_paths);
+          if (result != null && result.hasKey("error")) {
+            throw new Exception(result.getString("error"));
+          }
+          return result;
         } catch (Exception e) {
           exception = e;
         }
@@ -402,7 +420,11 @@ public class RNLlama implements LifecycleEventListener {
           if (context == null) {
             throw new Exception("Context not found");
           }
-          return context.getEmbedding(text, params);
+          WritableMap result = context.getEmbedding(text, params);
+          if (result != null && result.hasKey("error")) {
+            throw new Exception(result.getString("error"));
+          }
+          return result;
         } catch (Exception e) {
           exception = e;
         }
@@ -424,17 +446,21 @@ public class RNLlama implements LifecycleEventListener {
 
   public void rerank(double id, final String query, final ReadableArray documents, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, WritableArray>() {
+    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
       private Exception exception;
 
       @Override
-      protected WritableArray doInBackground(Void... voids) {
+      protected WritableMap doInBackground(Void... voids) {
         try {
           LlamaContext context = contexts.get(contextId);
           if (context == null) {
             throw new Exception("Context not found");
           }
-          return context.getRerank(query, documents, params);
+          WritableMap result = context.getRerank(query, documents, params);
+          if (result != null && result.hasKey("error")) {
+            throw new Exception(result.getString("error"));
+          }
+          return result;
         } catch (Exception e) {
           exception = e;
         }
@@ -442,12 +468,17 @@ public class RNLlama implements LifecycleEventListener {
       }
 
       @Override
-      protected void onPostExecute(WritableArray result) {
+      protected void onPostExecute(WritableMap result) {
         if (exception != null) {
           promise.reject(exception);
           return;
         }
-        promise.resolve(result);
+        // Return the result array from the response map to maintain backward compatibility
+        if (result != null && result.hasKey("result")) {
+          promise.resolve(result.getArray("result"));
+        } else {
+          promise.resolve(Arguments.createArray());
+        }
         tasks.remove(this);
       }
     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);

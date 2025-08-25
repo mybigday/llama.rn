@@ -223,7 +223,7 @@ public class LlamaContext {
     return result;
   }
 
-  public int saveSession(String path, int size) {
+  public WritableMap saveSession(String path, int size) {
     if (path == null || path.isEmpty()) {
       throw new IllegalArgumentException("File path is empty");
     }
@@ -383,7 +383,7 @@ public class LlamaContext {
     return result;
   }
 
-  public WritableArray getRerank(String query, ReadableArray documents, ReadableMap params) {
+  public WritableMap getRerank(String query, ReadableArray documents, ReadableMap params) {
     if (isEmbeddingEnabled(this.context) == false) {
       throw new IllegalStateException("Embedding is not enabled but required for reranking");
     }
@@ -394,14 +394,13 @@ public class LlamaContext {
       documentsArray[i] = documents.getString(i);
     }
 
-    WritableArray result = rerank(
+    return rerank(
       this.context,
       query,
       documentsArray,
       // int normalize,
       params.hasKey("normalize") ? params.getInt("normalize") : -1
     );
-    return result;
   }
 
   public String bench(int pp, int tg, int pl, int nr) {
@@ -629,7 +628,7 @@ public class LlamaContext {
     long contextPtr,
     String path
   );
-  protected static native int saveSession(
+  protected static native WritableMap saveSession(
     long contextPtr,
     String path,
     int size
@@ -686,7 +685,7 @@ public class LlamaContext {
     String text,
     int embd_normalize
   );
-  protected static native WritableArray rerank(long contextPtr, String query, String[] documents, int normalize);
+  protected static native WritableMap rerank(long contextPtr, String query, String[] documents, int normalize);
   protected static native String bench(long contextPtr, int pp, int tg, int pl, int nr);
   protected static native int applyLoraAdapters(long contextPtr, ReadableArray loraAdapters);
   protected static native void removeLoraAdapters(long contextPtr);
