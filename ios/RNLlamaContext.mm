@@ -685,6 +685,11 @@
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
     }
 
+    NSString *prefillText = params[@"prefill_text"];
+    if (prefillText) {
+        llama->completion->prefill_text = [prefillText UTF8String];
+    }
+
     auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
     bool thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
 
@@ -827,7 +832,8 @@
             chat_syntax.reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
             chat_syntax.thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
 
-            common_chat_msg message = common_chat_parse(llama->completion->generated_text, false, chat_syntax);
+            std::string full_text = llama->completion->prefill_text + llama->completion->generated_text;
+            common_chat_msg message = common_chat_parse(full_text, false, chat_syntax);
             if (!message.reasoning_content.empty()) {
                 reasoningContent = [NSString stringWithUTF8String:message.reasoning_content.c_str()];
             }
