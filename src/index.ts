@@ -195,6 +195,11 @@ export type CompletionBaseParams = {
   add_generation_prompt?: boolean
   now?: string | number
   chat_template_kwargs?: Record<string, string>
+  /**
+   * Prefill text to be used for chat parsing (Generation Prompt + Content)
+   * Used for if last assistant message is for prefill purpose
+   */
+  prefill_text?: string
 }
 export type CompletionParams = Omit<
   NativeCompletionParams,

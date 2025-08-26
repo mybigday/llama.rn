@@ -788,6 +788,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     jobject thiz,
     jlong context_ptr,
     jstring prompt,
+    jstring prefill_text,
     jintArray guide_tokens,
     jint chat_format,
     jstring reasoning_format,
@@ -841,6 +842,11 @@ Java_com_rnllama_LlamaContext_doCompletion(
     //llama_reset_timings(llama->ctx);
 
     const char *prompt_chars = env->GetStringUTFChars(prompt, nullptr);
+    const char *prefill_text_chars = env->GetStringUTFChars(prefill_text, nullptr);
+
+    if (prefill_text_chars) {
+        llama->completion->prefill_text = prefill_text_chars;
+    }
 
     // Set the prompt parameter
     llama->params.prompt = prompt_chars;
@@ -1160,6 +1166,10 @@ Java_com_rnllama_LlamaContext_doCompletion(
         env->ReleaseStringUTFChars(prompt, prompt_chars);
     }
 
+    if (prefill_text_chars != nullptr) {
+        env->ReleaseStringUTFChars(prefill_text, prefill_text_chars);
+    }
+
     llama_perf_context_print(llama->ctx);
     llama->completion->endCompletion();
 
@@ -1178,8 +1188,9 @@ Java_com_rnllama_LlamaContext_doCompletion(
             chat_syntax.reasoning_format = common_reasoning_format_from_name(reasoning_format_str);
             chat_syntax.thinking_forced_open = thinking_forced_open;
             env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
+            std::string full_text = llama->completion->prefill_text + llama->completion->generated_text;
             common_chat_msg message = common_chat_parse(
-              llama->completion->generated_text,
+              full_text,
               false,
               chat_syntax
             );

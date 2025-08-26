@@ -85,6 +85,7 @@ void llama_rn_context_completion::rewind() {
     parent_ctx->params.sampling.grammar.clear();
     num_prompt_tokens = 0;
     num_tokens_predicted = 0;
+    prefill_text = "";
     generated_text = "";
     generated_text.reserve(parent_ctx->params.n_ctx);
     truncated = false;
@@ -450,13 +451,13 @@ completion_partial_output llama_rn_context_completion::getPartialOutput(const st
     syntax.thinking_forced_open = current_thinking_forced_open;
     syntax.parse_tool_calls = true;
 
-    common_chat_msg parsed_msg = common_chat_parse(generated_text, true, syntax);
+    common_chat_msg parsed_msg = common_chat_parse(prefill_text + generated_text, true, syntax);
 
     completion_partial_output result;
 
     result.content = parsed_msg.content;
     result.reasoning_content = parsed_msg.reasoning_content;
-    result.accumulated_text = generated_text;
+    result.accumulated_text = prefill_text + generated_text;
     result.tool_calls = parsed_msg.tool_calls;
 
     return result;

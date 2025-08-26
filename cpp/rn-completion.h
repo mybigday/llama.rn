@@ -55,6 +55,7 @@ struct llama_rn_context_completion {
     bool is_predicting = false;
     bool is_interrupted = false;
     bool has_next_token = false;
+    std::string prefill_text;
     std::string generated_text;
     std::vector<completion_token_output> generated_token_probs;
     size_t num_prompt_tokens = 0;
