@@ -84,7 +84,7 @@ jobs:
               COMMIT_HASH=$(echo "$line" | cut -d' ' -f1)
               COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
               LLAMA_CHANGELOG+="- [\`${COMMIT_HASH:0:7}\`](https://github.com/ggml-org/llama.cpp/commit/$COMMIT_HASH) $COMMIT_MSG"$'\n'
-            done < <(git log "${PREVIOUS_TAG}..${CURRENT_TAG}" --oneline --no-merges | head -20)
+            done < <(git log "${PREVIOUS_TAG}..${CURRENT_TAG}" --oneline --no-merges | head -50)
             cd ..
 
             if [[ -z "$LLAMA_CHANGELOG" ]]; then
@@ -122,13 +122,13 @@ jobs:
 
           if [[ -n "$EXISTING_PR" && "$EXISTING_PR" != "null" ]]; then
             echo "✅ PR #$EXISTING_PR already exists, updating it..."
-            gh pr edit "$EXISTING_PR" --title "chore: sync llama.cpp to latest release" --body "$PR_BODY"
+            gh pr edit "$EXISTING_PR" --title "feat: sync llama.cpp to $CURRENT_TAG" --body "$PR_BODY"
           else
             echo "🆕 Creating new PR..."
             gh pr create \
               --head auto/sync-llama.cpp \
               --base main \
-              --title "chore: sync llama.cpp to latest release" \
+              --title "feat: sync llama.cpp to $CURRENT_TAG" \
               --body "$PR_BODY"
           fi
         env:
