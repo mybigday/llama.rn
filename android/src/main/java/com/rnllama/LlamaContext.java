@@ -261,6 +261,8 @@ public class LlamaContext {
       this.context,
       // String prompt,
       params.getString("prompt"),
+      // String prefill_text,
+      params.hasKey("prefill_text") ? params.getString("prefill_text") : "",
       // int[] guide_tokens,
       guide_tokens,
       // int chat_format,
@@ -636,6 +638,7 @@ public class LlamaContext {
   protected static native WritableMap doCompletion(
     long context_ptr,
     String prompt,
+    String prefill_text,
     int[] guide_tokens,
     int chat_format,
     String reasoning_format,
