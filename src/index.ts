@@ -193,6 +193,9 @@ export type CompletionBaseParams = {
   response_format?: CompletionResponseFormat
   media_paths?: string | string[]
   add_generation_prompt?: boolean
+  /*
+   * Timestamp in seconds since epoch to apply to chat template's strftime_now
+   */
   now?: string | number
   chat_template_kwargs?: Record<string, string>
   /**

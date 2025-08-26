@@ -771,8 +771,7 @@ static std::string apply(
     if (additional_context) {
         tmpl_inputs.extra_context.merge_patch(*additional_context);
     }
-    // TODO: add flag to control date/time, if only for testing purposes.
-    // tmpl_inputs.now = std::chrono::system_clock::now();
+    tmpl_inputs.now = inputs.now;
 
     minja::chat_template_options tmpl_opts;
     // To avoid double BOS / EOS tokens, we're manually removing begining / trailing tokens

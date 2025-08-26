@@ -465,6 +465,9 @@ export interface Spec extends TurboModule {
       tool_choice?: string
       enable_thinking?: boolean
       add_generation_prompt?: boolean
+      /*
+       * Timestamp in seconds since epoch to apply to chat template's strftime_now
+       */
       now?: string
       chat_template_kwargs?: string
     },
