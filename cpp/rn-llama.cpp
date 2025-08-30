@@ -8,6 +8,8 @@
 #include "tools/mtmd/mtmd-helper.h"
 #include "tools/mtmd/clip.h"
 
+#include <cstdarg>
+
 namespace rnllama {
 
 static const std::vector<lm_ggml_type> kv_cache_types = {
