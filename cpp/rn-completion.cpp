@@ -138,10 +138,15 @@ void llama_rn_context_completion::truncatePrompt(std::vector<llama_token> &promp
 void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &media_paths) {
     bool has_media = !media_paths.empty();
 
+    // Check if this is an encoder-decoder model (like T5)
+    const bool is_enc_dec = llama_model_has_encoder(parent_ctx->model);
+    const auto vocab = llama_model_get_vocab(parent_ctx->model);
+    const bool add_bos = llama_vocab_get_add_bos(vocab);
+
     if (!has_media) {
         std::vector<llama_token> text_tokens;
-        // Text-only path
-        text_tokens = ::common_tokenize(parent_ctx->ctx, parent_ctx->params.prompt, true, true);
+        // Text-only path - use modified tokenization for encoder-decoder models
+        text_tokens = ::common_tokenize(parent_ctx->ctx, parent_ctx->params.prompt, add_bos || is_enc_dec, true);
         num_prompt_tokens = text_tokens.size();
 
         // LOG tokens
@@ -197,10 +202,52 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
         num_prompt_tokens = embd.size();
     }
 
+    // Handle encoder-decoder models (like T5) with special encoding phase
+    if (is_enc_dec && !has_media) {
+        // For encoder-decoder models, we need to encode the input tokens first
+        if (embd.size() > n_past) {
+            // Encode tokens in batches using n_batch as chunk size
+            int n_past_batch = n_past;
+            int n_remaining = embd.size() - n_past;
+
+            while (n_remaining > 0) {
+                int n_eval = n_remaining;
+                if (n_eval > parent_ctx->params.n_batch) {
+                    n_eval = parent_ctx->params.n_batch;
+                }
+
+                int ret = llama_encode(parent_ctx->ctx, llama_batch_get_one(embd.data() + n_past_batch, n_eval));
+                if (ret < 0) {
+                    LOG_ERROR("Failed to encode token batch, code: %d, n_eval: %d, n_past_batch: %d", ret, n_eval, n_past_batch);
+                    has_next_token = false;
+                    return;
+                }
+
+                n_past_batch += n_eval;
+                n_remaining -= n_eval;
+                n_past += n_eval;
+            }
+        }
+        // Update token count for encoding
+        num_prompt_tokens = embd.size();
+
+        // Add decoder start token for encoder-decoder models
+        llama_token decode_bos = llama_model_decoder_start_token(parent_ctx->model);
+        if (decode_bos == LLAMA_TOKEN_NULL) {
+            decode_bos = llama_vocab_bos(vocab);
+        }
+
+        // Add the decoder start token to begin generation
+        embd.emplace_back(decode_bos);
+        common_sampler_accept(ctx_sampling, decode_bos, false);
+
+        LOG_INFO("[DEBUG] T5 encoding complete, added decoder BOS token: %d", decode_bos);
+    }
+
     has_next_token = true;
 
     LOG_INFO("[DEBUG] Input processed: n_past=%d, embd.size=%zu, num_prompt_tokens=%zu, has_media=%d",
-             n_past, embd.size(), num_prompt_tokens, has_media ? 1 : 0);
+            n_past, embd.size(), num_prompt_tokens, has_media ? 1 : 0);
 }
 
 void llama_rn_context_completion::beginCompletion() {
