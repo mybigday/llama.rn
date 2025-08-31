@@ -258,24 +258,22 @@ llama_rn_tokenize_result llama_rn_context::tokenize(const std::string &text, con
       }
       auto result = tokenizeWithMedia(mtmd_wrapper, text, media_paths);
       mtmd_input_chunks_free(result.chunks);
-      llama_rn_tokenize_result tokenize_result = {
-          .tokens = result.tokens,
-          .has_media = true,
-          .bitmap_hashes = result.bitmap_hashes,
-          .chunk_pos = result.chunk_pos,
-          .chunk_pos_media = result.chunk_pos_media,
-      };
+      llama_rn_tokenize_result tokenize_result;
+      tokenize_result.tokens = result.tokens;
+      tokenize_result.has_media = true;
+      tokenize_result.bitmap_hashes = result.bitmap_hashes;
+      tokenize_result.chunk_pos = result.chunk_pos;
+      tokenize_result.chunk_pos_media = result.chunk_pos_media;
       return tokenize_result;
   }
   std::vector<llama_token> text_tokens;
   text_tokens = common_tokenize(ctx, text, false);
-  llama_rn_tokenize_result tokenize_result = {
-      .tokens = text_tokens,
-      .has_media = false,
-      .bitmap_hashes = {},
-      .chunk_pos = {},
-      .chunk_pos_media = {},
-  };
+  llama_rn_tokenize_result tokenize_result;
+  tokenize_result.tokens = text_tokens;
+  tokenize_result.has_media = false;
+  tokenize_result.bitmap_hashes = {};
+  tokenize_result.chunk_pos = {};
+  tokenize_result.chunk_pos_media = {};
   return tokenize_result;
 }
 
