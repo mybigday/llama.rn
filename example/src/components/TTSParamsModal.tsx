@@ -17,52 +17,8 @@ import {
 } from '../utils/storage'
 import { useParameterModal } from '../hooks/useParameterModal'
 import BaseParameterModal from './BaseParameterModal'
-import { CommonStyles } from '../styles/commonStyles'
-
-const styles = StyleSheet.create({
-  paramGroup: CommonStyles.paramGroup,
-  paramLabel: CommonStyles.paramLabel,
-  paramDescription: CommonStyles.paramDescription,
-  textInput: {
-    ...CommonStyles.textInput,
-    minHeight: 120,
-    textAlignVertical: 'top',
-  },
-  linkContainer: {
-    backgroundColor: '#E8F4FD',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 8,
-    marginBottom: 16,
-  },
-  linkText: {
-    fontSize: 14,
-    color: '#333',
-    marginBottom: 8,
-  },
-  linkButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    alignSelf: 'flex-start',
-  },
-  linkButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  validationText: {
-    fontSize: 12,
-    marginTop: 4,
-  },
-  validText: {
-    color: '#34C759',
-  },
-  invalidText: {
-    color: '#FF3B30',
-  },
-})
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface TTSParamsModalProps {
   visible: boolean
@@ -75,11 +31,57 @@ export default function TTSParamsModal({
   onClose,
   onSave,
 }: TTSParamsModalProps) {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
   const [speakerConfigText, setSpeakerConfigText] = useState('')
   const [validationResult, setValidationResult] = useState<{
     isValid: boolean
     message: string
   }>({ isValid: true, message: '' })
+
+  const styles = StyleSheet.create({
+    textInput: {
+      ...themedStyles.textInput,
+      minHeight: 120,
+      textAlignVertical: 'top',
+    },
+    linkContainer: {
+      backgroundColor: theme.colors.card,
+      borderRadius: 8,
+      padding: 12,
+      marginTop: 8,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    linkText: {
+      fontSize: 14,
+      color: theme.colors.text,
+      marginBottom: 8,
+    },
+    linkButton: {
+      backgroundColor: theme.colors.primary,
+      borderRadius: 6,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      alignSelf: 'flex-start',
+    },
+    linkButtonText: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    validationText: {
+      fontSize: 12,
+      marginTop: 4,
+    },
+    validText: {
+      color: '#34A759',
+    },
+    invalidText: {
+      color: theme.colors.error,
+    },
+  })
 
   const {
     params,
@@ -174,9 +176,9 @@ export default function TTSParamsModal({
       onSave={onSaveHandler}
       onReset={handleReset}
     >
-      <View style={styles.paramGroup}>
-        <Text style={styles.paramLabel}>Speaker Configuration</Text>
-        <Text style={styles.paramDescription}>
+      <View style={themedStyles.paramGroup}>
+        <Text style={themedStyles.paramLabel}>Speaker Configuration</Text>
+        <Text style={themedStyles.paramDescription}>
           Import a JSON speaker configuration for OuteTTS. This controls the
           voice characteristics, accent, and speaking style. Leave empty to use
           the default voice.
@@ -200,6 +202,7 @@ export default function TTSParamsModal({
           value={speakerConfigText}
           onChangeText={validateAndUpdateSpeakerConfig}
           placeholder="Paste your speaker configuration JSON here..."
+          placeholderTextColor={theme.colors.textSecondary}
           multiline
           autoCapitalize="none"
           autoCorrect={false}

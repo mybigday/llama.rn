@@ -4,6 +4,7 @@ import { View, Text, TouchableOpacity, Image } from 'react-native'
 import Clipboard from '@react-native-clipboard/clipboard'
 import { ThemeContext, UserContext } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
+import { useTheme } from '../contexts/ThemeContext'
 
 export const Bubble = ({
   child,
@@ -12,6 +13,7 @@ export const Bubble = ({
   child: ReactNode
   message: MessageType.Any
 }) => {
+  const { isDark } = useTheme()
   const theme = useContext(ThemeContext)
   const user = useContext(UserContext)
   const currentUserIsAuthor = user?.id === message.author.id
@@ -22,6 +24,29 @@ export const Bubble = ({
   const [showToolCalls, setShowToolCalls] = useState(false)
 
   const Container = copyable ? TouchableOpacity : View
+
+  // Theme-aware colors
+  const overlayBackground = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+  const sectionBackground = isDark
+    ? 'rgba(255,255,255,0.05)'
+    : 'rgba(0,0,0,0.05)'
+  const borderColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+  const textColor = (() => {
+    if (currentUserIsAuthor) {
+      return 'rgba(255,255,255,0.8)'
+    }
+    return isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.6)'
+  })()
+  const contentTextColor = (() => {
+    if (currentUserIsAuthor) {
+      return 'rgba(255,255,255,0.9)'
+    }
+    return isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.8)'
+  })()
+  const toolCallBackground = isDark
+    ? 'rgba(255,255,255,0.1)'
+    : 'rgba(0,0,0,0.1)'
+  const timingTextColor = isDark ? '#999' : '#ccc'
 
   // Use partial data during streaming, fall back to final result
   const currentResult = partialCompletionResult || completionResult
@@ -64,16 +89,14 @@ export const Bubble = ({
             alignItems: 'center',
             paddingHorizontal: 12,
             paddingVertical: 4,
-            backgroundColor: 'rgba(0,0,0,0.1)',
+            backgroundColor: overlayBackground,
           }}
           onPress={() => setShowReasoning(!showReasoning)}
         >
           <Text
             style={{
               fontSize: 12,
-              color: currentUserIsAuthor
-                ? 'rgba(255,255,255,0.8)'
-                : 'rgba(0,0,0,0.6)',
+              color: textColor,
               fontWeight: '600',
             }}
           >
@@ -88,17 +111,15 @@ export const Bubble = ({
           style={{
             paddingHorizontal: 12,
             paddingVertical: 8,
-            backgroundColor: 'rgba(0,0,0,0.05)',
+            backgroundColor: sectionBackground,
             borderBottomWidth: 1,
-            borderBottomColor: 'rgba(0,0,0,0.1)',
+            borderBottomColor: borderColor,
           }}
         >
           <Text
             style={{
               fontSize: 13,
-              color: currentUserIsAuthor
-                ? 'rgba(255,255,255,0.9)'
-                : 'rgba(0,0,0,0.8)',
+              color: contentTextColor,
               fontFamily: 'monospace',
               lineHeight: 18,
             }}
@@ -119,16 +140,14 @@ export const Bubble = ({
             alignItems: 'center',
             paddingHorizontal: 12,
             paddingVertical: 4,
-            backgroundColor: 'rgba(0,0,0,0.1)',
+            backgroundColor: overlayBackground,
           }}
           onPress={() => setShowToolCalls(!showToolCalls)}
         >
           <Text
             style={{
               fontSize: 12,
-              color: currentUserIsAuthor
-                ? 'rgba(255,255,255,0.8)'
-                : 'rgba(0,0,0,0.6)',
+              color: textColor,
               fontWeight: '600',
             }}
           >
@@ -143,9 +162,9 @@ export const Bubble = ({
           style={{
             paddingHorizontal: 12,
             paddingVertical: 8,
-            backgroundColor: 'rgba(0,0,0,0.05)',
+            backgroundColor: sectionBackground,
             borderTopWidth: 1,
-            borderTopColor: 'rgba(0,0,0,0.1)',
+            borderTopColor: borderColor,
           }}
         >
           {currentResult.tool_calls.map((toolCall: any, index: number) => (
@@ -154,7 +173,7 @@ export const Bubble = ({
               style={{
                 marginBottom: 4,
                 padding: 8,
-                backgroundColor: 'rgba(0,0,0,0.1)',
+                backgroundColor: toolCallBackground,
                 borderRadius: 4,
               }}
             >
@@ -162,9 +181,7 @@ export const Bubble = ({
                 style={{
                   fontSize: 12,
                   fontWeight: '600',
-                  color: currentUserIsAuthor
-                    ? 'rgba(255,255,255,0.9)'
-                    : 'rgba(0,0,0,0.8)',
+                  color: contentTextColor,
                 }}
               >
                 {toolCall.function?.name || toolCall.name}
@@ -172,9 +189,7 @@ export const Bubble = ({
               <Text
                 style={{
                   fontSize: 11,
-                  color: currentUserIsAuthor
-                    ? 'rgba(255,255,255,0.7)'
-                    : 'rgba(0,0,0,0.6)',
+                  color: textColor,
                   fontFamily: 'monospace',
                   marginTop: 2,
                 }}
@@ -203,7 +218,7 @@ export const Bubble = ({
         <Text
           style={{
             textAlign: 'right',
-            color: '#ccc',
+            color: timingTextColor,
             paddingRight: 12,
             paddingBottom: 12,
             marginTop: -8,

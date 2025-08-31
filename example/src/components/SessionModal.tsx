@@ -15,66 +15,8 @@ import {
 } from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
 import type { LlamaContext } from '../../../src'
-import { CommonStyles } from '../styles/commonStyles'
-
-const styles = StyleSheet.create({
-  container: CommonStyles.container,
-  header: {
-    ...CommonStyles.modalHeader,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  title: CommonStyles.modalTitle,
-  cancelButton: CommonStyles.headerButtonText,
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-  },
-  description: CommonStyles.description,
-  buttonContainer: {
-    marginVertical: 10,
-  },
-  button: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginVertical: 8,
-  },
-  buttonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  saveButton: {
-    backgroundColor: '#34C759',
-  },
-  loadButton: {
-    backgroundColor: '#007AFF',
-  },
-  disabledButton: {
-    backgroundColor: '#ccc',
-  },
-})
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface SessionModalProps {
   visible: boolean
@@ -87,7 +29,80 @@ export default function SessionModal({
   onClose,
   context,
 }: SessionModalProps) {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
   const [isLoading, setIsLoading] = useState(false)
+
+  const styles = StyleSheet.create({
+    container: themedStyles.container,
+    header: {
+      ...themedStyles.modalHeader,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: theme.colors.shadow,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: theme.dark ? 0.3 : 0.1,
+          shadowRadius: 2,
+        },
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    title: {
+      ...themedStyles.modalTitle,
+      color: theme.colors.text,
+      fontWeight: '700',
+    },
+    cancelButton: {
+      ...themedStyles.headerButtonText,
+      color: theme.colors.primary,
+      fontWeight: '600',
+    },
+    content: {
+      flex: 1,
+      paddingHorizontal: 16,
+      paddingVertical: 20,
+      backgroundColor: theme.colors.background,
+    },
+    description: {
+      ...themedStyles.description,
+      color: theme.colors.textSecondary,
+    },
+    buttonContainer: {
+      marginVertical: 10,
+    },
+    button: {
+      backgroundColor: theme.colors.primary,
+      paddingVertical: 15,
+      paddingHorizontal: 20,
+      borderRadius: 8,
+      alignItems: 'center',
+      marginVertical: 8,
+    },
+    buttonText: {
+      color: theme.colors.white,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    saveButton: {
+      backgroundColor: theme.colors.valid,
+    },
+    loadButton: {
+      backgroundColor: theme.colors.primary,
+    },
+    disabledButton: {
+      backgroundColor: theme.colors.border,
+    },
+  })
 
   const handleSaveSession = async () => {
     if (!context) {

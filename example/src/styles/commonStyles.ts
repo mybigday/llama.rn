@@ -1,19 +1,22 @@
 import { StyleSheet } from 'react-native'
+import { defaultTheme as defaultLightTheme, darkTheme as defaultDarkTheme } from  '@flyerhq/react-native-chat-ui'
+import type { ThemeColors } from '../contexts/ThemeContext'
 
-// Color constants
-export const Colors = {
-  primary: '#007AFF',
-  background: '#F2F2F7',
-  white: '#FFFFFF',
-  black: '#000000',
-  text: '#000000',
-  textSecondary: '#666666',
-  border: '#E0E0E0',
-  error: '#FF3B30',
-  disabled: '#C0C0C0',
-  inputBackground: '#F8F8F8',
-  shadow: '#000000',
-} as const
+export const chatLightTheme = {
+  ...defaultLightTheme,
+  colors: {
+    ...defaultLightTheme.colors,
+    background: '#f0f0f0', // light grey
+  },
+}
+
+export const chatDarkTheme = {
+  ...defaultDarkTheme,
+  colors: {
+    ...defaultDarkTheme.colors,
+    background: '#1f1c383a', // purple dark
+  },
+}
 
 // Common spacing values
 export const Spacing = {
@@ -34,291 +37,323 @@ export const FontSizes = {
   xxlarge: 24,
 } as const
 
-// Shared styles
-export const CommonStyles = StyleSheet.create({
-  // Container styles
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  centerContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  setupContainer: {
-    flex: 1,
-    padding: Spacing.lg,
-  },
-  scrollContent: {
-    paddingBottom: 20,
-  },
+// Function to create themed styles
+export const createThemedStyles = (colors: ThemeColors) => {
+  const isDark = colors.background === '#000000'
 
-  // Header styles
-  header: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: FontSizes.xlarge,
-    fontWeight: '600',
-    color: Colors.text,
-    textAlign: 'center',
-  },
-  headerButton: {
-    marginRight: 4,
-  },
-  headerButtonText: {
-    color: Colors.primary,
-    fontSize: FontSizes.large,
-    fontWeight: '500',
-  },
+  return StyleSheet.create({
+    // Container styles
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    centerContainer: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    setupContainer: {
+      flex: 1,
+      padding: Spacing.lg,
+    },
+    scrollContent: {
+      paddingBottom: 20,
+    },
 
-  // Text styles
-  setupDescription: {
-    fontSize: FontSizes.large,
-    color: Colors.textSecondary,
-    lineHeight: 24,
-    marginBottom: Spacing.xxl,
-    textAlign: 'center',
-  },
-  description: {
-    fontSize: FontSizes.medium,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-    marginVertical: Spacing.lg,
-    textAlign: 'center',
-  },
+    // Header styles
+    header: {
+      paddingHorizontal: Spacing.lg,
+      paddingVertical: Spacing.md,
+      backgroundColor: colors.surface,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      shadowColor: colors.shadow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.3 : 0.1,
+      shadowRadius: isDark ? 4 : 3,
+      elevation: 2,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    headerTitle: {
+      fontSize: FontSizes.xlarge,
+      fontWeight: '700',
+      color: colors.text,
+      textAlign: 'center',
+    },
+    headerButton: {
+      marginRight: 4,
+    },
+    headerButtonText: {
+      color: colors.primary,
+      fontSize: FontSizes.large,
+      fontWeight: '600',
+    },
 
-  // Button styles
-  button: {
-    margin: 10,
-    padding: 10,
-    backgroundColor: '#333',
-    borderRadius: 5,
-  },
-  buttonText: {
-    color: Colors.white,
-    fontSize: FontSizes.large,
-  },
-  primaryButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.md,
-    borderRadius: Spacing.sm,
-  },
-  primaryButtonText: {
-    color: Colors.white,
-    fontSize: FontSizes.large,
-    fontWeight: '600',
-  },
-  primaryButtonDisabled: {
-    backgroundColor: Colors.disabled,
-  },
-  primaryButtonActive: {
-    backgroundColor: '#1d4ed8', // Darker blue for active state
-    transform: [{ scale: 0.98 }],
-  },
-  secondaryButton: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    backgroundColor: Colors.error,
-    borderRadius: 6,
-  },
-  secondaryButtonText: {
-    color: Colors.white,
-    fontSize: FontSizes.medium,
-    fontWeight: '500',
-  },
-  textButton: {
-    fontSize: FontSizes.large,
-    color: Colors.primary,
-    fontWeight: '500',
-  },
-  disabledButton: {
-    opacity: 0.5,
-  },
+    // Text styles
+    setupDescription: {
+      fontSize: FontSizes.large,
+      color: colors.textSecondary,
+      lineHeight: 24,
+      marginBottom: Spacing.xxl,
+      textAlign: 'center',
+    },
+    description: {
+      fontSize: FontSizes.medium,
+      color: colors.textSecondary,
+      lineHeight: 20,
+      marginVertical: Spacing.lg,
+      textAlign: 'center',
+    },
 
-  // Loading styles
-  loadingContainer: {
-    alignItems: 'center',
-    marginTop: Spacing.xxl,
-  },
-  loadingText: {
-    marginTop: Spacing.sm,
-    fontSize: FontSizes.large,
-    color: Colors.textSecondary,
-  },
+    // Button styles
+    button: {
+      margin: 10,
+      padding: 10,
+      backgroundColor: colors.buttonBackground,
+      borderRadius: 5,
+      shadowColor: colors.shadow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.4 : 0.15,
+      shadowRadius: isDark ? 4 : 3,
+      elevation: 2,
+    },
+    buttonText: {
+      color: colors.white,
+      fontSize: FontSizes.large,
+      fontWeight: '600',
+    },
+    primaryButton: {
+      backgroundColor: colors.primary,
+      paddingHorizontal: Spacing.xl,
+      paddingVertical: Spacing.md,
+      borderRadius: Spacing.sm,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.5 : 0.25,
+      shadowRadius: isDark ? 6 : 4,
+      elevation: 3,
+    },
+    primaryButtonText: {
+      color: colors.white,
+      fontSize: FontSizes.large,
+      fontWeight: '700',
+    },
+    primaryButtonDisabled: {
+      backgroundColor: colors.disabled,
+    },
+    primaryButtonActive: {
+      backgroundColor: isDark ? '#0077DD' : '#0055AA',
+      transform: [{ scale: 0.98 }],
+      shadowOpacity: isDark ? 0.6 : 0.35,
+    },
+    secondaryButton: {
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.xs,
+      backgroundColor: colors.error,
+      borderRadius: 6,
+      shadowColor: colors.error,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.4 : 0.2,
+      shadowRadius: isDark ? 4 : 3,
+      elevation: 2,
+    },
+    secondaryButtonText: {
+      color: colors.white,
+      fontSize: FontSizes.medium,
+      fontWeight: '600',
+    },
+    textButton: {
+      fontSize: FontSizes.large,
+      color: colors.primary,
+      fontWeight: '500',
+    },
+    disabledButton: {
+      opacity: 0.5,
+    },
 
-  // Progress bar styles
-  progressContainer: {
-    marginTop: Spacing.lg,
-    width: '100%',
-    alignItems: 'center',
-  },
-  progressBar: {
-    width: '80%',
-    height: 8,
-    backgroundColor: Colors.border,
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.primary,
-    borderRadius: 4,
-  },
+    // Loading styles
+    loadingContainer: {
+      alignItems: 'center',
+      marginTop: Spacing.xxl,
+    },
+    loadingText: {
+      marginTop: Spacing.sm,
+      fontSize: FontSizes.large,
+      color: colors.textSecondary,
+    },
 
-  // Card styles
-  card: {
-    backgroundColor: Colors.white,
-    borderRadius: Spacing.md,
-    padding: Spacing.lg,
-    marginVertical: Spacing.sm,
-    marginHorizontal: Spacing.lg,
-    shadowColor: Colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
+    // Progress bar styles
+    progressContainer: {
+      marginTop: Spacing.lg,
+      width: '100%',
+      alignItems: 'center',
+    },
+    progressBar: {
+      width: '80%',
+      height: 8,
+      backgroundColor: colors.border,
+      borderRadius: 4,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      backgroundColor: colors.primary,
+      borderRadius: 4,
+    },
 
-  // Form styles
-  paramGroup: {
-    backgroundColor: Colors.white,
-    borderRadius: Spacing.md,
-    padding: Spacing.lg,
-    marginBottom: Spacing.md,
-  },
-  paramLabel: {
-    fontSize: FontSizes.large,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: 4,
-  },
-  paramDescription: {
-    fontSize: FontSizes.medium,
-    color: Colors.textSecondary,
-    lineHeight: 18,
-    marginBottom: Spacing.md,
-  },
-  textInput: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 10,
-    fontSize: FontSizes.large,
-    backgroundColor: Colors.inputBackground,
-  },
+    // Card styles
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: Spacing.md,
+      padding: Spacing.lg,
+      marginVertical: Spacing.sm,
+      marginHorizontal: Spacing.lg,
+      shadowColor: colors.shadow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.3 : 0.1,
+      shadowRadius: isDark ? 6 : 4,
+      elevation: 3,
+    },
 
-  // Modal styles
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: Colors.white,
-    borderRadius: Spacing.lg,
-    padding: Spacing.xl,
-    margin: Spacing.xl,
-    maxHeight: '80%',
-    maxWidth: '95%',
-    minWidth: '85%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  modalTitle: {
-    fontSize: FontSizes.xlarge,
-    fontWeight: '600',
-    color: Colors.text,
-  },
-  modalCloseButton: {
-    fontSize: FontSizes.xlarge,
-    color: Colors.primary,
-    fontWeight: '600',
-  },
+    // Form styles
+    paramGroup: {
+      backgroundColor: colors.surface,
+      borderRadius: Spacing.md,
+      padding: Spacing.lg,
+      marginBottom: Spacing.md,
+    },
+    paramLabel: {
+      fontSize: FontSizes.large,
+      fontWeight: '600',
+      color: colors.text,
+      marginBottom: 4,
+    },
+    paramDescription: {
+      fontSize: FontSizes.medium,
+      color: colors.textSecondary,
+      lineHeight: 18,
+      marginBottom: Spacing.md,
+    },
+    textInput: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: Spacing.sm,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: 10,
+      fontSize: FontSizes.large,
+      backgroundColor: colors.inputBackground,
+      color: colors.text,
+    },
 
-  // Settings styles
-  settingsContainer: {
-    alignItems: 'center',
-    marginVertical: Spacing.lg,
-  },
+    // Modal styles
+    modalContainer: {
+      flex: 1,
+      backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    modalContent: {
+      backgroundColor: colors.surface,
+      borderRadius: Spacing.lg,
+      padding: Spacing.xl,
+      margin: Spacing.xl,
+      maxHeight: '80%',
+      maxWidth: '95%',
+      minWidth: '85%',
+      shadowColor: colors.shadow,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.6 : 0.25,
+      shadowRadius: isDark ? 12 : 8,
+      elevation: 8,
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: Spacing.lg,
+      paddingVertical: Spacing.md,
+      backgroundColor: colors.surface,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    modalTitle: {
+      fontSize: FontSizes.xlarge,
+      fontWeight: '700',
+      color: colors.text,
+    },
+    modalCloseButton: {
+      fontSize: FontSizes.xlarge,
+      color: colors.primary,
+      fontWeight: '600',
+    },
 
-  // Utility styles
-  flexRow: {
-    flexDirection: 'row',
-  },
-  flexColumn: {
-    flexDirection: 'column',
-  },
-  alignCenter: {
-    alignItems: 'center',
-  },
-  justifyCenter: {
-    justifyContent: 'center',
-  },
-  justifyBetween: {
-    justifyContent: 'space-between',
-  },
-  flex1: {
-    flex: 1,
-  },
-  marginBottom: {
-    marginBottom: Spacing.lg,
-  },
-  marginTop: {
-    marginTop: Spacing.lg,
-  },
+    // Settings styles
+    settingsContainer: {
+      alignItems: 'center',
+      marginVertical: Spacing.lg,
+    },
 
-  // Custom Model Styles
-  modelSectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1e293b',
-    marginTop: 8,
-    marginBottom: 8,
-    letterSpacing: -0.3,
-  },
-  addCustomModelButton: {
-    backgroundColor: '#2563eb',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    marginHorizontal: 16,
-    marginVertical: 12,
-    shadowColor: '#2563eb',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  addCustomModelButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
-    textAlign: 'center',
-    letterSpacing: -0.2,
-  },
-  customModelDefaultSection: {
-    marginTop: 8,
-  },
-})
+    // Utility styles
+    flexRow: {
+      flexDirection: 'row',
+    },
+    flexColumn: {
+      flexDirection: 'column',
+    },
+    alignCenter: {
+      alignItems: 'center',
+    },
+    justifyCenter: {
+      justifyContent: 'center',
+    },
+    justifyBetween: {
+      justifyContent: 'space-between',
+    },
+    flex1: {
+      flex: 1,
+    },
+    marginBottom: {
+      marginBottom: Spacing.lg,
+    },
+    marginTop: {
+      marginTop: Spacing.lg,
+    },
+
+    // Custom Model Styles
+    modelSectionTitle: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: colors.text,
+      marginTop: 8,
+      marginBottom: 8,
+      letterSpacing: -0.3,
+    },
+    addCustomModelButton: {
+      backgroundColor: colors.primary,
+      borderRadius: 12,
+      paddingVertical: 14,
+      paddingHorizontal: 20,
+      marginHorizontal: 16,
+      marginVertical: 12,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.4 : 0.3,
+      shadowRadius: isDark ? 10 : 8,
+      elevation: 4,
+    },
+    addCustomModelButtonText: {
+      color: colors.white,
+      fontSize: 16,
+      fontWeight: '700',
+      textAlign: 'center',
+      letterSpacing: -0.2,
+    },
+    customModelDefaultSection: {
+      marginTop: 8,
+    },
+  })
+}

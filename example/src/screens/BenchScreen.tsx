@@ -7,6 +7,7 @@ import {
   TextInput,
   TouchableOpacity,
   Clipboard,
+  StyleSheet,
 } from 'react-native'
 import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
@@ -14,95 +15,13 @@ import CustomModelModal from '../components/CustomModelModal'
 import CustomModelCard from '../components/CustomModelCard'
 import { MaskedProgress } from '../components/MaskedProgress'
 import { HeaderButton } from '../components/HeaderButton'
-import { CommonStyles } from '../styles/commonStyles'
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type { ContextParams, CustomModel } from '../utils/storage'
 import { loadContextParams, loadCustomModels } from '../utils/storage'
 import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
 
-const styles = {
-  container: CommonStyles.container,
-  setupContainer: CommonStyles.setupContainer,
-  scrollContent: CommonStyles.scrollContent,
-  setupDescription: CommonStyles.setupDescription,
-  benchContainer: {
-    flex: 1,
-    padding: 16,
-  },
-  benchButtonContainer: {
-    marginBottom: 16,
-  },
-  benchButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center' as const,
-  },
-  benchButtonDisabled: {
-    backgroundColor: '#CCCCCC',
-  },
-  benchButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600' as const,
-  },
-  logContainer: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 16,
-  },
-  logTitle: {
-    fontSize: 16,
-    fontWeight: '600' as const,
-    color: '#333',
-    marginBottom: 8,
-  },
-  logArea: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 6,
-    padding: 8,
-    fontFamily: 'Courier',
-    fontSize: 12,
-    color: '#333',
-    textAlignVertical: 'top' as const,
-    minHeight: 200,
-  },
-  logControls: {
-    flexDirection: 'row' as const,
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  logButton: {
-    backgroundColor: '#6C757D',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  logButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600' as const,
-  },
-  modelNameText: {
-    fontSize: 18,
-    fontWeight: '600' as const,
-    color: '#333',
-  },
-  modelPathText: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-  },
-  logControlsContainer: {
-    flexDirection: 'row' as const,
-    justifyContent: 'space-between' as const,
-    marginTop: 8,
-  },
-}
 
 // Filter models to only include LLM models (no mmproj or vocoder)
 const LLM_MODELS = Object.entries(MODELS).filter(([_key, model]) => {
@@ -111,6 +30,102 @@ const LLM_MODELS = Object.entries(MODELS).filter(([_key, model]) => {
 })
 
 export default function BenchScreen({ navigation }: { navigation: any }) {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+
+  const styles = StyleSheet.create({
+    container: themedStyles.container,
+    setupContainer: themedStyles.setupContainer,
+    scrollContent: themedStyles.scrollContent,
+    setupDescription: themedStyles.setupDescription,
+    benchContainer: {
+      flex: 1,
+      padding: 16,
+    },
+    benchButtonContainer: {
+      marginBottom: 16,
+    },
+    benchButton: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 24,
+      paddingVertical: 12,
+      borderRadius: 8,
+      alignItems: 'center' as const,
+      shadowColor: theme.colors.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: theme.dark ? 0.4 : 0.25,
+      shadowRadius: theme.dark ? 6 : 4,
+      elevation: 3,
+    },
+    benchButtonDisabled: {
+      backgroundColor: theme.colors.disabled,
+      shadowOpacity: 0,
+    },
+    benchButtonText: {
+      color: theme.colors.white,
+      fontSize: 16,
+      fontWeight: '700' as const,
+    },
+    logContainer: {
+      flex: 1,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 8,
+      padding: 12,
+      marginTop: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    logTitle: {
+      fontSize: 16,
+      fontWeight: '600' as const,
+      color: theme.colors.text,
+      marginBottom: 8,
+    },
+    logArea: {
+      flex: 1,
+      backgroundColor: theme.colors.inputBackground,
+      borderRadius: 6,
+      padding: 8,
+      fontFamily: 'Courier',
+      fontSize: 12,
+      color: theme.colors.text,
+      textAlignVertical: 'top' as const,
+      minHeight: 200,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    logButton: {
+      backgroundColor: theme.colors.buttonBackground,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 6,
+      shadowColor: theme.colors.shadow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: theme.dark ? 0.3 : 0.15,
+      shadowRadius: theme.dark ? 4 : 3,
+      elevation: 2,
+    },
+    logButtonText: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: '600' as const,
+    },
+    modelNameText: {
+      fontSize: 18,
+      fontWeight: '600' as const,
+      color: theme.colors.text,
+    },
+    modelPathText: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      marginTop: 4,
+    },
+    logControlsContainer: {
+      flexDirection: 'row' as const,
+      justifyContent: 'space-between' as const,
+      marginTop: 8,
+    },
+  })
   const [context, setContext] = useState<LlamaContext | null>(null)
   const [isModelReady, setIsModelReady] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -316,7 +331,7 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
           {/* Custom Models Section */}
           {customModels.filter((model) => !model.mmprojFilename).length > 0 && (
             <>
-              <Text style={CommonStyles.modelSectionTitle}>
+              <Text style={themedStyles.modelSectionTitle}>
                 Custom Models
               </Text>
               {customModels
@@ -337,16 +352,16 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
 
           {/* Add Custom Model Button */}
           <TouchableOpacity
-            style={CommonStyles.addCustomModelButton}
+            style={themedStyles.addCustomModelButton}
             onPress={() => setShowCustomModelModal(true)}
           >
-            <Text style={CommonStyles.addCustomModelButtonText}>
+            <Text style={themedStyles.addCustomModelButtonText}>
               + Add Custom Model
             </Text>
           </TouchableOpacity>
 
           {/* Predefined Models Section */}
-          <Text style={CommonStyles.modelSectionTitle}>Default Models</Text>
+          <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
           {LLM_MODELS.map(([key, model]) => (
             <ModelDownloadCard
               key={key}

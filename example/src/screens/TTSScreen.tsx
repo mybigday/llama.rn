@@ -16,7 +16,8 @@ import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
 import TTSParamsModal from '../components/TTSParamsModal'
 import { AudioPlayer } from '../components/AudioPlayer'
-import { CommonStyles } from '../styles/commonStyles'
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type {
   ContextParams,
@@ -33,137 +34,109 @@ import { MaskedProgress } from '../components/MaskedProgress'
 import { createWavFile } from '../utils/audioUtils'
 import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
 
-const styles = StyleSheet.create({
-  // Using shared styles for common patterns
-  container: CommonStyles.container,
-  setupContainer: CommonStyles.setupContainer,
-  scrollContent: CommonStyles.scrollContent,
-  setupDescription: CommonStyles.setupDescription,
-  loadingContainer: CommonStyles.loadingContainer,
-  loadingText: CommonStyles.loadingText,
-  header: {
-    ...CommonStyles.header,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-  },
-  clearButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#FF3B30',
-    borderRadius: 6,
-  },
-  clearButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  content: {
-    flex: 1,
-    padding: 16,
-  },
-  inputSection: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 12,
-  },
-  textInput: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    minHeight: 120,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  characterCount: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'right',
-    marginTop: 4,
-  },
-  controlSection: {
-    marginBottom: 24,
-  },
-  generateButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  generateButtonDisabled: {
-    backgroundColor: '#C0C0C0',
-  },
-  generateButtonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  audioSection: {
-    marginBottom: 24,
-  },
-  audioCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  audioDescription: {
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 16,
-    fontStyle: 'italic',
-  },
-
-  infoSection: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
-    marginTop: 16,
-  },
-  infoText: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-  },
-  progressContainer: {
-    marginTop: 16,
-    width: '100%',
-    alignItems: 'center',
-  },
-  progressBar: {
-    width: '80%',
-    height: 8,
-    backgroundColor: '#E0E0E0',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#007AFF',
-    borderRadius: 4,
-  },
-})
-
 export default function TTSScreen({ navigation }: { navigation: any }) {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+
+  const styles = StyleSheet.create({
+    // Using themed styles for common patterns
+    container: themedStyles.container,
+    setupContainer: themedStyles.setupContainer,
+    scrollContent: themedStyles.scrollContent,
+    setupDescription: themedStyles.setupDescription,
+    loadingContainer: themedStyles.loadingContainer,
+    loadingText: themedStyles.loadingText,
+    header: {
+      ...themedStyles.header,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    headerTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: theme.colors.text,
+    },
+    textInput: {
+      ...themedStyles.textInput,
+      height: 120,
+      textAlignVertical: 'top',
+    },
+    button: themedStyles.primaryButton,
+    buttonText: themedStyles.primaryButtonText,
+    disabledButton: themedStyles.primaryButtonDisabled,
+    generateButton: {
+      backgroundColor: theme.colors.primary,
+      borderRadius: 12,
+      paddingVertical: 16,
+      alignItems: 'center',
+    },
+    generateButtonText: {
+      color: theme.colors.white,
+      fontSize: 18,
+      fontWeight: '600',
+    },
+    audioCard: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    audioDescription: {
+      fontSize: 16,
+      color: theme.colors.text,
+      marginBottom: 16,
+      fontStyle: 'italic',
+    },
+    infoSection: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    infoTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 8,
+      marginTop: 16,
+    },
+    infoText: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      lineHeight: 20,
+    },
+    content: {
+      flex: 1,
+      padding: 16,
+    },
+    inputSection: {
+      marginBottom: 24,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 12,
+    },
+    characterCount: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      textAlign: 'right',
+      marginTop: 4,
+    },
+    controlSection: {
+      marginBottom: 24,
+    },
+    generateButtonDisabled: {
+      backgroundColor: theme.colors.disabled,
+    },
+    audioSection: {
+      marginBottom: 24,
+    },
+  })
   const [inputText, setInputText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [context, setContext] = useState<LlamaContext | null>(null)
@@ -536,7 +509,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
                   <TouchableOpacity
                     style={[
                       styles.generateButton,
-                      { marginTop: 12, backgroundColor: '#34C759' },
+                      { marginTop: 12, backgroundColor: theme.colors.valid },
                     ]}
                     onPress={saveAudioAsWav}
                   >

@@ -13,7 +13,8 @@ import {
 } from 'react-native'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import type { LlamaContext } from '../../../src'
-import { CommonStyles } from '../styles/commonStyles'
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 import type { LLMMessage } from '../utils/llmMessages'
 
 interface MessagesModalProps {
@@ -27,233 +28,6 @@ interface MessagesModalProps {
   defaultSystemPrompt?: string
 }
 
-const styles = StyleSheet.create({
-  // Using common styles where possible
-  container: {
-    ...CommonStyles.container,
-    backgroundColor: '#f8f9fa',
-  },
-  header: {
-    ...CommonStyles.header,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  headerTitle: {
-    ...CommonStyles.headerTitle,
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1a1a1a',
-  },
-  closeButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: '#f1f3f4',
-  },
-  closeButtonText: {
-    fontSize: 16,
-    color: '#007AFF',
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-  },
-  contentContainer: {
-    ...CommonStyles.scrollContent,
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-  },
-  section: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 20,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 16,
-    letterSpacing: -0.2,
-  },
-  codeBlock: {
-    backgroundColor: '#1e1e1e',
-    borderRadius: 10,
-    padding: 20,
-    maxHeight: 320,
-    borderWidth: 1,
-    borderColor: '#333',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.15,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  codeText: {
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    fontSize: 13,
-    color: '#f8f8f2',
-    lineHeight: 18,
-    letterSpacing: 0.2,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    marginTop: 16,
-    gap: 12,
-  },
-  copyButton: {
-    flex: 1,
-    backgroundColor: '#007AFF',
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 48,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#007AFF',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
-  },
-  secondaryButton: {
-    backgroundColor: '#5856D6',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#5856D6',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
-  },
-  copyButtonText: {
-    color: 'white',
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  textArea: {
-    backgroundColor: '#f8f9fa',
-    borderRadius: 10,
-    padding: 18,
-    borderWidth: 2,
-    borderColor: '#e9ecef',
-    minHeight: 140,
-    fontSize: 14,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: '#1a1a1a',
-    lineHeight: 20,
-    textAlignVertical: 'top',
-  },
-  textAreaFocused: {
-    borderColor: '#007AFF',
-    backgroundColor: 'white',
-  },
-  importButton: {
-    backgroundColor: '#34C759',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 16,
-    minHeight: 52,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#34C759',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
-  },
-  disabledButton: {
-    backgroundColor: '#d1d5db',
-    ...Platform.select({
-      ios: {
-        shadowColor: 'transparent',
-      },
-      android: {
-        elevation: 0,
-      },
-    }),
-  },
-  importButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  disabledText: {
-    color: '#9ca3af',
-  },
-  messageCountBadge: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginLeft: 8,
-  },
-  messageCountText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#e9ecef',
-    marginVertical: 4,
-  },
-})
-
 const MessagesModal: React.FC<MessagesModalProps> = ({
   visible,
   onClose,
@@ -264,6 +38,222 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
   onUpdateSystemPrompt,
   defaultSystemPrompt = '',
 }) => {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+
+  const styles = StyleSheet.create({
+    container: {
+      ...themedStyles.container,
+      backgroundColor: theme.colors.background,
+    },
+    header: {
+      ...themedStyles.header,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: theme.colors.shadow,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.1,
+          shadowRadius: 2,
+        },
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    headerTitle: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: theme.colors.text,
+    },
+    closeButton: {
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      borderRadius: 8,
+      backgroundColor: theme.colors.card,
+    },
+    closeButtonText: {
+      fontSize: 16,
+      color: theme.colors.primary,
+      fontWeight: '600',
+    },
+    content: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+    },
+    contentContainer: {
+      paddingHorizontal: 20,
+      paddingVertical: 24,
+    },
+    section: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      padding: 20,
+      marginBottom: 20,
+      ...Platform.select({
+        ios: {
+          shadowColor: theme.colors.shadow,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+        },
+        android: {
+          elevation: 3,
+        },
+      }),
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: theme.colors.text,
+      marginBottom: 16,
+      letterSpacing: -0.2,
+    },
+    codeBlock: {
+      backgroundColor: theme.dark ? '#1E1E1E' : '#F8F9FA',
+      borderRadius: 10,
+      padding: 20,
+      maxHeight: 320,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: theme.colors.shadow,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.15,
+          shadowRadius: 4,
+        },
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    codeText: {
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+      fontSize: 13,
+      color: theme.dark ? '#F8F8F2' : theme.colors.text,
+      lineHeight: 18,
+      letterSpacing: 0.2,
+    },
+    buttonRow: {
+      flexDirection: 'row',
+      marginTop: 16,
+      gap: 12,
+    },
+    copyButton: {
+      flex: 1,
+      backgroundColor: theme.colors.primary,
+      paddingVertical: 14,
+      paddingHorizontal: 18,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 48,
+      ...Platform.select({
+        ios: {
+          shadowColor: theme.colors.primary,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.2,
+          shadowRadius: 4,
+        },
+        android: {
+          elevation: 3,
+        },
+      }),
+    },
+    secondaryButton: {
+      backgroundColor: '#5856D6',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#5856D6',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.2,
+          shadowRadius: 4,
+        },
+        android: {
+          elevation: 3,
+        },
+      }),
+    },
+    copyButtonText: {
+      color: theme.colors.white,
+      fontSize: 15,
+      fontWeight: '600',
+      letterSpacing: 0.2,
+    },
+    textArea: {
+      backgroundColor: theme.colors.card,
+      borderRadius: 10,
+      padding: 18,
+      borderWidth: 2,
+      borderColor: theme.colors.border,
+      minHeight: 140,
+      fontSize: 14,
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+      color: theme.colors.text,
+      lineHeight: 20,
+      textAlignVertical: 'top',
+    },
+    textAreaFocused: {
+      borderColor: theme.colors.primary,
+      backgroundColor: theme.colors.surface,
+    },
+    importButton: {
+      backgroundColor: theme.colors.valid,
+      paddingVertical: 16,
+      paddingHorizontal: 20,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 16,
+      minHeight: 52,
+    },
+    disabledButton: {
+      backgroundColor: theme.colors.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: 'transparent',
+        },
+        android: {
+          elevation: 0,
+        },
+      }),
+    },
+    importButtonText: {
+      color: theme.colors.white,
+      fontSize: 16,
+      fontWeight: '600',
+      letterSpacing: 0.2,
+    },
+    disabledText: {
+      color: theme.colors.textSecondary,
+    },
+    messageCountBadge: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 12,
+      marginLeft: 8,
+    },
+    messageCountText: {
+      color: theme.colors.white,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    divider: {
+      height: 1,
+      backgroundColor: theme.colors.border,
+      marginVertical: 4,
+    },
+  })
+
   const [importText, setImportText] = useState('')
   const [isImporting, setIsImporting] = useState(false)
   const [systemPrompt, setSystemPrompt] = useState('')
@@ -538,7 +528,7 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
             <TextInput
               style={[styles.textArea, { minHeight: 120 }]}
               placeholder="Enter system prompt..."
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={theme.colors.textSecondary}
               value={systemPrompt}
               onChangeText={handleSystemPromptChange}
               multiline
@@ -596,7 +586,7 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
                 textAreaFocused && styles.textAreaFocused
               ]}
               placeholder="Paste JSON messages here..."
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={theme.colors.textSecondary}
               value={importText}
               onChangeText={setImportText}
               onFocus={() => setTextAreaFocused(true)}

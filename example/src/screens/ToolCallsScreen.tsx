@@ -16,7 +16,7 @@ import {
   TouchableOpacity,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
+import { Chat } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
@@ -31,7 +31,8 @@ import { MaskedProgress } from '../components/MaskedProgress'
 import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
 import ToolsModal from '../components/ToolsModal'
-import { CommonStyles } from '../styles/commonStyles'
+import { createThemedStyles, chatDarkTheme, chatLightTheme } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type {
   ContextParams,
@@ -54,51 +55,6 @@ const randId = () => Math.random().toString(36).substr(2, 7)
 const DEFAULT_SYSTEM_PROMPT =
   'You are a helpful AI assistant with access to tools. You can call tools to help answer user questions.'
 
-const styles = StyleSheet.create({
-  // Using shared styles for common patterns
-  container: CommonStyles.container,
-  header: {
-    ...CommonStyles.header,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerTitle: CommonStyles.headerTitle,
-  headerSubtitle: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  setupContainer: CommonStyles.setupContainer,
-  scrollContent: CommonStyles.scrollContent,
-  setupDescription: CommonStyles.setupDescription,
-  loadingContainer: CommonStyles.loadingContainer,
-  loadingText: CommonStyles.loadingText,
-  progressContainer: CommonStyles.progressContainer,
-  progressBar: CommonStyles.progressBar,
-  progressFill: CommonStyles.progressFill,
-  settingsContainer: {
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  settingsButtonStyle: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  settingsButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  settingsButton: {
-    color: '#007AFF',
-    fontSize: 14,
-    textDecorationLine: 'underline',
-  },
-})
 
 interface ToolCall {
   id: string
@@ -168,6 +124,51 @@ const AVAILABLE_TOOLS = [
 ]
 
 export default function ToolCallsScreen({ navigation }: { navigation: any }) {
+  const { isDark, theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+
+  const styles = StyleSheet.create({
+    // Using themed styles for common patterns
+    container: themedStyles.container,
+    header: {
+      ...themedStyles.header,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    headerTitle: themedStyles.headerTitle,
+    headerSubtitle: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      textAlign: 'center',
+      marginTop: 4,
+    },
+    setupContainer: themedStyles.setupContainer,
+    scrollContent: themedStyles.scrollContent,
+    setupDescription: themedStyles.setupDescription,
+    loadingContainer: themedStyles.loadingContainer,
+    loadingText: themedStyles.loadingText,
+    progressContainer: themedStyles.progressContainer,
+    progressBar: themedStyles.progressBar,
+    progressFill: themedStyles.progressFill,
+    settingsContainer: {
+      alignItems: 'center',
+      marginTop: 20,
+    },
+    settingsButtonStyle: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 6,
+      margin: 4,
+    },
+    settingsButtonTextStyle: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: '500',
+    },
+  })
+
   const messagesRef = useRef<MessageType.Any[]>([])
   const [, setMessagesVersion] = useState(0) // For UI updates
   const [isLoading, setIsLoading] = useState(false)
@@ -692,7 +693,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           {/* Custom Models Section */}
           {customModels.filter((model) => !model.mmprojFilename).length > 0 && (
             <>
-              <Text style={CommonStyles.modelSectionTitle}>Custom Models</Text>
+              <Text style={themedStyles.modelSectionTitle}>Custom Models</Text>
               {customModels
                 .filter((model) => !model.mmprojFilename) // Only show non-multimodal models
                 .map((model) => (
@@ -711,16 +712,16 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
 
           {/* Add Custom Model Button */}
           <TouchableOpacity
-            style={CommonStyles.addCustomModelButton}
+            style={themedStyles.addCustomModelButton}
             onPress={() => setShowCustomModelModal(true)}
           >
-            <Text style={CommonStyles.addCustomModelButtonText}>
+            <Text style={themedStyles.addCustomModelButtonText}>
               + Add Custom Model
             </Text>
           </TouchableOpacity>
 
           {/* Predefined Models Section */}
-          <Text style={CommonStyles.modelSectionTitle}>Default Models</Text>
+          <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
           {[
             'SMOL_LM_3',
             'GEMMA_3_4B_QAT',
@@ -770,7 +771,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
     <View style={styles.container}>
       <Chat
         renderBubble={renderBubble}
-        theme={defaultTheme}
+        theme={isDark ? chatDarkTheme : chatLightTheme}
         messages={messagesRef.current}
         onSendPress={handleSendPress}
         user={user}

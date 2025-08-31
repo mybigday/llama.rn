@@ -7,55 +7,8 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native'
-import { CommonStyles } from '../styles/commonStyles'
-
-const styles = StyleSheet.create({
-  paramGroup: CommonStyles.paramGroup,
-  paramLabel: CommonStyles.paramLabel,
-  paramDescription: CommonStyles.paramDescription,
-  textInput: CommonStyles.textInput,
-  switchRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  switchInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  stopSequenceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  stopSequenceInput: {
-    flex: 1,
-    marginRight: 8,
-  },
-  removeButton: {
-    backgroundColor: '#FF3B30',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  removeButtonText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  addButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 10,
-    borderRadius: 8,
-    marginTop: 8,
-  },
-  addButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-})
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface ParameterTextInputProps {
   label: string
@@ -74,16 +27,20 @@ export function ParameterTextInput({
   placeholder,
   keyboardType = 'ascii-capable',
 }: ParameterTextInputProps) {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+
   return (
-    <View style={styles.paramGroup}>
-      <Text style={styles.paramLabel}>{label}</Text>
-      <Text style={styles.paramDescription}>{description}</Text>
+    <View style={themedStyles.paramGroup}>
+      <Text style={themedStyles.paramLabel}>{label}</Text>
+      <Text style={themedStyles.paramDescription}>{description}</Text>
       <TextInput
-        style={styles.textInput}
+        style={themedStyles.textInput}
         value={value}
         onChangeText={onChangeText}
         keyboardType={keyboardType}
         placeholder={placeholder}
+        placeholderTextColor={theme.colors.textSecondary}
       />
     </View>
   )
@@ -102,18 +59,33 @@ export function ParameterSwitch({
   value,
   onValueChange,
 }: ParameterSwitchProps) {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+
+  const styles = StyleSheet.create({
+    switchRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    switchInfo: {
+      flex: 1,
+      marginRight: 12,
+    },
+  })
+
   return (
-    <View style={styles.paramGroup}>
+    <View style={themedStyles.paramGroup}>
       <View style={styles.switchRow}>
         <View style={styles.switchInfo}>
-          <Text style={styles.paramLabel}>{label}</Text>
-          <Text style={styles.paramDescription}>{description}</Text>
+          <Text style={themedStyles.paramLabel}>{label}</Text>
+          <Text style={themedStyles.paramDescription}>{description}</Text>
         </View>
         <Switch
           value={value}
           onValueChange={onValueChange}
-          trackColor={{ false: '#E0E0E0', true: '#007AFF' }}
-          thumbColor={value ? '#FFFFFF' : '#FFFFFF'}
+          trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+          thumbColor={theme.colors.white}
         />
       </View>
     </View>
@@ -133,10 +105,48 @@ export function StopSequenceField({
   onRemoveStopSequence,
   onAddStopSequence,
 }: StopSequenceFieldProps) {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+
+  const styles = StyleSheet.create({
+    stopSequenceContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    stopSequenceInput: {
+      flex: 1,
+      marginRight: 8,
+    },
+    removeButton: {
+      backgroundColor: theme.colors.error,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 6,
+    },
+    removeButtonText: {
+      color: theme.colors.white,
+      fontSize: 12,
+      fontWeight: '500',
+    },
+    addButton: {
+      backgroundColor: theme.colors.primary,
+      paddingVertical: 10,
+      borderRadius: 8,
+      marginTop: 8,
+    },
+    addButtonText: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: '500',
+      textAlign: 'center',
+    },
+  })
+
   return (
-    <View style={styles.paramGroup}>
-      <Text style={styles.paramLabel}>Stop Sequences</Text>
-      <Text style={styles.paramDescription}>
+    <View style={themedStyles.paramGroup}>
+      <Text style={themedStyles.paramLabel}>Stop Sequences</Text>
+      <Text style={themedStyles.paramDescription}>
         Text sequences that will stop generation when encountered. Common
         examples: `User:`, `Llama:`, `Assistant:`
       </Text>
@@ -144,10 +154,11 @@ export function StopSequenceField({
       {stopSequences.map((stopSeq, index) => (
         <View key={index} style={styles.stopSequenceContainer}>
           <TextInput
-            style={[styles.textInput, styles.stopSequenceInput]}
+            style={[themedStyles.textInput, styles.stopSequenceInput]}
             value={stopSeq}
             onChangeText={(text) => onUpdateStopSequence(index, text)}
             placeholder="Enter stop sequence"
+            placeholderTextColor={theme.colors.textSecondary}
             autoCorrect={false}
             autoComplete="off"
             autoCapitalize="none"

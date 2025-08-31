@@ -10,11 +10,10 @@ import {
   Text,
   ScrollView,
   Alert,
-  StyleSheet,
   TouchableOpacity,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
+import { Chat } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
@@ -28,7 +27,8 @@ import { Menu } from '../components/Menu'
 import { MessagesModal } from '../components/MessagesModal'
 import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
-import { CommonStyles } from '../styles/commonStyles'
+import { createThemedStyles, chatDarkTheme, chatLightTheme } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type {
   ContextParams,
@@ -51,15 +51,10 @@ const randId = () => Math.random().toString(36).substr(2, 9)
 const DEFAULT_SYSTEM_PROMPT =
   'You are a helpful, harmless, and honest AI assistant. Be concise and helpful in your responses.'
 
-// Using shared styles, keeping only component-specific styles if needed
-const styles = StyleSheet.create({
-  container: CommonStyles.container,
-  setupContainer: CommonStyles.setupContainer,
-  scrollContent: CommonStyles.scrollContent,
-  setupDescription: CommonStyles.setupDescription,
-})
-
 export default function SimpleChatScreen({ navigation }: { navigation: any }) {
+  const { isDark, theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+
   const messagesRef = useRef<MessageType.Any[]>([])
   const [, setMessagesVersion] = useState(0) // For UI updates
   const [isLoading, setIsLoading] = useState(false)
@@ -397,12 +392,12 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
 
   if (!isModelReady) {
     return (
-      <View style={styles.container}>
+      <View style={themedStyles.container}>
         <ScrollView
-          style={styles.setupContainer}
-          contentContainerStyle={styles.scrollContent}
+          style={themedStyles.setupContainer}
+          contentContainerStyle={themedStyles.scrollContent}
         >
-          <Text style={styles.setupDescription}>
+          <Text style={themedStyles.setupDescription}>
             Download the model to start chatting. This model provides fast,
             efficient text generation for conversational AI.
           </Text>
@@ -410,7 +405,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           {/* Custom Models Section */}
           {customModels.length > 0 && (
             <>
-              <Text style={CommonStyles.modelSectionTitle}>Custom Models</Text>
+              <Text style={themedStyles.modelSectionTitle}>Custom Models</Text>
               {customModels.map((model) => (
                 <CustomModelCard
                   key={model.id}
@@ -425,16 +420,16 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
 
           {/* Add Custom Model Button */}
           <TouchableOpacity
-            style={CommonStyles.addCustomModelButton}
+            style={themedStyles.addCustomModelButton}
             onPress={() => setShowCustomModelModal(true)}
           >
-            <Text style={CommonStyles.addCustomModelButtonText}>
+            <Text style={themedStyles.addCustomModelButtonText}>
               + Add Custom Model
             </Text>
           </TouchableOpacity>
 
           {/* Predefined Models Section */}
-          <Text style={CommonStyles.modelSectionTitle}>Default Models</Text>
+          <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
           {[
             'SMOL_LM_3',
             'GEMMA_3_4B_QAT',
@@ -481,10 +476,10 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={themedStyles.container}>
       <Chat
         renderBubble={renderBubble}
-        theme={defaultTheme}
+        theme={isDark ? chatDarkTheme : chatLightTheme}
         messages={messagesRef.current}
         onSendPress={handleSendPress}
         user={user}

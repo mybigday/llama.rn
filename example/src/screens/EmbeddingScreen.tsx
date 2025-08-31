@@ -15,12 +15,8 @@ import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import { MaskedProgress } from '../components/MaskedProgress'
 import { HeaderButton } from '../components/HeaderButton'
-import {
-  CommonStyles,
-  Colors,
-  Spacing,
-  FontSizes,
-} from '../styles/commonStyles'
+import { createThemedStyles, Spacing, FontSizes } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type { ContextParams } from '../utils/storage'
 import { loadContextParams } from '../utils/storage'
@@ -57,125 +53,6 @@ const calculateCosineSimilarity = (vecA: number[], vecB: number[]): number => {
   return normProduct === 0 ? 0 : dotProduct / normProduct
 }
 
-const styles = StyleSheet.create({
-  container: CommonStyles.container,
-  setupContainer: CommonStyles.setupContainer,
-  scrollContent: CommonStyles.scrollContent,
-  headerInfo: {
-    backgroundColor: Colors.white,
-    padding: Spacing.lg,
-    marginBottom: Spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  modelInfo: {
-    fontSize: FontSizes.large,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: Spacing.xs,
-  },
-  embeddingCount: {
-    fontSize: FontSizes.medium,
-    color: Colors.textSecondary,
-  },
-  modelsContainer: {
-    marginTop: Spacing.lg,
-  },
-  section: {
-    backgroundColor: Colors.white,
-    margin: Spacing.sm,
-    padding: Spacing.lg,
-    borderRadius: Spacing.md,
-    shadowColor: Colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-  },
-  sectionTitle: {
-    fontSize: FontSizes.xlarge,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: Spacing.md,
-  },
-  textInput: {
-    ...CommonStyles.textInput,
-    minHeight: 80,
-    textAlignVertical: 'top',
-    marginBottom: Spacing.md,
-  },
-  embeddingItem: {
-    backgroundColor: Colors.inputBackground,
-    padding: Spacing.md,
-    marginBottom: Spacing.sm,
-    borderRadius: Spacing.sm,
-    borderLeftWidth: 4,
-    borderLeftColor: Colors.primary,
-  },
-  embeddingText: {
-    fontSize: FontSizes.medium,
-    color: Colors.text,
-    lineHeight: 20,
-    marginBottom: Spacing.xs,
-  },
-  embeddingDimension: {
-    fontSize: FontSizes.small,
-    color: Colors.textSecondary,
-  },
-  searchResult: {
-    backgroundColor: Colors.white,
-    padding: Spacing.md,
-    marginBottom: Spacing.sm,
-    borderRadius: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  searchResultHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.xs,
-  },
-  searchResultRank: {
-    fontSize: FontSizes.medium,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-  similarityScore: {
-    fontSize: FontSizes.small,
-    fontWeight: '500',
-    backgroundColor: Colors.primary,
-    color: Colors.white,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  searchResultText: {
-    fontSize: FontSizes.medium,
-    color: Colors.text,
-    lineHeight: 20,
-  },
-  importButton: {
-    backgroundColor: Colors.white,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    borderRadius: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-  },
-  importButtonText: {
-    color: Colors.primary,
-    fontSize: FontSizes.medium,
-    fontWeight: '500',
-  },
-})
-
 const availableModels = Object.keys(MODELS)
   .map((key) => ({
     key,
@@ -193,6 +70,129 @@ const EXAMPLE_TEXTS = [
 
 const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
   const insets = useSafeAreaInsets()
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+    },
+    headerInfo: {
+      backgroundColor: theme.colors.surface,
+      padding: Spacing.lg,
+      marginBottom: Spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+    },
+    modelInfo: {
+      fontSize: FontSizes.large,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: Spacing.xs,
+    },
+    embeddingCount: {
+      fontSize: FontSizes.medium,
+      color: theme.colors.textSecondary,
+    },
+    modelsContainer: {
+      marginTop: Spacing.lg,
+    },
+    section: {
+      backgroundColor: theme.colors.surface,
+      margin: Spacing.sm,
+      padding: Spacing.lg,
+      borderRadius: Spacing.md,
+      shadowColor: theme.colors.shadow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: theme.dark ? 0.3 : 0.1,
+      shadowRadius: theme.dark ? 6 : 4,
+      elevation: 3,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: Spacing.md,
+    },
+    sectionTitle: {
+      fontSize: FontSizes.xlarge,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: Spacing.md,
+    },
+    textInput: {
+      ...themedStyles.textInput,
+      minHeight: 80,
+      textAlignVertical: 'top',
+      marginBottom: Spacing.md,
+    },
+    embeddingItem: {
+      backgroundColor: theme.colors.inputBackground,
+      padding: Spacing.md,
+      marginBottom: Spacing.sm,
+      borderRadius: Spacing.sm,
+      borderLeftWidth: 4,
+      borderLeftColor: theme.colors.primary,
+    },
+    embeddingText: {
+      fontSize: FontSizes.medium,
+      color: theme.colors.text,
+      lineHeight: 20,
+      marginBottom: Spacing.xs,
+    },
+    embeddingDimension: {
+      fontSize: FontSizes.small,
+      color: theme.colors.textSecondary,
+    },
+    searchResult: {
+      backgroundColor: theme.colors.card,
+      padding: Spacing.md,
+      marginBottom: Spacing.sm,
+      borderRadius: Spacing.sm,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    searchResultHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: Spacing.xs,
+    },
+    searchResultRank: {
+      fontSize: FontSizes.medium,
+      fontWeight: '600',
+      color: theme.colors.primary,
+    },
+    similarityScore: {
+      fontSize: FontSizes.small,
+      fontWeight: '500',
+      backgroundColor: theme.colors.primary,
+      color: theme.colors.white,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: 2,
+      borderRadius: 12,
+    },
+    searchResultText: {
+      fontSize: FontSizes.medium,
+      color: theme.colors.text,
+      lineHeight: 20,
+    },
+    importButton: {
+      backgroundColor: theme.colors.surface,
+      borderWidth: 1,
+      borderColor: theme.colors.primary,
+      borderRadius: Spacing.sm,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.xs,
+    },
+    importButtonText: {
+      color: theme.colors.primary,
+      fontSize: FontSizes.medium,
+      fontWeight: '500',
+    },
+  })
   const [context, setContext] = useState<LlamaContext | null>(null)
   const [embeddings, setEmbeddings] = useState<EmbeddingData[]>([])
   const [inputText, setInputText] = useState('')
@@ -257,8 +257,9 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
     setInitProgress(0)
 
     try {
-      const newContext = await initLlama(modelConfig, (progress) => setInitProgress(progress))
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const newContext = await initLlama(modelConfig, (progress) =>
+        setInitProgress(progress),
+      )
       setContext(newContext)
       setIsModelReady(true)
       setInitProgress(100)
@@ -387,37 +388,39 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
   }: {
     item: SearchResult
     index: number
-  }) => (
-    <View
-      style={[
-        styles.searchResult,
-        { backgroundColor: index < 3 ? '#f0f8ff' : Colors.white },
-      ]}
-    >
-      <View style={styles.searchResultHeader}>
-        <Text style={styles.searchResultRank}>{`#${index + 1}`}</Text>
-        <Text style={styles.similarityScore}>
-          {`${(item.similarity * 100).toFixed(1)}% match`}
-        </Text>
+  }) => {
+    let backgroundColor = theme.colors.card
+    if (index < 3) {
+      backgroundColor = theme.dark ? '#1a365d' : '#f0f8ff'
+    }
+
+    return (
+      <View style={[styles.searchResult, { backgroundColor }]}>
+        <View style={styles.searchResultHeader}>
+          <Text style={styles.searchResultRank}>{`#${index + 1}`}</Text>
+          <Text style={styles.similarityScore}>
+            {`${(item.similarity * 100).toFixed(1)}% match`}
+          </Text>
+        </View>
+        <Text style={styles.searchResultText}>{item.text}</Text>
       </View>
-      <Text style={styles.searchResultText}>{item.text}</Text>
-    </View>
-  )
+    )
+  }
 
   if (!context) {
     return (
       <View style={styles.container}>
         <ScrollView
-          style={styles.setupContainer}
-          contentContainerStyle={styles.scrollContent}
+          style={themedStyles.setupContainer}
+          contentContainerStyle={themedStyles.scrollContent}
         >
-          <Text style={CommonStyles.setupDescription}>
+          <Text style={themedStyles.setupDescription}>
             Very simple example to show how to use vector embeddings and
             semantic search in memory.
           </Text>
 
           <View style={styles.modelsContainer}>
-            <Text style={CommonStyles.modelSectionTitle}>Available Models</Text>
+            <Text style={themedStyles.modelSectionTitle}>Available Models</Text>
             {availableModels.map((model) => (
               <ModelDownloadCard
                 key={model.key}
@@ -437,6 +440,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
           </View>
         </ScrollView>
 
+        {/* Modals */}
         <ContextParamsModal
           visible={showContextParamsModal}
           onClose={() => setShowContextParamsModal(false)}
@@ -454,7 +458,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
   }
 
   return (
-    <View style={[CommonStyles.container, { paddingTop: insets.top }]}>
+    <View style={[themedStyles.container, { paddingTop: insets.top }]}>
       <ScrollView style={styles.container}>
         {/* Header Info */}
         <View style={styles.headerInfo}>
@@ -477,13 +481,13 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
             <TouchableOpacity
               style={[
                 styles.importButton,
-                isImporting && CommonStyles.disabledButton,
+                isImporting && themedStyles.disabledButton,
               ]}
               onPress={handleImportExamples}
               disabled={isImporting}
             >
               {isImporting ? (
-                <ActivityIndicator color={Colors.primary} size="small" />
+                <ActivityIndicator color={theme.colors.primary} size="small" />
               ) : (
                 <Text style={styles.importButtonText}>Import Examples</Text>
               )}
@@ -492,6 +496,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
           <TextInput
             style={styles.textInput}
             placeholder="Enter text to embed..."
+            placeholderTextColor={theme.colors.textSecondary}
             value={inputText}
             onChangeText={setInputText}
             multiline
@@ -499,16 +504,16 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
           />
           <TouchableOpacity
             style={[
-              CommonStyles.primaryButton,
-              (!inputText.trim() || isEmbedding) && CommonStyles.disabledButton,
+              themedStyles.primaryButton,
+              (!inputText.trim() || isEmbedding) && themedStyles.disabledButton,
             ]}
             onPress={handleAddEmbedding}
             disabled={!inputText.trim() || isEmbedding}
           >
             {isEmbedding ? (
-              <ActivityIndicator color={Colors.white} size="small" />
+              <ActivityIndicator color={theme.colors.white} size="small" />
             ) : (
-              <Text style={CommonStyles.primaryButtonText}>Add to Memory</Text>
+              <Text style={themedStyles.primaryButtonText}>Add to Memory</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -519,6 +524,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
           <TextInput
             style={styles.textInput}
             placeholder="Enter search query..."
+            placeholderTextColor={theme.colors.textSecondary}
             value={queryText}
             onChangeText={setQueryText}
             multiline
@@ -526,9 +532,9 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
           />
           <TouchableOpacity
             style={[
-              CommonStyles.primaryButton,
+              themedStyles.primaryButton,
               (!queryText.trim() || embeddings.length === 0 || isSearching) &&
-                CommonStyles.disabledButton,
+                themedStyles.disabledButton,
             ]}
             onPress={handleSearch}
             disabled={
@@ -536,9 +542,9 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
             }
           >
             {isSearching ? (
-              <ActivityIndicator color={Colors.white} size="small" />
+              <ActivityIndicator color={theme.colors.white} size="small" />
             ) : (
-              <Text style={CommonStyles.primaryButtonText}>Search (Top 3)</Text>
+              <Text style={themedStyles.primaryButtonText}>Search (Top 3)</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -562,10 +568,10 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>All Embeddings</Text>
               <TouchableOpacity
-                style={CommonStyles.secondaryButton}
+                style={themedStyles.secondaryButton}
                 onPress={clearEmbeddings}
               >
-                <Text style={CommonStyles.secondaryButtonText}>Clear All</Text>
+                <Text style={themedStyles.secondaryButtonText}>Clear All</Text>
               </TouchableOpacity>
             </View>
             <FlatList

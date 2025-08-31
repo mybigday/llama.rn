@@ -10,6 +10,7 @@ import {
 } from 'react-native'
 import { ModelDownloader } from '../services/ModelDownloader'
 import type { DownloadProgress } from '../services/ModelDownloader'
+import { useTheme } from '../contexts/ThemeContext'
 
 // Common interfaces and types
 interface ModelFile {
@@ -68,15 +69,15 @@ interface MtmdModelDownloadCardProps {
   isLocalFile?: boolean
 }
 
-// Common styles
-const styles = StyleSheet.create({
+// Create themed styles function
+const createStyles = (theme: any) => StyleSheet.create({
   card: {
-    backgroundColor: 'white',
+    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     padding: 16,
     marginVertical: 8,
     marginHorizontal: 16,
-    shadowColor: '#000',
+    shadowColor: theme.colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -97,23 +98,23 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: theme.colors.text,
     flexShrink: 1,
   },
   size: {
     fontSize: 14,
-    color: '#666',
+    color: theme.colors.textSecondary,
     fontWeight: '500',
   },
   sizeColumn: {
     fontSize: 14,
-    color: '#666',
+    color: theme.colors.textSecondary,
     fontWeight: '500',
     marginTop: 4,
   },
   description: {
     fontSize: 14,
-    color: '#666',
+    color: theme.colors.textSecondary,
     marginBottom: 16,
     lineHeight: 20,
   },
@@ -122,18 +123,18 @@ const styles = StyleSheet.create({
   },
   progressBar: {
     height: 4,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: theme.colors.border,
     borderRadius: 2,
     marginBottom: 8,
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.colors.primary,
     borderRadius: 2,
   },
   progressText: {
     fontSize: 12,
-    color: '#666',
+    color: theme.colors.textSecondary,
     textAlign: 'center',
   },
   buttonContainer: {
@@ -142,14 +143,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   downloadButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.colors.primary,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
     flex: 1,
   },
   downloadButtonText: {
-    color: 'white',
+    color: theme.colors.white,
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
@@ -163,7 +164,7 @@ const styles = StyleSheet.create({
   downloadingText: {
     marginLeft: 8,
     fontSize: 16,
-    color: '#007AFF',
+    color: theme.colors.primary,
   },
   downloadedContainer: {
     flexDirection: 'row',
@@ -186,25 +187,25 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   deleteButton: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: theme.colors.error,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 6,
   },
   deleteButtonText: {
-    color: 'white',
+    color: theme.colors.white,
     fontSize: 14,
     fontWeight: '500',
   },
   initializeButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.colors.primary,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 6,
     marginLeft: 8,
   },
   initializeButtonText: {
-    color: 'white',
+    color: theme.colors.white,
     fontSize: 14,
     fontWeight: '500',
   },
@@ -234,6 +235,8 @@ function BaseModelDownloadCard({
   initializeButtonText = 'Initialize',
   isLocalFile = false,
 }: BaseModelDownloadCardProps) {
+  const { theme } = useTheme()
+  const styles = createStyles(theme)
   const [isDownloaded, setIsDownloaded] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [progress, setProgress] = useState<DownloadProgress | null>(null)
@@ -450,7 +453,7 @@ function BaseModelDownloadCard({
 
         {isDownloading && (
           <View style={styles.downloadingContainer}>
-            <ActivityIndicator size="small" color="#007AFF" />
+            <ActivityIndicator size="small" color={theme.colors.primary} />
             <Text style={styles.downloadingText}>Downloading...</Text>
           </View>
         )}
