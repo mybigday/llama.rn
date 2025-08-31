@@ -32,7 +32,7 @@ lm_ggml_type kv_cache_type_from_str(const std::string & s);
 // Forward declarations - actual definitions are in rn-completion.h
 // Note: enum forward declarations not allowed in C++, using include in implementation file
 struct completion_token_output;
-struct completion_partial_output;
+struct completion_chat_output;
 struct llama_rn_context_mtmd;
 
 struct llama_rn_context_tts;

@@ -781,7 +781,7 @@
                 tokenResult[@"completion_probabilities"] = [self tokenProbsToDict:probs_output];
             }
 
-            auto partial_output = llama->completion->getPartialOutput(token_text);
+            auto partial_output = llama->completion->parseChatOutput(true);
             if (!partial_output.content.empty()) {
                 tokenResult[@"content"] = [NSString stringWithUTF8String:partial_output.content.c_str()];
             }
@@ -823,23 +823,13 @@
 
     if (!llama->completion->is_interrupted) {
         try {
-            common_chat_syntax chat_syntax;
-            chat_syntax.format = static_cast<common_chat_format>(chat_format);
-
-            NSString *reasoningFormat = params[@"reasoning_format"];
-            if (!reasoningFormat) reasoningFormat = @"none";
-            std::string reasoningFormatStr = [reasoningFormat UTF8String];
-            chat_syntax.reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
-            chat_syntax.thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
-
-            std::string full_text = llama->completion->prefill_text + llama->completion->generated_text;
-            common_chat_msg message = common_chat_parse(full_text, false, chat_syntax);
-            if (!message.reasoning_content.empty()) {
-                reasoningContent = [NSString stringWithUTF8String:message.reasoning_content.c_str()];
+            auto final_output = llama->completion->parseChatOutput(false);
+            if (!final_output.reasoning_content.empty()) {
+                reasoningContent = [NSString stringWithUTF8String:final_output.reasoning_content.c_str()];
             }
-            content = [NSString stringWithUTF8String:message.content.c_str()];
+            content = [NSString stringWithUTF8String:final_output.content.c_str()];
             toolCalls = [[NSMutableArray alloc] init];
-            for (const auto &tc : message.tool_calls) {
+            for (const auto &tc : final_output.tool_calls) {
                 [toolCalls addObject:@{
                     @"type": @"function",
                     @"function": @{

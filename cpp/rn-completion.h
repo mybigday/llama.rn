@@ -38,7 +38,7 @@ struct completion_token_output
     llama_token tok;
 };
 
-struct completion_partial_output
+struct completion_chat_output
 {
   std::string content;
   std::string reasoning_content;
@@ -95,7 +95,7 @@ struct llama_rn_context_completion {
     completion_token_output nextToken();
     size_t findStoppingStrings(const std::string &text, const size_t last_token_size, const stop_type type);
     completion_token_output doCompletion();
-    completion_partial_output getPartialOutput(const std::string &token_text);
+    completion_chat_output parseChatOutput(bool is_partial);
 
     // Embedding methods
     std::vector<float> embedding(common_params &embd_params);

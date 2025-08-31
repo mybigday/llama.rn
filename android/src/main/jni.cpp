@@ -1125,7 +1125,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
               putArray(env, tokenResult, "completion_probabilities", tokenProbsToMap(env, llama, probs_output));
             }
 
-            auto partial_output = llama->completion->getPartialOutput(token_text);
+            auto partial_output = llama->completion->parseChatOutput(true);
             if (!partial_output.content.empty()) {
                 putString(env, tokenResult, "content", partial_output.content.c_str());
             }
@@ -1179,26 +1179,12 @@ Java_com_rnllama_LlamaContext_doCompletion(
     auto toolCallsSize = 0;
     if (!llama->completion->is_interrupted) {
         try {
-            common_chat_syntax chat_syntax;
-            chat_syntax.format = static_cast<common_chat_format>(chat_format);
-
-            const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
-            if (!reasoning_format_chars) reasoning_format_chars = "none";
-            std::string reasoning_format_str = reasoning_format_chars;
-            chat_syntax.reasoning_format = common_reasoning_format_from_name(reasoning_format_str);
-            chat_syntax.thinking_forced_open = thinking_forced_open;
-            env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
-            std::string full_text = llama->completion->prefill_text + llama->completion->generated_text;
-            common_chat_msg message = common_chat_parse(
-              full_text,
-              false,
-              chat_syntax
-            );
-            if (!message.reasoning_content.empty()) {
-                reasoningContent = message.reasoning_content;
+            auto final_output = llama->completion->parseChatOutput(false);
+            if (!final_output.reasoning_content.empty()) {
+                reasoningContent = final_output.reasoning_content;
             }
-            content = message.content;
-            for (const auto &tc : message.tool_calls) {
+            content = final_output.content;
+            for (const auto &tc : final_output.tool_calls) {
                 auto toolCall = createWriteableMap(env);
                 putString(env, toolCall, "type", "function");
                 auto functionMap = createWriteableMap(env);

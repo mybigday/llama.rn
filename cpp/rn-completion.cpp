@@ -491,16 +491,16 @@ completion_token_output llama_rn_context_completion::doCompletion()
     return token_with_probs;
 }
 
-completion_partial_output llama_rn_context_completion::getPartialOutput(const std::string &token_text) {
+completion_chat_output llama_rn_context_completion::parseChatOutput(bool is_partial) {
     common_chat_syntax syntax;
     syntax.format = static_cast<common_chat_format>(current_chat_format);
     syntax.reasoning_format = current_reasoning_format;
     syntax.thinking_forced_open = current_thinking_forced_open;
     syntax.parse_tool_calls = true;
 
-    common_chat_msg parsed_msg = common_chat_parse(prefill_text + generated_text, true, syntax);
+    common_chat_msg parsed_msg = common_chat_parse(prefill_text + generated_text, is_partial, syntax);
 
-    completion_partial_output result;
+    completion_chat_output result;
 
     result.content = parsed_msg.content;
     result.reasoning_content = parsed_msg.reasoning_content;
