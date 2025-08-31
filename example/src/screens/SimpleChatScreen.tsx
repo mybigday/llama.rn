@@ -10,7 +10,6 @@ import {
   Text,
   ScrollView,
   Alert,
-  StyleSheet,
   TouchableOpacity,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -55,14 +54,7 @@ const DEFAULT_SYSTEM_PROMPT =
 export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   const { isDark, theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
-  
-  const styles = StyleSheet.create({
-    container: themedStyles.container,
-    setupContainer: themedStyles.setupContainer,
-    scrollContent: themedStyles.scrollContent,
-    setupDescription: themedStyles.setupDescription,
-  })
-  
+
   const messagesRef = useRef<MessageType.Any[]>([])
   const [, setMessagesVersion] = useState(0) // For UI updates
   const [isLoading, setIsLoading] = useState(false)
@@ -400,12 +392,12 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
 
   if (!isModelReady) {
     return (
-      <View style={styles.container}>
+      <View style={themedStyles.container}>
         <ScrollView
-          style={styles.setupContainer}
-          contentContainerStyle={styles.scrollContent}
+          style={themedStyles.setupContainer}
+          contentContainerStyle={themedStyles.scrollContent}
         >
-          <Text style={styles.setupDescription}>
+          <Text style={themedStyles.setupDescription}>
             Download the model to start chatting. This model provides fast,
             efficient text generation for conversational AI.
           </Text>

@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
+import { MaskedProgress } from '../components/MaskedProgress'
 import { HeaderButton } from '../components/HeaderButton'
 import { createThemedStyles, Spacing, FontSizes } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
@@ -200,6 +201,8 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
   const [isEmbedding, setIsEmbedding] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [isModelReady, setIsModelReady] = useState(false)
+  const [initProgress, setInitProgress] = useState(0)
 
   // Setup and navigation
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
@@ -218,7 +221,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
   }, [])
 
   useLayoutEffect(() => {
-    if (!context) {
+    if (!isModelReady) {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton
@@ -230,7 +233,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
     } else {
       navigation.setOptions({ headerRight: () => null })
     }
-  }, [navigation, context])
+  }, [navigation, isModelReady])
 
   const handleReleaseContext = async () => {
     if (context) {
@@ -249,12 +252,22 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
     if (context) {
       await handleReleaseContext()
     }
+
+    setIsModelReady(false)
+    setInitProgress(0)
+
     try {
-      const newContext = await initLlama(modelConfig)
+      const newContext = await initLlama(modelConfig, (progress) =>
+        setInitProgress(progress),
+      )
       setContext(newContext)
+      setIsModelReady(true)
+      setInitProgress(100)
       Alert.alert('Success', 'Model loaded successfully!')
     } catch (error) {
       console.error('Model initialization error:', error)
+      setIsModelReady(false)
+      setInitProgress(0)
       Alert.alert('Error', `Failed to load model: ${error}`)
     }
   }
@@ -396,8 +409,11 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
 
   if (!context) {
     return (
-      <ScrollView style={[themedStyles.container, { paddingTop: insets.top }]}>
-        <View style={themedStyles.setupContainer}>
+      <View style={styles.container}>
+        <ScrollView
+          style={themedStyles.setupContainer}
+          contentContainerStyle={themedStyles.scrollContent}
+        >
           <Text style={themedStyles.setupDescription}>
             Very simple example to show how to use vector embeddings and
             semantic search in memory.
@@ -422,7 +438,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
               />
             ))}
           </View>
-        </View>
+        </ScrollView>
 
         {/* Modals */}
         <ContextParamsModal
@@ -430,7 +446,14 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
           onClose={() => setShowContextParamsModal(false)}
           onSave={(params) => setContextParams(params)}
         />
-      </ScrollView>
+
+        <MaskedProgress
+          visible={!isModelReady && initProgress > 0}
+          text={`Initializing model... ${initProgress}%`}
+          progress={initProgress}
+          showProgressBar={initProgress > 0}
+        />
+      </View>
     )
   }
 
