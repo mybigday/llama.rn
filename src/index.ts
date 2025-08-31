@@ -125,8 +125,9 @@ type TokenNativeEvent = {
 
 export type ContextParams = Omit<
   NativeContextParams,
-  'cache_type_k' | 'cache_type_v' | 'pooling_type'
+  'flash_attn_type' | 'cache_type_k' | 'cache_type_v' | 'pooling_type'
 > & {
+  flash_attn_type?: 'auto' | 'on' | 'off'
   cache_type_k?:
     | 'f16'
     | 'f32'

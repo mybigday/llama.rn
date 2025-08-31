@@ -39,6 +39,16 @@ lm_ggml_type kv_cache_type_from_str(const std::string & s) {
     return LM_GGML_TYPE_F16;
 }
 
+enum llama_flash_attn_type flash_attn_type_from_str(const std::string & s) {
+    if (s == "on") {
+        return LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    }
+    if (s == "off") {
+        return LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    }
+    return LLAMA_FLASH_ATTN_TYPE_AUTO;
+}
+
 
 void log(const char *level, const char *function, int line,
                        const char *format, ...)

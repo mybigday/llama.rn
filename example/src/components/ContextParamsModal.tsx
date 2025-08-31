@@ -249,18 +249,20 @@ export default function ContextParamsModal({
         onValueChange={(value) => updateParam('ctx_shift', value)}
       />
 
-      {/* Flash Attention */}
-      <ParameterSwitch
-        label="Flash Attention (flash_attn)"
-        description="Only recommended in GPU device."
-        value={params.flash_attn || false}
-        onValueChange={(value) => updateParam('flash_attn', value)}
+      {/* Flash Attention Type */}
+      <ParameterMenu
+        label="Flash Attention (flash_attn_type)"
+        description="Flash attention type. Only recommended on GPU devices."
+        value={params.flash_attn_type}
+        options={['auto', 'on', 'off']}
+        onSelect={(value) => updateParam('flash_attn_type', value)}
+        placeholder="auto"
       />
 
       {/* Cache Type K */}
       <ParameterMenu
         label="Cache Type K (cache_type_k)"
-        description="KV cache data type for the K. Need enable flash_attn to change this."
+        description="KV cache data type for the K. Need flash_attn_type set to 'on' to change this."
         value={params.cache_type_k}
         options={CACHE_TYPE_OPTIONS}
         onSelect={(value) => updateParam('cache_type_k', value)}
@@ -270,7 +272,7 @@ export default function ContextParamsModal({
       {/* Cache Type V */}
       <ParameterMenu
         label="Cache Type V (cache_type_v)"
-        description="KV cache data type for the V. Need enable flash_attn if change this."
+        description="KV cache data type for the V. Need flash_attn_type set to 'on' to change this."
         value={params.cache_type_v}
         options={CACHE_TYPE_OPTIONS}
         onSelect={(value) => updateParam('cache_type_v', value)}

@@ -31,7 +31,13 @@ export type NativeContextParams = {
   no_gpu_devices?: boolean
 
   /**
-   * Enable flash attention, only recommended in GPU device (Experimental in llama.cpp)
+   * Enable flash attention, only recommended in GPU device.
+   */
+  flash_attn_type?: string
+
+  /**
+   * Enable flash attention, only recommended in GPU device
+   * Deprecated: use flash_attn_type instead
    */
   flash_attn?: boolean
 
