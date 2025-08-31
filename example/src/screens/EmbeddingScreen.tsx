@@ -10,7 +10,6 @@ import {
   FlatList,
   ActivityIndicator,
 } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import { MaskedProgress } from '../components/MaskedProgress'
@@ -69,14 +68,11 @@ const EXAMPLE_TEXTS = [
 ]
 
 const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
-  const insets = useSafeAreaInsets()
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
 
   const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-    },
+    container: themedStyles.container,
     headerInfo: {
       backgroundColor: theme.colors.surface,
       padding: Spacing.lg,
@@ -263,7 +259,6 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
       setContext(newContext)
       setIsModelReady(true)
       setInitProgress(100)
-      Alert.alert('Success', 'Model loaded successfully!')
     } catch (error) {
       console.error('Model initialization error:', error)
       setIsModelReady(false)
@@ -458,7 +453,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
   }
 
   return (
-    <View style={[themedStyles.container, { paddingTop: insets.top }]}>
+    <View style={themedStyles.container}>
       <ScrollView style={styles.container}>
         {/* Header Info */}
         <View style={styles.headerInfo}>

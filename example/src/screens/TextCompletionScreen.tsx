@@ -156,7 +156,7 @@ export default function TextCompletionScreen({
       color: theme.colors.textSecondary,
       fontSize: 12,
       fontFamily: 'monospace',
-      marginTop: 5,
+      margin: 2,
     },
     label: {
       fontSize: 14,
@@ -197,13 +197,11 @@ export default function TextCompletionScreen({
     tokenContainer: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      minHeight: 24,
     },
     token: {
       padding: 2,
       borderRadius: 2,
       margin: 1,
-      height: 24,
     },
     actionButton: {
       backgroundColor: theme.colors.primary,
