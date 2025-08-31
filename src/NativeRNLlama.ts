@@ -33,7 +33,7 @@ export type NativeContextParams = {
   /**
    * Enable flash attention, only recommended in GPU device.
    */
-  flash_attn_type?: 'auto' | 'on' | 'off'
+  flash_attn_type?: string
 
   /**
    * Enable flash attention, only recommended in GPU device
