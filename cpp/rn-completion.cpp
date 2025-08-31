@@ -510,8 +510,20 @@ completion_partial_output llama_rn_context_completion::getPartialOutput(const st
     return result;
 }
 
-std::vector<float> llama_rn_context_completion::getEmbedding(common_params &embd_params)
+std::vector<float> llama_rn_context_completion::embedding(common_params &embd_params)
 {
+    // llama_memory_clear(llama_get_memory(parent_ctx->ctx), true);
+
+    rewind();
+    // llama_perf_context_reset(parent_ctx->ctx);
+    if (!initSampling()) {
+        throw std::runtime_error("Failed to initialize sampling");
+    }
+    beginCompletion();
+    loadPrompt({});
+    doCompletion();
+    endCompletion();
+
     static const int n_embd = llama_model_n_embd(llama_get_model(parent_ctx->ctx));
     if (!embd_params.embedding)
     {
@@ -521,7 +533,6 @@ std::vector<float> llama_rn_context_completion::getEmbedding(common_params &embd
     float *data;
 
     const enum llama_pooling_type pooling_type = llama_pooling_type(parent_ctx->ctx);
-    printf("pooling_type: %d\n", pooling_type);
     if (pooling_type == LLAMA_POOLING_TYPE_NONE) {
         data = llama_get_embeddings(parent_ctx->ctx);
     } else {

@@ -961,6 +961,9 @@
     if (llama->params.embedding != true) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not enabled" userInfo:nil];
     }
+    if ([self isPredicting]) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context is predicting" userInfo:nil];
+    }
 
     common_params embdParams;
     embdParams.embedding = true;
@@ -970,51 +973,43 @@
         embdParams.embd_normalize = [params[@"embd_normalize"] intValue];
     }
 
-    llama->completion->rewind();
-
-    llama_perf_context_reset(llama->ctx);
-
     llama->params.prompt = [text UTF8String];
-
     llama->params.n_predict = 0;
-
-    if (!llama->completion->initSampling()) {
-        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to initialize sampling" userInfo:nil];
-    }
-    llama->completion->beginCompletion();
     try {
-      llama->completion->loadPrompt({});
+        std::vector<float> result = llama->completion->embedding(embdParams);
+
+        NSMutableDictionary *resultDict = [[NSMutableDictionary alloc] init];
+        NSMutableArray *embeddingResult = [[NSMutableArray alloc] init];
+        for (float f : result) {
+            [embeddingResult addObject:@(f)];
+        }
+        resultDict[@"embedding"] = embeddingResult;
+        NSMutableArray *promptTokens = [[NSMutableArray alloc] init];
+        for (llama_token tok : llama->completion->embd) {
+            [promptTokens addObject:[NSString stringWithUTF8String:common_token_to_piece(llama->ctx, tok).c_str()]];
+        }
+        resultDict[@"prompt_tokens"] = promptTokens;
+        return resultDict;
     } catch (const std::exception &e) {
-      llama->completion->endCompletion();
-      @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+        llama->completion->endCompletion();
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
     } catch (const std::runtime_error& e) {
-      llama->completion->endCompletion();
-      @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
+        llama->completion->endCompletion();
+        @throw [NSException exceptionWithName:@"LlamaException" reason:[NSString stringWithUTF8String:e.what()] userInfo:nil];
     }
-    llama->completion->doCompletion();
-
-    std::vector<float> result = llama->completion->getEmbedding(embdParams);
-
-    NSMutableDictionary *resultDict = [[NSMutableDictionary alloc] init];
-    NSMutableArray *embeddingResult = [[NSMutableArray alloc] init];
-    for (float f : result) {
-        [embeddingResult addObject:@(f)];
-    }
-    resultDict[@"embedding"] = embeddingResult;
-    NSMutableArray *promptTokens = [[NSMutableArray alloc] init];
-    for (llama_token tok : llama->completion->embd) {
-        [promptTokens addObject:[NSString stringWithUTF8String:common_token_to_piece(llama->ctx, tok).c_str()]];
-    }
-    resultDict[@"prompt_tokens"] = promptTokens;
-
-    llama->completion->endCompletion();
-    return resultDict;
 }
 
 - (NSArray *)rerank:(NSString *)query documents:(NSArray<NSString *> *)documents params:(NSDictionary *)params {
     if (llama->completion == nullptr) {
         @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context has been released" userInfo:nil];
     }
+    if (llama->params.embedding != true) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Embedding is not enabled" userInfo:nil];
+    }
+    if ([self isPredicting]) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context is predicting" userInfo:nil];
+    }
+
     // Convert NSArray to std::vector
     std::vector<std::string> documentsVector;
     for (NSString *doc in documents) {

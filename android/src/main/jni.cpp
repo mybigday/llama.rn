@@ -1353,15 +1353,6 @@ Java_com_rnllama_LlamaContext_detokenize(
     return env->NewStringUTF(text.c_str());
 }
 
-JNIEXPORT jboolean JNICALL
-Java_com_rnllama_LlamaContext_isEmbeddingEnabled(
-        JNIEnv *env, jobject thiz, jlong context_ptr) {
-    UNUSED(env);
-    UNUSED(thiz);
-    auto llama = context_map[(long) context_ptr];
-    return llama->params.embedding;
-}
-
 JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_embedding(
         JNIEnv *env, jobject thiz,
@@ -1377,6 +1368,16 @@ Java_com_rnllama_LlamaContext_embedding(
         putString(env, result, "error", "Context has been released");
         return result;
     }
+    if (llama->completion->is_predicting) {
+        auto result = createWriteableMap(env);
+        putString(env, result, "error", "Context is predicting");
+        return result;
+    }
+    if (llama->params.embedding != true) {
+        auto result = createWriteableMap(env);
+        putString(env, result, "error", "Embedding is not enabled");
+        return result;
+    }
 
     common_params embdParams;
     embdParams.embedding = true;
@@ -1387,48 +1388,33 @@ Java_com_rnllama_LlamaContext_embedding(
 
     const char *text_chars = env->GetStringUTFChars(text, nullptr);
 
-    llama->completion->rewind();
-
-    llama_perf_context_reset(llama->ctx);
-
     llama->params.prompt = text_chars;
-
     llama->params.n_predict = 0;
 
     auto result = createWriteableMap(env);
-    if (!llama->completion->initSampling()) {
-        putString(env, result, "error", "Failed to initialize sampling");
-        return reinterpret_cast<jobject>(result);
-    }
-
-    llama->completion->beginCompletion();
     try {
-        llama->completion->loadPrompt({});
+        std::vector<float> embedding = llama->completion->embedding(embdParams);
+
+        auto embeddings = createWritableArray(env);
+        for (const auto &val : embedding) {
+          pushDouble(env, embeddings, (double) val);
+        }
+        putArray(env, result, "embedding", embeddings);
+
+        auto promptTokens = createWritableArray(env);
+        for (const auto &tok : llama->completion->embd) {
+          pushString(env, promptTokens, common_token_to_piece(llama->ctx, tok).c_str());
+        }
+        putArray(env, result, "prompt_tokens", promptTokens);
     } catch (const std::exception &e) {
+        llama->completion->endCompletion();
         putString(env, result, "error", e.what());
-        return reinterpret_cast<jobject>(result);
     } catch (const std::runtime_error& e) {
+        llama->completion->endCompletion();
         putString(env, result, "error", e.what());
-        return reinterpret_cast<jobject>(result);
     }
-    llama->completion->doCompletion();
-
-    std::vector<float> embedding = llama->completion->getEmbedding(embdParams);
-
-    auto embeddings = createWritableArray(env);
-    for (const auto &val : embedding) {
-      pushDouble(env, embeddings, (double) val);
-    }
-    putArray(env, result, "embedding", embeddings);
-
-    auto promptTokens = createWritableArray(env);
-    for (const auto &tok : llama->completion->embd) {
-      pushString(env, promptTokens, common_token_to_piece(llama->ctx, tok).c_str());
-    }
-    putArray(env, result, "prompt_tokens", promptTokens);
-
     env->ReleaseStringUTFChars(text, text_chars);
-    return result;
+    return reinterpret_cast<jobject>(result);
 }
 
 JNIEXPORT jobject JNICALL
@@ -1446,6 +1432,14 @@ Java_com_rnllama_LlamaContext_rerank(
 
     if (llama->completion == nullptr) {
         putString(env, response, "error", "Context has been released");
+        return response;
+    }
+    if (llama->completion->is_predicting) {
+        putString(env, response, "error", "Context is predicting");
+        return response;
+    }
+    if (llama->params.embedding != true) {
+        putString(env, response, "error", "Embedding is not enabled");
         return response;
     }
 

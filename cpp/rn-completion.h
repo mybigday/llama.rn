@@ -98,7 +98,7 @@ struct llama_rn_context_completion {
     completion_partial_output getPartialOutput(const std::string &token_text);
 
     // Embedding methods
-    std::vector<float> getEmbedding(common_params &embd_params);
+    std::vector<float> embedding(common_params &embd_params);
     std::vector<float> rerank(const std::string &query, const std::vector<std::string> &documents);
 
     // Benchmarking methods

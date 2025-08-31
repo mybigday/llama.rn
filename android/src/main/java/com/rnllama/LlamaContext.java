@@ -370,9 +370,6 @@ public class LlamaContext {
   }
 
   public WritableMap getEmbedding(String text, ReadableMap params) {
-    if (isEmbeddingEnabled(this.context) == false) {
-      throw new IllegalStateException("Embedding is not enabled");
-    }
     WritableMap result = embedding(
       this.context,
       text,
@@ -386,10 +383,6 @@ public class LlamaContext {
   }
 
   public WritableMap getRerank(String query, ReadableArray documents, ReadableMap params) {
-    if (isEmbeddingEnabled(this.context) == false) {
-      throw new IllegalStateException("Embedding is not enabled but required for reranking");
-    }
-
     // Convert ReadableArray to Java string array
     String[] documentsArray = new String[documents.size()];
     for (int i = 0; i < documents.size(); i++) {
@@ -682,7 +675,6 @@ public class LlamaContext {
   protected static native boolean isPredicting(long contextPtr);
   protected static native WritableMap tokenize(long contextPtr, String text, String[] media_paths);
   protected static native String detokenize(long contextPtr, int[] tokens);
-  protected static native boolean isEmbeddingEnabled(long contextPtr);
   protected static native WritableMap embedding(
     long contextPtr,
     String text,
