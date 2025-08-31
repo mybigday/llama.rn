@@ -19,6 +19,7 @@ import TextCompletionScreen from './screens/TextCompletionScreen'
 import EmbeddingScreen from './screens/EmbeddingScreen'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { createThemedStyles } from './styles/commonStyles'
+import { Menu } from './components/Menu'
 
 // Example: Catch logs from llama.cpp
 toggleNativeLog(true)
@@ -33,7 +34,7 @@ addNativeLogListener((level, text) => {
 enableScreens()
 
 function HomeScreenComponent({ navigation }: { navigation: any }) {
-  const { theme, themeMode, setThemeMode } = useTheme()
+  const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
 
   const styles = StyleSheet.create({
@@ -80,35 +81,6 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
       fontSize: 16,
       color: theme.colors.primary,
       textAlign: 'center',
-    },
-    themeToggle: {
-      alignItems: 'center',
-      marginVertical: 8,
-      flexDirection: 'row',
-    },
-    themeToggleButton: {
-      backgroundColor: theme.colors.card,
-      borderRadius: 8,
-      paddingHorizontal: 20,
-      paddingVertical: 12,
-      marginVertical: 4,
-      marginHorizontal: 4,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      minWidth: 120,
-    },
-    themeToggleButtonText: {
-      color: theme.colors.text,
-      fontSize: 16,
-      textAlign: 'center',
-      fontWeight: '600',
-    },
-    activeThemeButton: {
-      backgroundColor: theme.colors.primary,
-      borderColor: theme.colors.primary,
-    },
-    activeThemeButtonText: {
-      color: theme.colors.white,
     },
   })
 
@@ -194,56 +166,6 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.themeToggle}>
-          <TouchableOpacity
-            style={[
-              styles.themeToggleButton,
-              themeMode === 'system' && styles.activeThemeButton,
-            ]}
-            onPress={() => setThemeMode('system')}
-          >
-            <Text
-              style={[
-                styles.themeToggleButtonText,
-                themeMode === 'system' && styles.activeThemeButtonText,
-              ]}
-            >
-              📱 System
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.themeToggleButton,
-              themeMode === 'light' && styles.activeThemeButton,
-            ]}
-            onPress={() => setThemeMode('light')}
-          >
-            <Text
-              style={[
-                styles.themeToggleButtonText,
-                themeMode === 'light' && styles.activeThemeButtonText,
-              ]}
-            >
-              ☀️ Light
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.themeToggleButton,
-              themeMode === 'dark' && styles.activeThemeButton,
-            ]}
-            onPress={() => setThemeMode('dark')}
-          >
-            <Text
-              style={[
-                styles.themeToggleButtonText,
-                themeMode === 'dark' && styles.activeThemeButtonText,
-              ]}
-            >
-              🌙 Dark
-            </Text>
-          </TouchableOpacity>
-        </View>
       </View>
     </ScrollView>
   )
@@ -252,7 +174,7 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
 const Stack = createNativeStackNavigator()
 
 function AppContent() {
-  const { theme } = useTheme()
+  const { theme, setThemeMode } = useTheme()
 
   // Create a wrapper component that has access to theme context
   const HomeScreen = (props: any) => <HomeScreenComponent {...props} />
@@ -271,6 +193,27 @@ function AppContent() {
               color: theme.colors.text,
             },
             headerTintColor: theme.colors.primary,
+            headerRight: () => (
+              <Menu
+                actions={[
+                  {
+                    id: 'system',
+                    title: '📱 System',
+                    onPress: () => setThemeMode('system'),
+                  },
+                  {
+                    id: 'light',
+                    title: '☀️ Light',
+                    onPress: () => setThemeMode('light'),
+                  },
+                  {
+                    id: 'dark',
+                    title: '🌙 Dark',
+                    onPress: () => setThemeMode('dark'),
+                  },
+                ]}
+              />
+            ),
           }}
         >
           <Stack.Screen name="Home" component={HomeScreen} />

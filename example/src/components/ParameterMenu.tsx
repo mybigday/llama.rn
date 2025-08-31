@@ -24,7 +24,7 @@ export function ParameterMenu({
 }: ParameterMenuProps) {
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
-  
+
   const menuActions = options.map((option) => ({
     id: option,
     title: option,
@@ -38,7 +38,7 @@ export function ParameterMenu({
   }
 
   return (
-    <View style={{ marginVertical: 8 }}>
+    <View style={themedStyles.paramGroup}>
       <Text style={themedStyles.paramLabel}>{label}</Text>
       {description && (
         <Text style={themedStyles.paramDescription}>{description}</Text>

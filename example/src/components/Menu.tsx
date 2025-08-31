@@ -37,7 +37,7 @@ export function Menu({ actions }: MenuProps) {
       onPressAction={handleMenuAction}
       actions={menuActions}
     >
-      <Icon name="dots-vertical" size={24} color={theme.colors.primary} />
+      <Icon name="theme-light-dark" size={24} color={theme.colors.primary} />
     </MenuView>
   )
 }
