@@ -34,7 +34,7 @@ export function ParameterMenu({
   }
 
   return (
-    <View style={{ marginVertical: 8 }}>
+    <View style={CommonStyles.paramGroup}>
       <Text style={CommonStyles.paramLabel}>{label}</Text>
       {description && (
         <Text style={CommonStyles.paramDescription}>{description}</Text>
