@@ -1,81 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { AudioContext } from 'react-native-audio-api'
-
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 16,
-    padding: 16,
-    marginVertical: 12,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  playerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  playButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#007AFF',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  playButtonPressed: {
-    backgroundColor: '#0056CC',
-    transform: [{ scale: 0.95 }],
-  },
-  buttonText: {
-    fontSize: 20,
-    color: '#FFFFFF',
-  },
-  timeContainer: {
-    flex: 1,
-    alignItems: 'flex-end',
-    marginLeft: 16,
-  },
-  timeText: {
-    fontSize: 14,
-    color: '#CCCCCC',
-    fontWeight: '500',
-    fontVariant: ['tabular-nums'],
-  },
-  progressContainer: {
-    height: 4,
-    backgroundColor: '#333333',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#007AFF',
-    borderRadius: 2,
-  },
-  progressText: {
-    fontSize: 10,
-    color: '#888888',
-    textAlign: 'center',
-    marginTop: 4,
-    fontVariant: ['tabular-nums'],
-  },
-})
+import { useTheme } from '../contexts/ThemeContext'
 
 export const AudioPlayer = ({
   audio,
@@ -84,6 +10,7 @@ export const AudioPlayer = ({
   audio: Float32Array
   sr: number
 }) => {
+  const { theme } = useTheme()
   const ctxRef = useRef<AudioContext | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -93,6 +20,82 @@ export const AudioPlayer = ({
     () => (progress / duration) * 100,
     [progress, duration],
   )
+
+  const styles = StyleSheet.create({
+    container: {
+      backgroundColor: theme.colors.card,
+      borderRadius: 16,
+      padding: 16,
+      marginVertical: 12,
+      shadowColor: theme.colors.shadow,
+      shadowOffset: {
+        width: 0,
+        height: 4,
+      },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 8,
+    },
+    playerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    playButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: theme.colors.primary,
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: theme.colors.primary,
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.3,
+      shadowRadius: 4,
+      elevation: 4,
+    },
+    playButtonPressed: {
+      backgroundColor: theme.colors.primary,
+      transform: [{ scale: 0.95 }],
+      opacity: 0.8,
+    },
+    buttonText: {
+      fontSize: 20,
+      color: theme.colors.white,
+    },
+    timeContainer: {
+      flex: 1,
+      alignItems: 'flex-end',
+      marginLeft: 16,
+    },
+    timeText: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      fontWeight: '500',
+      fontVariant: ['tabular-nums'],
+    },
+    progressContainer: {
+      height: 4,
+      backgroundColor: theme.colors.border,
+      borderRadius: 2,
+      overflow: 'hidden',
+    },
+    progressBar: {
+      height: '100%',
+      backgroundColor: theme.colors.primary,
+      borderRadius: 2,
+    },
+    progressText: {
+      fontSize: 10,
+      color: theme.colors.textSecondary,
+      textAlign: 'center',
+      marginTop: 4,
+      fontVariant: ['tabular-nums'],
+    },
+  })
 
   useEffect(() => {
     if (isPlaying) {

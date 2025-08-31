@@ -16,7 +16,7 @@ import {
   Platform,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Chat, defaultTheme } from '@flyerhq/react-native-chat-ui'
+import { Chat, defaultTheme, darkTheme } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { pick, keepLocalCopy } from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
@@ -32,7 +32,8 @@ import { MessagesModal } from '../components/MessagesModal'
 import { MaskedProgress } from '../components/MaskedProgress'
 import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
-import { CommonStyles } from '../styles/commonStyles'
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type {
   ContextParams,
@@ -138,92 +139,97 @@ const createWelcomeMessage = (
   return `Hello! I'm a multimodal AI assistant. You can share ${capabilityText} with me and I'll analyze them, answer questions about what I ${senseText}, or engage in conversations about ${contentType} content. How can I help you today?`
 }
 
-const styles = StyleSheet.create({
-  // Using shared styles for common patterns
-  container: CommonStyles.container,
-  header: {
-    ...CommonStyles.header,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerTitle: CommonStyles.headerTitle,
-  setupContainer: CommonStyles.setupContainer,
-  scrollContent: CommonStyles.scrollContent,
-  setupDescription: CommonStyles.setupDescription,
-  loadingContainer: CommonStyles.loadingContainer,
-  loadingText: CommonStyles.loadingText,
-  progressContainer: CommonStyles.progressContainer,
-  progressBar: CommonStyles.progressBar,
-  progressFill: CommonStyles.progressFill,
-  pendingMediaContainer: {
-    position: 'absolute',
-    bottom: 80,
-    left: 16,
-    right: 16,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  pendingMediaPreview: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-    marginBottom: 4,
-  },
-  pendingMediaIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-    backgroundColor: '#1a1a1a',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  pendingMediaText: {
-    color: 'white',
-    fontSize: 14,
-    textAlign: 'center',
-    marginLeft: 16,
-    flex: 1,
-  },
-  removePendingButton: {
-    backgroundColor: '#FF3B30',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  removePendingText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  settingsContainer: {
-    alignItems: 'center',
-    marginVertical: 16,
-  },
-  settingsButtonStyle: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  settingsButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  settingsButton: {
-    fontSize: 16,
-    color: '#007AFF',
-    fontWeight: '500',
-  },
-})
 
 export default function MultimodalScreen({ navigation }: { navigation: any }) {
+  const { isDark, theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+  
+  const styles = StyleSheet.create({
+    // Using themed styles for common patterns
+    container: themedStyles.container,
+    header: {
+      ...themedStyles.header,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    headerTitle: themedStyles.headerTitle,
+    setupContainer: themedStyles.setupContainer,
+    scrollContent: themedStyles.scrollContent,
+    setupDescription: themedStyles.setupDescription,
+    loadingContainer: themedStyles.loadingContainer,
+    loadingText: themedStyles.loadingText,
+    progressContainer: themedStyles.progressContainer,
+    progressBar: themedStyles.progressBar,
+    progressFill: themedStyles.progressFill,
+    pendingMediaContainer: {
+      position: 'absolute',
+      bottom: 80,
+      left: 16,
+      right: 16,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 8,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    pendingMediaText: {
+      color: theme.colors.text,
+      fontSize: 14,
+      marginBottom: 8,
+    },
+    pendingMediaImage: {
+      width: 60,
+      height: 60,
+      borderRadius: 4,
+      marginRight: 8,
+    },
+    pendingMediaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    pendingMediaInfo: {
+      flex: 1,
+    },
+    cancelButton: {
+      backgroundColor: theme.colors.error,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 4,
+    },
+    cancelButtonText: {
+      color: theme.colors.white,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    pendingMediaPreview: {
+      width: 60,
+      height: 60,
+      borderRadius: 8,
+      marginBottom: 4,
+    },
+    pendingMediaIcon: {
+      width: 60,
+      height: 60,
+      borderRadius: 8,
+      backgroundColor: theme.colors.surface,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 4,
+    },
+    removePendingButton: {
+      backgroundColor: theme.colors.error,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 6,
+    },
+    removePendingText: {
+      color: theme.colors.white,
+      fontSize: 12,
+      fontWeight: '500',
+    },
+  })
+  
   const messagesRef = useRef<MessageType.Any[]>([])
   const [, setMessagesVersion] = useState(0) // For UI updates
   const [isLoading, setIsLoading] = useState(false)
@@ -920,7 +926,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
           {/* Custom Models Section */}
           {customModels.filter((model) => model.mmprojFilename).length > 0 && (
             <>
-              <Text style={CommonStyles.modelSectionTitle}>Custom Models</Text>
+              <Text style={themedStyles.modelSectionTitle}>Custom Models</Text>
               {customModels
                 .filter((model) => model.mmprojFilename) // Only show models with mmproj
                 .map((model) => (
@@ -939,16 +945,16 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
           {/* Add Custom Model Button */}
           <TouchableOpacity
-            style={CommonStyles.addCustomModelButton}
+            style={themedStyles.addCustomModelButton}
             onPress={() => setShowCustomModelModal(true)}
           >
-            <Text style={CommonStyles.addCustomModelButtonText}>
+            <Text style={themedStyles.addCustomModelButtonText}>
               + Add Custom Model
             </Text>
           </TouchableOpacity>
 
           {/* Predefined Models Section */}
-          <Text style={CommonStyles.modelSectionTitle}>Default Models</Text>
+          <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
           {Object.values(MODELS)
             .filter((model) => model.mmproj)
             .map((modelInfo) => (
@@ -1002,7 +1008,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         }
         user={user}
         renderBubble={renderBubble}
-        theme={defaultTheme}
+        theme={isDark ? darkTheme : defaultTheme}
         showUserAvatars
         showUserNames
         disableImageGallery={false}

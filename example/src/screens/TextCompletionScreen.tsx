@@ -25,7 +25,8 @@ import CustomModelCard from '../components/CustomModelCard'
 import { HeaderButton } from '../components/HeaderButton'
 import { MaskedProgress } from '../components/MaskedProgress'
 import { ParameterTextInput } from '../components/ParameterFormFields'
-import { CommonStyles } from '../styles/commonStyles'
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type {
   ContextParams,
@@ -39,147 +40,6 @@ import {
 } from '../utils/storage'
 import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
 
-const styles = StyleSheet.create({
-  container: CommonStyles.container,
-  setupContainer: CommonStyles.setupContainer,
-  scrollContent: CommonStyles.scrollContent,
-  setupDescription: CommonStyles.setupDescription,
-  contentContainer: {
-    flex: 1,
-    padding: 10,
-  },
-  textAreaContainer: {
-    marginBottom: 15,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 5,
-  },
-  textArea: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 10,
-    fontSize: 14,
-    minHeight: 60,
-    textAlignVertical: 'top',
-    backgroundColor: '#fff',
-  },
-  promptTextArea: {
-    fontFamily: 'monospace',
-    backgroundColor: '#fafafa',
-  },
-  tokenContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    minHeight: 24,
-  },
-  token: {
-    padding: 2,
-    borderRadius: 2,
-    margin: 1,
-    height: 24,
-  },
-  tokenText: {
-    fontSize: 14,
-    fontFamily: 'monospace',
-  },
-  actionButton: {
-    backgroundColor: '#007AFF',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginVertical: 10,
-  },
-  actionButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  stopButton: {
-    backgroundColor: '#FF3B30',
-  },
-  importButton: {
-    backgroundColor: '#34C759',
-  },
-  resultContainer: {
-    marginTop: 15,
-    padding: 10,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
-  },
-  resultText: {
-    fontSize: 14,
-    color: '#333',
-  },
-  resultHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  editButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  editButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  editButtonContainer: {
-    marginTop: 10,
-    alignItems: 'flex-end',
-  },
-  generatedTextInput: {
-    borderWidth: 1,
-    borderColor: '#007AFF',
-    borderRadius: 6,
-    padding: 8,
-    fontSize: 14,
-    fontFamily: 'monospace',
-    backgroundColor: '#f8f9fa',
-    minHeight: 40,
-    flex: 1,
-    textAlignVertical: 'top',
-  },
-  probabilityDropdown: {
-    position: 'absolute',
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    padding: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5,
-    zIndex: 1000,
-    minWidth: 200,
-  },
-  probabilityItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-  },
-  probabilityToken: {
-    fontFamily: 'monospace',
-    fontSize: 12,
-    flex: 1,
-  },
-  probabilityValue: {
-    fontFamily: 'monospace',
-    fontSize: 12,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-})
 
 interface ProbabilityDropdownProps {
   token: TokenData
@@ -192,21 +52,56 @@ function ProbabilityDropdown({
   position,
   onClose,
 }: ProbabilityDropdownProps) {
+  const localStyles = {
+    probabilityDropdown: {
+      position: 'absolute' as 'absolute',
+      backgroundColor: '#fff',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#ccc',
+      padding: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 5,
+      zIndex: 1000,
+      minWidth: 200,
+    },
+    probabilityItem: {
+      flexDirection: 'row' as 'row',
+      justifyContent: 'space-between' as 'space-between',
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+    },
+    probabilityToken: {
+      fontFamily: 'monospace',
+      fontSize: 12,
+      flex: 1,
+    },
+    probabilityValue: {
+      fontFamily: 'monospace',
+      fontSize: 12,
+      fontWeight: '600' as '600',
+      marginLeft: 8,
+    },
+  }
+
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose}>
         <View
           style={[
-            styles.probabilityDropdown,
+            localStyles.probabilityDropdown,
             { top: position.y, left: position.x },
           ]}
         >
           {token.completion_probabilities?.[0]?.probs?.map((prob, idx) => (
-            <View key={idx} style={styles.probabilityItem}>
-              <Text style={styles.probabilityToken}>
+            <View key={idx} style={localStyles.probabilityItem}>
+              <Text style={localStyles.probabilityToken}>
                 {JSON.stringify(prob.tok_str)}
               </Text>
-              <Text style={styles.probabilityValue}>
+              <Text style={localStyles.probabilityValue}>
                 {`${(prob.prob * 100).toFixed(2)}%`}
               </Text>
             </View>
@@ -222,6 +117,110 @@ export default function TextCompletionScreen({
 }: {
   navigation: any
 }) {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+  
+  const styles = StyleSheet.create({
+    container: themedStyles.container,
+    setupContainer: themedStyles.setupContainer,
+    scrollContent: themedStyles.scrollContent,
+    setupDescription: themedStyles.setupDescription,
+    contentContainer: {
+      flex: 1,
+      padding: 10,
+    },
+    textAreaContainer: {
+      flex: 1,
+      marginBottom: 10,
+    },
+    textInput: {
+      ...themedStyles.textInput,
+      height: 120,
+      textAlignVertical: 'top',
+    },
+    outputContainer: {
+      flex: 1,
+      backgroundColor: theme.colors.inputBackground,
+      borderColor: theme.colors.border,
+      borderWidth: 1,
+      borderRadius: 8,
+      padding: 10,
+      marginTop: 10,
+    },
+    outputText: {
+      color: theme.colors.text,
+      fontSize: 16,
+      lineHeight: 22,
+    },
+    tokenText: {
+      color: theme.colors.textSecondary,
+      fontSize: 12,
+      fontFamily: 'monospace',
+      marginTop: 5,
+    },
+    label: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 5,
+    },
+    textArea: {
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: 8,
+      padding: 10,
+      fontSize: 14,
+      minHeight: 60,
+      textAlignVertical: 'top',
+      backgroundColor: theme.colors.inputBackground,
+      color: theme.colors.text,
+    },
+    promptTextArea: {
+      fontFamily: 'monospace',
+      backgroundColor: theme.colors.inputBackground,
+    },
+    editButtonContainer: {
+      marginTop: 10,
+      alignItems: 'flex-end',
+    },
+    editButton: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 6,
+    },
+    editButtonText: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    tokenContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      minHeight: 24,
+    },
+    token: {
+      padding: 2,
+      borderRadius: 2,
+      margin: 1,
+      height: 24,
+    },
+    actionButton: {
+      backgroundColor: theme.colors.primary,
+      padding: 12,
+      borderRadius: 8,
+      alignItems: 'center',
+      marginVertical: 10,
+    },
+    actionButtonText: {
+      color: theme.colors.white,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    stopButton: {
+      backgroundColor: theme.colors.error,
+    },
+  })
   const [prompt, setPrompt] = useState('')
   const [grammar, setGrammar] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -518,7 +517,7 @@ export default function TextCompletionScreen({
             {/* Custom Models Section */}
             {customModels.length > 0 && (
               <>
-                <Text style={CommonStyles.modelSectionTitle}>
+                <Text style={themedStyles.modelSectionTitle}>
                   Custom Models
                 </Text>
                 {customModels.map((model) => (
@@ -538,16 +537,16 @@ export default function TextCompletionScreen({
 
             {/* Add Custom Model Button */}
             <TouchableOpacity
-              style={CommonStyles.addCustomModelButton}
+              style={themedStyles.addCustomModelButton}
               onPress={() => setShowCustomModelModal(true)}
             >
-              <Text style={CommonStyles.addCustomModelButtonText}>
+              <Text style={themedStyles.addCustomModelButtonText}>
                 + Add Custom Model
               </Text>
             </TouchableOpacity>
 
             {/* Predefined Models Section */}
-            <Text style={CommonStyles.modelSectionTitle}>Default Models</Text>
+            <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
             {[
               'SMOL_LM_3',
               'GEMMA_3_4B_QAT',

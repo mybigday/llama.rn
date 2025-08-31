@@ -11,7 +11,8 @@ import {
   Platform,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { CommonStyles } from '../styles/commonStyles'
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface OpenAITool {
   type: string
@@ -39,175 +40,6 @@ interface ToolsModalProps {
   onSave: (tools: OpenAITool[], mockResponses: Record<string, string>) => void
   mockResponses?: Record<string, string>
 }
-
-const styles = StyleSheet.create({
-  container: CommonStyles.container,
-  header: {
-    ...CommonStyles.modalHeader,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  title: CommonStyles.modalTitle,
-  cancelButton: CommonStyles.headerButtonText,
-  saveButton: {
-    ...CommonStyles.headerButtonText,
-    fontWeight: '600',
-  },
-  disabledButton: CommonStyles.disabledButton,
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
-  },
-  description: CommonStyles.description,
-  textArea: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    minHeight: 400,
-    textAlignVertical: 'top',
-    backgroundColor: '#f8f9fa',
-  },
-  resetButton: {
-    backgroundColor: '#FF3B30',
-    borderRadius: 8,
-    paddingVertical: 12,
-    marginTop: 20,
-    marginBottom: 20,
-  },
-  resetButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  bottomPadding: {
-    height: 30,
-  },
-  errorText: {
-    color: '#FF3B30',
-    fontSize: 14,
-    marginTop: 8,
-    fontWeight: '500',
-  },
-  formatToggle: {
-    flexDirection: 'row',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    padding: 4,
-    marginBottom: 16,
-  },
-  formatButton: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  formatButtonActive: {
-    backgroundColor: '#007AFF',
-  },
-  formatButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
-  },
-  formatButtonTextActive: {
-    color: 'white',
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-    color: '#1a1a1a',
-  },
-  toolCard: {
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#e9ecef',
-  },
-  toolName: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 4,
-    color: '#495057',
-  },
-  toolDescription: {
-    fontSize: 12,
-    color: '#6c757d',
-    marginBottom: 8,
-  },
-  mockResponseInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 6,
-    padding: 8,
-    fontSize: 14,
-    minHeight: 60,
-    textAlignVertical: 'top',
-    backgroundColor: 'white',
-  },
-  mockResponseLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    marginBottom: 4,
-    color: '#495057',
-  },
-  autoFillSingleButton: {
-    backgroundColor: '#f8f9fa',
-    borderWidth: 1,
-    borderColor: '#007AFF',
-    borderRadius: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    marginTop: 8,
-    alignSelf: 'flex-start',
-  },
-  autoFillSingleButtonText: {
-    color: '#007AFF',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  autoFillSchemaButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    marginTop: 12,
-    alignSelf: 'center',
-  },
-  autoFillSchemaButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-})
 
 // Schema converter functions
 function convertOpenAIToAnthropic(openAITools: OpenAITool[]): AnthropicTool[] {
@@ -282,6 +114,195 @@ export default function ToolsModal({
   onSave,
   mockResponses = {},
 }: ToolsModalProps) {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+
+  const styles = StyleSheet.create({
+    container: themedStyles.container,
+    header: {
+      ...themedStyles.modalHeader,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: theme.colors.shadow,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: theme.dark ? 0.3 : 0.1,
+          shadowRadius: 2,
+        },
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    title: {
+      ...themedStyles.modalTitle,
+      color: theme.colors.text,
+      fontWeight: '700',
+    },
+    cancelButton: {
+      ...themedStyles.headerButtonText,
+      color: theme.colors.primary,
+      fontWeight: '600',
+    },
+    saveButton: {
+      ...themedStyles.headerButtonText,
+      color: theme.colors.primary,
+      fontWeight: '700',
+    },
+    disabledButton: {
+      ...themedStyles.disabledButton,
+      color: theme.colors.textSecondary,
+    },
+    content: {
+      flex: 1,
+      paddingHorizontal: 16,
+      backgroundColor: theme.colors.background,
+    },
+    description: {
+      ...themedStyles.description,
+      color: theme.colors.textSecondary,
+    },
+    textArea: {
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: 8,
+      padding: 12,
+      fontSize: 14,
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+      minHeight: 400,
+      textAlignVertical: 'top',
+      backgroundColor: theme.colors.surface,
+      color: theme.colors.text,
+    },
+    resetButton: {
+      backgroundColor: theme.colors.error,
+      borderRadius: 8,
+      paddingVertical: 12,
+      marginTop: 20,
+      marginBottom: 20,
+    },
+    resetButtonText: {
+      color: theme.colors.white,
+      fontSize: 16,
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+    bottomPadding: {
+      height: 30,
+    },
+    errorText: {
+      color: theme.colors.error,
+      fontSize: 14,
+      marginTop: 8,
+      fontWeight: '500',
+    },
+    formatToggle: {
+      flexDirection: 'row',
+      backgroundColor: theme.colors.card,
+      borderRadius: 8,
+      padding: 4,
+      marginBottom: 16,
+    },
+    formatButton: {
+      flex: 1,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      borderRadius: 6,
+      alignItems: 'center',
+    },
+    formatButtonActive: {
+      backgroundColor: theme.colors.primary,
+    },
+    formatButtonText: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: theme.colors.textSecondary,
+    },
+    formatButtonTextActive: {
+      color: theme.colors.white,
+    },
+    section: {
+      marginBottom: 24,
+    },
+    sectionTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      marginBottom: 12,
+      color: theme.colors.text,
+    },
+    toolCard: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    toolName: {
+      fontSize: 14,
+      fontWeight: '600',
+      marginBottom: 4,
+      color: theme.colors.text,
+    },
+    toolDescription: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      marginBottom: 8,
+    },
+    mockResponseInput: {
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: 6,
+      padding: 8,
+      fontSize: 14,
+      minHeight: 60,
+      textAlignVertical: 'top',
+      backgroundColor: theme.colors.card,
+      color: theme.colors.text,
+    },
+    mockResponseLabel: {
+      fontSize: 12,
+      fontWeight: '500',
+      marginBottom: 4,
+      color: theme.colors.text,
+    },
+    autoFillSingleButton: {
+      backgroundColor: theme.colors.card,
+      borderWidth: 1,
+      borderColor: theme.colors.primary,
+      borderRadius: 6,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      marginTop: 8,
+      alignSelf: 'flex-start',
+    },
+    autoFillSingleButtonText: {
+      color: theme.colors.primary,
+      fontSize: 12,
+      fontWeight: '500',
+    },
+    autoFillSchemaButton: {
+      backgroundColor: theme.colors.primary,
+      borderRadius: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      marginTop: 12,
+      alignSelf: 'center',
+    },
+    autoFillSchemaButtonText: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: '500',
+      textAlign: 'center',
+    },
+  })
   const [toolsJson, setToolsJson] = useState('')
   const [currentMockResponses, setCurrentMockResponses] = useState<
     Record<string, string>
@@ -447,7 +468,7 @@ export default function ToolsModal({
               }}
               multiline
               placeholder="Enter tools JSON schema..."
-              placeholderTextColor="#999"
+              placeholderTextColor={theme.colors.textSecondary}
               keyboardType="ascii-capable"
             />
             <TouchableOpacity
@@ -495,7 +516,7 @@ export default function ToolsModal({
                         }}
                         multiline
                         placeholder={`Enter mock response for ${toolName}...`}
-                        placeholderTextColor="#999"
+                        placeholderTextColor={theme.colors.textSecondary}
                         keyboardType="ascii-capable"
                       />
                     </View>

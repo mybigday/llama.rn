@@ -17,7 +17,8 @@ import {
   type CustomModelInfo,
 } from '../services/HuggingFaceAPI'
 import { saveCustomModel, type CustomModel } from '../utils/storage'
-import { CommonStyles } from '../styles/commonStyles'
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface CustomModelModalProps {
   visible: boolean
@@ -28,236 +29,6 @@ interface CustomModelModalProps {
   enableFileSelection?: boolean // Enable file selection mode
 }
 
-const styles = StyleSheet.create({
-  container: {
-    ...CommonStyles.container,
-    backgroundColor: '#f8fafc',
-  },
-  header: {
-    ...CommonStyles.modalHeader,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 24,
-    paddingVertical: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  title: {
-    ...CommonStyles.modalTitle,
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1e293b',
-  },
-  cancelButton: {
-    ...CommonStyles.headerButtonText,
-    color: '#64748b',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  saveButton: {
-    ...CommonStyles.headerButtonText,
-    color: '#2563eb',
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  disabledButton: {
-    ...CommonStyles.disabledButton,
-    color: '#cbd5e1',
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    backgroundColor: '#f8fafc',
-  },
-  inputContainer: {
-    marginBottom: 24,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  label: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: 10,
-    letterSpacing: -0.2,
-  },
-  input: {
-    borderWidth: 2,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    backgroundColor: '#ffffff',
-    color: '#1e293b',
-    minHeight: 48,
-  },
-  helpText: {
-    fontSize: 13,
-    color: '#64748b',
-    marginTop: 8,
-    lineHeight: 18,
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    marginVertical: 24,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 15,
-    color: '#64748b',
-    fontWeight: '500',
-  },
-  errorContainer: {
-    backgroundColor: '#fef2f2',
-    borderLeftWidth: 4,
-    borderLeftColor: '#ef4444',
-    borderRadius: 12,
-    padding: 16,
-    marginVertical: 16,
-    shadowColor: '#ef4444',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  errorText: {
-    color: '#dc2626',
-    fontSize: 14,
-    fontWeight: '600',
-    lineHeight: 20,
-  },
-  infoContainer: {
-    backgroundColor: '#f0f9ff',
-    borderLeftWidth: 4,
-    borderLeftColor: '#3b82f6',
-    borderRadius: 12,
-    padding: 16,
-    marginVertical: 16,
-    shadowColor: '#3b82f6',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  infoText: {
-    color: '#1e40af',
-    fontSize: 14,
-    fontWeight: '600',
-    lineHeight: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1e293b',
-    marginTop: 28,
-    marginBottom: 16,
-    letterSpacing: -0.2,
-  },
-  quantCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  quantCardSelected: {
-    borderColor: '#2563eb',
-    backgroundColor: '#eff6ff',
-    shadowColor: '#2563eb',
-    shadowOpacity: 0.2,
-    transform: [{ scale: 1.02 }],
-  },
-  quantName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1e293b',
-    marginBottom: 4,
-  },
-  quantFileName: {
-    fontSize: 13,
-    color: '#64748b',
-    fontFamily: 'Menlo, Monaco, monospace',
-    backgroundColor: '#f1f5f9',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  warningContainer: {
-    backgroundColor: '#fffbeb',
-    borderLeftWidth: 4,
-    borderLeftColor: '#f59e0b',
-    borderRadius: 12,
-    padding: 16,
-    marginVertical: 16,
-    shadowColor: '#f59e0b',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  warningText: {
-    color: '#d97706',
-    fontSize: 14,
-    fontWeight: '600',
-    lineHeight: 20,
-  },
-  bottomPadding: {
-    height: 40,
-  },
-  noteContainer: {
-    backgroundColor: '#f0f9ff',
-    borderLeftWidth: 4,
-    borderLeftColor: '#06b6d4',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    shadowColor: '#06b6d4',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  noteText: {
-    fontSize: 14,
-    color: '#155e75',
-    lineHeight: 20,
-  },
-  noteTitle: {
-    fontWeight: '700',
-    color: '#0e7490',
-  },
-})
-
 export default function CustomModelModal({
   visible,
   onClose,
@@ -266,6 +37,239 @@ export default function CustomModelModal({
   title = 'Add Custom Model',
   enableFileSelection = false,
 }: CustomModelModalProps) {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+
+  const styles = StyleSheet.create({
+    container: {
+      ...themedStyles.container,
+      backgroundColor: theme.colors.background,
+    },
+    header: {
+      ...themedStyles.modalHeader,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: 24,
+      paddingVertical: 18,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+      shadowColor: theme.colors.shadow,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 2,
+      elevation: 2,
+    },
+    title: {
+      ...themedStyles.modalTitle,
+      fontSize: 18,
+      fontWeight: '700',
+      color: theme.colors.text,
+    },
+    cancelButton: {
+      ...themedStyles.headerButtonText,
+      color: theme.colors.textSecondary,
+      fontSize: 16,
+      fontWeight: '500',
+    },
+    saveButton: {
+      ...themedStyles.headerButtonText,
+      color: theme.colors.primary,
+      fontWeight: '700',
+      fontSize: 16,
+    },
+    disabledButton: {
+      ...themedStyles.disabledButton,
+      color: theme.colors.textSecondary,
+    },
+    content: {
+      flex: 1,
+      paddingHorizontal: 20,
+      paddingTop: 20,
+      backgroundColor: theme.colors.background,
+    },
+    inputContainer: {
+      marginBottom: 24,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      padding: 16,
+      shadowColor: theme.colors.shadow,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    label: {
+      fontSize: 17,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 10,
+      letterSpacing: -0.2,
+    },
+    input: {
+      borderWidth: 2,
+      borderColor: theme.colors.border,
+      borderRadius: 10,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      fontSize: 16,
+      backgroundColor: theme.colors.surface,
+      color: theme.colors.text,
+      minHeight: 48,
+    },
+    helpText: {
+      fontSize: 13,
+      color: theme.colors.textSecondary,
+      marginTop: 8,
+      lineHeight: 18,
+    },
+    loadingContainer: {
+      alignItems: 'center',
+      marginVertical: 24,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      padding: 20,
+      shadowColor: theme.colors.shadow,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    loadingText: {
+      marginTop: 12,
+      fontSize: 15,
+      color: theme.colors.textSecondary,
+      fontWeight: '500',
+    },
+    errorContainer: {
+      backgroundColor: theme.dark ? '#2D1B1B' : '#FEF2F2',
+      borderLeftWidth: 4,
+      borderLeftColor: theme.colors.error,
+      borderRadius: 12,
+      padding: 16,
+      marginVertical: 16,
+      shadowColor: theme.colors.error,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+      elevation: 2,
+    },
+    errorText: {
+      color: theme.colors.error,
+      fontSize: 14,
+      fontWeight: '600',
+      lineHeight: 20,
+    },
+    infoContainer: {
+      backgroundColor: theme.dark ? '#1E293B' : '#F0F9FF',
+      borderLeftWidth: 4,
+      borderLeftColor: theme.colors.primary,
+      borderRadius: 12,
+      padding: 16,
+      marginVertical: 16,
+      shadowColor: theme.colors.primary,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+      elevation: 2,
+    },
+    infoText: {
+      color: theme.colors.primary,
+      fontSize: 14,
+      fontWeight: '600',
+      lineHeight: 20,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: theme.colors.text,
+      marginTop: 28,
+      marginBottom: 16,
+      letterSpacing: -0.2,
+    },
+    quantCard: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 12,
+      borderWidth: 2,
+      borderColor: theme.colors.border,
+      shadowColor: theme.colors.shadow,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    quantCardSelected: {
+      borderColor: theme.colors.primary,
+      backgroundColor: theme.dark ? '#1E293B' : '#EFF6FF',
+      shadowColor: theme.colors.primary,
+      shadowOpacity: 0.2,
+      transform: [{ scale: 1.02 }],
+    },
+    quantName: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: theme.colors.text,
+      marginBottom: 4,
+    },
+    quantFileName: {
+      fontSize: 13,
+      color: theme.colors.textSecondary,
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+      backgroundColor: theme.colors.card,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+      overflow: 'hidden',
+    },
+    warningContainer: {
+      backgroundColor: theme.dark ? '#2D2416' : '#FFFBEB',
+      borderLeftWidth: 4,
+      borderLeftColor: '#F59E0B',
+      borderRadius: 12,
+      padding: 16,
+      marginVertical: 16,
+      shadowColor: '#F59E0B',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+      elevation: 2,
+    },
+    warningText: {
+      color: theme.dark ? '#FBBF24' : '#D97706',
+      fontSize: 14,
+      fontWeight: '600',
+      lineHeight: 20,
+    },
+    bottomPadding: {
+      height: 40,
+    },
+    noteContainer: {
+      backgroundColor: theme.dark ? '#1E293B' : '#F0F9FF',
+      borderLeftWidth: 4,
+      borderLeftColor: '#06B6D4',
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 20,
+      shadowColor: '#06B6D4',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+      elevation: 2,
+    },
+    noteText: {
+      fontSize: 14,
+      color: theme.dark ? '#CBD5E1' : '#155E75',
+      lineHeight: 20,
+    },
+    noteTitle: {
+      fontWeight: '700',
+      color: theme.dark ? '#E2E8F0' : '#0E7490',
+    },
+  })
+
   const [modelId, setModelId] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [modelInfo, setModelInfo] = useState<CustomModelInfo | null>(null)
@@ -556,31 +560,31 @@ export default function CustomModelModal({
               <View style={{ flexDirection: 'row', marginBottom: 16 }}>
                 <TouchableOpacity
                   style={[
-                    CommonStyles.primaryButton,
+                    themedStyles.primaryButton,
                     { flex: 1, marginRight: 8 },
-                    !useFileSelection && CommonStyles.primaryButtonActive,
+                    !useFileSelection && themedStyles.primaryButtonActive,
                   ]}
                   onPress={() => {
                     setUseFileSelection(false)
                     setError(null)
                   }}
                 >
-                  <Text style={CommonStyles.primaryButtonText}>
+                  <Text style={themedStyles.primaryButtonText}>
                     HuggingFace
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
-                    CommonStyles.primaryButton,
+                    themedStyles.primaryButton,
                     { flex: 1, marginLeft: 8 },
-                    useFileSelection && CommonStyles.primaryButtonActive,
+                    useFileSelection && themedStyles.primaryButtonActive,
                   ]}
                   onPress={() => {
                     setUseFileSelection(true)
                     setError(null)
                   }}
                 >
-                  <Text style={CommonStyles.primaryButtonText}>
+                  <Text style={themedStyles.primaryButtonText}>
                     Select File
                   </Text>
                 </TouchableOpacity>
@@ -598,15 +602,15 @@ export default function CustomModelModal({
                     styles.input,
                     {
                       justifyContent: 'center',
-                      backgroundColor: selectedModelFile ? '#f0f9ff' : '#ffffff',
-                      borderColor: selectedModelFile ? '#2563eb' : '#e2e8f0',
+                      backgroundColor: selectedModelFile ? theme.colors.card : theme.colors.surface,
+                      borderColor: selectedModelFile ? theme.colors.primary : theme.colors.border,
                     },
                   ]}
                   onPress={handlePickModelFile}
                 >
                   <Text
                     style={{
-                      color: selectedModelFile ? '#2563eb' : '#64748b',
+                      color: selectedModelFile ? theme.colors.primary : theme.colors.textSecondary,
                       fontSize: 16,
                     }}
                   >
@@ -628,15 +632,15 @@ export default function CustomModelModal({
                       styles.input,
                       {
                         justifyContent: 'center',
-                        backgroundColor: selectedMmprojFile ? '#f0f9ff' : '#ffffff',
-                        borderColor: selectedMmprojFile ? '#2563eb' : '#e2e8f0',
+                        backgroundColor: selectedMmprojFile ? theme.colors.card : theme.colors.surface,
+                        borderColor: selectedMmprojFile ? theme.colors.primary : theme.colors.border,
                       },
                     ]}
                     onPress={handlePickMmprojFile}
                   >
                     <Text
                       style={{
-                        color: selectedMmprojFile ? '#2563eb' : '#64748b',
+                        color: selectedMmprojFile ? theme.colors.primary : theme.colors.textSecondary,
                         fontSize: 16,
                       }}
                     >
@@ -661,6 +665,7 @@ export default function CustomModelModal({
                   value={modelId}
                   onChangeText={setModelId}
                   placeholder="e.g., microsoft/DialoGPT-medium"
+                  placeholderTextColor={theme.colors.textSecondary}
                   autoCapitalize="none"
                   autoCorrect={false}
                   onSubmitEditing={handleFetchModel}
@@ -683,11 +688,11 @@ export default function CustomModelModal({
               </View>
 
               <TouchableOpacity
-                style={CommonStyles.primaryButton}
+                style={themedStyles.primaryButton}
                 onPress={handleFetchModel}
                 disabled={isLoading}
               >
-                <Text style={CommonStyles.primaryButtonText}>
+                <Text style={themedStyles.primaryButtonText}>
                   {isLoading ? 'Fetching...' : 'Check Model'}
                 </Text>
               </TouchableOpacity>
@@ -696,7 +701,7 @@ export default function CustomModelModal({
 
           {isLoading && !useFileSelection && (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#007AFF" />
+              <ActivityIndicator size="large" color={theme.colors.primary} />
               <Text style={styles.loadingText}>
                 Fetching model information...
               </Text>

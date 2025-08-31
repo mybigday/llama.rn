@@ -9,74 +9,9 @@ import {
   Platform,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { CommonStyles } from '../styles/commonStyles'
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 
-const styles = StyleSheet.create({
-  container: CommonStyles.container,
-  header: {
-    ...CommonStyles.modalHeader,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  title: CommonStyles.modalTitle,
-  cancelButton: CommonStyles.headerButtonText,
-  saveButton: {
-    ...CommonStyles.headerButtonText,
-    fontWeight: '600',
-  },
-  disabledButton: CommonStyles.disabledButton,
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
-  },
-  description: CommonStyles.description,
-  resetButton: {
-    backgroundColor: '#FF3B30',
-    borderRadius: 8,
-    paddingVertical: 12,
-    marginTop: 20,
-    marginBottom: 20,
-  },
-  resetButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  bottomPadding: {
-    height: 30,
-  },
-  warningContainer: {
-    backgroundColor: '#FFFBEB',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  warningText: {
-    color: '#D97706',
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-})
 
 interface BaseParameterModalProps {
   visible: boolean
@@ -103,6 +38,81 @@ export default function BaseParameterModal({
   warningText = '',
   children,
 }: BaseParameterModalProps) {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+  
+  const styles = StyleSheet.create({
+    container: themedStyles.container,
+    header: {
+      ...themedStyles.modalHeader,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: theme.colors.shadow,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.1,
+          shadowRadius: 2,
+        },
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    title: themedStyles.modalTitle,
+    cancelButton: {
+      color: theme.colors.primary,
+      fontSize: 16,
+      fontWeight: '500',
+    },
+    saveButton: {
+      color: theme.colors.primary,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    disabledButton: themedStyles.disabledButton,
+    content: {
+      flex: 1,
+      paddingHorizontal: 16,
+      backgroundColor: theme.colors.background,
+    },
+    description: themedStyles.description,
+    resetButton: {
+      backgroundColor: theme.colors.error,
+      borderRadius: 8,
+      paddingVertical: 12,
+      marginTop: 20,
+      marginBottom: 20,
+    },
+    resetButtonText: {
+      color: theme.colors.white,
+      fontSize: 16,
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+    bottomPadding: {
+      height: 30,
+    },
+    warningContainer: {
+      backgroundColor: theme.dark ? '#3F2A00' : '#FFFBEB',
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 16,
+      alignItems: 'center',
+    },
+    warningText: {
+      color: theme.dark ? '#FBBF24' : '#D97706',
+      fontSize: 14,
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+  })
   return (
     <Modal
       visible={visible}

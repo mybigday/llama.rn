@@ -2,6 +2,7 @@ import React from 'react'
 import { Platform } from 'react-native'
 import { MenuView } from '@react-native-menu/menu'
 import Icon from '@react-native-vector-icons/material-design-icons'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface MenuAction {
   id: string
@@ -15,6 +16,8 @@ interface MenuProps {
 }
 
 export function Menu({ actions }: MenuProps) {
+  const { theme } = useTheme()
+  
   const menuActions = actions.map((action) => ({
     id: action.id,
     title: action.title,
@@ -34,7 +37,7 @@ export function Menu({ actions }: MenuProps) {
       onPressAction={handleMenuAction}
       actions={menuActions}
     >
-      <Icon name="dots-vertical" size={24} color="#007AFF" />
+      <Icon name="dots-vertical" size={24} color={theme.colors.primary} />
     </MenuView>
   )
 }

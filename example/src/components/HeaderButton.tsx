@@ -1,7 +1,7 @@
 import React from 'react'
 import { TouchableOpacity } from 'react-native-gesture-handler'
 import Icon from '@react-native-vector-icons/material-design-icons'
-import { CommonStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 
 type IconName =
   | 'refresh'
@@ -21,9 +21,11 @@ export function HeaderButton({
   iconName,
   size = 24,
 }: HeaderButtonProps) {
+  const { theme } = useTheme()
+  
   return (
-    <TouchableOpacity style={CommonStyles.headerButton} onPress={onPress}>
-      <Icon name={iconName} size={size} color="#007AFF" />
+    <TouchableOpacity style={{ marginRight: 4 }} onPress={onPress}>
+      <Icon name={iconName} size={size} color={theme.colors.primary} />
     </TouchableOpacity>
   )
 }

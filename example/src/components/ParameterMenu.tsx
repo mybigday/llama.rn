@@ -2,7 +2,8 @@ import React from 'react'
 import { View, Text, TouchableOpacity, Platform } from 'react-native'
 import { MenuView } from '@react-native-menu/menu'
 import Icon from '@react-native-vector-icons/material-design-icons'
-import { CommonStyles } from '../styles/commonStyles'
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface ParameterMenuProps {
   label: string
@@ -21,6 +22,9 @@ export function ParameterMenu({
   onSelect,
   placeholder = 'Select...',
 }: ParameterMenuProps) {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+  
   const menuActions = options.map((option) => ({
     id: option,
     title: option,
@@ -35,9 +39,9 @@ export function ParameterMenu({
 
   return (
     <View style={{ marginVertical: 8 }}>
-      <Text style={CommonStyles.paramLabel}>{label}</Text>
+      <Text style={themedStyles.paramLabel}>{label}</Text>
       {description && (
-        <Text style={CommonStyles.paramDescription}>{description}</Text>
+        <Text style={themedStyles.paramDescription}>{description}</Text>
       )}
 
       <MenuView
@@ -51,23 +55,23 @@ export function ParameterMenu({
             alignItems: 'center',
             justifyContent: 'space-between',
             borderWidth: 1,
-            borderColor: '#ddd',
+            borderColor: theme.colors.border,
             borderRadius: 8,
             paddingHorizontal: 12,
             paddingVertical: 16,
-            backgroundColor: '#fff',
+            backgroundColor: theme.colors.inputBackground,
           }}
         >
           <Text
             style={{
               fontSize: 16,
-              color: value ? '#333' : '#999',
+              color: value ? theme.colors.text : theme.colors.textSecondary,
               flex: 1,
             }}
           >
             {value || placeholder}
           </Text>
-          <Icon name="menu-down" size={24} color="#666" />
+          <Icon name="menu-down" size={24} color={theme.colors.textSecondary} />
         </TouchableOpacity>
       </MenuView>
     </View>

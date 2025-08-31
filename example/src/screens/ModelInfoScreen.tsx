@@ -15,7 +15,8 @@ import ModelDownloadCard, {
 } from '../components/ModelDownloadCard'
 import CustomModelModal from '../components/CustomModelModal'
 import CustomModelCard from '../components/CustomModelCard'
-import { CommonStyles } from '../styles/commonStyles'
+import { createThemedStyles } from '../styles/commonStyles'
+import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import { MaskedProgress } from '../components/MaskedProgress'
 import type { CustomModel } from '../utils/storage'
@@ -24,129 +25,6 @@ import { loadLlamaModelInfo } from '../../../src' // import 'llama.rn'
 
 const { width, height } = Dimensions.get('window')
 
-const styles = StyleSheet.create({
-  // Using shared styles for common patterns
-  container: CommonStyles.container,
-  header: CommonStyles.header,
-  headerTitle: CommonStyles.headerTitle,
-  description: {
-    ...CommonStyles.description,
-    marginHorizontal: 16,
-  },
-  setupContainer: CommonStyles.setupContainer,
-  scrollContent: CommonStyles.scrollContent,
-  // Modal styles - using shared base with customizations
-  modalContainer: CommonStyles.modalContainer,
-  modalContent: {
-    ...CommonStyles.modalContent,
-    maxHeight: height * 0.8,
-    maxWidth: width * 0.95,
-    minWidth: width * 0.85,
-  },
-  modalHeader: {
-    ...CommonStyles.modalHeader,
-    marginBottom: 16,
-    paddingBottom: 12,
-  },
-  modalTitle: {
-    ...CommonStyles.modalTitle,
-    flex: 1,
-  },
-  closeButton: {
-    padding: 4,
-  },
-  closeButtonText: {
-    fontSize: 18,
-    color: '#007AFF',
-    fontWeight: '600',
-  },
-  modalBody: {},
-  infoContainer: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-  },
-  infoLabelContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  infoLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    flex: 1,
-  },
-  copyButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: '#007AFF',
-    borderRadius: 4,
-    marginLeft: 8,
-  },
-  copyButtonText: {
-    fontSize: 12,
-    color: 'white',
-    fontWeight: '600',
-  },
-  infoValue: {
-    fontSize: 14,
-    color: '#666',
-    fontFamily: 'Courier',
-  },
-  loadingContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  loadingText: {
-    marginTop: 8,
-    fontSize: 14,
-    color: '#666',
-  },
-  errorText: {
-    color: '#FF3B30',
-    fontSize: 14,
-    textAlign: 'center',
-    padding: 20,
-  },
-  metadataScrollView: {
-    maxHeight: 300,
-  },
-  multiModelContainer: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  modelFileContainer: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  individualModelScrollView: {
-    maxHeight: 280,
-    padding: 8,
-  },
-  fileHeaderContainer: {
-    backgroundColor: '#E3F2FD',
-    borderLeftWidth: 4,
-    borderLeftColor: '#007AFF',
-    marginBottom: 0,
-  },
-  fileHeaderText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#007AFF',
-  },
-  separator: {
-    height: 1,
-    backgroundColor: '#E0E0E0',
-    marginVertical: 16,
-  },
-})
-
 interface ModelFileInfo {
   name: string
   path: string
@@ -154,6 +32,134 @@ interface ModelFileInfo {
 }
 
 export default function ModelInfoScreen() {
+  const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
+
+  const styles = StyleSheet.create({
+    container: themedStyles.container,
+    header: themedStyles.header,
+    headerTitle: themedStyles.headerTitle,
+    description: {
+      ...themedStyles.description,
+      marginHorizontal: 16,
+    },
+    setupContainer: themedStyles.setupContainer,
+    scrollContent: themedStyles.scrollContent,
+    modalContainer: themedStyles.modalContainer,
+    modalContent: {
+      ...themedStyles.modalContent,
+      maxHeight: height * 0.8,
+      maxWidth: width * 0.95,
+      minWidth: width * 0.85,
+    },
+    modalHeader: {
+      ...themedStyles.modalHeader,
+      marginBottom: 16,
+      paddingBottom: 12,
+    },
+    modalTitle: {
+      ...themedStyles.modalTitle,
+      flex: 1,
+    },
+    closeButton: {
+      padding: 4,
+    },
+    closeButtonText: {
+      fontSize: 18,
+      color: theme.colors.primary,
+      fontWeight: '600',
+    },
+    modalBody: {},
+    infoContainer: {
+      backgroundColor: theme.colors.card,
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 12,
+    },
+    infoLabelContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 4,
+    },
+    infoLabel: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.colors.text,
+      flex: 1,
+    },
+    copyButton: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      backgroundColor: theme.colors.primary,
+      borderRadius: 4,
+      marginLeft: 8,
+    },
+    copyButtonText: {
+      fontSize: 12,
+      color: theme.colors.white,
+      fontWeight: '600',
+    },
+    infoValue: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      fontFamily: 'Courier',
+    },
+    loadingContainer: {
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+    },
+      loadingText: {
+        marginTop: 8,
+        fontSize: 14,
+        color: theme.colors.textSecondary,
+      },
+  })
+
+  const additionalStyles = StyleSheet.create({
+    errorText: {
+      color: theme.colors.error,
+      fontSize: 14,
+      textAlign: 'center',
+      padding: 20,
+    },
+    metadataScrollView: {
+      maxHeight: 300,
+    },
+    multiModelContainer: {
+      flexDirection: 'row',
+      gap: 12,
+    },
+    modelFileContainer: {
+      flex: 1,
+      backgroundColor: theme.colors.card,
+      borderRadius: 8,
+      overflow: 'hidden',
+    },
+    individualModelScrollView: {
+      maxHeight: 280,
+      padding: 8,
+    },
+    fileHeaderContainer: {
+      backgroundColor: theme.dark ? '#1E3A8A' : '#E3F2FD',
+      borderLeftWidth: 4,
+      borderLeftColor: theme.colors.primary,
+      marginBottom: 0,
+    },
+    fileHeaderText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: theme.colors.primary,
+    },
+    separator: {
+      height: 1,
+      backgroundColor: theme.colors.border,
+      marginVertical: 16,
+    },
+  })
+
+  // Component state
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [modelFiles, setModelFiles] = useState<ModelFileInfo[]>([])
   const [isLoadingInfo, setIsLoadingInfo] = useState(false)
@@ -309,7 +315,7 @@ export default function ModelInfoScreen() {
     if (info.error) {
       return (
         <View style={styles.infoContainer}>
-          <Text style={styles.errorText} selectable>
+          <Text style={additionalStyles.errorText} selectable>
             {info.error}
           </Text>
         </View>
@@ -348,7 +354,7 @@ export default function ModelInfoScreen() {
 
     if (infoError) {
       return (
-        <Text style={styles.errorText} selectable>
+        <Text style={additionalStyles.errorText} selectable>
           {infoError}
         </Text>
       )
@@ -356,7 +362,7 @@ export default function ModelInfoScreen() {
 
     if (modelFiles.length === 0) {
       return (
-        <Text style={styles.errorText} selectable>
+        <Text style={additionalStyles.errorText} selectable>
           No model information available
         </Text>
       )
@@ -366,7 +372,7 @@ export default function ModelInfoScreen() {
     if (modelFiles.length === 1) {
       return (
         <ScrollView
-          style={styles.metadataScrollView}
+          style={additionalStyles.metadataScrollView}
           showsVerticalScrollIndicator
         >
           {modelFiles[0] && renderSingleModelInfo(modelFiles[0])}
@@ -376,14 +382,14 @@ export default function ModelInfoScreen() {
 
     // Multiple models - split into separate ScrollViews
     return (
-      <View style={styles.multiModelContainer}>
+      <View style={additionalStyles.multiModelContainer}>
         {modelFiles.map((fileInfo) => (
-          <View key={fileInfo.path} style={styles.modelFileContainer}>
-            <View style={[styles.infoContainer, styles.fileHeaderContainer]}>
-              <Text style={styles.fileHeaderText}>{fileInfo.name}</Text>
+          <View key={fileInfo.path} style={additionalStyles.modelFileContainer}>
+            <View style={[styles.infoContainer, additionalStyles.fileHeaderContainer]}>
+              <Text style={additionalStyles.fileHeaderText}>{fileInfo.name}</Text>
             </View>
             <ScrollView
-              style={styles.individualModelScrollView}
+              style={additionalStyles.individualModelScrollView}
               showsVerticalScrollIndicator
               nestedScrollEnabled
             >
@@ -409,7 +415,7 @@ export default function ModelInfoScreen() {
         {/* Custom Models Section */}
         {customModels.length > 0 && (
           <>
-            <Text style={CommonStyles.modelSectionTitle}>Custom Models</Text>
+            <Text style={themedStyles.modelSectionTitle}>Custom Models</Text>
             {customModels.map((customModel) => (
               <CustomModelCard
                 key={customModel.id}
@@ -430,16 +436,16 @@ export default function ModelInfoScreen() {
 
         {/* Add Custom Model Button */}
         <TouchableOpacity
-          style={CommonStyles.addCustomModelButton}
+          style={themedStyles.addCustomModelButton}
           onPress={() => setShowCustomModelModal(true)}
         >
-          <Text style={CommonStyles.addCustomModelButtonText}>
+          <Text style={themedStyles.addCustomModelButtonText}>
             + Add Custom Model
           </Text>
         </TouchableOpacity>
 
         {/* Predefined Models Section */}
-        <Text style={CommonStyles.modelSectionTitle}>Default Models</Text>
+        <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
         {Object.entries(MODELS).map(([key, model]) => {
           // Type assertion to access potential vocoder property
           const modelWithVocoder = model as typeof model & { vocoder?: any }
