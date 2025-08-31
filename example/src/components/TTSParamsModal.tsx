@@ -76,7 +76,7 @@ export default function TTSParamsModal({
       marginTop: 4,
     },
     validText: {
-      color: '#34C759',
+      color: '#34A759',
     },
     invalidText: {
       color: theme.colors.error,

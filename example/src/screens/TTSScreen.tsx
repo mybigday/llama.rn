@@ -509,7 +509,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
                   <TouchableOpacity
                     style={[
                       styles.generateButton,
-                      { marginTop: 12, backgroundColor: '#34B759' },
+                      { marginTop: 12, backgroundColor: theme.colors.valid },
                     ]}
                     onPress={saveAudioAsWav}
                   >

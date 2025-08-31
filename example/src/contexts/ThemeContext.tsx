@@ -26,6 +26,7 @@ export interface ThemeColors {
   inputBackground: string
   shadow: string
   buttonBackground: string
+  valid: string
 }
 
 export interface Theme {
@@ -48,6 +49,7 @@ const lightColors: ThemeColors = {
   inputBackground: '#F8F8F8',
   shadow: '#000000',
   buttonBackground: '#1C1C1E',
+  valid: '#34A759',
 }
 
 const darkColors: ThemeColors = {
@@ -65,6 +67,7 @@ const darkColors: ThemeColors = {
   inputBackground: '#1C1C1E',
   shadow: '#333',
   buttonBackground: '#007AFF',
+  valid: '#34A759',
 }
 
 export const lightTheme: Theme = {

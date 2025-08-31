@@ -206,7 +206,7 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
       backgroundColor: theme.colors.surface,
     },
     importButton: {
-      backgroundColor: '#34C759',
+      backgroundColor: theme.colors.valid,
       paddingVertical: 16,
       paddingHorizontal: 20,
       borderRadius: 10,
@@ -214,17 +214,6 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
       justifyContent: 'center',
       marginTop: 16,
       minHeight: 52,
-      ...Platform.select({
-        ios: {
-          shadowColor: '#34C759',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.2,
-          shadowRadius: 4,
-        },
-        android: {
-          elevation: 3,
-        },
-      }),
     },
     disabledButton: {
       backgroundColor: theme.colors.border,

@@ -94,7 +94,7 @@ export default function SessionModal({
       fontWeight: '600',
     },
     saveButton: {
-      backgroundColor: '#34C759',
+      backgroundColor: theme.colors.valid,
     },
     loadButton: {
       backgroundColor: theme.colors.primary,
