@@ -512,10 +512,10 @@ completion_partial_output llama_rn_context_completion::getPartialOutput(const st
 
 std::vector<float> llama_rn_context_completion::embedding(common_params &embd_params)
 {
-    // llama_memory_clear(llama_get_memory(parent_ctx->ctx), true);
+    llama_memory_clear(llama_get_memory(parent_ctx->ctx), true);
 
     rewind();
-    // llama_perf_context_reset(parent_ctx->ctx);
+    llama_perf_context_reset(parent_ctx->ctx);
     if (!initSampling()) {
         throw std::runtime_error("Failed to initialize sampling");
     }
