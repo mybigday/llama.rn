@@ -16,6 +16,7 @@ import ToolCallsScreen from './screens/ToolCallsScreen'
 import ModelInfoScreen from './screens/ModelInfoScreen'
 import BenchScreen from './screens/BenchScreen'
 import TextCompletionScreen from './screens/TextCompletionScreen'
+import EmbeddingScreen from './screens/EmbeddingScreen'
 import { CommonStyles } from './styles/commonStyles'
 
 // Example: Catch logs from llama.cpp
@@ -120,6 +121,12 @@ function HomeScreen({ navigation }: { navigation: any }) {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}
+          onPress={() => navigation.navigate('Embeddings')}
+        >
+          <Text style={styles.buttonText}>🔍 Vector Search (in-memory)</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
           onPress={() => navigation.navigate('TTS')}
         >
           <Text style={styles.buttonText}>🔊 Text-to-Speech (OuteTTS)</Text>
@@ -182,6 +189,13 @@ function App() {
             component={ToolCallsScreen}
             options={{
               title: 'Tool Calling',
+            }}
+          />
+          <Stack.Screen
+            name="Embeddings"
+            component={EmbeddingScreen}
+            options={{
+              title: 'Vector Search (in-memory)',
             }}
           />
           <Stack.Screen

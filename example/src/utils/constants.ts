@@ -88,6 +88,30 @@ export const MODELS = {
       size: '70MB',
     },
   },
+  NOMIC_EMBED_TEXT_V1_5: {
+    name: 'Nomic Embed Text v1.5 (Q8_0)',
+    repo: 'nomic-ai/nomic-embed-text-v1.5-GGUF',
+    filename: 'nomic-embed-text-v1.5.Q8_0.gguf',
+    mmproj: undefined,
+    embedding: true,
+    size: '146MB',
+  },
+  SNOWFLAKE_ARCTIC_EMBED_M_V1_5: {
+    name: 'Snowflake Arctic Embed M v1.5 (Q8_0)',
+    repo: 'Snowflake/snowflake-arctic-embed-m-v1.5',
+    filename: 'gguf/snowflake-arctic-embed-m-v1.5-q8_0.gguf',
+    mmproj: undefined,
+    embedding: true,
+    size: '118MB',
+  },
+  MIXEDBREAD_AI_EMBED_LARGE_V1: {
+    name: 'MixedBread AI Embed Large v1 (Q8_0)',
+    repo: 'mixedbread-ai/mxbai-embed-large-v1',
+    filename: 'gguf/mxbai-embed-large-v1-f16.gguf',
+    mmproj: undefined,
+    embedding: true,
+    size: '670MB',
+  },
 }
 
 export const HUGGINGFACE_BASE_URL = 'https://huggingface.co'
