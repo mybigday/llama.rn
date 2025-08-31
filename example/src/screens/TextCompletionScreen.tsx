@@ -117,9 +117,9 @@ export default function TextCompletionScreen({
 }: {
   navigation: any
 }) {
-  const { theme } = useTheme()
+  const { theme, isDark } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
-  
+
   const styles = StyleSheet.create({
     container: themedStyles.container,
     setupContainer: themedStyles.setupContainer,
@@ -651,7 +651,7 @@ export default function TextCompletionScreen({
                   {promptTokens.map((token, index) => (
                     <View
                       key={`prompt-${index}`}
-                      style={[styles.token, { backgroundColor: '#e3f2fd' }]}
+                      style={[styles.token, { backgroundColor: isDark ? '#3C3C3C' : '#e3f2fd' }]}
                     >
                       <Text style={styles.tokenText}>
                         {token?.includes('\n')
