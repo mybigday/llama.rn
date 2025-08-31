@@ -34,11 +34,10 @@ import { MaskedProgress } from '../components/MaskedProgress'
 import { createWavFile } from '../utils/audioUtils'
 import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
 
-
 export default function TTSScreen({ navigation }: { navigation: any }) {
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
-  
+
   const styles = StyleSheet.create({
     // Using themed styles for common patterns
     container: themedStyles.container,
@@ -510,7 +509,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
                   <TouchableOpacity
                     style={[
                       styles.generateButton,
-                      { marginTop: 12, backgroundColor: '#34C759' },
+                      { marginTop: 12, backgroundColor: '#34B759' },
                     ]}
                     onPress={saveAudioAsWav}
                   >
