@@ -105,7 +105,7 @@ export const MODELS = {
     size: '118MB',
   },
   MIXEDBREAD_AI_EMBED_LARGE_V1: {
-    name: 'MixedBread AI Embed Large v1 (Q8_0)',
+    name: 'MixedBread AI Embed Large v1 (F16)',
     repo: 'mixedbread-ai/mxbai-embed-large-v1',
     filename: 'gguf/mxbai-embed-large-v1-f16.gguf',
     mmproj: undefined,
