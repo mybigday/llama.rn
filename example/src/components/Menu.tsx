@@ -13,11 +13,12 @@ interface MenuAction {
 
 interface MenuProps {
   actions: MenuAction[]
+  icon?: 'dots-vertical' | 'theme-light-dark'
 }
 
-export function Menu({ actions }: MenuProps) {
+export function Menu({ icon = 'dots-vertical', actions }: MenuProps) {
   const { theme } = useTheme()
-  
+
   const menuActions = actions.map((action) => ({
     id: action.id,
     title: action.title,
@@ -37,7 +38,7 @@ export function Menu({ actions }: MenuProps) {
       onPressAction={handleMenuAction}
       actions={menuActions}
     >
-      <Icon name="theme-light-dark" size={24} color={theme.colors.primary} />
+      <Icon name={icon} size={24} color={theme.colors.primary} />
     </MenuView>
   )
 }

@@ -16,7 +16,7 @@ import {
   Platform,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Chat, defaultTheme, darkTheme } from '@flyerhq/react-native-chat-ui'
+import { Chat } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { pick, keepLocalCopy } from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
@@ -32,7 +32,7 @@ import { MessagesModal } from '../components/MessagesModal'
 import { MaskedProgress } from '../components/MaskedProgress'
 import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
-import { createThemedStyles } from '../styles/commonStyles'
+import { createThemedStyles, chatDarkTheme, chatLightTheme } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type {
@@ -143,7 +143,7 @@ const createWelcomeMessage = (
 export default function MultimodalScreen({ navigation }: { navigation: any }) {
   const { isDark, theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
-  
+
   const styles = StyleSheet.create({
     // Using themed styles for common patterns
     container: themedStyles.container,
@@ -229,7 +229,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       fontWeight: '500',
     },
   })
-  
+
   const messagesRef = useRef<MessageType.Any[]>([])
   const [, setMessagesVersion] = useState(0) // For UI updates
   const [isLoading, setIsLoading] = useState(false)
@@ -1008,7 +1008,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         }
         user={user}
         renderBubble={renderBubble}
-        theme={isDark ? darkTheme : defaultTheme}
+        theme={isDark ? chatDarkTheme : chatLightTheme}
         showUserAvatars
         showUserNames
         disableImageGallery={false}

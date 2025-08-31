@@ -1,5 +1,22 @@
 import { StyleSheet } from 'react-native'
+import { defaultTheme as defaultLightTheme, darkTheme as defaultDarkTheme } from  '@flyerhq/react-native-chat-ui'
 import type { ThemeColors } from '../contexts/ThemeContext'
+
+export const chatLightTheme = {
+  ...defaultLightTheme,
+  colors: {
+    ...defaultLightTheme.colors,
+    background: '#f0f0f0', // light grey
+  },
+}
+
+export const chatDarkTheme = {
+  ...defaultDarkTheme,
+  colors: {
+    ...defaultDarkTheme.colors,
+    background: '#1f1c383a', // purple dark
+  },
+}
 
 // Common spacing values
 export const Spacing = {

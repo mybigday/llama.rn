@@ -195,6 +195,7 @@ function AppContent() {
             headerTintColor: theme.colors.primary,
             headerRight: () => (
               <Menu
+                icon="theme-light-dark"
                 actions={[
                   {
                     id: 'system',

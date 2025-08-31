@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Chat, defaultTheme, darkTheme } from '@flyerhq/react-native-chat-ui'
+import { Chat } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
@@ -27,7 +27,7 @@ import { Menu } from '../components/Menu'
 import { MessagesModal } from '../components/MessagesModal'
 import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
-import { createThemedStyles } from '../styles/commonStyles'
+import { createThemedStyles, chatDarkTheme, chatLightTheme } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type {
@@ -479,7 +479,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
     <View style={themedStyles.container}>
       <Chat
         renderBubble={renderBubble}
-        theme={isDark ? darkTheme : defaultTheme}
+        theme={isDark ? chatDarkTheme : chatLightTheme}
         messages={messagesRef.current}
         onSendPress={handleSendPress}
         user={user}
