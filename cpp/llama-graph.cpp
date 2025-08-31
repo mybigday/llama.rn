@@ -1221,7 +1221,8 @@ lm_ggml_tensor * llm_graph_context::build_attn_mha(
          lm_ggml_tensor * kq_mask,
          lm_ggml_tensor * sinks,
          lm_ggml_tensor * v_mla,
-             float     kq_scale) const {
+               float   kq_scale,
+                 int   il) const {
     const bool v_trans = v->nb[1] > v->nb[2];
 
     // split the batch into streams if needed
@@ -1256,6 +1257,7 @@ lm_ggml_tensor * llm_graph_context::build_attn_mha(
 
         cur = lm_ggml_flash_attn_ext(ctx0, q, k, v, kq_mask, kq_scale, hparams.f_max_alibi_bias,
                                   hparams.attn_soft_cap ? hparams.f_attn_logit_softcapping : 0.0f);
+        cb(cur, LLAMA_TENSOR_NAME_FATTN, il);
 
         lm_ggml_flash_attn_ext_add_sinks(cur, sinks);
         lm_ggml_flash_attn_ext_set_prec (cur, LM_GGML_PREC_F32);
@@ -1271,6 +1273,7 @@ lm_ggml_tensor * llm_graph_context::build_attn_mha(
             // The permutations are noops and only change how the tensor data is interpreted.
             cur = lm_ggml_permute(ctx0, cur, 0, 2, 1, 3);
             cur = lm_ggml_mul_mat(ctx0, v_mla, cur);
+            cb(cur, "fattn_mla", il);
             cur = lm_ggml_permute(ctx0, cur, 0, 2, 1, 3);
             cur = lm_ggml_cont(ctx0, cur); // Needed because lm_ggml_reshape_2d expects contiguous inputs.
 #endif
@@ -1279,6 +1282,7 @@ lm_ggml_tensor * llm_graph_context::build_attn_mha(
         cur = lm_ggml_reshape_2d(ctx0, cur, cur->ne[0]*cur->ne[1], cur->ne[2]*cur->ne[3]);
     } else {
         lm_ggml_tensor * kq = lm_ggml_mul_mat(ctx0, k, q);
+        cb(kq, "kq", il);
 
         // note: this op tends to require high floating point range
         //       while for some models F16 is enough, for others it is not, so we default to F32 here
@@ -1292,32 +1296,42 @@ lm_ggml_tensor * llm_graph_context::build_attn_mha(
             // before the softmax below
 
             kq = lm_ggml_tanh(ctx0, lm_ggml_scale(ctx0, kq, 0.08838834764831845f/30.0f));
+            cb(kq, "kq_tanh", il);
             kq = lm_ggml_scale(ctx0, kq, 30);
+            cb(kq, "kq_scaled", il);
         }
 
         if (hparams.attn_soft_cap) {
             kq = lm_ggml_scale(ctx0, kq, 1.0f / hparams.f_attn_logit_softcapping);
+            cb(kq, "kq_scaled_1", il);
             kq = lm_ggml_tanh (ctx0, kq);
+            cb(kq, "kq_tanh", il);
             kq = lm_ggml_scale(ctx0, kq, hparams.f_attn_logit_softcapping);
+            cb(kq, "kq_scaled_2", il);
         }
 
         if (kq_b) {
             kq = lm_ggml_add(ctx0, kq, kq_b);
+            cb(kq, "kq_plus_kq_b", il);
         }
 
         kq = lm_ggml_soft_max_ext(ctx0, kq, kq_mask, kq_scale, hparams.f_max_alibi_bias);
         lm_ggml_soft_max_add_sinks(kq, sinks);
+        cb(kq, "kq_soft_max", il);
 
         if (!v_trans) {
             // note: avoid this branch
             v = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, v));
+            cb(v, "v_cont", il);
         }
 
         lm_ggml_tensor * kqv = lm_ggml_mul_mat(ctx0, v, kq);
+        cb(kqv, "kqv", il);
 
         // for MLA with the absorption optimization, we need to "decompress" from MQA back to MHA
         if (v_mla) {
             kqv = lm_ggml_mul_mat(ctx0, v_mla, kqv);
+            cb(kqv, "kqv_mla", il);
         }
 
         cur = lm_ggml_permute(ctx0, kqv, 0, 2, 1, 3);
@@ -1378,7 +1392,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     lm_ggml_tensor * k = k_cur;
     lm_ggml_tensor * v = v_cur;
 
-    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale);
+    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
     cb(cur, "kqv_out", il);
 
     if (wo) {
@@ -1467,7 +1481,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     lm_ggml_tensor * k = mctx_cur->get_k(ctx0, il);
     lm_ggml_tensor * v = mctx_cur->get_v(ctx0, il);
 
-    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale);
+    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
     cb(cur, "kqv_out", il);
 
     if (wo) {
@@ -1534,7 +1548,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     lm_ggml_tensor * k = mctx_cur->get_k(ctx0, il);
     lm_ggml_tensor * v = mctx_cur->get_v(ctx0, il);
 
-    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale);
+    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
     cb(cur, "kqv_out", il);
 
     if (wo) {
@@ -1589,7 +1603,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     lm_ggml_tensor * k = k_cur;
     lm_ggml_tensor * v = v_cur;
 
-    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale);
+    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
     cb(cur, "kqv_out", il);
 
     if (wo) {

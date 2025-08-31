@@ -29,6 +29,8 @@ std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::co
 
 lm_ggml_type kv_cache_type_from_str(const std::string & s);
 
+enum llama_flash_attn_type flash_attn_type_from_str(const std::string & s);
+
 // Forward declarations - actual definitions are in rn-completion.h
 // Note: enum forward declarations not allowed in C++, using include in implementation file
 struct completion_token_output;

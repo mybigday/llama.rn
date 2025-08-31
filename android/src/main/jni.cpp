@@ -234,6 +234,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jint n_threads,
     jint n_gpu_layers, // TODO: Support this
     jboolean flash_attn,
+    jstring flash_attn_type,
     jstring cache_type_k,
     jstring cache_type_v,
     jboolean use_mlock,
@@ -303,7 +304,15 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.cpuparams.n_threads = n_threads > 0 ? n_threads : default_n_threads;
 
     defaultParams.n_gpu_layers = n_gpu_layers;
-    defaultParams.flash_attn = flash_attn;
+
+    const char *flash_attn_type_chars = env->GetStringUTFChars(flash_attn_type, nullptr);
+    if (flash_attn_type_chars && flash_attn_type_chars[0] != '\0') {
+        defaultParams.flash_attn_type = static_cast<enum llama_flash_attn_type>(rnllama::flash_attn_type_from_str(flash_attn_type_chars));
+    } else {
+        // DEPRECATED: use flash_attn_type instead
+        defaultParams.flash_attn_type = flash_attn ? LLAMA_FLASH_ATTN_TYPE_ENABLED : LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    }
+    env->ReleaseStringUTFChars(flash_attn_type, flash_attn_type_chars);
 
     const char *cache_type_k_chars = nullptr;
     const char *cache_type_v_chars = nullptr;

@@ -194,7 +194,17 @@
     if (params[@"rope_freq_base"]) defaultParams.rope_freq_base = [params[@"rope_freq_base"] floatValue];
     if (params[@"rope_freq_scale"]) defaultParams.rope_freq_scale = [params[@"rope_freq_scale"] floatValue];
 
-    if (params[@"flash_attn"] && [params[@"flash_attn"] boolValue]) defaultParams.flash_attn = true;
+    if (params[@"flash_attn_type"] && [params[@"flash_attn_type"] isKindOfClass:[NSString class]]) {
+      const char* flash_attn_type_str = [params[@"flash_attn_type"] UTF8String];
+      if (flash_attn_type_str) {
+        defaultParams.flash_attn_type = static_cast<enum llama_flash_attn_type>(rnllama::flash_attn_type_from_str(flash_attn_type_str));
+      }
+    } else {
+      // DEPRECATED: use flash_attn_type instead
+      if (params[@"flash_attn"]) {
+        defaultParams.flash_attn_type = [params[@"flash_attn"] boolValue] ? LLAMA_FLASH_ATTN_TYPE_ENABLED : LLAMA_FLASH_ATTN_TYPE_DISABLED;
+      }
+    }
 
     if (params[@"ctx_shift"]) defaultParams.ctx_shift = [params[@"ctx_shift"] boolValue];
 
