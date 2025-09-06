@@ -307,6 +307,9 @@ extern "C" {
     LM_GGML_API void                 lm_ggml_backend_sched_set_tensor_backend(lm_ggml_backend_sched_t sched, struct lm_ggml_tensor * node, lm_ggml_backend_t backend);
     LM_GGML_API lm_ggml_backend_t       lm_ggml_backend_sched_get_tensor_backend(lm_ggml_backend_sched_t sched, struct lm_ggml_tensor * node);
 
+    // Split graph without allocating it
+    LM_GGML_API void                 lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph);
+
     // Allocate and compute graph on the backend scheduler
     LM_GGML_API bool                 lm_ggml_backend_sched_alloc_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph); // returns success
     LM_GGML_API enum lm_ggml_status     lm_ggml_backend_sched_graph_compute(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph);

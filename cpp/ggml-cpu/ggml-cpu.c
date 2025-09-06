@@ -1876,6 +1876,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_im2col_back_f32(params, tensor);
             } break;
+        case LM_GGML_OP_IM2COL_3D:
+            {
+                lm_ggml_compute_forward_im2col_3d(params, tensor);
+            } break;
         case LM_GGML_OP_CONV_2D:
             {
                 lm_ggml_compute_forward_conv_2d(params, tensor);
@@ -2255,6 +2259,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
             } break;
         case LM_GGML_OP_IM2COL:
         case LM_GGML_OP_IM2COL_BACK:
+        case LM_GGML_OP_IM2COL_3D:
         case LM_GGML_OP_CONV_2D:
         case LM_GGML_OP_CONV_3D:
         case LM_GGML_OP_CONV_2D_DW:
@@ -3220,6 +3225,13 @@ void lm_ggml_cpu_fp32_to_fp16(const float * x, lm_ggml_fp16_t * y, int64_t n) {
         uint16x8_t v_yd = vec_round_from_fp32(v_x, v_zero, 0);
         uint16x8_t v_y = vec_convert_to_fp16(v_yd, 0);
         vec_xst(v_y, 0, (lm_ggml_fp16_t *)(y + i));
+    }
+#elif defined(__riscv_zvfh)
+    for (int vl; i < n; i += vl) {
+        vl = __riscv_vsetvl_e32m2(n - i);
+        vfloat32m2_t vx = __riscv_vle32_v_f32m2(&x[i], vl);
+        vfloat16m1_t vy = __riscv_vfncvt_f_f_w_f16m1(vx, vl);
+        __riscv_vse16_v_f16m1((_Float16 *)&y[i], vy, vl);
     }
 #endif
     for (; i < n; ++i) {

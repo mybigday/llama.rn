@@ -982,6 +982,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "CONV_TRANSPOSE_1D",
     "IM2COL",
     "IM2COL_BACK",
+    "IM2COL_3D",
     "CONV_2D",
     "CONV_3D",
     "CONV_2D_DW",
@@ -1026,7 +1027,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "GLU",
 };
 
-static_assert(LM_GGML_OP_COUNT == 89, "LM_GGML_OP_COUNT != 89");
+static_assert(LM_GGML_OP_COUNT == 90, "LM_GGML_OP_COUNT != 90");
 
 static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "none",
@@ -1085,6 +1086,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "conv_transpose_1d(x)",
     "im2col(x)",
     "im2col_back(x)",
+    "im2col_3d(x)",
     "conv_2d(x)",
     "conv_3d(x)",
     "conv_2d_dw(x)",
@@ -1129,7 +1131,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "glu(x)",
 };
 
-static_assert(LM_GGML_OP_COUNT == 89, "LM_GGML_OP_COUNT != 89");
+static_assert(LM_GGML_OP_COUNT == 90, "LM_GGML_OP_COUNT != 90");
 
 static_assert(LM_GGML_OP_POOL_COUNT == 2, "LM_GGML_OP_POOL_COUNT != 2");
 
@@ -4369,6 +4371,91 @@ struct lm_ggml_tensor * lm_ggml_conv_2d(
     return result;
 }
 
+// a: [OC*IC, KD, KH, KW]
+// b: [N*IC, ID, IH, IW]
+// result: [N*OD, OH, OW, IC * KD * KH * KW]
+struct lm_ggml_tensor * lm_ggml_im2col_3d(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        int64_t               IC,
+        int                   s0, // stride width
+        int                   s1, // stride height
+        int                   s2, // stride depth
+        int                   p0, // padding width
+        int                   p1, // padding height
+        int                   p2, // padding depth
+        int                   d0, // dilation width
+        int                   d1, // dilation height
+        int                   d2, // dilation depth
+        enum lm_ggml_type        dst_type) {
+    const int64_t N = b->ne[3] / IC;
+    const int64_t ID = b->ne[2];
+    const int64_t IH = b->ne[1];
+    const int64_t IW = b->ne[0];
+
+    const int64_t OC = a->ne[3] / IC;
+    UNUSED(OC);
+    const int64_t KD = a->ne[2];
+    const int64_t KH = a->ne[1];
+    const int64_t KW = a->ne[0];
+    const int64_t OD = lm_ggml_calc_conv_output_size(ID, KD, s2, p2, d2);
+    const int64_t OH = lm_ggml_calc_conv_output_size(IH, KH, s1, p1, d1);
+    const int64_t OW = lm_ggml_calc_conv_output_size(IW, KW, s0, p0, d0);
+
+    LM_GGML_ASSERT((OD > 0)  && "b too small compared to a");
+    LM_GGML_ASSERT((OH > 0)  && "b too small compared to a");
+    LM_GGML_ASSERT((OW > 0)  && "b too small compared to a");
+
+
+    const int64_t ne[4] = {KW*KH*KD*IC, OW, OH, OD*N};
+
+    struct lm_ggml_tensor * result = lm_ggml_new_tensor(ctx, dst_type, 4, ne);
+    int32_t params[] = { s0, s1, s2, p0, p1, p2, d0, d1, d2, (int32_t)IC};
+    lm_ggml_set_op_params(result, params, sizeof(params));
+
+    result->op     = LM_GGML_OP_IM2COL_3D;
+    result->src[0] = a;
+    result->src[1] = b;
+
+    return result;
+}
+
+// a: [OC*IC, KD, KH, KW]
+// b: [N*IC, ID, IH, IW]
+// result: [N*OC, OD, OH, OW]
+struct lm_ggml_tensor * lm_ggml_conv_3d(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        int64_t               IC,
+        int                   s0, // stride width
+        int                   s1, // stride height
+        int                   s2, // stride depth
+        int                   p0, // padding width
+        int                   p1, // padding height
+        int                   p2, // padding depth
+        int                   d0, // dilation width
+        int                   d1, // dilation height
+        int                   d2  // dilation depth
+        ) {
+    struct lm_ggml_tensor * im2col = lm_ggml_im2col_3d(ctx, a, b, IC, s0, s1, s2, p0, p1, p2, d0, d1, d2, a->type); // [N*OD, OH, OW, IC * KD * KH * KW]
+
+    int64_t OC = a->ne[3] / IC;
+    int64_t N = b->ne[3] / IC;
+    struct lm_ggml_tensor * result =
+        lm_ggml_mul_mat(ctx,
+                lm_ggml_reshape_2d(ctx, im2col, im2col->ne[0], im2col->ne[3] * im2col->ne[2] * im2col->ne[1]), // [N*OD, OH, OW, IC * KD * KH * KW] => [N*OD*OH*OW, IC * KD * KH * KW]
+                lm_ggml_reshape_2d(ctx, a, (a->ne[0] * a->ne[1] * a->ne[2] * IC), OC));                          // [OC*IC, KD, KH, KW] => [OC, IC * KD * KH * KW]
+
+    int64_t OD = im2col->ne[3] / N;
+    result = lm_ggml_reshape_4d(ctx, result, im2col->ne[1]*im2col->ne[2], OD, N, OC); // [OC, N*OD*OH*OW] => [OC, N, OD, OH*OW]
+    result = lm_ggml_cont(ctx, lm_ggml_permute(ctx, result, 0, 1, 3, 2)); // [N, OC, OD, OH*OW]
+    result = lm_ggml_reshape_4d(ctx, result, im2col->ne[1], im2col->ne[2], OD, OC * N); // [N*OC, OD, OH, OW]
+
+    return result;
+}
+
 // lm_ggml_conv_2d_sk_p0
 
 struct lm_ggml_tensor * lm_ggml_conv_2d_sk_p0(
@@ -4490,9 +4577,9 @@ struct lm_ggml_tensor * lm_ggml_conv_2d_direct(
     return result;
 }
 
-// lm_ggml_conv_3d
+// lm_ggml_conv_3d_direct
 
-struct lm_ggml_tensor * lm_ggml_conv_3d(
+struct lm_ggml_tensor * lm_ggml_conv_3d_direct(
         struct lm_ggml_context * ctx,
         struct lm_ggml_tensor  * a,
         struct lm_ggml_tensor  * b,
@@ -4718,11 +4805,36 @@ struct lm_ggml_tensor * lm_ggml_pad(
         int                   p1,
         int                   p2,
         int                   p3) {
+    return lm_ggml_pad_ext(ctx, a, 0, p0, 0, p1, 0, p2, 0, p3);
+}
+
+struct lm_ggml_tensor * lm_ggml_pad_ext(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            int                  lp0,
+            int                  rp0,
+            int                  lp1,
+            int                  rp1,
+            int                  lp2,
+            int                  rp2,
+            int                  lp3,
+            int                  rp3
+            ) {
     struct lm_ggml_tensor * result = lm_ggml_new_tensor_4d(ctx, a->type,
-            a->ne[0] + p0,
-            a->ne[1] + p1,
-            a->ne[2] + p2,
-            a->ne[3] + p3);
+            a->ne[0] + lp0 + rp0,
+            a->ne[1] + lp1 + rp1,
+            a->ne[2] + lp2 + rp2,
+            a->ne[3] + lp3 + rp3);
+
+    lm_ggml_set_op_params_i32(result, 0, lp0);
+    lm_ggml_set_op_params_i32(result, 1, rp0);
+    lm_ggml_set_op_params_i32(result, 2, lp1);
+    lm_ggml_set_op_params_i32(result, 3, rp1);
+    lm_ggml_set_op_params_i32(result, 4, lp2);
+    lm_ggml_set_op_params_i32(result, 5, rp2);
+    lm_ggml_set_op_params_i32(result, 6, lp3);
+    lm_ggml_set_op_params_i32(result, 7, rp3);
+
 
     result->op     = LM_GGML_OP_PAD;
     result->src[0] = a;

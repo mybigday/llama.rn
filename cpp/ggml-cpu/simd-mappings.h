@@ -215,6 +215,47 @@ inline static float lm_ggml_lookup_fp16_to_fp32(lm_ggml_fp16_t f) {
 #define LM_GGML_F32_VEC_MUL    LM_GGML_F32xt_MUL
 #define LM_GGML_F32_VEC_REDUCE LM_GGML_F32xt_REDUCE
 
+// F16 SVE
+#define DEFAULT_PG32    svptrue_b32()
+#define DEFAULT_PG16    svptrue_b16()
+
+#define LM_GGML_F32Cxt                         svfloat16_t
+#define LM_GGML_F32Cxt_ZERO                    svdup_n_f16(0.0f)
+#define LM_GGML_F32Cxt_SET1(x)                 svdup_n_f16(x)
+#define LM_GGML_F32Cxt_LOAD(p)                 svld1_f16(DEFAULT_PG16, (const __fp16 *)(p))
+#define LM_GGML_F32Cxt_STORE(dst_ptr, src_vec) svst1_f16(DEFAULT_PG16, (__fp16 *)(dst_ptr), (src_vec))
+
+#define LM_GGML_F32Cxt_FMA_IMPL(pg, a, b, c)   svmad_f16_x(pg, b, c, a)
+#define LM_GGML_F32Cxt_FMA(...)                LM_GGML_F32Cxt_FMA_IMPL(DEFAULT_PG16, __VA_ARGS__)
+#define LM_GGML_F32Cxt_ADD_IMPL(pg, a, b)      svadd_f16_x(pg, a, b)
+#define LM_GGML_F32Cxt_ADD(...)                LM_GGML_F32Cxt_ADD_IMPL(DEFAULT_PG16, __VA_ARGS__)
+#define LM_GGML_F32Cxt_MUL_IMPL(pg, a, b)      svmul_f16_x(pg, a, b)
+#define LM_GGML_F32Cxt_MUL(...)                LM_GGML_F32Cxt_MUL_IMPL(DEFAULT_PG16, __VA_ARGS__)
+#define LM_GGML_F32Cxt_REDUCE                  LM_GGML_F16xt_REDUCE_MIXED
+
+#define LM_GGML_F16x_VEC                LM_GGML_F32Cxt
+#define LM_GGML_F16x_VEC_ZERO           LM_GGML_F32Cxt_ZERO
+#define LM_GGML_F16x_VEC_SET1           LM_GGML_F32Cxt_SET1
+#define LM_GGML_F16x_VEC_LOAD(p, i)     LM_GGML_F32Cxt_LOAD(p)
+#define LM_GGML_F16x_VEC_STORE(p, r, i) LM_GGML_F32Cxt_STORE((__fp16 *)(p), r)
+#define LM_GGML_F16x_VEC_FMA            LM_GGML_F32Cxt_FMA
+#define LM_GGML_F16x_VEC_ADD            LM_GGML_F32Cxt_ADD
+#define LM_GGML_F16x_VEC_MUL            LM_GGML_F32Cxt_MUL
+#define LM_GGML_F16x_VEC_REDUCE         LM_GGML_F32Cxt_REDUCE
+
+#define LM_GGML_F16xt_REDUCE_ONE_IMPL(pg, a) svaddv_f16(pg, a)
+#define LM_GGML_F16xt_REDUCE_ONE(...)        LM_GGML_F16xt_REDUCE_ONE_IMPL(DEFAULT_PG16, __VA_ARGS__)
+
+#define LM_GGML_F16xt_REDUCE_MIXED_IMPL(pg16, res, sum1, sum2, sum3, sum4)  \
+{                                                      \
+    sum1 = svadd_f16_x(pg16, sum1, sum2);              \
+    sum3 = svadd_f16_x(pg16, sum3, sum4);              \
+    sum1 = svadd_f16_x(pg16, sum1, sum3);              \
+    __fp16 sum_f16 = svaddv_f16(pg16, sum1);           \
+    (res) = (lm_ggml_float) sum_f16;                      \
+}
+#define LM_GGML_F16xt_REDUCE_MIXED(...) LM_GGML_F16xt_REDUCE_MIXED_IMPL(DEFAULT_PG16, __VA_ARGS__)
+
 // F16 NEON
 
 #if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
