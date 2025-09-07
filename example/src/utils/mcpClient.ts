@@ -95,19 +95,23 @@ export class MCPClientManager {
   }
 
   private static async createMCPClient(server: MCPServer): Promise<Client> {
+    const url = new URL(server.url)
+    const transportOptions = {
+      eventSourceInit: { headers: server.headers || {} },
+      requestInit: { headers: server.headers || {} },
+      URL,
+      reconnectionOptions: {
+        initialReconnectionDelay: 1000,
+        maxReconnectionDelay: 5000,
+        reconnectionDelayGrowFactor: 1.5,
+        maxRetries: 3,
+      },
+    }
     // Create transport based on server type
     const transport =
       server.type === 'sse'
-        ? new SSEJSClientTransport(new URL(server.url), {
-            eventSourceInit: { headers: server.headers || {} },
-            requestInit: { headers: server.headers || {} },
-            URL,
-          })
-        : new SSEJSStreamableHTTPClientTransport(new URL(server.url), {
-            eventSourceInit: { headers: server.headers || {} },
-            requestInit: { headers: server.headers || {} },
-            URL,
-          })
+        ? new SSEJSClientTransport(url, transportOptions)
+        : new SSEJSStreamableHTTPClientTransport(url, transportOptions)
 
     // Create MCP client
     const client = new Client(
