@@ -114,26 +114,6 @@ extern "C" {
     #define LM_GGML_CPU_COMPUTE_FP32_TO_FP16(x) riscv_compute_fp32_to_fp16(x)
     #define LM_GGML_CPU_FP16_TO_FP32(x) LM_GGML_CPU_COMPUTE_FP16_TO_FP32(x)
     #define LM_GGML_CPU_FP32_TO_FP16(x) LM_GGML_CPU_COMPUTE_FP32_TO_FP16(x)
-#elif defined(__NNPA__)
-    #define LM_GGML_CPU_COMPUTE_FP16_TO_FP32(x) nnpa_compute_fp16_to_fp32(x)
-    #define LM_GGML_CPU_COMPUTE_FP32_TO_FP16(x) nnpa_compute_fp32_to_fp16(x)
-
-    #define LM_GGML_CPU_FP16_TO_FP32(x) LM_GGML_CPU_COMPUTE_FP16_TO_FP32(x)
-    #define LM_GGML_CPU_FP32_TO_FP16(x) LM_GGML_CPU_COMPUTE_FP32_TO_FP16(x)
-
-    static inline float nnpa_compute_fp16_to_fp32(lm_ggml_fp16_t h) {
-        uint16x8_t v_h = vec_splats(h);
-        uint16x8_t v_hd = vec_convert_from_fp16(v_h, 0);
-        return vec_extend_to_fp32_hi(v_hd, 0)[0];
-    }
-
-    static inline lm_ggml_fp16_t nnpa_compute_fp32_to_fp16(float f) {
-        float32x4_t v_f = vec_splats(f);
-        float32x4_t v_zero = vec_splats(0.0f);
-        uint16x8_t v_hd = vec_round_from_fp32(v_f, v_zero, 0);
-        uint16x8_t v_h = vec_convert_to_fp16(v_hd, 0);
-        return vec_extract(v_h, 0);
-    }
 #endif
 
 // precomputed f32 table for f16 (256 KB)
@@ -214,6 +194,47 @@ inline static float lm_ggml_lookup_fp16_to_fp32(lm_ggml_fp16_t f) {
 #define LM_GGML_F32_VEC_ADD    LM_GGML_F32xt_ADD
 #define LM_GGML_F32_VEC_MUL    LM_GGML_F32xt_MUL
 #define LM_GGML_F32_VEC_REDUCE LM_GGML_F32xt_REDUCE
+
+// F16 SVE
+#define DEFAULT_PG32    svptrue_b32()
+#define DEFAULT_PG16    svptrue_b16()
+
+#define LM_GGML_F32Cxt                         svfloat16_t
+#define LM_GGML_F32Cxt_ZERO                    svdup_n_f16(0.0f)
+#define LM_GGML_F32Cxt_SET1(x)                 svdup_n_f16(x)
+#define LM_GGML_F32Cxt_LOAD(p)                 svld1_f16(DEFAULT_PG16, (const __fp16 *)(p))
+#define LM_GGML_F32Cxt_STORE(dst_ptr, src_vec) svst1_f16(DEFAULT_PG16, (__fp16 *)(dst_ptr), (src_vec))
+
+#define LM_GGML_F32Cxt_FMA_IMPL(pg, a, b, c)   svmad_f16_x(pg, b, c, a)
+#define LM_GGML_F32Cxt_FMA(...)                LM_GGML_F32Cxt_FMA_IMPL(DEFAULT_PG16, __VA_ARGS__)
+#define LM_GGML_F32Cxt_ADD_IMPL(pg, a, b)      svadd_f16_x(pg, a, b)
+#define LM_GGML_F32Cxt_ADD(...)                LM_GGML_F32Cxt_ADD_IMPL(DEFAULT_PG16, __VA_ARGS__)
+#define LM_GGML_F32Cxt_MUL_IMPL(pg, a, b)      svmul_f16_x(pg, a, b)
+#define LM_GGML_F32Cxt_MUL(...)                LM_GGML_F32Cxt_MUL_IMPL(DEFAULT_PG16, __VA_ARGS__)
+#define LM_GGML_F32Cxt_REDUCE                  LM_GGML_F16xt_REDUCE_MIXED
+
+#define LM_GGML_F16x_VEC                LM_GGML_F32Cxt
+#define LM_GGML_F16x_VEC_ZERO           LM_GGML_F32Cxt_ZERO
+#define LM_GGML_F16x_VEC_SET1           LM_GGML_F32Cxt_SET1
+#define LM_GGML_F16x_VEC_LOAD(p, i)     LM_GGML_F32Cxt_LOAD(p)
+#define LM_GGML_F16x_VEC_STORE(p, r, i) LM_GGML_F32Cxt_STORE((__fp16 *)(p), r)
+#define LM_GGML_F16x_VEC_FMA            LM_GGML_F32Cxt_FMA
+#define LM_GGML_F16x_VEC_ADD            LM_GGML_F32Cxt_ADD
+#define LM_GGML_F16x_VEC_MUL            LM_GGML_F32Cxt_MUL
+#define LM_GGML_F16x_VEC_REDUCE         LM_GGML_F32Cxt_REDUCE
+
+#define LM_GGML_F16xt_REDUCE_ONE_IMPL(pg, a) svaddv_f16(pg, a)
+#define LM_GGML_F16xt_REDUCE_ONE(...)        LM_GGML_F16xt_REDUCE_ONE_IMPL(DEFAULT_PG16, __VA_ARGS__)
+
+#define LM_GGML_F16xt_REDUCE_MIXED_IMPL(pg16, res, sum1, sum2, sum3, sum4)  \
+{                                                      \
+    sum1 = svadd_f16_x(pg16, sum1, sum2);              \
+    sum3 = svadd_f16_x(pg16, sum3, sum4);              \
+    sum1 = svadd_f16_x(pg16, sum1, sum3);              \
+    __fp16 sum_f16 = svaddv_f16(pg16, sum1);           \
+    (res) = (lm_ggml_float) sum_f16;                      \
+}
+#define LM_GGML_F16xt_REDUCE_MIXED(...) LM_GGML_F16xt_REDUCE_MIXED_IMPL(DEFAULT_PG16, __VA_ARGS__)
 
 // F16 NEON
 
@@ -1115,11 +1136,6 @@ static inline void __lsx_f16x4_store(lm_ggml_fp16_t * x, __m128 y) {
 #define LM_GGML_F16_EPR  LM_GGML_F32_EPR
 
 static inline float32x4_t __lzs_f16cx4_load(const lm_ggml_fp16_t * x) {
-#if defined(__NNPA__)
-    uint16x8_t v_x = vec_xl(0, (const lm_ggml_fp16_t *)x);
-    uint16x8_t v_xd = vec_convert_from_fp16(v_x, 0);
-    return vec_extend_to_fp32_hi(v_xd, 0);
-#else
     float tmp[4];
 
     for (int i = 0; i < 4; i++) {
@@ -1129,20 +1145,9 @@ static inline float32x4_t __lzs_f16cx4_load(const lm_ggml_fp16_t * x) {
     // note: keep type-cast here to prevent compiler bugs
     // see: https://github.com/ggml-org/llama.cpp/issues/12846
     return vec_xl(0, (const float *)(tmp));
-#endif
 }
 
 static inline void __lzs_f16cx4_store(lm_ggml_fp16_t * x, float32x4_t v_y) {
-#if defined(__NNPA__)
-    float32x4_t v_zero = vec_splats(0.0f);
-    uint16x8_t v_xd = vec_round_from_fp32(v_y, v_zero, 0);
-    uint16x8_t v_x = vec_convert_to_fp16(v_xd, 0);
-
-    x[0] = vec_extract(v_x, 0);
-    x[1] = vec_extract(v_x, 1);
-    x[2] = vec_extract(v_x, 2);
-    x[3] = vec_extract(v_x, 3);
-#else
     float arr[4];
 
     // note: keep type-cast here to prevent compiler bugs
@@ -1152,7 +1157,6 @@ static inline void __lzs_f16cx4_store(lm_ggml_fp16_t * x, float32x4_t v_y) {
     for (int i = 0; i < 4; i++) {
         x[i] = LM_GGML_CPU_FP32_TO_FP16(arr[i]);
     }
-#endif
 }
 
 #define LM_GGML_F16_VEC                LM_GGML_F32x4

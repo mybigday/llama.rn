@@ -101,7 +101,6 @@ extern "C" {
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_riscv_v    (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_vsx        (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_vxe        (void);
-    LM_GGML_BACKEND_API int lm_ggml_cpu_has_nnpa       (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_wasm_simd  (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_llamafile  (void);
 

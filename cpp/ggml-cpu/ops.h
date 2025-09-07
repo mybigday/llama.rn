@@ -69,6 +69,7 @@ void lm_ggml_compute_forward_clamp(const struct lm_ggml_compute_params * params,
 void lm_ggml_compute_forward_conv_transpose_1d(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_im2col(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_im2col_back_f32(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
+void lm_ggml_compute_forward_im2col_3d(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_conv_2d(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_conv_3d(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_conv_transpose_2d(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);

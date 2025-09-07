@@ -88,6 +88,14 @@ export const MODELS = {
       size: '70MB',
     },
   },
+  EMBEDDINGGEMMA_300M: {
+    name: 'EmbeddingGemma 300M (Q8_0)',
+    repo: 'ggml-org/embeddinggemma-300M-GGUF',
+    filename: 'embeddinggemma-300M-Q8_0.gguf',
+    mmproj: undefined,
+    size: '329MB',
+    embedding: true,
+  },
   NOMIC_EMBED_TEXT_V1_5: {
     name: 'Nomic Embed Text v1.5 (Q8_0)',
     repo: 'nomic-ai/nomic-embed-text-v1.5-GGUF',
