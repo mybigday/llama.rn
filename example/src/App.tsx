@@ -132,7 +132,7 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
           style={styles.button}
           onPress={() => navigation.navigate('ToolCalling')}
         >
-          <Text style={styles.buttonText}>🛠️ Tool Calling</Text>
+          <Text style={styles.buttonText}>🛠️ Tool Calling & MCP</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}
@@ -243,7 +243,7 @@ function AppContent() {
             name="ToolCalling"
             component={ToolCallsScreen}
             options={{
-              title: 'Tool Calling',
+              title: 'Tool Calling & MCP',
             }}
           />
           <Stack.Screen
