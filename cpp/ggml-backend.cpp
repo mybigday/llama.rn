@@ -651,7 +651,7 @@ static bool lm_ggml_is_view_op(enum lm_ggml_op op) {
 #endif
 
 #ifndef LM_GGML_SCHED_MAX_SPLIT_INPUTS
-#define LM_GGML_SCHED_MAX_SPLIT_INPUTS LM_GGML_MAX_SRC
+#define LM_GGML_SCHED_MAX_SPLIT_INPUTS 30
 #endif
 
 #ifndef LM_GGML_SCHED_MAX_COPIES
@@ -902,7 +902,7 @@ static void lm_ggml_backend_sched_set_if_supported(lm_ggml_backend_sched_t sched
 }
 
 // assigns backends to ops and splits the graph into subgraphs that can be computed on the same backend
-static void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph) {
+void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * graph) {
     // reset splits
     sched->n_splits = 0;
     sched->n_graph_inputs = 0;
@@ -1686,6 +1686,8 @@ void lm_ggml_backend_sched_reset(lm_ggml_backend_sched_t sched) {
 bool lm_ggml_backend_sched_reserve(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * measure_graph) {
     LM_GGML_ASSERT(sched);
     LM_GGML_ASSERT((int)sched->hash_set.size >= measure_graph->n_nodes + measure_graph->n_leafs);
+
+    lm_ggml_backend_sched_reset(sched);
 
     lm_ggml_backend_sched_synchronize(sched);
 

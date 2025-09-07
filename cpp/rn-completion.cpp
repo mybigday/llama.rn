@@ -367,7 +367,7 @@ completion_token_output llama_rn_context_completion::nextToken()
         }
         result.tok = new_token_id;
 
-        llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling);
+        llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling, true);
 
         const int32_t n_probs = parent_ctx->params.sampling.n_probs;
 
