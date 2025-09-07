@@ -23,11 +23,23 @@ export interface CustomModel {
   mmprojLocalPath?: string
 }
 
+export interface MCPServer {
+  name: string
+  type: 'streamable-http' | 'sse'
+  url: string
+  headers?: Record<string, string>
+}
+
+export interface MCPConfig {
+  mcpServers: Record<string, MCPServer>
+}
+
 // Storage keys
 const CONTEXT_PARAMS_KEY = '@llama_context_params'
 const COMPLETION_PARAMS_KEY = '@llama_completion_params'
 const TTS_PARAMS_KEY = '@llama_tts_params'
 const CUSTOM_MODELS_KEY = '@llama_custom_models'
+const MCP_CONFIG_KEY = '@llama_mcp_config'
 
 // Default parameter values
 export const DEFAULT_CONTEXT_PARAMS: ContextParams = {
@@ -55,6 +67,10 @@ export const DEFAULT_COMPLETION_PARAMS: CompletionParams = {
 
 export const DEFAULT_TTS_PARAMS: TTSParams = {
   speakerConfig: null,
+}
+
+export const DEFAULT_MCP_CONFIG: MCPConfig = {
+  mcpServers: {},
 }
 
 // Storage functions for context parameters
@@ -217,5 +233,40 @@ export const getCustomModel = async (
   } catch (error) {
     console.error('Error getting custom model:', error)
     return null
+  }
+}
+
+// Storage functions for MCP configuration
+export const saveMCPConfig = async (config: MCPConfig): Promise<void> => {
+  try {
+    const jsonValue = JSON.stringify(config)
+    await AsyncStorage.setItem(MCP_CONFIG_KEY, jsonValue)
+  } catch (error) {
+    console.error('Error saving MCP config:', error)
+    throw error
+  }
+}
+
+export const loadMCPConfig = async (): Promise<MCPConfig> => {
+  try {
+    const jsonValue = await AsyncStorage.getItem(MCP_CONFIG_KEY)
+    if (jsonValue != null) {
+      const config = JSON.parse(jsonValue)
+      // Merge with defaults to ensure all required fields exist
+      return { ...DEFAULT_MCP_CONFIG, ...config }
+    }
+    return DEFAULT_MCP_CONFIG
+  } catch (error) {
+    console.error('Error loading MCP config:', error)
+    return DEFAULT_MCP_CONFIG
+  }
+}
+
+export const resetMCPConfig = async (): Promise<void> => {
+  try {
+    await AsyncStorage.removeItem(MCP_CONFIG_KEY)
+  } catch (error) {
+    console.error('Error resetting MCP config:', error)
+    throw error
   }
 }

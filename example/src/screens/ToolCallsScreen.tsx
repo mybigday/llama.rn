@@ -31,19 +31,26 @@ import { MaskedProgress } from '../components/MaskedProgress'
 import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
 import ToolsModal from '../components/ToolsModal'
-import { createThemedStyles, chatDarkTheme, chatLightTheme } from '../styles/commonStyles'
+import {
+  createThemedStyles,
+  chatDarkTheme,
+  chatLightTheme,
+} from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type {
   ContextParams,
   CompletionParams,
   CustomModel,
+  MCPConfig,
 } from '../utils/storage'
 import {
   loadContextParams,
   loadCompletionParams,
   loadCustomModels,
+  loadMCPConfig,
 } from '../utils/storage'
+import { mcpClientManager, type MCPTool } from '../utils/mcpClient'
 import type { LLMMessage } from '../utils/llmMessages'
 import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
 
@@ -54,7 +61,6 @@ const randId = () => Math.random().toString(36).substr(2, 7)
 
 const DEFAULT_SYSTEM_PROMPT =
   'You are a helpful AI assistant with access to tools. You can call tools to help answer user questions.'
-
 
 interface ToolCall {
   id: string
@@ -193,6 +199,9 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
     calculate: 'The calculation result is 42.',
     get_time: 'The current time is 2:30 PM on Tuesday, January 15, 2025.',
   })
+  const [, setMcpConfig] = useState<MCPConfig>({ mcpServers: {} })
+  const [mcpTools, setMcpTools] = useState<MCPTool[]>([])
+  const [disabledTools, setDisabledTools] = useState<Set<string>>(new Set())
   const insets = useSafeAreaInsets()
 
   useEffect(
@@ -215,6 +224,21 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
       }
     }
     loadCustomModelsData()
+  }, [])
+
+  // Load MCP configuration on mount
+  useEffect(() => {
+    const loadMCPData = async () => {
+      try {
+        const config = await loadMCPConfig()
+        setMcpConfig(config)
+        mcpClientManager.updateConfig(config)
+        // Don't auto-connect on startup, wait for user action
+      } catch (error) {
+        console.error('Error loading MCP config:', error)
+      }
+    }
+    loadMCPData()
   }, [])
 
   const handleSaveContextParams = (params: ContextParams) => {
@@ -418,6 +442,34 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
     setMockResponses(newMockResponses)
   }
 
+  useEffect(
+    () => () => {
+      mcpClientManager.disconnect()
+    },
+    [],
+  )
+
+  const handleMCPConfigSave = async (config: MCPConfig) => {
+    setMcpConfig(config)
+    mcpClientManager.updateConfig(config)
+
+    // Update MCP tools from connected servers
+    const allMcpTools = mcpClientManager.getAllTools()
+    setMcpTools(allMcpTools)
+  }
+
+  const convertMCPToolsToOpenAI = (tools: MCPTool[]) =>
+    tools
+      .filter((tool) => !disabledTools.has(tool.name))
+      .map((tool) => ({
+        type: 'function',
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.inputSchema,
+        },
+      }))
+
   const initializeModel = async (modelPath: string) => {
     try {
       setIsLoading(true)
@@ -453,23 +505,44 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
   const executeTool = async (toolCall: ToolCall): Promise<ToolResult> => {
     const { name, arguments: args } = toolCall
 
-    if (!currentTools.find((tool) => tool.function.name === name)) {
+    // Check if it's a custom tool
+    const customTool = currentTools.find((tool) => tool.function.name === name)
+    if (customTool) {
+      // Check if we have a mock response for this tool
+      if (mockResponses[name]) {
+        return {
+          id: toolCall.id,
+          result: mockResponses[name],
+        }
+      }
       return {
         id: toolCall.id,
-        result: `Error: Tool not found: ${name}`,
+        result: `Error: Response not implemented for custom tool: ${name}(${JSON.stringify(
+          args,
+        )})`,
       }
     }
 
-    // Check if we have a mock response for this tool
-    if (mockResponses[name]) {
-      return {
-        id: toolCall.id,
-        result: mockResponses[name],
+    // Check if it's an MCP tool
+    const mcpTool = mcpTools.find((tool) => tool.name === name)
+    if (mcpTool) {
+      try {
+        const result = await mcpClientManager.executeTool(name, args)
+        return {
+          id: toolCall.id,
+          result: typeof result === 'string' ? result : JSON.stringify(result),
+        }
+      } catch (error: any) {
+        return {
+          id: toolCall.id,
+          result: `MCP Tool Error: ${error.message}`,
+        }
       }
     }
+
     return {
       id: toolCall.id,
-      result: `Error: Response not implemented for: ${name}(${args})`,
+      result: `Error: Tool not found: ${name}`,
     }
   }
 
@@ -506,12 +579,22 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
 
       const completionParameters =
         completionParams || (await loadCompletionParams())
+
+      // Combine custom tools and MCP tools, filtering out disabled ones
+      const enabledCustomTools = currentTools.filter(
+        (tool) => !disabledTools.has(tool.function.name),
+      )
+      const allTools = [
+        ...enabledCustomTools,
+        ...convertMCPToolsToOpenAI(mcpTools),
+      ]
+
       const completionResult = await context.completion(
         {
           ...completionParameters,
           reasoning_format: 'auto',
           messages: conversationMessages,
-          tools: currentTools,
+          tools: allTools,
           tool_choice: 'auto',
           jinja: true,
         },
@@ -777,9 +860,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         user={user}
         textInputProps={{
           editable: !isLoading,
-          placeholder: isLoading
-            ? 'Responding...'
-            : 'Ask me to use tools...',
+          placeholder: isLoading ? 'Responding...' : 'Ask me to use tools...',
           keyboardType: 'ascii-capable',
         }}
       />
@@ -796,7 +877,12 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         visible={showMessagesModal}
         onClose={() => setShowMessagesModal(false)}
         messages={buildLLMMessages()}
-        tools={currentTools}
+        tools={[
+          ...currentTools.filter(
+            (tool) => !disabledTools.has(tool.function.name),
+          ),
+          ...convertMCPToolsToOpenAI(mcpTools),
+        ]}
         context={context}
         onImportMessages={handleImportMessages}
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
@@ -815,6 +901,9 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         tools={currentTools}
         onSave={handleSaveTools}
         mockResponses={mockResponses}
+        onMCPConfigSave={handleMCPConfigSave}
+        disabledTools={disabledTools}
+        onDisabledToolsChange={setDisabledTools}
       />
     </View>
   )

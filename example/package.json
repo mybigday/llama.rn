@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@flyerhq/react-native-chat-ui": "^1.4.3",
+    "@modelcontextprotocol/sdk": "^1.17.5",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-clipboard/clipboard": "^1.13.1",
     "@react-native-documents/picker": "^10.1.5",
@@ -19,6 +20,7 @@
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.11.0",
     "json5": "^2.2.3",
+    "mcp-sdk-client-ssejs": "^1.0.4",
     "react": "18.3.1",
     "react-native": "0.75.2",
     "react-native-audio-api": "^0.6.0",
@@ -26,6 +28,7 @@
     "react-native-gesture-handler": "2.24.0",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "4.4.0",
+    "whatwg-url-without-unicode": "^8.0.0-3",
     "zod": "3",
     "zod-to-json-schema": "^3.24.6"
   },
