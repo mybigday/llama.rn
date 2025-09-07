@@ -505,25 +505,20 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
   const executeTool = async (toolCall: ToolCall): Promise<ToolResult> => {
     const { name, arguments: args } = toolCall
 
-    // Check if it's a custom tool
+    // Check custom tools first
     const customTool = currentTools.find((tool) => tool.function.name === name)
     if (customTool) {
-      // Check if we have a mock response for this tool
-      if (mockResponses[name]) {
-        return {
-          id: toolCall.id,
-          result: mockResponses[name],
-        }
-      }
       return {
         id: toolCall.id,
-        result: `Error: Response not implemented for custom tool: ${name}(${JSON.stringify(
-          args,
-        )})`,
+        result:
+          mockResponses[name] ||
+          `Error: Response not implemented for custom tool: ${name}(${JSON.stringify(
+            args,
+          )})`,
       }
     }
 
-    // Check if it's an MCP tool
+    // Check MCP tools
     const mcpTool = mcpTools.find((tool) => tool.name === name)
     if (mcpTool) {
       try {

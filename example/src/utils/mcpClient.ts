@@ -52,13 +52,7 @@ export class MCPClientManager {
         tools: [],
       })
 
-      // For now, we'll simulate connection and tool discovery
-      // In a real implementation, you would use the MCP SDK to connect
-      if (server.type === 'streamable-http') {
-        await this.connectStreamableHttp(serverId, server)
-      } else if (server.type === 'sse') {
-        await this.connectSSE(serverId, server)
-      }
+      await this.connect(serverId, server)
     } catch (error: any) {
       console.error('Error connecting to MCP server:', error)
       this.connections.set(serverId, {
@@ -70,40 +64,7 @@ export class MCPClientManager {
     }
   }
 
-  private async connectStreamableHttp(
-    serverId: string,
-    server: MCPServer,
-  ): Promise<void> {
-    try {
-      // Implementation for streamable-http MCP connection
-      // This would use the actual MCP SDK when available
-      const client = await MCPClientManager.createMCPClient(server)
-
-      // List available tools
-      const toolsResponse = await client.listTools()
-      const tools: MCPTool[] = toolsResponse.tools.map((tool: any) => ({
-        name: tool.name,
-        description: tool.description || 'No description provided',
-        inputSchema: tool.inputSchema,
-      }))
-
-      this.connections.set(serverId, {
-        serverId,
-        connected: true,
-        tools,
-        client,
-      })
-    } catch (error: any) {
-      this.connections.set(serverId, {
-        serverId,
-        connected: false,
-        error: `HTTP connection failed: ${error.message}`,
-        tools: [],
-      })
-    }
-  }
-
-  private async connectSSE(serverId: string, server: MCPServer): Promise<void> {
+  private async connect(serverId: string, server: MCPServer): Promise<void> {
     try {
       // Implementation for SSE MCP connection
       // This would use the actual MCP SDK when available
@@ -174,22 +135,13 @@ export class MCPClientManager {
     return Array.from(this.connections.values())
   }
 
-  getConnection(serverId: string): MCPConnection | undefined {
-    return this.connections.get(serverId)
-  }
-
   getAllTools(): MCPTool[] {
-    const allTools: MCPTool[] = []
-    this.connections.forEach((connection) => {
-      if (connection.connected) {
-        allTools.push(...connection.tools)
-      }
-    })
-    return allTools
+    return Array.from(this.connections.values())
+      .filter((conn) => conn.connected)
+      .flatMap((conn) => conn.tools)
   }
 
   async executeTool(toolName: string, args: any): Promise<any> {
-    // Find which connection has this tool
     const connection = Array.from(this.connections.values()).find(
       (conn) =>
         conn.connected &&
@@ -197,7 +149,7 @@ export class MCPClientManager {
         conn.tools.some((tool) => tool.name === toolName),
     )
 
-    if (!connection || !connection.client) {
+    if (!connection?.client) {
       throw new Error(`Tool ${toolName} not found in any connected MCP server`)
     }
 
@@ -207,13 +159,11 @@ export class MCPClientManager {
         arguments: args,
       })
 
-      // Handle different response formats from MCP
       if (result.content) {
         return Array.isArray(result.content)
           ? result.content.map((c: any) => c.text || c).join('\n')
           : result.content
       }
-
       return result
     } catch (error: any) {
       throw new Error(`Tool execution failed: ${error.message}`)
@@ -221,33 +171,18 @@ export class MCPClientManager {
   }
 
   async disconnect(): Promise<void> {
-    // Close all client connections
-    const closePromises = Array.from(this.connections.values()).map(
-      async (connection) => {
-        if (connection.client) {
-          try {
-            await connection.client.close()
-          } catch (error) {
-            console.error('Error closing MCP client:', error)
-          }
+    const closePromises = Array.from(this.connections.values())
+      .filter((conn) => conn.client)
+      .map(async (conn) => {
+        try {
+          await conn.client!.close()
+        } catch (error) {
+          console.error('Error closing MCP client:', error)
         }
-      },
-    )
+      })
 
     await Promise.all(closePromises)
     this.connections.clear()
-  }
-
-  async disconnectServer(serverId: string): Promise<void> {
-    const connection = this.connections.get(serverId)
-    if (connection?.client) {
-      try {
-        await connection.client.close()
-      } catch (error) {
-        console.error(`Error closing MCP client for ${serverId}:`, error)
-      }
-    }
-    this.connections.delete(serverId)
   }
 }
 
