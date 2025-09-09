@@ -18,6 +18,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           token: ${{ secrets.GITHUB_TOKEN }}
+          lfs: true
 
       - name: Configure Git
         run: |
@@ -52,6 +53,12 @@ jobs:
 
       - name: Build Android libraries
         run: npm run build:android-libs
+
+      - name: Run c++ unit tests
+        run: |
+          cd tests
+          mkdir -p build && cd build
+          cmake .. && make && ./rnllama_tests
 
       - name: Build TypeScript library
         run: npm run build
