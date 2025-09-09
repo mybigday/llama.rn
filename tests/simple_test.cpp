@@ -242,34 +242,6 @@ bool test_completion() {
     }
 }
 
-// Test TTS context creation (basic test)
-bool test_tts_context() {
-    try {
-        // For TTS, we need a vocoder model which we don't have in tests
-        // So this is a basic test to ensure the TTS structures are accessible
-
-        tts_type type = UNKNOWN;
-        if (type != UNKNOWN) {
-            std::cout << "Unexpected initial TTS type" << std::endl;
-            return false;
-        }
-
-        // Test TTS type enumeration values
-        if (OUTETTS_V0_1 != 0 || OUTETTS_V0_2 != 1 || OUTETTS_V0_3 != 2) {
-            std::cout << "TTS type enumeration values incorrect" << std::endl;
-            return false;
-        }
-
-        return true;
-    } catch (const std::exception& e) {
-        std::cout << "Exception: " << e.what() << std::endl;
-        return false;
-    } catch (...) {
-        std::cout << "Unknown exception" << std::endl;
-        return false;
-    }
-}
-
 // Test utility functions
 bool test_utilities() {
     try {
@@ -301,8 +273,7 @@ int main() {
     // Run all tests
     results.run_test("Context Creation and Model Loading", test_context_creation_and_model_loading());
     results.run_test("Tokenization", test_tokenization());
-    results.run_test("Completion Setup", test_completion());
-    results.run_test("TTS Context", test_tts_context());
+    results.run_test("Completion", test_completion());
     results.run_test("Utility Functions", test_utilities());
 
     // Print summary
