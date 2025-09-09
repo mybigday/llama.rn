@@ -84,3 +84,5 @@ ios/rnllama.xcframework/**/*.framework
 
 local-plan
 local-plan-done
+
+tests/*.gguf
