@@ -26,6 +26,7 @@
     "verbatimModuleSyntax": true
   },
   "exclude": [
-    "llama.cpp"
+    "llama.cpp",
+    "tests"
   ]
 }

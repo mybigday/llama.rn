@@ -1,5 +1,5 @@
 
 {
   "extends": "./tsconfig",
-  "exclude": ["example", "llama.cpp"],
+  "exclude": ["example", "llama.cpp", "tests"],
 }
