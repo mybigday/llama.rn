@@ -6,6 +6,7 @@
 #include <ctime>
 #include <sys/sysinfo.h>
 #include <string>
+#include <fstream>
 #include <thread>
 #include <unordered_map>
 #include <list>
@@ -922,7 +923,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     llama->params.sampling.seed = (seed == -1) ? time(NULL) : seed;
 
-    set_best_cores(defaultParams.cpuparams, n_threads);
+    set_best_cores(llama -> params.cpuparams, n_threads);
 
     llama->params.n_predict = n_predict;
     llama->params.sampling.ignore_eos = ignore_eos;
