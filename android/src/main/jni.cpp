@@ -146,6 +146,34 @@ static inline void putArray(JNIEnv *env, jobject map, const char *key, jobject v
     env->CallVoidMethod(map, putArrayMethod, jKey, value);
 }
 
+// sets cpu mask to use best performing cors
+void set_best_cores(struct cpu_params &params, int n) {
+    int max_threads = std::thread::hardware_concurrency();
+    // Use 2 threads by default on 4-core devices, 4 threads on more cores
+    int default_n_threads = max_threads == 4 ? 2 : min(4, max_threads);
+    params.n_threads = n > 0 && n <= max_threads ? n : default_n_threads;
+
+    std::vector<std::pair<int,int>> cores; // {freq, id}
+    
+    for (int i = 0; i < max_threads; i++) {
+        std::ifstream f("/sys/devices/system/cpu/cpu" + std::to_string(i) + "/cpufreq/cpuinfo_max_freq");
+        int freq;
+        if (f >> freq) {
+            cores.emplace_back(freq, i);
+        }
+    }
+
+    std::sort(cores.rbegin(), cores.rend());
+    std::fill(std::begin(params.cpumask), std::end(params.cpumask), false);
+    
+    for (int i = 0; i < n && i < (int)cores.size(); i++) {
+        LOGI("Using core %d with frequency %d", cores[i].second, cores[i].first);
+        params.cpumask[cores[i].second] = true;
+    }
+    params.strict_cpu = true;
+    params.mask_valid = true;
+}
+
 JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_modelInfo(
     JNIEnv *env,
@@ -298,10 +326,7 @@ Java_com_rnllama_LlamaContext_initContext(
         defaultParams.n_ubatch = defaultParams.n_batch;
     }
 
-    int max_threads = std::thread::hardware_concurrency();
-    // Use 2 threads by default on 4-core devices, 4 threads on more cores
-    int default_n_threads = max_threads == 4 ? 2 : min(4, max_threads);
-    defaultParams.cpuparams.n_threads = n_threads > 0 ? n_threads : default_n_threads;
+    set_best_cores(defaultParams.cpuparams, n_threads);
 
     defaultParams.n_gpu_layers = n_gpu_layers;
 
@@ -897,10 +922,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     llama->params.sampling.seed = (seed == -1) ? time(NULL) : seed;
 
-    int max_threads = std::thread::hardware_concurrency();
-    // Use 2 threads by default on 4-core devices, 4 threads on more cores
-    int default_n_threads = max_threads == 4 ? 2 : min(4, max_threads);
-    llama->params.cpuparams.n_threads = n_threads > 0 ? n_threads : default_n_threads;
+    set_best_cores(defaultParams.cpuparams, n_threads);
 
     llama->params.n_predict = n_predict;
     llama->params.sampling.ignore_eos = ignore_eos;
