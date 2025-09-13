@@ -43,13 +43,7 @@ LM_GGML_BACKEND_API lm_ggml_backend_t lm_ggml_backend_metal_init(void);
 
 LM_GGML_BACKEND_API bool lm_ggml_backend_is_metal(lm_ggml_backend_t backend);
 
-LM_GGML_DEPRECATED(
-        LM_GGML_BACKEND_API lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_from_ptr(void * data, size_t size, size_t max_size),
-        "obsoleted by the new device interface - https://github.com/ggml-org/llama.cpp/pull/9713");
-
 LM_GGML_BACKEND_API void lm_ggml_backend_metal_set_abort_callback(lm_ggml_backend_t backend, lm_ggml_abort_callback abort_callback, void * user_data);
-
-LM_GGML_BACKEND_API lm_ggml_backend_buffer_type_t lm_ggml_backend_metal_buffer_type(void);
 
 // helper to check if the device supports a specific family
 // ideally, the user code should be doing these checks

@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-    #define LM_GGML_BACKEND_API_VERSION 1
+    #define LM_GGML_BACKEND_API_VERSION 2
 
     //
     // Backend buffer type
@@ -114,6 +114,9 @@ extern "C" {
         void (*event_record)(lm_ggml_backend_t backend, lm_ggml_backend_event_t event);
         // wait for an event on on a different stream
         void (*event_wait)  (lm_ggml_backend_t backend, lm_ggml_backend_event_t event);
+
+        // (optional) sort/optimize the nodes in the graph
+        void                      (*optimize_graph)    (lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph);
     };
 
     struct lm_ggml_backend {

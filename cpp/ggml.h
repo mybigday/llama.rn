@@ -1404,6 +1404,7 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * b);
 
+    // note: casting from f32 to i32 will discard the fractional part
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_cast(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
@@ -1528,7 +1529,11 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
 
-    // supports 3D: a->ne[2] == b->ne[1]
+    // supports 4D a:
+    // a     [n_embd, ne1, ne2, ne3]
+    // b I32 [n_rows, ne2, ne3, 1]
+    //
+    // return [n_embd, n_rows, ne2, ne3]
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_get_rows(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,  // data
