@@ -400,9 +400,8 @@ lm_ggml_backend_t lm_ggml_backend_init_by_type(enum lm_ggml_backend_dev_type typ
 
 lm_ggml_backend_t lm_ggml_backend_init_best(void) {
     lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_GPU);
-    if (!dev) {
-        dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
-    }
+    dev = dev ? dev : lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_IGPU);
+    dev = dev ? dev : lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
     if (!dev) {
         return nullptr;
     }

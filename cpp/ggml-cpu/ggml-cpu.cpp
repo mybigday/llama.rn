@@ -190,6 +190,7 @@ static const struct lm_ggml_backend_i lm_ggml_backend_cpu_i = {
     /* .graph_compute           = */ lm_ggml_backend_cpu_graph_compute,
     /* .event_record            = */ NULL,
     /* .event_wait              = */ NULL,
+    /* .optimize_graph          = */ NULL,
 };
 
 static lm_ggml_guid_t lm_ggml_backend_cpu_guid(void) {

@@ -3631,6 +3631,7 @@ struct lm_ggml_tensor * lm_ggml_get_rows(
         struct lm_ggml_tensor  * a,
         struct lm_ggml_tensor  * b) {
     LM_GGML_ASSERT(a->ne[2] == b->ne[1]);
+    LM_GGML_ASSERT(a->ne[3] == b->ne[2]);
     LM_GGML_ASSERT(b->ne[3] == 1);
     LM_GGML_ASSERT(b->type == LM_GGML_TYPE_I32);
 
