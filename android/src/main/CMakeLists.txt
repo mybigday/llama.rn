@@ -104,7 +104,7 @@ include_directories(${CMAKE_SOURCE_DIR}/../../../OpenCL-Headers)
 
 add_library(OpenCL SHARED IMPORTED)
 set_target_properties(OpenCL PROPERTIES
-    IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/jniLibs/arm64-v8a/libOpenCL.so
+    IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/../../../OpenCL-ICD-Loader/build/arm64-v8a/libOpenCL.so
 )
 
 set(
@@ -216,12 +216,11 @@ function(build_library target_name arch cpu_flags)
             ${RNLLAMA_LIB_DIR}/ggml-opencl.cpp
             ${GGML_OPENCL_KERNEL_HEADERS}
         )
-        add_compile_definitions(LM_GGML_OPENCL_SOA_Q)
-        add_compile_definitions(GGML_OPENCL_TARGET_VERSION=${GGML_OPENCL_TARGET_VERSION})
         target_compile_options(${target_name} PRIVATE 
             -DLM_GGML_USE_OPENCL 
             -DLM_GGML_OPENCL_USE_ADRENO_KERNELS 
             -DLM_GGML_OPENCL_EMBED_KERNELS
+            -DLM_GGML_OPENCL_SOA_Q
         )
         target_link_libraries(${target_name} PRIVATE OpenCL)
     endif ()
@@ -241,17 +240,17 @@ function(build_library target_name arch cpu_flags)
 endfunction()
 
 # Default target (no specific CPU features)
-#build_library("rnllama" "generic" "")
+build_library("rnllama" "generic" "")
 
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
     # ARM64 targets
     # Removing fp16 for now as it leads to issues with some models like deepseek r1 distills
     # https://github.com/mybigday/llama.rn/pull/110#issuecomment-2609918310
-    #build_library("rnllama_v8" "arm" "-march=armv8-a")
-    #build_library("rnllama_v8_2" "arm" "-march=armv8.2-a")
-    #build_library("rnllama_v8_2_dotprod" "arm" "-march=armv8.2-a+dotprod")
-    #build_library("rnllama_v8_2_i8mm" "arm" "-march=armv8.2-a+i8mm")
-    #build_library("rnllama_v8_2_dotprod_i8mm" "arm" "-march=armv8.2-a+dotprod+i8mm")
+    build_library("rnllama_v8" "arm" "-march=armv8-a")
+    build_library("rnllama_v8_2" "arm" "-march=armv8.2-a")
+    build_library("rnllama_v8_2_dotprod" "arm" "-march=armv8.2-a+dotprod")
+    build_library("rnllama_v8_2_i8mm" "arm" "-march=armv8.2-a+i8mm")
+    build_library("rnllama_v8_2_dotprod_i8mm" "arm" "-march=armv8.2-a+dotprod+i8mm")
     build_library("rnllama_v8_2_dotprod_i8mm_opencl" "arm" "-march=armv8.2-a+dotprod+i8mm")
 
     # https://github.com/ggerganov/llama.cpp/blob/master/docs/android.md#cross-compile-using-android-ndk

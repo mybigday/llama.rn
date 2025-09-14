@@ -17,6 +17,7 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.File;
 import java.io.IOException;
+import java.util.regex.Pattern;
 
 public class LlamaContext {
   public static final String NAME = "RNLlamaContext";
@@ -498,9 +499,17 @@ public class LlamaContext {
     Log.d(NAME, "- isAtLeastArmV82: " + isAtLeastArmV82);
     Log.d(NAME, "- isAtLeastArmV84: " + isAtLeastArmV84);
 
-    // TODO: Add runtime check for cpu features
+    // Detect GPU (Adreno check)
+    String gpuInfo = (Build.HARDWARE + " " + Build.MANUFACTURER + " " + Build.MODEL).toLowerCase();
+    boolean hasAdreno = Pattern.compile("(adreno|qcom|qualcomm)").matcher(gpuInfo).find();
+    Log.d(NAME, "- hasAdreno: " + hasAdreno);
+
     if (LlamaContext.isArm64V8a()) {
-      if (hasDotProd && hasI8mm) {
+      if (hasDotProd && hasI8mm && hasAdreno) {
+        Log.d(NAME, "Loading librnllama_v8_2_dotprod_i8mm_opencl.so");
+        System.loadLibrary("rnllama_v8_2_dotprod_i8mm_opencl");
+        loadedLibrary = "rnllama_v8_2_dotprod_i8mm_opencl";
+      } else if (hasDotProd && hasI8mm) {
         Log.d(NAME, "Loading librnllama_v8_2_dotprod_i8mm.so");
         System.loadLibrary("rnllama_v8_2_dotprod_i8mm");
         loadedLibrary = "rnllama_v8_2_dotprod_i8mm";
@@ -521,8 +530,6 @@ public class LlamaContext {
         System.loadLibrary("rnllama_v8");
         loadedLibrary = "rnllama_v8";
       }
-      //  Log.d(NAME, "Loading librnllama_v8_7.so with runtime feature detection");
-      //  System.loadLibrary("rnllama_v8_7");
     } else if (LlamaContext.isX86_64()) {
       Log.d(NAME, "Loading librnllama_x86_64.so");
       System.loadLibrary("rnllama_x86_64");
@@ -530,7 +537,8 @@ public class LlamaContext {
     } else {
       Log.d(NAME, "ARM32 is not supported, skipping loading library");
     }
-  }
+}
+
 
   private static boolean isArm64V8a() {
     return Build.SUPPORTED_ABIS[0].equals("arm64-v8a");

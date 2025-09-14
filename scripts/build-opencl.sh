@@ -34,29 +34,26 @@ build_opencl() {
 
   rm -rf $BUILD_DIR
   mkdir -p $BUILD_DIR && cd $BUILD_DIR
-  echo $PWD
-  
+
   cmake ../.. \
     -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE \
     -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
     -DANDROID_ABI=$ABI \
     -DANDROID_PLATFORM=$ANDROID_PLATFORM \
     -DANDROID_STL=c++_shared \
-    -DOpenCLHeaders_DIR=$PWD/../../../OpenCL-Headers \
+    -DOPENCL_ICD_LOADER_HEADERS_DIR=$PWD/../../../OpenCL-Headers \
+    -DANDROID_STL=c++_shared
 
   cmake --build . --config Release -j $n_cpu
 
-  #cp libOpenCL.so ../../../android/src/main/jniLibs/$ABI/
-
-  #cd ../..
-  #rm -rf $BUILD_DIR
+  cd ../..
 }
 
 # Build for arm64-v8a
 build_opencl arm64-v8a
 
-# Build for x86_64
-build_opencl x86_64
+# Badd more builds here, eg
+# build_opencl x86_64
 
 t1=$(date +%s)
 echo "Total time: $((t1 - t0)) seconds"
