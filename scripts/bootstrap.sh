@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
-git submodule init
-git submodule update --recursive
+#git submodule init
+#git submodule update --recursive
 
 # ggml api
 cp ./llama.cpp/ggml/include/ggml.h ./cpp/ggml.h
@@ -153,6 +153,12 @@ rm -rf ./cpp/tools/mtmd/stb
 cp -r ./llama.cpp/vendor/miniaudio ./cpp/tools/mtmd/miniaudio
 cp -r ./llama.cpp/vendor/stb ./cpp/tools/mtmd/stb
 
+# opencl
+
+cp ./llama.cpp/ggml/include/ggml-opencl.h ./cpp/ggml-opencl.h
+cp ./llama.cpp/ggml/src/ggml-opencl/ggml-opencl.cpp ./cpp/ggml-opencl.cpp
+cp -r ./llama.cpp/ggml/src/ggml-opencl/kernels ./cpp/ggml-opencl/
+
 # List of files to process
 files_add_lm_prefix=(
   # ggml api
@@ -281,6 +287,11 @@ files_add_lm_prefix=(
   "./cpp/tools/mtmd/mtmd-helper.cpp"
   "./cpp/tools/mtmd/mtmd-audio.h"
   "./cpp/tools/mtmd/mtmd-audio.cpp"
+
+  # opencl
+  ."/cpp/ggml-opencl.h"
+  "./cpp/ggml-opencl.cpp"
+
 )
 
 # Loop through each file and run the sed commands

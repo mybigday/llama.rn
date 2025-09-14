@@ -406,6 +406,7 @@ struct clip_ctx {
             }
             if (!backend) {
                 backend = lm_ggml_backend_init_by_type(LM_GGML_BACKEND_DEVICE_TYPE_GPU, nullptr);
+                backend = backend ? backend : lm_ggml_backend_init_by_type(LM_GGML_BACKEND_DEVICE_TYPE_IGPU, nullptr);
             }
         }
 
