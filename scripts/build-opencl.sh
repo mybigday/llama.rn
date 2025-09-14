@@ -41,12 +41,13 @@ build_opencl() {
     -DANDROID_ABI=$ABI \
     -DANDROID_PLATFORM=$ANDROID_PLATFORM \
     -DANDROID_STL=c++_shared \
-    -DOPENCL_ICD_LOADER_HEADERS_DIR=$PWD/../../../OpenCL-Headers \
-    -DANDROID_STL=c++_shared
+    -DOPENCL_ICD_LOADER_HEADERS_DIR=$PWD/../../../OpenCL-Headers
 
   cmake --build . --config Release -j $n_cpu
 
+  #cp libOpenCL.so ../../../android/src/main/jniLibs/$ABI/
   cd ../..
+  #rm -rf $BUILD_DIR
 }
 
 # Build for arm64-v8a
