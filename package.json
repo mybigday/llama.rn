@@ -8,6 +8,8 @@
   "react-native": "src/index",
   "source": "src/index",
   "files": [
+    "bin",
+    "OpenCL-Headers",
     "src",
     "lib",
     "jest",
