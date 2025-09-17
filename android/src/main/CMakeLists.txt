@@ -12,101 +12,6 @@ include_directories(
     ${RNLLAMA_LIB_DIR}/tools/mtmd
 )
 
-
-# OpenCL Kernels
-include_directories(${CMAKE_SOURCE_DIR}/../../../OpenCL-Headers/CL)
-    
-
-set(GGML_OPENCL_KERNELS
-    add
-    add_id
-    argsort
-    clamp
-    cpy
-    cvt
-    diag_mask_inf
-    div
-    gelu
-    gemv_noshuffle_general
-    gemv_noshuffle
-    get_rows
-    glu
-    group_norm
-    im2col_f32
-    im2col_f16
-    mul_mat_Ab_Bi_8x4
-    mul_mv_f16_f16
-    mul_mv_f16_f32_1row
-    mul_mv_f16_f32_l4
-    mul_mv_f16_f32
-    mul_mv_f32_f32
-    mul_mv_q4_0_f32
-    mul_mv_q4_0_f32_v
-    mul_mv_q4_0_f32_8x_flat
-    mul_mv_q4_0_f32_1d_8x_flat
-    mul_mv_q4_0_f32_1d_16x_flat
-    mul_mv_q6_k
-    mul_mv_mxfp4_f32
-    mul_mv_id_q4_0_f32_8x_flat
-    mul_mv_id_mxfp4_f32
-    mul_mm_f32_f32_l4_lm
-    mul_mm_f16_f32_l4_lm
-    mul
-    norm
-    relu
-    rms_norm
-    rope
-    scale
-    set_rows
-    sigmoid
-    silu
-    softmax_4_f32
-    softmax_4_f16
-    softmax_f32
-    softmax_f16
-    sub
-    sum_rows
-    transpose
-    concat
-    tsembd
-    upscale
-    tanh
-    pad
-    repeat
-    mul_mat_f16_f32
-    conv2d
-    conv2d_f16_f32
-    flash_attn_f32_f16
-    flash_attn_f16
-    flash_attn_f32
-)
-set(GGML_OPENCL_KERNEL_DIR ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels)
-set(GGML_OPENCL_KERNEL_DIR ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels)
-set(GGML_OPENCL_KERNEL_HEADERS "")
-
-foreach(kernel ${GGML_OPENCL_KERNELS})
-    set(input_file ${GGML_OPENCL_KERNEL_DIR}/${kernel}.cl)
-    set(output_file ${CMAKE_CURRENT_BINARY_DIR}/${kernel}.cl.h) 
-    message(STATUS "opencl: embedding kernel ${kernel}")
-    add_custom_command(
-        OUTPUT ${output_file}
-        COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_SOURCE_DIR}
-                ${Python3_EXECUTABLE} ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels/embed_kernel.py
-                ${input_file} ${output_file}
-        DEPENDS ${input_file} ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels/embed_kernel.py
-        COMMENT "Embedding OpenCL kernel: ${kernel}.cl"
-    )
-
-    list(APPEND GGML_OPENCL_KERNEL_HEADERS ${output_file})
-endforeach()
-
-include_directories(${CMAKE_SOURCE_DIR}/../../../OpenCL-Headers)
-
-add_library(OpenCL SHARED IMPORTED)
-set_target_properties(OpenCL PROPERTIES
-    IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/../../../bin/arm64-v8a/libOpenCL.so
-)
-
 set(
     SOURCE_FILES
     ${RNLLAMA_LIB_DIR}/ggml.c
@@ -188,7 +93,7 @@ function(build_library target_name arch cpu_flags)
             ${RNLLAMA_LIB_DIR}/ggml-cpu/arch/${arch}/repack.cpp
         )
     endif ()
-    
+
     add_library(
         ${target_name}
         SHARED
@@ -208,17 +113,108 @@ function(build_library target_name arch cpu_flags)
         target_compile_options(${target_name} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
     endif ()
 
-
-     # OpenCL only for the special target
+    # OpenCL only for the special target
     if (${target_name} STREQUAL "rnllama_v8_2_dotprod_i8mm_opencl")
+        include_directories(${CMAKE_SOURCE_DIR}/../../../OpenCL-Headers/CL)
+
+        set(GGML_OPENCL_KERNELS
+            add
+            add_id
+            argsort
+            clamp
+            cpy
+            cvt
+            diag_mask_inf
+            div
+            gelu
+            gemv_noshuffle_general
+            gemv_noshuffle
+            get_rows
+            glu
+            group_norm
+            im2col_f32
+            im2col_f16
+            mul_mat_Ab_Bi_8x4
+            mul_mv_f16_f16
+            mul_mv_f16_f32_1row
+            mul_mv_f16_f32_l4
+            mul_mv_f16_f32
+            mul_mv_f32_f32
+            mul_mv_q4_0_f32
+            mul_mv_q4_0_f32_v
+            mul_mv_q4_0_f32_8x_flat
+            mul_mv_q4_0_f32_1d_8x_flat
+            mul_mv_q4_0_f32_1d_16x_flat
+            mul_mv_q6_k
+            mul_mv_mxfp4_f32
+            mul_mv_id_q4_0_f32_8x_flat
+            mul_mv_id_mxfp4_f32
+            mul_mm_f32_f32_l4_lm
+            mul_mm_f16_f32_l4_lm
+            mul
+            norm
+            relu
+            rms_norm
+            rope
+            scale
+            set_rows
+            sigmoid
+            silu
+            softmax_4_f32
+            softmax_4_f16
+            softmax_f32
+            softmax_f16
+            sub
+            sum_rows
+            transpose
+            concat
+            tsembd
+            upscale
+            tanh
+            pad
+            repeat
+            mul_mat_f16_f32
+            conv2d
+            conv2d_f16_f32
+            flash_attn_f32_f16
+            flash_attn_f16
+            flash_attn_f32
+        )
+        set(GGML_OPENCL_KERNEL_DIR ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels)
+        set(GGML_OPENCL_KERNEL_DIR ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels)
+        set(GGML_OPENCL_KERNEL_HEADERS "")
+
+        foreach(kernel ${GGML_OPENCL_KERNELS})
+            set(input_file ${GGML_OPENCL_KERNEL_DIR}/${kernel}.cl)
+            set(output_file ${CMAKE_CURRENT_BINARY_DIR}/${kernel}.cl.h)
+            message(STATUS "opencl: embedding kernel ${kernel}")
+            add_custom_command(
+                OUTPUT ${output_file}
+                COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_SOURCE_DIR}
+                        ${Python3_EXECUTABLE} ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels/embed_kernel.py
+                        ${input_file} ${output_file}
+                DEPENDS ${input_file} ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels/embed_kernel.py
+                COMMENT "Embedding OpenCL kernel: ${kernel}.cl"
+            )
+
+            list(APPEND GGML_OPENCL_KERNEL_HEADERS ${output_file})
+        endforeach()
+
+        include_directories(${CMAKE_SOURCE_DIR}/../../../OpenCL-Headers)
+
+        add_library(OpenCL SHARED IMPORTED)
+        set_target_properties(OpenCL PROPERTIES
+            IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/../../../bin/arm64-v8a/libOpenCL.so
+        )
+
         target_include_directories(${target_name} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-        target_sources(${target_name} PRIVATE 
+        target_sources(${target_name} PRIVATE
             ${RNLLAMA_LIB_DIR}/ggml-opencl.cpp
             ${GGML_OPENCL_KERNEL_HEADERS}
         )
-        target_compile_options(${target_name} PRIVATE 
-            -DLM_GGML_USE_OPENCL 
-            -DLM_GGML_OPENCL_USE_ADRENO_KERNELS 
+        target_compile_options(${target_name} PRIVATE
+            -DLM_GGML_USE_OPENCL
+            -DLM_GGML_OPENCL_USE_ADRENO_KERNELS
             -DLM_GGML_OPENCL_EMBED_KERNELS
             -DLM_GGML_OPENCL_SOA_Q
         )
