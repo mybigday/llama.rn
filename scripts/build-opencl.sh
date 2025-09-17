@@ -1,5 +1,12 @@
 #!/bin/bash -e
 
+# update android specific submodules
+
+git submodule update --init --recursive OpenCL-ICD-Loader
+git submodule update --init --recursive OpenCL-Headers
+
+exit
+
 NDK_VERSION=26.3.11579264
 CMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/$NDK_VERSION/build/cmake/android.toolchain.cmake
 ANDROID_PLATFORM=android-21
