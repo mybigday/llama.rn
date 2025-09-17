@@ -104,7 +104,7 @@ include_directories(${CMAKE_SOURCE_DIR}/../../../OpenCL-Headers)
 
 add_library(OpenCL SHARED IMPORTED)
 set_target_properties(OpenCL PROPERTIES
-    IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/../../../OpenCL-ICD-Loader/build/arm64-v8a/libOpenCL.so
+    IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/../../../bin/arm64-v8a/libOpenCL.so
 )
 
 set(

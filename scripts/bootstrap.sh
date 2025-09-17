@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
-#git submodule init
-#git submodule update --recursive
+git submodule init
+git submodule update --recursive
 
 # ggml api
 cp ./llama.cpp/ggml/include/ggml.h ./cpp/ggml.h

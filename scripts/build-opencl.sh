@@ -24,7 +24,7 @@ elif uname -a | grep -q "Linux"; then
 fi
 
 t0=$(date +%s)
-
+mkdir -p bin
 cd OpenCL-ICD-Loader
 
 # Function to build for a given ABI
@@ -44,10 +44,11 @@ build_opencl() {
     -DOPENCL_ICD_LOADER_HEADERS_DIR=$PWD/../../../OpenCL-Headers
 
   cmake --build . --config Release -j $n_cpu
-
-  #cp libOpenCL.so ../../../android/src/main/jniLibs/$ABI/
+  
+  mkdir -p ../../../bin/$ABI/
+  cp libOpenCL.so ../../../bin/$ABI/
   cd ../..
-  #rm -rf $BUILD_DIR
+  rm -rf $BUILD_DIR
 }
 
 # Build for arm64-v8a
