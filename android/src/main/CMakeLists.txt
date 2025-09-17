@@ -202,10 +202,23 @@ function(build_library target_name arch cpu_flags)
 
         include_directories(${CMAKE_SOURCE_DIR}/../../../OpenCL-Headers)
 
-        add_library(OpenCL SHARED IMPORTED)
-        set_target_properties(OpenCL PROPERTIES
-            IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/../../../bin/arm64-v8a/libOpenCL.so
-        )
+        find_library(OPENCL_LIB OpenCL)
+        if (NOT OPENCL_LIB)
+            set(OPENCL_STUB_DIR ${CMAKE_SOURCE_DIR}/../../../bin/${ANDROID_ABI})
+            set(OPENCL_STUB     ${OPENCL_STUB_DIR}/libOpenCL.so)
+
+            if (EXISTS ${OPENCL_STUB})
+                # Keep using -lOpenCL so we don’t create a packagable .so target.
+                target_link_directories(${target_name} PRIVATE ${OPENCL_STUB_DIR})
+                target_link_libraries(${target_name} PRIVATE OpenCL)
+            else()
+                message(WARNING
+                    "OpenCL library not found. Build will continue without the OpenCL backend.")
+            endif()
+        else()
+            # If NDK already exposes OpenCL
+            target_link_libraries(${target_name} PRIVATE ${OPENCL_LIB})
+        endif()
 
         target_include_directories(${target_name} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
         target_sources(${target_name} PRIVATE
