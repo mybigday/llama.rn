@@ -225,7 +225,6 @@ function(build_library target_name arch cpu_flags)
             -DLM_GGML_OPENCL_EMBED_KERNELS
             -DLM_GGML_OPENCL_SOA_Q
         )
-        target_link_libraries(${target_name} PRIVATE OpenCL)
     endif ()
 
 
