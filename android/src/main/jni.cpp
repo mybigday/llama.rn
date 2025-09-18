@@ -4,6 +4,7 @@
 #include <android/log.h>
 #include <cstdlib>
 #include <ctime>
+#include <cstdint>
 #include <sys/sysinfo.h>
 #include <string>
 #include <fstream>
@@ -15,6 +16,7 @@
 #include "llama.h"
 #include "llama-impl.h"
 #include "ggml.h"
+#include "ggml-backend.h"
 #include "rn-llama.h"
 #include "rn-completion.h"
 #include "jni-utils.h"
@@ -155,7 +157,7 @@ void set_best_cores(struct cpu_params &params, int n) {
     params.n_threads = n > 0 && n <= max_threads ? n : default_n_threads;
 
     std::vector<std::pair<int,int>> cores; // {freq, id}
-    
+
     for (int i = 0; i < max_threads; i++) {
         std::ifstream f("/sys/devices/system/cpu/cpu" + std::to_string(i) + "/cpufreq/cpuinfo_max_freq");
         int freq;
@@ -166,7 +168,7 @@ void set_best_cores(struct cpu_params &params, int n) {
 
     std::sort(cores.rbegin(), cores.rend());
     std::fill(std::begin(params.cpumask), std::end(params.cpumask), false);
-    
+
     for (int i = 0; i < n && i < (int)cores.size(); i++) {
         LOGI("Using core %d with frequency %d", cores[i].second, cores[i].first);
         params.cpumask[cores[i].second] = true;
@@ -249,7 +251,7 @@ struct callback_context {
 
 std::unordered_map<long, rnllama::llama_rn_context *> context_map;
 
-JNIEXPORT jlong JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_initContext(
     JNIEnv *env,
     jobject thiz,
@@ -261,7 +263,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jint n_batch,
     jint n_ubatch,
     jint n_threads,
-    jint n_gpu_layers, // TODO: Support this
+    jint n_gpu_layers,
     jboolean flash_attn,
     jstring flash_attn_type,
     jstring cache_type_k,
@@ -402,11 +404,15 @@ Java_com_rnllama_LlamaContext_initContext(
         if (embedding && llama_model_has_encoder(llama->model) && llama_model_has_decoder(llama->model)) {
             LOGI("[RNLlama] computing embeddings in encoder-decoder models is not supported");
             llama_free(llama->ctx);
-            return -1;
+            context_map.erase((long) llama->ctx);
+            delete llama;
+            return nullptr;
         }
         context_map[(long) llama->ctx] = llama;
     } else {
         llama_free(llama->ctx);
+        delete llama;
+        return nullptr;
     }
 
     std::vector<common_adapter_lora_info> lora;
@@ -439,10 +445,83 @@ Java_com_rnllama_LlamaContext_initContext(
     if (result != 0) {
       LOGI("[RNLlama] Failed to apply lora adapters");
       llama_free(llama->ctx);
-      return -1;
+      context_map.erase((long) llama->ctx);
+      delete llama;
+      return nullptr;
     }
 
-    return reinterpret_cast<jlong>(llama->ctx);
+    bool gpu_used = false;
+    bool gpu_device_available = false;
+    std::string reason_no_gpu = "";
+    std::string gpu_device_name = "";
+
+    bool has_explicit_devices = !llama->params.devices.empty();
+    bool explicit_gpu_requested = false;
+    if (has_explicit_devices) {
+        for (auto dev : llama->params.devices) {
+            auto dev_type = lm_ggml_backend_dev_type(dev);
+            if (dev_type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || dev_type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
+                explicit_gpu_requested = true;
+                break;
+            }
+        }
+    }
+
+    if (llama->llama_init.model) {
+        const auto &model_devices = llama->llama_init.model->devices;
+        for (auto dev : model_devices) {
+            auto dev_type = lm_ggml_backend_dev_type(dev);
+            if (dev_type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || dev_type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
+                gpu_used = true;
+                if (gpu_device_name.empty()) {
+                    const char *used_name = lm_ggml_backend_dev_name(dev);
+                    if (used_name != nullptr) {
+                        gpu_device_name = used_name;
+                    }
+                }
+            }
+        }
+    }
+
+#ifdef LM_GGML_USE_OPENCL
+    const size_t backend_dev_count = lm_ggml_backend_dev_count();
+    for (size_t i = 0; i < backend_dev_count; ++i) {
+        lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
+        auto dev_type = lm_ggml_backend_dev_type(dev);
+        if (dev_type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || dev_type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
+            gpu_device_available = true;
+        }
+    }
+#else
+    gpu_device_available = false;
+#endif
+
+    if (!gpu_used) {
+#ifdef LM_GGML_USE_OPENCL
+        if (!gpu_device_available) {
+            reason_no_gpu = "No compatible OpenCL GPU detected";
+        }
+#else
+        reason_no_gpu = "OpenCL backend not enabled in this build";
+#endif
+        if (reason_no_gpu.empty() && explicit_gpu_requested) {
+            reason_no_gpu = "GPU requested but not used";
+        }
+    }
+
+    auto result_map = createWriteableMap(env);
+
+    const auto context_ptr = reinterpret_cast<intptr_t>(llama->ctx);
+    const std::string context_str = std::to_string(context_ptr);
+
+    putString(env, result_map, "context", context_str.c_str());
+    putBoolean(env, result_map, "gpu", gpu_used);
+    putString(env, result_map, "reasonNoGPU", reason_no_gpu.c_str());
+    if (gpu_used && !gpu_device_name.empty()) {
+        putString(env, result_map, "gpuDevice", gpu_device_name.c_str());
+    }
+
+    return result_map;
 }
 
 

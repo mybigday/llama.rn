@@ -394,6 +394,10 @@ export type NativeLlamaContext = {
    * Loaded library name for Android
    */
   androidLib?: string
+  /**
+   * Name of the GPU device used on Android/iOS (if available)
+   */
+  gpuDevice?: string
   gpu: boolean
   reasonNoGPU: string
 }

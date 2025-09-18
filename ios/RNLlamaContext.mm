@@ -129,6 +129,7 @@
 
     BOOL isMetalEnabled = false;
     NSString *reasonNoMetal = @"";
+    NSString *gpuDeviceName = @"";
     defaultParams.n_gpu_layers = 0;
 
     if (isGpuAvailable) {
@@ -139,6 +140,12 @@
 #else
         defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
         isMetalEnabled = true;
+        if (!skipGpuDevices && defaultParams.n_gpu_layers > 0) {
+            id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+            if (device) {
+                gpuDeviceName = device.name ?: @"";
+            }
+        }
 #endif
     } else {
         if (params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue]) {
@@ -170,6 +177,7 @@
             defaultParams.devices = cpu_devs;
             defaultParams.n_gpu_layers = 0;
             isMetalEnabled = false;
+            gpuDeviceName = @"";
         }
     }
 
@@ -304,6 +312,7 @@
 
     context->is_metal_enabled = isMetalEnabled;
     context->reason_no_metal = reasonNoMetal;
+    context->gpu_device_name = gpuDeviceName ?: @"";
 
     return context;
 }
@@ -318,6 +327,10 @@
 
 - (NSString *)reasonNoMetal {
     return reason_no_metal;
+}
+
+- (NSString *)gpuDeviceName {
+    return gpu_device_name;
 }
 
 - (NSDictionary *)modelInfo {

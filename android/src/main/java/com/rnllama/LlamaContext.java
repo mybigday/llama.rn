@@ -17,6 +17,7 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.File;
 import java.io.IOException;
+import java.util.regex.Pattern;
 
 public class LlamaContext {
   public static final String NAME = "RNLlamaContext";
@@ -55,6 +56,9 @@ public class LlamaContext {
   private WritableMap modelDetails;
   private int jobId = -1;
   private DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
+  private boolean gpuEnabled;
+  private String reasonNoGPU = "";
+  private String gpuDevice = "";
 
   public LlamaContext(int id, ReactApplicationContext reactContext, ReadableMap params) {
     if (LlamaContext.isArchNotSupported()) {
@@ -65,7 +69,7 @@ public class LlamaContext {
     }
     eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
     this.id = id;
-    this.context = initContext(
+    WritableMap initResult = initContext(
       // String model,
       params.getString("model"),
       // String chat_template,
@@ -82,7 +86,7 @@ public class LlamaContext {
       params.hasKey("n_ubatch") ? params.getInt("n_ubatch") : 512,
       // int n_threads,
       params.hasKey("n_threads") ? params.getInt("n_threads") : 0,
-      // int n_gpu_layers, // TODO: Support this
+      // int n_gpu_layers,
       params.hasKey("n_gpu_layers") ? params.getInt("n_gpu_layers") : 0,
       // boolean flash_attn,
       params.hasKey("flash_attn") ? params.getBoolean("flash_attn") : false,
@@ -121,9 +125,35 @@ public class LlamaContext {
       // LoadProgressCallback load_progress_callback
       params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
     );
-    if (this.context == -1) {
+    if (initResult == null || !initResult.hasKey("context")) {
       throw new IllegalStateException("Failed to initialize context");
     }
+    String contextPtr = initResult.getString("context");
+    if (contextPtr == null || contextPtr.isEmpty()) {
+      throw new IllegalStateException("Failed to initialize context");
+    }
+    try {
+      this.context = Long.parseLong(contextPtr);
+    } catch (NumberFormatException numberFormatException) {
+      throw new IllegalStateException("Invalid native context pointer", numberFormatException);
+    }
+    if (this.context == 0) {
+      throw new IllegalStateException("Failed to initialize context");
+    }
+
+    this.gpuEnabled = initResult.hasKey("gpu") && initResult.getBoolean("gpu");
+    this.reasonNoGPU = initResult.hasKey("reasonNoGPU") ? initResult.getString("reasonNoGPU") : "";
+    if (this.reasonNoGPU == null) {
+      this.reasonNoGPU = "";
+    }
+    if (!this.gpuEnabled && params.hasKey("no_gpu_devices") && params.getBoolean("no_gpu_devices")) {
+      this.reasonNoGPU = "GPU devices disabled by user";
+    }
+    this.gpuDevice = initResult.hasKey("gpuDevice") ? initResult.getString("gpuDevice") : "";
+    if (this.gpuDevice == null) {
+      this.gpuDevice = "";
+    }
+
     this.modelDetails = loadModelDetails(this.context);
     this.reactContext = reactContext;
   }
@@ -142,6 +172,18 @@ public class LlamaContext {
 
   public String getLoadedLibrary() {
     return loadedLibrary;
+  }
+
+  public boolean isGpuEnabled() {
+    return gpuEnabled;
+  }
+
+  public String getReasonNoGpu() {
+    return reasonNoGPU;
+  }
+
+  public String getGpuDevice() {
+    return gpuDevice;
   }
 
   public WritableMap getFormattedChatWithJinja(String messages, String chatTemplate, ReadableMap params, boolean addGenerationPrompt, String nowStr, String chatTemplateKwargs) {
@@ -498,9 +540,17 @@ public class LlamaContext {
     Log.d(NAME, "- isAtLeastArmV82: " + isAtLeastArmV82);
     Log.d(NAME, "- isAtLeastArmV84: " + isAtLeastArmV84);
 
-    // TODO: Add runtime check for cpu features
+    // Detect GPU (Adreno check)
+    String gpuInfo = (Build.HARDWARE + " " + Build.MANUFACTURER + " " + Build.MODEL).toLowerCase();
+    boolean hasAdreno = Pattern.compile("(adreno|qcom|qualcomm)").matcher(gpuInfo).find();
+    Log.d(NAME, "- hasAdreno: " + hasAdreno);
+
     if (LlamaContext.isArm64V8a()) {
-      if (hasDotProd && hasI8mm) {
+      if (hasDotProd && hasI8mm && hasAdreno) {
+        Log.d(NAME, "Loading librnllama_v8_2_dotprod_i8mm_opencl.so");
+        System.loadLibrary("rnllama_v8_2_dotprod_i8mm_opencl");
+        loadedLibrary = "rnllama_v8_2_dotprod_i8mm_opencl";
+      } else if (hasDotProd && hasI8mm) {
         Log.d(NAME, "Loading librnllama_v8_2_dotprod_i8mm.so");
         System.loadLibrary("rnllama_v8_2_dotprod_i8mm");
         loadedLibrary = "rnllama_v8_2_dotprod_i8mm";
@@ -521,8 +571,6 @@ public class LlamaContext {
         System.loadLibrary("rnllama_v8");
         loadedLibrary = "rnllama_v8";
       }
-      //  Log.d(NAME, "Loading librnllama_v8_7.so with runtime feature detection");
-      //  System.loadLibrary("rnllama_v8_7");
     } else if (LlamaContext.isX86_64()) {
       Log.d(NAME, "Loading librnllama_x86_64.so");
       System.loadLibrary("rnllama_x86_64");
@@ -530,7 +578,8 @@ public class LlamaContext {
     } else {
       Log.d(NAME, "ARM32 is not supported, skipping loading library");
     }
-  }
+}
+
 
   private static boolean isArm64V8a() {
     return Build.SUPPORTED_ABIS[0].equals("arm64-v8a");
@@ -568,7 +617,7 @@ public class LlamaContext {
     String model,
     String[] skip
   );
-  protected static native long initContext(
+  protected static native WritableMap initContext(
     String model_path,
     String chat_template,
     boolean embedding,
@@ -577,7 +626,7 @@ public class LlamaContext {
     int n_batch,
     int n_ubatch,
     int n_threads,
-    int n_gpu_layers, // TODO: Support this
+    int n_gpu_layers,
     boolean flash_attn,
     String flash_attn_type,
     String cache_type_k,

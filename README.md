@@ -31,6 +31,12 @@ Add proguard rule if it's enabled in project (android/app/proguard-rules.pro):
 
 By default, `llama.rn` will use pre-built libraries for Android. If you want to build from source, please set `rnllamaBuildFromSource` to `true` in `android/gradle.properties`.
 
+##### OpenCL (GPU acceleration)
+
+- Confirm the target device exposes an OpenCL-capable GPU (Qualcomm Adreno 700+ devices are currently supported & tested).
+- Add `<uses-native-library android:name="libOpenCL.so" android:required="false" />` to your app manifest so the loader can be loaded at runtime.
+- Configure `n_gpu_layers` (> 0) when calling `initLlama` to offload layers to the GPU. The native result exposes `gpu`, `gpuDevice`, and `reasonNoGPU` so you can confirm runtime behaviour.
+
 ## Obtain the model
 
 You can search HuggingFace for available models (Keyword: [`GGUF`](https://huggingface.co/search/full-text?q=GGUF&type=model)).
@@ -60,7 +66,7 @@ const context = await initLlama({
   model: modelPath,
   use_mlock: true,
   n_ctx: 2048,
-  n_gpu_layers: 99, // number of layers to store in VRAM (Currently only for iOS)
+  n_gpu_layers: 99, // number of layers to store in GPU memory (Metal/OpenCL)
   // embedding: true, // use embedding
 })
 
@@ -492,7 +498,7 @@ iOS:
 Android:
 
 - Currently only supported arm64-v8a / x86_64 platform, this means you can't initialize a context on another platforms. The 64-bit platform are recommended because it can allocate more memory for the model.
-- No integrated any GPU backend yet.
+- The OpenCL backend is supported, but currently it limited to Qualcomm Adreno GPU and Q4_0 / Q6_K data types. Please check [OpenCL backend](https://github.com/ggml-org/llama.cpp/blob/master/docs/backend/OPENCL.md) for more details.
 
 ## Contributing
 

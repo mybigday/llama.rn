@@ -22,6 +22,7 @@
     bool is_metal_enabled;
     bool is_model_loaded;
     NSString * reason_no_metal;
+    NSString * gpu_device_name;
 
     void (^onProgress)(unsigned int progress);
 
@@ -34,6 +35,7 @@
 - (void)interruptLoad;
 - (bool)isMetalEnabled;
 - (NSString *)reasonNoMetal;
+- (NSString *)gpuDeviceName;
 - (NSDictionary *)modelInfo;
 - (bool)isModelLoaded;
 - (bool)isPredicting;

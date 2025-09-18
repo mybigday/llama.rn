@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
-git submodule init
-git submodule update --recursive
+git submodule init llama.cpp
+git submodule update --recursive llama.cpp
 
 # ggml api
 cp ./llama.cpp/ggml/include/ggml.h ./cpp/ggml.h
@@ -11,10 +11,14 @@ cp ./llama.cpp/ggml/include/ggml-cpu.h ./cpp/ggml-cpu.h
 cp ./llama.cpp/ggml/include/ggml-cpp.h ./cpp/ggml-cpp.h
 cp ./llama.cpp/ggml/include/ggml-opt.h ./cpp/ggml-opt.h
 cp ./llama.cpp/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
+cp ./llama.cpp/ggml/include/ggml-opencl.h ./cpp/ggml-opencl.h
 cp ./llama.cpp/ggml/include/gguf.h ./cpp/gguf.h
 
 cp -r ./llama.cpp/ggml/src/ggml-metal ./cpp/
 rm ./cpp/ggml-metal/CMakeLists.txt
+
+cp -r ./llama.cpp/ggml/src/ggml-opencl ./cpp/
+rm ./cpp/ggml-opencl/CMakeLists.txt
 
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu/ggml-cpu.c
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu/ggml-cpu.cpp
@@ -153,6 +157,7 @@ rm -rf ./cpp/tools/mtmd/stb
 cp -r ./llama.cpp/vendor/miniaudio ./cpp/tools/mtmd/miniaudio
 cp -r ./llama.cpp/vendor/stb ./cpp/tools/mtmd/stb
 
+
 # List of files to process
 files_add_lm_prefix=(
   # ggml api
@@ -185,6 +190,8 @@ files_add_lm_prefix=(
   "./cpp/ggml-metal/ggml-metal-device.m"
   "./cpp/ggml-metal/ggml-metal-ops.h"
   "./cpp/ggml-metal/ggml-metal-ops.cpp"
+  ."/cpp/ggml-opencl.h"
+  "./cpp/ggml-opencl/ggml-opencl.cpp"
   "./cpp/ggml-cpu.h"
   "./cpp/ggml-cpu/ggml-cpu-impl.h"
   "./cpp/ggml-cpu/ggml-cpu.c"

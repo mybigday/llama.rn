@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 
 project(llama.rn)
 
+find_package(Python3 REQUIRED)
 set(CMAKE_CXX_STANDARD 17)
 set(RNLLAMA_LIB_DIR ${CMAKE_SOURCE_DIR}/../../../cpp)
 
@@ -42,6 +43,7 @@ set(
     ${RNLLAMA_LIB_DIR}/tools/mtmd/mtmd-audio.cpp
     ${RNLLAMA_LIB_DIR}/tools/mtmd/clip.cpp
     ${RNLLAMA_LIB_DIR}/tools/mtmd/mtmd-helper.cpp
+
     ${RNLLAMA_LIB_DIR}/llama-grammar.cpp
     ${RNLLAMA_LIB_DIR}/llama-sampling.cpp
     ${RNLLAMA_LIB_DIR}/llama-vocab.cpp
@@ -99,7 +101,7 @@ function(build_library target_name arch cpu_flags)
         ${SOURCE_FILES_ARCH}
     )
 
-    target_link_libraries(${target_name} ${LOG_LIB} android)
+    target_link_libraries(${target_name} PRIVATE ${LOG_LIB} android)
 
     if (${arch} STREQUAL "generic")
         target_compile_options(${target_name} PRIVATE -DLM_GGML_CPU_GENERIC)
@@ -110,6 +112,120 @@ function(build_library target_name arch cpu_flags)
     if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
         target_compile_options(${target_name} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
     endif ()
+
+    # OpenCL only for the special target
+    if (${target_name} STREQUAL "rnllama_v8_2_dotprod_i8mm_opencl")
+        include_directories(${CMAKE_SOURCE_DIR}/../../../OpenCL-Headers/CL)
+
+        set(GGML_OPENCL_KERNELS
+            add
+            add_id
+            argsort
+            clamp
+            cpy
+            cvt
+            diag_mask_inf
+            div
+            gelu
+            gemv_noshuffle_general
+            gemv_noshuffle
+            get_rows
+            glu
+            group_norm
+            im2col_f32
+            im2col_f16
+            mul_mat_Ab_Bi_8x4
+            mul_mv_f16_f16
+            mul_mv_f16_f32_1row
+            mul_mv_f16_f32_l4
+            mul_mv_f16_f32
+            mul_mv_f32_f32
+            mul_mv_q4_0_f32
+            mul_mv_q4_0_f32_v
+            mul_mv_q4_0_f32_8x_flat
+            mul_mv_q4_0_f32_1d_8x_flat
+            mul_mv_q4_0_f32_1d_16x_flat
+            mul_mv_q6_k
+            mul_mv_mxfp4_f32
+            mul_mv_id_q4_0_f32_8x_flat
+            mul_mv_id_mxfp4_f32
+            mul_mm_f32_f32_l4_lm
+            mul_mm_f16_f32_l4_lm
+            mul
+            norm
+            relu
+            rms_norm
+            rope
+            scale
+            set_rows
+            sigmoid
+            silu
+            softmax_4_f32
+            softmax_4_f16
+            softmax_f32
+            softmax_f16
+            sub
+            sum_rows
+            transpose
+            concat
+            tsembd
+            upscale
+            tanh
+            pad
+            repeat
+            mul_mat_f16_f32
+            conv2d
+            conv2d_f16_f32
+            flash_attn_f32_f16
+            flash_attn_f16
+            flash_attn_f32
+        )
+        set(GGML_OPENCL_KERNEL_DIR ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels)
+        set(GGML_OPENCL_KERNEL_HEADERS "")
+
+        foreach(kernel ${GGML_OPENCL_KERNELS})
+            set(input_file ${GGML_OPENCL_KERNEL_DIR}/${kernel}.cl)
+            set(output_file ${CMAKE_CURRENT_BINARY_DIR}/${kernel}.cl.h)
+            message(STATUS "opencl: embedding kernel ${kernel}")
+            add_custom_command(
+                OUTPUT ${output_file}
+                COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_SOURCE_DIR}
+                        ${Python3_EXECUTABLE} ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels/embed_kernel.py
+                        ${input_file} ${output_file}
+                DEPENDS ${input_file} ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels/embed_kernel.py
+                COMMENT "Embedding OpenCL kernel: ${kernel}.cl"
+            )
+
+            list(APPEND GGML_OPENCL_KERNEL_HEADERS ${output_file})
+        endforeach()
+
+        include_directories(${CMAKE_SOURCE_DIR}/../../../OpenCL-Headers)
+
+        set(OPENCL_STUB_DIR ${CMAKE_SOURCE_DIR}/../../../bin/${ANDROID_ABI})
+        set(OPENCL_STUB     ${OPENCL_STUB_DIR}/libOpenCL.so)
+
+        if (EXISTS ${OPENCL_STUB})
+            # Keep using -lOpenCL so we don’t create a packagable .so target.
+            target_link_directories(${target_name} PRIVATE ${OPENCL_STUB_DIR})
+            target_link_libraries(${target_name} PRIVATE OpenCL)
+        else()
+            message(WARNING
+                "OpenCL library not found. Please build with ./scripts/build-opencl.sh")
+        endif()
+
+        target_include_directories(${target_name} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+        target_sources(${target_name} PRIVATE
+            ${RNLLAMA_LIB_DIR}/ggml-opencl/ggml-opencl.cpp
+            ${GGML_OPENCL_KERNEL_HEADERS}
+        )
+        target_compile_options(${target_name} PRIVATE
+            -DLM_GGML_USE_OPENCL
+            -DLM_GGML_OPENCL_USE_ADRENO_KERNELS
+            -DLM_GGML_OPENCL_EMBED_KERNELS
+            -DLM_GGML_OPENCL_SOA_Q
+        )
+    endif ()
+
 
     # NOTE: If you want to debug the native code, you can uncomment if and endif
     # Note that it will be extremely slow
@@ -136,6 +252,7 @@ if (${ANDROID_ABI} STREQUAL "arm64-v8a")
     build_library("rnllama_v8_2_dotprod" "arm" "-march=armv8.2-a+dotprod")
     build_library("rnllama_v8_2_i8mm" "arm" "-march=armv8.2-a+i8mm")
     build_library("rnllama_v8_2_dotprod_i8mm" "arm" "-march=armv8.2-a+dotprod+i8mm")
+    build_library("rnllama_v8_2_dotprod_i8mm_opencl" "arm" "-march=armv8.2-a+dotprod+i8mm")
 
     # https://github.com/ggerganov/llama.cpp/blob/master/docs/android.md#cross-compile-using-android-ndk
     # llama.cpp will deal with the cpu features

@@ -76,11 +76,16 @@ RCT_EXPORT_METHOD(initContext:(double)contextId
 
       [llamaContexts setObject:context forKey:contextIdNumber];
 
-      resolve(@{
+      NSMutableDictionary *result = [@{
           @"gpu": @([context isMetalEnabled]),
           @"reasonNoGPU": [context reasonNoMetal],
           @"model": [context modelInfo],
-      });
+      } mutableCopy];
+      NSString *gpuDevice = [context gpuDeviceName];
+      if (gpuDevice != nil && [gpuDevice length] > 0) {
+          result[@"gpuDevice"] = gpuDevice;
+      }
+      resolve(result);
     } @catch (NSException *exception) {
       reject(@"llama_cpp_error", exception.reason, nil);
     }
