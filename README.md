@@ -498,7 +498,7 @@ iOS:
 Android:
 
 - Currently only supported arm64-v8a / x86_64 platform, this means you can't initialize a context on another platforms. The 64-bit platform are recommended because it can allocate more memory for the model.
-- No integrated any GPU backend yet.
+- The OpenCL backend is supported, but currently it limited to Qualcomm Adreno GPU and Q4_0 / Q6_K data types. Please check [OpenCL backend](https://github.com/ggml-org/llama.cpp/blob/master/docs/backend/OPENCL.md) for more details.
 
 ## Contributing
 
