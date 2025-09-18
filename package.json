@@ -9,7 +9,7 @@
   "source": "src/index",
   "files": [
     "bin",
-    "OpenCL-Headers",
+    "third_party/OpenCL-Headers",
     "src",
     "lib",
     "jest",
@@ -104,7 +104,7 @@
     "modulePathIgnorePatterns": [
       "<rootDir>/example/node_modules",
       "<rootDir>/lib/",
-      "<rootDir>/llama.cpp/"
+      "<rootDir>/third_party/llama.cpp/"
     ]
   },
   "commitlint": {
@@ -206,7 +206,7 @@
     "node_modules/",
     "lib/",
     "*.d.ts",
-    "llama.cpp/"
+    "third_party/llama.cpp/"
   ],
   "prettier": {
     "trailingComma": "all",
