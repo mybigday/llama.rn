@@ -1,161 +1,167 @@
 #!/bin/bash -e
 
-git submodule init llama.cpp
-git submodule update --recursive llama.cpp
+ROOT_DIR=$(pwd)
+
+LLAMA_DIR=third_party/llama.cpp
+CPP_DIR="$ROOT_DIR/cpp"
+SRC_DIR="$ROOT_DIR/src"
+
+git submodule init "$LLAMA_DIR"
+git submodule update --recursive "$LLAMA_DIR"
 
 # ggml api
-cp ./llama.cpp/ggml/include/ggml.h ./cpp/ggml.h
-cp ./llama.cpp/ggml/include/ggml-alloc.h ./cpp/ggml-alloc.h
-cp ./llama.cpp/ggml/include/ggml-backend.h ./cpp/ggml-backend.h
-cp ./llama.cpp/ggml/include/ggml-cpu.h ./cpp/ggml-cpu.h
-cp ./llama.cpp/ggml/include/ggml-cpp.h ./cpp/ggml-cpp.h
-cp ./llama.cpp/ggml/include/ggml-opt.h ./cpp/ggml-opt.h
-cp ./llama.cpp/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
-cp ./llama.cpp/ggml/include/ggml-opencl.h ./cpp/ggml-opencl.h
-cp ./llama.cpp/ggml/include/gguf.h ./cpp/gguf.h
+cp ./$LLAMA_DIR/ggml/include/ggml.h ./cpp/ggml.h
+cp ./$LLAMA_DIR/ggml/include/ggml-alloc.h ./cpp/ggml-alloc.h
+cp ./$LLAMA_DIR/ggml/include/ggml-backend.h ./cpp/ggml-backend.h
+cp ./$LLAMA_DIR/ggml/include/ggml-cpu.h ./cpp/ggml-cpu.h
+cp ./$LLAMA_DIR/ggml/include/ggml-cpp.h ./cpp/ggml-cpp.h
+cp ./$LLAMA_DIR/ggml/include/ggml-opt.h ./cpp/ggml-opt.h
+cp ./$LLAMA_DIR/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
+cp ./$LLAMA_DIR/ggml/include/ggml-opencl.h ./cpp/ggml-opencl.h
+cp ./$LLAMA_DIR/ggml/include/gguf.h ./cpp/gguf.h
 
-cp -r ./llama.cpp/ggml/src/ggml-metal ./cpp/
+cp -r ./$LLAMA_DIR/ggml/src/ggml-metal ./cpp/
 rm ./cpp/ggml-metal/CMakeLists.txt
 
-cp -r ./llama.cpp/ggml/src/ggml-opencl ./cpp/
+cp -r ./$LLAMA_DIR/ggml/src/ggml-opencl ./cpp/
 rm ./cpp/ggml-opencl/CMakeLists.txt
 
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu/ggml-cpu.c
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu/ggml-cpu.cpp
-cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu-impl.h ./cpp/ggml-cpu/ggml-cpu-impl.h
-cp ./llama.cpp/ggml/src/ggml-cpu/quants.h ./cpp/ggml-cpu/quants.h
-cp ./llama.cpp/ggml/src/ggml-cpu/quants.c ./cpp/ggml-cpu/quants.c
-cp ./llama.cpp/ggml/src/ggml-cpu/arch-fallback.h ./cpp/ggml-cpu/arch-fallback.h
-cp ./llama.cpp/ggml/src/ggml-cpu/repack.cpp ./cpp/ggml-cpu/repack.cpp
-cp ./llama.cpp/ggml/src/ggml-cpu/repack.h ./cpp/ggml-cpu/repack.h
-cp ./llama.cpp/ggml/src/ggml-cpu/traits.h ./cpp/ggml-cpu/traits.h
-cp ./llama.cpp/ggml/src/ggml-cpu/traits.cpp ./cpp/ggml-cpu/traits.cpp
-cp ./llama.cpp/ggml/src/ggml-cpu/common.h ./cpp/ggml-cpu/common.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu/ggml-cpu.c
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu/ggml-cpu.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/ggml-cpu-impl.h ./cpp/ggml-cpu/ggml-cpu-impl.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/quants.h ./cpp/ggml-cpu/quants.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/quants.c ./cpp/ggml-cpu/quants.c
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/arch-fallback.h ./cpp/ggml-cpu/arch-fallback.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/repack.cpp ./cpp/ggml-cpu/repack.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/repack.h ./cpp/ggml-cpu/repack.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/traits.h ./cpp/ggml-cpu/traits.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/traits.cpp ./cpp/ggml-cpu/traits.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/common.h ./cpp/ggml-cpu/common.h
 
-cp ./llama.cpp/ggml/src/ggml-cpu/unary-ops.h ./cpp/ggml-cpu/unary-ops.h
-cp ./llama.cpp/ggml/src/ggml-cpu/unary-ops.cpp ./cpp/ggml-cpu/unary-ops.cpp
-cp ./llama.cpp/ggml/src/ggml-cpu/binary-ops.h ./cpp/ggml-cpu/binary-ops.h
-cp ./llama.cpp/ggml/src/ggml-cpu/binary-ops.cpp ./cpp/ggml-cpu/binary-ops.cpp
-cp ./llama.cpp/ggml/src/ggml-cpu/vec.h ./cpp/ggml-cpu/vec.h
-cp ./llama.cpp/ggml/src/ggml-cpu/vec.cpp ./cpp/ggml-cpu/vec.cpp
-cp ./llama.cpp/ggml/src/ggml-cpu/simd-mappings.h ./cpp/ggml-cpu/simd-mappings.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ops.h ./cpp/ggml-cpu/ops.h
-cp ./llama.cpp/ggml/src/ggml-cpu/ops.cpp ./cpp/ggml-cpu/ops.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/unary-ops.h ./cpp/ggml-cpu/unary-ops.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/unary-ops.cpp ./cpp/ggml-cpu/unary-ops.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/binary-ops.h ./cpp/ggml-cpu/binary-ops.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/binary-ops.cpp ./cpp/ggml-cpu/binary-ops.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/vec.h ./cpp/ggml-cpu/vec.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/vec.cpp ./cpp/ggml-cpu/vec.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/simd-mappings.h ./cpp/ggml-cpu/simd-mappings.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/ops.h ./cpp/ggml-cpu/ops.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/ops.cpp ./cpp/ggml-cpu/ops.cpp
 
-cp -r ./llama.cpp/ggml/src/ggml-cpu/amx ./cpp/ggml-cpu/
+cp -r ./$LLAMA_DIR/ggml/src/ggml-cpu/amx ./cpp/ggml-cpu/
 mkdir -p ./cpp/ggml-cpu/arch
-cp -r ./llama.cpp/ggml/src/ggml-cpu/arch/arm ./cpp/ggml-cpu/arch/
-cp -r ./llama.cpp/ggml/src/ggml-cpu/arch/x86 ./cpp/ggml-cpu/arch/
+cp -r ./$LLAMA_DIR/ggml/src/ggml-cpu/arch/arm ./cpp/ggml-cpu/arch/
+cp -r ./$LLAMA_DIR/ggml/src/ggml-cpu/arch/x86 ./cpp/ggml-cpu/arch/
 
-cp ./llama.cpp/ggml/src/ggml.c ./cpp/ggml.c
-cp ./llama.cpp/ggml/src/ggml-impl.h ./cpp/ggml-impl.h
-cp ./llama.cpp/ggml/src/ggml-alloc.c ./cpp/ggml-alloc.c
-cp ./llama.cpp/ggml/src/ggml-backend.cpp ./cpp/ggml-backend.cpp
-cp ./llama.cpp/ggml/src/ggml-backend-impl.h ./cpp/ggml-backend-impl.h
-cp ./llama.cpp/ggml/src/ggml-backend-reg.cpp ./cpp/ggml-backend-reg.cpp
-cp ./llama.cpp/ggml/src/ggml-common.h ./cpp/ggml-common.h
-cp ./llama.cpp/ggml/src/ggml-opt.cpp ./cpp/ggml-opt.cpp
-cp ./llama.cpp/ggml/src/ggml-quants.h ./cpp/ggml-quants.h
-cp ./llama.cpp/ggml/src/ggml-quants.c ./cpp/ggml-quants.c
-cp ./llama.cpp/ggml/src/ggml-threading.cpp ./cpp/ggml-threading.cpp
-cp ./llama.cpp/ggml/src/ggml-threading.h ./cpp/ggml-threading.h
-cp ./llama.cpp/ggml/src/gguf.cpp ./cpp/gguf.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml.c ./cpp/ggml.c
+cp ./$LLAMA_DIR/ggml/src/ggml-impl.h ./cpp/ggml-impl.h
+cp ./$LLAMA_DIR/ggml/src/ggml-alloc.c ./cpp/ggml-alloc.c
+cp ./$LLAMA_DIR/ggml/src/ggml-backend.cpp ./cpp/ggml-backend.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-backend-impl.h ./cpp/ggml-backend-impl.h
+cp ./$LLAMA_DIR/ggml/src/ggml-backend-reg.cpp ./cpp/ggml-backend-reg.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-common.h ./cpp/ggml-common.h
+cp ./$LLAMA_DIR/ggml/src/ggml-opt.cpp ./cpp/ggml-opt.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-quants.h ./cpp/ggml-quants.h
+cp ./$LLAMA_DIR/ggml/src/ggml-quants.c ./cpp/ggml-quants.c
+cp ./$LLAMA_DIR/ggml/src/ggml-threading.cpp ./cpp/ggml-threading.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-threading.h ./cpp/ggml-threading.h
+cp ./$LLAMA_DIR/ggml/src/gguf.cpp ./cpp/gguf.cpp
 
 # llama api
-cp ./llama.cpp/include/llama.h ./cpp/llama.h
-cp ./llama.cpp/include/llama-cpp.h ./cpp/llama-cpp.h
-cp ./llama.cpp/src/llama.cpp ./cpp/llama.cpp
-cp ./llama.cpp/src/llama-chat.h ./cpp/llama-chat.h
-cp ./llama.cpp/src/llama-chat.cpp ./cpp/llama-chat.cpp
-cp ./llama.cpp/src/llama-context.h ./cpp/llama-context.h
-cp ./llama.cpp/src/llama-context.cpp ./cpp/llama-context.cpp
-cp ./llama.cpp/src/llama-mmap.h ./cpp/llama-mmap.h
-cp ./llama.cpp/src/llama-mmap.cpp ./cpp/llama-mmap.cpp
-cp ./llama.cpp/src/llama-model-loader.h ./cpp/llama-model-loader.h
-cp ./llama.cpp/src/llama-model-loader.cpp ./cpp/llama-model-loader.cpp
-cp ./llama.cpp/src/llama-model-saver.h ./cpp/llama-model-saver.h
-cp ./llama.cpp/src/llama-model-saver.cpp ./cpp/llama-model-saver.cpp
-cp ./llama.cpp/src/llama-model.h ./cpp/llama-model.h
-cp ./llama.cpp/src/llama-model.cpp ./cpp/llama-model.cpp
-cp ./llama.cpp/src/llama-kv-cells.h ./cpp/llama-kv-cells.h
-cp ./llama.cpp/src/llama-kv-cache.h ./cpp/llama-kv-cache.h
-cp ./llama.cpp/src/llama-kv-cache.cpp ./cpp/llama-kv-cache.cpp
-cp ./llama.cpp/src/llama-kv-cache-iswa.h ./cpp/llama-kv-cache-iswa.h
-cp ./llama.cpp/src/llama-kv-cache-iswa.cpp ./cpp/llama-kv-cache-iswa.cpp
-cp ./llama.cpp/src/llama-memory-hybrid.h ./cpp/llama-memory-hybrid.h
-cp ./llama.cpp/src/llama-memory-hybrid.cpp ./cpp/llama-memory-hybrid.cpp
-cp ./llama.cpp/src/llama-memory-recurrent.h ./cpp/llama-memory-recurrent.h
-cp ./llama.cpp/src/llama-memory-recurrent.cpp ./cpp/llama-memory-recurrent.cpp
-cp ./llama.cpp/src/llama-adapter.h ./cpp/llama-adapter.h
-cp ./llama.cpp/src/llama-adapter.cpp ./cpp/llama-adapter.cpp
-cp ./llama.cpp/src/llama-arch.h ./cpp/llama-arch.h
-cp ./llama.cpp/src/llama-arch.cpp ./cpp/llama-arch.cpp
-cp ./llama.cpp/src/llama-batch.h ./cpp/llama-batch.h
-cp ./llama.cpp/src/llama-batch.cpp ./cpp/llama-batch.cpp
-cp ./llama.cpp/src/llama-cparams.h ./cpp/llama-cparams.h
-cp ./llama.cpp/src/llama-cparams.cpp ./cpp/llama-cparams.cpp
-cp ./llama.cpp/src/llama-hparams.h ./cpp/llama-hparams.h
-cp ./llama.cpp/src/llama-hparams.cpp ./cpp/llama-hparams.cpp
-cp ./llama.cpp/src/llama-impl.h ./cpp/llama-impl.h
-cp ./llama.cpp/src/llama-impl.cpp ./cpp/llama-impl.cpp
+cp ./$LLAMA_DIR/include/llama.h ./cpp/llama.h
+cp ./$LLAMA_DIR/include/llama-cpp.h ./cpp/llama-cpp.h
+cp ./$LLAMA_DIR/src/llama.cpp ./cpp/llama.cpp
+cp ./$LLAMA_DIR/src/llama-chat.h ./cpp/llama-chat.h
+cp ./$LLAMA_DIR/src/llama-chat.cpp ./cpp/llama-chat.cpp
+cp ./$LLAMA_DIR/src/llama-context.h ./cpp/llama-context.h
+cp ./$LLAMA_DIR/src/llama-context.cpp ./cpp/llama-context.cpp
+cp ./$LLAMA_DIR/src/llama-mmap.h ./cpp/llama-mmap.h
+cp ./$LLAMA_DIR/src/llama-mmap.cpp ./cpp/llama-mmap.cpp
+cp ./$LLAMA_DIR/src/llama-model-loader.h ./cpp/llama-model-loader.h
+cp ./$LLAMA_DIR/src/llama-model-loader.cpp ./cpp/llama-model-loader.cpp
+cp ./$LLAMA_DIR/src/llama-model-saver.h ./cpp/llama-model-saver.h
+cp ./$LLAMA_DIR/src/llama-model-saver.cpp ./cpp/llama-model-saver.cpp
+cp ./$LLAMA_DIR/src/llama-model.h ./cpp/llama-model.h
+cp ./$LLAMA_DIR/src/llama-model.cpp ./cpp/llama-model.cpp
+cp ./$LLAMA_DIR/src/llama-kv-cells.h ./cpp/llama-kv-cells.h
+cp ./$LLAMA_DIR/src/llama-kv-cache.h ./cpp/llama-kv-cache.h
+cp ./$LLAMA_DIR/src/llama-kv-cache.cpp ./cpp/llama-kv-cache.cpp
+cp ./$LLAMA_DIR/src/llama-kv-cache-iswa.h ./cpp/llama-kv-cache-iswa.h
+cp ./$LLAMA_DIR/src/llama-kv-cache-iswa.cpp ./cpp/llama-kv-cache-iswa.cpp
+cp ./$LLAMA_DIR/src/llama-memory-hybrid.h ./cpp/llama-memory-hybrid.h
+cp ./$LLAMA_DIR/src/llama-memory-hybrid.cpp ./cpp/llama-memory-hybrid.cpp
+cp ./$LLAMA_DIR/src/llama-memory-recurrent.h ./cpp/llama-memory-recurrent.h
+cp ./$LLAMA_DIR/src/llama-memory-recurrent.cpp ./cpp/llama-memory-recurrent.cpp
+cp ./$LLAMA_DIR/src/llama-adapter.h ./cpp/llama-adapter.h
+cp ./$LLAMA_DIR/src/llama-adapter.cpp ./cpp/llama-adapter.cpp
+cp ./$LLAMA_DIR/src/llama-arch.h ./cpp/llama-arch.h
+cp ./$LLAMA_DIR/src/llama-arch.cpp ./cpp/llama-arch.cpp
+cp ./$LLAMA_DIR/src/llama-batch.h ./cpp/llama-batch.h
+cp ./$LLAMA_DIR/src/llama-batch.cpp ./cpp/llama-batch.cpp
+cp ./$LLAMA_DIR/src/llama-cparams.h ./cpp/llama-cparams.h
+cp ./$LLAMA_DIR/src/llama-cparams.cpp ./cpp/llama-cparams.cpp
+cp ./$LLAMA_DIR/src/llama-hparams.h ./cpp/llama-hparams.h
+cp ./$LLAMA_DIR/src/llama-hparams.cpp ./cpp/llama-hparams.cpp
+cp ./$LLAMA_DIR/src/llama-impl.h ./cpp/llama-impl.h
+cp ./$LLAMA_DIR/src/llama-impl.cpp ./cpp/llama-impl.cpp
 
-cp ./llama.cpp/src/llama-vocab.h ./cpp/llama-vocab.h
-cp ./llama.cpp/src/llama-vocab.cpp ./cpp/llama-vocab.cpp
-cp ./llama.cpp/src/llama-grammar.h ./cpp/llama-grammar.h
-cp ./llama.cpp/src/llama-grammar.cpp ./cpp/llama-grammar.cpp
-cp ./llama.cpp/src/llama-sampling.h ./cpp/llama-sampling.h
-cp ./llama.cpp/src/llama-sampling.cpp ./cpp/llama-sampling.cpp
+cp ./$LLAMA_DIR/src/llama-vocab.h ./cpp/llama-vocab.h
+cp ./$LLAMA_DIR/src/llama-vocab.cpp ./cpp/llama-vocab.cpp
+cp ./$LLAMA_DIR/src/llama-grammar.h ./cpp/llama-grammar.h
+cp ./$LLAMA_DIR/src/llama-grammar.cpp ./cpp/llama-grammar.cpp
+cp ./$LLAMA_DIR/src/llama-sampling.h ./cpp/llama-sampling.h
+cp ./$LLAMA_DIR/src/llama-sampling.cpp ./cpp/llama-sampling.cpp
 
-cp ./llama.cpp/src/unicode.h ./cpp/unicode.h
-cp ./llama.cpp/src/unicode.cpp ./cpp/unicode.cpp
-cp ./llama.cpp/src/unicode-data.h ./cpp/unicode-data.h
-cp ./llama.cpp/src/unicode-data.cpp ./cpp/unicode-data.cpp
+cp ./$LLAMA_DIR/src/unicode.h ./cpp/unicode.h
+cp ./$LLAMA_DIR/src/unicode.cpp ./cpp/unicode.cpp
+cp ./$LLAMA_DIR/src/unicode-data.h ./cpp/unicode-data.h
+cp ./$LLAMA_DIR/src/unicode-data.cpp ./cpp/unicode-data.cpp
 
-cp ./llama.cpp/src/llama-graph.h ./cpp/llama-graph.h
-cp ./llama.cpp/src/llama-graph.cpp ./cpp/llama-graph.cpp
-cp ./llama.cpp/src/llama-io.h ./cpp/llama-io.h
-cp ./llama.cpp/src/llama-io.cpp ./cpp/llama-io.cpp
-cp ./llama.cpp/src/llama-memory.h ./cpp/llama-memory.h
-cp ./llama.cpp/src/llama-memory.cpp ./cpp/llama-memory.cpp
+cp ./$LLAMA_DIR/src/llama-graph.h ./cpp/llama-graph.h
+cp ./$LLAMA_DIR/src/llama-graph.cpp ./cpp/llama-graph.cpp
+cp ./$LLAMA_DIR/src/llama-io.h ./cpp/llama-io.h
+cp ./$LLAMA_DIR/src/llama-io.cpp ./cpp/llama-io.cpp
+cp ./$LLAMA_DIR/src/llama-memory.h ./cpp/llama-memory.h
+cp ./$LLAMA_DIR/src/llama-memory.cpp ./cpp/llama-memory.cpp
 
-cp ./llama.cpp/common/log.h ./cpp/log.h
-cp ./llama.cpp/common/log.cpp ./cpp/log.cpp
-cp ./llama.cpp/common/common.h ./cpp/common.h
-cp ./llama.cpp/common/common.cpp ./cpp/common.cpp
-cp ./llama.cpp/common/sampling.h ./cpp/sampling.h
-cp ./llama.cpp/common/sampling.cpp ./cpp/sampling.cpp
-cp ./llama.cpp/common/json-schema-to-grammar.h ./cpp/json-schema-to-grammar.h
-cp ./llama.cpp/common/json-schema-to-grammar.cpp ./cpp/json-schema-to-grammar.cpp
-cp ./llama.cpp/common/json-partial.h ./cpp/json-partial.h
-cp ./llama.cpp/common/json-partial.cpp ./cpp/json-partial.cpp
-cp ./llama.cpp/common/regex-partial.h ./cpp/regex-partial.h
-cp ./llama.cpp/common/regex-partial.cpp ./cpp/regex-partial.cpp
-cp ./llama.cpp/common/chat.h ./cpp/chat.h
-cp ./llama.cpp/common/chat.cpp ./cpp/chat.cpp
-cp ./llama.cpp/common/chat-parser.h ./cpp/chat-parser.h
-cp ./llama.cpp/common/chat-parser.cpp ./cpp/chat-parser.cpp
+cp ./$LLAMA_DIR/common/log.h ./cpp/log.h
+cp ./$LLAMA_DIR/common/log.cpp ./cpp/log.cpp
+cp ./$LLAMA_DIR/common/common.h ./cpp/common.h
+cp ./$LLAMA_DIR/common/common.cpp ./cpp/common.cpp
+cp ./$LLAMA_DIR/common/sampling.h ./cpp/sampling.h
+cp ./$LLAMA_DIR/common/sampling.cpp ./cpp/sampling.cpp
+cp ./$LLAMA_DIR/common/json-schema-to-grammar.h ./cpp/json-schema-to-grammar.h
+cp ./$LLAMA_DIR/common/json-schema-to-grammar.cpp ./cpp/json-schema-to-grammar.cpp
+cp ./$LLAMA_DIR/common/json-partial.h ./cpp/json-partial.h
+cp ./$LLAMA_DIR/common/json-partial.cpp ./cpp/json-partial.cpp
+cp ./$LLAMA_DIR/common/regex-partial.h ./cpp/regex-partial.h
+cp ./$LLAMA_DIR/common/regex-partial.cpp ./cpp/regex-partial.cpp
+cp ./$LLAMA_DIR/common/chat.h ./cpp/chat.h
+cp ./$LLAMA_DIR/common/chat.cpp ./cpp/chat.cpp
+cp ./$LLAMA_DIR/common/chat-parser.h ./cpp/chat-parser.h
+cp ./$LLAMA_DIR/common/chat-parser.cpp ./cpp/chat-parser.cpp
 
 # Copy multimodal files from tools/mtmd
 rm -rf ./cpp/tools/mtmd
 mkdir -p ./cpp/tools/mtmd
-cp ./llama.cpp/tools/mtmd/mtmd.h ./cpp/tools/mtmd/mtmd.h
-cp ./llama.cpp/tools/mtmd/mtmd.cpp ./cpp/tools/mtmd/mtmd.cpp
-cp ./llama.cpp/tools/mtmd/clip.h ./cpp/tools/mtmd/clip.h
-cp ./llama.cpp/tools/mtmd/clip.cpp ./cpp/tools/mtmd/clip.cpp
-cp ./llama.cpp/tools/mtmd/clip-impl.h ./cpp/tools/mtmd/clip-impl.h
-cp ./llama.cpp/tools/mtmd/mtmd-helper.cpp ./cpp/tools/mtmd/mtmd-helper.cpp
-cp ./llama.cpp/tools/mtmd/mtmd-helper.h ./cpp/tools/mtmd/mtmd-helper.h
-cp ./llama.cpp/tools/mtmd/mtmd-audio.h ./cpp/tools/mtmd/mtmd-audio.h
-cp ./llama.cpp/tools/mtmd/mtmd-audio.cpp ./cpp/tools/mtmd/mtmd-audio.cpp
+cp ./$LLAMA_DIR/tools/mtmd/mtmd.h ./cpp/tools/mtmd/mtmd.h
+cp ./$LLAMA_DIR/tools/mtmd/mtmd.cpp ./cpp/tools/mtmd/mtmd.cpp
+cp ./$LLAMA_DIR/tools/mtmd/clip.h ./cpp/tools/mtmd/clip.h
+cp ./$LLAMA_DIR/tools/mtmd/clip.cpp ./cpp/tools/mtmd/clip.cpp
+cp ./$LLAMA_DIR/tools/mtmd/clip-impl.h ./cpp/tools/mtmd/clip-impl.h
+cp ./$LLAMA_DIR/tools/mtmd/mtmd-helper.cpp ./cpp/tools/mtmd/mtmd-helper.cpp
+cp ./$LLAMA_DIR/tools/mtmd/mtmd-helper.h ./cpp/tools/mtmd/mtmd-helper.h
+cp ./$LLAMA_DIR/tools/mtmd/mtmd-audio.h ./cpp/tools/mtmd/mtmd-audio.h
+cp ./$LLAMA_DIR/tools/mtmd/mtmd-audio.cpp ./cpp/tools/mtmd/mtmd-audio.cpp
 
 rm -rf ./cpp/minja
 rm -rf ./cpp/nlohmann
-cp -r ./llama.cpp/vendor/minja ./cpp/minja
-cp -r ./llama.cpp/vendor/nlohmann ./cpp/nlohmann
+cp -r ./$LLAMA_DIR/vendor/minja ./cpp/minja
+cp -r ./$LLAMA_DIR/vendor/nlohmann ./cpp/nlohmann
 rm -rf ./cpp/tools/mtmd/miniaudio
 rm -rf ./cpp/tools/mtmd/stb
-cp -r ./llama.cpp/vendor/miniaudio ./cpp/tools/mtmd/miniaudio
-cp -r ./llama.cpp/vendor/stb ./cpp/tools/mtmd/stb
+cp -r ./$LLAMA_DIR/vendor/miniaudio ./cpp/tools/mtmd/miniaudio
+cp -r ./$LLAMA_DIR/vendor/stb ./cpp/tools/mtmd/stb
 
 
 # List of files to process
@@ -372,7 +378,7 @@ rm -rf ./cpp/**/*.orig
 
 if [ "$OS" = "Darwin" ]; then
   # Build metallib (~2.6MB)
-  cd llama.cpp/ggml/src/ggml-metal
+  cd "$LLAMA_DIR/ggml/src/ggml-metal"
 
   # Create a symbolic link to ggml-common.h in the current directory
   ln -sf ../ggml-common.h .
@@ -380,12 +386,12 @@ if [ "$OS" = "Darwin" ]; then
   xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_USE_BF16=1
   xcrun --sdk iphoneos metallib ggml-metal.air   -o ggml-llama.metallib
   rm ggml-metal.air
-  mv ./ggml-llama.metallib ../../../../cpp/ggml-metal/ggml-llama.metallib
+  mv ./ggml-llama.metallib "$CPP_DIR/ggml-metal/ggml-llama.metallib"
 
   xcrun --sdk iphonesimulator metal -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_USE_BF16=1
   xcrun --sdk iphonesimulator metallib ggml-metal.air   -o ggml-llama.metallib
   rm ggml-metal.air
-  mv ./ggml-llama.metallib ../../../../cpp/ggml-metal/ggml-llama-sim.metallib
+  mv ./ggml-llama.metallib "$CPP_DIR/ggml-metal/ggml-llama-sim.metallib"
 
   # Remove the symbolic link
   rm ggml-common.h
@@ -400,13 +406,15 @@ if [ "$OS" = "Darwin" ]; then
 fi
 
 # Get version info
-cd llama.cpp
+cd "$LLAMA_DIR"
 BUILD_NUMBER=$(git rev-list --count HEAD)
 BUILD_COMMIT=$(git rev-parse --short=7 HEAD)
 
 # Put to ../version.ts
 # clean up version.ts
-rm -f ../src/version.ts
+rm -f "$SRC_DIR/version.ts"
 
-echo "export const BUILD_NUMBER = '$BUILD_NUMBER';" > ../src/version.ts
-echo "export const BUILD_COMMIT = '$BUILD_COMMIT';" >> ../src/version.ts
+echo "export const BUILD_NUMBER = '$BUILD_NUMBER';" > "$SRC_DIR/version.ts"
+echo "export const BUILD_COMMIT = '$BUILD_COMMIT';" >> "$SRC_DIR/version.ts"
+
+cd "$ROOT_DIR"

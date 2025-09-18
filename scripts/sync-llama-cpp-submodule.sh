@@ -2,7 +2,7 @@
 set -euo pipefail
 
 STAGING_BRANCH="auto/sync-llama.cpp-staging"
-LLAMA_DIR="llama.cpp"
+LLAMA_DIR="third_party/llama.cpp"
 
 echo "🌱 Preparing staging branch: $STAGING_BRANCH"
 git fetch origin main
