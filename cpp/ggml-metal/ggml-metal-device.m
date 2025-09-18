@@ -966,7 +966,6 @@ lm_ggml_metal_buffer_t lm_ggml_metal_buffer_init(lm_ggml_metal_device_t dev, siz
         // dummy, non-NULL value - we'll populate this after creating the Metal buffer below
         res->all_data = (void *) 0x000000400ULL;
         res->is_shared = false;
-        res->owned = false;
     }
     res->all_size = size_aligned;
 
