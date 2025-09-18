@@ -41,7 +41,7 @@ By default, `llama.rn` will use pre-built libraries for Android. If you want to 
 
 You can search HuggingFace for available models (Keyword: [`GGUF`](https://huggingface.co/search/full-text?q=GGUF&type=model)).
 
-For get a GGUF model or quantize manually, see [`Prepare and Quantize`](https://github.com/ggerganov/llama.cpp?tab=readme-ov-file#prepare-and-quantize) section in llama.cpp.
+For get a GGUF model or quantize manually, see [`quantize`](https://github.com/ggml-org/llama.cpp/blob/master/tools/quantize/README.md) documentation in llama.cpp.
 
 ## Usage
 

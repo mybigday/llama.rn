@@ -78,6 +78,6 @@ The following features are planned for future updates:
 
 - [x] **🔧 Add custom model modal** - Interface for loading and managing custom models
 - [x] **📊 Add embedding example** - Demonstrate text embedding and similarity search capabilities
-- [ ] **🛠️ ToolCallsScreen: Support MCP** - Integrate Model Context Protocol via [`mcp-sdk-client-ssejs`](https://github.com/mybigday/mcp-sdk-client-ssejs)
+- [x] **🛠️ ToolCallsScreen: Support MCP** - Integrate Model Context Protocol via [`mcp-sdk-client-ssejs`](https://github.com/mybigday/mcp-sdk-client-ssejs)
 - [ ] **🔍 Add reranker example** - Show document reranking for improved search relevance
 - [ ] **⚙️ Check hardware requirement for model** - Validate device capabilities before model loading
