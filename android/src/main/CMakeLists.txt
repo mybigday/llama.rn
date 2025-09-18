@@ -115,7 +115,7 @@ function(build_library target_name arch cpu_flags)
 
     # OpenCL only for the special target
     if (${target_name} STREQUAL "rnllama_v8_2_dotprod_i8mm_opencl")
-        include_directories(${CMAKE_SOURCE_DIR}/../../../third_party/OpenCL-Headers/CL)
+        include_directories(${CMAKE_SOURCE_DIR}/../../../third_party/OpenCL-Headers)
 
         set(GGML_OPENCL_KERNELS
             add
@@ -198,8 +198,6 @@ function(build_library target_name arch cpu_flags)
 
             list(APPEND GGML_OPENCL_KERNEL_HEADERS ${output_file})
         endforeach()
-
-        include_directories(${CMAKE_SOURCE_DIR}/../../../third_party/OpenCL-Headers)
 
         set(OPENCL_STUB_DIR ${CMAKE_SOURCE_DIR}/../../../bin/${ANDROID_ABI})
         set(OPENCL_STUB     ${OPENCL_STUB_DIR}/libOpenCL.so)

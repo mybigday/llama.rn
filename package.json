@@ -9,7 +9,7 @@
   "source": "src/index",
   "files": [
     "bin",
-    "third_party/OpenCL-Headers",
+    "third_party/OpenCL-Headers/CL",
     "src",
     "lib",
     "jest",
@@ -36,7 +36,6 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
     "build": "bob build",
-    "prepack": "./scripts/build-ios.sh && ./scripts/build-opencl.sh && ./scripts/build-android.sh && bob build",
     "release": "release-it",
     "example": "npm --prefix example",
     "build:ios-frameworks": "./scripts/build-ios.sh",
