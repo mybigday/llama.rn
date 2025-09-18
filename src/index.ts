@@ -236,15 +236,21 @@ export class LlamaContext {
 
   gpu: boolean = false
 
+  gpuDevice: NativeLlamaContext['gpuDevice']
+
   reasonNoGPU: string = ''
 
   model: NativeLlamaContext['model']
 
-  constructor({ contextId, gpu, reasonNoGPU, model }: NativeLlamaContext) {
+  androidLib: NativeLlamaContext['androidLib']
+
+  constructor({ contextId, gpu, gpuDevice, reasonNoGPU, model, androidLib }: NativeLlamaContext) {
     this.id = contextId
     this.gpu = gpu
+    this.gpuDevice = gpuDevice
     this.reasonNoGPU = reasonNoGPU
     this.model = model
+    this.androidLib = androidLib
   }
 
   /**
@@ -790,6 +796,7 @@ export async function initLlama(
 
   const {
     gpu,
+    gpuDevice,
     reasonNoGPU,
     model: modelDetails,
     androidLib,
@@ -809,6 +816,7 @@ export async function initLlama(
   return new LlamaContext({
     contextId,
     gpu,
+    gpuDevice,
     reasonNoGPU,
     model: modelDetails,
     androidLib,

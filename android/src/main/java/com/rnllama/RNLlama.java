@@ -119,8 +119,12 @@ public class RNLlama implements LifecycleEventListener {
           }
           contexts.put(contextId, llamaContext);
           WritableMap result = Arguments.createMap();
-          result.putBoolean("gpu", false);
-          result.putString("reasonNoGPU", "Currently not supported");
+          result.putBoolean("gpu", llamaContext.isGpuEnabled());
+          result.putString("reasonNoGPU", llamaContext.getReasonNoGpu());
+          String gpuDevice = llamaContext.getGpuDevice();
+          if (gpuDevice != null && !gpuDevice.isEmpty()) {
+            result.putString("gpuDevice", gpuDevice);
+          }
           result.putMap("model", llamaContext.getModelDetails());
           result.putString("androidLib", llamaContext.getLoadedLibrary());
           return result;

@@ -56,6 +56,9 @@ public class LlamaContext {
   private WritableMap modelDetails;
   private int jobId = -1;
   private DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
+  private boolean gpuEnabled;
+  private String reasonNoGPU = "";
+  private String gpuDevice = "";
 
   public LlamaContext(int id, ReactApplicationContext reactContext, ReadableMap params) {
     if (LlamaContext.isArchNotSupported()) {
@@ -66,7 +69,7 @@ public class LlamaContext {
     }
     eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
     this.id = id;
-    this.context = initContext(
+    WritableMap initResult = initContext(
       // String model,
       params.getString("model"),
       // String chat_template,
@@ -122,9 +125,35 @@ public class LlamaContext {
       // LoadProgressCallback load_progress_callback
       params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
     );
-    if (this.context == -1) {
+    if (initResult == null || !initResult.hasKey("context")) {
       throw new IllegalStateException("Failed to initialize context");
     }
+    String contextPtr = initResult.getString("context");
+    if (contextPtr == null || contextPtr.isEmpty()) {
+      throw new IllegalStateException("Failed to initialize context");
+    }
+    try {
+      this.context = Long.parseLong(contextPtr);
+    } catch (NumberFormatException numberFormatException) {
+      throw new IllegalStateException("Invalid native context pointer", numberFormatException);
+    }
+    if (this.context == 0) {
+      throw new IllegalStateException("Failed to initialize context");
+    }
+
+    this.gpuEnabled = initResult.hasKey("gpu") && initResult.getBoolean("gpu");
+    this.reasonNoGPU = initResult.hasKey("reasonNoGPU") ? initResult.getString("reasonNoGPU") : "";
+    if (this.reasonNoGPU == null) {
+      this.reasonNoGPU = "";
+    }
+    if (!this.gpuEnabled && params.hasKey("no_gpu_devices") && params.getBoolean("no_gpu_devices")) {
+      this.reasonNoGPU = "GPU devices disabled by user";
+    }
+    this.gpuDevice = initResult.hasKey("gpuDevice") ? initResult.getString("gpuDevice") : "";
+    if (this.gpuDevice == null) {
+      this.gpuDevice = "";
+    }
+
     this.modelDetails = loadModelDetails(this.context);
     this.reactContext = reactContext;
   }
@@ -143,6 +172,18 @@ public class LlamaContext {
 
   public String getLoadedLibrary() {
     return loadedLibrary;
+  }
+
+  public boolean isGpuEnabled() {
+    return gpuEnabled;
+  }
+
+  public String getReasonNoGpu() {
+    return reasonNoGPU;
+  }
+
+  public String getGpuDevice() {
+    return gpuDevice;
   }
 
   public WritableMap getFormattedChatWithJinja(String messages, String chatTemplate, ReadableMap params, boolean addGenerationPrompt, String nowStr, String chatTemplateKwargs) {
@@ -576,7 +617,7 @@ public class LlamaContext {
     String model,
     String[] skip
   );
-  protected static native long initContext(
+  protected static native WritableMap initContext(
     String model_path,
     String chat_template,
     boolean embedding,
