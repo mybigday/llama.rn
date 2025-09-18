@@ -4931,12 +4931,8 @@ struct lm_ggml_tensor * lm_ggml_timestep_embedding(
         struct lm_ggml_tensor  * timesteps,
         int                   dim,
         int                   max_period) {
-    int actual_dim = dim;
-    if (dim % 2 != 0) {
-        actual_dim = dim + 1;
-    }
 
-    struct lm_ggml_tensor * result = lm_ggml_new_tensor_2d(ctx, LM_GGML_TYPE_F32, actual_dim, timesteps->ne[0]);
+    struct lm_ggml_tensor * result = lm_ggml_new_tensor_2d(ctx, LM_GGML_TYPE_F32, dim, timesteps->ne[0]);
 
     lm_ggml_set_op_params_i32(result, 0, dim);
     lm_ggml_set_op_params_i32(result, 1, max_period);

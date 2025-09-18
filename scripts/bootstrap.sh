@@ -13,8 +13,8 @@ cp ./llama.cpp/ggml/include/ggml-opt.h ./cpp/ggml-opt.h
 cp ./llama.cpp/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
 cp ./llama.cpp/ggml/include/gguf.h ./cpp/gguf.h
 
-cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal.m ./cpp/ggml-metal.m
-cp ./llama.cpp/ggml/src/ggml-metal/ggml-metal-impl.h ./cpp/ggml-metal-impl.h
+cp -r ./llama.cpp/ggml/src/ggml-metal ./cpp/
+rm ./cpp/ggml-metal/CMakeLists.txt
 
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu/ggml-cpu.c
 cp ./llama.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu/ggml-cpu.cpp
@@ -165,9 +165,6 @@ files_add_lm_prefix=(
   "./cpp/ggml-cpp.h"
   "./cpp/ggml-opt.h"
   "./cpp/ggml-opt.cpp"
-  "./cpp/ggml-metal.h"
-  "./cpp/ggml-metal.m"
-  "./cpp/ggml-metal-impl.h"
   "./cpp/ggml-quants.h"
   "./cpp/ggml-quants.c"
   "./cpp/ggml-alloc.h"
@@ -176,6 +173,18 @@ files_add_lm_prefix=(
   "./cpp/ggml-backend.cpp"
   "./cpp/ggml-backend-impl.h"
   "./cpp/ggml-backend-reg.cpp"
+  "./cpp/ggml-metal.h"
+  "./cpp/ggml-metal/ggml-metal.cpp"
+  "./cpp/ggml-metal/ggml-metal-impl.h"
+  "./cpp/ggml-metal/ggml-metal-common.h"
+  "./cpp/ggml-metal/ggml-metal-common.cpp"
+  "./cpp/ggml-metal/ggml-metal-context.h"
+  "./cpp/ggml-metal/ggml-metal-context.m"
+  "./cpp/ggml-metal/ggml-metal-device.h"
+  "./cpp/ggml-metal/ggml-metal-device.cpp"
+  "./cpp/ggml-metal/ggml-metal-device.m"
+  "./cpp/ggml-metal/ggml-metal-ops.h"
+  "./cpp/ggml-metal/ggml-metal-ops.cpp"
   "./cpp/ggml-cpu.h"
   "./cpp/ggml-cpu/ggml-cpu-impl.h"
   "./cpp/ggml-cpu/ggml-cpu.c"
@@ -345,13 +354,14 @@ patch -p0 -d ./cpp < ./scripts/patches/common.cpp.patch
 patch -p0 -d ./cpp < ./scripts/patches/chat.h.patch
 patch -p0 -d ./cpp < ./scripts/patches/chat.cpp.patch
 patch -p0 -d ./cpp < ./scripts/patches/log.cpp.patch
-patch -p0 -d ./cpp < ./scripts/patches/ggml-metal.m.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/ggml-quants.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/llama-mmap.cpp.patch
 patch -p0 -d ./cpp/minja < ./scripts/patches/minja.hpp.patch
 patch -p0 -d ./cpp/minja < ./scripts/patches/chat-template.hpp.patch
+patch -p0 -d ./cpp/ggml-metal < ./scripts/patches/ggml-metal-device.m.patch
 rm -rf ./cpp/*.orig
+rm -rf ./cpp/**/*.orig
 
 if [ "$OS" = "Darwin" ]; then
   # Build metallib (~2.6MB)
@@ -363,12 +373,12 @@ if [ "$OS" = "Darwin" ]; then
   xcrun --sdk iphoneos metal -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_USE_BF16=1
   xcrun --sdk iphoneos metallib ggml-metal.air   -o ggml-llama.metallib
   rm ggml-metal.air
-  mv ./ggml-llama.metallib ../../../../cpp/ggml-llama.metallib
+  mv ./ggml-llama.metallib ../../../../cpp/ggml-metal/ggml-llama.metallib
 
   xcrun --sdk iphonesimulator metal -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_USE_BF16=1
   xcrun --sdk iphonesimulator metallib ggml-metal.air   -o ggml-llama.metallib
   rm ggml-metal.air
-  mv ./ggml-llama.metallib ../../../../cpp/ggml-llama-sim.metallib
+  mv ./ggml-llama.metallib ../../../../cpp/ggml-metal/ggml-llama-sim.metallib
 
   # Remove the symbolic link
   rm ggml-common.h
