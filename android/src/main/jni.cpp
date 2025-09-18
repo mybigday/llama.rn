@@ -263,7 +263,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jint n_batch,
     jint n_ubatch,
     jint n_threads,
-    jint n_gpu_layers, // TODO: Support this
+    jint n_gpu_layers,
     jboolean flash_attn,
     jstring flash_attn_type,
     jstring cache_type_k,

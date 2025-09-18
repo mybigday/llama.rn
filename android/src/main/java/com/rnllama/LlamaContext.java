@@ -86,7 +86,7 @@ public class LlamaContext {
       params.hasKey("n_ubatch") ? params.getInt("n_ubatch") : 512,
       // int n_threads,
       params.hasKey("n_threads") ? params.getInt("n_threads") : 0,
-      // int n_gpu_layers, // TODO: Support this
+      // int n_gpu_layers,
       params.hasKey("n_gpu_layers") ? params.getInt("n_gpu_layers") : 0,
       // boolean flash_attn,
       params.hasKey("flash_attn") ? params.getBoolean("flash_attn") : false,
@@ -626,7 +626,7 @@ public class LlamaContext {
     int n_batch,
     int n_ubatch,
     int n_threads,
-    int n_gpu_layers, // TODO: Support this
+    int n_gpu_layers,
     boolean flash_attn,
     String flash_attn_type,
     String cache_type_k,
