@@ -21,14 +21,10 @@ import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { createThemedStyles } from './styles/commonStyles'
 import { Menu } from './components/Menu'
 
-// Example: Catch logs from llama.cpp
+// Catch logs from llama.cpp
 toggleNativeLog(true)
 addNativeLogListener((level, text) => {
-  // eslint-disable-next-line prefer-const
-  let log = (t: string) => t // noop
-  // Uncomment to test:
-  // ;({log} = console)
-  log(['[rnllama]', level ? `[${level}]` : '', text].filter(Boolean).join(' '))
+  console.log(['[rnllama]', level ? `[${level}]` : '', text].filter(Boolean).join(' '))
 })
 
 enableScreens()
