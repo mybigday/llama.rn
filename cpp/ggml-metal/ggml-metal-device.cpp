@@ -72,9 +72,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_base(lm_ggml_metal_l
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -91,9 +89,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_cpy(lm_ggml_metal_li
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -120,9 +116,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_pool_2d(lm_ggml_meta
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -139,9 +133,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_get_rows(lm_ggml_met
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -158,9 +150,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_set_rows(lm_ggml_met
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -177,9 +167,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_repeat(lm_ggml_metal
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -237,9 +225,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_unary(lm_ggml_metal_
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -273,9 +259,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_glu(lm_ggml_metal_li
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -304,9 +288,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_sum_rows(lm_ggml_met
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     lm_ggml_metal_pipeline_set_smem(res, 32*sizeof(float));
 
@@ -335,9 +317,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_soft_max(lm_ggml_met
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     lm_ggml_metal_pipeline_set_smem(res, 32*sizeof(float));
 
@@ -362,9 +342,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_ssm_conv(lm_ggml_met
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -385,9 +363,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_ssm_scan(lm_ggml_met
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     lm_ggml_metal_pipeline_set_smem(res, 32*sizeof(float));
 
@@ -429,9 +405,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_rwkv(lm_ggml_metal_l
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -448,9 +422,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mv_ext(lm_ggml_m
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -467,9 +439,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mm(lm_ggml_metal
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     lm_ggml_metal_pipeline_set_smem(res, 8192);
 
@@ -653,9 +623,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mv(lm_ggml_metal
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     lm_ggml_metal_pipeline_set_nr0 (res, nr0);
     lm_ggml_metal_pipeline_set_nr1 (res, nr1);
@@ -677,9 +645,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mm_id_map0(lm_gg
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     const size_t smem = (size_t) ne02*ne20*sizeof(uint16_t);
 
@@ -700,9 +666,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mm_id(lm_ggml_me
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     lm_ggml_metal_pipeline_set_smem(res, 8192);
 
@@ -868,9 +832,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mv_id(lm_ggml_me
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     lm_ggml_metal_pipeline_set_nr0 (res, nr0);
     lm_ggml_metal_pipeline_set_nr1 (res, nr1);
@@ -896,9 +858,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_argmax(lm_ggml_metal
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     lm_ggml_metal_pipeline_set_smem(res, 32*(sizeof(float) + sizeof(int32_t)));
 
@@ -928,9 +888,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_argsort(lm_ggml_meta
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -1121,9 +1079,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_bin(
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -1151,9 +1107,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_rms_norm(lm_ggml_met
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     lm_ggml_metal_pipeline_set_smem(res, 32*sizeof(float));
 
@@ -1177,9 +1131,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_l2_norm(lm_ggml_meta
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     lm_ggml_metal_pipeline_set_smem(res, 32*sizeof(float));
 
@@ -1202,9 +1154,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_group_norm(lm_ggml_m
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     lm_ggml_metal_pipeline_set_smem(res, 32*sizeof(float));
 
@@ -1228,9 +1178,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_norm(lm_ggml_metal_l
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     lm_ggml_metal_pipeline_set_smem(res, 32*sizeof(float));
 
@@ -1268,9 +1216,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_rope(lm_ggml_metal_l
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -1293,9 +1239,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_im2col(lm_ggml_metal
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -1320,9 +1264,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_conv_transpose_1d(lm
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -1341,9 +1283,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_upscale(lm_ggml_meta
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -1362,9 +1302,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_pad(lm_ggml_metal_li
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -1383,9 +1321,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_pad_reflect_1d(lm_gg
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -1404,9 +1340,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_arange(lm_ggml_metal
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
@@ -1425,9 +1359,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_timestep_embedding(l
         return res;
     }
 
-    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
-    lm_ggml_metal_cv_free(cv);
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
 
     return res;
 }
