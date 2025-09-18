@@ -25,27 +25,27 @@ enum lm_ggml_mem_range_type {
 //   can be added to the set without violating the constraints (i.e. if it can be executed concurrently with the
 //   tasks already in the set)
 //
-struct lm_ggml_mem_ranges;
+typedef struct lm_ggml_mem_ranges * lm_ggml_mem_ranges_t;
 
-struct lm_ggml_mem_ranges * lm_ggml_mem_ranges_init(int debug);
-void lm_ggml_mem_ranges_free(struct lm_ggml_mem_ranges * mrs);
+lm_ggml_mem_ranges_t lm_ggml_mem_ranges_init(int debug);
+void lm_ggml_mem_ranges_free(lm_ggml_mem_ranges_t mrs);
 
 // remove all ranges from the set
-void lm_ggml_mem_ranges_reset(struct lm_ggml_mem_ranges * mrs);
+void lm_ggml_mem_ranges_reset(lm_ggml_mem_ranges_t mrs);
 
 // add src or dst ranges to track
-bool lm_ggml_mem_ranges_add(struct lm_ggml_mem_ranges * mrs, const struct lm_ggml_tensor * tensor);
+bool lm_ggml_mem_ranges_add(lm_ggml_mem_ranges_t mrs, const struct lm_ggml_tensor * tensor);
 
 // return false if:
 // - new src range overlaps with any existing dst range
 // - new dst range overlaps with any existing range (src or dst)
-bool lm_ggml_mem_ranges_check(const struct lm_ggml_mem_ranges * mrs, const struct lm_ggml_tensor * tensor);
+bool lm_ggml_mem_ranges_check(lm_ggml_mem_ranges_t mrs, const struct lm_ggml_tensor * tensor);
 
 // reorder the nodes in the graph to improve concurrency, while respecting fusion
 //
 // note: this implementation is generic and not specific to metal
 //       if it proves to work well, we can start using it for other backends in the future
-void lm_ggml_metal_graph_optimize(struct lm_ggml_cgraph * gf);
+void lm_ggml_graph_optimize(struct lm_ggml_cgraph * gf);
 
 #ifdef __cplusplus
 }

@@ -284,19 +284,19 @@ __host__ __device__ constexpr inline void lm_ggml_unused_vars_impl(Args&&...) no
 //    LM_GGML_TENSOR_LOCALS(size_t,  nb1, src1, nb);
 //
 #define LM_GGML_TENSOR_LOCALS_1(type, prefix, pointer, array) \
-    const type prefix##0 = (pointer)->array[0]; \
+    const type prefix##0 = (pointer) ? (pointer)->array[0] : 0; \
     LM_GGML_UNUSED(prefix##0);
 #define LM_GGML_TENSOR_LOCALS_2(type, prefix, pointer, array) \
     LM_GGML_TENSOR_LOCALS_1    (type, prefix, pointer, array) \
-    const type prefix##1 = (pointer)->array[1]; \
+    const type prefix##1 = (pointer) ? (pointer)->array[1] : 0; \
     LM_GGML_UNUSED(prefix##1);
 #define LM_GGML_TENSOR_LOCALS_3(type, prefix, pointer, array) \
     LM_GGML_TENSOR_LOCALS_2    (type, prefix, pointer, array) \
-    const type prefix##2 = (pointer)->array[2]; \
+    const type prefix##2 = (pointer) ? (pointer)->array[2] : 0; \
     LM_GGML_UNUSED(prefix##2);
 #define LM_GGML_TENSOR_LOCALS(type, prefix, pointer, array) \
     LM_GGML_TENSOR_LOCALS_3  (type, prefix, pointer, array) \
-    const type prefix##3 = (pointer)->array[3]; \
+    const type prefix##3 = (pointer) ? (pointer)->array[3] : 0; \
     LM_GGML_UNUSED(prefix##3);
 
 #define LM_GGML_TENSOR_UNARY_OP_LOCALS \

@@ -58,8 +58,12 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/ggml-cpu/binary-ops.cpp
     ${SOURCE_DIR}/ggml-cpu/vec.cpp
     ${SOURCE_DIR}/ggml-cpu/ops.cpp
-    ${SOURCE_DIR}/ggml-metal.m
-    ${SOURCE_DIR}/ggml-metal-common.cpp
+    ${SOURCE_DIR}/ggml-metal/ggml-metal.m
+    ${SOURCE_DIR}/ggml-metal/ggml-metal-common.cpp
+    ${SOURCE_DIR}/ggml-metal/ggml-metal-device.cpp
+    ${SOURCE_DIR}/ggml-metal/ggml-metal-context.m
+    ${SOURCE_DIR}/ggml-metal/ggml-metal-device.m
+    ${SOURCE_DIR}/ggml-metal/ggml-metal-ops.cpp
     ${SOURCE_DIR}/ggml-opt.cpp
     ${SOURCE_DIR}/ggml-threading.cpp
     ${SOURCE_DIR}/ggml-quants.c
