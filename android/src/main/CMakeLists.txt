@@ -181,7 +181,6 @@ function(build_library target_name arch cpu_flags)
             flash_attn_f32
         )
         set(GGML_OPENCL_KERNEL_DIR ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels)
-        set(GGML_OPENCL_KERNEL_DIR ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels)
         set(GGML_OPENCL_KERNEL_HEADERS "")
 
         foreach(kernel ${GGML_OPENCL_KERNELS})
@@ -216,7 +215,7 @@ function(build_library target_name arch cpu_flags)
 
         target_include_directories(${target_name} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
         target_sources(${target_name} PRIVATE
-            ${RNLLAMA_LIB_DIR}/ggml-opencl.cpp
+            ${RNLLAMA_LIB_DIR}/ggml-opencl/ggml-opencl.cpp
             ${GGML_OPENCL_KERNEL_HEADERS}
         )
         target_compile_options(${target_name} PRIVATE
