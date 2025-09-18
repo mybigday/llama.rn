@@ -360,7 +360,9 @@ patch -p0 -d ./cpp < ./scripts/patches/llama-mmap.cpp.patch
 patch -p0 -d ./cpp/minja < ./scripts/patches/minja.hpp.patch
 patch -p0 -d ./cpp/minja < ./scripts/patches/chat-template.hpp.patch
 patch -p0 -d ./cpp/ggml-metal < ./scripts/patches/ggml-metal-device.m.patch
+patch -p0 -d ./cpp/ggml-metal < ./scripts/patches/ggml-metal-device.cpp.patch
 rm -rf ./cpp/*.orig
+rm -rf ./cpp/**/*.orig
 
 if [ "$OS" = "Darwin" ]; then
   # Build metallib (~2.6MB)
