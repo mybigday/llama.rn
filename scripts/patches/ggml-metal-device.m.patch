@@ -1,5 +1,5 @@
---- ggml-metal-device.m.orig	2025-09-18 14:05:08
-+++ ggml-metal-device.m	2025-09-18 14:04:08
+--- ggml-metal-device.m.orig	2025-09-18 14:50:43
++++ ggml-metal-device.m	2025-09-18 14:50:16
 @@ -171,7 +171,11 @@
          NSBundle * bundle = [NSBundle bundleForClass:[LMGGMLMetalClass class]];
  #endif
@@ -35,3 +35,41 @@
 
              return nil;
          }
+@@ -817,6 +828,7 @@
+
+     // if false, the Metal buffer data is allocated in private GPU memory and is not shared with the host
+     bool is_shared;
++    bool owned;
+
+     // multiple buffers are used only to avoid the maximum buffer size limitation when using mmap
+     int n_buffers;
+@@ -949,10 +961,12 @@
+     if (shared) {
+         res->all_data = lm_ggml_metal_host_malloc(size_aligned);
+         res->is_shared = true;
++        res->owned = true;
+     } else {
+         // dummy, non-NULL value - we'll populate this after creating the Metal buffer below
+         res->all_data = (void *) 0x000000400ULL;
+         res->is_shared = false;
++        res->owned = false;
+     }
+     res->all_size = size_aligned;
+
+@@ -1007,6 +1021,7 @@
+     res->all_size = size;
+
+     res->is_shared = true;
++    res->owned = false;
+
+     res->n_buffers = 0;
+
+@@ -1100,7 +1115,7 @@
+
+     lm_ggml_metal_buffer_rset_free(buf);
+
+-    if (buf->is_shared) {
++    if (buf->is_shared && buf->owned) {
+ #if TARGET_OS_OSX
+         vm_deallocate((vm_map_t)mach_task_self(), (vm_address_t)buf->all_data, buf->all_size);
+ #else

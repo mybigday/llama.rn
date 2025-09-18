@@ -171,11 +171,7 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init(lm_ggml_metal_device_t dev) {
         NSBundle * bundle = [NSBundle bundleForClass:[LMGGMLMetalClass class]];
 #endif
 
-#if TARGET_OS_SIMULATOR
-        NSString * path_lib = [bundle pathForResource:@"ggml-llama-sim" ofType:@"metallib"];
-#else
-        NSString * path_lib = [bundle pathForResource:@"ggml-llama" ofType:@"metallib"];
-#endif
+        NSString * path_lib = [bundle pathForResource:@"default" ofType:@"metallib"];
         if (path_lib == nil) {
             // Try to find the resource in the directory where the current binary located.
             NSString * bin_cur = [[NSProcessInfo processInfo] arguments][0];
@@ -331,19 +327,12 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_compile_pipeline(lm_ggml_metal_li
 
         LM_GGML_LOG_DEBUG("%s: compiling pipeline: base = '%s', name = '%s'\n", __func__, base, name);
 
-        id<MTLFunction> mtl_function;
-        if (!cv) {
-            mtl_function = [lib->obj newFunctionWithName:base_func];
-        } else {
-            mtl_function = [lib->obj newFunctionWithName:base_func constantValues:cv->obj error:&error];
-        }
+        id<MTLFunction> mtl_function = [lib->obj newFunctionWithName:base_func constantValues:(cv ? cv->obj : nil) error:&error];
         if (!mtl_function) {
             lm_ggml_critical_section_end();
 
             LM_GGML_LOG_ERROR("%s: error: failed to compile pipeline: base = '%s', name = '%s'\n", __func__, base, name);
-            if (error) {
-                LM_GGML_LOG_ERROR("%s: error: %s\n", __func__, [[error description] UTF8String]);
-            }
+            LM_GGML_LOG_ERROR("%s: error: %s\n", __func__, [[error description] UTF8String]);
 
             return nil;
         }
