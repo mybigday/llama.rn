@@ -2,6 +2,29 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+def repoRootDir = new File(rootProject.projectDir, "../..").canonicalFile
+def rnllamaBuildFromSource = project.findProperty("rnllamaBuildFromSource")?.toString()?.toBoolean() ?: false
+
+if (rnllamaBuildFromSource) {
+    def openCLScript = new File(repoRootDir, "scripts/build-opencl.sh")
+    def openCLArtifacts = [new File(repoRootDir, "bin/arm64-v8a/libOpenCL.so")]
+
+    tasks.register("prepareOpenCL", Exec) {
+        group = "build"
+        description = "Builds the OpenCL loader when libOpenCL.so is not present."
+        workingDir(repoRootDir)
+        commandLine(openCLScript.absolutePath)
+        onlyIf {
+            openCLArtifacts.any { !it.exists() }
+        }
+    }
+
+    tasks.named("preBuild").configure {
+        dependsOn("prepareOpenCL")
+        delete(repoRootDir.absolutePath + "android/.cxx") // Clear cache of llama.rn
+    }
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.

@@ -23,9 +23,25 @@ if [ ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]; then
   exit 1
 fi
 
-if ! command -v cmake &> /dev/null; then
-  echo "cmake could not be found, please install it"
-  exit 1
+CMAKE_PATH=$(which cmake)
+
+# check cmake
+if ! command -v $CMAKE_PATH &> /dev/null; then
+  if [ -d "$ANDROID_HOME/cmake" ]; then
+    echo "trying to find cmake in $ANDROID_HOME/cmake"
+    VERSION=$(ls $ANDROID_HOME/cmake | grep -E "3\.[0-9]+\.[0-9]+" | sort -V | tail -n 1)
+    if [ -n "$VERSION" ]; then
+      CMAKE_PATH="$ANDROID_HOME/cmake/$VERSION/bin/cmake"
+    else
+      echo "cmake could not be found, please install it"
+      echo "run \$ANDROID_HOME/tools/bin/sdkmanager \"cmake;3.10.2.4988404\""
+      exit 1
+    fi
+  fi
+  if ! command -v $CMAKE_PATH &> /dev/null; then
+    echo "cmake could not be found, please install it"
+    exit 1
+  fi
 fi
 
 n_cpu=1
@@ -47,7 +63,7 @@ build_opencl() {
   rm -rf $BUILD_DIR
   mkdir -p $BUILD_DIR && cd $BUILD_DIR
 
-  cmake ../.. \
+  $CMAKE_PATH ../.. \
     -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE \
     -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
     -DANDROID_ABI=$ABI \
@@ -55,7 +71,7 @@ build_opencl() {
     -DANDROID_STL=c++_shared \
     -DOPENCL_ICD_LOADER_HEADERS_DIR=$OPENCL_HEADERS_DIR
 
-  cmake --build . --config Release -j $n_cpu
+  $CMAKE_PATH --build . --config Release -j $n_cpu
 
   mkdir -p "$ROOT_DIR/bin/$ABI/"
   cp libOpenCL.so "$ROOT_DIR/bin/$ABI/"

@@ -8,15 +8,28 @@ CMAKE_BUILD_TYPE=Release
 if [ ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]; then
   echo "NDK $NDK_VERSION not found, available versions: $(ls $ANDROID_HOME/ndk)"
   echo "Run \$ANDROID_HOME/tools/bin/sdkmanager \"ndk;$NDK_VERSION\""
-  CMAKE_VERSION=3.10.2.4988404
-  echo "and \$ANDROID_HOME/tools/bin/sdkmanager \"cmake;$CMAKE_VERSION\""
   exit 1
 fi
 
+CMAKE_PATH=$(which cmake)
+
 # check cmake
-if ! command -v cmake &> /dev/null; then
-  echo "cmake could not be found, please install it"
-  exit 1
+if ! command -v $CMAKE_PATH &> /dev/null; then
+  if [ -d "$ANDROID_HOME/cmake" ]; then
+    echo "trying to find cmake in $ANDROID_HOME/cmake"
+    VERSION=$(ls $ANDROID_HOME/cmake | grep -E "3\.[0-9]+\.[0-9]+" | sort -V | tail -n 1)
+    if [ -n "$VERSION" ]; then
+      CMAKE_PATH="$ANDROID_HOME/cmake/$VERSION/bin/cmake"
+    else
+      echo "cmake could not be found, please install it"
+      echo "run \$ANDROID_HOME/tools/bin/sdkmanager \"cmake;3.10.2.4988404\""
+      exit 1
+    fi
+  fi
+  if ! command -v $CMAKE_PATH &> /dev/null; then
+    echo "cmake could not be found, please install it"
+    exit 1
+  fi
 fi
 
 n_cpu=1
@@ -31,13 +44,13 @@ t0=$(date +%s)
 cd android/src/main
 
 # Build the Android library (arm64-v8a)
-cmake -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
+$CMAKE_PATH -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
   -DANDROID_ABI=arm64-v8a \
   -DANDROID_PLATFORM=$ANDROID_PLATFORM \
   -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE \
   -B build-arm64
 
-cmake --build build-arm64 --config Release -j $n_cpu
+$CMAKE_PATH --build build-arm64 --config Release -j $n_cpu
 
 mkdir -p jniLibs/arm64-v8a
 
@@ -47,13 +60,13 @@ cp build-arm64/*.so jniLibs/arm64-v8a/
 rm -rf build-arm64
 
 # Build the Android library (x86_64)
-cmake -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
+$CMAKE_PATH -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
   -DANDROID_ABI=x86_64 \
   -DANDROID_PLATFORM=$ANDROID_PLATFORM \
   -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE \
   -B build-x86_64
 
-cmake --build build-x86_64 --config Release -j $n_cpu
+$CMAKE_PATH --build build-x86_64 --config Release -j $n_cpu
 
 mkdir -p jniLibs/x86_64
 
