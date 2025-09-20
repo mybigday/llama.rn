@@ -71,28 +71,28 @@ jobs:
         run: |
           # Get current llama.cpp commit and tag from sync branch
           CURRENT_COMMIT=$(git rev-parse HEAD:llama.cpp)
-          cd llama.cpp
+          cd third_party/llama.cpp
           git fetch --tags
           CURRENT_TAG=$(git describe --tags --exact-match "$CURRENT_COMMIT" 2>/dev/null || git describe --tags --abbrev=0 "$CURRENT_COMMIT" 2>/dev/null || echo "${CURRENT_COMMIT:0:7}")
-          cd ..
+          cd -
 
           # Get previous llama.cpp commit and tag from main branch
           PREVIOUS_COMMIT=$(git rev-parse main:llama.cpp)
-          cd llama.cpp
+          cd third_party/llama.cpp
           PREVIOUS_TAG=$(git describe --tags --exact-match "$PREVIOUS_COMMIT" 2>/dev/null || git describe --tags --abbrev=0 "$PREVIOUS_COMMIT" 2>/dev/null || echo "${PREVIOUS_COMMIT:0:7}")
-          cd ..
+          cd -
 
           # Generate llama.cpp changelog if versions differ
           LLAMA_CHANGELOG=""
           if [[ "$CURRENT_TAG" != "$PREVIOUS_TAG" && "$CURRENT_TAG" != "unknown" && "$PREVIOUS_TAG" != "unknown" ]]; then
             echo "📝 Generating llama.cpp changelog from $PREVIOUS_TAG to $CURRENT_TAG..."
-            cd llama.cpp
+            cd third_party/llama.cpp
             while IFS= read -r line; do
               COMMIT_HASH=$(echo "$line" | cut -d' ' -f1)
               COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
               LLAMA_CHANGELOG+="- [\`${COMMIT_HASH:0:7}\`](https://github.com/ggml-org/llama.cpp/commit/$COMMIT_HASH) $COMMIT_MSG"$'\n'
             done < <(git log "${PREVIOUS_TAG}..${CURRENT_TAG}" --oneline --no-merges | head -50)
-            cd ..
+            cd -
 
             if [[ -z "$LLAMA_CHANGELOG" ]]; then
               LLAMA_CHANGELOG="- No commits found between $PREVIOUS_TAG and $CURRENT_TAG"

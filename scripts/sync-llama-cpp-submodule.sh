@@ -27,7 +27,7 @@ fi
 
 cd "$LLAMA_DIR"
 CURRENT_TAG=$(git describe --tags --exact-match 2>/dev/null || echo "none")
-cd ..
+cd -
 
 echo "📌 Latest tag: $LATEST_TAG"
 echo "📦 Current tag in llama.cpp: $CURRENT_TAG"
@@ -53,7 +53,7 @@ echo "📥 Updating llama.cpp to $LATEST_TAG..."
 cd "$LLAMA_DIR"
 git fetch --tags
 git checkout "refs/tags/$LATEST_TAG"
-cd ..
+cd -
 
 git add "$LLAMA_DIR"
 git commit -m "chore: update llama.cpp to $LATEST_TAG (submodule ref)"
