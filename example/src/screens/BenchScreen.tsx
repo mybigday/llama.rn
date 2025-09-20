@@ -388,6 +388,7 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
           onClose={() => setShowCustomModelModal(false)}
           onModelAdded={handleCustomModelAdded}
           title="Add Custom Benchmark Model"
+          enableFileSelection
         />
 
         <MaskedProgress

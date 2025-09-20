@@ -542,6 +542,7 @@ export default function ModelInfoScreen() {
         onClose={() => setShowCustomModelModal(false)}
         onModelAdded={handleCustomModelAdded}
         title="Add Custom Model"
+        enableFileSelection
       />
 
       <MaskedProgress

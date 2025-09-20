@@ -634,6 +634,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
             text: content,
             metadata: {
               ...msg.metadata,
+              timings: completionResult.timings,
               completionResult,
             },
           }
@@ -671,6 +672,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
               metadata: {
                 ...msg.metadata,
                 tool_calls: toolCalls,
+                timings: completionResult.timings,
                 completionResult,
               },
             }

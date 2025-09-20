@@ -32,7 +32,11 @@ import { MessagesModal } from '../components/MessagesModal'
 import { MaskedProgress } from '../components/MaskedProgress'
 import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
-import { createThemedStyles, chatDarkTheme, chatLightTheme } from '../styles/commonStyles'
+import {
+  createThemedStyles,
+  chatDarkTheme,
+  chatLightTheme,
+} from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type {
@@ -138,7 +142,6 @@ const createWelcomeMessage = (
 
   return `Hello! I'm a multimodal AI assistant. You can share ${capabilityText} with me and I'll analyze them, answer questions about what I ${senseText}, or engage in conversations about ${contentType} content. How can I help you today?`
 }
-
 
 export default function MultimodalScreen({ navigation }: { navigation: any }) {
   const { isDark, theme } = useTheme()
@@ -747,7 +750,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             text: content,
             metadata: {
               ...msg.metadata,
-              timings: 'Response completed',
+              timings: completionResult.timings,
               completionResult,
             },
           }

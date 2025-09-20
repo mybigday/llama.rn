@@ -5,13 +5,7 @@ import React, {
   useRef,
   useCallback,
 } from 'react'
-import {
-  View,
-  Text,
-  ScrollView,
-  Alert,
-  TouchableOpacity,
-} from 'react-native'
+import { View, Text, ScrollView, Alert, TouchableOpacity } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Chat } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
@@ -27,7 +21,11 @@ import { Menu } from '../components/Menu'
 import { MessagesModal } from '../components/MessagesModal'
 import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
-import { createThemedStyles, chatDarkTheme, chatLightTheme } from '../styles/commonStyles'
+import {
+  createThemedStyles,
+  chatDarkTheme,
+  chatLightTheme,
+} from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
 import type {
@@ -368,7 +366,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
             text: content,
             metadata: {
               ...msg.metadata,
-              timings: 'Response completed',
+              timings: completionResult.timings,
               completionResult,
             },
           }
