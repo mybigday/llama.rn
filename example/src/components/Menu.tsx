@@ -1,5 +1,5 @@
 import React from 'react'
-import { Platform } from 'react-native'
+import { Platform, StyleSheet } from 'react-native'
 import { MenuView } from '@react-native-menu/menu'
 import Icon from '@react-native-vector-icons/material-design-icons'
 import { useTheme } from '../contexts/ThemeContext'
@@ -15,6 +15,14 @@ interface MenuProps {
   actions: MenuAction[]
   icon?: 'dots-vertical' | 'theme-light-dark'
 }
+
+const styles = StyleSheet.create({
+  button: {
+    width: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+})
 
 export function Menu({ icon = 'dots-vertical', actions }: MenuProps) {
   const { theme } = useTheme()
@@ -37,6 +45,7 @@ export function Menu({ icon = 'dots-vertical', actions }: MenuProps) {
     <MenuView
       onPressAction={handleMenuAction}
       actions={menuActions}
+      style={styles.button}
     >
       <Icon name={icon} size={24} color={theme.colors.primary} />
     </MenuView>
