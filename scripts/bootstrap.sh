@@ -22,6 +22,7 @@ cp ./$LLAMA_DIR/ggml/include/gguf.h ./cpp/gguf.h
 
 cp -r ./$LLAMA_DIR/ggml/src/ggml-metal ./cpp/
 rm ./cpp/ggml-metal/CMakeLists.txt
+rm ./cpp/ggml-metal/ggml-metal.metal
 
 cp -r ./$LLAMA_DIR/ggml/src/ggml-opencl ./cpp/
 rm ./cpp/ggml-opencl/CMakeLists.txt
@@ -383,12 +384,12 @@ if [ "$OS" = "Darwin" ]; then
   # Create a symbolic link to ggml-common.h in the current directory
   ln -sf ../ggml-common.h .
 
-  xcrun --sdk iphoneos metal -O3 -std=metal3.2 -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_USE_BF16=1
+  xcrun --sdk iphoneos metal -O3 -std=metal3.2 -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_HAS_BF16=1
   xcrun --sdk iphoneos metallib ggml-metal.air -o ggml-llama.metallib
   rm ggml-metal.air
   mv ./ggml-llama.metallib "$CPP_DIR/ggml-metal/ggml-llama.metallib"
 
-  xcrun --sdk iphonesimulator metal -O3 -std=metal3.2 -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_USE_BF16=1
+  xcrun --sdk iphonesimulator metal -O3 -std=metal3.2 -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_HAS_BF16=1
   xcrun --sdk iphonesimulator metallib ggml-metal.air -o ggml-llama.metallib
   rm ggml-metal.air
   mv ./ggml-llama.metallib "$CPP_DIR/ggml-metal/ggml-llama-sim.metallib"

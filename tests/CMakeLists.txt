@@ -17,7 +17,6 @@ if(APPLE)
         -DLM_GGML_USE_ACCELERATE
         # Metal disabled for tests to avoid shader file dependencies
         # -DLM_GGML_USE_METAL
-        # -DLM_GGML_METAL_USE_BF16
     )
 elseif(UNIX AND NOT APPLE)
     # Linux-specific defines for CPU affinity and scheduling
