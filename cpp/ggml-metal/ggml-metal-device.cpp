@@ -34,6 +34,10 @@ lm_ggml_metal_pipelines_t lm_ggml_metal_pipelines_init(void) {
 }
 
 void lm_ggml_metal_pipelines_free(lm_ggml_metal_pipelines_t ppls) {
+    if (!ppls) {
+        return;
+    }
+
     for (auto it = ppls->data.begin(); it != ppls->data.end(); ++it) {
         lm_ggml_metal_pipeline_free(it->second);
     }
@@ -410,19 +414,26 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_rwkv(lm_ggml_metal_l
     return res;
 }
 
-lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mv_ext(lm_ggml_metal_library_t lib, lm_ggml_type tsrc0, lm_ggml_type tsrc1, int r1ptg) {
+lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mv_ext(lm_ggml_metal_library_t lib, lm_ggml_type tsrc0, lm_ggml_type tsrc1, int nsg, int nxpsg, int r1ptg) {
     char base[256];
     char name[256];
 
     snprintf(base, 256, "kernel_mul_mv_ext_%s_%s_r1_%d", lm_ggml_type_name(tsrc0), lm_ggml_type_name(tsrc1), r1ptg);
-    snprintf(name, 256, "%s", base);
+    snprintf(name, 256, "%s_nsg=%d_nxpsg=%d", base, nsg, nxpsg);
 
     lm_ggml_metal_pipeline_t res = lm_ggml_metal_library_get_pipeline(lib, name);
     if (res) {
         return res;
     }
 
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
+
+    lm_ggml_metal_cv_set_int16(cv, nsg,   FC_MUL_MV + 0);
+    lm_ggml_metal_cv_set_int16(cv, nxpsg, FC_MUL_MV + 1);
+
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
+
+    lm_ggml_metal_cv_free(cv);
 
     return res;
 }
@@ -467,37 +478,25 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mv(lm_ggml_metal
     // use custom matrix x vector kernel
     switch (tsrc0) {
         case LM_GGML_TYPE_F32:
-            {
-                LM_GGML_ASSERT(op->src[1]->type == LM_GGML_TYPE_F32);
-
-                nsg = 1;
-                nr0 = 1;
-                nr1 = 4;
-                if (ne00 == 4) {
-                    nr0 = 32;
-                    suffix = "_c4";
-                }
-            } break;
         case LM_GGML_TYPE_F16:
         case LM_GGML_TYPE_BF16:
             {
-                nsg = 1;
-                nr0 = 1;
-                if (op->src[1]->type == LM_GGML_TYPE_F32) {
-                    if (ne00 == 4) {
-                        nr0 = 32;
-                        nr1 = 4;
-                        suffix = "_c4";
-                    } else if (ne11 * ne12 < 4) {
-                        suffix = "_1row";
-                    } else if (ne00 >= 128 && ne01 >= 8 && ne00%4 == 0) {
-                        suffix = "_l4";
-                        nr1 = ne11;
-                    } else {
-                        nr1 = 4;
-                    }
-                } else {
+                if (ne00 == 4) {
+                    nsg = 1;
+                    nr0 = 32;
                     nr1 = 4;
+                    suffix = "_c4";
+                } else if (ne00 % 4 == 0) {
+                    nsg = N_SG_F;
+                    nr0 = N_R0_F;
+                    nr1 = 1;
+                    smem = 32*sizeof(float)*N_R0_F;
+                    suffix = "_4";
+                } else {
+                    nsg = N_SG_F;
+                    nr0 = N_R0_F;
+                    nr1 = 1;
+                    smem = 32*sizeof(float)*N_R0_F;
                 }
             } break;
         case LM_GGML_TYPE_Q4_0:
@@ -616,14 +615,20 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mv(lm_ggml_metal
     };
 
     snprintf(base, 256, "kernel_mul_mv_%s_%s%s", lm_ggml_type_name(tsrc0), lm_ggml_type_name(tsrc1), suffix);
-    snprintf(name, 256, "%s", base);
+    snprintf(name, 256, "%s_nsg=%d", base, nsg);
 
     lm_ggml_metal_pipeline_t res = lm_ggml_metal_library_get_pipeline(lib, name);
     if (res) {
         return res;
     }
 
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
+
+    lm_ggml_metal_cv_set_int16(cv, nsg, FC_MUL_MV + 0);
+
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
+
+    lm_ggml_metal_cv_free(cv);
 
     lm_ggml_metal_pipeline_set_nr0 (res, nr0);
     lm_ggml_metal_pipeline_set_nr1 (res, nr1);
@@ -689,25 +694,26 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mv_id(lm_ggml_me
     const lm_ggml_type tsrc0 = op->src[0]->type;
     const lm_ggml_type tsrc1 = op->src[1]->type;
 
+    const char * suffix = "";
+
         // use custom matrix x vector kernel
     switch (tsrc0) {
         case LM_GGML_TYPE_F32:
-            {
-                LM_GGML_ASSERT(op->src[1]->type == LM_GGML_TYPE_F32);
-                nsg = 1;
-                nr0 = 1;
-            } break;
         case LM_GGML_TYPE_F16:
-            {
-                LM_GGML_ASSERT(op->src[1]->type == LM_GGML_TYPE_F32);
-                nsg = 1;
-                nr0 = 1;
-            } break;
         case LM_GGML_TYPE_BF16:
             {
-                LM_GGML_ASSERT(op->src[1]->type == LM_GGML_TYPE_F32);
-                nsg = 1;
-                nr0 = 1;
+                if (ne00 % 4 == 0) {
+                    nsg = N_SG_F;
+                    nr0 = N_R0_F;
+                    nr1 = 1;
+                    smem = 32*sizeof(float)*N_R0_F;
+                    suffix = "_4";
+                } else {
+                    nsg = N_SG_F;
+                    nr0 = N_R0_F;
+                    nr1 = 1;
+                    smem = 32*sizeof(float)*N_R0_F;
+                }
             } break;
         case LM_GGML_TYPE_Q4_0:
             {
@@ -824,15 +830,21 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mv_id(lm_ggml_me
             }
     };
 
-    snprintf(base, 256, "kernel_mul_mv_id_%s_%s", lm_ggml_type_name(tsrc0), lm_ggml_type_name(tsrc1));
-    snprintf(name, 256, "%s", base);
+    snprintf(base, 256, "kernel_mul_mv_id_%s_%s%s", lm_ggml_type_name(tsrc0), lm_ggml_type_name(tsrc1), suffix);
+    snprintf(name, 256, "%s_nsg=%d", base, nsg);
 
     lm_ggml_metal_pipeline_t res = lm_ggml_metal_library_get_pipeline(lib, name);
     if (res) {
         return res;
     }
 
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
+
+    lm_ggml_metal_cv_set_int16(cv, nsg, FC_MUL_MV + 0);
+
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
+
+    lm_ggml_metal_cv_free(cv);
 
     lm_ggml_metal_pipeline_set_nr0 (res, nr0);
     lm_ggml_metal_pipeline_set_nr1 (res, nr1);
@@ -918,11 +930,8 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_flash_attn_ext(
             dk,
             dv);
 
-    snprintf(name, 256, "kernel_%s_%s_dk%d_dv%d_mask=%d_sinks=%d_bias=%d_scap=%d_ns10=%d_ns20=%d_nsg=%d",
-            "flash_attn_ext",
-            lm_ggml_type_name(op->src[1]->type),
-            dk,
-            dv,
+    snprintf(name, 256, "%s_mask=%d_sinks=%d_bias=%d_scap=%d_ns10=%d_ns20=%d_nsg=%d",
+            base,
             has_mask,
             has_sinks,
             has_bias,
@@ -980,11 +989,8 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_flash_attn_ext_vec(
             dk,
             dv);
 
-    snprintf(name, 256, "kernel_%s_%s_dk%d_dv%d_mask=%d_sink=%d_bias=%d_softcap=%d_ns10=%d_ns20=%d_nsg=%d_nwg=%d",
-            "flash_attn_ext_vec",
-            lm_ggml_type_name(op->src[1]->type),
-            dk,
-            dv,
+    snprintf(name, 256, "%s_mask=%d_sink=%d_bias=%d_softcap=%d_ns10=%d_ns20=%d_nsg=%d_nwg=%d",
+            base,
             has_mask,
             has_sinks,
             has_bias,
@@ -1028,7 +1034,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_flash_attn_ext_vec_r
     char name[256];
 
     snprintf(base, 256, "kernel_flash_attn_ext_vec_reduce");
-    snprintf(name, 256, "kernel_flash_attn_ext_vec_reduce_dv=%d_nwg=%d", dv, nwg);
+    snprintf(name, 256, "%s_dv=%d_nwg=%d", base, dv, nwg);
 
     lm_ggml_metal_pipeline_t res = lm_ggml_metal_library_get_pipeline(lib, name);
     if (res) {

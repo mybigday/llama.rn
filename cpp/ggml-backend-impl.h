@@ -116,7 +116,7 @@ extern "C" {
         void (*event_wait)  (lm_ggml_backend_t backend, lm_ggml_backend_event_t event);
 
         // (optional) sort/optimize the nodes in the graph
-        void                      (*optimize_graph)    (lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph);
+        void                      (*graph_optimize)    (lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph);
     };
 
     struct lm_ggml_backend {
