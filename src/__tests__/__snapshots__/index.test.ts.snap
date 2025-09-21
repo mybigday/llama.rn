@@ -97,13 +97,24 @@ Array [
 
 exports[`Mock: bench 1`] = `
 Object {
-  "modelDesc": "test 3B Q4_0",
-  "modelNParams": 2779683840,
-  "modelSize": 1600655360,
-  "ppAvg": 16.211304,
-  "ppStd": 0.021748,
-  "tgAvg": 38.570646,
-  "tgStd": 1.1958,
+  "flashAttn": 0,
+  "isPpShared": 0,
+  "nBatch": 2048,
+  "nGpuLayers": 99,
+  "nKv": 256,
+  "nKvMax": 2048,
+  "nThreads": 8,
+  "nThreadsBatch": 8,
+  "nUBatch": 512,
+  "pl": 1,
+  "pp": 128,
+  "speed": 68.495094,
+  "speedPp": 547.453064,
+  "speedTg": 36.532974,
+  "t": 3.737494,
+  "tPp": 0.23381,
+  "tTg": 3.503684,
+  "tg": 128,
 }
 `;
 

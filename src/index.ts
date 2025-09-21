@@ -212,13 +212,24 @@ export type CompletionParams = Omit<
   CompletionBaseParams
 
 export type BenchResult = {
-  modelDesc: string
-  modelSize: number
-  modelNParams: number
-  ppAvg: number
-  ppStd: number
-  tgAvg: number
-  tgStd: number
+  nKvMax: number
+  nBatch: number
+  nUBatch: number
+  flashAttn: number
+  isPpShared: number
+  nGpuLayers: number
+  nThreads: number
+  nThreadsBatch: number
+  pp: number
+  tg: number
+  pl: number
+  nKv: number
+  tPp: number
+  speedPp: number
+  tTg: number
+  speedTg: number
+  t: number
+  speed: number
 }
 
 const getJsonSchema = (responseFormat?: CompletionResponseFormat) => {
@@ -544,16 +555,26 @@ export class LlamaContext {
     nr: number,
   ): Promise<BenchResult> {
     const result = await RNLlama.bench(this.id, pp, tg, pl, nr)
-    const [modelDesc, modelSize, modelNParams, ppAvg, ppStd, tgAvg, tgStd] =
-      JSON.parse(result)
+    const parsed = JSON.parse(result)
     return {
-      modelDesc,
-      modelSize,
-      modelNParams,
-      ppAvg,
-      ppStd,
-      tgAvg,
-      tgStd,
+      nKvMax: parsed.n_kv_max,
+      nBatch: parsed.n_batch,
+      nUBatch: parsed.n_ubatch,
+      flashAttn: parsed.flash_attn,
+      isPpShared: parsed.is_pp_shared,
+      nGpuLayers: parsed.n_gpu_layers,
+      nThreads: parsed.n_threads,
+      nThreadsBatch: parsed.n_threads_batch,
+      pp: parsed.pp,
+      tg: parsed.tg,
+      pl: parsed.pl,
+      nKv: parsed.n_kv,
+      tPp: parsed.t_pp,
+      speedPp: parsed.speed_pp,
+      tTg: parsed.t_tg,
+      speedTg: parsed.speed_tg,
+      t: parsed.t,
+      speed: parsed.speed,
     }
   }
 

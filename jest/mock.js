@@ -209,7 +209,7 @@ if (!NativeModules.RNLlama) {
 
     bench: jest.fn(
       async () =>
-        '["test 3B Q4_0",1600655360,2779683840,16.211304,0.021748,38.570646,1.195800]',
+        '{"n_kv_max":2048,"n_batch":2048,"n_ubatch":512,"flash_attn":0,"is_pp_shared":0,"n_gpu_layers":99,"n_threads":8,"n_threads_batch":8,"pp":128,"tg":128,"pl":1,"n_kv":256,"t_pp":0.23381,"speed_pp":547.453064,"t_tg":3.503684,"speed_tg":36.532974,"t":3.737494,"speed":68.495094}',
     ),
 
     releaseContext: jest.fn(() => Promise.resolve()),

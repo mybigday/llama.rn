@@ -288,24 +288,43 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
 
       // Main benchmark
       addLog('Benchmarking the model...')
-      const { modelDesc, modelSize, modelNParams, ppAvg, ppStd, tgAvg, tgStd } =
-        await context.bench(512, 128, 1, 3)
+      const benchResult = await context.bench(512, 128, 1, 3)
 
-      const size = `${(modelSize / 1024.0 / 1024.0 / 1024.0).toFixed(2)} GiB`
-      const nParams = `${(modelNParams / 1e9).toFixed(2)}B`
-      const md =
-        '| model | size | params | test | t/s |\n' +
-        '| --- | --- | --- | --- | --- |\n' +
-        `| ${modelDesc} | ${size} | ${nParams} | pp 512 | ${ppAvg.toFixed(
-          2,
-        )} ± ${ppStd.toFixed(2)} |\n` +
-        `| ${modelDesc} | ${size} | ${nParams} | tg 128 | ${tgAvg.toFixed(
-          2,
-        )} ± ${tgStd.toFixed(2)} |`
+      const configSummary =
+        `n_kv_max=${benchResult.nKvMax}, n_batch=${benchResult.nBatch}, ` +
+        `n_ubatch=${benchResult.nUBatch}, flash_attn=${benchResult.flashAttn}, ` +
+        `is_pp_shared=${benchResult.isPpShared}, n_gpu_layers=${benchResult.nGpuLayers}, ` +
+        `n_threads=${benchResult.nThreads}, n_threads_batch=${benchResult.nThreadsBatch}`
+
+      const tableHeader =
+        '|    PP |    TG |  PL |  N_KV |  T_PP s | S_PP t/s |  T_TG s | S_TG t/s |    T s |   S t/s |'
+      const tableDivider =
+        '| ----- | ----- | --- | ----- | ------- | -------- | ------- | -------- | ------ | ------- |'
+      const tableRow =
+        `| ${String(benchResult.pp).padStart(5)} | ${String(benchResult.tg).padStart(
+          5,
+        )} | ${String(benchResult.pl).padStart(3)} | ${String(
+          benchResult.nKv,
+        ).padStart(5)} | ${benchResult.tPp.toFixed(3).padStart(7)} | ${benchResult.speedPp
+          .toFixed(2)
+          .padStart(8)} | ${benchResult.tTg
+          .toFixed(3)
+          .padStart(7)} | ${benchResult.speedTg
+          .toFixed(2)
+          .padStart(8)} | ${benchResult.t
+          .toFixed(3)
+          .padStart(6)} | ${benchResult.speed
+          .toFixed(2)
+          .padStart(7)} |`
 
       addLog('')
-      addLog('📊 Benchmark Results:')
-      addLog(md)
+      addLog('📊 Benchmark Configuration:')
+      addLog(configSummary)
+      addLog('')
+      addLog('📈 Benchmark Results:')
+      addLog(tableHeader)
+      addLog(tableDivider)
+      addLog(tableRow)
       addLog('')
       addLog('✅ Benchmark completed successfully!')
     } catch (error: any) {

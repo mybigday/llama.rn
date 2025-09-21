@@ -3,6 +3,9 @@
 #include "rn-tts.h"
 #include "rn-mtmd.hpp"
 
+#include <algorithm>
+#include <cstdlib>
+
 // Include multimodal support
 #include "tools/mtmd/mtmd.h"
 #include "tools/mtmd/mtmd-helper.h"
@@ -606,112 +609,219 @@ std::vector<float> llama_rn_context_completion::rerank(const std::string &query,
     return scores;
 }
 
-std::string llama_rn_context_completion::bench(int pp, int tg, int pl, int nr)
-{
+std::string llama_rn_context_completion::bench(int pp, int tg, int pl, int nr) {
     if (is_predicting) {
         LOG_ERROR("cannot benchmark while predicting", "");
-        return std::string("[]");
+        return std::string("{}");
+    }
+
+    if (pp <= 0 || tg <= 0 || pl <= 0 || nr <= 0) {
+        LOG_ERROR("invalid benchmark parameters pp=%d tg=%d pl=%d nr=%d", pp, tg, pl, nr);
+        return std::string("{}");
     }
 
     is_predicting = true;
 
-    double pp_avg = 0;
-    double tg_avg = 0;
+    auto * ctx = parent_ctx->ctx;
+    auto * model = parent_ctx->model;
+    auto * mem = llama_get_memory(ctx);
 
-    double pp_std = 0;
-    double tg_std = 0;
+    const bool is_pp_shared = parent_ctx->params.is_pp_shared;
+    const bool kv_unified   = parent_ctx->params.kv_unified;
+    const int32_t n_batch   = parent_ctx->params.n_batch;
+    const int32_t n_ubatch  = parent_ctx->params.n_ubatch;
+    const int32_t flash_attn = static_cast<int32_t>(parent_ctx->params.flash_attn_type);
+    const int32_t n_gpu_layers = parent_ctx->params.n_gpu_layers;
+    const int32_t n_threads = llama_n_threads(ctx);
+    const int32_t n_threads_batch = llama_n_threads_batch(ctx);
+    const int32_t n_kv_max = llama_n_ctx(ctx);
 
-    // TODO: move batch into llama_rn_context (related https://github.com/mybigday/llama.rn/issues/30)
-    llama_batch batch = llama_batch_init(
-        std::min(pp, parent_ctx->params.n_ubatch), // max n_tokens is limited by n_ubatch
-        0,                         // No embeddings
-        1                          // Single sequence
-    );
+    const int32_t n_ctx_req = is_pp_shared
+        ? (kv_unified ? pp : pl * pp) + pl * tg
+        : pl * (pp + tg);
 
-    for (int i = 0; i < nr; i++)
-    {
+    if (n_ctx_req > n_kv_max) {
+        LOG_ERROR("benchmark requires n_ctx=%d but only %d available", n_ctx_req, n_kv_max);
+        endCompletion();
+        return std::string("{}");
+    }
+
+    const llama_vocab * vocab = llama_model_get_vocab(model);
+    const int32_t n_vocab = vocab ? llama_vocab_n_tokens(vocab) : 0;
+
+    auto get_token_rand = [n_vocab]() -> llama_token {
+        if (n_vocab <= 0) {
+            return 0;
+        }
+        return std::rand() % n_vocab;
+    };
+
+    llama_batch batch = llama_batch_init(n_kv_max, 0, 1);
+
+    auto decode_helper = [ctx](llama_batch & batch_ref, int32_t n_batch_ref, bool synchronize) -> bool {
+        const int32_t total = batch_ref.n_tokens;
+        for (int32_t i = 0; i < total; i += n_batch_ref) {
+            const int32_t n_tokens_step = std::min(n_batch_ref, total - i);
+
+            llama_batch batch_view = {
+                n_tokens_step,
+                batch_ref.token    + i,
+                nullptr,
+                batch_ref.pos      + i,
+                batch_ref.n_seq_id + i,
+                batch_ref.seq_id   + i,
+                batch_ref.logits   + i,
+            };
+
+            const int ret = llama_decode(ctx, batch_view);
+            if (ret != 0) {
+                LOG_ERROR("llama_decode() failed during benchmark, n_batch=%d ret=%d", n_batch_ref, ret);
+                return false;
+            }
+
+            if (synchronize) {
+                llama_synchronize(ctx);
+            }
+        }
+
+        return true;
+    };
+
+    // warm up like the CLI benchmark
+    llama_batch_clear(&batch);
+    const int warmup_tokens = std::min(16, n_kv_max);
+    for (int i = 0; i < warmup_tokens; ++i) {
+        llama_batch_add(&batch, get_token_rand(), i, {0}, i == warmup_tokens - 1);
+    }
+    if (!decode_helper(batch, n_batch, true)) {
+        llama_batch_free(batch);
+        endCompletion();
+        return std::string("{}");
+    }
+
+    double acc_t_pp = 0.0;
+    double acc_t_tg = 0.0;
+    double acc_speed_pp = 0.0;
+    double acc_speed_tg = 0.0;
+    double acc_t_total = 0.0;
+    double acc_speed_total = 0.0;
+
+    int runs_completed = 0;
+
+    for (int run = 0; run < nr && !is_interrupted; ++run) {
+        bool run_failed = false;
+
         llama_batch_clear(&batch);
 
-        const int n_tokens = pp;
-
-        for (int i = 0; i < n_tokens; i++)
-        {
-            llama_batch_add(&batch, 0, i, {0}, false);
+        const int prompt_sequences = is_pp_shared ? 1 : pl;
+        for (int seq = 0; seq < prompt_sequences; ++seq) {
+            for (int i = 0; i < pp; ++i) {
+                llama_batch_add(&batch, get_token_rand(), i, {static_cast<llama_seq_id>(seq)}, i == pp - 1);
+            }
         }
-        batch.logits[batch.n_tokens - 1] = 1; // true
 
-        llama_memory_clear(llama_get_memory(parent_ctx->ctx), true);
+        llama_memory_clear(mem, false);
 
-        const int64_t t_pp_start = llama_time_us();
-        if (llama_decode(parent_ctx->ctx, batch) != 0)
-        {
-            LOG_ERROR("llama_decode() failed during prompt", "");
+        const auto t_pp_start = lm_ggml_time_us();
+        if (!decode_helper(batch, n_batch, false)) {
+            run_failed = true;
+            break;
         }
-        const int64_t t_pp_end = llama_time_us();
 
-        llama_memory_clear(llama_get_memory(parent_ctx->ctx), true);
+        llama_synchronize(ctx);
+        const auto t_pp_end = lm_ggml_time_us();
 
-        if (is_interrupted) break;
+        if (is_pp_shared && pl > 1) {
+            for (int32_t seq = 1; seq < pl; ++seq) {
+                llama_memory_seq_cp(mem, 0, seq, -1, -1);
+            }
 
-        const int64_t t_tg_start = llama_time_us();
+            if (!kv_unified) {
+                llama_batch_clear(&batch);
+                llama_batch_add(&batch, get_token_rand(), pp, {0}, true);
+                if (!decode_helper(batch, n_batch, true)) {
+                    run_failed = true;
+                    break;
+                }
+                llama_memory_seq_rm(mem, 0, pp, -1);
+            }
+        }
 
-        for (int i = 0; i < tg; i++)
-        {
+        if (run_failed) {
+            break;
+        }
+
+        const auto t_tg_start = lm_ggml_time_us();
+
+        for (int i = 0; i < tg; ++i) {
             llama_batch_clear(&batch);
 
-            for (int j = 0; j < pl; j++)
-            {
-                llama_batch_add(&batch, 0, i, {j}, true);
+            for (int seq = 0; seq < pl; ++seq) {
+                llama_batch_add(&batch, get_token_rand(), pp + i, {static_cast<llama_seq_id>(seq)}, true);
             }
 
-            if (llama_decode(parent_ctx->ctx, batch) != 0)
-            {
-                LOG_ERROR("llama_decode() failed during text generation", "");
+            if (!decode_helper(batch, n_batch, true)) {
+                run_failed = true;
+                break;
             }
-            if (is_interrupted) break;
         }
 
-        const int64_t t_tg_end = llama_time_us();
+        if (run_failed) {
+            break;
+        }
 
-        llama_memory_clear(llama_get_memory(parent_ctx->ctx), true);
+        const auto t_tg_end = lm_ggml_time_us();
 
-        const double t_pp = (t_pp_end - t_pp_start) / 1000000.0;
-        const double t_tg = (t_tg_end - t_tg_start) / 1000000.0;
+        const double t_pp = (t_pp_end - t_pp_start) / 1e6;
+        const double t_tg = (t_tg_end - t_tg_start) / 1e6;
+        const double t_total = t_pp + t_tg;
 
-        const double speed_pp = pp / t_pp;
-        const double speed_tg = (pl * tg) / t_tg;
+        const double prompt_tokens = is_pp_shared ? static_cast<double>(pp) : static_cast<double>(pl * pp);
+        const double generated_tokens = static_cast<double>(pl * tg);
 
-        pp_avg += speed_pp;
-        tg_avg += speed_tg;
+        const double speed_pp = t_pp > 0.0 ? prompt_tokens / t_pp : 0.0;
+        const double speed_tg = t_tg > 0.0 ? generated_tokens / t_tg : 0.0;
+        const double speed_total = t_total > 0.0 ? (prompt_tokens + generated_tokens) / t_total : 0.0;
 
-        pp_std += speed_pp * speed_pp;
-        tg_std += speed_tg * speed_tg;
+        acc_t_pp += t_pp;
+        acc_t_tg += t_tg;
+        acc_speed_pp += speed_pp;
+        acc_speed_tg += speed_tg;
+        acc_t_total += t_total;
+        acc_speed_total += speed_total;
+
+        ++runs_completed;
     }
 
-    pp_avg /= nr;
-    tg_avg /= nr;
+    llama_memory_clear(mem, false);
 
-    if (nr > 1) {
-        pp_std = sqrt(pp_std / (nr - 1) - pp_avg * pp_avg * nr / (nr - 1));
-        tg_std = sqrt(tg_std / (nr - 1) - tg_avg * tg_avg * nr / (nr - 1));
-    } else {
-        pp_std = 0;
-        tg_std = 0;
-    }
+    const double divisor = runs_completed > 0 ? static_cast<double>(runs_completed) : 1.0;
 
-    if (is_interrupted) llama_memory_clear(llama_get_memory(parent_ctx->ctx), true);
+    json result_json = {
+        {"n_kv_max", n_kv_max},
+        {"n_batch", n_batch},
+        {"n_ubatch", n_ubatch},
+        {"flash_attn", flash_attn},
+        {"is_pp_shared", is_pp_shared ? 1 : 0},
+        {"n_gpu_layers", n_gpu_layers},
+        {"n_threads", n_threads},
+        {"n_threads_batch", n_threads_batch},
+        {"pp", pp},
+        {"tg", tg},
+        {"pl", pl},
+        {"n_kv", n_ctx_req},
+        {"t_pp", acc_t_pp / divisor},
+        {"speed_pp", acc_speed_pp / divisor},
+        {"t_tg", acc_t_tg / divisor},
+        {"speed_tg", acc_speed_tg / divisor},
+        {"t", acc_t_total / divisor},
+        {"speed", acc_speed_total / divisor}
+    };
+
+    llama_batch_free(batch);
     endCompletion();
 
-    char model_desc[128];
-    llama_model_desc(parent_ctx->model, model_desc, sizeof(model_desc));
-    return std::string("[\"") + model_desc + std::string("\",") +
-        std::to_string(llama_model_size(parent_ctx->model)) + std::string(",") +
-        std::to_string(llama_model_n_params(parent_ctx->model)) + std::string(",") +
-        std::to_string(pp_avg) + std::string(",") +
-        std::to_string(pp_std) + std::string(",") +
-        std::to_string(tg_avg) + std::string(",") +
-        std::to_string(tg_std) +
-        std::string("]");
+    return result_json.dump();
 }
 
 void llama_rn_context_completion::processMedia(
