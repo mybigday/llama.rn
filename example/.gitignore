@@ -1,2 +1,3 @@
 **/assets/*.bin
 ios/.xcode.env.local
+rnllama-release.keystore

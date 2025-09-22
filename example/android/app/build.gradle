@@ -126,6 +126,14 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            storeFile file('rnllama-release.keystore')
+            storePassword System.getenv("RNLLAMA_RELEASE_KEY_STORE_PASSWORD") ?:
+              (project.hasProperty('RNLLAMA_RELEASE_STORE_PASSWORD') ? project.getProperty('RNLLAMA_RELEASE_STORE_PASSWORD') : 'android')
+            keyAlias 'rnllama'
+            keyPassword System.getenv("RNLLAMA_RELEASE_KEY_PASSWORD") ?:
+              (project.hasProperty('RNLLAMA_RELEASE_KEY_PASSWORD') ? project.getProperty('RNLLAMA_RELEASE_KEY_PASSWORD') : 'android')
+        }
     }
     buildTypes {
         debug {
@@ -134,7 +142,7 @@ android {
         release {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
