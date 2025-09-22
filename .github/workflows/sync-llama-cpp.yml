@@ -77,7 +77,7 @@ jobs:
           cd -
 
           # Get previous llama.cpp commit and tag from main branch
-          PREVIOUS_COMMIT=$(git rev-parse main:llama.cpp)
+          PREVIOUS_COMMIT=$(git rev-parse main:third_party/llama.cpp)
           cd third_party/llama.cpp
           PREVIOUS_TAG=$(git describe --tags --exact-match "$PREVIOUS_COMMIT" 2>/dev/null || git describe --tags --abbrev=0 "$PREVIOUS_COMMIT" 2>/dev/null || echo "${PREVIOUS_COMMIT:0:7}")
           cd -
