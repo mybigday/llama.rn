@@ -70,7 +70,7 @@ jobs:
         if: success()
         run: |
           # Get current llama.cpp commit and tag from sync branch
-          CURRENT_COMMIT=$(git rev-parse HEAD:llama.cpp)
+          CURRENT_COMMIT=$(git rev-parse HEAD:third_party/llama.cpp)
           cd third_party/llama.cpp
           git fetch --tags
           CURRENT_TAG=$(git describe --tags --exact-match "$CURRENT_COMMIT" 2>/dev/null || git describe --tags --abbrev=0 "$CURRENT_COMMIT" 2>/dev/null || echo "${CURRENT_COMMIT:0:7}")
