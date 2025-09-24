@@ -33,21 +33,6 @@ jobs:
       - name: Setup Node.js and build prerequisites
         uses: ./.github/actions/setup
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platform-tools
-            platforms;android-34
-            build-tools;34.0.0
-            ndk;26.3.11579264
-
       - name: Prepare release keystore
         env:
           KEYSTORE_B64: ${{ secrets.EXAMPLE_RELEASE_KEY_STORE_B64 }}
