@@ -118,7 +118,7 @@
       "tagName": "v${version}"
     },
     "npm": {
-      "publish": true,
+      "publish": false,
       "skipChecks": true
     },
     "github": {
