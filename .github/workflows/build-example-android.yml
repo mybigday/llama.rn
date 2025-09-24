@@ -1,0 +1,105 @@
+name: Build Example Android App
+
+on:
+  workflow_run:
+    workflows:
+      - Release
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android-example:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release revision
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Checkout current revision
+        if: ${{ github.event_name != 'workflow_run' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js and build prerequisites
+        uses: ./.github/actions/setup
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-34
+            build-tools;34.0.0
+            ndk;26.3.11579264
+
+      - name: Prepare release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.EXAMPLE_RELEASE_KEY_STORE_B64 }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 --decode > example/android/app/rnllama-release.keystore
+
+      - name: Determine build version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            TAG_NAME=$(git describe --tags --exact-match 2>/dev/null || true)
+            if [ -z "$TAG_NAME" ]; then
+              TAG_NAME=$(git tag --points-at HEAD | head -n 1)
+            fi
+            if [ -z "$TAG_NAME" ]; then
+              echo "Unable to determine release tag" >&2
+              exit 1
+            fi
+            VERSION=${TAG_NAME#v}
+          else
+            VERSION=$(node -p "require('./package.json').version")
+            TAG_NAME=""
+          fi
+
+          echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build Android release
+        working-directory: example/android
+        env:
+          RNLLAMA_RELEASE_KEY_STORE_PASSWORD: ${{ secrets.EXAMPLE_RELEASE_STORE_PASSWORD }}
+          RNLLAMA_RELEASE_KEY_PASSWORD: ${{ secrets.EXAMPLE_RELEASE_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
+
+      - name: Prepare artifact
+        id: artifact
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          APK_PATH="example/android/app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$APK_PATH" ]; then
+            echo "APK not found at $APK_PATH" >&2
+            exit 1
+          fi
+          DEST="example-app-release.apk"
+          cp "$APK_PATH" "$DEST"
+          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release asset
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: ${{ steps.artifact.outputs.path }}
+          fail_on_unmatched_files: true
