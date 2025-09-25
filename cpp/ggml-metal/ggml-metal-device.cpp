@@ -142,11 +142,11 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_get_rows(lm_ggml_met
     return res;
 }
 
-lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_set_rows(lm_ggml_metal_library_t lib, lm_ggml_type tdst) {
+lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_set_rows(lm_ggml_metal_library_t lib, lm_ggml_type tidx, lm_ggml_type tdst) {
     char base[256];
     char name[256];
 
-    snprintf(base, 256, "kernel_set_rows_%s", lm_ggml_type_name(tdst));
+    snprintf(base, 256, "kernel_set_rows_%s_%s", lm_ggml_type_name(tdst), lm_ggml_type_name(tidx));
     snprintf(name, 256, "%s", base);
 
     lm_ggml_metal_pipeline_t res = lm_ggml_metal_library_get_pipeline(lib, name);

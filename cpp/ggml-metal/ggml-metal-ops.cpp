@@ -892,7 +892,7 @@ int lm_ggml_metal_op_set_rows(lm_ggml_metal_op_t ctx, int idx) {
     LM_GGML_TENSOR_LOCALS( int32_t, ne,  op,         ne);
     LM_GGML_TENSOR_LOCALS(uint32_t, nb,  op,         nb);
 
-    lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_set_rows(lib, op->type);
+    lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_set_rows(lib, op->src[1]->type, op->type);
 
     const int32_t nk0 = ne0/lm_ggml_blck_size(op->type);
 

@@ -4739,6 +4739,7 @@ void lm_ggml_compute_forward_get_rows(
     //}
 }
 
+template<typename idx_t>
 static void lm_ggml_compute_forward_set_rows_f32(
         const lm_ggml_compute_params * params,
               lm_ggml_tensor * dst) {
@@ -4777,7 +4778,7 @@ static void lm_ggml_compute_forward_set_rows_f32(
                 const int64_t i11 = i02%ne11;
                 const int64_t i10 = i;
 
-                const int64_t i1 = *(int64_t *) ((char *) src1->data + i10*nb10 + i11*nb11 + i12*nb12);
+                const int64_t i1 = *(idx_t *) ((char *) src1->data + i10*nb10 + i11*nb11 + i12*nb12);
 
                 LM_GGML_ASSERT(i1 >= 0 && i1 < ne1);
 
@@ -4794,11 +4795,18 @@ void lm_ggml_compute_forward_set_rows(
         lm_ggml_tensor * dst) {
 
     const lm_ggml_tensor * src0 = dst->src[0];
+    const lm_ggml_tensor * src1 = dst->src[1];
 
     switch (src0->type) {
         case LM_GGML_TYPE_F32:
             {
-                lm_ggml_compute_forward_set_rows_f32(params, dst);
+                if (src1->type == LM_GGML_TYPE_I64) {
+                    lm_ggml_compute_forward_set_rows_f32<int64_t>(params, dst);
+                } else if (src1->type == LM_GGML_TYPE_I32) {
+                    lm_ggml_compute_forward_set_rows_f32<int32_t>(params, dst);
+                } else {
+                    LM_GGML_ABORT("src1->type = %d (%s) not supported", src1->type, lm_ggml_type_name(src1->type));
+                }
             } break;
         default:
             {

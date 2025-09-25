@@ -473,10 +473,10 @@ struct lm_ggml_threadpool {
 struct lm_ggml_compute_state {
 #ifndef LM_GGML_USE_OPENMP
     lm_ggml_thread_t thrd;
-    bool cpumask[LM_GGML_MAX_N_THREADS];
     int  last_graph;
     bool pending;
 #endif
+    bool cpumask[LM_GGML_MAX_N_THREADS];
     struct lm_ggml_threadpool * threadpool;
     int ith;
 };
@@ -3081,7 +3081,14 @@ static struct lm_ggml_threadpool * lm_ggml_threadpool_new_impl(
 
     threadpool->workers = workers;
 
-#ifndef LM_GGML_USE_OPENMP
+#ifdef LM_GGML_USE_OPENMP
+    int32_t cpumask_iter = 0;
+
+    // Compute CPU masks for each thread
+    for (int j = 0; j < tpp->n_threads; j++) {
+        lm_ggml_thread_cpumask_next(tpp->cpumask, workers[j].cpumask, tpp->strict_cpu, &cpumask_iter);
+    }
+#else // LM_GGML_USE_OPENMP
     lm_ggml_mutex_init(&threadpool->mutex);
     lm_ggml_cond_init(&threadpool->cond);
 
@@ -3154,7 +3161,14 @@ enum lm_ggml_status lm_ggml_graph_compute(struct lm_ggml_cgraph * cgraph, struct
                 atomic_store_explicit(&threadpool->n_threads_cur, n_threads, memory_order_relaxed);
             }
 
-            lm_ggml_graph_compute_thread(&threadpool->workers[omp_get_thread_num()]);
+            // Apply thread CPU mask and priority
+            int ith = omp_get_thread_num();
+
+            lm_ggml_thread_apply_priority(threadpool->prio);
+            if (lm_ggml_thread_cpumask_is_valid(threadpool->workers[ith].cpumask)) {
+                lm_ggml_thread_apply_affinity(threadpool->workers[ith].cpumask);
+            }
+            lm_ggml_graph_compute_thread(&threadpool->workers[ith]);
         }
     } else {
         atomic_store_explicit(&threadpool->n_threads_cur, 1, memory_order_relaxed);

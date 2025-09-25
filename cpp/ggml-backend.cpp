@@ -1793,6 +1793,14 @@ lm_ggml_backend_t lm_ggml_backend_sched_get_backend(lm_ggml_backend_sched_t sche
     return sched->backends[i];
 }
 
+lm_ggml_backend_buffer_type_t lm_ggml_backend_sched_get_buffer_type(lm_ggml_backend_sched_t sched, lm_ggml_backend_t backend) {
+    LM_GGML_ASSERT(sched);
+    int backend_index = lm_ggml_backend_sched_backend_id(sched, backend);
+    LM_GGML_ASSERT(backend_index >= 0 && backend_index < sched->n_backends);
+
+    return sched->bufts[backend_index];
+}
+
 size_t lm_ggml_backend_sched_get_buffer_size(lm_ggml_backend_sched_t sched, lm_ggml_backend_t backend) {
     LM_GGML_ASSERT(sched);
     int backend_index = lm_ggml_backend_sched_backend_id(sched, backend);
