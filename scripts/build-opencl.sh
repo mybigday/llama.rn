@@ -12,7 +12,7 @@ OPENCL_HEADERS_DIR="$ROOT_DIR/$OPENCL_HEADERS_SUBMODULE"
 git submodule update --init --recursive "$OPENCL_ICD_SUBMODULE"
 git submodule update --init --recursive "$OPENCL_HEADERS_SUBMODULE"
 
-NDK_VERSION=26.3.11579264
+NDK_VERSION=27.1.12297006
 CMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/$NDK_VERSION/build/cmake/android.toolchain.cmake
 ANDROID_PLATFORM=android-21
 CMAKE_BUILD_TYPE=Release

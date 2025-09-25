@@ -51,6 +51,7 @@ android {
     externalNativeBuild {
       cmake {
         abiFilters (*reactNativeArchitectures())
+        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
       }
     }
   }
