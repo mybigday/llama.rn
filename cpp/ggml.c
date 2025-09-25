@@ -3685,7 +3685,7 @@ struct lm_ggml_tensor * lm_ggml_set_rows(
     LM_GGML_ASSERT(b->ne[3] % c->ne[2] == 0);
     LM_GGML_ASSERT(c->ne[3] == 1);
     LM_GGML_ASSERT(b->type == LM_GGML_TYPE_F32);
-    LM_GGML_ASSERT(c->type == LM_GGML_TYPE_I64);
+    LM_GGML_ASSERT(c->type == LM_GGML_TYPE_I64 || c->type == LM_GGML_TYPE_I32);
 
     LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(a));
     LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(b));

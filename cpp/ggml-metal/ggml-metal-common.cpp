@@ -184,20 +184,6 @@ bool lm_ggml_mem_ranges_check(lm_ggml_mem_ranges_t mrs, const lm_ggml_tensor * t
     return lm_ggml_mem_ranges_check_dst(mrs, tensor);
 }
 
-// TODO: move to ggml.h?
-static bool is_empty(lm_ggml_op op) {
-    switch (op) {
-        case LM_GGML_OP_NONE:
-        case LM_GGML_OP_RESHAPE:
-        case LM_GGML_OP_TRANSPOSE:
-        case LM_GGML_OP_VIEW:
-        case LM_GGML_OP_PERMUTE:
-            return true;
-        default:
-            return false;
-    }
-}
-
 struct node_info {
     lm_ggml_tensor * node;
 
@@ -212,7 +198,7 @@ struct node_info {
     }
 
     bool is_empty() const {
-        return ::is_empty(node->op);
+        return lm_ggml_op_is_empty(node->op);
     }
 
     void add_fused(lm_ggml_tensor * t) {
@@ -289,7 +275,7 @@ static std::vector<int> lm_ggml_metal_graph_optimize_reorder(const std::vector<n
             case LM_GGML_OP_GET_ROWS:
                 return true;
             default:
-                return is_empty(op);
+                return lm_ggml_op_is_empty(op);
         }
     };
 

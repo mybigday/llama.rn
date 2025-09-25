@@ -105,7 +105,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_base              (l
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_cpy               (lm_ggml_metal_library_t lib, enum lm_ggml_type tsrc, enum lm_ggml_type tdst);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_pool_2d           (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op, enum lm_ggml_op_pool op_pool);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_get_rows          (lm_ggml_metal_library_t lib, enum lm_ggml_type tsrc);
-lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_set_rows          (lm_ggml_metal_library_t lib, enum lm_ggml_type tdst);
+lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_set_rows          (lm_ggml_metal_library_t lib, enum lm_ggml_type tidx, enum lm_ggml_type tdst);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_repeat            (lm_ggml_metal_library_t lib, enum lm_ggml_type tsrc);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_unary             (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_glu               (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);

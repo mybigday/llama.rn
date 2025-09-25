@@ -73,7 +73,7 @@ static inline int lm_ggml_up(int n, int m) {
     return (n + m - 1) & ~(m - 1);
 }
 
-// TODO: move to ggml.h?
+// TODO: move to ggml.h? (won't be able to inline)
 static bool lm_ggml_are_same_layout(const struct lm_ggml_tensor * a, const struct lm_ggml_tensor * b) {
     if (a->type != b->type) {
         return false;
@@ -87,6 +87,19 @@ static bool lm_ggml_are_same_layout(const struct lm_ggml_tensor * a, const struc
         }
     }
     return true;
+}
+
+static bool lm_ggml_op_is_empty(enum lm_ggml_op op) {
+    switch (op) {
+        case LM_GGML_OP_NONE:
+        case LM_GGML_OP_RESHAPE:
+        case LM_GGML_OP_TRANSPOSE:
+        case LM_GGML_OP_VIEW:
+        case LM_GGML_OP_PERMUTE:
+            return true;
+        default:
+            return false;
+    }
 }
 
 //
@@ -329,6 +342,10 @@ struct lm_ggml_cgraph {
 // if you need the gradients, get them from the original graph
 struct lm_ggml_cgraph lm_ggml_graph_view(struct lm_ggml_cgraph * cgraph, int i0, int i1);
 
+// ggml-alloc.c: true if the operation can reuse memory from its sources
+LM_GGML_API bool lm_ggml_op_can_inplace(enum lm_ggml_op op);
+
+
 // Memory allocation
 
 LM_GGML_API void * lm_ggml_aligned_malloc(size_t size);
@@ -570,27 +587,27 @@ static inline bool lm_ggml_node_has_n_uses(const struct lm_ggml_cgraph * cgraph,
     return true;
 }
 
-// Returns true if nodes [i, i+ops.size()) are the sequence of lm_ggml_ops in ops[]
+// Returns true if nodes with indices { node_idxs } are the sequence of lm_ggml_ops in ops[]
 // and are fusable. Nodes are considered fusable according to this function if:
 // - all nodes except the last have only one use and are not views/outputs (see lm_ggml_node_has_N_uses).
 // - all nodes except the last are a src of the following node.
 // - all nodes are the same shape.
 // TODO: Consider allowing LM_GGML_OP_NONE nodes in between
-static inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int node_idx, const enum lm_ggml_op * ops, int num_ops) {
-    if (node_idx + num_ops > cgraph->n_nodes) {
-        return false;
-    }
-
+static inline bool lm_ggml_can_fuse_ext(const struct lm_ggml_cgraph * cgraph, const int * node_idxs, const enum lm_ggml_op * ops, int num_ops) {
     for (int i = 0; i < num_ops; ++i) {
-        struct lm_ggml_tensor * node = cgraph->nodes[node_idx + i];
+        if (node_idxs[i] >= cgraph->n_nodes) {
+            return false;
+        }
+
+        struct lm_ggml_tensor * node = cgraph->nodes[node_idxs[i]];
         if (node->op != ops[i]) {
             return false;
         }
-        if (i < num_ops - 1 && !lm_ggml_node_has_n_uses(cgraph, node_idx + i, 1)) {
+        if (i < num_ops - 1 && !lm_ggml_node_has_n_uses(cgraph, node_idxs[i], 1)) {
             return false;
         }
         if (i > 0) {
-            struct lm_ggml_tensor * prev = cgraph->nodes[node_idx + i - 1];
+            struct lm_ggml_tensor * prev = cgraph->nodes[node_idxs[i - 1]];
             if (node->src[0] != prev && node->src[1] != prev) {
                 return false;
             }
@@ -600,6 +617,22 @@ static inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int no
         }
     }
     return true;
+}
+
+// same as above, for sequential indices starting at node_idx
+static inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int node_idx, const enum lm_ggml_op * ops, int num_ops) {
+    assert(num_ops < 32);
+
+    if (node_idx + num_ops > cgraph->n_nodes) {
+        return false;
+    }
+
+    int idxs[32];
+    for (int i = 0; i < num_ops; ++i) {
+        idxs[i] = node_idx + i;
+    }
+
+    return lm_ggml_can_fuse_ext(cgraph, idxs, ops, num_ops);
 }
 
 #ifdef __cplusplus
