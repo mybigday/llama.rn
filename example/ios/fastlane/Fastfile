@@ -1,0 +1,42 @@
+
+def build_example_app
+  UI.message("Building RNLlamaExample for TestFlight")
+  build_app(
+    workspace: "RNLlamaExample.xcworkspace",
+    scheme: "RNLlamaExample",
+    configuration: "Release",
+    export_method: "app-store",
+    clean: true
+  )
+end
+
+def changelog_from_file
+  notes_file = "TESTFLIGHT_NOTES.txt"
+  if File.exist?(notes_file)
+    value = File.read(notes_file).strip
+    value = nil if value.empty?
+    value
+  else
+    nil
+  end
+end
+
+platform :ios do
+
+  desc "Local upload using Apple ID authentication (no API key required)"
+  lane :deploy do
+    build_example_app
+
+    UI.message("Uploading build to TestFlight using Apple ID credentials")
+    upload_to_testflight(
+      app_identifier: ENV["IOS_APP_IDENTIFIER"],
+      changelog: changelog_from_file,
+      distribute_external: true,
+      distribute_only: true,
+      groups: [
+        "Public"
+      ],
+      skip_waiting_for_build_processing: false,
+    )
+  end
+end
