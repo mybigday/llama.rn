@@ -665,13 +665,13 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
         case LM_GGML_OP_SOFT_MAX:
         case LM_GGML_OP_GROUP_NORM:
             return has_simdgroup_reduction && lm_ggml_is_contiguous_rows(op->src[0]);
-        case LM_GGML_OP_RMS_NORM:
         case LM_GGML_OP_L2_NORM:
             return has_simdgroup_reduction && (op->ne[0] % 4 == 0 && lm_ggml_is_contiguous_1(op->src[0]));
         case LM_GGML_OP_ARGMAX:
             return has_simdgroup_reduction;
         case LM_GGML_OP_NORM:
-            return has_simdgroup_reduction && (op->ne[0] % 4 == 0 && lm_ggml_is_contiguous_1(op->src[0]));
+        case LM_GGML_OP_RMS_NORM:
+            return has_simdgroup_reduction && (lm_ggml_is_contiguous_rows(op->src[0]));
         case LM_GGML_OP_ROPE:
             return true;
         case LM_GGML_OP_IM2COL:
@@ -1180,6 +1180,8 @@ void lm_ggml_metal_buffer_set_tensor(lm_ggml_metal_buffer_t buf, struct lm_ggml_
                                                               options:MTLResourceStorageModeShared
                                                           deallocator:nil];
 
+        LM_GGML_ASSERT(buf_src);
+
         // dst
         struct lm_ggml_metal_buffer_id bid_dst = lm_ggml_metal_buffer_get_id(buf, tensor);
         bid_dst.offs += offset;
@@ -1235,6 +1237,8 @@ void lm_ggml_metal_buffer_get_tensor(lm_ggml_metal_buffer_t buf, const struct lm
                                                                length:size
                                                               options:MTLResourceStorageModeShared
                                                           deallocator:nil];
+
+        LM_GGML_ASSERT(buf_dst);
 
         id<MTLCommandQueue>  queue   = buf->queue;
         id<MTLCommandBuffer> cmd_buf = [queue commandBufferWithUnretainedReferences];
