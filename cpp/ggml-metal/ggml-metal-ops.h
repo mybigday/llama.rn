@@ -60,7 +60,6 @@ int lm_ggml_metal_op_mul_mat_id        (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_add_id            (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_flash_attn_ext    (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_bin               (lm_ggml_metal_op_t ctx, int idx);
-int lm_ggml_metal_op_rms_norm          (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_l2_norm           (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_group_norm        (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_norm              (lm_ggml_metal_op_t ctx, int idx);

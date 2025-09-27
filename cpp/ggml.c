@@ -3935,7 +3935,7 @@ static struct lm_ggml_tensor * lm_ggml_rope_impl(
     memcpy(params +  8, &attn_factor,  sizeof(float));
     memcpy(params +  9, &beta_fast,    sizeof(float));
     memcpy(params + 10, &beta_slow,    sizeof(float));
-    if (mrope_used) {
+    if (mrope_used && sections) {
         memcpy(params + 11, sections,  sizeof(int32_t) * LM_GGML_MROPE_SECTIONS);
     } else {
         memset(params + 11, 0,         sizeof(int32_t) * LM_GGML_MROPE_SECTIONS);
