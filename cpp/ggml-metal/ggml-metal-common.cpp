@@ -256,8 +256,6 @@ static std::vector<int> lm_ggml_metal_graph_optimize_reorder(const std::vector<n
 
     // perform reorders only across these types of ops
     // can be expanded when needed
-    // IMPORTANT: do not add ops such as LM_GGML_OP_CPY or LM_GGML_OP_SET_ROWS
-    //            the dependencies from such ops are not always represented in the graph
     const auto & h_safe = [](lm_ggml_op op) {
         switch (op) {
             case LM_GGML_OP_MUL_MAT:
@@ -273,6 +271,8 @@ static std::vector<int> lm_ggml_metal_graph_optimize_reorder(const std::vector<n
             case LM_GGML_OP_GLU:
             case LM_GGML_OP_SCALE:
             case LM_GGML_OP_GET_ROWS:
+            case LM_GGML_OP_CPY:
+            case LM_GGML_OP_SET_ROWS:
                 return true;
             default:
                 return lm_ggml_op_is_empty(op);
@@ -383,6 +383,7 @@ void lm_ggml_graph_optimize(lm_ggml_cgraph * gf) {
         // fuse only ops that start with these operations
         // can be expanded when needed
         if (node.op() == LM_GGML_OP_ADD ||
+            node.op() == LM_GGML_OP_NORM ||
             node.op() == LM_GGML_OP_RMS_NORM) {
             ops[0] = node.op();
 
@@ -392,6 +393,7 @@ void lm_ggml_graph_optimize(lm_ggml_cgraph * gf) {
                 // can be expanded when needed
                 if (gf->nodes[f]->op != LM_GGML_OP_ADD &&
                     gf->nodes[f]->op != LM_GGML_OP_MUL &&
+                    gf->nodes[f]->op != LM_GGML_OP_NORM &&
                     gf->nodes[f]->op != LM_GGML_OP_RMS_NORM) {
                     break;
                 }
