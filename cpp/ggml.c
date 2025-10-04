@@ -1151,10 +1151,10 @@ static const char * LM_GGML_UNARY_OP_NAME[LM_GGML_UNARY_OP_COUNT] = {
     "HARDSIGMOID",
     "EXP",
     "GELU_ERF",
+    "XIELU",
 };
 
-static_assert(LM_GGML_UNARY_OP_COUNT == 15, "LM_GGML_UNARY_OP_COUNT != 15");
-
+static_assert(LM_GGML_UNARY_OP_COUNT == 16, "LM_GGML_UNARY_OP_COUNT != 16");
 
 static const char * LM_GGML_GLU_OP_NAME[LM_GGML_GLU_OP_COUNT] = {
     "REGLU",
@@ -2660,6 +2660,29 @@ struct lm_ggml_tensor * lm_ggml_silu_inplace(
     return lm_ggml_unary_inplace(ctx, a, LM_GGML_UNARY_OP_SILU);
 }
 
+// lm_ggml_xielu
+
+struct lm_ggml_tensor * lm_ggml_xielu(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        float alpha_n,
+        float alpha_p,
+        float beta,
+        float eps) {
+    struct lm_ggml_tensor * result = lm_ggml_dup_tensor(ctx, a);
+
+    lm_ggml_set_op_params_i32(result, 0, (int32_t) LM_GGML_UNARY_OP_XIELU);
+    lm_ggml_set_op_params_f32(result, 1, beta + lm_ggml_softplus(alpha_n));
+    lm_ggml_set_op_params_f32(result, 2, lm_ggml_softplus(alpha_p));
+    lm_ggml_set_op_params_f32(result, 3, beta);
+    lm_ggml_set_op_params_f32(result, 4, eps);
+
+    result->op     = LM_GGML_OP_UNARY;
+    result->src[0] = a;
+
+    return result;
+}
+
 // lm_ggml_silu_back
 
 struct lm_ggml_tensor * lm_ggml_silu_back(
@@ -3835,6 +3858,15 @@ struct lm_ggml_tensor * lm_ggml_soft_max_ext(
         float                 scale,
         float                 max_bias) {
     return lm_ggml_soft_max_impl(ctx, a, mask, scale, max_bias, false);
+}
+
+struct lm_ggml_tensor * lm_ggml_soft_max_ext_inplace(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * mask,
+        float                 scale,
+        float                 max_bias) {
+    return lm_ggml_soft_max_impl(ctx, a, mask, scale, max_bias, true);
 }
 
 void lm_ggml_soft_max_add_sinks(
