@@ -112,7 +112,7 @@ static bool lm_ggml_mem_ranges_add_dst(lm_ggml_mem_ranges_t mrs, const lm_ggml_t
 }
 
 bool lm_ggml_mem_ranges_add(lm_ggml_mem_ranges_t mrs, const lm_ggml_tensor * tensor) {
-    for (int i = 0; i < LM_GGML_MAX_DIMS; i++) {
+    for (int i = 0; i < LM_GGML_MAX_SRC; i++) {
         if (tensor->src[i]) {
             lm_ggml_mem_ranges_add_src(mrs, tensor->src[i]);
         }
@@ -173,7 +173,7 @@ static bool lm_ggml_mem_ranges_check_dst(lm_ggml_mem_ranges_t mrs, const lm_ggml
 }
 
 bool lm_ggml_mem_ranges_check(lm_ggml_mem_ranges_t mrs, const lm_ggml_tensor * tensor) {
-    for (int i = 0; i < LM_GGML_MAX_DIMS; i++) {
+    for (int i = 0; i < LM_GGML_MAX_SRC; i++) {
         if (tensor->src[i]) {
             if (!lm_ggml_mem_ranges_check_src(mrs, tensor->src[i])) {
                 return false;
