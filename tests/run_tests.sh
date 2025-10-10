@@ -16,11 +16,19 @@ fi
 cd build
 
 # Check if test executables exist
-if [ ! -f "rnllama_tests" ] || [ ! -f "parallel_decoding_test" ]; then
-    echo "Error: Test executables not found"
+if [ ! -f "rnllama_tests" ]; then
+    echo "Error: rnllama_tests executable not found"
     echo "Please run ./build_and_test.sh first"
     exit 1
 fi
+
+if [ ! -f "parallel_decoding_test" ]; then
+    echo "Error: parallel_decoding_test executable not found"
+    echo "Please run ./build_and_test.sh first"
+    exit 1
+fi
+
+echo "Found both test executables"
 
 TESTS_PASSED=0
 TESTS_FAILED=0
@@ -29,10 +37,10 @@ TESTS_FAILED=0
 echo "--- Running Basic Integration Tests ---"
 if ./rnllama_tests; then
     echo "✓ Basic integration tests passed"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 else
     echo "✗ Basic integration tests failed"
-    ((TESTS_FAILED++))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 
 echo ""
@@ -41,10 +49,10 @@ echo ""
 echo "--- Running Parallel Decoding Tests ---"
 if ./parallel_decoding_test; then
     echo "✓ Parallel decoding tests passed"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 else
     echo "✗ Parallel decoding tests failed"
-    ((TESTS_FAILED++))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 
 echo ""

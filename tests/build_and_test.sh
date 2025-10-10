@@ -14,8 +14,21 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 # Build both test executables
 echo ""
 echo "Building test executables..."
+echo "Building rnllama_tests..."
 make rnllama_tests -j4
+if [ ! -f "rnllama_tests" ]; then
+    echo "Error: Failed to build rnllama_tests"
+    exit 1
+fi
+echo "✓ rnllama_tests built successfully"
+
+echo "Building parallel_decoding_test..."
 make parallel_decoding_test -j4
+if [ ! -f "parallel_decoding_test" ]; then
+    echo "Error: Failed to build parallel_decoding_test"
+    exit 1
+fi
+echo "✓ parallel_decoding_test built successfully"
 
 echo ""
 echo "=== Build Successful ==="
