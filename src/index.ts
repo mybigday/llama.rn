@@ -74,6 +74,7 @@ export { SchemaGrammarConverter, convertJsonSchemaToGrammar }
 
 const EVENT_ON_INIT_CONTEXT_PROGRESS = '@RNLlama_onInitContextProgress'
 const EVENT_ON_TOKEN = '@RNLlama_onToken'
+const EVENT_ON_COMPLETE = '@RNLlama_onComplete'
 const EVENT_ON_NATIVE_LOG = '@RNLlama_onNativeLog'
 
 let EventEmitter: NativeEventEmitter | DeviceEventEmitterStatic
@@ -458,6 +459,7 @@ export class LlamaContext {
     } else {
       nativeParams.prompt = params.prompt || ''
     }
+    console.log('nativeParams', nativeParams)
 
     // If media_paths were explicitly provided or extracted from messages, use them
     if (!nativeParams.media_paths && params.media_paths) {
@@ -495,6 +497,120 @@ export class LlamaContext {
 
   stopCompletion(): Promise<void> {
     return RNLlama.stopCompletion(this.id)
+  }
+
+  /**
+   * Queue a completion request for parallel processing (non-blocking)
+   * @param params Completion parameters (same as completion())
+   * @param onToken Callback fired for each generated token
+   * @param onComplete Callback fired when generation completes
+   * @returns Promise resolving to request ID
+   */
+  async queueCompletion(
+    params: CompletionParams,
+    onToken?: (requestId: number, data: TokenData) => void,
+    onComplete?: (requestId: number, result: Partial<NativeCompletionResult>) => void,
+  ): Promise<number> {
+    const nativeParams = {
+      ...params,
+      prompt: params.prompt || '',
+      emit_partial_completion: true, // Always emit for queued requests
+    }
+
+    // Process messages same as completion()
+    if (params.messages) {
+      const formattedResult = await this.getFormattedChat(
+        params.messages,
+        params.chat_template || params.chatTemplate,
+        {
+          jinja: params.jinja,
+          tools: params.tools,
+          parallel_tool_calls: params.parallel_tool_calls,
+          tool_choice: params.tool_choice,
+          enable_thinking: params.enable_thinking,
+          add_generation_prompt: params.add_generation_prompt,
+          now: params.now,
+          chat_template_kwargs: params.chat_template_kwargs,
+        },
+      )
+      if (formattedResult.type === 'jinja') {
+        const jinjaResult = formattedResult as JinjaFormattedChatResult
+        nativeParams.prompt = jinjaResult.prompt || ''
+        if (typeof jinjaResult.chat_format === 'number')
+          nativeParams.chat_format = jinjaResult.chat_format
+        if (jinjaResult.grammar) nativeParams.grammar = jinjaResult.grammar
+        if (typeof jinjaResult.grammar_lazy === 'boolean')
+          nativeParams.grammar_lazy = jinjaResult.grammar_lazy
+        if (jinjaResult.grammar_triggers)
+          nativeParams.grammar_triggers = jinjaResult.grammar_triggers
+        if (jinjaResult.preserved_tokens)
+          nativeParams.preserved_tokens = jinjaResult.preserved_tokens
+        if (jinjaResult.additional_stops) {
+          if (!nativeParams.stop) nativeParams.stop = []
+          nativeParams.stop.push(...jinjaResult.additional_stops)
+        }
+        if (jinjaResult.has_media) {
+          nativeParams.media_paths = jinjaResult.media_paths
+        }
+      } else if (formattedResult.type === 'llama-chat') {
+        const llamaChatResult = formattedResult as FormattedChatResult
+        nativeParams.prompt = llamaChatResult.prompt || ''
+        if (llamaChatResult.has_media) {
+          nativeParams.media_paths = llamaChatResult.media_paths
+        }
+      }
+    } else {
+      nativeParams.prompt = params.prompt || ''
+    }
+
+    if (!nativeParams.media_paths && params.media_paths) {
+      nativeParams.media_paths = params.media_paths
+    }
+
+    if (nativeParams.response_format && !nativeParams.grammar) {
+      const jsonSchema = getJsonSchema(params.response_format)
+      if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
+    }
+
+    if (!nativeParams.prompt) throw new Error('Prompt is required')
+
+    // Set up listeners for this specific request
+    let tokenListener: any
+    let completeListener: any
+
+    const { requestId } = await RNLlama.queueCompletion(this.id, nativeParams)
+
+    if (onToken) {
+      tokenListener = EventEmitter.addListener(EVENT_ON_TOKEN, (evt: TokenNativeEvent) => {
+        const { contextId, tokenResult } = evt
+        if (contextId !== this.id) return
+        // Filter by requestId from tokenResult (set by native code)
+        const evtRequestId = (tokenResult as any).requestId
+        if (evtRequestId !== requestId) return
+        onToken(requestId, tokenResult)
+      })
+    }
+
+    if (onComplete) {
+      completeListener = EventEmitter.addListener(EVENT_ON_COMPLETE, (evt: any) => {
+        const { contextId, requestId: evtRequestId, result } = evt
+        if (contextId !== this.id || evtRequestId !== requestId) return
+        onComplete(requestId, result)
+        // Clean up listeners after completion
+        tokenListener?.remove()
+        completeListener?.remove()
+      })
+    }
+
+    return requestId
+  }
+
+  /**
+   * Cancel a queued completion request
+   * @param requestId Request ID returned from queueCompletion()
+   */
+  cancelRequest(requestId: number): Promise<void> {
+    return RNLlama.cancelRequest(this.id, requestId)
   }
 
   /**

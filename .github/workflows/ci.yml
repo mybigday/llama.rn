@@ -45,8 +45,9 @@ jobs:
       - name: Run c++ unit tests
         run: |
           cd tests
-          mkdir -p build && cd build
-          cmake .. && make && ./rnllama_tests
+          chmod +x build_and_test.sh run_tests.sh
+          ./build_and_test.sh
+          ./run_tests.sh
 
   build-ios-from-source:
     runs-on: macos-latest

@@ -369,6 +369,7 @@ completion_token_output llama_rn_context_completion::nextToken()
             parent_ctx->tts_wrapper->next_token_uses_guide_token = (new_token_id == 198);
         }
         result.tok = new_token_id;
+        result.text = common_token_to_piece(parent_ctx->ctx, new_token_id);
 
         llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling, true);
 

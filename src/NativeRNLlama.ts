@@ -102,6 +102,14 @@ export type NativeCompletionParams = {
   prompt: string
   n_threads?: number
   /**
+   * Number of parallel slots for concurrent requests. Default: 1
+   */
+  n_parallel?: number
+  /**
+   * Batch size for processing. Default: 512
+   */
+  n_batch?: number
+  /**
    * Enable Jinja. Default: true if supported by the model
    */
   jinja?: boolean
@@ -496,6 +504,13 @@ export interface Spec extends TurboModule {
     params: NativeCompletionParams,
   ): Promise<NativeCompletionResult>
   stopCompletion(contextId: number): Promise<void>
+
+  // Parallel decoding methods
+  queueCompletion(
+    contextId: number,
+    params: NativeCompletionParams,
+  ): Promise<{ requestId: number }>
+  cancelRequest(contextId: number, requestId: number): Promise<void>
   tokenize(contextId: number, text: string, imagePaths?: Array<string>): Promise<NativeTokenizeResult>
   detokenize(contextId: number, tokens: number[]): Promise<string>
   embedding(

@@ -2,6 +2,7 @@
 #include "rn-tts.h"
 #include "rn-mtmd.hpp"
 #include "rn-completion.h"
+#include "rn-slot-manager.h"
 
 // Include multimodal support
 #include "tools/mtmd/mtmd.h"
@@ -135,6 +136,9 @@ std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::co
 
 
 llama_rn_context::~llama_rn_context() {
+    // Disable parallel mode first (cleans up slot_manager)
+    disableParallelMode();
+
     if (completion != nullptr) {
         delete completion;
         completion = nullptr;
@@ -267,7 +271,7 @@ llama_rn_tokenize_result llama_rn_context::tokenize(const std::string &text, con
       return tokenize_result;
   }
   std::vector<llama_token> text_tokens;
-  text_tokens = common_tokenize(ctx, text, false);
+  text_tokens = common_tokenize(ctx, text, /* add_special= */ false, /* parse_special= */ true);
   llama_rn_tokenize_result tokenize_result;
   tokenize_result.tokens = text_tokens;
   tokenize_result.has_media = false;
@@ -350,6 +354,89 @@ void llama_rn_context::releaseVocoder() {
         tts_wrapper = nullptr;
     }
     has_vocoder = false;
+}
+
+// Enable parallel decoding mode
+bool llama_rn_context::enableParallelMode(int32_t n_parallel, int32_t n_batch) {
+    if (parallel_mode_enabled) {
+        LOG_WARNING("Parallel mode already enabled");
+        return true;
+    }
+
+    if (ctx == nullptr) {
+        LOG_ERROR("Cannot enable parallel mode: context not initialized");
+        return false;
+    }
+
+    LOG_INFO("Enabling parallel mode with %d slots, batch size %d", n_parallel, n_batch);
+
+    // Update params and recreate context with correct n_seq_max
+    // This is necessary because n_seq_max is set from n_parallel during context creation
+    params.n_parallel = n_parallel;
+
+    // Recreate the context with updated parameters
+    llama_init = common_init_from_params(params);
+    model = llama_init.model.get();
+    ctx = llama_init.context.get();
+
+    if (ctx == nullptr || model == nullptr) {
+        LOG_ERROR("Failed to recreate context with parallel mode");
+        return false;
+    }
+
+    // Recreate templates with new model pointer
+    templates = common_chat_templates_init(model, params.chat_template);
+    n_ctx = llama_n_ctx(ctx);
+
+    // Verify n_seq_max is set correctly
+    uint32_t n_seq_max = llama_n_seq_max(ctx);
+    LOG_INFO("Context recreated with n_seq_max = %u for %d parallel slots", n_seq_max, n_parallel);
+
+    if (n_seq_max < (uint32_t)n_parallel) {
+        LOG_ERROR("Context n_seq_max (%u) is less than requested parallel slots (%d)", n_seq_max, n_parallel);
+        return false;
+    }
+
+    // Recreate completion context
+    if (completion != nullptr) {
+        delete completion;
+    }
+    completion = new llama_rn_context_completion(this);
+
+    // Create slot manager
+    slot_manager = new llama_rn_slot_manager(this);
+    if (!slot_manager->init(n_parallel, n_batch, n_ctx)) {
+        LOG_ERROR("Failed to initialize slot manager");
+        delete slot_manager;
+        slot_manager = nullptr;
+        return false;
+    }
+
+    parallel_mode_enabled = true;
+
+    // Note: Keep the existing 'completion' pointer for backward compatibility
+    // It will continue to work as before for single-request use cases
+
+    LOG_INFO("Parallel mode enabled successfully");
+    return true;
+}
+
+// Disable parallel decoding mode
+void llama_rn_context::disableParallelMode() {
+    if (!parallel_mode_enabled) {
+        return;
+    }
+
+    LOG_INFO("Disabling parallel mode");
+
+    if (slot_manager != nullptr) {
+        delete slot_manager;
+        slot_manager = nullptr;
+    }
+
+    parallel_mode_enabled = false;
+
+    LOG_INFO("Parallel mode disabled");
 }
 
 }

@@ -176,4 +176,14 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   public void releaseAllContexts(Promise promise) {
     rnllama.releaseAllContexts(promise);
   }
+
+  @ReactMethod
+  public void queueCompletion(double id, final ReadableMap params, final Promise promise) {
+    rnllama.queueCompletion(id, params, promise);
+  }
+
+  @ReactMethod
+  public void cancelRequest(double id, double requestId, final Promise promise) {
+    rnllama.cancelRequest(id, requestId, promise);
+  }
 }

@@ -17,6 +17,7 @@ import ModelInfoScreen from './screens/ModelInfoScreen'
 import BenchScreen from './screens/BenchScreen'
 import TextCompletionScreen from './screens/TextCompletionScreen'
 import EmbeddingScreen from './screens/EmbeddingScreen'
+import ParallelDecodingScreen from './screens/ParallelDecodingScreen'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { createThemedStyles } from './styles/commonStyles'
 import { Menu } from './components/Menu'
@@ -117,6 +118,12 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
           onPress={() => navigation.navigate('TextCompletion')}
         >
           <Text style={styles.buttonText}>✏️ Text Completion</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => navigation.navigate('ParallelDecoding')}
+        >
+          <Text style={styles.buttonText}>⚡ Parallel Decoding</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}
@@ -226,6 +233,13 @@ function AppContent() {
             component={TextCompletionScreen}
             options={{
               title: 'Text Completion',
+            }}
+          />
+          <Stack.Screen
+            name="ParallelDecoding"
+            component={ParallelDecodingScreen}
+            options={{
+              title: 'Parallel Decoding',
             }}
           />
           <Stack.Screen

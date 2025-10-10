@@ -1027,6 +1027,70 @@ public class RNLlama implements LifecycleEventListener {
     tasks.put(task, "releaseAllContexts");
   }
 
+  // Parallel decoding methods
+  public void queueCompletion(double id, final ReadableMap params, final Promise promise) {
+    final int contextId = (int) id;
+    new AsyncTask<Void, Void, Integer>() {
+      private Exception exception;
+
+      @Override
+      protected Integer doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          return context.queueCompletion(params);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return -1;
+      }
+
+      @Override
+      protected void onPostExecute(Integer requestId) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        WritableMap result = Arguments.createMap();
+        result.putInt("requestId", requestId);
+        promise.resolve(result);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+  }
+
+  public void cancelRequest(double id, double requestIdDouble, final Promise promise) {
+    final int contextId = (int) id;
+    final int requestId = (int) requestIdDouble;
+    new AsyncTask<Void, Void, Void>() {
+      private Exception exception;
+
+      @Override
+      protected Void doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          context.cancelRequest(requestId);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return null;
+      }
+
+      @Override
+      protected void onPostExecute(Void result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(null);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+  }
+
   @Override
   public void onHostResume() {
   }

@@ -6,6 +6,8 @@
 #import "ggml.h"
 #import "rn-llama.h"
 #import "rn-completion.h"
+#import "rn-slot.h"
+#import "rn-slot-manager.h"
 #import "json-schema-to-grammar.h"
 #else
 #import <rnllama/llama.h>
@@ -13,6 +15,8 @@
 #import <rnllama/ggml.h>
 #import <rnllama/rn-llama.h>
 #import <rnllama/rn-completion.h>
+#import <rnllama/rn-slot.h>
+#import <rnllama/rn-slot-manager.h>
 #import <rnllama/json-schema-to-grammar.h>
 #endif
 #endif
@@ -27,6 +31,10 @@
     void (^onProgress)(unsigned int progress);
 
     rnllama::llama_rn_context * llama;
+
+    // Parallel decoding support
+    BOOL processingLoopActive;
+    dispatch_queue_t processingQueue;
 }
 
 + (void)toggleNativeLog:(BOOL)enabled onEmitLog:(void (^)(NSString *level, NSString *text))onEmitLog;
@@ -45,6 +53,8 @@
 - (void)releaseMultimodal;
 - (NSDictionary *)completion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *tokenResult))onToken;
 - (void)stopCompletion;
+- (NSNumber *)queueCompletion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *tokenResult))onToken onComplete:(void (^)(NSDictionary *result))onComplete;
+- (void)cancelRequest:(NSNumber *)requestId;
 - (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths;
 - (NSString *)detokenize:(NSArray *)tokens;
 - (NSDictionary *)embedding:(NSString *)text params:(NSDictionary *)params;
