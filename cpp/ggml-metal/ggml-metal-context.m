@@ -222,7 +222,28 @@ void lm_ggml_metal_synchronize(lm_ggml_metal_t ctx) {
         ctx->cmd_buf_last = nil;
     }
 
-    // release any completed command buffers
+    // check status of all command buffers
+    {
+        const int n_cb = ctx->n_cb;
+
+        for (int cb_idx = 0; cb_idx <= n_cb; ++cb_idx) {
+            id<MTLCommandBuffer> cmd_buf = ctx->cmd_bufs[cb_idx].obj;
+            if (!cmd_buf) {
+                continue;
+            }
+
+            MTLCommandBufferStatus status = [cmd_buf status];
+            if (status != MTLCommandBufferStatusCompleted) {
+                LM_GGML_LOG_ERROR("%s: error: command buffer %d failed with status %d\n", __func__, cb_idx, (int) status);
+                if (status == MTLCommandBufferStatusError) {
+                    LM_GGML_LOG_ERROR("error: %s\n", [[cmd_buf error].localizedDescription UTF8String]);
+                }
+                LM_GGML_ABORT("fatal error");
+            }
+        }
+    }
+
+    // release any completed extra command buffers
     if (ctx->cmd_bufs_ext.count > 0) {
         for (size_t i = 0; i < ctx->cmd_bufs_ext.count; ++i) {
             id<MTLCommandBuffer> cmd_buf = ctx->cmd_bufs_ext[i];
@@ -259,6 +280,8 @@ void lm_ggml_metal_set_tensor_async(lm_ggml_metal_t ctx, struct lm_ggml_tensor *
         id<MTLBuffer> buf_src = [ctx->device newBufferWithBytes:data
                                                          length:size
                                                         options:MTLResourceStorageModeShared];
+
+        LM_GGML_ASSERT(buf_src);
 
         struct lm_ggml_metal_buffer_id bid_dst = lm_ggml_metal_get_buffer_id(tensor);
         if (bid_dst.metal == nil) {
@@ -298,6 +321,8 @@ void lm_ggml_metal_get_tensor_async(lm_ggml_metal_t ctx, const struct lm_ggml_te
                                                                length:size
                                                               options:MTLResourceStorageModeShared
                                                           deallocator:nil];
+
+        LM_GGML_ASSERT(buf_dst);
 
         struct lm_ggml_metal_buffer_id bid_src = lm_ggml_metal_get_buffer_id(tensor);
         if (bid_src.metal == nil) {
@@ -542,13 +567,13 @@ void lm_ggml_metal_set_n_cb(lm_ggml_metal_t ctx, int n_cb) {
             ctx->debug_graph,
             ctx->debug_fusion);
 
-        for (int idx = idx_start; idx < idx_end;) {
+        for (int idx = 0; idx < lm_ggml_metal_op_n_nodes(ctx_op); ++idx) {
             const int res = lm_ggml_metal_op_encode(ctx_op, idx);
             if (res == 0) {
                 break;
             }
 
-            idx += res;
+            idx += res - 1;
         }
 
         lm_ggml_metal_op_free(ctx_op);

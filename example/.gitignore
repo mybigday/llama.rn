@@ -1,3 +1,7 @@
 **/assets/*.bin
 ios/.xcode.env.local
 rnllama-release.keystore
+.env
+.notes.txt
+*.app.dSYM.zip
+report.xml

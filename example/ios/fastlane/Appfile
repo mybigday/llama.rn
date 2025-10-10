@@ -1,0 +1,5 @@
+app_identifier(ENV["IOS_APP_IDENTIFIER"] || "org.reactjs.native.example.RNLlamaExample")
+apple_id(ENV["IOS_APPLE_ID"] || raise("Set IOS_APPLE_ID environment variable"))
+
+itc_team_id(ENV["IOS_ITC_TEAM_ID"]) if ENV["IOS_ITC_TEAM_ID"]
+team_id(ENV["IOS_DEV_PORTAL_TEAM_ID"]) if ENV["IOS_DEV_PORTAL_TEAM_ID"]

@@ -61,5 +61,7 @@
 	<array>
 		<string>MaterialDesignIcons.ttf</string>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false />
 </dict>
 </plist>
