@@ -1866,7 +1866,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
-  - react-native-menu (1.2.4):
+  - react-native-menu (2.0.0):
     - boost
     - DoubleConversion
     - fast_float
@@ -3060,7 +3060,7 @@ SPEC CHECKSUMS:
   React-microtasksnativemodule: 9b52faf56750d7e3c67d9cf96b650f14c31524c2
   react-native-blob-util: f9fce545a5f63e686d5e7d9999db4a0233849e01
   react-native-document-picker: 6d0aed28b086bdd4af74081dab3c8bf23a0350d1
-  react-native-menu: f7c3db69be3566b8e6558dd66f698f7199d43152
+  react-native-menu: 1a8a99ef56cbbbb878bcc38df9d462eeb5e84228
   react-native-safe-area-context: 6d8a7b750e496e37bda47c938320bf2c734d441f
   react-native-vector-icons-material-design-icons: c502df5b988ce85d6c7d2b7ee909818315760b82
   React-NativeModulesApple: 1b4d9722d8df62e881684abadf320e7a8fa1b7f6
