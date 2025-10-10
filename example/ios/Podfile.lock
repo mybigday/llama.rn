@@ -2521,7 +2521,7 @@ PODS:
     - React-perflogger (= 0.82.0)
     - React-utils (= 0.82.0)
     - SocketRocket
-  - RNAudioAPI (0.6.0):
+  - RNAudioAPI (0.9.0):
     - boost
     - DoubleConversion
     - fast_float
@@ -2547,10 +2547,10 @@ PODS:
     - ReactCodegen
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
-    - RNAudioAPI/audioapi (= 0.6.0)
+    - RNAudioAPI/audioapi (= 0.9.0)
     - SocketRocket
     - Yoga
-  - RNAudioAPI/audioapi (0.6.0):
+  - RNAudioAPI/audioapi (0.9.0):
     - boost
     - DoubleConversion
     - fast_float
@@ -2576,10 +2576,10 @@ PODS:
     - ReactCodegen
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
-    - RNAudioAPI/audioapi/ios (= 0.6.0)
+    - RNAudioAPI/audioapi/ios (= 0.9.0)
     - SocketRocket
     - Yoga
-  - RNAudioAPI/audioapi/ios (0.6.0):
+  - RNAudioAPI/audioapi/ios (0.9.0):
     - boost
     - DoubleConversion
     - fast_float
@@ -3095,7 +3095,7 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: d5f21b5da644b33685d4f2685cba86e3c7ea64ff
   ReactCodegen: 1efedd581339e9ff5365e66fcf6522ae9f1be6cb
   ReactCommon: 17f21c8e189e290113e40fd8652758ec9694897b
-  RNAudioAPI: c17413290a3e4b8b6b8b19bfc09a83dc5a01b040
+  RNAudioAPI: 070f581c1a01fde7f1f05ffa826b6de80c9937fa
   RNCAsyncStorage: 302f2fac014fd450046c120567ca364632da682b
   RNCClipboard: dc60df6439b25d350cf856eeeab195afe166c15f
   RNGestureHandler: 310fefa1b72004d0b0a6a361b537a74724f45d5b

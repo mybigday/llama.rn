@@ -110,7 +110,7 @@ export const AudioPlayer = ({
       source.buffer = audioBuffer
       source.connect(ctxRef.current.destination)
       source.start()
-      source.onended = () => {
+      source.onEnded = () => {
         clearInterval(interval)
         setIsPlaying(false)
         setProgress(duration)
