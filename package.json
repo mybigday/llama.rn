@@ -233,5 +233,8 @@
     "name": "RNLlamaSpec",
     "type": "modules",
     "jsSrcsDir": "src"
+  },
+  "dependencies": {
+    "@react-native/typescript-config": "^0.82.0"
   }
 }

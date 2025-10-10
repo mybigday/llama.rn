@@ -1,5 +1,5 @@
 import { AppRegistry } from 'react-native'
-import NativeCustomEvent from 'react-native/Libraries/Events/CustomEvent'
+import NativeCustomEvent from 'react-native/src/private/webapis/dom/events/CustomEvent'
 import App from './src/App.tsx'
 import { name as appName } from './app.json'
 

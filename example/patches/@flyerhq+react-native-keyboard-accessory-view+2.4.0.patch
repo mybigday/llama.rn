@@ -1,5 +1,5 @@
 diff --git a/node_modules/@flyerhq/react-native-keyboard-accessory-view/lib/hooks/useKeyboardDimensions.js b/node_modules/@flyerhq/react-native-keyboard-accessory-view/lib/hooks/useKeyboardDimensions.js
-index 23cb7c2..9007475 100644
+index 23cb7c2..35ad40f 100644
 --- a/node_modules/@flyerhq/react-native-keyboard-accessory-view/lib/hooks/useKeyboardDimensions.js
 +++ b/node_modules/@flyerhq/react-native-keyboard-accessory-view/lib/hooks/useKeyboardDimensions.js
 @@ -25,7 +25,17 @@ export const useKeyboardDimensions = (useListenersOnAndroid) => {
@@ -21,7 +21,7 @@ index 23cb7c2..9007475 100644
              const { screenY: keyboardEndPositionY } = event.endCoordinates;
              const keyboardHeight = height - keyboardEndPositionY;
              if (keyboardHeight === current.keyboardHeight) {
-@@ -48,7 +58,8 @@ export const useKeyboardDimensions = (useListenersOnAndroid) => {
+@@ -48,10 +58,12 @@ export const useKeyboardDimensions = (useListenersOnAndroid) => {
                  keyboardEndPositionY,
                  keyboardHeight,
              };
@@ -30,4 +30,9 @@ index 23cb7c2..9007475 100644
 +        };
          const dimensionsListener = Dimensions.addEventListener('change', handleDimensionsChange);
          const keyboardListeners = [];
-         if (Platform.OS === 'android' && useListenersOnAndroid) {
+-        if (Platform.OS === 'android' && useListenersOnAndroid) {
++        // Always use keyboard listeners on Android (RN 0.82+ doesn't trigger Dimensions change on keyboard open)
++        if (Platform.OS === 'android') {
+             keyboardListeners.push(Keyboard.addListener('keyboardDidHide', resetKeyboardDimensions), Keyboard.addListener('keyboardDidShow', updateKeyboardDimensions));
+         }
+         else {

@@ -103,14 +103,14 @@ export const AudioPlayer = ({
       const interval = setInterval(() => {
         setProgress(ctxRef.current?.currentTime ?? 0)
       }, 10)
-      ctxRef.current ??= new AudioContext()
+      ctxRef.current ??= new AudioContext({ sampleRate: sr })
       const audioBuffer = ctxRef.current.createBuffer(1, audio.length, sr)
-      audioBuffer.copyToChannel(new Float32Array(audio), 0)
+      audioBuffer.copyToChannel(audio, 0)
       const source = ctxRef.current.createBufferSource()
       source.buffer = audioBuffer
       source.connect(ctxRef.current.destination)
       source.start()
-      source.onended = () => {
+      source.onEnded = () => {
         clearInterval(interval)
         setIsPlaying(false)
         setProgress(duration)
