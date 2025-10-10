@@ -98,7 +98,7 @@ interface ThemeProviderProps {
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const [themeMode, setThemeModeState] = useState<ThemeMode>('system')
   const [systemColorScheme, setSystemColorScheme] = useState<ColorSchemeName>(
-    Appearance.getColorScheme()
+    Appearance.getColorScheme() || 'light'
   )
 
   const getEffectiveTheme = (mode: ThemeMode, systemScheme: ColorSchemeName): Theme => {

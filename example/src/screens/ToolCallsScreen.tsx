@@ -849,6 +849,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
 
   return (
     <View style={styles.container}>
+      {/* @ts-ignore */}
       <Chat
         renderBubble={renderBubble}
         theme={isDark ? chatDarkTheme : chatLightTheme}
