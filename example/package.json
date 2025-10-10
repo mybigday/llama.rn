@@ -25,9 +25,9 @@
     "react-native": "0.82.0",
     "react-native-audio-api": "^0.6.0",
     "react-native-blob-util": "^0.22.2",
-    "react-native-gesture-handler": "2.24.0",
-    "react-native-safe-area-context": "^5.5.2",
-    "react-native-screens": "4.4.0",
+    "react-native-gesture-handler": "^2.24.0",
+    "react-native-safe-area-context": "^5.6.1",
+    "react-native-screens": "^4.4.0",
     "whatwg-url-without-unicode": "^8.0.0-3",
     "zod": "3",
     "zod-to-json-schema": "^3.24.6"

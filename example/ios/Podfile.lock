@@ -1894,7 +1894,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
-  - react-native-safe-area-context (5.5.2):
+  - react-native-safe-area-context (5.6.1):
     - boost
     - DoubleConversion
     - fast_float
@@ -1912,8 +1912,8 @@ PODS:
     - React-graphics
     - React-ImageManager
     - React-jsi
-    - react-native-safe-area-context/common (= 5.5.2)
-    - react-native-safe-area-context/fabric (= 5.5.2)
+    - react-native-safe-area-context/common (= 5.6.1)
+    - react-native-safe-area-context/fabric (= 5.6.1)
     - React-NativeModulesApple
     - React-RCTFabric
     - React-renderercss
@@ -1924,7 +1924,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
-  - react-native-safe-area-context/common (5.5.2):
+  - react-native-safe-area-context/common (5.6.1):
     - boost
     - DoubleConversion
     - fast_float
@@ -1952,7 +1952,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
-  - react-native-safe-area-context/fabric (5.5.2):
+  - react-native-safe-area-context/fabric (5.6.1):
     - boost
     - DoubleConversion
     - fast_float
@@ -2663,7 +2663,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
-  - RNGestureHandler (2.24.0):
+  - RNGestureHandler (2.28.0):
     - boost
     - DoubleConversion
     - fast_float
@@ -2691,7 +2691,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
-  - RNScreens (4.4.0):
+  - RNScreens (4.16.0):
     - boost
     - DoubleConversion
     - fast_float
@@ -2718,10 +2718,10 @@ PODS:
     - ReactCodegen
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
-    - RNScreens/common (= 4.4.0)
+    - RNScreens/common (= 4.16.0)
     - SocketRocket
     - Yoga
-  - RNScreens/common (4.4.0):
+  - RNScreens/common (4.16.0):
     - boost
     - DoubleConversion
     - fast_float
@@ -3061,7 +3061,7 @@ SPEC CHECKSUMS:
   react-native-blob-util: f9fce545a5f63e686d5e7d9999db4a0233849e01
   react-native-document-picker: 6d0aed28b086bdd4af74081dab3c8bf23a0350d1
   react-native-menu: f7c3db69be3566b8e6558dd66f698f7199d43152
-  react-native-safe-area-context: 5d8c627bc6296d018625948364c1a02d50d11bd4
+  react-native-safe-area-context: 6d8a7b750e496e37bda47c938320bf2c734d441f
   react-native-vector-icons-material-design-icons: c502df5b988ce85d6c7d2b7ee909818315760b82
   React-NativeModulesApple: 1b4d9722d8df62e881684abadf320e7a8fa1b7f6
   React-oscompat: 80ca388c4831481cd03a6b45ecfc82739ca9a95e
@@ -3098,8 +3098,8 @@ SPEC CHECKSUMS:
   RNAudioAPI: c17413290a3e4b8b6b8b19bfc09a83dc5a01b040
   RNCAsyncStorage: 302f2fac014fd450046c120567ca364632da682b
   RNCClipboard: dc60df6439b25d350cf856eeeab195afe166c15f
-  RNGestureHandler: ad5a7292f09ee767fcfa56d90a071133d94baa2d
-  RNScreens: 56161fa90bf189ebd03e16d39d7ada9e967864bc
+  RNGestureHandler: 310fefa1b72004d0b0a6a361b537a74724f45d5b
+  RNScreens: 74985ca8e102294a60cec7513fa84c936fa0b20b
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: edeb9900b9e5bb5b27b9a6a2d5914e4fe4033c1b
 
