@@ -100,7 +100,7 @@ export const Bubble = ({
   const toolCallBackground = isDark
     ? 'rgba(255,255,255,0.1)'
     : 'rgba(0,0,0,0.1)'
-  const timingTextColor = isDark ? '#999' : '#ccc'
+  const timingTextColor = isDark ? '#999' : '#666'
   const timingBackground = isDark
     ? 'rgba(255,255,255,0.08)'
     : 'rgba(0,0,0,0.08)'
