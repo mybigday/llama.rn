@@ -282,7 +282,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       })
 
       // Use queueCompletion for parallel processing with messages format
-      const { requestId, stop } = await context.queueCompletion(
+      const { requestId, promise, stop } = await context.queueCompletion(
         {
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
@@ -301,18 +301,27 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
             })
           }
         },
-        (_reqId, result) => {
-          const finalText = result.text || ''
-          updateSlot(slotId, {
-            status: 'completed',
-            response: finalText,
-            endTime: Date.now(),
-          })
-        },
       )
 
       // Update slot with requestId and stop function
       updateSlot(slotId, { requestId, stop })
+
+      // Await promise to get the final result
+      promise.then((result) => {
+        const finalText = result.text || ''
+        updateSlot(slotId, {
+          status: 'completed',
+          response: finalText,
+          endTime: Date.now(),
+        })
+      }).catch((err) => {
+        console.error('Promise error:', err)
+        updateSlot(slotId, {
+          status: 'error',
+          response: `Error: ${err}`,
+          endTime: Date.now(),
+        })
+      })
     } catch (error) {
       console.error('Completion error:', error)
       updateSlot(slotId, {

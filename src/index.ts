@@ -535,13 +535,11 @@ export class LlamaContext {
    * Queue a completion request for parallel processing (non-blocking)
    * @param params Completion parameters (same as completion())
    * @param onToken Callback fired for each generated token
-   * @param onComplete Callback fired when generation completes
-   * @returns Promise resolving to object with requestId, promise, and stop function
+   * @returns Promise resolving to object with requestId, promise (resolves to completion result), and stop function
    */
   async queueCompletion(
     params: CompletionParams,
     onToken?: (requestId: number, data: TokenData) => void,
-    onComplete?: (requestId: number, result: Partial<NativeCompletionResult>) => void,
   ): Promise<{
     requestId: number
     promise: Promise<NativeCompletionResult>
@@ -632,11 +630,6 @@ export class LlamaContext {
       completeListener = EventEmitter.addListener(EVENT_ON_COMPLETE, (evt: any) => {
         const { contextId, requestId: evtRequestId, result } = evt
         if (contextId !== this.id || evtRequestId !== requestId) return
-
-        // Call user's onComplete callback if provided
-        if (onComplete) {
-          onComplete(requestId, result)
-        }
 
         // Clean up listeners
         tokenListener?.remove()
