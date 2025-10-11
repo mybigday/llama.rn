@@ -504,13 +504,17 @@ export class LlamaContext {
    * @param params Completion parameters (same as completion())
    * @param onToken Callback fired for each generated token
    * @param onComplete Callback fired when generation completes
-   * @returns Promise resolving to request ID
+   * @returns Promise resolving to object with requestId, promise, and stop function
    */
   async queueCompletion(
     params: CompletionParams,
     onToken?: (requestId: number, data: TokenData) => void,
     onComplete?: (requestId: number, result: Partial<NativeCompletionResult>) => void,
-  ): Promise<number> {
+  ): Promise<{
+    requestId: number
+    promise: Promise<NativeCompletionResult>
+    stop: () => Promise<void>
+  }> {
     const nativeParams = {
       ...params,
       prompt: params.prompt || '',
@@ -580,37 +584,50 @@ export class LlamaContext {
 
     const { requestId } = await RNLlama.queueCompletion(this.id, nativeParams)
 
-    if (onToken) {
-      tokenListener = EventEmitter.addListener(EVENT_ON_TOKEN, (evt: TokenNativeEvent) => {
-        const { contextId, tokenResult } = evt
-        if (contextId !== this.id) return
-        // Filter by requestId from tokenResult (set by native code)
-        const evtRequestId = (tokenResult as any).requestId
-        if (evtRequestId !== requestId) return
-        onToken(requestId, tokenResult)
-      })
-    }
+    // Create promise that resolves when completion finishes
+    const promise = new Promise<NativeCompletionResult>((resolve, _reject) => {
+      if (onToken) {
+        tokenListener = EventEmitter.addListener(EVENT_ON_TOKEN, (evt: TokenNativeEvent) => {
+          const { contextId, tokenResult } = evt
+          if (contextId !== this.id) return
+          // Filter by requestId from tokenResult (set by native code)
+          const evtRequestId = (tokenResult as any).requestId
+          if (evtRequestId !== requestId) return
+          onToken(requestId, tokenResult)
+        })
+      }
 
-    if (onComplete) {
       completeListener = EventEmitter.addListener(EVENT_ON_COMPLETE, (evt: any) => {
         const { contextId, requestId: evtRequestId, result } = evt
         if (contextId !== this.id || evtRequestId !== requestId) return
-        onComplete(requestId, result)
-        // Clean up listeners after completion
+
+        // Call user's onComplete callback if provided
+        if (onComplete) {
+          onComplete(requestId, result)
+        }
+
+        // Clean up listeners
         tokenListener?.remove()
         completeListener?.remove()
+
+        // Resolve the promise
+        resolve(result as NativeCompletionResult)
       })
+    })
+
+    // Create stop function
+    const stop = async () => {
+      await RNLlama.cancelRequest(this.id, requestId)
+      // Clean up listeners
+      tokenListener?.remove()
+      completeListener?.remove()
     }
 
-    return requestId
-  }
-
-  /**
-   * Cancel a queued completion request
-   * @param requestId Request ID returned from queueCompletion()
-   */
-  cancelRequest(requestId: number): Promise<void> {
-    return RNLlama.cancelRequest(this.id, requestId)
+    return {
+      requestId,
+      promise,
+      stop,
+    }
   }
 
   /**

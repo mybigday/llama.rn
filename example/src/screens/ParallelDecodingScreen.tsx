@@ -24,7 +24,7 @@ import {
 } from '../utils/storage'
 import { initLlama, LlamaContext } from '../../../src'
 
-interface ConversationThread {
+interface ConversationSlot {
   id: string
   prompt: string
   response: string
@@ -32,6 +32,7 @@ interface ConversationThread {
   startTime?: number
   endTime?: number
   requestId: number
+  stop?: () => Promise<void>
 }
 
 const SYSTEM_PROMPT = 'You are a helpful AI assistant. Be concise and direct in your responses.'
@@ -41,6 +42,8 @@ const EXAMPLE_PROMPTS = [
   'Explain quantum computing in simple terms.',
   'Write a haiku about coding.',
   'What are the primary colors?',
+  'What is the meaning of life?',
+  'What is art?',
 ]
 
 export default function ParallelDecodingScreen({ navigation }: { navigation: any }) {
@@ -51,7 +54,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
   const [isModelReady, setIsModelReady] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
-  const [threads, setThreads] = useState<ConversationThread[]>([])
+  const [slots, setSlots] = useState<ConversationSlot[]>([])
   const [parallelSlots] = useState(2)
   const [customPrompt, setCustomPrompt] = useState('')
   const [isParallelMode, setIsParallelMode] = useState(false)
@@ -59,7 +62,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
   const [showCompletionParamsModal, setShowCompletionParamsModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [completionParams, setCompletionParams] = useState<CompletionParams | null>(null)
-  const threadsRef = useRef<ConversationThread[]>([])
+  const slotsRef = useRef<ConversationSlot[]>([])
 
   const handleSaveContextParams = (params: ContextParams) => {
     setContextParams(params)
@@ -69,9 +72,9 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     setCompletionParams(params)
   }
 
-  const clearThreads = useCallback(() => {
-    setThreads([])
-    threadsRef.current = []
+  const clearSlots = useCallback(() => {
+    setSlots([])
+    slotsRef.current = []
   }, [])
 
   // Set up header buttons
@@ -82,7 +85,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <HeaderButton
               iconName="refresh"
-              onPress={clearThreads}
+              onPress={clearSlots}
             />
             <HeaderButton
               iconName="cog-outline"
@@ -116,7 +119,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         ),
       })
     }
-  }, [navigation, isModelReady, parallelSlots, clearThreads])
+  }, [navigation, isModelReady, parallelSlots, clearSlots])
 
   // Cleanup on unmount
   useEffect(
@@ -158,8 +161,8 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     }
   }
 
-  const addThread = (prompt: string) => {
-    const newThread: ConversationThread = {
+  const addSlot = (prompt: string) => {
+    const newSlot: ConversationSlot = {
       id: Math.random().toString(36).substring(2, 11),
       prompt,
       response: '',
@@ -167,16 +170,16 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       requestId: -1, // Will be set when request is queued
     }
 
-    setThreads((prev) => [...prev, newThread])
-    threadsRef.current = [...threadsRef.current, newThread]
-    return newThread
+    setSlots((prev) => [...prev, newSlot])
+    slotsRef.current = [...slotsRef.current, newSlot]
+    return newSlot
   }
 
-  const updateThread = (id: string, updates: Partial<ConversationThread>) => {
-    setThreads((prev) =>
+  const updateSlot = (id: string, updates: Partial<ConversationSlot>) => {
+    setSlots((prev) =>
       prev.map((t) => (t.id === id ? { ...t, ...updates } : t)),
     )
-    threadsRef.current = threadsRef.current.map((t) =>
+    slotsRef.current = slotsRef.current.map((t) =>
       t.id === id ? { ...t, ...updates } : t,
     )
   }
@@ -187,16 +190,16 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       return
     }
 
-    const thread = addThread(prompt)
-    const threadId = thread.id
-    updateThread(threadId, { status: 'processing', startTime: Date.now() })
+    const slot = addSlot(prompt)
+    const slotId = slot.id
+    updateSlot(slotId, { status: 'processing', startTime: Date.now() })
 
     try {
       // Load completion params
       const params = completionParams || (await loadCompletionParams())
 
       // Use queueCompletion for parallel processing with messages format
-      const requestId = await context.queueCompletion(
+      const { requestId, stop } = await context.queueCompletion(
         {
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
@@ -208,17 +211,16 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
           jinja: true,
         },
         (_reqId, data) => {
-          const currentThread = threadsRef.current.find((t) => t.id === threadId)
-          if (currentThread && data.token) {
-            updateThread(threadId, {
+          const currentSlot = slotsRef.current.find((t) => t.id === slotId)
+          if (currentSlot && data.token) {
+            updateSlot(slotId, {
               response: data.accumulated_text,
             })
           }
         },
         (_reqId, result) => {
-          console.log('onComplete', result)
           const finalText = result.text || ''
-          updateThread(threadId, {
+          updateSlot(slotId, {
             status: 'completed',
             response: finalText,
             endTime: Date.now(),
@@ -226,11 +228,11 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         },
       )
 
-      // Update thread with requestId
-      updateThread(threadId, { requestId })
+      // Update slot with requestId and stop function
+      updateSlot(slotId, { requestId, stop })
     } catch (error) {
       console.error('Completion error:', error)
-      updateThread(threadId, {
+      updateSlot(slotId, {
         status: 'error',
         response: `Error: ${error}`,
         endTime: Date.now(),
@@ -251,26 +253,30 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     }
   }
 
+  const cancelSlot = async (slot: ConversationSlot) => {
+    try {
+      // Use the stop function from queueCompletion
+      if (slot.stop) await slot.stop()
+      updateSlot(slot.id, {
+        status: 'error',
+        response: slot.response || 'Cancelled',
+        endTime: Date.now(),
+      })
+    } catch (err) {
+      console.error(`Error cancelling request ${slot.requestId}:`, err)
+    }
+  }
+
   const cancelAllRequests = async () => {
     if (!context) return
 
     try {
-      // Cancel all processing requests using cancelRequest
-      const processingThreads = threads.filter((t) => t.status === 'processing')
+      // Cancel all processing requests using the stop function
+      const processingSlots = slots.filter((t) => t.status === 'processing' || t.status === 'idle')
 
       await Promise.all(
-        processingThreads.map(async (thread) => {
-          try {
-            if (thread.requestId >= 0) {
-              await context.cancelRequest(thread.requestId)
-            }
-            updateThread(thread.id, {
-              status: 'error',
-              endTime: Date.now(),
-            })
-          } catch (err) {
-            console.error(`Error cancelling request ${thread.requestId}:`, err)
-          }
+        processingSlots.map(async (slot) => {
+          await cancelSlot(slot)
         })
       )
     } catch (error) {
@@ -278,9 +284,9 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     }
   }
 
-  const getThreadDuration = (thread: ConversationThread) => {
-    if (thread.startTime && thread.endTime) {
-      const duration = ((thread.endTime - thread.startTime) / 1000).toFixed(2)
+  const getSlotDuration = (slot: ConversationSlot) => {
+    if (slot.startTime && slot.endTime) {
+      const duration = ((slot.endTime - slot.startTime) / 1000).toFixed(2)
       return `${duration}s`
     }
     return '-'
@@ -368,50 +374,62 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       alignItems: 'center',
       minWidth: 60,
     },
-    threadsContainer: {
+    slotsContainer: {
       flex: 1,
       padding: 16,
     },
-    thread: {
+    slot: {
       marginBottom: 16,
       padding: 12,
       backgroundColor: theme.colors.surface,
       borderRadius: 8,
       borderLeftWidth: 4,
     },
-    threadIdle: {
+    slotIdle: {
       borderLeftColor: theme.colors.border,
     },
-    threadProcessing: {
+    slotProcessing: {
       borderLeftColor: '#FFA500',
     },
-    threadCompleted: {
+    slotCompleted: {
       borderLeftColor: '#4CAF50',
     },
-    threadError: {
+    slotError: {
       borderLeftColor: '#F44336',
     },
-    threadHeader: {
+    slotHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       marginBottom: 8,
     },
-    threadStatus: {
+    slotStatus: {
       fontSize: 12,
       fontWeight: '600',
       textTransform: 'uppercase',
     },
-    threadDuration: {
+    slotDuration: {
       fontSize: 12,
       color: theme.colors.textSecondary,
     },
-    threadPrompt: {
+    cancelButton: {
+      marginLeft: 8,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      backgroundColor: theme.colors.error,
+      borderRadius: 4,
+    },
+    cancelButtonText: {
+      color: theme.colors.white,
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    slotPrompt: {
       fontSize: 14,
       fontWeight: '600',
       color: theme.colors.text,
       marginBottom: 8,
     },
-    threadResponse: {
+    slotResponse: {
       fontSize: 14,
       color: theme.colors.textSecondary,
       lineHeight: 20,
@@ -472,12 +490,12 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     )
   }
 
-  const activeCount = threads.filter((t) => t.status === 'processing').length
-  const completedCount = threads.filter((t) => t.status === 'completed').length
+  const activeCount = slots.filter((t) => t.status === 'processing' || t.status === 'idle').length
+  const completedCount = slots.filter((t) => t.status === 'completed').length
   const avgDuration =
     completedCount > 0
       ? (
-          threads
+          slots
             .filter((t) => t.startTime && t.endTime)
             .reduce(
               (sum, t) => sum + (t.endTime! - t.startTime!) / 1000,
@@ -497,7 +515,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
             <Text style={styles.statValue}>{parallelSlots}</Text>
           </View>
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Active</Text>
+            <Text style={styles.statLabel}>Queued</Text>
             <Text style={styles.statValue}>{activeCount}</Text>
           </View>
           <View style={styles.statBox}>
@@ -520,9 +538,9 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
             onPress={sendExamplePrompts}
             disabled={activeCount > 0}
           >
-            <Text style={styles.buttonText}>Send 4 Examples</Text>
+            <Text style={styles.buttonText}>{`Send ${EXAMPLE_PROMPTS.length} Examples`}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.button} onPress={clearThreads}>
+          <TouchableOpacity style={styles.button} onPress={clearSlots}>
             <Text style={styles.buttonText}>Clear All</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -551,52 +569,62 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         </View>
       </View>
 
-      {/* Threads Section */}
-      <ScrollView style={styles.threadsContainer}>
-        {threads.length === 0 ? (
+      {/* Slots Section */}
+      <ScrollView style={styles.slotsContainer}>
+        {slots.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>
               {'No conversations yet.\n\nClick "Send 4 Examples" to see parallel processing in action,\nor enter a custom prompt below.'}
             </Text>
           </View>
         ) : (
-          threads.map((thread) => (
+          slots.map((slot) => (
             <View
-              key={thread.id}
+              key={slot.id}
               style={[
-                styles.thread,
-                thread.status === 'idle' && styles.threadIdle,
-                thread.status === 'processing' && styles.threadProcessing,
-                thread.status === 'completed' && styles.threadCompleted,
-                thread.status === 'error' && styles.threadError,
+                styles.slot,
+                slot.status === 'idle' && styles.slotIdle,
+                slot.status === 'processing' && styles.slotProcessing,
+                slot.status === 'completed' && styles.slotCompleted,
+                slot.status === 'error' && styles.slotError,
               ]}
             >
-              <View style={styles.threadHeader}>
+              <View style={styles.slotHeader}>
                 <Text
                   style={[
-                    styles.threadStatus,
+                    styles.slotStatus,
                     {
                       color: (() => {
-                        if (thread.status === 'processing') return '#FFA500'
-                        if (thread.status === 'completed') return '#4CAF50'
-                        if (thread.status === 'error') return '#F44336'
+                        if (slot.status === 'processing') return '#FFA500'
+                        if (slot.status === 'completed') return '#4CAF50'
+                        if (slot.status === 'error') return '#F44336'
                         return theme.colors.textSecondary
                       })(),
                     },
                   ]}
                 >
-                  {thread.status}
+                  {slot.status}
                 </Text>
-                <Text style={styles.threadDuration}>
-                  {getThreadDuration(thread)}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.slotDuration}>
+                    {getSlotDuration(slot)}
+                  </Text>
+                  {(slot.status === 'idle' || slot.status === 'processing') && (
+                    <TouchableOpacity
+                      style={styles.cancelButton}
+                      onPress={() => cancelSlot(slot)}
+                    >
+                      <Text style={styles.cancelButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
-              <Text style={styles.threadPrompt}>{thread.prompt}</Text>
-              {thread.status === 'processing' && !thread.response ? (
+              <Text style={styles.slotPrompt}>{slot.prompt}</Text>
+              {slot.status === 'processing' && !slot.response ? (
                 <ActivityIndicator color={theme.colors.primary} />
               ) : (
-                <Text style={styles.threadResponse}>
-                  {thread.response || 'Waiting...'}
+                <Text style={styles.slotResponse}>
+                  {slot.response || 'Waiting...'}
                 </Text>
               )}
             </View>
