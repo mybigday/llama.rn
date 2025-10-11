@@ -2187,6 +2187,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
                 case LM_GGML_UNARY_OP_GELU_ERF:
                 case LM_GGML_UNARY_OP_GELU_QUICK:
                 case LM_GGML_UNARY_OP_SILU:
+                case LM_GGML_UNARY_OP_XIELU:
                     {
                         n_tasks = n_threads;
                     } break;

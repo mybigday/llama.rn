@@ -395,15 +395,7 @@ Also, this is how `json_schema` works in `response_format` during completion, it
 
 ## Parallel Decoding
 
-`llama.rn` supports parallel decoding, enabling multiple completion requests to run concurrently within a single context. This allows efficient batch processing and real-time multi-user scenarios.
-
-### Features
-
-- **Concurrent Processing**: Handle multiple completions simultaneously using a shared KV cache
-- **Request Queue**: Automatic queuing and slot assignment with LRU strategy
-- **Per-Request Callbacks**: Each request has independent token streaming callbacks
-- **Request Control**: Cancel individual requests without affecting others
-- **Cross-Platform**: Aligned implementation across iOS and Android
+llama.rn supports slot-based parallel request processing for concurrent completion requests, enabling multiple prompts to be processed simultaneously with automatic queue management. It is similar to the llama.cpp server.
 
 ### Usage
 

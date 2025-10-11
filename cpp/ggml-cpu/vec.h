@@ -44,6 +44,7 @@ void lm_ggml_vec_dot_bf16(int n, float * LM_GGML_RESTRICT s, size_t bs, lm_ggml_
 void lm_ggml_vec_dot_f16(int n, float * LM_GGML_RESTRICT s, size_t bs, lm_ggml_fp16_t * LM_GGML_RESTRICT x, size_t bx, lm_ggml_fp16_t * LM_GGML_RESTRICT y, size_t by, int nrc);
 
 void lm_ggml_vec_silu_f32(const int n, float * y, const float * x);
+lm_ggml_float lm_ggml_vec_cvar_f32(const int n, float * y, const float * x, const float mean); //it will also center y ( y = y - mean )
 lm_ggml_float lm_ggml_vec_soft_max_f32(const int n, float * y, const float * x, float max);
 lm_ggml_float lm_ggml_vec_log_soft_max_f32(const int n, float * y, const float * x, float max);
 
@@ -654,11 +655,11 @@ inline static void lm_ggml_vec_scale_f32(const int n, float * y, const float   v
         }
         // leftovers
         // maximum number of leftover elements will be less that lm_ggml_f32_epr. Apply predicated svmad on available elements only
-        if (np < n) {
-            svbool_t pg = svwhilelt_b32(np, n);
-            ay1 = svld1_f32(pg, y + np);
+        for (int i = np; i < n; i += lm_ggml_f32_epr) {
+            svbool_t pg = svwhilelt_b32(i, n);
+            ay1 = svld1_f32(pg, y + i);
             ay1 = svmul_f32_m(pg, ay1, vx);
-            svst1_f32(pg, y + np, ay1);
+            svst1_f32(pg, y + i, ay1);
         }
     #elif defined(__riscv_v_intrinsic)
         for (int i = 0, avl; i < n; i += avl) {

@@ -814,6 +814,14 @@ struct llm_graph_context {
             lm_ggml_tensor * cls_b,
             lm_ggml_tensor * cls_out,
             lm_ggml_tensor * cls_out_b) const;
+
+    //
+    // dense (out)
+    //
+
+    void build_dense_out(
+            lm_ggml_tensor * dense_2,
+            lm_ggml_tensor * dense_3) const;
 };
 
 // TODO: better name
