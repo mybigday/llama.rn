@@ -1366,15 +1366,30 @@
 
     // Get chat format params
     int chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : 0;
-    int reasoning_format = params[@"reasoning_format"] ? [params[@"reasoning_format"] intValue] : 0;
+
+    // Convert reasoning_format from string to enum (same as completion method)
+    NSString *reasoningFormat = params[@"reasoning_format"];
+    if (!reasoningFormat) reasoningFormat = @"none";
+    std::string reasoningFormatStr = [reasoningFormat UTF8String];
+    common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
+
+    NSLog(@"reasoning_format: %d", reasoning_format);
+
     bool thinking_forced_open = params[@"thinking_forced_open"] ? [params[@"thinking_forced_open"] boolValue] : false;
+
+    // Get prefill text
+    NSString *prefillText = params[@"prefill_text"];
+    std::string prefill_text_str = prefillText ? [prefillText UTF8String] : "";
 
     // Copy blocks to ensure they're retained on the heap for async use
     void (^onTokenCopy)(NSMutableDictionary *) = [onToken copy];
     void (^onCompleteCopy)(NSDictionary *) = [onComplete copy];
 
+    // Capture slot manager for parseChatOutput
+    auto* slot_mgr = llama->slot_manager;
+
     // Create callbacks
-    auto token_callback = [onTokenCopy](const rnllama::completion_token_output& token) {
+    auto token_callback = [onTokenCopy, slot_mgr](const rnllama::completion_token_output& token) {
         // Capture all needed data from token before dispatching
         int32_t reqId = token.request_id;
         int32_t tok = token.tok;
@@ -1382,6 +1397,17 @@
 
         // Copy probabilities vector to avoid dangling reference
         std::vector<rnllama::completion_token_output::token_prob> probs_copy = token.probs;
+
+        // Find slot and parse chat output
+        rnllama::completion_chat_output parsed_output;
+        bool has_parsed_output = false;
+        if (slot_mgr) {
+            auto* slot = slot_mgr->get_slot_by_request_id(reqId);
+            if (slot) {
+                parsed_output = slot->parseChatOutput(true);  // is_partial = true
+                has_parsed_output = true;
+            }
+        }
 
         dispatch_async(dispatch_get_main_queue(), ^{
             NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
@@ -1398,6 +1424,33 @@
                     }];
                 }
                 result[@"probs"] = probs;
+            }
+
+            // Add parsed chat output (content, reasoning_content, tool_calls, accumulated_text)
+            if (has_parsed_output) {
+                if (!parsed_output.content.empty()) {
+                    result[@"content"] = [NSString stringWithUTF8String:parsed_output.content.c_str()];
+                }
+                if (!parsed_output.reasoning_content.empty()) {
+                    result[@"reasoning_content"] = [NSString stringWithUTF8String:parsed_output.reasoning_content.c_str()];
+                }
+                if (!parsed_output.tool_calls.empty()) {
+                    NSMutableArray *toolCalls = [[NSMutableArray alloc] init];
+                    for (const auto &tc : parsed_output.tool_calls) {
+                        [toolCalls addObject:@{
+                            @"type": @"function",
+                            @"function": @{
+                                @"name": [NSString stringWithUTF8String:tc.name.c_str()],
+                                @"arguments": [NSString stringWithUTF8String:tc.arguments.c_str()],
+                            },
+                            @"id": tc.id.empty() ? [NSNull null] : [NSString stringWithUTF8String:tc.id.c_str()],
+                        }];
+                    }
+                    result[@"tool_calls"] = toolCalls;
+                }
+                if (!parsed_output.accumulated_text.empty()) {
+                    result[@"accumulated_text"] = [NSString stringWithUTF8String:parsed_output.accumulated_text.c_str()];
+                }
             }
 
             if (onTokenCopy) {
@@ -1417,6 +1470,16 @@
         bool incomplete = slot->incomplete;
         int n_decoded = slot->n_decoded;
 
+        // Parse final chat output
+        rnllama::completion_chat_output final_output;
+        bool has_final_output = false;
+        try {
+            final_output = slot->parseChatOutput(false);  // is_partial = false
+            has_final_output = true;
+        } catch (...) {
+            // Ignore parsing errors
+        }
+
         dispatch_async(dispatch_get_main_queue(), ^{
             NSMutableDictionary *result = [[NSMutableDictionary alloc] init];
             result[@"requestId"] = @(reqId);
@@ -1427,6 +1490,30 @@
             result[@"context_full"] = @(context_full);
             result[@"incomplete"] = @(incomplete);
             result[@"n_decoded"] = @(n_decoded);
+
+            // Add parsed chat output (final)
+            if (has_final_output) {
+                if (!final_output.content.empty()) {
+                    result[@"content"] = [NSString stringWithUTF8String:final_output.content.c_str()];
+                }
+                if (!final_output.reasoning_content.empty()) {
+                    result[@"reasoning_content"] = [NSString stringWithUTF8String:final_output.reasoning_content.c_str()];
+                }
+                if (!final_output.tool_calls.empty()) {
+                    NSMutableArray *toolCalls = [[NSMutableArray alloc] init];
+                    for (const auto &tc : final_output.tool_calls) {
+                        [toolCalls addObject:@{
+                            @"type": @"function",
+                            @"function": @{
+                                @"name": [NSString stringWithUTF8String:tc.name.c_str()],
+                                @"arguments": [NSString stringWithUTF8String:tc.arguments.c_str()],
+                            },
+                            @"id": tc.id.empty() ? [NSNull null] : [NSString stringWithUTF8String:tc.id.c_str()],
+                        }];
+                    }
+                    result[@"tool_calls"] = toolCalls;
+                }
+            }
 
             if (onCompleteCopy) {
                 onCompleteCopy(result);
@@ -1442,6 +1529,7 @@
         chat_format,
         reasoning_format,
         thinking_forced_open,
+        prefill_text_str,
         token_callback,
         complete_callback
     );

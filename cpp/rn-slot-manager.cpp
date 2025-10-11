@@ -90,8 +90,9 @@ int32_t llama_rn_slot_manager::queue_request(
     const std::vector<llama_token>& prompt,
     const std::vector<std::string>& media_paths,
     int chat_format,
-    int reasoning_format,
+    common_reasoning_format reasoning_format,
     bool thinking_forced_open,
+    const std::string& prefill_text,
     std::function<void(const completion_token_output&)> on_token,
     std::function<void(llama_rn_slot*)> on_complete
 ) {
@@ -109,6 +110,7 @@ int32_t llama_rn_slot_manager::queue_request(
     request.chat_format = chat_format;
     request.reasoning_format = reasoning_format;
     request.thinking_forced_open = thinking_forced_open;
+    request.prefill_text = prefill_text;
     request.on_token = on_token;
     request.on_complete = on_complete;
 
@@ -140,6 +142,15 @@ llama_rn_slot* llama_rn_slot_manager::get_available_slot(const std::vector<llama
     }
 
     return best_slot;
+}
+
+// Get slot by request ID
+llama_rn_slot* llama_rn_slot_manager::get_slot_by_request_id(int32_t request_id) {
+    auto it = active_requests.find(request_id);
+    if (it != active_requests.end()) {
+        return it->second;
+    }
+    return nullptr;
 }
 
 // Release slot
@@ -243,6 +254,7 @@ void llama_rn_slot_manager::process_pending_queue() {
         slot->current_chat_format = request.chat_format;
         slot->current_reasoning_format = request.reasoning_format;
         slot->current_thinking_forced_open = request.thinking_forced_open;
+        slot->prefill_text = request.prefill_text;
         slot->t_start_process = lm_ggml_time_us();
 
         // Set token generation limit from params

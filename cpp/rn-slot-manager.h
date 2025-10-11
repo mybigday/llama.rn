@@ -28,13 +28,16 @@ struct llama_rn_queued_request {
 
     // Chat format parameters
     int chat_format;
-    int reasoning_format;
+    common_reasoning_format reasoning_format;
     bool thinking_forced_open;
+
+    // Prefill text
+    std::string prefill_text;
 
     llama_rn_queued_request() :
         request_id(-1),
         chat_format(0),
-        reasoning_format(0),
+        reasoning_format(COMMON_REASONING_FORMAT_NONE),
         thinking_forced_open(false)
     {}
 };
@@ -79,14 +82,16 @@ struct llama_rn_slot_manager {
         const std::vector<llama_token>& prompt,
         const std::vector<std::string>& media_paths,
         int chat_format,
-        int reasoning_format,
+        common_reasoning_format reasoning_format,
         bool thinking_forced_open,
+        const std::string& prefill_text,
         std::function<void(const completion_token_output&)> on_token,
         std::function<void(llama_rn_slot*)> on_complete
     );
 
     // Slot management
     llama_rn_slot* get_available_slot(const std::vector<llama_token>& prompt);
+    llama_rn_slot* get_slot_by_request_id(int32_t request_id);
     void release_slot(llama_rn_slot* slot);
     void cancel_request(int32_t request_id);
 

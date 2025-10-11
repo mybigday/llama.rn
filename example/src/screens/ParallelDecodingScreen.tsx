@@ -203,6 +203,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
             { role: 'user', content: prompt },
           ],
           ...params,
+          reasoning_format: 'auto',
           n_predict: params.n_predict || 50,
           jinja: true,
         },
@@ -210,12 +211,13 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
           const currentThread = threadsRef.current.find((t) => t.id === threadId)
           if (currentThread && data.token) {
             updateThread(threadId, {
-              response: currentThread.response + data.token,
+              response: data.accumulated_text,
             })
           }
         },
         (_reqId, result) => {
-          const finalText = result.content || result.text || ''
+          console.log('onComplete', result)
+          const finalText = result.text || ''
           updateThread(threadId, {
             status: 'completed',
             response: finalText,

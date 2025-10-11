@@ -2036,9 +2036,11 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
         params.n_predict = n_predict;
         params.cpuparams.n_threads = n_threads;
 
-        // Convert reasoning_format string
+        // Convert reasoning_format string to enum (same as doCompletion)
         const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
-        int reasoning_format_int = 0; // TODO: Convert string to int enum if needed
+        if (!reasoning_format_chars) reasoning_format_chars = "none";
+        std::string reasoning_format_str = reasoning_format_chars;
+        common_reasoning_format reasoning_format_enum = common_reasoning_format_from_name(reasoning_format_str);
         env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
 
         // Convert media_paths array
@@ -2098,6 +2100,46 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
                 putArray(env_cb, tokenResult, "probs", probsArray);
             }
 
+            // Find slot and parse chat output
+            rnllama::completion_chat_output parsed_output;
+            bool has_parsed_output = false;
+            if (llama->slot_manager) {
+                auto* slot = llama->slot_manager->get_slot_by_request_id(token_output.request_id);
+                if (slot) {
+                    parsed_output = slot->parseChatOutput(true);  // is_partial = true
+                    has_parsed_output = true;
+                }
+            }
+
+            // Add parsed chat output (content, reasoning_content, tool_calls, accumulated_text)
+            if (has_parsed_output) {
+                if (!parsed_output.content.empty()) {
+                    putString(env_cb, tokenResult, "content", parsed_output.content.c_str());
+                }
+                if (!parsed_output.reasoning_content.empty()) {
+                    putString(env_cb, tokenResult, "reasoning_content", parsed_output.reasoning_content.c_str());
+                }
+                if (!parsed_output.tool_calls.empty()) {
+                    auto toolCallsArray = createWritableArray(env_cb);
+                    for (const auto &tc : parsed_output.tool_calls) {
+                        auto toolCallMap = createWriteableMap(env_cb);
+                        putString(env_cb, toolCallMap, "type", "function");
+                        auto functionMap = createWriteableMap(env_cb);
+                        putString(env_cb, functionMap, "name", tc.name.c_str());
+                        putString(env_cb, functionMap, "arguments", tc.arguments.c_str());
+                        putMap(env_cb, toolCallMap, "function", functionMap);
+                        if (!tc.id.empty()) {
+                            putString(env_cb, toolCallMap, "id", tc.id.c_str());
+                        }
+                        pushMap(env_cb, toolCallsArray, toolCallMap);
+                    }
+                    putArray(env_cb, tokenResult, "tool_calls", toolCallsArray);
+                }
+                if (!parsed_output.accumulated_text.empty()) {
+                    putString(env_cb, tokenResult, "accumulated_text", parsed_output.accumulated_text.c_str());
+                }
+            }
+
             // Call Java callback
             jclass callbackClass = env_cb->GetObjectClass(cb_ctx->partial_callback);
             jmethodID onPartialMethod = env_cb->GetMethodID(callbackClass, "onPartialCompletion", "(Lcom/facebook/react/bridge/WritableMap;)V");
@@ -2132,6 +2174,42 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
             putBoolean(env_cb, result, "stopped_eos", slot->stopped_eos);
             putString(env_cb, result, "stopping_word", slot->stopping_word.c_str());
 
+            // Parse final chat output
+            rnllama::completion_chat_output final_output;
+            bool has_final_output = false;
+            try {
+                final_output = slot->parseChatOutput(false);  // is_partial = false
+                has_final_output = true;
+            } catch (...) {
+                // Ignore parsing errors
+            }
+
+            // Add parsed chat output (final)
+            if (has_final_output) {
+                if (!final_output.content.empty()) {
+                    putString(env_cb, result, "content", final_output.content.c_str());
+                }
+                if (!final_output.reasoning_content.empty()) {
+                    putString(env_cb, result, "reasoning_content", final_output.reasoning_content.c_str());
+                }
+                if (!final_output.tool_calls.empty()) {
+                    auto toolCallsArray = createWritableArray(env_cb);
+                    for (const auto &tc : final_output.tool_calls) {
+                        auto toolCallMap = createWriteableMap(env_cb);
+                        putString(env_cb, toolCallMap, "type", "function");
+                        auto functionMap = createWriteableMap(env_cb);
+                        putString(env_cb, functionMap, "name", tc.name.c_str());
+                        putString(env_cb, functionMap, "arguments", tc.arguments.c_str());
+                        putMap(env_cb, toolCallMap, "function", functionMap);
+                        if (!tc.id.empty()) {
+                            putString(env_cb, toolCallMap, "id", tc.id.c_str());
+                        }
+                        pushMap(env_cb, toolCallsArray, toolCallMap);
+                    }
+                    putArray(env_cb, result, "tool_calls", toolCallsArray);
+                }
+            }
+
             // Call Java callback
             jclass callbackClass = env_cb->GetObjectClass(cb_ctx->complete_callback);
             jmethodID onCompleteMethod = env_cb->GetMethodID(callbackClass, "onComplete", "(Lcom/facebook/react/bridge/WritableMap;)V");
@@ -2149,14 +2227,18 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
             }
         };
 
+        // Convert prefill_text to std::string
+        std::string prefill_text_str = prefill_text_chars ? prefill_text_chars : "";
+
         // Queue the request with all required parameters
         int32_t request_id = llama->slot_manager->queue_request(
             params,
             prompt_tokens,
             media_paths_vec,
             chat_format,
-            reasoning_format_int,
+            reasoning_format_enum,
             thinking_forced_open,
+            prefill_text_str,
             on_token,
             on_complete
         );

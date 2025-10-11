@@ -13,6 +13,7 @@ namespace rnllama {
 // Forward declarations
 struct llama_rn_context;
 struct completion_token_output;
+struct completion_chat_output;
 
 // Slot states
 enum llama_rn_slot_state {
@@ -60,7 +61,7 @@ struct llama_rn_slot {
 
     // Chat parsing state
     int current_chat_format;
-    int current_reasoning_format;
+    common_reasoning_format current_reasoning_format;
     bool current_thinking_forced_open;
 
     // Sampling context (per-slot)
@@ -91,6 +92,7 @@ struct llama_rn_slot {
     void load_prompt(const std::vector<llama_token>& tokens);
     bool has_next_token() const;
     completion_token_output get_next_token();
+    completion_chat_output parseChatOutput(bool is_partial);
 };
 
 } // namespace rnllama

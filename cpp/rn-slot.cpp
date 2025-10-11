@@ -1,6 +1,7 @@
 #include "rn-slot.h"
 #include "rn-completion.h"
 #include "rn-llama.h"
+#include "chat.h"
 #include <cstring>
 
 namespace rnllama {
@@ -25,7 +26,7 @@ llama_rn_slot::llama_rn_slot() :
     stopped_word(false),
     stopped_limit(false),
     current_chat_format(0),
-    current_reasoning_format(0),
+    current_reasoning_format(COMMON_REASONING_FORMAT_NONE),
     current_thinking_forced_open(false),
     ctx_sampling(nullptr),
     t_start_process(0),
@@ -74,7 +75,7 @@ void llama_rn_slot::reset() {
 
     // Reset chat parsing state
     current_chat_format = 0;
-    current_reasoning_format = 0;
+    current_reasoning_format = COMMON_REASONING_FORMAT_NONE;
     current_thinking_forced_open = false;
 
     // Reset flags
@@ -145,6 +146,27 @@ completion_token_output llama_rn_slot::get_next_token() {
     }
 
     return output;
+}
+
+// Parse chat output (tool calls, reasoning content, etc.)
+completion_chat_output llama_rn_slot::parseChatOutput(bool is_partial) {
+    common_chat_syntax syntax;
+    syntax.format = static_cast<common_chat_format>(current_chat_format);
+    syntax.reasoning_format = current_reasoning_format;  // Already the correct enum type
+    syntax.thinking_forced_open = current_thinking_forced_open;
+    syntax.parse_tool_calls = true;
+
+    std::string full_text = prefill_text + generated_text;
+
+    common_chat_msg parsed_msg = common_chat_parse(full_text, is_partial, syntax);
+
+    completion_chat_output result;
+    result.content = parsed_msg.content;
+    result.reasoning_content = parsed_msg.reasoning_content;
+    result.accumulated_text = full_text;
+    result.tool_calls = parsed_msg.tool_calls;
+
+    return result;
 }
 
 } // namespace rnllama
