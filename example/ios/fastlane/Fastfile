@@ -28,6 +28,9 @@ platform :ios do
     build_example_app
 
     UI.message("Uploading build to TestFlight using Apple ID credentials")
+
+    build_number = app_store_build_number(live: false).to_i + 1
+
     upload_to_testflight(
       app_identifier: ENV["IOS_APP_IDENTIFIER"],
       changelog: changelog_from_file,
@@ -37,6 +40,7 @@ platform :ios do
         "Public"
       ],
       skip_waiting_for_build_processing: false,
+      build_number: build_number.to_s,
     )
   end
 end
