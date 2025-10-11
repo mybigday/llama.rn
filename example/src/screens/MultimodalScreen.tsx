@@ -1000,6 +1000,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
   return (
     <View style={styles.container}>
+      {/* @ts-ignore */}
       <Chat
         messages={messagesRef.current}
         onSendPress={handleSendPress}

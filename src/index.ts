@@ -858,6 +858,7 @@ export async function setContextLimit(limit: number): Promise<void> {
 
 let contextIdCounter = 0
 const contextIdRandom = () =>
+  /* @ts-ignore */
   process.env.NODE_ENV === 'test' ? 0 : Math.floor(Math.random() * 100000)
 
 const modelInfoSkip = [

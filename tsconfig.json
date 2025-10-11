@@ -1,4 +1,5 @@
 {
+  "extends": "@react-native/typescript-config",
   "compilerOptions": {
     "baseUrl": "./",
     "paths": {
@@ -25,7 +26,10 @@
     "target": "esnext",
     "verbatimModuleSyntax": true
   },
+  "include": ["**/*.ts", "**/*.tsx"],
   "exclude": [
+    "**/node_modules",
+    "**/Pods",
     "third_party/llama.cpp",
     "tests"
   ]

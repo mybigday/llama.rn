@@ -475,6 +475,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
 
   return (
     <View style={themedStyles.container}>
+      {/* @ts-ignore */}
       <Chat
         renderBubble={renderBubble}
         theme={isDark ? chatDarkTheme : chatLightTheme}

@@ -197,6 +197,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
   const [isEmbedding, setIsEmbedding] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const [isModelReady, setIsModelReady] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
 
@@ -249,6 +250,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
       await handleReleaseContext()
     }
 
+    setIsLoading(true)
     setIsModelReady(false)
     setInitProgress(0)
 
@@ -264,6 +266,8 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
       setIsModelReady(false)
       setInitProgress(0)
       Alert.alert('Error', `Failed to load model: ${error}`)
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -443,7 +447,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
         />
 
         <MaskedProgress
-          visible={!isModelReady && initProgress > 0}
+          visible={isLoading}
           text={`Initializing model... ${initProgress}%`}
           progress={initProgress}
           showProgressBar={initProgress > 0}
