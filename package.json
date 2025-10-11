@@ -207,6 +207,7 @@
     "node_modules/",
     "lib/",
     "*.d.ts",
+    "tests/build/",
     "third_party/llama.cpp/"
   ],
   "prettier": {
