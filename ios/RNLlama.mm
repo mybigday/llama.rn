@@ -261,7 +261,7 @@ RCT_EXPORT_METHOD(stopCompletion:(double)contextId
 
 RCT_EXPORT_METHOD(tokenize:(double)contextId
                   text:(NSString *)text
-                  imagePaths:(NSArray *)imagePaths
+                  mediaPaths:(NSArray *)mediaPaths
                   withResolver:(RCTPromiseResolveBlock)resolve
                   withRejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -271,7 +271,7 @@ RCT_EXPORT_METHOD(tokenize:(double)contextId
         return;
     }
     @try {
-        NSMutableDictionary *result = [context tokenize:text imagePaths:imagePaths];
+        NSMutableDictionary *result = [context tokenize:text mediaPaths:mediaPaths];
         resolve(result);
         [result release];
     } @catch (NSException *exception) {

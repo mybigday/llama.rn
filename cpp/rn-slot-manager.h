@@ -25,6 +25,7 @@ struct llama_rn_queued_request {
 
     // Media paths for multimodal
     std::vector<std::string> media_paths;
+    std::string prompt_text;  // Original prompt text (needed for media processing)
 
     // Chat format parameters
     int chat_format;
@@ -80,6 +81,7 @@ struct llama_rn_slot_manager {
         const common_params& params,
         const std::vector<llama_token>& prompt,
         const std::vector<std::string>& media_paths,
+        const std::string& prompt_text,
         int chat_format,
         common_reasoning_format reasoning_format,
         bool thinking_forced_open,

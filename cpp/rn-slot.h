@@ -44,6 +44,12 @@ struct llama_rn_slot {
     std::vector<llama_token> generated_tokens;
     std::string generated_text;
 
+    // Multimodal state (per-slot)
+    std::vector<std::string> bitmap_past_hashes;  // For multimodal KV cache reuse
+    std::vector<std::string> media_paths;         // Media paths for deferred processing
+    std::string prompt_text;                      // Original prompt text for media processing
+    bool media_processed;                         // Flag indicating if media has been processed
+
     // Completion state (migrated from llama_rn_context_completion)
     std::string prefill_text;
     std::vector<completion_token_output> generated_token_probs;

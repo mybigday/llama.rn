@@ -349,21 +349,21 @@ export type NativeCompletionResult = {
 export type NativeTokenizeResult = {
   tokens: Array<number>
   /**
-   * Whether the tokenization contains images
+   * Whether the tokenization contains media
    */
-  has_images: boolean
+  has_media: boolean
   /**
-   * Bitmap hashes of the images
+   * Bitmap hashes of the media
    */
   bitmap_hashes: Array<number>
   /**
-   * Chunk positions of the text and images
+   * Chunk positions of the text and media
    */
   chunk_pos: Array<number>
   /**
-   * Chunk positions of the images
+   * Chunk positions of the media
    */
-  chunk_pos_images: Array<number>
+  chunk_pos_media: Array<number>
 }
 
 export type NativeEmbeddingResult = {
@@ -525,7 +525,7 @@ export interface Spec extends TurboModule {
     params: NativeCompletionParams,
   ): Promise<{ requestId: number }>
   cancelRequest(contextId: number, requestId: number): Promise<void>
-  tokenize(contextId: number, text: string, imagePaths?: Array<string>): Promise<NativeTokenizeResult>
+  tokenize(contextId: number, text: string, mediaPaths?: Array<string>): Promise<NativeTokenizeResult>
   detokenize(contextId: number, tokens: number[]): Promise<string>
   embedding(
     contextId: number,

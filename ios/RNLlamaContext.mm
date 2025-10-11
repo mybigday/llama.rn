@@ -724,12 +724,12 @@
 
     llama->completion->beginCompletion(chat_format, reasoning_format, thinking_forced_open);
     try {
-        // Use the unified loadPrompt function with image paths if available
-        NSArray *imagePaths = params[@"media_paths"];
-        if (imagePaths && [imagePaths count] > 0) {
-            // Multiple image paths
+        // Use the unified loadPrompt function with media paths if available
+        NSArray *mediaPaths = params[@"media_paths"];
+        if (mediaPaths && [mediaPaths count] > 0) {
+            // Multiple media paths
             std::vector<std::string> media_paths_vector;
-            for (NSString *path in imagePaths) {
+            for (NSString *path in mediaPaths) {
                 if ([path isKindOfClass:[NSString class]]) {
                     media_paths_vector.push_back([path UTF8String]);
                 }
@@ -913,10 +913,10 @@
     llama->completion->is_interrupted = true;
 }
 
-- (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths {
+- (NSDictionary *)tokenize:(NSString *)text mediaPaths:(NSArray *)mediaPaths {
     std::vector<std::string> media_paths_vector;
-    if (imagePaths && [imagePaths count] > 0) {
-        for (NSString *path in imagePaths) {
+    if (mediaPaths && [mediaPaths count] > 0) {
+        for (NSString *path in mediaPaths) {
             if ([path isKindOfClass:[NSString class]]) {
                 media_paths_vector.push_back([path UTF8String]);
             }
@@ -1207,10 +1207,10 @@
 
     // Tokenize prompt
     NSString *prompt = params[@"prompt"];
-    NSArray *imagePaths = params[@"images"];
+    NSArray *mediaPaths = params[@"media_paths"];
     rnllama::llama_rn_tokenize_result tokenize_result = llama->tokenize(
         prompt ? [prompt UTF8String] : "",
-        imagePaths ? [self convertNSArrayToStdVector:imagePaths] : std::vector<std::string>()
+        mediaPaths ? [self convertNSArrayToStdVector:mediaPaths] : std::vector<std::string>()
     );
 
     // Convert params to common_params (match completion method parameter handling)
@@ -1517,7 +1517,8 @@
     requestId = llama->slot_manager->queue_request(
         cpp_params,
         tokenize_result.tokens,
-        tokenize_result.has_media ? [self convertNSArrayToStdVector:imagePaths] : std::vector<std::string>(),
+        tokenize_result.has_media ? [self convertNSArrayToStdVector:mediaPaths] : std::vector<std::string>(),
+        prompt ? [prompt UTF8String] : "",  // Original prompt text (needed for media processing)
         chat_format,
         reasoning_format,
         thinking_forced_open,

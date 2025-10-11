@@ -2246,6 +2246,7 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
             params,
             prompt_tokens,
             media_paths_vec,
+            prompt_chars,
             chat_format,
             reasoning_format_enum,
             thinking_forced_open,

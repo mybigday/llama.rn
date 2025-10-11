@@ -112,6 +112,7 @@ bool test_slot_manager_initialization() {
         params.model.path = "../tiny-random-llama.gguf";
         params.n_ctx = 512;
         params.n_batch = 128;
+        params.n_parallel = 2; // Support 2 parallel slots
         params.cpuparams.n_threads = 1;
         params.n_gpu_layers = 0;
         params.no_kv_offload = true;
@@ -122,8 +123,7 @@ bool test_slot_manager_initialization() {
         }
 
         // Enable parallel mode
-        bool result = ctx.enableParallelMode(2, 128);
-        if (!result) return false;
+        ctx.enableParallelMode(2, 128);
 
         // Check that slot_manager was created
         if (ctx.slot_manager == nullptr) return false;
@@ -294,6 +294,7 @@ bool test_parallel_mode_toggle() {
         params.model.path = "../tiny-random-llama.gguf";
         params.n_ctx = 512;
         params.n_batch = 128;
+        params.n_parallel = 2; // Support 2 parallel slots
         params.cpuparams.n_threads = 1;
         params.n_gpu_layers = 0;
         params.no_kv_offload = true;
@@ -308,8 +309,7 @@ bool test_parallel_mode_toggle() {
         if (ctx.slot_manager != nullptr) return false;
 
         // Enable parallel mode
-        bool enabled = ctx.enableParallelMode(2, 128);
-        if (!enabled) return false;
+        ctx.enableParallelMode(2, 128);
         if (!ctx.parallel_mode_enabled) return false;
         if (ctx.slot_manager == nullptr) return false;
 
@@ -333,6 +333,7 @@ bool test_multiple_slots_independence() {
         params.model.path = "../tiny-random-llama.gguf";
         params.n_ctx = 512;
         params.n_batch = 128;
+        params.n_parallel = 3; // Support 3 parallel slots
         params.cpuparams.n_threads = 1;
         params.n_gpu_layers = 0;
         params.no_kv_offload = true;
@@ -446,6 +447,7 @@ bool test_single_request_completion() {
         params.model.path = "../tiny-random-llama.gguf";
         params.n_ctx = 512;
         params.n_batch = 128;
+        params.n_parallel = 2; // Support 2 parallel slots
         params.cpuparams.n_threads = 1;
         params.n_gpu_layers = 0;
         params.no_kv_offload = true;
@@ -471,6 +473,7 @@ bool test_single_request_completion() {
             params,
             prompt_tokens,
             std::vector<std::string>(), // No media
+            "Hello", // prompt_text
             0, // chat_format
             COMMON_REASONING_FORMAT_NONE, // reasoning_format
             false, // thinking_forced_open
@@ -535,6 +538,7 @@ bool test_request_cancellation() {
         params.model.path = "../tiny-random-llama.gguf";
         params.n_ctx = 512;
         params.n_batch = 128;
+        params.n_parallel = 2; // Support 2 parallel slots
         params.cpuparams.n_threads = 1;
         params.n_gpu_layers = 0;
         params.no_kv_offload = true;
@@ -555,13 +559,13 @@ bool test_request_cancellation() {
         int tokens_generated1 = 0, tokens_generated2 = 0;
 
         int32_t req_id1 = ctx.slot_manager->queue_request(
-            params, prompt1, std::vector<std::string>(), 0, COMMON_REASONING_FORMAT_NONE, false, "",
+            params, prompt1, std::vector<std::string>(), "What is the capital of France?", 0, COMMON_REASONING_FORMAT_NONE, false, "",
             [&](const completion_token_output& token) { tokens_generated1++; },
             [&](llama_rn_slot* slot) { complete1 = true; }
         );
 
         int32_t req_id2 = ctx.slot_manager->queue_request(
-            params, prompt2, std::vector<std::string>(), 0, COMMON_REASONING_FORMAT_NONE, false, "",
+            params, prompt2, std::vector<std::string>(), "Explain quantum computing.", 0, COMMON_REASONING_FORMAT_NONE, false, "",
             [&](const completion_token_output& token) { tokens_generated2++; },
             [&](llama_rn_slot* slot) { complete2 = true; }
         );
@@ -623,7 +627,7 @@ bool test_sequential_requests() {
             bool complete = false;
 
             int32_t req_id = ctx.slot_manager->queue_request(
-                params, prompt, std::vector<std::string>(), 0, COMMON_REASONING_FORMAT_NONE, false, "",
+                params, prompt, std::vector<std::string>(), prompt_str, 0, COMMON_REASONING_FORMAT_NONE, false, "",
                 [&](const completion_token_output& token) {},
                 [&](llama_rn_slot* slot) { complete = true; }
             );
@@ -657,6 +661,7 @@ bool test_queue_overflow() {
         params.model.path = "../tiny-random-llama.gguf";
         params.n_ctx = 512;
         params.n_batch = 128;
+        params.n_parallel = 2;
         params.cpuparams.n_threads = 1;
         params.n_gpu_layers = 0;
         params.no_kv_offload = true;
@@ -675,7 +680,7 @@ bool test_queue_overflow() {
             std::vector<llama_token> prompt = common_tokenize(ctx.ctx, "Test", false);
 
             int32_t req_id = ctx.slot_manager->queue_request(
-                params, prompt, std::vector<std::string>(), 0, COMMON_REASONING_FORMAT_NONE, false, "",
+                params, prompt, std::vector<std::string>(), "Test", 0, COMMON_REASONING_FORMAT_NONE, false, "",
                 [](const completion_token_output& token) {},
                 [](llama_rn_slot* slot) {}
             );

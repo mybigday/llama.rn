@@ -1,6 +1,7 @@
 #include "rn-slot-manager.h"
 #include "rn-completion.h"
 #include "rn-llama.h"
+#include "rn-mtmd.hpp"
 #include "ggml.h"
 #include <algorithm>
 #include <cstring>
@@ -89,6 +90,7 @@ int32_t llama_rn_slot_manager::queue_request(
     const common_params& params,
     const std::vector<llama_token>& prompt,
     const std::vector<std::string>& media_paths,
+    const std::string& prompt_text,
     int chat_format,
     common_reasoning_format reasoning_format,
     bool thinking_forced_open,
@@ -107,6 +109,7 @@ int32_t llama_rn_slot_manager::queue_request(
     request.params = params;
     request.prompt_tokens = prompt;
     request.media_paths = media_paths;
+    request.prompt_text = prompt_text;
     request.chat_format = chat_format;
     request.reasoning_format = reasoning_format;
     request.thinking_forced_open = thinking_forced_open;
@@ -236,7 +239,31 @@ void llama_rn_slot_manager::process_pending_queue() {
         // Assign request to slot
         LOG_INFO("Assigning request %d to slot %d", request.request_id, slot->id);
         slot->request_id = request.request_id;
-        slot->load_prompt(request.prompt_tokens);
+
+        // Initialize sampling context from params
+        if (slot->ctx_sampling != nullptr) {
+            common_sampler_free(slot->ctx_sampling);
+        }
+        slot->ctx_sampling = common_sampler_init(parent_ctx->model, request.params.sampling);
+
+        // Store media paths for deferred processing during SLOT_STATE_PROCESSING_PROMPT
+        bool has_media = !request.media_paths.empty();
+        if (has_media && parent_ctx->isMultimodalEnabled()) {
+            LOG_INFO("Storing %zu media paths for deferred processing in slot %d",
+                     request.media_paths.size(), slot->id);
+
+            // Store media info in slot for processing during SLOT_STATE_PROCESSING_PROMPT
+            slot->media_paths = request.media_paths;
+            slot->prompt_text = request.prompt_text;
+            slot->media_processed = false;
+
+            // Load the prompt tokens (which contain LLAMA_TOKEN_NULL placeholders for media)
+            slot->load_prompt(request.prompt_tokens);
+        } else {
+            // No media, load prompt tokens directly
+            slot->load_prompt(request.prompt_tokens);
+        }
+
         slot->on_token_callback = request.on_token;
         slot->on_complete_callback = request.on_complete;
         slot->current_chat_format = request.chat_format;
@@ -250,12 +277,6 @@ void llama_rn_slot_manager::process_pending_queue() {
 
         // Copy stop words from params
         slot->stop_words = request.params.antiprompt;
-
-        // Initialize sampling context from params
-        if (slot->ctx_sampling != nullptr) {
-            common_sampler_free(slot->ctx_sampling);
-        }
-        slot->ctx_sampling = common_sampler_init(parent_ctx->model, request.params.sampling);
 
         // Track active request
         active_requests[request.request_id] = slot;
@@ -294,9 +315,93 @@ void llama_rn_slot_manager::build_batch() {
     // Second pass: Add prompt tokens from PROCESSING_PROMPT slots
     for (auto& slot : slots) {
         if (slot.state == SLOT_STATE_PROCESSING_PROMPT) {
-            // Process tokens up to n_batch limit
+            // Check if we need to process media first (deferred processing)
+            // Process media at the very start (n_past == 0) before any prompt tokens
+            if (!slot.media_processed && !slot.media_paths.empty() && slot.n_past == 0) {
+                LOG_INFO("Slot %d: Processing media before prompt tokens", slot.id);
+
+                try {
+                    // Clear KV cache for this slot's sequence to ensure clean state
+                    if (parent_ctx && parent_ctx->ctx) {
+                        auto * kv = llama_get_memory(parent_ctx->ctx);
+                        llama_memory_seq_rm(kv, slot.id, 0, -1);
+                        LOG_VERBOSE("Slot %d: Cleared KV cache for sequence", slot.id);
+                    }
+
+                    // Process media using the stored prompt_text and media_paths
+                    slot.embd.clear();
+                    llama_pos n_past_before = slot.n_past;
+                    slot.n_past = 0;
+                    bool context_full = false;
+
+                    parent_ctx->mtmd_wrapper->processMedia(
+                        parent_ctx->ctx,
+                        slot.prompt_text,
+                        slot.media_paths,
+                        parent_ctx->n_ctx,
+                        n_batch,
+                        slot.n_past,
+                        slot.embd,
+                        context_full,
+                        slot.ctx_sampling,
+                        slot.bitmap_past_hashes,
+                        slot.id  // Use slot ID as sequence ID for parallel processing
+                    );
+
+                    if (context_full) {
+                        LOG_ERROR("Context full after processing media for slot %d", slot.id);
+                        slot.context_full = true;
+                        slot.state = SLOT_STATE_DONE;
+                        if (slot.on_complete_callback) {
+                            slot.on_complete_callback(&slot);
+                        }
+                        continue;
+                    }
+
+                    // Update prompt tokens with the processed result from processMedia
+                    slot.prompt_tokens = slot.embd;
+                    slot.num_prompt_tokens = slot.embd.size();
+                    slot.media_processed = true;
+
+                    // processMedia() fills ALL tokens into KV cache, so update n_past to match
+                    // This prevents the while loop from re-adding tokens that are already in KV cache
+                    slot.n_past = slot.num_prompt_tokens;
+
+                    // Transition to GENERATING state immediately since all prompt tokens are processed
+                    slot.state = SLOT_STATE_GENERATING;
+                    slot.t_start_generation = lm_ggml_time_us();
+
+                    // Set i_batch to -1 to indicate logits from media processing are ready to sample
+                    // In sample_and_callback(), batch index -1 will be handled specially
+                    slot.i_batch = -1;
+
+                    LOG_INFO("Slot %d: Media processed, transitioned to GENERATING state, n_past=%d, num_prompt_tokens=%zu",
+                            slot.id, slot.n_past, slot.num_prompt_tokens);
+
+                    // Continue to next slot - this slot is ready to sample in sample_and_callback()
+                    continue;
+
+                } catch (const std::exception& e) {
+                    LOG_ERROR("Failed to process media for slot %d: %s", slot.id, e.what());
+                    slot.state = SLOT_STATE_DONE;
+                    slot.incomplete = true;
+                    if (slot.on_complete_callback) {
+                        slot.on_complete_callback(&slot);
+                    }
+                    continue;
+                }
+            }
+
+            // Process tokens up to n_batch limit (only for non-media slots)
             while (slot.n_past < (llama_pos)slot.num_prompt_tokens && batch.n_tokens < n_batch) {
                 llama_token token = slot.prompt_tokens[slot.n_past];
+
+                // Skip LLAMA_TOKEN_NULL - these are media placeholders already in KV cache
+                if (token == LLAMA_TOKEN_NULL) {
+                    LOG_VERBOSE("Slot %d: Skipping NULL token at pos %d (media chunk)", slot.id, slot.n_past);
+                    slot.n_past++;
+                    continue;
+                }
 
                 // Only request logits for the last token of the prompt
                 bool need_logits = (slot.n_past == (llama_pos)(slot.num_prompt_tokens - 1));
@@ -382,12 +487,6 @@ void llama_rn_slot_manager::sample_and_callback() {
             continue;
         }
 
-        // Check if we have a valid batch position
-        if (slot.i_batch < 0 || slot.i_batch >= batch.n_tokens) {
-            LOG_WARNING("Slot %d: Invalid batch position %d", slot.id, slot.i_batch);
-            continue;
-        }
-
         // Safety check: ensure sampling context is valid
         if (slot.ctx_sampling == nullptr) {
             LOG_WARNING("Slot %d: Sampling context is null, marking as done", slot.id);
@@ -395,7 +494,17 @@ void llama_rn_slot_manager::sample_and_callback() {
             continue;
         }
 
+        // Check if we have a valid batch position
+        // Special case: i_batch == -1 means logits from processMedia() are ready (use last position)
+        if (slot.i_batch == -1) {
+            LOG_VERBOSE("Slot %d: Sampling from media processing logits (batch index -1)", slot.id);
+        } else if (slot.i_batch < 0 || slot.i_batch >= batch.n_tokens) {
+            LOG_WARNING("Slot %d: Invalid batch position %d", slot.id, slot.i_batch);
+            continue;
+        }
+
         // Sample token using the slot's sampling context
+        // Batch index -1 tells common_sampler_sample to use llama_get_logits(ctx) for last position
         llama_token new_token_id = common_sampler_sample(slot.ctx_sampling, parent_ctx->ctx, slot.i_batch);
 
         // Accept the token

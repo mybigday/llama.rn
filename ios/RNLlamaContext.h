@@ -57,7 +57,7 @@
 - (void)cancelRequest:(NSNumber *)requestId;
 - (BOOL)enableParallelMode:(int)nParallel nBatch:(int)nBatch;
 - (void)disableParallelMode;
-- (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths;
+- (NSDictionary *)tokenize:(NSString *)text mediaPaths:(NSArray *)mediaPaths;
 - (NSString *)detokenize:(NSArray *)tokens;
 - (NSDictionary *)embedding:(NSString *)text params:(NSDictionary *)params;
 - (NSArray *)rerank:(NSString *)query documents:(NSArray<NSString *> *)documents params:(NSDictionary *)params;

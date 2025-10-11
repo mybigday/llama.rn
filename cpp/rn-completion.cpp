@@ -834,6 +834,7 @@ void llama_rn_context_completion::processMedia(
     }
 
     // Delegate to the mtmd_wrapper method
+    // For non-parallel mode, use the global bitmap_past_hashes from mtmd_wrapper
     parent_ctx->mtmd_wrapper->processMedia(
         parent_ctx->ctx,
         prompt,
@@ -843,7 +844,9 @@ void llama_rn_context_completion::processMedia(
         n_past,
         embd,
         context_full,
-        ctx_sampling
+        ctx_sampling,
+        parent_ctx->mtmd_wrapper->bitmap_past_hashes,
+        0  // Use sequence ID 0 for non-parallel mode
     );
 }
 

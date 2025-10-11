@@ -32,7 +32,8 @@ llama_rn_slot::llama_rn_slot() :
     t_start_process(0),
     t_start_generation(0),
     t_last_used(0),
-    is_interrupted(false)
+    is_interrupted(false),
+    media_processed(false)
 {
 }
 
@@ -72,6 +73,12 @@ void llama_rn_slot::reset() {
     stopped_limit = false;
     stopping_word.clear();
     stop_words.clear();
+
+    // Clear multimodal state
+    bitmap_past_hashes.clear();
+    media_paths.clear();
+    prompt_text.clear();
+    media_processed = false;
 
     // Reset chat parsing state
     current_chat_format = 0;

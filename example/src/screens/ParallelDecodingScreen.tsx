@@ -11,7 +11,7 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../contexts/ThemeContext'
-import ModelDownloadCard from '../components/ModelDownloadCard'
+import ModelDownloadCard, { MtmdModelDownloadCard } from '../components/ModelDownloadCard'
 import { HeaderButton } from '../components/HeaderButton'
 import { MaskedProgress } from '../components/MaskedProgress'
 import ContextParamsModal from '../components/ContextParamsModal'
@@ -46,6 +46,29 @@ const EXAMPLE_PROMPTS = [
   'What is art?',
 ]
 
+// Example image URLs from Lorem Picsum (free placeholder image service)
+const EXAMPLE_IMAGE_URLS = [
+  'https://picsum.photos/id/1025/300/300', // Scenic landscape
+  'https://picsum.photos/id/237/300/300', // Dog image
+  'https://picsum.photos/id/1/200/300', // People use laptop
+]
+
+// Multimodal example prompts with image URLs to download at runtime
+const MULTIMODAL_EXAMPLE_PROMPTS = [
+  {
+    text: 'What animal do you see in this image? Describe it.',
+    imageUrl: EXAMPLE_IMAGE_URLS[0],
+  },
+  {
+    text: 'Describe what you see in this image in detail.',
+    imageUrl: EXAMPLE_IMAGE_URLS[1],
+  },
+  {
+    text: 'Describe what you see in this image in detail.',
+    imageUrl: EXAMPLE_IMAGE_URLS[2],
+  },
+]
+
 export default function ParallelDecodingScreen({ navigation }: { navigation: any }) {
   const { theme } = useTheme()
   const insets = useSafeAreaInsets()
@@ -58,6 +81,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
   const [parallelSlots, setParallelSlots] = useState(2)
   const [customPrompt, setCustomPrompt] = useState('')
   const [isParallelMode, setIsParallelMode] = useState(false)
+  const [isMultimodalEnabled, setIsMultimodalEnabled] = useState(false)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCompletionParamsModal, setShowCompletionParamsModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
@@ -101,6 +125,10 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
                     '',
                     'Multiple requests are processed concurrently, improving throughput and efficiency.',
                     '',
+                    isMultimodalEnabled
+                      ? 'Multimodal mode is enabled! Try sending multimodal prompts with images.'
+                      : 'Load a multimodal model (SmolVLM, InternVL3, etc.) to enable image understanding.',
+                    '',
                     'Try sending multiple prompts and watch them process in parallel!',
                   ].join('\n'),
                 )
@@ -119,7 +147,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         ),
       })
     }
-  }, [navigation, isModelReady, parallelSlots, clearSlots])
+  }, [navigation, isModelReady, parallelSlots, isMultimodalEnabled, clearSlots])
 
   // Cleanup on unmount
   useEffect(
@@ -131,7 +159,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     [context],
   )
 
-  const initializeModel = async (modelPath: string) => {
+  const initializeModel = async (modelPath: string, mmprojPath?: string) => {
     try {
       setIsLoading(true)
       setInitProgress(0)
@@ -149,6 +177,20 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         },
       )
 
+      // Initialize multimodal if mmproj path is provided
+      if (mmprojPath) {
+        console.log('Initializing multimodal support...')
+        const multimodalSuccess = await llamaContext.initMultimodal({
+          path: mmprojPath,
+          use_gpu: true,
+        })
+        if (!multimodalSuccess) {
+          console.warn('Failed to initialize multimodal support')
+        } else {
+          console.log('Multimodal initialized successfully')
+        }
+      }
+
       // Enable parallel mode with configured slot count
       const success = await llamaContext.enableParallelMode({
         enabled: true,
@@ -164,7 +206,12 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       setIsModelReady(true)
       setIsParallelMode(true)
       setInitProgress(100)
+
+      // Check if multimodal is enabled
+      const multimodalEnabled = await llamaContext.isMultimodalEnabled()
+      setIsMultimodalEnabled(multimodalEnabled)
       console.log(`Parallel mode enabled with ${parallelSlots} slots`)
+      console.log(`Multimodal support: ${multimodalEnabled ? 'enabled' : 'disabled'}`)
     } catch (error: any) {
       Alert.alert('Error', `Failed to initialize model: ${error.message}`)
     } finally {
@@ -196,7 +243,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     )
   }
 
-  const startConversation = async (prompt: string) => {
+  const startConversation = async (prompt: string, images?: string[]) => {
     if (!context || !isParallelMode) {
       Alert.alert('Error', 'Model not ready or parallel mode not enabled')
       return
@@ -210,12 +257,35 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       // Load completion params
       const params = completionParams || (await loadCompletionParams())
 
+      // Build user message content with images if provided
+      const userContent: Array<{
+        type: 'text' | 'image_url'
+        text?: string
+        image_url?: { url: string }
+      }> = []
+
+      // Add images first
+      if (images && images.length > 0) {
+        images.forEach((imageUrl) => {
+          userContent.push({
+            type: 'image_url',
+            image_url: { url: imageUrl },
+          })
+        })
+      }
+
+      // Add text prompt
+      userContent.push({
+        type: 'text',
+        text: prompt,
+      })
+
       // Use queueCompletion for parallel processing with messages format
       const { requestId, stop } = await context.queueCompletion(
         {
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: prompt },
+            { role: 'user', content: userContent },
           ],
           ...params,
           reasoning_format: 'auto',
@@ -252,10 +322,59 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     }
   }
 
-  const sendExamplePrompts = () => {
-    EXAMPLE_PROMPTS.forEach((prompt, index) => {
-      setTimeout(() => startConversation(prompt), index * 100)
-    })
+  // Helper function to download image and convert to base64 data URI
+  const downloadImageAsDataUri = async (url: string): Promise<string> => {
+    try {
+      const response = await fetch(url)
+      const blob = await response.blob()
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(blob)
+      })
+    } catch (error) {
+      console.error(`Failed to download image from ${url}:`, error)
+      throw error
+    }
+  }
+
+  const sendExamplePrompts = async () => {
+    if (isMultimodalEnabled) {
+      // Download all images in parallel, then send examples with delays
+      const downloadPromises = MULTIMODAL_EXAMPLE_PROMPTS.map(async (example, index) => {
+        // Skip if imageUrl is missing
+        if (!example.imageUrl) {
+          return { success: false, text: example.text, index }
+        }
+
+        try {
+          // Download image from URL
+          const imageDataUri = await downloadImageAsDataUri(example.imageUrl)
+          return { success: true, text: example.text, imageDataUri, index }
+        } catch (error) {
+          console.error('Failed to download image for example:', error)
+          // Return text-only if image download fails
+          return { success: false, text: example.text, index }
+        }
+      })
+
+      const results = await Promise.all(downloadPromises)
+
+      // Send all examples with small delays
+      results.forEach((result) => {
+        if (result.success && result.imageDataUri) {
+          setTimeout(() => startConversation(result.text, [result.imageDataUri]), result.index * 100)
+        } else {
+          setTimeout(() => startConversation(result.text), result.index * 100)
+        }
+      })
+    } else {
+      // Send text-only examples
+      EXAMPLE_PROMPTS.forEach((prompt, index) => {
+        setTimeout(() => startConversation(prompt), index * 100)
+      })
+    }
   }
 
   const sendCustomPrompt = () => {
@@ -499,10 +618,31 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
           </Text>
           {[
             'SMOL_LM_3',
-            'GEMMA_3_4B_QAT',
             'QWEN_3_4B',
+            'SMOL_VLM_500M',
+            'SMOL_VLM_2_2B',
+            'INTERNVL3_2B',
           ].map((model) => {
             const modelInfo = MODELS[model as keyof typeof MODELS]
+
+            // Use MtmdModelDownloadCard for multimodal models
+            if (modelInfo.mmproj) {
+              return (
+                <MtmdModelDownloadCard
+                  key={model}
+                  title={modelInfo.name}
+                  repo={modelInfo.repo}
+                  filename={modelInfo.filename}
+                  mmproj={modelInfo.mmproj}
+                  size={modelInfo.size}
+                  onInitialize={(modelPath, mmprojPath) => {
+                    initializeModel(modelPath, mmprojPath)
+                  }}
+                />
+              )
+            }
+
+            // Use regular ModelDownloadCard for text-only models
             return (
               <ModelDownloadCard
                 key={model}
@@ -631,7 +771,11 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
             onPress={sendExamplePrompts}
             disabled={activeCount > 0}
           >
-            <Text style={styles.buttonText}>{`Send ${EXAMPLE_PROMPTS.length} Examples`}</Text>
+            <Text style={styles.buttonText}>
+              {isMultimodalEnabled
+                ? `Send ${MULTIMODAL_EXAMPLE_PROMPTS.length} MM Examples`
+                : `Send ${EXAMPLE_PROMPTS.length} Examples`}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.button} onPress={clearSlots}>
             <Text style={styles.buttonText}>Clear All</Text>
@@ -667,7 +811,9 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         {slots.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>
-              {`No conversations yet.\n\nClick "Send ${EXAMPLE_PROMPTS.length} Examples" to see parallel processing in action,\nor enter a custom prompt below.`}
+              {isMultimodalEnabled
+                ? `No conversations yet.\n\nClick "Send ${MULTIMODAL_EXAMPLE_PROMPTS.length} MM Examples" to see parallel multimodal processing in action,\nor enter a custom prompt below.`
+                : `No conversations yet.\n\nClick "Send ${EXAMPLE_PROMPTS.length} Examples" to see parallel processing in action,\nor enter a custom prompt below.`}
             </Text>
           </View>
         ) : (
