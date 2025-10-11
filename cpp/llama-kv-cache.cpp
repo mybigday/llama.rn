@@ -123,11 +123,8 @@ llama_kv_cache::llama_kv_cache(
             throw std::runtime_error("failed to create ggml context for kv cache");
         }
 
-        lm_ggml_tensor * k;
-        lm_ggml_tensor * v;
-
-        k = lm_ggml_new_tensor_3d(ctx, type_k, n_embd_k_gqa, kv_size, n_stream);
-        v = lm_ggml_new_tensor_3d(ctx, type_v, n_embd_v_gqa, kv_size, n_stream);
+        lm_ggml_tensor * k = lm_ggml_new_tensor_3d(ctx, type_k, n_embd_k_gqa, kv_size, n_stream);
+        lm_ggml_tensor * v = lm_ggml_new_tensor_3d(ctx, type_v, n_embd_v_gqa, kv_size, n_stream);
 
         lm_ggml_format_name(k, "cache_k_l%d", il);
         lm_ggml_format_name(v, "cache_v_l%d", il);
