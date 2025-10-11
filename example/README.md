@@ -14,6 +14,7 @@ The example app demonstrates various local LLM capabilities:
 - **👁️ Multimodal** - Image/audio analysis and visual/audio question answering ([MultimodalScreen.tsx](src/screens/MultimodalScreen.tsx))
 - **🛠️ Tool Calling & MCP** - Advanced function calling capabilities with custom tools (mock responses) and MCP integration ([ToolCallsScreen.tsx](src/screens/ToolCallsScreen.tsx))
 - **📊 Embedding** - Vector embeddings and semantic search in memory ([EmbeddingScreen.tsx](src/screens/EmbeddingScreen.tsx))
+- **⚡ Parallel Decoding** - Concurrent request processing with multiple parallel slots ([ParallelDecodingScreen.tsx](src/screens/ParallelDecodingScreen.tsx))
 - **🔊 Text-to-Speech** - Local voice synthesis with OuteTTS ([TTSScreen.tsx](src/screens/TTSScreen.tsx))
 - **📊 Model Info** - Model diagnostics and system information ([ModelInfoScreen.tsx](src/screens/ModelInfoScreen.tsx))
 

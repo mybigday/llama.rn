@@ -393,6 +393,92 @@ console.log('Result:', text)
 
 Also, this is how `json_schema` works in `response_format` during completion, it converts the json_schema to gbnf grammar.
 
+## Parallel Decoding
+
+`llama.rn` supports parallel decoding, enabling multiple completion requests to run concurrently within a single context. This allows efficient batch processing and real-time multi-user scenarios.
+
+### Features
+
+- **Concurrent Processing**: Handle multiple completions simultaneously using a shared KV cache
+- **Request Queue**: Automatic queuing and slot assignment with LRU strategy
+- **Per-Request Callbacks**: Each request has independent token streaming callbacks
+- **Request Control**: Cancel individual requests without affecting others
+- **Cross-Platform**: Aligned implementation across iOS and Android
+
+### Usage
+
+```js
+import { initLlama } from 'llama.rn'
+
+const context = await initLlama({
+  model: modelPath,
+  n_ctx: 8192,
+  n_gpu_layers: 99,
+  n_parallel: 4,
+})
+
+// Enable parallel mode with 4 slots
+await context.enableParallelMode({
+  enabled: true,
+  n_parallel: 4, // new_n_ctx (2048) = n_ctx / n_parallel
+  n_batch: 512,
+})
+
+// Queue multiple requests
+const request1 = await context.queueCompletion(
+  {
+    messages: [{ role: 'user', content: 'What is AI?' }],
+    n_predict: 100,
+  },
+  (requestId, data) => {
+    console.log(`Request ${requestId}:`, data.token)
+  }
+)
+
+const request2 = await context.queueCompletion(
+  {
+    messages: [{ role: 'user', content: 'Explain quantum computing' }],
+    n_predict: 100,
+  },
+  (requestId, data) => {
+    console.log(`Request ${requestId}:`, data.token)
+  }
+)
+
+// Cancel a request if needed
+await request1.stop()
+
+// Wait for completion
+const result = await request2.promise
+console.log('Result:', result.text)
+```
+
+### API
+
+**enableParallelMode(params):**
+- `enabled` (boolean): Enable/disable parallel mode
+- `n_parallel` (number): Number of concurrent slots (default: 2)
+- `n_batch` (number): Batch size for processing (default: 512)
+- Returns: `Promise<boolean>`
+
+**queueCompletion(params, onToken?):**
+- `params`: Same completion parameters as `completion()`
+- `onToken`: Optional callback `(requestId, data) => void` for token streaming
+  - `requestId`: Unique request identifier
+  - `data`: Token data with `token`, `content`, `reasoning_content`, `tool_calls`, `accumulated_text`
+- Returns: `Promise<{ requestId, promise, stop }>`
+  - `requestId`: Unique request identifier
+  - `promise`: Resolves to `NativeCompletionResult` when complete
+  - `stop`: Function to cancel this request
+
+### Notes
+
+- Parallel mode uses slot-based architecture where each request occupies an available slot
+- Slots share the same KV cache for efficient memory usage
+- Request processing runs in a background loop that manages slot states automatically
+- All standard completion parameters (temperature, top_k, etc.) work per-request
+- The context must be initialized with sufficient `n_parallel` (default: 8) to support desired slot count
+
 ## Session (State)
 
 The session file is a binary file that contains the state of the context, it can saves time of prompt processing.
