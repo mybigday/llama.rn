@@ -10,6 +10,7 @@ type IconName =
   | 'speaker'
   | 'close'
   | 'timer-sand-empty'
+  | 'information-outline'
 
 interface HeaderButtonProps {
   onPress: () => void

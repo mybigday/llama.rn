@@ -74,6 +74,7 @@ export { SchemaGrammarConverter, convertJsonSchemaToGrammar }
 
 const EVENT_ON_INIT_CONTEXT_PROGRESS = '@RNLlama_onInitContextProgress'
 const EVENT_ON_TOKEN = '@RNLlama_onToken'
+const EVENT_ON_COMPLETE = '@RNLlama_onComplete'
 const EVENT_ON_NATIVE_LOG = '@RNLlama_onNativeLog'
 
 let EventEmitter: NativeEventEmitter | DeviceEventEmitterStatic
@@ -458,6 +459,7 @@ export class LlamaContext {
     } else {
       nativeParams.prompt = params.prompt || ''
     }
+    console.log('nativeParams', nativeParams)
 
     // If media_paths were explicitly provided or extracted from messages, use them
     if (!nativeParams.media_paths && params.media_paths) {
@@ -495,6 +497,162 @@ export class LlamaContext {
 
   stopCompletion(): Promise<void> {
     return RNLlama.stopCompletion(this.id)
+  }
+
+  /**
+   * Enable or disable parallel decoding mode
+   *
+   * Note: The context must be initialized with a sufficient n_parallel value to support
+   * the requested number of slots. By default, contexts are initialized with n_parallel=8,
+   * which supports up to 8 parallel slots. To use more slots, specify a higher n_parallel
+   * value when calling initLlama().
+   *
+   * @param params Configuration for parallel mode
+   * @param params.enabled Whether to enable parallel mode
+   * @param params.n_parallel Number of parallel slots (default: 2). Must be <= context's n_seq_max
+   * @param params.n_batch Batch size for processing (default: 512)
+   * @returns Promise resolving to true if successful
+   *
+   * @example
+   * // Initialize context with support for up to 16 parallel slots
+   * const context = await initLlama({ model: 'model.gguf', n_parallel: 16 })
+   *
+   * // Enable parallel mode with 4 slots
+   * await context.enableParallelMode({ enabled: true, n_parallel: 4 })
+   *
+   * // Later, reconfigure to use 8 slots
+   * await context.enableParallelMode({ enabled: true, n_parallel: 8 })
+   */
+  async enableParallelMode(params: {
+    enabled: boolean
+    n_parallel?: number
+    n_batch?: number
+  }): Promise<boolean> {
+    return RNLlama.enableParallelMode(this.id, params)
+  }
+
+  /**
+   * Queue a completion request for parallel processing (non-blocking)
+   * @param params Completion parameters (same as completion())
+   * @param onToken Callback fired for each generated token
+   * @returns Promise resolving to object with requestId, promise (resolves to completion result), and stop function
+   */
+  async queueCompletion(
+    params: CompletionParams,
+    onToken?: (requestId: number, data: TokenData) => void,
+  ): Promise<{
+    requestId: number
+    promise: Promise<NativeCompletionResult>
+    stop: () => Promise<void>
+  }> {
+    const nativeParams = {
+      ...params,
+      prompt: params.prompt || '',
+      emit_partial_completion: true, // Always emit for queued requests
+    }
+
+    // Process messages same as completion()
+    if (params.messages) {
+      const formattedResult = await this.getFormattedChat(
+        params.messages,
+        params.chat_template || params.chatTemplate,
+        {
+          jinja: params.jinja,
+          tools: params.tools,
+          parallel_tool_calls: params.parallel_tool_calls,
+          tool_choice: params.tool_choice,
+          enable_thinking: params.enable_thinking,
+          add_generation_prompt: params.add_generation_prompt,
+          now: params.now,
+          chat_template_kwargs: params.chat_template_kwargs,
+        },
+      )
+      if (formattedResult.type === 'jinja') {
+        const jinjaResult = formattedResult as JinjaFormattedChatResult
+        nativeParams.prompt = jinjaResult.prompt || ''
+        if (typeof jinjaResult.chat_format === 'number')
+          nativeParams.chat_format = jinjaResult.chat_format
+        if (jinjaResult.grammar) nativeParams.grammar = jinjaResult.grammar
+        if (typeof jinjaResult.grammar_lazy === 'boolean')
+          nativeParams.grammar_lazy = jinjaResult.grammar_lazy
+        if (jinjaResult.grammar_triggers)
+          nativeParams.grammar_triggers = jinjaResult.grammar_triggers
+        if (jinjaResult.preserved_tokens)
+          nativeParams.preserved_tokens = jinjaResult.preserved_tokens
+        if (jinjaResult.additional_stops) {
+          if (!nativeParams.stop) nativeParams.stop = []
+          nativeParams.stop.push(...jinjaResult.additional_stops)
+        }
+        if (jinjaResult.has_media) {
+          nativeParams.media_paths = jinjaResult.media_paths
+        }
+      } else if (formattedResult.type === 'llama-chat') {
+        const llamaChatResult = formattedResult as FormattedChatResult
+        nativeParams.prompt = llamaChatResult.prompt || ''
+        if (llamaChatResult.has_media) {
+          nativeParams.media_paths = llamaChatResult.media_paths
+        }
+      }
+    } else {
+      nativeParams.prompt = params.prompt || ''
+    }
+
+    if (!nativeParams.media_paths && params.media_paths) {
+      nativeParams.media_paths = params.media_paths
+    }
+
+    if (nativeParams.response_format && !nativeParams.grammar) {
+      const jsonSchema = getJsonSchema(params.response_format)
+      if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
+    }
+
+    if (!nativeParams.prompt) throw new Error('Prompt is required')
+
+    // Set up listeners for this specific request
+    let tokenListener: any
+    let completeListener: any
+
+    const { requestId } = await RNLlama.queueCompletion(this.id, nativeParams)
+
+    // Create promise that resolves when completion finishes
+    const promise = new Promise<NativeCompletionResult>((resolve, _reject) => {
+      if (onToken) {
+        tokenListener = EventEmitter.addListener(EVENT_ON_TOKEN, (evt: TokenNativeEvent) => {
+          const { contextId, tokenResult } = evt
+          if (contextId !== this.id) return
+          // Filter by requestId from tokenResult (set by native code)
+          const evtRequestId = (tokenResult as any).requestId
+          if (evtRequestId !== requestId) return
+          onToken(requestId, tokenResult)
+        })
+      }
+
+      completeListener = EventEmitter.addListener(EVENT_ON_COMPLETE, (evt: any) => {
+        const { contextId, requestId: evtRequestId, result } = evt
+        if (contextId !== this.id || evtRequestId !== requestId) return
+
+        // Clean up listeners
+        tokenListener?.remove()
+        completeListener?.remove()
+
+        // Resolve the promise
+        resolve(result as NativeCompletionResult)
+      })
+    })
+
+    // Create stop function
+    const stop = async () => {
+      await RNLlama.cancelRequest(this.id, requestId)
+      // Clean up listeners
+      tokenListener?.remove()
+      completeListener?.remove()
+    }
+
+    return {
+      requestId,
+      promise,
+      stop,
+    }
   }
 
   /**

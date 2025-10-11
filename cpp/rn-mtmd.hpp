@@ -41,7 +41,9 @@ struct llama_rn_context_mtmd {
         llama_pos &n_past,
         std::vector<llama_token> &embd,
         bool &context_full,
-        common_sampler *ctx_sampling
+        common_sampler *ctx_sampling,
+        std::vector<std::string> &bitmap_past_hashes,  // Per-slot bitmap hashes
+        int32_t seq_id  // Sequence ID for parallel slots
     );
 
     // Check if multimodal is enabled
@@ -378,7 +380,9 @@ inline void llama_rn_context_mtmd::processMedia(
     llama_pos &n_past,
     std::vector<llama_token> &embd,
     bool &context_full,
-    common_sampler *ctx_sampling
+    common_sampler *ctx_sampling,
+    std::vector<std::string> &bitmap_past_hashes_ref,  // Per-slot bitmap hashes
+    int32_t seq_id  // Sequence ID for parallel slots
 ) {
     // Multimodal path
     std::string full_prompt = prompt;
@@ -437,19 +441,19 @@ inline void llama_rn_context_mtmd::processMedia(
     }
 
     // Compare bitmap hashes, if they are not the same, backtrack n_past to the position of the first mismatch
-    if (bitmap_past_hashes.size() > 0) {
+    if (bitmap_past_hashes_ref.size() > 0) {
         for (size_t i = 0; i < bitmap_hashes.size(); i++) {
             auto pos = chunk_pos_media[i];
             if (n_past < pos) {
                 break;
             }
-            if (i >= bitmap_past_hashes.size()) {
+            if (i >= bitmap_past_hashes_ref.size()) {
                 break;
             }
-            if (bitmap_hashes[i] != bitmap_past_hashes[i]) {
+            if (bitmap_hashes[i] != bitmap_past_hashes_ref[i]) {
                 LOG_INFO(
                     "[DEBUG] Bitmap hash mismatch at position %zu, %s != %s",
-                    i, bitmap_hashes[i].c_str(), bitmap_past_hashes[i].c_str()
+                    i, bitmap_hashes[i].c_str(), bitmap_past_hashes_ref[i].c_str()
                 );
                 n_past = chunk_pos_media[i];
                 new_n_past = n_past;
@@ -458,10 +462,10 @@ inline void llama_rn_context_mtmd::processMedia(
         }
     }
 
-    // Clear all KV cache entries after position n_past
+    // Clear all KV cache entries after position n_past for this slot's sequence
     auto * kv = llama_get_memory(ctx);
 
-    bool clear_result = llama_memory_seq_rm(kv, 0, n_past, -1);
+    bool clear_result = llama_memory_seq_rm(kv, seq_id, n_past, -1);
     if (!clear_result) {
         LOG_ERROR("[DEBUG] llama_memory_seq_rm failed (likely using a non-Transformer model)! Trying full clear...");
         llama_memory_clear(kv, false);
@@ -488,7 +492,7 @@ inline void llama_rn_context_mtmd::processMedia(
                 ctx,
                 chunk,
                 n_past,
-                0,
+                seq_id,
                 n_batch,
                 chunk_logits_last,
                 &new_n_past
@@ -509,7 +513,7 @@ inline void llama_rn_context_mtmd::processMedia(
     // Update embd with all tokens (both text and media)
     embd = all_tokens;
 
-    bitmap_past_hashes = bitmap_hashes;
+    bitmap_past_hashes_ref = bitmap_hashes;
 
     // Update sampling context with text tokens only
     for (auto & token : all_tokens) {

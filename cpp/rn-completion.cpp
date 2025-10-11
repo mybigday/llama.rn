@@ -369,6 +369,7 @@ completion_token_output llama_rn_context_completion::nextToken()
             parent_ctx->tts_wrapper->next_token_uses_guide_token = (new_token_id == 198);
         }
         result.tok = new_token_id;
+        result.text = common_token_to_piece(parent_ctx->ctx, new_token_id);
 
         llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling, true);
 
@@ -833,6 +834,7 @@ void llama_rn_context_completion::processMedia(
     }
 
     // Delegate to the mtmd_wrapper method
+    // For non-parallel mode, use the global bitmap_past_hashes from mtmd_wrapper
     parent_ctx->mtmd_wrapper->processMedia(
         parent_ctx->ctx,
         prompt,
@@ -842,7 +844,9 @@ void llama_rn_context_completion::processMedia(
         n_past,
         embd,
         context_full,
-        ctx_sampling
+        ctx_sampling,
+        parent_ctx->mtmd_wrapper->bitmap_past_hashes,
+        0  // Use sequence ID 0 for non-parallel mode
     );
 }
 

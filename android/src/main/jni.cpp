@@ -19,6 +19,7 @@
 #include "ggml-backend.h"
 #include "rn-llama.h"
 #include "rn-completion.h"
+#include "rn-slot-manager.h"
 #include "jni-utils.h"
 #define UNUSED(x) (void)(x)
 #define TAG "RNLLAMA_ANDROID_JNI"
@@ -262,6 +263,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jint n_ctx,
     jint n_batch,
     jint n_ubatch,
+    jint n_parallel,
     jint n_threads,
     jint n_gpu_layers,
     jboolean flash_attn,
@@ -301,6 +303,9 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.n_ctx = n_ctx;
     defaultParams.n_batch = n_batch;
     defaultParams.n_ubatch = n_ubatch;
+    if (n_parallel > 0) {
+        defaultParams.n_parallel = n_parallel;
+    }
     defaultParams.ctx_shift = ctx_shift;
     defaultParams.kv_unified = kv_unified;
     defaultParams.swa_full = swa_full;
@@ -1903,6 +1908,379 @@ Java_com_rnllama_LlamaContext_decodeAudioTokens(
       pushDouble(env, result, (double) val);
     }
     return result;
+}
+
+// Parallel decoding support
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_enableParallelMode(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jint n_parallel,
+    jint n_batch
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    if (!llama) {
+        LOGE("enableParallelMode: Invalid context pointer");
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Invalid context pointer");
+        return;
+    }
+
+    try {
+        llama->enableParallelMode(n_parallel, n_batch);
+    } catch (const std::runtime_error& e) {
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), e.what());
+    } catch (const std::exception& e) {
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), e.what());
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_updateSlots(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    if (!llama || !llama->slot_manager) {
+        return;
+    }
+    llama->slot_manager->update_slots();
+}
+
+// Global context for JNI callbacks
+struct jni_callback_context {
+    JNIEnv *env;
+    JavaVM *jvm;
+    jobject partial_callback;
+    jobject complete_callback;
+    int request_id;
+};
+
+// Map to store callback contexts
+std::unordered_map<int32_t, std::shared_ptr<jni_callback_context>> jni_callback_map;
+
+JNIEXPORT jint JNICALL
+Java_com_rnllama_LlamaContext_doQueueCompletion(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring prompt,
+    jstring prefill_text,
+    jintArray guide_tokens,
+    jint chat_format,
+    jstring reasoning_format,
+    jstring grammar,
+    jstring json_schema,
+    jboolean grammar_lazy,
+    jobject grammar_triggers,
+    jobject preserved_tokens,
+    jboolean thinking_forced_open,
+    jfloat temperature,
+    jint n_threads,
+    jint n_predict,
+    jint n_probs,
+    jint penalty_last_n,
+    jfloat penalty_repeat,
+    jfloat penalty_freq,
+    jfloat penalty_present,
+    jfloat mirostat,
+    jfloat mirostat_tau,
+    jfloat mirostat_eta,
+    jint top_k,
+    jfloat top_p,
+    jfloat min_p,
+    jfloat xtc_threshold,
+    jfloat xtc_probability,
+    jfloat typical_p,
+    jint seed,
+    jobjectArray stop,
+    jboolean ignore_eos,
+    jobjectArray logit_bias,
+    jfloat dry_multiplier,
+    jfloat dry_base,
+    jint dry_allowed_length,
+    jint dry_penalty_last_n,
+    jfloat top_n_sigma,
+    jobjectArray dry_sequence_breakers,
+    jobjectArray media_paths,
+    jobject partial_completion_callback,
+    jobject completion_callback
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    if (!llama || !llama->slot_manager) {
+        LOGE("doQueueCompletion: Invalid context or parallel mode not enabled");
+        return -1;
+    }
+
+    try {
+        // Convert Java parameters to C++ (similar to doCompletion)
+        const char *prompt_chars = env->GetStringUTFChars(prompt, nullptr);
+        const char *prefill_text_chars = env->GetStringUTFChars(prefill_text, nullptr);
+
+        // Build params (reuse existing conversion logic)
+        common_params params = llama->params;
+        params.sampling.temp = temperature;
+        params.sampling.top_k = top_k;
+        params.sampling.top_p = top_p;
+        params.sampling.min_p = min_p;
+        params.sampling.xtc_threshold = xtc_threshold;
+        params.sampling.xtc_probability = xtc_probability;
+        params.sampling.typ_p = typical_p;
+        params.sampling.penalty_last_n = penalty_last_n;
+        params.sampling.penalty_repeat = penalty_repeat;
+        params.sampling.penalty_freq = penalty_freq;
+        params.sampling.penalty_present = penalty_present;
+        params.sampling.mirostat = mirostat;
+        params.sampling.mirostat_tau = mirostat_tau;
+        params.sampling.mirostat_eta = mirostat_eta;
+        params.sampling.n_probs = n_probs;
+        params.sampling.dry_multiplier = dry_multiplier;
+        params.sampling.dry_base = dry_base;
+        params.sampling.dry_allowed_length = dry_allowed_length;
+        params.sampling.dry_penalty_last_n = dry_penalty_last_n;
+        params.sampling.top_n_sigma = top_n_sigma;
+        params.n_predict = n_predict;
+        params.cpuparams.n_threads = n_threads;
+
+        // Convert reasoning_format string to enum (same as doCompletion)
+        const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
+        if (!reasoning_format_chars) reasoning_format_chars = "none";
+        std::string reasoning_format_str = reasoning_format_chars;
+        common_reasoning_format reasoning_format_enum = common_reasoning_format_from_name(reasoning_format_str);
+        env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
+
+        // Convert media_paths array
+        std::vector<std::string> media_paths_vec;
+        if (media_paths != nullptr) {
+            jsize media_paths_len = env->GetArrayLength(media_paths);
+            for (jsize i = 0; i < media_paths_len; i++) {
+                jstring path_str = (jstring) env->GetObjectArrayElement(media_paths, i);
+                const char *path_chars = env->GetStringUTFChars(path_str, nullptr);
+                media_paths_vec.push_back(path_chars);
+                env->ReleaseStringUTFChars(path_str, path_chars);
+            }
+        }
+
+        // Tokenize prompt
+        std::vector<llama_token> prompt_tokens = common_tokenize(llama->ctx, prompt_chars, false);
+
+        // Get JavaVM for later callback
+        JavaVM *jvm;
+        env->GetJavaVM(&jvm);
+
+        // Create callback context
+        auto cb_ctx = std::make_shared<jni_callback_context>();
+        cb_ctx->jvm = jvm;
+        cb_ctx->partial_callback = env->NewGlobalRef(partial_completion_callback);
+        cb_ctx->complete_callback = env->NewGlobalRef(completion_callback);
+        cb_ctx->request_id = -1; // Will be set after queueing
+
+        // Token callback
+        auto on_token = [cb_ctx, llama](const rnllama::completion_token_output& token_output) {
+            JNIEnv *env_cb;
+            bool attached = false;
+
+            // Attach to JVM if needed
+            int getEnvResult = cb_ctx->jvm->GetEnv((void**)&env_cb, JNI_VERSION_1_6);
+            if (getEnvResult == JNI_EDETACHED) {
+                cb_ctx->jvm->AttachCurrentThread(&env_cb, nullptr);
+                attached = true;
+            }
+
+            // Build token result map
+            auto tokenResult = createWriteableMap(env_cb);
+            putInt(env_cb, tokenResult, "requestId", token_output.request_id);
+            // Use the pre-decoded text from the token output
+            putString(env_cb, tokenResult, "token", token_output.text.c_str());
+
+            // Add probabilities if available
+            if (!token_output.probs.empty()) {
+                auto probsArray = createWritableArray(env_cb);
+                for (const auto &p : token_output.probs) {
+                    auto probMap = createWriteableMap(env_cb);
+                    std::string tok_str = rnllama::tokens_to_output_formatted_string(llama->ctx, p.tok);
+                    putString(env_cb, probMap, "tok_str", tok_str.c_str());
+                    putDouble(env_cb, probMap, "prob", p.prob);
+                    pushMap(env_cb, probsArray, probMap);
+                }
+                putArray(env_cb, tokenResult, "probs", probsArray);
+            }
+
+            // Find slot and parse chat output
+            rnllama::completion_chat_output parsed_output;
+            bool has_parsed_output = false;
+            if (llama->slot_manager) {
+                auto* slot = llama->slot_manager->get_slot_by_request_id(token_output.request_id);
+                if (slot) {
+                    parsed_output = slot->parseChatOutput(true);  // is_partial = true
+                    has_parsed_output = true;
+                }
+            }
+
+            // Add parsed chat output (content, reasoning_content, tool_calls, accumulated_text)
+            if (has_parsed_output) {
+                if (!parsed_output.content.empty()) {
+                    putString(env_cb, tokenResult, "content", parsed_output.content.c_str());
+                }
+                if (!parsed_output.reasoning_content.empty()) {
+                    putString(env_cb, tokenResult, "reasoning_content", parsed_output.reasoning_content.c_str());
+                }
+                if (!parsed_output.tool_calls.empty()) {
+                    auto toolCallsArray = createWritableArray(env_cb);
+                    for (const auto &tc : parsed_output.tool_calls) {
+                        auto toolCallMap = createWriteableMap(env_cb);
+                        putString(env_cb, toolCallMap, "type", "function");
+                        auto functionMap = createWriteableMap(env_cb);
+                        putString(env_cb, functionMap, "name", tc.name.c_str());
+                        putString(env_cb, functionMap, "arguments", tc.arguments.c_str());
+                        putMap(env_cb, toolCallMap, "function", functionMap);
+                        if (!tc.id.empty()) {
+                            putString(env_cb, toolCallMap, "id", tc.id.c_str());
+                        }
+                        pushMap(env_cb, toolCallsArray, toolCallMap);
+                    }
+                    putArray(env_cb, tokenResult, "tool_calls", toolCallsArray);
+                }
+                if (!parsed_output.accumulated_text.empty()) {
+                    putString(env_cb, tokenResult, "accumulated_text", parsed_output.accumulated_text.c_str());
+                }
+            }
+
+            // Call Java callback
+            jclass callbackClass = env_cb->GetObjectClass(cb_ctx->partial_callback);
+            jmethodID onPartialMethod = env_cb->GetMethodID(callbackClass, "onPartialCompletion", "(Lcom/facebook/react/bridge/WritableMap;)V");
+            if (onPartialMethod) {
+                env_cb->CallVoidMethod(cb_ctx->partial_callback, onPartialMethod, tokenResult);
+            }
+
+            if (attached) {
+                cb_ctx->jvm->DetachCurrentThread();
+            }
+        };
+
+        // Completion callback
+        auto on_complete = [cb_ctx, llama](rnllama::llama_rn_slot* slot) {
+            JNIEnv *env_cb;
+            bool attached = false;
+
+            int getEnvResult = cb_ctx->jvm->GetEnv((void**)&env_cb, JNI_VERSION_1_6);
+            if (getEnvResult == JNI_EDETACHED) {
+                cb_ctx->jvm->AttachCurrentThread(&env_cb, nullptr);
+                attached = true;
+            }
+
+            // Build completion result (similar to doCompletion)
+            auto result = createWriteableMap(env_cb);
+            putInt(env_cb, result, "requestId", slot->request_id);
+            std::string text = rnllama::tokens_to_str(llama->ctx, slot->generated_tokens.begin(), slot->generated_tokens.end());
+            putString(env_cb, result, "text", text.c_str());
+            putInt(env_cb, result, "tokens_predicted", slot->generated_tokens.size());
+            putInt(env_cb, result, "tokens_evaluated", slot->prompt_tokens.size());
+            putBoolean(env_cb, result, "truncated", false);
+            putBoolean(env_cb, result, "stopped_eos", slot->stopped_eos);
+            putString(env_cb, result, "stopping_word", slot->stopping_word.c_str());
+
+            // Parse final chat output
+            rnllama::completion_chat_output final_output;
+            bool has_final_output = false;
+            try {
+                final_output = slot->parseChatOutput(false);  // is_partial = false
+                has_final_output = true;
+            } catch (...) {
+                // Ignore parsing errors
+            }
+
+            // Add parsed chat output (final)
+            if (has_final_output) {
+                if (!final_output.content.empty()) {
+                    putString(env_cb, result, "content", final_output.content.c_str());
+                }
+                if (!final_output.reasoning_content.empty()) {
+                    putString(env_cb, result, "reasoning_content", final_output.reasoning_content.c_str());
+                }
+                if (!final_output.tool_calls.empty()) {
+                    auto toolCallsArray = createWritableArray(env_cb);
+                    for (const auto &tc : final_output.tool_calls) {
+                        auto toolCallMap = createWriteableMap(env_cb);
+                        putString(env_cb, toolCallMap, "type", "function");
+                        auto functionMap = createWriteableMap(env_cb);
+                        putString(env_cb, functionMap, "name", tc.name.c_str());
+                        putString(env_cb, functionMap, "arguments", tc.arguments.c_str());
+                        putMap(env_cb, toolCallMap, "function", functionMap);
+                        if (!tc.id.empty()) {
+                            putString(env_cb, toolCallMap, "id", tc.id.c_str());
+                        }
+                        pushMap(env_cb, toolCallsArray, toolCallMap);
+                    }
+                    putArray(env_cb, result, "tool_calls", toolCallsArray);
+                }
+            }
+
+            // Call Java callback
+            jclass callbackClass = env_cb->GetObjectClass(cb_ctx->complete_callback);
+            jmethodID onCompleteMethod = env_cb->GetMethodID(callbackClass, "onComplete", "(Lcom/facebook/react/bridge/WritableMap;)V");
+            if (onCompleteMethod) {
+                env_cb->CallVoidMethod(cb_ctx->complete_callback, onCompleteMethod, result);
+            }
+
+            // Cleanup
+            env_cb->DeleteGlobalRef(cb_ctx->partial_callback);
+            env_cb->DeleteGlobalRef(cb_ctx->complete_callback);
+            jni_callback_map.erase(cb_ctx->request_id);
+
+            if (attached) {
+                cb_ctx->jvm->DetachCurrentThread();
+            }
+        };
+
+        // Convert prefill_text to std::string
+        std::string prefill_text_str = prefill_text_chars ? prefill_text_chars : "";
+
+        // Queue the request with all required parameters
+        int32_t request_id = llama->slot_manager->queue_request(
+            params,
+            prompt_tokens,
+            media_paths_vec,
+            prompt_chars,
+            chat_format,
+            reasoning_format_enum,
+            thinking_forced_open,
+            prefill_text_str,
+            on_token,
+            on_complete
+        );
+        cb_ctx->request_id = request_id;
+        jni_callback_map[request_id] = cb_ctx;
+
+        env->ReleaseStringUTFChars(prompt, prompt_chars);
+        env->ReleaseStringUTFChars(prefill_text, prefill_text_chars);
+
+        return request_id;
+    } catch (const std::exception &e) {
+        LOGE("doQueueCompletion error: %s", e.what());
+        return -1;
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_doCancelRequest(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jint request_id
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    if (!llama || !llama->slot_manager) {
+        return;
+    }
+    llama->slot_manager->cancel_request(request_id);
 }
 
 } // extern "C"

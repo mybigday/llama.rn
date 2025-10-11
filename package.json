@@ -206,6 +206,7 @@
   "eslintIgnore": [
     "node_modules/",
     "lib/",
+    "tests/build",
     "*.d.ts",
     "tests/build/",
     "third_party/llama.cpp/"
