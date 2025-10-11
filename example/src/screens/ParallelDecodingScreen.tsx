@@ -87,6 +87,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [completionParams, setCompletionParams] = useState<CompletionParams | null>(null)
   const slotsRef = useRef<ConversationSlot[]>([])
+  const imageCache = useRef<Map<string, string>>(new Map())
 
   const handleSaveContextParams = (params: ContextParams) => {
     setContextParams(params)
@@ -322,17 +323,29 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     }
   }
 
-  // Helper function to download image and convert to base64 data URI
+  // Helper function to download image and convert to base64 data URI (with caching)
   const downloadImageAsDataUri = async (url: string): Promise<string> => {
+    // Check cache first
+    const cached = imageCache.current.get(url)
+    if (cached) {
+      console.log(`Using cached image for ${url}`)
+      return cached
+    }
+
     try {
+      console.log(`Downloading image from ${url}`)
       const response = await fetch(url)
       const blob = await response.blob()
-      return new Promise((resolve, reject) => {
+      const dataUri = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader()
         reader.onloadend = () => resolve(reader.result as string)
         reader.onerror = reject
         reader.readAsDataURL(blob)
       })
+
+      // Store in cache
+      imageCache.current.set(url, dataUri)
+      return dataUri
     } catch (error) {
       console.error(`Failed to download image from ${url}:`, error)
       throw error
