@@ -193,17 +193,6 @@ void llama_rn_slot_manager::cancel_request(int32_t request_id) {
         return;
     }
 
-    // Remove from deferred queue
-    auto deferred_it = std::remove_if(queue_deferred.begin(), queue_deferred.end(),
-        [request_id](const llama_rn_queued_request& req) {
-            return req.request_id == request_id;
-        });
-    if (deferred_it != queue_deferred.end()) {
-        queue_deferred.erase(deferred_it, queue_deferred.end());
-        LOG_INFO("Request %d cancelled (was in deferred queue)", request_id);
-        return;
-    }
-
     LOG_WARNING("Request %d not found for cancellation", request_id);
 }
 
@@ -238,11 +227,10 @@ void llama_rn_slot_manager::process_pending_queue() {
         llama_rn_slot* slot = get_available_slot(request.prompt_tokens);
 
         if (slot == nullptr) {
-            // No slots available, defer all remaining requests
-            LOG_VERBOSE("No available slots, deferring request %d", request.request_id);
-            queue_deferred.push_back(request);
-            queue_requests.pop_front();
-            continue;
+            // No slots available, stop processing to maintain FIFO order
+            // Don't defer this request - just leave it at the front of the queue
+            LOG_VERBOSE("No available slots, stopping queue processing (request %d at front)", request.request_id);
+            break;
         }
 
         // Assign request to slot
@@ -528,16 +516,6 @@ void llama_rn_slot_manager::release_completed_slots() {
     }
 }
 
-// Promote deferred requests back to main queue
-void llama_rn_slot_manager::promote_deferred_requests() {
-    if (!queue_deferred.empty()) {
-        LOG_VERBOSE("Promoting %zu deferred requests", queue_deferred.size());
-        // Move all deferred requests back to main queue
-        queue_requests.insert(queue_requests.end(), queue_deferred.begin(), queue_deferred.end());
-        queue_deferred.clear();
-    }
-}
-
 // Main processing loop
 void llama_rn_slot_manager::update_slots() {
     // Step 1: Process pending queue
@@ -584,9 +562,6 @@ void llama_rn_slot_manager::update_slots() {
 
     // Step 6: Release completed slots
     release_completed_slots();
-
-    // Step 7: Promote deferred requests back to main queue
-    promote_deferred_requests();
 }
 
 } // namespace rnllama

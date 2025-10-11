@@ -53,7 +53,6 @@ struct llama_rn_slot_manager {
 
     // Request queue
     std::deque<llama_rn_queued_request> queue_requests;
-    std::deque<llama_rn_queued_request> queue_deferred;
 
     // Request tracking
     std::map<int32_t, llama_rn_slot*> active_requests;  // request_id -> slot
@@ -110,9 +109,6 @@ struct llama_rn_slot_manager {
 
     // Release completed slots
     void release_completed_slots();
-
-    // Promote deferred requests
-    void promote_deferred_requests();
 };
 
 } // namespace rnllama
