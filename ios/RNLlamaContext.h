@@ -55,6 +55,8 @@
 - (void)stopCompletion;
 - (NSNumber *)queueCompletion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *tokenResult))onToken onComplete:(void (^)(NSDictionary *result))onComplete;
 - (void)cancelRequest:(NSNumber *)requestId;
+- (BOOL)enableParallelMode:(int)nParallel nBatch:(int)nBatch;
+- (void)disableParallelMode;
 - (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths;
 - (NSString *)detokenize:(NSArray *)tokens;
 - (NSDictionary *)embedding:(NSString *)text params:(NSDictionary *)params;

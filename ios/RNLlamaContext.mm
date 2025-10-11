@@ -183,6 +183,7 @@
 
     if (params[@"n_batch"]) defaultParams.n_batch = [params[@"n_batch"] intValue];
     if (params[@"n_ubatch"]) defaultParams.n_ubatch = [params[@"n_ubatch"] intValue];
+    if (params[@"n_parallel"]) defaultParams.n_parallel = [params[@"n_parallel"] intValue];
     if (params[@"use_mmap"]) defaultParams.use_mmap = [params[@"use_mmap"] boolValue];
 
     if (params[@"pooling_type"] && [params[@"pooling_type"] isKindOfClass:[NSNumber class]]) {
@@ -1195,21 +1196,14 @@
         return @(-1);
     }
 
-    __block int requestId = -1;
-
-    // Enable parallel mode if not already enabled
+    // Check if parallel mode is enabled
     if (!llama->parallel_mode_enabled) {
-        int nParallel = params[@"n_parallel"] ? [params[@"n_parallel"] intValue] : 2;
-        int nBatch = params[@"n_batch"] ? [params[@"n_batch"] intValue] : 512;
-
-        if (!llama->enableParallelMode(nParallel, nBatch)) {
-            NSLog(@"Failed to enable parallel mode");
-            return @(-1);
-        }
-
-        // Start background processing loop
-        [self startProcessingLoop];
+        @throw [NSException exceptionWithName:@"LlamaException"
+                                       reason:@"Parallel mode is not enabled. Call enableParallelMode() first."
+                                     userInfo:nil];
     }
+
+    __block int requestId = -1;
 
     // Tokenize prompt
     NSString *prompt = params[@"prompt"];
@@ -1372,8 +1366,6 @@
     if (!reasoningFormat) reasoningFormat = @"none";
     std::string reasoningFormatStr = [reasoningFormat UTF8String];
     common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
-
-    NSLog(@"reasoning_format: %d", reasoning_format);
 
     bool thinking_forced_open = params[@"thinking_forced_open"] ? [params[@"thinking_forced_open"] boolValue] : false;
 
@@ -1544,6 +1536,44 @@
     }
 }
 
+- (BOOL)enableParallelMode:(int)nParallel nBatch:(int)nBatch {
+    if (!llama) {
+        @throw [NSException exceptionWithName:@"LlamaException"
+                                       reason:@"Cannot enable parallel mode: context not initialized"
+                                     userInfo:nil];
+    }
+
+    // If parallel mode is already enabled, stop the processing loop first
+    if (llama->parallel_mode_enabled) {
+        NSLog(@"Reconfiguring parallel mode with %d slots", nParallel);
+        [self stopProcessingLoop];
+    }
+
+    try {
+        llama->enableParallelMode(nParallel, nBatch);
+    } catch (const std::runtime_error& e) {
+        @throw [NSException exceptionWithName:@"LlamaException"
+                                       reason:[NSString stringWithUTF8String:e.what()]
+                                     userInfo:nil];
+    } catch (const std::exception& e) {
+        @throw [NSException exceptionWithName:@"LlamaException"
+                                       reason:[NSString stringWithUTF8String:e.what()]
+                                     userInfo:nil];
+    }
+
+    [self startProcessingLoop];
+    return YES;
+}
+
+- (void)disableParallelMode {
+    if (!llama) {
+        return;
+    }
+
+    [self stopProcessingLoop];
+    llama->disableParallelMode();
+}
+
 // Start background processing loop
 - (void)startProcessingLoop {
     if (processingLoopActive) {
@@ -1564,7 +1594,7 @@
             }
 
             // Sleep for 1ms to avoid busy waiting
-            usleep(1000);
+            usleep(100);
         }
     });
 }

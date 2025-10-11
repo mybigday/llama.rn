@@ -55,7 +55,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
   const [isLoading, setIsLoading] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
   const [slots, setSlots] = useState<ConversationSlot[]>([])
-  const [parallelSlots] = useState(2)
+  const [parallelSlots, setParallelSlots] = useState(2)
   const [customPrompt, setCustomPrompt] = useState('')
   const [isParallelMode, setIsParallelMode] = useState(false)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
@@ -140,6 +140,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       const llamaContext = await initLlama(
         {
           model: modelPath,
+          n_parallel: 8,
           ...params,
         },
         (progress) => {
@@ -148,11 +149,22 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         },
       )
 
+      // Enable parallel mode with configured slot count
+      const success = await llamaContext.enableParallelMode({
+        enabled: true,
+        n_parallel: parallelSlots,
+        n_batch: 512,
+      })
+
+      if (!success) {
+        throw new Error('Failed to enable parallel mode')
+      }
+
       setContext(llamaContext)
       setIsModelReady(true)
       setIsParallelMode(true)
       setInitProgress(100)
-      console.log(`Parallel mode ready with ${parallelSlots} slots`)
+      console.log(`Parallel mode enabled with ${parallelSlots} slots`)
     } catch (error: any) {
       Alert.alert('Error', `Failed to initialize model: ${error.message}`)
     } finally {
@@ -281,6 +293,36 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       )
     } catch (error) {
       console.error('Error cancelling requests:', error)
+    }
+  }
+
+  const updateParallelSlots = async (newSlotCount: number) => {
+    if (!context || !isParallelMode) {
+      Alert.alert('Error', 'Model not ready or parallel mode not enabled')
+      return
+    }
+
+    const currentActiveCount = slots.filter((t) => t.status === 'processing' || t.status === 'idle').length
+    if (currentActiveCount > 0) {
+      Alert.alert('Error', 'Cannot change slot count while requests are active')
+      return
+    }
+
+    try {
+      const success = await context.enableParallelMode({
+        enabled: true,
+        n_parallel: newSlotCount,
+        n_batch: 512,
+      })
+
+      if (success) {
+        setParallelSlots(newSlotCount)
+        console.log(`Parallel slots updated to ${newSlotCount}`)
+      } else {
+        Alert.alert('Error', 'Failed to update parallel slot count')
+      }
+    } catch (error: any) {
+      Alert.alert('Error', `Failed to update parallel slots: ${error.message}`)
     }
   }
 
@@ -511,10 +553,6 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         <Text style={styles.sectionTitle}>Parallel Processing Stats</Text>
         <View style={styles.statsRow}>
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Slots</Text>
-            <Text style={styles.statValue}>{parallelSlots}</Text>
-          </View>
-          <View style={styles.statBox}>
             <Text style={styles.statLabel}>Queued</Text>
             <Text style={styles.statValue}>{activeCount}</Text>
           </View>
@@ -526,6 +564,61 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
             <Text style={styles.statLabel}>Avg Time</Text>
             <Text style={styles.statValue}>{`${avgDuration}s`}</Text>
           </View>
+        </View>
+
+        {/* Configurable Slot Count */}
+        <View style={{ marginTop: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 14, color: theme.colors.text }}>
+              Number of Slots:
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <TouchableOpacity
+                style={[
+                  {
+                    backgroundColor: theme.colors.primary,
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 12,
+                  },
+                  (parallelSlots <= 1 || activeCount > 0) && { opacity: 0.5 },
+                ]}
+                onPress={() => parallelSlots > 1 && updateParallelSlots(parallelSlots - 1)}
+                disabled={parallelSlots <= 1 || activeCount > 0}
+              >
+                <Text style={{ color: theme.colors.white, fontSize: 20, fontWeight: 'bold' }}>-</Text>
+              </TouchableOpacity>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.primary, minWidth: 24, textAlign: 'center' }}>
+                {parallelSlots}
+              </Text>
+              <TouchableOpacity
+                style={[
+                  {
+                    backgroundColor: theme.colors.primary,
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginLeft: 12,
+                  },
+                  (parallelSlots >= 8 || activeCount > 0) && { opacity: 0.5 },
+                ]}
+                onPress={() => parallelSlots < 8 && updateParallelSlots(parallelSlots + 1)}
+                disabled={parallelSlots >= 8 || activeCount > 0}
+              >
+                <Text style={{ color: theme.colors.white, fontSize: 20, fontWeight: 'bold' }}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          {activeCount > 0 && (
+            <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 4, textAlign: 'right' }}>
+              Cannot change while requests are active
+            </Text>
+          )}
         </View>
       </View>
 
@@ -574,7 +667,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         {slots.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>
-              {'No conversations yet.\n\nClick "Send 4 Examples" to see parallel processing in action,\nor enter a custom prompt below.'}
+              {`No conversations yet.\n\nClick "Send ${EXAMPLE_PROMPTS.length} Examples" to see parallel processing in action,\nor enter a custom prompt below.`}
             </Text>
           </View>
         ) : (

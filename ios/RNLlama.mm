@@ -641,6 +641,35 @@ RCT_EXPORT_METHOD(releaseAllContexts:(RCTPromiseResolveBlock)resolve
     [super invalidate];
 }
 
+// Enable or disable parallel decoding mode
+RCT_EXPORT_METHOD(enableParallelMode:(double)contextId
+                 withParams:(NSDictionary *)params
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    BOOL enabled = params[@"enabled"] ? [params[@"enabled"] boolValue] : YES;
+    int nParallel = params[@"n_parallel"] ? [params[@"n_parallel"] intValue] : 2;
+    int nBatch = params[@"n_batch"] ? [params[@"n_batch"] intValue] : 512;
+
+    @try {
+        if (enabled) {
+            BOOL success = [context enableParallelMode:nParallel nBatch:nBatch];
+            resolve(@(success));
+        } else {
+            [context disableParallelMode];
+            resolve(@(YES));
+        }
+    } @catch (NSException *exception) {
+        reject(@"llama_cpp_error", exception.reason, nil);
+    }
+}
+
 // Parallel decoding: Queue a completion request
 RCT_EXPORT_METHOD(queueCompletion:(double)contextId
                  withCompletionParams:(NSDictionary *)completionParams

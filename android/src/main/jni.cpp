@@ -263,6 +263,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jint n_ctx,
     jint n_batch,
     jint n_ubatch,
+    jint n_parallel,
     jint n_threads,
     jint n_gpu_layers,
     jboolean flash_attn,
@@ -302,6 +303,9 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.n_ctx = n_ctx;
     defaultParams.n_batch = n_batch;
     defaultParams.n_ubatch = n_ubatch;
+    if (n_parallel > 0) {
+        defaultParams.n_parallel = n_parallel;
+    }
     defaultParams.ctx_shift = ctx_shift;
     defaultParams.kv_unified = kv_unified;
     defaultParams.swa_full = swa_full;
@@ -1915,14 +1919,21 @@ Java_com_rnllama_LlamaContext_enableParallelMode(
     jint n_parallel,
     jint n_batch
 ) {
-    UNUSED(env);
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
     if (!llama) {
         LOGE("enableParallelMode: Invalid context pointer");
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Invalid context pointer");
         return;
     }
-    llama->enableParallelMode(n_parallel, n_batch);
+
+    try {
+        llama->enableParallelMode(n_parallel, n_batch);
+    } catch (const std::runtime_error& e) {
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), e.what());
+    } catch (const std::exception& e) {
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), e.what());
+    }
 }
 
 JNIEXPORT void JNICALL

@@ -75,7 +75,7 @@ struct llama_rn_context {
     bool loadModel(common_params &params_);
 
     // Parallel decoding methods
-    bool enableParallelMode(int32_t n_parallel, int32_t n_batch = 512);
+    void enableParallelMode(int32_t n_parallel, int32_t n_batch = 512);
     void disableParallelMode();
 
     // Model methods

@@ -1028,6 +1028,46 @@ public class RNLlama implements LifecycleEventListener {
   }
 
   // Parallel decoding methods
+  public void enableParallelMode(double id, final ReadableMap params, final Promise promise) {
+    final int contextId = (int) id;
+    new AsyncTask<Void, Void, Boolean>() {
+      private Exception exception;
+
+      @Override
+      protected Boolean doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+
+          boolean enabled = params.hasKey("enabled") ? params.getBoolean("enabled") : true;
+          int nParallel = params.hasKey("n_parallel") ? params.getInt("n_parallel") : 2;
+          int nBatch = params.hasKey("n_batch") ? params.getInt("n_batch") : 512;
+
+          if (enabled) {
+            return context.doEnableParallelMode(nParallel, nBatch);
+          } else {
+            context.doDisableParallelMode();
+            return true;
+          }
+        } catch (Exception e) {
+          exception = e;
+        }
+        return false;
+      }
+
+      @Override
+      protected void onPostExecute(Boolean result) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        promise.resolve(result);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+  }
+
   public void queueCompletion(double id, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
     new AsyncTask<Void, Void, Integer>() {

@@ -151,6 +151,16 @@ llama_rn_context::~llama_rn_context() {
 bool llama_rn_context::loadModel(common_params &params_)
 {
     params = params_;
+
+    // Ensure n_parallel is set to a reasonable default for parallel decoding support
+    // This sets n_seq_max in the context, which cannot be changed later
+    if (params.n_parallel < 1) {
+        params.n_parallel = 8; // Default to support up to 8 parallel slots
+        LOG_INFO("Setting n_parallel to default: %d (enables up to %d parallel slots)", params.n_parallel, params.n_parallel);
+    } else {
+        LOG_INFO("Using n_parallel: %d (enables up to %d parallel slots)", params.n_parallel, params.n_parallel);
+    }
+
     llama_init = common_init_from_params(params);
     model = llama_init.model.get();
     ctx = llama_init.context.get();
@@ -161,6 +171,10 @@ bool llama_rn_context::loadModel(common_params &params_)
     }
     templates = common_chat_templates_init(model, params.chat_template);
     n_ctx = llama_n_ctx(ctx);
+
+    // Log the actual n_seq_max that was set
+    uint32_t n_seq_max = llama_n_seq_max(ctx);
+    LOG_INFO("Context initialized with n_seq_max = %u", n_seq_max);
 
     // Initialize completion context
     if (completion != nullptr) {
@@ -357,51 +371,38 @@ void llama_rn_context::releaseVocoder() {
 }
 
 // Enable parallel decoding mode
-bool llama_rn_context::enableParallelMode(int32_t n_parallel, int32_t n_batch) {
-    if (parallel_mode_enabled) {
-        LOG_WARNING("Parallel mode already enabled");
-        return true;
-    }
-
+void llama_rn_context::enableParallelMode(int32_t n_parallel, int32_t n_batch) {
     if (ctx == nullptr) {
         LOG_ERROR("Cannot enable parallel mode: context not initialized");
-        return false;
+        throw std::runtime_error("Cannot enable parallel mode: context not initialized");
     }
 
-    LOG_INFO("Enabling parallel mode with %d slots, batch size %d", n_parallel, n_batch);
-
-    // Update params and recreate context with correct n_seq_max
-    // This is necessary because n_seq_max is set from n_parallel during context creation
-    params.n_parallel = n_parallel;
-
-    // Recreate the context with updated parameters
-    llama_init = common_init_from_params(params);
-    model = llama_init.model.get();
-    ctx = llama_init.context.get();
-
-    if (ctx == nullptr || model == nullptr) {
-        LOG_ERROR("Failed to recreate context with parallel mode");
-        return false;
-    }
-
-    // Recreate templates with new model pointer
-    templates = common_chat_templates_init(model, params.chat_template);
-    n_ctx = llama_n_ctx(ctx);
-
-    // Verify n_seq_max is set correctly
+    // Verify n_seq_max is sufficient for requested parallel slots
     uint32_t n_seq_max = llama_n_seq_max(ctx);
-    LOG_INFO("Context recreated with n_seq_max = %u for %d parallel slots", n_seq_max, n_parallel);
-
     if (n_seq_max < (uint32_t)n_parallel) {
-        LOG_ERROR("Context n_seq_max (%u) is less than requested parallel slots (%d)", n_seq_max, n_parallel);
-        return false;
+        LOG_ERROR("Context n_seq_max (%u) is less than requested parallel slots (%d). Context was initialized with n_parallel=%d",
+                  n_seq_max, n_parallel, params.n_parallel);
+        LOG_ERROR("To use %d parallel slots, reinitialize the context with n_parallel >= %d", n_parallel, n_parallel);
+
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg),
+                "Failed to enable parallel mode with %d slots. Context n_seq_max (%u) is less than requested. "
+                "Context was initialized with n_parallel=%d. To use %d parallel slots, reinitialize the context with n_parallel >= %d",
+                n_parallel, n_seq_max, params.n_parallel, n_parallel, n_parallel);
+        throw std::runtime_error(error_msg);
     }
 
-    // Recreate completion context
-    if (completion != nullptr) {
-        delete completion;
+    // If parallel mode is already enabled, reconfigure it
+    if (parallel_mode_enabled) {
+        LOG_INFO("Reconfiguring parallel mode to %d slots, batch size %d", n_parallel, n_batch);
+        // Clean up existing slot manager
+        if (slot_manager != nullptr) {
+            delete slot_manager;
+            slot_manager = nullptr;
+        }
+    } else {
+        LOG_INFO("Enabling parallel mode with %d slots, batch size %d (n_seq_max=%u)", n_parallel, n_batch, n_seq_max);
     }
-    completion = new llama_rn_context_completion(this);
 
     // Create slot manager
     slot_manager = new llama_rn_slot_manager(this);
@@ -409,16 +410,17 @@ bool llama_rn_context::enableParallelMode(int32_t n_parallel, int32_t n_batch) {
         LOG_ERROR("Failed to initialize slot manager");
         delete slot_manager;
         slot_manager = nullptr;
-        return false;
+
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg),
+                "Failed to initialize slot manager with %d slots and batch size %d",
+                n_parallel, n_batch);
+        throw std::runtime_error(error_msg);
     }
 
     parallel_mode_enabled = true;
 
-    // Note: Keep the existing 'completion' pointer for backward compatibility
-    // It will continue to work as before for single-request use cases
-
-    LOG_INFO("Parallel mode enabled successfully");
-    return true;
+    LOG_INFO("Parallel mode enabled successfully with %d slots", n_parallel);
 }
 
 // Disable parallel decoding mode

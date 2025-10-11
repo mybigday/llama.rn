@@ -18,6 +18,12 @@ export type NativeContextParams = {
   n_ctx?: number
   n_batch?: number
   n_ubatch?: number
+  /**
+   * Number of parallel sequences to support (sets n_seq_max).
+   * This determines the maximum number of parallel slots that can be used.
+   * Default: 8
+   */
+  n_parallel?: number
 
   n_threads?: number
 
@@ -506,6 +512,14 @@ export interface Spec extends TurboModule {
   stopCompletion(contextId: number): Promise<void>
 
   // Parallel decoding methods
+  enableParallelMode(
+    contextId: number,
+    params: {
+      enabled: boolean
+      n_parallel?: number
+      n_batch?: number
+    },
+  ): Promise<boolean>
   queueCompletion(
     contextId: number,
     params: NativeCompletionParams,

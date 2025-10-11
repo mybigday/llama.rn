@@ -84,6 +84,8 @@ public class LlamaContext {
       params.hasKey("n_batch") ? params.getInt("n_batch") : 512,
       // int n_ubatch,
       params.hasKey("n_ubatch") ? params.getInt("n_ubatch") : 512,
+      // int n_parallel,
+      params.hasKey("n_parallel") ? params.getInt("n_parallel") : 0,
       // int n_threads,
       params.hasKey("n_threads") ? params.getInt("n_threads") : 0,
       // int n_gpu_layers,
@@ -549,6 +551,11 @@ public class LlamaContext {
       throw new IllegalArgumentException("Missing required parameter: prompt");
     }
 
+    // Check if parallel mode is enabled
+    if (!processingLoopActive) {
+      throw new IllegalStateException("Parallel mode is not enabled. Call enableParallelMode() first.");
+    }
+
     double[][] logit_bias = new double[0][0];
     if (params.hasKey("logit_bias")) {
       ReadableArray logit_bias_array = params.getArray("logit_bias");
@@ -569,14 +576,6 @@ public class LlamaContext {
       for (int i = 0; i < guide_tokens_array.size(); i++) {
         guide_tokens[i] = (int) guide_tokens_array.getDouble(i);
       }
-    }
-
-    // Enable parallel mode if not already enabled
-    if (!processingLoopActive) {
-      int n_parallel = params.hasKey("n_parallel") ? params.getInt("n_parallel") : 2;
-      int n_batch = params.hasKey("n_batch") ? params.getInt("n_batch") : 512;
-      enableParallelMode(this.context, n_parallel, n_batch);
-      startProcessingLoop();
     }
 
     int requestId = doQueueCompletion(
@@ -707,6 +706,22 @@ public class LlamaContext {
     }
   }
 
+  public boolean doEnableParallelMode(int nParallel, int nBatch) {
+    // If parallel mode is already enabled, stop the processing loop first
+    if (processingLoopActive) {
+      Log.d(NAME, "Reconfiguring parallel mode with " + nParallel + " slots");
+      stopProcessingLoop();
+    }
+
+    enableParallelMode(this.context, nParallel, nBatch);
+    startProcessingLoop();
+    return true;
+  }
+
+  public void doDisableParallelMode() {
+    stopProcessingLoop();
+  }
+
   public void release() {
     stopProcessingLoop();
     freeContext(context);
@@ -815,6 +830,7 @@ public class LlamaContext {
     int n_ctx,
     int n_batch,
     int n_ubatch,
+    int n_parallel,
     int n_threads,
     int n_gpu_layers,
     boolean flash_attn,

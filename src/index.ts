@@ -500,6 +500,38 @@ export class LlamaContext {
   }
 
   /**
+   * Enable or disable parallel decoding mode
+   *
+   * Note: The context must be initialized with a sufficient n_parallel value to support
+   * the requested number of slots. By default, contexts are initialized with n_parallel=8,
+   * which supports up to 8 parallel slots. To use more slots, specify a higher n_parallel
+   * value when calling initLlama().
+   *
+   * @param params Configuration for parallel mode
+   * @param params.enabled Whether to enable parallel mode
+   * @param params.n_parallel Number of parallel slots (default: 2). Must be <= context's n_seq_max
+   * @param params.n_batch Batch size for processing (default: 512)
+   * @returns Promise resolving to true if successful
+   *
+   * @example
+   * // Initialize context with support for up to 16 parallel slots
+   * const context = await initLlama({ model: 'model.gguf', n_parallel: 16 })
+   *
+   * // Enable parallel mode with 4 slots
+   * await context.enableParallelMode({ enabled: true, n_parallel: 4 })
+   *
+   * // Later, reconfigure to use 8 slots
+   * await context.enableParallelMode({ enabled: true, n_parallel: 8 })
+   */
+  async enableParallelMode(params: {
+    enabled: boolean
+    n_parallel?: number
+    n_batch?: number
+  }): Promise<boolean> {
+    return RNLlama.enableParallelMode(this.id, params)
+  }
+
+  /**
    * Queue a completion request for parallel processing (non-blocking)
    * @param params Completion parameters (same as completion())
    * @param onToken Callback fired for each generated token
