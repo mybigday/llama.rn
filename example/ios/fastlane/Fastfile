@@ -11,7 +11,7 @@ def build_example_app
 end
 
 def changelog_from_file
-  notes_file = "TESTFLIGHT_NOTES.txt"
+  notes_file = ".notes.txt"
   if File.exist?(notes_file)
     value = File.read(notes_file).strip
     value = nil if value.empty?
@@ -25,18 +25,24 @@ platform :ios do
 
   desc "Local upload using Apple ID authentication (no API key required)"
   lane :deploy do
+    build_number = app_store_build_number(live: false).to_i + 1
+    increment_build_number(
+      build_number: build_number,
+      xcodeproj: "RNLlamaExample.xcodeproj"
+    )
     build_example_app
 
     UI.message("Uploading build to TestFlight using Apple ID credentials")
+
     upload_to_testflight(
       app_identifier: ENV["IOS_APP_IDENTIFIER"],
       changelog: changelog_from_file,
       distribute_external: true,
-      distribute_only: true,
       groups: [
         "Public"
       ],
       skip_waiting_for_build_processing: false,
+      build_number: build_number.to_s,
     )
   end
 end
