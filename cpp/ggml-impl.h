@@ -102,6 +102,9 @@ static bool lm_ggml_op_is_empty(enum lm_ggml_op op) {
     }
 }
 
+static inline float lm_ggml_softplus(float input) {
+    return (input > 20.0f) ? input : logf(1 + expf(input));
+}
 //
 // logging
 //

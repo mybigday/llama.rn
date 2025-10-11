@@ -226,6 +226,10 @@ static int lm_ggml_metal_op_encode_impl(lm_ggml_metal_op_t ctx, int idx) {
             LM_GGML_TENSOR_LOCALS(uint64_t, nb0, node->src[0], nb);
             LM_GGML_TENSOR_LOCALS( int64_t, ne1, node->src[1], ne);
             LM_GGML_TENSOR_LOCALS(uint64_t, nb1, node->src[1], nb);
+            LM_GGML_TENSOR_LOCALS( int64_t, ne2, node->src[2], ne);
+            LM_GGML_TENSOR_LOCALS(uint64_t, nb2, node->src[2], nb);
+            LM_GGML_TENSOR_LOCALS( int64_t, ne3, node->src[3], ne);
+            LM_GGML_TENSOR_LOCALS(uint64_t, nb3, node->src[3], nb);
             LM_GGML_TENSOR_LOCALS( int64_t, ne,  node,         ne);
             LM_GGML_TENSOR_LOCALS(uint64_t, nb,  node,         nb);
 
@@ -236,6 +240,14 @@ static int lm_ggml_metal_op_encode_impl(lm_ggml_metal_op_t ctx, int idx) {
             if (node->src[1]) {
                 LM_GGML_LOG_DEBUG("%s: src1 - %4s [%5lld, %5lld, %5lld, %5lld] [%5lld, %5lld, %5lld, %5lld], %d, %s\n", __func__, lm_ggml_type_name(node->src[1]->type), ne10, ne11, ne12, ne13, nb10, nb11, nb12, nb13,
                         lm_ggml_is_contiguous(node->src[1]), node->src[1]->name);
+            }
+            if (node->src[2]) {
+                LM_GGML_LOG_DEBUG("%s: src2 - %4s [%5lld, %5lld, %5lld, %5lld] [%5lld, %5lld, %5lld, %5lld], %d, %s\n", __func__, lm_ggml_type_name(node->src[2]->type), ne20, ne21, ne22, ne23, nb20, nb21, nb22, nb23,
+                        lm_ggml_is_contiguous(node->src[2]), node->src[2]->name);
+            }
+            if (node->src[3]) {
+                LM_GGML_LOG_DEBUG("%s: src3 - %4s [%5lld, %5lld, %5lld, %5lld] [%5lld, %5lld, %5lld, %5lld], %d, %s\n", __func__, lm_ggml_type_name(node->src[3]->type), ne30, ne31, ne32, ne33, nb30, nb31, nb32, nb33,
+                        lm_ggml_is_contiguous(node->src[3]), node->src[3]->name);
             }
             if (node) {
                 LM_GGML_LOG_DEBUG("%s: node  - %4s [%5lld, %5lld, %5lld, %5lld] [%5lld, %5lld, %5lld, %5lld], 1, %s\n", __func__, lm_ggml_type_name(node->type), ne0, ne1, ne2, ne3, nb0, nb1, nb2, nb3,
@@ -577,6 +589,7 @@ int lm_ggml_metal_op_acc(lm_ggml_metal_op_t ctx, int idx) {
         lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_cpy(lib, op->src[0]->type, op->type);
 
         lm_ggml_metal_kargs_cpy args = {
+            /*.nk0  =*/ ne00,
             /*.ne00 =*/ ne00,
             /*.ne01 =*/ ne01,
             /*.ne02 =*/ ne02,
@@ -906,15 +919,23 @@ int lm_ggml_metal_op_get_rows(lm_ggml_metal_op_t ctx, int idx) {
     lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_get_rows(lib, op->src[0]->type);
 
     lm_ggml_metal_kargs_get_rows args = {
-        /*.ne00 =*/ ne00,
-        /*.nb01 =*/ nb01,
-        /*.nb02 =*/ nb02,
-        /*.ne10 =*/ ne10,
-        /*.nb10 =*/ nb10,
-        /*.nb11 =*/ nb11,
-        /*.nb1  =*/ nb1,
-        /*.nb2  =*/ nb2,
+        /*.ne00t =*/ lm_ggml_is_quantized(op->src[0]->type) ? ne00/16 : ne00,
+        /*.ne00  =*/ ne00,
+        /*.nb01  =*/ nb01,
+        /*.nb02  =*/ nb02,
+        /*.nb03  =*/ nb03,
+        /*.ne10  =*/ ne10,
+        /*.nb10  =*/ nb10,
+        /*.nb11  =*/ nb11,
+        /*.nb12  =*/ nb12,
+        /*.nb1   =*/ nb1,
+        /*.nb2   =*/ nb2,
+        /*.nb3   =*/ nb3,
     };
+
+    const int nth = std::min(args.ne00t, lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
+
+    const int nw0 = (args.ne00t + nth - 1)/nth;
 
     lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
     lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
@@ -922,7 +943,7 @@ int lm_ggml_metal_op_get_rows(lm_ggml_metal_op_t ctx, int idx) {
     lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[1]), 2);
     lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op),         3);
 
-    lm_ggml_metal_encoder_dispatch_threadgroups(enc, ne10, ne11, ne12, 32, 1, 1);
+    lm_ggml_metal_encoder_dispatch_threadgroups(enc, nw0*ne10, ne11, ne12, nth, 1, 1);
 
     return 1;
 }
@@ -1117,7 +1138,7 @@ int lm_ggml_metal_op_ssm_conv(lm_ggml_metal_op_t ctx, int idx) {
     lm_ggml_metal_encoder_set_bytes(enc, &args, sizeof(args), 0);
     lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op->src[0]), 1);
     lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op->src[1]), 2);
-    lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op), 3);
+    lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op),         3);
 
     lm_ggml_metal_encoder_dispatch_threadgroups(enc, ne01, ne1, ne02, 1, 1, 1);
 
@@ -1172,24 +1193,35 @@ int lm_ggml_metal_op_ssm_scan(lm_ggml_metal_op_t ctx, int idx) {
         /*.n_seq_tokens =*/ n_seq_tokens,
         /*.n_seqs       =*/ n_seqs,
         /*.s_off        =*/ lm_ggml_nelements(op->src[1]) * sizeof(float),
+        /*.nb00         =*/ nb00,
         /*.nb01         =*/ nb01,
         /*.nb02         =*/ nb02,
         /*.nb03         =*/ nb03,
+        /*.nb10         =*/ nb10,
         /*.nb11         =*/ nb11,
         /*.nb12         =*/ nb12,
+        /*.ns12         =*/ nb12/nb10,
         /*.nb13         =*/ nb13,
+        /*.nb20         =*/ nb20,
         /*.nb21         =*/ nb21,
+        /*.ns21         =*/ nb21/nb20,
         /*.nb22         =*/ nb22,
+        /*.ne30         =*/ ne30,
         /*.nb31         =*/ nb31,
         /*.nb41         =*/ nb41,
         /*.nb42         =*/ nb42,
+        /*.ns42         =*/ nb42/nb40,
         /*.nb43         =*/ nb43,
         /*.nb51         =*/ nb51,
         /*.nb52         =*/ nb52,
+        /*.ns52         =*/ nb52/nb50,
         /*.nb53         =*/ nb53,
+        /*.nb0          =*/ nb0,
     };
 
     lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_ssm_scan(lib, op);
+
+    LM_GGML_ASSERT(d_state <= lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
 
     const size_t sms = lm_ggml_metal_pipeline_get_smem(pipeline);
 
@@ -1206,13 +1238,7 @@ int lm_ggml_metal_op_ssm_scan(lm_ggml_metal_op_t ctx, int idx) {
 
     lm_ggml_metal_encoder_set_threadgroup_memory_size(enc, sms, 0);
 
-    if (ne30 == 1) {
-        // Mamba-2
-        lm_ggml_metal_encoder_dispatch_threadgroups(enc, d_inner, n_head, n_seqs, d_state, 1, 1);
-    } else {
-        LM_GGML_ASSERT(d_inner == 1);
-        lm_ggml_metal_encoder_dispatch_threadgroups(enc, n_head, n_seqs, 1, d_state, 1, 1);
-    }
+    lm_ggml_metal_encoder_dispatch_threadgroups(enc, d_inner, n_head, n_seqs, d_state, 1, 1);
 
     return 1;
 }
@@ -1273,26 +1299,23 @@ int lm_ggml_metal_op_cpy(lm_ggml_metal_op_t ctx, int idx) {
 
     LM_GGML_ASSERT(ne00 % lm_ggml_blck_size(op->src[0]->type) == 0);
 
-    // TODO: support
-    //const int32_t nk00 = ne00/lm_ggml_blck_size(op->type);
-    const int32_t nk00 = ne00;
-
-    int nth = 32; // SIMD width
-
-    while (nth < nk00 && nth < lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline)) {
-        nth *= 2;
+    int64_t nk0 = ne00;
+    if (lm_ggml_is_quantized(op->src[0]->type)) {
+        nk0 = ne00/16;
+    } else if (lm_ggml_is_quantized(op->type)) {
+        nk0 = ne00/lm_ggml_blck_size(op->type);
     }
 
-    nth = std::min(nth, lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
+    int nth = std::min<int>(nk0, lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
 
     // when rows are small, we can batch them together in a single threadgroup
     int nrptg = 1;
 
     // TODO: relax this constraint in the future
     if (lm_ggml_blck_size(op->src[0]->type) == 1 && lm_ggml_blck_size(op->type) == 1) {
-        if (nth > nk00) {
-            nrptg = (nth + nk00 - 1)/nk00;
-            nth   = nk00;
+        if (nth > nk0) {
+            nrptg = (nth + nk0 - 1)/nk0;
+            nth   = nk0;
 
             if (nrptg*nth > lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline)) {
                 nrptg--;
@@ -1300,10 +1323,11 @@ int lm_ggml_metal_op_cpy(lm_ggml_metal_op_t ctx, int idx) {
         }
     }
 
-    nth = std::min(nth, nk00);
+    nth = std::min<int>(nth, nk0);
 
     lm_ggml_metal_kargs_cpy args = {
-        /*.ne00 =*/ nk00,
+        /*.nk0  =*/ nk0,
+        /*.ne00 =*/ ne00,
         /*.ne01 =*/ ne01,
         /*.ne02 =*/ ne02,
         /*.ne03 =*/ ne03,
@@ -1321,12 +1345,14 @@ int lm_ggml_metal_op_cpy(lm_ggml_metal_op_t ctx, int idx) {
         /*.nb3  =*/ nb3,
     };
 
+    const int nw0 = nrptg == 1 ? (nk0 + nth - 1)/nth : 1;
+
     lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
     lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
     lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[0]), 1);
     lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op),         2);
 
-    lm_ggml_metal_encoder_dispatch_threadgroups(enc, ne01, ne02, ne03, nth, nrptg, 1);
+    lm_ggml_metal_encoder_dispatch_threadgroups(enc, nw0*(ne01 + nrptg - 1)/nrptg, ne02, ne03, nth, nrptg, 1);
 
     return 1;
 }
@@ -1565,6 +1591,12 @@ int lm_ggml_metal_op_mul_mat(lm_ggml_metal_op_t ctx, int idx) {
     } else {
         lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_mul_mv(lib, op);
 
+        const int nr0 = lm_ggml_metal_pipeline_get_nr0(pipeline);
+        const int nr1 = lm_ggml_metal_pipeline_get_nr1(pipeline);
+        const int nsg = lm_ggml_metal_pipeline_get_nsg(pipeline);
+
+        const size_t smem = lm_ggml_metal_pipeline_get_smem(pipeline);
+
         lm_ggml_metal_kargs_mul_mv args = {
             /*.ne00 =*/ ne00,
             /*.ne01 =*/ ne01,
@@ -1582,15 +1614,10 @@ int lm_ggml_metal_op_mul_mat(lm_ggml_metal_op_t ctx, int idx) {
             /*.nb13 =*/ nb13,
             /*.ne0  =*/ ne0,
             /*.ne1  =*/ ne1,
+            /*.nr0  =*/ nr0,
             /*.r2   =*/ r2,
             /*.r3   =*/ r3,
         };
-
-        const int nr0 = lm_ggml_metal_pipeline_get_nr0(pipeline);
-        const int nr1 = lm_ggml_metal_pipeline_get_nr1(pipeline);
-        const int nsg = lm_ggml_metal_pipeline_get_nsg(pipeline);
-
-        const size_t smem = lm_ggml_metal_pipeline_get_smem(pipeline);
 
         lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
         lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
@@ -1758,6 +1785,14 @@ int lm_ggml_metal_op_mul_mat_id(lm_ggml_metal_op_t ctx, int idx) {
             lm_ggml_metal_encoder_dispatch_threadgroups(enc, (ne21 + 31)/32, (ne01 + 63)/64, ne02, 128, 1, 1);
         }
     } else {
+        lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_mul_mv_id(lib, op);
+
+        const int nr0 = lm_ggml_metal_pipeline_get_nr0(pipeline);
+        const int nr1 = lm_ggml_metal_pipeline_get_nr1(pipeline);
+        const int nsg = lm_ggml_metal_pipeline_get_nsg(pipeline);
+
+        const size_t smem = lm_ggml_metal_pipeline_get_smem(pipeline);
+
         lm_ggml_metal_kargs_mul_mv_id args = {
             /*.nei0 =*/ ne20,
             /*.nei1 =*/ ne21,
@@ -1778,15 +1813,8 @@ int lm_ggml_metal_op_mul_mat_id(lm_ggml_metal_op_t ctx, int idx) {
             /*.ne0  =*/ ne0,
             /*.ne1  =*/ ne1,
             /*.nb1  =*/ nb1,
+            /*.nr0  =*/ nr0,
         };
-
-        lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_mul_mv_id(lib, op);
-
-        const int nr0 = lm_ggml_metal_pipeline_get_nr0(pipeline);
-        const int nr1 = lm_ggml_metal_pipeline_get_nr1(pipeline);
-        const int nsg = lm_ggml_metal_pipeline_get_nsg(pipeline);
-
-        const size_t smem = lm_ggml_metal_pipeline_get_smem(pipeline);
 
         if (lm_ggml_is_quantized(op->src[0]->type)) {
             LM_GGML_ASSERT(ne00 >= nsg*nr0);
@@ -1873,20 +1901,107 @@ bool lm_ggml_metal_op_flash_attn_ext_use_vec(const lm_ggml_tensor * op) {
     return (ne01 < 20) && (ne00 % 32 == 0);
 }
 
+size_t lm_ggml_metal_op_flash_attn_ext_extra_pad(const lm_ggml_tensor * op) {
+    assert(op->op == LM_GGML_OP_FLASH_ATTN_EXT);
+
+    LM_GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb0, op->src[0], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne1, op->src[1], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb1, op->src[1], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne2, op->src[2], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb2, op->src[2], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne3, op->src[3], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb3, op->src[3], nb);
+
+    size_t res = 0;
+
+    const bool has_mask = op->src[3] != nullptr;
+
+    if (lm_ggml_metal_op_flash_attn_ext_use_vec(op)) {
+        const bool has_kvpad = ne11 % OP_FLASH_ATTN_EXT_VEC_NCPSG != 0;
+
+        if (has_kvpad) {
+            res += OP_FLASH_ATTN_EXT_VEC_NCPSG*(
+                nb11*ne12*ne13 +
+                nb21*ne22*ne23 +
+                (has_mask ? lm_ggml_type_size(LM_GGML_TYPE_F16)*ne31*ne32*ne33 : 0));
+        }
+    } else {
+        const bool has_kvpad = ne11 % OP_FLASH_ATTN_EXT_NCPSG != 0;
+
+        if (has_kvpad) {
+            res += OP_FLASH_ATTN_EXT_NCPSG*(
+                nb11*ne12*ne13 +
+                nb21*ne22*ne23 +
+                (has_mask ? lm_ggml_type_size(LM_GGML_TYPE_F16)*ne31*ne32*ne33 : 0));
+        }
+    }
+
+    return res;
+}
+
+size_t lm_ggml_metal_op_flash_attn_ext_extra_blk(const lm_ggml_tensor * op) {
+    assert(op->op == LM_GGML_OP_FLASH_ATTN_EXT);
+
+    LM_GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
+  //LM_GGML_TENSOR_LOCALS(uint64_t, nb0, op->src[0], nb);
+  //LM_GGML_TENSOR_LOCALS( int32_t, ne1, op->src[1], ne);
+  //LM_GGML_TENSOR_LOCALS(uint64_t, nb1, op->src[1], nb);
+  //LM_GGML_TENSOR_LOCALS( int32_t, ne2, op->src[2], ne);
+  //LM_GGML_TENSOR_LOCALS(uint64_t, nb2, op->src[2], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne3, op->src[3], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb3, op->src[3], nb);
+
+    size_t res = 0;
+
+    const bool has_mask = op->src[3] != nullptr;
+
+    if (!has_mask) {
+        return res;
+    }
+
+    const bool is_vec = lm_ggml_metal_op_flash_attn_ext_use_vec(op);
+
+    // this optimization is not useful for the vector kernels
+    if (is_vec) {
+        return res;
+    }
+
+    const int nqptg = is_vec ? OP_FLASH_ATTN_EXT_VEC_NQPTG : OP_FLASH_ATTN_EXT_NQPTG;
+    const int ncpsg = is_vec ? OP_FLASH_ATTN_EXT_VEC_NCPSG : OP_FLASH_ATTN_EXT_NCPSG;
+
+    const int64_t ne1 = (ne01 + nqptg - 1)/nqptg;
+    const int64_t ne0 = (ne30 + ncpsg - 1)/ncpsg;
+
+    res += LM_GGML_PAD(lm_ggml_type_size(LM_GGML_TYPE_I8)*ne0*ne1*ne32*ne33, 32);
+
+    return res;
+}
+
 size_t lm_ggml_metal_op_flash_attn_ext_extra_tmp(const lm_ggml_tensor * op) {
     assert(op->op == LM_GGML_OP_FLASH_ATTN_EXT);
 
-    const int64_t nwg = 32;
+    LM_GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb0, op->src[0], nb);
+  //LM_GGML_TENSOR_LOCALS( int32_t, ne1, op->src[1], ne);
+  //LM_GGML_TENSOR_LOCALS(uint64_t, nb1, op->src[1], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne2, op->src[2], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb2, op->src[2], nb);
+  //LM_GGML_TENSOR_LOCALS( int32_t, ne3, op->src[3], ne);
+  //LM_GGML_TENSOR_LOCALS(uint64_t, nb3, op->src[3], nb);
 
-    const int64_t ne01 = op->src[0]->ne[1];
-    const int64_t ne02 = op->src[0]->ne[2];
-    const int64_t ne03 = op->src[0]->ne[3];
-    const int64_t ne20 = op->src[2]->ne[0];
+    size_t res = 0;
 
-    // temp buffer for writing the results from each workgroup
-    // - ne20: the size of the Value head
-    // -  + 2: the S and M values for each intermediate result
-    return lm_ggml_type_size(LM_GGML_TYPE_F32)*(ne01*ne02*ne03*nwg*(ne20 + 2));
+    if (lm_ggml_metal_op_flash_attn_ext_use_vec(op)) {
+        const int64_t nwg = 32;
+
+        // temp buffer for writing the results from each workgroup
+        // - ne20: the size of the Value head
+        // -  + 2: the S and M values for each intermediate result
+        res += lm_ggml_type_size(LM_GGML_TYPE_F32)*(ne01*ne02*ne03*nwg*(ne20 + 2));
+    }
+
+    return res;
 }
 
 int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
@@ -1908,8 +2023,7 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
     LM_GGML_TENSOR_LOCALS( int32_t, ne,  op,         ne);
     LM_GGML_TENSOR_LOCALS( int32_t, nb,  op,         nb);
 
-    LM_GGML_ASSERT(ne00 % 4  == 0);
-    LM_GGML_ASSERT(ne11 % 32 == 0);
+    LM_GGML_ASSERT(ne00 % 4 == 0);
 
     LM_GGML_ASSERT(op->src[0]->type == LM_GGML_TYPE_F32);
     LM_GGML_ASSERT(op->src[1]->type == op->src[2]->type);
@@ -1919,8 +2033,8 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
     LM_GGML_ASSERT(ne12 == ne22);
 
     LM_GGML_ASSERT(!op->src[3] || op->src[3]->type == LM_GGML_TYPE_F16);
-    LM_GGML_ASSERT(!op->src[3] || op->src[3]->ne[1] >= LM_GGML_PAD(op->src[0]->ne[1], 8) &&
-            "the Flash-Attention Metal kernel requires the mask to be padded to 8 and at least n_queries big");
+    LM_GGML_ASSERT(!op->src[3] || op->src[3]->ne[1] >= op->src[0]->ne[1] &&
+            "the Flash-Attention Metal kernel requires the mask to be at least n_queries big");
 
     float scale;
     float max_bias;
@@ -1947,14 +2061,110 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
 
     LM_GGML_ASSERT(ne01 < 65536);
 
+    lm_ggml_metal_buffer_id bid_src0 = lm_ggml_metal_get_buffer_id(op->src[0]);
+    lm_ggml_metal_buffer_id bid_src1 = lm_ggml_metal_get_buffer_id(op->src[1]);
+    lm_ggml_metal_buffer_id bid_src2 = lm_ggml_metal_get_buffer_id(op->src[2]);
+    lm_ggml_metal_buffer_id bid_src3 = has_mask  ? lm_ggml_metal_get_buffer_id(op->src[3]) : bid_src0;
+    lm_ggml_metal_buffer_id bid_src4 = has_sinks ? lm_ggml_metal_get_buffer_id(op->src[4]) : bid_src0;
+
+    lm_ggml_metal_buffer_id bid_dst = lm_ggml_metal_get_buffer_id(op);
+
+    lm_ggml_metal_buffer_id bid_pad = bid_dst;
+    bid_pad.offs += lm_ggml_nbytes(op);
+
+    lm_ggml_metal_buffer_id bid_blk = bid_pad;
+    bid_blk.offs += lm_ggml_metal_op_flash_attn_ext_extra_pad(op);
+
+    lm_ggml_metal_buffer_id bid_tmp = bid_blk;
+    bid_tmp.offs += lm_ggml_metal_op_flash_attn_ext_extra_blk(op);
+
     if (!lm_ggml_metal_op_flash_attn_ext_use_vec(op)) {
         // half8x8 kernel
-        const int64_t nqptg = 8;  // queries per threadgroup    !! sync with kernel template arguments !!
-        const int64_t ncpsg = 64; // cache values per simdgroup !! sync with kernel template arguments !!
+        const int nqptg = OP_FLASH_ATTN_EXT_NQPTG; // queries per threadgroup
+        const int ncpsg = OP_FLASH_ATTN_EXT_NCPSG; // cache values per simdgroup
 
         LM_GGML_ASSERT(nqptg <= 32);
         LM_GGML_ASSERT(nqptg  % 8  == 0);
         LM_GGML_ASSERT(ncpsg  % 32 == 0);
+
+        bool need_sync = false;
+
+        const bool has_kvpad = ne11 % ncpsg != 0;
+
+        if (has_kvpad) {
+            assert(lm_ggml_metal_op_flash_attn_ext_extra_pad(op) != 0);
+
+            lm_ggml_metal_kargs_flash_attn_ext_pad args0 = {
+                /*.ne11    =*/ne11,
+                /*.ne_12_2 =*/ne12,
+                /*.ne_12_3 =*/ne13,
+                /*.nb11    =*/nb11,
+                /*.nb12    =*/nb12,
+                /*.nb13    =*/nb13,
+                /*.nb21    =*/nb21,
+                /*.nb22    =*/nb22,
+                /*.nb23    =*/nb23,
+                /*.ne31    =*/ne31,
+                /*.ne32    =*/ne32,
+                /*.ne33    =*/ne33,
+                /*.nb31    =*/nb31,
+                /*.nb32    =*/nb32,
+                /*.nb33    =*/nb33,
+            };
+
+            lm_ggml_metal_pipeline_t pipeline0 = lm_ggml_metal_library_get_pipeline_flash_attn_ext_pad(lib, op, has_mask, ncpsg);
+
+            lm_ggml_metal_encoder_set_pipeline(enc, pipeline0);
+            lm_ggml_metal_encoder_set_bytes   (enc, &args0, sizeof(args0), 0);
+            lm_ggml_metal_encoder_set_buffer  (enc, bid_src1, 1);
+            lm_ggml_metal_encoder_set_buffer  (enc, bid_src2, 2);
+            lm_ggml_metal_encoder_set_buffer  (enc, bid_src3, 3);
+            lm_ggml_metal_encoder_set_buffer  (enc, bid_pad,  4);
+
+            assert(ne12 == ne22);
+            assert(ne13 == ne23);
+
+            lm_ggml_metal_encoder_dispatch_threadgroups(enc, ncpsg, std::max(ne12, ne32), std::max(ne13, ne33), 32, 1, 1);
+
+            need_sync = true;
+        } else {
+            assert(lm_ggml_metal_op_flash_attn_ext_extra_pad(op) == 0);
+        }
+
+        if (has_mask) {
+            assert(lm_ggml_metal_op_flash_attn_ext_extra_blk(op) != 0);
+
+            lm_ggml_metal_kargs_flash_attn_ext_blk args0 = {
+                /*.ne01 =*/ ne01,
+                /*.ne30 =*/ ne30,
+                /*.ne31 =*/ ne31,
+                /*.ne32 =*/ ne32,
+                /*.ne33 =*/ ne33,
+                /*.nb31 =*/ nb31,
+                /*.nb32 =*/ nb32,
+                /*.nb33 =*/ nb33,
+            };
+
+            lm_ggml_metal_pipeline_t pipeline0 = lm_ggml_metal_library_get_pipeline_flash_attn_ext_blk(lib, op, nqptg, ncpsg);
+
+            lm_ggml_metal_encoder_set_pipeline(enc, pipeline0);
+            lm_ggml_metal_encoder_set_bytes   (enc, &args0, sizeof(args0), 0);
+            lm_ggml_metal_encoder_set_buffer  (enc, bid_src3, 1);
+            lm_ggml_metal_encoder_set_buffer  (enc, bid_blk,  2);
+
+            const int32_t nblk1 = ((ne01 + nqptg - 1)/nqptg);
+            const int32_t nblk0 = ((ne30 + ncpsg - 1)/ncpsg);
+
+            lm_ggml_metal_encoder_dispatch_threadgroups(enc, nblk0, nblk1, ne32*ne33, 32, 1, 1);
+
+            need_sync = true;
+        } else {
+            assert(lm_ggml_metal_op_flash_attn_ext_extra_blk(op) == 0);
+        }
+
+        if (need_sync) {
+            lm_ggml_metal_op_concurrency_reset(ctx);
+        }
 
         const int is_q = lm_ggml_is_quantized(op->src[1]->type) ? 1 : 0;
 
@@ -2005,6 +2215,7 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
             /*.nb21          =*/ nb21,
             /*.nb22          =*/ nb22,
             /*.nb23          =*/ nb23,
+            /*.ne31          =*/ ne31,
             /*.ne32          =*/ ne32,
             /*.ne33          =*/ ne33,
             /*.nb31          =*/ nb31,
@@ -2021,24 +2232,18 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
             /*.logit_softcap =*/ logit_softcap,
         };
 
-        lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_flash_attn_ext(lib, op, has_mask, has_sinks, has_bias, has_scap, nsg);
+        lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_flash_attn_ext(lib, op, has_mask, has_sinks, has_bias, has_scap, has_kvpad, nsg);
 
         lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
         lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
-        lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[0]), 1);
-        lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[1]), 2);
-        lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[2]), 3);
-        if (op->src[3]) {
-            lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op->src[3]), 4);
-        } else {
-            lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op->src[0]), 4);
-        }
-        if (op->src[4]) {
-            lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op->src[4]), 5);
-        } else {
-            lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op->src[0]), 5);
-        }
-        lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op),         6);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_src0, 1);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_src1, 2);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_src2, 3);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_src3, 4);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_src4, 5);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_pad,  6);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_blk,  7);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_dst,  8);
 
         lm_ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
 
@@ -2046,13 +2251,61 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
 #undef FATTN_SMEM
     } else {
         // half4x4 kernel
-        const int64_t nqptg = 1;  // queries per threadgroup    !! sync with kernel template arguments !!
-        const int64_t ncpsg = 32; // cache values per simdgroup !! sync with kernel template arguments !!
-        const int64_t nkpsg = 1*ncpsg;
+        const int nqptg = OP_FLASH_ATTN_EXT_VEC_NQPTG; // queries per threadgroup
+        const int ncpsg = OP_FLASH_ATTN_EXT_VEC_NCPSG; // cache values per simdgroup !! sync with kernel template arguments !!
+        const int nkpsg = 1*ncpsg;
 
         LM_GGML_ASSERT(nqptg <= 32);
         LM_GGML_ASSERT(nqptg  % 1  == 0);
         LM_GGML_ASSERT(ncpsg  % 32 == 0);
+
+        bool need_sync = false;
+
+        const bool has_kvpad = ne11 % ncpsg != 0;
+
+        if (has_kvpad) {
+            assert(lm_ggml_metal_op_flash_attn_ext_extra_pad(op) != 0);
+
+            lm_ggml_metal_kargs_flash_attn_ext_pad args0 = {
+                /*.ne11    =*/ne11,
+                /*.ne_12_2 =*/ne12,
+                /*.ne_12_3 =*/ne13,
+                /*.nb11    =*/nb11,
+                /*.nb12    =*/nb12,
+                /*.nb13    =*/nb13,
+                /*.nb21    =*/nb21,
+                /*.nb22    =*/nb22,
+                /*.nb23    =*/nb23,
+                /*.ne31    =*/ne31,
+                /*.ne32    =*/ne32,
+                /*.ne33    =*/ne33,
+                /*.nb31    =*/nb31,
+                /*.nb32    =*/nb32,
+                /*.nb33    =*/nb33,
+            };
+
+            lm_ggml_metal_pipeline_t pipeline0 = lm_ggml_metal_library_get_pipeline_flash_attn_ext_pad(lib, op, has_mask, ncpsg);
+
+            lm_ggml_metal_encoder_set_pipeline(enc, pipeline0);
+            lm_ggml_metal_encoder_set_bytes   (enc, &args0, sizeof(args0), 0);
+            lm_ggml_metal_encoder_set_buffer  (enc, bid_src1, 1);
+            lm_ggml_metal_encoder_set_buffer  (enc, bid_src2, 2);
+            lm_ggml_metal_encoder_set_buffer  (enc, bid_src3, 3);
+            lm_ggml_metal_encoder_set_buffer  (enc, bid_pad,  4);
+
+            assert(ne12 == ne22);
+            assert(ne13 == ne23);
+
+            lm_ggml_metal_encoder_dispatch_threadgroups(enc, ncpsg, std::max(ne12, ne32), std::max(ne13, ne33), 32, 1, 1);
+
+            need_sync = true;
+        } else {
+            assert(lm_ggml_metal_op_flash_attn_ext_extra_pad(op) == 0);
+        }
+
+        if (need_sync) {
+            lm_ggml_metal_op_concurrency_reset(ctx);
+        }
 
         // ne00 + 2*ncpsg*(nsg)
         // for each query, we load it as f16 in shared memory (ne00)
@@ -2118,6 +2371,7 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
             /*.nb21          =*/ nb21,
             /*.nb22          =*/ nb22,
             /*.nb23          =*/ nb23,
+            /*.ne31          =*/ ne31,
             /*.ne32          =*/ ne32,
             /*.ne33          =*/ ne33,
             /*.nb31          =*/ nb31,
@@ -2134,25 +2388,17 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
             /*.logit_softcap =*/ logit_softcap,
         };
 
-        lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_flash_attn_ext_vec(lib, op, has_mask, has_sinks, has_bias, has_scap, nsg, nwg);
+        lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_flash_attn_ext_vec(lib, op, has_mask, has_sinks, has_bias, has_scap, has_kvpad, nsg, nwg);
 
         LM_GGML_ASSERT(nsg*32 <= lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
 
         lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
         lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
-        lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[0]), 1);
-        lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[1]), 2);
-        lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[2]), 3);
-        if (op->src[3]) {
-            lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op->src[3]), 4);
-        } else {
-            lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op->src[0]), 4);
-        }
-        if (op->src[4]) {
-            lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op->src[4]), 5);
-        } else {
-            lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op->src[0]), 5);
-        }
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_src0, 1);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_src1, 2);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_src2, 3);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_src3, 4);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_src4, 5);
 
         const size_t smem = FATTN_SMEM(nsg);
 
@@ -2160,23 +2406,25 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
         LM_GGML_ASSERT(smem <= props_dev->max_theadgroup_memory_size);
 
         if (nwg == 1) {
+            assert(lm_ggml_metal_op_flash_attn_ext_extra_tmp(op) == 0);
+
             // using 1 workgroup -> write the result directly into dst
-            lm_ggml_metal_encoder_set_buffer(enc, lm_ggml_metal_get_buffer_id(op), 6);
+            lm_ggml_metal_encoder_set_buffer(enc, bid_pad, 6);
+            lm_ggml_metal_encoder_set_buffer(enc, bid_dst, 7);
 
             lm_ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
 
             lm_ggml_metal_encoder_dispatch_threadgroups(enc, (ne01 + nqptg - 1)/nqptg, ne02, ne03*nwg, 32, nsg, 1);
         } else {
             // sanity checks
+            assert(lm_ggml_metal_op_flash_attn_ext_extra_tmp(op) != 0);
+
             LM_GGML_ASSERT(ne01*ne02*ne03 == ne1*ne2*ne3);
             LM_GGML_ASSERT((uint64_t)ne1*ne2*ne3 <= (1u << 31));
 
-            lm_ggml_metal_buffer_id bid_dst = lm_ggml_metal_get_buffer_id(op);
-
             // write the results from each workgroup into a temp buffer
-            lm_ggml_metal_buffer_id bid_tmp = bid_dst;
-            bid_tmp.offs += lm_ggml_nbytes(op);
-            lm_ggml_metal_encoder_set_buffer(enc, bid_tmp, 6);
+            lm_ggml_metal_encoder_set_buffer(enc, bid_pad, 6);
+            lm_ggml_metal_encoder_set_buffer(enc, bid_tmp, 7);
 
             lm_ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
             lm_ggml_metal_encoder_dispatch_threadgroups(enc, (ne01 + nqptg - 1)/nqptg, ne02, ne03*nwg, 32, nsg, 1);
