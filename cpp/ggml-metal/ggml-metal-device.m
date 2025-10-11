@@ -780,9 +780,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                 };
             }
         case LM_GGML_OP_GET_ROWS:
-            {
-                return op->ne[3] == 1;
-            }
+            return true;
         case LM_GGML_OP_SET_ROWS:
             {
                 if (op->src[0]->type != LM_GGML_TYPE_F32) {

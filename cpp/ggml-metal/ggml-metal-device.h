@@ -135,6 +135,12 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_pad_reflect_1d    (l
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_arange            (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_timestep_embedding(lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 
+lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_flash_attn_ext_pad(
+        lm_ggml_metal_library_t lib,
+        const struct lm_ggml_tensor * op,
+        bool    has_mask,
+        int32_t ncpsg);
+
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_flash_attn_ext(
         lm_ggml_metal_library_t lib,
         const struct lm_ggml_tensor * op,
@@ -142,6 +148,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_flash_attn_ext(
         bool    has_sinks,
         bool    has_bias,
         bool    has_scap,
+        bool    has_kvpad,
         int32_t nsg);
 
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_flash_attn_ext_vec(
@@ -151,6 +158,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_flash_attn_ext_vec(
         bool    has_sinks,
         bool    has_bias,
         bool    has_scap,
+        bool    has_kvpad,
         int32_t nsg,
         int32_t nwg);
 
