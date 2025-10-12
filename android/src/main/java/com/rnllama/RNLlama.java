@@ -1131,6 +1131,70 @@ public class RNLlama implements LifecycleEventListener {
     }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
   }
 
+  public void queueEmbedding(double id, final String text, final ReadableMap params, final Promise promise) {
+    final int contextId = (int) id;
+    new AsyncTask<Void, Void, Integer>() {
+      private Exception exception;
+
+      @Override
+      protected Integer doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          return context.queueEmbedding(text, params);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return -1;
+      }
+
+      @Override
+      protected void onPostExecute(Integer requestId) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        WritableMap result = Arguments.createMap();
+        result.putInt("requestId", requestId);
+        promise.resolve(result);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+  }
+
+  public void queueRerank(double id, final String query, final ReadableArray documents, final ReadableMap params, final Promise promise) {
+    final int contextId = (int) id;
+    new AsyncTask<Void, Void, Integer>() {
+      private Exception exception;
+
+      @Override
+      protected Integer doInBackground(Void... voids) {
+        try {
+          LlamaContext context = contexts.get(contextId);
+          if (context == null) {
+            throw new Exception("Context not found");
+          }
+          return context.queueRerank(query, documents, params);
+        } catch (Exception e) {
+          exception = e;
+        }
+        return -1;
+      }
+
+      @Override
+      protected void onPostExecute(Integer requestId) {
+        if (exception != null) {
+          promise.reject(exception);
+          return;
+        }
+        WritableMap result = Arguments.createMap();
+        result.putInt("requestId", requestId);
+        promise.resolve(result);
+      }
+    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+  }
+
   @Override
   public void onHostResume() {
   }

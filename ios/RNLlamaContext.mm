@@ -1537,6 +1537,122 @@
     }
 }
 
+// Queue an embedding request (async, non-blocking)
+- (NSNumber *)queueEmbedding:(NSString *)text params:(NSDictionary *)params onResult:(void (^)(int32_t, NSArray *))onResult {
+    if (!is_model_loaded) {
+        return @(-1);
+    }
+
+    // Check if parallel mode is enabled
+    if (!llama->parallel_mode_enabled) {
+        @throw [NSException exceptionWithName:@"LlamaException"
+                                       reason:@"Parallel mode is not enabled. Call enableParallelMode() first."
+                                     userInfo:nil];
+    }
+
+    // Get normalization parameter
+    int embd_normalize = llama->params.embd_normalize;
+    if (params[@"embd_normalize"] && [params[@"embd_normalize"] isKindOfClass:[NSNumber class]]) {
+        embd_normalize = [params[@"embd_normalize"] intValue];
+    }
+
+    // Tokenize text
+    const llama_vocab* vocab = llama_model_get_vocab(llama->model);
+    const bool add_bos = llama_vocab_get_add_bos(vocab);
+    const bool is_enc_dec = llama_model_has_encoder(llama->model);
+    std::vector<llama_token> tokens = common_tokenize(
+        llama->ctx,
+        [text UTF8String],
+        add_bos || is_enc_dec,
+        true
+    );
+
+    // Copy callback to ensure it's retained on the heap for async use
+    void (^onResultCopy)(int32_t, NSArray *) = [onResult copy];
+
+    // Queue embedding request
+    int32_t request_id = llama->slot_manager->queue_embedding_request(
+        tokens,
+        embd_normalize,
+        [onResultCopy](int32_t request_id, const std::vector<float>& embedding) {
+            // Copy embedding vector to avoid dangling reference
+            NSLog(@"embedding: 0: %f, 1: %f, 2: %f", embedding[0], embedding[1], embedding[2]);
+            std::vector<float> embedding_copy = embedding;
+
+            // Convert result to NSArray and dispatch to main queue
+            dispatch_async(dispatch_get_main_queue(), ^{
+                NSMutableArray *embeddingArray = [[NSMutableArray alloc] init];
+                for (float val : embedding_copy) {
+                    [embeddingArray addObject:@(val)];
+                }
+
+                if (onResultCopy) {
+                    onResultCopy(request_id, embeddingArray);
+                }
+            });
+        }
+    );
+
+    return @(request_id);
+}
+
+// Queue a rerank request (async, non-blocking)
+- (NSNumber *)queueRerank:(NSString *)query documents:(NSArray<NSString *> *)documents params:(NSDictionary *)params onResults:(void (^)(int32_t, NSArray *))onResults {
+    if (!is_model_loaded) {
+        return @(-1);
+    }
+
+    // Check if parallel mode is enabled
+    if (!llama->parallel_mode_enabled) {
+        @throw [NSException exceptionWithName:@"LlamaException"
+                                       reason:@"Parallel mode is not enabled. Call enableParallelMode() first."
+                                     userInfo:nil];
+    }
+
+    // Get normalization parameter
+    int normalize = 0;  // Default for rerank
+    if (params[@"normalize"] && [params[@"normalize"] isKindOfClass:[NSNumber class]]) {
+        normalize = [params[@"normalize"] intValue];
+    }
+
+    // Convert NSArray to std::vector<std::string>
+    std::vector<std::string> docs_vector;
+    for (NSString *doc in documents) {
+        docs_vector.push_back([doc UTF8String]);
+    }
+
+    // Copy callback to ensure it's retained on the heap for async use
+    void (^onResultsCopy)(int32_t, NSArray *) = [onResults copy];
+
+    // Queue rerank request
+    int32_t request_id = llama->slot_manager->queue_rerank_request(
+        std::string([query UTF8String]),
+        docs_vector,
+        normalize,
+        [onResultsCopy](int32_t request_id, const std::vector<float>& scores) {
+            // Copy scores vector to avoid dangling reference
+            std::vector<float> scores_copy = scores;
+
+            // Convert results to NSArray and dispatch to main queue
+            dispatch_async(dispatch_get_main_queue(), ^{
+                NSMutableArray *resultsArray = [[NSMutableArray alloc] init];
+                for (size_t i = 0; i < scores_copy.size(); i++) {
+                    [resultsArray addObject:@{
+                        @"score": @(scores_copy[i]),
+                        @"index": @((int)i)
+                    }];
+                }
+
+                if (onResultsCopy) {
+                    onResultsCopy(request_id, resultsArray);
+                }
+            });
+        }
+    );
+
+    return @(request_id);
+}
+
 - (BOOL)enableParallelMode:(int)nParallel nBatch:(int)nBatch {
     if (!llama) {
         @throw [NSException exceptionWithName:@"LlamaException"

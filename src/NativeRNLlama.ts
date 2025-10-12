@@ -524,6 +524,17 @@ export interface Spec extends TurboModule {
     contextId: number,
     params: NativeCompletionParams,
   ): Promise<{ requestId: number }>
+  queueEmbedding(
+    contextId: number,
+    text: string,
+    params: NativeEmbeddingParams,
+  ): Promise<{ requestId: number }>
+  queueRerank(
+    contextId: number,
+    query: string,
+    documents: Array<string>,
+    params?: NativeRerankParams,
+  ): Promise<{ requestId: number }>
   cancelRequest(contextId: number, requestId: number): Promise<void>
   tokenize(contextId: number, text: string, mediaPaths?: Array<string>): Promise<NativeTokenizeResult>
   detokenize(contextId: number, tokens: number[]): Promise<string>

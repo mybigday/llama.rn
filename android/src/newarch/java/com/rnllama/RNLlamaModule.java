@@ -188,6 +188,16 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
+  public void queueEmbedding(double id, final String text, final ReadableMap params, final Promise promise) {
+    rnllama.queueEmbedding(id, text, params, promise);
+  }
+
+  @ReactMethod
+  public void queueRerank(double id, final String query, final ReadableArray documents, final ReadableMap params, final Promise promise) {
+    rnllama.queueRerank(id, query, documents, params, promise);
+  }
+
+  @ReactMethod
   public void enableParallelMode(double id, final ReadableMap params, final Promise promise) {
     rnllama.enableParallelMode(id, params, promise);
   }

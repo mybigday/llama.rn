@@ -11,6 +11,7 @@
 #include <mutex>
 #include <thread>
 #include <atomic>
+#include <condition_variable>
 
 namespace rnllama {
 
@@ -21,6 +22,7 @@ struct completion_token_output;
 // Queued request structure
 struct llama_rn_queued_request {
     int32_t request_id;
+    llama_rn_slot_task_type task_type;
     common_params params;
     std::vector<llama_token> prompt_tokens;
     std::function<void(const completion_token_output&)> on_token;
@@ -38,11 +40,21 @@ struct llama_rn_queued_request {
     // Prefill text
     std::string prefill_text;
 
+    // Embedding parameters
+    int embd_normalize;
+    std::function<void(int32_t, const std::vector<float>&)> on_embedding;
+
+    // Rerank parameters
+    std::vector<std::vector<llama_token>> rerank_prompt_tokens;
+    std::function<void(int32_t, const std::vector<float>&)> on_rerank;
+
     llama_rn_queued_request() :
         request_id(-1),
+        task_type(SLOT_TASK_TYPE_COMPLETION),
         chat_format(0),
         reasoning_format(COMMON_REASONING_FORMAT_NONE),
-        thinking_forced_open(false)
+        thinking_forced_open(false),
+        embd_normalize(-1)
     {}
 };
 
@@ -97,6 +109,19 @@ struct llama_rn_slot_manager {
         const std::string& prefill_text,
         std::function<void(const completion_token_output&)> on_token,
         std::function<void(llama_rn_slot*)> on_complete
+    );
+
+    int32_t queue_embedding_request(
+        const std::vector<llama_token>& tokens,
+        int embd_normalize,
+        std::function<void(int32_t, const std::vector<float>&)> on_result
+    );
+
+    int32_t queue_rerank_request(
+        const std::string& query,
+        const std::vector<std::string>& documents,
+        int normalize,
+        std::function<void(int32_t, const std::vector<float>&)> on_results
     );
 
     // Slot management

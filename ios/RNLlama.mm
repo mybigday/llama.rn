@@ -201,6 +201,8 @@ RCT_EXPORT_METHOD(saveSession:(double)contextId
     @"@RNLlama_onInitContextProgress",
     @"@RNLlama_onToken",
     @"@RNLlama_onComplete",
+    @"@RNLlama_onEmbeddingResult",
+    @"@RNLlama_onRerankResults",
     @"@RNLlama_onNativeLog",
   ];
 }
@@ -686,9 +688,11 @@ RCT_EXPORT_METHOD(queueCompletion:(double)contextId
         NSNumber *requestId = [context queueCompletion:completionParams
             onToken:^(NSMutableDictionary *tokenResult) {
                 dispatch_async(dispatch_get_main_queue(), ^{
+                    NSNumber *reqId = tokenResult[@"requestId"];
                     [self sendEventWithName:@"@RNLlama_onToken"
                         body:@{
                             @"contextId": [NSNumber numberWithDouble:contextId],
+                            @"requestId": reqId ?: @(-1),
                             @"tokenResult": tokenResult
                         }
                     ];
@@ -734,6 +738,81 @@ RCT_EXPORT_METHOD(cancelRequest:(double)contextId
 
     [context cancelRequest:[NSNumber numberWithInt:(int)requestId]];
     resolve(nil);
+}
+
+// Queue an embedding request (async, non-blocking)
+RCT_EXPORT_METHOD(queueEmbedding:(double)contextId
+                 withText:(NSString *)text
+                 withParams:(NSDictionary *)params
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    @try {
+        NSNumber *requestId = [context queueEmbedding:text params:params onResult:^(int32_t reqId, NSArray *embedding) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self sendEventWithName:@"@RNLlama_onEmbeddingResult"
+                    body:@{
+                        @"contextId": [NSNumber numberWithDouble:contextId],
+                        @"requestId": @(reqId),
+                        @"embedding": embedding
+                    }
+                ];
+            });
+        }];
+
+        if ([requestId intValue] == -1) {
+            reject(@"llama_error", @"Failed to queue embedding request", nil);
+            return;
+        }
+
+        resolve(@{@"requestId": requestId});
+    } @catch (NSException *exception) {
+        reject(@"llama_cpp_error", exception.reason, nil);
+    }
+}
+
+// Queue a rerank request (async, non-blocking)
+RCT_EXPORT_METHOD(queueRerank:(double)contextId
+                 withQuery:(NSString *)query
+                 withDocuments:(NSArray<NSString *> *)documents
+                 withParams:(NSDictionary *)params
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    @try {
+        NSNumber *requestId = [context queueRerank:query documents:documents params:params onResults:^(int32_t reqId, NSArray *results) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self sendEventWithName:@"@RNLlama_onRerankResults"
+                    body:@{
+                        @"contextId": [NSNumber numberWithDouble:contextId],
+                        @"requestId": @(reqId),
+                        @"results": results
+                    }
+                ];
+            });
+        }];
+
+        if ([requestId intValue] == -1) {
+            reject(@"llama_error", @"Failed to queue rerank request", nil);
+            return;
+        }
+
+        resolve(@{@"requestId": requestId});
+    } @catch (NSException *exception) {
+        reject(@"llama_cpp_error", exception.reason, nil);
+    }
 }
 
 // Don't compile this code when we build for the old architecture.

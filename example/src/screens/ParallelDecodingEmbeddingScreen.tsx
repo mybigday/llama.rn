@@ -83,7 +83,7 @@ const RERANK_EXAMPLE_DOCUMENTS = [
 
 type TabType = 'vector-search' | 'rerank'
 
-const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
+const ParallelDecodingEmbeddingScreen = ({ navigation }: { navigation: any }) => {
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
 
@@ -271,7 +271,23 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
       fontSize: FontSizes.medium,
       fontWeight: '600',
     },
+    addDocumentButton: {
+      backgroundColor: theme.colors.surface,
+      borderWidth: 1,
+      borderStyle: 'dashed',
+      borderColor: theme.colors.primary,
+      borderRadius: Spacing.sm,
+      padding: Spacing.md,
+      alignItems: 'center',
+      marginBottom: Spacing.md,
+    },
+    addDocumentText: {
+      color: theme.colors.primary,
+      fontSize: FontSizes.medium,
+      fontWeight: '500',
+    },
   })
+
   const [context, setContext] = useState<LlamaContext | null>(null)
   const [embeddings, setEmbeddings] = useState<EmbeddingData[]>([])
   const [inputText, setInputText] = useState('')
@@ -356,7 +372,27 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
         ),
       })
     } else {
-      navigation.setOptions({ headerRight: () => null })
+      navigation.setOptions({
+        headerRight: () => (
+          <HeaderButton
+            iconName="information-outline"
+            onPress={() => {
+              Alert.alert(
+                'Parallel Embedding & Rerank',
+                [
+                  'This demo showcases parallel embedding and reranking operations.',
+                  '',
+                  'Vector Search: Use parallel mode for faster batch embedding operations.',
+                  '',
+                  'Rerank: Score and rank documents by relevance to a query using the rerank model.',
+                  '',
+                  'Try importing examples and testing the search/rerank functionality!',
+                ].join('\n'),
+              )
+            }}
+          />
+        ),
+      })
     }
   }, [navigation, isModelReady])
 
@@ -395,16 +431,29 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
       const newContext = await initLlama(
         {
           ...modelConfig,
+          n_parallel: 4, // Enable parallel processing
           pooling_type: effectivePoolingType,
         },
         (progress) => setInitProgress(progress),
       )
+
+      // Enable parallel mode
+      const success = await newContext.enableParallelMode({
+        enabled: true,
+        n_parallel: 4,
+        n_batch: 512,
+      })
+
+      if (!success) {
+        throw new Error('Failed to enable parallel mode')
+      }
+
       setContext(newContext)
       setIsModelReady(true)
       setInitProgress(100)
       setCurrentModelPath(modelConfig.model)
       console.log(
-        `Model initialized with pooling_type: ${effectivePoolingType} (${activeTab} tab)`,
+        `Parallel mode enabled with pooling_type: ${effectivePoolingType} (${activeTab} tab)`,
       )
     } catch (error) {
       console.error('Model initialization error:', error)
@@ -421,7 +470,9 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
 
     setIsEmbedding(true)
     try {
-      const result = await context.embedding(inputText.trim())
+      const { promise } = await context.queueEmbedding(inputText.trim())
+      const result = await promise
+
       const newEmbedding: EmbeddingData = {
         id: Date.now().toString() + Math.random().toString(36).substring(2, 11),
         text: inputText.trim(),
@@ -431,9 +482,14 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
       setEmbeddings((prev) => [...prev, newEmbedding])
       setInputText('')
       Alert.alert('Success', 'Text embedded and added to memory!')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Embedding error:', error)
-      Alert.alert('Error', `Failed to create embedding: ${error}`)
+      const errorMessage =
+        error?.message || error?.toString() || 'Unknown error occurred'
+      Alert.alert(
+        'Embedding Error',
+        `Failed to create embedding: ${errorMessage}\n\nTip: Make sure you're on the Vector Search tab for embedding operations.`,
+      )
     } finally {
       setIsEmbedding(false)
     }
@@ -444,7 +500,8 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
 
     setIsSearching(true)
     try {
-      const queryResult = await context.embedding(queryText.trim())
+      const { promise } = await context.queueEmbedding(queryText.trim())
+      const queryResult = await promise
       const queryEmbedding = queryResult.embedding
 
       const similarities = embeddings.map((item) => ({
@@ -458,9 +515,14 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
         .slice(0, 3)
 
       setSearchResults(topResults)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Search error:', error)
-      Alert.alert('Error', `Search failed: ${error}`)
+      const errorMessage =
+        error?.message || error?.toString() || 'Unknown error occurred'
+      Alert.alert(
+        'Search Error',
+        `Search failed: ${errorMessage}\n\nTip: Make sure you're on the Vector Search tab for search operations.`,
+      )
     } finally {
       setIsSearching(false)
     }
@@ -478,6 +540,42 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
         },
       },
     ])
+  }
+
+  const handleImportExamples = async () => {
+    if (!context) return
+
+    setIsImporting(true)
+    try {
+      // Queue all embedding requests in parallel
+      const embeddingPromises = await Promise.all(
+        EXAMPLE_TEXTS.map(async (exampleText) => {
+          const { promise } = await context.queueEmbedding(exampleText)
+          return promise.then((result) => ({
+            id: Date.now().toString() + Math.random().toString(36).substring(2, 11),
+            text: exampleText,
+            embedding: result.embedding,
+          }))
+        })
+      )
+
+      const newEmbeddings = await Promise.all(embeddingPromises)
+      setEmbeddings((prev) => [...prev, ...newEmbeddings])
+      Alert.alert(
+        'Success',
+        `Imported ${EXAMPLE_TEXTS.length} example texts to the database using parallel mode!`,
+      )
+    } catch (error: any) {
+      console.error('Import examples error:', error)
+      const errorMessage =
+        error?.message || error?.toString() || 'Unknown error occurred'
+      Alert.alert(
+        'Import Error',
+        `Failed to import examples: ${errorMessage}\n\nTip: Make sure you're on the Vector Search tab for embedding operations.`,
+      )
+    } finally {
+      setIsImporting(false)
+    }
   }
 
   const handleAddDocument = () => {
@@ -500,9 +598,12 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
   const handleRerank = async () => {
     if (!context || !rerankQuery.trim() || documents.length === 0) return
 
+    console.log('handleRerank', rerankQuery.trim(), documents)
+
     setIsReranking(true)
     try {
-      const results = await context.rerank(rerankQuery.trim(), documents)
+      const { promise } = await context.queueRerank(rerankQuery.trim(), documents)
+      const results = await promise
 
       const rerankResultsWithText: RerankResult[] = results.map((item: any) => ({
         text: documents[item.index] || '',
@@ -514,46 +615,16 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
       rerankResultsWithText.sort((a, b) => b.score - a.score)
 
       setRerankResults(rerankResultsWithText)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Rerank error:', error)
-      Alert.alert('Error', `Reranking failed: ${error}`)
+      const errorMessage =
+        error?.message || error?.toString() || 'Unknown error occurred'
+      Alert.alert(
+        'Reranking Error',
+        `Reranking failed: ${errorMessage}\n\nTip: Make sure you're on the Rerank tab for reranking operations.`,
+      )
     } finally {
       setIsReranking(false)
-    }
-  }
-
-  const handleImportExamples = async () => {
-    if (!context) return
-
-    setIsImporting(true)
-    try {
-      const newEmbeddings = await EXAMPLE_TEXTS.reduce(
-        async (acc: Promise<EmbeddingData[]>, exampleText) => {
-          const embds = await acc
-          const result = await context.embedding(exampleText)
-          return [
-            ...embds,
-            {
-              id:
-                Date.now().toString() +
-                Math.random().toString(36).substring(2, 11),
-              text: exampleText,
-              embedding: result.embedding,
-            },
-          ]
-        },
-        Promise.resolve([]),
-      )
-      setEmbeddings((prev) => [...prev, ...newEmbeddings])
-      Alert.alert(
-        'Success',
-        `Imported ${EXAMPLE_TEXTS.length} example texts to the database!`,
-      )
-    } catch (error) {
-      console.error('Import examples error:', error)
-      Alert.alert('Error', `Failed to import examples: ${error}`)
-    } finally {
-      setIsImporting(false)
     }
   }
 
@@ -626,8 +697,8 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
           contentContainerStyle={themedStyles.scrollContent}
         >
           <Text style={themedStyles.setupDescription}>
-            Very simple example to show how to use vector embeddings and
-            semantic search in memory.
+            Demonstration of parallel embedding and rerank operations using
+            parallel mode for faster batch processing.
           </Text>
 
           <View style={styles.modelsContainer}>
@@ -670,63 +741,63 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
 
   return (
     <View style={themedStyles.container}>
+      {/* Header Info */}
+      <View style={styles.headerInfo}>
+        <Text style={styles.modelInfo}>
+          {`Model: ${
+            (context.model.metadata as any)?.general?.name ||
+            context.model.desc ||
+            'Unknown'
+          }`}
+        </Text>
+        <Text style={styles.embeddingCount}>
+          {activeTab === 'vector-search'
+            ? `Embeddings in memory: ${embeddings.length}`
+            : `Documents: ${documents.length}`}
+        </Text>
+      </View>
+
+      {/* Tab Control */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[
+            styles.tab,
+            activeTab === 'vector-search' ? styles.activeTab : styles.inactiveTab,
+          ]}
+          onPress={() => !isReinitializing && setActiveTab('vector-search')}
+          disabled={isReinitializing}
+        >
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === 'vector-search'
+                ? styles.activeTabText
+                : styles.inactiveTabText,
+            ]}
+          >
+            Vector Search in-memory
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.tab,
+            activeTab === 'rerank' ? styles.activeTab : styles.inactiveTab,
+          ]}
+          onPress={() => !isReinitializing && setActiveTab('rerank')}
+          disabled={isReinitializing}
+        >
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === 'rerank' ? styles.activeTabText : styles.inactiveTabText,
+            ]}
+          >
+            Rerank
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView style={styles.container}>
-        {/* Header Info */}
-        <View style={styles.headerInfo}>
-          <Text style={styles.modelInfo}>
-            {`Model: ${
-              (context.model.metadata as any)?.general?.name ||
-              context.model.desc ||
-              'Unknown'
-            }`}
-          </Text>
-          <Text style={styles.embeddingCount}>
-            {activeTab === 'vector-search'
-              ? `Embeddings in memory: ${embeddings.length}`
-              : `Documents: ${documents.length}`}
-          </Text>
-        </View>
-
-        {/* Tab Control */}
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              activeTab === 'vector-search' ? styles.activeTab : styles.inactiveTab,
-            ]}
-            onPress={() => !isReinitializing && setActiveTab('vector-search')}
-            disabled={isReinitializing}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === 'vector-search'
-                  ? styles.activeTabText
-                  : styles.inactiveTabText,
-              ]}
-            >
-              Vector Search (in-memory)
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              activeTab === 'rerank' ? styles.activeTab : styles.inactiveTab,
-            ]}
-            onPress={() => !isReinitializing && setActiveTab('rerank')}
-            disabled={isReinitializing}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === 'rerank' ? styles.activeTabText : styles.inactiveTabText,
-              ]}
-            >
-              Rerank
-            </Text>
-          </TouchableOpacity>
-        </View>
-
         {activeTab === 'vector-search' ? (
           <>
             {/* Add Embedding Section */}
@@ -735,17 +806,17 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
                 <Text style={styles.sectionTitle}>Add Text to Embeddings</Text>
                 <TouchableOpacity
                   style={[
-                styles.importButton,
-                isImporting && themedStyles.disabledButton,
-              ]}
+                    styles.importButton,
+                    isImporting && themedStyles.disabledButton,
+                  ]}
                   onPress={handleImportExamples}
                   disabled={isImporting}
                 >
                   {isImporting ? (
                     <ActivityIndicator color={theme.colors.primary} size="small" />
-              ) : (
-                <Text style={styles.importButtonText}>Import Examples</Text>
-              )}
+                  ) : (
+                    <Text style={styles.importButtonText}>Import Examples</Text>
+                  )}
                 </TouchableOpacity>
               </View>
               <TextInput
@@ -759,17 +830,20 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
               />
               <TouchableOpacity
                 style={[
-              themedStyles.primaryButton,
-              (!inputText.trim() || isEmbedding) && themedStyles.disabledButton,
-            ]}
+                  themedStyles.primaryButton,
+                  (!inputText.trim() || isEmbedding) &&
+                    themedStyles.disabledButton,
+                ]}
                 onPress={handleAddEmbedding}
                 disabled={!inputText.trim() || isEmbedding}
               >
                 {isEmbedding ? (
                   <ActivityIndicator color={theme.colors.white} size="small" />
-            ) : (
-              <Text style={themedStyles.primaryButtonText}>Add to Memory</Text>
-            )}
+                ) : (
+                  <Text style={themedStyles.primaryButtonText}>
+                    Add to Memory
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -787,56 +861,62 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
               />
               <TouchableOpacity
                 style={[
-              themedStyles.primaryButton,
-              (!queryText.trim() || embeddings.length === 0 || isSearching) &&
-                themedStyles.disabledButton,
-            ]}
+                  themedStyles.primaryButton,
+                  (!queryText.trim() ||
+                    embeddings.length === 0 ||
+                    isSearching) &&
+                    themedStyles.disabledButton,
+                ]}
                 onPress={handleSearch}
                 disabled={
-              !queryText.trim() || embeddings.length === 0 || isSearching
-            }
+                  !queryText.trim() || embeddings.length === 0 || isSearching
+                }
               >
                 {isSearching ? (
                   <ActivityIndicator color={theme.colors.white} size="small" />
-            ) : (
-              <Text style={themedStyles.primaryButtonText}>Search (Top 3)</Text>
-            )}
+                ) : (
+                  <Text style={themedStyles.primaryButtonText}>
+                    Search (Top 3)
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
 
             {/* Search Results */}
             {searchResults.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Search Results</Text>
-              <FlatList
-                data={searchResults}
-                renderItem={renderSearchResult}
-                keyExtractor={(item) => item.id}
-                scrollEnabled={false}
-              />
-            </View>
-        )}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Search Results</Text>
+                <FlatList
+                  data={searchResults}
+                  renderItem={renderSearchResult}
+                  keyExtractor={(item) => item.id}
+                  scrollEnabled={false}
+                />
+              </View>
+            )}
 
             {/* Embeddings List */}
             {embeddings.length > 0 && (
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>All Embeddings</Text>
-                <TouchableOpacity
-                  style={themedStyles.secondaryButton}
-                  onPress={clearEmbeddings}
-                >
-                  <Text style={themedStyles.secondaryButtonText}>Clear All</Text>
-                </TouchableOpacity>
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>All Embeddings</Text>
+                  <TouchableOpacity
+                    style={themedStyles.secondaryButton}
+                    onPress={clearEmbeddings}
+                  >
+                    <Text style={themedStyles.secondaryButtonText}>
+                      Clear All
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <FlatList
+                  data={embeddings}
+                  renderItem={renderEmbeddingItem}
+                  keyExtractor={(item) => item.id}
+                  scrollEnabled={false}
+                />
               </View>
-              <FlatList
-                data={embeddings}
-                renderItem={renderEmbeddingItem}
-                keyExtractor={(item) => item.id}
-                scrollEnabled={false}
-              />
-            </View>
-        )}
+            )}
           </>
         ) : (
           <>
@@ -964,4 +1044,4 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
   )
 }
 
-export default EmbeddingScreen
+export default ParallelDecodingEmbeddingScreen

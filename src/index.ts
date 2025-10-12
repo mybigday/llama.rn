@@ -75,6 +75,8 @@ export { SchemaGrammarConverter, convertJsonSchemaToGrammar }
 const EVENT_ON_INIT_CONTEXT_PROGRESS = '@RNLlama_onInitContextProgress'
 const EVENT_ON_TOKEN = '@RNLlama_onToken'
 const EVENT_ON_COMPLETE = '@RNLlama_onComplete'
+const EVENT_ON_EMBEDDING_RESULT = '@RNLlama_onEmbeddingResult'
+const EVENT_ON_RERANK_RESULTS = '@RNLlama_onRerankResults'
 const EVENT_ON_NATIVE_LOG = '@RNLlama_onNativeLog'
 
 let EventEmitter: NativeEventEmitter | DeviceEventEmitterStatic
@@ -121,6 +123,7 @@ export type TokenData = {
 
 type TokenNativeEvent = {
   contextId: number
+  requestId?: number
   tokenResult: TokenData
 }
 
@@ -618,10 +621,8 @@ export class LlamaContext {
     const promise = new Promise<NativeCompletionResult>((resolve, _reject) => {
       if (onToken) {
         tokenListener = EventEmitter.addListener(EVENT_ON_TOKEN, (evt: TokenNativeEvent) => {
-          const { contextId, tokenResult } = evt
+          const { contextId, requestId: evtRequestId, tokenResult } = evt
           if (contextId !== this.id) return
-          // Filter by requestId from tokenResult (set by native code)
-          const evtRequestId = (tokenResult as any).requestId
           if (evtRequestId !== requestId) return
           onToken(requestId, tokenResult)
         })
@@ -697,13 +698,98 @@ export class LlamaContext {
   ): Promise<RerankResult[]> {
     const results = await RNLlama.rerank(this.id, query, documents, params || {})
 
-    // Sort by score descending and add document text if requested
     return results
       .map((result) => ({
         ...result,
         document: documents[result.index],
       }))
       .sort((a, b) => b.score - a.score)
+  }
+
+  /**
+   * Queue an embedding request for parallel processing (non-blocking)
+   * @param text Text to embed
+   * @param params Optional embedding parameters
+   * @returns Promise resolving to object with requestId and promise (resolves to embedding result)
+   */
+  async queueEmbedding(
+    text: string,
+    params?: EmbeddingParams,
+  ): Promise<{
+    requestId: number
+    promise: Promise<NativeEmbeddingResult>
+  }> {
+    let embeddingListener: any
+
+    const { requestId } = await RNLlama.queueEmbedding(this.id, text, params || {})
+
+    // Create promise that resolves when embedding completes
+    const promise = new Promise<NativeEmbeddingResult>((resolve, _reject) => {
+      embeddingListener = EventEmitter.addListener(EVENT_ON_EMBEDDING_RESULT, (evt: any) => {
+        const { contextId, requestId: evtRequestId, embedding } = evt
+        // Filter by both contextId AND requestId to ensure correct matching
+        if (contextId !== this.id || evtRequestId !== requestId) return
+
+        // Clean up listener
+        embeddingListener?.remove()
+
+        // Resolve the promise
+        resolve({ embedding })
+      })
+    })
+
+    return {
+      requestId,
+      promise,
+    }
+  }
+
+  /**
+   * Queue rerank requests for parallel processing (non-blocking)
+   * @param query The query text to rank documents against
+   * @param documents Array of document texts to rank
+   * @param params Optional reranking parameters
+   * @returns Promise resolving to object with requestId and promise (resolves to rerank results)
+   */
+  async queueRerank(
+    query: string,
+    documents: string[],
+    params?: RerankParams,
+  ): Promise<{
+    requestId: number
+    promise: Promise<RerankResult[]>
+  }> {
+    let rerankListener: any
+
+    const { requestId } = await RNLlama.queueRerank(this.id, query, documents, params || {})
+
+    // Create promise that resolves when reranking completes
+    const promise = new Promise<RerankResult[]>((resolve, _reject) => {
+      rerankListener = EventEmitter.addListener(EVENT_ON_RERANK_RESULTS, (evt: any) => {
+        const { contextId, requestId: evtRequestId, results } = evt
+        // Filter by both contextId AND requestId to ensure correct matching
+        if (contextId !== this.id || evtRequestId !== requestId) return
+
+        // Clean up listener
+        rerankListener?.remove()
+
+        // Sort by score descending (highest score first = most relevant) and add document text
+        const sortedResults = results
+          .map((result: NativeRerankResult) => ({
+            ...result,
+            document: documents[result.index],
+          }))
+          .sort((a: RerankResult, b: RerankResult) => b.score - a.score)
+
+        // Resolve the promise
+        resolve(sortedResults)
+      })
+    })
+
+    return {
+      requestId,
+      promise,
+    }
   }
 
   async bench(

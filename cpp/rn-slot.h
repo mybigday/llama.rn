@@ -15,6 +15,13 @@ struct llama_rn_context;
 struct completion_token_output;
 struct completion_chat_output;
 
+// Slot task types
+enum llama_rn_slot_task_type {
+    SLOT_TASK_TYPE_COMPLETION = 0,
+    SLOT_TASK_TYPE_EMBEDDING,
+    SLOT_TASK_TYPE_RERANK,
+};
+
 // Slot states
 enum llama_rn_slot_state {
     SLOT_STATE_IDLE = 0,           // Available for new requests
@@ -29,6 +36,7 @@ struct llama_rn_slot {
     int32_t id;                    // Slot index (0 to n_parallel-1)
     int32_t request_id;            // Unique request identifier
     llama_rn_slot_state state;
+    llama_rn_slot_task_type task_type; // Current task type assigned to slot
 
     // Context management
     llama_rn_context* parent_ctx;  // Parent context reference
@@ -86,6 +94,16 @@ struct llama_rn_slot {
 
     // Completion callback (per-slot)
     std::function<void(llama_rn_slot*)> on_complete_callback;
+
+    // Embedding task state
+    int embd_normalize;
+    std::function<void(int32_t, const std::vector<float>&)> on_embedding_callback;
+
+    // Rerank task state
+    std::function<void(int32_t, const std::vector<float>&)> on_rerank_callback;
+    std::vector<std::vector<llama_token>> rerank_prompt_tokens;
+    std::vector<float> rerank_scores;
+    size_t rerank_current_index;
 
     // Constructor
     llama_rn_slot();

@@ -11,12 +11,14 @@ llama_rn_slot::llama_rn_slot() :
     id(-1),
     request_id(-1),
     state(SLOT_STATE_IDLE),
+    task_type(SLOT_TASK_TYPE_COMPLETION),
     parent_ctx(nullptr),
     n_ctx(0),
     n_past(0),
     n_decoded(0),
     n_remaining(-1),
     i_batch(-1),
+    embd_normalize(-1),
     num_prompt_tokens(0),
     num_tokens_predicted(0),
     incomplete(false),
@@ -33,7 +35,8 @@ llama_rn_slot::llama_rn_slot() :
     t_start_generation(0),
     t_last_used(0),
     is_interrupted(false),
-    media_processed(false)
+    media_processed(false),
+    rerank_current_index(0)
 {
 }
 
@@ -97,6 +100,15 @@ void llama_rn_slot::reset() {
     // Clear callbacks
     on_token_callback = nullptr;
     on_complete_callback = nullptr;
+    on_embedding_callback = nullptr;
+    on_rerank_callback = nullptr;
+
+    // Reset task-specific data
+    task_type = SLOT_TASK_TYPE_COMPLETION;
+    embd_normalize = -1;
+    rerank_prompt_tokens.clear();
+    rerank_scores.clear();
+    rerank_current_index = 0;
 
     // Note: Keep cache_tokens for potential reuse
     // Note: Keep t_last_used for LRU tracking

@@ -30,6 +30,44 @@ static size_t find_partial_stop_string(const std::string& stop, const std::strin
     return std::string::npos;
 }
 
+// Helper function to format rerank task: [BOS]query[EOS][SEP]doc[EOS]
+static std::vector<llama_token> format_rerank_tokens(
+    const llama_vocab* vocab,
+    const std::vector<llama_token>& query_tokens,
+    const std::vector<llama_token>& doc_tokens
+) {
+    std::vector<llama_token> result;
+
+    llama_token eos_token = llama_vocab_eos(vocab);
+    if (eos_token == LLAMA_TOKEN_NULL) {
+        eos_token = llama_vocab_sep(vocab);
+    }
+
+    result.reserve(doc_tokens.size() + query_tokens.size() + 4);
+
+    if (llama_vocab_get_add_bos(vocab)) {
+        result.push_back(llama_vocab_bos(vocab));
+    }
+
+    result.insert(result.end(), query_tokens.begin(), query_tokens.end());
+
+    if (llama_vocab_get_add_eos(vocab)) {
+        result.push_back(eos_token);
+    }
+
+    if (llama_vocab_get_add_sep(vocab)) {
+        result.push_back(llama_vocab_sep(vocab));
+    }
+
+    result.insert(result.end(), doc_tokens.begin(), doc_tokens.end());
+
+    if (llama_vocab_get_add_eos(vocab)) {
+        result.push_back(eos_token);
+    }
+
+    return result;
+}
+
 // Constructor
 llama_rn_slot_manager::llama_rn_slot_manager(llama_rn_context* ctx) :
     parent_ctx(ctx),
@@ -110,6 +148,7 @@ int32_t llama_rn_slot_manager::queue_request(
     // Create queued request
     llama_rn_queued_request request;
     request.request_id = request_id;
+    request.task_type = SLOT_TASK_TYPE_COMPLETION;
     request.params = params;
     request.prompt_tokens = prompt;
     request.media_paths = media_paths;
@@ -124,10 +163,152 @@ int32_t llama_rn_slot_manager::queue_request(
     // Add to queue
     {
         std::lock_guard<std::mutex> lock(slots_mutex);
-        queue_requests.push_back(request);
+        queue_requests.emplace_back(std::move(request));
     }
 
     // Notify processing thread that new work is available
+    slots_cv.notify_one();
+
+    return request_id;
+}
+
+// Queue an embedding task for parallel processing
+int32_t llama_rn_slot_manager::queue_embedding_request(
+    const std::vector<llama_token>& tokens,
+    int embd_normalize,
+    std::function<void(int32_t, const std::vector<float>&)> on_result
+) {
+    if (parent_ctx == nullptr || parent_ctx->model == nullptr || parent_ctx->ctx == nullptr) {
+        LOG_ERROR("Cannot queue embedding: context not initialized");
+        return -1;
+    }
+
+    int32_t request_id = next_request_id++;
+
+    if (!parent_ctx->params.embedding) {
+        LOG_WARNING("Embedding disabled in model parameters; returning zero vector");
+        if (on_result) {
+            const int n_embd = llama_model_n_embd(parent_ctx->model);
+            std::vector<float> empty_embedding(n_embd, 0.0f);
+            on_result(request_id, empty_embedding);
+        }
+        return request_id;
+    }
+
+    llama_rn_queued_request request;
+    request.request_id = request_id;
+    request.task_type = SLOT_TASK_TYPE_EMBEDDING;
+    request.prompt_tokens = tokens;
+    request.embd_normalize = embd_normalize;
+    request.on_embedding = on_result;
+
+    {
+        std::lock_guard<std::mutex> lock(slots_mutex);
+        queue_requests.emplace_back(std::move(request));
+    }
+
+    slots_cv.notify_one();
+
+    return request_id;
+}
+
+// Queue a rerank task for parallel processing
+int32_t llama_rn_slot_manager::queue_rerank_request(
+    const std::string& query,
+    const std::vector<std::string>& documents,
+    int normalize,
+    std::function<void(int32_t, const std::vector<float>&)> on_results
+) {
+    if (parent_ctx == nullptr || parent_ctx->model == nullptr || parent_ctx->ctx == nullptr) {
+        LOG_ERROR("Cannot queue rerank: context not initialized");
+        return -1;
+    }
+
+    int32_t request_id = next_request_id++;
+
+    const enum llama_pooling_type pooling_type = llama_pooling_type(parent_ctx->ctx);
+    if (pooling_type != LLAMA_POOLING_TYPE_RANK) {
+        LOG_ERROR("Reranking not supported by current model (pooling_type=%d)", pooling_type);
+        if (on_results) {
+            std::vector<float> scores(documents.size(), -1e6f);
+            on_results(request_id, scores);
+        }
+        return request_id;
+    }
+
+    if (!parent_ctx->params.embedding) {
+        LOG_ERROR("Embedding disabled but required for reranking");
+        if (on_results) {
+            std::vector<float> scores(documents.size(), -1e6f);
+            on_results(request_id, scores);
+        }
+        return request_id;
+    }
+
+    const llama_vocab* vocab = llama_model_get_vocab(parent_ctx->model);
+    if (vocab == nullptr) {
+        LOG_ERROR("Failed to get vocabulary for rerank task");
+        if (on_results) {
+            std::vector<float> scores(documents.size(), -1e6f);
+            on_results(request_id, scores);
+        }
+        return request_id;
+    }
+
+    llama_rn_queued_request request;
+    request.request_id = request_id;
+    request.task_type = SLOT_TASK_TYPE_RERANK;
+    request.embd_normalize = normalize;
+    request.on_rerank = on_results;
+
+    try {
+        std::vector<llama_token> query_tokens = common_tokenize(vocab, query, false, true);
+        request.rerank_prompt_tokens.reserve(documents.size());
+
+        const bool add_bos = llama_vocab_get_add_bos(vocab);
+        const bool is_enc_dec = llama_model_has_encoder(parent_ctx->model);
+
+        for (const std::string& doc : documents) {
+            std::vector<llama_token> doc_tokens = common_tokenize(vocab, doc, false, true);
+            std::vector<llama_token> rerank_tokens = format_rerank_tokens(vocab, query_tokens, doc_tokens);
+
+            // Convert tokens back to text and re-tokenize using context-aware settings
+            std::string rerank_text = tokens_to_str(parent_ctx->ctx, rerank_tokens.begin(), rerank_tokens.end());
+            std::vector<llama_token> prompt_tokens = common_tokenize(
+                parent_ctx->ctx,
+                rerank_text,
+                add_bos || is_enc_dec,
+                true
+            );
+
+            request.rerank_prompt_tokens.push_back(std::move(prompt_tokens));
+        }
+
+        if (!request.rerank_prompt_tokens.empty()) {
+            request.prompt_tokens = request.rerank_prompt_tokens.front();
+        }
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to tokenize rerank inputs: %s", e.what());
+        if (on_results) {
+            std::vector<float> scores(documents.size(), -1e6f);
+            on_results(request_id, scores);
+        }
+        return request_id;
+    }
+
+    if (request.rerank_prompt_tokens.empty()) {
+        LOG_INFO("Rerank request %d has no documents; returning empty result", request_id);
+        if (on_results) {
+            on_results(request_id, {});
+        }
+        return request_id;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(slots_mutex);
+        queue_requests.emplace_back(std::move(request));
+    }
+
     slots_cv.notify_one();
 
     return request_id;
@@ -236,57 +417,126 @@ void llama_rn_slot_manager::process_pending_queue() {
     while (!queue_requests.empty()) {
         llama_rn_queued_request& request = queue_requests.front();
 
-        // Try to get available slot
-        llama_rn_slot* slot = get_available_slot(request.prompt_tokens);
+        const std::vector<llama_token>* prompt_view = nullptr;
+        std::vector<llama_token> empty_prompt;
 
+        if (request.task_type == SLOT_TASK_TYPE_RERANK) {
+            if (!request.rerank_prompt_tokens.empty()) {
+                prompt_view = &request.rerank_prompt_tokens.front();
+            }
+        } else {
+            prompt_view = &request.prompt_tokens;
+        }
+
+        if (prompt_view == nullptr) {
+            prompt_view = &empty_prompt;
+        }
+
+        llama_rn_slot* slot = get_available_slot(*prompt_view);
         if (slot == nullptr) {
-            // No slots available, stop processing to maintain FIFO order
-            // Don't defer this request - just leave it at the front of the queue
-            LOG_VERBOSE("No available slots, stopping queue processing (request %d at front)", request.request_id);
+            LOG_VERBOSE(
+                "No available slots, stopping queue processing (request %d at front)",
+                request.request_id
+            );
             break;
         }
 
         // Assign request to slot
-        LOG_INFO("Assigning request %d to slot %d", request.request_id, slot->id);
+        LOG_INFO("Assigning request %d to slot %d (task=%d)", request.request_id, slot->id, request.task_type);
         slot->request_id = request.request_id;
+        slot->task_type = request.task_type;
+        slot->t_start_process = lm_ggml_time_us();
+        slot->is_interrupted = false;
 
-        // Initialize sampling context from params
+        // Reset callbacks from previous usage
+        slot->on_token_callback = nullptr;
+        slot->on_complete_callback = nullptr;
+        slot->on_embedding_callback = nullptr;
+        slot->on_rerank_callback = nullptr;
+
+        // Ensure we start without a sampling context unless set below
         if (slot->ctx_sampling != nullptr) {
             common_sampler_free(slot->ctx_sampling);
-        }
-        slot->ctx_sampling = common_sampler_init(parent_ctx->model, request.params.sampling);
-
-        // Store media paths for deferred processing during SLOT_STATE_PROCESSING_PROMPT
-        bool has_media = !request.media_paths.empty();
-        if (has_media && parent_ctx->isMultimodalEnabled()) {
-            LOG_INFO("Storing %zu media paths for deferred processing in slot %d",
-                     request.media_paths.size(), slot->id);
-
-            // Store media info in slot for processing during SLOT_STATE_PROCESSING_PROMPT
-            slot->media_paths = request.media_paths;
-            slot->prompt_text = request.prompt_text;
-            slot->media_processed = false;
-
-            // Load the prompt tokens (which contain LLAMA_TOKEN_NULL placeholders for media)
-            slot->load_prompt(request.prompt_tokens);
-        } else {
-            // No media, load prompt tokens directly
-            slot->load_prompt(request.prompt_tokens);
+            slot->ctx_sampling = nullptr;
         }
 
-        slot->on_token_callback = request.on_token;
-        slot->on_complete_callback = request.on_complete;
-        slot->current_chat_format = request.chat_format;
-        slot->current_reasoning_format = request.reasoning_format;
-        slot->current_thinking_forced_open = request.thinking_forced_open;
-        slot->prefill_text = request.prefill_text;
-        slot->t_start_process = lm_ggml_time_us();
+        switch (request.task_type) {
+            case SLOT_TASK_TYPE_COMPLETION: {
+                slot->ctx_sampling = common_sampler_init(parent_ctx->model, request.params.sampling);
 
-        // Set token generation limit from params
-        slot->n_remaining = request.params.n_predict;
+                bool has_media = !request.media_paths.empty();
+                if (has_media && parent_ctx->isMultimodalEnabled()) {
+                    LOG_INFO("Storing %zu media paths for deferred processing in slot %d",
+                             request.media_paths.size(), slot->id);
+                    slot->media_paths = request.media_paths;
+                    slot->prompt_text = request.prompt_text;
+                    slot->media_processed = false;
+                    slot->load_prompt(request.prompt_tokens);
+                } else {
+                    slot->media_paths.clear();
+                    slot->prompt_text.clear();
+                    slot->media_processed = true;
+                    slot->load_prompt(request.prompt_tokens);
+                }
+                slot->i_batch = -1;
 
-        // Copy stop words from params
-        slot->stop_words = request.params.antiprompt;
+                slot->on_token_callback = request.on_token;
+                slot->on_complete_callback = request.on_complete;
+                slot->current_chat_format = request.chat_format;
+                slot->current_reasoning_format = request.reasoning_format;
+                slot->current_thinking_forced_open = request.thinking_forced_open;
+                slot->prefill_text = request.prefill_text;
+                slot->n_remaining = request.params.n_predict;
+                slot->stop_words = request.params.antiprompt;
+                break;
+            }
+
+            case SLOT_TASK_TYPE_EMBEDDING: {
+                slot->media_paths.clear();
+                slot->prompt_text.clear();
+                slot->media_processed = true;
+                slot->embd_normalize = request.embd_normalize;
+                slot->on_embedding_callback = request.on_embedding;
+                slot->n_remaining = -1;
+                slot->stop_words.clear();
+                slot->load_prompt(request.prompt_tokens);
+                slot->i_batch = -1;
+                break;
+            }
+
+            case SLOT_TASK_TYPE_RERANK: {
+                if (parent_ctx && parent_ctx->ctx) {
+                    llama_memory_clear(llama_get_memory(parent_ctx->ctx), false);
+                }
+                if (request.rerank_prompt_tokens.empty()) {
+                    LOG_WARNING("Rerank request %d has no documents to process", request.request_id);
+                    if (request.on_rerank) {
+                        request.on_rerank(request.request_id, {});
+                    }
+                    queue_requests.pop_front();
+                    continue;
+                }
+
+                slot->media_paths.clear();
+                slot->prompt_text.clear();
+                slot->media_processed = true;
+                slot->embd_normalize = request.embd_normalize;
+                slot->on_rerank_callback = request.on_rerank;
+                slot->rerank_prompt_tokens = std::move(request.rerank_prompt_tokens);
+                slot->rerank_scores.assign(slot->rerank_prompt_tokens.size(), 0.0f);
+                slot->rerank_current_index = 0;
+                slot->n_remaining = -1;
+                slot->stop_words.clear();
+                slot->load_prompt(slot->rerank_prompt_tokens[0]);
+                slot->i_batch = -1;
+                break;
+            }
+
+            default:
+                LOG_ERROR("Unknown task type %d for request %d", request.task_type, request.request_id);
+                queue_requests.pop_front();
+                continue;
+        }
 
         // Track active request
         active_requests[request.request_id] = slot;
@@ -413,8 +663,11 @@ void llama_rn_slot_manager::build_batch() {
                     continue;
                 }
 
-                // Only request logits for the last token of the prompt
-                bool need_logits = (slot.n_past == (llama_pos)(slot.num_prompt_tokens - 1));
+                // Request logits for all tokens when embeddings/rerank are needed
+                bool need_logits = true;
+                if (slot.task_type == SLOT_TASK_TYPE_COMPLETION) {
+                    need_logits = (slot.n_past == (llama_pos)(slot.num_prompt_tokens - 1));
+                }
 
                 // Add to batch with this slot's sequence ID
                 llama_batch_add(&batch, token, slot.n_past, {slot.id}, need_logits);
@@ -425,11 +678,21 @@ void llama_rn_slot_manager::build_batch() {
                 slot.n_past++;
             }
 
-            // If we've processed all prompt tokens, transition to GENERATING state
+            // If we've processed all prompt tokens, transition based on task type
             if (slot.n_past >= (llama_pos)slot.num_prompt_tokens) {
                 slot.state = SLOT_STATE_GENERATING;
                 slot.t_start_generation = lm_ggml_time_us();
-                LOG_INFO("Slot %d: Transitioned to GENERATING state", slot.id);
+
+                if (slot.task_type == SLOT_TASK_TYPE_COMPLETION) {
+                    LOG_INFO("Slot %d: Transitioned to GENERATING state", slot.id);
+                } else if (slot.task_type == SLOT_TASK_TYPE_EMBEDDING) {
+                    LOG_INFO("Slot %d: Prompt processed for embedding task", slot.id);
+                } else if (slot.task_type == SLOT_TASK_TYPE_RERANK) {
+                    LOG_INFO("Slot %d: Prompt processed for rerank task (doc %zu/%zu)",
+                             slot.id,
+                             slot.rerank_current_index + 1,
+                             slot.rerank_prompt_tokens.size());
+                }
             }
 
             LOG_VERBOSE("Slot %d: Processed prompt tokens, n_past=%d/%zu",
@@ -452,6 +715,17 @@ bool llama_rn_slot_manager::process_batch() {
     }
 
     LOG_VERBOSE("Processing batch with %d tokens", batch.n_tokens);
+
+    bool need_embeddings = false;
+    for (const auto& slot : slots) {
+        if ((slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_GENERATING) &&
+            (slot.task_type == SLOT_TASK_TYPE_EMBEDDING || slot.task_type == SLOT_TASK_TYPE_RERANK)) {
+            need_embeddings = true;
+            break;
+        }
+    }
+
+    llama_set_embeddings(parent_ctx->ctx, need_embeddings);
 
     // Call llama_decode with the unified batch
     int ret = llama_decode(parent_ctx->ctx, batch);
@@ -483,6 +757,24 @@ void llama_rn_slot_manager::sample_and_callback() {
     }
 
     const llama_vocab* vocab = llama_model_get_vocab(parent_ctx->model);
+    const int n_embd = llama_model_n_embd(parent_ctx->model);
+
+    auto get_embedding_ptr = [&](llama_rn_slot& slot) -> const float* {
+        const float* data = llama_get_embeddings_seq(parent_ctx->ctx, slot.id);
+        if (data == nullptr) {
+            int idx = slot.i_batch;
+            if (idx < 0 || idx >= batch.n_tokens) {
+                idx = batch.n_tokens - 1;
+            }
+            if (idx >= 0) {
+                data = llama_get_embeddings_ith(parent_ctx->ctx, idx);
+            }
+        }
+        if (data == nullptr) {
+            data = llama_get_embeddings(parent_ctx->ctx);
+        }
+        return data;
+    };
 
     // Process each slot in GENERATING state
     for (auto& slot : slots) {
@@ -496,126 +788,174 @@ void llama_rn_slot_manager::sample_and_callback() {
             slot.state = SLOT_STATE_DONE;
             continue;
         }
-
-        // Safety check: ensure sampling context is valid
-        if (slot.ctx_sampling == nullptr) {
-            LOG_WARNING("Slot %d: Sampling context is null, marking as done", slot.id);
-            slot.state = SLOT_STATE_DONE;
-            continue;
-        }
-
-        // Check if we have a valid batch position
-        // Special case: i_batch == -1 means logits from processMedia() are ready (use last position)
-        if (slot.i_batch == -1) {
-            LOG_VERBOSE("Slot %d: Sampling from media processing logits (batch index -1)", slot.id);
-        } else if (slot.i_batch < 0 || slot.i_batch >= batch.n_tokens) {
-            LOG_WARNING("Slot %d: Invalid batch position %d", slot.id, slot.i_batch);
-            continue;
-        }
-
-        // Sample token using the slot's sampling context
-        // Batch index -1 tells common_sampler_sample to use llama_get_logits(ctx) for last position
-        llama_token new_token_id = common_sampler_sample(slot.ctx_sampling, parent_ctx->ctx, slot.i_batch);
-
-        // Accept the token
-        common_sampler_accept(slot.ctx_sampling, new_token_id, true);
-
-        // Check for EOS token
-        if (llama_vocab_is_eog(vocab, new_token_id)) {
-            slot.stopped_eos = true;
-            slot.state = SLOT_STATE_DONE;
-            LOG_INFO("Slot %d: Stopped on EOS token", slot.id);
-
-            // Call completion callback
-            if (slot.on_complete_callback) {
-                slot.on_complete_callback(&slot);
-            }
-            continue;
-        }
-
-        // Convert token to text
-        std::string token_text = common_token_to_piece(parent_ctx->ctx, new_token_id);
-        slot.generated_text += token_text;
-
-        // Create token output
-        completion_token_output token_output;
-        token_output.tok = new_token_id;
-        token_output.text = token_text;
-        token_output.request_id = slot.request_id;
-
-        // Get token probabilities if requested
-        llama_token_data_array* cur_p = common_sampler_get_candidates(slot.ctx_sampling, true);
-        if (cur_p != nullptr) {
-            // Add top probabilities (limit to reasonable number)
-            const int32_t n_probs = std::min(10, (int32_t)cur_p->size);
-            for (int32_t i = 0; i < n_probs; ++i) {
-                token_output.probs.push_back({cur_p->data[i].id, cur_p->data[i].p});
-            }
-        }
-
-        // Store token for next iteration
-        slot.generated_tokens.push_back(new_token_id);
-        slot.n_decoded++;
-        // Note: n_past is incremented in build_batch() when adding to batch
-
-        // Call token callback
-        if (slot.on_token_callback) {
-            slot.on_token_callback(token_output);
-        }
-
-        // Check stopping conditions
-        bool should_stop = false;
-
-        // Check token limit (n_remaining is set from params.n_predict)
-        if (slot.n_remaining > 0) {
-            slot.n_remaining--;
-            if (slot.n_remaining == 0) {
-                slot.stopped_limit = true;
-                should_stop = true;
-                LOG_INFO("Slot %d: Stopped on token limit", slot.id);
-            }
-        }
-
-        // Check context full
-        if (slot.n_past >= slot.n_ctx) {
-            slot.context_full = true;
-            should_stop = true;
-            LOG_WARNING("Slot %d: Context full", slot.id);
-        }
-
-        // Check stopping words
-        if (!slot.stop_words.empty() && !slot.generated_text.empty()) {
-            const std::string& text = slot.generated_text;
-            const size_t last_token_size = token_text.size();
-
-            for (const std::string& word : slot.stop_words) {
-                // Look for full match in the recent text
-                const size_t search_start = text.size() > word.size() + last_token_size
-                    ? text.size() - word.size() - last_token_size
-                    : 0;
-                size_t pos = text.find(word, search_start);
-
-                if (pos != std::string::npos) {
-                    slot.stopped_word = true;
-                    slot.stopping_word = word;
-                    should_stop = true;
-                    LOG_INFO("Slot %d: Stopped on word '%s'", slot.id, word.c_str());
-                    break;
+        switch (slot.task_type) {
+            case SLOT_TASK_TYPE_COMPLETION: {
+                if (slot.ctx_sampling == nullptr) {
+                    LOG_WARNING("Slot %d: Sampling context is null, marking as done", slot.id);
+                    slot.state = SLOT_STATE_DONE;
+                    continue;
                 }
+
+                if (slot.i_batch == -1) {
+                    LOG_VERBOSE("Slot %d: Sampling from media processing logits (batch index -1)", slot.id);
+                } else if (slot.i_batch < 0 || slot.i_batch >= batch.n_tokens) {
+                    LOG_WARNING("Slot %d: Invalid batch position %d", slot.id, slot.i_batch);
+                    continue;
+                }
+
+                llama_token new_token_id = common_sampler_sample(slot.ctx_sampling, parent_ctx->ctx, slot.i_batch);
+                common_sampler_accept(slot.ctx_sampling, new_token_id, true);
+
+                if (llama_vocab_is_eog(vocab, new_token_id)) {
+                    slot.stopped_eos = true;
+                    slot.state = SLOT_STATE_DONE;
+                    LOG_INFO("Slot %d: Stopped on EOS token", slot.id);
+
+                    if (slot.on_complete_callback) {
+                        slot.on_complete_callback(&slot);
+                    }
+                    continue;
+                }
+
+                std::string token_text = common_token_to_piece(parent_ctx->ctx, new_token_id);
+                slot.generated_text += token_text;
+
+                completion_token_output token_output;
+                token_output.tok = new_token_id;
+                token_output.text = token_text;
+                token_output.request_id = slot.request_id;
+
+                llama_token_data_array* cur_p = common_sampler_get_candidates(slot.ctx_sampling, true);
+                if (cur_p != nullptr) {
+                    const int32_t n_probs = std::min(10, (int32_t)cur_p->size);
+                    for (int32_t i = 0; i < n_probs; ++i) {
+                        token_output.probs.push_back({cur_p->data[i].id, cur_p->data[i].p});
+                    }
+                }
+
+                slot.generated_tokens.push_back(new_token_id);
+                slot.n_decoded++;
+
+                if (slot.on_token_callback) {
+                    slot.on_token_callback(token_output);
+                }
+
+                bool should_stop = false;
+
+                if (slot.n_remaining > 0) {
+                    slot.n_remaining--;
+                    if (slot.n_remaining == 0) {
+                        slot.stopped_limit = true;
+                        should_stop = true;
+                        LOG_INFO("Slot %d: Stopped on token limit", slot.id);
+                    }
+                }
+
+                if (slot.n_past >= slot.n_ctx) {
+                    slot.context_full = true;
+                    should_stop = true;
+                    LOG_WARNING("Slot %d: Context full", slot.id);
+                }
+
+                if (!slot.stop_words.empty() && !slot.generated_text.empty()) {
+                    const std::string& text = slot.generated_text;
+                    const size_t last_token_size = token_text.size();
+
+                    for (const std::string& word : slot.stop_words) {
+                        const size_t search_start = text.size() > word.size() + last_token_size
+                            ? text.size() - word.size() - last_token_size
+                            : 0;
+                        size_t pos = text.find(word, search_start);
+
+                        if (pos != std::string::npos) {
+                            slot.stopped_word = true;
+                            slot.stopping_word = word;
+                            should_stop = true;
+                            LOG_INFO("Slot %d: Stopped on word '%s'", slot.id, word.c_str());
+                            break;
+                        }
+                    }
+                }
+
+                if (should_stop) {
+                    slot.state = SLOT_STATE_DONE;
+                    if (slot.on_complete_callback) {
+                        slot.on_complete_callback(&slot);
+                    }
+                }
+
+                LOG_VERBOSE("Slot %d: Generated token %d ('%s'), n_past=%d, n_decoded=%d",
+                           slot.id, new_token_id, token_text.c_str(), slot.n_past, slot.n_decoded);
+                break;
             }
-        }
 
-        if (should_stop) {
-            slot.state = SLOT_STATE_DONE;
+            case SLOT_TASK_TYPE_EMBEDDING: {
+                const float* data = get_embedding_ptr(slot);
 
-            // Call completion callback
-            if (slot.on_complete_callback) {
-                slot.on_complete_callback(&slot);
+                std::vector<float> embedding(n_embd, 0.0f);
+                if (data != nullptr) {
+                    embedding.assign(data, data + n_embd);
+                }
+
+                std::vector<float> normalized(n_embd, 0.0f);
+                if (n_embd >= 4) {
+                    LOG_INFO("Embedding data: 0: %f 1: %f 2: %f 3: %f",
+                             embedding[0], embedding[1], embedding[2], embedding[3]);
+                }
+                LOG_INFO("Normalizing embedding with normalize=%d", slot.embd_normalize);
+                common_embd_normalize(embedding.data(), normalized.data(), n_embd, slot.embd_normalize);
+                if (n_embd >= 4) {
+                    LOG_INFO("Normalized embedding data: 0: %f 1: %f 2: %f 3: %f",
+                             normalized[0], normalized[1], normalized[2], normalized[3]);
+                }
+
+                if (slot.on_embedding_callback) {
+                    slot.on_embedding_callback(slot.request_id, normalized);
+                }
+
+                slot.state = SLOT_STATE_DONE;
+                continue;
             }
-        }
 
-        LOG_VERBOSE("Slot %d: Generated token %d ('%s'), n_past=%d, n_decoded=%d",
-                   slot.id, new_token_id, token_text.c_str(), slot.n_past, slot.n_decoded);
+            case SLOT_TASK_TYPE_RERANK: {
+                const float* data = get_embedding_ptr(slot);
+                float score = data ? data[0] : -1e6f;
+
+                LOG_INFO("Rerank data: 0: %f", score);
+
+                if (slot.rerank_current_index < slot.rerank_scores.size()) {
+                    slot.rerank_scores[slot.rerank_current_index] = score;
+                }
+
+                slot.rerank_current_index++;
+
+                if (slot.rerank_current_index < slot.rerank_prompt_tokens.size()) {
+                    if (parent_ctx && parent_ctx->ctx) {
+                        llama_memory_clear(llama_get_memory(parent_ctx->ctx), false);
+                    }
+                    slot.load_prompt(slot.rerank_prompt_tokens[slot.rerank_current_index]);
+                    slot.state = SLOT_STATE_PROCESSING_PROMPT;
+                    slot.i_batch = -1;
+                    continue;
+                }
+
+                if (slot.on_rerank_callback) {
+                    slot.on_rerank_callback(slot.request_id, slot.rerank_scores);
+                }
+
+                if (parent_ctx && parent_ctx->ctx) {
+                    llama_memory_clear(llama_get_memory(parent_ctx->ctx), false);
+                }
+
+                slot.state = SLOT_STATE_DONE;
+                continue;
+            }
+
+            default:
+                LOG_ERROR("Slot %d: Unknown task type %d in sampling", slot.id, slot.task_type);
+                slot.state = SLOT_STATE_DONE;
+                continue;
+        }
     }
 }
 

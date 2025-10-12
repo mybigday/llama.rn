@@ -50,6 +50,8 @@
 - (NSDictionary *)completion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *tokenResult))onToken;
 - (void)stopCompletion;
 - (NSNumber *)queueCompletion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *tokenResult))onToken onComplete:(void (^)(NSDictionary *result))onComplete;
+- (NSNumber *)queueEmbedding:(NSString *)text params:(NSDictionary *)params onResult:(void (^)(int32_t requestId, NSArray *embedding))onResult;
+- (NSNumber *)queueRerank:(NSString *)query documents:(NSArray<NSString *> *)documents params:(NSDictionary *)params onResults:(void (^)(int32_t requestId, NSArray *results))onResults;
 - (void)cancelRequest:(NSNumber *)requestId;
 - (BOOL)enableParallelMode:(int)nParallel nBatch:(int)nBatch;
 - (void)disableParallelMode;

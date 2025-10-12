@@ -235,6 +235,9 @@ public class LlamaContext {
   private void emitPartialCompletion(WritableMap tokenResult) {
     WritableMap event = Arguments.createMap();
     event.putInt("contextId", LlamaContext.this.id);
+    if (tokenResult.hasKey("requestId")) {
+      event.putInt("requestId", tokenResult.getInt("requestId"));
+    }
     event.putMap("tokenResult", tokenResult);
     eventEmitter.emit("@RNLlama_onToken", event);
   }
@@ -442,6 +445,85 @@ public class LlamaContext {
       // int normalize,
       params.hasKey("normalize") ? params.getInt("normalize") : -1
     );
+  }
+
+  private void emitEmbeddingResult(int requestId, WritableArray embedding) {
+    WritableMap event = Arguments.createMap();
+    event.putInt("contextId", this.id);
+    event.putInt("requestId", requestId);
+    event.putArray("embedding", embedding);
+    eventEmitter.emit("@RNLlama_onEmbeddingResult", event);
+  }
+
+  private static class EmbeddingCallback {
+    LlamaContext context;
+
+    public EmbeddingCallback(LlamaContext context) {
+      this.context = context;
+    }
+
+    void onResult(int requestId, WritableArray embedding) {
+      context.emitEmbeddingResult(requestId, embedding);
+    }
+  }
+
+  public int queueEmbedding(String text, ReadableMap params) {
+    // Create callback (request ID will be passed by native code)
+    EmbeddingCallback callback = new EmbeddingCallback(this);
+
+    int requestId = doQueueEmbedding(
+      this.context,
+      text,
+      // int embd_normalize,
+      params.hasKey("embd_normalize") ? params.getInt("embd_normalize") : -1,
+      // EmbeddingCallback callback
+      callback
+    );
+
+    return requestId;
+  }
+
+  private void emitRerankResults(int requestId, WritableArray results) {
+    WritableMap event = Arguments.createMap();
+    event.putInt("contextId", this.id);
+    event.putInt("requestId", requestId);
+    event.putArray("results", results);
+    eventEmitter.emit("@RNLlama_onRerankResults", event);
+  }
+
+  private static class RerankCallback {
+    LlamaContext context;
+
+    public RerankCallback(LlamaContext context) {
+      this.context = context;
+    }
+
+    void onResults(int requestId, WritableArray results) {
+      context.emitRerankResults(requestId, results);
+    }
+  }
+
+  public int queueRerank(String query, ReadableArray documents, ReadableMap params) {
+    // Convert ReadableArray to Java string array
+    String[] documentsArray = new String[documents.size()];
+    for (int i = 0; i < documents.size(); i++) {
+      documentsArray[i] = documents.getString(i);
+    }
+
+    // Create callback (request ID will be passed by native code)
+    RerankCallback callback = new RerankCallback(this);
+
+    int requestId = doQueueRerank(
+      this.context,
+      query,
+      documentsArray,
+      // int normalize,
+      params.hasKey("normalize") ? params.getInt("normalize") : -1,
+      // RerankCallback callback
+      callback
+    );
+
+    return requestId;
   }
 
   public String bench(int pp, int tg, int pl, int nr) {
@@ -968,4 +1050,17 @@ public class LlamaContext {
     CompletionCallback completion_callback
   );
   protected static native void doCancelRequest(long contextPtr, int requestId);
+  protected static native int doQueueEmbedding(
+    long contextPtr,
+    String text,
+    int embd_normalize,
+    EmbeddingCallback callback
+  );
+  protected static native int doQueueRerank(
+    long contextPtr,
+    String query,
+    String[] documents,
+    int normalize,
+    RerankCallback callback
+  );
 }

@@ -18,6 +18,7 @@ import BenchScreen from './screens/BenchScreen'
 import TextCompletionScreen from './screens/TextCompletionScreen'
 import EmbeddingScreen from './screens/EmbeddingScreen'
 import ParallelDecodingScreen from './screens/ParallelDecodingScreen'
+import ParallelDecodingEmbeddingScreen from './screens/ParallelDecodingEmbeddingScreen'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { createThemedStyles } from './styles/commonStyles'
 import { Menu } from './components/Menu'
@@ -145,6 +146,12 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}
+          onPress={() => navigation.navigate('ParallelEmbedding')}
+        >
+          <Text style={styles.buttonText}>⚡ Parallel Embedding & Rerank</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
           onPress={() => navigation.navigate('TTS')}
         >
           <Text style={styles.buttonText}>🔊 Text-to-Speech (OuteTTS)</Text>
@@ -261,6 +268,13 @@ function AppContent() {
             component={EmbeddingScreen}
             options={{
               title: 'Vector Search (in-memory)',
+            }}
+          />
+          <Stack.Screen
+            name="ParallelEmbedding"
+            component={ParallelDecodingEmbeddingScreen}
+            options={{
+              title: 'Parallel Embedding & Rerank',
             }}
           />
           <Stack.Screen

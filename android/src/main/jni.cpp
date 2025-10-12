@@ -2313,4 +2313,176 @@ Java_com_rnllama_LlamaContext_doCancelRequest(
     llama->slot_manager->cancel_request(request_id);
 }
 
+JNIEXPORT jint JNICALL
+Java_com_rnllama_LlamaContext_doQueueEmbedding(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring text,
+    jint embd_normalize,
+    jobject callback
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    if (!llama || !llama->slot_manager) {
+        LOGE("doQueueEmbedding: Invalid context or parallel mode not enabled");
+        return -1;
+    }
+
+    try {
+        const char *text_chars = env->GetStringUTFChars(text, nullptr);
+        const llama_vocab* vocab = llama_model_get_vocab(llama->model);
+        const bool add_bos = llama_vocab_get_add_bos(vocab);
+        const bool is_enc_dec = llama_model_has_encoder(llama->model);
+        std::vector<llama_token> tokens = common_tokenize(
+            llama->ctx,
+            text_chars,
+            add_bos || is_enc_dec,
+            true
+        );
+        env->ReleaseStringUTFChars(text, text_chars);
+
+        // Get JavaVM for callback
+        JavaVM *jvm;
+        env->GetJavaVM(&jvm);
+
+        // Create global ref for callback
+        jobject callback_ref = env->NewGlobalRef(callback);
+
+        // Queue embedding request
+        int32_t request_id = llama->slot_manager->queue_embedding_request(
+            tokens,
+            embd_normalize,
+            [jvm, callback_ref](int32_t request_id, const std::vector<float>& embedding) {
+                // Copy embedding vector to avoid dangling reference
+                std::vector<float> embedding_copy = embedding;
+
+                JNIEnv *env_cb;
+                bool attached = false;
+
+                int getEnvResult = jvm->GetEnv((void**)&env_cb, JNI_VERSION_1_6);
+                if (getEnvResult == JNI_EDETACHED) {
+                    jvm->AttachCurrentThread(&env_cb, nullptr);
+                    attached = true;
+                }
+
+                // Create embedding array
+                auto embeddingArray = createWritableArray(env_cb);
+                for (float val : embedding_copy) {
+                    pushDouble(env_cb, embeddingArray, val);
+                }
+
+                // Call Java callback with request_id parameter
+                jclass callbackClass = env_cb->GetObjectClass(callback_ref);
+                jmethodID onResultMethod = env_cb->GetMethodID(callbackClass, "onResult", "(ILcom/facebook/react/bridge/WritableArray;)V");
+                if (onResultMethod) {
+                    env_cb->CallVoidMethod(callback_ref, onResultMethod, request_id, embeddingArray);
+                }
+
+                // Clean up global ref
+                env_cb->DeleteGlobalRef(callback_ref);
+
+                if (attached) {
+                    jvm->DetachCurrentThread();
+                }
+            }
+        );
+
+        return request_id;
+    } catch (const std::exception& e) {
+        LOGE("doQueueEmbedding exception: %s", e.what());
+        return -1;
+    }
+}
+
+JNIEXPORT jint JNICALL
+Java_com_rnllama_LlamaContext_doQueueRerank(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring query,
+    jobjectArray documents,
+    jint normalize,
+    jobject callback
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    if (!llama || !llama->slot_manager) {
+        LOGE("doQueueRerank: Invalid context or parallel mode not enabled");
+        return -1;
+    }
+
+    try {
+        // Convert query
+        const char *query_chars = env->GetStringUTFChars(query, nullptr);
+        std::string query_str(query_chars);
+        env->ReleaseStringUTFChars(query, query_chars);
+
+        // Convert documents array
+        std::vector<std::string> documents_vec;
+        jsize doc_count = env->GetArrayLength(documents);
+        for (jsize i = 0; i < doc_count; i++) {
+            jstring doc_str = (jstring) env->GetObjectArrayElement(documents, i);
+            const char *doc_chars = env->GetStringUTFChars(doc_str, nullptr);
+            documents_vec.push_back(doc_chars);
+            env->ReleaseStringUTFChars(doc_str, doc_chars);
+        }
+
+        // Get JavaVM for callback
+        JavaVM *jvm;
+        env->GetJavaVM(&jvm);
+
+        // Create global ref for callback
+        jobject callback_ref = env->NewGlobalRef(callback);
+
+        // Queue rerank request
+        int32_t request_id = llama->slot_manager->queue_rerank_request(
+            query_str,
+            documents_vec,
+            normalize,
+            [jvm, callback_ref](int32_t request_id, const std::vector<float>& scores) {
+                // Copy scores vector to avoid dangling reference
+                std::vector<float> scores_copy = scores;
+
+                JNIEnv *env_cb;
+                bool attached = false;
+
+                int getEnvResult = jvm->GetEnv((void**)&env_cb, JNI_VERSION_1_6);
+                if (getEnvResult == JNI_EDETACHED) {
+                    jvm->AttachCurrentThread(&env_cb, nullptr);
+                    attached = true;
+                }
+
+                // Create results array
+                auto resultsArray = createWritableArray(env_cb);
+                for (size_t i = 0; i < scores_copy.size(); i++) {
+                    auto resultMap = createWriteableMap(env_cb);
+                    putDouble(env_cb, resultMap, "score", scores_copy[i]);
+                    putInt(env_cb, resultMap, "index", (int)i);
+                    pushMap(env_cb, resultsArray, resultMap);
+                }
+
+                // Call Java callback with request_id parameter
+                jclass callbackClass = env_cb->GetObjectClass(callback_ref);
+                jmethodID onResultsMethod = env_cb->GetMethodID(callbackClass, "onResults", "(ILcom/facebook/react/bridge/WritableArray;)V");
+                if (onResultsMethod) {
+                    env_cb->CallVoidMethod(callback_ref, onResultsMethod, request_id, resultsArray);
+                }
+
+                // Clean up global ref
+                env_cb->DeleteGlobalRef(callback_ref);
+
+                if (attached) {
+                    jvm->DetachCurrentThread();
+                }
+            }
+        );
+
+        return request_id;
+    } catch (const std::exception& e) {
+        LOGE("doQueueRerank exception: %s", e.what());
+        return -1;
+    }
+}
+
 } // extern "C"
