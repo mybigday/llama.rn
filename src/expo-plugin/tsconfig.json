@@ -1,9 +1,0 @@
-{
-  "extends": "../../tsconfig.json",
-  "compilerOptions": {
-    "types": ["node"],
-    "moduleResolution": "node",
-    "noEmit": false
-  },
-  "include": ["./**/*.ts"]
-}

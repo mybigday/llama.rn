@@ -1,11 +1,9 @@
-
-// eslint-disable no-extraneous-dependencies
 import type { ConfigPlugin } from '@expo/config-plugins'
 
 // eslint-disable-next-line import/no-extraneous-dependencies
-import pkg from '@expo/config-plugins'
-import fs from 'fs'
-import path from 'path'
+import * as pkg from '@expo/config-plugins'
+import * as fs from 'fs'
+import * as path from 'path'
 
 const PLUGIN_NAME = 'llama-rn-plugin'
 const PLUGIN_VERSION = '1.0.0'

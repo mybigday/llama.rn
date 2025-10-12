@@ -23,7 +23,8 @@
     "skipLibCheck": true,
     "strict": true,
     "target": "esnext",
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "types": ["node", "jest"]
   },
   "exclude": [
     "third_party/llama.cpp",
