@@ -1,1 +1,1 @@
-module.exports = require("./expo-plugin/withLlamaRN")
+module.exports = require("./lib/module/expo-plugin/withLlamaRN")
