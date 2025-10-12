@@ -187,4 +187,9 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   public void cancelRequest(double id, double requestId, final Promise promise) {
     rnllama.cancelRequest(id, requestId, promise);
   }
+
+  @ReactMethod
+  public void enableParallelMode(double id, final ReadableMap params, final Promise promise) {
+    rnllama.enableParallelMode(id, params, promise);
+  }
 }

@@ -31,10 +31,6 @@
     void (^onProgress)(unsigned int progress);
 
     rnllama::llama_rn_context * llama;
-
-    // Parallel decoding support
-    BOOL processingLoopActive;
-    dispatch_queue_t processingQueue;
 }
 
 + (void)toggleNativeLog:(BOOL)enabled onEmitLog:(void (^)(NSString *level, NSString *text))onEmitLog;

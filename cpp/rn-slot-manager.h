@@ -8,6 +8,9 @@
 #include <deque>
 #include <map>
 #include <functional>
+#include <mutex>
+#include <thread>
+#include <atomic>
 
 namespace rnllama {
 
@@ -67,6 +70,12 @@ struct llama_rn_slot_manager {
     float slot_prompt_similarity;          // Threshold for cache reuse (0.0-1.0)
     bool continuous_batching;              // Allow mixing prompt/generation
 
+    // Processing loop control
+    std::mutex slots_mutex;                // Mutex for thread-safe access to slots
+    std::condition_variable slots_cv;      // Condition variable for efficient waiting
+    std::thread processing_thread;         // Background processing thread
+    std::atomic<bool> processing_active;   // Flag to control processing loop
+
     // Constructor
     llama_rn_slot_manager(llama_rn_context* ctx);
 
@@ -96,7 +105,11 @@ struct llama_rn_slot_manager {
     void release_slot(llama_rn_slot* slot);
     void cancel_request(int32_t request_id);
 
-    // Main processing loop
+    // Processing loop management
+    void start_processing_loop();
+    void stop_processing_loop();
+
+    // Main processing loop (protected by mutex)
     void update_slots();
 
     // Helper methods

@@ -1937,6 +1937,36 @@ Java_com_rnllama_LlamaContext_enableParallelMode(
 }
 
 JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_startProcessingLoop(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    if (!llama || !llama->slot_manager) {
+        return;
+    }
+    llama->slot_manager->start_processing_loop();
+}
+
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_stopProcessingLoop(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    if (!llama || !llama->slot_manager) {
+        return;
+    }
+    llama->slot_manager->stop_processing_loop();
+}
+
+JNIEXPORT void JNICALL
 Java_com_rnllama_LlamaContext_updateSlots(
     JNIEnv *env,
     jobject thiz,

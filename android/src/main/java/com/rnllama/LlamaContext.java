@@ -520,10 +520,6 @@ public class LlamaContext {
     releaseVocoder(this.context);
   }
 
-  // Parallel decoding support
-  private Thread processingThread = null;
-  private volatile boolean processingLoopActive = false;
-
   private void emitCompletion(int requestId, WritableMap result) {
     WritableMap event = Arguments.createMap();
     event.putInt("contextId", this.id);
@@ -549,11 +545,6 @@ public class LlamaContext {
   public int queueCompletion(ReadableMap params) {
     if (!params.hasKey("prompt")) {
       throw new IllegalArgumentException("Missing required parameter: prompt");
-    }
-
-    // Check if parallel mode is enabled
-    if (!processingLoopActive) {
-      throw new IllegalStateException("Parallel mode is not enabled. Call enableParallelMode() first.");
     }
 
     double[][] logit_bias = new double[0][0];
@@ -675,43 +666,16 @@ public class LlamaContext {
   }
 
   private void startProcessingLoop() {
-    if (processingLoopActive) return;
-
-    processingLoopActive = true;
-    processingThread = new Thread(new Runnable() {
-      @Override
-      public void run() {
-        while (processingLoopActive) {
-          updateSlots(context);
-          try {
-            Thread.sleep(1); // 1ms sleep
-          } catch (InterruptedException e) {
-            break;
-          }
-        }
-      }
-    });
-    processingThread.start();
+    startProcessingLoop(this.context);
   }
 
   private void stopProcessingLoop() {
-    processingLoopActive = false;
-    if (processingThread != null) {
-      try {
-        processingThread.join(1000); // Wait up to 1 second
-      } catch (InterruptedException e) {
-        // Ignore
-      }
-      processingThread = null;
-    }
+    stopProcessingLoop(this.context);
   }
 
   public boolean doEnableParallelMode(int nParallel, int nBatch) {
-    // If parallel mode is already enabled, stop the processing loop first
-    if (processingLoopActive) {
-      Log.d(NAME, "Reconfiguring parallel mode with " + nParallel + " slots");
-      stopProcessingLoop();
-    }
+    // Stop any existing processing loop before reconfiguring
+    stopProcessingLoop();
 
     enableParallelMode(this.context, nParallel, nBatch);
     startProcessingLoop();
@@ -956,6 +920,8 @@ public class LlamaContext {
 
   // Parallel decoding methods
   protected static native void enableParallelMode(long contextPtr, int n_parallel, int n_batch);
+  protected static native void startProcessingLoop(long contextPtr);
+  protected static native void stopProcessingLoop(long contextPtr);
   protected static native void updateSlots(long contextPtr);
   protected static native int doQueueCompletion(
     long context_ptr,

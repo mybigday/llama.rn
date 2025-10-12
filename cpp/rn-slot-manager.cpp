@@ -37,7 +37,8 @@ llama_rn_slot_manager::llama_rn_slot_manager(llama_rn_context* ctx) :
     next_request_id(1),
     n_batch(512),
     slot_prompt_similarity(0.5f),
-    continuous_batching(false)
+    continuous_batching(false),
+    processing_active(false)
 {
     // Initialize batch to zero/null - will be properly allocated later
     std::memset(&batch, 0, sizeof(batch));
@@ -45,6 +46,9 @@ llama_rn_slot_manager::llama_rn_slot_manager(llama_rn_context* ctx) :
 
 // Destructor
 llama_rn_slot_manager::~llama_rn_slot_manager() {
+    // Stop processing loop if active
+    stop_processing_loop();
+
     // Free batch
     if (batch.token != nullptr) {
         llama_batch_free(batch);
@@ -118,7 +122,13 @@ int32_t llama_rn_slot_manager::queue_request(
     request.on_complete = on_complete;
 
     // Add to queue
-    queue_requests.push_back(request);
+    {
+        std::lock_guard<std::mutex> lock(slots_mutex);
+        queue_requests.push_back(request);
+    }
+
+    // Notify processing thread that new work is available
+    slots_cv.notify_one();
 
     return request_id;
 }
@@ -627,6 +637,9 @@ void llama_rn_slot_manager::release_completed_slots() {
 
 // Main processing loop
 void llama_rn_slot_manager::update_slots() {
+    // Acquire mutex lock for thread-safe access
+    std::lock_guard<std::mutex> lock(slots_mutex);
+
     // Step 1: Process pending queue
     process_pending_queue();
 
@@ -671,6 +684,72 @@ void llama_rn_slot_manager::update_slots() {
 
     // Step 6: Release completed slots
     release_completed_slots();
+}
+
+// Start background processing loop
+void llama_rn_slot_manager::start_processing_loop() {
+    // Check if already running
+    if (processing_active.load()) {
+        LOG_WARNING("Processing loop already active");
+        return;
+    }
+
+    processing_active.store(true);
+
+    // Start processing thread
+    processing_thread = std::thread([this]() {
+        LOG_INFO("Processing loop started");
+
+        while (processing_active.load()) {
+            // Call update_slots (protected by mutex)
+            update_slots();
+
+            // Wait for new work instead of sleeping
+            // This efficiently blocks until notified or until there's work to do
+            std::unique_lock<std::mutex> lock(slots_mutex);
+
+            // Check if we have any active work or pending requests
+            bool has_work = !queue_requests.empty();
+            if (!has_work) {
+                for (const auto& slot : slots) {
+                    if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_GENERATING) {
+                        has_work = true;
+                        break;
+                    }
+                }
+            }
+
+            // If no work, wait for notification
+            if (!has_work && processing_active.load()) {
+                slots_cv.wait(lock, [this]() {
+                    // Wake up if: there are pending requests, or processing should stop
+                    return !queue_requests.empty() || !processing_active.load();
+                });
+            }
+        }
+
+        LOG_INFO("Processing loop stopped");
+    });
+}
+
+// Stop background processing loop
+void llama_rn_slot_manager::stop_processing_loop() {
+    if (!processing_active.load()) {
+        return;
+    }
+
+    LOG_INFO("Stopping processing loop...");
+    processing_active.store(false);
+
+    // Notify condition variable to wake up the thread
+    slots_cv.notify_all();
+
+    // Wait for processing thread to finish
+    if (processing_thread.joinable()) {
+        processing_thread.join();
+    }
+
+    LOG_INFO("Processing loop stopped");
 }
 
 } // namespace rnllama

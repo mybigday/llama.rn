@@ -1577,32 +1577,16 @@
 
 // Start background processing loop
 - (void)startProcessingLoop {
-    if (processingLoopActive) {
-        return;
+    if (llama && llama->parallel_mode_enabled && llama->slot_manager) {
+        llama->slot_manager->start_processing_loop();
     }
-
-    processingLoopActive = YES;
-
-    // Create serial processing queue if not exists
-    if (!processingQueue) {
-        processingQueue = dispatch_queue_create("com.rnllama.processing", DISPATCH_QUEUE_SERIAL);
-    }
-
-    dispatch_async(processingQueue, ^{
-        while (self->processingLoopActive && self->llama != nullptr) {
-            if (self->llama->parallel_mode_enabled && self->llama->slot_manager) {
-                self->llama->slot_manager->update_slots();
-            }
-
-            // Sleep for 1ms to avoid busy waiting
-            usleep(100);
-        }
-    });
 }
 
 // Stop background processing loop
 - (void)stopProcessingLoop {
-    processingLoopActive = NO;
+    if (llama && llama->slot_manager) {
+        llama->slot_manager->stop_processing_loop();
+    }
 }
 
 // Helper method to convert NSArray to std::vector<std::string>
@@ -1616,11 +1600,6 @@
 
 - (void)invalidate {
     [self stopProcessingLoop];
-
-    // Wait for processing loop to finish
-    if (processingQueue) {
-        dispatch_barrier_sync(processingQueue, ^{});
-    }
 
     delete llama;
     // llama_backend_free();
