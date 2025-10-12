@@ -1,18 +1,21 @@
 
-// eslint-disable-next-line import/no-extraneous-dependencies
-import {
-  withDangerousMod,
-  withXcodeProject,
-  withAndroidManifest,
-  createRunOncePlugin,
-} from '@expo/config-plugins'
 // eslint-disable no-extraneous-dependencies
 import type { ConfigPlugin } from '@expo/config-plugins'
+
+// eslint-disable-next-line import/no-extraneous-dependencies
+import pkg from '@expo/config-plugins'
 import fs from 'fs'
 import path from 'path'
 
 const PLUGIN_NAME = 'llama-rn-plugin'
 const PLUGIN_VERSION = '1.0.0'
+
+const {
+  withDangerousMod,
+  withXcodeProject,
+  withAndroidManifest,
+  createRunOncePlugin,
+} = pkg
 
 interface PluginOptions {
   enableEntitlements?: boolean
