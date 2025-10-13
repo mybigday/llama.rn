@@ -16313,10 +16313,10 @@ struct llm_build_granite_hybrid : public llm_graph_context_mamba {
     }
 
     lm_ggml_tensor * build_layer_ffn(
-              lm_ggml_tensor       * cur,
-              lm_ggml_tensor       * inpSA,
-        const llama_model       & model,
-        const int                 il) {
+              lm_ggml_tensor * cur,
+              lm_ggml_tensor * inpSA,
+        const llama_model & model,
+        const int           il) {
 
         // For Granite architectures - scale residual
         if (hparams.f_residual_scale) {
