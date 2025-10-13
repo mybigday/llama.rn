@@ -268,6 +268,25 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_glu(lm_ggml_metal_li
     return res;
 }
 
+lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_sum(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op) {
+    assert(op->op == LM_GGML_OP_SUM);
+
+    char base[256];
+    char name[256];
+
+    snprintf(base, 256, "kernel_op_sum_%s", lm_ggml_type_name(op->src[0]->type));
+    snprintf(name, 256, "%s", base);
+
+    lm_ggml_metal_pipeline_t res = lm_ggml_metal_library_get_pipeline(lib, name);
+    if (res) {
+        return res;
+    }
+
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+
+    return res;
+}
+
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_sum_rows(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op) {
     LM_GGML_ASSERT(op->src[0]->nb[0] == lm_ggml_type_size(op->src[0]->type));
 
@@ -1482,3 +1501,21 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_timestep_embedding(l
     return res;
 }
 
+lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_opt_step_adamw(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op) {
+    assert(op->op == LM_GGML_OP_OPT_STEP_ADAMW);
+
+    char base[256];
+    char name[256];
+
+    snprintf(base, 256, "kernel_opt_step_adamw_%s", lm_ggml_type_name(op->src[0]->type));
+    snprintf(name, 256, "%s", base);
+
+    lm_ggml_metal_pipeline_t res = lm_ggml_metal_library_get_pipeline(lib, name);
+    if (res) {
+        return res;
+    }
+
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+
+    return res;
+}

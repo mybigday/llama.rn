@@ -50,6 +50,7 @@ int lm_ggml_metal_op_scale             (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_clamp             (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_unary             (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_glu               (lm_ggml_metal_op_t ctx, int idx);
+int lm_ggml_metal_op_sum               (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_sum_rows          (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_get_rows          (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_set_rows          (lm_ggml_metal_op_t ctx, int idx);
@@ -78,6 +79,7 @@ int lm_ggml_metal_op_timestep_embedding(lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_argmax            (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_argsort           (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_leaky_relu        (lm_ggml_metal_op_t ctx, int idx);
+int lm_ggml_metal_op_opt_step_adamw    (lm_ggml_metal_op_t ctx, int idx);
 
 #ifdef __cplusplus
 }

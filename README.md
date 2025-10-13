@@ -37,6 +37,31 @@ By default, `llama.rn` will use pre-built libraries for Android. If you want to 
 - Add `<uses-native-library android:name="libOpenCL.so" android:required="false" />` to your app manifest so the loader can be loaded at runtime.
 - Configure `n_gpu_layers` (> 0) when calling `initLlama` to offload layers to the GPU. The native result exposes `gpu`, `gpuDevice`, and `reasonNoGPU` so you can confirm runtime behaviour.
 
+#### Expo
+
+For use with the Expo framework and CNG builds, you will need `expo-build-properties` to utilize iOS and OpenCL features. Simply add the following to your app.json/app.config.js file:
+
+```js
+module.exports = {
+  expo: {
+    // ...
+    plugins: [
+      // ...
+      [
+        'llama.rn',
+        // optional fields, below are the default values
+        {
+          enableEntitlements: true,
+          entitlementsProfile: 'production',
+          forceCxx20: true,
+          enableOpenCL: true,
+        },
+      ],
+    ],
+  },
+}
+```
+
 ## Obtain the model
 
 You can search HuggingFace for available models (Keyword: [`GGUF`](https://huggingface.co/search/full-text?q=GGUF&type=model)).
