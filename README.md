@@ -43,22 +43,22 @@ For use with the Expo framework and CNG builds, you will need `expo-build-proper
 
 ```js
 module.exports = {
-  expo :{
-    ...
-    plugins:[
-      ...
-      [   
-        'llama.rn', 
+  expo: {
+    // ...
+    plugins: [
+      // ...
+      [
+        'llama.rn',
         // optional fields, below are the default values
         {
           enableEntitlements: true,
           entitlementsProfile: 'production',
           forceCxx20: true,
-          enableOpenCL: true, 
-        }
-      ]
-    ]
-  }
+          enableOpenCL: true,
+        },
+      ],
+    ],
+  },
 }
 ```
 
