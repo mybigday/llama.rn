@@ -16,7 +16,9 @@
 
 1. **TypeScript Layer** (`src/`)
    - Main API in `src/index.ts` exports `LlamaContext` class and helper functions
-   - `initLlama()` creates context, `completion()` runs inference
+   - `initLlama()` creates context with optional `n_parallel` parameter
+   - `completion()` runs synchronous inference, `queueCompletion()` for parallel requests
+   - `enableParallelMode()` configures concurrent request processing
    - Handles event-based streaming via React Native's event emitters
    - `src/grammar.ts` provides JSON schema to GBNF grammar conversion
 
@@ -28,15 +30,17 @@
 3. **C++ Core** (`cpp/`)
    - Contains llama.cpp source with `LM_` prefix to avoid symbol conflicts
    - Custom wrappers: `rn-llama.cpp`, `rn-completion.cpp`, `rn-mtmd.hpp` (multimodal), `rn-tts.cpp`
+   - Parallel processing: `rn-slot.cpp`, `rn-slot-manager.cpp` for concurrent request handling
    - Files are copied from `third_party/llama.cpp` submodule during bootstrap
 
 ### Core Features
 
 - **Chat & Text Completion**: Message-based chat and raw text/prompt completion
 - **Streaming Responses**: Token-by-token streaming callbacks for real-time output
+- **Parallel Decoding**: Slot-based concurrent request processing with automatic queue management
 - **Multimodal (Vision & Audio)**: Image and audio processing via mmproj projector models
 - **Tool Calling & MCP**: Function calling with Model Context Protocol (MCP) server integration
-- **Embeddings & Reranking**: Vector embeddings and document reranking for semantic search
+- **Embeddings & Reranking**: Vector embeddings and document reranking for semantic search (supports async queueing)
 - **Text-to-Speech (TTS)**: Audio generation using vocoder models (OuteTTS)
 - **Grammar Sampling**: GBNF/JSON schema support for structured output
 - **Session Management**: Save/load conversation state to files
@@ -167,10 +171,18 @@ Follow conventional commits:
 
 ## Testing Strategy
 
-- Unit tests in `src/__tests__/` using Jest
-- Mock implementation in `jest/mock.js` for testing
-- Example app in `example/` serves as integration test
-- Test on real devices for GPU/performance validation
+- **TypeScript/JavaScript tests**: Unit tests in `src/__tests__/` using Jest
+  - Mock implementation in `jest/mock.js` for testing
+  - Run with `npm test`
+
+- **C++ unit tests**: Located in `tests/` directory
+  - Build and run with `tests/build_and_test.sh`
+  - Alternatively run with `tests/run_tests.sh` after building
+  - Tests core C++ functionality including slot manager
+
+- **Integration testing**: Example app in `example/` serves as integration test
+  - Test on real devices for GPU/performance validation
+  - Verify parallel decoding with concurrent requests
 
 ## Key Files Reference
 
@@ -178,6 +190,12 @@ Follow conventional commits:
 - `src/NativeRNLlama.ts` - TypeScript definitions for native module
 - `ios/RNLlamaContext.mm` - iOS context implementation
 - `android/src/main/java/com/rnllama/LlamaContext.java` - Android context
-- `cpp/rn-*` - Core C++ wrapper
+- `cpp/rn-llama.cpp` - Core C++ wrapper and context management
+- `cpp/rn-completion.cpp` - Completion/inference logic
+- `cpp/rn-slot.cpp` - Individual slot implementation for parallel processing
+- `cpp/rn-slot-manager.cpp` - Slot manager and processing loop
+- `cpp/rn-mtmd.hpp` - Multimodal support (vision/audio)
+- `cpp/rn-tts.cpp` - Text-to-speech implementation
 - `llama-rn.podspec` - iOS CocoaPods spec
 - `android/build.gradle` - Android build configuration
+- `tests/` - C++ unit tests for core functionality
