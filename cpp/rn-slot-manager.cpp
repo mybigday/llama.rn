@@ -714,19 +714,6 @@ bool llama_rn_slot_manager::process_batch() {
         return false;
     }
 
-    LOG_VERBOSE("Processing batch with %d tokens", batch.n_tokens);
-
-    bool need_embeddings = false;
-    for (const auto& slot : slots) {
-        if ((slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_GENERATING) &&
-            (slot.task_type == SLOT_TASK_TYPE_EMBEDDING || slot.task_type == SLOT_TASK_TYPE_RERANK)) {
-            need_embeddings = true;
-            break;
-        }
-    }
-
-    llama_set_embeddings(parent_ctx->ctx, need_embeddings);
-
     // Call llama_decode with the unified batch
     int ret = llama_decode(parent_ctx->ctx, batch);
 
