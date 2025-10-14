@@ -11,16 +11,20 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../contexts/ThemeContext'
+import { createThemedStyles } from '../styles/commonStyles'
 import ModelDownloadCard, { MtmdModelDownloadCard } from '../components/ModelDownloadCard'
 import { HeaderButton } from '../components/HeaderButton'
 import { MaskedProgress } from '../components/MaskedProgress'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
+import CustomModelModal from '../components/CustomModelModal'
+import CustomModelCard from '../components/CustomModelCard'
 import { MODELS } from '../utils/constants'
-import type { ContextParams, CompletionParams } from '../utils/storage'
+import type { ContextParams, CompletionParams, CustomModel } from '../utils/storage'
 import {
   loadContextParams,
   loadCompletionParams,
+  loadCustomModels,
 } from '../utils/storage'
 import { initLlama, LlamaContext } from '../../../src'
 
@@ -76,6 +80,7 @@ const MULTIMODAL_EXAMPLE_PROMPTS = [
 
 export default function ParallelDecodingScreen({ navigation }: { navigation: any }) {
   const { theme } = useTheme()
+  const themedStyles = createThemedStyles(theme.colors)
   const insets = useSafeAreaInsets()
 
   const [context, setContext] = useState<LlamaContext | null>(null)
@@ -89,8 +94,10 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
   const [isMultimodalEnabled, setIsMultimodalEnabled] = useState(false)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCompletionParamsModal, setShowCompletionParamsModal] = useState(false)
+  const [showCustomModelModal, setShowCustomModelModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [completionParams, setCompletionParams] = useState<CompletionParams | null>(null)
+  const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const slotsRef = useRef<ConversationSlot[]>([])
   const imageCache = useRef<Map<string, string>>(new Map())
 
@@ -102,9 +109,34 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     setCompletionParams(params)
   }
 
+  const handleCustomModelAdded = async (_model: CustomModel) => {
+    // Reload custom models to reflect the new addition
+    const models = await loadCustomModels()
+    setCustomModels(models)
+  }
+
+  const handleCustomModelRemoved = async () => {
+    // Reload custom models to reflect the removal
+    const models = await loadCustomModels()
+    setCustomModels(models)
+  }
+
   const clearSlots = useCallback(() => {
     setSlots([])
     slotsRef.current = []
+  }, [])
+
+  // Load custom models on mount
+  useEffect(() => {
+    const loadCustomModelsData = async () => {
+      try {
+        const models = await loadCustomModels()
+        setCustomModels(models)
+      } catch (error) {
+        console.error('Error loading custom models:', error)
+      }
+    }
+    loadCustomModelsData()
   }, [])
 
   // Set up header buttons
@@ -643,6 +675,37 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
           <Text style={{ fontSize: 16, color: theme.colors.text, marginBottom: 16 }}>
             Select a model to start parallel decoding demo
           </Text>
+
+          {/* Custom Models Section */}
+          {customModels.length > 0 && (
+            <>
+              <Text style={themedStyles.modelSectionTitle}>Custom Models</Text>
+              {customModels.map((model) => (
+                <CustomModelCard
+                  key={model.id}
+                  model={model}
+                  onInitialize={(modelPath, mmprojPath) => {
+                    initializeModel(modelPath, mmprojPath)
+                  }}
+                  onModelRemoved={handleCustomModelRemoved}
+                  initializeButtonText="Initialize"
+                />
+              ))}
+            </>
+          )}
+
+          {/* Add Custom Model Button */}
+          <TouchableOpacity
+            style={themedStyles.addCustomModelButton}
+            onPress={() => setShowCustomModelModal(true)}
+          >
+            <Text style={themedStyles.addCustomModelButtonText}>
+              + Add Custom Model
+            </Text>
+          </TouchableOpacity>
+
+          {/* Predefined Models Section */}
+          <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
           {LLM_MODELS.map(([key, model]) => {
             // Use MtmdModelDownloadCard for multimodal models
             if (model.mmproj) {
@@ -679,6 +742,14 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
           visible={showContextParamsModal}
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
+        />
+
+        <CustomModelModal
+          visible={showCustomModelModal}
+          onClose={() => setShowCustomModelModal(false)}
+          onModelAdded={handleCustomModelAdded}
+          title="Add Custom Model"
+          enableFileSelection
         />
 
         <MaskedProgress
