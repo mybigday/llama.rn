@@ -120,6 +120,14 @@ export const MODELS = {
     embedding: true,
     size: '670MB',
   },
+  BGE_RERANKER_V2_M3: {
+    name: 'BGE Reranker v2 M3 (Q8_0)',
+    repo: 'gpustack/bge-reranker-v2-m3-GGUF',
+    filename: 'bge-reranker-v2-m3-Q8_0.gguf',
+    mmproj: undefined,
+    ranking: true,
+    size: '636MB',
+  }
 }
 
 export const HUGGINGFACE_BASE_URL = 'https://huggingface.co'

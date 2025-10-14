@@ -33,6 +33,12 @@ interface SearchResult {
   similarity: number
 }
 
+interface RerankResult {
+  text: string
+  score: number
+  index: number
+}
+
 const calculateCosineSimilarity = (vecA: number[], vecB: number[]): number => {
   if (vecA.length !== vecB.length) return 0
 
@@ -52,12 +58,19 @@ const calculateCosineSimilarity = (vecA: number[], vecB: number[]): number => {
   return normProduct === 0 ? 0 : dotProduct / normProduct
 }
 
-const availableModels = Object.keys(MODELS)
+const embeddingModels = Object.keys(MODELS)
   .map((key) => ({
     key,
     ...MODELS[key as keyof typeof MODELS],
   }))
   .filter((model) => (model as any).embedding)
+
+const rerankModels = Object.keys(MODELS)
+  .map((key) => ({
+    key,
+    ...MODELS[key as keyof typeof MODELS],
+  }))
+  .filter((model) => (model as any).ranking)
 
 const EXAMPLE_TEXTS = [
   'Artificial intelligence is transforming the way we work and live by automating complex tasks and providing intelligent insights.',
@@ -65,6 +78,14 @@ const EXAMPLE_TEXTS = [
   'Machine learning algorithms can process vast amounts of data to identify patterns and make predictions with remarkable accuracy.',
   'Renewable energy sources like solar and wind power are becoming increasingly cost-effective alternatives to fossil fuels.',
   'The human brain contains approximately 86 billion neurons that communicate through trillions of synaptic connections.',
+]
+
+const RERANK_EXAMPLE_DOCUMENTS = [
+  'The capital of France is Paris, which is known for the Eiffel Tower and the Louvre Museum.',
+  'Python is a high-level programming language widely used for web development, data analysis, and machine learning.',
+  'The Great Wall of China is one of the most iconic landmarks in the world, stretching over 13,000 miles.',
+  'Machine learning is a subset of artificial intelligence that enables computers to learn from data without being explicitly programmed.',
+  'Tokyo is the capital city of Japan, famous for its blend of traditional culture and modern technology.',
 ]
 
 const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
@@ -188,6 +209,43 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
       fontSize: FontSizes.medium,
       fontWeight: '500',
     },
+    documentInput: {
+      backgroundColor: theme.colors.inputBackground,
+      padding: Spacing.md,
+      marginBottom: Spacing.sm,
+      borderRadius: Spacing.sm,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      minHeight: 60,
+      textAlignVertical: 'top',
+      color: theme.colors.text,
+    },
+    documentItem: {
+      backgroundColor: theme.colors.inputBackground,
+      padding: Spacing.md,
+      marginBottom: Spacing.sm,
+      borderRadius: Spacing.sm,
+      borderLeftWidth: 4,
+      borderLeftColor: theme.colors.textSecondary,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+    },
+    documentText: {
+      flex: 1,
+      fontSize: FontSizes.medium,
+      color: theme.colors.text,
+      lineHeight: 20,
+      marginRight: Spacing.sm,
+    },
+    removeButton: {
+      padding: Spacing.xs,
+    },
+    removeButtonText: {
+      color: theme.colors.error,
+      fontSize: FontSizes.medium,
+      fontWeight: '600',
+    },
   })
   const [context, setContext] = useState<LlamaContext | null>(null)
   const [embeddings, setEmbeddings] = useState<EmbeddingData[]>([])
@@ -201,9 +259,17 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
   const [isModelReady, setIsModelReady] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
 
+  // Rerank state
+  const [rerankQuery, setRerankQuery] = useState('')
+  const [documents, setDocuments] = useState<string[]>([])
+  const [rerankResults, setRerankResults] = useState<RerankResult[]>([])
+  const [isReranking, setIsReranking] = useState(false)
+  const [newDocument, setNewDocument] = useState('')
+
   // Setup and navigation
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
+  const [modelType, setModelType] = useState<'embedding' | 'ranking' | null>(null)
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -239,13 +305,18 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
         setContext(null)
         setEmbeddings([])
         setSearchResults([])
+        setDocuments([])
+        setRerankResults([])
       } catch (error) {
         console.error('Context release error:', error)
       }
     }
   }
 
-  const handleInitializeModel = async (modelConfig: any) => {
+  const handleInitializeModel = async (
+    modelConfig: any,
+    type: 'embedding' | 'ranking',
+  ) => {
     if (context) {
       await handleReleaseContext()
     }
@@ -255,12 +326,22 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
     setInitProgress(0)
 
     try {
-      const newContext = await initLlama(modelConfig, (progress) =>
-        setInitProgress(progress),
+      const poolingType = type === 'ranking' ? 'rank' : 'cls'
+
+      const newContext = await initLlama(
+        {
+          ...modelConfig,
+          pooling_type: poolingType,
+        },
+        (progress) => setInitProgress(progress),
       )
       setContext(newContext)
       setIsModelReady(true)
       setInitProgress(100)
+      setModelType(type)
+      console.log(
+        `Model initialized with pooling_type: ${poolingType} (${type} model)`,
+      )
     } catch (error) {
       console.error('Model initialization error:', error)
       setIsModelReady(false)
@@ -335,6 +416,48 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
     ])
   }
 
+  const handleAddDocument = () => {
+    if (newDocument.trim()) {
+      setDocuments((prev) => [...prev, newDocument.trim()])
+      setNewDocument('')
+    }
+  }
+
+  const handleRemoveDocument = (index: number) => {
+    setDocuments((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleImportRerankExamples = () => {
+    setDocuments(RERANK_EXAMPLE_DOCUMENTS)
+    setRerankQuery('What is machine learning?')
+    Alert.alert('Success', 'Example documents and query imported!')
+  }
+
+  const handleRerank = async () => {
+    if (!context || !rerankQuery.trim() || documents.length === 0) return
+
+    setIsReranking(true)
+    try {
+      const results = await context.rerank(rerankQuery.trim(), documents)
+
+      const rerankResultsWithText: RerankResult[] = results.map((item: any) => ({
+        text: documents[item.index] || '',
+        score: item.score,
+        index: item.index,
+      }))
+
+      // Sort by score descending
+      rerankResultsWithText.sort((a, b) => b.score - a.score)
+
+      setRerankResults(rerankResultsWithText)
+    } catch (error) {
+      console.error('Rerank error:', error)
+      Alert.alert('Error', `Reranking failed: ${error}`)
+    } finally {
+      setIsReranking(false)
+    }
+  }
+
   const handleImportExamples = async () => {
     if (!context) return
 
@@ -406,6 +529,31 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
     )
   }
 
+  const renderRerankResult = ({
+    item,
+    index,
+  }: {
+    item: RerankResult
+    index: number
+  }) => {
+    let backgroundColor = theme.colors.card
+    if (index < 3) {
+      backgroundColor = theme.dark ? '#1a365d' : '#f0f8ff'
+    }
+
+    return (
+      <View style={[styles.searchResult, { backgroundColor }]}>
+        <View style={styles.searchResultHeader}>
+          <Text style={styles.searchResultRank}>{`#${index + 1}`}</Text>
+          <Text style={styles.similarityScore}>
+            {`Score: ${item.score.toFixed(4)}`}
+          </Text>
+        </View>
+        <Text style={styles.searchResultText}>{item.text}</Text>
+      </View>
+    )
+  }
+
   if (!context) {
     return (
       <View style={styles.container}>
@@ -415,12 +563,12 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
         >
           <Text style={themedStyles.setupDescription}>
             Very simple example to show how to use vector embeddings and
-            semantic search in memory.
+            semantic search in memory, or document reranking.
           </Text>
 
           <View style={styles.modelsContainer}>
-            <Text style={themedStyles.modelSectionTitle}>Available Models</Text>
-            {availableModels.map((model) => (
+            <Text style={themedStyles.modelSectionTitle}>Embedding Models</Text>
+            {embeddingModels.map((model) => (
               <ModelDownloadCard
                 key={model.key}
                 title={model.name}
@@ -428,11 +576,37 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
                 filename={model.filename}
                 size={model.size}
                 onInitialize={(path) =>
-                  handleInitializeModel({
-                    model: path,
-                    embedding: true,
-                    ...contextParams,
-                  })
+                  handleInitializeModel(
+                    {
+                      model: path,
+                      embedding: true,
+                      ...contextParams,
+                    },
+                    'embedding',
+                  )
+                }
+              />
+            ))}
+          </View>
+
+          <View style={styles.modelsContainer}>
+            <Text style={themedStyles.modelSectionTitle}>Rerank Models</Text>
+            {rerankModels.map((model) => (
+              <ModelDownloadCard
+                key={model.key}
+                title={model.name}
+                repo={model.repo}
+                filename={model.filename}
+                size={model.size}
+                onInitialize={(path) =>
+                  handleInitializeModel(
+                    {
+                      model: path,
+                      embedding: true,
+                      ...contextParams,
+                    },
+                    'ranking',
+                  )
                 }
               />
             ))}
@@ -466,120 +640,238 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
               (context.model.metadata as any)?.general?.name ||
               context.model.desc ||
               'Unknown'
-            }`}
+            } (${modelType === 'embedding' ? 'Embedding' : 'Rerank'})`}
           </Text>
           <Text style={styles.embeddingCount}>
-            {`Embeddings in memory: ${embeddings.length}`}
+            {modelType === 'embedding'
+              ? `Embeddings in memory: ${embeddings.length}`
+              : `Documents: ${documents.length}`}
           </Text>
         </View>
 
-        {/* Add Embedding Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Add Text to Embeddings</Text>
-            <TouchableOpacity
-              style={[
+        {modelType === 'embedding' ? (
+          <>
+            {/* Add Embedding Section */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Add Text to Embeddings</Text>
+                <TouchableOpacity
+                  style={[
                 styles.importButton,
                 isImporting && themedStyles.disabledButton,
               ]}
-              onPress={handleImportExamples}
-              disabled={isImporting}
-            >
-              {isImporting ? (
-                <ActivityIndicator color={theme.colors.primary} size="small" />
+                  onPress={handleImportExamples}
+                  disabled={isImporting}
+                >
+                  {isImporting ? (
+                    <ActivityIndicator color={theme.colors.primary} size="small" />
               ) : (
                 <Text style={styles.importButtonText}>Import Examples</Text>
               )}
-            </TouchableOpacity>
-          </View>
-          <TextInput
-            style={styles.textInput}
-            placeholder="Enter text to embed..."
-            placeholderTextColor={theme.colors.textSecondary}
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            numberOfLines={3}
-          />
-          <TouchableOpacity
-            style={[
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Enter text to embed..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={inputText}
+                onChangeText={setInputText}
+                multiline
+                numberOfLines={3}
+              />
+              <TouchableOpacity
+                style={[
               themedStyles.primaryButton,
               (!inputText.trim() || isEmbedding) && themedStyles.disabledButton,
             ]}
-            onPress={handleAddEmbedding}
-            disabled={!inputText.trim() || isEmbedding}
-          >
-            {isEmbedding ? (
-              <ActivityIndicator color={theme.colors.white} size="small" />
+                onPress={handleAddEmbedding}
+                disabled={!inputText.trim() || isEmbedding}
+              >
+                {isEmbedding ? (
+                  <ActivityIndicator color={theme.colors.white} size="small" />
             ) : (
               <Text style={themedStyles.primaryButtonText}>Add to Memory</Text>
             )}
-          </TouchableOpacity>
-        </View>
+              </TouchableOpacity>
+            </View>
 
-        {/* Search Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Search Embeddings</Text>
-          <TextInput
-            style={styles.textInput}
-            placeholder="Enter search query..."
-            placeholderTextColor={theme.colors.textSecondary}
-            value={queryText}
-            onChangeText={setQueryText}
-            multiline
-            numberOfLines={2}
-          />
-          <TouchableOpacity
-            style={[
+            {/* Search Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Search Embeddings</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Enter search query..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={queryText}
+                onChangeText={setQueryText}
+                multiline
+                numberOfLines={2}
+              />
+              <TouchableOpacity
+                style={[
               themedStyles.primaryButton,
               (!queryText.trim() || embeddings.length === 0 || isSearching) &&
                 themedStyles.disabledButton,
             ]}
-            onPress={handleSearch}
-            disabled={
+                onPress={handleSearch}
+                disabled={
               !queryText.trim() || embeddings.length === 0 || isSearching
             }
-          >
-            {isSearching ? (
-              <ActivityIndicator color={theme.colors.white} size="small" />
+              >
+                {isSearching ? (
+                  <ActivityIndicator color={theme.colors.white} size="small" />
             ) : (
               <Text style={themedStyles.primaryButtonText}>Search (Top 3)</Text>
             )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Search Results */}
-        {searchResults.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Search Results</Text>
-            <FlatList
-              data={searchResults}
-              renderItem={renderSearchResult}
-              keyExtractor={(item) => item.id}
-              scrollEnabled={false}
-            />
-          </View>
-        )}
-
-        {/* Embeddings List */}
-        {embeddings.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>All Embeddings</Text>
-              <TouchableOpacity
-                style={themedStyles.secondaryButton}
-                onPress={clearEmbeddings}
-              >
-                <Text style={themedStyles.secondaryButtonText}>Clear All</Text>
               </TouchableOpacity>
             </View>
-            <FlatList
-              data={embeddings}
-              renderItem={renderEmbeddingItem}
-              keyExtractor={(item) => item.id}
-              scrollEnabled={false}
-            />
-          </View>
+
+            {/* Search Results */}
+            {searchResults.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Search Results</Text>
+              <FlatList
+                data={searchResults}
+                renderItem={renderSearchResult}
+                keyExtractor={(item) => item.id}
+                scrollEnabled={false}
+              />
+            </View>
+        )}
+
+            {/* Embeddings List */}
+            {embeddings.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>All Embeddings</Text>
+                <TouchableOpacity
+                  style={themedStyles.secondaryButton}
+                  onPress={clearEmbeddings}
+                >
+                  <Text style={themedStyles.secondaryButtonText}>Clear All</Text>
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={embeddings}
+                renderItem={renderEmbeddingItem}
+                keyExtractor={(item) => item.id}
+                scrollEnabled={false}
+              />
+            </View>
+        )}
+          </>
+        ) : (
+          <>
+            {/* Rerank Query Section */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Query</Text>
+                <TouchableOpacity
+                  style={styles.importButton}
+                  onPress={handleImportRerankExamples}
+                >
+                  <Text style={styles.importButtonText}>Import Examples</Text>
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Enter your query..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={rerankQuery}
+                onChangeText={setRerankQuery}
+                multiline
+                numberOfLines={2}
+              />
+            </View>
+
+            {/* Documents Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Documents to Rerank</Text>
+              <TextInput
+                style={styles.documentInput}
+                placeholder="Enter a document..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={newDocument}
+                onChangeText={setNewDocument}
+                multiline
+                numberOfLines={3}
+              />
+              <TouchableOpacity
+                style={[
+                  themedStyles.primaryButton,
+                  !newDocument.trim() && themedStyles.disabledButton,
+                  { marginBottom: Spacing.md },
+                ]}
+                onPress={handleAddDocument}
+                disabled={!newDocument.trim()}
+              >
+                <Text style={themedStyles.primaryButtonText}>Add Document</Text>
+              </TouchableOpacity>
+
+              {documents.length > 0 && (
+                <>
+                  <Text
+                    style={[
+                      styles.embeddingDimension,
+                      { marginBottom: Spacing.sm },
+                    ]}
+                  >
+                    {`${documents.length} document(s)`}
+                  </Text>
+                  {documents.map((doc, index) => (
+                    <View key={index} style={styles.documentItem}>
+                      <Text style={styles.documentText} numberOfLines={2}>
+                        {doc}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.removeButton}
+                        onPress={() => handleRemoveDocument(index)}
+                      >
+                        <Text style={styles.removeButtonText}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </>
+              )}
+
+              <TouchableOpacity
+                style={[
+                  themedStyles.primaryButton,
+                  { marginTop: Spacing.md },
+                  (!rerankQuery.trim() ||
+                    documents.length === 0 ||
+                    isReranking) &&
+                    themedStyles.disabledButton,
+                ]}
+                onPress={handleRerank}
+                disabled={
+                  !rerankQuery.trim() || documents.length === 0 || isReranking
+                }
+              >
+                {isReranking ? (
+                  <ActivityIndicator color={theme.colors.white} size="small" />
+                ) : (
+                  <Text style={themedStyles.primaryButtonText}>Rerank Documents</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Rerank Results */}
+            {rerankResults.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Ranked Results</Text>
+                <Text style={[styles.embeddingDimension, { marginBottom: Spacing.md }]}>
+                  Documents ranked by relevance to query
+                </Text>
+                <FlatList
+                  data={rerankResults}
+                  renderItem={renderRerankResult}
+                  keyExtractor={(item, index) => `${item.index}-${index}`}
+                  scrollEnabled={false}
+                />
+              </View>
+            )}
+          </>
         )}
       </ScrollView>
     </View>
