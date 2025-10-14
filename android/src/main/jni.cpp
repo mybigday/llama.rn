@@ -1986,8 +1986,11 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
             }
         }
 
-        // Tokenize prompt
-        std::vector<llama_token> prompt_tokens = common_tokenize(llama->ctx, prompt_chars, false);
+        // Tokenize prompt using llama->tokenize (handles multimodal content)
+        rnllama::llama_rn_tokenize_result tokenize_result = llama->tokenize(
+            prompt_chars ? prompt_chars : "",
+            media_paths_vec
+        );
 
         // Get JavaVM for later callback
         JavaVM *jvm;
@@ -2164,8 +2167,8 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
         // Queue the request with all required parameters
         int32_t request_id = llama->slot_manager->queue_request(
             params,
-            prompt_tokens,
-            media_paths_vec,
+            tokenize_result.tokens,
+            tokenize_result.has_media ? media_paths_vec : std::vector<std::string>(),
             prompt_chars,
             chat_format,
             reasoning_format_enum,
