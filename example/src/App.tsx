@@ -16,9 +16,8 @@ import ToolCallsScreen from './screens/ToolCallsScreen'
 import ModelInfoScreen from './screens/ModelInfoScreen'
 import BenchScreen from './screens/BenchScreen'
 import TextCompletionScreen from './screens/TextCompletionScreen'
-import EmbeddingScreen from './screens/EmbeddingScreen'
 import ParallelDecodingScreen from './screens/ParallelDecodingScreen'
-import ParallelDecodingEmbeddingScreen from './screens/ParallelDecodingEmbeddingScreen'
+import EmbeddingScreen from './screens/EmbeddingScreen'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { createThemedStyles } from './styles/commonStyles'
 import { Menu } from './components/Menu'
@@ -142,13 +141,7 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
           style={styles.button}
           onPress={() => navigation.navigate('Embeddings')}
         >
-          <Text style={styles.buttonText}>🔍 Vector Search (in-memory)</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => navigation.navigate('ParallelEmbedding')}
-        >
-          <Text style={styles.buttonText}>⚡ Parallel Embedding & Rerank</Text>
+          <Text style={styles.buttonText}>🔍 Vector Search (in-memory) & Rerank</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}
@@ -267,14 +260,7 @@ function AppContent() {
             name="Embeddings"
             component={EmbeddingScreen}
             options={{
-              title: 'Vector Search (in-memory)',
-            }}
-          />
-          <Stack.Screen
-            name="ParallelEmbedding"
-            component={ParallelDecodingEmbeddingScreen}
-            options={{
-              title: 'Parallel Embedding & Rerank',
+              title: 'Vector Search (in-memory) & Rerank',
             }}
           />
           <Stack.Screen
