@@ -1965,7 +1965,8 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
         params.sampling.dry_penalty_last_n = dry_penalty_last_n;
         params.sampling.top_n_sigma = top_n_sigma;
         params.n_predict = n_predict;
-        params.cpuparams.n_threads = n_threads;
+
+        set_best_cores(llama -> params.cpuparams, n_threads);
 
         // Convert reasoning_format string to enum (same as doCompletion)
         const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
