@@ -125,7 +125,7 @@ export const MODELS = {
     repo: 'gpustack/bge-reranker-v2-m3-GGUF',
     filename: 'bge-reranker-v2-m3-Q8_0.gguf',
     mmproj: undefined,
-    embedding: true, // TODO: Split embedding and reranking examples
+    ranking: true,
     size: '636MB',
   }
 }

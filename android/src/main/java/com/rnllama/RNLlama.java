@@ -450,21 +450,35 @@ public class RNLlama implements LifecycleEventListener {
 
   public void rerank(double id, final String query, final ReadableArray documents, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
+    AsyncTask task = new AsyncTask<Void, Void, WritableArray>() {
       private Exception exception;
 
       @Override
-      protected WritableMap doInBackground(Void... voids) {
+      protected WritableArray doInBackground(Void... voids) {
         try {
           LlamaContext context = contexts.get(contextId);
           if (context == null) {
             throw new Exception("Context not found");
           }
           WritableMap result = context.getRerank(query, documents, params);
-          if (result != null && result.hasKey("error")) {
+          if (result == null) {
+            throw new Exception("Rerank returned null result");
+          }
+          if (result.hasKey("error")) {
             throw new Exception(result.getString("error"));
           }
-          return result;
+          // Extract the array from the result map
+          if (result.hasKey("result")) {
+            ReadableArray readableResult = result.getArray("result");
+            // Convert ReadableArray to WritableArray by copying
+            WritableArray writableResult = Arguments.createArray();
+            for (int i = 0; i < readableResult.size(); i++) {
+              writableResult.pushMap(readableResult.getMap(i));
+            }
+            return writableResult;
+          }
+          // Fallback to empty array if no result key (shouldn't happen)
+          return Arguments.createArray();
         } catch (Exception e) {
           exception = e;
         }
@@ -472,14 +486,14 @@ public class RNLlama implements LifecycleEventListener {
       }
 
       @Override
-      protected void onPostExecute(WritableMap result) {
+      protected void onPostExecute(WritableArray result) {
         if (exception != null) {
           promise.reject(exception);
           return;
         }
-        // Return the result array from the response map to maintain backward compatibility
-        if (result != null && result.hasKey("result")) {
-          promise.resolve(result.getArray("result"));
+        // Return the result array to maintain backward compatibility
+        if (result != null) {
+          promise.resolve(result);
         } else {
           promise.resolve(Arguments.createArray());
         }
