@@ -471,7 +471,7 @@ public class LlamaContext {
     // Create callback (request ID will be passed by native code)
     EmbeddingCallback callback = new EmbeddingCallback(this);
 
-    int requestId = doQueueEmbedding(
+    WritableMap result = doQueueEmbedding(
       this.context,
       text,
       // int embd_normalize,
@@ -479,6 +479,15 @@ public class LlamaContext {
       // EmbeddingCallback callback
       callback
     );
+    if (result.hasKey("error")) {
+      throw new IllegalStateException(result.getString("error"));
+    }
+    int requestId = -1;
+    if (result.hasKey("requestId")) {
+      requestId = result.getInt("requestId");
+    } else {
+      throw new IllegalStateException("Failed to queue embedding (no requestId)");
+    }
 
     return requestId;
   }
@@ -513,7 +522,7 @@ public class LlamaContext {
     // Create callback (request ID will be passed by native code)
     RerankCallback callback = new RerankCallback(this);
 
-    int requestId = doQueueRerank(
+    WritableMap result = doQueueRerank(
       this.context,
       query,
       documentsArray,
@@ -522,6 +531,15 @@ public class LlamaContext {
       // RerankCallback callback
       callback
     );
+    if (result.hasKey("error")) {
+      throw new IllegalStateException(result.getString("error"));
+    }
+    int requestId = -1;
+    if (result.hasKey("requestId")) {
+      requestId = result.getInt("requestId");
+    } else {
+      throw new IllegalStateException("Failed to queue rerank (no requestId)");
+    }
 
     return requestId;
   }
@@ -651,7 +669,7 @@ public class LlamaContext {
       }
     }
 
-    int requestId = doQueueCompletion(
+    WritableMap result = doQueueCompletion(
       this.context,
       // String prompt,
       params.getString("prompt"),
@@ -739,6 +757,17 @@ public class LlamaContext {
       // CompletionCallback completion_callback
       new CompletionCallback(this)
     );
+
+    if (result.hasKey("error")) {
+      throw new IllegalStateException(result.getString("error"));
+    }
+
+    int requestId = -1;
+    if (result.hasKey("requestId")) {
+      requestId = result.getInt("requestId");
+    } else {
+      throw new IllegalStateException("Failed to queue completion (no requestId)");
+    }
 
     return requestId;
   }
@@ -1005,7 +1034,7 @@ public class LlamaContext {
   protected static native void startProcessingLoop(long contextPtr);
   protected static native void stopProcessingLoop(long contextPtr);
   protected static native void updateSlots(long contextPtr);
-  protected static native int doQueueCompletion(
+  protected static native WritableMap doQueueCompletion(
     long context_ptr,
     String prompt,
     String prefill_text,
@@ -1050,13 +1079,13 @@ public class LlamaContext {
     CompletionCallback completion_callback
   );
   protected static native void doCancelRequest(long contextPtr, int requestId);
-  protected static native int doQueueEmbedding(
+  protected static native WritableMap doQueueEmbedding(
     long contextPtr,
     String text,
     int embd_normalize,
     EmbeddingCallback callback
   );
-  protected static native int doQueueRerank(
+  protected static native WritableMap doQueueRerank(
     long contextPtr,
     String query,
     String[] documents,

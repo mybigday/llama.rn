@@ -1887,7 +1887,7 @@ struct jni_callback_context {
 // Map to store callback contexts
 std::unordered_map<int32_t, std::shared_ptr<jni_callback_context>> jni_callback_map;
 
-JNIEXPORT jint JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_doQueueCompletion(
     JNIEnv *env,
     jobject thiz,
@@ -1937,8 +1937,9 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
     if (!llama || !llama->slot_manager) {
-        LOGE("doQueueCompletion: Invalid context or parallel mode not enabled");
-        return -1;
+        auto result = writablemap::createWriteableMap(env);
+        writablemap::putString(env, result, "error", "Invalid context or parallel mode not enabled");
+        return result;
     }
 
     try {
@@ -2188,10 +2189,13 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
         env->ReleaseStringUTFChars(prompt, prompt_chars);
         env->ReleaseStringUTFChars(prefill_text, prefill_text_chars);
 
-        return request_id;
+        auto result = writablemap::createWriteableMap(env);
+        writablemap::putInt(env, result, "requestId", request_id);
+        return result;
     } catch (const std::exception &e) {
-        LOGE("doQueueCompletion error: %s", e.what());
-        return -1;
+        auto result = writablemap::createWriteableMap(env);
+        writablemap::putString(env, result, "error", e.what());
+        return result;
     }
 }
 
@@ -2211,7 +2215,7 @@ Java_com_rnllama_LlamaContext_doCancelRequest(
     llama->slot_manager->cancel_request(request_id);
 }
 
-JNIEXPORT jint JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_doQueueEmbedding(
     JNIEnv *env,
     jobject thiz,
@@ -2223,8 +2227,9 @@ Java_com_rnllama_LlamaContext_doQueueEmbedding(
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
     if (!llama || !llama->slot_manager) {
-        LOGE("doQueueEmbedding: Invalid context or parallel mode not enabled");
-        return -1;
+        auto result = writablemap::createWriteableMap(env);
+        writablemap::putString(env, result, "error", "Invalid context or parallel mode not enabled");
+        return result;
     }
 
     try {
@@ -2286,14 +2291,17 @@ Java_com_rnllama_LlamaContext_doQueueEmbedding(
             }
         );
 
-        return request_id;
+        auto result = writablemap::createWriteableMap(env);
+        writablemap::putInt(env, result, "requestId", request_id);
+        return result;
     } catch (const std::exception& e) {
-        LOGE("doQueueEmbedding exception: %s", e.what());
-        return -1;
+        auto result = writablemap::createWriteableMap(env);
+        writablemap::putString(env, result, "error", e.what());
+        return result;
     }
 }
 
-JNIEXPORT jint JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_doQueueRerank(
     JNIEnv *env,
     jobject thiz,
@@ -2306,8 +2314,9 @@ Java_com_rnllama_LlamaContext_doQueueRerank(
     UNUSED(thiz);
     auto llama = context_map[(long) context_ptr];
     if (!llama || !llama->slot_manager) {
-        LOGE("doQueueRerank: Invalid context or parallel mode not enabled");
-        return -1;
+        auto result = writablemap::createWriteableMap(env);
+        writablemap::putString(env, result, "error", "Invalid context or parallel mode not enabled");
+        return result;
     }
 
     try {
@@ -2376,10 +2385,13 @@ Java_com_rnllama_LlamaContext_doQueueRerank(
             }
         );
 
-        return request_id;
+        auto result = writablemap::createWriteableMap(env);
+        writablemap::putInt(env, result, "requestId", request_id);
+        return result;
     } catch (const std::exception& e) {
-        LOGE("doQueueRerank exception: %s", e.what());
-        return -1;
+        auto result = writablemap::createWriteableMap(env);
+        writablemap::putString(env, result, "error", e.what());
+        return result;
     }
 }
 
