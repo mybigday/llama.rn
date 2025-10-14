@@ -488,6 +488,22 @@ console.log('Result:', result.text)
   - `promise`: Resolves to `NativeCompletionResult` when complete
   - `stop`: Function to cancel this request
 
+**queueEmbedding(content):**
+- `content`: Text content to get embedding for
+- Returns: `Promise<{ requestId, promise, stop }>`
+  - `requestId`: Unique request identifier
+  - `promise`: Resolves to embedding result when complete
+  - `stop`: Function to cancel this request
+
+**queueRerank(query, documents, params?):**
+- `query`: Query string for ranking
+- `documents`: Array of document strings to rank
+- `params`: Optional rerank parameters (e.g., `normalize`)
+- Returns: `Promise<{ requestId, promise, stop }>`
+  - `requestId`: Unique request identifier
+  - `promise`: Resolves to rerank results when complete
+  - `stop`: Function to cancel this request
+
 ### Notes
 
 - Parallel mode uses slot-based architecture where each request occupies an available slot
@@ -495,6 +511,8 @@ console.log('Result:', result.text)
 - Request processing runs in a background loop that manages slot states automatically
 - All standard completion parameters (temperature, top_k, etc.) work per-request
 - The context must be initialized with sufficient `n_parallel` (default: 8) to support desired slot count
+- Currently session load/save are not yet supported for slot
+- Currently TTS models are not yet supported
 
 ## Session (State)
 
