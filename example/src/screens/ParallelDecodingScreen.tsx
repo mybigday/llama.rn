@@ -382,12 +382,13 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       console.log(`Downloading image from ${url}`)
       const response = await fetch(url)
       const blob = await response.blob()
-      const dataUri = await new Promise<string>((resolve, reject) => {
+      let dataUri = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader()
         reader.onloadend = () => resolve(reader.result as string)
         reader.onerror = reject
         reader.readAsDataURL(blob)
       })
+      dataUri = dataUri.replace('data:application/octet-stream;base64,', 'data:image/jpeg;base64,')
 
       // Store in cache
       imageCache.current.set(url, dataUri)
