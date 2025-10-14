@@ -35,6 +35,11 @@ interface ConversationSlot {
   stop?: () => Promise<void>
 }
 
+const LLM_MODELS = Object.entries(MODELS).filter(([_key, model]) => {
+  const modelWithExtras = model as typeof model & { vocoder?: any, embedding?: any, ranking?: any }
+  return !modelWithExtras.vocoder && !modelWithExtras.embedding && !modelWithExtras.ranking
+})
+
 const SYSTEM_PROMPT = 'You are a helpful AI assistant. Be concise and direct in your responses.'
 
 const EXAMPLE_PROMPTS = [
@@ -638,25 +643,17 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
           <Text style={{ fontSize: 16, color: theme.colors.text, marginBottom: 16 }}>
             Select a model to start parallel decoding demo
           </Text>
-          {[
-            'SMOL_LM_3',
-            'QWEN_3_4B',
-            'SMOL_VLM_500M',
-            'SMOL_VLM_2_2B',
-            'INTERNVL3_2B',
-          ].map((model) => {
-            const modelInfo = MODELS[model as keyof typeof MODELS]
-
+          {LLM_MODELS.map(([key, model]) => {
             // Use MtmdModelDownloadCard for multimodal models
-            if (modelInfo.mmproj) {
+            if (model.mmproj) {
               return (
                 <MtmdModelDownloadCard
-                  key={model}
-                  title={modelInfo.name}
-                  repo={modelInfo.repo}
-                  filename={modelInfo.filename}
-                  mmproj={modelInfo.mmproj}
-                  size={modelInfo.size}
+                  key={key}
+                  title={model.name}
+                  repo={model.repo}
+                  filename={model.filename}
+                  mmproj={model.mmproj}
+                  size={model.size}
                   onInitialize={(modelPath, mmprojPath) => {
                     initializeModel(modelPath, mmprojPath)
                   }}
@@ -667,11 +664,11 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
             // Use regular ModelDownloadCard for text-only models
             return (
               <ModelDownloadCard
-                key={model}
-                title={modelInfo.name}
-                repo={modelInfo.repo}
-                filename={modelInfo.filename}
-                size={modelInfo.size}
+                key={key}
+                title={model.name}
+                repo={model.repo}
+                filename={model.filename}
+                size={model.size}
                 onInitialize={initializeModel}
               />
             )
