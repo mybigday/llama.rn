@@ -58,12 +58,19 @@ const calculateCosineSimilarity = (vecA: number[], vecB: number[]): number => {
   return normProduct === 0 ? 0 : dotProduct / normProduct
 }
 
-const availableModels = Object.keys(MODELS)
+const embeddingModels = Object.keys(MODELS)
   .map((key) => ({
     key,
     ...MODELS[key as keyof typeof MODELS],
   }))
   .filter((model) => (model as any).embedding)
+
+const rerankModels = Object.keys(MODELS)
+  .map((key) => ({
+    key,
+    ...MODELS[key as keyof typeof MODELS],
+  }))
+  .filter((model) => (model as any).ranking)
 
 const EXAMPLE_TEXTS = [
   'Artificial intelligence is transforming the way we work and live by automating complex tasks and providing intelligent insights.',
@@ -81,44 +88,12 @@ const RERANK_EXAMPLE_DOCUMENTS = [
   'Tokyo is the capital city of Japan, famous for its blend of traditional culture and modern technology.',
 ]
 
-type TabType = 'vector-search' | 'rerank'
-
 const ParallelDecodingEmbeddingScreen = ({ navigation }: { navigation: any }) => {
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
 
   const styles = StyleSheet.create({
     container: themedStyles.container,
-    tabContainer: {
-      flexDirection: 'row',
-      backgroundColor: theme.colors.surface,
-      padding: Spacing.xs,
-      marginBottom: Spacing.sm,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.colors.border,
-    },
-    tab: {
-      flex: 1,
-      padding: Spacing.md,
-      alignItems: 'center',
-      borderRadius: Spacing.sm,
-    },
-    activeTab: {
-      backgroundColor: theme.colors.primary,
-    },
-    inactiveTab: {
-      backgroundColor: 'transparent',
-    },
-    tabText: {
-      fontSize: FontSizes.medium,
-      fontWeight: '600',
-    },
-    activeTabText: {
-      color: theme.colors.white,
-    },
-    inactiveTabText: {
-      color: theme.colors.textSecondary,
-    },
     headerInfo: {
       backgroundColor: theme.colors.surface,
       padding: Spacing.lg,
@@ -301,7 +276,6 @@ const ParallelDecodingEmbeddingScreen = ({ navigation }: { navigation: any }) =>
   const [initProgress, setInitProgress] = useState(0)
 
   // Rerank state
-  const [activeTab, setActiveTab] = useState<TabType>('vector-search')
   const [rerankQuery, setRerankQuery] = useState('')
   const [documents, setDocuments] = useState<string[]>([])
   const [rerankResults, setRerankResults] = useState<RerankResult[]>([])
@@ -311,8 +285,7 @@ const ParallelDecodingEmbeddingScreen = ({ navigation }: { navigation: any }) =>
   // Setup and navigation
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
-  const [isReinitializing, setIsReinitializing] = useState(false)
-  const [currentModelPath, setCurrentModelPath] = useState<string | null>(null)
+  const [modelType, setModelType] = useState<'embedding' | 'ranking' | null>(null)
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -325,41 +298,6 @@ const ParallelDecodingEmbeddingScreen = ({ navigation }: { navigation: any }) =>
     }
     loadInitialData()
   }, [])
-
-  // Watch for tab changes and reinitialize context with appropriate pooling_type
-  useEffect(() => {
-    const reinitializeForTab = async () => {
-      if (!context || !currentModelPath || isReinitializing) return
-
-      const requiredPoolingType = activeTab === 'rerank' ? 'rank' : 'cls'
-
-      setIsReinitializing(true)
-      try {
-        console.log(`Tab changed to ${activeTab}, reinitializing with pooling_type: ${requiredPoolingType}`)
-
-        // eslint-disable-next-line no-use-before-define
-        await handleInitializeModel(
-          {
-            model: currentModelPath,
-            embedding: true,
-            ...contextParams,
-          },
-          requiredPoolingType,
-        )
-      } catch (error) {
-        console.error('Failed to reinitialize context for tab:', error)
-        Alert.alert('Error', `Failed to switch tab: ${error}`)
-      } finally {
-        setIsReinitializing(false)
-      }
-    }
-
-    // Only reinitialize if we already have a context and a model loaded
-    if (context && currentModelPath && isModelReady) {
-      reinitializeForTab()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab])
 
   useLayoutEffect(() => {
     if (!isModelReady) {
@@ -413,7 +351,7 @@ const ParallelDecodingEmbeddingScreen = ({ navigation }: { navigation: any }) =>
 
   const handleInitializeModel = async (
     modelConfig: any,
-    poolingType?: 'cls' | 'mean' | 'rank',
+    type: 'embedding' | 'ranking',
   ) => {
     if (context) {
       await handleReleaseContext()
@@ -424,15 +362,13 @@ const ParallelDecodingEmbeddingScreen = ({ navigation }: { navigation: any }) =>
     setInitProgress(0)
 
     try {
-      // Determine pooling type based on active tab if not explicitly provided
-      const effectivePoolingType =
-        poolingType || (activeTab === 'rerank' ? 'rank' : 'cls')
+      const poolingType = type === 'ranking' ? 'rank' : 'cls'
 
       const newContext = await initLlama(
         {
           ...modelConfig,
           n_parallel: 4, // Enable parallel processing
-          pooling_type: effectivePoolingType,
+          pooling_type: poolingType,
         },
         (progress) => setInitProgress(progress),
       )
@@ -451,9 +387,9 @@ const ParallelDecodingEmbeddingScreen = ({ navigation }: { navigation: any }) =>
       setContext(newContext)
       setIsModelReady(true)
       setInitProgress(100)
-      setCurrentModelPath(modelConfig.model)
+      setModelType(type)
       console.log(
-        `Parallel mode enabled with pooling_type: ${effectivePoolingType} (${activeTab} tab)`,
+        `Parallel mode enabled with pooling_type: ${poolingType} (${type} model)`,
       )
     } catch (error) {
       console.error('Model initialization error:', error)
@@ -702,8 +638,8 @@ const ParallelDecodingEmbeddingScreen = ({ navigation }: { navigation: any }) =>
           </Text>
 
           <View style={styles.modelsContainer}>
-            <Text style={themedStyles.modelSectionTitle}>Available Models</Text>
-            {availableModels.map((model) => (
+            <Text style={themedStyles.modelSectionTitle}>Embedding Models</Text>
+            {embeddingModels.map((model) => (
               <ModelDownloadCard
                 key={model.key}
                 title={model.name}
@@ -711,11 +647,37 @@ const ParallelDecodingEmbeddingScreen = ({ navigation }: { navigation: any }) =>
                 filename={model.filename}
                 size={model.size}
                 onInitialize={(path) =>
-                  handleInitializeModel({
-                    model: path,
-                    embedding: true,
-                    ...contextParams,
-                  })
+                  handleInitializeModel(
+                    {
+                      model: path,
+                      embedding: true,
+                      ...contextParams,
+                    },
+                    'embedding',
+                  )
+                }
+              />
+            ))}
+          </View>
+
+          <View style={styles.modelsContainer}>
+            <Text style={themedStyles.modelSectionTitle}>Rerank Models</Text>
+            {rerankModels.map((model) => (
+              <ModelDownloadCard
+                key={model.key}
+                title={model.name}
+                repo={model.repo}
+                filename={model.filename}
+                size={model.size}
+                onInitialize={(path) =>
+                  handleInitializeModel(
+                    {
+                      model: path,
+                      embedding: true,
+                      ...contextParams,
+                    },
+                    'ranking',
+                  )
                 }
               />
             ))}
@@ -748,57 +710,17 @@ const ParallelDecodingEmbeddingScreen = ({ navigation }: { navigation: any }) =>
             (context.model.metadata as any)?.general?.name ||
             context.model.desc ||
             'Unknown'
-          }`}
+          } (${modelType === 'embedding' ? 'Embedding' : 'Rerank'})`}
         </Text>
         <Text style={styles.embeddingCount}>
-          {activeTab === 'vector-search'
+          {modelType === 'embedding'
             ? `Embeddings in memory: ${embeddings.length}`
             : `Documents: ${documents.length}`}
         </Text>
       </View>
 
-      {/* Tab Control */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[
-            styles.tab,
-            activeTab === 'vector-search' ? styles.activeTab : styles.inactiveTab,
-          ]}
-          onPress={() => !isReinitializing && setActiveTab('vector-search')}
-          disabled={isReinitializing}
-        >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === 'vector-search'
-                ? styles.activeTabText
-                : styles.inactiveTabText,
-            ]}
-          >
-            Vector Search in-memory
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.tab,
-            activeTab === 'rerank' ? styles.activeTab : styles.inactiveTab,
-          ]}
-          onPress={() => !isReinitializing && setActiveTab('rerank')}
-          disabled={isReinitializing}
-        >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === 'rerank' ? styles.activeTabText : styles.inactiveTabText,
-            ]}
-          >
-            Rerank
-          </Text>
-        </TouchableOpacity>
-      </View>
-
       <ScrollView style={styles.container}>
-        {activeTab === 'vector-search' ? (
+        {modelType === 'embedding' ? (
           <>
             {/* Add Embedding Section */}
             <View style={styles.section}>
@@ -1032,14 +954,6 @@ const ParallelDecodingEmbeddingScreen = ({ navigation }: { navigation: any }) =>
           </>
         )}
       </ScrollView>
-
-      {/* Reinitialization Progress Overlay */}
-      <MaskedProgress
-        visible={isReinitializing}
-        text={`Switching to ${activeTab === 'rerank' ? 'Rerank' : 'Vector Search'} mode...\n${initProgress}%`}
-        progress={initProgress}
-        showProgressBar={initProgress > 0}
-      />
     </View>
   )
 }
