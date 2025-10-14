@@ -2,6 +2,7 @@
 #include "rn-llama.h"
 #include "rn-tts.h"
 #include "rn-mtmd.hpp"
+#include "rn-common.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -12,62 +13,6 @@
 #include "tools/mtmd/clip.h"
 
 namespace rnllama {
-
-static bool ends_with(const std::string &str, const std::string &suffix)
-{
-    return str.size() >= suffix.size() &&
-           0 == str.compare(str.size() - suffix.size(), suffix.size(), suffix);
-}
-
-static size_t find_partial_stop_string(const std::string &stop,
-                                       const std::string &text)
-{
-    if (!text.empty() && !stop.empty())
-    {
-        const char text_last_char = text.back();
-        for (int64_t char_index = stop.size() - 1; char_index >= 0; char_index--)
-        {
-            if (stop[char_index] == text_last_char)
-            {
-                const std::string current_partial = stop.substr(0, char_index + 1);
-                if (ends_with(text, current_partial))
-                {
-                    return text.size() - char_index - 1;
-                }
-            }
-        }
-    }
-    return std::string::npos;
-}
-
-// Helper function to format rerank task: [BOS]query[EOS][SEP]doc[EOS]
-static std::vector<llama_token> format_rerank(const llama_vocab * vocab, const std::vector<llama_token> & query, const std::vector<llama_token> & doc) {
-    std::vector<llama_token> result;
-
-    // Get EOS token - use SEP token as fallback if EOS is not available
-    llama_token eos_token = llama_vocab_eos(vocab);
-    if (eos_token == LLAMA_TOKEN_NULL) {
-        eos_token = llama_vocab_sep(vocab);
-    }
-
-    result.reserve(doc.size() + query.size() + 4);
-    if (llama_vocab_get_add_bos(vocab)) {
-        result.push_back(llama_vocab_bos(vocab));
-    }
-    result.insert(result.end(), query.begin(), query.end());
-    if (llama_vocab_get_add_eos(vocab)) {
-        result.push_back(eos_token);
-    }
-    if (llama_vocab_get_add_sep(vocab)) {
-        result.push_back(llama_vocab_sep(vocab));
-    }
-    result.insert(result.end(), doc.begin(), doc.end());
-    if (llama_vocab_get_add_eos(vocab)) {
-        result.push_back(eos_token);
-    }
-
-    return result;
-}
 
 // Constructor
 llama_rn_context_completion::llama_rn_context_completion(llama_rn_context* parent)
@@ -578,7 +523,7 @@ std::vector<float> llama_rn_context_completion::rerank(const std::string &query,
 
         std::vector<llama_token> doc_tokens = common_tokenize(vocab, document, false, true);
 
-        std::vector<llama_token> rerank_tokens = format_rerank(vocab, query_tokens, doc_tokens);
+        std::vector<llama_token> rerank_tokens = format_rerank_tokens(vocab, query_tokens, doc_tokens);
 
         llama_memory_clear(llama_get_memory(parent_ctx->ctx), false);
 
