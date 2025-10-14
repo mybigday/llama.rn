@@ -612,14 +612,14 @@ public class LlamaContext {
 
   private static class CompletionCallback {
     LlamaContext context;
-    int requestId;
 
-    public CompletionCallback(LlamaContext context, int requestId) {
+    public CompletionCallback(LlamaContext context) {
       this.context = context;
-      this.requestId = requestId;
     }
 
     void onComplete(WritableMap result) {
+      // Extract requestId from result (native code includes it)
+      int requestId = result.hasKey("requestId") ? result.getInt("requestId") : 0;
       context.emitCompletion(requestId, result);
     }
   }
@@ -737,7 +737,7 @@ public class LlamaContext {
         params.hasKey("emit_partial_completion") ? params.getBoolean("emit_partial_completion") : false
       ),
       // CompletionCallback completion_callback
-      new CompletionCallback(this, 0) // Request ID will be set by native code
+      new CompletionCallback(this)
     );
 
     return requestId;
