@@ -2,10 +2,15 @@
 #define JNI_UTILS_H
 
 #include <jni.h>
+#include <string>
 
 // WritableMap and WritableArray utilities with cached class references
 
 namespace rnbridge {
+
+// Sanitize UTF-8 string for JNI NewStringUTF
+// Replaces invalid UTF-8 sequences with '?' to prevent JNI errors
+std::string sanitize_utf8_for_jni(const char* text);
 
 // Global references to React Native classes (cached during initialization)
 namespace internal {
