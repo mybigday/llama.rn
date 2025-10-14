@@ -53,7 +53,8 @@ static inline void putString(JNIEnv *env, jobject map, const char *key, const ch
     jmethodID putStringMethod = env->GetMethodID(mapClass, "putString", "(Ljava/lang/String;Ljava/lang/String;)V");
 
     jstring jKey = env->NewStringUTF(key);
-    jstring jValue = env->NewStringUTF(value);
+    std::string sanitized_value = sanitize_utf8_for_jni(value);
+    jstring jValue = env->NewStringUTF(sanitized_value.c_str());
 
     env->CallVoidMethod(map, putStringMethod, jKey, jValue);
 }
@@ -124,10 +125,11 @@ static inline void pushDouble(JNIEnv *env, jobject arr, double value) {
 
 // Method to push string into WritableArray
 static inline void pushString(JNIEnv *env, jobject arr, const char *value) {
-    jclass mapClass = env->FindClass("com/facebook/react/bridge/WritableArray");
+    jclass mapClass = env->FindClass("com/face3book/react/bridge/WritableArray");
     jmethodID pushStringMethod = env->GetMethodID(mapClass, "pushString", "(Ljava/lang/String;)V");
 
-    jstring jValue = env->NewStringUTF(value);
+    std::string sanitized_value = sanitize_utf8_for_jni(value);
+    jstring jValue = env->NewStringUTF(sanitized_value.c_str());
     env->CallVoidMethod(arr, pushStringMethod, jValue);
 }
 
@@ -751,7 +753,8 @@ Java_com_rnllama_LlamaContext_getFormattedChat(
         env->ReleaseStringUTFChars(messages, messages_chars);
         env->ReleaseStringUTFChars(chat_template, tmpl_chars);
 
-        return env->NewStringUTF(formatted_chat.c_str());
+        std::string sanitized = sanitize_utf8_for_jni(formatted_chat.c_str());
+        return env->NewStringUTF(sanitized.c_str());
     } catch (const nlohmann::json_abi_v3_12_0::detail::parse_error& e) {
         LOGI("[RNLlama] JSON parse error in getFormattedChat: %s", e.what());
         std::string errorMessage = "JSON parse error in getFormattedChat: " + std::string(e.what());
@@ -1447,7 +1450,8 @@ Java_com_rnllama_LlamaContext_detokenize(
 
     env->ReleaseIntArrayElements(tokens, tokens_ptr, 0);
 
-    return env->NewStringUTF(text.c_str());
+    std::string sanitized = sanitize_utf8_for_jni(text.c_str());
+    return env->NewStringUTF(sanitized.c_str());
 }
 
 JNIEXPORT jobject JNICALL
@@ -1594,7 +1598,8 @@ Java_com_rnllama_LlamaContext_bench(
         return env->NewStringUTF("");
     }
     std::string result = llama->completion->bench(pp, tg, pl, nr);
-    return env->NewStringUTF(result.c_str());
+    std::string sanitized = sanitize_utf8_for_jni(result.c_str());
+    return env->NewStringUTF(sanitized.c_str());
 }
 
 JNIEXPORT jint JNICALL
@@ -1698,7 +1703,8 @@ static void rnllama_log_callback_to_j(lm_ggml_log_level level, const char * text
     jmethodID emitNativeLog = env->GetMethodID(cb_class, "emitNativeLog", "(Ljava/lang/String;Ljava/lang/String;)V");
 
     jstring level_str = env->NewStringUTF(level_c);
-    jstring text_str = env->NewStringUTF(text);
+    std::string sanitized_text = sanitize_utf8_for_jni(text);
+    jstring text_str = env->NewStringUTF(sanitized_text.c_str());
     env->CallVoidMethod(callback, emitNativeLog, level_str, text_str);
     env->DeleteLocalRef(level_str);
     env->DeleteLocalRef(text_str);
