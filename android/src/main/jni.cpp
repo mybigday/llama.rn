@@ -1970,15 +1970,136 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
         params.sampling.dry_penalty_last_n = dry_penalty_last_n;
         params.sampling.top_n_sigma = top_n_sigma;
         params.n_predict = n_predict;
+        params.sampling.ignore_eos = ignore_eos;
 
-        set_best_cores(llama -> params.cpuparams, n_threads);
+        set_best_cores(llama->params.cpuparams, n_threads);
 
-        // Convert reasoning_format string to enum (same as doCompletion)
-        const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
-        if (!reasoning_format_chars) reasoning_format_chars = "none";
-        std::string reasoning_format_str = reasoning_format_chars;
-        common_reasoning_format reasoning_format_enum = common_reasoning_format_from_name(reasoning_format_str);
-        env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
+        // Set the guide tokens parameter
+        if (guide_tokens != nullptr) {
+          // TODO: Support TTS on queueCompletion
+        }
+
+        // Handle seed
+        params.sampling.seed = (seed == -1) ? time(NULL) : seed;
+
+        // Grammar
+        auto grammar_chars = env->GetStringUTFChars(grammar, nullptr);
+        if (grammar_chars && grammar_chars[0] != '\0') {
+            params.sampling.grammar = grammar_chars;
+        }
+        params.sampling.grammar_lazy = grammar_lazy;
+
+        // Preserved tokens
+        if (preserved_tokens != nullptr) {
+            int preserved_tokens_size = readablearray::size(env, preserved_tokens);
+            for (int i = 0; i < preserved_tokens_size; i++) {
+                jstring preserved_token = readablearray::getString(env, preserved_tokens, i);
+                auto ids = common_tokenize(llama->ctx, env->GetStringUTFChars(preserved_token, nullptr), /* add_special= */ false, /* parse_special= */ true);
+                if (ids.size() == 1) {
+                    params.sampling.preserved_tokens.insert(ids[0]);
+                } else {
+                    LOGI("[RNLlama] Not preserved because more than 1 token (wrong chat template override?): %s", env->GetStringUTFChars(preserved_token, nullptr));
+                }
+            }
+        }
+
+        // Grammar triggers
+        if (grammar_triggers != nullptr) {
+            int grammar_triggers_size = readablearray::size(env, grammar_triggers);
+            for (int i = 0; i < grammar_triggers_size; i++) {
+                auto trigger_map = readablearray::getMap(env, grammar_triggers, i);
+                const auto type = static_cast<common_grammar_trigger_type>(readablemap::getInt(env, trigger_map, "type", 0));
+                jstring trigger_word = readablemap::getString(env, trigger_map, "value", nullptr);
+                auto word = env->GetStringUTFChars(trigger_word, nullptr);
+
+                if (type == COMMON_GRAMMAR_TRIGGER_TYPE_WORD) {
+                    auto ids = common_tokenize(llama->ctx, word, /* add_special= */ false, /* parse_special= */ true);
+                    if (ids.size() == 1) {
+                        auto token = ids[0];
+                        if (std::find(params.sampling.preserved_tokens.begin(), params.sampling.preserved_tokens.end(), (llama_token) token) == params.sampling.preserved_tokens.end()) {
+                            throw std::runtime_error("Grammar trigger word should be marked as preserved token");
+                        }
+                        common_grammar_trigger trigger;
+                        trigger.type = COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN;
+                        trigger.value = word;
+                        trigger.token = token;
+                        params.sampling.grammar_triggers.push_back(std::move(trigger));
+                    } else {
+                        params.sampling.grammar_triggers.push_back({COMMON_GRAMMAR_TRIGGER_TYPE_WORD, word});
+                    }
+                } else {
+                    common_grammar_trigger trigger;
+                    trigger.type = type;
+                    trigger.value = word;
+                    if (type == COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN) {
+                        const auto token = (llama_token) readablemap::getInt(env, trigger_map, "token", 0);
+                        trigger.token = token;
+                    }
+                    params.sampling.grammar_triggers.push_back(std::move(trigger));
+                }
+            }
+        }
+
+        // JSON schema (convert to grammar if provided)
+        auto json_schema_chars = env->GetStringUTFChars(json_schema, nullptr);
+        if ((!grammar_chars || grammar_chars[0] == '\0') && json_schema_chars && json_schema_chars[0] != '\0') {
+            auto schema = json::parse(json_schema_chars);
+            params.sampling.grammar = json_schema_to_grammar(schema);
+        }
+        env->ReleaseStringUTFChars(json_schema, json_schema_chars);
+        env->ReleaseStringUTFChars(grammar, grammar_chars);
+
+        // Logit bias
+        const llama_model * model = llama_get_model(llama->ctx);
+        const llama_vocab * vocab = llama_model_get_vocab(model);
+        const int n_vocab = llama_vocab_n_tokens(vocab);
+
+        params.sampling.logit_bias.clear();
+        if (ignore_eos) {
+            params.sampling.logit_bias[llama_vocab_eos(vocab)].bias = -INFINITY;
+        }
+
+        jsize logit_bias_len = env->GetArrayLength(logit_bias);
+        for (jsize i = 0; i < logit_bias_len; i++) {
+            jdoubleArray el = (jdoubleArray) env->GetObjectArrayElement(logit_bias, i);
+            if (el && env->GetArrayLength(el) == 2) {
+                jdouble* doubleArray = env->GetDoubleArrayElements(el, 0);
+
+                llama_token tok = static_cast<llama_token>(doubleArray[0]);
+                if (tok >= 0 && tok < n_vocab) {
+                    if (doubleArray[1] != 0) {  // If the second element is not false (0)
+                        params.sampling.logit_bias[tok].bias = doubleArray[1];
+                    } else {
+                        params.sampling.logit_bias[tok].bias = -INFINITY;
+                    }
+                }
+
+                env->ReleaseDoubleArrayElements(el, doubleArray, 0);
+            }
+            env->DeleteLocalRef(el);
+        }
+
+        // DRY sequence breakers
+        jint dry_breakers_size = env->GetArrayLength(dry_sequence_breakers);
+        std::vector<std::string> dry_sequence_breakers_vector;
+        for (jint i = 0; i < dry_breakers_size; i++) {
+            jstring javaString = (jstring)env->GetObjectArrayElement(dry_sequence_breakers, i);
+            const char *nativeString = env->GetStringUTFChars(javaString, 0);
+            dry_sequence_breakers_vector.push_back(std::string(nativeString));
+            env->ReleaseStringUTFChars(javaString, nativeString);
+            env->DeleteLocalRef(javaString);
+        }
+        params.sampling.dry_sequence_breakers = dry_sequence_breakers_vector;
+
+        // Stop sequences (antiprompt)
+        params.antiprompt.clear();
+        int stop_len = env->GetArrayLength(stop);
+        for (int i = 0; i < stop_len; i++) {
+            jstring stop_str = (jstring) env->GetObjectArrayElement(stop, i);
+            const char *stop_chars = env->GetStringUTFChars(stop_str, nullptr);
+            params.antiprompt.push_back(stop_chars);
+            env->ReleaseStringUTFChars(stop_str, stop_chars);
+        }
 
         // Convert media_paths array
         std::vector<std::string> media_paths_vec;
@@ -2169,6 +2290,13 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
 
         // Convert prefill_text to std::string
         std::string prefill_text_str = prefill_text_chars ? prefill_text_chars : "";
+
+        // Convert reasoning_format string to enum
+        const char *reasoning_format_chars = env->GetStringUTFChars(reasoning_format, nullptr);
+        if (!reasoning_format_chars) reasoning_format_chars = "none";
+        std::string reasoning_format_str = reasoning_format_chars;
+        common_reasoning_format reasoning_format_enum = common_reasoning_format_from_name(reasoning_format_str);
+        env->ReleaseStringUTFChars(reasoning_format, reasoning_format_chars);
 
         // Queue the request with all required parameters
         int32_t request_id = llama->slot_manager->queue_request(
