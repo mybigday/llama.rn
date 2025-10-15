@@ -461,28 +461,12 @@ const request2 = await context.parallel.completion(
   }
 )
 
-// Queue embedding requests
-const embedding1 = await context.parallel.embedding('Hello world')
-const embedding2 = await context.parallel.embedding('Parallel processing')
-
-// Queue rerank requests
-const rerankReq = await context.parallel.rerank(
-  'What is AI?',
-  ['Document 1', 'Document 2', 'Document 3']
-)
-
 // Cancel a request if needed
 await request1.stop()
 
 // Wait for completion
 const result = await request2.promise
 console.log('Result:', result.text)
-
-const embeddingResult = await embedding1.promise
-console.log('Embedding:', embeddingResult.embedding)
-
-const rerankResults = await rerankReq.promise
-console.log('Ranked documents:', rerankResults)
 
 // Disable parallel mode when done
 await context.parallel.disable()
