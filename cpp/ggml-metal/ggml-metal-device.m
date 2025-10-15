@@ -7,6 +7,8 @@
 
 #include <Metal/Metal.h>
 
+#include <stdatomic.h>
+
 #ifndef TARGET_OS_VISION
 #define TARGET_OS_VISION 0
 #endif
@@ -21,6 +23,9 @@
 
 // overload of MTLGPUFamilyMetal3 (not available in some environments)
 static const NSInteger MTLGPUFamilyMetal3_GGML = 5001;
+
+// virtual address for GPU memory allocations
+static atomic_uintptr_t g_addr_device = 0x000000400ULL;
 
 #if !LM_GGML_METAL_EMBED_LIBRARY
 // Here to assist with NSBundle Path Hack
@@ -697,7 +702,8 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
             return true;
         case LM_GGML_OP_FLASH_ATTN_EXT:
             // for new head sizes, add checks here
-            if (op->src[0]->ne[0] != 40 &&
+            if (op->src[0]->ne[0] != 32 &&
+                op->src[0]->ne[0] != 40 &&
                 op->src[0]->ne[0] != 64 &&
                 op->src[0]->ne[0] != 80 &&
                 op->src[0]->ne[0] != 96 &&
@@ -804,6 +810,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                 };
             }
         case LM_GGML_OP_OPT_STEP_ADAMW:
+        case LM_GGML_OP_OPT_STEP_SGD:
             return has_simdgroup_reduction;
         default:
             return false;
@@ -829,7 +836,7 @@ struct lm_ggml_metal_buffer_wrapper {
 };
 
 struct lm_ggml_metal_buffer {
-    void * all_data; // TODO: https://github.com/ggml-org/llama.cpp/pull/15985
+    void * all_data;
     size_t all_size;
 
     // if false, the Metal buffer data is allocated in private GPU memory and is not shared with the host
@@ -967,13 +974,14 @@ lm_ggml_metal_buffer_t lm_ggml_metal_buffer_init(lm_ggml_metal_device_t dev, siz
     if (shared) {
         res->all_data = lm_ggml_metal_host_malloc(size_aligned);
         res->is_shared = true;
-        res->owned = true;
     } else {
-        // dummy, non-NULL value - we'll populate this after creating the Metal buffer below
-        res->all_data = (void *) 0x000000400ULL;
+        // use virtual address from g_addr_device counter
+        res->all_data = (void *) atomic_fetch_add_explicit(&g_addr_device, size_aligned, memory_order_relaxed);
         res->is_shared = false;
     }
     res->all_size = size_aligned;
+
+    res->owned = true;
 
     res->device = lm_ggml_metal_device_get_obj(dev);
     res->queue  = lm_ggml_metal_device_get_queue(dev);
@@ -985,15 +993,13 @@ lm_ggml_metal_buffer_t lm_ggml_metal_buffer_init(lm_ggml_metal_device_t dev, siz
         res->buffers[0].metal = nil;
 
         if (size_aligned > 0) {
-            if (props_dev->use_shared_buffers &&shared) {
+            if (props_dev->use_shared_buffers && shared) {
                 res->buffers[0].metal = [res->device newBufferWithBytesNoCopy:res->all_data
                                                                   length:size_aligned
                                                                  options:MTLResourceStorageModeShared
                                                              deallocator:nil];
             } else {
                 res->buffers[0].metal = [res->device newBufferWithLength:size_aligned options:MTLResourceStorageModePrivate];
-
-                res->all_data = (void *) (res->buffers[0].metal.gpuAddress);
             }
         }
 
@@ -1141,7 +1147,7 @@ bool lm_ggml_metal_buffer_is_shared(lm_ggml_metal_buffer_t buf) {
 
 void lm_ggml_metal_buffer_memset_tensor(lm_ggml_metal_buffer_t buf, struct lm_ggml_tensor * tensor, uint8_t value, size_t offset, size_t size) {
     if (buf->is_shared) {
-        memset((char *)tensor->data + offset, value, size);
+        memset((char *) tensor->data + offset, value, size);
         return;
     }
 
@@ -1170,7 +1176,7 @@ void lm_ggml_metal_buffer_memset_tensor(lm_ggml_metal_buffer_t buf, struct lm_gg
 
 void lm_ggml_metal_buffer_set_tensor(lm_ggml_metal_buffer_t buf, struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
     if (buf->is_shared) {
-        memcpy((char *)tensor->data + offset, data, size);
+        memcpy((char *) tensor->data + offset, data, size);
         return;
     }
 
@@ -1225,7 +1231,7 @@ void lm_ggml_metal_buffer_set_tensor(lm_ggml_metal_buffer_t buf, struct lm_ggml_
 
 void lm_ggml_metal_buffer_get_tensor(lm_ggml_metal_buffer_t buf, const struct lm_ggml_tensor * tensor, void * data, size_t offset, size_t size) {
     if (buf->is_shared) {
-        memcpy(data, (const char *)tensor->data + offset, size);
+        memcpy(data, (const char *) tensor->data + offset, size);
         return;
     }
 
