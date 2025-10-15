@@ -121,7 +121,21 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     setCustomModels(models)
   }
 
-  const clearSlots = useCallback(() => {
+  const clearSlots = useCallback(async () => {
+    // Cancel all active/queued requests first
+    const processingSlots = slotsRef.current.filter((t) => t.status === 'processing' || t.status === 'idle')
+
+    await Promise.all(
+      processingSlots.map(async (slot) => {
+        try {
+          if (slot.stop) await slot.stop()
+        } catch (err) {
+          console.error(`Error cancelling request ${slot.requestId}:`, err)
+        }
+      })
+    )
+
+    // Then clear all slots
     setSlots([])
     slotsRef.current = []
   }, [])
