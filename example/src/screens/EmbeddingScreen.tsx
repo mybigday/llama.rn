@@ -341,8 +341,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
 
       // Enable parallel mode if requested
       if (useParallelMode) {
-        const success = await newContext.enableParallelMode({
-          enabled: true,
+        const success = await newContext.parallel.enable({
           n_parallel: 4,
           n_batch: 512,
         })
@@ -468,7 +467,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
     try {
       let result
       if (useParallelMode) {
-        const { promise } = await context.queueEmbedding(inputText.trim())
+        const { promise } = await context.parallel.embedding(inputText.trim())
         result = await promise
       } else {
         result = await context.embedding(inputText.trim())
@@ -503,7 +502,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
     try {
       let queryResult
       if (useParallelMode) {
-        const { promise } = await context.queueEmbedding(queryText.trim())
+        const { promise } = await context.parallel.embedding(queryText.trim())
         queryResult = await promise
       } else {
         queryResult = await context.embedding(queryText.trim())
@@ -559,7 +558,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
         // Queue all embedding requests in parallel
         const embeddingPromises = await Promise.all(
           EXAMPLE_TEXTS.map(async (exampleText) => {
-            const { promise } = await context.queueEmbedding(exampleText)
+            const { promise } = await context.parallel.embedding(exampleText)
             return promise.then((result) => ({
               id: Date.now().toString() + Math.random().toString(36).substring(2, 11),
               text: exampleText,
@@ -629,7 +628,7 @@ const EmbeddingScreen = ({ navigation }: { navigation: any }) => {
     try {
       let results
       if (useParallelMode) {
-        const { promise } = await context.queueRerank(rerankQuery.trim(), documents)
+        const { promise } = await context.parallel.rerank(rerankQuery.trim(), documents)
         results = await promise
       } else {
         results = await context.rerank(rerankQuery.trim(), documents)

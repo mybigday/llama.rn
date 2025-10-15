@@ -230,8 +230,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       }
 
       // Enable parallel mode with configured slot count
-      const success = await llamaContext.enableParallelMode({
-        enabled: true,
+      const success = await llamaContext.parallel.enable({
         n_parallel: parallelSlots,
         n_batch: 512,
       })
@@ -318,8 +317,8 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         text: prompt,
       })
 
-      // Use queueCompletion for parallel processing with messages format
-      const { requestId, promise, stop } = await context.queueCompletion(
+      // Use parallel.completion for parallel processing with messages format
+      const { requestId, promise, stop } = await context.parallel.completion(
         {
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
@@ -488,8 +487,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     }
 
     try {
-      const success = await context.enableParallelMode({
-        enabled: true,
+      const success = await context.parallel.configure({
         n_parallel: newSlotCount,
         n_batch: 512,
       })

@@ -431,18 +431,17 @@ const context = await initLlama({
   model: modelPath,
   n_ctx: 8192,
   n_gpu_layers: 99,
-  n_parallel: 4,
+  n_parallel: 4, // Max number of parallel slots supported
 })
 
 // Enable parallel mode with 4 slots
-await context.enableParallelMode({
-  enabled: true,
+await context.parallel.enable({
   n_parallel: 4, // new_n_ctx (2048) = n_ctx / n_parallel
   n_batch: 512,
 })
 
-// Queue multiple requests
-const request1 = await context.queueCompletion(
+// Queue multiple completion requests
+const request1 = await context.parallel.completion(
   {
     messages: [{ role: 'user', content: 'What is AI?' }],
     n_predict: 100,
@@ -452,7 +451,7 @@ const request1 = await context.queueCompletion(
   }
 )
 
-const request2 = await context.queueCompletion(
+const request2 = await context.parallel.completion(
   {
     messages: [{ role: 'user', content: 'Explain quantum computing' }],
     n_predict: 100,
@@ -462,23 +461,51 @@ const request2 = await context.queueCompletion(
   }
 )
 
+// Queue embedding requests
+const embedding1 = await context.parallel.embedding('Hello world')
+const embedding2 = await context.parallel.embedding('Parallel processing')
+
+// Queue rerank requests
+const rerankReq = await context.parallel.rerank(
+  'What is AI?',
+  ['Document 1', 'Document 2', 'Document 3']
+)
+
 // Cancel a request if needed
 await request1.stop()
 
 // Wait for completion
 const result = await request2.promise
 console.log('Result:', result.text)
+
+const embeddingResult = await embedding1.promise
+console.log('Embedding:', embeddingResult.embedding)
+
+const rerankResults = await rerankReq.promise
+console.log('Ranked documents:', rerankResults)
+
+// Disable parallel mode when done
+await context.parallel.disable()
 ```
 
 ### API
 
-**enableParallelMode(params):**
-- `enabled` (boolean): Enable/disable parallel mode
-- `n_parallel` (number): Number of concurrent slots (default: 2)
-- `n_batch` (number): Batch size for processing (default: 512)
+**context.parallel.enable(config?):**
+- `config.n_parallel` (number): Number of concurrent slots (default: 2)
+- `config.n_batch` (number): Batch size for processing (default: 512)
 - Returns: `Promise<boolean>`
 
-**queueCompletion(params, onToken?):**
+**context.parallel.disable():**
+- Disables parallel mode
+- Returns: `Promise<boolean>`
+
+**context.parallel.configure(config):**
+- Reconfigures parallel mode (enables if not already enabled)
+- `config.n_parallel` (number): Number of concurrent slots
+- `config.n_batch` (number): Batch size for processing
+- Returns: `Promise<boolean>`
+
+**context.parallel.completion(params, onToken?):**
 - `params`: Same completion parameters as `completion()`
 - `onToken`: Optional callback `(requestId, data) => void` for token streaming
   - `requestId`: Unique request identifier
@@ -488,21 +515,20 @@ console.log('Result:', result.text)
   - `promise`: Resolves to `NativeCompletionResult` when complete
   - `stop`: Function to cancel this request
 
-**queueEmbedding(content):**
-- `content`: Text content to get embedding for
-- Returns: `Promise<{ requestId, promise, stop }>`
+**context.parallel.embedding(text, params?):**
+- `text`: Text content to get embedding for
+- `params`: Optional embedding parameters
+- Returns: `Promise<{ requestId, promise }>`
   - `requestId`: Unique request identifier
   - `promise`: Resolves to embedding result when complete
-  - `stop`: Function to cancel this request
 
-**queueRerank(query, documents, params?):**
+**context.parallel.rerank(query, documents, params?):**
 - `query`: Query string for ranking
 - `documents`: Array of document strings to rank
 - `params`: Optional rerank parameters (e.g., `normalize`)
-- Returns: `Promise<{ requestId, promise, stop }>`
+- Returns: `Promise<{ requestId, promise }>`
   - `requestId`: Unique request identifier
   - `promise`: Resolves to rerank results when complete
-  - `stop`: Function to cancel this request
 
 ### Notes
 
@@ -513,6 +539,7 @@ console.log('Result:', result.text)
 - The context must be initialized with sufficient `n_parallel` (default: 8) to support desired slot count
 - Currently session load/save are not yet supported for slot
 - Currently TTS models are not yet supported
+
 
 ## Session (State)
 
