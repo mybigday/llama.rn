@@ -714,7 +714,6 @@ export class LlamaContext {
     } else {
       nativeParams.prompt = params.prompt || ''
     }
-    console.log('nativeParams', nativeParams)
 
     // If media_paths were explicitly provided or extracted from messages, use them
     if (!nativeParams.media_paths && params.media_paths) {
@@ -796,6 +795,7 @@ export class LlamaContext {
   ): Promise<RerankResult[]> {
     const results = await RNLlama.rerank(this.id, query, documents, params || {})
 
+    // Sort by score descending and add document text if requested
     return results
       .map((result) => ({
         ...result,
