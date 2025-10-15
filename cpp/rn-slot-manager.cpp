@@ -905,18 +905,21 @@ void llama_rn_slot_manager::release_completed_slots() {
 
 // Main processing loop
 void llama_rn_slot_manager::update_slots() {
-    // Acquire mutex lock for thread-safe access
-    std::lock_guard<std::mutex> lock(slots_mutex);
+    // Step 1: Process pending queue (with mutex)
+    {
+        std::lock_guard<std::mutex> lock(slots_mutex);
+        process_pending_queue();
+    }
 
-    // Step 1: Process pending queue
-    process_pending_queue();
-
-    // Step 2: Check if any slots are active
+    // Step 2: Check if any slots are active (with mutex)
     bool has_active = false;
-    for (const auto& slot : slots) {
-        if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_GENERATING) {
-            has_active = true;
-            break;
+    {
+        std::lock_guard<std::mutex> lock(slots_mutex);
+        for (const auto& slot : slots) {
+            if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_GENERATING) {
+                has_active = true;
+                break;
+            }
         }
     }
 
@@ -925,15 +928,19 @@ void llama_rn_slot_manager::update_slots() {
         return;
     }
 
-    // Step 3: Build batch from all active slots
-    build_batch();
+    // Step 3: Build batch from all active slots (with mutex)
+    {
+        std::lock_guard<std::mutex> lock(slots_mutex);
+        build_batch();
+    }
 
-    // Step 4: Process batch if we have tokens
+    // Step 4: Process batch if we have tokens (NO mutex - llama_decode is thread-safe)
     if (batch.n_tokens > 0) {
         bool success = process_batch();
         if (!success) {
             LOG_ERROR("Batch processing failed");
-            // Mark all active slots as done with error
+            // Mark all active slots as done with error (with mutex)
+            std::lock_guard<std::mutex> lock(slots_mutex);
             for (auto& slot : slots) {
                 if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_GENERATING) {
                     slot.state = SLOT_STATE_DONE;
@@ -947,11 +954,23 @@ void llama_rn_slot_manager::update_slots() {
         }
     }
 
-    // Step 5: Sample tokens and invoke callbacks for GENERATING slots
-    sample_and_callback();
+    // Step 5: Sample tokens and invoke callbacks for GENERATING slots (with mutex)
+    {
+        std::lock_guard<std::mutex> lock(slots_mutex);
+        sample_and_callback();
+    }
 
-    // Step 6: Release completed slots
-    release_completed_slots();
+    // Step 6: Release completed slots (with mutex)
+    {
+        std::lock_guard<std::mutex> lock(slots_mutex);
+        release_completed_slots();
+    }
+
+    // Step 7: Process pending queue again - assign requests to newly freed slots (with mutex)
+    {
+        std::lock_guard<std::mutex> lock(slots_mutex);
+        process_pending_queue();
+    }
 }
 
 // Start background processing loop
