@@ -4,7 +4,7 @@ import androidx.annotation.NonNull;
 import android.util.Log;
 import android.os.Build;
 import android.os.Handler;
-import android.os.AsyncTask;
+import android.os.Looper;
 
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -18,6 +18,10 @@ import com.facebook.react.bridge.Arguments;
 
 import java.util.HashMap;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.PushbackInputStream;
@@ -25,41 +29,30 @@ import java.io.PushbackInputStream;
 public class RNLlama implements LifecycleEventListener {
   public static final String NAME = "RNLlama";
 
-  private ReactApplicationContext reactContext;
+  private final ReactApplicationContext reactContext;
+  private final ExecutorService executorService;
+  private final Handler mainHandler;
 
   public RNLlama(ReactApplicationContext reactContext) {
     reactContext.addLifecycleEventListener(this);
     this.reactContext = reactContext;
+    this.executorService = Executors.newCachedThreadPool();
+    this.mainHandler = new Handler(Looper.getMainLooper());
   }
 
-  private HashMap<AsyncTask, String> tasks = new HashMap<>();
+  private final HashMap<Future<?>, String> tasks = new HashMap<>();
 
-  private HashMap<Integer, LlamaContext> contexts = new HashMap<>();
+  private final HashMap<Integer, LlamaContext> contexts = new HashMap<>();
 
   public void toggleNativeLog(boolean enabled, Promise promise) {
-    new AsyncTask<Void, Void, Boolean>() {
-      private Exception exception;
-
-      @Override
-      protected Boolean doInBackground(Void... voids) {
-        try {
-          LlamaContext.toggleNativeLog(reactContext, enabled);
-          return true;
-        } catch (Exception e) {
-          exception = e;
-        }
-        return null;
+    executorService.execute(() -> {
+      try {
+        LlamaContext.toggleNativeLog(reactContext, enabled);
+        mainHandler.post(() -> promise.resolve(true));
+      } catch (Exception e) {
+        mainHandler.post(() -> promise.reject(e));
       }
-
-      @Override
-      protected void onPostExecute(Boolean result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(result);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    });
   }
 
   private int llamaContextLimit = -1;
@@ -70,1143 +63,1014 @@ public class RNLlama implements LifecycleEventListener {
   }
 
   public void modelInfo(final String model, final ReadableArray skip, final Promise promise) {
-    new AsyncTask<Void, Void, WritableMap>() {
-      private Exception exception;
-
-      @Override
-      protected WritableMap doInBackground(Void... voids) {
-        try {
-          String[] skipArray = new String[skip.size()];
-          for (int i = 0; i < skip.size(); i++) {
-            skipArray[i] = skip.getString(i);
-          }
-          return LlamaContext.modelInfo(model, skipArray);
-        } catch (Exception e) {
-          exception = e;
+    executorService.execute(() -> {
+      try {
+        String[] skipArray = new String[skip.size()];
+        for (int i = 0; i < skip.size(); i++) {
+          skipArray[i] = skip.getString(i);
         }
-        return null;
+        WritableMap result = LlamaContext.modelInfo(model, skipArray);
+        mainHandler.post(() -> promise.resolve(result));
+      } catch (Exception e) {
+        mainHandler.post(() -> promise.reject(e));
       }
-
-      @Override
-      protected void onPostExecute(WritableMap result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(result);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    });
   }
 
   public void initContext(double id, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
-      private Exception exception;
-
-      @Override
-      protected WritableMap doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context != null) {
-            throw new Exception("Context already exists");
-          }
-          if (llamaContextLimit > -1 && contexts.size() >= llamaContextLimit) {
-            throw new Exception("Context limit reached");
-          }
-          LlamaContext llamaContext = new LlamaContext(contextId, reactContext, params);
-          if (llamaContext.getContext() == 0) {
-            throw new Exception("Failed to initialize context");
-          }
-          contexts.put(contextId, llamaContext);
-          WritableMap result = Arguments.createMap();
-          result.putBoolean("gpu", llamaContext.isGpuEnabled());
-          result.putString("reasonNoGPU", llamaContext.getReasonNoGpu());
-          String gpuDevice = llamaContext.getGpuDevice();
-          if (gpuDevice != null && !gpuDevice.isEmpty()) {
-            result.putString("gpuDevice", gpuDevice);
-          }
-          result.putMap("model", llamaContext.getModelDetails());
-          result.putString("androidLib", llamaContext.getLoadedLibrary());
-          return result;
-        } catch (Exception e) {
-          exception = e;
-          return null;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context != null) {
+          throw new Exception("Context already exists");
         }
-      }
-
-      @Override
-      protected void onPostExecute(WritableMap result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        if (llamaContextLimit > -1 && contexts.size() >= llamaContextLimit) {
+          throw new Exception("Context limit reached");
         }
-        promise.resolve(result);
-        tasks.remove(this);
+        LlamaContext llamaContext = new LlamaContext(contextId, reactContext, params);
+        if (llamaContext.getContext() == 0) {
+          throw new Exception("Failed to initialize context");
+        }
+        contexts.put(contextId, llamaContext);
+        WritableMap result = Arguments.createMap();
+        result.putBoolean("gpu", llamaContext.isGpuEnabled());
+        result.putString("reasonNoGPU", llamaContext.getReasonNoGpu());
+        String gpuDevice = llamaContext.getGpuDevice();
+        if (gpuDevice != null && !gpuDevice.isEmpty()) {
+          result.putString("gpuDevice", gpuDevice);
+        }
+        result.putMap("model", llamaContext.getModelDetails());
+        result.putString("androidLib", llamaContext.getLoadedLibrary());
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals("initContext"));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals("initContext"));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "initContext");
+    });
+    synchronized (tasks) {
+      tasks.put(future, "initContext");
+    }
   }
 
   public void getFormattedChat(double id, final String messages, final String chatTemplate, final ReadableMap params, Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Object>() {
-      private Exception exception;
-
-      @Override
-      protected Object doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          if (params.hasKey("jinja") && params.getBoolean("jinja")) {
-            boolean addGenerationPrompt = params.hasKey("add_generation_prompt") ? params.getBoolean("add_generation_prompt") : true;
-            String nowStr = params.hasKey("now") ? params.getString("now") : "";
-            String chatTemplateKwargs = params.hasKey("chat_template_kwargs") ? params.getString("chat_template_kwargs") : "";
-            ReadableMap result = context.getFormattedChatWithJinja(messages, chatTemplate, params, addGenerationPrompt, nowStr, chatTemplateKwargs);
-            if (result.hasKey("_error")) {
-              throw new Exception(result.getString("_error"));
-            }
-            return result;
-          }
-          return context.getFormattedChat(messages, chatTemplate);
-        } catch (Exception e) {
-          exception = e;
-          return null;
+    String taskName = "getFormattedChat-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-      }
-
-      @Override
-      protected void onPostExecute(Object result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        Object result;
+        if (params.hasKey("jinja") && params.getBoolean("jinja")) {
+          boolean addGenerationPrompt = params.hasKey("add_generation_prompt") ? params.getBoolean("add_generation_prompt") : true;
+          String nowStr = params.hasKey("now") ? params.getString("now") : "";
+          String chatTemplateKwargs = params.hasKey("chat_template_kwargs") ? params.getString("chat_template_kwargs") : "";
+          ReadableMap resultMap = context.getFormattedChatWithJinja(messages, chatTemplate, params, addGenerationPrompt, nowStr, chatTemplateKwargs);
+          if (resultMap.hasKey("_error")) {
+            throw new Exception(resultMap.getString("_error"));
+          }
+          result = resultMap;
+        } else {
+          result = context.getFormattedChat(messages, chatTemplate);
         }
-        promise.resolve(result);
-        tasks.remove(this);
+        Object finalResult = result;
+        mainHandler.post(() -> {
+          promise.resolve(finalResult);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "getFormattedChat-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void loadSession(double id, final String path, Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
-      private Exception exception;
-
-      @Override
-      protected WritableMap doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          WritableMap result = context.loadSession(path);
-          if (result != null && result.hasKey("error")) {
-            throw new Exception(result.getString("error"));
-          }
-          return result;
-        } catch (Exception e) {
-          exception = e;
+    String taskName = "loadSession-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return null;
-      }
-
-      @Override
-      protected void onPostExecute(WritableMap result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        WritableMap result = context.loadSession(path);
+        if (result != null && result.hasKey("error")) {
+          throw new Exception(result.getString("error"));
         }
-        promise.resolve(result);
-        tasks.remove(this);
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "loadSession-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void saveSession(double id, final String path, double size, Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
-      private Exception exception;
-
-      @Override
-      protected WritableMap doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
+    String taskName = "saveSession-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
+        }
+        WritableMap result = context.saveSession(path, (int) size);
+        if (result != null && result.hasKey("error")) {
+          throw new Exception(result.getString("error"));
+        }
+        mainHandler.post(() -> {
+          // Return the tokens_saved count to maintain backward compatibility
+          if (result != null && result.hasKey("tokens_saved")) {
+            promise.resolve(result.getInt("tokens_saved"));
+          } else {
+            promise.resolve(0);
           }
-          WritableMap result = context.saveSession(path, (int) size);
-          if (result != null && result.hasKey("error")) {
-            throw new Exception(result.getString("error"));
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
           }
-          return result;
-        } catch (Exception e) {
-          exception = e;
-        }
-        return null;
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-
-      @Override
-      protected void onPostExecute(WritableMap result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        // Return the tokens_saved count to maintain backward compatibility
-        if (result != null && result.hasKey("tokens_saved")) {
-          promise.resolve(result.getInt("tokens_saved"));
-        } else {
-          promise.resolve(0);
-        }
-        tasks.remove(this);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "saveSession-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void completion(double id, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
-      private Exception exception;
-
-      @Override
-      protected WritableMap doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          if (context.isPredicting()) {
-            throw new Exception("Context is busy");
-          }
-          WritableMap result = context.completion(params);
-          if (result != null && result.hasKey("error")) {
-            throw new Exception(result.getString("error"));
-          }
-          return result;
-        } catch (Exception e) {
-          exception = e;
+    String taskName = "completion-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return null;
-      }
-
-      @Override
-      protected void onPostExecute(WritableMap result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        if (context.isPredicting()) {
+          throw new Exception("Context is busy");
         }
-        promise.resolve(result);
-        tasks.remove(this);
+        WritableMap result = context.completion(params);
+        if (result != null && result.hasKey("error")) {
+          throw new Exception(result.getString("error"));
+        }
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "completion-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void stopCompletion(double id, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Void>() {
-      private Exception exception;
-
-      @Override
-      protected Void doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          context.stopCompletion();
-          AsyncTask completionTask = null;
-          for (AsyncTask task : tasks.keySet()) {
+    String taskName = "stopCompletion-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
+        }
+        context.stopCompletion();
+        // Wait for completion task to finish
+        synchronized (tasks) {
+          for (Future<?> task : tasks.keySet()) {
             if (tasks.get(task).equals("completion-" + contextId)) {
-              task.get();
+              try {
+                task.get();
+              } catch (Exception ignored) {
+              }
               break;
             }
           }
-        } catch (Exception e) {
-          exception = e;
         }
-        return null;
+        mainHandler.post(() -> {
+          promise.resolve(null);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-
-      @Override
-      protected void onPostExecute(Void result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(result);
-        tasks.remove(this);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "stopCompletion-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void tokenize(double id, final String text, final ReadableArray media_paths, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
-      private Exception exception;
-
-      @Override
-      protected WritableMap doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          WritableMap result = context.tokenize(text, media_paths);
-          if (result != null && result.hasKey("error")) {
-            throw new Exception(result.getString("error"));
-          }
-          return result;
-        } catch (Exception e) {
-          exception = e;
+    String taskName = "tokenize-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return null;
-      }
-
-      @Override
-      protected void onPostExecute(WritableMap result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        WritableMap result = context.tokenize(text, media_paths);
+        if (result != null && result.hasKey("error")) {
+          throw new Exception(result.getString("error"));
         }
-        promise.resolve(result);
-        tasks.remove(this);
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "tokenize-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void detokenize(double id, final ReadableArray tokens, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, String>() {
-      private Exception exception;
-
-      @Override
-      protected String doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
+    String taskName = "detokenize-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
+        }
+        String result = context.detokenize(tokens);
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
           }
-          return context.detokenize(tokens);
-        } catch (Exception e) {
-          exception = e;
-        }
-        return null;
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-
-      @Override
-      protected void onPostExecute(String result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(result);
-        tasks.remove(this);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "detokenize-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void embedding(double id, final String text, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
-      private Exception exception;
-
-      @Override
-      protected WritableMap doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          WritableMap result = context.getEmbedding(text, params);
-          if (result != null && result.hasKey("error")) {
-            throw new Exception(result.getString("error"));
-          }
-          return result;
-        } catch (Exception e) {
-          exception = e;
+    String taskName = "embedding-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return null;
-      }
-
-      @Override
-      protected void onPostExecute(WritableMap result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        WritableMap result = context.getEmbedding(text, params);
+        if (result != null && result.hasKey("error")) {
+          throw new Exception(result.getString("error"));
         }
-        promise.resolve(result);
-        tasks.remove(this);
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "embedding-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void rerank(double id, final String query, final ReadableArray documents, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, WritableArray>() {
-      private Exception exception;
-
-      @Override
-      protected WritableArray doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          WritableMap result = context.getRerank(query, documents, params);
-          if (result == null) {
-            throw new Exception("Rerank returned null result");
-          }
-          if (result.hasKey("error")) {
-            throw new Exception(result.getString("error"));
-          }
-          // Extract the array from the result map
-          if (result.hasKey("result")) {
-            ReadableArray readableResult = result.getArray("result");
-            // Convert ReadableArray to WritableArray by copying
-            WritableArray writableResult = Arguments.createArray();
-            for (int i = 0; i < readableResult.size(); i++) {
-              writableResult.pushMap(readableResult.getMap(i));
-            }
-            return writableResult;
-          }
-          // Fallback to empty array if no result key (shouldn't happen)
-          return Arguments.createArray();
-        } catch (Exception e) {
-          exception = e;
+    String taskName = "rerank-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return null;
-      }
-
-      @Override
-      protected void onPostExecute(WritableArray result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        WritableMap result = context.getRerank(query, documents, params);
+        if (result == null) {
+          throw new Exception("Rerank returned null result");
         }
-        // Return the result array to maintain backward compatibility
-        if (result != null) {
-          promise.resolve(result);
+        if (result.hasKey("error")) {
+          throw new Exception(result.getString("error"));
+        }
+        // Extract the array from the result map
+        WritableArray finalResult;
+        if (result.hasKey("result")) {
+          ReadableArray readableResult = result.getArray("result");
+          // Convert ReadableArray to WritableArray by copying
+          WritableArray writableResult = Arguments.createArray();
+          for (int i = 0; i < readableResult.size(); i++) {
+            writableResult.pushMap(readableResult.getMap(i));
+          }
+          finalResult = writableResult;
         } else {
-          promise.resolve(Arguments.createArray());
+          // Fallback to empty array if no result key (shouldn't happen)
+          finalResult = Arguments.createArray();
         }
-        tasks.remove(this);
+        mainHandler.post(() -> {
+          promise.resolve(finalResult);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "rerank-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void bench(double id, final double pp, final double tg, final double pl, final double nr, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, String>() {
-      private Exception exception;
-
-      @Override
-      protected String doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
+    String taskName = "bench-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
+        }
+        String result = context.bench((int) pp, (int) tg, (int) pl, (int) nr);
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
           }
-          return context.bench((int) pp, (int) tg, (int) pl, (int) nr);
-        } catch (Exception e) {
-          exception = e;
-        }
-        return null;
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-
-      @Override
-      protected void onPostExecute(String result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(result);
-        tasks.remove(this);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "bench-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void applyLoraAdapters(double id, final ReadableArray loraAdapters, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Void>() {
-      private Exception exception;
-
-      @Override
-      protected Void doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          if (context.isPredicting()) {
-            throw new Exception("Context is busy");
-          }
-          context.applyLoraAdapters(loraAdapters);
-        } catch (Exception e) {
-          exception = e;
+    String taskName = "applyLoraAdapters-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return null;
-      }
-
-      @Override
-      protected void onPostExecute(Void result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        if (context.isPredicting()) {
+          throw new Exception("Context is busy");
         }
+        context.applyLoraAdapters(loraAdapters);
+        mainHandler.post(() -> {
+          promise.resolve(null);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "applyLoraAdapters-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void removeLoraAdapters(double id, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Void>() {
-      private Exception exception;
-
-      @Override
-      protected Void doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          if (context.isPredicting()) {
-            throw new Exception("Context is busy");
-          }
-          context.removeLoraAdapters();
-        } catch (Exception e) {
-          exception = e;
+    String taskName = "removeLoraAdapters-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return null;
-      }
-
-      @Override
-      protected void onPostExecute(Void result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        if (context.isPredicting()) {
+          throw new Exception("Context is busy");
         }
-        promise.resolve(null);
+        context.removeLoraAdapters();
+        mainHandler.post(() -> {
+          promise.resolve(null);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "removeLoraAdapters-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void getLoadedLoraAdapters(double id, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, ReadableArray>() {
-      private Exception exception;
-
-      @Override
-      protected ReadableArray doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
+    String taskName = "getLoadedLoraAdapters-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
+        }
+        ReadableArray result = context.getLoadedLoraAdapters();
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
           }
-          return context.getLoadedLoraAdapters();
-        } catch (Exception e) {
-          exception = e;
-        }
-        return null;
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-
-      @Override
-      protected void onPostExecute(ReadableArray result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(result);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "getLoadedLoraAdapters-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void initMultimodal(double id, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Boolean>() {
-      private Exception exception;
-
-      @Override
-      protected Boolean doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          if (context.isPredicting()) {
-            throw new Exception("Context is busy");
-          }
-          return context.initMultimodal(params);
-        } catch (Exception e) {
-          exception = e;
+    String taskName = "initMultimodal-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return false;
-      }
-
-      @Override
-      protected void onPostExecute(Boolean result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        if (context.isPredicting()) {
+          throw new Exception("Context is busy");
         }
-        promise.resolve(result);
-        tasks.remove(this);
+        Boolean result = context.initMultimodal(params);
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "initMultimodal-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void isMultimodalEnabled(double id, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Boolean>() {
-      private Exception exception;
-
-      @Override
-      protected Boolean doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
+    String taskName = "isMultimodalEnabled-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
+        }
+        Boolean result = context.isMultimodalEnabled();
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
           }
-          return context.isMultimodalEnabled();
-        } catch (Exception e) {
-          exception = e;
-        }
-        return false;
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-
-      @Override
-      protected void onPostExecute(Boolean result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(result);
-        tasks.remove(this);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "isMultimodalEnabled" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void getMultimodalSupport(double id, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, WritableMap>() {
-      private Exception exception;
-
-      @Override
-      protected WritableMap doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          if (!context.isMultimodalEnabled()) {
-            throw new Exception("Multimodal is not enabled");
-          }
-          return context.getMultimodalSupport();
-        } catch (Exception e) {
-          exception = e;
+    String taskName = "getMultimodalSupport-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return null;
-      }
-
-      @Override
-      protected void onPostExecute(WritableMap result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        if (!context.isMultimodalEnabled()) {
+          throw new Exception("Multimodal is not enabled");
         }
-        promise.resolve(result);
-        tasks.remove(this);
+        WritableMap result = context.getMultimodalSupport();
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "getMultimodalSupport-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   @ReactMethod
   public void releaseMultimodal(double id, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Void>() {
-      private Exception exception;
-
-      @Override
-      protected Void doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
+    String taskName = "releaseMultimodal-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
+        }
+        context.releaseMultimodal();
+        mainHandler.post(() -> {
+          promise.resolve(null);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
           }
-          context.releaseMultimodal();
-        } catch (Exception e) {
-          exception = e;
-        }
-        return null;
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-
-      @Override
-      protected void onPostExecute(Void result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(null);
-        tasks.remove(this);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "releaseMultimodal" + id);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void initVocoder(double id, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Boolean>() {
-      private Exception exception;
-
-      @Override
-      protected Boolean doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          if (context.isPredicting()) {
-            throw new Exception("Context is busy");
-          }
-          return context.initVocoder(params);
-        } catch (Exception e) {
-          exception = e;
+    String taskName = "initVocoder-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return false;
-      }
-
-      @Override
-      protected void onPostExecute(Boolean result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        if (context.isPredicting()) {
+          throw new Exception("Context is busy");
         }
-        promise.resolve(result);
-        tasks.remove(this);
+        Boolean result = context.initVocoder(params);
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "initVocoder-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void releaseVocoder(double id, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Void>() {
-      private Exception exception;
-
-      @Override
-      protected Void doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
+    String taskName = "releaseVocoder-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
+        }
+        context.releaseVocoder();
+        mainHandler.post(() -> {
+          promise.resolve(null);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
           }
-          context.releaseVocoder();
-        } catch (Exception e) {
-          exception = e;
-        }
-        return null;
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-
-      @Override
-      protected void onPostExecute(Void result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(null);
-        tasks.remove(this);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "releaseVocoder-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void isVocoderEnabled(double id, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Boolean>() {
-      private Exception exception;
-
-      @Override
-      protected Boolean doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
+    String taskName = "isVocoderEnabled-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
+        }
+        Boolean result = context.isVocoderEnabled();
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
           }
-          return context.isVocoderEnabled();
-        } catch (Exception e) {
-          exception = e;
-        }
-        return false;
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-
-      @Override
-      protected void onPostExecute(Boolean result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(result);
-        tasks.remove(this);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "isVocoderEnabled-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void getFormattedAudioCompletion(double id, final String speakerJsonStr, final String textToSpeak, Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Object>() {
-      private Exception exception;
-
-      @Override
-      protected Object doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          if (!context.isVocoderEnabled()) {
-            throw new Exception("Vocoder is not enabled");
-          }
-          return context.getFormattedAudioCompletion(speakerJsonStr, textToSpeak);
-        } catch (Exception e) {
-          exception = e;
-          return null;
+    String taskName = "getFormattedAudioCompletion-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-      }
-
-      @Override
-      protected void onPostExecute(Object result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        if (!context.isVocoderEnabled()) {
+          throw new Exception("Vocoder is not enabled");
         }
-        promise.resolve(result);
-        tasks.remove(this);
+        Object result = context.getFormattedAudioCompletion(speakerJsonStr, textToSpeak);
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "getFormattedAudioCompletion-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void getAudioCompletionGuideTokens(double id, final String textToSpeak, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, WritableArray>() {
-      private Exception exception;
-
-      @Override
-      protected WritableArray doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          if (!context.isVocoderEnabled()) {
-            throw new Exception("Vocoder is not enabled");
-          }
-          return context.getAudioCompletionGuideTokens(textToSpeak);
-        } catch (Exception e) {
-          exception = e;
-          return null;
+    String taskName = "getAudioCompletionGuideTokens-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-      }
-
-      @Override
-      protected void onPostExecute(WritableArray result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        if (!context.isVocoderEnabled()) {
+          throw new Exception("Vocoder is not enabled");
         }
-        promise.resolve(result);
-        tasks.remove(this);
+        WritableArray result = context.getAudioCompletionGuideTokens(textToSpeak);
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "getAudioCompletionGuideTokens-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void decodeAudioTokens(double id, final ReadableArray tokens, final Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, WritableArray>() {
-      private Exception exception;
-
-      @Override
-      protected WritableArray doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          if (!context.isVocoderEnabled()) {
-            throw new Exception("Vocoder is not enabled");
-          }
-          return context.decodeAudioTokens(tokens);
-        } catch (Exception e) {
-          exception = e;
+    String taskName = "decodeAudioTokens-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return null;
-      }
-
-      @Override
-      protected void onPostExecute(WritableArray result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        if (!context.isVocoderEnabled()) {
+          throw new Exception("Vocoder is not enabled");
         }
-        promise.resolve(result);
-        tasks.remove(this);
+        WritableArray result = context.decodeAudioTokens(tokens);
+        mainHandler.post(() -> {
+          promise.resolve(result);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "decodeAudioTokens-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void releaseContext(double id, Promise promise) {
     final int contextId = (int) id;
-    AsyncTask task = new AsyncTask<Void, Void, Void>() {
-      private Exception exception;
-
-      @Override
-      protected Void doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context " + id + " not found");
-          }
-          context.interruptLoad();
-          context.stopCompletion();
-          AsyncTask completionTask = null;
-          for (AsyncTask task : tasks.keySet()) {
+    String taskName = "releaseContext-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context " + id + " not found");
+        }
+        context.interruptLoad();
+        context.stopCompletion();
+        synchronized (tasks) {
+          for (Future<?> task : tasks.keySet()) {
             if (tasks.get(task).equals("completion-" + contextId)) {
-              task.get();
+              try {
+                task.get();
+              } catch (Exception ignored) {
+              }
               break;
             }
           }
-          context.release();
-          contexts.remove(contextId);
-        } catch (Exception e) {
-          exception = e;
         }
-        return null;
+        context.release();
+        contexts.remove(contextId);
+        mainHandler.post(() -> {
+          promise.resolve(null);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-
-      @Override
-      protected void onPostExecute(Void result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(null);
-        tasks.remove(this);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "releaseContext-" + contextId);
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   public void releaseAllContexts(Promise promise) {
-    AsyncTask task = new AsyncTask<Void, Void, Void>() {
-      private Exception exception;
-
-      @Override
-      protected Void doInBackground(Void... voids) {
-        try {
-          onHostDestroy();
-        } catch (Exception e) {
-          exception = e;
-        }
-        return null;
+    String taskName = "releaseAllContexts";
+    Future<?> future = executorService.submit(() -> {
+      try {
+        onHostDestroy();
+        mainHandler.post(() -> {
+          promise.resolve(null);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
       }
-
-      @Override
-      protected void onPostExecute(Void result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(null);
-        tasks.remove(this);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-    tasks.put(task, "releaseAllContexts");
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
   }
 
   // Parallel decoding methods
   public void enableParallelMode(double id, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    new AsyncTask<Void, Void, Boolean>() {
-      private Exception exception;
-
-      @Override
-      protected Boolean doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-
-          boolean enabled = params.hasKey("enabled") ? params.getBoolean("enabled") : true;
-          int nParallel = params.hasKey("n_parallel") ? params.getInt("n_parallel") : 2;
-          int nBatch = params.hasKey("n_batch") ? params.getInt("n_batch") : 512;
-
-          if (enabled) {
-            return context.doEnableParallelMode(nParallel, nBatch);
-          } else {
-            context.doDisableParallelMode();
-            return true;
-          }
-        } catch (Exception e) {
-          exception = e;
+    executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return false;
-      }
 
-      @Override
-      protected void onPostExecute(Boolean result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
+        boolean enabled = params.hasKey("enabled") ? params.getBoolean("enabled") : true;
+        int nParallel = params.hasKey("n_parallel") ? params.getInt("n_parallel") : 2;
+        int nBatch = params.hasKey("n_batch") ? params.getInt("n_batch") : 512;
+
+        Boolean result;
+        if (enabled) {
+          result = context.doEnableParallelMode(nParallel, nBatch);
+        } else {
+          context.doDisableParallelMode();
+          result = true;
         }
-        promise.resolve(result);
+        mainHandler.post(() -> promise.resolve(result));
+      } catch (Exception e) {
+        mainHandler.post(() -> promise.reject(e));
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    });
   }
 
   public void queueCompletion(double id, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    new AsyncTask<Void, Void, Integer>() {
-      private Exception exception;
-
-      @Override
-      protected Integer doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          return context.queueCompletion(params);
-        } catch (Exception e) {
-          exception = e;
+    executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return -1;
-      }
-
-      @Override
-      protected void onPostExecute(Integer requestId) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
+        Integer requestId = context.queueCompletion(params);
         WritableMap result = Arguments.createMap();
         result.putInt("requestId", requestId);
-        promise.resolve(result);
+        mainHandler.post(() -> promise.resolve(result));
+      } catch (Exception e) {
+        mainHandler.post(() -> promise.reject(e));
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    });
   }
 
   public void cancelRequest(double id, double requestIdDouble, final Promise promise) {
     final int contextId = (int) id;
     final int requestId = (int) requestIdDouble;
-    new AsyncTask<Void, Void, Void>() {
-      private Exception exception;
-
-      @Override
-      protected Void doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          context.cancelRequest(requestId);
-        } catch (Exception e) {
-          exception = e;
+    executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return null;
+        context.cancelRequest(requestId);
+        mainHandler.post(() -> promise.resolve(null));
+      } catch (Exception e) {
+        mainHandler.post(() -> promise.reject(e));
       }
-
-      @Override
-      protected void onPostExecute(Void result) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
-        promise.resolve(null);
-      }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    });
   }
 
   public void queueEmbedding(double id, final String text, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    new AsyncTask<Void, Void, Integer>() {
-      private Exception exception;
-
-      @Override
-      protected Integer doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          return context.queueEmbedding(text, params);
-        } catch (Exception e) {
-          exception = e;
+    executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return -1;
-      }
-
-      @Override
-      protected void onPostExecute(Integer requestId) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
+        Integer requestId = context.queueEmbedding(text, params);
         WritableMap result = Arguments.createMap();
         result.putInt("requestId", requestId);
-        promise.resolve(result);
+        mainHandler.post(() -> promise.resolve(result));
+      } catch (Exception e) {
+        mainHandler.post(() -> promise.reject(e));
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    });
   }
 
   public void queueRerank(double id, final String query, final ReadableArray documents, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
-    new AsyncTask<Void, Void, Integer>() {
-      private Exception exception;
-
-      @Override
-      protected Integer doInBackground(Void... voids) {
-        try {
-          LlamaContext context = contexts.get(contextId);
-          if (context == null) {
-            throw new Exception("Context not found");
-          }
-          return context.queueRerank(query, documents, params);
-        } catch (Exception e) {
-          exception = e;
+    executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
         }
-        return -1;
-      }
-
-      @Override
-      protected void onPostExecute(Integer requestId) {
-        if (exception != null) {
-          promise.reject(exception);
-          return;
-        }
+        Integer requestId = context.queueRerank(query, documents, params);
         WritableMap result = Arguments.createMap();
         result.putInt("requestId", requestId);
-        promise.resolve(result);
+        mainHandler.post(() -> promise.resolve(result));
+      } catch (Exception e) {
+        mainHandler.post(() -> promise.reject(e));
       }
-    }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    });
   }
 
   @Override
@@ -1222,17 +1086,28 @@ public class RNLlama implements LifecycleEventListener {
     for (LlamaContext context : contexts.values()) {
       context.stopCompletion();
     }
-    for (AsyncTask task : tasks.keySet()) {
-      try {
-        task.get();
-      } catch (Exception e) {
-        Log.e(NAME, "Failed to wait for task", e);
+    synchronized (tasks) {
+      for (Future<?> task : tasks.keySet()) {
+        try {
+          task.get();
+        } catch (Exception e) {
+          Log.e(NAME, "Failed to wait for task", e);
+        }
       }
+      tasks.clear();
     }
-    tasks.clear();
     for (LlamaContext context : contexts.values()) {
       context.release();
     }
     contexts.clear();
+    executorService.shutdown();
+    try {
+      if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
+        executorService.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      executorService.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
   }
 }
