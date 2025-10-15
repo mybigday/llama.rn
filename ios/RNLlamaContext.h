@@ -6,6 +6,8 @@
 #import "ggml.h"
 #import "rn-llama.h"
 #import "rn-completion.h"
+#import "rn-slot.h"
+#import "rn-slot-manager.h"
 #import "json-schema-to-grammar.h"
 #else
 #import <rnllama/llama.h>
@@ -13,6 +15,8 @@
 #import <rnllama/ggml.h>
 #import <rnllama/rn-llama.h>
 #import <rnllama/rn-completion.h>
+#import <rnllama/rn-slot.h>
+#import <rnllama/rn-slot-manager.h>
 #import <rnllama/json-schema-to-grammar.h>
 #endif
 #endif
@@ -45,7 +49,13 @@
 - (void)releaseMultimodal;
 - (NSDictionary *)completion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *tokenResult))onToken;
 - (void)stopCompletion;
-- (NSDictionary *)tokenize:(NSString *)text imagePaths:(NSArray *)imagePaths;
+- (NSNumber *)queueCompletion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *tokenResult))onToken onComplete:(void (^)(NSDictionary *result))onComplete;
+- (NSNumber *)queueEmbedding:(NSString *)text params:(NSDictionary *)params onResult:(void (^)(int32_t requestId, NSArray *embedding))onResult;
+- (NSNumber *)queueRerank:(NSString *)query documents:(NSArray<NSString *> *)documents params:(NSDictionary *)params onResults:(void (^)(int32_t requestId, NSArray *results))onResults;
+- (void)cancelRequest:(NSNumber *)requestId;
+- (BOOL)enableParallelMode:(int)nParallel nBatch:(int)nBatch;
+- (void)disableParallelMode;
+- (NSDictionary *)tokenize:(NSString *)text mediaPaths:(NSArray *)mediaPaths;
 - (NSString *)detokenize:(NSArray *)tokens;
 - (NSDictionary *)embedding:(NSString *)text params:(NSDictionary *)params;
 - (NSArray *)rerank:(NSString *)query documents:(NSArray<NSString *> *)documents params:(NSDictionary *)params;

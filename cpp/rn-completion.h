@@ -36,6 +36,8 @@ struct completion_token_output
 
     std::vector<token_prob> probs;
     llama_token tok;
+    std::string text;  // Token text (decoded)
+    int32_t request_id = -1;  // Request ID for parallel processing
 };
 
 struct completion_chat_output

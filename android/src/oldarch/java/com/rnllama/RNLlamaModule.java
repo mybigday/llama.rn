@@ -177,4 +177,29 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   public void releaseAllContexts(Promise promise) {
     rnllama.releaseAllContexts(promise);
   }
+
+  @ReactMethod
+  public void queueCompletion(double id, final ReadableMap params, final Promise promise) {
+    rnllama.queueCompletion(id, params, promise);
+  }
+
+  @ReactMethod
+  public void cancelRequest(double id, double requestId, final Promise promise) {
+    rnllama.cancelRequest(id, requestId, promise);
+  }
+
+  @ReactMethod
+  public void queueEmbedding(double id, final String text, final ReadableMap params, final Promise promise) {
+    rnllama.queueEmbedding(id, text, params, promise);
+  }
+
+  @ReactMethod
+  public void queueRerank(double id, final String query, final ReadableArray documents, final ReadableMap params, final Promise promise) {
+    rnllama.queueRerank(id, query, documents, params, promise);
+  }
+
+  @ReactMethod
+  public void enableParallelMode(double id, final ReadableMap params, final Promise promise) {
+    rnllama.enableParallelMode(id, params, promise);
+  }
 }

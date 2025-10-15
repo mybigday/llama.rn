@@ -31,7 +31,7 @@
   "exclude": [
     "**/node_modules",
     "**/Pods",
-    "third_party/llama.cpp",
+    "third_party",
     "tests"
   ]
 }

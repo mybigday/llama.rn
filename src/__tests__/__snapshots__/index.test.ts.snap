@@ -242,3 +242,223 @@ Object {
   "truncated": false,
 }
 `;
+
+exports[`Parallel APIs - completion: parallel completion result 1`] = `
+Object {
+  "audio_tokens": Array [
+    1000,
+    1001,
+    1002,
+    1003,
+    1004,
+    1005,
+    1006,
+    1007,
+    1008,
+    1009,
+    1010,
+  ],
+  "completion_probabilities": Array [
+    Object {
+      "content": " *",
+      "probs": Array [
+        Object {
+          "prob": 0.9658700227737427,
+          "tok_str": " *",
+        },
+        Object {
+          "prob": 0.021654844284057617,
+          "tok_str": " Hi",
+        },
+        Object {
+          "prob": 0.012475099414587021,
+          "tok_str": " Hello",
+        },
+      ],
+    },
+    Object {
+      "content": "g",
+      "probs": Array [
+        Object {
+          "prob": 0.5133139491081238,
+          "tok_str": "g",
+        },
+        Object {
+          "prob": 0.3046242296695709,
+          "tok_str": "ch",
+        },
+        Object {
+          "prob": 0.18206188082695007,
+          "tok_str": "bl",
+        },
+      ],
+    },
+    Object {
+      "content": "igg",
+      "probs": Array [
+        Object {
+          "prob": 0.9886618852615356,
+          "tok_str": "igg",
+        },
+        Object {
+          "prob": 0.008458126336336136,
+          "tok_str": "ig",
+        },
+        Object {
+          "prob": 0.002879939740523696,
+          "tok_str": "reet",
+        },
+      ],
+    },
+    Object {
+      "content": "les",
+      "probs": Array [
+        Object {
+          "prob": 1,
+          "tok_str": "les",
+        },
+        Object {
+          "prob": 1.8753286923356427e-8,
+          "tok_str": "ling",
+        },
+        Object {
+          "prob": 3.312444318837038e-9,
+          "tok_str": "LES",
+        },
+      ],
+    },
+    Object {
+      "content": "*",
+      "probs": Array [
+        Object {
+          "prob": 1,
+          "tok_str": "*",
+        },
+        Object {
+          "prob": 4.459857905203535e-8,
+          "tok_str": "*.",
+        },
+        Object {
+          "prob": 3.274198334679568e-8,
+          "tok_str": "**",
+        },
+      ],
+    },
+  ],
+  "content": "*giggles*",
+  "stopped_eos": true,
+  "stopped_limit": false,
+  "stopped_word": false,
+  "stopping_word": "",
+  "text": "*giggles*",
+  "timings": Object {
+    "predicted_ms": 1330.6290000000001,
+    "predicted_n": 5,
+    "predicted_per_second": 16.533534140620713,
+    "predicted_per_token_ms": 60.48313636363637,
+    "prompt_ms": 3805.6730000000002,
+    "prompt_n": 5,
+    "prompt_per_second": 8.408499626741445,
+    "prompt_per_token_ms": 118.92728125000001,
+  },
+  "tokens_cached": 54,
+  "tokens_evaluated": 15,
+  "tokens_predicted": 6,
+  "truncated": false,
+}
+`;
+
+exports[`Parallel APIs - completion: parallel completion tokens 1`] = `
+Array [
+  Object {
+    "completion_probabilities": Array [
+      Object {
+        "prob": 0.9658700227737427,
+        "tok_str": " *",
+      },
+      Object {
+        "prob": 0.021654844284057617,
+        "tok_str": " Hi",
+      },
+      Object {
+        "prob": 0.012475099414587021,
+        "tok_str": " Hello",
+      },
+    ],
+    "content": " *",
+    "token": " *",
+  },
+  Object {
+    "completion_probabilities": Array [
+      Object {
+        "prob": 0.5133139491081238,
+        "tok_str": "g",
+      },
+      Object {
+        "prob": 0.3046242296695709,
+        "tok_str": "ch",
+      },
+      Object {
+        "prob": 0.18206188082695007,
+        "tok_str": "bl",
+      },
+    ],
+    "content": " *g",
+    "token": "g",
+  },
+  Object {
+    "completion_probabilities": Array [
+      Object {
+        "prob": 0.9886618852615356,
+        "tok_str": "igg",
+      },
+      Object {
+        "prob": 0.008458126336336136,
+        "tok_str": "ig",
+      },
+      Object {
+        "prob": 0.002879939740523696,
+        "tok_str": "reet",
+      },
+    ],
+    "content": " *gigg",
+    "token": "igg",
+  },
+  Object {
+    "completion_probabilities": Array [
+      Object {
+        "prob": 1,
+        "tok_str": "les",
+      },
+      Object {
+        "prob": 1.8753286923356427e-8,
+        "tok_str": "ling",
+      },
+      Object {
+        "prob": 3.312444318837038e-9,
+        "tok_str": "LES",
+      },
+    ],
+    "content": " *giggles",
+    "token": "les",
+  },
+  Object {
+    "completion_probabilities": Array [
+      Object {
+        "prob": 1,
+        "tok_str": "*",
+      },
+      Object {
+        "prob": 4.459857905203535e-8,
+        "tok_str": "*.",
+      },
+      Object {
+        "prob": 3.274198334679568e-8,
+        "tok_str": "**",
+      },
+    ],
+    "content": " *giggles*",
+    "token": "*",
+  },
+]
+`;

@@ -74,6 +74,9 @@ export { SchemaGrammarConverter, convertJsonSchemaToGrammar }
 
 const EVENT_ON_INIT_CONTEXT_PROGRESS = '@RNLlama_onInitContextProgress'
 const EVENT_ON_TOKEN = '@RNLlama_onToken'
+const EVENT_ON_COMPLETE = '@RNLlama_onComplete'
+const EVENT_ON_EMBEDDING_RESULT = '@RNLlama_onEmbeddingResult'
+const EVENT_ON_RERANK_RESULTS = '@RNLlama_onRerankResults'
 const EVENT_ON_NATIVE_LOG = '@RNLlama_onNativeLog'
 
 let EventEmitter: NativeEventEmitter | DeviceEventEmitterStatic
@@ -120,6 +123,7 @@ export type TokenData = {
 
 type TokenNativeEvent = {
   contextId: number
+  requestId?: number
   tokenResult: TokenData
 }
 
@@ -254,6 +258,258 @@ export class LlamaContext {
   model: NativeLlamaContext['model']
 
   androidLib: NativeLlamaContext['androidLib']
+
+  /**
+   * Parallel processing namespace for non-blocking queue operations
+   */
+  parallel = {
+    /**
+     * Queue a completion request for parallel processing (non-blocking)
+     * @param params Completion parameters (same as completion())
+     * @param onToken Callback fired for each generated token
+     * @returns Promise resolving to object with requestId, promise (resolves to completion result), and stop function
+     */
+    completion: async (
+      params: CompletionParams,
+      onToken?: (requestId: number, data: TokenData) => void,
+    ): Promise<{
+      requestId: number
+      promise: Promise<NativeCompletionResult>
+      stop: () => Promise<void>
+    }> => {
+      const nativeParams = {
+        ...params,
+        prompt: params.prompt || '',
+        emit_partial_completion: true, // Always emit for queued requests
+      }
+
+      // Process messages same as completion()
+      if (params.messages) {
+        const formattedResult = await this.getFormattedChat(
+          params.messages,
+          params.chat_template || params.chatTemplate,
+          {
+            jinja: params.jinja,
+            tools: params.tools,
+            parallel_tool_calls: params.parallel_tool_calls,
+            tool_choice: params.tool_choice,
+            enable_thinking: params.enable_thinking,
+            add_generation_prompt: params.add_generation_prompt,
+            now: params.now,
+            chat_template_kwargs: params.chat_template_kwargs,
+          },
+        )
+        if (formattedResult.type === 'jinja') {
+          const jinjaResult = formattedResult as JinjaFormattedChatResult
+          nativeParams.prompt = jinjaResult.prompt || ''
+          if (typeof jinjaResult.chat_format === 'number')
+            nativeParams.chat_format = jinjaResult.chat_format
+          if (jinjaResult.grammar) nativeParams.grammar = jinjaResult.grammar
+          if (typeof jinjaResult.grammar_lazy === 'boolean')
+            nativeParams.grammar_lazy = jinjaResult.grammar_lazy
+          if (jinjaResult.grammar_triggers)
+            nativeParams.grammar_triggers = jinjaResult.grammar_triggers
+          if (jinjaResult.preserved_tokens)
+            nativeParams.preserved_tokens = jinjaResult.preserved_tokens
+          if (jinjaResult.additional_stops) {
+            if (!nativeParams.stop) nativeParams.stop = []
+            nativeParams.stop.push(...jinjaResult.additional_stops)
+          }
+          if (jinjaResult.has_media) {
+            nativeParams.media_paths = jinjaResult.media_paths
+          }
+        } else if (formattedResult.type === 'llama-chat') {
+          const llamaChatResult = formattedResult as FormattedChatResult
+          nativeParams.prompt = llamaChatResult.prompt || ''
+          if (llamaChatResult.has_media) {
+            nativeParams.media_paths = llamaChatResult.media_paths
+          }
+        }
+      } else {
+        nativeParams.prompt = params.prompt || ''
+      }
+
+      if (!nativeParams.media_paths && params.media_paths) {
+        nativeParams.media_paths = params.media_paths
+      }
+
+      if (nativeParams.response_format && !nativeParams.grammar) {
+        const jsonSchema = getJsonSchema(params.response_format)
+        if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
+      }
+
+      if (!nativeParams.prompt) throw new Error('Prompt is required')
+
+      // Set up listeners for this specific request
+      let tokenListener: any
+      let completeListener: any
+
+      const { requestId } = await RNLlama.queueCompletion(this.id, nativeParams)
+
+      // Create promise that resolves when completion finishes
+      const promise = new Promise<NativeCompletionResult>((resolve, _reject) => {
+        if (onToken) {
+          tokenListener = EventEmitter.addListener(EVENT_ON_TOKEN, (evt: TokenNativeEvent) => {
+            const { contextId, requestId: evtRequestId, tokenResult } = evt
+            if (contextId !== this.id) return
+            if (evtRequestId !== requestId) return
+            onToken(requestId, tokenResult)
+          })
+        }
+
+        completeListener = EventEmitter.addListener(EVENT_ON_COMPLETE, (evt: any) => {
+          const { contextId, requestId: evtRequestId, result } = evt
+          if (contextId !== this.id || evtRequestId !== requestId) return
+
+          // Clean up listeners
+          tokenListener?.remove()
+          completeListener?.remove()
+
+          // Resolve the promise
+          resolve(result as NativeCompletionResult)
+        })
+      })
+
+      // Create stop function
+      const stop = async () => {
+        await RNLlama.cancelRequest(this.id, requestId)
+        // Clean up listeners
+        tokenListener?.remove()
+        completeListener?.remove()
+      }
+
+      return {
+        requestId,
+        promise,
+        stop,
+      }
+    },
+
+    /**
+     * Queue an embedding request for parallel processing (non-blocking)
+     * @param text Text to embed
+     * @param params Optional embedding parameters
+     * @returns Promise resolving to object with requestId and promise (resolves to embedding result)
+     */
+    embedding: async (text: string, params?: EmbeddingParams): Promise<{
+      requestId: number
+      promise: Promise<NativeEmbeddingResult>
+    }> => {
+      let embeddingListener: any
+
+      const { requestId } = await RNLlama.queueEmbedding(this.id, text, params || {})
+
+      // Create promise that resolves when embedding completes
+      const promise = new Promise<NativeEmbeddingResult>((resolve, _reject) => {
+        embeddingListener = EventEmitter.addListener(EVENT_ON_EMBEDDING_RESULT, (evt: any) => {
+          const { contextId, requestId: evtRequestId, embedding } = evt
+          // Filter by both contextId AND requestId to ensure correct matching
+          if (contextId !== this.id || evtRequestId !== requestId) return
+
+          // Clean up listener
+          embeddingListener?.remove()
+
+          // Resolve the promise
+          resolve({ embedding })
+        })
+      })
+
+      return {
+        requestId,
+        promise,
+      }
+    },
+
+    /**
+     * Queue rerank requests for parallel processing (non-blocking)
+     * @param query The query text to rank documents against
+     * @param documents Array of document texts to rank
+     * @param params Optional reranking parameters
+     * @returns Promise resolving to object with requestId and promise (resolves to rerank results)
+     */
+    rerank: async (
+      query: string,
+      documents: string[],
+      params?: RerankParams,
+    ): Promise<{
+      requestId: number
+      promise: Promise<RerankResult[]>
+    }> => {
+      let rerankListener: any
+
+      const { requestId } = await RNLlama.queueRerank(this.id, query, documents, params || {})
+
+      // Create promise that resolves when reranking completes
+      const promise = new Promise<RerankResult[]>((resolve, _reject) => {
+        rerankListener = EventEmitter.addListener(EVENT_ON_RERANK_RESULTS, (evt: any) => {
+          const { contextId, requestId: evtRequestId, results } = evt
+          // Filter by both contextId AND requestId to ensure correct matching
+          if (contextId !== this.id || evtRequestId !== requestId) return
+
+          // Clean up listener
+          rerankListener?.remove()
+
+          // Sort by score descending (highest score first = most relevant) and add document text
+          const sortedResults = results
+            .map((result: NativeRerankResult) => ({
+              ...result,
+              document: documents[result.index],
+            }))
+            .sort((a: RerankResult, b: RerankResult) => b.score - a.score)
+
+          // Resolve the promise
+          resolve(sortedResults)
+        })
+      })
+
+      return {
+        requestId,
+        promise,
+      }
+    },
+
+    /**
+     * Enable parallel decoding mode
+     *
+     * Note: The context must be initialized with a sufficient n_parallel value to support
+     * the requested number of slots. By default, contexts are initialized with n_parallel=8,
+     * which supports up to 8 parallel slots. To use more slots, specify a higher n_parallel
+     * value when calling initLlama().
+     *
+     * @param params Configuration for parallel mode
+     * @param params.n_parallel Number of parallel slots (default: 2). Must be <= context's n_seq_max
+     * @param params.n_batch Batch size for processing (default: 512)
+     * @returns Promise resolving to true if successful
+     *
+     * @example
+     * // Initialize context with support for up to 16 parallel slots
+     * const context = await initLlama({ model: 'model.gguf', n_parallel: 16 })
+     *
+     * // Enable parallel mode with 4 slots
+     * await context.parallel.enable({ n_parallel: 4 })
+     *
+     * // Later, reconfigure to use 8 slots
+     * await context.parallel.configure({ n_parallel: 8 })
+     */
+    enable: (config?: { n_parallel?: number; n_batch?: number }) =>
+      RNLlama.enableParallelMode(this.id, { enabled: true, ...config }),
+
+    /**
+     * Disable parallel decoding mode
+     * @returns Promise resolving to true if successful
+     */
+    disable: () => RNLlama.enableParallelMode(this.id, { enabled: false }),
+
+    /**
+     * Configure parallel decoding mode (enables if not already enabled)
+     * @param config Configuration for parallel mode
+     * @param config.n_parallel Number of parallel slots (default: 2)
+     * @param config.n_batch Batch size for processing (default: 512)
+     * @returns Promise resolving to true if successful
+     */
+    configure: (config: { n_parallel?: number; n_batch?: number }) =>
+      RNLlama.enableParallelMode(this.id, { enabled: true, ...config }),
+  }
 
   constructor({ contextId, gpu, gpuDevice, reasonNoGPU, model, androidLib }: NativeLlamaContext) {
     this.id = contextId

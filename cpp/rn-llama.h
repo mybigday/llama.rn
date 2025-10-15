@@ -41,6 +41,8 @@ struct llama_rn_context_tts;
 
 struct llama_rn_context_completion;
 
+struct llama_rn_slot_manager;
+
 struct llama_rn_tokenize_result {
   std::vector<llama_token> tokens;
   bool has_media = false;
@@ -61,12 +63,20 @@ struct llama_rn_context {
     common_chat_templates_ptr templates;
     int n_ctx;
 
-    // Completion context
+    // Completion context (DEPRECATED: Use slot_manager for parallel decoding)
     llama_rn_context_completion *completion = nullptr;
+
+    // NEW: Slot manager for parallel decoding
+    llama_rn_slot_manager *slot_manager = nullptr;
+    bool parallel_mode_enabled = false;
 
     ~llama_rn_context();
 
     bool loadModel(common_params &params_);
+
+    // Parallel decoding methods
+    void enableParallelMode(int32_t n_parallel, int32_t n_batch = 512);
+    void disableParallelMode();
 
     // Model methods
     bool validateModelChatTemplate(bool use_jinja, const char *name) const;

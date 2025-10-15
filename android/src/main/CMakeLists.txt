@@ -80,7 +80,10 @@ set(
     ${RNLLAMA_LIB_DIR}/rn-llama.cpp
     ${RNLLAMA_LIB_DIR}/rn-completion.cpp
     ${RNLLAMA_LIB_DIR}/rn-tts.cpp
+    ${RNLLAMA_LIB_DIR}/rn-slot.cpp
+    ${RNLLAMA_LIB_DIR}/rn-slot-manager.cpp
     ${CMAKE_SOURCE_DIR}/jni-utils.h
+    ${CMAKE_SOURCE_DIR}/jni-utils.cpp
     ${CMAKE_SOURCE_DIR}/jni.cpp
 )
 

@@ -18,6 +18,12 @@ export type NativeContextParams = {
   n_ctx?: number
   n_batch?: number
   n_ubatch?: number
+  /**
+   * Number of parallel sequences to support (sets n_seq_max).
+   * This determines the maximum number of parallel slots that can be used.
+   * Default: 8
+   */
+  n_parallel?: number
 
   n_threads?: number
 
@@ -101,6 +107,14 @@ export type NativeContextParams = {
 export type NativeCompletionParams = {
   prompt: string
   n_threads?: number
+  /**
+   * Number of parallel slots for concurrent requests. Default: 1
+   */
+  n_parallel?: number
+  /**
+   * Batch size for processing. Default: 512
+   */
+  n_batch?: number
   /**
    * Enable Jinja. Default: true if supported by the model
    */
@@ -335,21 +349,21 @@ export type NativeCompletionResult = {
 export type NativeTokenizeResult = {
   tokens: Array<number>
   /**
-   * Whether the tokenization contains images
+   * Whether the tokenization contains media
    */
-  has_images: boolean
+  has_media: boolean
   /**
-   * Bitmap hashes of the images
+   * Bitmap hashes of the media
    */
   bitmap_hashes: Array<number>
   /**
-   * Chunk positions of the text and images
+   * Chunk positions of the text and media
    */
   chunk_pos: Array<number>
   /**
-   * Chunk positions of the images
+   * Chunk positions of the media
    */
-  chunk_pos_images: Array<number>
+  chunk_pos_media: Array<number>
 }
 
 export type NativeEmbeddingResult = {
@@ -496,7 +510,33 @@ export interface Spec extends TurboModule {
     params: NativeCompletionParams,
   ): Promise<NativeCompletionResult>
   stopCompletion(contextId: number): Promise<void>
-  tokenize(contextId: number, text: string, imagePaths?: Array<string>): Promise<NativeTokenizeResult>
+
+  // Parallel decoding methods
+  enableParallelMode(
+    contextId: number,
+    params: {
+      enabled: boolean
+      n_parallel?: number
+      n_batch?: number
+    },
+  ): Promise<boolean>
+  queueCompletion(
+    contextId: number,
+    params: NativeCompletionParams,
+  ): Promise<{ requestId: number }>
+  queueEmbedding(
+    contextId: number,
+    text: string,
+    params: NativeEmbeddingParams,
+  ): Promise<{ requestId: number }>
+  queueRerank(
+    contextId: number,
+    query: string,
+    documents: Array<string>,
+    params?: NativeRerankParams,
+  ): Promise<{ requestId: number }>
+  cancelRequest(contextId: number, requestId: number): Promise<void>
+  tokenize(contextId: number, text: string, mediaPaths?: Array<string>): Promise<NativeTokenizeResult>
   detokenize(contextId: number, tokens: number[]): Promise<string>
   embedding(
     contextId: number,

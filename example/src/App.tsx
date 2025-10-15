@@ -16,6 +16,7 @@ import ToolCallsScreen from './screens/ToolCallsScreen'
 import ModelInfoScreen from './screens/ModelInfoScreen'
 import BenchScreen from './screens/BenchScreen'
 import TextCompletionScreen from './screens/TextCompletionScreen'
+import ParallelDecodingScreen from './screens/ParallelDecodingScreen'
 import EmbeddingScreen from './screens/EmbeddingScreen'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { createThemedStyles } from './styles/commonStyles'
@@ -120,6 +121,12 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}
+          onPress={() => navigation.navigate('ParallelDecoding')}
+        >
+          <Text style={styles.buttonText}>⚡ Parallel Decoding</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
           onPress={() => navigation.navigate('Multimodal')}
         >
           <Text style={styles.buttonText}>👁️ Multimodal</Text>
@@ -134,7 +141,7 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
           style={styles.button}
           onPress={() => navigation.navigate('Embeddings')}
         >
-          <Text style={styles.buttonText}>🔍 Vector Search (in-memory)</Text>
+          <Text style={styles.buttonText}>🔍 Vector Search (in-memory) & Rerank</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}
@@ -229,6 +236,13 @@ function AppContent() {
             }}
           />
           <Stack.Screen
+            name="ParallelDecoding"
+            component={ParallelDecodingScreen}
+            options={{
+              title: 'Parallel Decoding',
+            }}
+          />
+          <Stack.Screen
             name="Multimodal"
             component={MultimodalScreen}
             options={{
@@ -246,7 +260,7 @@ function AppContent() {
             name="Embeddings"
             component={EmbeddingScreen}
             options={{
-              title: 'Vector Search (in-memory)',
+              title: 'Vector Search (in-memory) & Rerank',
             }}
           />
           <Stack.Screen

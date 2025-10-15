@@ -200,6 +200,9 @@ RCT_EXPORT_METHOD(saveSession:(double)contextId
   return@[
     @"@RNLlama_onInitContextProgress",
     @"@RNLlama_onToken",
+    @"@RNLlama_onComplete",
+    @"@RNLlama_onEmbeddingResult",
+    @"@RNLlama_onRerankResults",
     @"@RNLlama_onNativeLog",
   ];
 }
@@ -260,7 +263,7 @@ RCT_EXPORT_METHOD(stopCompletion:(double)contextId
 
 RCT_EXPORT_METHOD(tokenize:(double)contextId
                   text:(NSString *)text
-                  imagePaths:(NSArray *)imagePaths
+                  mediaPaths:(NSArray *)mediaPaths
                   withResolver:(RCTPromiseResolveBlock)resolve
                   withRejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -270,7 +273,7 @@ RCT_EXPORT_METHOD(tokenize:(double)contextId
         return;
     }
     @try {
-        NSMutableDictionary *result = [context tokenize:text imagePaths:imagePaths];
+        NSMutableDictionary *result = [context tokenize:text mediaPaths:mediaPaths];
         resolve(result);
         [result release];
     } @catch (NSException *exception) {
@@ -638,6 +641,178 @@ RCT_EXPORT_METHOD(releaseAllContexts:(RCTPromiseResolveBlock)resolve
     }
 
     [super invalidate];
+}
+
+// Enable or disable parallel decoding mode
+RCT_EXPORT_METHOD(enableParallelMode:(double)contextId
+                 withParams:(NSDictionary *)params
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    BOOL enabled = params[@"enabled"] ? [params[@"enabled"] boolValue] : YES;
+    int nParallel = params[@"n_parallel"] ? [params[@"n_parallel"] intValue] : 2;
+    int nBatch = params[@"n_batch"] ? [params[@"n_batch"] intValue] : 512;
+
+    @try {
+        if (enabled) {
+            BOOL success = [context enableParallelMode:nParallel nBatch:nBatch];
+            resolve(@(success));
+        } else {
+            [context disableParallelMode];
+            resolve(@(YES));
+        }
+    } @catch (NSException *exception) {
+        reject(@"llama_cpp_error", exception.reason, nil);
+    }
+}
+
+// Parallel decoding: Queue a completion request
+RCT_EXPORT_METHOD(queueCompletion:(double)contextId
+                 withCompletionParams:(NSDictionary *)completionParams
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    @try {
+        NSNumber *requestId = [context queueCompletion:completionParams
+            onToken:^(NSMutableDictionary *tokenResult) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    NSNumber *reqId = tokenResult[@"requestId"];
+                    [self sendEventWithName:@"@RNLlama_onToken"
+                        body:@{
+                            @"contextId": [NSNumber numberWithDouble:contextId],
+                            @"requestId": reqId ?: @(-1),
+                            @"tokenResult": tokenResult
+                        }
+                    ];
+                });
+            }
+            onComplete:^(NSDictionary *result) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    // Extract requestId from result (set by RNLlamaContext)
+                    NSNumber *reqId = result[@"requestId"];
+                    [self sendEventWithName:@"@RNLlama_onComplete"
+                        body:@{
+                            @"contextId": [NSNumber numberWithDouble:contextId],
+                            @"requestId": reqId ?: @(-1),
+                            @"result": result
+                        }
+                    ];
+                });
+            }
+        ];
+
+        if ([requestId intValue] == -1) {
+            reject(@"llama_error", @"Failed to queue completion request", nil);
+            return;
+        }
+
+        resolve(@{@"requestId": requestId});
+    } @catch (NSException *exception) {
+        reject(@"llama_cpp_error", exception.reason, nil);
+    }
+}
+
+// Cancel a queued request
+RCT_EXPORT_METHOD(cancelRequest:(double)contextId
+                 withRequestId:(double)requestId
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    [context cancelRequest:[NSNumber numberWithInt:(int)requestId]];
+    resolve(nil);
+}
+
+// Queue an embedding request (async, non-blocking)
+RCT_EXPORT_METHOD(queueEmbedding:(double)contextId
+                 withText:(NSString *)text
+                 withParams:(NSDictionary *)params
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    @try {
+        NSNumber *requestId = [context queueEmbedding:text params:params onResult:^(int32_t reqId, NSArray *embedding) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self sendEventWithName:@"@RNLlama_onEmbeddingResult"
+                    body:@{
+                        @"contextId": [NSNumber numberWithDouble:contextId],
+                        @"requestId": @(reqId),
+                        @"embedding": embedding
+                    }
+                ];
+            });
+        }];
+
+        if ([requestId intValue] == -1) {
+            reject(@"llama_error", @"Failed to queue embedding request", nil);
+            return;
+        }
+
+        resolve(@{@"requestId": requestId});
+    } @catch (NSException *exception) {
+        reject(@"llama_cpp_error", exception.reason, nil);
+    }
+}
+
+// Queue a rerank request (async, non-blocking)
+RCT_EXPORT_METHOD(queueRerank:(double)contextId
+                 withQuery:(NSString *)query
+                 withDocuments:(NSArray<NSString *> *)documents
+                 withParams:(NSDictionary *)params
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+
+    @try {
+        NSNumber *requestId = [context queueRerank:query documents:documents params:params onResults:^(int32_t reqId, NSArray *results) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self sendEventWithName:@"@RNLlama_onRerankResults"
+                    body:@{
+                        @"contextId": [NSNumber numberWithDouble:contextId],
+                        @"requestId": @(reqId),
+                        @"results": results
+                    }
+                ];
+            });
+        }];
+
+        if ([requestId intValue] == -1) {
+            reject(@"llama_error", @"Failed to queue rerank request", nil);
+            return;
+        }
+
+        resolve(@{@"requestId": requestId});
+    } @catch (NSException *exception) {
+        reject(@"llama_cpp_error", exception.reason, nil);
+    }
 }
 
 // Don't compile this code when we build for the old architecture.
