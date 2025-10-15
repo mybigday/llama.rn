@@ -154,6 +154,15 @@ inline jstring getString(JNIEnv *env, jobject readableMap, const char *key, jstr
     return result;
 }
 
+inline jobject getArray(JNIEnv *env, jobject readableMap, const char *key) {
+    jclass mapClass = env->GetObjectClass(readableMap);
+    jmethodID getArrayMethod = env->GetMethodID(mapClass, "getArray", "(Ljava/lang/String;)Lcom/facebook/react/bridge/ReadableArray;");
+    jstring jKey = env->NewStringUTF(key);
+    jobject result = env->CallObjectMethod(readableMap, getArrayMethod, jKey);
+    env->DeleteLocalRef(jKey);
+    return result;
+}
+
 } // namespace readablemap
 
 namespace writablemap {

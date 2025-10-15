@@ -146,11 +146,7 @@ std::unordered_map<long, rnllama::llama_rn_context *> context_map;
 std::vector<std::string> extract_media_paths(JNIEnv *env, jobject params) {
     std::vector<std::string> media_paths_vec;
     if (readablemap::hasKey(env, params, "media_paths")) {
-        jclass mapClass = env->GetObjectClass(params);
-        jmethodID getArrayMethod = env->GetMethodID(mapClass, "getArray", "(Ljava/lang/String;)Lcom/facebook/react/bridge/ReadableArray;");
-        jstring key = env->NewStringUTF("media_paths");
-        jobject media_paths = env->CallObjectMethod(params, getArrayMethod, key);
-        env->DeleteLocalRef(key);
+        jobject media_paths = readablemap::getArray(env, params, "media_paths");
 
         if (media_paths != nullptr) {
             int size = readablearray::size(env, media_paths);
@@ -240,11 +236,7 @@ void extract_sampling_params(
 
     // DRY sequence breakers
     if (readablemap::hasKey(env, params, "dry_sequence_breakers")) {
-        jclass mapClass = env->GetObjectClass(params);
-        jmethodID getArrayMethod = env->GetMethodID(mapClass, "getArray", "(Ljava/lang/String;)Lcom/facebook/react/bridge/ReadableArray;");
-        jstring key = env->NewStringUTF("dry_sequence_breakers");
-        jobject dry_sequence_breakers = env->CallObjectMethod(params, getArrayMethod, key);
-        env->DeleteLocalRef(key);
+        jobject dry_sequence_breakers = readablemap::getArray(env, params, "dry_sequence_breakers");
 
         sparams.dry_sequence_breakers.clear();
         int size = readablearray::size(env, dry_sequence_breakers);
@@ -298,11 +290,7 @@ void extract_sampling_params(
 
     // Stop sequences
     if (readablemap::hasKey(env, params, "stop")) {
-        jclass mapClass = env->GetObjectClass(params);
-        jmethodID getArrayMethod = env->GetMethodID(mapClass, "getArray", "(Ljava/lang/String;)Lcom/facebook/react/bridge/ReadableArray;");
-        jstring key = env->NewStringUTF("stop");
-        jobject stop_array = env->CallObjectMethod(params, getArrayMethod, key);
-        env->DeleteLocalRef(key);
+        jobject stop_array = readablemap::getArray(env, params, "stop");
 
         cparams.antiprompt.clear();
         int size = readablearray::size(env, stop_array);
@@ -316,11 +304,7 @@ void extract_sampling_params(
 
     // Logit bias
     if (readablemap::hasKey(env, params, "logit_bias")) {
-        jclass mapClass = env->GetObjectClass(params);
-        jmethodID getArrayMethod = env->GetMethodID(mapClass, "getArray", "(Ljava/lang/String;)Lcom/facebook/react/bridge/ReadableArray;");
-        jstring key = env->NewStringUTF("logit_bias");
-        jobject logit_bias_array = env->CallObjectMethod(params, getArrayMethod, key);
-        env->DeleteLocalRef(key);
+        jobject logit_bias_array = readablemap::getArray(env, params, "logit_bias");
 
         int size = readablearray::size(env, logit_bias_array);
         for (int i = 0; i < size; i++) {
@@ -347,11 +331,7 @@ void extract_sampling_params(
 
     // Set preserved_tokens if provided
     if (readablemap::hasKey(env, params, "preserved_tokens")) {
-        jclass mapClass = env->GetObjectClass(params);
-        jmethodID getArrayMethod = env->GetMethodID(mapClass, "getArray", "(Ljava/lang/String;)Lcom/facebook/react/bridge/ReadableArray;");
-        jstring key = env->NewStringUTF("preserved_tokens");
-        jobject preserved_tokens = env->CallObjectMethod(params, getArrayMethod, key);
-        env->DeleteLocalRef(key);
+        jobject preserved_tokens = readablemap::getArray(env, params, "preserved_tokens");
 
         int preserved_tokens_size = readablearray::size(env, preserved_tokens);
         for (int i = 0; i < preserved_tokens_size; i++) {
@@ -365,11 +345,7 @@ void extract_sampling_params(
 
     // Set grammar_triggers if provided
     if (readablemap::hasKey(env, params, "grammar_triggers")) {
-        jclass mapClass = env->GetObjectClass(params);
-        jmethodID getArrayMethod = env->GetMethodID(mapClass, "getArray", "(Ljava/lang/String;)Lcom/facebook/react/bridge/ReadableArray;");
-        jstring key = env->NewStringUTF("grammar_triggers");
-        jobject grammar_triggers = env->CallObjectMethod(params, getArrayMethod, key);
-        env->DeleteLocalRef(key);
+        jobject grammar_triggers = readablemap::getArray(env, params, "grammar_triggers");
 
         int grammar_triggers_size = readablearray::size(env, grammar_triggers);
         for (int i = 0; i < grammar_triggers_size; i++) {
@@ -670,11 +646,7 @@ Java_com_rnllama_LlamaContext_initContext(
 
     // Handle lora_list array
     if (readablemap::hasKey(env, params_map, "lora_list")) {
-        jclass mapClass = env->GetObjectClass(params_map);
-        jmethodID getArrayMethod = env->GetMethodID(mapClass, "getArray", "(Ljava/lang/String;)Lcom/facebook/react/bridge/ReadableArray;");
-        jstring key = env->NewStringUTF("lora_list");
-        jobject lora_list = env->CallObjectMethod(params_map, getArrayMethod, key);
-        env->DeleteLocalRef(key);
+        jobject lora_list = readablemap::getArray(env, params_map, "lora_list");
 
         if (lora_list != nullptr) {
             // lora_adapters: ReadableArray<ReadableMap>
@@ -1219,11 +1191,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
 
     // Extract guide_tokens if provided
     if (readablemap::hasKey(env, params, "guide_tokens")) {
-        jclass mapClass = env->GetObjectClass(params);
-        jmethodID getArrayMethod = env->GetMethodID(mapClass, "getArray", "(Ljava/lang/String;)Lcom/facebook/react/bridge/ReadableArray;");
-        jstring key = env->NewStringUTF("guide_tokens");
-        jobject guide_tokens_array = env->CallObjectMethod(params, getArrayMethod, key);
-        env->DeleteLocalRef(key);
+        jobject guide_tokens_array = readablemap::getArray(env, params, "guide_tokens");
 
         int size = readablearray::size(env, guide_tokens_array);
         std::vector<llama_token> guide_tokens_vector(size);
