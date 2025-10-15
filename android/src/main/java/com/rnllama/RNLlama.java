@@ -133,10 +133,11 @@ public class RNLlama implements LifecycleEventListener {
         }
         Object result;
         if (params.hasKey("jinja") && params.getBoolean("jinja")) {
-          boolean addGenerationPrompt = params.hasKey("add_generation_prompt") ? params.getBoolean("add_generation_prompt") : true;
-          String nowStr = params.hasKey("now") ? params.getString("now") : "";
-          String chatTemplateKwargs = params.hasKey("chat_template_kwargs") ? params.getString("chat_template_kwargs") : "";
-          ReadableMap resultMap = context.getFormattedChatWithJinja(messages, chatTemplate, params, addGenerationPrompt, nowStr, chatTemplateKwargs);
+          ReadableMap resultMap = context.getFormattedChatWithJinja(
+            messages,
+            chatTemplate == null ? "" : chatTemplate,
+            params
+          );
           if (resultMap.hasKey("_error")) {
             throw new Exception(resultMap.getString("_error"));
           }

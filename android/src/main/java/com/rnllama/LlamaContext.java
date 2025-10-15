@@ -69,64 +69,13 @@ public class LlamaContext {
     }
     eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
     this.id = id;
-    WritableMap initResult = initContext(
-      // String model,
-      params.getString("model"),
-      // String chat_template,
-      params.hasKey("chat_template") ? params.getString("chat_template") : "",
-      // boolean embedding,
-      params.hasKey("embedding") ? params.getBoolean("embedding") : false,
-      // int embd_normalize,
-      params.hasKey("embd_normalize") ? params.getInt("embd_normalize") : -1,
-      // int n_ctx,
-      params.hasKey("n_ctx") ? params.getInt("n_ctx") : 512,
-      // int n_batch,
-      params.hasKey("n_batch") ? params.getInt("n_batch") : 512,
-      // int n_ubatch,
-      params.hasKey("n_ubatch") ? params.getInt("n_ubatch") : 512,
-      // int n_parallel,
-      params.hasKey("n_parallel") ? params.getInt("n_parallel") : 0,
-      // int n_threads,
-      params.hasKey("n_threads") ? params.getInt("n_threads") : 0,
-      // int n_gpu_layers,
-      params.hasKey("n_gpu_layers") ? params.getInt("n_gpu_layers") : 0,
-      // boolean flash_attn,
-      params.hasKey("flash_attn") ? params.getBoolean("flash_attn") : false,
-      // String flash_attn_type,
-      params.hasKey("flash_attn_type") ? params.getString("flash_attn_type") : "",
-      // String cache_type_k,
-      params.hasKey("cache_type_k") ? params.getString("cache_type_k") : "f16",
-      // String cache_type_v,
-      params.hasKey("cache_type_v") ? params.getString("cache_type_v") : "f16",
-      // boolean use_mlock,
-      params.hasKey("use_mlock") ? params.getBoolean("use_mlock") : true,
-      // boolean use_mmap,
-      params.hasKey("use_mmap") ? params.getBoolean("use_mmap") : true,
-      //boolean vocab_only,
-      params.hasKey("vocab_only") ? params.getBoolean("vocab_only") : false,
-      // String lora,
-      params.hasKey("lora") ? params.getString("lora") : "",
-      // float lora_scaled,
-      params.hasKey("lora_scaled") ? (float) params.getDouble("lora_scaled") : 1.0f,
-      // ReadableArray lora_adapters,
-      params.hasKey("lora_list") ? params.getArray("lora_list") : null,
-      // float rope_freq_base,
-      params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 0.0f,
-      // float rope_freq_scale
-      params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 0.0f,
-      // int pooling_type,
-      params.hasKey("pooling_type") ? params.getInt("pooling_type") : -1,
-      // boolean ctx_shift,
-      params.hasKey("ctx_shift") ? params.getBoolean("ctx_shift") : true,
-      // boolean kv_unified,
-      params.hasKey("kv_unified") ? params.getBoolean("kv_unified") : false,
-      // boolean swa_full,
-      params.hasKey("swa_full") ? params.getBoolean("swa_full") : false,
-      // int n_cpu_moe,
-      params.hasKey("n_cpu_moe") ? params.getInt("n_cpu_moe") : 0,
-      // LoadProgressCallback load_progress_callback
-      params.hasKey("use_progress_callback") ? new LoadProgressCallback(this) : null
-    );
+
+    // Create callback if needed
+    LoadProgressCallback callback = params.hasKey("use_progress_callback") && params.getBoolean("use_progress_callback")
+      ? new LoadProgressCallback(this)
+      : null;
+
+    WritableMap initResult = initContext(params, callback);
     if (initResult == null || !initResult.hasKey("context")) {
       throw new IllegalStateException("Failed to initialize context");
     }
@@ -188,25 +137,9 @@ public class LlamaContext {
     return gpuDevice;
   }
 
-  public WritableMap getFormattedChatWithJinja(String messages, String chatTemplate, ReadableMap params, boolean addGenerationPrompt, String nowStr, String chatTemplateKwargs) {
-    String jsonSchema = params.hasKey("json_schema") ? params.getString("json_schema") : "";
-    String tools = params.hasKey("tools") ? params.getString("tools") : "";
-    Boolean parallelToolCalls = params.hasKey("parallel_tool_calls") ? params.getBoolean("parallel_tool_calls") : false;
-    String toolChoice = params.hasKey("tool_choice") ? params.getString("tool_choice") : "";
-    Boolean enableThinking = params.hasKey("enable_thinking") ? params.getBoolean("enable_thinking") : false;
-    return getFormattedChatWithJinja(
-      this.context,
-      messages,
-      chatTemplate == null ? "" : chatTemplate,
-      jsonSchema,
-      tools,
-      parallelToolCalls,
-      toolChoice,
-      enableThinking,
-      addGenerationPrompt,
-      nowStr,
-      chatTemplateKwargs
-    );
+  public WritableMap getFormattedChatWithJinja(String messages, String chatTemplate, ReadableMap params) {
+
+    return getFormattedChatWithJinja(this.context, messages, chatTemplate, params);
   }
 
   public String getFormattedChat(String messages, String chatTemplate) {
@@ -284,114 +217,13 @@ public class LlamaContext {
       throw new IllegalArgumentException("Missing required parameter: prompt");
     }
 
-    double[][] logit_bias = new double[0][0];
-    if (params.hasKey("logit_bias")) {
-      ReadableArray logit_bias_array = params.getArray("logit_bias");
-      logit_bias = new double[logit_bias_array.size()][];
-      for (int i = 0; i < logit_bias_array.size(); i++) {
-        ReadableArray logit_bias_row = logit_bias_array.getArray(i);
-        logit_bias[i] = new double[logit_bias_row.size()];
-        for (int j = 0; j < logit_bias_row.size(); j++) {
-          logit_bias[i][j] = logit_bias_row.getDouble(j);
-        }
-      }
-    }
-
-    int[] guide_tokens = null;
-    if (params.hasKey("guide_tokens")) {
-      ReadableArray guide_tokens_array = params.getArray("guide_tokens");
-      guide_tokens = new int[guide_tokens_array.size()];
-      for (int i = 0; i < guide_tokens_array.size(); i++) {
-        guide_tokens[i] = (int) guide_tokens_array.getDouble(i);
-      }
-    }
-
-    WritableMap result = doCompletion(
-      this.context,
-      // String prompt,
-      params.getString("prompt"),
-      // String prefill_text,
-      params.hasKey("prefill_text") ? params.getString("prefill_text") : "",
-      // int[] guide_tokens,
-      guide_tokens,
-      // int chat_format,
-      params.hasKey("chat_format") ? params.getInt("chat_format") : 0,
-      // String reasoning_format,
-      params.hasKey("reasoning_format") ? params.getString("reasoning_format") : "none",
-      // String grammar,
-      params.hasKey("grammar") ? params.getString("grammar") : "",
-      // String json_schema,
-      params.hasKey("json_schema") ? params.getString("json_schema") : "",
-      // boolean grammar_lazy,
-      params.hasKey("grammar_lazy") ? params.getBoolean("grammar_lazy") : false,
-      // ReadableArray grammar_triggers,
-      params.hasKey("grammar_triggers") ? params.getArray("grammar_triggers") : null,
-      // ReadableArray preserved_tokens,
-      params.hasKey("preserved_tokens") ? params.getArray("preserved_tokens") : null,
-      // boolean thinking_forced_open,
-      params.hasKey("thinking_forced_open") ? params.getBoolean("thinking_forced_open") : false,
-      // float temperature,
-      params.hasKey("temperature") ? (float) params.getDouble("temperature") : 0.7f,
-      // int n_threads,
-      params.hasKey("n_threads") ? params.getInt("n_threads") : 0,
-      // int n_predict,
-      params.hasKey("n_predict") ? params.getInt("n_predict") : -1,
-      // int n_probs,
-      params.hasKey("n_probs") ? params.getInt("n_probs") : 0,
-      // int penalty_last_n,
-      params.hasKey("penalty_last_n") ? params.getInt("penalty_last_n") : 64,
-      // float penalty_repeat,
-      params.hasKey("penalty_repeat") ? (float) params.getDouble("penalty_repeat") : 1.00f,
-      // float penalty_freq,
-      params.hasKey("penalty_freq") ? (float) params.getDouble("penalty_freq") : 0.00f,
-      // float penalty_present,
-      params.hasKey("penalty_present") ? (float) params.getDouble("penalty_present") : 0.00f,
-      // float mirostat,
-      params.hasKey("mirostat") ? (float) params.getDouble("mirostat") : 0.00f,
-      // float mirostat_tau,
-      params.hasKey("mirostat_tau") ? (float) params.getDouble("mirostat_tau") : 5.00f,
-      // float mirostat_eta,
-      params.hasKey("mirostat_eta") ? (float) params.getDouble("mirostat_eta") : 0.10f,
-      // int top_k,
-      params.hasKey("top_k") ? params.getInt("top_k") : 40,
-      // float top_p,
-      params.hasKey("top_p") ? (float) params.getDouble("top_p") : 0.95f,
-      // float min_p,
-      params.hasKey("min_p") ? (float) params.getDouble("min_p") : 0.05f,
-      // float xtc_threshold,
-      params.hasKey("xtc_threshold") ? (float) params.getDouble("xtc_threshold") : 0.00f,
-      // float xtc_probability,
-      params.hasKey("xtc_probability") ? (float) params.getDouble("xtc_probability") : 0.00f,
-      // float typical_p,
-      params.hasKey("typical_p") ? (float) params.getDouble("typical_p") : 1.00f,
-      // int seed,
-      params.hasKey("seed") ? params.getInt("seed") : -1,
-      // String[] stop,
-      params.hasKey("stop") ? params.getArray("stop").toArrayList().toArray(new String[0]) : new String[0],
-      // boolean ignore_eos,
-      params.hasKey("ignore_eos") ? params.getBoolean("ignore_eos") : false,
-      // double[][] logit_bias,
-      logit_bias,
-      // float dry_multiplier,
-      params.hasKey("dry_multiplier") ? (float) params.getDouble("dry_multiplier") : 0.00f,
-      // float dry_base,
-      params.hasKey("dry_base") ? (float) params.getDouble("dry_base") : 1.75f,
-      // int dry_allowed_length,
-      params.hasKey("dry_allowed_length") ? params.getInt("dry_allowed_length") : 2,
-      // int dry_penalty_last_n,
-      params.hasKey("dry_penalty_last_n") ? params.getInt("dry_penalty_last_n") : -1,
-      // float top_n_sigma,
-      params.hasKey("top_n_sigma") ? (float) params.getDouble("top_n_sigma") : -1.0f,
-      // String[] dry_sequence_breakers, when undef, we use the default definition from common.h
-      params.hasKey("dry_sequence_breakers") ? params.getArray("dry_sequence_breakers").toArrayList().toArray(new String[0]) : new String[]{"\n", ":", "\"", "*"},
-      // String[] media_paths
-      params.hasKey("media_paths") ? params.getArray("media_paths").toArrayList().toArray(new String[0]) : new String[0],
-      // PartialCompletionCallback partial_completion_callback
-      new PartialCompletionCallback(
-        this,
-        params.hasKey("emit_partial_completion") ? params.getBoolean("emit_partial_completion") : false
-      )
+    // Create callback object in Java - emit_partial_completion defaults handled in callback logic
+    PartialCompletionCallback callback = new PartialCompletionCallback(
+      this,
+      params.hasKey("emit_partial_completion") && params.getBoolean("emit_partial_completion")
     );
+
+    WritableMap result = doCompletion(this.context, params, callback);
     if (result.hasKey("error")) {
       throw new IllegalStateException(result.getString("error"));
     }
@@ -647,116 +479,14 @@ public class LlamaContext {
       throw new IllegalArgumentException("Missing required parameter: prompt");
     }
 
-    double[][] logit_bias = new double[0][0];
-    if (params.hasKey("logit_bias")) {
-      ReadableArray logit_bias_array = params.getArray("logit_bias");
-      logit_bias = new double[logit_bias_array.size()][];
-      for (int i = 0; i < logit_bias_array.size(); i++) {
-        ReadableArray logit_bias_row = logit_bias_array.getArray(i);
-        logit_bias[i] = new double[logit_bias_row.size()];
-        for (int j = 0; j < logit_bias_row.size(); j++) {
-          logit_bias[i][j] = logit_bias_row.getDouble(j);
-        }
-      }
-    }
-
-    int[] guide_tokens = null;
-    if (params.hasKey("guide_tokens")) {
-      ReadableArray guide_tokens_array = params.getArray("guide_tokens");
-      guide_tokens = new int[guide_tokens_array.size()];
-      for (int i = 0; i < guide_tokens_array.size(); i++) {
-        guide_tokens[i] = (int) guide_tokens_array.getDouble(i);
-      }
-    }
-
-    WritableMap result = doQueueCompletion(
-      this.context,
-      // String prompt,
-      params.getString("prompt"),
-      // String prefill_text,
-      params.hasKey("prefill_text") ? params.getString("prefill_text") : "",
-      // int[] guide_tokens,
-      guide_tokens,
-      // int chat_format,
-      params.hasKey("chat_format") ? params.getInt("chat_format") : 0,
-      // String reasoning_format,
-      params.hasKey("reasoning_format") ? params.getString("reasoning_format") : "none",
-      // String grammar,
-      params.hasKey("grammar") ? params.getString("grammar") : "",
-      // String json_schema,
-      params.hasKey("json_schema") ? params.getString("json_schema") : "",
-      // boolean grammar_lazy,
-      params.hasKey("grammar_lazy") ? params.getBoolean("grammar_lazy") : false,
-      // ReadableArray grammar_triggers,
-      params.hasKey("grammar_triggers") ? params.getArray("grammar_triggers") : null,
-      // ReadableArray preserved_tokens,
-      params.hasKey("preserved_tokens") ? params.getArray("preserved_tokens") : null,
-      // boolean thinking_forced_open,
-      params.hasKey("thinking_forced_open") ? params.getBoolean("thinking_forced_open") : false,
-      // float temperature,
-      params.hasKey("temperature") ? (float) params.getDouble("temperature") : 0.7f,
-      // int n_threads,
-      params.hasKey("n_threads") ? params.getInt("n_threads") : 0,
-      // int n_predict,
-      params.hasKey("n_predict") ? params.getInt("n_predict") : -1,
-      // int n_probs,
-      params.hasKey("n_probs") ? params.getInt("n_probs") : 0,
-      // int penalty_last_n,
-      params.hasKey("penalty_last_n") ? params.getInt("penalty_last_n") : 64,
-      // float penalty_repeat,
-      params.hasKey("penalty_repeat") ? (float) params.getDouble("penalty_repeat") : 1.00f,
-      // float penalty_freq,
-      params.hasKey("penalty_freq") ? (float) params.getDouble("penalty_freq") : 0.00f,
-      // float penalty_present,
-      params.hasKey("penalty_present") ? (float) params.getDouble("penalty_present") : 0.00f,
-      // float mirostat,
-      params.hasKey("mirostat") ? (float) params.getDouble("mirostat") : 0.00f,
-      // float mirostat_tau,
-      params.hasKey("mirostat_tau") ? (float) params.getDouble("mirostat_tau") : 5.00f,
-      // float mirostat_eta,
-      params.hasKey("mirostat_eta") ? (float) params.getDouble("mirostat_eta") : 0.10f,
-      // int top_k,
-      params.hasKey("top_k") ? params.getInt("top_k") : 40,
-      // float top_p,
-      params.hasKey("top_p") ? (float) params.getDouble("top_p") : 0.95f,
-      // float min_p,
-      params.hasKey("min_p") ? (float) params.getDouble("min_p") : 0.05f,
-      // float xtc_threshold,
-      params.hasKey("xtc_threshold") ? (float) params.getDouble("xtc_threshold") : 0.00f,
-      // float xtc_probability,
-      params.hasKey("xtc_probability") ? (float) params.getDouble("xtc_probability") : 0.00f,
-      // float typical_p,
-      params.hasKey("typical_p") ? (float) params.getDouble("typical_p") : 1.00f,
-      // int seed,
-      params.hasKey("seed") ? params.getInt("seed") : -1,
-      // String[] stop,
-      params.hasKey("stop") ? params.getArray("stop").toArrayList().toArray(new String[0]) : new String[0],
-      // boolean ignore_eos,
-      params.hasKey("ignore_eos") ? params.getBoolean("ignore_eos") : false,
-      // double[][] logit_bias,
-      logit_bias,
-      // float dry_multiplier,
-      params.hasKey("dry_multiplier") ? (float) params.getDouble("dry_multiplier") : 0.00f,
-      // float dry_base,
-      params.hasKey("dry_base") ? (float) params.getDouble("dry_base") : 1.75f,
-      // int dry_allowed_length,
-      params.hasKey("dry_allowed_length") ? params.getInt("dry_allowed_length") : 2,
-      // int dry_penalty_last_n,
-      params.hasKey("dry_penalty_last_n") ? params.getInt("dry_penalty_last_n") : -1,
-      // float top_n_sigma,
-      params.hasKey("top_n_sigma") ? (float) params.getDouble("top_n_sigma") : -1.0f,
-      // String[] dry_sequence_breakers,
-      params.hasKey("dry_sequence_breakers") ? params.getArray("dry_sequence_breakers").toArrayList().toArray(new String[0]) : new String[]{"\n", ":", "\"", "*"},
-      // String[] media_paths
-      params.hasKey("media_paths") ? params.getArray("media_paths").toArrayList().toArray(new String[0]) : new String[0],
-      // PartialCompletionCallback partial_completion_callback
-      new PartialCompletionCallback(
-        this,
-        params.hasKey("emit_partial_completion") ? params.getBoolean("emit_partial_completion") : false
-      ),
-      // CompletionCallback completion_callback
-      new CompletionCallback(this)
+    // Create callback objects in Java
+    PartialCompletionCallback partialCallback = new PartialCompletionCallback(
+      this,
+      params.hasKey("emit_partial_completion") && params.getBoolean("emit_partial_completion")
     );
+    CompletionCallback completionCallback = new CompletionCallback(this);
+
+    WritableMap result = doQueueCompletion(this.context, params, partialCallback, completionCallback);
 
     if (result.hasKey("error")) {
       throw new IllegalStateException(result.getString("error"));
@@ -898,33 +628,7 @@ public class LlamaContext {
     String[] skip
   );
   protected static native WritableMap initContext(
-    String model_path,
-    String chat_template,
-    boolean embedding,
-    int embd_normalize,
-    int n_ctx,
-    int n_batch,
-    int n_ubatch,
-    int n_parallel,
-    int n_threads,
-    int n_gpu_layers,
-    boolean flash_attn,
-    String flash_attn_type,
-    String cache_type_k,
-    String cache_type_v,
-    boolean use_mlock,
-    boolean use_mmap,
-    boolean vocab_only,
-    String lora,
-    float lora_scaled,
-    ReadableArray lora_list,
-    float rope_freq_base,
-    float rope_freq_scale,
-    int pooling_type,
-    boolean ctx_shift,
-    boolean kv_unified,
-    boolean swa_full,
-    int n_cpu_moe,
+    ReadableMap params,
     LoadProgressCallback load_progress_callback
   );
   protected static native boolean initMultimodal(long contextPtr, String mmproj_path, boolean MMPROJ_USE_GPU);
@@ -938,14 +642,7 @@ public class LlamaContext {
     long contextPtr,
     String messages,
     String chatTemplate,
-    String jsonSchema,
-    String tools,
-    boolean parallelToolCalls,
-    String toolChoice,
-    boolean enableThinking,
-    boolean addGenerationPrompt,
-    String nowStr,
-    String chatTemplateKwargs
+    ReadableMap params
   );
   protected static native String getFormattedChat(
     long contextPtr,
@@ -963,45 +660,7 @@ public class LlamaContext {
   );
   protected static native WritableMap doCompletion(
     long context_ptr,
-    String prompt,
-    String prefill_text,
-    int[] guide_tokens,
-    int chat_format,
-    String reasoning_format,
-    String grammar,
-    String json_schema,
-    boolean grammar_lazy,
-    ReadableArray grammar_triggers,
-    ReadableArray preserved_tokens,
-    boolean thinking_forced_open,
-    float temperature,
-    int n_threads,
-    int n_predict,
-    int n_probs,
-    int penalty_last_n,
-    float penalty_repeat,
-    float penalty_freq,
-    float penalty_present,
-    float mirostat,
-    float mirostat_tau,
-    float mirostat_eta,
-    int top_k,
-    float top_p,
-    float min_p,
-    float xtc_threshold,
-    float xtc_probability,
-    float typical_p,
-    int seed,
-    String[] stop,
-    boolean ignore_eos,
-    double[][] logit_bias,
-    float   dry_multiplier,
-    float   dry_base,
-    int dry_allowed_length,
-    int dry_penalty_last_n,
-    float top_n_sigma,
-    String[] dry_sequence_breakers,
-    String[] media_paths,
+    ReadableMap params,
     PartialCompletionCallback partial_completion_callback
   );
   protected static native void stopCompletion(long contextPtr);
@@ -1036,45 +695,7 @@ public class LlamaContext {
   protected static native void updateSlots(long contextPtr);
   protected static native WritableMap doQueueCompletion(
     long context_ptr,
-    String prompt,
-    String prefill_text,
-    int[] guide_tokens,
-    int chat_format,
-    String reasoning_format,
-    String grammar,
-    String json_schema,
-    boolean grammar_lazy,
-    ReadableArray grammar_triggers,
-    ReadableArray preserved_tokens,
-    boolean thinking_forced_open,
-    float temperature,
-    int n_threads,
-    int n_predict,
-    int n_probs,
-    int penalty_last_n,
-    float penalty_repeat,
-    float penalty_freq,
-    float penalty_present,
-    float mirostat,
-    float mirostat_tau,
-    float mirostat_eta,
-    int top_k,
-    float top_p,
-    float min_p,
-    float xtc_threshold,
-    float xtc_probability,
-    float typical_p,
-    int seed,
-    String[] stop,
-    boolean ignore_eos,
-    double[][] logit_bias,
-    float dry_multiplier,
-    float dry_base,
-    int dry_allowed_length,
-    int dry_penalty_last_n,
-    float top_n_sigma,
-    String[] dry_sequence_breakers,
-    String[] media_paths,
+    ReadableMap params,
     PartialCompletionCallback partial_completion_callback,
     CompletionCallback completion_callback
   );
