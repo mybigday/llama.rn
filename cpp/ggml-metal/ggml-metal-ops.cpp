@@ -418,6 +418,10 @@ static int lm_ggml_metal_op_encode_impl(lm_ggml_metal_op_t ctx, int idx) {
             {
                 n_fuse = lm_ggml_metal_op_opt_step_adamw(ctx, idx);
             } break;
+        case LM_GGML_OP_OPT_STEP_SGD:
+            {
+                n_fuse = lm_ggml_metal_op_opt_step_sgd(ctx, idx);
+            } break;
        default:
             {
                 LM_GGML_LOG_ERROR("%s: error: node %3d, op = %8s not implemented\n", __func__, idx, lm_ggml_op_name(node->op));
@@ -2965,6 +2969,7 @@ int lm_ggml_metal_op_rope(lm_ggml_metal_op_t ctx, int idx) {
         /* sect_1      =*/ sect_1,
         /* sect_2      =*/ sect_2,
         /* sect_3      =*/ sect_3,
+        /* src2        =*/ op->src[2] != nullptr,
     };
 
     lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_rope(lib, op);
@@ -3461,6 +3466,40 @@ int lm_ggml_metal_op_opt_step_adamw(lm_ggml_metal_op_t ctx, int idx) {
     lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[2]), ida++);
     lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[3]), ida++);
     lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[4]), ida++);
+
+    const int nth = std::min(lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline), ne0);
+    const int64_t n = (np + nth - 1) / nth;
+
+    lm_ggml_metal_encoder_dispatch_threadgroups(enc, n, 1, 1, nth, 1, 1);
+
+    return 1;
+}
+
+int lm_ggml_metal_op_opt_step_sgd(lm_ggml_metal_op_t ctx, int idx) {
+    lm_ggml_tensor * op = ctx->node(idx);
+
+    lm_ggml_metal_library_t lib = ctx->lib;
+    lm_ggml_metal_encoder_t enc = ctx->enc;
+
+    LM_GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb0, op->src[0], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne,  op,         ne);
+    LM_GGML_TENSOR_LOCALS(uint32_t, nb,  op,         nb);
+
+    lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_opt_step_sgd(lib, op);
+
+    const int64_t np = lm_ggml_nelements(op->src[0]);
+    lm_ggml_metal_kargs_opt_step_sgd args = {
+        /*.np =*/ np,
+    };
+
+    int ida = 0;
+
+    lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
+    lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), ida++);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[0]), ida++);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[1]), ida++);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[2]), ida++);
 
     const int nth = std::min(lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline), ne0);
     const int64_t n = (np + nth - 1) / nth;
