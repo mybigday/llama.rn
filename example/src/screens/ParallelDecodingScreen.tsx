@@ -578,6 +578,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       borderRadius: 8,
       marginHorizontal: 4,
       alignItems: 'center',
+      justifyContent: 'center',
     },
     buttonDisabled: {
       backgroundColor: theme.colors.border,
@@ -586,6 +587,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       color: theme.colors.white,
       fontWeight: '600',
       fontSize: 14,
+      textAlign: 'center',
     },
     inputRow: {
       flexDirection: 'row',
