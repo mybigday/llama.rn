@@ -136,6 +136,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_pad_reflect_1d    (l
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_arange            (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_timestep_embedding(lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_opt_step_adamw    (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
+lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_opt_step_sgd      (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_flash_attn_ext_pad(
         lm_ggml_metal_library_t lib,
