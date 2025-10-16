@@ -555,6 +555,54 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     }
   }
 
+  const clearStateFiles = async () => {
+    try {
+      const cacheDir = ReactNativeBlobUtil.fs.dirs.CacheDir
+
+      // List all files in cache directory
+      const files = await ReactNativeBlobUtil.fs.ls(cacheDir)
+
+      // Filter state files (files starting with "state_" and ending with ".bin")
+      const stateFiles = files.filter((file) => file.startsWith('state_') && file.endsWith('.bin'))
+
+      if (stateFiles.length === 0) {
+        Alert.alert('Info', 'No state files found')
+        return
+      }
+
+      // Confirm before deleting
+      Alert.alert(
+        'Clear State Files',
+        `Found ${stateFiles.length} state file(s). Delete all?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                // Delete all state files
+                await Promise.all(
+                  stateFiles.map((file) =>
+                    ReactNativeBlobUtil.fs.unlink(`${cacheDir}/${file}`)
+                  )
+                )
+                console.log(`Deleted ${stateFiles.length} state files`)
+                Alert.alert('Success', `Deleted ${stateFiles.length} state file(s)`)
+              } catch (error) {
+                console.error('Error deleting state files:', error)
+                Alert.alert('Error', 'Failed to delete some state files')
+              }
+            },
+          },
+        ]
+      )
+    } catch (error) {
+      console.error('Error listing state files:', error)
+      Alert.alert('Error', 'Failed to list state files')
+    }
+  }
+
   const updateParallelSlots = async (newSlotCount: number) => {
     if (!context || !isParallelMode) {
       Alert.alert('Error', 'Model not ready or parallel mode not enabled')
@@ -601,12 +649,12 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       flex: 1,
     },
     section: {
-      padding: 16,
+      padding: 12,
       borderBottomWidth: 1,
       borderBottomColor: theme.colors.border,
     },
     sectionTitle: {
-      fontSize: 18,
+      fontSize: 16,
       fontWeight: 'bold',
       color: theme.colors.text,
       marginBottom: 12,
@@ -614,7 +662,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     statsRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      marginBottom: 8,
+      marginBottom: 6,
     },
     statBox: {
       flex: 1,
@@ -630,7 +678,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       marginBottom: 4,
     },
     statValue: {
-      fontSize: 20,
+      fontSize: 16,
       fontWeight: 'bold',
       color: theme.colors.primary,
     },
@@ -640,7 +688,8 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     },
     button: {
       flex: 1,
-      padding: 12,
+      padding: 4,
+      height: 42,
       backgroundColor: theme.colors.primary,
       borderRadius: 8,
       marginHorizontal: 4,
@@ -653,12 +702,12 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     buttonText: {
       color: theme.colors.white,
       fontWeight: '600',
-      fontSize: 14,
+      fontSize: 12,
       textAlign: 'center',
     },
     inputRow: {
       flexDirection: 'row',
-      marginBottom: 12,
+      marginBottom: 4,
     },
     input: {
       flex: 1,
@@ -958,6 +1007,10 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
             disabled={activeCount === 0}
           >
             <Text style={styles.buttonText}>Cancel All</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.button} onPress={clearStateFiles}>
+            <Text style={styles.buttonText}>Clear State Files</Text>
           </TouchableOpacity>
         </View>
         <View style={styles.inputRow}>
