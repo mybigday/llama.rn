@@ -219,7 +219,7 @@ export type CompletionParams = Omit<
 
 /**
  * Parameters for parallel completion requests.
- * Extends CompletionParams with parallel-mode specific options like session state management.
+ * Extends CompletionParams with parallel-mode specific options like state management.
  */
 export type ParallelCompletionParams = Omit<
   NativeParallelCompletionParams,
@@ -277,7 +277,7 @@ export class LlamaContext {
   parallel = {
     /**
      * Queue a completion request for parallel processing (non-blocking)
-     * @param params Parallel completion parameters (includes session state management)
+     * @param params Parallel completion parameters (includes state management)
      * @param onToken Callback fired for each generated token
      * @returns Promise resolving to object with requestId, promise (resolves to completion result), and stop function
      */

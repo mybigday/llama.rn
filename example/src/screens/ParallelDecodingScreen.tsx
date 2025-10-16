@@ -47,7 +47,7 @@ const LLM_MODELS = Object.entries(MODELS).filter(([_key, model]) => {
 
 const SYSTEM_PROMPT = 'You are a helpful AI assistant. Be concise and direct in your responses.'
 
-// Helper to generate a simple hash for a question (for session file naming)
+// Helper to generate a simple hash for a question (for state file naming)
 const hashString = (str: string): string => {
   let hash = 0
   for (let i = 0; i < str.length; i += 1) {
@@ -58,11 +58,11 @@ const hashString = (str: string): string => {
   return Math.abs(hash).toString(36)
 }
 
-// Helper to get session file path for a question
-const getSessionPath = (prompt: string): string => {
+// Helper to get state file path for a question
+const getStatePath = (prompt: string): string => {
   const questionHash = hashString(prompt.trim().toLowerCase())
   const cacheDir = ReactNativeBlobUtil.fs.dirs.CacheDir
-  return `${cacheDir}/session_${questionHash}.bin`
+  return `${cacheDir}/state_${questionHash}.bin`
 }
 
 const EXAMPLE_PROMPTS = [
@@ -355,12 +355,12 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         { role: 'user', content: userContent },
       ]
 
-      // Get session path for this question
-      const sessionPath = getSessionPath(prompt)
+      // Get state path for this question
+      const statePath = getStatePath(prompt)
 
-      // Check if session file exists on filesystem
-      const sessionFileExists = await ReactNativeBlobUtil.fs.exists(sessionPath)
-      const loadStatePath = sessionFileExists ? sessionPath : undefined
+      // Check if state file exists on filesystem
+      const stateFileExists = await ReactNativeBlobUtil.fs.exists(statePath)
+      const loadStatePath = stateFileExists ? statePath : undefined
 
       // Format chat to get the formatted prompt for tokenization
       const formattedChat = await context.getFormattedChat(
@@ -384,7 +384,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         console.log(`Question token count: ${questionTokenCount}, has saved state: ${!!loadStatePath}`)
       } catch (error) {
         console.error('Error tokenizing prompt:', error)
-        // Continue without session state if tokenization fails
+        // Continue without state if tokenization fails
         questionTokenCount = 0
       }
 
@@ -396,9 +396,9 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
           reasoning_format: 'auto',
           n_predict: params.n_predict || 50,
           jinja: true,
-          // Session state management: load previous state if exists, always save
+          // State management: load previous state if exists, always save
           load_state_path: loadStatePath,
-          save_state_path: questionTokenCount > 0 ? sessionPath : undefined,
+          save_state_path: questionTokenCount > 0 ? statePath : undefined,
           save_state_size: questionTokenCount > 0 ? questionTokenCount : undefined,
         },
         (_reqId, data) => {
@@ -423,9 +423,9 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
           endTime: Date.now(),
         })
 
-        // Log session state save (file already saved by native code)
+        // Log state save (file already saved by native code)
         if (questionTokenCount > 0) {
-          console.log(`Saved session state for question: ${prompt.substring(0, 30)}...`)
+          console.log(`Saved state for question: ${prompt.substring(0, 30)}...`)
         }
       }).catch((err) => {
         console.error('Promise error:', err)

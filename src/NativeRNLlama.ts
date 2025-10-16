@@ -280,25 +280,25 @@ export type NativeCompletionParams = {
  */
 export type NativeParallelCompletionParams = NativeCompletionParams & {
   /**
-   * File path to load session state from before processing.
+   * File path to load state from before processing.
    * This allows you to resume from a previously saved completion state.
    * Use with `save_state_path` to enable conversation continuity across requests.
-   * Example: `'/path/to/session.bin'` or `'file:///path/to/session.bin'`
+   * Example: `'/path/to/state.bin'` or `'file:///path/to/state.bin'`
    */
   load_state_path?: string
 
   /**
-   * File path to save session state to after completion.
-   * The session state will be saved to this file path when the completion finishes.
+   * File path to save state to after completion.
+   * The state will be saved to this file path when the completion finishes.
    * You can then pass this path to `load_state_path` in a subsequent request to resume.
-   * Example: `'/path/to/session.bin'` or `'file:///path/to/session.bin'`
+   * Example: `'/path/to/state.bin'` or `'file:///path/to/state.bin'`
    */
   save_state_path?: string
 
   /**
-   * Number of tokens to save when saving session state.
+   * Number of tokens to save when saving state.
    * If not specified or <= 0, all tokens will be saved.
-   * Use this to limit the size of saved session files.
+   * Use this to limit the size of saved state files.
    * Example: `512` to save only the last 512 tokens
    */
   save_state_size?: number

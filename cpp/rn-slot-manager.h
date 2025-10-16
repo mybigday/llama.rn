@@ -48,7 +48,7 @@ struct llama_rn_queued_request {
     std::vector<std::vector<llama_token>> rerank_prompt_tokens;
     std::function<void(int32_t, const std::vector<float>&)> on_rerank;
 
-    // Session state management
+    // State management
     std::string load_state_path;       // File path to load state from before processing
     std::string save_state_path;       // File path to save state to after completion
     int32_t save_state_size;           // Number of tokens to save (0 or -1 = all tokens)

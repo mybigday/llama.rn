@@ -1373,7 +1373,7 @@
     NSString *prefillText = params[@"prefill_text"];
     std::string prefill_text_str = prefillText ? [prefillText UTF8String] : "";
 
-    // Get session state parameters
+    // Get state parameters
     std::string load_state_path;
     std::string save_state_path;
     int32_t save_state_size = -1;

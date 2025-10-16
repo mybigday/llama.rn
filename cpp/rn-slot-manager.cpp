@@ -414,15 +414,15 @@ void llama_rn_slot_manager::process_pending_queue() {
             case SLOT_TASK_TYPE_COMPLETION: {
                 slot->ctx_sampling = common_sampler_init(parent_ctx->model, request.params.sampling);
 
-                // Assign session state parameters
+                // Assign state parameters
                 slot->load_state_path = request.load_state_path;
                 slot->save_state_path = request.save_state_path;
                 slot->save_state_size = request.save_state_size;
 
-                // Load session state if provided
+                // Load state if provided
                 if (!slot->load_state_path.empty()) {
-                    if (!slot->load_session_state()) {
-                        LOG_ERROR("Failed to load session state for slot %d, request %d",
+                    if (!slot->load_state()) {
+                        LOG_ERROR("Failed to load state for slot %d, request %d",
                                   slot->id, request.request_id);
                         // Mark slot as done with error
                         slot->state = SLOT_STATE_DONE;
@@ -435,7 +435,7 @@ void llama_rn_slot_manager::process_pending_queue() {
                     }
                 }
 
-                // Always load prompt - it will detect and preserve session state if appropriate
+                // Always load prompt - it will detect and preserve state if appropriate
                 bool has_media = !request.media_paths.empty();
                 if (has_media && parent_ctx->isMultimodalEnabled()) {
                     LOG_INFO("Storing %zu media paths for deferred processing in slot %d",
@@ -770,9 +770,9 @@ void llama_rn_slot_manager::sample_and_callback() {
                     slot.state = SLOT_STATE_DONE;
                     LOG_INFO("Slot %d: Stopped on EOS token", slot.id);
 
-                    // Save session state if path is provided
+                    // Save state if path is provided
                     if (!slot.save_state_path.empty()) {
-                        slot.save_session_state();
+                        slot.save_state();
                     }
 
                     if (slot.on_complete_callback) {
@@ -801,7 +801,7 @@ void llama_rn_slot_manager::sample_and_callback() {
                 slot.n_decoded++;
 
                 // Update cache_tokens to keep track of all processed tokens
-                // This is needed for session state saving
+                // This is needed for state saving
                 slot.cache_tokens.push_back(new_token_id);
 
                 if (slot.on_token_callback) {
@@ -848,9 +848,9 @@ void llama_rn_slot_manager::sample_and_callback() {
                 if (should_stop) {
                     slot.state = SLOT_STATE_DONE;
 
-                    // Save session state if path is provided
+                    // Save state if path is provided
                     if (!slot.save_state_path.empty()) {
-                        slot.save_session_state();
+                        slot.save_state();
                     }
 
                     if (slot.on_complete_callback) {

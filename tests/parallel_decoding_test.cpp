@@ -713,8 +713,8 @@ bool test_queue_overflow() {
     }
 }
 
-// Test 21: Session state save_state_size parameter validation
-bool test_queue_request_with_session_state() {
+// Test 21: State save_state_size parameter validation
+bool test_queue_request_with_state() {
     try {
         llama_rn_context ctx;
 
@@ -872,8 +872,8 @@ bool test_queue_request_with_session_state() {
     }
 }
 
-// Test 22: Session state reuse with same prompt
-bool test_session_state_reuse() {
+// Test 22: State reuse with same prompt
+bool test_state_reuse() {
     try {
         llama_rn_context ctx;
 
@@ -899,7 +899,7 @@ bool test_session_state_reuse() {
         std::string save_path = "/tmp/test_session_reuse.bin";
         std::filesystem::remove(save_path);
 
-        // FIRST COMPLETION: Process prompt and save session state
+        // FIRST COMPLETION: Process prompt and save state
         bool complete1 = false;
         int32_t request_id1 = ctx.slot_manager->queue_request(
             params,
@@ -942,7 +942,7 @@ bool test_session_state_reuse() {
             return false;
         }
 
-        // SECOND COMPLETION: Load session state and process same prompt
+        // SECOND COMPLETION: Load state and process same prompt
         bool complete2 = false;
         int tokens_generated2 = 0;
         int32_t request_id2 = ctx.slot_manager->queue_request(
@@ -987,9 +987,9 @@ bool test_session_state_reuse() {
             return false;
         }
 
-        // If we got here, session state was successfully loaded and reused
+        // If we got here, state was successfully loaded and reused
         // The key validation is that we didn't get llama_decode errors
-        std::cout << "[Session state reused successfully, generated " << tokens_generated2 << " tokens] ";
+        std::cout << "[State reused successfully, generated " << tokens_generated2 << " tokens] ";
         return tokens_generated2 > 0;
     } catch (const std::exception& e) {
         std::cout << "[Exception: " << e.what() << "] ";
@@ -1039,8 +1039,8 @@ int main() {
     results.run_test("Request Cancellation", test_request_cancellation());
     results.run_test("Sequential Requests", test_sequential_requests());
     results.run_test("Queue Overflow Handling", test_queue_overflow());
-    results.run_test("Queue Request with Session State", test_queue_request_with_session_state());
-    results.run_test("Session State Reuse", test_session_state_reuse());
+    results.run_test("Queue Request with State", test_queue_request_with_state());
+    results.run_test("State Reuse", test_state_reuse());
 
     // Print summary
     results.print_summary();

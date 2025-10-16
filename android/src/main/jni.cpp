@@ -2351,7 +2351,7 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
         // Convert prefill_text to std::string
         std::string prefill_text_str = prefill_text_chars ? prefill_text_chars : "";
 
-        // Extract session state paths
+        // Extract state paths
         std::string load_state_path;
         std::string save_state_path;
         int32_t save_state_size = -1;

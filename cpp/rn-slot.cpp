@@ -111,7 +111,7 @@ void llama_rn_slot::reset() {
     rerank_scores.clear();
     rerank_current_index = 0;
 
-    // Reset session state management
+    // Reset state management
     load_state_path.clear();
     save_state_path.clear();
     save_state_size = -1;
@@ -126,28 +126,28 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
     num_prompt_tokens = tokens.size();
     state = SLOT_STATE_PROCESSING_PROMPT;
 
-    // Check if we have loaded session state and if the prompt matches
+    // Check if we have loaded state and if the prompt matches
     bool has_loaded_state = (!load_state_path.empty() && !cache_tokens.empty());
     bool prompt_matches = false;
 
     if (has_loaded_state && tokens.size() <= cache_tokens.size()) {
-        // Check if the new prompt tokens match the beginning of the loaded session tokens
+        // Check if the new prompt tokens match the beginning of the loaded state tokens
         prompt_matches = std::equal(tokens.begin(), tokens.end(), cache_tokens.begin());
     }
 
     if (has_loaded_state && prompt_matches) {
-        // Reusing loaded session state: keep KV cache and n_past
-        // Note: Session state is saved with size-1, so the last token needs to be processed
+        // Reusing loaded state: keep KV cache and n_past
+        // Note: State is saved with size-1, so the last token needs to be processed
         // This ensures we get fresh logits for sampling
-        LOG_INFO("Slot %d: Reusing loaded session state (%d cached tokens, %d prompt tokens)",
+        LOG_INFO("Slot %d: Reusing loaded state (%d cached tokens, %d prompt tokens)",
                  id, (int)cache_tokens.size(), (int)tokens.size());
-        // n_past is already set by load_session_state, keep it
+        // n_past is already set by load_state, keep it
         // The last prompt token will be processed through build_batch to generate logits
         n_decoded = 0;
     } else {
         // Starting fresh: clear KV cache and reset state
         if (has_loaded_state) {
-            LOG_WARNING("Slot %d: Loaded session state doesn't match prompt (%zu cached vs %zu prompt tokens), clearing cache",
+            LOG_WARNING("Slot %d: Loaded state doesn't match prompt (%zu cached vs %zu prompt tokens), clearing cache",
                        id, cache_tokens.size(), tokens.size());
         }
 
@@ -221,19 +221,19 @@ completion_chat_output llama_rn_slot::parseChatOutput(bool is_partial) {
     return result;
 }
 
-// Load session state into this slot's sequence
-bool llama_rn_slot::load_session_state() {
+// Load state into this slot's sequence
+bool llama_rn_slot::load_state() {
     if (!parent_ctx || !parent_ctx->ctx) {
-        LOG_ERROR("Slot %d: Cannot load session state - context not initialized", id);
+        LOG_ERROR("Slot %d: Cannot load state - context not initialized", id);
         return false;
     }
 
     if (load_state_path.empty()) {
-        LOG_VERBOSE("Slot %d: No session state path to load from", id);
+        LOG_VERBOSE("Slot %d: No state path to load from", id);
         return true;  // Nothing to load is not an error
     }
 
-    LOG_INFO("Slot %d: Loading session state from: %s", id, load_state_path.c_str());
+    LOG_INFO("Slot %d: Loading state from: %s", id, load_state_path.c_str());
 
     // Start timing
     const int64_t t_load_start = lm_ggml_time_us();
@@ -243,11 +243,11 @@ bool llama_rn_slot::load_session_state() {
     auto * kv = llama_get_memory(parent_ctx->ctx);
     // Use -1 for both positions to clear all cells for this sequence
     llama_memory_seq_rm(kv, id, -1, -1);
-    LOG_VERBOSE("Slot %d: Cleared existing KV cache before loading session state", id);
+    LOG_VERBOSE("Slot %d: Cleared existing KV cache before loading state", id);
 
     // Get size needed for token output buffer
     size_t max_tokens = parent_ctx->params.n_ctx;
-    std::vector<llama_token> session_tokens(max_tokens);
+    std::vector<llama_token> state_tokens(max_tokens);
     size_t n_token_count_out = 0;
 
     // Load state from file into this slot's sequence
@@ -255,30 +255,30 @@ bool llama_rn_slot::load_session_state() {
         parent_ctx->ctx,
         load_state_path.c_str(),
         id,  // Use slot ID as sequence ID
-        session_tokens.data(),
-        session_tokens.size(),
+        state_tokens.data(),
+        state_tokens.size(),
         &n_token_count_out
     )) {
-        LOG_ERROR("Slot %d: Failed to load session state from file: %s", id, load_state_path.c_str());
+        LOG_ERROR("Slot %d: Failed to load state from file: %s", id, load_state_path.c_str());
         return false;
     }
 
     // Resize token vector to actual size
-    session_tokens.resize(n_token_count_out);
+    state_tokens.resize(n_token_count_out);
 
     // Remove LLAMA_TOKEN_NULL tokens
-    auto null_token_iter = std::find(session_tokens.begin(), session_tokens.end(), LLAMA_TOKEN_NULL);
-    if (null_token_iter != session_tokens.end()) {
-        session_tokens.resize(std::distance(session_tokens.begin(), null_token_iter));
+    auto null_token_iter = std::find(state_tokens.begin(), state_tokens.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != state_tokens.end()) {
+        state_tokens.resize(std::distance(state_tokens.begin(), null_token_iter));
     }
 
     // Update slot state
-    embd = session_tokens;
-    n_past = session_tokens.size();
-    cache_tokens = session_tokens;
+    embd = state_tokens;
+    n_past = state_tokens.size();
+    cache_tokens = state_tokens;
 
     // Remove any KV cache cells beyond n_past to ensure clean state
-    // This is needed because the session file might contain more cells than tokens
+    // This is needed because the state file might contain more cells than tokens
     // (e.g., from a previous save that had more data)
     llama_memory_seq_rm(kv, id, n_past, -1);
     LOG_VERBOSE("Slot %d: Removed KV cache cells beyond position %d", id, n_past);
@@ -287,45 +287,45 @@ bool llama_rn_slot::load_session_state() {
     const int64_t t_load_end = lm_ggml_time_us();
     const double t_load_ms = (t_load_end - t_load_start) / 1000.0;
 
-    LOG_INFO("Slot %d: Session state loaded successfully from %s, n_past=%d, tokens=%zu, time=%.2f ms",
-             id, load_state_path.c_str(), n_past, session_tokens.size(), t_load_ms);
+    LOG_INFO("Slot %d: State loaded successfully from %s, n_past=%d, tokens=%zu, time=%.2f ms",
+             id, load_state_path.c_str(), n_past, state_tokens.size(), t_load_ms);
 
     return true;
 }
 
-// Save session state from this slot's sequence
-bool llama_rn_slot::save_session_state() {
+// Save state from this slot's sequence
+bool llama_rn_slot::save_state() {
     if (!parent_ctx || !parent_ctx->ctx) {
-        LOG_ERROR("Slot %d: Cannot save session state - context not initialized", id);
+        LOG_ERROR("Slot %d: Cannot save state - context not initialized", id);
         return false;
     }
 
     if (save_state_path.empty()) {
-        LOG_VERBOSE("Slot %d: No session state path to save to", id);
+        LOG_VERBOSE("Slot %d: No state path to save to", id);
         return true;  // Not specified is not an error
     }
 
-    LOG_INFO("Slot %d: Saving session state to: %s", id, save_state_path.c_str());
+    LOG_INFO("Slot %d: Saving state to: %s", id, save_state_path.c_str());
 
     // Start timing
     const int64_t t_save_start = lm_ggml_time_us();
 
-    // Get tokens for this session (cache_tokens represents all processed tokens in KV cache)
-    std::vector<llama_token> session_tokens = cache_tokens;
+    // Get tokens for this state (cache_tokens represents all processed tokens in KV cache)
+    std::vector<llama_token> state_tokens = cache_tokens;
 
     // Remove LLAMA_TOKEN_NULL tokens
-    auto null_token_iter = std::find(session_tokens.begin(), session_tokens.end(), LLAMA_TOKEN_NULL);
-    if (null_token_iter != session_tokens.end()) {
-        session_tokens.resize(std::distance(session_tokens.begin(), null_token_iter));
+    auto null_token_iter = std::find(state_tokens.begin(), state_tokens.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != state_tokens.end()) {
+        state_tokens.resize(std::distance(state_tokens.begin(), null_token_iter));
     }
 
-    if (session_tokens.empty()) {
-        LOG_WARNING("Slot %d: No tokens to save for session", id);
+    if (state_tokens.empty()) {
+        LOG_WARNING("Slot %d: No tokens to save for state", id);
         return false;
     }
 
     // Determine how many tokens to save
-    size_t default_size = session_tokens.size();
+    size_t default_size = state_tokens.size();
     size_t actual_save_size = default_size;
 
     if (save_state_size > 0 && (size_t)save_state_size <= default_size) {
@@ -346,10 +346,10 @@ bool llama_rn_slot::save_session_state() {
         parent_ctx->ctx,
         save_state_path.c_str(),
         id,  // Use slot ID as sequence ID
-        session_tokens.data(),
+        state_tokens.data(),
         actual_save_size
     )) {
-        LOG_ERROR("Slot %d: Failed to save session state to file: %s", id, save_state_path.c_str());
+        LOG_ERROR("Slot %d: Failed to save state to file: %s", id, save_state_path.c_str());
         return false;
     }
 
@@ -357,7 +357,7 @@ bool llama_rn_slot::save_session_state() {
     const int64_t t_save_end = lm_ggml_time_us();
     const double t_save_ms = (t_save_end - t_save_start) / 1000.0;
 
-    LOG_INFO("Slot %d: Session state saved successfully to %s (%zu tokens of %zu total), time=%.2f ms",
+    LOG_INFO("Slot %d: State saved successfully to %s (%zu tokens of %zu total), time=%.2f ms",
              id, save_state_path.c_str(), actual_save_size, default_size, t_save_ms);
 
     return true;
