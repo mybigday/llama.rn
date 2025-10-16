@@ -302,11 +302,10 @@ llama_rn_slot* llama_rn_slot_manager::get_slot_by_request_id(int32_t request_id)
 void llama_rn_slot_manager::release_slot(llama_rn_slot* slot) {
     LOG_VERBOSE("Releasing slot %d", slot->id);
 
-    // Save cache tokens for potential reuse
-    slot->cache_tokens = slot->prompt_tokens;
+    // Update last used timestamp for LRU tracking
     slot->t_last_used = lm_ggml_time_us();
 
-    // Reset slot
+    // Reset slot (cache_tokens is preserved by reset() for potential reuse)
     slot->reset();
 }
 
@@ -420,7 +419,7 @@ void llama_rn_slot_manager::process_pending_queue() {
                 slot->save_state_path = request.save_state_path;
                 slot->save_state_size = request.save_state_size;
 
-                // Load session state if provided (before loading prompt)
+                // Load session state if provided
                 if (!slot->load_state_path.empty()) {
                     if (!slot->load_session_state()) {
                         LOG_ERROR("Failed to load session state for slot %d, request %d",
@@ -436,6 +435,7 @@ void llama_rn_slot_manager::process_pending_queue() {
                     }
                 }
 
+                // Always load prompt - it will detect and preserve session state if appropriate
                 bool has_media = !request.media_paths.empty();
                 if (has_media && parent_ctx->isMultimodalEnabled()) {
                     LOG_INFO("Storing %zu media paths for deferred processing in slot %d",
@@ -799,6 +799,10 @@ void llama_rn_slot_manager::sample_and_callback() {
 
                 slot.generated_tokens.push_back(new_token_id);
                 slot.n_decoded++;
+
+                // Update cache_tokens to keep track of all processed tokens
+                // This is needed for session state saving
+                slot.cache_tokens.push_back(new_token_id);
 
                 if (slot.on_token_callback) {
                     slot.on_token_callback(token_output);

@@ -125,21 +125,48 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
     prompt_tokens = tokens;
     num_prompt_tokens = tokens.size();
     state = SLOT_STATE_PROCESSING_PROMPT;
-    n_past = 0;
-    n_decoded = 0;
 
-    // Clear KV cache for this slot's sequence to ensure clean state
-    // This is crucial when reusing slots for different requests
-    if (parent_ctx && parent_ctx->ctx) {
-        auto * kv = llama_get_memory(parent_ctx->ctx);
-        llama_memory_seq_rm(kv, id, 0, -1);
-        LOG_VERBOSE("Slot %d: Cleared KV cache for sequence", id);
+    // Check if we have loaded session state and if the prompt matches
+    bool has_loaded_state = (!load_state_path.empty() && !cache_tokens.empty());
+    bool prompt_matches = false;
+
+    if (has_loaded_state && tokens.size() <= cache_tokens.size()) {
+        // Check if the new prompt tokens match the beginning of the loaded session tokens
+        prompt_matches = std::equal(tokens.begin(), tokens.end(), cache_tokens.begin());
     }
 
-    // Note: For now, we don't reuse cache across different requests in the same slot
-    // This ensures correctness at the cost of some performance
-    // Future optimization: implement smart cache reuse with proper validation
-    cache_tokens.clear();
+    if (has_loaded_state && prompt_matches) {
+        // Reusing loaded session state: keep KV cache and n_past
+        // Note: Session state is saved with size-1, so the last token needs to be processed
+        // This ensures we get fresh logits for sampling
+        LOG_INFO("Slot %d: Reusing loaded session state (%d cached tokens, %d prompt tokens)",
+                 id, (int)cache_tokens.size(), (int)tokens.size());
+        // n_past is already set by load_session_state, keep it
+        // The last prompt token will be processed through build_batch to generate logits
+        n_decoded = 0;
+    } else {
+        // Starting fresh: clear KV cache and reset state
+        if (has_loaded_state) {
+            LOG_WARNING("Slot %d: Loaded session state doesn't match prompt (%zu cached vs %zu prompt tokens), clearing cache",
+                       id, cache_tokens.size(), tokens.size());
+        }
+
+        n_past = 0;
+        n_decoded = 0;
+
+        // Clear KV cache for this slot's sequence to ensure clean state
+        // This is crucial when reusing slots for different requests
+        if (parent_ctx && parent_ctx->ctx) {
+            auto * kv = llama_get_memory(parent_ctx->ctx);
+            // Use n_ctx as the end position to ensure all positions are cleared
+            llama_memory_seq_rm(kv, id, 0, parent_ctx->params.n_ctx);
+            LOG_VERBOSE("Slot %d: Cleared KV cache for sequence (0 to %d)", id, parent_ctx->params.n_ctx);
+        }
+
+        // Initialize cache_tokens with prompt tokens
+        // This will be extended with generated tokens during completion
+        cache_tokens = tokens;
+    }
 }
 
 // Check if there are generated tokens to retrieve
@@ -208,6 +235,16 @@ bool llama_rn_slot::load_session_state() {
 
     LOG_INFO("Slot %d: Loading session state from: %s", id, load_state_path.c_str());
 
+    // Start timing
+    const int64_t t_load_start = lm_ggml_time_us();
+
+    // Clear existing KV cache for this sequence before loading
+    // This ensures we start fresh with only the loaded state
+    auto * kv = llama_get_memory(parent_ctx->ctx);
+    // Use -1 for both positions to clear all cells for this sequence
+    llama_memory_seq_rm(kv, id, -1, -1);
+    LOG_VERBOSE("Slot %d: Cleared existing KV cache before loading session state", id);
+
     // Get size needed for token output buffer
     size_t max_tokens = parent_ctx->params.n_ctx;
     std::vector<llama_token> session_tokens(max_tokens);
@@ -240,8 +277,18 @@ bool llama_rn_slot::load_session_state() {
     n_past = session_tokens.size();
     cache_tokens = session_tokens;
 
-    LOG_INFO("Slot %d: Session state loaded successfully from %s, n_past=%d, tokens=%zu",
-             id, load_state_path.c_str(), n_past, session_tokens.size());
+    // Remove any KV cache cells beyond n_past to ensure clean state
+    // This is needed because the session file might contain more cells than tokens
+    // (e.g., from a previous save that had more data)
+    llama_memory_seq_rm(kv, id, n_past, -1);
+    LOG_VERBOSE("Slot %d: Removed KV cache cells beyond position %d", id, n_past);
+
+    // Calculate elapsed time
+    const int64_t t_load_end = lm_ggml_time_us();
+    const double t_load_ms = (t_load_end - t_load_start) / 1000.0;
+
+    LOG_INFO("Slot %d: Session state loaded successfully from %s, n_past=%d, tokens=%zu, time=%.2f ms",
+             id, load_state_path.c_str(), n_past, session_tokens.size(), t_load_ms);
 
     return true;
 }
@@ -260,11 +307,11 @@ bool llama_rn_slot::save_session_state() {
 
     LOG_INFO("Slot %d: Saving session state to: %s", id, save_state_path.c_str());
 
-    // Get tokens for this session (from embd or cache_tokens)
-    std::vector<llama_token> session_tokens = embd;
-    if (session_tokens.empty()) {
-        session_tokens = cache_tokens;
-    }
+    // Start timing
+    const int64_t t_save_start = lm_ggml_time_us();
+
+    // Get tokens for this session (cache_tokens represents all processed tokens in KV cache)
+    std::vector<llama_token> session_tokens = cache_tokens;
 
     // Remove LLAMA_TOKEN_NULL tokens
     auto null_token_iter = std::find(session_tokens.begin(), session_tokens.end(), LLAMA_TOKEN_NULL);
@@ -285,6 +332,15 @@ bool llama_rn_slot::save_session_state() {
         actual_save_size = save_state_size;
     }
 
+    // Save with size - 1 to force re-processing of last token when loading
+    // This ensures fresh logits are generated for sampling
+    // Only do this if we have more than 1 token to save
+    if (actual_save_size > 1) {
+        actual_save_size--;
+        LOG_VERBOSE("Slot %d: Saving %zu tokens (reduced by 1 for logits regeneration)",
+                   id, actual_save_size);
+    }
+
     // Save state to file
     if (!llama_state_seq_save_file(
         parent_ctx->ctx,
@@ -297,8 +353,12 @@ bool llama_rn_slot::save_session_state() {
         return false;
     }
 
-    LOG_INFO("Slot %d: Session state saved successfully to %s (%zu tokens of %zu total)",
-             id, save_state_path.c_str(), actual_save_size, default_size);
+    // Calculate elapsed time
+    const int64_t t_save_end = lm_ggml_time_us();
+    const double t_save_ms = (t_save_end - t_save_start) / 1000.0;
+
+    LOG_INFO("Slot %d: Session state saved successfully to %s (%zu tokens of %zu total), time=%.2f ms",
+             id, save_state_path.c_str(), actual_save_size, default_size, t_save_ms);
 
     return true;
 }
