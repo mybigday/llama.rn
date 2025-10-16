@@ -58,11 +58,13 @@ const hashString = (str: string): string => {
   return Math.abs(hash).toString(36)
 }
 
-// Helper to get state file path for a question
-const getStatePath = (prompt: string): string => {
+// Helper to get state file path for a question (per model)
+const getStatePath = (modelPath: string, prompt: string): string => {
+  // Extract model filename without extension
+  const modelFilename = modelPath.split('/').pop()?.replace(/\.[^./]+$/, '') || 'unknown'
   const questionHash = hashString(prompt.trim().toLowerCase())
   const cacheDir = ReactNativeBlobUtil.fs.dirs.CacheDir
-  return `${cacheDir}/state_${questionHash}.bin`
+  return `${cacheDir}/state_${modelFilename}_${questionHash}.bin`
 }
 
 const EXAMPLE_PROMPTS = [
@@ -103,6 +105,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
   const insets = useSafeAreaInsets()
 
   const [context, setContext] = useState<LlamaContext | null>(null)
+  const modelPathRef = useRef<string>('')
   const [isModelReady, setIsModelReady] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
@@ -273,6 +276,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       }
 
       setContext(llamaContext)
+      modelPathRef.current = modelPath
       setIsModelReady(true)
       setIsParallelMode(true)
       setInitProgress(100)
@@ -355,8 +359,8 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         { role: 'user', content: userContent },
       ]
 
-      // Get state path for this question
-      const statePath = getStatePath(prompt)
+      // Get state path for this question (model-specific)
+      const statePath = getStatePath(modelPathRef.current, prompt)
 
       // Check if state file exists on filesystem
       const stateFileExists = await ReactNativeBlobUtil.fs.exists(statePath)
