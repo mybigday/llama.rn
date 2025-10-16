@@ -108,14 +108,6 @@ export type NativeCompletionParams = {
   prompt: string
   n_threads?: number
   /**
-   * Number of parallel slots for concurrent requests. Default: 1
-   */
-  n_parallel?: number
-  /**
-   * Batch size for processing. Default: 512
-   */
-  n_batch?: number
-  /**
    * Enable Jinja. Default: true if supported by the model
    */
   jinja?: boolean
@@ -280,6 +272,36 @@ export type NativeCompletionParams = {
   guide_tokens?: Array<number>
 
   emit_partial_completion: boolean
+}
+
+/**
+ * Parameters for parallel completion requests (queueCompletion).
+ * Extends NativeCompletionParams with parallel-mode specific options.
+ */
+export type NativeParallelCompletionParams = NativeCompletionParams & {
+  /**
+   * File path to load session state from before processing.
+   * This allows you to resume from a previously saved completion state.
+   * Use with `save_state_path` to enable conversation continuity across requests.
+   * Example: `'/path/to/session.bin'` or `'file:///path/to/session.bin'`
+   */
+  load_state_path?: string
+
+  /**
+   * File path to save session state to after completion.
+   * The session state will be saved to this file path when the completion finishes.
+   * You can then pass this path to `load_state_path` in a subsequent request to resume.
+   * Example: `'/path/to/session.bin'` or `'file:///path/to/session.bin'`
+   */
+  save_state_path?: string
+
+  /**
+   * Number of tokens to save when saving session state.
+   * If not specified or <= 0, all tokens will be saved.
+   * Use this to limit the size of saved session files.
+   * Example: `512` to save only the last 512 tokens
+   */
+  save_state_size?: number
 }
 
 export type NativeCompletionTokenProbItem = {
@@ -522,7 +544,7 @@ export interface Spec extends TurboModule {
   ): Promise<boolean>
   queueCompletion(
     contextId: number,
-    params: NativeCompletionParams,
+    params: NativeParallelCompletionParams,
   ): Promise<{ requestId: number }>
   queueEmbedding(
     contextId: number,

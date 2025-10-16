@@ -478,6 +478,9 @@ bool test_single_request_completion() {
             COMMON_REASONING_FORMAT_NONE, // reasoning_format
             false, // thinking_forced_open
             "", // prefill_text
+            "", // load_state_path
+            "", // save_state_path
+            -1, // save_state_size
             [&](const completion_token_output& token) {
                 token_callback_called = true;
                 tokens_generated++;
@@ -559,13 +562,13 @@ bool test_request_cancellation() {
         int tokens_generated1 = 0, tokens_generated2 = 0;
 
         int32_t req_id1 = ctx.slot_manager->queue_request(
-            params, prompt1, std::vector<std::string>(), "What is the capital of France?", 0, COMMON_REASONING_FORMAT_NONE, false, "",
+            params, prompt1, std::vector<std::string>(), "What is the capital of France?", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1,
             [&](const completion_token_output& token) { tokens_generated1++; },
             [&](llama_rn_slot* slot) { complete1 = true; }
         );
 
         int32_t req_id2 = ctx.slot_manager->queue_request(
-            params, prompt2, std::vector<std::string>(), "Explain quantum computing.", 0, COMMON_REASONING_FORMAT_NONE, false, "",
+            params, prompt2, std::vector<std::string>(), "Explain quantum computing.", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1,
             [&](const completion_token_output& token) { tokens_generated2++; },
             [&](llama_rn_slot* slot) { complete2 = true; }
         );
@@ -627,7 +630,7 @@ bool test_sequential_requests() {
             bool complete = false;
 
             int32_t req_id = ctx.slot_manager->queue_request(
-                params, prompt, std::vector<std::string>(), prompt_str, 0, COMMON_REASONING_FORMAT_NONE, false, "",
+                params, prompt, std::vector<std::string>(), prompt_str, 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1,
                 [&](const completion_token_output& token) {},
                 [&](llama_rn_slot* slot) { complete = true; }
             );
@@ -680,7 +683,7 @@ bool test_queue_overflow() {
             std::vector<llama_token> prompt = common_tokenize(ctx.ctx, "Test", false);
 
             int32_t req_id = ctx.slot_manager->queue_request(
-                params, prompt, std::vector<std::string>(), "Test", 0, COMMON_REASONING_FORMAT_NONE, false, "",
+                params, prompt, std::vector<std::string>(), "Test", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1,
                 [](const completion_token_output& token) {},
                 [](llama_rn_slot* slot) {}
             );
@@ -702,6 +705,143 @@ bool test_queue_overflow() {
         // With 2 slots, we should have at most 2 active and at least 3 queued initially
         return active_count <= 2 && queued_count >= 3;
     } catch (...) {
+        return false;
+    }
+}
+
+// Test 21: Session state save_state_size parameter validation
+bool test_queue_request_with_session_state() {
+    try {
+        llama_rn_context ctx;
+
+        common_params params;
+        params.model.path = "../tiny-random-llama.gguf";
+        params.n_ctx = 512;
+        params.n_batch = 128;
+        params.n_parallel = 2;
+        params.cpuparams.n_threads = 1;
+        params.n_gpu_layers = 0;
+        params.no_kv_offload = true;
+        params.n_predict = 5;
+
+        if (!ctx.loadModel(params)) {
+            std::cout << "[SKIP: Model not loaded] ";
+            return true;
+        }
+
+        ctx.enableParallelMode(2, 128);
+
+        // Step 1: Create an initial session state file with known tokens
+        std::string initial_state_path = "/tmp/test_initial_state.bin";
+        std::string limited_state_path = "/tmp/test_limited_state.bin";
+        std::filesystem::remove(initial_state_path);
+        std::filesystem::remove(limited_state_path);
+
+        // Create a session with 100 tokens
+        size_t initial_token_count = 100;
+        std::vector<llama_token> initial_tokens;
+        for (size_t i = 0; i < initial_token_count; i++) {
+            initial_tokens.push_back(1 + (i % 100)); // Valid token IDs
+        }
+
+        // Save initial state to file using sequence 0
+        if (!llama_state_seq_save_file(ctx.ctx, initial_state_path.c_str(), 0,
+                                       initial_tokens.data(), initial_tokens.size())) {
+            std::cout << "[Failed to create initial state file] ";
+            std::filesystem::remove(initial_state_path);
+            std::filesystem::remove(limited_state_path);
+            return false;
+        }
+
+        // Step 2: Load the state and save with size limit using parallel decoding
+        int32_t save_state_size_limit = 50; // Limit to 50 tokens (half of original)
+        std::vector<llama_token> prompt_tokens = common_tokenize(ctx.ctx, "Test", false);
+
+        bool complete = false;
+        llama_rn_slot* completed_slot = nullptr;
+
+        // Queue request that loads initial state and saves with limit
+        int32_t request_id = ctx.slot_manager->queue_request(
+            params,
+            prompt_tokens,
+            std::vector<std::string>(),
+            "Test",
+            0,
+            COMMON_REASONING_FORMAT_NONE,
+            false,
+            "",
+            initial_state_path,      // load from initial state
+            limited_state_path,      // save to limited state
+            save_state_size_limit,   // save only 50 tokens
+            [&](const completion_token_output& token) {},
+            [&](llama_rn_slot* slot) {
+                complete = true;
+                completed_slot = slot;
+            }
+        );
+
+        if (request_id < 0) {
+            std::cout << "[Failed to queue request] ";
+            std::filesystem::remove(initial_state_path);
+            std::filesystem::remove(limited_state_path);
+            return false;
+        }
+
+        // Wait for completion
+        int iterations = 0;
+        while (!complete && iterations < 100) {
+            ctx.slot_manager->update_slots();
+            iterations++;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        if (!complete) {
+            std::cout << "[Request did not complete] ";
+            std::filesystem::remove(initial_state_path);
+            std::filesystem::remove(limited_state_path);
+            return false;
+        }
+
+        // Step 3: Verify the limited state file was created
+        if (!std::filesystem::exists(limited_state_path)) {
+            std::cout << "[Limited state file was not created] ";
+            std::filesystem::remove(initial_state_path);
+            std::filesystem::remove(limited_state_path);
+            return false;
+        }
+
+        // Step 4: Load both files and verify token counts
+        std::vector<llama_token> loaded_limited_tokens(200);
+        size_t n_token_count_limited = 0;
+
+        if (!llama_state_seq_load_file(ctx.ctx, limited_state_path.c_str(), 1,
+                                       loaded_limited_tokens.data(), loaded_limited_tokens.size(),
+                                       &n_token_count_limited)) {
+            std::cout << "[Failed to load limited state file] ";
+            std::filesystem::remove(initial_state_path);
+            std::filesystem::remove(limited_state_path);
+            return false;
+        }
+
+        // Clean up test files
+        std::filesystem::remove(initial_state_path);
+        std::filesystem::remove(limited_state_path);
+
+        // Verify the limited file has exactly save_state_size_limit tokens
+        if (n_token_count_limited != (size_t)save_state_size_limit) {
+            std::cout << "[Token count mismatch: expected " << save_state_size_limit
+                      << " tokens, got " << n_token_count_limited << "] ";
+            return false;
+        }
+
+        std::cout << "[Saved " << n_token_count_limited << "/" << initial_token_count
+                  << " tokens with size limit " << save_state_size_limit << "] ";
+        return true;
+    } catch (const std::exception& e) {
+        std::cout << "[Exception: " << e.what() << "] ";
+        return false;
+    } catch (...) {
+        std::cout << "[Unknown exception] ";
         return false;
     }
 }
@@ -745,6 +885,7 @@ int main() {
     results.run_test("Request Cancellation", test_request_cancellation());
     results.run_test("Sequential Requests", test_sequential_requests());
     results.run_test("Queue Overflow Handling", test_queue_overflow());
+    results.run_test("Queue Request with Session State", test_queue_request_with_session_state());
 
     // Print summary
     results.print_summary();

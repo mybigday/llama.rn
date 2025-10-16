@@ -521,7 +521,6 @@ await context.parallel.disable()
 - Request processing runs in a background loop that manages slot states automatically
 - All standard completion parameters (temperature, top_k, etc.) work per-request
 - The context must be initialized with sufficient `n_parallel` (default: 8) to support desired slot count
-- Currently session load/save are not yet supported for slot
 - Currently TTS models are not yet supported
 
 

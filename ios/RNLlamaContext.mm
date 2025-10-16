@@ -1373,6 +1373,33 @@
     NSString *prefillText = params[@"prefill_text"];
     std::string prefill_text_str = prefillText ? [prefillText UTF8String] : "";
 
+    // Get session state parameters
+    std::string load_state_path;
+    std::string save_state_path;
+    int32_t save_state_size = -1;
+
+    if (params[@"load_state_path"] && [params[@"load_state_path"] isKindOfClass:[NSString class]]) {
+        NSString *path = params[@"load_state_path"];
+        // Remove file:// prefix if present
+        if ([path hasPrefix:@"file://"]) {
+            path = [path substringFromIndex:7];
+        }
+        load_state_path = [path UTF8String];
+    }
+
+    if (params[@"save_state_path"] && [params[@"save_state_path"] isKindOfClass:[NSString class]]) {
+        NSString *path = params[@"save_state_path"];
+        // Remove file:// prefix if present
+        if ([path hasPrefix:@"file://"]) {
+            path = [path substringFromIndex:7];
+        }
+        save_state_path = [path UTF8String];
+    }
+
+    if (params[@"save_state_size"] && [params[@"save_state_size"] isKindOfClass:[NSNumber class]]) {
+        save_state_size = [params[@"save_state_size"] intValue];
+    }
+
     // Copy blocks to ensure they're retained on the heap for async use
     void (^onTokenCopy)(NSMutableDictionary *) = [onToken copy];
     void (^onCompleteCopy)(NSDictionary *) = [onComplete copy];
@@ -1523,6 +1550,9 @@
         reasoning_format,
         thinking_forced_open,
         prefill_text_str,
+        load_state_path,
+        save_state_path,
+        save_state_size,
         token_callback,
         complete_callback
     );

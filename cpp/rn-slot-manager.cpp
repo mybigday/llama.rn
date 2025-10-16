@@ -78,13 +78,20 @@ int32_t llama_rn_slot_manager::queue_request(
     common_reasoning_format reasoning_format,
     bool thinking_forced_open,
     const std::string& prefill_text,
+    const std::string& load_state_path,
+    const std::string& save_state_path,
+    int32_t save_state_size,
     std::function<void(const completion_token_output&)> on_token,
     std::function<void(llama_rn_slot*)> on_complete
 ) {
     // Generate unique request ID
     int32_t request_id = next_request_id++;
 
-    LOG_INFO("Queuing request %d with %zu prompt tokens", request_id, prompt.size());
+    LOG_INFO("Queuing request %d with %zu prompt tokens (load_state=%s, save_state=%s, save_size=%d)",
+             request_id, prompt.size(),
+             load_state_path.empty() ? "no" : load_state_path.c_str(),
+             save_state_path.empty() ? "no" : save_state_path.c_str(),
+             save_state_size);
 
     // Create queued request
     llama_rn_queued_request request;
@@ -98,6 +105,9 @@ int32_t llama_rn_slot_manager::queue_request(
     request.reasoning_format = reasoning_format;
     request.thinking_forced_open = thinking_forced_open;
     request.prefill_text = prefill_text;
+    request.load_state_path = load_state_path;
+    request.save_state_path = save_state_path;
+    request.save_state_size = save_state_size;
     request.on_token = on_token;
     request.on_complete = on_complete;
 
@@ -404,6 +414,27 @@ void llama_rn_slot_manager::process_pending_queue() {
         switch (request.task_type) {
             case SLOT_TASK_TYPE_COMPLETION: {
                 slot->ctx_sampling = common_sampler_init(parent_ctx->model, request.params.sampling);
+
+                // Assign session state parameters
+                slot->load_state_path = request.load_state_path;
+                slot->save_state_path = request.save_state_path;
+                slot->save_state_size = request.save_state_size;
+
+                // Load session state if provided (before loading prompt)
+                if (!slot->load_state_path.empty()) {
+                    if (!slot->load_session_state()) {
+                        LOG_ERROR("Failed to load session state for slot %d, request %d",
+                                  slot->id, request.request_id);
+                        // Mark slot as done with error
+                        slot->state = SLOT_STATE_DONE;
+                        slot->incomplete = true;
+                        if (request.on_complete) {
+                            request.on_complete(slot);
+                        }
+                        queue_requests.pop_front();
+                        continue;
+                    }
+                }
 
                 bool has_media = !request.media_paths.empty();
                 if (has_media && parent_ctx->isMultimodalEnabled()) {
@@ -739,6 +770,11 @@ void llama_rn_slot_manager::sample_and_callback() {
                     slot.state = SLOT_STATE_DONE;
                     LOG_INFO("Slot %d: Stopped on EOS token", slot.id);
 
+                    // Save session state if path is provided
+                    if (!slot.save_state_path.empty()) {
+                        slot.save_session_state();
+                    }
+
                     if (slot.on_complete_callback) {
                         slot.on_complete_callback(&slot);
                     }
@@ -807,6 +843,12 @@ void llama_rn_slot_manager::sample_and_callback() {
 
                 if (should_stop) {
                     slot.state = SLOT_STATE_DONE;
+
+                    // Save session state if path is provided
+                    if (!slot.save_state_path.empty()) {
+                        slot.save_session_state();
+                    }
+
                     if (slot.on_complete_callback) {
                         slot.on_complete_callback(&slot);
                     }

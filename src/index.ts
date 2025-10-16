@@ -5,6 +5,7 @@ import type {
   NativeContextParams,
   NativeLlamaContext,
   NativeCompletionParams,
+  NativeParallelCompletionParams,
   NativeCompletionTokenProb,
   NativeCompletionResult,
   NativeTokenizeResult,
@@ -49,6 +50,7 @@ export type {
   NativeContextParams,
   NativeLlamaContext,
   NativeCompletionParams,
+  NativeParallelCompletionParams,
   NativeCompletionTokenProb,
   NativeCompletionResult,
   NativeTokenizeResult,
@@ -215,6 +217,16 @@ export type CompletionParams = Omit<
 > &
   CompletionBaseParams
 
+/**
+ * Parameters for parallel completion requests.
+ * Extends CompletionParams with parallel-mode specific options like session state management.
+ */
+export type ParallelCompletionParams = Omit<
+  NativeParallelCompletionParams,
+  'emit_partial_completion' | 'prompt'
+> &
+  CompletionBaseParams
+
 export type BenchResult = {
   nKvMax: number
   nBatch: number
@@ -265,12 +277,12 @@ export class LlamaContext {
   parallel = {
     /**
      * Queue a completion request for parallel processing (non-blocking)
-     * @param params Completion parameters (same as completion())
+     * @param params Parallel completion parameters (includes session state management)
      * @param onToken Callback fired for each generated token
      * @returns Promise resolving to object with requestId, promise (resolves to completion result), and stop function
      */
     completion: async (
-      params: CompletionParams,
+      params: ParallelCompletionParams,
       onToken?: (requestId: number, data: TokenData) => void,
     ): Promise<{
       requestId: number

@@ -105,6 +105,11 @@ struct llama_rn_slot {
     std::vector<float> rerank_scores;
     size_t rerank_current_index;
 
+    // Session state management (per-slot)
+    std::string load_state_path;      // Path to load state from before processing
+    std::string save_state_path;      // Path to save state to after completion
+    int32_t save_state_size;          // Number of tokens to save (0 or -1 = all tokens)
+
     // Constructor
     llama_rn_slot();
 
@@ -117,6 +122,10 @@ struct llama_rn_slot {
     bool has_next_token() const;
     completion_token_output get_next_token();
     completion_chat_output parseChatOutput(bool is_partial);
+
+    // Session state methods
+    bool load_session_state();             // Load session state into this slot's sequence
+    bool save_session_state();             // Save session state from this slot's sequence
 };
 
 } // namespace rnllama

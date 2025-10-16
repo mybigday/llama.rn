@@ -36,7 +36,8 @@ llama_rn_slot::llama_rn_slot() :
     t_last_used(0),
     is_interrupted(false),
     media_processed(false),
-    rerank_current_index(0)
+    rerank_current_index(0),
+    save_state_size(-1)
 {
 }
 
@@ -109,6 +110,11 @@ void llama_rn_slot::reset() {
     rerank_prompt_tokens.clear();
     rerank_scores.clear();
     rerank_current_index = 0;
+
+    // Reset session state management
+    load_state_path.clear();
+    save_state_path.clear();
+    save_state_size = -1;
 
     // Note: Keep cache_tokens for potential reuse
     // Note: Keep t_last_used for LRU tracking
@@ -186,6 +192,115 @@ completion_chat_output llama_rn_slot::parseChatOutput(bool is_partial) {
     result.tool_calls = parsed_msg.tool_calls;
 
     return result;
+}
+
+// Load session state into this slot's sequence
+bool llama_rn_slot::load_session_state() {
+    if (!parent_ctx || !parent_ctx->ctx) {
+        LOG_ERROR("Slot %d: Cannot load session state - context not initialized", id);
+        return false;
+    }
+
+    if (load_state_path.empty()) {
+        LOG_VERBOSE("Slot %d: No session state path to load from", id);
+        return true;  // Nothing to load is not an error
+    }
+
+    LOG_INFO("Slot %d: Loading session state from: %s", id, load_state_path.c_str());
+
+    // Get size needed for token output buffer
+    size_t max_tokens = parent_ctx->params.n_ctx;
+    std::vector<llama_token> session_tokens(max_tokens);
+    size_t n_token_count_out = 0;
+
+    // Load state from file into this slot's sequence
+    if (!llama_state_seq_load_file(
+        parent_ctx->ctx,
+        load_state_path.c_str(),
+        id,  // Use slot ID as sequence ID
+        session_tokens.data(),
+        session_tokens.size(),
+        &n_token_count_out
+    )) {
+        LOG_ERROR("Slot %d: Failed to load session state from file: %s", id, load_state_path.c_str());
+        return false;
+    }
+
+    // Resize token vector to actual size
+    session_tokens.resize(n_token_count_out);
+
+    // Remove LLAMA_TOKEN_NULL tokens
+    auto null_token_iter = std::find(session_tokens.begin(), session_tokens.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != session_tokens.end()) {
+        session_tokens.resize(std::distance(session_tokens.begin(), null_token_iter));
+    }
+
+    // Update slot state
+    embd = session_tokens;
+    n_past = session_tokens.size();
+    cache_tokens = session_tokens;
+
+    LOG_INFO("Slot %d: Session state loaded successfully from %s, n_past=%d, tokens=%zu",
+             id, load_state_path.c_str(), n_past, session_tokens.size());
+
+    return true;
+}
+
+// Save session state from this slot's sequence
+bool llama_rn_slot::save_session_state() {
+    if (!parent_ctx || !parent_ctx->ctx) {
+        LOG_ERROR("Slot %d: Cannot save session state - context not initialized", id);
+        return false;
+    }
+
+    if (save_state_path.empty()) {
+        LOG_VERBOSE("Slot %d: No session state path to save to", id);
+        return true;  // Not specified is not an error
+    }
+
+    LOG_INFO("Slot %d: Saving session state to: %s", id, save_state_path.c_str());
+
+    // Get tokens for this session (from embd or cache_tokens)
+    std::vector<llama_token> session_tokens = embd;
+    if (session_tokens.empty()) {
+        session_tokens = cache_tokens;
+    }
+
+    // Remove LLAMA_TOKEN_NULL tokens
+    auto null_token_iter = std::find(session_tokens.begin(), session_tokens.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != session_tokens.end()) {
+        session_tokens.resize(std::distance(session_tokens.begin(), null_token_iter));
+    }
+
+    if (session_tokens.empty()) {
+        LOG_WARNING("Slot %d: No tokens to save for session", id);
+        return false;
+    }
+
+    // Determine how many tokens to save
+    size_t default_size = session_tokens.size();
+    size_t actual_save_size = default_size;
+
+    if (save_state_size > 0 && (size_t)save_state_size <= default_size) {
+        actual_save_size = save_state_size;
+    }
+
+    // Save state to file
+    if (!llama_state_seq_save_file(
+        parent_ctx->ctx,
+        save_state_path.c_str(),
+        id,  // Use slot ID as sequence ID
+        session_tokens.data(),
+        actual_save_size
+    )) {
+        LOG_ERROR("Slot %d: Failed to save session state to file: %s", id, save_state_path.c_str());
+        return false;
+    }
+
+    LOG_INFO("Slot %d: Session state saved successfully to %s (%zu tokens of %zu total)",
+             id, save_state_path.c_str(), actual_save_size, default_size);
+
+    return true;
 }
 
 } // namespace rnllama
