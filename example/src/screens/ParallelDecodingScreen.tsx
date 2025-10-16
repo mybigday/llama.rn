@@ -435,7 +435,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         console.error('Promise error:', err)
         updateSlot(slotId, {
           status: 'error',
-          response: `Error: ${err}`,
+          response: `${err}`,
           endTime: Date.now(),
         })
       })

@@ -8,10 +8,6 @@
 
 namespace rnllama {
 
-// Global mutex to serialize state loading/saving for OpenCL backend
-// OpenCL uses a shared command queue, so concurrent state operations can interleave
-static std::mutex state_io_mutex;
-
 // Constructor
 llama_rn_slot::llama_rn_slot() :
     id(-1),
@@ -254,12 +250,23 @@ completion_chat_output llama_rn_slot::parseChatOutput(bool is_partial) {
 
 // Load state into this slot's sequence
 bool llama_rn_slot::load_state() {
-    std::lock_guard<std::mutex> lock(state_io_mutex);
-
     if (!parent_ctx || !parent_ctx->ctx) {
         LOG_ERROR("Slot %d: Cannot load state - context not initialized", id);
         return false;
     }
+
+#ifdef LM_GGML_USE_OPENCL
+    int n_gpu_layers = parent_ctx->params.n_gpu_layers;
+    // TODO: Figure out how to handle this in a more elegant way
+    if (n_gpu_layers > 0 && !parent_ctx->params.kv_unified) {
+        LOG_ERROR("Slot %d: Cannot save state - kv_unified is not enabled with OpenCL backend", id);
+        return false;
+    }
+    if (n_gpu_layers > 0 && parent_ctx->params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED) {
+        LOG_ERROR("Slot %d: Cannot save state - flash_attn_type is not disabled with OpenCL backend", id);
+        return false;
+    }
+#endif
 
     if (load_state_path.empty()) {
         LOG_VERBOSE("Slot %d: No state path to load from", id);
@@ -322,12 +329,23 @@ bool llama_rn_slot::load_state() {
 
 // Save state from this slot's sequence
 bool llama_rn_slot::save_state() {
-    std::lock_guard<std::mutex> lock(state_io_mutex);
-
     if (!parent_ctx || !parent_ctx->ctx) {
         LOG_ERROR("Slot %d: Cannot save state - context not initialized", id);
         return false;
     }
+
+#ifdef LM_GGML_USE_OPENCL
+    int n_gpu_layers = parent_ctx->params.n_gpu_layers;
+    // TODO: Figure out how to handle this in a more elegant way
+    if (n_gpu_layers > 0 && !parent_ctx->params.kv_unified) {
+        LOG_ERROR("Slot %d: Cannot save state - kv_unified is not enabled on OpenCL backend", id);
+        return false;
+    }
+    if (n_gpu_layers > 0 && !parent_ctx->params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED) {
+        LOG_ERROR("Slot %d: Cannot save state - flash_attn_type is not disabled on OpenCL backend", id);
+        return false;
+    }
+#endif
 
     if (save_state_path.empty()) {
         LOG_VERBOSE("Slot %d: No state path to save to", id);
