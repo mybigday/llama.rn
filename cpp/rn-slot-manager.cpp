@@ -427,6 +427,7 @@ void llama_rn_slot_manager::process_pending_queue() {
                         // Mark slot as done with error
                         slot->state = SLOT_STATE_DONE;
                         slot->incomplete = true;
+                        slot->error_message = "Failed to load state from: " + slot->load_state_path;
                         if (request.on_complete) {
                             request.on_complete(slot);
                         }

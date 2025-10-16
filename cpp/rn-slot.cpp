@@ -77,6 +77,7 @@ void llama_rn_slot::reset() {
     stopped_limit = false;
     stopping_word.clear();
     stop_words.clear();
+    error_message.clear();
 
     // Clear multimodal state
     bitmap_past_hashes.clear();

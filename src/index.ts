@@ -359,7 +359,7 @@ export class LlamaContext {
       const { requestId } = await RNLlama.queueCompletion(this.id, nativeParams)
 
       // Create promise that resolves when completion finishes
-      const promise = new Promise<NativeCompletionResult>((resolve, _reject) => {
+      const promise = new Promise<NativeCompletionResult>((resolve, reject) => {
         if (onToken) {
           tokenListener = EventEmitter.addListener(EVENT_ON_TOKEN, (evt: TokenNativeEvent) => {
             const { contextId, requestId: evtRequestId, tokenResult } = evt
@@ -377,8 +377,13 @@ export class LlamaContext {
           tokenListener?.remove()
           completeListener?.remove()
 
-          // Resolve the promise
-          resolve(result as NativeCompletionResult)
+          // Check if there's an error in the result (e.g., state load failure)
+          if (result.error) {
+            reject(new Error(result.error))
+          } else {
+            // Resolve the promise
+            resolve(result as NativeCompletionResult)
+          }
         })
       })
 

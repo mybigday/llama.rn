@@ -72,6 +72,7 @@ struct llama_rn_slot {
     bool stopped_limit;
     std::string stopping_word;
     std::vector<std::string> stop_words;  // Stop words for this slot
+    std::string error_message;             // Error message if completion failed
 
     // Chat parsing state
     int current_chat_format;

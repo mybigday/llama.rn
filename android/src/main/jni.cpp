@@ -2295,6 +2295,11 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
             writablemap::putBoolean(env_cb, result, "stopped_eos", slot->stopped_eos);
             writablemap::putString(env_cb, result, "stopping_word", slot->stopping_word.c_str());
 
+            // Add error message if present
+            if (!slot->error_message.empty()) {
+                writablemap::putString(env_cb, result, "error", slot->error_message.c_str());
+            }
+
             // Parse final chat output
             rnllama::completion_chat_output final_output;
             bool has_final_output = false;

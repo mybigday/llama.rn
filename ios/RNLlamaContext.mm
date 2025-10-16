@@ -1488,6 +1488,7 @@
         bool context_full = slot->context_full;
         bool incomplete = slot->incomplete;
         int n_decoded = slot->n_decoded;
+        std::string error_message = slot->error_message;
 
         // Parse final chat output
         rnllama::completion_chat_output final_output;
@@ -1509,6 +1510,11 @@
             result[@"context_full"] = @(context_full);
             result[@"incomplete"] = @(incomplete);
             result[@"n_decoded"] = @(n_decoded);
+
+            // Add error message if present
+            if (!error_message.empty()) {
+                result[@"error"] = [NSString stringWithUTF8String:error_message.c_str()];
+            }
 
             // Add parsed chat output (final)
             if (has_final_output) {
