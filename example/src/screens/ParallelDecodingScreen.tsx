@@ -10,6 +10,7 @@ import {
   Alert,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import ReactNativeBlobUtil from 'react-native-blob-util'
 import { useTheme } from '../contexts/ThemeContext'
 import { createThemedStyles } from '../styles/commonStyles'
 import ModelDownloadCard, { MtmdModelDownloadCard } from '../components/ModelDownloadCard'
@@ -46,6 +47,24 @@ const LLM_MODELS = Object.entries(MODELS).filter(([_key, model]) => {
 
 const SYSTEM_PROMPT = 'You are a helpful AI assistant. Be concise and direct in your responses.'
 
+// Helper to generate a simple hash for a question (for session file naming)
+const hashString = (str: string): string => {
+  let hash = 0
+  for (let i = 0; i < str.length; i += 1) {
+    const char = str.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash &= hash // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(36)
+}
+
+// Helper to get session file path for a question
+const getSessionPath = (prompt: string): string => {
+  const questionHash = hashString(prompt.trim().toLowerCase())
+  const cacheDir = ReactNativeBlobUtil.fs.dirs.CacheDir
+  return `${cacheDir}/session_${questionHash}.bin`
+}
+
 const EXAMPLE_PROMPTS = [
   'What is the capital of France?',
   'Explain quantum computing in simple terms.',
@@ -73,7 +92,7 @@ const MULTIMODAL_EXAMPLE_PROMPTS = [
     imageUrl: EXAMPLE_IMAGE_URLS[1],
   },
   {
-    text: 'Describe what you see in this image in detail.',
+    text: 'Describe what you see in this image in detail.', // Should use same state file with 2nd prompt
     imageUrl: EXAMPLE_IMAGE_URLS[2],
   },
 ]
@@ -331,17 +350,56 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         text: prompt,
       })
 
+      const messages = [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userContent },
+      ]
+
+      // Get session path for this question
+      const sessionPath = getSessionPath(prompt)
+
+      // Check if session file exists on filesystem
+      const sessionFileExists = await ReactNativeBlobUtil.fs.exists(sessionPath)
+      const loadStatePath = sessionFileExists ? sessionPath : undefined
+
+      // Format chat to get the formatted prompt for tokenization
+      const formattedChat = await context.getFormattedChat(
+        messages,
+        undefined,
+        {
+          jinja: true,
+        }
+      )
+
+      // Tokenize the formatted prompt to get question token count
+      let questionTokenCount = 0
+      try {
+        const tokenizeResult = await context.tokenize(
+          formattedChat.prompt,
+          {
+            media_paths: images && images.length > 0 ? images : undefined
+          }
+        )
+        questionTokenCount = tokenizeResult.tokens.length
+        console.log(`Question token count: ${questionTokenCount}, has saved state: ${!!loadStatePath}`)
+      } catch (error) {
+        console.error('Error tokenizing prompt:', error)
+        // Continue without session state if tokenization fails
+        questionTokenCount = 0
+      }
+
       // Use parallel.completion for parallel processing with messages format
       const { requestId, promise, stop } = await context.parallel.completion(
         {
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: userContent },
-          ],
+          messages,
           ...params,
           reasoning_format: 'auto',
           n_predict: params.n_predict || 50,
           jinja: true,
+          // Session state management: load previous state if exists, always save
+          load_state_path: loadStatePath,
+          save_state_path: questionTokenCount > 0 ? sessionPath : undefined,
+          save_state_size: questionTokenCount > 0 ? questionTokenCount : undefined,
         },
         (_reqId, data) => {
           const currentSlot = slotsRef.current.find((t) => t.id === slotId)
@@ -364,6 +422,11 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
           response: finalText,
           endTime: Date.now(),
         })
+
+        // Log session state save (file already saved by native code)
+        if (questionTokenCount > 0) {
+          console.log(`Saved session state for question: ${prompt.substring(0, 30)}...`)
+        }
       }).catch((err) => {
         console.error('Promise error:', err)
         updateSlot(slotId, {
