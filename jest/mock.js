@@ -454,4 +454,4 @@ if (!NativeModules.RNLlama) {
   }
 }
 
-module.exports = jest.requireActual('../src')
+module.exports = jest.requireActual('llama.rn')
