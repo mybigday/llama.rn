@@ -8993,6 +8993,22 @@ void lm_ggml_compute_forward_unary(
             {
                 lm_ggml_compute_forward_exp(params, dst);
             } break;
+        case LM_GGML_UNARY_OP_FLOOR:
+            {
+                lm_ggml_compute_forward_floor(params, dst);
+            } break;
+        case LM_GGML_UNARY_OP_CEIL:
+            {
+                lm_ggml_compute_forward_ceil(params, dst);
+            } break;
+        case LM_GGML_UNARY_OP_ROUND:
+            {
+                lm_ggml_compute_forward_round(params, dst);
+            } break;
+        case LM_GGML_UNARY_OP_TRUNC:
+            {
+                lm_ggml_compute_forward_trunc(params, dst);
+            } break;
         case LM_GGML_UNARY_OP_XIELU:
             {
                 lm_ggml_compute_forward_xielu(params, dst);

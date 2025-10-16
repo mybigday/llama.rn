@@ -577,6 +577,10 @@ extern "C" {
         LM_GGML_UNARY_OP_EXP,
         LM_GGML_UNARY_OP_GELU_ERF,
         LM_GGML_UNARY_OP_XIELU,
+        LM_GGML_UNARY_OP_FLOOR,
+        LM_GGML_UNARY_OP_CEIL,
+        LM_GGML_UNARY_OP_ROUND,
+        LM_GGML_UNARY_OP_TRUNC,
 
         LM_GGML_UNARY_OP_COUNT,
     };
@@ -1150,6 +1154,46 @@ extern "C" {
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_exp_inplace(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_floor(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_floor_inplace(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_ceil(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_ceil_inplace(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_round(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_round_inplace(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+     /**
+     * Truncates the fractional part of each element in the tensor (towards zero).
+     * For example: trunc(3.7) = 3.0, trunc(-2.9) = -2.0
+     * Similar to std::trunc in C/C++.
+     */
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_trunc(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_trunc_inplace(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+
 
     // xIELU activation function
     // x = x * (c_a(alpha_n) + c_b(alpha_p, beta) * sigmoid(beta * x)) + eps * (x > 0)

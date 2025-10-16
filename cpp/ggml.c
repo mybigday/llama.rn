@@ -1152,9 +1152,13 @@ static const char * LM_GGML_UNARY_OP_NAME[LM_GGML_UNARY_OP_COUNT] = {
     "EXP",
     "GELU_ERF",
     "XIELU",
+    "FLOOR",
+    "CEIL",
+    "ROUND",
+    "TRUNC",
 };
 
-static_assert(LM_GGML_UNARY_OP_COUNT == 16, "LM_GGML_UNARY_OP_COUNT != 16");
+static_assert(LM_GGML_UNARY_OP_COUNT == 20, "LM_GGML_UNARY_OP_COUNT != 20");
 
 static const char * LM_GGML_GLU_OP_NAME[LM_GGML_GLU_OP_COUNT] = {
     "REGLU",
@@ -2755,6 +2759,62 @@ static struct lm_ggml_tensor * lm_ggml_glu_impl(
     result->src[1] = b;
 
     return result;
+}
+
+// lm_ggml_floor
+
+struct lm_ggml_tensor * lm_ggml_floor(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_unary(ctx, a, LM_GGML_UNARY_OP_FLOOR);
+}
+
+struct lm_ggml_tensor * lm_ggml_floor_inplace(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_unary_inplace(ctx, a, LM_GGML_UNARY_OP_FLOOR);
+}
+
+// lm_ggml_ceil
+
+struct lm_ggml_tensor * lm_ggml_ceil(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_unary(ctx, a, LM_GGML_UNARY_OP_CEIL);
+}
+
+struct lm_ggml_tensor * lm_ggml_ceil_inplace(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_unary_inplace(ctx, a, LM_GGML_UNARY_OP_CEIL);
+}
+
+//lm_ggml_round
+
+struct lm_ggml_tensor * lm_ggml_round(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_unary(ctx, a, LM_GGML_UNARY_OP_ROUND);
+}
+
+struct lm_ggml_tensor * lm_ggml_round_inplace(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_unary_inplace(ctx, a, LM_GGML_UNARY_OP_ROUND);
+}
+
+//lm_ggml_trunc
+
+struct lm_ggml_tensor * lm_ggml_trunc(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_unary(ctx, a, LM_GGML_UNARY_OP_TRUNC);
+}
+
+struct lm_ggml_tensor * lm_ggml_trunc_inplace(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_unary_inplace(ctx, a, LM_GGML_UNARY_OP_TRUNC);
 }
 
 struct lm_ggml_tensor * lm_ggml_glu(

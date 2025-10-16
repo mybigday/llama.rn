@@ -866,12 +866,25 @@ int lm_ggml_metal_op_sum(lm_ggml_metal_op_t ctx, int idx) {
 
     lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_sum(lib, op);
 
+    int nth = 32; // SIMD width
+
+    while (nth < (int) n && nth < lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline)) {
+        nth *= 2;
+    }
+
+    nth = std::min(nth, lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
+    nth = std::min(nth, (int) n);
+
+    const int nsg = (nth + 31) / 32;
+
     lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
     lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
     lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[0]), 1);
     lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op),         2);
 
-    lm_ggml_metal_encoder_dispatch_threadgroups(enc, 1, 1, 1, 1, 1, 1);
+    lm_ggml_metal_encoder_set_threadgroup_memory_size(enc, nsg * sizeof(float), 0);
+
+    lm_ggml_metal_encoder_dispatch_threadgroups(enc, 1, 1, 1, nth, 1, 1);
 
     return 1;
 }

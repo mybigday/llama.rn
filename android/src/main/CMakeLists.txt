@@ -160,6 +160,7 @@ function(build_library target_name arch cpu_flags)
             mul_mv_id_mxfp4_f32_flat
             mul_mm_f32_f32_l4_lm
             mul_mm_f16_f32_l4_lm
+            mul_mm_q8_0_f32_l4_lm
             mul
             norm
             relu

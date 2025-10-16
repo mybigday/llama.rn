@@ -2184,6 +2184,10 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
                 case LM_GGML_UNARY_OP_HARDSWISH:
                 case LM_GGML_UNARY_OP_HARDSIGMOID:
                 case LM_GGML_UNARY_OP_EXP:
+                case LM_GGML_UNARY_OP_FLOOR:
+                case LM_GGML_UNARY_OP_CEIL:
+                case LM_GGML_UNARY_OP_ROUND:
+                case LM_GGML_UNARY_OP_TRUNC:
                     {
                         n_tasks = 1;
                     } break;
@@ -3563,13 +3567,17 @@ void lm_ggml_cpu_init(void) {
 #ifdef LM_GGML_USE_OPENMP
             //if (!getenv("OMP_WAIT_POLICY")) {
             //    // set the wait policy to active, so that OpenMP threads don't sleep
-            //    putenv("OMP_WAIT_POLICY=active");
+            //    setenv("OMP_WAIT_POLICY", "active", 0)
             //}
 
             if (!getenv("KMP_BLOCKTIME")) {
                 // set the time to wait before sleeping a thread
                 // this is less aggressive than setting the wait policy to active, but should achieve similar results in most cases
-                putenv("KMP_BLOCKTIME=200"); // 200ms
+#ifdef _WIN32
+                _putenv_s("KMP_BLOCKTIME", "200"); // 200ms
+#else
+                setenv("KMP_BLOCKTIME", "200", 0); // 200ms
+#endif
             }
 #endif
         }
