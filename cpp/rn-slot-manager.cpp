@@ -392,7 +392,6 @@ void llama_rn_slot_manager::process_pending_queue() {
         }
 
         // Assign request to slot
-        LOG_INFO("Assigning request %d to slot %d (task=%d)", request.request_id, slot->id, request.task_type);
         slot->request_id = request.request_id;
         slot->task_type = request.task_type;
         slot->t_start_process = lm_ggml_time_us();

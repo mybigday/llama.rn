@@ -33,6 +33,14 @@ static size_t find_partial_stop_string(const std::string& stop, const std::strin
   return std::string::npos;
 }
 
+// Helper function to find the length of common prefix between two token vectors
+static size_t find_common_prefix_length(const std::vector<llama_token> &a, const std::vector<llama_token> &b) {
+  size_t i;
+  for (i = 0; i < a.size() && i < b.size() && a[i] == b[i]; i++) {
+  }
+  return i;
+}
+
 // Helper function to format rerank task: [BOS]query[EOS][SEP]doc[EOS]
 static std::vector<llama_token> format_rerank_tokens(
   const llama_vocab* vocab,

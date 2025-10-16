@@ -1,10 +1,16 @@
 #include "rn-slot.h"
 #include "rn-completion.h"
 #include "rn-llama.h"
+#include "rn-common.hpp"
 #include "chat.h"
 #include <cstring>
+#include <mutex>
 
 namespace rnllama {
+
+// Global mutex to serialize state loading/saving for OpenCL backend
+// OpenCL uses a shared command queue, so concurrent state operations can interleave
+static std::mutex state_io_mutex;
 
 // Constructor
 llama_rn_slot::llama_rn_slot() :
@@ -113,6 +119,12 @@ void llama_rn_slot::reset() {
     rerank_current_index = 0;
 
     // Reset state management
+    if (!load_state_path.empty() || !save_state_path.empty()) {
+        LOG_VERBOSE("Slot %d: Clearing state paths (load=%s, save=%s)",
+                   id,
+                   load_state_path.empty() ? "none" : load_state_path.c_str(),
+                   save_state_path.empty() ? "none" : save_state_path.c_str());
+    }
     load_state_path.clear();
     save_state_path.clear();
     save_state_size = -1;
@@ -127,45 +139,63 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
     num_prompt_tokens = tokens.size();
     state = SLOT_STATE_PROCESSING_PROMPT;
 
-    // Check if we have loaded state and if the prompt matches
+    // Check if we have loaded state
     bool has_loaded_state = (!load_state_path.empty() && !cache_tokens.empty());
-    bool prompt_matches = false;
 
-    if (has_loaded_state && tokens.size() <= cache_tokens.size()) {
-        // Check if the new prompt tokens match the beginning of the loaded state tokens
-        prompt_matches = std::equal(tokens.begin(), tokens.end(), cache_tokens.begin());
-    }
+    if (has_loaded_state) {
+        // Find how many tokens match between cached state and new prompt
+        size_t n_matching = find_common_prefix_length(cache_tokens, tokens);
 
-    if (has_loaded_state && prompt_matches) {
-        // Reusing loaded state: keep KV cache and n_past
-        // Note: State is saved with size-1, so the last token needs to be processed
-        // This ensures we get fresh logits for sampling
-        LOG_INFO("Slot %d: Reusing loaded state (%d cached tokens, %d prompt tokens)",
-                 id, (int)cache_tokens.size(), (int)tokens.size());
-        // n_past is already set by load_state, keep it
-        // The last prompt token will be processed through build_batch to generate logits
-        n_decoded = 0;
-    } else {
-        // Starting fresh: clear KV cache and reset state
-        if (has_loaded_state) {
-            LOG_WARNING("Slot %d: Loaded state doesn't match prompt (%zu cached vs %zu prompt tokens), clearing cache",
-                       id, cache_tokens.size(), tokens.size());
+        if (n_matching > 0) {
+            // We can reuse the KV cache for the matching prefix
+            // Adjust n_past to the matching length
+            LOG_INFO("Slot %d (req=%d): Reusing loaded state (%zu matching tokens from %zu cached, %zu prompt tokens)",
+                     id, request_id, n_matching, cache_tokens.size(), tokens.size());
+
+            // Set n_past to the matching prefix length
+            // Any remaining tokens will be processed through build_batch
+            n_past = n_matching;
+            n_decoded = 0;
+
+            // Clear KV cache beyond the matching prefix
+            if (parent_ctx && parent_ctx->ctx) {
+                auto * kv = llama_get_memory(parent_ctx->ctx);
+                llama_memory_seq_rm(kv, id, n_matching, -1);
+                LOG_VERBOSE("Slot %d: Cleared KV cache beyond position %zu", id, n_matching);
+            }
+
+            // Update cache_tokens to include the full prompt
+            cache_tokens = tokens;
+        } else {
+            // No matching tokens, start fresh
+            LOG_WARNING("Slot %d (req=%d): Loaded state doesn't match prompt (0 matching tokens), clearing cache",
+                       id, request_id);
+
+            n_past = 0;
+            n_decoded = 0;
+
+            // Clear KV cache for this slot's sequence
+            if (parent_ctx && parent_ctx->ctx) {
+                auto * kv = llama_get_memory(parent_ctx->ctx);
+                llama_memory_seq_rm(kv, id, 0, parent_ctx->params.n_ctx);
+                LOG_VERBOSE("Slot %d: Cleared KV cache for sequence (0 to %d)", id, parent_ctx->params.n_ctx);
+            }
+
+            cache_tokens = tokens;
         }
-
+    } else {
+        // No loaded state, start fresh
         n_past = 0;
         n_decoded = 0;
 
         // Clear KV cache for this slot's sequence to ensure clean state
-        // This is crucial when reusing slots for different requests
         if (parent_ctx && parent_ctx->ctx) {
             auto * kv = llama_get_memory(parent_ctx->ctx);
-            // Use n_ctx as the end position to ensure all positions are cleared
             llama_memory_seq_rm(kv, id, 0, parent_ctx->params.n_ctx);
             LOG_VERBOSE("Slot %d: Cleared KV cache for sequence (0 to %d)", id, parent_ctx->params.n_ctx);
         }
 
         // Initialize cache_tokens with prompt tokens
-        // This will be extended with generated tokens during completion
         cache_tokens = tokens;
     }
 }
@@ -224,6 +254,8 @@ completion_chat_output llama_rn_slot::parseChatOutput(bool is_partial) {
 
 // Load state into this slot's sequence
 bool llama_rn_slot::load_state() {
+    std::lock_guard<std::mutex> lock(state_io_mutex);
+
     if (!parent_ctx || !parent_ctx->ctx) {
         LOG_ERROR("Slot %d: Cannot load state - context not initialized", id);
         return false;
@@ -239,12 +271,9 @@ bool llama_rn_slot::load_state() {
     // Start timing
     const int64_t t_load_start = lm_ggml_time_us();
 
-    // Clear existing KV cache for this sequence before loading
-    // This ensures we start fresh with only the loaded state
     auto * kv = llama_get_memory(parent_ctx->ctx);
-    // Use -1 for both positions to clear all cells for this sequence
     llama_memory_seq_rm(kv, id, -1, -1);
-    LOG_VERBOSE("Slot %d: Cleared existing KV cache before loading state", id);
+    LOG_VERBOSE("Slot %d: Cleared ALL KV cache cells for sequence %d", id, id);
 
     // Get size needed for token output buffer
     size_t max_tokens = parent_ctx->params.n_ctx;
@@ -288,14 +317,13 @@ bool llama_rn_slot::load_state() {
     const int64_t t_load_end = lm_ggml_time_us();
     const double t_load_ms = (t_load_end - t_load_start) / 1000.0;
 
-    LOG_INFO("Slot %d: State loaded successfully from %s, n_past=%d, tokens=%zu, time=%.2f ms",
-             id, load_state_path.c_str(), n_past, state_tokens.size(), t_load_ms);
-
     return true;
 }
 
 // Save state from this slot's sequence
 bool llama_rn_slot::save_state() {
+    std::lock_guard<std::mutex> lock(state_io_mutex);
+
     if (!parent_ctx || !parent_ctx->ctx) {
         LOG_ERROR("Slot %d: Cannot save state - context not initialized", id);
         return false;
@@ -357,9 +385,6 @@ bool llama_rn_slot::save_state() {
     // Calculate elapsed time
     const int64_t t_save_end = lm_ggml_time_us();
     const double t_save_ms = (t_save_end - t_save_start) / 1000.0;
-
-    LOG_INFO("Slot %d: State saved successfully to %s (%zu tokens of %zu total), time=%.2f ms",
-             id, save_state_path.c_str(), actual_save_size, default_size, t_save_ms);
 
     return true;
 }
