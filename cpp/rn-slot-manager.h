@@ -48,13 +48,19 @@ struct llama_rn_queued_request {
     std::vector<std::vector<llama_token>> rerank_prompt_tokens;
     std::function<void(int32_t, const std::vector<float>&)> on_rerank;
 
+    // State management
+    std::string load_state_path;       // File path to load state from before processing
+    std::string save_state_path;       // File path to save state to after completion
+    int32_t save_state_size;           // Number of tokens to save (0 or -1 = all tokens)
+
     llama_rn_queued_request() :
         request_id(-1),
         task_type(SLOT_TASK_TYPE_COMPLETION),
         chat_format(0),
         reasoning_format(COMMON_REASONING_FORMAT_NONE),
         thinking_forced_open(false),
-        embd_normalize(-1)
+        embd_normalize(-1),
+        save_state_size(-1)
     {}
 };
 
@@ -107,6 +113,9 @@ struct llama_rn_slot_manager {
         common_reasoning_format reasoning_format,
         bool thinking_forced_open,
         const std::string& prefill_text,
+        const std::string& load_state_path,
+        const std::string& save_state_path,
+        int32_t save_state_size,
         std::function<void(const completion_token_output&)> on_token,
         std::function<void(llama_rn_slot*)> on_complete
     );

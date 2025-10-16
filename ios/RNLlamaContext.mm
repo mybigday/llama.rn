@@ -1373,6 +1373,33 @@
     NSString *prefillText = params[@"prefill_text"];
     std::string prefill_text_str = prefillText ? [prefillText UTF8String] : "";
 
+    // Get state parameters
+    std::string load_state_path;
+    std::string save_state_path;
+    int32_t save_state_size = -1;
+
+    if (params[@"load_state_path"] && [params[@"load_state_path"] isKindOfClass:[NSString class]]) {
+        NSString *path = params[@"load_state_path"];
+        // Remove file:// prefix if present
+        if ([path hasPrefix:@"file://"]) {
+            path = [path substringFromIndex:7];
+        }
+        load_state_path = [path UTF8String];
+    }
+
+    if (params[@"save_state_path"] && [params[@"save_state_path"] isKindOfClass:[NSString class]]) {
+        NSString *path = params[@"save_state_path"];
+        // Remove file:// prefix if present
+        if ([path hasPrefix:@"file://"]) {
+            path = [path substringFromIndex:7];
+        }
+        save_state_path = [path UTF8String];
+    }
+
+    if (params[@"save_state_size"] && [params[@"save_state_size"] isKindOfClass:[NSNumber class]]) {
+        save_state_size = [params[@"save_state_size"] intValue];
+    }
+
     // Copy blocks to ensure they're retained on the heap for async use
     void (^onTokenCopy)(NSMutableDictionary *) = [onToken copy];
     void (^onCompleteCopy)(NSDictionary *) = [onComplete copy];
@@ -1461,6 +1488,7 @@
         bool context_full = slot->context_full;
         bool incomplete = slot->incomplete;
         int n_decoded = slot->n_decoded;
+        std::string error_message = slot->error_message;
 
         // Parse final chat output
         rnllama::completion_chat_output final_output;
@@ -1482,6 +1510,11 @@
             result[@"context_full"] = @(context_full);
             result[@"incomplete"] = @(incomplete);
             result[@"n_decoded"] = @(n_decoded);
+
+            // Add error message if present
+            if (!error_message.empty()) {
+                result[@"error"] = [NSString stringWithUTF8String:error_message.c_str()];
+            }
 
             // Add parsed chat output (final)
             if (has_final_output) {
@@ -1523,6 +1556,9 @@
         reasoning_format,
         thinking_forced_open,
         prefill_text_str,
+        load_state_path,
+        save_state_path,
+        save_state_size,
         token_callback,
         complete_callback
     );

@@ -2295,6 +2295,11 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
             writablemap::putBoolean(env_cb, result, "stopped_eos", slot->stopped_eos);
             writablemap::putString(env_cb, result, "stopping_word", slot->stopping_word.c_str());
 
+            // Add error message if present
+            if (!slot->error_message.empty()) {
+                writablemap::putString(env_cb, result, "error", slot->error_message.c_str());
+            }
+
             // Parse final chat output
             rnllama::completion_chat_output final_output;
             bool has_final_output = false;
@@ -2351,6 +2356,41 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
         // Convert prefill_text to std::string
         std::string prefill_text_str = prefill_text_chars ? prefill_text_chars : "";
 
+        // Extract state paths
+        std::string load_state_path;
+        std::string save_state_path;
+        int32_t save_state_size = -1;
+
+        if (readablemap::hasKey(env, params_map, "load_state_path")) {
+            jstring load_path = readablemap::getString(env, params_map, "load_state_path", nullptr);
+            if (load_path) {
+                const char *load_path_chars = env->GetStringUTFChars(load_path, nullptr);
+                load_state_path = load_path_chars;
+                // Remove file:// prefix if present
+                if (load_state_path.find("file://") == 0) {
+                    load_state_path = load_state_path.substr(7);
+                }
+                env->ReleaseStringUTFChars(load_path, load_path_chars);
+            }
+        }
+
+        if (readablemap::hasKey(env, params_map, "save_state_path")) {
+            jstring save_path = readablemap::getString(env, params_map, "save_state_path", nullptr);
+            if (save_path) {
+                const char *save_path_chars = env->GetStringUTFChars(save_path, nullptr);
+                save_state_path = save_path_chars;
+                // Remove file:// prefix if present
+                if (save_state_path.find("file://") == 0) {
+                    save_state_path = save_state_path.substr(7);
+                }
+                env->ReleaseStringUTFChars(save_path, save_path_chars);
+            }
+        }
+
+        if (readablemap::hasKey(env, params_map, "save_state_size")) {
+            save_state_size = readablemap::getInt(env, params_map, "save_state_size", -1);
+        }
+
         // Queue the request with all required parameters
         int32_t request_id = llama->slot_manager->queue_request(
             params,
@@ -2361,6 +2401,9 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
             reasoning_format_enum,
             thinking_forced_open,
             prefill_text_str,
+            load_state_path,
+            save_state_path,
+            save_state_size,
             on_token,
             on_complete
         );

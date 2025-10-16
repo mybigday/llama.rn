@@ -72,6 +72,7 @@ struct llama_rn_slot {
     bool stopped_limit;
     std::string stopping_word;
     std::vector<std::string> stop_words;  // Stop words for this slot
+    std::string error_message;             // Error message if completion failed
 
     // Chat parsing state
     int current_chat_format;
@@ -105,6 +106,11 @@ struct llama_rn_slot {
     std::vector<float> rerank_scores;
     size_t rerank_current_index;
 
+    // State management (per-slot)
+    std::string load_state_path;      // Path to load state from before processing
+    std::string save_state_path;      // Path to save state to after completion
+    int32_t save_state_size;          // Number of tokens to save (0 or -1 = all tokens)
+
     // Constructor
     llama_rn_slot();
 
@@ -117,6 +123,10 @@ struct llama_rn_slot {
     bool has_next_token() const;
     completion_token_output get_next_token();
     completion_chat_output parseChatOutput(bool is_partial);
+
+    // State methods
+    bool load_state();             // Load state into this slot's sequence
+    bool save_state();             // Save state from this slot's sequence
 };
 
 } // namespace rnllama

@@ -78,13 +78,20 @@ int32_t llama_rn_slot_manager::queue_request(
     common_reasoning_format reasoning_format,
     bool thinking_forced_open,
     const std::string& prefill_text,
+    const std::string& load_state_path,
+    const std::string& save_state_path,
+    int32_t save_state_size,
     std::function<void(const completion_token_output&)> on_token,
     std::function<void(llama_rn_slot*)> on_complete
 ) {
     // Generate unique request ID
     int32_t request_id = next_request_id++;
 
-    LOG_INFO("Queuing request %d with %zu prompt tokens", request_id, prompt.size());
+    LOG_INFO("Queuing request %d with %zu prompt tokens (load_state=%s, save_state=%s, save_size=%d)",
+             request_id, prompt.size(),
+             load_state_path.empty() ? "no" : load_state_path.c_str(),
+             save_state_path.empty() ? "no" : save_state_path.c_str(),
+             save_state_size);
 
     // Create queued request
     llama_rn_queued_request request;
@@ -98,6 +105,9 @@ int32_t llama_rn_slot_manager::queue_request(
     request.reasoning_format = reasoning_format;
     request.thinking_forced_open = thinking_forced_open;
     request.prefill_text = prefill_text;
+    request.load_state_path = load_state_path;
+    request.save_state_path = save_state_path;
+    request.save_state_size = save_state_size;
     request.on_token = on_token;
     request.on_complete = on_complete;
 
@@ -292,11 +302,10 @@ llama_rn_slot* llama_rn_slot_manager::get_slot_by_request_id(int32_t request_id)
 void llama_rn_slot_manager::release_slot(llama_rn_slot* slot) {
     LOG_VERBOSE("Releasing slot %d", slot->id);
 
-    // Save cache tokens for potential reuse
-    slot->cache_tokens = slot->prompt_tokens;
+    // Update last used timestamp for LRU tracking
     slot->t_last_used = lm_ggml_time_us();
 
-    // Reset slot
+    // Reset slot (cache_tokens is preserved by reset() for potential reuse)
     slot->reset();
 }
 
@@ -383,7 +392,6 @@ void llama_rn_slot_manager::process_pending_queue() {
         }
 
         // Assign request to slot
-        LOG_INFO("Assigning request %d to slot %d (task=%d)", request.request_id, slot->id, request.task_type);
         slot->request_id = request.request_id;
         slot->task_type = request.task_type;
         slot->t_start_process = lm_ggml_time_us();
@@ -405,6 +413,29 @@ void llama_rn_slot_manager::process_pending_queue() {
             case SLOT_TASK_TYPE_COMPLETION: {
                 slot->ctx_sampling = common_sampler_init(parent_ctx->model, request.params.sampling);
 
+                // Assign state parameters
+                slot->load_state_path = request.load_state_path;
+                slot->save_state_path = request.save_state_path;
+                slot->save_state_size = request.save_state_size;
+
+                // Load state if provided
+                if (!slot->load_state_path.empty()) {
+                    if (!slot->load_state()) {
+                        LOG_ERROR("Failed to load state for slot %d, request %d",
+                                  slot->id, request.request_id);
+                        // Mark slot as done with error
+                        slot->state = SLOT_STATE_DONE;
+                        slot->incomplete = true;
+                        slot->error_message = "Failed to load state from: " + slot->load_state_path;
+                        if (request.on_complete) {
+                            request.on_complete(slot);
+                        }
+                        queue_requests.pop_front();
+                        continue;
+                    }
+                }
+
+                // Always load prompt - it will detect and preserve state if appropriate
                 bool has_media = !request.media_paths.empty();
                 if (has_media && parent_ctx->isMultimodalEnabled()) {
                     LOG_INFO("Storing %zu media paths for deferred processing in slot %d",
@@ -739,6 +770,11 @@ void llama_rn_slot_manager::sample_and_callback() {
                     slot.state = SLOT_STATE_DONE;
                     LOG_INFO("Slot %d: Stopped on EOS token", slot.id);
 
+                    // Save state if path is provided
+                    if (!slot.save_state_path.empty()) {
+                        slot.save_state();
+                    }
+
                     if (slot.on_complete_callback) {
                         slot.on_complete_callback(&slot);
                     }
@@ -763,6 +799,10 @@ void llama_rn_slot_manager::sample_and_callback() {
 
                 slot.generated_tokens.push_back(new_token_id);
                 slot.n_decoded++;
+
+                // Update cache_tokens to keep track of all processed tokens
+                // This is needed for state saving
+                slot.cache_tokens.push_back(new_token_id);
 
                 if (slot.on_token_callback) {
                     slot.on_token_callback(token_output);
@@ -807,6 +847,12 @@ void llama_rn_slot_manager::sample_and_callback() {
 
                 if (should_stop) {
                     slot.state = SLOT_STATE_DONE;
+
+                    // Save state if path is provided
+                    if (!slot.save_state_path.empty()) {
+                        slot.save_state();
+                    }
+
                     if (slot.on_complete_callback) {
                         slot.on_complete_callback(&slot);
                     }

@@ -189,7 +189,8 @@
               ]
             }
           ],
-          "react/require-default-props": "off"
+          "react/require-default-props": "off",
+          "no-bitwise": "off"
         }
       }
     ],

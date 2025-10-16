@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rn-llama.h"
+#include "rn-common.hpp"
 #include "tools/mtmd/mtmd.h"
 #include "tools/mtmd/mtmd-helper.h"
 #include "tools/mtmd/clip.h"
@@ -55,16 +56,6 @@ struct llama_rn_context_mtmd {
     // Check if multimodal supports audio
     bool supportAudio() const;
 };
-
-// Helper function to find common part between two token vectors
-inline size_t common_part(const std::vector<llama_token> &a, const std::vector<llama_token> &b)
-{
-    size_t i;
-    for (i = 0; i < a.size() && i < b.size() && a[i] == b[i]; i++)
-    {
-    }
-    return i;
-}
 
 // FNV-1a hash function for bitmap hashing
 inline std::string fnv_hash(const uint8_t * data, size_t len) {
@@ -412,7 +403,7 @@ inline void llama_rn_context_mtmd::processMedia(
         throw std::runtime_error("Not enough context space");
     }
 
-    n_past = common_part(embd, all_tokens);
+    n_past = find_common_prefix_length(embd, all_tokens);
 
     llama_pos new_n_past = n_past;
 

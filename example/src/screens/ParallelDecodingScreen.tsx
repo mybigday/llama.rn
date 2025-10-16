@@ -10,6 +10,7 @@ import {
   Alert,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import ReactNativeBlobUtil from 'react-native-blob-util'
 import { useTheme } from '../contexts/ThemeContext'
 import { createThemedStyles } from '../styles/commonStyles'
 import ModelDownloadCard, { MtmdModelDownloadCard } from '../components/ModelDownloadCard'
@@ -46,6 +47,26 @@ const LLM_MODELS = Object.entries(MODELS).filter(([_key, model]) => {
 
 const SYSTEM_PROMPT = 'You are a helpful AI assistant. Be concise and direct in your responses.'
 
+// Helper to generate a simple hash for a question (for state file naming)
+const hashString = (str: string): string => {
+  let hash = 0
+  for (let i = 0; i < str.length; i += 1) {
+    const char = str.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash &= hash // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(36)
+}
+
+// Helper to get state file path for a question (per model)
+const getStatePath = (modelPath: string, prompt: string): string => {
+  // Extract model filename without extension
+  const modelFilename = modelPath.split('/').pop()?.replace(/\.[^./]+$/, '') || 'unknown'
+  const questionHash = hashString(prompt.trim().toLowerCase())
+  const cacheDir = ReactNativeBlobUtil.fs.dirs.CacheDir
+  return `${cacheDir}/state_${modelFilename}_${questionHash}.bin`
+}
+
 const EXAMPLE_PROMPTS = [
   'What is the capital of France?',
   'Explain quantum computing in simple terms.',
@@ -73,7 +94,7 @@ const MULTIMODAL_EXAMPLE_PROMPTS = [
     imageUrl: EXAMPLE_IMAGE_URLS[1],
   },
   {
-    text: 'Describe what you see in this image in detail.',
+    text: 'Describe what you see in this image in detail.', // Should use same state file with 2nd prompt
     imageUrl: EXAMPLE_IMAGE_URLS[2],
   },
 ]
@@ -84,6 +105,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
   const insets = useSafeAreaInsets()
 
   const [context, setContext] = useState<LlamaContext | null>(null)
+  const modelPathRef = useRef<string>('')
   const [isModelReady, setIsModelReady] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [initProgress, setInitProgress] = useState(0)
@@ -254,6 +276,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       }
 
       setContext(llamaContext)
+      modelPathRef.current = modelPath
       setIsModelReady(true)
       setIsParallelMode(true)
       setInitProgress(100)
@@ -331,17 +354,56 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         text: prompt,
       })
 
+      const messages = [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userContent },
+      ]
+
+      // Get state path for this question (model-specific)
+      const statePath = getStatePath(modelPathRef.current, prompt)
+
+      // Check if state file exists on filesystem
+      const stateFileExists = await ReactNativeBlobUtil.fs.exists(statePath)
+      const loadStatePath = stateFileExists ? statePath : undefined
+
+      // Format chat to get the formatted prompt for tokenization
+      const formattedChat = await context.getFormattedChat(
+        messages,
+        undefined,
+        {
+          jinja: true,
+        }
+      )
+
+      // Tokenize the formatted prompt to get question token count
+      let questionTokenCount = 0
+      try {
+        const tokenizeResult = await context.tokenize(
+          formattedChat.prompt,
+          {
+            media_paths: images && images.length > 0 ? images : undefined
+          }
+        )
+        questionTokenCount = tokenizeResult.tokens.length
+        console.log(`Question token count: ${questionTokenCount}, has saved state: ${!!loadStatePath}`)
+      } catch (error) {
+        console.error('Error tokenizing prompt:', error)
+        // Continue without state if tokenization fails
+        questionTokenCount = 0
+      }
+
       // Use parallel.completion for parallel processing with messages format
       const { requestId, promise, stop } = await context.parallel.completion(
         {
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: userContent },
-          ],
+          messages,
           ...params,
           reasoning_format: 'auto',
           n_predict: params.n_predict || 50,
           jinja: true,
+          // State management: load previous state if exists, always save
+          load_state_path: loadStatePath,
+          save_state_path: questionTokenCount > 0 ? statePath : undefined,
+          save_state_size: questionTokenCount > 0 ? questionTokenCount : undefined,
         },
         (_reqId, data) => {
           const currentSlot = slotsRef.current.find((t) => t.id === slotId)
@@ -364,11 +426,16 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
           response: finalText,
           endTime: Date.now(),
         })
+
+        // Log state save (file already saved by native code)
+        if (questionTokenCount > 0) {
+          console.log(`Saved state for question: ${prompt.substring(0, 30)}...`)
+        }
       }).catch((err) => {
         console.error('Promise error:', err)
         updateSlot(slotId, {
           status: 'error',
-          response: `Error: ${err}`,
+          response: `${err}`,
           endTime: Date.now(),
         })
       })
@@ -488,6 +555,54 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     }
   }
 
+  const clearStateFiles = async () => {
+    try {
+      const cacheDir = ReactNativeBlobUtil.fs.dirs.CacheDir
+
+      // List all files in cache directory
+      const files = await ReactNativeBlobUtil.fs.ls(cacheDir)
+
+      // Filter state files (files starting with "state_" and ending with ".bin")
+      const stateFiles = files.filter((file) => file.startsWith('state_') && file.endsWith('.bin'))
+
+      if (stateFiles.length === 0) {
+        Alert.alert('Info', 'No state files found')
+        return
+      }
+
+      // Confirm before deleting
+      Alert.alert(
+        'Clear State Files',
+        `Found ${stateFiles.length} state file(s). Delete all?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                // Delete all state files
+                await Promise.all(
+                  stateFiles.map((file) =>
+                    ReactNativeBlobUtil.fs.unlink(`${cacheDir}/${file}`)
+                  )
+                )
+                console.log(`Deleted ${stateFiles.length} state files`)
+                Alert.alert('Success', `Deleted ${stateFiles.length} state file(s)`)
+              } catch (error) {
+                console.error('Error deleting state files:', error)
+                Alert.alert('Error', 'Failed to delete some state files')
+              }
+            },
+          },
+        ]
+      )
+    } catch (error) {
+      console.error('Error listing state files:', error)
+      Alert.alert('Error', 'Failed to list state files')
+    }
+  }
+
   const updateParallelSlots = async (newSlotCount: number) => {
     if (!context || !isParallelMode) {
       Alert.alert('Error', 'Model not ready or parallel mode not enabled')
@@ -534,12 +649,12 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       flex: 1,
     },
     section: {
-      padding: 16,
+      padding: 12,
       borderBottomWidth: 1,
       borderBottomColor: theme.colors.border,
     },
     sectionTitle: {
-      fontSize: 18,
+      fontSize: 16,
       fontWeight: 'bold',
       color: theme.colors.text,
       marginBottom: 12,
@@ -547,7 +662,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     statsRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      marginBottom: 8,
+      marginBottom: 6,
     },
     statBox: {
       flex: 1,
@@ -563,7 +678,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       marginBottom: 4,
     },
     statValue: {
-      fontSize: 20,
+      fontSize: 16,
       fontWeight: 'bold',
       color: theme.colors.primary,
     },
@@ -573,7 +688,8 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     },
     button: {
       flex: 1,
-      padding: 12,
+      padding: 4,
+      height: 42,
       backgroundColor: theme.colors.primary,
       borderRadius: 8,
       marginHorizontal: 4,
@@ -586,12 +702,12 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     buttonText: {
       color: theme.colors.white,
       fontWeight: '600',
-      fontSize: 14,
+      fontSize: 12,
       textAlign: 'center',
     },
     inputRow: {
       flexDirection: 'row',
-      marginBottom: 12,
+      marginBottom: 4,
     },
     input: {
       flex: 1,
@@ -891,6 +1007,10 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
             disabled={activeCount === 0}
           >
             <Text style={styles.buttonText}>Cancel All</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.button} onPress={clearStateFiles}>
+            <Text style={styles.buttonText}>Clear State Files</Text>
           </TouchableOpacity>
         </View>
         <View style={styles.inputRow}>

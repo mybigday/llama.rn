@@ -5,6 +5,7 @@ import type {
   NativeContextParams,
   NativeLlamaContext,
   NativeCompletionParams,
+  NativeParallelCompletionParams,
   NativeCompletionTokenProb,
   NativeCompletionResult,
   NativeTokenizeResult,
@@ -49,6 +50,7 @@ export type {
   NativeContextParams,
   NativeLlamaContext,
   NativeCompletionParams,
+  NativeParallelCompletionParams,
   NativeCompletionTokenProb,
   NativeCompletionResult,
   NativeTokenizeResult,
@@ -215,6 +217,16 @@ export type CompletionParams = Omit<
 > &
   CompletionBaseParams
 
+/**
+ * Parameters for parallel completion requests.
+ * Extends CompletionParams with parallel-mode specific options like state management.
+ */
+export type ParallelCompletionParams = Omit<
+  NativeParallelCompletionParams,
+  'emit_partial_completion' | 'prompt'
+> &
+  CompletionBaseParams
+
 export type BenchResult = {
   nKvMax: number
   nBatch: number
@@ -265,12 +277,12 @@ export class LlamaContext {
   parallel = {
     /**
      * Queue a completion request for parallel processing (non-blocking)
-     * @param params Completion parameters (same as completion())
+     * @param params Parallel completion parameters (includes state management)
      * @param onToken Callback fired for each generated token
      * @returns Promise resolving to object with requestId, promise (resolves to completion result), and stop function
      */
     completion: async (
-      params: CompletionParams,
+      params: ParallelCompletionParams,
       onToken?: (requestId: number, data: TokenData) => void,
     ): Promise<{
       requestId: number
@@ -347,7 +359,7 @@ export class LlamaContext {
       const { requestId } = await RNLlama.queueCompletion(this.id, nativeParams)
 
       // Create promise that resolves when completion finishes
-      const promise = new Promise<NativeCompletionResult>((resolve, _reject) => {
+      const promise = new Promise<NativeCompletionResult>((resolve, reject) => {
         if (onToken) {
           tokenListener = EventEmitter.addListener(EVENT_ON_TOKEN, (evt: TokenNativeEvent) => {
             const { contextId, requestId: evtRequestId, tokenResult } = evt
@@ -365,8 +377,13 @@ export class LlamaContext {
           tokenListener?.remove()
           completeListener?.remove()
 
-          // Resolve the promise
-          resolve(result as NativeCompletionResult)
+          // Check if there's an error in the result (e.g., state load failure)
+          if (result.error) {
+            reject(new Error(result.error))
+          } else {
+            // Resolve the promise
+            resolve(result as NativeCompletionResult)
+          }
         })
       })
 
