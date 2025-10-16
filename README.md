@@ -522,7 +522,7 @@ await context.parallel.disable()
 - All standard completion parameters (temperature, top_k, etc.) work per-request
 - The context must be initialized with sufficient `n_parallel` (default: 8) to support desired slot count
 - Currently TTS models are not yet supported
-
+- State load/save are not fully supported on Android with OpenCL backend, but you can set `kv_unified: true` and `flash_attn_type: 'off'` context parameter to enable it.
 
 ## Session (State)
 
