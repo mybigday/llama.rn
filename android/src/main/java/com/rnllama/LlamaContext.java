@@ -627,6 +627,7 @@ public class LlamaContext {
     String model,
     String[] skip
   );
+  protected static native String getBackendDevicesInfo();
   protected static native WritableMap initContext(
     ReadableMap params,
     LoadProgressCallback load_progress_callback

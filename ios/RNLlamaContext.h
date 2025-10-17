@@ -35,6 +35,7 @@
 
 + (void)toggleNativeLog:(BOOL)enabled onEmitLog:(void (^)(NSString *level, NSString *text))onEmitLog;
 + (NSDictionary *)modelInfo:(NSString *)path skip:(NSArray *)skip;
++ (NSString *)getBackendDevicesInfo;
 + (instancetype)initWithParams:(NSDictionary *)params onProgress:(void (^)(unsigned int progress))onProgress;
 - (void)interruptLoad;
 - (bool)isMetalEnabled;

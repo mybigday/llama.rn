@@ -39,6 +39,17 @@ RCT_EXPORT_METHOD(modelInfo:(NSString *)path
     resolve([RNLlamaContext modelInfo:path skip:skip]);
 }
 
+RCT_EXPORT_METHOD(getBackendDevicesInfo:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    @try {
+        NSString *devicesInfoJson = [RNLlamaContext getBackendDevicesInfo];
+        resolve(devicesInfoJson);
+    } @catch (NSException *exception) {
+        reject(@"llama_error", exception.reason, nil);
+    }
+}
+
 RCT_EXPORT_METHOD(initContext:(double)contextId
                  withContextParams:(NSDictionary *)contextParams
                  withResolver:(RCTPromiseResolveBlock)resolve

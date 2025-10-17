@@ -134,6 +134,16 @@ Java_com_rnllama_LlamaContext_modelInfo(
     return reinterpret_cast<jobject>(info);
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_rnllama_LlamaContext_getBackendDevicesInfo(
+    JNIEnv *env,
+    jobject thiz
+) {
+    UNUSED(thiz);
+    std::string devices_json_str = rnllama::get_backend_devices_info();
+    return env->NewStringUTF(devices_json_str.c_str());
+}
+
 struct callback_context {
     JNIEnv *env;
     rnllama::llama_rn_context *llama;

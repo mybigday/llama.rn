@@ -20,6 +20,7 @@ import type {
   FormattedChatResult,
   NativeImageProcessingResult,
   NativeLlamaChatMessage,
+  NativeBackendDeviceInfo,
 } from './NativeRNLlama'
 import type {
   SchemaGrammarConverterPropOrder,
@@ -64,6 +65,7 @@ export type {
   FormattedChatResult,
   JinjaFormattedChatResult,
   NativeImageProcessingResult,
+  NativeBackendDeviceInfo,
 
   // Deprecated
   SchemaGrammarConverterPropOrder,
@@ -1120,6 +1122,11 @@ export async function initLlama(
 
 export async function releaseAllLlama(): Promise<void> {
   return RNLlama.releaseAllContexts()
+}
+
+export async function getBackendDevicesInfo(): Promise<Array<NativeBackendDeviceInfo>> {
+  const jsonString = await RNLlama.getBackendDevicesInfo()
+  return JSON.parse(jsonString as string)
 }
 
 export const BuildInfo = {

@@ -490,11 +490,20 @@ export type NativeRerankResult = {
   index: number
 }
 
+export type NativeBackendDeviceInfo = {
+  backend: string
+  type: string
+  deviceName: string
+  maxMemorySize: number
+  metadata?: Record<string, any>
+}
+
 export interface Spec extends TurboModule {
   toggleNativeLog(enabled: boolean): Promise<void>
   setContextLimit(limit: number): Promise<void>
 
   modelInfo(path: string, skip?: string[]): Promise<Object>
+  getBackendDevicesInfo(): Promise<string>
   initContext(
     contextId: number,
     params: NativeContextParams,
