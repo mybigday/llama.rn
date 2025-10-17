@@ -270,6 +270,6 @@ if (ANDROID_ABI AND ANDROID_ABI STREQUAL "arm64-v8a")
 
 elseif (ANDROID_ABI AND ANDROID_ABI STREQUAL "x86_64")
     # x86_64 target
-    build_rnllama_library("rnllama_x86_64" "x86" "-march=x86-64" "-mtune=intel" "-msse4.2" "-mpopcnt")
+    build_rnllama_library("rnllama_x86_64" "x86" "-march=x86-64;-mtune=generic;-msse4.2;-mpopcnt")
 
 endif ()
