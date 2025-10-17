@@ -100,6 +100,11 @@
     return info;
 }
 
++ (NSString *)getBackendDevicesInfo {
+    std::string devices_info_json = rnllama::get_backend_devices_info();
+    return [NSString stringWithUTF8String:devices_info_json.c_str()];
+}
+
 + (instancetype)initWithParams:(NSDictionary *)params onProgress:(void (^)(unsigned int progress))onProgress {
     // llama_backend_init(false);
     common_params defaultParams;

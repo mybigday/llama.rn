@@ -1,6 +1,6 @@
 /* eslint-disable jsx-a11y/accessible-emoji */
 import * as React from 'react'
-import { View, Text, StyleSheet, ScrollView, Linking } from 'react-native'
+import { View, Text, StyleSheet, ScrollView, Linking, Alert, Modal, TouchableOpacity as RNTouchableOpacity } from 'react-native'
 import {
   GestureHandlerRootView,
   TouchableOpacity,
@@ -8,7 +8,7 @@ import {
 import { enableScreens } from 'react-native-screens'
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
-import { toggleNativeLog, addNativeLogListener, BuildInfo } from '../../src'
+import { toggleNativeLog, addNativeLogListener, BuildInfo, getBackendDevicesInfo } from '../../src'
 import SimpleChatScreen from './screens/SimpleChatScreen'
 import MultimodalScreen from './screens/MultimodalScreen'
 import TTSScreen from './screens/TTSScreen'
@@ -33,6 +33,8 @@ enableScreens()
 function HomeScreenComponent({ navigation }: { navigation: any }) {
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
+  const [deviceInfo, setDeviceInfo] = React.useState<any[]>([])
+  const [showDeviceInfo, setShowDeviceInfo] = React.useState(false)
 
   const styles = StyleSheet.create({
     container: themedStyles.centerContainer,
@@ -79,6 +81,77 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
       color: theme.colors.primary,
       textAlign: 'center',
     },
+    modalContainer: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    modalContent: {
+      backgroundColor: theme.colors.background,
+      borderRadius: 12,
+      padding: 20,
+      width: '90%',
+      maxHeight: '80%',
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+      paddingBottom: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      color: theme.colors.text,
+    },
+    closeButton: {
+      padding: 4,
+    },
+    closeButtonText: {
+      fontSize: 18,
+      color: theme.colors.primary,
+      fontWeight: '600',
+    },
+    deviceCard: {
+      backgroundColor: theme.colors.card,
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 12,
+      borderLeftWidth: 4,
+      borderLeftColor: theme.colors.primary,
+    },
+    deviceCardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    deviceName: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.colors.text,
+      flex: 1,
+    },
+    deviceBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 4,
+      backgroundColor: theme.colors.primary,
+    },
+    deviceBadgeText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: theme.colors.white,
+    },
+    deviceDetail: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      marginTop: 4,
+    },
   })
 
   const openRepo = () => {
@@ -89,6 +162,34 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
     Linking.openURL(
       `https://github.com/ggml-org/llama.cpp/releases/b${BuildInfo.number}`,
     )
+  }
+
+  const loadDeviceInfo = async () => {
+    try {
+      const devices = await getBackendDevicesInfo()
+      console.log('Backend Devices Info:')
+      console.log(JSON.stringify(devices, null, 2))
+      setDeviceInfo(devices)
+    } catch (error) {
+      console.error('Error getting device info:', error)
+      Alert.alert('Error', `${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  const toggleDeviceInfo = async () => {
+    if (!showDeviceInfo && deviceInfo.length === 0) {
+      // Load device info if not already loaded
+      await loadDeviceInfo()
+    }
+    setShowDeviceInfo(!showDeviceInfo)
+  }
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`
   }
 
   return (
@@ -107,6 +208,7 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
             </Text>
           </TouchableOpacity>
         </View>
+
         <TouchableOpacity
           style={styles.button}
           onPress={() => navigation.navigate('SimpleChat')}
@@ -161,6 +263,12 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
         >
           <Text style={styles.buttonText}>🏋️ Bench</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={toggleDeviceInfo}
+        >
+          <Text style={styles.buttonText}>🖥️ Device Info</Text>
+        </TouchableOpacity>
         <View style={styles.repoLink}>
           <TouchableOpacity onPress={openLlamaCppRepo}>
             <Text style={styles.repoLinkText}>
@@ -170,6 +278,59 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
         </View>
 
       </View>
+
+      {/* Device Info Modal */}
+      <Modal
+        visible={showDeviceInfo}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeviceInfo(false)}
+      >
+        <View style={styles.modalContainer}>
+          <RNTouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setShowDeviceInfo(false)}
+          />
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>🖥️ Device Information</Text>
+              <RNTouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setShowDeviceInfo(false)}
+              >
+                <Text style={styles.closeButtonText}>✕</Text>
+              </RNTouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator>
+              {deviceInfo.map((device, index) => (
+                <View key={index} style={styles.deviceCard}>
+                  <View style={styles.deviceCardHeader}>
+                    <Text style={styles.deviceName}>{device.deviceName}</Text>
+                    <View style={styles.deviceBadge}>
+                      <Text style={styles.deviceBadgeText}>{device.backend}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.deviceDetail}>
+                    {`Type: ${device.type.toUpperCase()}`}
+                  </Text>
+                  <Text style={styles.deviceDetail}>
+                    {`Memory: ${formatBytes(device.maxMemorySize)}`}
+                  </Text>
+                  {device.metadata && Object.keys(device.metadata).length > 0 && (
+                    <Text style={styles.deviceDetail}>
+                      {`Features: ${Object.entries(device.metadata)
+                        .filter(([_, v]) => v === true)
+                        .map(([k]) => k)
+                        .join(', ')}`}
+                    </Text>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   )
 }

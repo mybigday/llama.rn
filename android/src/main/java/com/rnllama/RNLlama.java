@@ -77,6 +77,17 @@ public class RNLlama implements LifecycleEventListener {
     });
   }
 
+  public void getBackendDevicesInfo(final Promise promise) {
+    executorService.execute(() -> {
+      try {
+        String result = LlamaContext.getBackendDevicesInfo();
+        mainHandler.post(() -> promise.resolve(result));
+      } catch (Exception e) {
+        mainHandler.post(() -> promise.reject(e));
+      }
+    });
+  }
+
   public void initContext(double id, final ReadableMap params, final Promise promise) {
     final int contextId = (int) id;
     Future<?> future = executorService.submit(() -> {

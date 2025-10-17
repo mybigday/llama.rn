@@ -133,6 +133,9 @@ inline void llama_batch_add(llama_batch *batch, llama_token id, llama_pos pos, s
     batch->n_tokens += 1;
 }
 
+// Device info functions
+std::string get_backend_devices_info();
+
 // Logging functions
 void log(const char *level, const char *function, int line, const char *format, ...);
 
