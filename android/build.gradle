@@ -48,21 +48,22 @@ android {
     minSdkVersion getExtOrIntegerDefault("minSdkVersion")
     targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
     buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
+    def rnllamaBuildFromSourceFlag = project.properties["rnllamaBuildFromSource"] == "true" ? "ON" : "OFF"
     externalNativeBuild {
       cmake {
         abiFilters (*reactNativeArchitectures())
-        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}"
       }
     }
   }
   def rnllamaBuildFromSource = project.properties["rnllamaBuildFromSource"]
-  if (rnllamaBuildFromSource == "true") {
-    externalNativeBuild {
-      cmake {
-        path = file('src/main/CMakeLists.txt')
-      }
+  externalNativeBuild {
+    cmake {
+      path = file('src/main/CMakeLists.txt')
     }
-    // Exclude jniLibs
+  }
+  if (rnllamaBuildFromSource == "true") {
+    // When building from source, exclude prebuilt jniLibs
     sourceSets {
       main {
         jniLibs.srcDirs = []
