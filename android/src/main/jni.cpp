@@ -2300,6 +2300,20 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
                 writablemap::putString(env_cb, result, "error", slot->error_message.c_str());
             }
 
+            // Add timings
+            rnllama::slot_timings timings = slot->get_timings();
+            auto timingsMap = writablemap::createWriteableMap(env_cb);
+            writablemap::putInt(env_cb, timingsMap, "cache_n", timings.cache_n);
+            writablemap::putInt(env_cb, timingsMap, "prompt_n", timings.prompt_n);
+            writablemap::putDouble(env_cb, timingsMap, "prompt_ms", timings.prompt_ms);
+            writablemap::putDouble(env_cb, timingsMap, "prompt_per_token_ms", timings.prompt_per_token_ms);
+            writablemap::putDouble(env_cb, timingsMap, "prompt_per_second", timings.prompt_per_second);
+            writablemap::putInt(env_cb, timingsMap, "predicted_n", timings.predicted_n);
+            writablemap::putDouble(env_cb, timingsMap, "predicted_ms", timings.predicted_ms);
+            writablemap::putDouble(env_cb, timingsMap, "predicted_per_token_ms", timings.predicted_per_token_ms);
+            writablemap::putDouble(env_cb, timingsMap, "predicted_per_second", timings.predicted_per_second);
+            writablemap::putMap(env_cb, result, "timings", timingsMap);
+
             // Parse final chat output
             rnllama::completion_chat_output final_output;
             bool has_final_output = false;

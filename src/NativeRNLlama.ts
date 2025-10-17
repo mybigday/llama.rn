@@ -315,6 +315,7 @@ export type NativeCompletionTokenProb = {
 }
 
 export type NativeCompletionResultTimings = {
+  cache_n: number
   prompt_n: number
   prompt_ms: number
   prompt_per_token_ms: number

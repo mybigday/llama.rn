@@ -15,6 +15,21 @@ struct llama_rn_context;
 struct completion_token_output;
 struct completion_chat_output;
 
+// Slot timings result
+struct slot_timings {
+    int32_t cache_n = -1;                  // Number of prompt tokens from cache
+
+    int32_t prompt_n = -1;                 // Number of prompt tokens processed
+    double prompt_ms = 0.0;                // Total time for prompt processing (ms)
+    double prompt_per_token_ms = 0.0;      // Time per prompt token (ms)
+    double prompt_per_second = 0.0;        // Tokens per second for prompt processing
+
+    int32_t predicted_n = -1;              // Number of tokens generated
+    double predicted_ms = 0.0;             // Total time for token generation (ms)
+    double predicted_per_token_ms = 0.0;   // Time per generated token (ms)
+    double predicted_per_second = 0.0;     // Tokens per second for generation
+};
+
 // Slot task types
 enum llama_rn_slot_task_type {
     SLOT_TASK_TYPE_COMPLETION = 0,
@@ -83,12 +98,21 @@ struct llama_rn_slot {
     common_sampler* ctx_sampling;
 
     // Timing
-    int64_t t_start_process;
-    int64_t t_start_generation;
-    int64_t t_last_used;
+    int64_t t_start_process;       // Start time for processing (us)
+    int64_t t_start_generation;    // Start time for generation (us)
+    int64_t t_last_used;           // Last time slot was used (us)
+
+    // Timing metrics
+    int32_t n_prompt_tokens_cache;     // Number of prompt tokens from cache
+    int32_t n_prompt_tokens_processed; // Number of prompt tokens processed
+    double t_prompt_processing;        // Time for prompt processing (seconds)
+    double t_token_generation;         // Time for token generation (seconds)
 
     // Cancellation flag (per-slot)
     bool is_interrupted;
+
+    // Flag to indicate prompt processing just finished (timing needs to be calculated after decode)
+    bool prompt_processing_finished;
 
     // Token callback (per-slot)
     std::function<void(const completion_token_output&)> on_token_callback;
@@ -123,6 +147,9 @@ struct llama_rn_slot {
     bool has_next_token() const;
     completion_token_output get_next_token();
     completion_chat_output parseChatOutput(bool is_partial);
+
+    // Timing methods
+    slot_timings get_timings() const;      // Get timing information for this slot
 
     // State methods
     bool load_state();             // Load state into this slot's sequence

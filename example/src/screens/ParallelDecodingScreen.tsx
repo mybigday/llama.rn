@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react'
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useLayoutEffect,
+  useCallback,
+} from 'react'
 import {
   View,
   Text,
@@ -13,7 +19,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import ReactNativeBlobUtil from 'react-native-blob-util'
 import { useTheme } from '../contexts/ThemeContext'
 import { createThemedStyles } from '../styles/commonStyles'
-import ModelDownloadCard, { MtmdModelDownloadCard } from '../components/ModelDownloadCard'
+import ModelDownloadCard, {
+  MtmdModelDownloadCard,
+} from '../components/ModelDownloadCard'
 import { HeaderButton } from '../components/HeaderButton'
 import { MaskedProgress } from '../components/MaskedProgress'
 import ContextParamsModal from '../components/ContextParamsModal'
@@ -21,7 +29,11 @@ import CompletionParamsModal from '../components/CompletionParamsModal'
 import CustomModelModal from '../components/CustomModelModal'
 import CustomModelCard from '../components/CustomModelCard'
 import { MODELS } from '../utils/constants'
-import type { ContextParams, CompletionParams, CustomModel } from '../utils/storage'
+import type {
+  ContextParams,
+  CompletionParams,
+  CustomModel,
+} from '../utils/storage'
 import {
   loadContextParams,
   loadCompletionParams,
@@ -38,21 +50,41 @@ interface ConversationSlot {
   endTime?: number
   requestId: number
   stop?: () => Promise<void>
+  timings?: {
+    cache_n: number
+    prompt_n: number
+    prompt_ms: number
+    prompt_per_token_ms: number
+    prompt_per_second: number
+    predicted_n: number
+    predicted_ms: number
+    predicted_per_token_ms: number
+    predicted_per_second: number
+  }
 }
 
 const LLM_MODELS = Object.entries(MODELS).filter(([_key, model]) => {
-  const modelWithExtras = model as typeof model & { vocoder?: any, embedding?: any, ranking?: any }
-  return !modelWithExtras.vocoder && !modelWithExtras.embedding && !modelWithExtras.ranking
+  const modelWithExtras = model as typeof model & {
+    vocoder?: any
+    embedding?: any
+    ranking?: any
+  }
+  return (
+    !modelWithExtras.vocoder &&
+    !modelWithExtras.embedding &&
+    !modelWithExtras.ranking
+  )
 })
 
-const SYSTEM_PROMPT = 'You are a helpful AI assistant. Be concise and direct in your responses.'
+const SYSTEM_PROMPT =
+  'You are a helpful AI assistant. Be concise and direct in your responses.'
 
 // Helper to generate a simple hash for a question (for state file naming)
 const hashString = (str: string): string => {
   let hash = 0
   for (let i = 0; i < str.length; i += 1) {
     const char = str.charCodeAt(i)
-    hash = ((hash << 5) - hash) + char
+    hash = (hash << 5) - hash + char
     hash &= hash // Convert to 32bit integer
   }
   return Math.abs(hash).toString(36)
@@ -61,7 +93,11 @@ const hashString = (str: string): string => {
 // Helper to get state file path for a question (per model)
 const getStatePath = (modelPath: string, prompt: string): string => {
   // Extract model filename without extension
-  const modelFilename = modelPath.split('/').pop()?.replace(/\.[^./]+$/, '') || 'unknown'
+  const modelFilename =
+    modelPath
+      .split('/')
+      .pop()
+      ?.replace(/\.[^./]+$/, '') || 'unknown'
   const questionHash = hashString(prompt.trim().toLowerCase())
   const cacheDir = ReactNativeBlobUtil.fs.dirs.CacheDir
   return `${cacheDir}/state_${modelFilename}_${questionHash}.bin`
@@ -99,7 +135,11 @@ const MULTIMODAL_EXAMPLE_PROMPTS = [
   },
 ]
 
-export default function ParallelDecodingScreen({ navigation }: { navigation: any }) {
+export default function ParallelDecodingScreen({
+  navigation,
+}: {
+  navigation: any
+}) {
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
   const insets = useSafeAreaInsets()
@@ -115,10 +155,12 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
   const [isParallelMode, setIsParallelMode] = useState(false)
   const [isMultimodalEnabled, setIsMultimodalEnabled] = useState(false)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
-  const [showCompletionParamsModal, setShowCompletionParamsModal] = useState(false)
+  const [showCompletionParamsModal, setShowCompletionParamsModal] =
+    useState(false)
   const [showCustomModelModal, setShowCustomModelModal] = useState(false)
   const [contextParams, setContextParams] = useState<ContextParams | null>(null)
-  const [completionParams, setCompletionParams] = useState<CompletionParams | null>(null)
+  const [completionParams, setCompletionParams] =
+    useState<CompletionParams | null>(null)
   const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const slotsRef = useRef<ConversationSlot[]>([])
   const imageCache = useRef<Map<string, string>>(new Map())
@@ -145,7 +187,9 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
 
   const clearSlots = useCallback(async () => {
     // Cancel all active/queued requests first
-    const processingSlots = slotsRef.current.filter((t) => t.status === 'processing' || t.status === 'idle')
+    const processingSlots = slotsRef.current.filter(
+      (t) => t.status === 'processing' || t.status === 'idle',
+    )
 
     await Promise.all(
       processingSlots.map(async (slot) => {
@@ -154,7 +198,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         } catch (err) {
           console.error(`Error cancelling request ${slot.requestId}:`, err)
         }
-      })
+      }),
     )
 
     // Then clear all slots
@@ -181,10 +225,7 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       navigation.setOptions({
         headerRight: () => (
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton
-              iconName="refresh"
-              onPress={clearSlots}
-            />
+            <HeaderButton iconName="refresh" onPress={clearSlots} />
             <HeaderButton
               iconName="cog-outline"
               onPress={() => setShowCompletionParamsModal(true)}
@@ -285,7 +326,9 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       const multimodalEnabled = await llamaContext.isMultimodalEnabled()
       setIsMultimodalEnabled(multimodalEnabled)
       console.log(`Parallel mode enabled with ${parallelSlots} slots`)
-      console.log(`Multimodal support: ${multimodalEnabled ? 'enabled' : 'disabled'}`)
+      console.log(
+        `Multimodal support: ${multimodalEnabled ? 'enabled' : 'disabled'}`,
+      )
     } catch (error: any) {
       Alert.alert('Error', `Failed to initialize model: ${error.message}`)
     } finally {
@@ -372,20 +415,19 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         undefined,
         {
           jinja: true,
-        }
+        },
       )
 
       // Tokenize the formatted prompt to get question token count
       let questionTokenCount = 0
       try {
-        const tokenizeResult = await context.tokenize(
-          formattedChat.prompt,
-          {
-            media_paths: images && images.length > 0 ? images : undefined
-          }
-        )
+        const tokenizeResult = await context.tokenize(formattedChat.prompt, {
+          media_paths: images && images.length > 0 ? images : undefined,
+        })
         questionTokenCount = tokenizeResult.tokens.length
-        console.log(`Question token count: ${questionTokenCount}, has saved state: ${!!loadStatePath}`)
+        console.log(
+          `Question token count: ${questionTokenCount}, has saved state: ${!!loadStatePath}`,
+        )
       } catch (error) {
         console.error('Error tokenizing prompt:', error)
         // Continue without state if tokenization fails
@@ -403,7 +445,8 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
           // State management: load previous state if exists, always save
           load_state_path: loadStatePath,
           save_state_path: questionTokenCount > 0 ? statePath : undefined,
-          save_state_size: questionTokenCount > 0 ? questionTokenCount : undefined,
+          save_state_size:
+            questionTokenCount > 0 ? questionTokenCount : undefined,
         },
         (_reqId, data) => {
           const currentSlot = slotsRef.current.find((t) => t.id === slotId)
@@ -419,26 +462,25 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       updateSlot(slotId, { requestId, stop })
 
       // Await promise to get the final result
-      promise.then((result) => {
-        const finalText = result.text || ''
-        updateSlot(slotId, {
-          status: 'completed',
-          response: finalText,
-          endTime: Date.now(),
+      promise
+        .then((result) => {
+          const finalText = result.text || ''
+          updateSlot(slotId, {
+            status: 'completed',
+            response: finalText,
+            endTime: Date.now(),
+            timings: result.timings,
+          })
+          console.log('Timings:', result.timings)
         })
-
-        // Log state save (file already saved by native code)
-        if (questionTokenCount > 0) {
-          console.log(`Saved state for question: ${prompt.substring(0, 30)}...`)
-        }
-      }).catch((err) => {
-        console.error('Promise error:', err)
-        updateSlot(slotId, {
-          status: 'error',
-          response: `${err}`,
-          endTime: Date.now(),
+        .catch((err) => {
+          console.error('Promise error:', err)
+          updateSlot(slotId, {
+            status: 'error',
+            response: `${err}`,
+            endTime: Date.now(),
+          })
         })
-      })
     } catch (error) {
       console.error('Completion error:', error)
       updateSlot(slotId, {
@@ -468,7 +510,11 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
         reader.onerror = reject
         reader.readAsDataURL(blob)
       })
-      dataUri = dataUri.replace('data:application/octet-stream;base64,', 'data:image/jpeg;base64,')
+      // NOTE: Replace octet-stream with jpeg on Android
+      dataUri = dataUri.replace(
+        'data:application/octet-stream;base64,',
+        'data:image/jpeg;base64,',
+      )
 
       // Store in cache
       imageCache.current.set(url, dataUri)
@@ -482,29 +528,34 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
   const sendExamplePrompts = async () => {
     if (isMultimodalEnabled) {
       // Download all images in parallel, then send examples with delays
-      const downloadPromises = MULTIMODAL_EXAMPLE_PROMPTS.map(async (example, index) => {
-        // Skip if imageUrl is missing
-        if (!example.imageUrl) {
-          return { success: false, text: example.text, index }
-        }
+      const downloadPromises = MULTIMODAL_EXAMPLE_PROMPTS.map(
+        async (example, index) => {
+          // Skip if imageUrl is missing
+          if (!example.imageUrl) {
+            return { success: false, text: example.text, index }
+          }
 
-        try {
-          // Download image from URL
-          const imageDataUri = await downloadImageAsDataUri(example.imageUrl)
-          return { success: true, text: example.text, imageDataUri, index }
-        } catch (error) {
-          console.error('Failed to download image for example:', error)
-          // Return text-only if image download fails
-          return { success: false, text: example.text, index }
-        }
-      })
+          try {
+            // Download image from URL
+            const imageDataUri = await downloadImageAsDataUri(example.imageUrl)
+            return { success: true, text: example.text, imageDataUri, index }
+          } catch (error) {
+            console.error('Failed to download image for example:', error)
+            // Return text-only if image download fails
+            return { success: false, text: example.text, index }
+          }
+        },
+      )
 
       const results = await Promise.all(downloadPromises)
 
       // Send all examples with small delays
       results.forEach((result) => {
         if (result.success && result.imageDataUri) {
-          setTimeout(() => startConversation(result.text, [result.imageDataUri]), result.index * 100)
+          setTimeout(
+            () => startConversation(result.text, [result.imageDataUri]),
+            result.index * 100,
+          )
         } else {
           setTimeout(() => startConversation(result.text), result.index * 100)
         }
@@ -543,12 +594,14 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
 
     try {
       // Cancel all processing requests using the stop function
-      const processingSlots = slots.filter((t) => t.status === 'processing' || t.status === 'idle')
+      const processingSlots = slots.filter(
+        (t) => t.status === 'processing' || t.status === 'idle',
+      )
 
       await Promise.all(
         processingSlots.map(async (slot) => {
           await cancelSlot(slot)
-        })
+        }),
       )
     } catch (error) {
       console.error('Error cancelling requests:', error)
@@ -563,7 +616,9 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       const files = await ReactNativeBlobUtil.fs.ls(cacheDir)
 
       // Filter state files (files starting with "state_" and ending with ".bin")
-      const stateFiles = files.filter((file) => file.startsWith('state_') && file.endsWith('.bin'))
+      const stateFiles = files.filter(
+        (file) => file.startsWith('state_') && file.endsWith('.bin'),
+      )
 
       if (stateFiles.length === 0) {
         Alert.alert('Info', 'No state files found')
@@ -584,18 +639,21 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
                 // Delete all state files
                 await Promise.all(
                   stateFiles.map((file) =>
-                    ReactNativeBlobUtil.fs.unlink(`${cacheDir}/${file}`)
-                  )
+                    ReactNativeBlobUtil.fs.unlink(`${cacheDir}/${file}`),
+                  ),
                 )
                 console.log(`Deleted ${stateFiles.length} state files`)
-                Alert.alert('Success', `Deleted ${stateFiles.length} state file(s)`)
+                Alert.alert(
+                  'Success',
+                  `Deleted ${stateFiles.length} state file(s)`,
+                )
               } catch (error) {
                 console.error('Error deleting state files:', error)
                 Alert.alert('Error', 'Failed to delete some state files')
               }
             },
           },
-        ]
+        ],
       )
     } catch (error) {
       console.error('Error listing state files:', error)
@@ -609,7 +667,9 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
       return
     }
 
-    const currentActiveCount = slots.filter((t) => t.status === 'processing' || t.status === 'idle').length
+    const currentActiveCount = slots.filter(
+      (t) => t.status === 'processing' || t.status === 'idle',
+    ).length
     if (currentActiveCount > 0) {
       Alert.alert('Error', 'Cannot change slot count while requests are active')
       return
@@ -803,7 +863,9 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     return (
       <View style={styles.container}>
         <ScrollView contentContainerStyle={{ padding: 16 }}>
-          <Text style={{ fontSize: 16, color: theme.colors.text, marginBottom: 16 }}>
+          <Text
+            style={{ fontSize: 16, color: theme.colors.text, marginBottom: 16 }}
+          >
             Select a model to start parallel decoding demo
           </Text>
 
@@ -893,17 +955,17 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
     )
   }
 
-  const activeCount = slots.filter((t) => t.status === 'processing' || t.status === 'idle').length
+  const activeCount = slots.filter(
+    (t) => t.status === 'processing' || t.status === 'idle',
+  ).length
   const completedCount = slots.filter((t) => t.status === 'completed').length
   const avgDuration =
     completedCount > 0
       ? (
           slots
             .filter((t) => t.startTime && t.endTime)
-            .reduce(
-              (sum, t) => sum + (t.endTime! - t.startTime!) / 1000,
-              0,
-            ) / completedCount
+            .reduce((sum, t) => sum + (t.endTime! - t.startTime!) / 1000, 0) /
+          completedCount
         ).toFixed(2)
       : '0'
 
@@ -929,7 +991,13 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
 
         {/* Configurable Slot Count */}
         <View style={{ marginTop: 12 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
             <Text style={{ fontSize: 14, color: theme.colors.text }}>
               Number of Slots:
             </Text>
@@ -947,12 +1015,30 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
                   },
                   (parallelSlots <= 1 || activeCount > 0) && { opacity: 0.5 },
                 ]}
-                onPress={() => parallelSlots > 1 && updateParallelSlots(parallelSlots - 1)}
+                onPress={() =>
+                  parallelSlots > 1 && updateParallelSlots(parallelSlots - 1)
+                }
                 disabled={parallelSlots <= 1 || activeCount > 0}
               >
-                <Text style={{ color: theme.colors.white, fontSize: 20, fontWeight: 'bold' }}>-</Text>
+                <Text
+                  style={{
+                    color: theme.colors.white,
+                    fontSize: 20,
+                    fontWeight: 'bold',
+                  }}
+                >
+                  -
+                </Text>
               </TouchableOpacity>
-              <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.primary, minWidth: 24, textAlign: 'center' }}>
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: 'bold',
+                  color: theme.colors.primary,
+                  minWidth: 24,
+                  textAlign: 'center',
+                }}
+              >
                 {parallelSlots}
               </Text>
               <TouchableOpacity
@@ -968,15 +1054,32 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
                   },
                   (parallelSlots >= 8 || activeCount > 0) && { opacity: 0.5 },
                 ]}
-                onPress={() => parallelSlots < 8 && updateParallelSlots(parallelSlots + 1)}
+                onPress={() =>
+                  parallelSlots < 8 && updateParallelSlots(parallelSlots + 1)
+                }
                 disabled={parallelSlots >= 8 || activeCount > 0}
               >
-                <Text style={{ color: theme.colors.white, fontSize: 20, fontWeight: 'bold' }}>+</Text>
+                <Text
+                  style={{
+                    color: theme.colors.white,
+                    fontSize: 20,
+                    fontWeight: 'bold',
+                  }}
+                >
+                  +
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
           {activeCount > 0 && (
-            <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 4, textAlign: 'right' }}>
+            <Text
+              style={{
+                fontSize: 11,
+                color: theme.colors.textSecondary,
+                marginTop: 4,
+                textAlign: 'right',
+              }}
+            >
               Cannot change while requests are active
             </Text>
           )}
@@ -1022,7 +1125,10 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
             onChangeText={setCustomPrompt}
           />
           <TouchableOpacity
-            style={[styles.sendButton, !customPrompt.trim() && styles.buttonDisabled]}
+            style={[
+              styles.sendButton,
+              !customPrompt.trim() && styles.buttonDisabled,
+            ]}
             onPress={sendCustomPrompt}
             disabled={!customPrompt.trim()}
           >
@@ -1090,6 +1196,60 @@ export default function ParallelDecodingScreen({ navigation }: { navigation: any
                 <Text style={styles.slotResponse}>
                   {slot.response || 'Waiting...'}
                 </Text>
+              )}
+              {slot.timings && slot.status === 'completed' && (
+                <View
+                  style={{
+                    marginTop: 8,
+                    paddingTop: 8,
+                    borderTopWidth: 1,
+                    borderTopColor: theme.colors.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      color: theme.colors.textSecondary,
+                      marginBottom: 4,
+                    }}
+                  >
+                    Performance:
+                  </Text>
+                  <View
+                    style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}
+                  >
+                    {slot.timings.cache_n > 0 && (
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          color: theme.colors.textSecondary,
+                        }}
+                      >
+                        {`Cache: ${slot.timings.cache_n} tokens`}
+                      </Text>
+                    )}
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        color: theme.colors.textSecondary,
+                      }}
+                    >
+                      {`Prompt: ${slot.timings.prompt_per_second.toFixed(
+                        2,
+                      )} t/s`}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        color: theme.colors.textSecondary,
+                      }}
+                    >
+                      {`Generation: ${slot.timings.predicted_per_second.toFixed(
+                        2,
+                      )} t/s`}
+                    </Text>
+                  </View>
+                </View>
               )}
             </View>
           ))

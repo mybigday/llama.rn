@@ -36,7 +36,12 @@ llama_rn_slot::llama_rn_slot() :
     t_start_process(0),
     t_start_generation(0),
     t_last_used(0),
+    n_prompt_tokens_cache(0),
+    n_prompt_tokens_processed(0),
+    t_prompt_processing(0.0),
+    t_token_generation(0.0),
     is_interrupted(false),
+    prompt_processing_finished(false),
     media_processed(false),
     rerank_current_index(0),
     save_state_size(-1)
@@ -94,6 +99,7 @@ void llama_rn_slot::reset() {
 
     // Reset flags
     is_interrupted = false;
+    prompt_processing_finished = false;
 
     // Free sampling context
     if (ctx_sampling != nullptr) {
@@ -125,6 +131,14 @@ void llama_rn_slot::reset() {
     save_state_path.clear();
     save_state_size = -1;
 
+    // Reset timing fields
+    t_start_process = 0;
+    t_start_generation = 0;
+    n_prompt_tokens_cache = 0;
+    n_prompt_tokens_processed = 0;
+    t_prompt_processing = 0.0;
+    t_token_generation = 0.0;
+
     // Note: Keep cache_tokens for potential reuse
     // Note: Keep t_last_used for LRU tracking
 }
@@ -153,6 +167,9 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
             n_past = n_matching;
             n_decoded = 0;
 
+            // Track cached tokens for timing metrics
+            n_prompt_tokens_cache = n_matching;
+
             // Clear KV cache beyond the matching prefix
             if (parent_ctx && parent_ctx->ctx) {
                 auto * kv = llama_get_memory(parent_ctx->ctx);
@@ -169,6 +186,7 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
 
             n_past = 0;
             n_decoded = 0;
+            n_prompt_tokens_cache = 0;
 
             // Clear KV cache for this slot's sequence
             if (parent_ctx && parent_ctx->ctx) {
@@ -183,6 +201,7 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
         // No loaded state, start fresh
         n_past = 0;
         n_decoded = 0;
+        n_prompt_tokens_cache = 0;
 
         // Clear KV cache for this slot's sequence to ensure clean state
         if (parent_ctx && parent_ctx->ctx) {
@@ -246,6 +265,28 @@ completion_chat_output llama_rn_slot::parseChatOutput(bool is_partial) {
     result.tool_calls = parsed_msg.tool_calls;
 
     return result;
+}
+
+// Get timing information for this slot
+slot_timings llama_rn_slot::get_timings() const {
+    slot_timings timings;
+    timings.cache_n = n_prompt_tokens_cache;
+
+    timings.prompt_n = n_prompt_tokens_processed;
+    timings.prompt_ms = t_prompt_processing * 1e3;  // Convert seconds to milliseconds for output
+    if (n_prompt_tokens_processed > 0 && t_prompt_processing > 0.0) {
+        timings.prompt_per_token_ms = (t_prompt_processing * 1e3) / n_prompt_tokens_processed;
+        timings.prompt_per_second = n_prompt_tokens_processed / t_prompt_processing;
+    }
+
+    timings.predicted_n = n_decoded;
+    timings.predicted_ms = t_token_generation * 1e3;  // Convert seconds to milliseconds for output
+    if (n_decoded > 0 && t_token_generation > 0.0) {
+        timings.predicted_per_token_ms = (t_token_generation * 1e3) / n_decoded;
+        timings.predicted_per_second = n_decoded / t_token_generation;
+    }
+
+    return timings;
 }
 
 // Load state into this slot's sequence

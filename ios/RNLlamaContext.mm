@@ -1490,6 +1490,9 @@
         int n_decoded = slot->n_decoded;
         std::string error_message = slot->error_message;
 
+        // Get timings
+        rnllama::slot_timings timings = slot->get_timings();
+
         // Parse final chat output
         rnllama::completion_chat_output final_output;
         bool has_final_output = false;
@@ -1510,6 +1513,19 @@
             result[@"context_full"] = @(context_full);
             result[@"incomplete"] = @(incomplete);
             result[@"n_decoded"] = @(n_decoded);
+
+            // Add timings
+            result[@"timings"] = @{
+                @"cache_n": @(timings.cache_n),
+                @"prompt_n": @(timings.prompt_n),
+                @"prompt_ms": @(timings.prompt_ms),
+                @"prompt_per_token_ms": @(timings.prompt_per_token_ms),
+                @"prompt_per_second": @(timings.prompt_per_second),
+                @"predicted_n": @(timings.predicted_n),
+                @"predicted_ms": @(timings.predicted_ms),
+                @"predicted_per_token_ms": @(timings.predicted_per_token_ms),
+                @"predicted_per_second": @(timings.predicted_per_second)
+            };
 
             // Add error message if present
             if (!error_message.empty()) {
