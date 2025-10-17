@@ -18,11 +18,15 @@ cp ./$LLAMA_DIR/ggml/include/ggml-cpp.h ./cpp/ggml-cpp.h
 cp ./$LLAMA_DIR/ggml/include/ggml-opt.h ./cpp/ggml-opt.h
 cp ./$LLAMA_DIR/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
 cp ./$LLAMA_DIR/ggml/include/ggml-opencl.h ./cpp/ggml-opencl.h
+cp ./$LLAMA_DIR/ggml/include/ggml-blas.h ./cpp/ggml-blas.h
 cp ./$LLAMA_DIR/ggml/include/gguf.h ./cpp/gguf.h
 
 cp -r ./$LLAMA_DIR/ggml/src/ggml-metal ./cpp/
 rm ./cpp/ggml-metal/CMakeLists.txt
 rm ./cpp/ggml-metal/ggml-metal.metal
+
+cp -r ./$LLAMA_DIR/ggml/src/ggml-blas ./cpp/
+rm ./cpp/ggml-blas/CMakeLists.txt
 
 cp -r ./$LLAMA_DIR/ggml/src/ggml-opencl ./cpp/
 rm ./cpp/ggml-opencl/CMakeLists.txt
@@ -197,6 +201,8 @@ files_add_lm_prefix=(
   "./cpp/ggml-metal/ggml-metal-device.m"
   "./cpp/ggml-metal/ggml-metal-ops.h"
   "./cpp/ggml-metal/ggml-metal-ops.cpp"
+  "./cpp/ggml-blas.h"
+  "./cpp/ggml-blas/ggml-blas.cpp"
   ."/cpp/ggml-opencl.h"
   "./cpp/ggml-opencl/ggml-opencl.cpp"
   "./cpp/ggml-cpu.h"
