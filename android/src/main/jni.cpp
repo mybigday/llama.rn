@@ -140,11 +140,7 @@ Java_com_rnllama_LlamaContext_getBackendDevicesInfo(
     jobject thiz
 ) {
     UNUSED(thiz);
-
-    // Call the C++ function to get device info as JSON string
     std::string devices_json_str = rnllama::get_backend_devices_info();
-
-    // Return as Java string
     return env->NewStringUTF(devices_json_str.c_str());
 }
 

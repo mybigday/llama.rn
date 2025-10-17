@@ -15,7 +15,6 @@
 #include "ggml-metal/ggml-metal-device.h"
 #endif
 
-// Include system info headers for device memory detection
 #if defined(__ANDROID__)
 #include <sys/sysinfo.h>
 #elif defined(__APPLE__)
@@ -95,10 +94,10 @@ std::string get_backend_devices_info() {
         }
 #endif
 
-        // For OpenCL devices, the memory_total is just a placeholder (1 byte)
+        // For some devices, the memory_total is just a placeholder (1 byte)
         // Fall back to system RAM since OpenCL devices typically share system memory
         bool is_fallback_memory = false;
-        if (std::string(backend_name) == "OpenCL" && memory_total <= 1) {
+        if (memory_total <= 1) {
 #if defined(__ANDROID__)
             struct sysinfo si;
             if (sysinfo(&si) == 0) {
