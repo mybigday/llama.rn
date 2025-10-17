@@ -252,13 +252,6 @@ function(build_rnllama_library target_name arch cpu_flags)
     target_compile_options(${target_name} PRIVATE -O3 -DNDEBUG)
     target_compile_options(${target_name} PRIVATE -ffunction-sections -fdata-sections)
 
-    # Only hide symbols for standalone builds (prebuilts)
-    # When building as subdirectory, symbols need to be visible for JNI wrapper linking
-    if (RNLLAMA_STANDALONE_BUILD)
-        target_compile_options(${target_name} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
-        target_link_options(${target_name} PRIVATE -Wl,--exclude-libs,ALL)
-    endif()
-
     target_link_options(${target_name} PRIVATE -Wl,--gc-sections)
     target_link_options(${target_name} PRIVATE -flto)
 endfunction()
