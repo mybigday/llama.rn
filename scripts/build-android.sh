@@ -54,6 +54,13 @@ $CMAKE_PATH -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
 
 $CMAKE_PATH --build build-arm64 --config Release -j $n_cpu
 
+# Strip debug symbols from libraries
+STRIP=$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/*/bin/llvm-strip
+for lib in build-arm64/*.so; do
+  echo "Stripping $(basename $lib)..."
+  $STRIP $lib
+done
+
 mkdir -p jniLibs/arm64-v8a
 
 # Copy the library to the example app
@@ -71,6 +78,13 @@ $CMAKE_PATH -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
   -B build-x86_64
 
 $CMAKE_PATH --build build-x86_64 --config Release -j $n_cpu
+
+# Strip debug symbols from libraries
+STRIP=$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/*/bin/llvm-strip
+for lib in build-x86_64/*.so; do
+  echo "Stripping $(basename $lib)..."
+  $STRIP $lib
+done
 
 mkdir -p jniLibs/x86_64
 
