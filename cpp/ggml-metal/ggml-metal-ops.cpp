@@ -368,6 +368,10 @@ static int lm_ggml_metal_op_encode_impl(lm_ggml_metal_op_t ctx, int idx) {
             {
                 n_fuse = lm_ggml_metal_op_conv_transpose_1d(ctx, idx);
             } break;
+        case LM_GGML_OP_CONV_TRANSPOSE_2D:
+            {
+                n_fuse = lm_ggml_metal_op_conv_transpose_2d(ctx, idx);
+            } break;
         case LM_GGML_OP_UPSCALE:
             {
                 n_fuse = lm_ggml_metal_op_upscale(ctx, idx);
@@ -3114,6 +3118,62 @@ int lm_ggml_metal_op_conv_transpose_1d(lm_ggml_metal_op_t ctx, int idx) {
     lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op),         3);
 
     lm_ggml_metal_encoder_dispatch_threadgroups(enc, OL, OC, 1, 1, 1, 1);
+
+    return 1;
+}
+
+int lm_ggml_metal_op_conv_transpose_2d(lm_ggml_metal_op_t ctx, int idx) {
+    lm_ggml_tensor * op = ctx->node(idx);
+
+    lm_ggml_metal_library_t lib = ctx->lib;
+    lm_ggml_metal_encoder_t enc = ctx->enc;
+
+    LM_GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb0, op->src[0], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne1, op->src[1], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb1, op->src[1], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne,  op,         ne);
+    LM_GGML_TENSOR_LOCALS(uint32_t, nb,  op,         nb);
+
+    const int32_t s0 = ((const int32_t *)(op->op_params))[0];
+
+    const int32_t IC = op->src[1]->ne[2];
+    const int32_t IH = op->src[1]->ne[1];
+    const int32_t IW = op->src[1]->ne[0];
+
+    const int32_t KH = op->src[0]->ne[1];
+    const int32_t KW = op->src[0]->ne[0];
+
+    const int32_t OW = op->ne[0];
+    const int32_t OH = op->ne[1];
+    const int32_t OC = op->ne[2];
+
+    lm_ggml_metal_kargs_conv_transpose_2d args = {
+        /*.IC  =*/ IC,
+        /*.IH  =*/ IH,
+        /*.IW  =*/ IW,
+        /*.KH  =*/ KH,
+        /*.KW  =*/ KW,
+        /*.OC  =*/ OC,
+        /*.s0  =*/ s0,
+        /*.nb0 =*/ nb0,
+        /*.nb1 =*/ nb1,
+        /*.nb2 =*/ nb2,
+    };
+
+    lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_conv_transpose_2d(lib, op);
+
+    lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
+    lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[0]), 1);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[1]), 2);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op),         3);
+
+    // Metal requires buffer size to be multiple of 16 bytes
+    const size_t smem = LM_GGML_PAD(KW * KH * sizeof(float), 16);
+    lm_ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
+
+    lm_ggml_metal_encoder_dispatch_threadgroups(enc, OW, OH, OC, KW, KH, 1);
 
     return 1;
 }

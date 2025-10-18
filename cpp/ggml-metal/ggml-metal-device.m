@@ -657,6 +657,11 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
         case LM_GGML_OP_SCALE:
         case LM_GGML_OP_CONV_TRANSPOSE_1D:
             return true;
+        case LM_GGML_OP_CONV_TRANSPOSE_2D:
+            return lm_ggml_is_contiguous(op->src[0]) && lm_ggml_is_contiguous(op->src[1]) &&
+                (op->src[0]->type == LM_GGML_TYPE_F16 || op->src[0]->type == LM_GGML_TYPE_F32) &&
+                op->src[1]->type == LM_GGML_TYPE_F32 &&
+                op->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_CLAMP:
             return op->src[0]->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_SQR:
