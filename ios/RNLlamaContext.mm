@@ -171,7 +171,9 @@
             lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
             switch (lm_ggml_backend_dev_type(dev)) {
                 case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
+#ifndef TARGET_OS_SIMULATOR
                 case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
+#endif
                     cpu_devs.push_back(dev);
                     break;
                 case LM_GGML_BACKEND_DEVICE_TYPE_GPU:
