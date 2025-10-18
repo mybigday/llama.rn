@@ -130,6 +130,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_norm              (l
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_rope              (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_im2col            (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_conv_transpose_1d (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
+lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_conv_transpose_2d (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_upscale           (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_pad               (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_pad_reflect_1d    (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
