@@ -2,15 +2,12 @@ cmake_minimum_required(VERSION 3.10)
 
 project(llama.rn)
 
-find_package(Python3 REQUIRED)
 set(CMAKE_CXX_STANDARD 17)
 set(RNLLAMA_LIB_DIR ${CMAKE_SOURCE_DIR}/../../../cpp)
 
 # Include directories for rnllama headers (needed by JNI wrapper)
 include_directories(
     ${RNLLAMA_LIB_DIR}
-    ${RNLLAMA_LIB_DIR}/ggml-cpu
-    ${RNLLAMA_LIB_DIR}/tools/mtmd
 )
 
 find_library(LOG_LIB log)
@@ -60,14 +57,7 @@ function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
         endif()
     endif()
 
-    # Apply CPU-specific flags for JNI wrapper
-    if (NOT ${arch} STREQUAL "generic")
-        target_compile_options(${jni_name} PRIVATE ${cpu_flags})
-    else()
-        target_compile_options(${jni_name} PRIVATE -DLM_GGML_CPU_GENERIC)
-    endif ()
-
-    target_compile_options(${jni_name} PRIVATE -DLM_GGML_USE_CPU -DLM_GGML_USE_CPU_REPACK -pthread)
+    target_compile_options(${jni_name} PRIVATE -pthread ${cpu_flags})
 
     # Special handling for OpenCL variant when building from source
     if (RNLLAMA_BUILD_FROM_SOURCE AND ${rnllama_name} STREQUAL "rnllama_v8_2_dotprod_i8mm_opencl")
