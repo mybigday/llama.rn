@@ -41,10 +41,10 @@ fi
 
 t0=$(date +%s)
 
-cd android/src/main
+cd android/src/main/rnllama
 
 # Build the Android library (arm64-v8a)
-echo "Building arm64-v8a with flexible page sizes support..."
+echo "Building arm64-v8a prebuilt shared libraries..."
 $CMAKE_PATH -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
   -DANDROID_ABI=arm64-v8a \
   -DANDROID_PLATFORM=$ANDROID_PLATFORM \
@@ -61,15 +61,22 @@ for lib in build-arm64/*.so; do
   $STRIP $lib
 done
 
-mkdir -p jniLibs/arm64-v8a
+mkdir -p ../jniLibs/arm64-v8a
 
-# Copy the library to the example app
-cp build-arm64/*.so jniLibs/arm64-v8a/
+# Strip debug symbols from libraries
+STRIP=$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/*/bin/llvm-strip
+for lib in build-arm64/*.so; do
+  echo "Stripping $(basename $lib)..."
+  $STRIP $lib
+done
+
+# Copy the shared libraries
+cp build-arm64/*.so ../jniLibs/arm64-v8a/
 
 rm -rf build-arm64
 
 # Build the Android library (x86_64)
-echo "Building x86_64 with flexible page sizes support..."
+echo "Building x86_64 prebuilt shared libraries..."
 $CMAKE_PATH -DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE \
   -DANDROID_ABI=x86_64 \
   -DANDROID_PLATFORM=$ANDROID_PLATFORM \
@@ -86,12 +93,20 @@ for lib in build-x86_64/*.so; do
   $STRIP $lib
 done
 
-mkdir -p jniLibs/x86_64
+mkdir -p ../jniLibs/x86_64
 
-# Copy the library to the example app
-cp build-x86_64/*.so jniLibs/x86_64/
+# Strip debug symbols from libraries
+STRIP=$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/*/bin/llvm-strip
+for lib in build-x86_64/*.so; do
+  echo "Stripping $(basename $lib)..."
+  $STRIP $lib
+done
+
+# Copy the shared libraries
+cp build-x86_64/*.so ../jniLibs/x86_64/
 
 rm -rf build-x86_64
 
 t1=$(date +%s)
 echo "Total time: $((t1 - t0)) seconds"
+echo "Prebuilt shared libraries (rnllama APIs only) are in android/src/main/jniLibs/"
