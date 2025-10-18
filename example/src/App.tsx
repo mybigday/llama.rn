@@ -319,7 +319,7 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
                   </Text>
                   {device.metadata && Object.keys(device.metadata).length > 0 && (
                     <Text style={styles.deviceDetail}>
-                      {`Features: ${Object.entries(device.metadata)
+                      {`Metadata: ${Object.entries(device.metadata)
                         .filter(([_, v]) => v === true)
                         .map(([k]) => k)
                         .join(', ')}`}
