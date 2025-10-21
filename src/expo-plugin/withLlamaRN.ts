@@ -1,7 +1,7 @@
 import type { ConfigPlugin } from '@expo/config-plugins'
 
 // eslint-disable-next-line import/no-extraneous-dependencies
-import * as pkg from '@expo/config-plugins'
+import pkg from '@expo/config-plugins'
 import * as fs from 'fs'
 import * as path from 'path'
 

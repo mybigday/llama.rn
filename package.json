@@ -16,7 +16,7 @@
     "ios",
     "android",
     "cpp",
-    "expo-plugin",
+    "app.plugin.js",
     "*.podspec",
     "!lib/typescript/example",
     "!ios/build",
