@@ -565,14 +565,23 @@ static inline lm_ggml_bf16_t lm_ggml_compute_fp32_to_bf16(float s) {
 #define LM_GGML_FP32_TO_BF16(x) lm_ggml_compute_fp32_to_bf16(x)
 #define LM_GGML_BF16_TO_FP32(x) lm_ggml_compute_bf16_to_fp32(x)
 
+static inline int32_t lm_ggml_node_get_use_count(const struct lm_ggml_cgraph * cgraph, int node_idx) {
+    const struct lm_ggml_tensor * node = cgraph->nodes[node_idx];
+
+    size_t hash_pos = lm_ggml_hash_find(&cgraph->visited_hash_set, node);
+    if (!lm_ggml_bitset_get(cgraph->visited_hash_set.used, hash_pos)) {
+        return 0;
+    }
+    return cgraph->use_counts[hash_pos];
+}
+
 // return true if the node's results are only used by N other nodes
 // and can be fused into their calculations.
 static inline bool lm_ggml_node_has_n_uses(const struct lm_ggml_cgraph * cgraph, int node_idx, int32_t n_uses) {
     const struct lm_ggml_tensor * node = cgraph->nodes[node_idx];
 
     // check the use count against how many we're replacing
-    size_t hash_pos = lm_ggml_hash_find(&cgraph->visited_hash_set, node);
-    if (!lm_ggml_bitset_get(cgraph->visited_hash_set.used, hash_pos) || cgraph->use_counts[hash_pos] != n_uses) {
+    if (lm_ggml_node_get_use_count(cgraph, node_idx) != n_uses) {
         return false;
     }
 
@@ -638,6 +647,36 @@ static inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int no
     return lm_ggml_can_fuse_ext(cgraph, idxs, ops, num_ops);
 }
 
+LM_GGML_API bool lm_ggml_can_fuse_subgraph_ext(const struct lm_ggml_cgraph * cgraph,
+                                         const int *                node_idxs,
+                                         int                        count,
+                                         const enum lm_ggml_op *       ops,
+                                         const int *                outputs,
+                                         int                        num_outputs);
+
+// Returns true if the subgraph formed by {node_idxs} can be fused
+// checks whethers all nodes which are not part of outputs can be elided
+// by checking if their num_uses are confined to the subgraph
+static inline bool lm_ggml_can_fuse_subgraph(const struct lm_ggml_cgraph * cgraph,
+                                          int                        node_idx,
+                                          int                        count,
+                                          const enum lm_ggml_op *       ops,
+                                          const int *                outputs,
+                                          int                        num_outputs) {
+    LM_GGML_ASSERT(count < 32);
+    if (node_idx + count > cgraph->n_nodes) {
+        return false;
+    }
+
+    int idxs[32];
+
+    for (int i = 0; i < count; ++i) {
+        idxs[i] = node_idx + i;
+    }
+
+    return lm_ggml_can_fuse_subgraph_ext(cgraph, idxs, count, ops, outputs, num_outputs);
+}
+
 #ifdef __cplusplus
 }
 #endif
@@ -649,6 +688,13 @@ static inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int no
 // nicer C++ syntax for lm_ggml_can_fuse
 inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int node_idx, std::initializer_list<enum lm_ggml_op> ops) {
     return lm_ggml_can_fuse(cgraph, node_idx, ops.begin(), (int)ops.size());
+}
+
+inline bool lm_ggml_can_fuse_subgraph(const struct lm_ggml_cgraph *          cgraph,
+                                   int                                 start_idx,
+                                   std::initializer_list<enum lm_ggml_op> ops,
+                                   std::initializer_list<int>          outputs = {}) {
+    return lm_ggml_can_fuse_subgraph(cgraph, start_idx, ops.size(), ops.begin(), outputs.begin(), outputs.size());
 }
 
 // expose GGUF internals for test code
