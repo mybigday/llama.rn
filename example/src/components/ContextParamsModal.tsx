@@ -18,7 +18,16 @@ interface ContextParamsModalProps {
   onSave: (params: ContextParams) => void
 }
 
-const CACHE_TYPE_OPTIONS = ['f16', 'f32', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1']
+const CACHE_TYPE_OPTIONS = [
+  'f16',
+  'f32',
+  'q8_0',
+  'q4_0',
+  'q4_1',
+  'iq4_nl',
+  'q5_0',
+  'q5_1',
+]
 
 export default function ContextParamsModal({
   visible,
@@ -69,7 +78,7 @@ export default function ContextParamsModal({
 
   const validateParams = (): { isValid: boolean; errors: string[] } => {
     const validations = [
-      validateIntegerParam(params.n_ctx, 128, 99999, 'Context Size'),
+      validateIntegerParam(params.n_ctx, 128, 999999, 'Context Size'),
       validateIntegerParam(params.n_gpu_layers, 0, 99, 'GPU Layers'),
       validateIntegerParam(params.n_batch, 1, 99999, 'Batch Size'),
       validateIntegerParam(params.n_ubatch, 1, 99999, 'Micro Batch Size'),
@@ -77,7 +86,9 @@ export default function ContextParamsModal({
       validateIntegerParam(params.n_cpu_moe, 0, 99, 'CPU MoE Layers'),
     ]
 
-    const errors = validations.filter((error): error is string => error !== null)
+    const errors = validations.filter(
+      (error): error is string => error !== null,
+    )
     return { isValid: errors.length === 0, errors }
   }
 
