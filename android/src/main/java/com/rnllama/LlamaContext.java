@@ -599,7 +599,7 @@ public class LlamaContext {
     return Build.SUPPORTED_ABIS[0].equals("x86_64");
   }
 
-  private static boolean isArchNotSupported() {
+  protected static boolean isArchNotSupported() {
     return isArm64V8a() == false && isX86_64() == false;
   }
 

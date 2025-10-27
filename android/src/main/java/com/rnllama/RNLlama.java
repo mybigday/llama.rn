@@ -80,6 +80,9 @@ public class RNLlama implements LifecycleEventListener {
   public void getBackendDevicesInfo(final Promise promise) {
     executorService.execute(() -> {
       try {
+        if (LlamaContext.isArchNotSupported()) {
+          throw new IllegalStateException("Only 64-bit architectures are supported");
+        }
         String result = LlamaContext.getBackendDevicesInfo();
         mainHandler.post(() -> promise.resolve(result));
       } catch (Exception e) {
