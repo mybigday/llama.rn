@@ -810,6 +810,9 @@ lm_ggml_tensor * llm_graph_context::build_ffn(
             LM_GGML_ABORT("fatal error");
     }
 
+    //expand here so that we can fuse ffn gate
+    lm_ggml_build_forward_expand(gf, cur);
+
     if (gate && type_gate == LLM_FFN_PAR) {
         cur = lm_ggml_mul(ctx0, cur, tmp);
         cb(cur, "ffn_gate_par", il);
@@ -1006,10 +1009,9 @@ lm_ggml_tensor * llm_graph_context::build_moe_ffn(
         lm_ggml_tensor * weights_sum = lm_ggml_sum_rows(ctx0, weights); // [1, n_tokens]
         cb(weights_sum, "ffn_moe_weights_sum", il);
 
-        if (arch == LLM_ARCH_BAILINGMOE2) {
-            weights_sum = lm_ggml_scale_bias(ctx0, weights_sum, 1.0, 1e-20);
-            cb(weights_sum, "ffn_moe_weights_sum_biased", il);
-        }
+        // Avoid division by zero, clamp to smallest number representable by F16
+        weights_sum = lm_ggml_clamp(ctx0, weights_sum, 6.103515625e-5, INFINITY);
+        cb(weights_sum, "ffn_moe_weights_sum_clamped", il);
 
         weights = lm_ggml_div(ctx0, weights, weights_sum); // [n_expert_used, n_tokens]
         cb(weights, "ffn_moe_weights_norm", il);
@@ -1090,6 +1092,9 @@ lm_ggml_tensor * llm_graph_context::build_moe_ffn(
         default:
             LM_GGML_ABORT("fatal error");
     }
+
+    //expand here so that we can fuse ffn gate
+    lm_ggml_build_forward_expand(gf, cur);
 
     experts = build_lora_mm_id(down_exps, cur, selected_experts); // [n_embd, n_expert_used, n_tokens]
     cb(experts, "ffn_moe_down", il);

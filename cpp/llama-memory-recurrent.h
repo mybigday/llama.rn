@@ -109,8 +109,8 @@ private:
 
     const uint32_t n_seq_max = 1;
 
-    std::vector<lm_ggml_context_ptr>        ctxs;
-    std::vector<lm_ggml_backend_buffer_ptr> bufs;
+    // ggml contexts for the KV cache along with the allocated backend buffers:
+    std::vector<std::pair<lm_ggml_context_ptr, lm_ggml_backend_buffer_ptr>> ctxs_bufs;
 
     size_t total_size() const;
 
