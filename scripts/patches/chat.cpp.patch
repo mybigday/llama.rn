@@ -1,5 +1,5 @@
---- chat.cpp.orig	2025-08-26 19:14:43
-+++ chat.cpp	2025-08-26 19:06:49
+--- chat.cpp.orig	2025-10-29 15:18:34
++++ chat.cpp	2025-10-29 15:20:44
 @@ -6,9 +6,6 @@
  #include "log.h"
  #include "regex-partial.h"
@@ -7,14 +7,13 @@
 -#include <minja/chat-template.hpp>
 -#include <minja/minja.hpp>
 -
+ #include <algorithm>
  #include <cstdio>
- #include <exception>
- #include <iostream>
-@@ -122,16 +119,6 @@
-     }
+ #include <cctype>
+@@ -126,16 +123,6 @@
      return diffs;
  }
--
+
 -typedef minja::chat_template common_chat_template;
 -
 -struct common_chat_templates {
@@ -24,14 +23,14 @@
 -    std::unique_ptr<common_chat_template> template_default; // always set (defaults to chatml)
 -    std::unique_ptr<common_chat_template> template_tool_use;
 -};
-
+-
  struct templates_params {
      json messages;
-@@ -784,8 +771,7 @@
-     if (additional_context) {
+     json tools;
+@@ -812,7 +799,7 @@
          tmpl_inputs.extra_context.merge_patch(*additional_context);
      }
--    // TODO: add flag to control date/time, if only for testing purposes.
+     // TODO: add flag to control date/time, if only for testing purposes.
 -    // tmpl_inputs.now = std::chrono::system_clock::now();
 +    tmpl_inputs.now = inputs.now;
 
