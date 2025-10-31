@@ -5474,7 +5474,7 @@ static void lm_ggml_rope_cache_init(
 }
 
 static void lm_ggml_mrope_cache_init(
-     float theta_base_t, float theta_base_h, float theta_base_w, float theta_base_e, int sections[4], bool indep_sects,
+     float theta_base_t, float theta_base_h, float theta_base_w, float theta_base_e, int sections[4], bool is_imrope, bool indep_sects,
      float freq_scale, const float * freq_factors, float corr_dims[2], int64_t ne0, float ext_factor, float mscale,
      float * cache, float sin_sign, float theta_scale) {
     // ref: https://github.com/jquesnelle/yarn/blob/master/scaled_rope/LlamaYaRNScaledRotaryEmbedding.py
@@ -5509,14 +5509,26 @@ static void lm_ggml_mrope_cache_init(
         }
 
         float theta = theta_t;
-        if (sector >= sections[0] && sector < sec_w) {
-            theta = theta_h;
-        }
-        else if (sector >= sec_w && sector < sec_w + sections[2]) {
-            theta = theta_w;
-        }
-        else if (sector >= sec_w + sections[2]) {
-            theta = theta_e;
+        if (is_imrope) { // qwen3vl apply interleaved mrope
+            if (sector % 3 == 1 && sector < 3 * sections[1]) {
+                theta = theta_h;
+            } else if (sector % 3 == 2 && sector < 3 * sections[2]) {
+                theta = theta_w;
+            } else if (sector % 3 == 0 && sector < 3 * sections[0]) {
+                theta = theta_t;
+            } else {
+                theta = theta_e;
+            }
+        } else {
+            if (sector >= sections[0] && sector < sec_w) {
+                theta = theta_h;
+            }
+            else if (sector >= sec_w && sector < sec_w + sections[2]) {
+                theta = theta_w;
+            }
+            else if (sector >= sec_w + sections[2]) {
+                theta = theta_e;
+            }
         }
 
         rope_yarn(
@@ -5589,6 +5601,7 @@ static void lm_ggml_compute_forward_rope_f32(
 
     const bool is_neox = mode & LM_GGML_ROPE_TYPE_NEOX;
     const bool is_mrope = mode & LM_GGML_ROPE_TYPE_MROPE;  // lm_ggml_rope_multi, multimodal rotary position embedding
+    const bool is_imrope = mode == LM_GGML_ROPE_TYPE_IMROPE; // qwen3vl apply interleaved mrope
     const bool is_vision = mode == LM_GGML_ROPE_TYPE_VISION;
 
     if (is_mrope) {
@@ -5627,7 +5640,7 @@ static void lm_ggml_compute_forward_rope_f32(
                 const int64_t p_w = pos[i2 + ne2 * 2];
                 const int64_t p_e = pos[i2 + ne2 * 3];
                 lm_ggml_mrope_cache_init(
-                    p_t, p_h, p_w, p_e, sections, is_vision,
+                    p_t, p_h, p_w, p_e, sections, is_imrope, is_vision,
                     freq_scale, freq_factors, corr_dims, ne0, ext_factor, attn_factor, cache, sin_sign, theta_scale);
             }
 
@@ -5775,6 +5788,7 @@ static void lm_ggml_compute_forward_rope_f16(
 
     const bool is_neox = mode & LM_GGML_ROPE_TYPE_NEOX;
     const bool is_mrope = mode & LM_GGML_ROPE_TYPE_MROPE;
+    const bool is_imrope = mode == LM_GGML_ROPE_TYPE_IMROPE;
     const bool is_vision = mode == LM_GGML_ROPE_TYPE_VISION;
 
     if (is_mrope) {
@@ -5813,7 +5827,7 @@ static void lm_ggml_compute_forward_rope_f16(
                 const int64_t p_w = pos[i2 + ne2 * 2];
                 const int64_t p_e = pos[i2 + ne2 * 3];
                 lm_ggml_mrope_cache_init(
-                    p_t, p_h, p_w, p_e, sections, is_vision,
+                    p_t, p_h, p_w, p_e, sections, is_imrope, is_vision,
                     freq_scale, freq_factors, corr_dims, ne0, ext_factor, attn_factor, cache, sin_sign, theta_scale);
             }
 
@@ -7909,10 +7923,10 @@ void lm_ggml_compute_forward_argsort(
 
 // lm_ggml_compute_forward_flash_attn_ext
 
-static void lm_ggml_compute_forward_flash_attn_ext_f16(
+static void lm_ggml_compute_forward_flash_attn_ext_f16_one_chunk(
         const lm_ggml_compute_params * params,
-        lm_ggml_tensor * dst) {
-
+        lm_ggml_tensor * dst,
+        int ir0, int ir1) {
     const lm_ggml_tensor * q     = dst->src[0];
     const lm_ggml_tensor * k     = dst->src[1];
     const lm_ggml_tensor * v     = dst->src[2];
@@ -7927,9 +7941,6 @@ static void lm_ggml_compute_forward_flash_attn_ext_f16(
     LM_GGML_TENSOR_LOCALS(size_t,  nbv, v,   nb)
     LM_GGML_TENSOR_LOCALS(int64_t, ne,  dst, ne)
     LM_GGML_TENSOR_LOCALS(size_t,  nb,  dst, nb)
-
-    const int ith = params->ith;
-    const int nth = params->nth;
 
     const int64_t DK = nek0;
     const int64_t DV = nev0;
@@ -7964,16 +7975,6 @@ static void lm_ggml_compute_forward_flash_attn_ext_f16(
 
     // parallelize by q rows using lm_ggml_vec_dot_f32
 
-    // total rows in q
-    const int nr = neq1*neq2*neq3;
-
-    // rows per thread
-    const int dr = (nr + nth - 1)/nth;
-
-    // row range for this thread
-    const int ir0 = dr*ith;
-    const int ir1 = MIN(ir0 + dr, nr);
-
     float scale         = 1.0f;
     float max_bias      = 0.0f;
     float logit_softcap = 0.0f;
@@ -7999,6 +8000,8 @@ static void lm_ggml_compute_forward_flash_attn_ext_f16(
 
     LM_GGML_ASSERT((                            q_to_vec_dot) && "fattn: unsupported K-type");
     LM_GGML_ASSERT((v->type == LM_GGML_TYPE_F32 || v_to_float  ) && "fattn: unsupported V-type");
+
+    int ith = params->ith;
 
     // loop over n_batch and n_head
     for (int ir = ir0; ir < ir1; ++ir) {
@@ -8144,6 +8147,91 @@ static void lm_ggml_compute_forward_flash_attn_ext_f16(
 
         // permute(0, 2, 1, 3)
         memcpy((char *) dst->data + (i3*ne2*ne1 + i2 + i1*ne1)*nb1, VKQ32, nb1);
+    }
+}
+
+static void lm_ggml_compute_forward_flash_attn_ext_f16(
+        const lm_ggml_compute_params * params,
+        lm_ggml_tensor * dst) {
+
+    const lm_ggml_tensor * q     = dst->src[0];
+    const lm_ggml_tensor * k     = dst->src[1];
+    const lm_ggml_tensor * v     = dst->src[2];
+
+    LM_GGML_TENSOR_LOCALS(int64_t, neq, q,   ne)
+    LM_GGML_TENSOR_LOCALS(size_t,  nbq, q,   nb)
+    LM_GGML_TENSOR_LOCALS(int64_t, nek, k,   ne)
+    LM_GGML_TENSOR_LOCALS(size_t,  nbk, k,   nb)
+    LM_GGML_TENSOR_LOCALS(int64_t, nev, v,   ne)
+    LM_GGML_TENSOR_LOCALS(size_t,  nbv, v,   nb)
+    LM_GGML_TENSOR_LOCALS(int64_t, ne,  dst, ne)
+    LM_GGML_TENSOR_LOCALS(size_t,  nb,  dst, nb)
+
+    const int64_t DK = nek0;
+    const int64_t DV = nev0;
+    const int64_t N  = neq1;
+
+    LM_GGML_ASSERT(ne0 == DV);
+    LM_GGML_ASSERT(ne2 == N);
+
+    // input tensor rows must be contiguous
+    LM_GGML_ASSERT(nbq0 == lm_ggml_type_size(q->type));
+    LM_GGML_ASSERT(nbk0 == lm_ggml_type_size(k->type));
+    LM_GGML_ASSERT(nbv0 == lm_ggml_type_size(v->type));
+
+    LM_GGML_ASSERT(neq0 == DK);
+    LM_GGML_ASSERT(nek0 == DK);
+    LM_GGML_ASSERT(nev0 == DV);
+
+    LM_GGML_ASSERT(neq1 == N);
+
+    // dst cannot be transposed or permuted
+    LM_GGML_ASSERT(nb0 == sizeof(float));
+    LM_GGML_ASSERT(nb0 <= nb1);
+    LM_GGML_ASSERT(nb1 <= nb2);
+    LM_GGML_ASSERT(nb2 <= nb3);
+
+    // parallelize by q rows using lm_ggml_vec_dot_f32
+
+    // total rows in q
+    const int64_t nr = neq1*neq2*neq3;
+
+    // rows per thread
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    // disable for NUMA
+    const bool disable_chunking = lm_ggml_is_numa();
+
+    // 4x chunks per thread
+    int nth_scaled = nth * 4;
+    int64_t chunk_size = (nr + nth_scaled - 1) / nth_scaled;
+    int64_t nchunk     = (nr + chunk_size - 1) / chunk_size;
+
+    if (nth == 1 || nchunk < nth || disable_chunking) {
+        nchunk = nth;
+    }
+
+    if (ith == 0) {
+        // Every thread starts at ith, so the first unprocessed chunk is nth.  This save a bit of coordination right at the start.
+        lm_ggml_threadpool_chunk_set(params->threadpool, nth);
+    }
+
+    lm_ggml_barrier(params->threadpool);
+
+    // The number of elements in each chunk
+    const int64_t dr = (nr + nchunk - 1) / nchunk;
+
+    // The first chunk comes from our thread_id, the rest will get auto-assigned.
+    int current_chunk = ith;
+
+    while (current_chunk < nchunk) {
+        const int64_t ir0 = dr * current_chunk;
+        const int64_t ir1 = MIN(ir0 + dr, nr);
+
+        lm_ggml_compute_forward_flash_attn_ext_f16_one_chunk(params, dst, ir0, ir1);
+
+        current_chunk = lm_ggml_threadpool_chunk_add(params->threadpool, 1);
     }
 }
 
