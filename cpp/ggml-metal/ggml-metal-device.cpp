@@ -677,7 +677,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_mul_mm_id_map0(lm_gg
     char name[256];
 
     snprintf(base, 256, "kernel_mul_mm_id_map0_ne20_%d", ne20);
-    snprintf(name, 256, "%s", base);
+    snprintf(name, 256, "%s_ne02=%d", base, ne02);
 
     lm_ggml_metal_pipeline_t res = lm_ggml_metal_library_get_pipeline(lib, name);
     if (res) {
@@ -1332,11 +1332,12 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_rope(lm_ggml_metal_l
 
     const bool is_neox   = mode & LM_GGML_ROPE_TYPE_NEOX;
     const bool is_mrope  = mode & LM_GGML_ROPE_TYPE_MROPE;
+    const bool is_imrope = mode == LM_GGML_ROPE_TYPE_IMROPE;
     const bool is_vision = mode == LM_GGML_ROPE_TYPE_VISION;
 
     if (is_neox) {
         snprintf(base, 256, "kernel_rope_neox_%s", lm_ggml_type_name(op->src[0]->type));
-    } else if (is_mrope && !is_vision) {
+    } else if ((is_mrope || is_imrope) && !is_vision) {
         LM_GGML_ASSERT(op->src[1]->ne[0]*4 >= op->src[0]->ne[2]); // need at least 4 pos per token
         snprintf(base, 256, "kernel_rope_multi_%s", lm_ggml_type_name(op->src[0]->type));
     } else if (is_vision) {
@@ -1346,14 +1347,20 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_rope(lm_ggml_metal_l
         snprintf(base, 256, "kernel_rope_norm_%s", lm_ggml_type_name(op->src[0]->type));
     }
 
-    snprintf(name, 256, "%s", base);
+    snprintf(name, 256, "%s_imrope=%d", base, is_imrope ? 1 : 0);
 
     lm_ggml_metal_pipeline_t res = lm_ggml_metal_library_get_pipeline(lib, name);
     if (res) {
         return res;
     }
 
-    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
+
+    lm_ggml_metal_cv_set_bool(cv, is_imrope, FC_ROPE + 0);
+
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
+
+    lm_ggml_metal_cv_free(cv);
 
     return res;
 }

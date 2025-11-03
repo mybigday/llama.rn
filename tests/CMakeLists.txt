@@ -28,6 +28,14 @@ add_definitions(-DLM_GGML_CPU_GENERIC)
 
 set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
 
+# Collect source files using glob patterns
+file(GLOB MODEL_FILES ${SOURCE_DIR}/models/*.cpp)
+file(GLOB GGML_CPU_C_FILES ${SOURCE_DIR}/ggml-cpu/*.c)
+file(GLOB GGML_CPU_CPP_FILES ${SOURCE_DIR}/ggml-cpu/*.cpp)
+file(GLOB GGML_CPU_AMX_FILES ${SOURCE_DIR}/ggml-cpu/amx/*.cpp)
+file(GLOB LLAMA_FILES ${SOURCE_DIR}/llama*.cpp)
+file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
+
 # Platform-specific source files
 set(SOURCE_FILES_ARCH "")
 set(PLATFORM_SOURCES "")
@@ -37,83 +45,69 @@ if(APPLE)
     # set(PLATFORM_SOURCES ${SOURCE_DIR}/ggml-metal.m)
 endif()
 
-# Create test executable
-add_executable(rnllama_tests
-    # Test files
-    simple_test.cpp
-
-    # Core rnllama cpp files
-    ${SOURCE_DIR}/rn-llama.cpp
-    ${SOURCE_DIR}/rn-completion.cpp
-    ${SOURCE_DIR}/rn-tts.cpp
-    ${SOURCE_DIR}/rn-slot.cpp
-    ${SOURCE_DIR}/rn-slot-manager.cpp
-
-    # Core llama.cpp files
+# Shared source files for all test executables
+set(RNLLAMA_COMMON_SOURCES
+    # Core GGML files
     ${SOURCE_DIR}/ggml.c
     ${SOURCE_DIR}/ggml-alloc.c
     ${SOURCE_DIR}/ggml-backend.cpp
     ${SOURCE_DIR}/ggml-backend-reg.cpp
-    ${SOURCE_DIR}/ggml-cpu/amx/amx.cpp
-    ${SOURCE_DIR}/ggml-cpu/amx/mmq.cpp
-    ${SOURCE_DIR}/ggml-cpu/ggml-cpu.c
-    ${SOURCE_DIR}/ggml-cpu/ggml-cpu.cpp
-    ${SOURCE_DIR}/ggml-cpu/quants.c
-    ${SOURCE_DIR}/ggml-cpu/traits.cpp
-    ${SOURCE_DIR}/ggml-cpu/repack.cpp
-    ${SOURCE_DIR}/ggml-cpu/unary-ops.cpp
-    ${SOURCE_DIR}/ggml-cpu/binary-ops.cpp
-    ${SOURCE_DIR}/ggml-cpu/vec.cpp
-    ${SOURCE_DIR}/ggml-cpu/ops.cpp
-    ${PLATFORM_SOURCES}
     ${SOURCE_DIR}/ggml-opt.cpp
     ${SOURCE_DIR}/ggml-threading.cpp
     ${SOURCE_DIR}/ggml-quants.c
     ${SOURCE_DIR}/gguf.cpp
     ${SOURCE_DIR}/log.cpp
-    ${SOURCE_DIR}/llama-impl.cpp
-    ${SOURCE_DIR}/llama-grammar.cpp
-    ${SOURCE_DIR}/llama-sampling.cpp
-    ${SOURCE_DIR}/llama-vocab.cpp
-    ${SOURCE_DIR}/llama-adapter.cpp
-    ${SOURCE_DIR}/llama-chat.cpp
-    ${SOURCE_DIR}/llama-context.cpp
-    ${SOURCE_DIR}/llama-arch.cpp
-    ${SOURCE_DIR}/llama-batch.cpp
-    ${SOURCE_DIR}/llama-cparams.cpp
-    ${SOURCE_DIR}/llama-hparams.cpp
-    ${SOURCE_DIR}/llama.cpp
-    ${SOURCE_DIR}/llama-model.cpp
-    ${SOURCE_DIR}/llama-model-loader.cpp
-    ${SOURCE_DIR}/llama-model-saver.cpp
-    ${SOURCE_DIR}/llama-mmap.cpp
-    ${SOURCE_DIR}/llama-kv-cache.cpp
-    ${SOURCE_DIR}/llama-kv-cache-iswa.cpp
-    ${SOURCE_DIR}/llama-memory-hybrid.cpp
-    ${SOURCE_DIR}/llama-memory-recurrent.cpp
-    ${SOURCE_DIR}/llama-memory.cpp
-    ${SOURCE_DIR}/llama-io.cpp
-    ${SOURCE_DIR}/llama-graph.cpp
+
+    # GGML CPU files (globbed)
+    ${GGML_CPU_C_FILES}
+    ${GGML_CPU_CPP_FILES}
+    ${GGML_CPU_AMX_FILES}
+
+    # Platform-specific sources
+    ${PLATFORM_SOURCES}
+
+    # Llama files (globbed)
+    ${LLAMA_FILES}
+
+    # Common utilities
     ${SOURCE_DIR}/sampling.cpp
     ${SOURCE_DIR}/unicode-data.cpp
     ${SOURCE_DIR}/unicode.cpp
     ${SOURCE_DIR}/common.cpp
     ${SOURCE_DIR}/chat.cpp
     ${SOURCE_DIR}/json-schema-to-grammar.cpp
+    ${SOURCE_DIR}/chat-parser.cpp
+    ${SOURCE_DIR}/json-partial.cpp
+    ${SOURCE_DIR}/regex-partial.cpp
+    ${SOURCE_DIR}/anyascii.c
+
+    # Header-only libraries (needed for build)
     ${SOURCE_DIR}/minja/minja.hpp
     ${SOURCE_DIR}/minja/chat-template.hpp
     ${SOURCE_DIR}/nlohmann/json.hpp
     ${SOURCE_DIR}/nlohmann/json_fwd.hpp
-    ${SOURCE_DIR}/chat-parser.cpp
-    ${SOURCE_DIR}/json-partial.cpp
-    ${SOURCE_DIR}/regex-partial.cpp
-    # Multimodal support
-    ${SOURCE_DIR}/tools/mtmd/mtmd.cpp
-    ${SOURCE_DIR}/tools/mtmd/mtmd-audio.cpp
-    ${SOURCE_DIR}/tools/mtmd/clip.cpp
-    ${SOURCE_DIR}/tools/mtmd/mtmd-helper.cpp
-    ${SOURCE_DIR}/anyascii.c
+
+    # Multimodal support (globbed)
+    ${MTMD_FILES}
+
+    # React Native llama APIs
+    ${SOURCE_DIR}/rn-llama.cpp
+    ${SOURCE_DIR}/rn-completion.cpp
+    ${SOURCE_DIR}/rn-tts.cpp
+    ${SOURCE_DIR}/rn-slot.cpp
+    ${SOURCE_DIR}/rn-slot-manager.cpp
+
+    # Model implementations (globbed)
+    ${MODEL_FILES}
+
+    # Architecture-specific files
     ${SOURCE_FILES_ARCH}
+)
+
+# Create test executable
+add_executable(rnllama_tests
+    simple_test.cpp
+    ${RNLLAMA_COMMON_SOURCES}
 )
 
 # Setup include directories
@@ -145,81 +139,8 @@ endif()
 
 # Create parallel decoding test executable
 add_executable(parallel_decoding_test
-    # Test file
     parallel_decoding_test.cpp
-
-    # Core rnllama cpp files
-    ${SOURCE_DIR}/rn-llama.cpp
-    ${SOURCE_DIR}/rn-completion.cpp
-    ${SOURCE_DIR}/rn-tts.cpp
-    ${SOURCE_DIR}/rn-slot.cpp
-    ${SOURCE_DIR}/rn-slot-manager.cpp
-
-    # Core llama.cpp files
-    ${SOURCE_DIR}/ggml.c
-    ${SOURCE_DIR}/ggml-alloc.c
-    ${SOURCE_DIR}/ggml-backend.cpp
-    ${SOURCE_DIR}/ggml-backend-reg.cpp
-    ${SOURCE_DIR}/ggml-cpu/amx/amx.cpp
-    ${SOURCE_DIR}/ggml-cpu/amx/mmq.cpp
-    ${SOURCE_DIR}/ggml-cpu/ggml-cpu.c
-    ${SOURCE_DIR}/ggml-cpu/ggml-cpu.cpp
-    ${SOURCE_DIR}/ggml-cpu/quants.c
-    ${SOURCE_DIR}/ggml-cpu/traits.cpp
-    ${SOURCE_DIR}/ggml-cpu/repack.cpp
-    ${SOURCE_DIR}/ggml-cpu/unary-ops.cpp
-    ${SOURCE_DIR}/ggml-cpu/binary-ops.cpp
-    ${SOURCE_DIR}/ggml-cpu/vec.cpp
-    ${SOURCE_DIR}/ggml-cpu/ops.cpp
-    ${PLATFORM_SOURCES}
-    ${SOURCE_DIR}/ggml-opt.cpp
-    ${SOURCE_DIR}/ggml-threading.cpp
-    ${SOURCE_DIR}/ggml-quants.c
-    ${SOURCE_DIR}/gguf.cpp
-    ${SOURCE_DIR}/log.cpp
-    ${SOURCE_DIR}/llama-impl.cpp
-    ${SOURCE_DIR}/llama-grammar.cpp
-    ${SOURCE_DIR}/llama-sampling.cpp
-    ${SOURCE_DIR}/llama-vocab.cpp
-    ${SOURCE_DIR}/llama-adapter.cpp
-    ${SOURCE_DIR}/llama-chat.cpp
-    ${SOURCE_DIR}/llama-context.cpp
-    ${SOURCE_DIR}/llama-arch.cpp
-    ${SOURCE_DIR}/llama-batch.cpp
-    ${SOURCE_DIR}/llama-cparams.cpp
-    ${SOURCE_DIR}/llama-hparams.cpp
-    ${SOURCE_DIR}/llama.cpp
-    ${SOURCE_DIR}/llama-model.cpp
-    ${SOURCE_DIR}/llama-model-loader.cpp
-    ${SOURCE_DIR}/llama-model-saver.cpp
-    ${SOURCE_DIR}/llama-mmap.cpp
-    ${SOURCE_DIR}/llama-kv-cache.cpp
-    ${SOURCE_DIR}/llama-kv-cache-iswa.cpp
-    ${SOURCE_DIR}/llama-memory-hybrid.cpp
-    ${SOURCE_DIR}/llama-memory-recurrent.cpp
-    ${SOURCE_DIR}/llama-memory.cpp
-    ${SOURCE_DIR}/llama-io.cpp
-    ${SOURCE_DIR}/llama-graph.cpp
-    ${SOURCE_DIR}/sampling.cpp
-    ${SOURCE_DIR}/unicode-data.cpp
-    ${SOURCE_DIR}/unicode.cpp
-    ${SOURCE_DIR}/common.cpp
-    ${SOURCE_DIR}/chat.cpp
-    ${SOURCE_DIR}/json-schema-to-grammar.cpp
-    ${SOURCE_DIR}/minja/minja.hpp
-    ${SOURCE_DIR}/minja/chat-template.hpp
-    ${SOURCE_DIR}/nlohmann/json.hpp
-    ${SOURCE_DIR}/nlohmann/json_fwd.hpp
-    ${SOURCE_DIR}/chat-parser.cpp
-    ${SOURCE_DIR}/json-partial.cpp
-    ${SOURCE_DIR}/regex-partial.cpp
-    # Multimodal support
-    ${SOURCE_DIR}/tools/mtmd/mtmd.cpp
-    ${SOURCE_DIR}/tools/mtmd/mtmd-audio.cpp
-    ${SOURCE_DIR}/tools/mtmd/clip.cpp
-    ${SOURCE_DIR}/tools/mtmd/mtmd-helper.cpp
-    ${SOURCE_DIR}/anyascii.c
-    ${SOURCE_FILES_ARCH}
+    ${RNLLAMA_COMMON_SOURCES}
 )
 
 # Setup include directories for parallel decoding test

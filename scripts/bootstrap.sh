@@ -75,6 +75,8 @@ cp ./$LLAMA_DIR/ggml/src/gguf.cpp ./cpp/gguf.cpp
 # llama api
 cp ./$LLAMA_DIR/include/llama.h ./cpp/llama.h
 cp ./$LLAMA_DIR/include/llama-cpp.h ./cpp/llama-cpp.h
+rm -rf ./cpp/models
+cp -r ./$LLAMA_DIR/src/models ./cpp/models
 cp ./$LLAMA_DIR/src/llama.cpp ./cpp/llama.cpp
 cp ./$LLAMA_DIR/src/llama-chat.h ./cpp/llama-chat.h
 cp ./$LLAMA_DIR/src/llama-chat.cpp ./cpp/llama-chat.cpp
@@ -168,153 +170,49 @@ rm -rf ./cpp/tools/mtmd/stb
 cp -r ./$LLAMA_DIR/vendor/miniaudio ./cpp/tools/mtmd/miniaudio
 cp -r ./$LLAMA_DIR/vendor/stb ./cpp/tools/mtmd/stb
 
-
 # List of files to process
 files_add_lm_prefix=(
   # ggml api
-  "./cpp/ggml-common.h"
-  "./cpp/ggml.h"
-  "./cpp/ggml.c"
-  "./cpp/gguf.h"
-  "./cpp/gguf.cpp"
-  "./cpp/ggml-impl.h"
-  "./cpp/ggml-cpp.h"
-  "./cpp/ggml-opt.h"
-  "./cpp/ggml-opt.cpp"
-  "./cpp/ggml-quants.h"
-  "./cpp/ggml-quants.c"
-  "./cpp/ggml-alloc.h"
-  "./cpp/ggml-alloc.c"
-  "./cpp/ggml-backend.h"
-  "./cpp/ggml-backend.cpp"
-  "./cpp/ggml-backend-impl.h"
-  "./cpp/ggml-backend-reg.cpp"
-  "./cpp/ggml-metal.h"
-  "./cpp/ggml-metal/ggml-metal.cpp"
-  "./cpp/ggml-metal/ggml-metal-impl.h"
-  "./cpp/ggml-metal/ggml-metal-common.h"
-  "./cpp/ggml-metal/ggml-metal-common.cpp"
-  "./cpp/ggml-metal/ggml-metal-context.h"
-  "./cpp/ggml-metal/ggml-metal-context.m"
-  "./cpp/ggml-metal/ggml-metal-device.h"
-  "./cpp/ggml-metal/ggml-metal-device.cpp"
-  "./cpp/ggml-metal/ggml-metal-device.m"
-  "./cpp/ggml-metal/ggml-metal-ops.h"
-  "./cpp/ggml-metal/ggml-metal-ops.cpp"
-  "./cpp/ggml-blas.h"
-  "./cpp/ggml-blas/ggml-blas.cpp"
-  ."/cpp/ggml-opencl.h"
-  "./cpp/ggml-opencl/ggml-opencl.cpp"
-  "./cpp/ggml-cpu.h"
-  "./cpp/ggml-cpu/ggml-cpu-impl.h"
-  "./cpp/ggml-cpu/ggml-cpu.c"
-  "./cpp/ggml-cpu/ggml-cpu.cpp"
-  "./cpp/ggml-cpu/quants.h"
-  "./cpp/ggml-cpu/quants.c"
-  "./cpp/ggml-cpu/traits.h"
-  "./cpp/ggml-cpu/traits.cpp"
-  "./cpp/ggml-cpu/arch-fallback.h"
-  "./cpp/ggml-cpu/repack.cpp"
-  "./cpp/ggml-cpu/repack.h"
-  "./cpp/ggml-cpu/common.h"
-  "./cpp/ggml-threading.h"
-  "./cpp/ggml-threading.cpp"
-  "./cpp/ggml-cpu/amx/amx.h"
-  "./cpp/ggml-cpu/amx/amx.cpp"
-  "./cpp/ggml-cpu/amx/mmq.h"
-  "./cpp/ggml-cpu/amx/mmq.cpp"
-  "./cpp/ggml-cpu/amx/common.h"
-  "./cpp/ggml-cpu/unary-ops.h"
-  "./cpp/ggml-cpu/unary-ops.cpp"
-  "./cpp/ggml-cpu/binary-ops.h"
-  "./cpp/ggml-cpu/binary-ops.cpp"
-  "./cpp/ggml-cpu/vec.h"
-  "./cpp/ggml-cpu/vec.cpp"
-  "./cpp/ggml-cpu/simd-mappings.h"
-  "./cpp/ggml-cpu/ops.h"
-  "./cpp/ggml-cpu/ops.cpp"
-  "./cpp/ggml-cpu/arch/arm/cpu-feats.cpp"
-  "./cpp/ggml-cpu/arch/arm/quants.c"
-  "./cpp/ggml-cpu/arch/arm/repack.cpp"
-  "./cpp/ggml-cpu/arch/x86/cpu-feats.cpp"
-  "./cpp/ggml-cpu/arch/x86/quants.c"
-  "./cpp/ggml-cpu/arch/x86/repack.cpp"
+  ./cpp/ggml-metal/*.cpp
+  ./cpp/ggml-metal/*.h
+  ./cpp/ggml-metal/*.m
 
-  # llama api
-    "./cpp/llama-impl.h"
-  "./cpp/llama-impl.cpp"
-  "./cpp/llama-vocab.h"
-  "./cpp/llama-vocab.cpp"
-  "./cpp/llama-grammar.h"
-  "./cpp/llama-grammar.cpp"
-  "./cpp/llama-sampling.h"
-  "./cpp/llama-sampling.cpp"
-  "./cpp/llama-adapter.h"
-  "./cpp/llama-adapter.cpp"
-  "./cpp/llama-arch.h"
-  "./cpp/llama-arch.cpp"
-  "./cpp/llama-batch.h"
-  "./cpp/llama-batch.cpp"
-  "./cpp/llama-chat.h"
-  "./cpp/llama-chat.cpp"
-  "./cpp/llama-context.h"
-  "./cpp/llama-context.cpp"
-  "./cpp/llama-model-loader.h"
-  "./cpp/llama-model-loader.cpp"
-  "./cpp/llama-model-saver.h"
-  "./cpp/llama-model-saver.cpp"
-  "./cpp/llama-model.h"
-  "./cpp/llama-model.cpp"
-  "./cpp/llama-kv-cache.h"
-  "./cpp/llama-kv-cache.cpp"
-  "./cpp/llama-kv-cache-iswa.h"
-  "./cpp/llama-kv-cache-iswa.cpp"
-  "./cpp/llama-memory-hybrid.h"
-  "./cpp/llama-memory-hybrid.cpp"
-  "./cpp/llama-memory-recurrent.h"
-  "./cpp/llama-memory-recurrent.cpp"
-  "./cpp/llama-mmap.h"
-  "./cpp/llama-mmap.cpp"
-  "./cpp/llama-hparams.h"
-  "./cpp/llama-hparams.cpp"
-  "./cpp/llama-cparams.h"
-  "./cpp/llama-cparams.cpp"
-  "./cpp/llama-graph.h"
-  "./cpp/llama-graph.cpp"
-  "./cpp/llama-io.h"
-  "./cpp/llama-io.cpp"
-  "./cpp/llama-memory.h"
-  "./cpp/llama-memory.cpp"
-  "./cpp/log.h"
-  "./cpp/log.cpp"
-  "./cpp/llama.h"
-  "./cpp/llama.cpp"
-  "./cpp/sampling.cpp"
-  "./cpp/common.h"
-  "./cpp/common.cpp"
-  "./cpp/chat.h"
-  "./cpp/chat.cpp"
-  "./cpp/chat-parser.h"
-  "./cpp/chat-parser.cpp"
-  "./cpp/json-schema-to-grammar.h"
-  "./cpp/json-schema-to-grammar.cpp"
-  "./cpp/json-partial.h"
-  "./cpp/json-partial.cpp"
+  ./cpp/ggml-blas/*.cpp
+
+  ./cpp/ggml-opencl/*.cpp
+
+  ./cpp/ggml-cpu/*.h
+  ./cpp/ggml-cpu/*.c
+  ./cpp/ggml-cpu/*.cpp
+  ./cpp/ggml-cpu/amx/*.h
+  ./cpp/ggml-cpu/amx/*.cpp
+  ./cpp/ggml-cpu/arch/arm/*.c
+  ./cpp/ggml-cpu/arch/arm/*.cpp
+  ./cpp/ggml-cpu/arch/x86/*.c
+  ./cpp/ggml-cpu/arch/x86/*.cpp
+
+  # Model definitions
+  ./cpp/models/*.h
+  ./cpp/models/*.cpp
 
   # Multimodal files
-  "./cpp/tools/mtmd/mtmd.h"
-  "./cpp/tools/mtmd/mtmd.cpp"
-  "./cpp/tools/mtmd/clip.h"
-  "./cpp/tools/mtmd/clip.cpp"
-  "./cpp/tools/mtmd/clip-impl.h"
-  "./cpp/tools/mtmd/mtmd-helper.cpp"
-  "./cpp/tools/mtmd/mtmd-audio.h"
-  "./cpp/tools/mtmd/mtmd-audio.cpp"
+  ./cpp/tools/mtmd/*.h
+  ./cpp/tools/mtmd/*.cpp
+
+  # llama api
+  ./cpp/*.h
+  ./cpp/*.cpp
+  ./cpp/*.c
 )
 
 # Loop through each file and run the sed commands
 OS=$(uname)
 for file in "${files_add_lm_prefix[@]}"; do
+  # Skip cpp/rn-* files
+  if [[ $file == *"/cpp/rn-"* ]]; then
+    continue
+  fi
+
   # Add prefix to avoid redefinition with other libraries using ggml like whisper.rn
   if [ "$OS" = "Darwin" ]; then
     sed -i '' 's/GGML_/LM_GGML_/g' $file
