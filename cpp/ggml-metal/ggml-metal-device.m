@@ -711,6 +711,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
             if (op->src[0]->ne[0] != 32 &&
                 op->src[0]->ne[0] != 40 &&
                 op->src[0]->ne[0] != 64 &&
+                op->src[0]->ne[0] != 72 &&
                 op->src[0]->ne[0] != 80 &&
                 op->src[0]->ne[0] != 96 &&
                 op->src[0]->ne[0] != 112 &&
