@@ -13,6 +13,14 @@ include_directories(
     ${RNLLAMA_LIB_DIR}/tools/mtmd
 )
 
+# Collect source files using glob patterns
+file(GLOB MODEL_FILES ${RNLLAMA_LIB_DIR}/models/*.cpp)
+file(GLOB GGML_CPU_C_FILES ${RNLLAMA_LIB_DIR}/ggml-cpu/*.c)
+file(GLOB GGML_CPU_CPP_FILES ${RNLLAMA_LIB_DIR}/ggml-cpu/*.cpp)
+file(GLOB GGML_CPU_AMX_FILES ${RNLLAMA_LIB_DIR}/ggml-cpu/amx/*.cpp)
+file(GLOB LLAMA_FILES ${RNLLAMA_LIB_DIR}/llama*.cpp)
+file(GLOB MTMD_FILES ${RNLLAMA_LIB_DIR}/tools/mtmd/*.cpp)
+
 # Source files for rnllama library (excluding jni.cpp and jni-utils)
 set(
     RNLLAMA_SOURCE_FILES
@@ -21,67 +29,40 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml-alloc.c
     ${RNLLAMA_LIB_DIR}/ggml-backend.cpp
     ${RNLLAMA_LIB_DIR}/ggml-backend-reg.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/amx/amx.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/amx/mmq.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/ggml-cpu.c
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/ggml-cpu.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/quants.c
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/traits.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/repack.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/unary-ops.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/binary-ops.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/vec.cpp
-    ${RNLLAMA_LIB_DIR}/ggml-cpu/ops.cpp
     ${RNLLAMA_LIB_DIR}/ggml-opt.cpp
     ${RNLLAMA_LIB_DIR}/ggml-threading.cpp
     ${RNLLAMA_LIB_DIR}/ggml-quants.c
     ${RNLLAMA_LIB_DIR}/gguf.cpp
     ${RNLLAMA_LIB_DIR}/log.cpp
 
-    # Core llama.cpp files
-    ${RNLLAMA_LIB_DIR}/llama-impl.cpp
-    ${RNLLAMA_LIB_DIR}/llama-grammar.cpp
-    ${RNLLAMA_LIB_DIR}/llama-sampling.cpp
-    ${RNLLAMA_LIB_DIR}/llama-vocab.cpp
-    ${RNLLAMA_LIB_DIR}/llama-adapter.cpp
-    ${RNLLAMA_LIB_DIR}/llama-chat.cpp
-    ${RNLLAMA_LIB_DIR}/llama-context.cpp
-    ${RNLLAMA_LIB_DIR}/llama-arch.cpp
-    ${RNLLAMA_LIB_DIR}/llama-batch.cpp
-    ${RNLLAMA_LIB_DIR}/llama-cparams.cpp
-    ${RNLLAMA_LIB_DIR}/llama-hparams.cpp
-    ${RNLLAMA_LIB_DIR}/llama.cpp
-    ${RNLLAMA_LIB_DIR}/llama-model.cpp
-    ${RNLLAMA_LIB_DIR}/llama-model-loader.cpp
-    ${RNLLAMA_LIB_DIR}/llama-model-saver.cpp
-    ${RNLLAMA_LIB_DIR}/llama-kv-cache.cpp
-    ${RNLLAMA_LIB_DIR}/llama-kv-cache-iswa.cpp
-    ${RNLLAMA_LIB_DIR}/llama-memory-hybrid.cpp
-    ${RNLLAMA_LIB_DIR}/llama-memory-recurrent.cpp
-    ${RNLLAMA_LIB_DIR}/llama-mmap.cpp
-    ${RNLLAMA_LIB_DIR}/llama-memory.cpp
-    ${RNLLAMA_LIB_DIR}/llama-io.cpp
-    ${RNLLAMA_LIB_DIR}/llama-graph.cpp
+    # GGML CPU files (globbed)
+    ${GGML_CPU_C_FILES}
+    ${GGML_CPU_CPP_FILES}
+    ${GGML_CPU_AMX_FILES}
+
+    # Llama files (globbed)
+    ${LLAMA_FILES}
+
+    # Common utilities
     ${RNLLAMA_LIB_DIR}/sampling.cpp
     ${RNLLAMA_LIB_DIR}/unicode-data.cpp
     ${RNLLAMA_LIB_DIR}/unicode.cpp
     ${RNLLAMA_LIB_DIR}/common.cpp
     ${RNLLAMA_LIB_DIR}/chat.cpp
     ${RNLLAMA_LIB_DIR}/json-schema-to-grammar.cpp
-    ${RNLLAMA_LIB_DIR}/nlohmann/json.hpp
-    ${RNLLAMA_LIB_DIR}/nlohmann/json_fwd.hpp
-    ${RNLLAMA_LIB_DIR}/minja/minja.hpp
-    ${RNLLAMA_LIB_DIR}/minja/chat-template.hpp
     ${RNLLAMA_LIB_DIR}/chat-parser.cpp
     ${RNLLAMA_LIB_DIR}/json-partial.cpp
     ${RNLLAMA_LIB_DIR}/regex-partial.cpp
     ${RNLLAMA_LIB_DIR}/anyascii.c
 
-    # Multimodal support
-    ${RNLLAMA_LIB_DIR}/tools/mtmd/mtmd.cpp
-    ${RNLLAMA_LIB_DIR}/tools/mtmd/mtmd-audio.cpp
-    ${RNLLAMA_LIB_DIR}/tools/mtmd/clip.cpp
-    ${RNLLAMA_LIB_DIR}/tools/mtmd/mtmd-helper.cpp
+    # Header-only libraries (needed for build)
+    ${RNLLAMA_LIB_DIR}/nlohmann/json.hpp
+    ${RNLLAMA_LIB_DIR}/nlohmann/json_fwd.hpp
+    ${RNLLAMA_LIB_DIR}/minja/minja.hpp
+    ${RNLLAMA_LIB_DIR}/minja/chat-template.hpp
+
+    # Multimodal support (globbed)
+    ${MTMD_FILES}
 
     # React Native llama APIs
     ${RNLLAMA_LIB_DIR}/rn-llama.cpp
@@ -89,6 +70,9 @@ set(
     ${RNLLAMA_LIB_DIR}/rn-tts.cpp
     ${RNLLAMA_LIB_DIR}/rn-slot.cpp
     ${RNLLAMA_LIB_DIR}/rn-slot-manager.cpp
+
+    # Model implementations (globbed)
+    ${MODEL_FILES}
 )
 
 find_library(LOG_LIB log)
