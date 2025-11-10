@@ -182,8 +182,12 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init(lm_ggml_metal_device_t dev) {
 #endif
 
 #if TARGET_OS_SIMULATOR
+        NSString *lib_name = @"ggml-llama-sim";
+        if (dev->props.has_tensor) lib_name = @"ggml-llama-sim-metal4";
         NSString * path_lib = [bundle pathForResource:@"ggml-llama-sim" ofType:@"metallib"];
 #else
+        NSString *lib_name = @"ggml-llama";
+        if (dev->props.has_tensor) lib_name = @"ggml-llama-metal4";
         NSString * path_lib = [bundle pathForResource:@"ggml-llama" ofType:@"metallib"];
 #endif
         if (path_lib == nil) {

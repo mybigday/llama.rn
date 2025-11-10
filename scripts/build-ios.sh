@@ -50,8 +50,10 @@ function build_framework() {
   # TODO: May need to re-build metallib for tvOS
   if [ "$4" == "ios-arm64_x86_64-simulator" ] || [ "$4" == "tvos-arm64_x86_64-simulator" ]; then
     cp ../cpp/ggml-metal/ggml-llama-sim.metallib ../ios/rnllama.xcframework/$4/rnllama.framework/ggml-llama-sim.metallib
+    cp ../cpp/ggml-metal/ggml-llama-sim-metal4.metallib ../ios/rnllama.xcframework/$4/rnllama.framework/ggml-llama-sim-metal4.metallib
   else
     cp ../cpp/ggml-metal/ggml-llama.metallib ../ios/rnllama.xcframework/$4/rnllama.framework/ggml-llama.metallib
+    cp ../cpp/ggml-metal/ggml-llama-metal4.metallib ../ios/rnllama.xcframework/$4/rnllama.framework/ggml-llama-metal4.metallib
   fi
 
   rm -rf ./*

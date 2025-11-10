@@ -292,11 +292,21 @@ if [ "$OS" = "Darwin" ]; then
   xcrun --sdk iphoneos metallib ggml-metal.air -o ggml-llama.metallib
   rm ggml-metal.air
   mv ./ggml-llama.metallib "$CPP_DIR/ggml-metal/ggml-llama.metallib"
+  # metal4
+  xcrun --sdk iphoneos metal -O3 -std=metal4.0 -mios-version-min=26.0 -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_HAS_BF16=1 -DGGML_METAL_HAS_TENSOR=1
+  xcrun --sdk iphoneos metallib ggml-metal.air -o ggml-llama-metal4.metallib
+  rm ggml-metal.air
+  mv ./ggml-llama-metal4.metallib "$CPP_DIR/ggml-metal/ggml-llama-metal4.metallib"
 
   xcrun --sdk iphonesimulator metal -O3 -std=metal3.2 -mios-version-min=16.0 -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_HAS_BF16=1
   xcrun --sdk iphonesimulator metallib ggml-metal.air -o ggml-llama.metallib
   rm ggml-metal.air
   mv ./ggml-llama.metallib "$CPP_DIR/ggml-metal/ggml-llama-sim.metallib"
+  # metal4
+  xcrun --sdk iphonesimulator metal -O3 -std=metal4.0 -mios-version-min=26.0 -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_HAS_BF16=1 -DGGML_METAL_HAS_TENSOR=1
+  xcrun --sdk iphonesimulator metallib ggml-metal.air -o ggml-llama-metal4.metallib
+  rm ggml-metal.air
+  mv ./ggml-llama-metal4.metallib "$CPP_DIR/ggml-metal/ggml-llama-sim-metal4.metallib"
 
   # Remove the symbolic link
   rm ggml-common.h
