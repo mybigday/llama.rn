@@ -95,7 +95,9 @@ void lm_ggml_metal_encoder_end_encoding(lm_ggml_metal_encoder_t encoder);
 
 typedef struct lm_ggml_metal_library * lm_ggml_metal_library_t;
 
-lm_ggml_metal_library_t lm_ggml_metal_library_init(lm_ggml_metal_device_t dev);
+lm_ggml_metal_library_t lm_ggml_metal_library_init            (lm_ggml_metal_device_t dev);
+lm_ggml_metal_library_t lm_ggml_metal_library_init_from_source(lm_ggml_metal_device_t dev, const char * source, bool verbose);
+
 void lm_ggml_metal_library_free(lm_ggml_metal_library_t lib);
 
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline    (lm_ggml_metal_library_t lib, const char * name);
@@ -193,6 +195,7 @@ struct lm_ggml_metal_device_props {
     bool has_simdgroup_mm;
     bool has_unified_memory;
     bool has_bfloat;
+    bool has_tensor;
     bool use_residency_sets;
     bool use_shared_buffers;
 

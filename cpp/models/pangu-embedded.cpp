@@ -1,6 +1,7 @@
 #include "models.h"
 
-llm_build_internlm2::llm_build_internlm2(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
+
+llm_build_pangu_embedded::llm_build_pangu_embedded(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v;
 
     LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -27,27 +28,21 @@ llm_build_internlm2::llm_build_internlm2(const llama_model & model, const llm_gr
                 LLM_NORM_RMS, il);
         cb(cur, "attn_norm", il);
 
-        // self-attention
+        // self attention
         {
             // compute Q and K and RoPE them
             lm_ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
+            Qcur = lm_ggml_add(ctx0, Qcur, model.layers[il].bq);
             cb(Qcur, "Qcur", il);
-            if (model.layers[il].bq) {
-                Qcur = lm_ggml_add(ctx0, Qcur, model.layers[il].bq);
-                cb(Qcur, "Qcur", il);
-            }
+
             lm_ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur);
+            Kcur = lm_ggml_add(ctx0, Kcur, model.layers[il].bk);
             cb(Kcur, "Kcur", il);
-            if (model.layers[il].bk) {
-                Kcur = lm_ggml_add(ctx0, Kcur, model.layers[il].bk);
-                cb(Kcur, "Kcur", il);
-            }
+
             lm_ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
+            Vcur = lm_ggml_add(ctx0, Vcur, model.layers[il].bv);
             cb(Vcur, "Vcur", il);
-            if (model.layers[il].bv) {
-                Vcur = lm_ggml_add(ctx0, Vcur, model.layers[il].bv);
-                cb(Vcur, "Vcur", il);
-            }
+
             Qcur = lm_ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
             Kcur = lm_ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
             Vcur = lm_ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
@@ -58,8 +53,7 @@ llm_build_internlm2::llm_build_internlm2(const llama_model & model, const llm_gr
                     ext_factor, attn_factor, beta_fast, beta_slow
                     );
 
-            Kcur = lm_ggml_rope_ext(
-                    ctx0, Kcur, inp_pos, nullptr,
+            Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
                     );
@@ -72,10 +66,12 @@ llm_build_internlm2::llm_build_internlm2(const llama_model & model, const llm_gr
                     model.layers[il].wo, model.layers[il].bo,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
         }
+
         if (il == n_layer - 1 && inp_out_ids) {
             cur   = lm_ggml_get_rows(ctx0,   cur, inp_out_ids);
             inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
+
         lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
@@ -86,14 +82,14 @@ llm_build_internlm2::llm_build_internlm2(const llama_model & model, const llm_gr
         cb(cur, "ffn_norm", il);
 
         cur = build_ffn(cur,
-                model.layers[il].ffn_up,   NULL, NULL,
-                model.layers[il].ffn_gate, NULL, NULL,
-                model.layers[il].ffn_down, NULL, NULL,
+                model.layers[il].ffn_up,   model.layers[il].ffn_up_b,   NULL,
+                model.layers[il].ffn_gate, model.layers[il].ffn_gate_b, NULL,
+                model.layers[il].ffn_down, model.layers[il].ffn_down_b, NULL,
                 NULL,
                 LLM_FFN_SILU, LLM_FFN_PAR, il);
-        cb(cur, "ffn_out", il);
 
         cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cb(cur, "ffn_out", il);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -101,6 +97,7 @@ llm_build_internlm2::llm_build_internlm2(const llama_model & model, const llm_gr
         // input for next layer
         inpL = cur;
     }
+
     cur = inpL;
 
     cur = build_norm(cur,
@@ -112,6 +109,10 @@ llm_build_internlm2::llm_build_internlm2(const llama_model & model, const llm_gr
 
     // lm_head
     cur = build_lora_mm(model.output, cur);
+
+    if (model.output_b != nullptr) {
+        cur = lm_ggml_add(ctx0, cur, model.output_b);
+    }
 
     cb(cur, "result_output", -1);
     res->t_logits = cur;

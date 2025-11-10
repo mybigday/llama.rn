@@ -35,7 +35,6 @@ struct lm_ggml_metal {
     // additional, inference-time compiled pipelines
     lm_ggml_metal_pipelines_t pipelines_ext;
 
-    bool use_bfloat;
     bool use_fusion;
     bool use_concurrency;
     bool use_graph_optimize;
@@ -121,11 +120,10 @@ lm_ggml_metal_t lm_ggml_metal_init(lm_ggml_metal_device_t dev) {
         }
     }
 
-    const struct lm_ggml_metal_device_props * props_dev = lm_ggml_metal_device_get_props(dev);
+    //const struct lm_ggml_metal_device_props * props_dev = lm_ggml_metal_device_get_props(dev);
 
     res->d_queue = dispatch_queue_create("ggml-metal", DISPATCH_QUEUE_CONCURRENT);
 
-    res->use_bfloat      = props_dev->has_bfloat;
     res->use_fusion      = getenv("LM_GGML_METAL_FUSION_DISABLE") == nil;
     res->use_concurrency = getenv("LM_GGML_METAL_CONCURRENCY_DISABLE") == nil;
 
@@ -147,7 +145,6 @@ lm_ggml_metal_t lm_ggml_metal_init(lm_ggml_metal_device_t dev) {
 
     memset(res->fuse_cnt, 0, sizeof(res->fuse_cnt));
 
-    LM_GGML_LOG_INFO("%s: use bfloat         = %s\n", __func__, res->use_bfloat         ? "true" : "false");
     LM_GGML_LOG_INFO("%s: use fusion         = %s\n", __func__, res->use_fusion         ? "true" : "false");
     LM_GGML_LOG_INFO("%s: use concurrency    = %s\n", __func__, res->use_concurrency    ? "true" : "false");
     LM_GGML_LOG_INFO("%s: use graph optimize = %s\n", __func__, res->use_graph_optimize ? "true" : "false");
@@ -292,7 +289,7 @@ void lm_ggml_metal_set_tensor_async(lm_ggml_metal_t ctx, struct lm_ggml_tensor *
 
         // queue the copy operation into the queue of the Metal context
         // this will be queued at the end, after any currently ongoing GPU operations
-        id<MTLCommandBuffer> cmd_buf = [ctx->queue commandBufferWithUnretainedReferences];
+        id<MTLCommandBuffer> cmd_buf = [ctx->queue commandBuffer];
         id<MTLBlitCommandEncoder> encoder = [cmd_buf blitCommandEncoder];
 
         [encoder copyFromBuffer:buf_src
@@ -303,6 +300,7 @@ void lm_ggml_metal_set_tensor_async(lm_ggml_metal_t ctx, struct lm_ggml_tensor *
 
         [encoder endEncoding];
         [cmd_buf commit];
+        [buf_src release];
 
         // do not wait here for completion
         //[cmd_buf waitUntilCompleted];
@@ -333,7 +331,7 @@ void lm_ggml_metal_get_tensor_async(lm_ggml_metal_t ctx, const struct lm_ggml_te
 
         // queue the copy operation into the queue of the Metal context
         // this will be queued at the end, after any currently ongoing GPU operations
-        id<MTLCommandBuffer> cmd_buf = [ctx->queue commandBufferWithUnretainedReferences];
+        id<MTLCommandBuffer> cmd_buf = [ctx->queue commandBuffer];
         id<MTLBlitCommandEncoder> encoder = [cmd_buf blitCommandEncoder];
 
         [encoder copyFromBuffer:bid_src.metal
@@ -344,6 +342,7 @@ void lm_ggml_metal_get_tensor_async(lm_ggml_metal_t ctx, const struct lm_ggml_te
 
         [encoder endEncoding];
         [cmd_buf commit];
+        [buf_dst release];
 
         // do not wait here for completion
         //[cmd_buf waitUntilCompleted];
