@@ -1,5 +1,5 @@
---- ggml-metal/ggml-metal-device.m.orig	2025-11-10 17:26:40
-+++ ggml-metal/ggml-metal-device.m	2025-11-10 17:22:40
+--- ggml-metal-device.m.orig	2025-11-10 17:26:40
++++ ggml-metal-device.m	2025-11-10 17:22:40
 @@ -181,7 +181,15 @@
          NSBundle * bundle = [NSBundle bundleForClass:[LMGGMLMetalClass class]];
  #endif
