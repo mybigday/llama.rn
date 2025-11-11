@@ -1,7 +1,5 @@
 #include "models.h"
 
-
-
 llm_build_ernie4_5::llm_build_ernie4_5(const llama_model & model, const llm_graph_params & params) :
     llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v;
@@ -18,6 +16,8 @@ llm_build_ernie4_5::llm_build_ernie4_5(const llama_model & model, const llm_grap
     lm_ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
+
+    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         lm_ggml_tensor * inpSA = inpL;
@@ -67,9 +67,8 @@ llm_build_ernie4_5::llm_build_ernie4_5(const llama_model & model, const llm_grap
         }
         if (il == n_layer - 1) {
             // skip computing output for unused tokens
-            lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
-            cur                       = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpSA                     = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
         lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);

@@ -1036,6 +1036,11 @@ int lm_ggml_metal_op_set_rows(lm_ggml_metal_op_t ctx, int idx) {
 
     nth = std::min(nth, nk0);
 
+    if (nth*nrptg > lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline)) {
+        nth = lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline);
+        nrptg = 1;
+    }
+
     lm_ggml_metal_kargs_set_rows args = {
         /*.nk0  =*/ nk0,
         /*.ne01 =*/ ne01,

@@ -2944,8 +2944,11 @@ static bool lm_ggml_opencl_supports_op(lm_ggml_backend_dev_t dev, const struct l
             return op->src[0]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32; // Assuming F32 for now, can be expanded
         case LM_GGML_OP_PAD:
             return op->src[0]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
-        case LM_GGML_OP_UPSCALE:
-            return op->src[0]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
+        case LM_GGML_OP_UPSCALE: {
+            lm_ggml_scale_mode mode = (lm_ggml_scale_mode)(lm_ggml_get_op_params_i32(op, 0) & 0xFF);
+            return op->src[0]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32 &&
+                   (mode == LM_GGML_SCALE_MODE_NEAREST || mode == LM_GGML_SCALE_MODE_BILINEAR);
+        }
         case LM_GGML_OP_CONV_2D:
             return (op->src[0]->type == LM_GGML_TYPE_F16 && op->src[1]->type == LM_GGML_TYPE_F16 && op->type == LM_GGML_TYPE_F16) ||
                    (op->src[0]->type == LM_GGML_TYPE_F32 && op->src[1]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32) ||
