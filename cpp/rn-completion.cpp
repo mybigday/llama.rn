@@ -127,7 +127,7 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
         }
 
         // compare the evaluated prompt with the new prompt
-        n_past = find_common_prefix_length(embd, text_tokens);
+        n_past = is_enc_dec ? 0 : find_common_prefix_length(embd, text_tokens);
 
         embd = text_tokens;
         if (n_past == num_prompt_tokens) {
