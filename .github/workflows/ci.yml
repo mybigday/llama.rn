@@ -50,7 +50,7 @@ jobs:
           ./run_tests.sh
 
   build-ios-from-source:
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
           npm run build:ios
 
   build-ios-frameworks:
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
