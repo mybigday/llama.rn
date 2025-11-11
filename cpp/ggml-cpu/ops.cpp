@@ -4455,46 +4455,6 @@ void lm_ggml_compute_forward_cont(
     lm_ggml_compute_forward_dup(params, dst);
 }
 
-// lm_ggml_compute_forward_reshape
-
-void lm_ggml_compute_forward_reshape(
-        const lm_ggml_compute_params * params,
-        lm_ggml_tensor * dst) {
-    // NOP
-    LM_GGML_UNUSED(params);
-    LM_GGML_UNUSED(dst);
-}
-
-// lm_ggml_compute_forward_view
-
-void lm_ggml_compute_forward_view(
-        const lm_ggml_compute_params * params,
-        lm_ggml_tensor * dst) {
-    // NOP
-    LM_GGML_UNUSED(params);
-    LM_GGML_UNUSED(dst);
-}
-
-// lm_ggml_compute_forward_permute
-
-void lm_ggml_compute_forward_permute(
-        const lm_ggml_compute_params * params,
-        lm_ggml_tensor * dst) {
-    // NOP
-    LM_GGML_UNUSED(params);
-    LM_GGML_UNUSED(dst);
-}
-
-// lm_ggml_compute_forward_transpose
-
-void lm_ggml_compute_forward_transpose(
-        const lm_ggml_compute_params * params,
-        lm_ggml_tensor * dst) {
-    // NOP
-    LM_GGML_UNUSED(params);
-    LM_GGML_UNUSED(dst);
-}
-
 // lm_ggml_compute_forward_get_rows
 
 static void lm_ggml_compute_forward_get_rows_q(
