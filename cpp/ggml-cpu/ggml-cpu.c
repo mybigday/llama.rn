@@ -1807,22 +1807,6 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_cont(params, tensor);
             } break;
-        case LM_GGML_OP_RESHAPE:
-            {
-                lm_ggml_compute_forward_reshape(params, tensor);
-            } break;
-        case LM_GGML_OP_VIEW:
-            {
-                lm_ggml_compute_forward_view(params, tensor);
-            } break;
-        case LM_GGML_OP_PERMUTE:
-            {
-                lm_ggml_compute_forward_permute(params, tensor);
-            } break;
-        case LM_GGML_OP_TRANSPOSE:
-            {
-                lm_ggml_compute_forward_transpose(params, tensor);
-            } break;
         case LM_GGML_OP_GET_ROWS:
             {
                 lm_ggml_compute_forward_get_rows(params, tensor);
@@ -2039,6 +2023,22 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             }
             break;
         case LM_GGML_OP_NONE:
+            {
+                // nop
+            } break;
+        case LM_GGML_OP_RESHAPE:
+            {
+                // nop
+            } break;
+        case LM_GGML_OP_PERMUTE:
+            {
+                // nop
+            } break;
+        case LM_GGML_OP_VIEW:
+            {
+                // nop
+            } break;
+        case LM_GGML_OP_TRANSPOSE:
             {
                 // nop
             } break;
@@ -2883,6 +2883,11 @@ static thread_ret_t lm_ggml_graph_compute_thread(void * data) {
 
     for (int node_n = 0; node_n < cgraph->n_nodes && atomic_load_explicit(&tp->abort, memory_order_relaxed) != node_n; node_n++) {
         struct lm_ggml_tensor * node = cgraph->nodes[node_n];
+
+        if (lm_ggml_op_is_empty(node->op)) {
+            // skip NOPs
+            continue;
+        }
 
         lm_ggml_compute_forward(&params, node);
 
