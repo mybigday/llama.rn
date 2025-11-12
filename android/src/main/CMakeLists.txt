@@ -96,6 +96,14 @@ if (ANDROID_ABI AND ANDROID_ABI STREQUAL "arm64-v8a")
     build_rnllama_jni("rnllama_jni_v8_2_dotprod_i8mm" "rnllama_v8_2_dotprod_i8mm" "arm" "-march=armv8.2-a+dotprod+i8mm")
     build_rnllama_jni("rnllama_jni_v8_2_dotprod_i8mm_opencl" "rnllama_v8_2_dotprod_i8mm_opencl" "arm" "-march=armv8.2-a+dotprod+i8mm")
 
+    # Hexagon backend is only available on Linux (Hexagon SDK requirement)
+    if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+        build_rnllama_jni("rnllama_jni_v8_2_dotprod_i8mm_hexagon" "rnllama_v8_2_dotprod_i8mm_hexagon" "arm" "-march=armv8.2-a+dotprod+i8mm")
+        message(STATUS "Hexagon JNI variant enabled (building on Linux)")
+    else()
+        message(STATUS "Hexagon JNI variant skipped (Hexagon SDK only available on Linux, current OS: ${CMAKE_HOST_SYSTEM_NAME})")
+    endif()
+
     # https://github.com/ggerganov/llama.cpp/blob/master/docs/android.md#cross-compile-using-android-ndk
     # llama.cpp will deal with the cpu features
     # build_rnllama_jni("rnllama_jni_v8_7" "rnllama_v8_7" "arm" "-march=armv8.7-a")
