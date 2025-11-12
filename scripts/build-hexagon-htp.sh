@@ -92,6 +92,46 @@ echo "HTP libraries built and installed to: $HTP_OUTPUT_DIR"
 echo ""
 ls -lh "$HTP_OUTPUT_DIR"/libggml-htp-*.so 2>/dev/null || echo "Warning: Some libraries may not have been built"
 echo ""
-echo "These DSP libraries must be packaged with your Android app."
-echo "Copy them to your app's jniLibs/arm64-v8a/ directory."
+
+# Copy HTP libraries to Android jniLibs directories
+echo "Copying HTP libraries to Android jniLibs directories..."
+echo ""
+
+# Destinations
+LIBRARY_JNILIBS="${ROOT_DIR}/android/src/main/jniLibs/arm64-v8a"
+EXAMPLE_JNILIBS="${ROOT_DIR}/example/android/app/src/main/jniLibs/arm64-v8a"
+
+# Create directories if they don't exist
+mkdir -p "$LIBRARY_JNILIBS"
+mkdir -p "$EXAMPLE_JNILIBS"
+
+# Copy to library jniLibs
+echo "→ Copying to library package: $LIBRARY_JNILIBS"
+for lib in "$HTP_OUTPUT_DIR"/libggml-htp-*.so; do
+    if [ -f "$lib" ]; then
+        cp "$lib" "$LIBRARY_JNILIBS/"
+        echo "  ✓ $(basename "$lib")"
+    fi
+done
+
+# Copy to example app jniLibs
+echo ""
+echo "→ Copying to example app: $EXAMPLE_JNILIBS"
+for lib in "$HTP_OUTPUT_DIR"/libggml-htp-*.so; do
+    if [ -f "$lib" ]; then
+        cp "$lib" "$EXAMPLE_JNILIBS/"
+        echo "  ✓ $(basename "$lib")"
+    fi
+done
+
+echo ""
+echo "=========================================="
+echo "HTP Libraries Installed Successfully!"
+echo "=========================================="
+echo "Libraries are now available in:"
+echo "  • Library package: $LIBRARY_JNILIBS"
+echo "  • Example app:     $EXAMPLE_JNILIBS"
+echo ""
+echo "The Hexagon backend will automatically detect and load"
+echo "the appropriate library at runtime based on device DSP version."
 echo ""

@@ -118,9 +118,21 @@ function(build_rnllama_library target_name arch cpu_flags)
     # Note: Hexagon requires building DSP libraries with Hexagon SDK toolchain
     # This is a complex process that needs to be done separately
     if (${target_name} MATCHES ".*_hexagon$")
-        if (DEFINED ENV{HEXAGON_SDK_ROOT} AND DEFINED ENV{HEXAGON_TOOLS_ROOT})
-            set(HEXAGON_SDK_ROOT $ENV{HEXAGON_SDK_ROOT})
-            set(HEXAGON_TOOLS_ROOT $ENV{HEXAGON_TOOLS_ROOT})
+        # Only check for Hexagon SDK environment when building from source
+        set(HEXAGON_SDK_AVAILABLE OFF)
+        if (NOT RNLLAMA_STANDALONE_BUILD)
+            if (DEFINED ENV{HEXAGON_SDK_ROOT} AND DEFINED ENV{HEXAGON_TOOLS_ROOT})
+                set(HEXAGON_SDK_ROOT $ENV{HEXAGON_SDK_ROOT})
+                set(HEXAGON_TOOLS_ROOT $ENV{HEXAGON_TOOLS_ROOT})
+                set(HEXAGON_SDK_AVAILABLE ON)
+            endif()
+        else()
+            # For prebuilt distribution, we don't need the SDK
+            message(STATUS "Building Hexagon target for prebuilt distribution (SDK not required)")
+            set(HEXAGON_SDK_AVAILABLE ON)
+        endif()
+
+        if (HEXAGON_SDK_AVAILABLE)
 
             # Check if we have pre-built HTP libraries or should build
             set(HEXAGON_PREBUILT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../hexagon-prebuilt")
@@ -198,15 +210,20 @@ function(build_rnllama_library target_name arch cpu_flags)
             )
 
             message(STATUS "Hexagon backend enabled for ${target_name}")
-            message(STATUS "  Note: DSP libraries (libggml-htp-*.so) must be built separately")
-            message(STATUS "  Run: scripts/build-hexagon-htp.sh to build DSP libraries")
+            if (NOT RNLLAMA_STANDALONE_BUILD)
+                message(STATUS "  Note: DSP libraries (libggml-htp-*.so) must be built separately")
+                message(STATUS "  Run: scripts/build-hexagon-htp.sh to build DSP libraries")
+            endif()
         else()
-            message(WARNING
-                "Hexagon SDK environment not configured. Hexagon backend will not be built.
-                Required environment variables:
-                  - HEXAGON_SDK_ROOT
-                  - HEXAGON_TOOLS_ROOT
-                Run: source scripts/setup-hexagon-env.sh")
+            # Only show warning when building from source
+            if (NOT RNLLAMA_STANDALONE_BUILD)
+                message(WARNING
+                    "Hexagon SDK environment not configured. Hexagon backend will not be built.
+                    Required environment variables:
+                      - HEXAGON_SDK_ROOT
+                      - HEXAGON_TOOLS_ROOT
+                    Run: source scripts/setup-hexagon-env.sh")
+            endif()
         endif()
     endif ()
 
