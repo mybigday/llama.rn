@@ -169,40 +169,44 @@ function(build_rnllama_library target_name arch cpu_flags)
                 ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp-utils.c
             )
 
+            # Add IDL stub source
             if (NOT USE_PREBUILT_HTP AND EXISTS ${HTP_IFACE_STUB})
+                # Use generated stub
                 target_sources(${target_name} PRIVATE ${HTP_IFACE_STUB})
+            else()
+                # Use pre-built stub
+                set(HEXAGON_PREBUILT_STUB "${CMAKE_CURRENT_SOURCE_DIR}/../../../../build-hexagon-htp/v73/htp_iface_stub.c")
+                if (EXISTS ${HEXAGON_PREBUILT_STUB})
+                    target_sources(${target_name} PRIVATE ${HEXAGON_PREBUILT_STUB})
+                else()
+                    message(WARNING "Pre-built HTP stub not found: ${HEXAGON_PREBUILT_STUB}")
+                endif()
             endif()
+
+            # Use pre-built IDL headers from build-hexagon-htp directory
+            set(HEXAGON_PREBUILT_HTP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../build-hexagon-htp/v73")
 
             target_include_directories(${target_name} PRIVATE
                 ${HEXAGON_SDK_ROOT}/incs
                 ${HEXAGON_SDK_ROOT}/incs/stddef
+                ${HEXAGON_SDK_ROOT}/ipc/fastrpc/rpcmem/inc
                 ${HEXAGON_SDK_ROOT}/utils/examples
                 ${RNLLAMA_LIB_DIR}/ggml-hexagon
                 ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp
+                ${HEXAGON_PREBUILT_HTP_DIR}
                 ${CMAKE_CURRENT_BINARY_DIR}
             )
 
-            # Find and link Hexagon SDK libraries
+            # Link Hexagon SDK libraries
             # These are stub libraries that communicate with the DSP
-            find_library(CDSPRPC_LIB cdsprpc
-                PATHS ${HEXAGON_SDK_ROOT}/ipc/fastrpc/remote/ship/android_aarch64
-                NO_DEFAULT_PATH)
-            find_library(RPCMEM_LIB rpcmem
-                PATHS ${HEXAGON_SDK_ROOT}/ipc/fastrpc/rpcmem/ship/android_aarch64
-                NO_DEFAULT_PATH)
+            # libcdsprpc.so contains all needed symbols: remote_handle64_*, dspqueue_*, rpcmem_*
+            set(CDSPRPC_LIB "${HEXAGON_SDK_ROOT}/ipc/fastrpc/remote/ship/android_aarch64/libcdsprpc.so")
 
-            if (CDSPRPC_LIB)
+            if (EXISTS ${CDSPRPC_LIB})
                 target_link_libraries(${target_name} PRIVATE ${CDSPRPC_LIB})
-                message(STATUS "Found cdsprpc: ${CDSPRPC_LIB}")
+                message(STATUS "Linking Hexagon cdsprpc library: ${CDSPRPC_LIB}")
             else()
-                message(WARNING "cdsprpc library not found in Hexagon SDK")
-            endif()
-
-            if (RPCMEM_LIB)
-                target_link_libraries(${target_name} PRIVATE ${RPCMEM_LIB})
-                message(STATUS "Found rpcmem: ${RPCMEM_LIB}")
-            else()
-                message(WARNING "rpcmem library not found in Hexagon SDK")
+                message(WARNING "cdsprpc library not found: ${CDSPRPC_LIB}")
             endif()
 
             target_compile_options(${target_name} PRIVATE
@@ -366,7 +370,15 @@ if (ANDROID_ABI AND ANDROID_ABI STREQUAL "arm64-v8a")
     build_rnllama_library("rnllama_v8_2_i8mm" "arm" "-march=armv8.2-a+i8mm")
     build_rnllama_library("rnllama_v8_2_dotprod_i8mm" "arm" "-march=armv8.2-a+dotprod+i8mm")
     build_rnllama_library("rnllama_v8_2_dotprod_i8mm_opencl" "arm" "-march=armv8.2-a+dotprod+i8mm")
-    build_rnllama_library("rnllama_v8_2_dotprod_i8mm_hexagon" "arm" "-march=armv8.2-a+dotprod+i8mm")
+
+    # Hexagon backend is only available on Linux (Hexagon SDK requirement)
+    if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+        build_rnllama_library("rnllama_v8_2_dotprod_i8mm_hexagon" "arm" "-march=armv8.2-a+dotprod+i8mm")
+        message(STATUS "Hexagon variant enabled (building on Linux)")
+    else()
+        message(STATUS "Hexagon variant skipped (Hexagon SDK only available on Linux, current OS: ${CMAKE_HOST_SYSTEM_NAME})")
+    endif()
+
 
 elseif (ANDROID_ABI AND ANDROID_ABI STREQUAL "x86_64")
     # x86_64 target

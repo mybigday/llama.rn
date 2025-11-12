@@ -33,11 +33,28 @@ if ! command -v $CMAKE_PATH &> /dev/null; then
 fi
 
 n_cpu=1
+OS_TYPE="unknown"
 if uname -a | grep -q "Darwin"; then
   n_cpu=$(sysctl -n hw.logicalcpu)
+  OS_TYPE="Darwin"
 elif uname -a | grep -q "Linux"; then
   n_cpu=$(nproc)
+  OS_TYPE="Linux"
 fi
+
+# Display platform-specific build info
+if [ "$OS_TYPE" = "Darwin" ]; then
+  echo "Building on macOS - Hexagon backend will be skipped (requires Linux)"
+  echo "The following libraries will NOT be built: librnllama_v8_2_dotprod_i8mm_hexagon.so"
+elif [ "$OS_TYPE" = "Linux" ]; then
+  if [ -n "$HEXAGON_SDK_ROOT" ] && [ -d "$HEXAGON_SDK_ROOT" ]; then
+    echo "Building on Linux with Hexagon SDK - Hexagon backend enabled"
+  else
+    echo "Building on Linux - Hexagon SDK not detected, hexagon backend will fail to build"
+    echo "To enable Hexagon: source scripts/setup-hexagon-env.sh"
+  fi
+fi
+echo ""
 
 t0=$(date +%s)
 
