@@ -114,6 +114,102 @@ function(build_rnllama_library target_name arch cpu_flags)
         target_compile_options(${target_name} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
     endif ()
 
+    # Hexagon backend support
+    # Note: Hexagon requires building DSP libraries with Hexagon SDK toolchain
+    # This is a complex process that needs to be done separately
+    if (${target_name} MATCHES ".*_hexagon$")
+        if (DEFINED ENV{HEXAGON_SDK_ROOT} AND DEFINED ENV{HEXAGON_TOOLS_ROOT})
+            set(HEXAGON_SDK_ROOT $ENV{HEXAGON_SDK_ROOT})
+            set(HEXAGON_TOOLS_ROOT $ENV{HEXAGON_TOOLS_ROOT})
+
+            # Check if we have pre-built HTP libraries or should build
+            set(HEXAGON_PREBUILT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../hexagon-prebuilt")
+
+            if (EXISTS "${HEXAGON_PREBUILT_DIR}/libggml-htp-v73.so")
+                # Use pre-built HTP libraries
+                message(STATUS "Using pre-built Hexagon HTP libraries from ${HEXAGON_PREBUILT_DIR}")
+                set(USE_PREBUILT_HTP ON)
+            else()
+                message(STATUS "Pre-built HTP libraries not found, will attempt to build")
+                set(USE_PREBUILT_HTP OFF)
+            endif()
+
+            # Generate IDL stub for host-side communication
+            if (NOT USE_PREBUILT_HTP)
+                # Include Hexagon SDK CMake functions
+                if (EXISTS "${HEXAGON_SDK_ROOT}/build/cmake/hexagon_fun.cmake")
+                    include(${HEXAGON_SDK_ROOT}/build/cmake/hexagon_fun.cmake)
+
+                    # Generate IDL stub (host-side)
+                    set(HTP_IFACE_IDL ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp/htp_iface.idl)
+                    set(HTP_IFACE_STUB ${CMAKE_CURRENT_BINARY_DIR}/htp_iface_stub.c)
+
+                    build_idl(${HTP_IFACE_IDL} htp_iface)
+                else()
+                    message(WARNING "Hexagon SDK CMake functions not found, cannot build IDL")
+                    set(USE_PREBUILT_HTP ON)
+                endif()
+            endif()
+
+            # Add host-side hexagon sources
+            target_sources(${target_name} PRIVATE
+                ${RNLLAMA_LIB_DIR}/ggml-hexagon/ggml-hexagon.cpp
+                ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp-utils.c
+            )
+
+            if (NOT USE_PREBUILT_HTP AND EXISTS ${HTP_IFACE_STUB})
+                target_sources(${target_name} PRIVATE ${HTP_IFACE_STUB})
+            endif()
+
+            target_include_directories(${target_name} PRIVATE
+                ${HEXAGON_SDK_ROOT}/incs
+                ${HEXAGON_SDK_ROOT}/incs/stddef
+                ${HEXAGON_SDK_ROOT}/utils/examples
+                ${RNLLAMA_LIB_DIR}/ggml-hexagon
+                ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp
+                ${CMAKE_CURRENT_BINARY_DIR}
+            )
+
+            # Find and link Hexagon SDK libraries
+            # These are stub libraries that communicate with the DSP
+            find_library(CDSPRPC_LIB cdsprpc
+                PATHS ${HEXAGON_SDK_ROOT}/ipc/fastrpc/remote/ship/android_aarch64
+                NO_DEFAULT_PATH)
+            find_library(RPCMEM_LIB rpcmem
+                PATHS ${HEXAGON_SDK_ROOT}/ipc/fastrpc/rpcmem/ship/android_aarch64
+                NO_DEFAULT_PATH)
+
+            if (CDSPRPC_LIB)
+                target_link_libraries(${target_name} PRIVATE ${CDSPRPC_LIB})
+                message(STATUS "Found cdsprpc: ${CDSPRPC_LIB}")
+            else()
+                message(WARNING "cdsprpc library not found in Hexagon SDK")
+            endif()
+
+            if (RPCMEM_LIB)
+                target_link_libraries(${target_name} PRIVATE ${RPCMEM_LIB})
+                message(STATUS "Found rpcmem: ${RPCMEM_LIB}")
+            else()
+                message(WARNING "rpcmem library not found in Hexagon SDK")
+            endif()
+
+            target_compile_options(${target_name} PRIVATE
+                -DLM_GGML_USE_HEXAGON
+            )
+
+            message(STATUS "Hexagon backend enabled for ${target_name}")
+            message(STATUS "  Note: DSP libraries (libggml-htp-*.so) must be built separately")
+            message(STATUS "  Run: scripts/build-hexagon-htp.sh to build DSP libraries")
+        else()
+            message(WARNING
+                "Hexagon SDK environment not configured. Hexagon backend will not be built.
+                Required environment variables:
+                  - HEXAGON_SDK_ROOT
+                  - HEXAGON_TOOLS_ROOT
+                Run: source scripts/setup-hexagon-env.sh")
+        endif()
+    endif ()
+
     # OpenCL only for the special target
     if (${target_name} STREQUAL "rnllama_v8_2_dotprod_i8mm_opencl")
         include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/OpenCL-Headers)
@@ -253,6 +349,7 @@ if (ANDROID_ABI AND ANDROID_ABI STREQUAL "arm64-v8a")
     build_rnllama_library("rnllama_v8_2_i8mm" "arm" "-march=armv8.2-a+i8mm")
     build_rnllama_library("rnllama_v8_2_dotprod_i8mm" "arm" "-march=armv8.2-a+dotprod+i8mm")
     build_rnllama_library("rnllama_v8_2_dotprod_i8mm_opencl" "arm" "-march=armv8.2-a+dotprod+i8mm")
+    build_rnllama_library("rnllama_v8_2_dotprod_i8mm_hexagon" "arm" "-march=armv8.2-a+dotprod+i8mm")
 
 elseif (ANDROID_ABI AND ANDROID_ABI STREQUAL "x86_64")
     # x86_64 target

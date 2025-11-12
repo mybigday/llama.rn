@@ -551,12 +551,18 @@ public class LlamaContext {
     Log.d(NAME, "- isAtLeastArmV84: " + isAtLeastArmV84);
 
     // Detect GPU (Adreno check)
-    String gpuInfo = (Build.HARDWARE + " " + Build.MANUFACTURER + " " + Build.MODEL).toLowerCase();
-    boolean hasAdreno = Pattern.compile("(adreno|qcom|qualcomm)").matcher(gpuInfo).find();
+    String hwInfo = (Build.HARDWARE + " " + Build.MANUFACTURER + " " + Build.MODEL).toLowerCase();
+    boolean hasAdreno = Pattern.compile("(adreno|qcom|qualcomm)").matcher(hwInfo).find();
+    boolean hasHexagon = Pattern.compile("(hexagon|qcom|qualcomm)").matcher(hwInfo).find();
     Log.d(NAME, "- hasAdreno: " + hasAdreno);
+    Log.d(NAME, "- hasHexagon: " + hasHexagon);
 
     if (LlamaContext.isArm64V8a()) {
-      if (hasDotProd && hasI8mm && hasAdreno) {
+      if (hasHexagon) {
+        Log.d(NAME, "Loading librnllama_jni_v8_2_dotprod_i8mm_hexagon.so");
+        System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm_hexagon");
+        loadedLibrary = "rnllama_jni_v8_2_dotprod_i8mm_hexagon";
+      } else if (hasDotProd && hasI8mm && hasAdreno) {
         Log.d(NAME, "Loading librnllama_jni_v8_2_dotprod_i8mm_opencl.so");
         System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm_opencl");
         loadedLibrary = "rnllama_jni_v8_2_dotprod_i8mm_opencl";

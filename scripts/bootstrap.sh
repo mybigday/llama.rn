@@ -1,6 +1,7 @@
 #!/bin/bash -e
 
 ROOT_DIR=$(pwd)
+OS=$(uname)
 
 LLAMA_DIR=third_party/llama.cpp
 CPP_DIR="$ROOT_DIR/cpp"
@@ -8,6 +9,43 @@ SRC_DIR="$ROOT_DIR/src"
 
 git submodule init "$LLAMA_DIR"
 git submodule update --recursive "$LLAMA_DIR"
+
+# Download and setup Hexagon SDK for Android builds (Linux only)
+if [ "$OS" != "Darwin" ]; then
+  HEXAGON_SDK_VERSION="6.4.0.2"
+  HEXAGON_TOOLS_VERSION="19.0.04"
+  HEXAGON_INSTALL_DIR="${HEXAGON_INSTALL_DIR:-$HOME/.hexagon-sdk}"
+
+  if [ ! -d "$HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION" ]; then
+    echo "Downloading Hexagon SDK v${HEXAGON_SDK_VERSION}..."
+
+    TEMP_DIR=$(mktemp -d)
+    cd "$TEMP_DIR"
+
+    curl -L -o hex-sdk.tar.gz \
+      "https://github.com/snapdragon-toolchain/hexagon-sdk/releases/download/v${HEXAGON_SDK_VERSION}/hexagon-sdk-v${HEXAGON_SDK_VERSION}-amd64-lnx.tar.xz"
+
+    echo "Extracting Hexagon SDK..."
+    mkdir -p "$HEXAGON_INSTALL_DIR"
+    tar -xaf hex-sdk.tar.gz -C "$HEXAGON_INSTALL_DIR"
+
+    cd "$ROOT_DIR"
+    rm -rf "$TEMP_DIR"
+
+    echo "Hexagon SDK installed to: $HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION"
+    echo ""
+    echo "To use Hexagon backend, set these environment variables:"
+    echo "  export HEXAGON_SDK_ROOT=$HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION"
+    echo "  export HEXAGON_TOOLS_ROOT=$HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION/tools/HEXAGON_Tools/$HEXAGON_TOOLS_VERSION"
+    echo "  export DEFAULT_HLOS_ARCH=64"
+    echo "  export DEFAULT_TOOLS_VARIANT=toolv19"
+    echo "  export DEFAULT_NO_QURT_INC=0"
+    echo "  export DEFAULT_DSP_ARCH=v73"
+    echo ""
+  else
+    echo "Hexagon SDK already installed at: $HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION"
+  fi
+fi
 
 # ggml api
 cp ./$LLAMA_DIR/ggml/include/ggml.h ./cpp/ggml.h
@@ -19,6 +57,7 @@ cp ./$LLAMA_DIR/ggml/include/ggml-opt.h ./cpp/ggml-opt.h
 cp ./$LLAMA_DIR/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
 cp ./$LLAMA_DIR/ggml/include/ggml-opencl.h ./cpp/ggml-opencl.h
 cp ./$LLAMA_DIR/ggml/include/ggml-blas.h ./cpp/ggml-blas.h
+cp ./$LLAMA_DIR/ggml/include/ggml-hexagon.h ./cpp/ggml-hexagon.h
 cp ./$LLAMA_DIR/ggml/include/gguf.h ./cpp/gguf.h
 
 cp -r ./$LLAMA_DIR/ggml/src/ggml-metal ./cpp/
@@ -30,6 +69,9 @@ rm ./cpp/ggml-blas/CMakeLists.txt
 
 cp -r ./$LLAMA_DIR/ggml/src/ggml-opencl ./cpp/
 rm ./cpp/ggml-opencl/CMakeLists.txt
+
+cp -r ./$LLAMA_DIR/ggml/src/ggml-hexagon ./cpp/
+# Keep CMakeLists.txt for hexagon as it's needed for building HTP components
 
 cp ./$LLAMA_DIR/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu/ggml-cpu.c
 cp ./$LLAMA_DIR/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu/ggml-cpu.cpp
@@ -181,6 +223,12 @@ files_add_lm_prefix=(
 
   ./cpp/ggml-opencl/*.cpp
 
+  ./cpp/ggml-hexagon/*.cpp
+  ./cpp/ggml-hexagon/*.c
+  ./cpp/ggml-hexagon/*.h
+  ./cpp/ggml-hexagon/htp/*.c
+  ./cpp/ggml-hexagon/htp/*.h
+
   ./cpp/ggml-cpu/*.h
   ./cpp/ggml-cpu/*.c
   ./cpp/ggml-cpu/*.cpp
@@ -206,7 +254,6 @@ files_add_lm_prefix=(
 )
 
 # Loop through each file and run the sed commands
-OS=$(uname)
 for file in "${files_add_lm_prefix[@]}"; do
   # Skip cpp/rn-* files
   if [[ $file == *"/cpp/rn-"* ]]; then
