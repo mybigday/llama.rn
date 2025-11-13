@@ -11,6 +11,7 @@
 #include <thread>
 #include <unordered_map>
 #include <list>
+#include <cstring>
 #include <nlohmann/json.hpp>
 #include "json-schema-to-grammar.h"
 #include "llama.h"
@@ -44,7 +45,16 @@ extern "C" {
 void set_best_cores(struct cpu_params &params, int n) {
     int max_threads = std::thread::hardware_concurrency();
     // Use 2 threads by default on 4-core devices, 4 threads on more cores
+#if defined(LM_GGML_USE_HEXAGON)
+    // Hexagon path matches llama.cpp snapdragon defaults: prefer 6 host threads unless overridden.
+    int hex_default = 6;
+    if (max_threads > 0) {
+        hex_default = min(hex_default, max_threads);
+    }
+    int default_n_threads = hex_default;
+#else
     int default_n_threads = max_threads == 4 ? 2 : min(4, max_threads);
+#endif
     params.n_threads = n > 0 && n <= max_threads ? n : default_n_threads;
 
     std::vector<std::pair<int,int>> cores; // {freq, id}
@@ -67,6 +77,43 @@ void set_best_cores(struct cpu_params &params, int n) {
     params.strict_cpu = true;
     params.mask_valid = true;
 }
+
+#if defined(LM_GGML_USE_HEXAGON)
+static void force_cpu_htp_devices_only(common_params & params) {
+    lm_ggml_backend_dev_t cpu_dev = nullptr;
+    lm_ggml_backend_dev_t htp0_dev = nullptr;
+
+    const size_t backend_dev_count = lm_ggml_backend_dev_count();
+    for (size_t i = 0; i < backend_dev_count; ++i) {
+        lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
+        auto dev_type = lm_ggml_backend_dev_type(dev);
+        if (!cpu_dev && dev_type == LM_GGML_BACKEND_DEVICE_TYPE_CPU) {
+            cpu_dev = dev;
+            continue;
+        }
+        if (!htp0_dev && dev_type == LM_GGML_BACKEND_DEVICE_TYPE_GPU) {
+            const char * dev_name = lm_ggml_backend_dev_name(dev);
+            if (dev_name != nullptr && std::strstr(dev_name, "HTP0") != nullptr) { // TODO: Custom devices (HTP0, HTP1, ...)
+                htp0_dev = dev;
+            }
+        }
+        if (cpu_dev && htp0_dev) {
+            break;
+        }
+    }
+
+    if (cpu_dev || htp0_dev) {
+        params.devices.clear();
+        if (cpu_dev) {
+            params.devices.push_back(cpu_dev);
+        }
+        if (htp0_dev) {
+            params.devices.push_back(htp0_dev);
+        }
+        params.devices.push_back(nullptr);
+    }
+}
+#endif
 
 JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_modelInfo(
@@ -571,6 +618,11 @@ Java_com_rnllama_LlamaContext_initContext(
         defaultParams.rope_freq_scale = readablemap::getFloat(env, params_map, "rope_freq_scale", 0.0f);
     }
 
+#if defined(LM_GGML_USE_HEXAGON)
+    // Temporary workaround: restrict device list to CPU + HTP0 to match CLI behaviour.
+    force_cpu_htp_devices_only(defaultParams);
+#endif
+
     auto llama = new rnllama::llama_rn_context();
     llama->is_load_interrupted = false;
     llama->loading_progress = 0;
@@ -597,6 +649,9 @@ Java_com_rnllama_LlamaContext_initContext(
         cb_ctx->callback = env->NewGlobalRef(load_progress_callback);
         defaultParams.progress_callback_user_data = cb_ctx;
     }
+
+    auto sysinfo = common_params_get_system_info(defaultParams).c_str();
+    LLAMA_LOG("System Info: %s", sysinfo);
 
     bool is_model_loaded = llama->loadModel(defaultParams);
 

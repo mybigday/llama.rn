@@ -87,6 +87,16 @@ else()
 endif()
 
 function(build_rnllama_library target_name arch cpu_flags)
+    set(ENABLE_OPENCL OFF)
+    if (${target_name} MATCHES ".*_opencl$")
+        set(ENABLE_OPENCL ON)
+    endif ()
+
+    set(ENABLE_HEXAGON OFF)
+    if (${target_name} MATCHES ".*_hexagon.*")
+        set(ENABLE_HEXAGON ON)
+    endif ()
+
     if (NOT ${arch} STREQUAL "generic")
         set(SOURCE_FILES_ARCH
             ${RNLLAMA_LIB_DIR}/ggml-cpu/arch/${arch}/quants.c
@@ -108,7 +118,7 @@ function(build_rnllama_library target_name arch cpu_flags)
         target_compile_options(${target_name} PRIVATE -DLM_GGML_CPU_GENERIC)
     endif ()
 
-    target_compile_options(${target_name} PRIVATE -DLM_GGML_USE_CPU -DLM_GGML_USE_CPU_REPACK -pthread ${cpu_flags})
+    target_compile_options(${target_name} PRIVATE -DLM_GGML_USE_CPU -DLM_GGML_USE_CPU_REPACK -pthread ${cpu_flags} -fvectorize -ffp-model=fast -fno-finite-math-only -flto -D_GNU_SOURCE)
 
     if (CMAKE_BUILD_TYPE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
         target_compile_options(${target_name} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
@@ -117,7 +127,7 @@ function(build_rnllama_library target_name arch cpu_flags)
     # Hexagon backend support
     # Note: Hexagon requires building DSP libraries with Hexagon SDK toolchain
     # This is a complex process that needs to be done separately
-    if (${target_name} MATCHES ".*_hexagon$")
+    if (ENABLE_HEXAGON)
         # Hexagon SDK is ALWAYS required to link cdsprpc, even for prebuilt distribution
         set(HEXAGON_SDK_AVAILABLE OFF)
         if (DEFINED ENV{HEXAGON_SDK_ROOT} AND DEFINED ENV{HEXAGON_TOOLS_ROOT})
@@ -239,7 +249,7 @@ function(build_rnllama_library target_name arch cpu_flags)
     endif ()
 
     # OpenCL only for the special target
-    if (${target_name} STREQUAL "rnllama_v8_2_dotprod_i8mm_opencl")
+    if (ENABLE_OPENCL)
         include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/OpenCL-Headers)
 
         set(GGML_OPENCL_KERNELS
@@ -376,8 +386,7 @@ if (ANDROID_ABI AND ANDROID_ABI STREQUAL "arm64-v8a")
     build_rnllama_library("rnllama_v8_2_dotprod" "arm" "-march=armv8.2-a+dotprod")
     build_rnllama_library("rnllama_v8_2_i8mm" "arm" "-march=armv8.2-a+i8mm")
     build_rnllama_library("rnllama_v8_2_dotprod_i8mm" "arm" "-march=armv8.2-a+dotprod+i8mm")
-    build_rnllama_library("rnllama_v8_2_dotprod_i8mm_opencl" "arm" "-march=armv8.2-a+dotprod+i8mm")
-    build_rnllama_library("rnllama_v8_5_i8mm_hexagon" "arm" "-march=armv8.5-a+fp16+i8mm")
+    build_rnllama_library("rnllama_v8_7_hexagon_opencl" "arm" "-march=armv8.7-a+fp16")
 
 elseif (ANDROID_ABI AND ANDROID_ABI STREQUAL "x86_64")
     # x86_64 target
