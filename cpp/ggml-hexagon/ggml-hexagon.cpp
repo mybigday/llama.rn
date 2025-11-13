@@ -3156,26 +3156,17 @@ static inline bool op_reuse_src1(const lm_ggml_tensor * op1, const lm_ggml_tenso
     return (op0 && op0->src[1] == op1->src[1]);
 }
 
+static inline bool is_compute_op(lm_ggml_tensor *node)
+{
+    return !(lm_ggml_op_is_empty(node->op) || lm_ggml_is_empty(node));
+}
+
 // scan the graph and figure out last compute op index
 static inline int last_compute_op(lm_ggml_cgraph * graph) {
-    int last;
+    int last = 0;
     for (int i = 0; i < graph->n_nodes; ++i) {
-        lm_ggml_tensor * node = graph->nodes[i];
-
-        switch (node->op) {
-            case LM_GGML_OP_MUL_MAT:
-            case LM_GGML_OP_MUL_MAT_ID:
-            case LM_GGML_OP_MUL:
-            case LM_GGML_OP_ADD:
-            case LM_GGML_OP_SUB:
-            case LM_GGML_OP_RMS_NORM:
-            case LM_GGML_OP_GLU:
-            case LM_GGML_OP_ADD_ID:
-                last = i;
-                break;
-
-            default:
-                break;
+        if (is_compute_op(graph->nodes[i])) {
+            last = i;
         }
     }
 
@@ -3193,6 +3184,10 @@ static lm_ggml_status lm_ggml_backend_hexagon_graph_compute(lm_ggml_backend_t ba
 
     for (int i = 0; i < graph->n_nodes; ++i) {
         lm_ggml_tensor * node = graph->nodes[i];
+
+        if (!is_compute_op(node)) {
+            continue;
+        }
 
         uint32_t flags = 0;
 
@@ -3243,14 +3238,6 @@ static lm_ggml_status lm_ggml_backend_hexagon_graph_compute(lm_ggml_backend_t ba
 
             case LM_GGML_OP_ROPE:
                 lm_ggml_hexagon_rope(node, flags);
-                break;
-
-            // non-compute ops
-            case LM_GGML_OP_NONE:
-            case LM_GGML_OP_RESHAPE:
-            case LM_GGML_OP_VIEW:
-            case LM_GGML_OP_PERMUTE:
-            case LM_GGML_OP_TRANSPOSE:
                 break;
 
             default:

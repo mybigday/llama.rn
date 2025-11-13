@@ -316,13 +316,14 @@ completion_token_output llama_rn_context_completion::nextToken()
         result.tok = new_token_id;
         result.text = common_token_to_piece(parent_ctx->ctx, new_token_id);
 
-        llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling, true);
-
         const int32_t n_probs = parent_ctx->params.sampling.n_probs;
+        if (n_probs > 0) {
+          llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling, true);
 
-        for (size_t i = 0; i < std::min(cur_p.size, (size_t)n_probs); ++i)
-        {
-            result.probs.push_back({cur_p.data[i].id, cur_p.data[i].p});
+          for (size_t i = 0; i < std::min(cur_p.size, (size_t)n_probs); ++i)
+          {
+              result.probs.push_back({cur_p.data[i].id, cur_p.data[i].p});
+          }
         }
 
         common_sampler_accept(ctx_sampling, result.tok, true);
