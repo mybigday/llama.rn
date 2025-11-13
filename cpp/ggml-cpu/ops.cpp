@@ -7665,6 +7665,18 @@ void lm_ggml_compute_forward_timestep_embedding(
 
 // lm_ggml_compute_forward_argsort
 
+template<enum lm_ggml_sort_order order>
+struct argsort_cmp {
+    const float * data;
+    bool operator()(int32_t a, int32_t b) const {
+        if constexpr (order == LM_GGML_SORT_ORDER_ASC) {
+            return data[a] < data[b];
+        } else {
+            return data[a] > data[b];
+        }
+    }
+};
+
 static void lm_ggml_compute_forward_argsort_f32(
     const lm_ggml_compute_params * params,
     lm_ggml_tensor * dst) {
@@ -7691,16 +7703,18 @@ static void lm_ggml_compute_forward_argsort_f32(
             dst_data[j] = j;
         }
 
-        std::function<bool(int32_t, int32_t)> cmp;
-
-        // note: this might be causing memory allocations? ideally should be avoided if it's the case
         switch (order) {
-            case LM_GGML_SORT_ORDER_ASC:  cmp = [src_data](int32_t a, int32_t b) { return src_data[a] < src_data[b]; }; break;
-            case LM_GGML_SORT_ORDER_DESC: cmp = [src_data](int32_t a, int32_t b) { return src_data[a] > src_data[b]; }; break;
-            default: LM_GGML_ABORT("invalid sort order");
-        }
+            case LM_GGML_SORT_ORDER_ASC:
+                std::sort(dst_data, dst_data + ne0, argsort_cmp<LM_GGML_SORT_ORDER_ASC>{src_data});
+                break;
 
-        std::sort(dst_data, dst_data + ne0, cmp);
+            case LM_GGML_SORT_ORDER_DESC:
+                std::sort(dst_data, dst_data + ne0, argsort_cmp<LM_GGML_SORT_ORDER_DESC>{src_data});
+                break;
+
+            default:
+                LM_GGML_ABORT("invalid sort order");
+        }
     }
 }
 
