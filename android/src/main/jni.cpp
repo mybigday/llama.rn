@@ -723,7 +723,7 @@ Java_com_rnllama_LlamaContext_initContext(
         }
     }
 
-#ifdef LM_GGML_USE_OPENCL
+#if defined(LM_GGML_USE_OPENCL) || defined(LM_GGML_USE_HEXAGON)
     const size_t backend_dev_count = lm_ggml_backend_dev_count();
     for (size_t i = 0; i < backend_dev_count; ++i) {
         lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
@@ -737,12 +737,12 @@ Java_com_rnllama_LlamaContext_initContext(
 #endif
 
     if (!gpu_used) {
-#ifdef LM_GGML_USE_OPENCL
+#if defined(LM_GGML_USE_OPENCL) || defined(LM_GGML_USE_HEXAGON)
         if (!gpu_device_available) {
-            reason_no_gpu = "No compatible OpenCL GPU detected";
+            reason_no_gpu = "No compatible OpenCL GPU or Hexagon detected";
         }
 #else
-        reason_no_gpu = "OpenCL backend not enabled in this build";
+        reason_no_gpu = "OpenCL or Hexagon backend not enabled in this build";
 #endif
         if (reason_no_gpu.empty() && explicit_gpu_requested) {
             reason_no_gpu = "GPU requested but not used";

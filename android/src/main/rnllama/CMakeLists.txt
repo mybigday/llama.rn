@@ -118,18 +118,30 @@ function(build_rnllama_library target_name arch cpu_flags)
     # Note: Hexagon requires building DSP libraries with Hexagon SDK toolchain
     # This is a complex process that needs to be done separately
     if (${target_name} MATCHES ".*_hexagon$")
-        # Only check for Hexagon SDK environment when building from source
+        # Hexagon SDK is ALWAYS required to link cdsprpc, even for prebuilt distribution
         set(HEXAGON_SDK_AVAILABLE OFF)
-        if (NOT RNLLAMA_STANDALONE_BUILD)
-            if (DEFINED ENV{HEXAGON_SDK_ROOT} AND DEFINED ENV{HEXAGON_TOOLS_ROOT})
-                set(HEXAGON_SDK_ROOT $ENV{HEXAGON_SDK_ROOT})
-                set(HEXAGON_TOOLS_ROOT $ENV{HEXAGON_TOOLS_ROOT})
+        if (DEFINED ENV{HEXAGON_SDK_ROOT} AND DEFINED ENV{HEXAGON_TOOLS_ROOT})
+            set(HEXAGON_SDK_ROOT $ENV{HEXAGON_SDK_ROOT})
+            set(HEXAGON_TOOLS_ROOT $ENV{HEXAGON_TOOLS_ROOT})
+
+            # Verify libcdsprpc.so exists
+            set(CDSPRPC_LIB "${HEXAGON_SDK_ROOT}/ipc/fastrpc/remote/ship/android_aarch64/libcdsprpc.so")
+            if (EXISTS ${CDSPRPC_LIB})
                 set(HEXAGON_SDK_AVAILABLE ON)
+                message(STATUS "Hexagon SDK verified and available")
+            else()
+                message(FATAL_ERROR
+                    "Hexagon SDK found but libcdsprpc.so is missing at ${CDSPRPC_LIB}.\n"
+                    "The SDK installation may be incomplete. Run 'npm run bootstrap' to reinstall.")
             endif()
         else()
-            # For prebuilt distribution, we don't need the SDK
-            message(STATUS "Building Hexagon target for prebuilt distribution (SDK not required)")
-            set(HEXAGON_SDK_AVAILABLE ON)
+            message(FATAL_ERROR
+                "Hexagon SDK is required to build ${target_name} but not found.\n"
+                "Solutions:\n"
+                "  1. Run 'npm run bootstrap' to install SDK\n"
+                "  2. Or set HEXAGON_INSTALL_DIR to your SDK location\n"
+                "  3. Or use Docker: ./scripts/build-android-docker.sh\n"
+                "  4. Or skip by building on macOS (automatically skipped)")
         endif()
 
         if (HEXAGON_SDK_AVAILABLE)
@@ -200,14 +212,9 @@ function(build_rnllama_library target_name arch cpu_flags)
             # Link Hexagon SDK libraries
             # These are stub libraries that communicate with the DSP
             # libcdsprpc.so contains all needed symbols: remote_handle64_*, dspqueue_*, rpcmem_*
-            set(CDSPRPC_LIB "${HEXAGON_SDK_ROOT}/ipc/fastrpc/remote/ship/android_aarch64/libcdsprpc.so")
-
-            if (EXISTS ${CDSPRPC_LIB})
-                target_link_libraries(${target_name} PRIVATE ${CDSPRPC_LIB})
-                message(STATUS "Linking Hexagon cdsprpc library: ${CDSPRPC_LIB}")
-            else()
-                message(WARNING "cdsprpc library not found: ${CDSPRPC_LIB}")
-            endif()
+            # Note: CDSPRPC_LIB is already verified to exist above
+            target_link_libraries(${target_name} PRIVATE ${CDSPRPC_LIB})
+            message(STATUS "Linking Hexagon cdsprpc library: ${CDSPRPC_LIB}")
 
             target_compile_options(${target_name} PRIVATE
                 -DLM_GGML_USE_HEXAGON
@@ -222,11 +229,11 @@ function(build_rnllama_library target_name arch cpu_flags)
             # Only show warning when building from source
             if (NOT RNLLAMA_STANDALONE_BUILD)
                 message(WARNING
-                    "Hexagon SDK environment not configured. Hexagon backend will not be built.
-                    Required environment variables:
-                      - HEXAGON_SDK_ROOT
-                      - HEXAGON_TOOLS_ROOT
-                    Run: source scripts/setup-hexagon-env.sh")
+                    "Hexagon SDK not found. Hexagon backend will not be built.
+                    Solutions:
+                      1. Run 'npm run bootstrap' to install SDK
+                      2. Or set HEXAGON_INSTALL_DIR=/path/to/sdk
+                      3. Or use Docker: ./scripts/build-android-docker.sh")
             endif()
         endif()
     endif ()
@@ -370,15 +377,7 @@ if (ANDROID_ABI AND ANDROID_ABI STREQUAL "arm64-v8a")
     build_rnllama_library("rnllama_v8_2_i8mm" "arm" "-march=armv8.2-a+i8mm")
     build_rnllama_library("rnllama_v8_2_dotprod_i8mm" "arm" "-march=armv8.2-a+dotprod+i8mm")
     build_rnllama_library("rnllama_v8_2_dotprod_i8mm_opencl" "arm" "-march=armv8.2-a+dotprod+i8mm")
-
-    # Hexagon backend is only available on Linux (Hexagon SDK requirement)
-    if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-        build_rnllama_library("rnllama_v8_2_dotprod_i8mm_hexagon" "arm" "-march=armv8.2-a+dotprod+i8mm")
-        message(STATUS "Hexagon variant enabled (building on Linux)")
-    else()
-        message(STATUS "Hexagon variant skipped (Hexagon SDK only available on Linux, current OS: ${CMAKE_HOST_SYSTEM_NAME})")
-    endif()
-
+    build_rnllama_library("rnllama_v8_5_i8mm_hexagon" "arm" "-march=armv8.5-a+fp16+i8mm")
 
 elseif (ANDROID_ABI AND ANDROID_ABI STREQUAL "x86_64")
     # x86_64 target

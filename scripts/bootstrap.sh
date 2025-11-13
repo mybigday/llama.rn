@@ -10,42 +10,93 @@ SRC_DIR="$ROOT_DIR/src"
 git submodule init "$LLAMA_DIR"
 git submodule update --recursive "$LLAMA_DIR"
 
-# Download and setup Hexagon SDK for Android builds (Linux only)
-if [ "$OS" != "Darwin" ]; then
-  HEXAGON_SDK_VERSION="6.4.0.2"
-  HEXAGON_TOOLS_VERSION="19.0.04"
-  HEXAGON_INSTALL_DIR="${HEXAGON_INSTALL_DIR:-$HOME/.hexagon-sdk}"
+# Hexagon SDK setup for Android builds
+echo ""
+echo "=========================================="
+echo "Hexagon SDK Setup"
+echo "=========================================="
+echo ""
 
-  if [ ! -d "$HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION" ]; then
-    echo "Downloading Hexagon SDK v${HEXAGON_SDK_VERSION}..."
+# Check if Docker is available and recommend it
+if command -v docker &> /dev/null && docker info &> /dev/null 2>&1; then
+  echo "✓ Docker is available!"
+  echo ""
+  echo "For Hexagon builds, we recommend using Docker for consistent builds."
+  echo "Docker provides a pre-configured environment with all dependencies."
+  echo ""
+  echo "Build commands:"
+  echo "  ./scripts/build-android-docker.sh    - Build everything with Docker"
+  echo "  ./scripts/build-hexagon-htp.sh       - Build HTP libraries (auto-detects Docker)"
+  echo ""
 
-    TEMP_DIR=$(mktemp -d)
-    cd "$TEMP_DIR"
-
-    curl -L -o hex-sdk.tar.gz \
-      "https://github.com/snapdragon-toolchain/hexagon-sdk/releases/download/v${HEXAGON_SDK_VERSION}/hexagon-sdk-v${HEXAGON_SDK_VERSION}-amd64-lnx.tar.xz"
-
-    echo "Extracting Hexagon SDK..."
-    mkdir -p "$HEXAGON_INSTALL_DIR"
-    tar -xaf hex-sdk.tar.gz -C "$HEXAGON_INSTALL_DIR"
-
-    cd "$ROOT_DIR"
-    rm -rf "$TEMP_DIR"
-
-    echo "Hexagon SDK installed to: $HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION"
-    echo ""
-    echo "To use Hexagon backend, set these environment variables:"
-    echo "  export HEXAGON_SDK_ROOT=$HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION"
-    echo "  export HEXAGON_TOOLS_ROOT=$HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION/tools/HEXAGON_Tools/$HEXAGON_TOOLS_VERSION"
-    echo "  export DEFAULT_HLOS_ARCH=64"
-    echo "  export DEFAULT_TOOLS_VARIANT=toolv19"
-    echo "  export DEFAULT_NO_QURT_INC=0"
-    echo "  export DEFAULT_DSP_ARCH=v73"
-    echo ""
+  # Pull Docker image in background
+  DOCKER_IMAGE="ghcr.io/snapdragon-toolchain/arm64-android:v0.3"
+  if ! docker image inspect "$DOCKER_IMAGE" &> /dev/null; then
+    echo "Pulling Docker image in background..."
+    echo "  Image: $DOCKER_IMAGE"
+    docker pull "$DOCKER_IMAGE" &
+    DOCKER_PULL_PID=$!
+    echo "  (Pull process running in background, PID: $DOCKER_PULL_PID)"
   else
-    echo "Hexagon SDK already installed at: $HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION"
+    echo "✓ Docker image already present: $DOCKER_IMAGE"
   fi
+  echo ""
+else
+  echo "Docker not available. You can:"
+  echo "  1. Install Docker for consistent builds (recommended)"
+  echo "  2. Install Hexagon SDK manually for native Linux builds"
+  echo ""
 fi
+
+# Download and setup Hexagon SDK (for all platforms)
+# On macOS: Needed for libcdsprpc.so linking when building Android libraries
+# On Linux: Can be used for native builds without Docker
+HEXAGON_SDK_VERSION="6.4.0.2"
+HEXAGON_TOOLS_VERSION="19.0.04"
+HEXAGON_INSTALL_DIR="${HEXAGON_INSTALL_DIR:-$HOME/.hexagon-sdk}"
+
+if [ ! -d "$HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION" ]; then
+  echo "Downloading Hexagon SDK v${HEXAGON_SDK_VERSION}..."
+  echo ""
+
+  if [ "$OS" = "Darwin" ]; then
+    echo "Note: SDK tools won't run on macOS, but libcdsprpc.so is needed for linking"
+  fi
+  echo ""
+
+  TEMP_DIR=$(mktemp -d)
+  cd "$TEMP_DIR"
+
+  curl -L -o hex-sdk.tar.gz \
+    "https://github.com/snapdragon-toolchain/hexagon-sdk/releases/download/v${HEXAGON_SDK_VERSION}/hexagon-sdk-v${HEXAGON_SDK_VERSION}-amd64-lnx.tar.xz"
+
+  echo "Extracting Hexagon SDK..."
+  mkdir -p "$HEXAGON_INSTALL_DIR"
+  tar -xaf hex-sdk.tar.gz -C "$HEXAGON_INSTALL_DIR"
+
+  cd "$ROOT_DIR"
+  rm -rf "$TEMP_DIR"
+
+  echo "Hexagon SDK installed to: $HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION"
+  echo ""
+  echo "The build scripts will automatically detect and use the SDK."
+  echo ""
+  echo "To build with Docker (recommended):"
+  echo "  ./scripts/build-android-docker.sh"
+  echo ""
+  if [ "$OS" != "Darwin" ]; then
+    echo "Or build natively on Linux:"
+    echo "  USE_DOCKER=no ./scripts/build-hexagon-htp.sh"
+    echo "  npm run build:android-libs"
+    echo ""
+  fi
+else
+  echo "✓ Hexagon SDK installed: $HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION"
+  echo ""
+fi
+
+echo "=========================================="
+echo ""
 
 # ggml api
 cp ./$LLAMA_DIR/ggml/include/ggml.h ./cpp/ggml.h

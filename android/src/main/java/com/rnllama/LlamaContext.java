@@ -16,13 +16,24 @@ import java.lang.StringBuilder;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.regex.Pattern;
 
 public class LlamaContext {
   public static final String NAME = "RNLlamaContext";
 
   private static String loadedLibrary = "";
+  private static final int HTP_DIR_MODE = 0755;  // rwx for owner, rx for group/others
+  private static final int HTP_FILE_MODE = 0755;
+  private static final String HTP_DIR_NAME = "rnllama-htp";
+  private static final String[] HTP_LIBS = {
+    "libggml-htp-v73.so",
+    "libggml-htp-v75.so",
+    "libggml-htp-v79.so",
+    "libggml-htp-v81.so"
+  };
 
   private static class NativeLogCallback {
     DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
@@ -532,7 +543,149 @@ public class LlamaContext {
     freeContext(context);
   }
 
+  private static boolean prepareHtpDirectory(java.io.File dir, String label) {
+    if (dir == null) {
+      return false;
+    }
+    try {
+      if (dir.exists()) {
+        if (!dir.isDirectory()) {
+          Log.w(NAME, label + " exists but is not a directory: " + dir.getAbsolutePath());
+          return false;
+        }
+      } else {
+        if (!dir.mkdirs()) {
+          Log.w(NAME, "Unable to create " + label + " at " + dir.getAbsolutePath());
+          return false;
+        }
+        java.io.File sanity = java.io.File.createTempFile("htp", ".tmp", dir);
+        sanity.delete();
+      }
+    } catch (Exception e) {
+      Log.w(NAME, "Unable to prepare " + label + " at " + dir.getAbsolutePath(), e);
+      return false;
+    }
+
+    dir.setReadable(true, false);
+    dir.setExecutable(true, false);
+    dir.setWritable(true, true);
+
+    try {
+      android.system.Os.chmod(dir.getAbsolutePath(), HTP_DIR_MODE);
+    } catch (Exception e) {
+      Log.w(NAME, "Failed to chmod HTP directory " + dir.getAbsolutePath(), e);
+    }
+
+    return true;
+  }
+
+  private static java.io.File getPrivateHtpDir(android.content.Context context) {
+    try {
+      return context.getDir(HTP_DIR_NAME, android.content.Context.MODE_PRIVATE);
+    } catch (Exception e) {
+      Log.w(NAME, "Unable to access private HTP directory", e);
+      return null;
+    }
+  }
+
+  private static java.io.File resolveHtpDirectory(android.content.Context context) {
+    java.io.File[] candidates = new java.io.File[] {
+      getPrivateHtpDir(context),
+      new java.io.File(context.getFilesDir(), HTP_DIR_NAME),
+      context.getCodeCacheDir() != null ? new java.io.File(context.getCodeCacheDir(), HTP_DIR_NAME) : null,
+      context.getCacheDir() != null ? new java.io.File(context.getCacheDir(), HTP_DIR_NAME) : null,
+      context.getExternalFilesDir(null) != null ? new java.io.File(context.getExternalFilesDir(null), HTP_DIR_NAME) : null
+    };
+
+    for (java.io.File candidate : candidates) {
+      if (candidate == null) continue;
+      if (prepareHtpDirectory(candidate, "HTP directory candidate")) {
+        return candidate;
+      }
+    }
+
+    Log.w(NAME, "Unable to provision directory for Hexagon libraries; Hexagon backend will be disabled");
+    return null;
+  }
+
+  private static void setHtpFilePermissions(java.io.File file) {
+    file.setReadable(true, false);
+    file.setExecutable(true, false);
+    try {
+      android.system.Os.chmod(file.getAbsolutePath(), HTP_FILE_MODE);
+    } catch (Exception e) {
+      Log.w(NAME, "Failed to chmod HTP library " + file.getAbsolutePath(), e);
+    }
+  }
+
+  private static boolean ensureHtpLibraries(android.content.Context context, java.io.File htpDir) {
+    for (String libName : HTP_LIBS) {
+      java.io.File outFile = new java.io.File(htpDir, libName);
+
+      if (outFile.exists()) {
+        continue;
+      }
+
+      try {
+        try (InputStream in = context.getAssets().open("hexagon/" + libName);
+             FileOutputStream out = new FileOutputStream(outFile)) {
+          byte[] buffer = new byte[8192];
+          int read;
+          while ((read = in.read(buffer)) != -1) {
+            out.write(buffer, 0, read);
+          }
+          out.flush();
+        }
+
+        setHtpFilePermissions(outFile);
+        Log.d(NAME, "Installed HTP library: " + libName + " to " + outFile.getAbsolutePath());
+      } catch (Exception e) {
+        Log.w(NAME, "Could not install " + libName + " from assets", e);
+        outFile.delete();
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private static void extractHtpLibrariesFromAssets(android.content.Context context) {
+    java.io.File htpDir = resolveHtpDirectory(context);
+    if (htpDir == null) {
+      return;
+    }
+
+    Log.d(NAME, "Using " + htpDir.getAbsolutePath() + " for HTP libraries");
+
+    if (!ensureHtpLibraries(context, htpDir)) {
+      Log.w(NAME, "Could not install Hexagon libraries; Hexagon backend will be disabled");
+      return;
+    }
+
+    try {
+      String htpLibPath = htpDir.getAbsolutePath();
+      android.system.Os.setenv("ADSP_LIBRARY_PATH", htpLibPath, true);
+      Log.d(NAME, "Set ADSP_LIBRARY_PATH=" + htpLibPath);
+    } catch (Exception e) {
+      Log.w(NAME, "Failed to set ADSP_LIBRARY_PATH", e);
+    }
+  }
+
   static {
+    // Extract HTP libraries from assets before loading native library
+    try {
+      Class<?> activityThread = Class.forName("android.app.ActivityThread");
+      Object currentActivityThread = activityThread.getMethod("currentActivityThread").invoke(null);
+      Object app = activityThread.getMethod("getApplication").invoke(currentActivityThread);
+      android.content.Context appContext = (android.content.Context) app;
+
+      if (appContext != null) {
+        extractHtpLibrariesFromAssets(appContext);
+      }
+    } catch (Exception e) {
+      Log.w(NAME, "Failed to extract HTP libraries", e);
+    }
+
     Log.d(NAME, "Primary ABI: " + Build.SUPPORTED_ABIS[0]);
 
     String cpuFeatures = LlamaContext.getCpuFeatures();
@@ -552,16 +705,17 @@ public class LlamaContext {
 
     // Detect GPU (Adreno check)
     String hwInfo = (Build.HARDWARE + " " + Build.MANUFACTURER + " " + Build.MODEL).toLowerCase();
+    Log.d(NAME, "- hwInfo: " + hwInfo);
     boolean hasAdreno = Pattern.compile("(adreno|qcom|qualcomm)").matcher(hwInfo).find();
-    boolean hasHexagon = Pattern.compile("(hexagon|qcom|qualcomm)").matcher(hwInfo).find();
+    boolean hasHexagon = Pattern.compile("(hexagon|qcom|qualcomm)").matcher(hwInfo).find(); // TODO: Correct detection for Hexagon
     Log.d(NAME, "- hasAdreno: " + hasAdreno);
     Log.d(NAME, "- hasHexagon: " + hasHexagon);
 
     if (LlamaContext.isArm64V8a()) {
       if (hasHexagon) {
-        Log.d(NAME, "Loading librnllama_jni_v8_2_dotprod_i8mm_hexagon.so");
-        System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm_hexagon");
-        loadedLibrary = "rnllama_jni_v8_2_dotprod_i8mm_hexagon";
+        Log.d(NAME, "Loading librnllama_jni_v8_5_i8mm_hexagon.so");
+        System.loadLibrary("rnllama_jni_v8_5_i8mm_hexagon");
+        loadedLibrary = "rnllama_jni_v8_5_i8mm_hexagon";
       } else if (hasDotProd && hasI8mm && hasAdreno) {
         Log.d(NAME, "Loading librnllama_jni_v8_2_dotprod_i8mm_opencl.so");
         System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm_opencl");
