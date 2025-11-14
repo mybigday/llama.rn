@@ -475,6 +475,7 @@ extern "C" {
         LM_GGML_OP_COS,
         LM_GGML_OP_SUM,
         LM_GGML_OP_SUM_ROWS,
+        LM_GGML_OP_CUMSUM,
         LM_GGML_OP_MEAN,
         LM_GGML_OP_ARGMAX,
         LM_GGML_OP_COUNT_EQUAL,
@@ -530,6 +531,8 @@ extern "C" {
         LM_GGML_OP_TIMESTEP_EMBEDDING,
         LM_GGML_OP_ARGSORT,
         LM_GGML_OP_LEAKY_RELU,
+        LM_GGML_OP_TRI,
+        LM_GGML_OP_FILL,
 
         LM_GGML_OP_FLASH_ATTN_EXT,
         LM_GGML_OP_FLASH_ATTN_BACK,
@@ -542,6 +545,7 @@ extern "C" {
         LM_GGML_OP_RWKV_WKV6,
         LM_GGML_OP_GATED_LINEAR_ATTN,
         LM_GGML_OP_RWKV_WKV7,
+        LM_GGML_OP_SOLVE_TRI,
 
         LM_GGML_OP_UNARY,
 
@@ -576,6 +580,8 @@ extern "C" {
         LM_GGML_UNARY_OP_HARDSWISH,
         LM_GGML_UNARY_OP_HARDSIGMOID,
         LM_GGML_UNARY_OP_EXP,
+        LM_GGML_UNARY_OP_EXPM1,
+        LM_GGML_UNARY_OP_SOFTPLUS,
         LM_GGML_UNARY_OP_GELU_ERF,
         LM_GGML_UNARY_OP_XIELU,
         LM_GGML_UNARY_OP_FLOOR,
@@ -618,6 +624,13 @@ extern "C" {
         LM_GGML_TENSOR_FLAG_OUTPUT =  2, // ...is an output for the GGML compute graph
         LM_GGML_TENSOR_FLAG_PARAM  =  4, // ...contains trainable parameters
         LM_GGML_TENSOR_FLAG_LOSS   =  8, // ...defines loss for numerical optimization (multiple loss tensors add up)
+    };
+
+    enum lm_ggml_tri_type {
+        LM_GGML_TRI_TYPE_UPPER_DIAG = 0,
+        LM_GGML_TRI_TYPE_UPPER      = 1,
+        LM_GGML_TRI_TYPE_LOWER_DIAG = 2,
+        LM_GGML_TRI_TYPE_LOWER      = 3
     };
 
     struct lm_ggml_init_params {
@@ -957,6 +970,22 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
 
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_expm1(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_expm1_inplace(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_softplus(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_softplus_inplace(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a);
+
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_sin(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
@@ -982,6 +1011,10 @@ extern "C" {
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_sum_rows(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_cumsum(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a);
 
     // mean along rows
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_mean(
@@ -2187,6 +2220,23 @@ extern "C" {
             int                   shift2,
             int                   shift3);
 
+    // Convert matrix into a triangular one (upper, strict upper, lower or strict lower) by writing
+    // zeroes everywhere outside the masked area
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_tri(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            enum lm_ggml_tri_type    type);
+
+    // Fill tensor a with constant c
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_fill(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            float                 c);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_fill_inplace(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            float                 c);
 
     // Ref: https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/diffusionmodules/util.py#L151
     // timesteps: [N,]
@@ -2355,6 +2405,27 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * b,
             struct lm_ggml_tensor  * state);
+
+    /* Solves a specific equation of the form Ax=B, where A is a triangular matrix
+    *  without zeroes on the diagonal (i.e. invertible).
+    *  B can have any number of columns, but must have the same number of rows as A
+    *  If A is [n, n] and B is [n, m], then the result will be [n, m] as well
+    *  Has O(n^3) complexity (unlike most matrix ops out there), so use on cases
+    *  where n > 100 sparingly, pre-chunk if necessary.
+    *
+    *  If left = false, solves xA=B instead
+    *  If lower = false, assumes upper triangular instead
+    *  If uni = true, assumes diagonal of A to be all ones (will override actual values)
+    *
+    *  TODO: currently only lower, right, non-unitriangular variant is implemented
+    */
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_solve_tri(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        bool                  left,
+        bool                  lower,
+        bool                  uni);
 
     // custom operators
 
