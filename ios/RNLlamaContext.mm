@@ -321,7 +321,7 @@
     context->is_metal_enabled = isMetalEnabled;
     context->reason_no_metal = reasonNoMetal;
     context->gpu_device_name = gpuDeviceName ?: @"";
-    context->system_info = common_params_get_system_info(params);
+    context->system_info = [NSString stringWithUTF8String:common_params_get_system_info(defaultParams).c_str()];
 
     return context;
 }
