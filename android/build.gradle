@@ -23,6 +23,7 @@ def htpLibSourceDir = new File(repoRootDir, "bin/arm64-v8a")
 if (appProject != null) {
   def configureHtpSyncTask = { Project applicationProject ->
     def assetsRootDir = new File(applicationProject.projectDir, "src/main/assets")
+    def ggmlHexagonDir = new File(assetsRootDir, "ggml-hexagon")
 
     def syncTask = applicationProject.tasks.register("syncRNLlamaHtpAssets", Copy) {
       group = "llama.rn"
@@ -40,7 +41,7 @@ if (appProject != null) {
         if (!assetsRootDir.exists()) {
           assetsRootDir.mkdirs()
         }
-        [new File(assetsRootDir, "hexagon")].each { dir ->
+        [assetsRootDir, ggmlHexagonDir].each { dir ->
           if (!dir.exists()) {
             dir.mkdirs()
             return
@@ -56,7 +57,7 @@ if (appProject != null) {
       into(assetsRootDir)
       from(htpLibSourceDir) {
         include "libggml-htp-*.so"
-        into "hexagon"
+        into "ggml-hexagon"
       }
     }
 

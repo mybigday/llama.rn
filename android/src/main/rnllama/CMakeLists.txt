@@ -157,7 +157,7 @@ function(build_rnllama_library target_name arch cpu_flags)
         if (HEXAGON_SDK_AVAILABLE)
 
             # Check if we have pre-built HTP libraries or should build
-            set(HEXAGON_PREBUILT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../hexagon-prebuilt")
+            set(HEXAGON_PREBUILT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../bin/arm64-v8a")
 
             if (EXISTS "${HEXAGON_PREBUILT_DIR}/libggml-htp-v73.so")
                 # Use pre-built HTP libraries

@@ -176,5 +176,3 @@ echo "HTP libraries built and installed to: $HTP_OUTPUT_DIR"
 echo ""
 ls -lh "$HTP_OUTPUT_DIR"/libggml-htp-*.so 2>/dev/null || echo "Warning: Some libraries may not have been built"
 echo ""
-
-rm -rf $HTP_BUILD_DIR
