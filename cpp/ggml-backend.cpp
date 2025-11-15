@@ -1698,8 +1698,6 @@ bool lm_ggml_backend_sched_reserve(lm_ggml_backend_sched_t sched, struct lm_ggml
     LM_GGML_ASSERT(sched);
     LM_GGML_ASSERT((int)sched->hash_set.size >= measure_graph->n_nodes + measure_graph->n_leafs);
 
-    lm_ggml_backend_sched_reset(sched);
-
     lm_ggml_backend_sched_synchronize(sched);
 
     lm_ggml_backend_sched_split_graph(sched, measure_graph);

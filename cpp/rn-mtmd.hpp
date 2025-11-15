@@ -544,7 +544,6 @@ inline llama_rn_context_mtmd::llama_rn_context_mtmd(
     mtmd_params.use_gpu = use_gpu;
     mtmd_params.print_timings = false;
     mtmd_params.n_threads = params.cpuparams.n_threads;
-    mtmd_params.verbosity = (lm_ggml_log_level)LM_GGML_LOG_LEVEL_INFO;
 
     LOG_INFO("[DEBUG] Initializing mtmd context with threads=%d", mtmd_params.n_threads);
 
