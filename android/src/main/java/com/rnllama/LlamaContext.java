@@ -722,9 +722,9 @@ public class LlamaContext {
 
     if (LlamaContext.isArm64V8a()) {
       if (hasHexagon) {
-        Log.d(NAME, "Loading librnllama_jni_v8_7_hexagon_opencl.so");
-        System.loadLibrary("rnllama_jni_v8_7_hexagon_opencl");
-        loadedLibrary = "rnllama_jni_v8_7_hexagon_opencl";
+        Log.d(NAME, "Loading librnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl.so");
+        System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl");
+        loadedLibrary = "rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl";
       } else if (hasDotProd && hasI8mm) {
         Log.d(NAME, "Loading librnllama_jni_v8_2_dotprod_i8mm.so");
         System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm");
