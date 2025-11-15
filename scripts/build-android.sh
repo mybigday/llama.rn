@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
 # Build configuration
-NDK_VERSION=28.0.13004108  # NDK r28b
+NDK_VERSION=27.3.13750724
 ANDROID_PLATFORM=android-21
 CMAKE_BUILD_TYPE=Release
 
