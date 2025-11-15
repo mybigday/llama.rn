@@ -91,6 +91,7 @@ RCT_EXPORT_METHOD(initContext:(double)contextId
           @"gpu": @([context isMetalEnabled]),
           @"reasonNoGPU": [context reasonNoMetal],
           @"model": [context modelInfo],
+          @"systemInfo": [context systemInfo],
       } mutableCopy];
       NSString *gpuDevice = [context gpuDeviceName];
       if (gpuDevice != nil && [gpuDevice length] > 0) {

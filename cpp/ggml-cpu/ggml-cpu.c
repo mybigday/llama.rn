@@ -1731,6 +1731,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_sum_rows(params, tensor);
             } break;
+        case LM_GGML_OP_CUMSUM:
+            {
+                lm_ggml_compute_forward_cumsum(params, tensor);
+            } break;
         case LM_GGML_OP_MEAN:
             {
                 lm_ggml_compute_forward_mean(params, tensor);
@@ -1927,6 +1931,14 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_leaky_relu(params, tensor);
             } break;
+        case LM_GGML_OP_TRI:
+            {
+                lm_ggml_compute_forward_tri(params, tensor);
+            } break;
+        case LM_GGML_OP_FILL:
+            {
+                lm_ggml_compute_forward_fill(params, tensor);
+            } break;
         case LM_GGML_OP_FLASH_ATTN_EXT:
             {
                 lm_ggml_compute_forward_flash_attn_ext(params, tensor);
@@ -1981,6 +1993,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
         case LM_GGML_OP_RWKV_WKV7:
             {
                 lm_ggml_compute_forward_rwkv_wkv7(params, tensor);
+            } break;
+        case LM_GGML_OP_SOLVE_TRI:
+            {
+                lm_ggml_compute_forward_solve_tri(params, tensor);
             } break;
         case LM_GGML_OP_MAP_CUSTOM1:
             {
@@ -2140,6 +2156,9 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
         case LM_GGML_OP_ADD_ID:
         case LM_GGML_OP_ADD1:
         case LM_GGML_OP_ACC:
+        case LM_GGML_OP_CUMSUM:
+        case LM_GGML_OP_TRI:
+        case LM_GGML_OP_FILL:
             {
                 n_tasks = n_threads;
             } break;
@@ -2157,6 +2176,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
                 n_tasks = 1;
             } break;
         case LM_GGML_OP_COUNT_EQUAL:
+        case LM_GGML_OP_SOLVE_TRI:
             {
                 n_tasks = n_threads;
             } break;
@@ -2179,6 +2199,8 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
                 case LM_GGML_UNARY_OP_HARDSWISH:
                 case LM_GGML_UNARY_OP_HARDSIGMOID:
                 case LM_GGML_UNARY_OP_EXP:
+                case LM_GGML_UNARY_OP_SOFTPLUS:
+                case LM_GGML_UNARY_OP_EXPM1:
                 case LM_GGML_UNARY_OP_FLOOR:
                 case LM_GGML_UNARY_OP_CEIL:
                 case LM_GGML_UNARY_OP_ROUND:

@@ -70,6 +70,7 @@ public class LlamaContext {
   private boolean gpuEnabled;
   private String reasonNoGPU = "";
   private String gpuDevice = "";
+  private String systemInfo = "";
 
   public LlamaContext(int id, ReactApplicationContext reactContext, ReadableMap params) {
     if (LlamaContext.isArchNotSupported()) {
@@ -115,6 +116,10 @@ public class LlamaContext {
     if (this.gpuDevice == null) {
       this.gpuDevice = "";
     }
+    this.systemInfo = initResult.hasKey("systemInfo") ? initResult.getString("systemInfo") : "";
+    if (this.systemInfo == null) {
+      this.systemInfo = "";
+    }
 
     this.modelDetails = loadModelDetails(this.context);
     this.reactContext = reactContext;
@@ -146,6 +151,10 @@ public class LlamaContext {
 
   public String getGpuDevice() {
     return gpuDevice;
+  }
+
+  public String getSystemInfo() {
+    return systemInfo;
   }
 
   public WritableMap getFormattedChatWithJinja(String messages, String chatTemplate, ReadableMap params) {

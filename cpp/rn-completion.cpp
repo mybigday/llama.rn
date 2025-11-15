@@ -319,7 +319,6 @@ completion_token_output llama_rn_context_completion::nextToken()
         const int32_t n_probs = parent_ctx->params.sampling.n_probs;
         if (n_probs > 0) {
           llama_token_data_array cur_p = *common_sampler_get_candidates(ctx_sampling, true);
-
           for (size_t i = 0; i < std::min(cur_p.size, (size_t)n_probs); ++i)
           {
               result.probs.push_back({cur_p.data[i].id, cur_p.data[i].p});

@@ -943,6 +943,34 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_argsort(lm_ggml_meta
     return res;
 }
 
+lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_argsort_merge(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op) {
+    assert(op->op == LM_GGML_OP_ARGSORT);
+
+    char base[256];
+    char name[256];
+
+    lm_ggml_sort_order order = (lm_ggml_sort_order) op->op_params[0];
+
+    const char * order_str = "undefined";
+    switch (order) {
+        case LM_GGML_SORT_ORDER_ASC:  order_str = "asc";  break;
+        case LM_GGML_SORT_ORDER_DESC: order_str = "desc"; break;
+        default: LM_GGML_ABORT("fatal error");
+    };
+
+    snprintf(base, 256, "kernel_argsort_merge_%s_%s_%s", lm_ggml_type_name(op->src[0]->type), lm_ggml_type_name(op->type), order_str);
+    snprintf(name, 256, "%s", base);
+
+    lm_ggml_metal_pipeline_t res = lm_ggml_metal_library_get_pipeline(lib, name);
+    if (res) {
+        return res;
+    }
+
+    res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+
+    return res;
+}
+
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline_flash_attn_ext_pad(
         lm_ggml_metal_library_t lib,
         const struct lm_ggml_tensor * op,

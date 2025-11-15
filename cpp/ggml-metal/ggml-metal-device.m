@@ -908,8 +908,6 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
         case LM_GGML_OP_LEAKY_RELU:
             return op->src[0]->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_ARGSORT:
-            // TODO: Support arbitrary column width
-            return op->src[0]->ne[0] <= 1024;
         case LM_GGML_OP_ARANGE:
             return true;
         case LM_GGML_OP_FLASH_ATTN_EXT:

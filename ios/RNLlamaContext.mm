@@ -321,6 +321,7 @@
     context->is_metal_enabled = isMetalEnabled;
     context->reason_no_metal = reasonNoMetal;
     context->gpu_device_name = gpuDeviceName ?: @"";
+    context->system_info = common_params_get_system_info(params);
 
     return context;
 }
@@ -401,6 +402,10 @@
         // deprecated
         @"isChatTemplateSupported": @(llama->validateModelChatTemplate(false, nullptr))
     };
+}
+
+- (NSString *)systemInfo {
+    return system_info;
 }
 
 - (bool)isModelLoaded {

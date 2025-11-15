@@ -1975,7 +1975,9 @@ size_t lm_ggml_metal_op_flash_attn_ext_extra_pad(const lm_ggml_tensor * op) {
     const bool has_mask = op->src[3] != nullptr;
 
     if (lm_ggml_metal_op_flash_attn_ext_use_vec(op)) {
-        const bool has_kvpad = ne11 % OP_FLASH_ATTN_EXT_VEC_NCPSG != 0;
+        // note: always reserve the padding space to avoid graph reallocations
+        //const bool has_kvpad = ne11 % OP_FLASH_ATTN_EXT_VEC_NCPSG != 0;
+        const bool has_kvpad = true;
 
         if (has_kvpad) {
             res += OP_FLASH_ATTN_EXT_VEC_NCPSG*(
@@ -1984,7 +1986,8 @@ size_t lm_ggml_metal_op_flash_attn_ext_extra_pad(const lm_ggml_tensor * op) {
                 (has_mask ? lm_ggml_type_size(LM_GGML_TYPE_F16)*ne31*ne32*ne33 : 0));
         }
     } else {
-        const bool has_kvpad = ne11 % OP_FLASH_ATTN_EXT_NCPSG != 0;
+        //const bool has_kvpad = ne11 % OP_FLASH_ATTN_EXT_NCPSG != 0;
+        const bool has_kvpad = true;
 
         if (has_kvpad) {
             res += OP_FLASH_ATTN_EXT_NCPSG*(
@@ -2020,9 +2023,10 @@ size_t lm_ggml_metal_op_flash_attn_ext_extra_blk(const lm_ggml_tensor * op) {
     const bool is_vec = lm_ggml_metal_op_flash_attn_ext_use_vec(op);
 
     // this optimization is not useful for the vector kernels
-    if (is_vec) {
-        return res;
-    }
+    // note: always reserve the blk buffer to avoid graph reallocations
+    //if (is_vec) {
+    //    return res;
+    //}
 
     const int nqptg = is_vec ? OP_FLASH_ATTN_EXT_VEC_NQPTG : OP_FLASH_ATTN_EXT_NQPTG;
     const int ncpsg = is_vec ? OP_FLASH_ATTN_EXT_VEC_NCPSG : OP_FLASH_ATTN_EXT_NCPSG;
@@ -2049,13 +2053,16 @@ size_t lm_ggml_metal_op_flash_attn_ext_extra_tmp(const lm_ggml_tensor * op) {
 
     size_t res = 0;
 
-    if (lm_ggml_metal_op_flash_attn_ext_use_vec(op)) {
+    // note: always reserve the temp buffer to avoid graph reallocations
+    //if (lm_ggml_metal_op_flash_attn_ext_use_vec(op)) {
+    if (true) {
         const int64_t nwg = 32;
+        const int64_t ne01_max = std::min(ne01, 32);
 
         // temp buffer for writing the results from each workgroup
         // - ne20: the size of the Value head
         // -  + 2: the S and M values for each intermediate result
-        res += lm_ggml_type_size(LM_GGML_TYPE_F32)*(ne01*ne02*ne03*nwg*(ne20 + 2));
+        res += lm_ggml_type_size(LM_GGML_TYPE_F32)*(ne01_max*ne02*ne03*nwg*(ne20 + 2));
     }
 
     return res;
@@ -3523,38 +3530,95 @@ int lm_ggml_metal_op_argsort(lm_ggml_metal_op_t ctx, int idx) {
     lm_ggml_metal_library_t lib = ctx->lib;
     lm_ggml_metal_encoder_t enc = ctx->enc;
 
+    LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(op->src[0]));
+
     LM_GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
     LM_GGML_TENSOR_LOCALS(uint64_t, nb0, op->src[0], nb);
     LM_GGML_TENSOR_LOCALS( int32_t, ne,  op,         ne);
     LM_GGML_TENSOR_LOCALS(uint32_t, nb,  op,         nb);
 
-    // bitonic sort requires the number of elements to be power of 2
-    int64_t ne00_padded = 1;
-    while (ne00_padded < ne00) {
-        ne00_padded *= 2;
-    }
-
     lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_argsort(lib, op);
 
-    const int64_t nrows = lm_ggml_nrows(op->src[0]);
+    // bitonic sort requires the number of elements to be power of 2
+    int nth = 1;
+    while (nth < ne00 && 2*nth <= lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline)) {
+        nth *= 2;
+    }
+
+    const int nptg = (ne00 + nth - 1)/nth;
 
     // Metal kernels require the buffer size to be multiple of 16 bytes
     // https://developer.apple.com/documentation/metal/mtlcomputecommandencoder/1443142-setthreadgroupmemorylength
-    const size_t smem = LM_GGML_PAD(ne00_padded*sizeof(int32_t), 16);
+    const size_t smem = LM_GGML_PAD(nth*sizeof(int32_t), 16);
+
+    lm_ggml_metal_buffer_id bid_src0 = lm_ggml_metal_get_buffer_id(op->src[0]);
+    lm_ggml_metal_buffer_id bid_dst  = lm_ggml_metal_get_buffer_id(op);
+
+    lm_ggml_metal_buffer_id bid_tmp = bid_dst;
+    bid_tmp.offs += lm_ggml_nbytes(op);
+
+    if ((int) ceil(std::log(nptg) / std::log(2)) % 2 == 1) {
+        std::swap(bid_dst, bid_tmp);
+    }
 
     lm_ggml_metal_kargs_argsort args = {
-        /*.ncols =*/ ne00,
-        /*.ncols_pad =*/ ne00_padded
+        /*.ne00 =*/ ne00,
+        /*.ne01 =*/ ne01,
+        /*.ne02 =*/ ne02,
+        /*.ne03 =*/ ne03,
+        /*.nb00 =*/ nb00,
+        /*.nb01 =*/ nb01,
+        /*.nb02 =*/ nb02,
+        /*.nb03 =*/ nb03,
     };
 
     lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
     lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
-    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[0]), 1);
-    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op),         2);
+    lm_ggml_metal_encoder_set_buffer  (enc, bid_src0, 1);
+    lm_ggml_metal_encoder_set_buffer  (enc, bid_dst,  2);
 
     lm_ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
 
-    lm_ggml_metal_encoder_dispatch_threadgroups(enc, 1, nrows, 1, ne00_padded, 1, 1);
+    lm_ggml_metal_encoder_dispatch_threadgroups(enc, nptg*ne01, ne02, ne03, nth, 1, 1);
+
+    lm_ggml_metal_pipeline_t pipeline_merge = lm_ggml_metal_library_get_pipeline_argsort_merge(lib, op);
+
+    int len = nth;
+
+    while (len < ne00) {
+        lm_ggml_metal_op_concurrency_reset(ctx);
+
+        lm_ggml_metal_kargs_argsort_merge args_merge = {
+            .ne00 = ne00,
+            .ne01 = ne01,
+            .ne02 = ne02,
+            .ne03 = ne03,
+            .nb00 = nb00,
+            .nb01 = nb01,
+            .nb02 = nb02,
+            .nb03 = nb03,
+            .len  = len,
+        };
+
+        // merges per row
+        const int nm = (ne00 + 2*len - 1) / (2*len);
+
+        const int nth = std::min(512, lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline_merge));
+
+        lm_ggml_metal_encoder_set_pipeline(enc, pipeline_merge);
+        lm_ggml_metal_encoder_set_bytes   (enc, &args_merge, sizeof(args_merge), 0);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_src0, 1);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_dst,  2);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_tmp,  3);
+
+        lm_ggml_metal_encoder_set_threadgroup_memory_size(enc, 0, 0);
+
+        lm_ggml_metal_encoder_dispatch_threadgroups(enc, nm*ne01, ne02, ne03, nth, 1, 1);
+
+        std::swap(bid_dst, bid_tmp);
+
+        len <<= 1;
+    }
 
     return 1;
 }
