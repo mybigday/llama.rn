@@ -41,16 +41,14 @@ if (appProject != null) {
         if (!assetsRootDir.exists()) {
           assetsRootDir.mkdirs()
         }
-        [assetsRootDir, ggmlHexagonDir].each { dir ->
-          if (!dir.exists()) {
-            dir.mkdirs()
-            return
-          }
-          dir.listFiles { File file, String name ->
-            name.startsWith("libggml-htp-") && name.endsWith(".so")
-          }?.each { File lib ->
-            lib.delete()
-          }
+        if (!ggmlHexagonDir.exists()) {
+          ggmlHexagonDir.mkdirs()
+          return
+        }
+        ggmlHexagonDir.listFiles { File file, String name ->
+          name.startsWith("libggml-htp-") && name.endsWith(".so")
+        }?.each { File lib ->
+          lib.delete()
         }
       }
 

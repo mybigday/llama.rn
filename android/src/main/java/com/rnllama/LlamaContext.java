@@ -636,7 +636,7 @@ public class LlamaContext {
       }
 
       try {
-        try (InputStream in = context.getAssets().open("hexagon/" + libName);
+        try (InputStream in = context.getAssets().open("ggml-hexagon/" + libName);
              FileOutputStream out = new FileOutputStream(outFile)) {
           byte[] buffer = new byte[8192];
           int read;
