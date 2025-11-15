@@ -17,6 +17,62 @@ apply plugin: "com.android.library"
 
 
 def appProject = rootProject.allprojects.find { it.plugins.hasPlugin('com.android.application') }
+def repoRootDir = project.projectDir.parentFile
+def htpLibSourceDir = new File(repoRootDir, "bin/arm64-v8a")
+
+if (appProject != null) {
+  def configureHtpSyncTask = { Project applicationProject ->
+    def assetsRootDir = new File(applicationProject.projectDir, "src/main/assets")
+
+    def syncTask = applicationProject.tasks.register("syncRNLlamaHtpAssets", Copy) {
+      group = "llama.rn"
+      description = "Copies llama.rn Hexagon HTP libraries into the host application's assets directory."
+
+      onlyIf {
+        if (!htpLibSourceDir.exists()) {
+          logger.info("llama.rn: No HTP libraries found at ${htpLibSourceDir.absolutePath}, skipping asset sync")
+          return false
+        }
+        true
+      }
+
+      doFirst {
+        if (!assetsRootDir.exists()) {
+          assetsRootDir.mkdirs()
+        }
+        [new File(assetsRootDir, "hexagon")].each { dir ->
+          if (!dir.exists()) {
+            dir.mkdirs()
+            return
+          }
+          dir.listFiles { File file, String name ->
+            name.startsWith("libggml-htp-") && name.endsWith(".so")
+          }?.each { File lib ->
+            lib.delete()
+          }
+        }
+      }
+
+      into(assetsRootDir)
+      from(htpLibSourceDir) {
+        include "libggml-htp-*.so"
+        into "hexagon"
+      }
+    }
+
+    applicationProject.tasks.matching { it.name == "preBuild" }.configureEach {
+      dependsOn(syncTask)
+    }
+  }
+
+  if (appProject.state.executed) {
+    configureHtpSyncTask(appProject)
+  } else {
+    appProject.afterEvaluate {
+      configureHtpSyncTask(appProject)
+    }
+  }
+}
 
 if (isNewArchitectureEnabled()) {
   apply plugin: "com.facebook.react"

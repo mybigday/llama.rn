@@ -177,35 +177,4 @@ echo ""
 ls -lh "$HTP_OUTPUT_DIR"/libggml-htp-*.so 2>/dev/null || echo "Warning: Some libraries may not have been built"
 echo ""
 
-# Copy HTP libraries to Android jniLibs directories
-echo "Copying HTP libraries to Android jniLibs directories..."
-echo ""
-
-# Destinations
-EXAMPLE_ASSETS="${ROOT_DIR}/example/android/app/src/main/assets"
-
-# Create directories if they don't exist
-mkdir -p "$EXAMPLE_ASSETS"
-
-# Copy to example app jniLibs
-echo ""
-echo "→ Copying to example app: $EXAMPLE_ASSETS"
-for lib in "$HTP_OUTPUT_DIR"/libggml-htp-*.so; do
-    if [ -f "$lib" ]; then
-        cp "$lib" "$EXAMPLE_ASSETS/"
-        echo "  ✓ $(basename "$lib")"
-    fi
-done
-
 rm -rf $HTP_BUILD_DIR
-
-echo ""
-echo "=========================================="
-echo "HTP Libraries Installed Successfully!"
-echo "=========================================="
-echo "Libraries are now available in:"
-echo "  • Example app:     $EXAMPLE_ASSETS"
-echo ""
-echo "The Hexagon backend will automatically detect and load"
-echo "the appropriate library at runtime based on device DSP version."
-echo ""
