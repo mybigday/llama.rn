@@ -37,7 +37,7 @@ fi
 
 HTP_SOURCE_DIR="${ROOT_DIR}/cpp/ggml-hexagon/htp"
 HTP_BUILD_DIR="${ROOT_DIR}/build-hexagon-htp"
-HTP_OUTPUT_DIR="${ROOT_DIR}/hexagon-prebuilt"
+HTP_OUTPUT_DIR="${ROOT_DIR}/bin/arm64-v8a"
 
 # Hexagon SDK configuration
 HEXAGON_SDK_VERSION="6.4.0.2"
@@ -182,39 +182,29 @@ echo "Copying HTP libraries to Android jniLibs directories..."
 echo ""
 
 # Destinations
-LIBRARY_JNILIBS="${ROOT_DIR}/android/src/main/jniLibs/arm64-v8a"
-EXAMPLE_JNILIBS="${ROOT_DIR}/example/android/app/src/main/jniLibs/arm64-v8a"
+EXAMPLE_ASSETS="${ROOT_DIR}/example/android/app/src/main/assets"
 
 # Create directories if they don't exist
-mkdir -p "$LIBRARY_JNILIBS"
-mkdir -p "$EXAMPLE_JNILIBS"
-
-# Copy to library jniLibs
-echo "→ Copying to library package: $LIBRARY_JNILIBS"
-for lib in "$HTP_OUTPUT_DIR"/libggml-htp-*.so; do
-    if [ -f "$lib" ]; then
-        cp "$lib" "$LIBRARY_JNILIBS/"
-        echo "  ✓ $(basename "$lib")"
-    fi
-done
+mkdir -p "$EXAMPLE_ASSETS"
 
 # Copy to example app jniLibs
 echo ""
-echo "→ Copying to example app: $EXAMPLE_JNILIBS"
+echo "→ Copying to example app: $EXAMPLE_ASSETS"
 for lib in "$HTP_OUTPUT_DIR"/libggml-htp-*.so; do
     if [ -f "$lib" ]; then
-        cp "$lib" "$EXAMPLE_JNILIBS/"
+        cp "$lib" "$EXAMPLE_ASSETS/"
         echo "  ✓ $(basename "$lib")"
     fi
 done
+
+rm -rf $HTP_BUILD_DIR
 
 echo ""
 echo "=========================================="
 echo "HTP Libraries Installed Successfully!"
 echo "=========================================="
 echo "Libraries are now available in:"
-echo "  • Library package: $LIBRARY_JNILIBS"
-echo "  • Example app:     $EXAMPLE_JNILIBS"
+echo "  • Example app:     $EXAMPLE_ASSETS"
 echo ""
 echo "The Hexagon backend will automatically detect and load"
 echo "the appropriate library at runtime based on device DSP version."

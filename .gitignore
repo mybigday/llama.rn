@@ -85,7 +85,6 @@ ios/rnllama.xcframework/**/*.framework
 
 # Hexagon DSP build artifacts
 build-hexagon-htp/
-hexagon-prebuilt/
 
 local-plan
 local-plan-done
