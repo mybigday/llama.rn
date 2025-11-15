@@ -143,6 +143,7 @@ jobs:
 
       - name: Build libraries
         run: |
+          ./scripts/build-hexagon-htp.sh
           npm run build:android-libs
 
       - name: Build example for Android
