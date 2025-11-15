@@ -760,6 +760,8 @@ Java_com_rnllama_LlamaContext_initContext(
     if (gpu_used && !gpu_device_name.empty()) {
         writablemap::putString(env, result_map, "gpuDevice", gpu_device_name.c_str());
     }
+    auto system_info = common_params_get_system_info(defaultParams);
+    writablemap::putString(env, result_map, "systemInfo", system_info.c_str());
 
     return result_map;
 }

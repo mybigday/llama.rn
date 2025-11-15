@@ -115,6 +115,7 @@ public class RNLlama implements LifecycleEventListener {
           result.putString("gpuDevice", gpuDevice);
         }
         result.putMap("model", llamaContext.getModelDetails());
+        result.putString("systemInfo", llamaContext.getSystemInfo());
         result.putString("androidLib", llamaContext.getLoadedLibrary());
         mainHandler.post(() -> {
           promise.resolve(result);

@@ -27,6 +27,7 @@
     bool is_model_loaded;
     NSString * reason_no_metal;
     NSString * gpu_device_name;
+    NSString * system_info;
 
     void (^onProgress)(unsigned int progress);
 
@@ -42,6 +43,7 @@
 - (NSString *)reasonNoMetal;
 - (NSString *)gpuDeviceName;
 - (NSDictionary *)modelInfo;
+- (NSString *)systemInfo;
 - (bool)isModelLoaded;
 - (bool)isPredicting;
 - (bool)initMultimodal:(NSDictionary *)params;
