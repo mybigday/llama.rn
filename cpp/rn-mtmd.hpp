@@ -582,7 +582,7 @@ inline llama_rn_context_mtmd::~llama_rn_context_mtmd() {
 }
 
 inline bool llama_rn_context_mtmd::isEnabled(bool has_multimodal) const {
-    return has_multimodal && this != nullptr;
+    return has_multimodal && mtmd_ctx != nullptr;
 }
 
 inline bool llama_rn_context_mtmd::supportVision() const {
