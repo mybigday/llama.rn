@@ -104,9 +104,9 @@ static void force_cpu_htp_devices_only(common_params & params) {
 
     if (cpu_dev || htp0_dev) {
         params.devices.clear();
-        if (cpu_dev) {
-            params.devices.push_back(cpu_dev);
-        }
+        // if (cpu_dev) {
+        //     params.devices.push_back(cpu_dev);
+        // }
         if (htp0_dev) {
             params.devices.push_back(htp0_dev);
         }
