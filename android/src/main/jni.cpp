@@ -674,14 +674,13 @@ Java_com_rnllama_LlamaContext_initContext(
     if (is_model_loaded) {
         if (embedding && llama_model_has_encoder(llama->model) && llama_model_has_decoder(llama->model)) {
             LOGI("[RNLlama] computing embeddings in encoder-decoder models is not supported");
-            llama_free(llama->ctx);
             context_map.erase((long) llama->ctx);
             delete llama;
             return nullptr;
         }
+        llama->attachThreadpoolsIfAvailable();
         context_map[(long) llama->ctx] = llama;
     } else {
-        llama_free(llama->ctx);
         delete llama;
         return nullptr;
     }
@@ -739,7 +738,6 @@ Java_com_rnllama_LlamaContext_initContext(
 
     if (result != 0) {
       LOGI("[RNLlama] Failed to apply lora adapters");
-      llama_free(llama->ctx);
       context_map.erase((long) llama->ctx);
       delete llama;
       return nullptr;
@@ -1452,7 +1450,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     // Release prompt_chars
     env->ReleaseStringUTFChars(prompt, prompt_chars);
 
-    llama_perf_context_print(llama->ctx);
+    common_perf_print(llama->ctx, llama->completion->ctx_sampling);
     llama->completion->endCompletion();
 
     auto toolCalls = writablearray::createWritableArray(env);
