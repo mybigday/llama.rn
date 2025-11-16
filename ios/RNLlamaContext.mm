@@ -846,7 +846,7 @@
         }
     }
 
-    llama_perf_context_print(llama->ctx);
+    common_perf_print(llama->ctx, llama->completion->ctx_sampling);
     llama->completion->endCompletion();
 
     const auto timings = llama_perf_context(llama->ctx);

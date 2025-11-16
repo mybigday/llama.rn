@@ -1397,7 +1397,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     // Release prompt_chars
     env->ReleaseStringUTFChars(prompt, prompt_chars);
 
-    llama_perf_context_print(llama->ctx);
+    common_perf_print(llama->ctx, llama->completion->ctx_sampling);
     llama->completion->endCompletion();
 
     auto toolCalls = writablearray::createWritableArray(env);
