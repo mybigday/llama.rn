@@ -417,7 +417,7 @@ BUILD_COMMIT=$(git rev-parse --short=7 HEAD)
 # clean up version.ts
 rm -f "$SRC_DIR/version.ts"
 
-echo "export const BUILD_NUMBER = '$BUILD_NUMBER';" > "$SRC_DIR/version.ts"
-echo "export const BUILD_COMMIT = '$BUILD_COMMIT';" >> "$SRC_DIR/version.ts"
+echo "export const BUILD_NUMBER = '$BUILD_NUMBER'" > "$SRC_DIR/version.ts"
+echo "export const BUILD_COMMIT = '$BUILD_COMMIT'" >> "$SRC_DIR/version.ts"
 
 cd "$ROOT_DIR"
