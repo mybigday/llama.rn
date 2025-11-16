@@ -281,6 +281,9 @@
     }
 
     context->is_model_loaded = context->llama->loadModel(defaultParams);
+    if (context->is_model_loaded) {
+        context->llama->attachThreadpoolsIfAvailable();
+    }
 
     if (
         params[@"embedding"] && [params[@"embedding"] boolValue] &&
