@@ -184,6 +184,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             pad
             repeat
             mul_mat_f16_f32
+            mul_mm_f16_f32_kq_kqv
             conv2d
             conv2d_f16_f32
             flash_attn_f32_f16
