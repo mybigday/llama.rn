@@ -13,7 +13,7 @@ HEXAGON_INSTALL_DIR="${HEXAGON_INSTALL_DIR:-$HOME/.hexagon-sdk}"
 # Auto-detect Android SDK/NDK location if not set
 if [ -z "$ANDROID_HOME" ]; then
   # Try common locations (Docker uses /opt/android-ndk-r28b)
-  for location in "/opt/android-ndk-r28b" "/opt/android-sdk" "/opt/android" "/android-sdk" "$HOME/Android/Sdk" "$HOME/Library/Android/sdk"; do
+  for location in "/opt/android-sdk" "/opt/android" "/android-sdk" "$HOME/Android/Sdk" "$HOME/Library/Android/sdk"; do
     if [ -d "$location" ]; then
       export ANDROID_HOME="$location"
       echo "Auto-detected ANDROID_HOME: $ANDROID_HOME"
