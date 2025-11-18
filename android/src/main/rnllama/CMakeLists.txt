@@ -146,63 +146,22 @@ function(build_rnllama_library target_name arch cpu_flags)
             endif()
         else()
             message(FATAL_ERROR
-                "Hexagon SDK is required to build ${target_name} but not found.\n"
-                "Solutions:\n"
-                "  1. Run 'npm run bootstrap' to install SDK\n"
-                "  2. Or set HEXAGON_INSTALL_DIR to your SDK location\n"
-                "  3. Or use Docker: ./scripts/build-android-docker.sh\n"
-                "  4. Or skip by building on macOS (automatically skipped)")
+                "Hexagon SDK is required to build ${target_name} but not found.")
         endif()
 
         if (HEXAGON_SDK_AVAILABLE)
-
-            # Check if we have pre-built HTP libraries or should build
-            set(HEXAGON_PREBUILT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../bin/arm64-v8a")
-
-            if (EXISTS "${HEXAGON_PREBUILT_DIR}/libggml-htp-v73.so")
-                # Use pre-built HTP libraries
-                message(STATUS "Using pre-built Hexagon HTP libraries from ${HEXAGON_PREBUILT_DIR}")
-                set(USE_PREBUILT_HTP ON)
-            else()
-                message(STATUS "Pre-built HTP libraries not found, will attempt to build")
-                set(USE_PREBUILT_HTP OFF)
-            endif()
-
-            # Generate IDL stub for host-side communication
-            if (NOT USE_PREBUILT_HTP)
-                # Include Hexagon SDK CMake functions
-                if (EXISTS "${HEXAGON_SDK_ROOT}/build/cmake/hexagon_fun.cmake")
-                    include(${HEXAGON_SDK_ROOT}/build/cmake/hexagon_fun.cmake)
-
-                    # Generate IDL stub (host-side)
-                    set(HTP_IFACE_IDL ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp/htp_iface.idl)
-                    set(HTP_IFACE_STUB ${CMAKE_CURRENT_BINARY_DIR}/htp_iface_stub.c)
-
-                    build_idl(${HTP_IFACE_IDL} htp_iface)
-                else()
-                    message(WARNING "Hexagon SDK CMake functions not found, cannot build IDL")
-                    set(USE_PREBUILT_HTP ON)
-                endif()
-            endif()
-
             # Add host-side hexagon sources
             target_sources(${target_name} PRIVATE
                 ${RNLLAMA_LIB_DIR}/ggml-hexagon/ggml-hexagon.cpp
                 ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp-utils.c
             )
 
-            # Add IDL stub source
-            if (NOT USE_PREBUILT_HTP AND EXISTS ${HTP_IFACE_STUB})
-                # Use generated stub
-                target_sources(${target_name} PRIVATE ${HTP_IFACE_STUB})
+            # Use pre-built stub
+            set(HEXAGON_PREBUILT_STUB "${CMAKE_CURRENT_SOURCE_DIR}/../../../../build-hexagon-htp/v73/htp_iface_stub.c")
+            if (EXISTS ${HEXAGON_PREBUILT_STUB})
+                target_sources(${target_name} PRIVATE ${HEXAGON_PREBUILT_STUB})
             else()
-                # Use pre-built stub
-                set(HEXAGON_PREBUILT_STUB "${CMAKE_CURRENT_SOURCE_DIR}/../../../../build-hexagon-htp/v73/htp_iface_stub.c")
-                if (EXISTS ${HEXAGON_PREBUILT_STUB})
-                    target_sources(${target_name} PRIVATE ${HEXAGON_PREBUILT_STUB})
-                else()
-                    message(WARNING "Pre-built HTP stub not found: ${HEXAGON_PREBUILT_STUB}")
-                endif()
+                message(WARNING "Pre-built HTP stub not found: ${HEXAGON_PREBUILT_STUB}")
             endif()
 
             # Use pre-built IDL headers from build-hexagon-htp directory
@@ -239,11 +198,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             # Only show warning when building from source
             if (NOT RNLLAMA_STANDALONE_BUILD)
                 message(WARNING
-                    "Hexagon SDK not found. Hexagon backend will not be built.
-                    Solutions:
-                      1. Run 'npm run bootstrap' to install SDK
-                      2. Or set HEXAGON_INSTALL_DIR=/path/to/sdk
-                      3. Or use Docker: ./scripts/build-android-docker.sh")
+                    "Hexagon SDK not found. Hexagon backend will not be built.")
             endif()
         endif()
     endif ()

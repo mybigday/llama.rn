@@ -107,7 +107,7 @@ android {
     externalNativeBuild {
       cmake {
         abiFilters (*reactNativeArchitectures())
-        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}"
+        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}", "-DHEXAGON_SDK_ROOT=${System.getenv('HEXAGON_SDK_ROOT')}", "-DHEXAGON_TOOLS_ROOT=${System.getenv('HEXAGON_TOOLS_ROOT')}"
       }
     }
   }
