@@ -147,7 +147,10 @@
                 }
             }
         }
-        defaultParams.devices = devs;
+        if (!devs.empty()) {
+            defaultParams.devices = devs;
+            defaultParams.devices.push_back(nullptr);
+        }
     }
 
 
@@ -178,7 +181,7 @@
         }
         isMetalEnabled = false;
     }
-  
+
     BOOL skipGpuDevices = !isGpuAvailable || (params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue]); // Deprecated in favor of `devices`
     if (skipGpuDevices) {
         std::vector<lm_ggml_backend_dev_t> cpu_devs;

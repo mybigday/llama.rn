@@ -609,8 +609,10 @@ Java_com_rnllama_LlamaContext_initContext(
                     }
                 }
             }
-            defaultParams.devices = devs;
-            defaultParams.devices.push_back(nullptr);
+            if (!devs.empty()) {
+                defaultParams.devices = devs;
+                defaultParams.devices.push_back(nullptr);
+            }
         }
     }
 
