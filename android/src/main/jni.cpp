@@ -78,43 +78,6 @@ void set_best_cores(struct cpu_params &params, int n) {
     params.mask_valid = true;
 }
 
-#if defined(LM_GGML_USE_HEXAGON)
-static void force_cpu_htp_devices_only(common_params & params) {
-    lm_ggml_backend_dev_t cpu_dev = nullptr;
-    lm_ggml_backend_dev_t htp0_dev = nullptr;
-
-    const size_t backend_dev_count = lm_ggml_backend_dev_count();
-    for (size_t i = 0; i < backend_dev_count; ++i) {
-        lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
-        auto dev_type = lm_ggml_backend_dev_type(dev);
-        if (!cpu_dev && dev_type == LM_GGML_BACKEND_DEVICE_TYPE_CPU) {
-            cpu_dev = dev;
-            continue;
-        }
-        if (!htp0_dev && dev_type == LM_GGML_BACKEND_DEVICE_TYPE_GPU) {
-            const char * dev_name = lm_ggml_backend_dev_name(dev);
-            if (dev_name != nullptr && std::strstr(dev_name, "HTP0") != nullptr) { // TODO: Custom devices (HTP0, HTP1, ...)
-                htp0_dev = dev;
-            }
-        }
-        if (cpu_dev && htp0_dev) {
-            break;
-        }
-    }
-
-    if (cpu_dev || htp0_dev) {
-        params.devices.clear();
-        // if (cpu_dev) {
-        //     params.devices.push_back(cpu_dev);
-        // }
-        if (htp0_dev) {
-            params.devices.push_back(htp0_dev);
-        }
-        params.devices.push_back(nullptr);
-    }
-}
-#endif
-
 JNIEXPORT jobject JNICALL
 Java_com_rnllama_LlamaContext_modelInfo(
     JNIEnv *env,
@@ -618,10 +581,38 @@ Java_com_rnllama_LlamaContext_initContext(
         defaultParams.rope_freq_scale = readablemap::getFloat(env, params_map, "rope_freq_scale", 0.0f);
     }
 
-#if defined(LM_GGML_USE_HEXAGON)
-    // Temporary workaround: restrict device list to CPU + HTP0 to match CLI behaviour.
-    force_cpu_htp_devices_only(defaultParams);
-#endif
+    if (readablemap::hasKey(env, params_map, "devices")) {
+        auto devices = readablemap::getArray(env, params_map, "devices");
+        int devices_size = readablearray::size(env, devices);
+
+        if (devices_size > 0) {
+            std::vector<lm_ggml_backend_dev_t> devs;
+            for (size_t i = 0; i < lm_ggml_backend_dev_count(); ++i) {
+                lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
+                const char *dev_name = lm_ggml_backend_dev_name(dev);
+
+                for (int j = 0; j < devices_size; ++j) {
+                    auto device = readablearray::getString(env, devices, j);
+                    auto device_str = env->GetStringUTFChars(device, nullptr);
+                    env->ReleaseStringUTFChars(device, device_str);
+                    if (strcmp(dev_name, device_str) == 0) {
+                        switch (lm_ggml_backend_dev_type(dev)) {
+                            case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
+                            case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
+                            case LM_GGML_BACKEND_DEVICE_TYPE_GPU:
+                            case LM_GGML_BACKEND_DEVICE_TYPE_IGPU:
+                                LOGI("Device name: %s", dev_name);
+                                devs.push_back(dev);
+                                break;
+                        }
+                        break;
+                    }
+                }
+            }
+            defaultParams.devices = devs;
+            defaultParams.devices.push_back(nullptr);
+        }
+    }
 
     auto llama = new rnllama::llama_rn_context();
     llama->is_load_interrupted = false;
@@ -746,7 +737,7 @@ Java_com_rnllama_LlamaContext_initContext(
     bool gpu_used = false;
     bool gpu_device_available = false;
     std::string reason_no_gpu = "";
-    std::string gpu_device_name = "";
+    auto used_devices = writablearray::createWritableArray(env);
 
     bool has_explicit_devices = !llama->params.devices.empty();
     bool explicit_gpu_requested = false;
@@ -766,12 +757,10 @@ Java_com_rnllama_LlamaContext_initContext(
             auto dev_type = lm_ggml_backend_dev_type(dev);
             if (dev_type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || dev_type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
                 gpu_used = true;
-                if (gpu_device_name.empty()) {
-                    const char *used_name = lm_ggml_backend_dev_name(dev);
-                    if (used_name != nullptr) {
-                        gpu_device_name = used_name;
-                    }
-                }
+            }
+            const char *used_name = lm_ggml_backend_dev_name(dev);
+            if (used_name != nullptr) {
+                writablearray::pushString(env, used_devices, used_name);
             }
         }
     }
@@ -810,9 +799,7 @@ Java_com_rnllama_LlamaContext_initContext(
     writablemap::putString(env, result_map, "context", context_str.c_str());
     writablemap::putBoolean(env, result_map, "gpu", gpu_used);
     writablemap::putString(env, result_map, "reasonNoGPU", reason_no_gpu.c_str());
-    if (gpu_used && !gpu_device_name.empty()) {
-        writablemap::putString(env, result_map, "gpuDevice", gpu_device_name.c_str());
-    }
+    writablemap::putArray(env, result_map, "devices", used_devices);
     auto system_info = common_params_get_system_info(defaultParams);
     writablemap::putString(env, result_map, "systemInfo", system_info.c_str());
 

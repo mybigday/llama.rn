@@ -69,8 +69,8 @@ public class LlamaContext {
   private DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
   private boolean gpuEnabled;
   private String reasonNoGPU = "";
-  private String gpuDevice = "";
   private String systemInfo = "";
+  private ReadableArray devices = null;
 
   public LlamaContext(int id, ReactApplicationContext reactContext, ReadableMap params) {
     if (LlamaContext.isArchNotSupported()) {
@@ -112,9 +112,8 @@ public class LlamaContext {
     if (!this.gpuEnabled && params.hasKey("no_gpu_devices") && params.getBoolean("no_gpu_devices")) {
       this.reasonNoGPU = "GPU devices disabled by user";
     }
-    this.gpuDevice = initResult.hasKey("gpuDevice") ? initResult.getString("gpuDevice") : "";
-    if (this.gpuDevice == null) {
-      this.gpuDevice = "";
+    if (initResult.hasKey("devices")) {
+      this.devices = initResult.getArray("devices");
     }
     this.systemInfo = initResult.hasKey("systemInfo") ? initResult.getString("systemInfo") : "";
     if (this.systemInfo == null) {
@@ -149,8 +148,8 @@ public class LlamaContext {
     return reasonNoGPU;
   }
 
-  public String getGpuDevice() {
-    return gpuDevice;
+  public ReadableArray getDevices() {
+    return devices;
   }
 
   public String getSystemInfo() {
