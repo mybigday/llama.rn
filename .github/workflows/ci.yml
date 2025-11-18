@@ -129,7 +129,12 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Build example for Android
+        env:
+          HEXAGON_SDK_VERSION: 6.4.0.2
+          HEXAGON_TOOLS_VERSION: 19.0.04
         run: |
+          export HEXAGON_SDK_ROOT="~/.hexagon-sdk/$HEXAGON_SDK_VERSION"
+          export HEXAGON_TOOLS_ROOT="$HEXAGON_SDK_ROOT/tools/HEXAGON_Tools/$HEXAGON_TOOLS_VERSION"
           npm run build:android
 
   build-android-libs:
