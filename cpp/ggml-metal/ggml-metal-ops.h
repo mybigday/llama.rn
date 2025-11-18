@@ -52,6 +52,7 @@ int lm_ggml_metal_op_unary             (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_glu               (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_sum               (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_sum_rows          (lm_ggml_metal_op_t ctx, int idx);
+int lm_ggml_metal_op_cumsum            (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_get_rows          (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_set_rows          (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_soft_max          (lm_ggml_metal_op_t ctx, int idx);
