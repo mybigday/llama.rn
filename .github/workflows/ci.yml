@@ -122,6 +122,17 @@ jobs:
   build-android-from-source:
     runs-on: ubuntu-latest
     steps:
+      - name: Maximize build space
+        run: |
+          df -h
+          echo "Removing dotnet"
+          sudo rm -rf /usr/share/dotnet
+          echo "Removing ghc"
+          sudo rm -rf /opt/ghc
+          echo "Removing CodeQL"
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -140,6 +151,17 @@ jobs:
   build-android-libs:
     runs-on: ubuntu-latest
     steps:
+      - name: Maximize build space
+        run: |
+          df -h
+          echo "Removing dotnet"
+          sudo rm -rf /usr/share/dotnet
+          echo "Removing ghc"
+          sudo rm -rf /opt/ghc
+          echo "Removing CodeQL"
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
+
       - name: Checkout
         uses: actions/checkout@v4
 
