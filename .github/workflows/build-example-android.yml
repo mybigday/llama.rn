@@ -60,11 +60,6 @@ jobs:
           echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Build HTP Libs & libOpenCL.so
-        run: |
-          ./scripts/build-opencl.sh
-          ./scripts/build-hexagon-htp.sh
-
       - name: Build Android release
         working-directory: example/android
         env:

@@ -60,7 +60,7 @@ echo "Command: $COMMAND"
 echo ""
 
 # Run the container
-docker run -it --rm \
+docker run --rm \
     -u "$(id -u):$(id -g)" \
     --volume "$PROJECT_ROOT:/workspace" \
     --workdir /workspace \
