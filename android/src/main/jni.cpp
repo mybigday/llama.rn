@@ -11,6 +11,8 @@
 #include <thread>
 #include <unordered_map>
 #include <list>
+#include <vector>
+#include <algorithm>
 #include <cstring>
 #include <nlohmann/json.hpp>
 #include "json-schema-to-grammar.h"
@@ -28,6 +30,88 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,     TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,     TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR,    TAG, __VA_ARGS__)
+
+static bool should_exclude_hexagon_device(lm_ggml_backend_dev_t dev) {
+#if defined(LM_GGML_USE_HEXAGON)
+    const char *dev_name = lm_ggml_backend_dev_name(dev);
+    if (dev_name != nullptr && strncmp(dev_name, "HTP", 3) == 0) {
+        LOGI("Skipping Hexagon device %s by default (experimental)", dev_name);
+        return true;
+    }
+#else
+    UNUSED(dev);
+#endif
+    return false;
+}
+
+// Copy default device selection of cpp/llama.cpp - Added hexagon device exclusion
+static std::vector<lm_ggml_backend_dev_t> get_filtered_default_devices() {
+    std::vector<lm_ggml_backend_dev_t> rpc_servers;
+    std::vector<lm_ggml_backend_dev_t> gpus;
+    std::vector<lm_ggml_backend_dev_t> igpus;
+
+    for (size_t i = 0; i < lm_ggml_backend_dev_count(); ++i) {
+        lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
+        if (should_exclude_hexagon_device(dev)) {
+            continue;
+        }
+
+        switch (lm_ggml_backend_dev_type(dev)) {
+            case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
+            case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
+                // skip CPU/ACCEL since handled separately
+                break;
+
+            case LM_GGML_BACKEND_DEVICE_TYPE_GPU: {
+                lm_ggml_backend_reg_t reg = lm_ggml_backend_dev_backend_reg(dev);
+                const char *reg_name = reg ? lm_ggml_backend_reg_name(reg) : nullptr;
+                if (reg_name != nullptr && strcmp(reg_name, "RPC") == 0) {
+                    rpc_servers.push_back(dev);
+                } else {
+                    lm_ggml_backend_dev_props props;
+                    lm_ggml_backend_dev_get_props(dev, &props);
+                    auto it = std::find_if(gpus.begin(), gpus.end(), [&props](lm_ggml_backend_dev_t other) {
+                        lm_ggml_backend_dev_props other_props;
+                        lm_ggml_backend_dev_get_props(other, &other_props);
+                        return props.device_id != nullptr &&
+                               other_props.device_id != nullptr &&
+                               strcmp(props.device_id, other_props.device_id) == 0;
+                    });
+
+                    if (it != gpus.end()) {
+                        LOGI("%s: skipping device %s (%s) with id %s - already using %s (%s)",
+                             __func__,
+                             lm_ggml_backend_dev_name(dev), lm_ggml_backend_dev_description(dev),
+                             props.device_id != nullptr ? props.device_id : "unknown id",
+                             lm_ggml_backend_dev_name(*it), lm_ggml_backend_dev_description(*it));
+                    } else {
+                        gpus.push_back(dev);
+                    }
+                }
+                break;
+            }
+
+            case LM_GGML_BACKEND_DEVICE_TYPE_IGPU:
+                igpus.push_back(dev);
+                break;
+        }
+    }
+
+    std::vector<lm_ggml_backend_dev_t> devices;
+    devices.insert(devices.end(), rpc_servers.begin(), rpc_servers.end());
+    devices.insert(devices.end(), gpus.begin(), gpus.end());
+
+    if (devices.empty()) {
+        devices.insert(devices.end(), igpus.begin(), igpus.end());
+    }
+
+    if (!devices.empty()) {
+        devices.push_back(nullptr);
+    }
+
+    return devices;
+}
+
 static inline int min(int a, int b) {
     return (a < b) ? a : b;
 }
@@ -581,7 +665,8 @@ Java_com_rnllama_LlamaContext_initContext(
         defaultParams.rope_freq_scale = readablemap::getFloat(env, params_map, "rope_freq_scale", 0.0f);
     }
 
-    if (readablemap::hasKey(env, params_map, "devices")) {
+    bool has_devices_param = readablemap::hasKey(env, params_map, "devices");
+    if (has_devices_param) {
         auto devices = readablemap::getArray(env, params_map, "devices");
         int devices_size = readablearray::size(env, devices);
 
@@ -613,6 +698,13 @@ Java_com_rnllama_LlamaContext_initContext(
                 defaultParams.devices = devs;
                 defaultParams.devices.push_back(nullptr);
             }
+        }
+    }
+
+    if (!has_devices_param && defaultParams.devices.empty()) {
+        auto filtered_default_devices = get_filtered_default_devices();
+        if (!filtered_default_devices.empty()) {
+            defaultParams.devices = filtered_default_devices;
         }
     }
 
