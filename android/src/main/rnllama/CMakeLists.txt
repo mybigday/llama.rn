@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.10)
 
 project(rnllama)
 
+option(HEXAGON_SDK_ROOT "Hexagon SDK root directory" OFF)
+option(HEXAGON_TOOLS_ROOT "Hexagon SDK toolchain directory" OFF)
+
 find_package(Python3 REQUIRED)
 set(CMAKE_CXX_STANDARD 17)
 # Use CMAKE_CURRENT_SOURCE_DIR to work correctly both standalone and as subdirectory
@@ -130,10 +133,7 @@ function(build_rnllama_library target_name arch cpu_flags)
     if (ENABLE_HEXAGON)
         # Hexagon SDK is ALWAYS required to link cdsprpc, even for prebuilt distribution
         set(HEXAGON_SDK_AVAILABLE OFF)
-        if (DEFINED ENV{HEXAGON_SDK_ROOT} AND DEFINED ENV{HEXAGON_TOOLS_ROOT})
-            set(HEXAGON_SDK_ROOT $ENV{HEXAGON_SDK_ROOT})
-            set(HEXAGON_TOOLS_ROOT $ENV{HEXAGON_TOOLS_ROOT})
-
+        if (HEXAGON_SDK_ROOT AND HEXAGON_TOOLS_ROOT)
             # Verify libcdsprpc.so exists
             set(CDSPRPC_LIB "${HEXAGON_SDK_ROOT}/ipc/fastrpc/remote/ship/android_aarch64/libcdsprpc.so")
             if (EXISTS ${CDSPRPC_LIB})
@@ -157,7 +157,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             )
 
             # Use pre-built stub
-            set(HEXAGON_PREBUILT_STUB "${CMAKE_CURRENT_SOURCE_DIR}/../../../../build-hexagon-htp/v73/htp_iface_stub.c")
+            set(HEXAGON_PREBUILT_STUB "${RNLLAMA_LIB_DIR}/ggml-hexagon/htp/v73/htp_iface_stub.c")
             if (EXISTS ${HEXAGON_PREBUILT_STUB})
                 target_sources(${target_name} PRIVATE ${HEXAGON_PREBUILT_STUB})
             else()
@@ -165,7 +165,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             endif()
 
             # Use pre-built IDL headers from build-hexagon-htp directory
-            set(HEXAGON_PREBUILT_HTP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../build-hexagon-htp/v73")
+            set(HEXAGON_PREBUILT_HTP_DIR "${RNLLAMA_LIB_DIR}/ggml-hexagon/htp/v73/")
 
             target_include_directories(${target_name} PRIVATE
                 ${HEXAGON_SDK_ROOT}/incs

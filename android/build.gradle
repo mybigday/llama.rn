@@ -105,10 +105,13 @@ android {
     targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
     buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
     def rnllamaBuildFromSourceFlag = isRNLlamaBuildFromSource ? "ON" : "OFF"
+    def homeDir = System.getProperty("user.home")
+    def hexagonSdkRoot = System.getenv('HEXAGON_SDK_ROOT') ?: "${homeDir}/.hexagon-sdk/6.4.0.2"
+    def hexagonToolsRoot = System.getenv('HEXAGON_TOOLS_ROOT') ?: "${homeDir}/.hexagon-sdk/6.4.0.2/tools/HEXAGON_Tools/19.0.04"
     externalNativeBuild {
       cmake {
         abiFilters (*reactNativeArchitectures())
-        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}", "-DHEXAGON_SDK_ROOT=${System.getenv('HEXAGON_SDK_ROOT')}", "-DHEXAGON_TOOLS_ROOT=${System.getenv('HEXAGON_TOOLS_ROOT')}"
+        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}", "-DHEXAGON_SDK_ROOT=${hexagonSdkRoot}", "-DHEXAGON_TOOLS_ROOT=${hexagonToolsRoot}"
       }
     }
   }

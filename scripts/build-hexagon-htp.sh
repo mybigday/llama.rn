@@ -176,3 +176,12 @@ echo "HTP libraries built and installed to: $HTP_OUTPUT_DIR"
 echo ""
 ls -lh "$HTP_OUTPUT_DIR"/libggml-htp-*.so 2>/dev/null || echo "Warning: Some libraries may not have been built"
 echo ""
+
+
+mkdir -p cpp/ggml-hexagon/htp/v73/
+cp build-hexagon-htp/v73/htp_iface_stub.c cpp/ggml-hexagon/htp/v73/htp_iface_stub.c
+cp build-hexagon-htp/v73/htp_iface.h cpp/ggml-hexagon/htp/v73/htp_iface.h
+echo "✓ Copied htp_iface_stub.c to cpp/ggml-hexagon/htp/v73/htp_iface_stub.c"
+echo "✓ Copied htp_iface.h to cpp/ggml-hexagon/htp/v73/htp_iface.h"
+
+rm -rf build-hexagon-htp
