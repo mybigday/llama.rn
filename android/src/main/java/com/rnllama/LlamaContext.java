@@ -721,7 +721,7 @@ public class LlamaContext {
     Log.d(NAME, "- hasHexagon: " + hasHexagon);
 
     if (LlamaContext.isArm64V8a()) {
-      if (hasHexagon && hasAdreno) {
+      if (hasDotProd && hasI8mm && hasHexagon && hasAdreno) {
         Log.d(NAME, "Loading librnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl.so");
         System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl");
         loadedLibrary = "rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl";
