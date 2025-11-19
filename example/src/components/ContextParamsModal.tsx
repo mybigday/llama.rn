@@ -6,6 +6,7 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
+  Platform,
 } from 'react-native'
 import type { ContextParams } from '../utils/storage'
 import {
@@ -469,10 +470,13 @@ export default function ContextParamsModal({
             )
           })}
 
-          <Text style={deviceStyles.helperText}>
-            Tip: On Android, selecting devices starting with &quot;HTP&quot;
-            enables Hexagon acceleration. Wildcards such as HTP* are supported.
-          </Text>
+          {Platform.OS === 'android' && (
+            <Text style={deviceStyles.helperText}>
+              Tip: On Android, selecting devices starting with &quot;HTP&quot;
+              enables Hexagon acceleration. Wildcards such as HTP* are
+              supported.
+            </Text>
+          )}
         </View>
       </View>
 
