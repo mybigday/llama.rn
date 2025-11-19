@@ -716,12 +716,12 @@ public class LlamaContext {
     String hwInfo = (Build.HARDWARE + " " + Build.MANUFACTURER + " " + Build.MODEL).toLowerCase();
     Log.d(NAME, "- hwInfo: " + hwInfo);
     boolean hasAdreno = Pattern.compile("(adreno|qcom|qualcomm)").matcher(hwInfo).find();
-    boolean hasHexagon = Pattern.compile("(hexagon|qcom|qualcomm)").matcher(hwInfo).find(); // TODO: Correct detection for Hexagon
+    boolean hasHexagon = isHexagonSupported();
     Log.d(NAME, "- hasAdreno: " + hasAdreno);
     Log.d(NAME, "- hasHexagon: " + hasHexagon);
 
     if (LlamaContext.isArm64V8a()) {
-      if (hasHexagon) {
+      if (hasHexagon && hasAdreno) {
         Log.d(NAME, "Loading librnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl.so");
         System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl");
         loadedLibrary = "rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl";
@@ -753,8 +753,35 @@ public class LlamaContext {
     } else {
       Log.d(NAME, "ARM32 is not supported, skipping loading library");
     }
-}
+  }
 
+  private static boolean isHexagonSupported() {
+    // Check SOC_MODEL on Android 12+
+    if (Build.VERSION.SDK_INT >= 31) {
+      String socModel = Build.SOC_MODEL;
+      Log.d(NAME, "SOC Model: " + socModel);
+      if (socModel != null) {
+        socModel = socModel.toUpperCase();
+        // SM8550 (8 Gen 2), SM8650 (8 Gen 3), SM8635 (8s Gen 3), SM8750 (8 Elite)
+        if (socModel.matches(".*(SM8550|SM8650|SM8635|SM8750).*")) {
+          return true;
+        }
+      }
+    }
+
+    // Check for supported Qualcomm platforms (Snapdragon 8 Gen 2 and newer)
+    // Boards: kalama (8 Gen 2), pineapple (8 Gen 3), sun (8 Elite), lanai (8s Gen 3)
+    String hardware = Build.HARDWARE.toLowerCase();
+    Log.d(NAME, "Hardware: " + hardware);
+    String board = Build.BOARD.toLowerCase();
+    Log.d(NAME, "Board: " + board);
+    if (hardware.matches(".*(kalama|pineapple|sun|lanai).*") ||
+        board.matches(".*(kalama|pineapple|sun|lanai).*")) {
+      return true;
+    }
+
+    return false;
+  }
 
   private static boolean isArm64V8a() {
     return Build.SUPPORTED_ABIS[0].equals("arm64-v8a");
