@@ -11,12 +11,13 @@
 ### Properties
 
 - [androidLib](LlamaContext.md#androidlib)
+- [devices](LlamaContext.md#devices)
 - [gpu](LlamaContext.md#gpu)
-- [gpuDevice](LlamaContext.md#gpudevice)
 - [id](LlamaContext.md#id)
 - [model](LlamaContext.md#model)
 - [parallel](LlamaContext.md#parallel)
 - [reasonNoGPU](LlamaContext.md#reasonnogpu)
+- [systemInfo](LlamaContext.md#systeminfo)
 
 ### Methods
 
@@ -61,7 +62,7 @@
 
 #### Defined in
 
-[index.ts:531](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L531)
+[index.ts:559](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L559)
 
 ## Properties
 
@@ -71,7 +72,17 @@
 
 #### Defined in
 
-[index.ts:272](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L272)
+[index.ts:274](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L274)
+
+___
+
+### devices
+
+• **devices**: `undefined` \| `string`[]
+
+#### Defined in
+
+[index.ts:270](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L270)
 
 ___
 
@@ -81,17 +92,7 @@ ___
 
 #### Defined in
 
-[index.ts:264](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L264)
-
-___
-
-### gpuDevice
-
-• **gpuDevice**: `undefined` \| `string`
-
-#### Defined in
-
-[index.ts:266](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L266)
+[index.ts:266](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L266)
 
 ___
 
@@ -101,7 +102,7 @@ ___
 
 #### Defined in
 
-[index.ts:262](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L262)
+[index.ts:264](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L264)
 
 ___
 
@@ -141,7 +142,7 @@ ___
 
 #### Defined in
 
-[index.ts:270](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L270)
+[index.ts:272](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L272)
 
 ___
 
@@ -164,7 +165,7 @@ Parallel processing namespace for non-blocking queue operations
 
 #### Defined in
 
-[index.ts:277](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L277)
+[index.ts:281](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L281)
 
 ___
 
@@ -174,7 +175,17 @@ ___
 
 #### Defined in
 
-[index.ts:268](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L268)
+[index.ts:268](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L268)
+
+___
+
+### systemInfo
+
+• **systemInfo**: `string`
+
+#### Defined in
+
+[index.ts:276](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L276)
 
 ## Methods
 
@@ -194,7 +205,7 @@ ___
 
 #### Defined in
 
-[index.ts:854](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L854)
+[index.ts:902](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L902)
 
 ___
 
@@ -217,7 +228,7 @@ ___
 
 #### Defined in
 
-[index.ts:824](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L824)
+[index.ts:872](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L872)
 
 ___
 
@@ -246,7 +257,7 @@ Multimodal support must be enabled via initMultimodal() first.
 
 #### Defined in
 
-[index.ts:679](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L679)
+[index.ts:722](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L722)
 
 ___
 
@@ -270,7 +281,7 @@ Promise resolving to the decoded audio tokens
 
 #### Defined in
 
-[index.ts:980](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L980)
+[index.ts:1034](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L1034)
 
 ___
 
@@ -290,7 +301,7 @@ ___
 
 #### Defined in
 
-[index.ts:790](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L790)
+[index.ts:833](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L833)
 
 ___
 
@@ -311,7 +322,7 @@ ___
 
 #### Defined in
 
-[index.ts:794](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L794)
+[index.ts:837](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L837)
 
 ___
 
@@ -335,7 +346,7 @@ Promise resolving to the guide tokens
 
 #### Defined in
 
-[index.ts:969](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L969)
+[index.ts:1023](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L1023)
 
 ___
 
@@ -360,7 +371,7 @@ Promise resolving to the formatted audio completion result with prompt and gramm
 
 #### Defined in
 
-[index.ts:950](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L950)
+[index.ts:1004](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L1004)
 
 ___
 
@@ -391,7 +402,7 @@ ___
 
 #### Defined in
 
-[index.ts:568](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L568)
+[index.ts:605](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L605)
 
 ___
 
@@ -405,7 +416,7 @@ ___
 
 #### Defined in
 
-[index.ts:870](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L870)
+[index.ts:918](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L918)
 
 ___
 
@@ -423,7 +434,7 @@ Promise resolving to an object with vision and audio support
 
 #### Defined in
 
-[index.ts:909](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L909)
+[index.ts:957](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L957)
 
 ___
 
@@ -449,7 +460,7 @@ Promise resolving to true if initialization was successful
 
 #### Defined in
 
-[index.ts:883](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L883)
+[index.ts:931](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L931)
 
 ___
 
@@ -475,7 +486,7 @@ Promise resolving to true if initialization was successful
 
 #### Defined in
 
-[index.ts:931](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L931)
+[index.ts:979](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L979)
 
 ___
 
@@ -489,7 +500,7 @@ ___
 
 #### Defined in
 
-[index.ts:563](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L563)
+[index.ts:600](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L600)
 
 ___
 
@@ -503,7 +514,7 @@ ___
 
 #### Defined in
 
-[index.ts:559](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L559)
+[index.ts:596](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L596)
 
 ___
 
@@ -521,7 +532,7 @@ Promise resolving to true if multimodal is enabled
 
 #### Defined in
 
-[index.ts:901](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L901)
+[index.ts:949](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L949)
 
 ___
 
@@ -539,7 +550,7 @@ Promise resolving to true if TTS is enabled
 
 #### Defined in
 
-[index.ts:940](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L940)
+[index.ts:994](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L994)
 
 ___
 
@@ -561,7 +572,7 @@ Load cached prompt & completion state from a file.
 
 #### Defined in
 
-[index.ts:543](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L543)
+[index.ts:580](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L580)
 
 ___
 
@@ -575,7 +586,7 @@ ___
 
 #### Defined in
 
-[index.ts:992](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L992)
+[index.ts:1046](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L1046)
 
 ___
 
@@ -593,7 +604,7 @@ Promise resolving to void
 
 #### Defined in
 
-[index.ts:920](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L920)
+[index.ts:968](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L968)
 
 ___
 
@@ -611,7 +622,7 @@ Promise resolving to void
 
 #### Defined in
 
-[index.ts:988](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L988)
+[index.ts:1042](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L1042)
 
 ___
 
@@ -625,7 +636,7 @@ ___
 
 #### Defined in
 
-[index.ts:866](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L866)
+[index.ts:914](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L914)
 
 ___
 
@@ -651,7 +662,7 @@ Promise resolving to an array of ranking results with scores and indices
 
 #### Defined in
 
-[index.ts:808](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L808)
+[index.ts:851](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L851)
 
 ___
 
@@ -675,7 +686,7 @@ Save current cached prompt & completion state to a file.
 
 #### Defined in
 
-[index.ts:552](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L552)
+[index.ts:589](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L589)
 
 ___
 
@@ -689,7 +700,7 @@ ___
 
 #### Defined in
 
-[index.ts:769](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L769)
+[index.ts:812](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L812)
 
 ___
 
@@ -715,4 +726,4 @@ Promise resolving to the tokenize result
 
 #### Defined in
 
-[index.ts:779](https://github.com/mybigday/llama.rn/blob/b279dce/src/index.ts#L779)
+[index.ts:822](https://github.com/mybigday/llama.rn/blob/8dd6e05/src/index.ts#L822)

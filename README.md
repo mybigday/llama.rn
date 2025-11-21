@@ -35,7 +35,14 @@ By default, `llama.rn` will use pre-built libraries for Android. If you want to 
 
 - Confirm the target device exposes an OpenCL-capable GPU (Qualcomm Adreno 700+ devices are currently supported & tested).
 - Add `<uses-native-library android:name="libOpenCL.so" android:required="false" />` to your app manifest so the loader can be loaded at runtime.
-- Configure `n_gpu_layers` (> 0) when calling `initLlama` to offload layers to the GPU. The native result exposes `gpu`, `gpuDevice`, and `reasonNoGPU` so you can confirm runtime behaviour.
+- Configure `n_gpu_layers` (> 0) when calling `initLlama` to offload layers to the GPU. The native result exposes `gpu`, `reasonNoGPU`, `devices`, so you can confirm runtime behaviour.
+
+##### Hexagon (NPU acceleration) (Experimental)
+
+- Confirm the target device has HTP (Hexagon Tensor Processor), Qualcomm SM8550+ (8 gen 2 or newer) devices are currently supported & tested).
+- Add `<uses-native-library android:name="libcdsprpc.so" android:required="false" />` to your app manifest so the loader can be loaded at runtime.
+- Add param `devices: ['HTP0']` (or `HTP*` for all HTP sessions) to use HTP devices.
+- Configure `n_gpu_layers` (> 0) when calling `initLlama` to offload layers to the GPU. The native result exposes `gpu`, `reasonNoGPU`, `devices`, so you can confirm runtime behaviour.
 
 #### Expo
 
