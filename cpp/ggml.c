@@ -943,6 +943,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "COS",
     "SUM",
     "SUM_ROWS",
+    "CUMSUM",
     "MEAN",
     "ARGMAX",
     "COUNT_EQUAL",
@@ -998,6 +999,8 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "TIMESTEP_EMBEDDING",
     "ARGSORT",
     "LEAKY_RELU",
+    "TRI",
+    "FILL",
 
     "FLASH_ATTN_EXT",
     "FLASH_ATTN_BACK",
@@ -1010,6 +1013,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "RWKV_WKV6",
     "GATED_LINEAR_ATTN",
     "RWKV_WKV7",
+    "SOLVE_TRI",
 
     "UNARY",
 
@@ -1027,7 +1031,7 @@ static const char * LM_GGML_OP_NAME[LM_GGML_OP_COUNT] = {
     "GLU",
 };
 
-static_assert(LM_GGML_OP_COUNT == 90, "LM_GGML_OP_COUNT != 90");
+static_assert(LM_GGML_OP_COUNT == 94, "LM_GGML_OP_COUNT != 94");
 
 static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "none",
@@ -1047,6 +1051,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "cos(x)",
     "Σx",
     "Σx_k",
+    "cumsum(x)",
     "Σx/n",
     "argmax(x)",
     "count_equal(x)",
@@ -1102,6 +1107,8 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "timestep_embedding(timesteps, dim, max_period)",
     "argsort(x)",
     "leaky_relu(x)",
+    "tri(x)",
+    "fill(x, c)",
 
     "flash_attn_ext(x)",
     "flash_attn_back(x)",
@@ -1114,6 +1121,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "rwkv_wkv6(k, v, r, tf, td, s)",
     "gated_linear_attn(k, v, q, gate, s)",
     "rwkv_wkv7(r, w, k, v, a, b, s)",
+    "A X = B, A triangular, solve X",
 
     "unary(x)",
 
@@ -1131,7 +1139,7 @@ static const char * LM_GGML_OP_SYMBOL[LM_GGML_OP_COUNT] = {
     "glu(x)",
 };
 
-static_assert(LM_GGML_OP_COUNT == 90, "LM_GGML_OP_COUNT != 90");
+static_assert(LM_GGML_OP_COUNT == 94, "LM_GGML_OP_COUNT != 94");
 
 static_assert(LM_GGML_OP_POOL_COUNT == 2, "LM_GGML_OP_POOL_COUNT != 2");
 
@@ -1150,6 +1158,8 @@ static const char * LM_GGML_UNARY_OP_NAME[LM_GGML_UNARY_OP_COUNT] = {
     "HARDSWISH",
     "HARDSIGMOID",
     "EXP",
+    "EXPM1",
+    "SOFTPLUS",
     "GELU_ERF",
     "XIELU",
     "FLOOR",
@@ -1158,7 +1168,7 @@ static const char * LM_GGML_UNARY_OP_NAME[LM_GGML_UNARY_OP_COUNT] = {
     "TRUNC",
 };
 
-static_assert(LM_GGML_UNARY_OP_COUNT == 20, "LM_GGML_UNARY_OP_COUNT != 20");
+static_assert(LM_GGML_UNARY_OP_COUNT == 22, "LM_GGML_UNARY_OP_COUNT != 22");
 
 static const char * LM_GGML_GLU_OP_NAME[LM_GGML_GLU_OP_COUNT] = {
     "REGLU",
@@ -2266,6 +2276,30 @@ struct lm_ggml_tensor * lm_ggml_log_inplace(
     return lm_ggml_log_impl(ctx, a, true);
 }
 
+struct lm_ggml_tensor * lm_ggml_expm1(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_unary(ctx, a, LM_GGML_UNARY_OP_EXPM1);
+}
+
+struct lm_ggml_tensor * lm_ggml_expm1_inplace(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_unary_inplace(ctx, a, LM_GGML_UNARY_OP_EXPM1);
+}
+
+struct lm_ggml_tensor * lm_ggml_softplus(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_unary(ctx, a, LM_GGML_UNARY_OP_SOFTPLUS);
+}
+
+struct lm_ggml_tensor * lm_ggml_softplus_inplace(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    return lm_ggml_unary_inplace(ctx, a, LM_GGML_UNARY_OP_SOFTPLUS);
+}
+
 // lm_ggml_sin
 
 static struct lm_ggml_tensor * lm_ggml_sin_impl(
@@ -2344,6 +2378,21 @@ struct lm_ggml_tensor * lm_ggml_sum_rows(
     struct lm_ggml_tensor * result = lm_ggml_new_tensor(ctx, a->type, LM_GGML_MAX_DIMS, ne);
 
     result->op     = LM_GGML_OP_SUM_ROWS;
+    result->src[0] = a;
+
+    return result;
+}
+
+// lm_ggml_cumsum
+
+struct lm_ggml_tensor * lm_ggml_cumsum(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a) {
+    LM_GGML_ASSERT(a->type == LM_GGML_TYPE_F32);
+
+    struct lm_ggml_tensor * result = lm_ggml_dup_tensor(ctx, a);
+
+    result->op     = LM_GGML_OP_CUMSUM;
     result->src[0] = a;
 
     return result;
@@ -2676,8 +2725,8 @@ struct lm_ggml_tensor * lm_ggml_xielu(
     struct lm_ggml_tensor * result = lm_ggml_dup_tensor(ctx, a);
 
     lm_ggml_set_op_params_i32(result, 0, (int32_t) LM_GGML_UNARY_OP_XIELU);
-    lm_ggml_set_op_params_f32(result, 1, beta + lm_ggml_softplus(alpha_n));
-    lm_ggml_set_op_params_f32(result, 2, lm_ggml_softplus(alpha_p));
+    lm_ggml_set_op_params_f32(result, 1, beta + lm_ggml_compute_softplus_f32(alpha_n));
+    lm_ggml_set_op_params_f32(result, 2, lm_ggml_compute_softplus_f32(alpha_p));
     lm_ggml_set_op_params_f32(result, 3, beta);
     lm_ggml_set_op_params_f32(result, 4, eps);
 
@@ -5036,6 +5085,61 @@ struct lm_ggml_tensor * lm_ggml_timestep_embedding(
     return result;
 }
 
+// lm_ggml_tri
+
+struct lm_ggml_tensor * lm_ggml_tri(
+    struct lm_ggml_context * ctx,
+    struct lm_ggml_tensor  * a,
+    enum lm_ggml_tri_type    type) {
+    LM_GGML_ASSERT(a->type == LM_GGML_TYPE_F32);
+
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(a));
+    LM_GGML_ASSERT(a->ne[0] == a->ne[1]);
+
+    struct lm_ggml_tensor * result = lm_ggml_dup_tensor(ctx, a);
+
+    lm_ggml_set_op_params_i32(result, 0, type);
+
+    result->op = LM_GGML_OP_TRI;
+    result->src[0] = a;
+
+    return result;
+}
+
+// lm_ggml_fill
+
+static struct lm_ggml_tensor * lm_ggml_fill_impl(
+    struct lm_ggml_context * ctx,
+    struct lm_ggml_tensor  * a,
+    float                 c,
+    bool                  inplace) {
+    LM_GGML_ASSERT(a->type == LM_GGML_TYPE_F32);
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(a));
+
+    struct lm_ggml_tensor * result = inplace ? lm_ggml_view_tensor(ctx, a) : lm_ggml_dup_tensor(ctx, a);
+
+    lm_ggml_set_op_params_f32(result, 0, c);
+
+    result->op = LM_GGML_OP_FILL;
+    result->src[0] = a;
+
+    return result;
+}
+
+struct lm_ggml_tensor * lm_ggml_fill(
+    struct lm_ggml_context * ctx,
+    struct lm_ggml_tensor  * a,
+    float                 c) {
+    return lm_ggml_fill_impl(ctx, a, c, false);
+}
+
+struct lm_ggml_tensor * lm_ggml_fill_inplace(
+    struct lm_ggml_context * ctx,
+    struct lm_ggml_tensor  * a,
+    float                 c) {
+    return lm_ggml_fill_impl(ctx, a, c, true);
+}
+
 // lm_ggml_argsort
 
 struct lm_ggml_tensor * lm_ggml_argsort(
@@ -5890,6 +5994,41 @@ struct lm_ggml_tensor * lm_ggml_opt_step_sgd(
     return result;
 }
 
+// solve_tri
+
+struct lm_ggml_tensor * lm_ggml_solve_tri(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        bool                  left,
+        bool                  lower,
+        bool                  uni) {
+    LM_GGML_ASSERT(a->type == LM_GGML_TYPE_F32);
+    LM_GGML_ASSERT(b->type == LM_GGML_TYPE_F32);
+
+    // A must be square and lower diagonal
+    LM_GGML_ASSERT(a->ne[0] == a->ne[1]);
+    // B must have same outer dimension as A
+    LM_GGML_ASSERT(a->ne[1] == b->ne[1]);
+
+    // batch dimensions must be equal
+    LM_GGML_ASSERT(a->ne[2] == b->ne[2]);
+    LM_GGML_ASSERT(a->ne[3] == b->ne[3]);
+
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(a));
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(b));
+
+    LM_GGML_ASSERT(lower && left && !uni); // TODO: support other variants
+
+    struct lm_ggml_tensor * result = lm_ggml_new_tensor_4d(ctx, LM_GGML_TYPE_F32, b->ne[0], b->ne[1], b->ne[2], b->ne[3]);
+
+    result->op     = LM_GGML_OP_SOLVE_TRI;
+    result->src[0] = a;
+    result->src[1] = b;
+
+    return result;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 struct lm_ggml_hash_set lm_ggml_hash_set_new(size_t size) {
@@ -6460,6 +6599,16 @@ static void lm_ggml_compute_backward(
                 case LM_GGML_UNARY_OP_EXP: {
                     if (src0_needs_grads) {
                         lm_ggml_add_or_set(ctx, cgraph, isrc0, lm_ggml_mul(ctx, tensor, grad));
+                    }
+                } break;
+                case LM_GGML_UNARY_OP_EXPM1: {
+                    if (src0_needs_grads) {
+                        lm_ggml_add_or_set(ctx, cgraph, isrc0, lm_ggml_mul(ctx, grad, lm_ggml_exp(ctx, src0)));
+                    }
+                } break;
+                case LM_GGML_UNARY_OP_SOFTPLUS: {
+                    if (src0_needs_grads) {
+                        lm_ggml_add_or_set(ctx, cgraph, isrc0, lm_ggml_mul(ctx, grad, lm_ggml_sigmoid(ctx, src0)));
                     }
                 } break;
                 default: {

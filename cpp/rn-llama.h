@@ -8,6 +8,7 @@
 #include "chat.h"
 #include "common.h"
 #include "ggml.h"
+#include "ggml-cpu.h"
 #include "gguf.h"
 #include "llama.h"
 #include "llama-model.h"
@@ -70,9 +71,14 @@ struct llama_rn_context {
     llama_rn_slot_manager *slot_manager = nullptr;
     bool parallel_mode_enabled = false;
 
+    lm_ggml_threadpool *threadpool = nullptr;
+    lm_ggml_threadpool *threadpool_batch = nullptr;
+
     ~llama_rn_context();
 
     bool loadModel(common_params &params_);
+    void cleanupThreadpools();
+    bool attachThreadpoolsIfAvailable();
 
     // Parallel decoding methods
     void enableParallelMode(int32_t n_parallel, int32_t n_batch = 512);

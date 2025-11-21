@@ -31,8 +31,14 @@ export type NativeContextParams = {
    * Number of layers to store in VRAM (Currently only for iOS)
    */
   n_gpu_layers?: number
+
   /**
-   * Skip GPU devices (iOS only)
+   * Backend devices choice to use. Default equals to result of `getBackendDevicesInfo.
+   */
+  devices?: Array<string>
+
+  /**
+   * Skip GPU devices (iOS only) (Deprecated: Please set devices params instead)
    */
   no_gpu_devices?: boolean
 
@@ -434,9 +440,10 @@ export type NativeLlamaContext = {
   /**
    * Name of the GPU device used on Android/iOS (if available)
    */
-  gpuDevice?: string
+  devices?: Array<string>
   gpu: boolean
   reasonNoGPU: string
+  systemInfo: string
 }
 
 export type NativeSessionLoadResult = {
@@ -568,7 +575,11 @@ export interface Spec extends TurboModule {
     params?: NativeRerankParams,
   ): Promise<{ requestId: number }>
   cancelRequest(contextId: number, requestId: number): Promise<void>
-  tokenize(contextId: number, text: string, mediaPaths?: Array<string>): Promise<NativeTokenizeResult>
+  tokenize(
+    contextId: number,
+    text: string,
+    mediaPaths?: Array<string>,
+  ): Promise<NativeTokenizeResult>
   detokenize(contextId: number, tokens: number[]): Promise<string>
   embedding(
     contextId: number,
@@ -607,20 +618,14 @@ export interface Spec extends TurboModule {
     },
   ): Promise<boolean>
 
-  isMultimodalEnabled(
-    contextId: number,
-  ): Promise<boolean>
+  isMultimodalEnabled(contextId: number): Promise<boolean>
 
-  getMultimodalSupport(
-    contextId: number,
-  ): Promise<{
+  getMultimodalSupport(contextId: number): Promise<{
     vision: boolean
     audio: boolean
   }>
 
-  releaseMultimodal(
-    contextId: number,
-  ): Promise<void>
+  releaseMultimodal(contextId: number): Promise<void>
 
   // TTS methods
   initVocoder(
@@ -631,11 +636,18 @@ export interface Spec extends TurboModule {
     },
   ): Promise<boolean>
   isVocoderEnabled(contextId: number): Promise<boolean>
-  getFormattedAudioCompletion(contextId: number, speakerJsonStr: string, textToSpeak: string): Promise<{
+  getFormattedAudioCompletion(
+    contextId: number,
+    speakerJsonStr: string,
+    textToSpeak: string,
+  ): Promise<{
     prompt: string
     grammar?: string
   }>
-  getAudioCompletionGuideTokens(contextId: number, textToSpeak: string): Promise<Array<number>>
+  getAudioCompletionGuideTokens(
+    contextId: number,
+    textToSpeak: string,
+  ): Promise<Array<number>>
   decodeAudioTokens(contextId: number, tokens: number[]): Promise<Array<number>>
   releaseVocoder(contextId: number): Promise<void>
 

@@ -405,11 +405,13 @@ void llama_rn_slot_manager::process_pending_queue() {
         // Ensure we start without a sampling context unless set below
         if (slot->ctx_sampling != nullptr) {
             common_sampler_free(slot->ctx_sampling);
+            slot->params = nullptr;
             slot->ctx_sampling = nullptr;
         }
 
         switch (request.task_type) {
             case SLOT_TASK_TYPE_COMPLETION: {
+                slot->params = &request.params;
                 slot->ctx_sampling = common_sampler_init(parent_ctx->model, request.params.sampling);
 
                 // Assign state parameters
@@ -466,6 +468,7 @@ void llama_rn_slot_manager::process_pending_queue() {
             }
 
             case SLOT_TASK_TYPE_EMBEDDING: {
+                slot->params = &request.params;
                 // Start timing (no state loading for embeddings)
                 slot->t_start_process = lm_ggml_time_us();
 
@@ -482,6 +485,7 @@ void llama_rn_slot_manager::process_pending_queue() {
             }
 
             case SLOT_TASK_TYPE_RERANK: {
+                slot->params = nullptr;
                 // Start timing (memory clear is part of the task, not overhead)
                 slot->t_start_process = lm_ggml_time_us();
 
@@ -813,12 +817,13 @@ void llama_rn_slot_manager::sample_and_callback() {
                 token_output.text = token_text;
                 token_output.request_id = slot.request_id;
 
-                llama_token_data_array* cur_p = common_sampler_get_candidates(slot.ctx_sampling, true);
-                if (cur_p != nullptr) {
-                    const int32_t n_probs = std::min(10, (int32_t)cur_p->size);
-                    for (int32_t i = 0; i < n_probs; ++i) {
-                        token_output.probs.push_back({cur_p->data[i].id, cur_p->data[i].p});
-                    }
+                const int32_t n_probs = slot.params->sampling.n_probs;
+                if (n_probs > 0) {
+                  llama_token_data_array cur_p = *common_sampler_get_candidates(slot.ctx_sampling, true);
+                  for (size_t i = 0; i < std::min(cur_p.size, (size_t)n_probs); ++i)
+                  {
+                      token_output.probs.push_back({cur_p.data[i].id, cur_p.data[i].p});
+                  }
                 }
 
                 slot.generated_tokens.push_back(new_token_id);

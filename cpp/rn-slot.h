@@ -95,6 +95,7 @@ struct llama_rn_slot {
     bool current_thinking_forced_open;
 
     // Sampling context (per-slot)
+    common_params* params;
     common_sampler* ctx_sampling;
 
     // Timing

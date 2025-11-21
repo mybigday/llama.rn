@@ -11,6 +11,9 @@
 #include <thread>
 #include <unordered_map>
 #include <list>
+#include <vector>
+#include <algorithm>
+#include <cstring>
 #include <nlohmann/json.hpp>
 #include "json-schema-to-grammar.h"
 #include "llama.h"
@@ -27,6 +30,88 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,     TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,     TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR,    TAG, __VA_ARGS__)
+
+static bool should_exclude_hexagon_device(lm_ggml_backend_dev_t dev) {
+#if defined(LM_GGML_USE_HEXAGON)
+    const char *dev_name = lm_ggml_backend_dev_name(dev);
+    if (dev_name != nullptr && strncmp(dev_name, "HTP", 3) == 0) {
+        LOGI("Skipping Hexagon device %s by default (experimental)", dev_name);
+        return true;
+    }
+#else
+    UNUSED(dev);
+#endif
+    return false;
+}
+
+// Copy default device selection of cpp/llama.cpp - Added hexagon device exclusion
+static std::vector<lm_ggml_backend_dev_t> get_filtered_default_devices() {
+    std::vector<lm_ggml_backend_dev_t> rpc_servers;
+    std::vector<lm_ggml_backend_dev_t> gpus;
+    std::vector<lm_ggml_backend_dev_t> igpus;
+
+    for (size_t i = 0; i < lm_ggml_backend_dev_count(); ++i) {
+        lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
+        if (should_exclude_hexagon_device(dev)) {
+            continue;
+        }
+
+        switch (lm_ggml_backend_dev_type(dev)) {
+            case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
+            case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
+                // skip CPU/ACCEL since handled separately
+                break;
+
+            case LM_GGML_BACKEND_DEVICE_TYPE_GPU: {
+                lm_ggml_backend_reg_t reg = lm_ggml_backend_dev_backend_reg(dev);
+                const char *reg_name = reg ? lm_ggml_backend_reg_name(reg) : nullptr;
+                if (reg_name != nullptr && strcmp(reg_name, "RPC") == 0) {
+                    rpc_servers.push_back(dev);
+                } else {
+                    lm_ggml_backend_dev_props props;
+                    lm_ggml_backend_dev_get_props(dev, &props);
+                    auto it = std::find_if(gpus.begin(), gpus.end(), [&props](lm_ggml_backend_dev_t other) {
+                        lm_ggml_backend_dev_props other_props;
+                        lm_ggml_backend_dev_get_props(other, &other_props);
+                        return props.device_id != nullptr &&
+                               other_props.device_id != nullptr &&
+                               strcmp(props.device_id, other_props.device_id) == 0;
+                    });
+
+                    if (it != gpus.end()) {
+                        LOGI("%s: skipping device %s (%s) with id %s - already using %s (%s)",
+                             __func__,
+                             lm_ggml_backend_dev_name(dev), lm_ggml_backend_dev_description(dev),
+                             props.device_id != nullptr ? props.device_id : "unknown id",
+                             lm_ggml_backend_dev_name(*it), lm_ggml_backend_dev_description(*it));
+                    } else {
+                        gpus.push_back(dev);
+                    }
+                }
+                break;
+            }
+
+            case LM_GGML_BACKEND_DEVICE_TYPE_IGPU:
+                igpus.push_back(dev);
+                break;
+        }
+    }
+
+    std::vector<lm_ggml_backend_dev_t> devices;
+    devices.insert(devices.end(), rpc_servers.begin(), rpc_servers.end());
+    devices.insert(devices.end(), gpus.begin(), gpus.end());
+
+    if (devices.empty()) {
+        devices.insert(devices.end(), igpus.begin(), igpus.end());
+    }
+
+    if (!devices.empty()) {
+        devices.push_back(nullptr);
+    }
+
+    return devices;
+}
+
 static inline int min(int a, int b) {
     return (a < b) ? a : b;
 }
@@ -44,7 +129,16 @@ extern "C" {
 void set_best_cores(struct cpu_params &params, int n) {
     int max_threads = std::thread::hardware_concurrency();
     // Use 2 threads by default on 4-core devices, 4 threads on more cores
+#if defined(LM_GGML_USE_HEXAGON)
+    // Hexagon path matches llama.cpp snapdragon defaults: prefer 6 host threads unless overridden.
+    int hex_default = 6;
+    if (max_threads > 0) {
+        hex_default = min(hex_default, max_threads);
+    }
+    int default_n_threads = hex_default;
+#else
     int default_n_threads = max_threads == 4 ? 2 : min(4, max_threads);
+#endif
     params.n_threads = n > 0 && n <= max_threads ? n : default_n_threads;
 
     std::vector<std::pair<int,int>> cores; // {freq, id}
@@ -571,6 +665,49 @@ Java_com_rnllama_LlamaContext_initContext(
         defaultParams.rope_freq_scale = readablemap::getFloat(env, params_map, "rope_freq_scale", 0.0f);
     }
 
+    bool has_devices_param = readablemap::hasKey(env, params_map, "devices");
+    if (has_devices_param) {
+        auto devices = readablemap::getArray(env, params_map, "devices");
+        int devices_size = readablearray::size(env, devices);
+
+        if (devices_size > 0) {
+            std::vector<lm_ggml_backend_dev_t> devs;
+            for (size_t i = 0; i < lm_ggml_backend_dev_count(); ++i) {
+                lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
+                const char *dev_name = lm_ggml_backend_dev_name(dev);
+
+                for (int j = 0; j < devices_size; ++j) {
+                    auto device = readablearray::getString(env, devices, j);
+                    auto device_str = env->GetStringUTFChars(device, nullptr);
+                    env->ReleaseStringUTFChars(device, device_str);
+                    if (strcmp(dev_name, device_str) == 0) {
+                        switch (lm_ggml_backend_dev_type(dev)) {
+                            case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
+                            case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
+                            case LM_GGML_BACKEND_DEVICE_TYPE_GPU:
+                            case LM_GGML_BACKEND_DEVICE_TYPE_IGPU:
+                                LOGI("Device name: %s", dev_name);
+                                devs.push_back(dev);
+                                break;
+                        }
+                        break;
+                    }
+                }
+            }
+            if (!devs.empty()) {
+                defaultParams.devices = devs;
+                defaultParams.devices.push_back(nullptr);
+            }
+        }
+    }
+
+    if (!has_devices_param && defaultParams.devices.empty()) {
+        auto filtered_default_devices = get_filtered_default_devices();
+        if (!filtered_default_devices.empty()) {
+            defaultParams.devices = filtered_default_devices;
+        }
+    }
+
     auto llama = new rnllama::llama_rn_context();
     llama->is_load_interrupted = false;
     llama->loading_progress = 0;
@@ -598,6 +735,9 @@ Java_com_rnllama_LlamaContext_initContext(
         defaultParams.progress_callback_user_data = cb_ctx;
     }
 
+    auto sysinfo = common_params_get_system_info(defaultParams).c_str();
+    LLAMA_LOG("System Info: %s", sysinfo);
+
     bool is_model_loaded = llama->loadModel(defaultParams);
 
     // Cleanup string resources (lora cleaned up later after applyLoraAdapters)
@@ -619,14 +759,13 @@ Java_com_rnllama_LlamaContext_initContext(
     if (is_model_loaded) {
         if (embedding && llama_model_has_encoder(llama->model) && llama_model_has_decoder(llama->model)) {
             LOGI("[RNLlama] computing embeddings in encoder-decoder models is not supported");
-            llama_free(llama->ctx);
             context_map.erase((long) llama->ctx);
             delete llama;
             return nullptr;
         }
+        llama->attachThreadpoolsIfAvailable();
         context_map[(long) llama->ctx] = llama;
     } else {
-        llama_free(llama->ctx);
         delete llama;
         return nullptr;
     }
@@ -684,7 +823,6 @@ Java_com_rnllama_LlamaContext_initContext(
 
     if (result != 0) {
       LOGI("[RNLlama] Failed to apply lora adapters");
-      llama_free(llama->ctx);
       context_map.erase((long) llama->ctx);
       delete llama;
       return nullptr;
@@ -693,7 +831,7 @@ Java_com_rnllama_LlamaContext_initContext(
     bool gpu_used = false;
     bool gpu_device_available = false;
     std::string reason_no_gpu = "";
-    std::string gpu_device_name = "";
+    auto used_devices = writablearray::createWritableArray(env);
 
     bool has_explicit_devices = !llama->params.devices.empty();
     bool explicit_gpu_requested = false;
@@ -713,17 +851,15 @@ Java_com_rnllama_LlamaContext_initContext(
             auto dev_type = lm_ggml_backend_dev_type(dev);
             if (dev_type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || dev_type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
                 gpu_used = true;
-                if (gpu_device_name.empty()) {
-                    const char *used_name = lm_ggml_backend_dev_name(dev);
-                    if (used_name != nullptr) {
-                        gpu_device_name = used_name;
-                    }
-                }
+            }
+            const char *used_name = lm_ggml_backend_dev_name(dev);
+            if (used_name != nullptr) {
+                writablearray::pushString(env, used_devices, used_name);
             }
         }
     }
 
-#ifdef LM_GGML_USE_OPENCL
+#if defined(LM_GGML_USE_OPENCL) || defined(LM_GGML_USE_HEXAGON)
     const size_t backend_dev_count = lm_ggml_backend_dev_count();
     for (size_t i = 0; i < backend_dev_count; ++i) {
         lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
@@ -737,12 +873,12 @@ Java_com_rnllama_LlamaContext_initContext(
 #endif
 
     if (!gpu_used) {
-#ifdef LM_GGML_USE_OPENCL
+#if defined(LM_GGML_USE_OPENCL) || defined(LM_GGML_USE_HEXAGON)
         if (!gpu_device_available) {
-            reason_no_gpu = "No compatible OpenCL GPU detected";
+            reason_no_gpu = "No compatible OpenCL GPU or Hexagon detected";
         }
 #else
-        reason_no_gpu = "OpenCL backend not enabled in this build";
+        reason_no_gpu = "OpenCL or Hexagon backend not enabled in this build";
 #endif
         if (reason_no_gpu.empty() && explicit_gpu_requested) {
             reason_no_gpu = "GPU requested but not used";
@@ -757,9 +893,9 @@ Java_com_rnllama_LlamaContext_initContext(
     writablemap::putString(env, result_map, "context", context_str.c_str());
     writablemap::putBoolean(env, result_map, "gpu", gpu_used);
     writablemap::putString(env, result_map, "reasonNoGPU", reason_no_gpu.c_str());
-    if (gpu_used && !gpu_device_name.empty()) {
-        writablemap::putString(env, result_map, "gpuDevice", gpu_device_name.c_str());
-    }
+    writablemap::putArray(env, result_map, "devices", used_devices);
+    auto system_info = common_params_get_system_info(defaultParams);
+    writablemap::putString(env, result_map, "systemInfo", system_info.c_str());
 
     return result_map;
 }
@@ -1395,7 +1531,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
     // Release prompt_chars
     env->ReleaseStringUTFChars(prompt, prompt_chars);
 
-    llama_perf_context_print(llama->ctx);
+    common_perf_print(llama->ctx, llama->completion->ctx_sampling);
     llama->completion->endCompletion();
 
     auto toolCalls = writablearray::createWritableArray(env);

@@ -73,6 +73,14 @@ static inline float op_log(float x) {
     return logf(x);
 }
 
+static inline float op_expm1(float x) {
+    return expf(x) - 1.0f;
+}
+
+static inline float op_softplus(float x) {
+    return (x > 20.0f) ? x : logf(1.0f + expf(x));
+}
+
 static inline float op_floor(float x) {
     return floorf(x);
 }
@@ -288,6 +296,14 @@ void lm_ggml_compute_forward_cos(const lm_ggml_compute_params * params, lm_ggml_
 
 void lm_ggml_compute_forward_log(const lm_ggml_compute_params * params, lm_ggml_tensor * dst) {
     unary_op<op_log>(params, dst);
+}
+
+void lm_ggml_compute_forward_expm1(const lm_ggml_compute_params * params, lm_ggml_tensor * dst) {
+    unary_op<op_expm1>(params, dst);
+}
+
+void lm_ggml_compute_forward_softplus(const lm_ggml_compute_params * params, lm_ggml_tensor * dst) {
+    unary_op<op_softplus>(params, dst);
 }
 
 void lm_ggml_compute_forward_floor(const lm_ggml_compute_params * params, lm_ggml_tensor * dst) {

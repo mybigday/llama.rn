@@ -122,6 +122,17 @@ jobs:
   build-android-from-source:
     runs-on: ubuntu-latest
     steps:
+      - name: Maximize build space
+        run: |
+          df -h
+          echo "Removing dotnet"
+          sudo rm -rf /usr/share/dotnet
+          echo "Removing ghc"
+          sudo rm -rf /opt/ghc
+          echo "Removing CodeQL"
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -129,12 +140,28 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Build example for Android
+        env:
+          HEXAGON_SDK_VERSION: 6.4.0.2
+          HEXAGON_TOOLS_VERSION: 19.0.04
         run: |
+          export HEXAGON_SDK_ROOT="$HOME/.hexagon-sdk/$HEXAGON_SDK_VERSION"
+          export HEXAGON_TOOLS_ROOT="$HEXAGON_SDK_ROOT/tools/HEXAGON_Tools/$HEXAGON_TOOLS_VERSION"
           npm run build:android
 
   build-android-libs:
     runs-on: ubuntu-latest
     steps:
+      - name: Maximize build space
+        run: |
+          df -h
+          echo "Removing dotnet"
+          sudo rm -rf /usr/share/dotnet
+          echo "Removing ghc"
+          sudo rm -rf /opt/ghc
+          echo "Removing CodeQL"
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
+
       - name: Checkout
         uses: actions/checkout@v4
 

@@ -272,6 +272,9 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
         {
           model: modelPath,
           ...params,
+          // devices: ['HTP0'],
+          // devices: ['HTP0', 'HTP1', 'CPU'],
+          // devices: ['HTP*'],
         },
         (progress) => {
           // Progress is reported as 1 to 100

@@ -1,6 +1,6 @@
 {
   "name": "llama.rn",
-  "version": "0.8.0",
+  "version": "0.8.3",
   "description": "React Native binding of llama.cpp",
   "main": "lib/commonjs/index",
   "module": "lib/module/index",
@@ -42,7 +42,7 @@
     "example": "npm --prefix example",
     "build:ios-frameworks": "./scripts/build-ios.sh",
     "build:ios": "cd example/ios && xcodebuild -workspace RNLlamaExample.xcworkspace -scheme RNLlamaExample -configuration Debug -sdk iphonesimulator CC=clang CPLUSPLUS=clang++ LD=clang LDPLUSPLUS=clang++ GCC_OPTIMIZATION_LEVEL=0 GCC_PRECOMPILE_PREFIX_HEADER=YES ASSETCATALOG_COMPILER_OPTIMIZATION=time DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=NO",
-    "build:android-libs": "./scripts/build-opencl.sh && ./scripts/build-android.sh",
+    "build:android-libs": "./scripts/build-hexagon-htp.sh && ./scripts/build-opencl.sh && ./scripts/build-android.sh",
     "build:android": "cd example/android && ./gradlew assembleDebug",
     "clean": "del-cli example/ios/build"
   },

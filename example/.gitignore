@@ -5,3 +5,4 @@ rnllama-release.keystore
 .notes.txt
 *.app.dSYM.zip
 report.xml
+assets/

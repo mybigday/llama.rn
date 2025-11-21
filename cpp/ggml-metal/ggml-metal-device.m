@@ -878,6 +878,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
         case LM_GGML_OP_SUM:
             return has_simdgroup_reduction && lm_ggml_is_contiguous(op->src[0]);
         case LM_GGML_OP_SUM_ROWS:
+        case LM_GGML_OP_CUMSUM:
         case LM_GGML_OP_MEAN:
         case LM_GGML_OP_SOFT_MAX:
         case LM_GGML_OP_GROUP_NORM:
@@ -893,6 +894,11 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
             return true;
         case LM_GGML_OP_IM2COL:
             return lm_ggml_is_contiguous(op->src[1]) && op->src[1]->type == LM_GGML_TYPE_F32 && (op->type == LM_GGML_TYPE_F16 || op->type == LM_GGML_TYPE_F32);
+        case LM_GGML_OP_CONV_2D:
+            return lm_ggml_is_contiguous(op->src[0]) &&
+                   op->src[1]->type == LM_GGML_TYPE_F32 &&
+                   op->type == LM_GGML_TYPE_F32 &&
+                   (op->src[0]->type == LM_GGML_TYPE_F16 || op->src[0]->type == LM_GGML_TYPE_F32);
         case LM_GGML_OP_POOL_1D:
             return false;
         case LM_GGML_OP_UPSCALE:
@@ -907,8 +913,6 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
         case LM_GGML_OP_LEAKY_RELU:
             return op->src[0]->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_ARGSORT:
-            // TODO: Support arbitrary column width
-            return op->src[0]->ne[0] <= 1024;
         case LM_GGML_OP_ARANGE:
             return true;
         case LM_GGML_OP_FLASH_ATTN_EXT:
@@ -993,7 +997,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                                 return false;
                         }
                     case LM_GGML_TYPE_I32:
-                        return op->type == LM_GGML_TYPE_F32;
+                        return op->type == LM_GGML_TYPE_F32 || op->type == LM_GGML_TYPE_I32;
                     default:
                         return false;
                 };
