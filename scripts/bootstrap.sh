@@ -240,6 +240,8 @@ cp ./$LLAMA_DIR/common/chat.h ./cpp/chat.h
 cp ./$LLAMA_DIR/common/chat.cpp ./cpp/chat.cpp
 cp ./$LLAMA_DIR/common/chat-parser.h ./cpp/chat-parser.h
 cp ./$LLAMA_DIR/common/chat-parser.cpp ./cpp/chat-parser.cpp
+cp ./$LLAMA_DIR/common/chat-parser-xml-toolcall.h ./cpp/chat-parser-xml-toolcall.h
+cp ./$LLAMA_DIR/common/chat-parser-xml-toolcall.cpp ./cpp/chat-parser-xml-toolcall.cpp
 
 # Copy multimodal files from tools/mtmd
 rm -rf ./cpp/tools/mtmd
