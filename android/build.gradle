@@ -15,8 +15,64 @@ def isNewArchitectureEnabled() {
 
 apply plugin: "com.android.library"
 
+def repoRootDir = project.projectDir.parentFile
+def htpLibSourceDir = new File(repoRootDir, "bin/arm64-v8a")
+def isRNLlamaBuildFromSource = (project.findProperty("rnllamaBuildFromSource") ?: "false").toString() == "true"
 
 def appProject = rootProject.allprojects.find { it.plugins.hasPlugin('com.android.application') }
+
+if (appProject != null) {
+  def configureHtpSyncTask = { Project applicationProject ->
+    def assetsRootDir = new File(applicationProject.projectDir, "src/main/assets")
+    def ggmlHexagonDir = new File(assetsRootDir, "ggml-hexagon")
+
+    def syncTask = applicationProject.tasks.register("syncRNLlamaHtpAssets", Copy) {
+      group = "llama.rn"
+      description = "Copies llama.rn Hexagon HTP libraries into the host application's assets directory."
+
+      onlyIf {
+        if (!htpLibSourceDir.exists()) {
+          logger.info("llama.rn: No HTP libraries found at ${htpLibSourceDir.absolutePath}, skipping asset sync")
+          return false
+        }
+        true
+      }
+
+      doFirst {
+        if (!assetsRootDir.exists()) {
+          assetsRootDir.mkdirs()
+        }
+        if (!ggmlHexagonDir.exists()) {
+          ggmlHexagonDir.mkdirs()
+          return
+        }
+        ggmlHexagonDir.listFiles { File file, String name ->
+          name.startsWith("libggml-htp-") && name.endsWith(".so")
+        }?.each { File lib ->
+          lib.delete()
+        }
+      }
+
+      into(assetsRootDir)
+      from(htpLibSourceDir) {
+        include "libggml-htp-*.so"
+        into "ggml-hexagon"
+      }
+    }
+
+    applicationProject.tasks.matching { it.name == "preBuild" }.configureEach {
+      dependsOn(syncTask)
+    }
+  }
+
+  if (appProject.state.executed) {
+    configureHtpSyncTask(appProject)
+  } else {
+    appProject.afterEvaluate {
+      configureHtpSyncTask(appProject)
+    }
+  }
+}
 
 if (isNewArchitectureEnabled()) {
   apply plugin: "com.facebook.react"
@@ -48,21 +104,23 @@ android {
     minSdkVersion getExtOrIntegerDefault("minSdkVersion")
     targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
     buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
-    def rnllamaBuildFromSourceFlag = project.properties["rnllamaBuildFromSource"] == "true" ? "ON" : "OFF"
+    def rnllamaBuildFromSourceFlag = isRNLlamaBuildFromSource ? "ON" : "OFF"
+    def homeDir = System.getProperty("user.home")
+    def hexagonSdkRoot = System.getenv('HEXAGON_SDK_ROOT') ?: "${homeDir}/.hexagon-sdk/6.4.0.2"
+    def hexagonToolsRoot = System.getenv('HEXAGON_TOOLS_ROOT') ?: "${homeDir}/.hexagon-sdk/6.4.0.2/tools/HEXAGON_Tools/19.0.04"
     externalNativeBuild {
       cmake {
         abiFilters (*reactNativeArchitectures())
-        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}"
+        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}", "-DHEXAGON_SDK_ROOT=${hexagonSdkRoot}", "-DHEXAGON_TOOLS_ROOT=${hexagonToolsRoot}"
       }
     }
   }
-  def rnllamaBuildFromSource = project.properties["rnllamaBuildFromSource"]
   externalNativeBuild {
     cmake {
       path = file('src/main/CMakeLists.txt')
     }
   }
-  if (rnllamaBuildFromSource == "true") {
+  if (isRNLlamaBuildFromSource) {
     // When building from source, exclude prebuilt jniLibs
     sourceSets {
       main {
@@ -83,6 +141,12 @@ android {
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_1_8
     targetCompatibility JavaVersion.VERSION_1_8
+  }
+
+  packagingOptions {
+    jniLibs {
+      excludes += ["**/libcdsprpc.so"]
+    }
   }
 
   sourceSets {

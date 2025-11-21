@@ -297,14 +297,21 @@ bool llama_rn_slot::load_state() {
     }
 
 #ifdef LM_GGML_USE_OPENCL
-    int n_gpu_layers = parent_ctx->params.n_gpu_layers;
+    const auto &model_devices = parent_ctx->llama_init.model->devices;
+    auto has_opencl = false;
+    for (const auto &dev : model_devices) {
+        const char *dev_name = lm_ggml_backend_dev_name(dev);
+        if (strncmp(dev_name, "GPUOpenCL", 9) == 0) {
+            has_opencl = true;
+        }
+    }
     // TODO: Figure out how to handle this in a more elegant way
-    if (n_gpu_layers > 0 && !parent_ctx->params.kv_unified) {
-        LOG_ERROR("Slot %d: Cannot save state - kv_unified is not enabled with OpenCL backend", id);
+    if (has_opencl && !parent_ctx->params.kv_unified) {
+        LOG_ERROR("Slot %d: Cannot load state - kv_unified is not enabled with OpenCL backend", id);
         return false;
     }
-    if (n_gpu_layers > 0 && parent_ctx->params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED) {
-        LOG_ERROR("Slot %d: Cannot save state - flash_attn_type is not disabled with OpenCL backend", id);
+    if (has_opencl && parent_ctx->params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED) {
+        LOG_ERROR("Slot %d: Cannot load state - flash_attn_type is not disabled with OpenCL backend", id);
         return false;
     }
 #endif
@@ -375,15 +382,23 @@ bool llama_rn_slot::save_state() {
         return false;
     }
 
+
 #ifdef LM_GGML_USE_OPENCL
-    int n_gpu_layers = parent_ctx->params.n_gpu_layers;
+    const auto &model_devices = parent_ctx->llama_init.model->devices;
+    auto has_opencl = false;
+    for (const auto &dev : model_devices) {
+        const char *dev_name = lm_ggml_backend_dev_name(dev);
+        if (strncmp(dev_name, "GPUOpenCL", 9) == 0) {
+            has_opencl = true;
+        }
+    }
     // TODO: Figure out how to handle this in a more elegant way
-    if (n_gpu_layers > 0 && !parent_ctx->params.kv_unified) {
-        LOG_ERROR("Slot %d: Cannot save state - kv_unified is not enabled on OpenCL backend", id);
+    if (has_opencl && !parent_ctx->params.kv_unified) {
+        LOG_ERROR("Slot %d: Cannot save state - kv_unified is not enabled with OpenCL backend", id);
         return false;
     }
-    if (n_gpu_layers > 0 && !parent_ctx->params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED) {
-        LOG_ERROR("Slot %d: Cannot save state - flash_attn_type is not disabled on OpenCL backend", id);
+    if (has_opencl && parent_ctx->params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED) {
+        LOG_ERROR("Slot %d: Cannot save state - flash_attn_type is not disabled with OpenCL backend", id);
         return false;
     }
 #endif

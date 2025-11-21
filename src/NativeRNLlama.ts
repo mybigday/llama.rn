@@ -31,8 +31,14 @@ export type NativeContextParams = {
    * Number of layers to store in VRAM (Currently only for iOS)
    */
   n_gpu_layers?: number
+
   /**
-   * Skip GPU devices (iOS only)
+   * Backend devices choice to use. Default equals to result of `getBackendDevicesInfo.
+   */
+  devices?: Array<string>
+
+  /**
+   * Skip GPU devices (iOS only) (Deprecated: Please set devices params instead)
    */
   no_gpu_devices?: boolean
 
@@ -434,7 +440,7 @@ export type NativeLlamaContext = {
   /**
    * Name of the GPU device used on Android/iOS (if available)
    */
-  gpuDevice?: string
+  devices?: Array<string>
   gpu: boolean
   reasonNoGPU: string
   systemInfo: string

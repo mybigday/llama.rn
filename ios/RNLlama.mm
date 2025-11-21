@@ -93,10 +93,7 @@ RCT_EXPORT_METHOD(initContext:(double)contextId
           @"model": [context modelInfo],
           @"systemInfo": [context systemInfo],
       } mutableCopy];
-      NSString *gpuDevice = [context gpuDeviceName];
-      if (gpuDevice != nil && [gpuDevice length] > 0) {
-          result[@"gpuDevice"] = gpuDevice;
-      }
+      result[@"devices"] = [context usedDevices];;
       resolve(result);
     } @catch (NSException *exception) {
       reject(@"llama_cpp_error", exception.reason, nil);
