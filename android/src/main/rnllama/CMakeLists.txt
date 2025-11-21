@@ -54,6 +54,7 @@ set(
     ${RNLLAMA_LIB_DIR}/chat.cpp
     ${RNLLAMA_LIB_DIR}/json-schema-to-grammar.cpp
     ${RNLLAMA_LIB_DIR}/chat-parser.cpp
+    ${RNLLAMA_LIB_DIR}/chat-parser-xml-toolcall.cpp
     ${RNLLAMA_LIB_DIR}/json-partial.cpp
     ${RNLLAMA_LIB_DIR}/regex-partial.cpp
     ${RNLLAMA_LIB_DIR}/anyascii.c

@@ -77,6 +77,7 @@ set(RNLLAMA_COMMON_SOURCES
     ${SOURCE_DIR}/chat.cpp
     ${SOURCE_DIR}/json-schema-to-grammar.cpp
     ${SOURCE_DIR}/chat-parser.cpp
+    ${SOURCE_DIR}/chat-parser-xml-toolcall.cpp
     ${SOURCE_DIR}/json-partial.cpp
     ${SOURCE_DIR}/regex-partial.cpp
     ${SOURCE_DIR}/anyascii.c

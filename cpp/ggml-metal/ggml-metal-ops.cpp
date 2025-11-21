@@ -11,6 +11,7 @@
 #include <cassert>
 #include <algorithm>
 #include <limits>
+#include <cmath>
 
 static lm_ggml_metal_buffer_id lm_ggml_metal_get_buffer_id(const lm_ggml_tensor * t) {
     if (!t) {
