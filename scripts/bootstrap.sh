@@ -1,6 +1,7 @@
 #!/bin/bash -e
 
 ROOT_DIR=$(pwd)
+OS=$(uname)
 
 LLAMA_DIR=third_party/llama.cpp
 CPP_DIR="$ROOT_DIR/cpp"
@@ -8,6 +9,94 @@ SRC_DIR="$ROOT_DIR/src"
 
 git submodule init "$LLAMA_DIR"
 git submodule update --recursive "$LLAMA_DIR"
+
+# Hexagon SDK setup for Android builds
+echo ""
+echo "=========================================="
+echo "Hexagon SDK Setup"
+echo "=========================================="
+echo ""
+
+# Check if Docker is available and recommend it
+if command -v docker &> /dev/null && docker info &> /dev/null 2>&1; then
+  echo "✓ Docker is available!"
+  echo ""
+  echo "For Hexagon builds, we recommend using Docker for consistent builds."
+  echo "Docker provides a pre-configured environment with all dependencies."
+  echo ""
+  echo "Build commands:"
+  echo "  ./scripts/build-android-docker.sh    - Build everything with Docker"
+  echo "  ./scripts/build-hexagon-htp.sh       - Build HTP libraries (auto-detects Docker)"
+  echo ""
+
+  # Pull Docker image in background
+  DOCKER_IMAGE="ghcr.io/snapdragon-toolchain/arm64-android:v0.3"
+  if ! docker image inspect "$DOCKER_IMAGE" &> /dev/null; then
+    echo "Pulling Docker image in background..."
+    echo "  Image: $DOCKER_IMAGE"
+    docker pull "$DOCKER_IMAGE" &
+    DOCKER_PULL_PID=$!
+    echo "  (Pull process running in background, PID: $DOCKER_PULL_PID)"
+  else
+    echo "✓ Docker image already present: $DOCKER_IMAGE"
+  fi
+  echo ""
+else
+  echo "Docker not available. You can:"
+  echo "  1. Install Docker for consistent builds (recommended)"
+  echo "  2. Install Hexagon SDK manually for native Linux builds"
+  echo ""
+fi
+
+# Download and setup Hexagon SDK (for all platforms)
+# On macOS: Needed for libcdsprpc.so linking when building Android libraries
+# On Linux: Can be used for native builds without Docker
+HEXAGON_SDK_VERSION="6.4.0.2"
+HEXAGON_TOOLS_VERSION="19.0.04"
+HEXAGON_INSTALL_DIR="${HEXAGON_INSTALL_DIR:-$HOME/.hexagon-sdk}"
+
+if [ ! -d "$HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION" ]; then
+  echo "Downloading Hexagon SDK v${HEXAGON_SDK_VERSION}..."
+  echo ""
+
+  if [ "$OS" = "Darwin" ]; then
+    echo "Note: SDK tools won't run on macOS, but libcdsprpc.so is needed for linking"
+  fi
+  echo ""
+
+  TEMP_DIR=$(mktemp -d)
+  cd "$TEMP_DIR"
+
+  curl -L -o hex-sdk.tar.gz \
+    "https://github.com/snapdragon-toolchain/hexagon-sdk/releases/download/v${HEXAGON_SDK_VERSION}/hexagon-sdk-v${HEXAGON_SDK_VERSION}-amd64-lnx.tar.xz"
+
+  echo "Extracting Hexagon SDK..."
+  mkdir -p "$HEXAGON_INSTALL_DIR"
+  tar -xaf hex-sdk.tar.gz -C "$HEXAGON_INSTALL_DIR"
+
+  cd "$ROOT_DIR"
+  rm -rf "$TEMP_DIR"
+
+  echo "Hexagon SDK installed to: $HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION"
+  echo ""
+  echo "The build scripts will automatically detect and use the SDK."
+  echo ""
+  echo "To build with Docker (recommended):"
+  echo "  ./scripts/build-android-docker.sh"
+  echo ""
+  if [ "$OS" != "Darwin" ]; then
+    echo "Or build natively on Linux:"
+    echo "  USE_DOCKER=no ./scripts/build-hexagon-htp.sh"
+    echo "  npm run build:android-libs"
+    echo ""
+  fi
+else
+  echo "✓ Hexagon SDK installed: $HEXAGON_INSTALL_DIR/$HEXAGON_SDK_VERSION"
+  echo ""
+fi
+
+echo "=========================================="
+echo ""
 
 # ggml api
 cp ./$LLAMA_DIR/ggml/include/ggml.h ./cpp/ggml.h
@@ -19,6 +108,7 @@ cp ./$LLAMA_DIR/ggml/include/ggml-opt.h ./cpp/ggml-opt.h
 cp ./$LLAMA_DIR/ggml/include/ggml-metal.h ./cpp/ggml-metal.h
 cp ./$LLAMA_DIR/ggml/include/ggml-opencl.h ./cpp/ggml-opencl.h
 cp ./$LLAMA_DIR/ggml/include/ggml-blas.h ./cpp/ggml-blas.h
+cp ./$LLAMA_DIR/ggml/include/ggml-hexagon.h ./cpp/ggml-hexagon.h
 cp ./$LLAMA_DIR/ggml/include/gguf.h ./cpp/gguf.h
 
 cp -r ./$LLAMA_DIR/ggml/src/ggml-metal ./cpp/
@@ -30,6 +120,9 @@ rm ./cpp/ggml-blas/CMakeLists.txt
 
 cp -r ./$LLAMA_DIR/ggml/src/ggml-opencl ./cpp/
 rm ./cpp/ggml-opencl/CMakeLists.txt
+
+cp -r ./$LLAMA_DIR/ggml/src/ggml-hexagon ./cpp/
+# Keep CMakeLists.txt for hexagon as it's needed for building HTP components
 
 cp ./$LLAMA_DIR/ggml/src/ggml-cpu/ggml-cpu.c ./cpp/ggml-cpu/ggml-cpu.c
 cp ./$LLAMA_DIR/ggml/src/ggml-cpu/ggml-cpu.cpp ./cpp/ggml-cpu/ggml-cpu.cpp
@@ -181,6 +274,12 @@ files_add_lm_prefix=(
 
   ./cpp/ggml-opencl/*.cpp
 
+  ./cpp/ggml-hexagon/*.cpp
+  ./cpp/ggml-hexagon/*.c
+  ./cpp/ggml-hexagon/*.h
+  ./cpp/ggml-hexagon/htp/*.c
+  ./cpp/ggml-hexagon/htp/*.h
+
   ./cpp/ggml-cpu/*.h
   ./cpp/ggml-cpu/*.c
   ./cpp/ggml-cpu/*.cpp
@@ -206,7 +305,6 @@ files_add_lm_prefix=(
 )
 
 # Loop through each file and run the sed commands
-OS=$(uname)
 for file in "${files_add_lm_prefix[@]}"; do
   # Skip cpp/rn-* files
   if [[ $file == *"/cpp/rn-"* ]]; then
@@ -278,6 +376,7 @@ patch -p0 -d ./cpp < ./scripts/patches/llama-mmap.cpp.patch
 patch -p0 -d ./cpp/minja < ./scripts/patches/minja.hpp.patch
 patch -p0 -d ./cpp/minja < ./scripts/patches/chat-template.hpp.patch
 patch -p0 -d ./cpp/ggml-metal < ./scripts/patches/ggml-metal-device.m.patch
+patch -p0 -d ./cpp/ggml-hexagon < ./scripts/patches/ggml-hexagon.cpp.patch
 rm -rf ./cpp/*.orig
 rm -rf ./cpp/**/*.orig
 

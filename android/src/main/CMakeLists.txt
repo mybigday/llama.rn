@@ -28,6 +28,16 @@ set(JNI_SOURCE_FILES
 )
 
 function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
+    set(ENABLE_OPENCL OFF)
+    if (${rnllama_name} MATCHES ".*_opencl$")
+        set(ENABLE_OPENCL ON)
+    endif ()
+
+    set(ENABLE_HEXAGON OFF)
+    if (${rnllama_name} MATCHES ".*_hexagon.*")
+        set(ENABLE_HEXAGON ON)
+    endif ()
+
     # Create the shared library with JNI wrapper
     add_library(
         ${jni_name}
@@ -60,7 +70,7 @@ function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
     target_compile_options(${jni_name} PRIVATE -pthread ${cpu_flags})
 
     # Special handling for OpenCL variant when building from source
-    if (RNLLAMA_BUILD_FROM_SOURCE AND ${rnllama_name} STREQUAL "rnllama_v8_2_dotprod_i8mm_opencl")
+    if (RNLLAMA_BUILD_FROM_SOURCE AND ENABLE_OPENCL)
         set(OPENCL_STUB_DIR ${CMAKE_SOURCE_DIR}/../../../bin/${ANDROID_ABI})
         set(OPENCL_STUB ${OPENCL_STUB_DIR}/libOpenCL.so)
 
@@ -71,6 +81,14 @@ function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
             message(WARNING "OpenCL library not found for JNI wrapper. Please build with ./scripts/build-opencl.sh")
         endif()
     endif()
+    if (ENABLE_OPENCL)
+        target_compile_options(${jni_name} PRIVATE -DLM_GGML_USE_OPENCL)
+    endif()
+
+    if (ENABLE_HEXAGON)
+        target_compile_options(${jni_name} PRIVATE -DLM_GGML_USE_HEXAGON)
+    endif()
+
 
     # Optimize JNI wrapper
     target_compile_options(${jni_name} PRIVATE -O3 -DNDEBUG)
@@ -94,7 +112,7 @@ if (ANDROID_ABI AND ANDROID_ABI STREQUAL "arm64-v8a")
     build_rnllama_jni("rnllama_jni_v8_2_dotprod" "rnllama_v8_2_dotprod" "arm" "-march=armv8.2-a+dotprod")
     build_rnllama_jni("rnllama_jni_v8_2_i8mm" "rnllama_v8_2_i8mm" "arm" "-march=armv8.2-a+i8mm")
     build_rnllama_jni("rnllama_jni_v8_2_dotprod_i8mm" "rnllama_v8_2_dotprod_i8mm" "arm" "-march=armv8.2-a+dotprod+i8mm")
-    build_rnllama_jni("rnllama_jni_v8_2_dotprod_i8mm_opencl" "rnllama_v8_2_dotprod_i8mm_opencl" "arm" "-march=armv8.2-a+dotprod+i8mm")
+    build_rnllama_jni("rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl" "rnllama_v8_2_dotprod_i8mm_hexagon_opencl" "arm" "-march=armv8.2-a+dotprod+i8mm")
 
     # https://github.com/ggerganov/llama.cpp/blob/master/docs/android.md#cross-compile-using-android-ndk
     # llama.cpp will deal with the cpu features

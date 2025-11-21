@@ -129,12 +129,35 @@
     if (params[@"n_ctx"]) defaultParams.n_ctx = [params[@"n_ctx"] intValue];
     if (params[@"use_mlock"]) defaultParams.use_mlock = [params[@"use_mlock"]boolValue];
 
+    if (params[@"devices"]) {
+        std::vector<lm_ggml_backend_dev_t> devs;
+        for (size_t i = 0; i < lm_ggml_backend_dev_count(); ++i) {
+            lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
+            const char *dev_name = lm_ggml_backend_dev_name(dev);
+
+            if ([params[@"devices"] containsObject:[NSString stringWithUTF8String:dev_name]]) {
+                switch (lm_ggml_backend_dev_type(dev)) {
+                    case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
+#ifndef TARGET_OS_SIMULATOR
+                    case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
+#endif
+                    case LM_GGML_BACKEND_DEVICE_TYPE_GPU:
+                        devs.push_back(dev);
+                        break;
+                }
+            }
+        }
+        if (!devs.empty()) {
+            defaultParams.devices = devs;
+            defaultParams.devices.push_back(nullptr);
+        }
+    }
+
+
     BOOL isGpuAvailable = [self isGpuAvailable:params];
-    BOOL skipGpuDevices = !isGpuAvailable || (params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue]);
 
     BOOL isMetalEnabled = false;
     NSString *reasonNoMetal = @"";
-    NSString *gpuDeviceName = @"";
     defaultParams.n_gpu_layers = 0;
 
     if (isGpuAvailable) {
@@ -145,12 +168,6 @@
 #else
         defaultParams.n_gpu_layers = [params[@"n_gpu_layers"] intValue];
         isMetalEnabled = true;
-        if (!skipGpuDevices && defaultParams.n_gpu_layers > 0) {
-            id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-            if (device) {
-                gpuDeviceName = device.name ?: @"";
-            }
-        }
 #endif
     } else {
         if (params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue]) {
@@ -165,6 +182,7 @@
         isMetalEnabled = false;
     }
 
+    BOOL skipGpuDevices = !isGpuAvailable || (params[@"no_gpu_devices"] && [params[@"no_gpu_devices"] boolValue]); // Deprecated in favor of `devices`
     if (skipGpuDevices) {
         std::vector<lm_ggml_backend_dev_t> cpu_devs;
         for (size_t i = 0; i < lm_ggml_backend_dev_count(); ++i) {
@@ -184,7 +202,6 @@
             defaultParams.devices = cpu_devs;
             defaultParams.n_gpu_layers = 0;
             isMetalEnabled = false;
-            gpuDeviceName = @"";
         }
     }
 
@@ -281,8 +298,18 @@
     }
 
     context->is_model_loaded = context->llama->loadModel(defaultParams);
+    NSMutableArray *usedDevices = [NSMutableArray array];
     if (context->is_model_loaded) {
         context->llama->attachThreadpoolsIfAvailable();
+
+        const auto &model_devices = context->llama->llama_init.model->devices;
+        for (auto dev : model_devices) {
+            auto dev_type = lm_ggml_backend_dev_type(dev);
+            const char *used_name = lm_ggml_backend_dev_name(dev);
+            if (used_name != nullptr) {
+                [usedDevices addObject:[NSString stringWithUTF8String:used_name]];
+            }
+        }
     }
 
     if (
@@ -323,7 +350,7 @@
 
     context->is_metal_enabled = isMetalEnabled;
     context->reason_no_metal = reasonNoMetal;
-    context->gpu_device_name = gpuDeviceName ?: @"";
+    context->used_devices = usedDevices;
     context->system_info = [NSString stringWithUTF8String:common_params_get_system_info(defaultParams).c_str()];
 
     return context;
@@ -341,8 +368,8 @@
     return reason_no_metal;
 }
 
-- (NSString *)gpuDeviceName {
-    return gpu_device_name;
+- (NSArray *)usedDevices {
+    return used_devices;
 }
 
 - (NSDictionary *)modelInfo {

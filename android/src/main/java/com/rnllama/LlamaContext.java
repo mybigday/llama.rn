@@ -16,13 +16,24 @@ import java.lang.StringBuilder;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.regex.Pattern;
 
 public class LlamaContext {
   public static final String NAME = "RNLlamaContext";
 
   private static String loadedLibrary = "";
+  private static final int HTP_DIR_MODE = 0755;  // rwx for owner, rx for group/others
+  private static final int HTP_FILE_MODE = 0755;
+  private static final String HTP_DIR_NAME = "rnllama-htp";
+  private static final String[] HTP_LIBS = {
+    "libggml-htp-v73.so",
+    "libggml-htp-v75.so",
+    "libggml-htp-v79.so",
+    "libggml-htp-v81.so"
+  };
 
   private static class NativeLogCallback {
     DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
@@ -58,8 +69,8 @@ public class LlamaContext {
   private DeviceEventManagerModule.RCTDeviceEventEmitter eventEmitter;
   private boolean gpuEnabled;
   private String reasonNoGPU = "";
-  private String gpuDevice = "";
   private String systemInfo = "";
+  private ReadableArray devices = null;
 
   public LlamaContext(int id, ReactApplicationContext reactContext, ReadableMap params) {
     if (LlamaContext.isArchNotSupported()) {
@@ -101,9 +112,8 @@ public class LlamaContext {
     if (!this.gpuEnabled && params.hasKey("no_gpu_devices") && params.getBoolean("no_gpu_devices")) {
       this.reasonNoGPU = "GPU devices disabled by user";
     }
-    this.gpuDevice = initResult.hasKey("gpuDevice") ? initResult.getString("gpuDevice") : "";
-    if (this.gpuDevice == null) {
-      this.gpuDevice = "";
+    if (initResult.hasKey("devices")) {
+      this.devices = initResult.getArray("devices");
     }
     this.systemInfo = initResult.hasKey("systemInfo") ? initResult.getString("systemInfo") : "";
     if (this.systemInfo == null) {
@@ -138,8 +148,8 @@ public class LlamaContext {
     return reasonNoGPU;
   }
 
-  public String getGpuDevice() {
-    return gpuDevice;
+  public ReadableArray getDevices() {
+    return devices;
   }
 
   public String getSystemInfo() {
@@ -541,7 +551,150 @@ public class LlamaContext {
     freeContext(context);
   }
 
+  private static boolean prepareHtpDirectory(java.io.File dir, String label) {
+    if (dir == null) {
+      return false;
+    }
+    try {
+      if (dir.exists()) {
+        if (!dir.isDirectory()) {
+          Log.w(NAME, label + " exists but is not a directory: " + dir.getAbsolutePath());
+          return false;
+        }
+      } else {
+        if (!dir.mkdirs()) {
+          Log.w(NAME, "Unable to create " + label + " at " + dir.getAbsolutePath());
+          return false;
+        }
+        java.io.File sanity = java.io.File.createTempFile("htp", ".tmp", dir);
+        sanity.delete();
+      }
+    } catch (Exception e) {
+      Log.w(NAME, "Unable to prepare " + label + " at " + dir.getAbsolutePath(), e);
+      return false;
+    }
+
+    dir.setReadable(true, false);
+    dir.setExecutable(true, false);
+    dir.setWritable(true, true);
+
+    try {
+      android.system.Os.chmod(dir.getAbsolutePath(), HTP_DIR_MODE);
+    } catch (Exception e) {
+      Log.w(NAME, "Failed to chmod HTP directory " + dir.getAbsolutePath(), e);
+    }
+
+    return true;
+  }
+
+  private static java.io.File getPrivateHtpDir(android.content.Context context) {
+    try {
+      return context.getDir(HTP_DIR_NAME, android.content.Context.MODE_PRIVATE);
+    } catch (Exception e) {
+      Log.w(NAME, "Unable to access private HTP directory", e);
+      return null;
+    }
+  }
+
+  private static java.io.File resolveHtpDirectory(android.content.Context context) {
+    java.io.File[] candidates = new java.io.File[] {
+      getPrivateHtpDir(context),
+      new java.io.File(context.getFilesDir(), HTP_DIR_NAME),
+      context.getCodeCacheDir() != null ? new java.io.File(context.getCodeCacheDir(), HTP_DIR_NAME) : null,
+      context.getCacheDir() != null ? new java.io.File(context.getCacheDir(), HTP_DIR_NAME) : null,
+      context.getExternalFilesDir(null) != null ? new java.io.File(context.getExternalFilesDir(null), HTP_DIR_NAME) : null
+    };
+
+    for (java.io.File candidate : candidates) {
+      if (candidate == null) continue;
+      if (prepareHtpDirectory(candidate, "HTP directory candidate")) {
+        return candidate;
+      }
+    }
+
+    Log.w(NAME, "Unable to provision directory for Hexagon libraries; Hexagon backend will be disabled");
+    return null;
+  }
+
+  private static void setHtpFilePermissions(java.io.File file) {
+    file.setReadable(true, false);
+    file.setExecutable(true, false);
+    try {
+      android.system.Os.chmod(file.getAbsolutePath(), HTP_FILE_MODE);
+    } catch (Exception e) {
+      Log.w(NAME, "Failed to chmod HTP library " + file.getAbsolutePath(), e);
+    }
+  }
+
+  private static boolean ensureHtpLibraries(android.content.Context context, java.io.File htpDir) {
+    for (String libName : HTP_LIBS) {
+      java.io.File outFile = new java.io.File(htpDir, libName);
+
+      if (outFile.exists()) {
+        continue;
+      }
+
+      try {
+        try (InputStream in = context.getAssets().open("ggml-hexagon/" + libName);
+             FileOutputStream out = new FileOutputStream(outFile)) {
+          byte[] buffer = new byte[8192];
+          int read;
+          while ((read = in.read(buffer)) != -1) {
+            out.write(buffer, 0, read);
+          }
+          out.flush();
+        }
+
+        setHtpFilePermissions(outFile);
+        Log.d(NAME, "Installed HTP library: " + libName + " to " + outFile.getAbsolutePath());
+      } catch (Exception e) {
+        Log.w(NAME, "Could not install " + libName + " from assets", e);
+        outFile.delete();
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private static void extractHtpLibrariesFromAssets(android.content.Context context) {
+    java.io.File htpDir = resolveHtpDirectory(context);
+    if (htpDir == null) {
+      return;
+    }
+
+    Log.d(NAME, "Using " + htpDir.getAbsolutePath() + " for HTP libraries");
+
+    if (!ensureHtpLibraries(context, htpDir)) {
+      Log.w(NAME, "Could not install Hexagon libraries; Hexagon backend will be disabled");
+      return;
+    }
+
+    try {
+      String htpLibPath = htpDir.getAbsolutePath();
+      android.system.Os.setenv("ADSP_LIBRARY_PATH", htpLibPath, true);
+      android.system.Os.setenv("LM_GGML_HEXAGON_NDEV", "16", true); // LM_GGML_HEXAGON_MAX_SESSIONS
+      Log.d(NAME, "Set ADSP_LIBRARY_PATH=" + htpLibPath);
+    } catch (Exception e) {
+      Log.w(NAME, "Failed to set ADSP_LIBRARY_PATH", e);
+    }
+  }
+
   static {
+    // Extract HTP libraries from assets before loading native library
+    try {
+      Class<?> activityThread = Class.forName("android.app.ActivityThread");
+      Object currentActivityThread = activityThread.getMethod("currentActivityThread").invoke(null);
+      Object app = activityThread.getMethod("getApplication").invoke(currentActivityThread);
+      android.content.Context appContext = (android.content.Context) app;
+
+      if (appContext != null) {
+        extractHtpLibrariesFromAssets(appContext);
+      }
+    } catch (Exception e) {
+      Log.w(NAME, "Failed to extract HTP libraries", e);
+    }
+
     Log.d(NAME, "Primary ABI: " + Build.SUPPORTED_ABIS[0]);
 
     String cpuFeatures = LlamaContext.getCpuFeatures();
@@ -560,15 +713,18 @@ public class LlamaContext {
     Log.d(NAME, "- isAtLeastArmV84: " + isAtLeastArmV84);
 
     // Detect GPU (Adreno check)
-    String gpuInfo = (Build.HARDWARE + " " + Build.MANUFACTURER + " " + Build.MODEL).toLowerCase();
-    boolean hasAdreno = Pattern.compile("(adreno|qcom|qualcomm)").matcher(gpuInfo).find();
+    String hwInfo = (Build.HARDWARE + " " + Build.MANUFACTURER + " " + Build.MODEL).toLowerCase();
+    Log.d(NAME, "- hwInfo: " + hwInfo);
+    boolean hasAdreno = Pattern.compile("(adreno|qcom|qualcomm)").matcher(hwInfo).find();
+    boolean hasHexagon = isHexagonSupported();
     Log.d(NAME, "- hasAdreno: " + hasAdreno);
+    Log.d(NAME, "- hasHexagon: " + hasHexagon);
 
     if (LlamaContext.isArm64V8a()) {
-      if (hasDotProd && hasI8mm && hasAdreno) {
-        Log.d(NAME, "Loading librnllama_jni_v8_2_dotprod_i8mm_opencl.so");
-        System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm_opencl");
-        loadedLibrary = "rnllama_jni_v8_2_dotprod_i8mm_opencl";
+      if (hasDotProd && hasI8mm && hasHexagon && hasAdreno) {
+        Log.d(NAME, "Loading librnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl.so");
+        System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl");
+        loadedLibrary = "rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl";
       } else if (hasDotProd && hasI8mm) {
         Log.d(NAME, "Loading librnllama_jni_v8_2_dotprod_i8mm.so");
         System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm");
@@ -597,8 +753,35 @@ public class LlamaContext {
     } else {
       Log.d(NAME, "ARM32 is not supported, skipping loading library");
     }
-}
+  }
 
+  private static boolean isHexagonSupported() {
+    // Check SOC_MODEL on Android 12+
+    if (Build.VERSION.SDK_INT >= 31) {
+      String socModel = Build.SOC_MODEL;
+      Log.d(NAME, "SOC Model: " + socModel);
+      if (socModel != null) {
+        socModel = socModel.toUpperCase();
+        // SM8550 (8 Gen 2), SM8650 (8 Gen 3), SM8635 (8s Gen 3), SM8750 (8 Elite)
+        if (socModel.matches(".*(SM8550|SM8650|SM8635|SM8750).*")) {
+          return true;
+        }
+      }
+    }
+
+    // Check for supported Qualcomm platforms (Snapdragon 8 Gen 2 and newer)
+    // Boards: kalama (8 Gen 2), pineapple (8 Gen 3), sun (8 Elite), lanai (8s Gen 3)
+    String hardware = Build.HARDWARE.toLowerCase();
+    Log.d(NAME, "Hardware: " + hardware);
+    String board = Build.BOARD.toLowerCase();
+    Log.d(NAME, "Board: " + board);
+    if (hardware.matches(".*(kalama|pineapple|sun|lanai).*") ||
+        board.matches(".*(kalama|pineapple|sun|lanai).*")) {
+      return true;
+    }
+
+    return false;
+  }
 
   private static boolean isArm64V8a() {
     return Build.SUPPORTED_ABIS[0].equals("arm64-v8a");

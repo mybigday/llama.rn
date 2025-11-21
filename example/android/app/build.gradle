@@ -19,8 +19,21 @@ if (rnllamaBuildFromSource) {
         }
     }
 
+    def htpScript = new File(repoRootDir, "scripts/build-hexagon-htp.sh")
+    def htpArtifacts = [new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v81.so")] // v73, v75, v79, v81
+
+    tasks.register("prepareHTP", Exec) {
+        group = "build"
+        description = "Builds the HTP libraries when libggml-htp-v81.so is not present."
+        workingDir(repoRootDir)
+        commandLine(htpScript.absolutePath)
+        onlyIf {
+            htpArtifacts.any { !it.exists() }
+        }
+    }
+
     tasks.named("preBuild").configure {
-        dependsOn("prepareOpenCL")
+        dependsOn("prepareOpenCL", "prepareHTP")
         delete(repoRootDir.absolutePath + "android/.cxx") // Clear cache of llama.rn
     }
 }

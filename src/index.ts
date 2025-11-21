@@ -265,9 +265,9 @@ export class LlamaContext {
 
   gpu: boolean = false
 
-  gpuDevice: NativeLlamaContext['gpuDevice']
-
   reasonNoGPU: string = ''
+
+  devices: NativeLlamaContext['devices']
 
   model: NativeLlamaContext['model']
 
@@ -559,7 +559,7 @@ export class LlamaContext {
   constructor({
     contextId,
     gpu,
-    gpuDevice,
+    devices,
     reasonNoGPU,
     model,
     androidLib,
@@ -567,7 +567,7 @@ export class LlamaContext {
   }: NativeLlamaContext) {
     this.id = contextId
     this.gpu = gpu
-    this.gpuDevice = gpuDevice
+    this.devices = devices
     this.reasonNoGPU = reasonNoGPU
     this.model = model
     this.androidLib = androidLib
@@ -1094,6 +1094,13 @@ const poolTypeMap = {
   rank: 4,
 }
 
+export async function getBackendDevicesInfo(): Promise<
+  Array<NativeBackendDeviceInfo>
+> {
+  const jsonString = await RNLlama.getBackendDevicesInfo()
+  return JSON.parse(jsonString as string)
+}
+
 export async function initLlama(
   {
     model,
@@ -1101,6 +1108,7 @@ export async function initLlama(
     pooling_type: poolingType,
     lora,
     lora_list: loraList,
+    devices,
     ...rest
   }: ContextParams,
   onProgress?: (progress: number) => void,
@@ -1147,9 +1155,30 @@ export async function initLlama(
     delete rest.cache_type_v
   }
 
+  let filteredDevs: Array<string> = []
+  if (Array.isArray(devices)) {
+    filteredDevs = [...devices]
+    const backendDevices = await getBackendDevicesInfo()
+
+    // Handle HTP* to use all HTP devices on Android (Hexagon)
+    if (Platform.OS === 'android' && devices.includes('HTP*')) {
+      const htpDevices = backendDevices
+        .filter((d) => d.deviceName.startsWith('HTP'))
+        .map((d) => d.deviceName)
+      filteredDevs = filteredDevs.reduce((acc, dev) => {
+        if (dev.startsWith('HTP*')) {
+          acc.push(...htpDevices)
+        } else if (!dev.startsWith('HTP')) {
+          acc.push(dev)
+        }
+        return acc
+      }, [] as Array<string>)
+    }
+  }
+
   const {
     gpu,
-    gpuDevice,
+    devices: usedDevices,
     reasonNoGPU,
     model: modelDetails,
     androidLib,
@@ -1161,6 +1190,7 @@ export async function initLlama(
     pooling_type: poolType,
     lora: loraPath,
     lora_list: loraAdapters,
+    devices: filteredDevs.length > 0 ? filteredDevs : undefined,
     ...rest,
   }).catch((err: any) => {
     removeProgressListener?.remove()
@@ -1170,7 +1200,7 @@ export async function initLlama(
   return new LlamaContext({
     contextId,
     gpu,
-    gpuDevice,
+    devices: usedDevices,
     reasonNoGPU,
     model: modelDetails,
     androidLib,
@@ -1180,13 +1210,6 @@ export async function initLlama(
 
 export async function releaseAllLlama(): Promise<void> {
   return RNLlama.releaseAllContexts()
-}
-
-export async function getBackendDevicesInfo(): Promise<
-  Array<NativeBackendDeviceInfo>
-> {
-  const jsonString = await RNLlama.getBackendDevicesInfo()
-  return JSON.parse(jsonString as string)
 }
 
 export const BuildInfo = {
