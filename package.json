@@ -37,7 +37,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
     "build": "bob build",
-    "prepack": "npm run build:ios-frameworks && npm run build:android-libs && bob build",
+    "prepack": "npm run build:ios-frameworks && ([ \"$SKIP_ANDROID_BUILD\" = \"1\" ] || npm run build:android-libs) && bob build",
     "release": "release-it",
     "example": "npm --prefix example",
     "build:ios-frameworks": "./scripts/build-ios.sh",

@@ -9,7 +9,43 @@ permissions:
   contents: write
 
 jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maximize build space
+        run: |
+          df -h
+          echo "Removing dotnet"
+          sudo rm -rf /usr/share/dotnet
+          echo "Removing ghc"
+          sudo rm -rf /opt/ghc
+          echo "Removing CodeQL"
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Build Android libraries
+        run: npm run build:android-libs
+
+      - name: Upload Android build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-prebuilt-libs
+          path: |
+            bin/
+            cpp/ggml-hexagon/htp/v73/
+            android/src/main/jniLibs/
+          retention-days: 1
+
   publish:
+    needs: build-android
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -20,6 +56,11 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
+      - name: Download Android build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android-prebuilt-libs
+
       - name: Configure npm authentication
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
@@ -29,4 +70,5 @@ jobs:
       - name: Publish package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_1Y }}
+          SKIP_ANDROID_BUILD: "1"
         run: npm publish
