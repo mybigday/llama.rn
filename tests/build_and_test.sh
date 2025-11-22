@@ -7,9 +7,18 @@ echo "=== Building llama.rn C++ Tests ==="
 mkdir -p build
 cd build
 
+# Get the correct SDK path for current Xcode version
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    SDK_PATH=$(xcrun --show-sdk-path)
+    echo "Using macOS SDK: $SDK_PATH"
+    CMAKE_OSX_SYSROOT="-DCMAKE_OSX_SYSROOT=$SDK_PATH"
+else
+    CMAKE_OSX_SYSROOT=""
+fi
+
 # Configure
 echo "Configuring with CMake..."
-cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake .. -DCMAKE_BUILD_TYPE=Release $CMAKE_OSX_SYSROOT
 
 # Build both test executables
 echo ""
