@@ -9,6 +9,7 @@
 #import "rn-slot.h"
 #import "rn-slot-manager.h"
 #import "json-schema-to-grammar.h"
+#import "common.h"
 #else
 #import <rnllama/llama.h>
 #import <rnllama/llama-impl.h>
@@ -18,6 +19,7 @@
 #import <rnllama/rn-slot.h>
 #import <rnllama/rn-slot-manager.h>
 #import <rnllama/json-schema-to-grammar.h>
+#import <rnllama/common.h>
 #endif
 #endif
 

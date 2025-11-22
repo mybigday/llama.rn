@@ -28,6 +28,19 @@ export type NativeContextParams = {
   n_threads?: number
 
   /**
+   * CPU affinity mask string (e.g., "0-3" or "0,2,4,6").
+   * Specifies which CPU cores to use for inference.
+   */
+  cpu_mask?: string
+
+  /**
+   * Use strict CPU placement.
+   * When true, enforces strict CPU core affinity.
+   * Default: false
+   */
+  cpu_strict?: boolean
+
+  /**
    * Number of layers to store in VRAM (Currently only for iOS)
    */
   n_gpu_layers?: number

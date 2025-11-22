@@ -278,6 +278,22 @@
     const int defaultNThreads = nThreads == 4 ? 2 : MIN(4, maxThreads);
     defaultParams.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
 
+    // Handle cpu_mask and cpu_strict parameters
+    if (params[@"cpu_mask"] && [params[@"cpu_mask"] isKindOfClass:[NSString class]]) {
+        NSString *cpuMask = params[@"cpu_mask"];
+        const char *cpuMaskStr = [cpuMask UTF8String];
+        if (cpuMaskStr && cpuMaskStr[0] != '\0') {
+            bool cpumask[LM_GGML_MAX_N_THREADS] = {false};
+            if (parse_cpu_mask(cpuMaskStr, cpumask)) {
+                std::copy(std::begin(cpumask), std::end(cpumask), std::begin(defaultParams.cpuparams.cpumask));
+                defaultParams.cpuparams.mask_valid = true;
+            }
+        }
+    }
+    if (params[@"cpu_strict"]) {
+        defaultParams.cpuparams.strict_cpu = [params[@"cpu_strict"] boolValue];
+    }
+
     RNLlamaContext *context = [[RNLlamaContext alloc] init];
     context->llama = new rnllama::llama_rn_context();
     context->llama->is_load_interrupted = false;

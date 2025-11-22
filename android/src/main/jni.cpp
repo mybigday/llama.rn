@@ -24,6 +24,7 @@
 #include "rn-completion.h"
 #include "rn-slot-manager.h"
 #include "jni-utils.h"
+#include "common.h"
 #define UNUSED(x) (void)(x)
 #define TAG "RNLLAMA_ANDROID_JNI"
 
@@ -601,6 +602,25 @@ Java_com_rnllama_LlamaContext_initContext(
         n_threads = readablemap::getInt(env, params_map, "n_threads", n_threads);
     }
     set_best_cores(defaultParams.cpuparams, n_threads);
+
+    // If cpu_mask or cpu_strict is set, override the cpumask/strict_cpu from set_best_cores
+    if (readablemap::hasKey(env, params_map, "cpu_mask")) {
+        jstring cpu_mask_str = readablemap::getString(env, params_map, "cpu_mask", nullptr);
+        if (cpu_mask_str) {
+            const char *cpu_mask_chars = env->GetStringUTFChars(cpu_mask_str, nullptr);
+            if (cpu_mask_chars && cpu_mask_chars[0] != '\0') {
+                bool cpumask[LM_GGML_MAX_N_THREADS] = {false};
+                if (parse_cpu_mask(cpu_mask_chars, cpumask)) {
+                    std::copy(std::begin(cpumask), std::end(cpumask), std::begin(defaultParams.cpuparams.cpumask));
+                    defaultParams.cpuparams.mask_valid = true;
+                }
+            }
+            env->ReleaseStringUTFChars(cpu_mask_str, cpu_mask_chars);
+        }
+    }
+    if (readablemap::hasKey(env, params_map, "cpu_strict")) {
+        defaultParams.cpuparams.strict_cpu = readablemap::getBool(env, params_map, "cpu_strict", false);
+    }
 
     // Extract GPU parameters
     if (readablemap::hasKey(env, params_map, "n_gpu_layers")) {
