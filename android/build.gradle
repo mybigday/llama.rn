@@ -92,6 +92,15 @@ def reactNativeArchitectures() {
   return archs.findAll { it != "armeabi-v7a" && it != "x86" } // Not building for 32-bit architectures
 }
 
+def getReactNativeMinorVersion() {
+    def reactNativeVersion = project.hasProperty("reactNativeVersion") ? project.getProperty("reactNativeVersion") : "0.72.0"
+    def matcher = reactNativeVersion =~ /\d+\.(\d+)\..*/
+    if (matcher.find()) {
+        return Integer.parseInt(matcher.group(1))
+    }
+    return 0
+}
+
 android {
   ndkVersion getExtOrDefault("ndkVersion")
   def ndkVersionMajor = ndkVersion.split("\\.")[0].toInteger()
@@ -111,10 +120,20 @@ android {
     externalNativeBuild {
       cmake {
         abiFilters (*reactNativeArchitectures())
-        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}", "-DHEXAGON_SDK_ROOT=${hexagonSdkRoot}", "-DHEXAGON_TOOLS_ROOT=${hexagonToolsRoot}"
+        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", 
+                  "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}", 
+                  "-DHEXAGON_SDK_ROOT=${hexagonSdkRoot}", 
+                  "-DHEXAGON_TOOLS_ROOT=${hexagonToolsRoot}", 
+                  "-DANDROID_STL=c++_shared",
+                  "-DREACT_NATIVE_MINOR_VERSION=${getReactNativeMinorVersion()}"
       }
     }
   }
+  
+  buildFeatures {
+    prefab true
+  }
+
   externalNativeBuild {
     cmake {
       path = file('src/main/CMakeLists.txt')
@@ -147,6 +166,11 @@ android {
     jniLibs {
       excludes += ["**/libcdsprpc.so"]
     }
+    pickFirst '**/libc++_shared.so'
+    pickFirst '**/libfbjni.so'
+    pickFirst '**/libreact_nativemodule_core.so'
+    pickFirst '**/libturbomodulejsijni.so'
+    pickFirst '**/libjsi.so'
   }
 
   sourceSets {

@@ -1,6 +1,6 @@
-import { NativeEventEmitter, DeviceEventEmitter, Platform } from 'react-native'
-import type { DeviceEventEmitterStatic } from 'react-native'
+import { Platform } from 'react-native'
 import RNLlama from './NativeRNLlama'
+import './jsi'
 import type {
   NativeContextParams,
   NativeLlamaContext,
@@ -76,34 +76,21 @@ export const RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER = '<__media__>'
 
 export { SchemaGrammarConverter, convertJsonSchemaToGrammar }
 
-const EVENT_ON_INIT_CONTEXT_PROGRESS = '@RNLlama_onInitContextProgress'
-const EVENT_ON_TOKEN = '@RNLlama_onToken'
-const EVENT_ON_COMPLETE = '@RNLlama_onComplete'
-const EVENT_ON_EMBEDDING_RESULT = '@RNLlama_onEmbeddingResult'
-const EVENT_ON_RERANK_RESULTS = '@RNLlama_onRerankResults'
-const EVENT_ON_NATIVE_LOG = '@RNLlama_onNativeLog'
-
-let EventEmitter: NativeEventEmitter | DeviceEventEmitterStatic
-if (Platform.OS === 'ios') {
-  // @ts-ignore
-  EventEmitter = new NativeEventEmitter(RNLlama)
-}
-if (Platform.OS === 'android') {
-  EventEmitter = DeviceEventEmitter
-}
-
 const logListeners: Array<(level: string, text: string) => void> = []
+const emitNativeLog = (level: string, text: string) => {
+  logListeners.forEach((listener) => listener(level, text))
+}
 
-// @ts-ignore
-if (EventEmitter) {
-  EventEmitter.addListener(
-    EVENT_ON_NATIVE_LOG,
-    (evt: { level: string; text: string }) => {
-      logListeners.forEach((listener) => listener(evt.level, evt.text))
-    },
-  )
-  // Trigger unset to use default log callback
-  RNLlama?.toggleNativeLog?.(false)?.catch?.(() => {})
+// JSI Installation
+let isJsiInstalled = false
+export const installJsi = async () => {
+  if (isJsiInstalled) return
+  if (typeof global.llamaInitContext !== 'undefined') {
+    isJsiInstalled = true
+    return
+  }
+  await RNLlama.install()
+  isJsiInstalled = true
 }
 
 export type ToolCall = {
@@ -123,12 +110,7 @@ export type TokenData = {
   reasoning_content?: string
   tool_calls?: Array<ToolCall>
   accumulated_text?: string
-}
-
-type TokenNativeEvent = {
-  contextId: number
   requestId?: number
-  tokenResult: TokenData
 }
 
 export type ContextParams = Omit<
@@ -356,60 +338,46 @@ export class LlamaContext {
 
       if (!nativeParams.prompt) throw new Error('Prompt is required')
 
-      // Set up listeners for this specific request
-      let tokenListener: any
-      let completeListener: any
+      return new Promise(async (resolveOuter, rejectOuter) => {
+        try {
+          let resolveResult: (
+            value: NativeCompletionResult | PromiseLike<NativeCompletionResult>,
+          ) => void
+          let rejectResult: (reason?: any) => void
 
-      const { requestId } = await RNLlama.queueCompletion(this.id, nativeParams)
-
-      // Create promise that resolves when completion finishes
-      const promise = new Promise<NativeCompletionResult>((resolve, reject) => {
-        if (onToken) {
-          tokenListener = EventEmitter.addListener(
-            EVENT_ON_TOKEN,
-            (evt: TokenNativeEvent) => {
-              const { contextId, requestId: evtRequestId, tokenResult } = evt
-              if (contextId !== this.id) return
-              if (evtRequestId !== requestId) return
-              onToken(requestId, tokenResult)
+          const resultPromise = new Promise<NativeCompletionResult>(
+            (res, rej) => {
+              resolveResult = res
+              rejectResult = rej
             },
           )
+
+          const { requestId } = await llamaQueueCompletion(
+            this.id,
+            nativeParams,
+            (tokenResult, reqId) => {
+              if (onToken) onToken(reqId, tokenResult)
+            },
+            (result) => {
+              if (result.error) {
+                rejectResult(new Error(result.error))
+              } else {
+                resolveResult(result)
+              }
+            },
+          )
+
+          resolveOuter({
+            requestId,
+            promise: resultPromise,
+            stop: async () => {
+              await llamaCancelRequest(this.id, requestId)
+            },
+          })
+        } catch (e) {
+          rejectOuter(e)
         }
-
-        completeListener = EventEmitter.addListener(
-          EVENT_ON_COMPLETE,
-          (evt: any) => {
-            const { contextId, requestId: evtRequestId, result } = evt
-            if (contextId !== this.id || evtRequestId !== requestId) return
-
-            // Clean up listeners
-            tokenListener?.remove()
-            completeListener?.remove()
-
-            // Check if there's an error in the result (e.g., state load failure)
-            if (result.error) {
-              reject(new Error(result.error))
-            } else {
-              // Resolve the promise
-              resolve(result as NativeCompletionResult)
-            }
-          },
-        )
       })
-
-      // Create stop function
-      const stop = async () => {
-        await RNLlama.cancelRequest(this.id, requestId)
-        // Clean up listeners
-        tokenListener?.remove()
-        completeListener?.remove()
-      }
-
-      return {
-        requestId,
-        promise,
-        stop,
-      }
     },
 
     /**
@@ -424,38 +392,31 @@ export class LlamaContext {
     ): Promise<{
       requestId: number
       promise: Promise<NativeEmbeddingResult>
-    }> => {
-      let embeddingListener: any
+    }> =>
+      new Promise(async (resolveOuter, rejectOuter) => {
+        try {
+          let resolveResult: (value: NativeEmbeddingResult) => void
+          const resultPromise = new Promise<NativeEmbeddingResult>((res) => {
+            resolveResult = res
+          })
 
-      const { requestId } = await RNLlama.queueEmbedding(
-        this.id,
-        text,
-        params || {},
-      )
+          const { requestId } = await llamaQueueEmbedding(
+            this.id,
+            text,
+            params || {},
+            (embedding) => {
+              resolveResult({ embedding })
+            },
+          )
 
-      // Create promise that resolves when embedding completes
-      const promise = new Promise<NativeEmbeddingResult>((resolve, _reject) => {
-        embeddingListener = EventEmitter.addListener(
-          EVENT_ON_EMBEDDING_RESULT,
-          (evt: any) => {
-            const { contextId, requestId: evtRequestId, embedding } = evt
-            // Filter by both contextId AND requestId to ensure correct matching
-            if (contextId !== this.id || evtRequestId !== requestId) return
-
-            // Clean up listener
-            embeddingListener?.remove()
-
-            // Resolve the promise
-            resolve({ embedding })
-          },
-        )
-      })
-
-      return {
-        requestId,
-        promise,
-      }
-    },
+          resolveOuter({
+            requestId,
+            promise: resultPromise,
+          })
+        } catch (e) {
+          rejectOuter(e)
+        }
+      }),
 
     /**
      * Queue rerank requests for parallel processing (non-blocking)
@@ -471,89 +432,46 @@ export class LlamaContext {
     ): Promise<{
       requestId: number
       promise: Promise<RerankResult[]>
-    }> => {
-      let rerankListener: any
+    }> =>
+      new Promise(async (resolveOuter, rejectOuter) => {
+        try {
+          let resolveResult: (value: RerankResult[]) => void
+          const resultPromise = new Promise<RerankResult[]>((res) => {
+            resolveResult = res
+          })
 
-      const { requestId } = await RNLlama.queueRerank(
-        this.id,
-        query,
-        documents,
-        params || {},
-      )
+          const { requestId } = await llamaQueueRerank(
+            this.id,
+            query,
+            documents,
+            params || {},
+            (results) => {
+              const sortedResults = results
+                .map((result: NativeRerankResult) => ({
+                  ...result,
+                  document: documents[result.index],
+                }))
+                .sort((a: RerankResult, b: RerankResult) => b.score - a.score)
+              resolveResult(sortedResults)
+            },
+          )
 
-      // Create promise that resolves when reranking completes
-      const promise = new Promise<RerankResult[]>((resolve, _reject) => {
-        rerankListener = EventEmitter.addListener(
-          EVENT_ON_RERANK_RESULTS,
-          (evt: any) => {
-            const { contextId, requestId: evtRequestId, results } = evt
-            // Filter by both contextId AND requestId to ensure correct matching
-            if (contextId !== this.id || evtRequestId !== requestId) return
+          resolveOuter({
+            requestId,
+            promise: resultPromise,
+          })
+        } catch (e) {
+          rejectOuter(e)
+        }
+      }),
 
-            // Clean up listener
-            rerankListener?.remove()
-
-            // Sort by score descending (highest score first = most relevant) and add document text
-            const sortedResults = results
-              .map((result: NativeRerankResult) => ({
-                ...result,
-                document: documents[result.index],
-              }))
-              .sort((a: RerankResult, b: RerankResult) => b.score - a.score)
-
-            // Resolve the promise
-            resolve(sortedResults)
-          },
-        )
-      })
-
-      return {
-        requestId,
-        promise,
-      }
-    },
-
-    /**
-     * Enable parallel decoding mode
-     *
-     * Note: The context must be initialized with a sufficient n_parallel value to support
-     * the requested number of slots. By default, contexts are initialized with n_parallel=8,
-     * which supports up to 8 parallel slots. To use more slots, specify a higher n_parallel
-     * value when calling initLlama().
-     *
-     * @param params Configuration for parallel mode
-     * @param params.n_parallel Number of parallel slots (default: 2). Must be <= context's n_seq_max
-     * @param params.n_batch Batch size for processing (default: 512)
-     * @returns Promise resolving to true if successful
-     *
-     * @example
-     * // Initialize context with support for up to 16 parallel slots
-     * const context = await initLlama({ model: 'model.gguf', n_parallel: 16 })
-     *
-     * // Enable parallel mode with 4 slots
-     * await context.parallel.enable({ n_parallel: 4 })
-     *
-     * // Later, reconfigure to use 8 slots
-     * await context.parallel.configure({ n_parallel: 8 })
-     */
     enable: (config?: { n_parallel?: number; n_batch?: number }) =>
-      RNLlama.enableParallelMode(this.id, { enabled: true, ...config }),
+      llamaEnableParallelMode(this.id, { enabled: true, ...config }),
 
-    /**
-     * Disable parallel decoding mode
-     * @returns Promise resolving to true if successful
-     */
-    disable: () => RNLlama.enableParallelMode(this.id, { enabled: false }),
+    disable: () => llamaEnableParallelMode(this.id, { enabled: false }),
 
-    /**
-     * Configure parallel decoding mode (enables if not already enabled)
-     * @param config Configuration for parallel mode
-     * @param config.n_parallel Number of parallel slots (default: 2)
-     * @param config.n_batch Batch size for processing (default: 512)
-     * @returns Promise resolving to true if successful
-     */
     configure: (config: { n_parallel?: number; n_batch?: number }) =>
-      RNLlama.enableParallelMode(this.id, { enabled: true, ...config }),
+      llamaEnableParallelMode(this.id, { enabled: true, ...config }),
   }
 
   constructor({
@@ -574,23 +492,17 @@ export class LlamaContext {
     this.systemInfo = systemInfo
   }
 
-  /**
-   * Load cached prompt & completion state from a file.
-   */
   async loadSession(filepath: string): Promise<NativeSessionLoadResult> {
     let path = filepath
     if (path.startsWith('file://')) path = path.slice(7)
-    return RNLlama.loadSession(this.id, path)
+    return llamaLoadSession(this.id, path)
   }
 
-  /**
-   * Save current cached prompt & completion state to a file.
-   */
   async saveSession(
     filepath: string,
     options?: { tokenSize: number },
   ): Promise<number> {
-    return RNLlama.saveSession(this.id, filepath, options?.tokenSize || -1)
+    return llamaSaveSession(this.id, filepath, options?.tokenSize || -1)
   }
 
   isLlamaChatSupported(): boolean {
@@ -621,7 +533,6 @@ export class LlamaContext {
     const chat = messages.map((msg) => {
       if (Array.isArray(msg.content)) {
         const content = msg.content.map((part) => {
-          // Handle multimodal content
           if (part.type === 'image_url') {
             let path = part.image_url?.url || ''
             if (path?.startsWith('file://')) path = path.slice(7)
@@ -662,10 +573,10 @@ export class LlamaContext {
 
     const useJinja = this.isJinjaSupported() && params?.jinja
     let tmpl
-    if (template) tmpl = template // Force replace if provided
+    if (template) tmpl = template
     const jsonSchema = getJsonSchema(params?.response_format)
 
-    const result = await RNLlama.getFormattedChat(
+    const result = await llamaGetFormattedChat(
       this.id,
       JSON.stringify(chat),
       tmpl,
@@ -685,7 +596,7 @@ export class LlamaContext {
           ? JSON.stringify(
               Object.entries(params.chat_template_kwargs).reduce(
                 (acc, [key, value]) => {
-                  acc[key] = JSON.stringify(value) // Each value is a stringified JSON object
+                  acc[key] = JSON.stringify(value)
                   return acc
                 },
                 {} as Record<string, any>,
@@ -709,16 +620,6 @@ export class LlamaContext {
     return jinjaResult
   }
 
-  /**
-   * Generate a completion based on the provided parameters
-   * @param params Completion parameters including prompt or messages
-   * @param callback Optional callback for token-by-token streaming
-   * @returns Promise resolving to the completion result
-   *
-   * Note: For multimodal support, you can include an media_paths parameter.
-   * This will process the images and add them to the context before generating text.
-   * Multimodal support must be enabled via initMultimodal() first.
-   */
   async completion(
     params: CompletionParams,
     callback?: (data: TokenData) => void,
@@ -775,7 +676,6 @@ export class LlamaContext {
       nativeParams.prompt = params.prompt || ''
     }
 
-    // If media_paths were explicitly provided or extracted from messages, use them
     if (!nativeParams.media_paths && params.media_paths) {
       nativeParams.media_paths = params.media_paths
     }
@@ -785,40 +685,15 @@ export class LlamaContext {
       if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
     }
 
-    let tokenListener: any =
-      callback &&
-      EventEmitter.addListener(EVENT_ON_TOKEN, (evt: TokenNativeEvent) => {
-        const { contextId, tokenResult } = evt
-        if (contextId !== this.id) return
-        callback(tokenResult)
-      })
-
     if (!nativeParams.prompt) throw new Error('Prompt is required')
 
-    const promise = RNLlama.completion(this.id, nativeParams)
-    return promise
-      .then((completionResult) => {
-        tokenListener?.remove()
-        tokenListener = null
-        return completionResult
-      })
-      .catch((err: any) => {
-        tokenListener?.remove()
-        tokenListener = null
-        throw err
-      })
+    return llamaCompletion(this.id, nativeParams, callback)
   }
 
   stopCompletion(): Promise<void> {
-    return RNLlama.stopCompletion(this.id)
+    return llamaStopCompletion(this.id)
   }
 
-  /**
-   * Tokenize text or text with images
-   * @param text Text to tokenize
-   * @param params.media_paths Array of image paths to tokenize (if multimodal is enabled)
-   * @returns Promise resolving to the tokenize result
-   */
   tokenize(
     text: string,
     {
@@ -827,40 +702,27 @@ export class LlamaContext {
       media_paths?: string[]
     } = {},
   ): Promise<NativeTokenizeResult> {
-    return RNLlama.tokenize(this.id, text, mediaPaths)
+    return llamaTokenize(this.id, text, mediaPaths)
   }
 
   detokenize(tokens: number[]): Promise<string> {
-    return RNLlama.detokenize(this.id, tokens)
+    return llamaDetokenize(this.id, tokens)
   }
 
   embedding(
     text: string,
     params?: EmbeddingParams,
   ): Promise<NativeEmbeddingResult> {
-    return RNLlama.embedding(this.id, text, params || {})
+    return llamaEmbedding(this.id, text, params || {})
   }
 
-  /**
-   * Rerank documents based on relevance to a query
-   * @param query The query text to rank documents against
-   * @param documents Array of document texts to rank
-   * @param params Optional reranking parameters
-   * @returns Promise resolving to an array of ranking results with scores and indices
-   */
   async rerank(
     query: string,
     documents: string[],
     params?: RerankParams,
   ): Promise<RerankResult[]> {
-    const results = await RNLlama.rerank(
-      this.id,
-      query,
-      documents,
-      params || {},
-    )
+    const results = await llamaRerank(this.id, query, documents, params || {})
 
-    // Sort by score descending and add document text if requested
     return results
       .map((result) => ({
         ...result,
@@ -875,7 +737,7 @@ export class LlamaContext {
     pl: number,
     nr: number,
   ): Promise<BenchResult> {
-    const result = await RNLlama.bench(this.id, pp, tg, pl, nr)
+    const result = await llamaBench(this.id, pp, tg, pl, nr)
     const parsed = JSON.parse(result)
     return {
       nKvMax: parsed.n_kv_max,
@@ -908,26 +770,19 @@ export class LlamaContext {
         path: l.path.replace(/file:\/\//, ''),
         scaled: l.scaled,
       }))
-    return RNLlama.applyLoraAdapters(this.id, loraAdapters)
+    return llamaApplyLoraAdapters(this.id, loraAdapters)
   }
 
   async removeLoraAdapters(): Promise<void> {
-    return RNLlama.removeLoraAdapters(this.id)
+    return llamaRemoveLoraAdapters(this.id)
   }
 
   async getLoadedLoraAdapters(): Promise<
     Array<{ path: string; scaled?: number }>
   > {
-    return RNLlama.getLoadedLoraAdapters(this.id)
+    return llamaGetLoadedLoraAdapters(this.id)
   }
 
-  /**
-   * Initialize multimodal support with a mmproj file
-   * @param params Parameters for multimodal support
-   * @param params.path Path to the multimodal projector file
-   * @param params.use_gpu Whether to use GPU
-   * @returns Promise resolving to true if initialization was successful
-   */
   async initMultimodal({
     path,
     use_gpu: useGpu,
@@ -936,46 +791,27 @@ export class LlamaContext {
     use_gpu?: boolean
   }): Promise<boolean> {
     if (path.startsWith('file://')) path = path.slice(7)
-    return RNLlama.initMultimodal(this.id, {
+    return llamaInitMultimodal(this.id, {
       path,
       use_gpu: useGpu ?? true,
     })
   }
 
-  /**
-   * Check if multimodal support is enabled
-   * @returns Promise resolving to true if multimodal is enabled
-   */
   async isMultimodalEnabled(): Promise<boolean> {
-    return await RNLlama.isMultimodalEnabled(this.id)
+    return await llamaIsMultimodalEnabled(this.id)
   }
 
-  /**
-   * Check multimodal support
-   * @returns Promise resolving to an object with vision and audio support
-   */
   async getMultimodalSupport(): Promise<{
     vision: boolean
     audio: boolean
   }> {
-    return await RNLlama.getMultimodalSupport(this.id)
+    return await llamaGetMultimodalSupport(this.id)
   }
 
-  /**
-   * Release multimodal support
-   * @returns Promise resolving to void
-   */
   async releaseMultimodal(): Promise<void> {
-    return await RNLlama.releaseMultimodal(this.id)
+    return await llamaReleaseMultimodal(this.id)
   }
 
-  /**
-   * Initialize TTS support with a vocoder model
-   * @param params Parameters for TTS support
-   * @param params.path Path to the vocoder model
-   * @param params.n_batch Batch size for the vocoder model
-   * @returns Promise resolving to true if initialization was successful
-   */
   async initVocoder({
     path,
     n_batch: nBatch,
@@ -984,23 +820,13 @@ export class LlamaContext {
     n_batch?: number
   }): Promise<boolean> {
     if (path.startsWith('file://')) path = path.slice(7)
-    return await RNLlama.initVocoder(this.id, { path, n_batch: nBatch })
+    return await llamaInitVocoder(this.id, { path, n_batch: nBatch })
   }
 
-  /**
-   * Check if TTS support is enabled
-   * @returns Promise resolving to true if TTS is enabled
-   */
   async isVocoderEnabled(): Promise<boolean> {
-    return await RNLlama.isVocoderEnabled(this.id)
+    return await llamaIsVocoderEnabled(this.id)
   }
 
-  /**
-   * Get a formatted audio completion prompt
-   * @param speakerJsonStr JSON string representing the speaker
-   * @param textToSpeak Text to speak
-   * @returns Promise resolving to the formatted audio completion result with prompt and grammar
-   */
   async getFormattedAudioCompletion(
     speaker: object | null,
     textToSpeak: string,
@@ -1008,48 +834,38 @@ export class LlamaContext {
     prompt: string
     grammar?: string
   }> {
-    return await RNLlama.getFormattedAudioCompletion(
+    return await llamaGetFormattedAudioCompletion(
       this.id,
       speaker ? JSON.stringify(speaker) : '',
       textToSpeak,
     )
   }
 
-  /**
-   * Get guide tokens for audio completion
-   * @param textToSpeak Text to speak
-   * @returns Promise resolving to the guide tokens
-   */
   async getAudioCompletionGuideTokens(
     textToSpeak: string,
   ): Promise<Array<number>> {
-    return await RNLlama.getAudioCompletionGuideTokens(this.id, textToSpeak)
+    return await llamaGetAudioCompletionGuideTokens(this.id, textToSpeak)
   }
 
-  /**
-   * Decode audio tokens
-   * @param tokens Array of audio tokens
-   * @returns Promise resolving to the decoded audio tokens
-   */
   async decodeAudioTokens(tokens: number[]): Promise<Array<number>> {
-    return await RNLlama.decodeAudioTokens(this.id, tokens)
+    return await llamaDecodeAudioTokens(this.id, tokens)
   }
 
-  /**
-   * Release TTS support
-   * @returns Promise resolving to void
-   */
   async releaseVocoder(): Promise<void> {
-    return await RNLlama.releaseVocoder(this.id)
+    return await llamaReleaseVocoder(this.id)
   }
 
   async release(): Promise<void> {
-    return RNLlama.releaseContext(this.id)
+    return llamaReleaseContext(this.id)
   }
 }
 
 export async function toggleNativeLog(enabled: boolean): Promise<void> {
-  return RNLlama.toggleNativeLog(enabled)
+  await installJsi()
+  if (typeof global.llamaToggleNativeLog === 'function') {
+    return global.llamaToggleNativeLog(enabled, emitNativeLog)
+  }
+  throw new Error('JSI bindings not installed')
 }
 
 export function addNativeLogListener(
@@ -1064,7 +880,11 @@ export function addNativeLogListener(
 }
 
 export async function setContextLimit(limit: number): Promise<void> {
-  return RNLlama.setContextLimit(limit)
+  await installJsi()
+  if (typeof global.llamaSetContextLimit === 'function') {
+    return global.llamaSetContextLimit(limit)
+  }
+  throw new Error('JSI bindings not installed')
 }
 
 let contextIdCounter = 0
@@ -1073,20 +893,19 @@ const contextIdRandom = () =>
   process.env.NODE_ENV === 'test' ? 0 : Math.floor(Math.random() * 100000)
 
 const modelInfoSkip = [
-  // Large fields
   'tokenizer.ggml.tokens',
   'tokenizer.ggml.token_type',
   'tokenizer.ggml.merges',
   'tokenizer.ggml.scores',
 ]
 export async function loadLlamaModelInfo(model: string): Promise<Object> {
+  await installJsi()
   let path = model
   if (path.startsWith('file://')) path = path.slice(7)
-  return RNLlama.modelInfo(path, modelInfoSkip)
+  return llamaModelInfo(path, modelInfoSkip)
 }
 
 const poolTypeMap = {
-  // -1 is unspecified as undefined
   none: 0,
   mean: 1,
   cls: 2,
@@ -1097,8 +916,17 @@ const poolTypeMap = {
 export async function getBackendDevicesInfo(): Promise<
   Array<NativeBackendDeviceInfo>
 > {
-  const jsonString = await RNLlama.getBackendDevicesInfo()
-  return JSON.parse(jsonString as string)
+  await installJsi()
+  try {
+    const jsonString = await llamaGetBackendDevicesInfo()
+    return JSON.parse(jsonString as string)
+  } catch (e) {
+    console.warn(
+      '[RNLlama] Failed to parse backend devices info, falling back to empty list',
+      e,
+    )
+    return []
+  }
 }
 
 export async function initLlama(
@@ -1113,6 +941,7 @@ export async function initLlama(
   }: ContextParams,
   onProgress?: (progress: number) => void,
 ): Promise<LlamaContext> {
+  await installJsi()
   let path = model
   if (path.startsWith('file://')) path = path.slice(7)
 
@@ -1129,16 +958,8 @@ export async function initLlama(
   const contextId = contextIdCounter + contextIdRandom()
   contextIdCounter += 1
 
-  let removeProgressListener: any = null
-  if (onProgress) {
-    removeProgressListener = EventEmitter.addListener(
-      EVENT_ON_INIT_CONTEXT_PROGRESS,
-      (evt: { contextId: number; progress: number }) => {
-        if (evt.contextId !== contextId) return
-        onProgress(evt.progress)
-      },
-    )
-  }
+  // onProgress is not supported in JSI yet
+  if (onProgress) onProgress(0)
 
   const poolType = poolTypeMap[poolingType as keyof typeof poolTypeMap]
 
@@ -1160,7 +981,6 @@ export async function initLlama(
     filteredDevs = [...devices]
     const backendDevices = await getBackendDevicesInfo()
 
-    // Handle HTP* to use all HTP devices on Android (Hexagon)
     if (Platform.OS === 'android' && devices.includes('HTP*')) {
       const htpDevices = backendDevices
         .filter((d) => d.deviceName.startsWith('HTP'))
@@ -1183,7 +1003,7 @@ export async function initLlama(
     model: modelDetails,
     androidLib,
     systemInfo,
-  } = await RNLlama.initContext(contextId, {
+  } = await llamaInitContext(contextId, {
     model: path,
     is_model_asset: !!isModelAsset,
     use_progress_callback: !!onProgress,
@@ -1192,11 +1012,10 @@ export async function initLlama(
     lora_list: loraAdapters,
     devices: filteredDevs.length > 0 ? filteredDevs : undefined,
     ...rest,
-  }).catch((err: any) => {
-    removeProgressListener?.remove()
-    throw err
   })
-  removeProgressListener?.remove()
+
+  if (onProgress) onProgress(100)
+
   return new LlamaContext({
     contextId,
     gpu,
@@ -1209,7 +1028,8 @@ export async function initLlama(
 }
 
 export async function releaseAllLlama(): Promise<void> {
-  return RNLlama.releaseAllContexts()
+  if (!isJsiInstalled) return
+  return llamaReleaseAllContexts()
 }
 
 export const BuildInfo = {

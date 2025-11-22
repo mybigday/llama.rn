@@ -23,15 +23,23 @@ Pod::Spec.new do |s|
   s.platforms    = { :ios => "13.0", :tvos => "13.0" }
   s.source       = { :git => "https://github.com/mybigday/llama.rn.git", :tag => "#{s.version}" }
 
+  header_search_paths = ['$(inherited)']
+
   if ENV["RNLLAMA_BUILD_FROM_SOURCE"] == "1"
     s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,m,mm}"
     s.exclude_files = "cpp/ggml-opencl/*.{c,cpp}", "cpp/ggml-hexagon/**/*.{c,cpp}"
     s.resources = "cpp/**/*.{metallib}"
     base_compiler_flags += " -DRNLLAMA_BUILD_FROM_SOURCE"
+    header_search_paths << '"$(PODS_TARGET_SRCROOT)/cpp"'
   else
-    s.source_files = "ios/**/*.{h,m,mm}"
+    # JSI bindings always compiled from source (must match RN version)
+    s.source_files = "ios/**/*.{h,m,mm}", "cpp/jsi/**/*.{h,cpp}"
     s.vendored_frameworks = "ios/rnllama.xcframework"
+    base_compiler_flags += " -DRNLLAMA_USE_FRAMEWORK_HEADERS"
   end
+
+  # Header-only JSON dependency needed by JSI when using the prebuilt xcframework
+  s.preserve_paths = "cpp/nlohmann/**/*.{h,hpp}"
 
   s.dependency "React-Core"
 
@@ -39,7 +47,8 @@ Pod::Spec.new do |s|
   s.pod_target_xcconfig = {
     "OTHER_LDFLAGS" => base_ld_flags,
     "OTHER_CFLAGS" => base_optimizer_flags,
-    "OTHER_CPLUSPLUSFLAGS" => base_optimizer_flags + " -std=c++20"
+    "OTHER_CPLUSPLUSFLAGS" => base_optimizer_flags + " -std=c++20",
+    "HEADER_SEARCH_PATHS" => header_search_paths.join(" ")
   }
 
   # Don't install the dependencies when we run `pod install` in the old architecture.

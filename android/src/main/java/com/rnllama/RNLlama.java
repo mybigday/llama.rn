@@ -1,1126 +1,279 @@
 package com.rnllama;
 
-import androidx.annotation.NonNull;
-import android.util.Log;
 import android.os.Build;
-import android.os.Handler;
-import android.os.Looper;
+import android.util.Log;
 
-import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
-import com.facebook.react.bridge.ReactMethod;
-import com.facebook.react.bridge.LifecycleEventListener;
-import com.facebook.react.bridge.ReadableMap;
-import com.facebook.react.bridge.ReadableArray;
-import com.facebook.react.bridge.WritableMap;
-import com.facebook.react.bridge.WritableArray;
-import com.facebook.react.bridge.Arguments;
 
-import java.util.HashMap;
-import java.util.Random;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.PushbackInputStream;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.InputStream;
+import java.io.IOException;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
-public class RNLlama implements LifecycleEventListener {
+public class RNLlama {
   public static final String NAME = "RNLlama";
+  private static final String TAG = "RNLlama";
+  private static boolean libsLoaded = false;
+
+  // HTP (Hexagon Tensor Processor) constants
+  private static final int HTP_DIR_MODE = 0755;  // rwx for owner, rx for group/others
+  private static final int HTP_FILE_MODE = 0755;
+  private static final String HTP_DIR_NAME = "rnllama-htp";
+  private static final String[] HTP_LIBS = {
+    "libggml-htp-v73.so",
+    "libggml-htp-v75.so",
+    "libggml-htp-v79.so",
+    "libggml-htp-v81.so"
+  };
 
   private final ReactApplicationContext reactContext;
-  private final ExecutorService executorService;
-  private final Handler mainHandler;
 
   public RNLlama(ReactApplicationContext reactContext) {
-    reactContext.addLifecycleEventListener(this);
     this.reactContext = reactContext;
-    this.executorService = Executors.newCachedThreadPool();
-    this.mainHandler = new Handler(Looper.getMainLooper());
   }
 
-  private final HashMap<Future<?>, String> tasks = new HashMap<>();
-
-  private final HashMap<Integer, LlamaContext> contexts = new HashMap<>();
-
-  public void toggleNativeLog(boolean enabled, Promise promise) {
-    executorService.execute(() -> {
-      try {
-        LlamaContext.toggleNativeLog(reactContext, enabled);
-        mainHandler.post(() -> promise.resolve(true));
-      } catch (Exception e) {
-        mainHandler.post(() -> promise.reject(e));
-      }
-    });
-  }
-
-  private int llamaContextLimit = -1;
-
-  public void setContextLimit(double limit, Promise promise) {
-    llamaContextLimit = (int) limit;
-    promise.resolve(null);
-  }
-
-  public void modelInfo(final String model, final ReadableArray skip, final Promise promise) {
-    executorService.execute(() -> {
-      try {
-        String[] skipArray = new String[skip.size()];
-        for (int i = 0; i < skip.size(); i++) {
-          skipArray[i] = skip.getString(i);
-        }
-        WritableMap result = LlamaContext.modelInfo(model, skipArray);
-        mainHandler.post(() -> promise.resolve(result));
-      } catch (Exception e) {
-        mainHandler.post(() -> promise.reject(e));
-      }
-    });
-  }
-
-  public void getBackendDevicesInfo(final Promise promise) {
-    executorService.execute(() -> {
-      try {
-        if (LlamaContext.isArchNotSupported()) {
-          throw new IllegalStateException("Only 64-bit architectures are supported");
-        }
-        String result = LlamaContext.getBackendDevicesInfo();
-        mainHandler.post(() -> promise.resolve(result));
-      } catch (Exception e) {
-        mainHandler.post(() -> promise.reject(e));
-      }
-    });
-  }
-
-  public void initContext(double id, final ReadableMap params, final Promise promise) {
-    final int contextId = (int) id;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context != null) {
-          throw new Exception("Context already exists");
-        }
-        if (llamaContextLimit > -1 && contexts.size() >= llamaContextLimit) {
-          throw new Exception("Context limit reached");
-        }
-        LlamaContext llamaContext = new LlamaContext(contextId, reactContext, params);
-        if (llamaContext.getContext() == 0) {
-          throw new Exception("Failed to initialize context");
-        }
-        contexts.put(contextId, llamaContext);
-        WritableMap result = Arguments.createMap();
-        result.putBoolean("gpu", llamaContext.isGpuEnabled());
-        result.putString("reasonNoGPU", llamaContext.getReasonNoGpu());
-        result.putArray("devices", llamaContext.getDevices());
-        result.putMap("model", llamaContext.getModelDetails());
-        result.putString("systemInfo", llamaContext.getSystemInfo());
-        result.putString("androidLib", llamaContext.getLoadedLibrary());
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals("initContext"));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals("initContext"));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, "initContext");
+  // HTP library extraction and setup
+  private static boolean prepareHtpDirectory(File dir, String label) {
+    if (dir == null) {
+      return false;
     }
-  }
-
-  public void getFormattedChat(double id, final String messages, final String chatTemplate, final ReadableMap params, Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "getFormattedChat-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        Object result;
-        if (params.hasKey("jinja") && params.getBoolean("jinja")) {
-          ReadableMap resultMap = context.getFormattedChatWithJinja(
-            messages,
-            chatTemplate == null ? "" : chatTemplate,
-            params
-          );
-          if (resultMap.hasKey("_error")) {
-            throw new Exception(resultMap.getString("_error"));
-          }
-          result = resultMap;
-        } else {
-          result = context.getFormattedChat(messages, chatTemplate);
-        }
-        Object finalResult = result;
-        mainHandler.post(() -> {
-          promise.resolve(finalResult);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void loadSession(double id, final String path, Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "loadSession-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        WritableMap result = context.loadSession(path);
-        if (result != null && result.hasKey("error")) {
-          throw new Exception(result.getString("error"));
-        }
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void saveSession(double id, final String path, double size, Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "saveSession-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        WritableMap result = context.saveSession(path, (int) size);
-        if (result != null && result.hasKey("error")) {
-          throw new Exception(result.getString("error"));
-        }
-        mainHandler.post(() -> {
-          // Return the tokens_saved count to maintain backward compatibility
-          if (result != null && result.hasKey("tokens_saved")) {
-            promise.resolve(result.getInt("tokens_saved"));
-          } else {
-            promise.resolve(0);
-          }
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void completion(double id, final ReadableMap params, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "completion-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        if (context.isPredicting()) {
-          throw new Exception("Context is busy");
-        }
-        WritableMap result = context.completion(params);
-        if (result != null && result.hasKey("error")) {
-          throw new Exception(result.getString("error"));
-        }
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void stopCompletion(double id, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "stopCompletion-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        context.stopCompletion();
-        // Wait for completion task to finish
-        synchronized (tasks) {
-          for (Future<?> task : tasks.keySet()) {
-            if (tasks.get(task).equals("completion-" + contextId)) {
-              try {
-                task.get();
-              } catch (Exception ignored) {
-              }
-              break;
-            }
-          }
-        }
-        mainHandler.post(() -> {
-          promise.resolve(null);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void tokenize(double id, final String text, final ReadableArray media_paths, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "tokenize-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        WritableMap result = context.tokenize(text, media_paths);
-        if (result != null && result.hasKey("error")) {
-          throw new Exception(result.getString("error"));
-        }
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void detokenize(double id, final ReadableArray tokens, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "detokenize-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        String result = context.detokenize(tokens);
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void embedding(double id, final String text, final ReadableMap params, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "embedding-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        WritableMap result = context.getEmbedding(text, params);
-        if (result != null && result.hasKey("error")) {
-          throw new Exception(result.getString("error"));
-        }
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void rerank(double id, final String query, final ReadableArray documents, final ReadableMap params, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "rerank-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        WritableMap result = context.getRerank(query, documents, params);
-        if (result == null) {
-          throw new Exception("Rerank returned null result");
-        }
-        if (result.hasKey("error")) {
-          throw new Exception(result.getString("error"));
-        }
-        // Extract the array from the result map
-        WritableArray finalResult;
-        if (result.hasKey("result")) {
-          ReadableArray readableResult = result.getArray("result");
-          // Convert ReadableArray to WritableArray by copying
-          WritableArray writableResult = Arguments.createArray();
-          for (int i = 0; i < readableResult.size(); i++) {
-            writableResult.pushMap(readableResult.getMap(i));
-          }
-          finalResult = writableResult;
-        } else {
-          // Fallback to empty array if no result key (shouldn't happen)
-          finalResult = Arguments.createArray();
-        }
-        mainHandler.post(() -> {
-          promise.resolve(finalResult);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void bench(double id, final double pp, final double tg, final double pl, final double nr, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "bench-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        String result = context.bench((int) pp, (int) tg, (int) pl, (int) nr);
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void applyLoraAdapters(double id, final ReadableArray loraAdapters, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "applyLoraAdapters-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        if (context.isPredicting()) {
-          throw new Exception("Context is busy");
-        }
-        context.applyLoraAdapters(loraAdapters);
-        mainHandler.post(() -> {
-          promise.resolve(null);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void removeLoraAdapters(double id, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "removeLoraAdapters-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        if (context.isPredicting()) {
-          throw new Exception("Context is busy");
-        }
-        context.removeLoraAdapters();
-        mainHandler.post(() -> {
-          promise.resolve(null);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void getLoadedLoraAdapters(double id, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "getLoadedLoraAdapters-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        ReadableArray result = context.getLoadedLoraAdapters();
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void initMultimodal(double id, final ReadableMap params, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "initMultimodal-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        if (context.isPredicting()) {
-          throw new Exception("Context is busy");
-        }
-        Boolean result = context.initMultimodal(params);
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void isMultimodalEnabled(double id, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "isMultimodalEnabled-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        Boolean result = context.isMultimodalEnabled();
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void getMultimodalSupport(double id, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "getMultimodalSupport-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        if (!context.isMultimodalEnabled()) {
-          throw new Exception("Multimodal is not enabled");
-        }
-        WritableMap result = context.getMultimodalSupport();
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  @ReactMethod
-  public void releaseMultimodal(double id, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "releaseMultimodal-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        context.releaseMultimodal();
-        mainHandler.post(() -> {
-          promise.resolve(null);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void initVocoder(double id, final ReadableMap params, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "initVocoder-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        if (context.isPredicting()) {
-          throw new Exception("Context is busy");
-        }
-        Boolean result = context.initVocoder(params);
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void releaseVocoder(double id, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "releaseVocoder-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        context.releaseVocoder();
-        mainHandler.post(() -> {
-          promise.resolve(null);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void isVocoderEnabled(double id, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "isVocoderEnabled-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        Boolean result = context.isVocoderEnabled();
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void getFormattedAudioCompletion(double id, final String speakerJsonStr, final String textToSpeak, Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "getFormattedAudioCompletion-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        if (!context.isVocoderEnabled()) {
-          throw new Exception("Vocoder is not enabled");
-        }
-        Object result = context.getFormattedAudioCompletion(speakerJsonStr, textToSpeak);
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void getAudioCompletionGuideTokens(double id, final String textToSpeak, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "getAudioCompletionGuideTokens-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        if (!context.isVocoderEnabled()) {
-          throw new Exception("Vocoder is not enabled");
-        }
-        WritableArray result = context.getAudioCompletionGuideTokens(textToSpeak);
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void decodeAudioTokens(double id, final ReadableArray tokens, final Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "decodeAudioTokens-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        if (!context.isVocoderEnabled()) {
-          throw new Exception("Vocoder is not enabled");
-        }
-        WritableArray result = context.decodeAudioTokens(tokens);
-        mainHandler.post(() -> {
-          promise.resolve(result);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void releaseContext(double id, Promise promise) {
-    final int contextId = (int) id;
-    String taskName = "releaseContext-" + contextId;
-    Future<?> future = executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context " + id + " not found");
-        }
-        context.interruptLoad();
-        context.stopCompletion();
-        synchronized (tasks) {
-          for (Future<?> task : tasks.keySet()) {
-            if (tasks.get(task).equals("completion-" + contextId)) {
-              try {
-                task.get();
-              } catch (Exception ignored) {
-              }
-              break;
-            }
-          }
-        }
-        context.release();
-        contexts.remove(contextId);
-        mainHandler.post(() -> {
-          promise.resolve(null);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  public void releaseAllContexts(Promise promise) {
-    String taskName = "releaseAllContexts";
-    Future<?> future = executorService.submit(() -> {
-      try {
-        onHostDestroy();
-        mainHandler.post(() -> {
-          promise.resolve(null);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      } catch (Exception e) {
-        mainHandler.post(() -> {
-          promise.reject(e);
-          synchronized (tasks) {
-            tasks.values().removeIf(name -> name.equals(taskName));
-          }
-        });
-      }
-    });
-    synchronized (tasks) {
-      tasks.put(future, taskName);
-    }
-  }
-
-  // Parallel decoding methods
-  public void enableParallelMode(double id, final ReadableMap params, final Promise promise) {
-    final int contextId = (int) id;
-    executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-
-        boolean enabled = params.hasKey("enabled") ? params.getBoolean("enabled") : true;
-        int nParallel = params.hasKey("n_parallel") ? params.getInt("n_parallel") : 2;
-        int nBatch = params.hasKey("n_batch") ? params.getInt("n_batch") : 512;
-
-        Boolean result;
-        if (enabled) {
-          result = context.doEnableParallelMode(nParallel, nBatch);
-        } else {
-          context.doDisableParallelMode();
-          result = true;
-        }
-        mainHandler.post(() -> promise.resolve(result));
-      } catch (Exception e) {
-        mainHandler.post(() -> promise.reject(e));
-      }
-    });
-  }
-
-  public void queueCompletion(double id, final ReadableMap params, final Promise promise) {
-    final int contextId = (int) id;
-    executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        Integer requestId = context.queueCompletion(params);
-        WritableMap result = Arguments.createMap();
-        result.putInt("requestId", requestId);
-        mainHandler.post(() -> promise.resolve(result));
-      } catch (Exception e) {
-        mainHandler.post(() -> promise.reject(e));
-      }
-    });
-  }
-
-  public void cancelRequest(double id, double requestIdDouble, final Promise promise) {
-    final int contextId = (int) id;
-    final int requestId = (int) requestIdDouble;
-    executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        context.cancelRequest(requestId);
-        mainHandler.post(() -> promise.resolve(null));
-      } catch (Exception e) {
-        mainHandler.post(() -> promise.reject(e));
-      }
-    });
-  }
-
-  public void queueEmbedding(double id, final String text, final ReadableMap params, final Promise promise) {
-    final int contextId = (int) id;
-    executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        Integer requestId = context.queueEmbedding(text, params);
-        WritableMap result = Arguments.createMap();
-        result.putInt("requestId", requestId);
-        mainHandler.post(() -> promise.resolve(result));
-      } catch (Exception e) {
-        mainHandler.post(() -> promise.reject(e));
-      }
-    });
-  }
-
-  public void queueRerank(double id, final String query, final ReadableArray documents, final ReadableMap params, final Promise promise) {
-    final int contextId = (int) id;
-    executorService.submit(() -> {
-      try {
-        LlamaContext context = contexts.get(contextId);
-        if (context == null) {
-          throw new Exception("Context not found");
-        }
-        Integer requestId = context.queueRerank(query, documents, params);
-        WritableMap result = Arguments.createMap();
-        result.putInt("requestId", requestId);
-        mainHandler.post(() -> promise.resolve(result));
-      } catch (Exception e) {
-        mainHandler.post(() -> promise.reject(e));
-      }
-    });
-  }
-
-  @Override
-  public void onHostResume() {
-  }
-
-  @Override
-  public void onHostPause() {
-  }
-
-  @Override
-  public void onHostDestroy() {
-    for (LlamaContext context : contexts.values()) {
-      context.stopCompletion();
-    }
-    synchronized (tasks) {
-      for (Future<?> task : tasks.keySet()) {
-        try {
-          task.get();
-        } catch (Exception e) {
-          Log.e(NAME, "Failed to wait for task", e);
-        }
-      }
-      tasks.clear();
-    }
-    for (LlamaContext context : contexts.values()) {
-      context.release();
-    }
-    contexts.clear();
-    executorService.shutdown();
     try {
-      if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
-        executorService.shutdownNow();
+      if (dir.exists()) {
+        if (!dir.isDirectory()) {
+          Log.w(NAME, label + " exists but is not a directory: " + dir.getAbsolutePath());
+          return false;
+        }
+      } else {
+        if (!dir.mkdirs()) {
+          Log.w(NAME, "Unable to create " + label + " at " + dir.getAbsolutePath());
+          return false;
+        }
+        File sanity = File.createTempFile("htp", ".tmp", dir);
+        sanity.delete();
       }
-    } catch (InterruptedException e) {
-      executorService.shutdownNow();
-      Thread.currentThread().interrupt();
+    } catch (Exception e) {
+      Log.w(NAME, "Unable to prepare " + label + " at " + dir.getAbsolutePath(), e);
+      return false;
     }
+
+    dir.setReadable(true, false);
+    dir.setExecutable(true, false);
+    dir.setWritable(true, true);
+
+    try {
+      android.system.Os.chmod(dir.getAbsolutePath(), HTP_DIR_MODE);
+    } catch (Exception e) {
+      Log.w(NAME, "Failed to chmod HTP directory " + dir.getAbsolutePath(), e);
+    }
+
+    return true;
+  }
+
+  private static File getPrivateHtpDir(android.content.Context context) {
+    try {
+      return context.getDir(HTP_DIR_NAME, android.content.Context.MODE_PRIVATE);
+    } catch (Exception e) {
+      Log.w(NAME, "Unable to access private HTP directory", e);
+      return null;
+    }
+  }
+
+  private static File resolveHtpDirectory(android.content.Context context) {
+    File[] candidates = new File[] {
+      getPrivateHtpDir(context),
+      new File(context.getFilesDir(), HTP_DIR_NAME),
+      context.getCodeCacheDir() != null ? new File(context.getCodeCacheDir(), HTP_DIR_NAME) : null,
+      context.getCacheDir() != null ? new File(context.getCacheDir(), HTP_DIR_NAME) : null,
+      context.getExternalFilesDir(null) != null ? new File(context.getExternalFilesDir(null), HTP_DIR_NAME) : null
+    };
+
+    for (File candidate : candidates) {
+      if (candidate == null) continue;
+      if (prepareHtpDirectory(candidate, "HTP directory candidate")) {
+        return candidate;
+      }
+    }
+
+    Log.w(NAME, "Unable to provision directory for Hexagon libraries; Hexagon backend will be disabled");
+    return null;
+  }
+
+  private static void setHtpFilePermissions(File file) {
+    file.setReadable(true, false);
+    file.setExecutable(true, false);
+    try {
+      android.system.Os.chmod(file.getAbsolutePath(), HTP_FILE_MODE);
+    } catch (Exception e) {
+      Log.w(NAME, "Failed to chmod HTP library " + file.getAbsolutePath(), e);
+    }
+  }
+
+  private static boolean ensureHtpLibraries(android.content.Context context, File htpDir) {
+    for (String libName : HTP_LIBS) {
+      File outFile = new File(htpDir, libName);
+
+      if (outFile.exists()) {
+        continue;
+      }
+
+      try {
+        try (InputStream in = context.getAssets().open("ggml-hexagon/" + libName);
+             FileOutputStream out = new FileOutputStream(outFile)) {
+          byte[] buffer = new byte[8192];
+          int read;
+          while ((read = in.read(buffer)) != -1) {
+            out.write(buffer, 0, read);
+          }
+          out.flush();
+        }
+
+        setHtpFilePermissions(outFile);
+        Log.d(NAME, "Extracted HTP library: " + libName);
+      } catch (Exception e) {
+        Log.w(NAME, "Failed to extract HTP library " + libName, e);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static void extractHtpLibrariesFromAssets(android.content.Context context) {
+    File htpDir = resolveHtpDirectory(context);
+    if (htpDir == null) {
+      Log.w(NAME, "Could not resolve HTP directory; Hexagon backend will be disabled");
+      return;
+    }
+
+    Log.d(NAME, "Using " + htpDir.getAbsolutePath() + " for HTP libraries");
+
+    if (!ensureHtpLibraries(context, htpDir)) {
+      Log.w(NAME, "Could not install Hexagon libraries; Hexagon backend will be disabled");
+      return;
+    }
+
+    try {
+      String htpLibPath = htpDir.getAbsolutePath();
+      android.system.Os.setenv("ADSP_LIBRARY_PATH", htpLibPath, true);
+      android.system.Os.setenv("LM_GGML_HEXAGON_NDEV", "16", true);
+      Log.d(NAME, "Set ADSP_LIBRARY_PATH=" + htpLibPath);
+    } catch (Exception e) {
+      Log.w(NAME, "Failed to set ADSP_LIBRARY_PATH", e);
+    }
+  }
+
+  public static synchronized void loadNative(ReactApplicationContext context) {
+    if (libsLoaded) return;
+
+    if (Build.SUPPORTED_64_BIT_ABIS.length == 0) {
+      Log.w(TAG, "Only 64-bit architectures are supported");
+      return;
+    }
+
+    // Extract HTP libraries from assets before loading native library
+    try {
+      extractHtpLibrariesFromAssets(context);
+    } catch (Exception e) {
+      Log.w(TAG, "Failed to extract HTP libraries", e);
+    }
+
+    String cpuFeatures = getCpuFeatures();
+    boolean hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp");
+    boolean hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp");
+    boolean hasI8mm = cpuFeatures.contains("i8mm");
+
+    String hwInfo = (Build.HARDWARE + " " + Build.MANUFACTURER + " " + Build.MODEL).toLowerCase(Locale.ROOT);
+    boolean hasAdreno = Pattern.compile("(adreno|qcom|qualcomm)").matcher(hwInfo).find();
+    boolean hasHexagon = isHexagonSupported();
+
+    try {
+      boolean jniLoaded = false;
+      String loadedLib = "";
+      if (isArm64V8a()) {
+        if (hasDotProd && hasI8mm && hasHexagon && hasAdreno) {
+          try { System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl"); jniLoaded = true; loadedLib = "rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl"; } catch (UnsatisfiedLinkError ignored) {}
+        } else if (hasDotProd && hasI8mm) {
+          try { System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm"); jniLoaded = true; loadedLib = "rnllama_jni_v8_2_dotprod_i8mm"; } catch (UnsatisfiedLinkError ignored) {}
+        } else if (hasDotProd) {
+          try { System.loadLibrary("rnllama_jni_v8_2_dotprod"); jniLoaded = true; loadedLib = "rnllama_jni_v8_2_dotprod"; } catch (UnsatisfiedLinkError ignored) {}
+        } else if (hasI8mm) {
+          try { System.loadLibrary("rnllama_jni_v8_2_i8mm"); jniLoaded = true; loadedLib = "rnllama_jni_v8_2_i8mm"; } catch (UnsatisfiedLinkError ignored) {}
+        } else if (hasFp16) {
+          try { System.loadLibrary("rnllama_jni_v8_2"); jniLoaded = true; loadedLib = "rnllama_jni_v8_2"; } catch (UnsatisfiedLinkError ignored) {}
+        } else {
+          try { System.loadLibrary("rnllama_jni_v8"); jniLoaded = true; loadedLib = "rnllama_jni_v8"; } catch (UnsatisfiedLinkError ignored) {}
+        }
+      } else if (isX86_64()) {
+        try { System.loadLibrary("rnllama_jni_x86_64"); jniLoaded = true; loadedLib = "rnllama_jni_x86_64"; } catch (UnsatisfiedLinkError ignored) {}
+      } else {
+        try { System.loadLibrary("rnllama_jni"); jniLoaded = true; loadedLib = "rnllama_jni"; } catch (UnsatisfiedLinkError ignored) {}
+      }
+
+      if (!jniLoaded) {
+        // Fallback to generic JNI
+        System.loadLibrary("rnllama_jni");
+        loadedLib = "rnllama_jni";
+      }
+
+      System.loadLibrary("rnllama");
+      nativeSetLoadedLibrary(loadedLib);
+      libsLoaded = true;
+    } catch (UnsatisfiedLinkError e) {
+      Log.e(TAG, "Failed to load native libraries", e);
+      throw e;
+    }
+  }
+
+  private static native void nativeSetLoadedLibrary(String name);
+
+  private static boolean isArm64V8a() {
+    for (String abi : Build.SUPPORTED_ABIS) {
+      if ("arm64-v8a".equalsIgnoreCase(abi)) return true;
+    }
+    return false;
+  }
+
+  private static boolean isX86_64() {
+    for (String abi : Build.SUPPORTED_ABIS) {
+      if ("x86_64".equalsIgnoreCase(abi)) return true;
+    }
+    return false;
+  }
+
+  private static String getCpuFeatures() {
+    StringBuilder features = new StringBuilder();
+    try (BufferedReader br = new BufferedReader(new FileReader("/proc/cpuinfo"))) {
+      String line;
+      while ((line = br.readLine()) != null) {
+        String lower = line.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("features") || lower.startsWith("flags")) {
+          int idx = lower.indexOf(':');
+          if (idx != -1 && idx + 1 < lower.length()) {
+            features.append(lower.substring(idx + 1).trim()).append(" ");
+          }
+        }
+      }
+    } catch (IOException ignored) {
+    }
+    return features.toString();
+  }
+
+  private static boolean isHexagonSupported() {
+    if (Build.VERSION.SDK_INT >= 31) {
+      String socModel = Build.SOC_MODEL;
+      if (socModel != null) {
+        socModel = socModel.toUpperCase(Locale.ROOT);
+        if (socModel.matches(".*(SM8550|SM8650|SM8635|SM8750).*")) {
+          return true;
+        }
+      }
+    }
+    String hardware = Build.HARDWARE.toLowerCase(Locale.ROOT);
+    String board = Build.BOARD.toLowerCase(Locale.ROOT);
+    return hardware.matches(".*(kalama|pineapple|sun|lanai).*") ||
+      board.matches(".*(kalama|pineapple|sun|lanai).*");
   }
 }
