@@ -24,6 +24,7 @@
 #include "rn-completion.h"
 #include "rn-slot-manager.h"
 #include "jni-utils.h"
+#include "common.h"
 #define UNUSED(x) (void)(x)
 #define TAG "RNLLAMA_ANDROID_JNI"
 
@@ -602,6 +603,25 @@ Java_com_rnllama_LlamaContext_initContext(
     }
     set_best_cores(defaultParams.cpuparams, n_threads);
 
+    // If cpu_mask or cpu_strict is set, override the cpumask/strict_cpu from set_best_cores
+    if (readablemap::hasKey(env, params_map, "cpu_mask")) {
+        jstring cpu_mask_str = readablemap::getString(env, params_map, "cpu_mask", nullptr);
+        if (cpu_mask_str) {
+            const char *cpu_mask_chars = env->GetStringUTFChars(cpu_mask_str, nullptr);
+            if (cpu_mask_chars && cpu_mask_chars[0] != '\0') {
+                bool cpumask[LM_GGML_MAX_N_THREADS] = {false};
+                if (parse_cpu_mask(cpu_mask_chars, cpumask)) {
+                    std::copy(std::begin(cpumask), std::end(cpumask), std::begin(defaultParams.cpuparams.cpumask));
+                    defaultParams.cpuparams.mask_valid = true;
+                }
+            }
+            env->ReleaseStringUTFChars(cpu_mask_str, cpu_mask_chars);
+        }
+    }
+    if (readablemap::hasKey(env, params_map, "cpu_strict")) {
+        defaultParams.cpuparams.strict_cpu = readablemap::getBool(env, params_map, "cpu_strict", false);
+    }
+
     // Extract GPU parameters
     if (readablemap::hasKey(env, params_map, "n_gpu_layers")) {
         defaultParams.n_gpu_layers = readablemap::getInt(env, params_map, "n_gpu_layers", 0);
@@ -679,8 +699,9 @@ Java_com_rnllama_LlamaContext_initContext(
                 for (int j = 0; j < devices_size; ++j) {
                     auto device = readablearray::getString(env, devices, j);
                     auto device_str = env->GetStringUTFChars(device, nullptr);
+                    const bool is_match = device_str != nullptr && strcmp(dev_name, device_str) == 0;
                     env->ReleaseStringUTFChars(device, device_str);
-                    if (strcmp(dev_name, device_str) == 0) {
+                    if (is_match) {
                         switch (lm_ggml_backend_dev_type(dev)) {
                             case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
                             case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
@@ -837,6 +858,9 @@ Java_com_rnllama_LlamaContext_initContext(
     bool explicit_gpu_requested = false;
     if (has_explicit_devices) {
         for (auto dev : llama->params.devices) {
+            if (dev == nullptr) {
+                continue;
+            }
             auto dev_type = lm_ggml_backend_dev_type(dev);
             if (dev_type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || dev_type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
                 explicit_gpu_requested = true;
