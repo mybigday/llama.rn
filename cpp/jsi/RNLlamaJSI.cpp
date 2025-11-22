@@ -594,29 +594,9 @@ namespace rnllama_jsi {
                  return createPromiseTask(runtime, callInvoker, [callInvoker]() -> PromiseResultGenerator {
                      ensureBackendInitialized();
 
-                     std::string info = "[]";
-                     try {
-                         info = rnllama::get_backend_devices_info();
-                         // Validate JSON
-                         auto parsed = json::parse(info);
-                         info = parsed.dump();
-                     } catch (const std::exception& e) {
-                         std::string error_msg = std::string("Failed to get backend devices info: ") + e.what();
-                         callInvoker->invokeAsync([error_msg](jsi::Runtime& rt) {
-                             consoleError(rt, error_msg);
-                         });
-                         info = "[]";
-                     } catch (...) {
-                         callInvoker->invokeAsync([](jsi::Runtime& rt) {
-                             consoleError(rt, "Failed to get backend devices info: unknown error");
-                         });
-                         info = "[]";
-                     }
+                     std::string info = rnllama::get_backend_devices_info();
 
                      return [info](jsi::Runtime& rt) {
-                         std::string debug = "[JSI] Backend devices info length: " + std::to_string(info.length()) +
-                                           ", first 100 chars: " + info.substr(0, std::min(size_t(100), info.length()));
-                         consoleLog(rt, debug);
                          return jsi::String::createFromUtf8(rt, info);
                      };
                  });
