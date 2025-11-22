@@ -14,6 +14,7 @@ declare global {
   var llamaInitContext: (
     contextId: number,
     params: NativeContextParams,
+    onProgress?: (progress: number) => void,
   ) => Promise<any>
   var llamaReleaseContext: (contextId: number) => Promise<void>
   var llamaReleaseAllContexts: () => Promise<void>

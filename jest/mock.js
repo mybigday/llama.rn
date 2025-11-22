@@ -135,7 +135,14 @@ if (!NativeModules.RNLlama) {
       systemInfo: 'mock',
     }
 
-    setGlobal('llamaInitContext', jest.fn(async () => mockInitContextResult))
+    setGlobal('llamaInitContext', jest.fn(async (_contextId, _params, onProgress) => {
+      if (typeof onProgress === 'function') {
+        onProgress(0)
+        onProgress(50)
+        onProgress(100)
+      }
+      return mockInitContextResult
+    }))
     setGlobal('llamaReleaseContext', jest.fn(async () => {}))
     setGlobal('llamaReleaseAllContexts', jest.fn(async () => {}))
     setGlobal('llamaModelInfo', jest.fn(async () => ({})))

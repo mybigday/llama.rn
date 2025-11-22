@@ -958,8 +958,19 @@ export async function initLlama(
   const contextId = contextIdCounter + contextIdRandom()
   contextIdCounter += 1
 
-  // onProgress is not supported in JSI yet
-  if (onProgress) onProgress(0)
+  let lastProgress = 0
+  const progressCallback = onProgress
+    ? (progress: number) => {
+        lastProgress = progress
+        try {
+          onProgress(progress)
+        } catch (err) {
+          console.warn('[RNLlama] onProgress callback failed', err)
+        }
+      }
+    : undefined
+
+  if (progressCallback) progressCallback(0)
 
   const poolType = poolTypeMap[poolingType as keyof typeof poolTypeMap]
 
@@ -1006,15 +1017,15 @@ export async function initLlama(
   } = await llamaInitContext(contextId, {
     model: path,
     is_model_asset: !!isModelAsset,
-    use_progress_callback: !!onProgress,
+    use_progress_callback: !!progressCallback,
     pooling_type: poolType,
     lora: loraPath,
     lora_list: loraAdapters,
     devices: filteredDevs.length > 0 ? filteredDevs : undefined,
     ...rest,
-  })
+  }, progressCallback)
 
-  if (onProgress) onProgress(100)
+  if (progressCallback && lastProgress < 100) progressCallback(100)
 
   return new LlamaContext({
     contextId,

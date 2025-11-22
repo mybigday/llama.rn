@@ -135,6 +135,14 @@ namespace rnllama_jsi {
     static std::weak_ptr<react::CallInvoker> g_log_invoker;
     static std::shared_ptr<jsi::Function> g_log_handler;
 
+    struct ProgressCallbackData {
+        std::shared_ptr<jsi::Function> callback;
+        std::weak_ptr<react::CallInvoker> callInvoker;
+        int contextId;
+        std::atomic<int> lastProgress{0};
+        int progressEvery = 1;
+    };
+
     void setContextLimit(int64_t limit) {
         g_context_limit.store(limit);
     }
@@ -334,11 +342,27 @@ namespace rnllama_jsi {
     ) {
         auto initContext = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaInitContext"),
-            2,
+            3,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
                 jsi::Object params = arguments[1].asObject(runtime);
                 bool isModelAsset = getPropertyAsBool(runtime, params, "is_model_asset", false);
+
+                bool useProgressCallback = getPropertyAsBool(runtime, params, "use_progress_callback", false);
+                int progressCallbackEvery = getPropertyAsInt(runtime, params, "progress_callback_every", 1);
+                std::shared_ptr<ProgressCallbackData> progressData;
+                if (count > 2 && arguments[2].isObject() && arguments[2].asObject(runtime).isFunction(runtime)) {
+                    useProgressCallback = true;
+                    progressData = std::make_shared<ProgressCallbackData>();
+                    progressData->callback = std::make_shared<jsi::Function>(arguments[2].asObject(runtime).asFunction(runtime));
+                    progressData->callInvoker = callInvoker;
+                    progressData->contextId = contextId;
+                    progressData->progressEvery = std::max(1, progressCallbackEvery);
+                    progressData->lastProgress.store(0);
+                } else if (useProgressCallback) {
+                    // Progress requested but no callback provided
+                    useProgressCallback = false;
+                }
 
                 ensureBackendInitialized();
 
@@ -417,13 +441,44 @@ namespace rnllama_jsi {
                     }
                 }
 
-                return createPromiseTask(runtime, callInvoker, [contextId, cparams, skipGpuDevices, anyGpuAvailable
+                return createPromiseTask(runtime, callInvoker, [contextId, cparams, skipGpuDevices, anyGpuAvailable, useProgressCallback, progressData
 #if defined(__APPLE__)
                     , appleGpuReason
 #endif
                 ]() mutable -> PromiseResultGenerator {
                     if (isContextLimitReached()) {
                         throw std::runtime_error("Context limit reached");
+                    }
+
+                    if (useProgressCallback && progressData && progressData->callback) {
+                        cparams.progress_callback = [](float progress, void * user_data) {
+                            auto *data = static_cast<ProgressCallbackData *>(user_data);
+                            if (!data) {
+                                return true;
+                            }
+
+                            int percentage = (int) (progress * 100.0f);
+                            int last = data->lastProgress.load();
+                            if (percentage < 100 && percentage - last < data->progressEvery) {
+                                return true;
+                            }
+                            if (percentage <= last) {
+                                return true;
+                            }
+
+                            data->lastProgress.store(percentage);
+
+                            auto invoker = data->callInvoker.lock();
+                            auto cb = data->callback;
+                            if (invoker && cb) {
+                                invoker->invokeAsync([cb, percentage](jsi::Runtime& rt) {
+                                    cb->call(rt, jsi::Value((double) percentage));
+                                });
+                            }
+
+                            return true;
+                        };
+                        cparams.progress_callback_user_data = progressData.get();
                     }
 
                     auto ctx = new rnllama::llama_rn_context();
