@@ -699,8 +699,9 @@ Java_com_rnllama_LlamaContext_initContext(
                 for (int j = 0; j < devices_size; ++j) {
                     auto device = readablearray::getString(env, devices, j);
                     auto device_str = env->GetStringUTFChars(device, nullptr);
+                    const bool is_match = device_str != nullptr && strcmp(dev_name, device_str) == 0;
                     env->ReleaseStringUTFChars(device, device_str);
-                    if (strcmp(dev_name, device_str) == 0) {
+                    if (is_match) {
                         switch (lm_ggml_backend_dev_type(dev)) {
                             case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
                             case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
@@ -857,6 +858,9 @@ Java_com_rnllama_LlamaContext_initContext(
     bool explicit_gpu_requested = false;
     if (has_explicit_devices) {
         for (auto dev : llama->params.devices) {
+            if (dev == nullptr) {
+                continue;
+            }
             auto dev_type = lm_ggml_backend_dev_type(dev);
             if (dev_type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || dev_type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
                 explicit_gpu_requested = true;
