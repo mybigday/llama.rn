@@ -6895,9 +6895,23 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
     cl_context context = backend_ctx->context;
 
     if(src0t == LM_GGML_TYPE_F16 && src1t == LM_GGML_TYPE_F32){
-        if (ne01 >= 64 && ne1 >= 32 && ne00 >= 16 && (ne12 % ne02) == 0){
-            lm_ggml_cl_mul_mat_kq_kqv_adreno(backend, src0, src1, dst);
-            return;
+        if (ne01 >= 64 && ne1 >= 32 && ne00 >= 16 && (ne12 % ne02) == 0) {
+            // For KQ
+            if (lm_ggml_is_permuted(src0) && lm_ggml_is_permuted(src1) &&
+                nb00 <= nb02 &&
+                nb02 <= nb01 &&
+                nb01 <= nb03 &&
+                nb10 <= nb12 &&
+                nb12 <= nb11 &&
+                nb11 <= nb13) {
+                lm_ggml_cl_mul_mat_kq_kqv_adreno(backend, src0, src1, dst);
+                return;
+            }
+            // For KQV
+            if (!lm_ggml_is_contiguous(src0) && lm_ggml_is_contiguous(src1)) {
+                lm_ggml_cl_mul_mat_kq_kqv_adreno(backend, src0, src1, dst);
+                return;
+            }
         }
     }
 
