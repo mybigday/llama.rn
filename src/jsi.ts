@@ -8,7 +8,7 @@ import type {
   NativeSessionLoadResult,
   NativeRerankResult,
   JinjaFormattedChatResult,
-} from './NativeRNLlama'
+} from './types'
 
 declare global {
   var llamaInitContext: (

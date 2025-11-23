@@ -21,7 +21,7 @@ import type {
   NativeImageProcessingResult,
   NativeLlamaChatMessage,
   NativeBackendDeviceInfo,
-} from './NativeRNLlama'
+} from './types'
 import type {
   SchemaGrammarConverterPropOrder,
   SchemaGrammarConverterBuiltinRule,
