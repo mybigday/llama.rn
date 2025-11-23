@@ -17,8 +17,7 @@ runs:
           **/node_modules
         key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/package.json') }}
         restore-keys: |
-          ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
-          ${{ runner.os }}-npm-
+          ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/package.json') }}
 
     - name: Install dependencies
       if: steps.npm-cache.outputs.cache-hit != 'true'
