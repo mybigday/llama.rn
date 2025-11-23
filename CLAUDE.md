@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**llama.rn** is a React Native binding for [llama.cpp](https://github.com/ggerganov/llama.cpp), enabling on-device LLM inference for iOS and Android. The library provides a JavaScript/TypeScript API that wraps native implementations using React Native's TurboModule architecture.
+**llama.rn** is a React Native binding for [llama.cpp](https://github.com/ggerganov/llama.cpp), enabling on-device LLM inference for iOS and Android. The library now uses a JSI-first bridge to expose llama.cpp APIs directly to JavaScript.
 
 ## General
 
@@ -12,48 +12,42 @@
 
 ## Architecture
 
-### Three-Layer Architecture
+1. **TypeScript API (`src/`)**
+   - `src/index.ts` provides the public API and binds to JSI globals installed by `installJsi()`
+   - `src/jsi.ts` handles global function exports/imports and type safety
+   - `src/types.ts` and `src/grammar.ts` house shared types and grammar helpers
+   - `src/NativeRNLlama.ts` is a minimal TurboModule exposing only `install()` to trigger JSI setup
+   - Streaming callbacks flow directly over JSI (no React Native event emitters)
 
-1. **TypeScript Layer** (`src/`)
-   - Main API in `src/index.ts` exports `LlamaContext` class and helper functions
-   - `initLlama()` creates context with optional `n_parallel` parameter
-   - `completion()` runs synchronous inference, `queueCompletion()` for parallel requests
-   - `enableParallelMode()` configures concurrent request processing
-   - Handles event-based streaming via React Native's event emitters
-   - `src/grammar.ts` provides JSON schema to GBNF grammar conversion
+2. **JSI Bridge (`cpp/jsi/` + platform glue)**
+   - Core bindings in `cpp/jsi/RNLlamaJSI.cpp` with helpers (`JSIParams`, `JSICompletion`, `JSISession`, `JSIRequestManager`, `ThreadPool`, etc.)
+   - iOS install path: `ios/RNLlama.mm` + `ios/RNLlamaJSI.mm` register bindings on the JS runtime
+   - Android install path: `android/src/main/java/com/rnllama/RNLlama.java` (native lib loader + HTP extraction), `android/src/main/java/com/rnllama/RNLlamaModuleShared.java`, and `android/src/main/RNLlamaJSI.cpp`
 
-2. **Native Bridge Layer** (`ios/`, `android/`)
-   - **iOS**: `ios/RNLlama.mm` and `ios/RNLlamaContext.mm` bridge Objective-C++ to C++
-   - **Android**: Java/Kotlin files in `android/src/main/java/com/rnllama/`
-   - Both platforms use React Native's TurboModules/new architecture support
+3. **C++ Core (`cpp/`)**
+   - llama.cpp sources are copied from `third_party/llama.cpp` with `LM_`/`lm_` prefixes
+   - Custom wrappers: `rn-llama.cpp`, `rn-completion.cpp`, `rn-slot.cpp`, `rn-slot-manager.cpp`, `rn-mtmd.hpp`, `rn-tts.cpp`
+   - Parallel decoding relies on the slot manager and request queues
 
-3. **C++ Core** (`cpp/`)
-   - Contains llama.cpp source with `LM_` prefix to avoid symbol conflicts
-   - Custom wrappers: `rn-llama.cpp`, `rn-completion.cpp`, `rn-mtmd.hpp` (multimodal), `rn-tts.cpp`
-   - Parallel processing: `rn-slot.cpp`, `rn-slot-manager.cpp` for concurrent request handling
-   - Files are copied from `third_party/llama.cpp` submodule during bootstrap
+## Core Features
 
-### Core Features
-
-- **Chat & Text Completion**: Message-based chat and raw text/prompt completion
-- **Streaming Responses**: Token-by-token streaming callbacks for real-time output
-- **Parallel Decoding**: Slot-based concurrent request processing with automatic queue management
-- **Multimodal (Vision & Audio)**: Image and audio processing via mmproj projector models
-- **Tool Calling & MCP**: Function calling with Model Context Protocol (MCP) server integration
-- **Embeddings & Reranking**: Vector embeddings and document reranking for semantic search (supports async queueing)
-- **Text-to-Speech (TTS)**: Audio generation using vocoder models (OuteTTS)
-- **Grammar Sampling**: GBNF/JSON schema support for structured output
-- **Session Management**: Save/load conversation state to files
-- **Benchmarking**: Performance testing (tokens/sec, prompt processing speed)
+- Chat & text completion with token streaming (JSI callbacks)
+- Parallel decoding with slot-based queueing
+- Multimodal vision/audio via mmproj projector models
+- Tool calling & MCP support
+- Embeddings & reranking (sync + queued)
+- Text-to-speech (OuteTTS)
+- Grammar sampling (GBNF/JSON schema)
+- Session save/load
+- Benchmarking (tokens/sec, prompt speed)
 
 ## Build System
 
 ### Bootstrap Process (`scripts/bootstrap.sh`)
 
-The bootstrap script is critical for setup:
 1. Updates llama.cpp submodule (`third_party/llama.cpp`)
 2. Copies source files to `cpp/` directory
-3. Renames symbols with `LM_` prefix (e.g., `ggml_*` → `lm_ggml_*`) to prevent conflicts with other native modules
+3. Renames symbols with `LM_` prefix to prevent conflicts
 4. Applies patches from `scripts/patches/`
 5. Builds Metal shader libraries (`.metallib`) for iOS GPU acceleration
 6. Generates version info from llama.cpp git history
@@ -62,140 +56,59 @@ The bootstrap script is critical for setup:
 
 ### Platform Builds
 
-**iOS:**
-- By default uses pre-built `ios/rnllama.xcframework`
-- Set `RNLLAMA_BUILD_FROM_SOURCE=1` in Podfile to build from source
-- `scripts/build-ios.sh` builds frameworks for iOS/simulator
-- Metal (GPU) support enabled by default unless `RNLLAMA_DISABLE_METAL=1`
-
-**Android:**
-- By default uses pre-built `.so` libraries
-- Set `rnllamaBuildFromSource=true` in `android/gradle.properties` to build from source
-- `scripts/build-android.sh` compiles native libraries for arm64-v8a and x86_64
-- `scripts/build-opencl.sh` handles OpenCL backend for GPU (Qualcomm Adreno only)
-- CMake configuration in `android/build.gradle` and `ios/CMakeLists.txt`
+- **iOS:** Uses pre-built `ios/rnllama.xcframework` by default. Set `RNLLAMA_BUILD_FROM_SOURCE=1` in the Podfile to build from source. `scripts/build-ios.sh` builds device/simulator frameworks. Metal is enabled unless `RNLLAMA_DISABLE_METAL=1`.
+- **Android:** Uses pre-built `.so` libraries by default. Set `rnllamaBuildFromSource=true` in `android/gradle.properties` to build from source. `scripts/build-android.sh` builds native libs (OpenCL via `scripts/build-opencl.sh`). CMake config lives in `android/build.gradle` and `ios/CMakeLists.txt`.
 
 ## Common Development Commands
 
-### Setup and Bootstrap
 ```bash
 npm install
 npm run bootstrap              # Required after cloning or updating llama.cpp submodule
-```
-
-### Type Checking and Linting
-```bash
-npm run typecheck             # TypeScript type checking
-npm run lint                  # Run ESLint
-npm run lint -- --fix        # Fix ESLint errors
-```
-
-### Testing
-```bash
-npm test                      # Run Jest unit tests
-```
-
-### Building Native Libraries
-```bash
-npm run build:ios-frameworks  # Build iOS frameworks
-npm run build:android-libs    # Build Android libraries (includes OpenCL)
-```
-
-### Documentation
-```bash
-npm run docgen               # Generate API docs from TypeScript
-```
-
-### Working with Example App
-```bash
-npm run example start        # Start Metro bundler
-npm run example run ios      # Run iOS example
-npm run example run android  # Run Android example
-```
-
-### Build Example Apps Directly
-```bash
-npm run build:ios            # Build iOS example app
-npm run build:android        # Build Android example app
+npm run typecheck              # TypeScript type checking
+npm run lint                   # Run ESLint
+npm run lint -- --fix          # Fix ESLint errors
+npm test                       # Run Jest unit tests
+npm run build:ios-frameworks   # Build iOS frameworks
+npm run build:android-libs     # Build Android libraries (includes OpenCL)
+npm run docgen                 # Generate API docs from TypeScript
+npm run example start          # Start Metro bundler
+npm run example run ios        # Run iOS example
+npm run example run android    # Run Android example
+npm run build:ios              # Build iOS example app
+npm run build:android          # Build Android example app
 ```
 
 ## Development Workflow
 
-### Modifying TypeScript API
-- Edit files in `src/`
-- TypeScript changes reflect immediately in example app (hot reload)
-- Run `npm run typecheck` and `npm run lint` before committing
-
-### Modifying Native Code
-
-**C++ Core:**
-1. Edit files in `cpp/` (these are copied from llama.cpp during bootstrap)
-2. If updating llama.cpp itself, modify in `third_party/llama.cpp`, then run `npm run bootstrap`
-3. Rebuild native libraries or example app to test changes
-
-**iOS Bridge:**
-1. Edit `ios/RNLlama.mm` or `ios/RNLlamaContext.mm`
-2. Open `example/ios/RNLlamaExample.xcworkspace` in Xcode
-3. Find source at `Pods > Development Pods > llama.rn`
-4. Rebuild to test
-
-**Android Bridge:**
-1. Edit Java/Kotlin files in `android/src/main/java/com/rnllama/`
-2. Native C++ bridge code typically uses JNI
-3. Run `npm run build:android` or `./gradlew assembleDebug` in `example/android`
+- **TypeScript layer:** Edit `src/index.ts`, `src/types.ts`, `src/jsi.ts`, and `src/grammar.ts`. `NativeRNLlama.install()` only installs JSI; all APIs are invoked via JSI bindings. Run `npm run typecheck` and `npm run lint` before committing.
+- **C++ core:** Edit files in `cpp/`. If you update llama.cpp itself, change `third_party/llama.cpp` and rerun `npm run bootstrap`. Rebuild native libs or the example app to validate changes.
+- **JSI bridge/platform glue:** Implement binding logic in `cpp/jsi/*`. iOS installs live in `ios/RNLlama.mm` + `ios/RNLlamaJSI.mm`; Android uses `android/src/main/java/com/rnllama/RNLlama.java` (native loader), `android/src/main/java/com/rnllama/RNLlamaModuleShared.java`, and `android/src/main/RNLlamaJSI.cpp`.
 
 ### Adding Patches
-If llama.cpp source needs modifications:
-1. Make changes to files in `cpp/`
+
+If llama.cpp sources need modifications:
+1. Edit files in `cpp/`
 2. Create patch: `diff -u original.cpp modified.cpp > scripts/patches/filename.patch`
 3. Add patch application to `scripts/bootstrap.sh`
 
 ## Important Conventions
 
-### Symbol Prefixing
-All llama.cpp/ggml symbols are prefixed with `LM_` or `lm_` (by script) to avoid conflicts:
-- `GGML_*` → `LM_GGML_*`
-- `ggml_*()` → `lm_ggml_*()`
-- `GGUF_*` → `LM_GGUF_*`
-
-This allows coexistence with other native modules (e.g., whisper.rn).
-
-### Commit Messages
-Follow conventional commits:
-- `feat:` - new features
-- `fix:` - bug fixes
-- `docs:` - documentation
-- `refactor:` - code refactoring
-- `test:` - tests
-- `chore:` - tooling/config
+- All llama.cpp/ggml symbols are prefixed with `LM_`/`lm_` to avoid conflicts (e.g., `ggml_*` → `lm_ggml_*`).
+- Follow conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`).
 
 ## Testing Strategy
 
-- **TypeScript/JavaScript tests**: Unit tests in `src/__tests__/` using Jest
-  - Mock implementation in `jest/mock.js` for testing
-  - Run with `npm test`
-
-- **C++ unit tests**: Located in `tests/` directory
-  - Build and run with `tests/build_and_test.sh`
-  - Alternatively run with `tests/run_tests.sh` after building
-  - Tests core C++ functionality including slot manager
-
-- **Integration testing**: Example app in `example/` serves as integration test
-  - Test on real devices for GPU/performance validation
-  - Verify parallel decoding with concurrent requests
+- **TypeScript/Javascript:** Jest unit tests in `src/__tests__/` (JSI mocked in `jest/mock.js`). Run with `npm test`.
+- **C++:** Unit tests in `tests/` (`tests/build_and_test.sh` or `tests/run_tests.sh` after building).
+- **Integration:** Example app under `example/` for device validation, GPU/performance checks, and parallel decoding stress.
 
 ## Key Files Reference
 
-- `src/index.ts` - Main TypeScript API
-- `src/NativeRNLlama.ts` - TypeScript definitions for native module
-- `ios/RNLlamaContext.mm` - iOS context implementation
-- `android/src/main/java/com/rnllama/LlamaContext.java` - Android context
-- `cpp/rn-llama.cpp` - Core C++ wrapper and context management
-- `cpp/rn-completion.cpp` - Completion/inference logic
-- `cpp/rn-slot.cpp` - Individual slot implementation for parallel processing
-- `cpp/rn-slot-manager.cpp` - Slot manager and processing loop
-- `cpp/rn-mtmd.hpp` - Multimodal support (vision/audio)
-- `cpp/rn-tts.cpp` - Text-to-speech implementation
-- `llama-rn.podspec` - iOS CocoaPods spec
-- `android/build.gradle` - Android build configuration
-- `tests/` - C++ unit tests for core functionality
+- `src/index.ts`, `src/jsi.ts`, `src/types.ts`, `src/grammar.ts`, `src/NativeRNLlama.ts`
+- `cpp/jsi/RNLlamaJSI.cpp` (+ helpers: `JSIParams.h/.cpp`, `JSICompletion.h`, `JSISession.h`, `JSIRequestManager.h`, `ThreadPool.*`)
+- `cpp/rn-llama.cpp`, `cpp/rn-completion.cpp`, `cpp/rn-slot.cpp`, `cpp/rn-slot-manager.cpp`, `cpp/rn-mtmd.hpp`, `cpp/rn-tts.cpp`
+- `ios/RNLlama.mm`, `ios/RNLlamaJSI.mm`
+- `android/src/main/java/com/rnllama/RNLlama.java`
+- `android/src/main/java/com/rnllama/RNLlamaModuleShared.java`
+- `android/src/main/RNLlamaJSI.cpp`
+- `llama-rn.podspec`, `android/build.gradle`, `tests/`

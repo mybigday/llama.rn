@@ -1,4 +1,3 @@
-#import <React/RCTEventEmitter.h>
 #import <React/RCTBridgeModule.h>
 
 #if RNLLAMA_BUILD_FROM_SOURCE
@@ -8,6 +7,6 @@
 #endif
 
 // TODO: Use RNLlamaSpec (Need to refactor NSDictionary usage)
-@interface RNLlama : RCTEventEmitter <RCTBridgeModule>
+@interface RNLlama : NSObject <RCTBridgeModule>
 
 @end
