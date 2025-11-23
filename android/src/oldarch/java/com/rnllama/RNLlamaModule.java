@@ -30,6 +30,9 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
     );
   }
 
+  private native void installJSIBindings(long jsContextPointer, CallInvokerHolderImpl callInvokerHolder);
+  private native void cleanupJSIBindings();
+
   @Override
   public void onCatalystInstanceDestroy() {
     try {
@@ -39,17 +42,4 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
     }
     super.onCatalystInstanceDestroy();
   }
-
-  @Override
-  public void invalidate() {
-    try {
-      cleanupJSIBindings();
-    } catch (UnsatisfiedLinkError ignored) {
-      // Native library may not be loaded if install was never called.
-    }
-    super.invalidate();
-  }
-
-  private native void installJSIBindings(long jsContextPointer, CallInvokerHolderImpl callInvokerHolder);
-  private native void cleanupJSIBindings();
 }

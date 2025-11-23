@@ -30,15 +30,8 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
     promise.resolve(result);
   }
 
-  @Override
-  public void onCatalystInstanceDestroy() {
-    try {
-      cleanupJSIBindings();
-    } catch (UnsatisfiedLinkError ignored) {
-      // Native library may not be loaded if install was never called.
-    }
-    super.onCatalystInstanceDestroy();
-  }
+  private native void installJSIBindings(long jsContextPointer, CallInvokerHolderImpl callInvokerHolder);
+  private native void cleanupJSIBindings();
 
   @Override
   public void invalidate() {
@@ -49,7 +42,4 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
     }
     super.invalidate();
   }
-
-  private native void installJSIBindings(long jsContextPointer, CallInvokerHolderImpl callInvokerHolder);
-  private native void cleanupJSIBindings();
 }
