@@ -12,6 +12,7 @@ runs:
     - name: Cache dependencies
       id: npm-cache
       uses: actions/cache@v4
+      continue-on-error: true
       with:
         path: |
           **/node_modules
