@@ -81,15 +81,89 @@ const emitNativeLog = (level: string, text: string) => {
   logListeners.forEach((listener) => listener(level, text))
 }
 
+const jsiBindingKeys = [
+  'llamaInitContext',
+  'llamaReleaseContext',
+  'llamaReleaseAllContexts',
+  'llamaModelInfo',
+  'llamaGetBackendDevicesInfo',
+  'llamaLoadSession',
+  'llamaSaveSession',
+  'llamaTokenize',
+  'llamaDetokenize',
+  'llamaGetFormattedChat',
+  'llamaEmbedding',
+  'llamaRerank',
+  'llamaBench',
+  'llamaToggleNativeLog',
+  'llamaSetContextLimit',
+  'llamaCompletion',
+  'llamaStopCompletion',
+  'llamaApplyLoraAdapters',
+  'llamaRemoveLoraAdapters',
+  'llamaGetLoadedLoraAdapters',
+  'llamaInitMultimodal',
+  'llamaIsMultimodalEnabled',
+  'llamaGetMultimodalSupport',
+  'llamaReleaseMultimodal',
+  'llamaInitVocoder',
+  'llamaIsVocoderEnabled',
+  'llamaGetFormattedAudioCompletion',
+  'llamaGetAudioCompletionGuideTokens',
+  'llamaDecodeAudioTokens',
+  'llamaReleaseVocoder',
+  'llamaEnableParallelMode',
+  'llamaQueueCompletion',
+  'llamaCancelRequest',
+  'llamaQueueEmbedding',
+  'llamaQueueRerank',
+] as const
+
+type JsiBindingKey = (typeof jsiBindingKeys)[number]
+type JsiBindings = { [K in JsiBindingKey]: NonNullable<(typeof globalThis)[K]> }
+
+let jsiBindings: JsiBindings | null = null
+
+const bindJsiFromGlobal = () => {
+  const bindings: Partial<JsiBindings> = {}
+  const missing: string[] = []
+
+  jsiBindingKeys.forEach((key) => {
+    const value = global[key]
+    if (typeof value === 'function') {
+      ;(bindings as Record<string, unknown>)[key] =
+        value as JsiBindings[typeof key]
+      delete global[key]
+    } else {
+      missing.push(key)
+    }
+  })
+
+  if (missing.length > 0) {
+    throw new Error(`[RNLlama] Missing JSI bindings: ${missing.join(', ')}`)
+  }
+
+  jsiBindings = bindings as JsiBindings
+}
+
+const getJsi = (): JsiBindings => {
+  if (!jsiBindings) {
+    throw new Error('JSI bindings not installed')
+  }
+  return jsiBindings
+}
+
 // JSI Installation
 let isJsiInstalled = false
 export const installJsi = async () => {
   if (isJsiInstalled) return
-  if (typeof global.llamaInitContext !== 'undefined') {
-    isJsiInstalled = true
-    return
+  if (typeof global.llamaInitContext !== 'function') {
+    const installed = await RNLlama.install()
+    if (!installed && typeof global.llamaInitContext !== 'function') {
+      throw new Error('JSI bindings not installed')
+    }
   }
-  await RNLlama.install()
+  bindJsiFromGlobal()
   isJsiInstalled = true
 }
 
@@ -275,6 +349,7 @@ export class LlamaContext {
       promise: Promise<NativeCompletionResult>
       stop: () => Promise<void>
     }> => {
+      const { llamaQueueCompletion, llamaCancelRequest } = getJsi()
       const nativeParams = {
         ...params,
         prompt: params.prompt || '',
@@ -394,6 +469,7 @@ export class LlamaContext {
       promise: Promise<NativeEmbeddingResult>
     }> =>
       new Promise(async (resolveOuter, rejectOuter) => {
+        const { llamaQueueEmbedding } = getJsi()
         try {
           let resolveResult: (value: NativeEmbeddingResult) => void
           const resultPromise = new Promise<NativeEmbeddingResult>((res) => {
@@ -434,6 +510,7 @@ export class LlamaContext {
       promise: Promise<RerankResult[]>
     }> =>
       new Promise(async (resolveOuter, rejectOuter) => {
+        const { llamaQueueRerank } = getJsi()
         try {
           let resolveResult: (value: RerankResult[]) => void
           const resultPromise = new Promise<RerankResult[]>((res) => {
@@ -466,12 +543,13 @@ export class LlamaContext {
       }),
 
     enable: (config?: { n_parallel?: number; n_batch?: number }) =>
-      llamaEnableParallelMode(this.id, { enabled: true, ...config }),
+      getJsi().llamaEnableParallelMode(this.id, { enabled: true, ...config }),
 
-    disable: () => llamaEnableParallelMode(this.id, { enabled: false }),
+    disable: () =>
+      getJsi().llamaEnableParallelMode(this.id, { enabled: false }),
 
     configure: (config: { n_parallel?: number; n_batch?: number }) =>
-      llamaEnableParallelMode(this.id, { enabled: true, ...config }),
+      getJsi().llamaEnableParallelMode(this.id, { enabled: true, ...config }),
   }
 
   constructor({
@@ -493,6 +571,7 @@ export class LlamaContext {
   }
 
   async loadSession(filepath: string): Promise<NativeSessionLoadResult> {
+    const { llamaLoadSession } = getJsi()
     let path = filepath
     if (path.startsWith('file://')) path = path.slice(7)
     return llamaLoadSession(this.id, path)
@@ -502,6 +581,7 @@ export class LlamaContext {
     filepath: string,
     options?: { tokenSize: number },
   ): Promise<number> {
+    const { llamaSaveSession } = getJsi()
     return llamaSaveSession(this.id, filepath, options?.tokenSize || -1)
   }
 
@@ -576,6 +656,7 @@ export class LlamaContext {
     if (template) tmpl = template
     const jsonSchema = getJsonSchema(params?.response_format)
 
+    const { llamaGetFormattedChat } = getJsi()
     const result = await llamaGetFormattedChat(
       this.id,
       JSON.stringify(chat),
@@ -687,10 +768,12 @@ export class LlamaContext {
 
     if (!nativeParams.prompt) throw new Error('Prompt is required')
 
+    const { llamaCompletion } = getJsi()
     return llamaCompletion(this.id, nativeParams, callback)
   }
 
   stopCompletion(): Promise<void> {
+    const { llamaStopCompletion } = getJsi()
     return llamaStopCompletion(this.id)
   }
 
@@ -702,10 +785,12 @@ export class LlamaContext {
       media_paths?: string[]
     } = {},
   ): Promise<NativeTokenizeResult> {
+    const { llamaTokenize } = getJsi()
     return llamaTokenize(this.id, text, mediaPaths)
   }
 
   detokenize(tokens: number[]): Promise<string> {
+    const { llamaDetokenize } = getJsi()
     return llamaDetokenize(this.id, tokens)
   }
 
@@ -713,6 +798,7 @@ export class LlamaContext {
     text: string,
     params?: EmbeddingParams,
   ): Promise<NativeEmbeddingResult> {
+    const { llamaEmbedding } = getJsi()
     return llamaEmbedding(this.id, text, params || {})
   }
 
@@ -721,6 +807,7 @@ export class LlamaContext {
     documents: string[],
     params?: RerankParams,
   ): Promise<RerankResult[]> {
+    const { llamaRerank } = getJsi()
     const results = await llamaRerank(this.id, query, documents, params || {})
 
     return results
@@ -737,6 +824,7 @@ export class LlamaContext {
     pl: number,
     nr: number,
   ): Promise<BenchResult> {
+    const { llamaBench } = getJsi()
     const result = await llamaBench(this.id, pp, tg, pl, nr)
     const parsed = JSON.parse(result)
     return {
@@ -764,6 +852,7 @@ export class LlamaContext {
   async applyLoraAdapters(
     loraList: Array<{ path: string; scaled?: number }>,
   ): Promise<void> {
+    const { llamaApplyLoraAdapters } = getJsi()
     let loraAdapters: Array<{ path: string; scaled?: number }> = []
     if (loraList)
       loraAdapters = loraList.map((l) => ({
@@ -774,12 +863,14 @@ export class LlamaContext {
   }
 
   async removeLoraAdapters(): Promise<void> {
+    const { llamaRemoveLoraAdapters } = getJsi()
     return llamaRemoveLoraAdapters(this.id)
   }
 
   async getLoadedLoraAdapters(): Promise<
     Array<{ path: string; scaled?: number }>
   > {
+    const { llamaGetLoadedLoraAdapters } = getJsi()
     return llamaGetLoadedLoraAdapters(this.id)
   }
 
@@ -790,6 +881,7 @@ export class LlamaContext {
     path: string
     use_gpu?: boolean
   }): Promise<boolean> {
+    const { llamaInitMultimodal } = getJsi()
     if (path.startsWith('file://')) path = path.slice(7)
     return llamaInitMultimodal(this.id, {
       path,
@@ -798,6 +890,7 @@ export class LlamaContext {
   }
 
   async isMultimodalEnabled(): Promise<boolean> {
+    const { llamaIsMultimodalEnabled } = getJsi()
     return await llamaIsMultimodalEnabled(this.id)
   }
 
@@ -805,10 +898,12 @@ export class LlamaContext {
     vision: boolean
     audio: boolean
   }> {
+    const { llamaGetMultimodalSupport } = getJsi()
     return await llamaGetMultimodalSupport(this.id)
   }
 
   async releaseMultimodal(): Promise<void> {
+    const { llamaReleaseMultimodal } = getJsi()
     return await llamaReleaseMultimodal(this.id)
   }
 
@@ -819,11 +914,13 @@ export class LlamaContext {
     path: string
     n_batch?: number
   }): Promise<boolean> {
+    const { llamaInitVocoder } = getJsi()
     if (path.startsWith('file://')) path = path.slice(7)
     return await llamaInitVocoder(this.id, { path, n_batch: nBatch })
   }
 
   async isVocoderEnabled(): Promise<boolean> {
+    const { llamaIsVocoderEnabled } = getJsi()
     return await llamaIsVocoderEnabled(this.id)
   }
 
@@ -834,6 +931,7 @@ export class LlamaContext {
     prompt: string
     grammar?: string
   }> {
+    const { llamaGetFormattedAudioCompletion } = getJsi()
     return await llamaGetFormattedAudioCompletion(
       this.id,
       speaker ? JSON.stringify(speaker) : '',
@@ -844,28 +942,30 @@ export class LlamaContext {
   async getAudioCompletionGuideTokens(
     textToSpeak: string,
   ): Promise<Array<number>> {
+    const { llamaGetAudioCompletionGuideTokens } = getJsi()
     return await llamaGetAudioCompletionGuideTokens(this.id, textToSpeak)
   }
 
   async decodeAudioTokens(tokens: number[]): Promise<Array<number>> {
+    const { llamaDecodeAudioTokens } = getJsi()
     return await llamaDecodeAudioTokens(this.id, tokens)
   }
 
   async releaseVocoder(): Promise<void> {
+    const { llamaReleaseVocoder } = getJsi()
     return await llamaReleaseVocoder(this.id)
   }
 
   async release(): Promise<void> {
+    const { llamaReleaseContext } = getJsi()
     return llamaReleaseContext(this.id)
   }
 }
 
 export async function toggleNativeLog(enabled: boolean): Promise<void> {
   await installJsi()
-  if (typeof global.llamaToggleNativeLog === 'function') {
-    return global.llamaToggleNativeLog(enabled, emitNativeLog)
-  }
-  throw new Error('JSI bindings not installed')
+  const { llamaToggleNativeLog } = getJsi()
+  return llamaToggleNativeLog(enabled, emitNativeLog)
 }
 
 export function addNativeLogListener(
@@ -881,10 +981,8 @@ export function addNativeLogListener(
 
 export async function setContextLimit(limit: number): Promise<void> {
   await installJsi()
-  if (typeof global.llamaSetContextLimit === 'function') {
-    return global.llamaSetContextLimit(limit)
-  }
-  throw new Error('JSI bindings not installed')
+  const { llamaSetContextLimit } = getJsi()
+  return llamaSetContextLimit(limit)
 }
 
 let contextIdCounter = 0
@@ -900,6 +998,7 @@ const modelInfoSkip = [
 ]
 export async function loadLlamaModelInfo(model: string): Promise<Object> {
   await installJsi()
+  const { llamaModelInfo } = getJsi()
   let path = model
   if (path.startsWith('file://')) path = path.slice(7)
   return llamaModelInfo(path, modelInfoSkip)
@@ -917,6 +1016,7 @@ export async function getBackendDevicesInfo(): Promise<
   Array<NativeBackendDeviceInfo>
 > {
   await installJsi()
+  const { llamaGetBackendDevicesInfo } = getJsi()
   try {
     const jsonString = await llamaGetBackendDevicesInfo()
     return JSON.parse(jsonString as string)
@@ -942,6 +1042,7 @@ export async function initLlama(
   onProgress?: (progress: number) => void,
 ): Promise<LlamaContext> {
   await installJsi()
+  const { llamaInitContext } = getJsi()
   let path = model
   if (path.startsWith('file://')) path = path.slice(7)
 
@@ -1014,16 +1115,20 @@ export async function initLlama(
     model: modelDetails,
     androidLib,
     systemInfo,
-  } = await llamaInitContext(contextId, {
-    model: path,
-    is_model_asset: !!isModelAsset,
-    use_progress_callback: !!progressCallback,
-    pooling_type: poolType,
-    lora: loraPath,
-    lora_list: loraAdapters,
-    devices: filteredDevs.length > 0 ? filteredDevs : undefined,
-    ...rest,
-  }, progressCallback)
+  } = await llamaInitContext(
+    contextId,
+    {
+      model: path,
+      is_model_asset: !!isModelAsset,
+      use_progress_callback: !!progressCallback,
+      pooling_type: poolType,
+      lora: loraPath,
+      lora_list: loraAdapters,
+      devices: filteredDevs.length > 0 ? filteredDevs : undefined,
+      ...rest,
+    },
+    progressCallback,
+  )
 
   if (progressCallback && lastProgress < 100) progressCallback(100)
 
@@ -1040,6 +1145,7 @@ export async function initLlama(
 
 export async function releaseAllLlama(): Promise<void> {
   if (!isJsiInstalled) return
+  const { llamaReleaseAllContexts } = getJsi()
   return llamaReleaseAllContexts()
 }
 
