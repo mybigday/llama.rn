@@ -165,12 +165,12 @@ public class RNLlama {
     }
   }
 
-  public static synchronized void loadNative(ReactApplicationContext context) {
-    if (libsLoaded) return;
+  public static synchronized boolean loadNative(ReactApplicationContext context) {
+    if (libsLoaded) return true;
 
     if (Build.SUPPORTED_64_BIT_ABIS.length == 0) {
       Log.w(TAG, "Only 64-bit architectures are supported");
-      return;
+      return false;
     }
 
     // Extract HTP libraries from assets before loading native library
@@ -221,9 +221,10 @@ public class RNLlama {
       System.loadLibrary("rnllama");
       nativeSetLoadedLibrary(loadedLib);
       libsLoaded = true;
+      return true;
     } catch (UnsatisfiedLinkError e) {
       Log.e(TAG, "Failed to load native libraries", e);
-      throw e;
+      return false;
     }
   }
 

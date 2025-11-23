@@ -12,7 +12,10 @@ final class RNLlamaModuleShared {
 
   static boolean installJSI(ReactApplicationContext context, JSIInstaller installer) {
     try {
-      RNLlama.loadNative(context);
+      boolean loaded = RNLlama.loadNative(context);
+      if (!loaded) {
+        return false;
+      }
 
       long jsContextPointer = context.getJavaScriptContextHolder().get();
       CallInvokerHolderImpl holder =
@@ -24,6 +27,8 @@ final class RNLlamaModuleShared {
 
       installer.install(jsContextPointer, holder);
       return true;
+    } catch (UnsatisfiedLinkError e) {
+      return false;
     } catch (Exception e) {
       return false;
     }
