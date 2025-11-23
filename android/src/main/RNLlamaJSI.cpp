@@ -42,3 +42,9 @@ Java_com_rnllama_RNLlama_nativeSetLoadedLibrary(JNIEnv *env, jclass /*clazz*/, j
         env->ReleaseStringUTFChars(name, chars);
     }
 }
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_rnllama_RNLlamaModule_cleanupJSIBindings(JNIEnv *env, jobject /*thiz*/) {
+    (void) env;
+    rnllama_jsi::cleanupJSIBindings();
+}

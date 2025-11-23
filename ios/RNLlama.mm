@@ -35,7 +35,10 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install)
 - (void)invalidate {
     rnllama_jsi::cleanupJSIBindings();
     llama_log_set(llama_log_callback_default, nullptr);
-    [super invalidate];
+    Class superClass = [RNLlama superclass];
+    if ([superClass instancesRespondToSelector:@selector(invalidate)]) {
+        [super invalidate];
+    }
 }
 
 // Don't compile this code when we build for the old architecture.
