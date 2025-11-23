@@ -2,12 +2,49 @@ name: Sync llama.cpp
 
 on:
   schedule:
-    # Run daily at 2 AM UTC
     - cron: '0 2 * * *'
   workflow_dispatch: # Allow manual triggering
 
 jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maximize build space
+        run: |
+          df -h
+          echo "Removing dotnet"
+          sudo rm -rf /usr/share/dotnet
+          echo "Removing ghc"
+          sudo rm -rf /opt/ghc
+          echo "Removing CodeQL"
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+          lfs: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run bootstrap
+        run: npm run bootstrap
+
+      - name: Build Android libraries
+        run: npm run build:android-libs
+
   sync:
+    needs: build-android
     runs-on: macos-15
 
     steps:
@@ -26,17 +63,10 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
-
-      - name: Setup JDK 17 for Android builds
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: 'gradle'
 
       - name: Install dependencies
         run: npm ci
@@ -50,9 +80,6 @@ jobs:
 
       - name: Build iOS frameworks
         run: npm run build:ios-frameworks
-
-      - name: Build Android libraries
-        run: npm run build:android-libs
 
       - name: Run c++ unit tests
         run: |
@@ -112,8 +139,9 @@ jobs:
 
           **Verification:**
           - ✅ Bootstrap script completed successfully (including iOS Metal compilation)
-          - ✅ iOS frameworks build completed successfully
-          - ✅ Android libraries build completed successfully
+          - ✅ iOS frameworks build completed successfully (macOS job)
+          - ✅ Android libraries build completed successfully (Ubuntu job)
+          - ✅ C++ unit tests passed
           - ✅ TypeScript build completed successfully
 
           <details>
