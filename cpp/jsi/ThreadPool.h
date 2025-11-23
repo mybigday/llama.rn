@@ -23,8 +23,15 @@ public:
         return instance;
     }
 
+    // Ensure worker threads are active; lazily restarts if shut down.
+    void ensureRunning();
+
+    // Stop all workers and clear queued tasks.
+    void shutdown();
+
     template<class F>
     void enqueue(F&& f) {
+        ensureRunning();
         {
             std::unique_lock<std::mutex> lock(queue_mutex);
             tasks.emplace(std::forward<F>(f));
@@ -34,4 +41,7 @@ public:
 
     ThreadPool(size_t threads = std::thread::hardware_concurrency());
     ~ThreadPool();
+
+private:
+    void startWorkers(size_t threads);
 };

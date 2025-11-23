@@ -1748,6 +1748,7 @@ namespace rnllama_jsi {
 
     void cleanupJSIBindings() {
         RequestManager::getInstance().clearAll();
+        ThreadPool::getInstance().shutdown();
         g_llamaContexts.clear([](long ptr) {
             if (ptr) {
                 auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ptr);
