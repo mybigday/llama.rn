@@ -302,8 +302,8 @@ namespace rnllama_jsi {
             }
         }
 
+        ctx->params.antiprompt.clear();
         if (params.hasProperty(runtime, "stop")) {
-            ctx->params.antiprompt.clear();
             jsi::Array stop = params.getProperty(runtime, "stop").asObject(runtime).asArray(runtime);
             for (size_t i = 0; i < stop.size(runtime); i++) {
                 ctx->params.antiprompt.push_back(stop.getValueAtIndex(runtime, i).asString(runtime).utf8(runtime));
