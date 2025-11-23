@@ -8,42 +8,6 @@ find_package(ReactAndroid CONFIG REQUIRED)
 # Try to find fbjni separately if not in ReactAndroid
 find_package(fbjni CONFIG REQUIRED)
 
-# Prefab include roots (ReactCommon/CallInvoker.h lives under reactnative/include)
-get_filename_component(_reactandroid_prefab_root "${ReactAndroid_DIR}/../../.." REALPATH)
-if (EXISTS "${_reactandroid_prefab_root}/prefab/modules/reactnative/include")
-    include_directories("${_reactandroid_prefab_root}/prefab/modules/reactnative/include")
-endif()
-if (EXISTS "${_reactandroid_prefab_root}/prefab/modules/ReactCommon/include")
-    include_directories("${_reactandroid_prefab_root}/prefab/modules/ReactCommon/include")
-endif()
-
-# Derive prefab include root for reactnative (CallInvoker.h) from jsi target includes
-set(RN_PREFAB_REACTNATIVE_INCLUDE "")
-if(TARGET ReactAndroid::jsi)
-    get_target_property(JSI_INCLUDE_DIRS ReactAndroid::jsi INTERFACE_INCLUDE_DIRECTORIES)
-    foreach(dir ${JSI_INCLUDE_DIRS})
-        # dir is .../prefab/modules/jsi/include
-        get_filename_component(JSI_MODULE_DIR ${dir} DIRECTORY)           # .../prefab/modules/jsi
-        get_filename_component(PREFAB_MODULES_DIR ${JSI_MODULE_DIR} DIRECTORY) # .../prefab/modules
-        set(CANDIDATE ${PREFAB_MODULES_DIR}/reactnative/include)
-        if(EXISTS ${CANDIDATE})
-            set(RN_PREFAB_REACTNATIVE_INCLUDE ${CANDIDATE})
-            break()
-        endif()
-    endforeach()
-endif()
-
-# Hack: Manual include for react_nativemodule_core/ReactCommon if target/header is missing
-if (EXISTS "${ReactAndroid_DIR}/modules/react_nativemodule_core/include")
-    include_directories("${ReactAndroid_DIR}/modules/react_nativemodule_core/include")
-endif()
-if (EXISTS "${ReactAndroid_DIR}/modules/ReactCommon/include")
-    include_directories("${ReactAndroid_DIR}/modules/ReactCommon/include")
-endif()
-if (EXISTS "${ReactAndroid_DIR}/modules/reactnative/include")
-    include_directories("${ReactAndroid_DIR}/modules/reactnative/include")
-endif()
-
 set(CMAKE_CXX_STANDARD 17)
 
 set(RNLLAMA_LIB_DIR ${CMAKE_SOURCE_DIR}/../../../cpp)
@@ -91,23 +55,25 @@ function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
         ${JNI_SOURCE_FILES}
     )
 
-    target_link_libraries(${jni_name} PRIVATE ${LOG_LIB} android)
-    target_link_libraries(${jni_name} PRIVATE ReactAndroid::jsi)
-    target_link_libraries(${jni_name} PRIVATE fbjni::fbjni)
-
-    # React Native core shared libs (align with whisper.rn)
-    if(DEFINED REACT_NATIVE_MINOR_VERSION AND REACT_NATIVE_MINOR_VERSION GREATER_EQUAL 76)
-        if(TARGET ReactAndroid::reactnative)
-            target_link_libraries(${jni_name} PRIVATE ReactAndroid::reactnative)
-        endif()
-    else()
-        if(TARGET ReactAndroid::turbomodulejsijni)
-            target_link_libraries(${jni_name} PRIVATE ReactAndroid::turbomodulejsijni)
-        endif()
-        if(TARGET ReactAndroid::react_nativemodule_core)
-            target_link_libraries(${jni_name} PRIVATE ReactAndroid::react_nativemodule_core)
-        endif()
-    endif()
+    # Link JSI libraries
+    if(${REACT_NATIVE_MINOR_VERSION} GREATER_EQUAL 76)
+        target_link_libraries(${jni_name} PRIVATE
+            ${LOG_LIB}
+            android
+            fbjni::fbjni
+            ReactAndroid::jsi
+            ReactAndroid::reactnative
+        )
+    else ()
+        target_link_libraries(${jni_name} PRIVATE
+            ${LOG_LIB}
+            android
+            fbjni::fbjni
+            ReactAndroid::jsi
+            ReactAndroid::turbomodulejsijni
+            ReactAndroid::react_nativemodule_core
+        )
+    endif ()
 
     # Ensure CallInvoker.h path is available even if prefab targets are missing usage includes
     if(RN_PREFAB_REACTNATIVE_INCLUDE)
