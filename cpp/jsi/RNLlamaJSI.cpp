@@ -168,6 +168,8 @@ namespace rnllama_jsi {
     }
 
     static void logToJsCallback(enum lm_ggml_log_level level, const char* text, void* /*data*/) {
+        llama_log_callback_default(level, text, nullptr);
+
         std::shared_ptr<react::CallInvoker> invoker;
         std::shared_ptr<jsi::Function> handler;
         {
@@ -803,18 +805,23 @@ namespace rnllama_jsi {
                 std::string text = arguments[1].asString(runtime).utf8(runtime);
                 jsi::Object params = arguments[2].asObject(runtime);
 
-                int embd_normalize = getPropertyAsInt(runtime, params, "embd_normalize", 2);
+                int embd_normalize = 0;
+                bool has_embd_normalize = false;
+                if (params.hasProperty(runtime, "embd_normalize")) {
+                    embd_normalize = getPropertyAsInt(runtime, params, "embd_normalize", 2);
+                    has_embd_normalize = true;
+                }
 
-                return createPromiseTask(runtime, callInvoker, [contextId, text, embd_normalize]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, text, embd_normalize, has_embd_normalize]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
 
                     if (!ctx->completion) throw std::runtime_error("Completion not initialized");
                     if (ctx->params.embedding != true) throw std::runtime_error("Embedding is not enabled");
                     if (ctx->completion->is_predicting) throw std::runtime_error("Context is predicting");
 
-                    common_params embdParams;
+                    common_params embdParams = ctx->params;
                     embdParams.embedding = true;
-                    embdParams.embd_normalize = embd_normalize;
+                    embdParams.embd_normalize = has_embd_normalize ? embd_normalize : ctx->params.embd_normalize;
 
                     ctx->params.prompt = text;
                     ctx->params.n_predict = 0;
@@ -1320,17 +1327,23 @@ namespace rnllama_jsi {
                 jsi::Object params = arguments[2].asObject(runtime);
                 auto onResult = std::make_shared<jsi::Function>(arguments[3].asObject(runtime).asFunction(runtime));
 
-                int embd_normalize = getPropertyAsInt(runtime, params, "embd_normalize", 2);
+                int embd_normalize = 0;
+                bool has_embd_normalize = false;
+                if (params.hasProperty(runtime, "embd_normalize")) {
+                    embd_normalize = getPropertyAsInt(runtime, params, "embd_normalize", 2);
+                    has_embd_normalize = true;
+                }
 
-                return createPromiseTask(runtime, callInvoker, [contextId, text, embd_normalize, onResult, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, text, embd_normalize, has_embd_normalize, onResult, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->parallel_mode_enabled || !ctx->slot_manager) {
                         throw std::runtime_error("Parallel mode not enabled");
                     }
 
                     const llama_vocab* vocab = llama_model_get_vocab(ctx->model);
-                    bool add_bos = llama_vocab_get_add_bos(vocab);
-                    std::vector<llama_token> tokens = common_tokenize(ctx->ctx, text, add_bos, true);
+                    const bool add_bos = llama_vocab_get_add_bos(vocab);
+                    const bool is_enc_dec = llama_model_has_encoder(ctx->model);
+                    std::vector<llama_token> tokens = common_tokenize(ctx->ctx, text, add_bos || is_enc_dec, true);
 
                     auto resultCallback = [contextId, callInvoker](int32_t requestId, const std::vector<float>& embedding) {
                         auto callbacks = RequestManager::getInstance().getRequest(contextId, requestId);
@@ -1347,7 +1360,8 @@ namespace rnllama_jsi {
                         }
                     };
 
-                    int requestId = ctx->slot_manager->queue_embedding_request(tokens, embd_normalize, resultCallback);
+                    const int normalize = has_embd_normalize ? embd_normalize : ctx->params.embd_normalize;
+                    int requestId = ctx->slot_manager->queue_embedding_request(tokens, normalize, resultCallback);
 
                     RequestManager::getInstance().addRequest(contextId, requestId, {nullptr, nullptr, onResult});
 
