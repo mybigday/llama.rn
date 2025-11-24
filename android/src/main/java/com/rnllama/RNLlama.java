@@ -24,6 +24,7 @@ public class RNLlama {
   private static final int HTP_FILE_MODE = 0755;
   private static final String HTP_DIR_NAME = "rnllama-htp";
   private static final String[] HTP_LIBS = {
+    "libggml-htp-v69.so",
     "libggml-htp-v73.so",
     "libggml-htp-v75.so",
     "libggml-htp-v79.so",
@@ -267,14 +268,14 @@ public class RNLlama {
       String socModel = Build.SOC_MODEL;
       if (socModel != null) {
         socModel = socModel.toUpperCase(Locale.ROOT);
-        if (socModel.matches(".*(SM8550|SM8650|SM8635|SM8750).*")) {
+        if (socModel.matches(".*(SM8450|SM8550|SM8650|SM8635|SM8750).*")) {
           return true;
         }
       }
     }
     String hardware = Build.HARDWARE.toLowerCase(Locale.ROOT);
     String board = Build.BOARD.toLowerCase(Locale.ROOT);
-    return hardware.matches(".*(kalama|pineapple|sun|lanai).*") ||
-      board.matches(".*(kalama|pineapple|sun|lanai).*");
+    return hardware.matches(".*(taro|kalama|pineapple|sun|lanai).*") ||
+      board.matches(".*(taro|kalama|pineapple|sun|lanai).*");
   }
 }

@@ -181,11 +181,7 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init(lm_ggml_metal_device_t dev) {
         NSBundle * bundle = [NSBundle bundleForClass:[LMGGMLMetalClass class]];
 #endif
 
-#if TARGET_OS_SIMULATOR
-        NSString * path_lib = [bundle pathForResource:@"ggml-llama-sim" ofType:@"metallib"];
-#else
-        NSString * path_lib = [bundle pathForResource:@"ggml-llama" ofType:@"metallib"];
-#endif
+        NSString * path_lib = [bundle pathForResource:@"default" ofType:@"metallib"];
         if (path_lib == nil) {
             // Try to find the resource in the directory where the current binary located.
             NSString * bin_cur = [[NSProcessInfo processInfo] arguments][0];
