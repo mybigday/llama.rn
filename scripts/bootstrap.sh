@@ -113,7 +113,36 @@ cp ./$LLAMA_DIR/ggml/include/gguf.h ./cpp/gguf.h
 
 cp -r ./$LLAMA_DIR/ggml/src/ggml-metal ./cpp/
 rm ./cpp/ggml-metal/CMakeLists.txt
-rm ./cpp/ggml-metal/ggml-metal.metal
+# Keep ggml-metal.metal for runtime compilation
+# rm ./cpp/ggml-metal/ggml-metal.metal
+
+# Embed headers into ggml-metal.metal for runtime compilation
+# This allows the .metal file to be compiled at runtime without needing external header files
+echo "Embedding headers into ggml-metal.metal..."
+METAL_SOURCE="./cpp/ggml-metal/ggml-metal.metal"
+METAL_TMP="./cpp/ggml-metal/ggml-metal.metal.tmp1"
+COMMON_HEADER="./$LLAMA_DIR/ggml/src/ggml-common.h"
+IMPL_HEADER="./cpp/ggml-metal/ggml-metal-impl.h"
+
+# Step 1: Replace the entire conditional block with just the embedded header content
+# Find the line with #if defined(GGML_METAL_EMBED_LIBRARY), replace __embed__ placeholder with header,
+# and remove everything from #else to #endif (inclusive)
+awk '
+/^#if defined\(GGML_METAL_EMBED_LIBRARY\)/ { skip=1; next }
+/__embed_ggml-common.h__/ {
+    system("cat '"$COMMON_HEADER"'")
+    next
+}
+/^#else/ && skip { skip_else=1; next }
+/^#endif/ && skip_else { skip=0; skip_else=0; next }
+!skip { print }
+' < "$METAL_SOURCE" > "$METAL_TMP"
+
+# Step 2: Embed ggml-metal-impl.h by replacing the #include with file contents
+sed -e '/#include "ggml-metal-impl.h"/r '"$IMPL_HEADER" -e '/#include "ggml-metal-impl.h"/d' < "$METAL_TMP" > "$METAL_SOURCE"
+
+rm -f "$METAL_TMP"
+echo "Headers embedded successfully"
 
 cp -r ./$LLAMA_DIR/ggml/src/ggml-blas ./cpp/
 rm ./cpp/ggml-blas/CMakeLists.txt
@@ -271,6 +300,7 @@ files_add_lm_prefix=(
   ./cpp/ggml-metal/*.cpp
   ./cpp/ggml-metal/*.h
   ./cpp/ggml-metal/*.m
+  ./cpp/ggml-metal/*.metal
 
   ./cpp/ggml-blas/*.cpp
 
@@ -377,37 +407,14 @@ patch -p0 -d ./cpp < ./scripts/patches/ggml-quants.c.patch
 patch -p0 -d ./cpp < ./scripts/patches/llama-mmap.cpp.patch
 patch -p0 -d ./cpp/minja < ./scripts/patches/minja.hpp.patch
 patch -p0 -d ./cpp/minja < ./scripts/patches/chat-template.hpp.patch
-patch -p0 -d ./cpp/ggml-metal < ./scripts/patches/ggml-metal-device.m.patch
 patch -p0 -d ./cpp/ggml-hexagon < ./scripts/patches/ggml-hexagon.cpp.patch
 rm -rf ./cpp/*.orig
 rm -rf ./cpp/**/*.orig
 
 if [ "$OS" = "Darwin" ]; then
-  # Build metallib (~2.6MB)
-  cd "$LLAMA_DIR/ggml/src/ggml-metal"
-
-  # Create a symbolic link to ggml-common.h in the current directory
-  ln -sf ../ggml-common.h .
-
-  xcrun --sdk iphoneos metal -O3 -std=metal3.2 -mios-version-min=16.0 -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_HAS_BF16=1
-  xcrun --sdk iphoneos metallib ggml-metal.air -o ggml-llama.metallib
-  rm ggml-metal.air
-  mv ./ggml-llama.metallib "$CPP_DIR/ggml-metal/ggml-llama.metallib"
-
-  xcrun --sdk iphonesimulator metal -O3 -std=metal3.2 -mios-version-min=16.0 -c ggml-metal.metal -o ggml-metal.air -DGGML_METAL_HAS_BF16=1
-  xcrun --sdk iphonesimulator metallib ggml-metal.air -o ggml-llama.metallib
-  rm ggml-metal.air
-  mv ./ggml-llama.metallib "$CPP_DIR/ggml-metal/ggml-llama-sim.metallib"
-
-  # Remove the symbolic link
-  rm ggml-common.h
-
-  cd -
-
   # Generate .xcode.env.local in iOS example
   cd example/ios
   echo export NODE_BINARY=$(command -v node) > .xcode.env.local
-
   cd -
 fi
 
