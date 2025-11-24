@@ -126,6 +126,14 @@ static std::vector<lm_ggml_backend_dev_t> getFilteredDefaultDevices() {
 }
 #endif
 
+static std::string stripFileScheme(const std::string& path) {
+    const std::string prefix = "file://";
+    if (path.rfind(prefix, 0) == 0) {
+        return path.substr(prefix.size());
+    }
+    return path;
+}
+
 namespace rnllama_jsi {
     static std::atomic<int64_t> g_context_limit(-1);
 #if defined(__ANDROID__)
@@ -1154,8 +1162,8 @@ namespace rnllama_jsi {
                 common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
                 bool thinking_forced_open = getPropertyAsBool(runtime, params, "thinking_forced_open", false);
                 std::string prefill_text = getPropertyAsString(runtime, params, "prefill_text");
-                std::string load_state_path = getPropertyAsString(runtime, params, "load_state_path");
-                std::string save_state_path = getPropertyAsString(runtime, params, "save_state_path");
+                std::string load_state_path = stripFileScheme(getPropertyAsString(runtime, params, "load_state_path"));
+                std::string save_state_path = stripFileScheme(getPropertyAsString(runtime, params, "save_state_path"));
                 int save_state_size = getPropertyAsInt(runtime, params, "save_state_size", -1);
 
                 return createPromiseTask(runtime, callInvoker, [contextId, cparams, mediaPaths, chat_format, reasoning_format, thinking_forced_open, prefill_text, load_state_path, save_state_path, save_state_size, onToken, onComplete, callInvoker]() -> PromiseResultGenerator {
@@ -1163,6 +1171,8 @@ namespace rnllama_jsi {
                     if (!ctx->parallel_mode_enabled || !ctx->slot_manager) {
                         throw std::runtime_error("Parallel mode not enabled");
                     }
+
+                    // TODO: guide_tokens support for queued completions (enable TTS guide tokens per request)
 
                     auto tokenizeResult = ctx->tokenize(cparams.prompt, mediaPaths);
                     std::vector<llama_token> tokens = tokenizeResult.tokens;
