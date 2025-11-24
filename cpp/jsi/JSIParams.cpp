@@ -6,6 +6,7 @@
 #include <fstream>
 #include <vector>
 #include <utility>
+#include <stdexcept>
 
 using json = nlohmann::ordered_json;
 
@@ -277,6 +278,70 @@ namespace rnllama_jsi {
 
         sparams.grammar_lazy = getPropertyAsBool(runtime, params, "grammar_lazy", false);
 
+        if (params.hasProperty(runtime, "preserved_tokens")) {
+            sparams.preserved_tokens.clear();
+            auto preservedVal = params.getProperty(runtime, "preserved_tokens");
+            if (preservedVal.isObject() && preservedVal.asObject(runtime).isArray(runtime)) {
+                jsi::Array preserved = preservedVal.asObject(runtime).asArray(runtime);
+                for (size_t i = 0; i < preserved.size(runtime); ++i) {
+                    auto tokenVal = preserved.getValueAtIndex(runtime, i);
+                    if (!tokenVal.isString()) {
+                        continue;
+                    }
+                    std::string tokenStr = tokenVal.asString(runtime).utf8(runtime);
+                    auto ids = common_tokenize(ctx->ctx, tokenStr.c_str(), /* add_special= */ false, /* parse_special= */ true);
+                    if (ids.size() == 1) {
+                        sparams.preserved_tokens.insert(ids[0]);
+                    }
+                }
+            }
+        }
+
+        if (params.hasProperty(runtime, "grammar_triggers")) {
+            sparams.grammar_triggers.clear();
+            auto triggersVal = params.getProperty(runtime, "grammar_triggers");
+            if (triggersVal.isObject() && triggersVal.asObject(runtime).isArray(runtime)) {
+                jsi::Array triggers = triggersVal.asObject(runtime).asArray(runtime);
+                for (size_t i = 0; i < triggers.size(runtime); ++i) {
+                    auto triggerVal = triggers.getValueAtIndex(runtime, i);
+                    if (!triggerVal.isObject()) {
+                        continue;
+                    }
+                    jsi::Object triggerObj = triggerVal.asObject(runtime);
+                    auto type = static_cast<common_grammar_trigger_type>(getPropertyAsInt(runtime, triggerObj, "type", 0));
+                    std::string word = getPropertyAsString(runtime, triggerObj, "value");
+                    if (word.empty()) {
+                        continue;
+                    }
+
+                    if (type == COMMON_GRAMMAR_TRIGGER_TYPE_WORD) {
+                        auto ids = common_tokenize(ctx->ctx, word.c_str(), /* add_special= */ false, /* parse_special= */ true);
+                        if (ids.size() == 1) {
+                            const llama_token token = ids[0];
+                            if (sparams.preserved_tokens.find(token) == sparams.preserved_tokens.end()) {
+                                throw std::runtime_error("Grammar trigger word should be marked as preserved token");
+                            }
+                            common_grammar_trigger trigger;
+                            trigger.type = COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN;
+                            trigger.value = word;
+                            trigger.token = token;
+                            sparams.grammar_triggers.push_back(std::move(trigger));
+                        } else {
+                            sparams.grammar_triggers.push_back({COMMON_GRAMMAR_TRIGGER_TYPE_WORD, word});
+                        }
+                    } else {
+                        common_grammar_trigger trigger;
+                        trigger.type = type;
+                        trigger.value = word;
+                        if (type == COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN) {
+                            trigger.token = (llama_token)getPropertyAsInt(runtime, triggerObj, "token", 0);
+                        }
+                        sparams.grammar_triggers.push_back(std::move(trigger));
+                    }
+                }
+            }
+        }
+
         // Logit bias
         sparams.logit_bias.clear();
         const llama_model * model = llama_get_model(ctx->ctx);
@@ -310,11 +375,18 @@ namespace rnllama_jsi {
             }
         }
 
+#if defined(__ANDROID__)
         if (params.hasProperty(runtime, "n_threads")) {
-            int nThreads = getPropertyAsInt(runtime, params, "n_threads");
-            if (nThreads > 0) {
-                ctx->params.cpuparams.n_threads = nThreads;
-            }
+            int nThreads = getPropertyAsInt(runtime, params, "n_threads", ctx->params.cpuparams.n_threads);
+            set_best_cores(ctx->params.cpuparams, nThreads);
         }
+#else
+        if (params.hasProperty(runtime, "n_threads")) {
+            int nThreads = getPropertyAsInt(runtime, params, "n_threads", ctx->params.cpuparams.n_threads);
+            const int maxThreads = (int) std::thread::hardware_concurrency();
+            const int defaultNThreads = nThreads == 4 ? 2 : (maxThreads > 0 ? std::min(4, maxThreads) : 4);
+            ctx->params.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
+        }
+#endif
     }
 }
