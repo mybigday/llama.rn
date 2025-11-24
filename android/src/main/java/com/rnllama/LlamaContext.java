@@ -29,6 +29,7 @@ public class LlamaContext {
   private static final int HTP_FILE_MODE = 0755;
   private static final String HTP_DIR_NAME = "rnllama-htp";
   private static final String[] HTP_LIBS = {
+    "libggml-htp-v69.so",
     "libggml-htp-v73.so",
     "libggml-htp-v75.so",
     "libggml-htp-v79.so",
@@ -762,8 +763,8 @@ public class LlamaContext {
       Log.d(NAME, "SOC Model: " + socModel);
       if (socModel != null) {
         socModel = socModel.toUpperCase();
-        // SM8550 (8 Gen 2), SM8650 (8 Gen 3), SM8635 (8s Gen 3), SM8750 (8 Elite)
-        if (socModel.matches(".*(SM8550|SM8650|SM8635|SM8750).*")) {
+        // SM8450 (8 Gen 1), SM8550 (8 Gen 2), SM8650 (8 Gen 3), SM8635 (8s Gen 3), SM8750 (8 Elite)
+        if (socModel.matches(".*(SM8450|SM8550|SM8650|SM8635|SM8750).*")) {
           return true;
         }
       }
@@ -775,8 +776,8 @@ public class LlamaContext {
     Log.d(NAME, "Hardware: " + hardware);
     String board = Build.BOARD.toLowerCase();
     Log.d(NAME, "Board: " + board);
-    if (hardware.matches(".*(kalama|pineapple|sun|lanai).*") ||
-        board.matches(".*(kalama|pineapple|sun|lanai).*")) {
+    if (hardware.matches(".*(taro|kalama|pineapple|sun|lanai).*") ||
+        board.matches(".*(taro|kalama|pineapple|sun|lanai).*")) {
       return true;
     }
 

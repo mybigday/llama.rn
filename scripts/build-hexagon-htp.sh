@@ -108,8 +108,8 @@ echo ""
 mkdir -p "$HTP_OUTPUT_DIR"
 
 # DSP versions to build
-DSP_VERSIONS=("v73" "v75" "v79" "v81")
-PREBUILT_DIRS=("toolv19_v73" "toolv19_v75" "toolv19_v79" "toolv19_v81")
+DSP_VERSIONS=("v69" "v73" "v75" "v79" "v81")
+PREBUILT_DIRS=("toolv19_v69" "toolv19_v73" "toolv19_v75" "toolv19_v79" "toolv19_v81")
 
 # Function to build for a specific DSP version
 build_htp_version() {
