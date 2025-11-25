@@ -46,9 +46,9 @@ if (appProject != null) {
           ggmlHexagonDir.mkdirs()
           return
         }
-        ggmlHexagonDir.listFiles { File file, String name ->
+        ggmlHexagonDir.listFiles({ File dir, String name ->
           name.startsWith("libggml-htp-") && name.endsWith(".so")
-        }?.each { File lib ->
+        } as FilenameFilter)?.each { File lib ->
           lib.delete()
         }
       }
