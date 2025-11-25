@@ -1048,6 +1048,7 @@ namespace rnllama_jsi {
                         }
                     }
 
+                    common_perf_print(ctx->ctx, ctx->completion->ctx_sampling);
                     ctx->completion->endCompletion();
 
                     return [ctx](jsi::Runtime& rt) {
@@ -1233,6 +1234,9 @@ namespace rnllama_jsi {
                             std::string error_message = slot->error_message;
                             auto timings = slot->get_timings();
                             auto token_probs = slot->generated_token_probs;
+                            if (slot->parent_ctx && slot->ctx_sampling) {
+                                common_perf_print(slot->parent_ctx->ctx, slot->ctx_sampling);
+                            }
 
                             rnllama::completion_chat_output final_output;
                             bool has_final_output = false;
