@@ -34,6 +34,7 @@ set(JNI_SOURCE_FILES
     ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/JSIContext.cpp
     ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/JSIUtils.cpp
     ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/JSIParams.cpp
+    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/JSITaskManager.cpp
     ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/ThreadPool.cpp
 )
 

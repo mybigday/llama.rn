@@ -1,4 +1,5 @@
 #include "JSIUtils.h"
+#include "JSITaskManager.h"
 #include "ThreadPool.h"
 
 namespace rnllama_jsi {
@@ -6,7 +7,9 @@ namespace rnllama_jsi {
     jsi::Value createPromiseTask(
         jsi::Runtime& runtime,
         std::shared_ptr<react::CallInvoker> callInvoker,
-        PromiseTask task
+        PromiseTask task,
+        int contextId,
+        bool trackTask
     ) {
         auto PromiseConstructor = runtime.global().getPropertyAsObject(runtime, "Promise").asFunction(runtime);
 
@@ -14,7 +17,7 @@ namespace rnllama_jsi {
             jsi::Function::createFromHostFunction(runtime,
                 jsi::PropNameID::forAscii(runtime, "executor"),
                 2,
-                [callInvoker, task](jsi::Runtime& runtime,
+                [callInvoker, task, contextId, trackTask](jsi::Runtime& runtime,
                                   const jsi::Value& thisValue,
                                   const jsi::Value* arguments,
                                   size_t count) -> jsi::Value {
@@ -22,7 +25,12 @@ namespace rnllama_jsi {
                     auto resolve = std::make_shared<jsi::Function>(arguments[0].asObject(runtime).asFunction(runtime));
                     auto reject = std::make_shared<jsi::Function>(arguments[1].asObject(runtime).asFunction(runtime));
 
-                    ThreadPool::getInstance().enqueue([callInvoker, task, resolve, reject]() {
+                    if (trackTask) {
+                        TaskManager::getInstance().startTask(contextId);
+                    }
+
+                    ThreadPool::getInstance().enqueue([callInvoker, task, resolve, reject, contextId, trackTask]() {
+                        TaskFinishGuard guard(contextId, trackTask);
                         try {
                             auto resultGenerator = task();
                             callInvoker->invokeAsync([resolve, resultGenerator](jsi::Runtime& rt) {

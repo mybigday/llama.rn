@@ -7,6 +7,7 @@
 #include "JSISession.h"
 #include "JSICompletion.h"
 #include "JSIRequestManager.h"
+#include "JSITaskManager.h"
 #include "JSINativeHeaders.h"
 
 #include <algorithm>
@@ -569,7 +570,7 @@ namespace rnllama_jsi {
                         delete ctx;
                         throw std::runtime_error("Failed to load model");
                     }
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaInitContext", initContext);
@@ -629,7 +630,7 @@ namespace rnllama_jsi {
                     return [ctx, path](jsi::Runtime& rt) {
                         return rnllama_jsi::loadSession(rt, ctx, path);
                     };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaLoadSession", loadSession);
@@ -651,7 +652,7 @@ namespace rnllama_jsi {
                     return [tokens_saved](jsi::Runtime& rt) {
                         return jsi::Value(tokens_saved);
                     };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaSaveSession", saveSession);
@@ -676,7 +677,7 @@ namespace rnllama_jsi {
                     return [result](jsi::Runtime& rt) {
                         return createTokenizeResult(rt, result);
                     };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaTokenize", tokenize);
@@ -698,7 +699,7 @@ namespace rnllama_jsi {
                     return [text](jsi::Runtime& rt) {
                         return jsi::String::createFromUtf8(rt, text);
                     };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaDetokenize", detokenize);
@@ -800,7 +801,7 @@ namespace rnllama_jsi {
                               return jsi::String::createFromUtf8(rt, prompt);
                           };
                       }
-                 });
+                 }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaGetFormattedChat", getFormattedChat);
@@ -845,7 +846,7 @@ namespace rnllama_jsi {
                         resultDict.setProperty(rt, "embedding", embeddingResult);
                         return resultDict;
                     };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaEmbedding", embedding);
@@ -882,7 +883,7 @@ namespace rnllama_jsi {
                         }
                         return result;
                     };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaRerank", rerank);
@@ -906,7 +907,7 @@ namespace rnllama_jsi {
                     return [res](jsi::Runtime& rt) {
                         return jsi::String::createFromUtf8(rt, res);
                     };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaBench", bench);
@@ -1052,7 +1053,7 @@ namespace rnllama_jsi {
                     return [ctx](jsi::Runtime& rt) {
                         return createCompletionResult(rt, ctx);
                     };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaCompletion", completion);
@@ -1128,7 +1129,7 @@ namespace rnllama_jsi {
                         ctx->disableParallelMode();
                     }
                     return [](jsi::Runtime& rt) { return jsi::Value(true); };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaEnableParallelMode", enableParallelMode);
@@ -1305,7 +1306,7 @@ namespace rnllama_jsi {
                         res.setProperty(rt, "requestId", requestId);
                         return res;
                     };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaQueueCompletion", queueCompletion);
@@ -1380,7 +1381,7 @@ namespace rnllama_jsi {
                         res.setProperty(rt, "requestId", requestId);
                         return res;
                     };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaQueueEmbedding", queueEmbedding);
@@ -1434,7 +1435,7 @@ namespace rnllama_jsi {
                         res.setProperty(rt, "requestId", requestId);
                         return res;
                     };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaQueueRerank", queueRerank);
@@ -1449,11 +1450,23 @@ namespace rnllama_jsi {
                      long ctxPtr = g_llamaContexts.get(contextId);
                      if (ctxPtr) {
                          auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
+                         if (ctx->completion) {
+                             ctx->completion->is_interrupted = true;
+                         }
+                         if (ctx->slot_manager) {
+                             ctx->slot_manager->stop_processing_loop();
+                         }
+                     }
+
+                     TaskManager::getInstance().waitForContext(contextId, 1);
+
+                     if (ctxPtr) {
+                         auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
                          delete ctx;
                          removeContext(contextId);
                      }
                      return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
-                 });
+                 }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaReleaseContext", releaseContext);
@@ -1464,6 +1477,24 @@ namespace rnllama_jsi {
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                  return createPromiseTask(runtime, callInvoker, []() -> PromiseResultGenerator {
                      RequestManager::getInstance().clearAll();
+
+                     auto contexts = g_llamaContexts.snapshot();
+                     for (const auto& entry : contexts) {
+                         long ctxPtr = entry.second;
+                         if (!ctxPtr) {
+                             continue;
+                         }
+                         auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
+                         if (ctx->completion) {
+                             ctx->completion->is_interrupted = true;
+                         }
+                         if (ctx->slot_manager) {
+                             ctx->slot_manager->stop_processing_loop();
+                         }
+                     }
+
+                     TaskManager::getInstance().waitForAll(1);
+
                      g_llamaContexts.clear([](long ptr) {
                         if (ptr) {
                             auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ptr);
@@ -1515,7 +1546,7 @@ namespace rnllama_jsi {
                     int result = ctx->applyLoraAdapters(lora_adapters);
                     if (result != 0) throw std::runtime_error("Failed to apply lora adapters");
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaApplyLoraAdapters", applyLoraAdapters);
@@ -1532,7 +1563,7 @@ namespace rnllama_jsi {
                     }
                     ctx->removeLoraAdapters();
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaRemoveLoraAdapters", removeLoraAdapters);
@@ -1555,7 +1586,7 @@ namespace rnllama_jsi {
                         }
                         return res;
                     };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaGetLoadedLoraAdapters", getLoadedLoraAdapters);
@@ -1577,7 +1608,7 @@ namespace rnllama_jsi {
                     }
                     bool result = ctx->initMultimodal(path, use_gpu);
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaInitMultimodal", initMultimodal);
@@ -1591,7 +1622,7 @@ namespace rnllama_jsi {
                     auto ctx = getContextOrThrow(contextId);
                     bool result = ctx->isMultimodalEnabled();
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaIsMultimodalEnabled", isMultimodalEnabled);
@@ -1608,11 +1639,11 @@ namespace rnllama_jsi {
                     bool audio = ctx->isMultimodalSupportAudio();
                     return [vision, audio](jsi::Runtime& rt) {
                         jsi::Object res(rt);
-                        res.setProperty(rt, "vision", vision);
-                        res.setProperty(rt, "audio", audio);
-                        return res;
-                    };
-                });
+                            res.setProperty(rt, "vision", vision);
+                            res.setProperty(rt, "audio", audio);
+                            return res;
+                        };
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaGetMultimodalSupport", getMultimodalSupport);
@@ -1626,7 +1657,7 @@ namespace rnllama_jsi {
                     auto ctx = getContextOrThrow(contextId);
                     ctx->releaseMultimodal();
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaReleaseMultimodal", releaseMultimodal);
@@ -1648,7 +1679,7 @@ namespace rnllama_jsi {
                     }
                     bool result = ctx->initVocoder(path, n_batch);
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaInitVocoder", initVocoder);
@@ -1662,7 +1693,7 @@ namespace rnllama_jsi {
                     auto ctx = getContextOrThrow(contextId);
                     bool result = ctx->isVocoderEnabled();
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaIsVocoderEnabled", isVocoderEnabled);
@@ -1690,7 +1721,7 @@ namespace rnllama_jsi {
                     } catch (const std::exception &e) {
                         throw std::runtime_error(e.what());
                     }
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaGetFormattedAudioCompletion", getFormattedAudioCompletion);
@@ -1718,7 +1749,7 @@ namespace rnllama_jsi {
                     } catch (const std::exception &e) {
                         throw std::runtime_error(e.what());
                     }
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaGetAudioCompletionGuideTokens", getAudioCompletionGuideTokens);
@@ -1750,7 +1781,7 @@ namespace rnllama_jsi {
                     } catch (const std::exception &e) {
                         throw std::runtime_error(e.what());
                     }
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaDecodeAudioTokens", decodeAudioTokens);
@@ -1764,7 +1795,7 @@ namespace rnllama_jsi {
                     auto ctx = getContextOrThrow(contextId);
                     ctx->releaseVocoder();
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
-                });
+                }, contextId);
             }
         );
         runtime.global().setProperty(runtime, "llamaReleaseVocoder", releaseVocoder);
@@ -1772,7 +1803,24 @@ namespace rnllama_jsi {
 
     void cleanupJSIBindings() {
         RequestManager::getInstance().clearAll();
+        auto contexts = g_llamaContexts.snapshot();
+        for (const auto& entry : contexts) {
+            long ctxPtr = entry.second;
+            if (!ctxPtr) {
+                continue;
+            }
+            auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
+            if (ctx->completion) {
+                ctx->completion->is_interrupted = true;
+            }
+            if (ctx->slot_manager) {
+                ctx->slot_manager->stop_processing_loop();
+            }
+        }
+
+        TaskManager::getInstance().waitForAll();
         ThreadPool::getInstance().shutdown();
+
         g_llamaContexts.clear([](long ptr) {
             if (ptr) {
                 auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ptr);

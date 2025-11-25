@@ -15,7 +15,9 @@ namespace rnllama_jsi {
     jsi::Value createPromiseTask(
         jsi::Runtime& runtime,
         std::shared_ptr<react::CallInvoker> callInvoker,
-        PromiseTask task
+        PromiseTask task,
+        int contextId = -1,
+        bool trackTask = true
     );
 
     // Safe console.log wrapper for JSI context

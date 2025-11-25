@@ -3,6 +3,7 @@
 #include <functional>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 namespace rnllama_jsi {
     template<typename T>
@@ -31,6 +32,16 @@ namespace rnllama_jsi {
         size_t size() {
             std::lock_guard<std::mutex> lock(contextMutex);
             return contextMap.size();
+        }
+
+        std::vector<std::pair<int, long>> snapshot() {
+            std::lock_guard<std::mutex> lock(contextMutex);
+            std::vector<std::pair<int, long>> items;
+            items.reserve(contextMap.size());
+            for (const auto& entry : contextMap) {
+                items.push_back(entry);
+            }
+            return items;
         }
         
         void clear(std::function<void(long)> deleter = nullptr) {
