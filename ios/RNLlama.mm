@@ -36,11 +36,6 @@ RCT_EXPORT_METHOD(install:(RCTPromiseResolveBlock)resolve
 
 - (void)invalidate {
     rnllama_jsi::cleanupJSIBindings();
-    llama_log_set(llama_log_callback_default, nullptr);
-    Class superClass = [RNLlama superclass];
-    if ([superClass instancesRespondToSelector:@selector(invalidate)]) {
-        [super invalidate];
-    }
 }
 
 // Don't compile this code when we build for the old architecture.

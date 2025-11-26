@@ -6,7 +6,6 @@
 #import <rnllama/nlohmann/json.hpp>
 #endif
 
-// TODO: Use RNLlamaSpec (Need to refactor NSDictionary usage)
 @interface RNLlama : NSObject <RCTBridgeModule>
 
 @end
