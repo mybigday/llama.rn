@@ -19,17 +19,19 @@
 
 RCT_EXPORT_MODULE()
 
-RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install)
+RCT_EXPORT_METHOD(install:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
 {
     RCTBridge *bridge = [RCTBridge currentBridge];
     RCTCxxBridge *cxxBridge = (RCTCxxBridge *)bridge;
     if (!cxxBridge.runtime) {
-         return @(false);
+         reject(@"RNLLAMA_ERROR", @"RNLLAMA_ERROR", nil);
+         return;
     }
 
     [self installJSIBindingsWithRuntime:*(facebook::jsi::Runtime *)cxxBridge.runtime
                            callInvoker:cxxBridge.jsCallInvoker];
-    return @(true);
+    resolve(@true);
 }
 
 - (void)invalidate {

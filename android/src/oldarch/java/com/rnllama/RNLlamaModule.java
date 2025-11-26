@@ -22,12 +22,13 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
     return NAME;
   }
 
-  @ReactMethod(isBlockingSynchronousMethod = true)
-  public boolean install() {
-    return RNLlamaModuleShared.installJSI(
+  @ReactMethod
+  public void install(Promise promise) {
+    boolean result = RNLlamaModuleShared.installJSI(
       getReactApplicationContext(),
       this::installJSIBindings
     );
+    promise.resolve(result);
   }
 
   private native void installJSIBindings(long jsContextPointer, CallInvokerHolderImpl callInvokerHolder);
