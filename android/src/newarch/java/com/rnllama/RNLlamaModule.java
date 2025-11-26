@@ -11,8 +11,11 @@ import com.facebook.react.turbomodule.core.CallInvokerHolderImpl;
 public class RNLlamaModule extends NativeRNLlamaSpec {
   public static final String NAME = RNLlama.NAME;
 
+  private ReactApplicationContext context;
+
   public RNLlamaModule(ReactApplicationContext reactContext) {
     super(reactContext);
+    this.context = reactContext;
   }
 
   @Override
@@ -23,11 +26,29 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
 
   @Override
   public void install(Promise promise) {
-    boolean result = RNLlamaModuleShared.installJSI(
-      getReactApplicationContext(),
-      this::installJSIBindings
-    );
-    promise.resolve(result);
+    try {
+      boolean loaded = RNLlama.loadNative(context);
+      if (!loaded) {
+        promise.resolve(false);
+        return;
+      }
+
+      long jsContextPointer = context.getJavaScriptContextHolder().get();
+      CallInvokerHolderImpl holder =
+        (CallInvokerHolderImpl) context.getCatalystInstance().getJSCallInvokerHolder();
+
+      if (jsContextPointer == 0 || holder == null) {
+        promise.resolve(false);
+        return;
+      }
+
+      installJSIBindings(jsContextPointer, holder);
+      promise.resolve(true);
+      return;
+    } catch (UnsatisfiedLinkError e) {
+    } catch (Exception e) {
+    }
+    promise.resolve(false);
   }
 
   private native void installJSIBindings(long jsContextPointer, CallInvokerHolderImpl callInvokerHolder);
