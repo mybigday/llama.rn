@@ -25,8 +25,8 @@ RCT_EXPORT_METHOD(install:(RCTPromiseResolveBlock)resolve
     RCTBridge *bridge = [RCTBridge currentBridge];
     RCTCxxBridge *cxxBridge = (RCTCxxBridge *)bridge;
     if (!cxxBridge.runtime) {
-         reject(@"RNLLAMA_ERROR", @"RNLLAMA_ERROR", nil);
-         return;
+        resolve(@false);
+        return;
     }
 
     [self installJSIBindingsWithRuntime:*(facebook::jsi::Runtime *)cxxBridge.runtime
