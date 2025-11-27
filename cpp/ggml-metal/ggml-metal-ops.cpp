@@ -406,6 +406,10 @@ static int lm_ggml_metal_op_encode_impl(lm_ggml_metal_op_t ctx, int idx) {
             {
                 n_fuse = lm_ggml_metal_op_argsort(ctx, idx);
             } break;
+        case LM_GGML_OP_TOP_K:
+            {
+                n_fuse = lm_ggml_metal_op_top_k(ctx, idx);
+            } break;
         case LM_GGML_OP_LEAKY_RELU:
             {
                 n_fuse = lm_ggml_metal_op_leaky_relu(ctx, idx);
@@ -3678,14 +3682,19 @@ int lm_ggml_metal_op_argsort(lm_ggml_metal_op_t ctx, int idx) {
     }
 
     lm_ggml_metal_kargs_argsort args = {
-        /*.ne00 =*/ ne00,
-        /*.ne01 =*/ ne01,
-        /*.ne02 =*/ ne02,
-        /*.ne03 =*/ ne03,
-        /*.nb00 =*/ nb00,
-        /*.nb01 =*/ nb01,
-        /*.nb02 =*/ nb02,
-        /*.nb03 =*/ nb03,
+        /*.ne00  =*/ ne00,
+        /*.ne01  =*/ ne01,
+        /*.ne02  =*/ ne02,
+        /*.ne03  =*/ ne03,
+        /*.nb00  =*/ nb00,
+        /*.nb01  =*/ nb01,
+        /*.nb02  =*/ nb02,
+        /*.nb03  =*/ nb03,
+        /*.ne0   =*/ ne0,
+        /*.ne1   =*/ ne1,
+        /*.ne2   =*/ ne2,
+        /*.ne3   =*/ ne3,
+        /*.top_k =*/ nth,
     };
 
     lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
@@ -3705,21 +3714,138 @@ int lm_ggml_metal_op_argsort(lm_ggml_metal_op_t ctx, int idx) {
         lm_ggml_metal_op_concurrency_reset(ctx);
 
         lm_ggml_metal_kargs_argsort_merge args_merge = {
-            .ne00 = ne00,
-            .ne01 = ne01,
-            .ne02 = ne02,
-            .ne03 = ne03,
-            .nb00 = nb00,
-            .nb01 = nb01,
-            .nb02 = nb02,
-            .nb03 = nb03,
-            .len  = len,
+            /*.ne00  =*/ ne00,
+            /*.ne01  =*/ ne01,
+            /*.ne02  =*/ ne02,
+            /*.ne03  =*/ ne03,
+            /*.nb00  =*/ nb00,
+            /*.nb01  =*/ nb01,
+            /*.nb02  =*/ nb02,
+            /*.nb03  =*/ nb03,
+            /*.ne0   =*/ ne0,
+            /*.ne1   =*/ ne1,
+            /*.ne2   =*/ ne2,
+            /*.ne3   =*/ ne3,
+            /*.top_k =*/ ne00,
+            /*.len   =*/ len,
         };
 
         // merges per row
         const int nm = (ne00 + 2*len - 1) / (2*len);
 
         const int nth = std::min(512, lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline_merge));
+
+        lm_ggml_metal_encoder_set_pipeline(enc, pipeline_merge);
+        lm_ggml_metal_encoder_set_bytes   (enc, &args_merge, sizeof(args_merge), 0);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_src0, 1);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_dst,  2);
+        lm_ggml_metal_encoder_set_buffer  (enc, bid_tmp,  3);
+
+        lm_ggml_metal_encoder_dispatch_threadgroups(enc, nm*ne01, ne02, ne03, nth, 1, 1);
+
+        std::swap(bid_dst, bid_tmp);
+
+        len <<= 1;
+    }
+
+    return 1;
+}
+
+int lm_ggml_metal_op_top_k(lm_ggml_metal_op_t ctx, int idx) {
+    lm_ggml_tensor * op = ctx->node(idx);
+
+    lm_ggml_metal_library_t lib = ctx->lib;
+    lm_ggml_metal_encoder_t enc = ctx->enc;
+
+    LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(op->src[0]));
+
+    LM_GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb0, op->src[0], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne,  op,         ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb,  op,         nb);
+
+    lm_ggml_metal_pipeline_t pipeline = lm_ggml_metal_library_get_pipeline_top_k(lib, op);
+
+    // bitonic sort requires the number of elements to be power of 2
+    int nth = 1;
+    while (nth < ne00 && 2*nth <= lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline)) {
+        nth *= 2;
+    }
+
+    // blocks per row
+    const int npr = (ne00 + nth - 1)/nth;
+
+    const size_t smem = LM_GGML_PAD(nth*sizeof(int32_t), 16);
+
+    lm_ggml_metal_buffer_id bid_src0 = lm_ggml_metal_get_buffer_id(op->src[0]);
+    lm_ggml_metal_buffer_id bid_dst  = lm_ggml_metal_get_buffer_id(op);
+
+    lm_ggml_metal_buffer_id bid_tmp = bid_dst;
+    bid_tmp.offs += sizeof(int32_t)*lm_ggml_nelements(op->src[0]);
+
+    if ((int) ceil(std::log(npr) / std::log(2)) % 2 == 1) {
+        std::swap(bid_dst, bid_tmp);
+    }
+
+    const int top_k = ne0;
+
+    lm_ggml_metal_kargs_argsort args = {
+        /*.ne00  =*/ ne00,
+        /*.ne01  =*/ ne01,
+        /*.ne02  =*/ ne02,
+        /*.ne03  =*/ ne03,
+        /*.nb00  =*/ nb00,
+        /*.nb01  =*/ nb01,
+        /*.nb02  =*/ nb02,
+        /*.nb03  =*/ nb03,
+        /*.ne0   =*/ ne0,
+        /*.ne1   =*/ ne1,
+        /*.ne2   =*/ ne2,
+        /*.ne3   =*/ ne3,
+        /*.top_k =*/ std::min(nth, top_k), // for each block, keep just the top_k indices
+    };
+
+    if (npr > 1) {
+        args.ne0 = (npr - 1)*args.top_k + std::min(ne00 - (npr - 1)*nth, args.top_k);
+    }
+
+    lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
+    lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
+    lm_ggml_metal_encoder_set_buffer  (enc, bid_src0, 1);
+    lm_ggml_metal_encoder_set_buffer  (enc, bid_dst,  2);
+
+    lm_ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
+
+    lm_ggml_metal_encoder_dispatch_threadgroups(enc, npr*ne01, ne02, ne03, nth, 1, 1);
+
+    lm_ggml_metal_pipeline_t pipeline_merge = lm_ggml_metal_library_get_pipeline_top_k_merge(lib, op);
+
+    int len = args.top_k;
+
+    while (len < args.ne0) {
+        lm_ggml_metal_op_concurrency_reset(ctx);
+
+        // merges per row
+        const int nm = (args.ne0 + 2*len - 1) / (2*len);
+
+        const int nth = std::min(512, std::min(len, lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline_merge)));
+
+        lm_ggml_metal_kargs_argsort_merge args_merge = {
+            /*.ne00  =*/ ne00,
+            /*.ne01  =*/ ne01,
+            /*.ne02  =*/ ne02,
+            /*.ne03  =*/ ne03,
+            /*.nb00  =*/ nb00,
+            /*.nb01  =*/ nb01,
+            /*.nb02  =*/ nb02,
+            /*.nb03  =*/ nb03,
+            /*.ne0   =*/ args.ne0,
+            /*.ne1   =*/ ne1,
+            /*.ne2   =*/ ne2,
+            /*.ne3   =*/ ne3,
+            /*.top_k =*/ nm == 1 ? top_k : args.ne0, // the final merge outputs top_k elements
+            /*.len   =*/ len,
+        };
 
         lm_ggml_metal_encoder_set_pipeline(enc, pipeline_merge);
         lm_ggml_metal_encoder_set_bytes   (enc, &args_merge, sizeof(args_merge), 0);
