@@ -1856,6 +1856,7 @@ namespace rnllama_jsi {
             }
         }
 
+        llama_log_set(llama_log_callback_default, nullptr);
         TaskManager::getInstance().waitForAll();
         ThreadPool::getInstance().shutdown();
 
@@ -1871,7 +1872,6 @@ namespace rnllama_jsi {
             g_log_handler.reset();
             g_log_invoker.reset();
         }
-        llama_log_set(llama_log_callback_default, nullptr);
         g_log_runtime.reset();
     }
 }
