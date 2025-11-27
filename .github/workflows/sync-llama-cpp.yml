@@ -37,6 +37,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run complete sync
+        run: ./scripts/sync-llama-cpp-submodule.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run bootstrap
         run: npm run bootstrap
 
@@ -75,6 +80,14 @@ jobs:
         run: |
           chmod +x scripts/sync-llama-cpp-submodule.sh scripts/finalize-sync.sh
           ./scripts/sync-llama-cpp-submodule.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run bootstrap
+        run: npm run bootstrap
+
+      - name: Run complete sync
+        run: ./scripts/sync-llama-cpp-submodule.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
