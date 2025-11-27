@@ -309,7 +309,12 @@ namespace rnllama_jsi {
         for (size_t i = 0; i < devCount; ++i) {
             lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
             const auto type = lm_ggml_backend_dev_type(dev);
-            const bool isGpuType = type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || type == LM_GGML_BACKEND_DEVICE_TYPE_ACCEL;
+#if TARGET_OS_SIMULATOR
+            if (type == LM_GGML_BACKEND_DEVICE_TYPE_ACCEL) {
+                continue;
+            }
+#endif
+            const bool isGpuType = type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU;
             if (isGpuType) {
                 anyGpuAvailable = true;
             }
@@ -436,7 +441,7 @@ namespace rnllama_jsi {
                         for (auto dev : defaultDevices) {
                             if (dev == nullptr) continue;
                             auto type = lm_ggml_backend_dev_type(dev);
-                            if (type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || type == LM_GGML_BACKEND_DEVICE_TYPE_ACCEL) {
+                            if (type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
                                 anyGpuAvailable = true;
                                 break;
                             }
@@ -451,7 +456,7 @@ namespace rnllama_jsi {
                     for (size_t i = 0; i < devCount; ++i) {
                         auto dev = lm_ggml_backend_dev_get(i);
                         auto type = lm_ggml_backend_dev_type(dev);
-                        if (type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || type == LM_GGML_BACKEND_DEVICE_TYPE_ACCEL) {
+                        if (type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
                             anyGpuAvailable = true;
                             break;
                         }
@@ -527,7 +532,7 @@ namespace rnllama_jsi {
                                      usedDevices.push_back(used_name);
                                  }
                                  auto devType = lm_ggml_backend_dev_type(dev);
-                                 if (devType == LM_GGML_BACKEND_DEVICE_TYPE_GPU || devType == LM_GGML_BACKEND_DEVICE_TYPE_ACCEL) {
+                                 if (devType == LM_GGML_BACKEND_DEVICE_TYPE_GPU || devType == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
                                      gpuEnabled = true;
                                  }
                              }
