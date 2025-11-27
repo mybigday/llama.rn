@@ -1927,6 +1927,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_argsort(params, tensor);
             } break;
+        case LM_GGML_OP_TOP_K:
+            {
+                lm_ggml_compute_forward_top_k(params, tensor);
+            } break;
         case LM_GGML_OP_LEAKY_RELU:
             {
                 lm_ggml_compute_forward_leaky_relu(params, tensor);
@@ -2311,6 +2315,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
         case LM_GGML_OP_ARANGE:
         case LM_GGML_OP_TIMESTEP_EMBEDDING:
         case LM_GGML_OP_ARGSORT:
+        case LM_GGML_OP_TOP_K:
         case LM_GGML_OP_FLASH_ATTN_EXT:
         case LM_GGML_OP_FLASH_ATTN_BACK:
         case LM_GGML_OP_SSM_CONV:
@@ -2833,6 +2838,10 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
 
                         cur += sizeof(lm_ggml_fp16_t)*ne00*ne01*ne02*ne03;
                         cur += sizeof(lm_ggml_fp16_t)*ne10*ne11*ne12;
+                    } break;
+                case LM_GGML_OP_TOP_K:
+                    {
+                        cur += sizeof(int32_t)*node->src[0]->ne[0]*n_tasks;
                     } break;
                 case LM_GGML_OP_FLASH_ATTN_EXT:
                     {

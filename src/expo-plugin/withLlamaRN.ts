@@ -19,7 +19,8 @@ interface PluginOptions {
   enableEntitlements?: boolean
   entitlementsProfile?: string | string[]
   forceCxx20?: boolean
-  enableOpenCL?: boolean
+  enableOpenCLAndHexagon?: boolean
+  enableOpenCL?: boolean // Deprecated
 }
 
 const withLlamaRn: ConfigPlugin<PluginOptions> = (config, options = {}) => {
@@ -27,8 +28,15 @@ const withLlamaRn: ConfigPlugin<PluginOptions> = (config, options = {}) => {
     enableEntitlements = true,
     entitlementsProfile = 'production',
     forceCxx20 = true,
-    enableOpenCL = true,
+    enableOpenCLAndHexagon = true,
+    enableOpenCL = true, // Deprecated
   } = options
+
+  if (typeof options.enableOpenCL !== 'undefined') {
+    console.warn(
+      'enableOpenCL is deprecated. Use enableOpenCLAndHexagon instead.',
+    )
+  }
 
   const isProdProfile =
     process.env.EAS_BUILD_PROFILE === entitlementsProfile ||
@@ -106,7 +114,7 @@ const withLlamaRn: ConfigPlugin<PluginOptions> = (config, options = {}) => {
     ])
   }
 
-  if (enableOpenCL) {
+  if (enableOpenCL && enableOpenCLAndHexagon) {
     config = withAndroidManifest(config, (c) => {
       const app = c.modResults.manifest.application?.[0] as any
       if (!app) return c
@@ -116,14 +124,25 @@ const withLlamaRn: ConfigPlugin<PluginOptions> = (config, options = {}) => {
       }
 
       const libs = app['uses-native-library']
-      const alreadyExists = libs.some(
+      const openclAlreadyExists = libs.some(
         (lib: any) => lib.$['android:name'] === 'libOpenCL.so',
       )
+      const cdsprpcAlreadyExists = libs.some(
+        (lib: any) => lib.$['android:name'] === 'libcdsprpc.so',
+      )
 
-      if (!alreadyExists) {
+      if (!openclAlreadyExists) {
         libs.push({
           $: {
             'android:name': 'libOpenCL.so',
+            'android:required': 'false',
+          },
+        })
+      }
+      if (!cdsprpcAlreadyExists) {
+        libs.push({
+          $: {
+            'android:name': 'libcdsprpc.so',
             'android:required': 'false',
           },
         })

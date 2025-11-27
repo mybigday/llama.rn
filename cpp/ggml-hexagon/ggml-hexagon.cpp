@@ -2229,7 +2229,7 @@ static bool lm_ggml_hexagon_supported_rope(const struct lm_ggml_hexagon_session 
 
     int mode = op_params[2];
 
-    if ((mode & LM_GGML_ROPE_TYPE_NEOX) || (mode & LM_GGML_ROPE_TYPE_MROPE) || (mode & LM_GGML_ROPE_TYPE_VISION)) {
+    if ((mode & LM_GGML_ROPE_TYPE_MROPE) || (mode & LM_GGML_ROPE_TYPE_VISION)) {
         return false;
     }
     if (mode & 1) {
