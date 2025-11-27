@@ -57,12 +57,12 @@ public class RNLlamaModule extends ReactContextBaseJavaModule {
   private native void cleanupJSIBindings();
 
   @Override
-  public void onCatalystInstanceDestroy() {
+  public void invalidate() {
     try {
       cleanupJSIBindings();
     } catch (UnsatisfiedLinkError ignored) {
       // Native library may not be loaded if install was never called.
     }
-    super.onCatalystInstanceDestroy();
+    super.invalidate();
   }
 }
