@@ -24,13 +24,14 @@ RCT_EXPORT_METHOD(install:(RCTPromiseResolveBlock)resolve
 {
     RCTBridge *bridge = [RCTBridge currentBridge];
     RCTCxxBridge *cxxBridge = (RCTCxxBridge *)bridge;
+    auto callInvoker = bridge.jsCallInvoker;
     if (!cxxBridge.runtime) {
         resolve(@false);
         return;
     }
 
     [self installJSIBindingsWithRuntime:*(facebook::jsi::Runtime *)cxxBridge.runtime
-                           callInvoker:cxxBridge.jsCallInvoker];
+                           callInvoker:callInvoker];
     resolve(@true);
 }
 

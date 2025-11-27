@@ -41,8 +41,6 @@ Pod::Spec.new do |s|
   # Header-only JSON dependency needed by JSI when using the prebuilt xcframework
   s.preserve_paths = "cpp/nlohmann/**/*.{h,hpp}"
 
-  s.dependency "React-Core"
-
   s.compiler_flags = base_compiler_flags
   s.pod_target_xcconfig = {
     "OTHER_LDFLAGS" => base_ld_flags,
@@ -51,8 +49,12 @@ Pod::Spec.new do |s|
     "HEADER_SEARCH_PATHS" => header_search_paths.join(" ")
   }
 
+  s.dependency "React-callinvoker"
+  s.dependency "React"
   # Don't install the dependencies when we run `pod install` in the old architecture.
   if ENV['RCT_NEW_ARCH_ENABLED'] == '1' then
     install_modules_dependencies(s)
+  else
+    s.dependency "React-Core"
   end
 end
