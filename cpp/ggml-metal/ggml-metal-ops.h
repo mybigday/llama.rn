@@ -81,6 +81,7 @@ int lm_ggml_metal_op_arange            (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_timestep_embedding(lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_argmax            (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_argsort           (lm_ggml_metal_op_t ctx, int idx);
+int lm_ggml_metal_op_top_k             (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_leaky_relu        (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_opt_step_adamw    (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_opt_step_sgd      (lm_ggml_metal_op_t ctx, int idx);

@@ -7794,7 +7794,7 @@ void lm_ggml_compute_forward_timestep_embedding(
 // lm_ggml_compute_forward_argsort
 
 template<enum lm_ggml_sort_order order>
-struct argsort_cmp {
+struct cmp_argsort {
     const float * data;
     bool operator()(int32_t a, int32_t b) const {
         if constexpr (order == LM_GGML_SORT_ORDER_ASC) {
@@ -7833,11 +7833,11 @@ static void lm_ggml_compute_forward_argsort_f32(
 
         switch (order) {
             case LM_GGML_SORT_ORDER_ASC:
-                std::sort(dst_data, dst_data + ne0, argsort_cmp<LM_GGML_SORT_ORDER_ASC>{src_data});
+                std::sort(dst_data, dst_data + ne0, cmp_argsort<LM_GGML_SORT_ORDER_ASC>{src_data});
                 break;
 
             case LM_GGML_SORT_ORDER_DESC:
-                std::sort(dst_data, dst_data + ne0, argsort_cmp<LM_GGML_SORT_ORDER_DESC>{src_data});
+                std::sort(dst_data, dst_data + ne0, cmp_argsort<LM_GGML_SORT_ORDER_DESC>{src_data});
                 break;
 
             default:
@@ -7856,6 +7856,72 @@ void lm_ggml_compute_forward_argsort(
         case LM_GGML_TYPE_F32:
             {
                 lm_ggml_compute_forward_argsort_f32(params, dst);
+            } break;
+        default:
+            {
+                LM_GGML_ABORT("fatal error");
+            }
+    }
+}
+
+// lm_ggml_compute_forward_top_k
+
+struct cmp_top_k {
+    const float * data;
+    bool operator()(int32_t a, int32_t b) const {
+        return data[a] > data[b];
+    }
+};
+
+static void lm_ggml_compute_forward_top_k_f32(
+    const lm_ggml_compute_params * params,
+    lm_ggml_tensor * dst) {
+
+    const lm_ggml_tensor * src0 = dst->src[0];
+
+    LM_GGML_TENSOR_UNARY_OP_LOCALS
+
+    LM_GGML_ASSERT(nb0 == sizeof(float));
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const int64_t nr = lm_ggml_nrows(src0);
+
+    const int top_k = ne0;
+
+    int32_t * tmp = (int32_t *) params->wdata + (ne00 + CACHE_LINE_SIZE_F32) * ith;
+
+    for (int64_t i = ith; i < nr; i += nth) {
+        const float * src_data = (float *)((char *) src0->data + i*nb01);
+
+        for (int64_t j = 0; j < ne00; j++) {
+            tmp[j] = j;
+        }
+
+        std::partial_sort(tmp, tmp + top_k, tmp + ne00, cmp_top_k{src_data});
+
+        int32_t * dst_data = (int32_t *)((char *) dst->data + i*nb1);
+
+        std::copy(tmp, tmp + top_k, dst_data);
+
+        // emphasize that the order is not important
+        if (top_k > 1) {
+            std::swap(dst_data[0], dst_data[1]);
+        }
+    }
+}
+
+void lm_ggml_compute_forward_top_k(
+    const lm_ggml_compute_params * params,
+    lm_ggml_tensor * dst) {
+
+    const lm_ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case LM_GGML_TYPE_F32:
+            {
+                lm_ggml_compute_forward_top_k_f32(params, dst);
             } break;
         default:
             {

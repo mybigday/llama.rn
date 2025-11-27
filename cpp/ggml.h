@@ -530,6 +530,7 @@ extern "C" {
         LM_GGML_OP_ARANGE,
         LM_GGML_OP_TIMESTEP_EMBEDDING,
         LM_GGML_OP_ARGSORT,
+        LM_GGML_OP_TOP_K,
         LM_GGML_OP_LEAKY_RELU,
         LM_GGML_OP_TRI,
         LM_GGML_OP_FILL,
@@ -2258,17 +2259,24 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             enum lm_ggml_sort_order  order);
 
+    // similar to lm_ggml_top_k but implemented as `argsort` + `view`
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_argsort_top_k(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            int                   k);
+
+    // top k elements per row
+    // note: the resulting top k indices are in no particular order
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_top_k(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            int                   k);
+
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_arange(
             struct lm_ggml_context * ctx,
             float                 start,
             float                 stop,
             float                 step);
-
-    // top k elements per row
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_top_k(
-            struct lm_ggml_context * ctx,
-            struct lm_ggml_tensor  * a,
-            int                   k);
 
 #define LM_GGML_KQ_MASK_PAD 64
 
