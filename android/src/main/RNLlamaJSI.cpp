@@ -30,7 +30,9 @@ Java_com_rnllama_RNLlamaModule_installJSIBindings(
         return;
     }
 
-    rnllama_jsi::installJSIBindings(*runtime, callInvoker);
+    callInvoker->invokeAsync([runtime, callInvoker]() {
+        rnllama_jsi::installJSIBindings(*runtime, callInvoker);
+    });
 }
 
 extern "C" JNIEXPORT void JNICALL
