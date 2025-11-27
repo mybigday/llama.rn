@@ -143,10 +143,12 @@ namespace rnllama_jsi {
     static std::mutex g_log_mutex;
     static std::weak_ptr<react::CallInvoker> g_log_invoker;
     static std::shared_ptr<jsi::Function> g_log_handler;
+    static std::shared_ptr<jsi::Runtime> g_log_runtime;
 
     struct ProgressCallbackData {
         std::shared_ptr<jsi::Function> callback;
         std::weak_ptr<react::CallInvoker> callInvoker;
+        std::shared_ptr<jsi::Runtime> runtime;
         int contextId;
         std::atomic<int> lastProgress{0};
         int progressEvery = 1;
@@ -181,13 +183,15 @@ namespace rnllama_jsi {
 
         std::shared_ptr<react::CallInvoker> invoker;
         std::shared_ptr<jsi::Function> handler;
+        std::shared_ptr<jsi::Runtime> runtime;
         {
             std::lock_guard<std::mutex> lock(g_log_mutex);
             invoker = g_log_invoker.lock();
             handler = g_log_handler;
+            runtime = g_log_runtime;
         }
 
-        if (!invoker || !handler) {
+        if (!invoker || !handler || !runtime) {
             return;
         }
 
@@ -201,7 +205,8 @@ namespace rnllama_jsi {
 
         std::string message = text ? text : "";
 
-        invoker->invokeAsync([handler, levelStr, message](jsi::Runtime& rt) {
+        invoker->invokeAsync([handler, levelStr, message, runtime]() {
+            auto& rt = *runtime;
             handler->call(
                 rt,
                 jsi::String::createFromUtf8(rt, levelStr),
@@ -367,6 +372,7 @@ namespace rnllama_jsi {
                     progressData = std::make_shared<ProgressCallbackData>();
                     progressData->callback = std::make_shared<jsi::Function>(arguments[2].asObject(runtime).asFunction(runtime));
                     progressData->callInvoker = callInvoker;
+                    progressData->runtime = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){});
                     progressData->contextId = contextId;
                     progressData->progressEvery = std::max(1, progressCallbackEvery);
                     progressData->lastProgress.store(0);
@@ -481,8 +487,10 @@ namespace rnllama_jsi {
 
                             auto invoker = data->callInvoker.lock();
                             auto cb = data->callback;
-                            if (invoker && cb) {
-                                invoker->invokeAsync([cb, percentage](jsi::Runtime& rt) {
+                            auto runtime = data->runtime;
+                            if (invoker && cb && runtime) {
+                                invoker->invokeAsync([cb, percentage, runtime]() {
+                                    auto& rt = *runtime;
                                     cb->call(rt, jsi::Value((double) percentage));
                                 });
                             }
@@ -961,7 +969,7 @@ namespace rnllama_jsi {
                     }
                 }
 
-                return createPromiseTask(runtime, callInvoker, [contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, thinking_forced_open, prefill_text, guide_tokens, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, thinking_forced_open, prefill_text, guide_tokens, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
 
                     if (ctx->completion == nullptr) {
@@ -1037,13 +1045,17 @@ namespace rnllama_jsi {
                                     // ignore parse errors for partial output
                                 }
 
-                                callInvoker->invokeAsync([onToken, output_copy, ctx, partial_output, has_partial_output](jsi::Runtime& rt) {
-                                    jsi::Object res = createTokenResult(rt, ctx, output_copy);
-                                    if (has_partial_output) {
-                                        setChatOutputFields(rt, res, partial_output);
-                                    }
-                                    onToken->call(rt, res);
-                                });
+                                auto runtime = runtimePtr;
+                                if (runtime) {
+                                    callInvoker->invokeAsync([onToken, output_copy, ctx, partial_output, has_partial_output, runtime]() {
+                                        auto& rt = *runtime;
+                                        jsi::Object res = createTokenResult(rt, ctx, output_copy);
+                                        if (has_partial_output) {
+                                            setChatOutputFields(rt, res, partial_output);
+                                        }
+                                        onToken->call(rt, res);
+                                    });
+                                }
                             }
                         }
                     }
@@ -1083,12 +1095,13 @@ namespace rnllama_jsi {
                     onLog = std::make_shared<jsi::Function>(arguments[1].asObject(runtime).asFunction(runtime));
                 }
 
-                return createPromiseTask(runtime, callInvoker, [enabled, onLog, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [enabled, onLog, callInvoker, runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){})]() -> PromiseResultGenerator {
                     if (enabled && onLog) {
                         {
                             std::lock_guard<std::mutex> lock(g_log_mutex);
                             g_log_handler = onLog;
                             g_log_invoker = callInvoker;
+                            g_log_runtime = runtimePtr;
                         }
                         llama_log_set(logToJsCallback, nullptr);
                     } else {
@@ -1096,6 +1109,7 @@ namespace rnllama_jsi {
                             std::lock_guard<std::mutex> lock(g_log_mutex);
                             g_log_handler.reset();
                             g_log_invoker.reset();
+                            g_log_runtime.reset();
                         }
                         llama_log_set(llama_log_callback_default, nullptr);
                     }
@@ -1168,7 +1182,7 @@ namespace rnllama_jsi {
                 std::string save_state_path = stripFileScheme(getPropertyAsString(runtime, params, "save_state_path"));
                 int save_state_size = getPropertyAsInt(runtime, params, "save_state_size", -1);
 
-                return createPromiseTask(runtime, callInvoker, [contextId, cparams, mediaPaths, chat_format, reasoning_format, thinking_forced_open, prefill_text, load_state_path, save_state_path, save_state_size, onToken, onComplete, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, cparams, mediaPaths, chat_format, reasoning_format, thinking_forced_open, prefill_text, load_state_path, save_state_path, save_state_size, onToken, onComplete, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->parallel_mode_enabled || !ctx->slot_manager) {
                         throw std::runtime_error("Parallel mode not enabled");
@@ -1179,7 +1193,7 @@ namespace rnllama_jsi {
                     auto tokenizeResult = ctx->tokenize(cparams.prompt, mediaPaths);
                     std::vector<llama_token> tokens = tokenizeResult.tokens;
 
-                    auto tokenCallback = [contextId, callInvoker, ctx](const rnllama::completion_token_output& token) {
+                    auto tokenCallback = [contextId, callInvoker, ctx, runtimePtr](const rnllama::completion_token_output& token) {
                         int requestId = token.request_id;
                         rnllama::completion_chat_output parsed_output;
                         bool has_parsed_output = false;
@@ -1198,10 +1212,15 @@ namespace rnllama_jsi {
                         auto callbacks = RequestManager::getInstance().getRequest(contextId, requestId);
                         if (callbacks.onToken) {
                             rnllama::completion_token_output tokenCopy = token;
-                            callInvoker->invokeAsync([callbacks, contextId, tokenCopy, requestId, parsed_output, has_parsed_output](jsi::Runtime& rt) {
+                            auto runtime = runtimePtr;
+                            if (!runtime) {
+                              return;
+                            }
+                            callInvoker->invokeAsync([callbacks, contextId, tokenCopy, requestId, parsed_output, has_parsed_output, runtime]() {
                                 long ctxPtr = g_llamaContexts.get(contextId);
                                 if (ctxPtr) {
                                     auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
+                                    auto& rt = *runtime;
                                     jsi::Object res = createTokenResult(rt, ctx, tokenCopy);
                                     if (has_parsed_output) {
                                         setChatOutputFields(rt, res, parsed_output);
@@ -1212,7 +1231,7 @@ namespace rnllama_jsi {
                         }
                     };
 
-                    auto completeCallback = [contextId, callInvoker](rnllama::llama_rn_slot* slot) {
+                    auto completeCallback = [contextId, callInvoker, runtimePtr](rnllama::llama_rn_slot* slot) {
                         int requestId = slot->request_id;
                         auto callbacks = RequestManager::getInstance().getRequest(contextId, requestId);
                         RequestManager::getInstance().removeRequest(contextId, requestId);
@@ -1247,12 +1266,17 @@ namespace rnllama_jsi {
                                 has_final_output = false;
                             }
 
-                            callInvoker->invokeAsync([callbacks, contextId, requestId, text, stopped_eos, stopped_limit, stopped_word, context_full, incomplete, truncated, interrupted, chat_format_val, stopping_word, tokens_predicted, tokens_evaluated, tokens_cached, n_decoded, error_message, timings, token_probs, final_output, has_final_output](jsi::Runtime& rt) {
+                            auto runtime = runtimePtr;
+                            if (!runtime) {
+                              return;
+                            }
+                            callInvoker->invokeAsync([callbacks, contextId, requestId, text, stopped_eos, stopped_limit, stopped_word, context_full, incomplete, truncated, interrupted, chat_format_val, stopping_word, tokens_predicted, tokens_evaluated, tokens_cached, n_decoded, error_message, timings, token_probs, final_output, has_final_output, runtime]() {
                                 long ctxPtr = g_llamaContexts.get(contextId);
                                 if (!ctxPtr) {
                                     return;
                                 }
                                 auto ctxVal = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
+                                auto& rt = *runtime;
 
                                 jsi::Object res(rt);
                                 res.setProperty(rt, "requestId", requestId);
@@ -1349,7 +1373,7 @@ namespace rnllama_jsi {
                     has_embd_normalize = true;
                 }
 
-                return createPromiseTask(runtime, callInvoker, [contextId, text, embd_normalize, has_embd_normalize, onResult, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, text, embd_normalize, has_embd_normalize, onResult, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->parallel_mode_enabled || !ctx->slot_manager) {
                         throw std::runtime_error("Parallel mode not enabled");
@@ -1360,12 +1384,17 @@ namespace rnllama_jsi {
                     const bool is_enc_dec = llama_model_has_encoder(ctx->model);
                     std::vector<llama_token> tokens = common_tokenize(ctx->ctx, text, add_bos || is_enc_dec, true);
 
-                    auto resultCallback = [contextId, callInvoker](int32_t requestId, const std::vector<float>& embedding) {
+                    auto resultCallback = [contextId, callInvoker, runtimePtr](int32_t requestId, const std::vector<float>& embedding) {
                         auto callbacks = RequestManager::getInstance().getRequest(contextId, requestId);
                         RequestManager::getInstance().removeRequest(contextId, requestId);
                         if (callbacks.onResult) {
                             std::vector<float> embCopy = embedding;
-                            callInvoker->invokeAsync([callbacks, embCopy](jsi::Runtime& rt) {
+                            auto runtime = runtimePtr;
+                            if (!runtime) {
+                              return;
+                            }
+                            callInvoker->invokeAsync([callbacks, embCopy, runtime]() {
+                                auto& rt = *runtime;
                                 jsi::Array res(rt, embCopy.size());
                                 for (size_t i = 0; i < embCopy.size(); i++) {
                                     res.setValueAtIndex(rt, i, (double)embCopy[i]);
@@ -1406,18 +1435,23 @@ namespace rnllama_jsi {
 
                 int normalize = getPropertyAsInt(runtime, params, "normalize", 0);
 
-                return createPromiseTask(runtime, callInvoker, [contextId, query, documents, normalize, onResult, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, query, documents, normalize, onResult, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->parallel_mode_enabled || !ctx->slot_manager) {
                         throw std::runtime_error("Parallel mode not enabled");
                     }
 
-                    auto resultCallback = [contextId, callInvoker](int32_t requestId, const std::vector<float>& scores) {
+                    auto resultCallback = [contextId, callInvoker, runtimePtr](int32_t requestId, const std::vector<float>& scores) {
                         auto callbacks = RequestManager::getInstance().getRequest(contextId, requestId);
                         RequestManager::getInstance().removeRequest(contextId, requestId);
                         if (callbacks.onResult) {
                             std::vector<float> scoresCopy = scores;
-                            callInvoker->invokeAsync([callbacks, scoresCopy](jsi::Runtime& rt) {
+                            auto runtime = runtimePtr;
+                            if (!runtime) {
+                              return;
+                            }
+                            callInvoker->invokeAsync([callbacks, scoresCopy, runtime]() {
+                                auto& rt = *runtime;
                                 jsi::Array res(rt, scoresCopy.size());
                                 for (size_t i = 0; i < scoresCopy.size(); i++) {
                                     jsi::Object item(rt);
@@ -1838,5 +1872,6 @@ namespace rnllama_jsi {
             g_log_invoker.reset();
         }
         llama_log_set(llama_log_callback_default, nullptr);
+        g_log_runtime.reset();
     }
 }
