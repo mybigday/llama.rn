@@ -28,6 +28,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           lfs: true
 
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
