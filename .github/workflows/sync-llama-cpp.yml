@@ -45,6 +45,7 @@ jobs:
       - name: Run complete sync
         run: ./scripts/sync-llama-cpp-submodule.sh
         env:
+          IGNORE_PUSH: '1'
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run bootstrap
