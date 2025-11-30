@@ -318,7 +318,6 @@ const context = await initLlama({
 
 const { text, tool_calls } = await context.completion({
   // ...params
-  jinja: true, // Enable Jinja template parser
   tool_choice: 'auto',
   tools: [
     {

@@ -261,12 +261,14 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
 
   // Extract current system prompt from messages
   useEffect(() => {
-    const systemMessage = messages.find(msg => msg.role === 'system')
+    const systemMessage = messages.find((msg) => msg.role === 'system')
     if (systemMessage && typeof systemMessage.content === 'string') {
       setSystemPrompt(systemMessage.content)
     } else if (systemMessage && Array.isArray(systemMessage.content)) {
       // Handle multimodal system messages
-      const textContent = systemMessage.content.find(item => item.type === 'text')
+      const textContent = systemMessage.content.find(
+        (item) => item.type === 'text',
+      )
       if (textContent && textContent.text) {
         setSystemPrompt(textContent.text)
       }
@@ -298,14 +300,17 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
         return {
           ...msg,
           content: msg.content.map((item) => {
-            if (item.type === 'image_url' && item.image_url?.url?.startsWith('data:')) {
+            if (
+              item.type === 'image_url' &&
+              item.image_url?.url?.startsWith('data:')
+            ) {
               return {
                 ...item,
-                image_url: { url: '[Base64 Image Data Omitted]' }
+                image_url: { url: '[Base64 Image Data Omitted]' },
               }
             }
             return item
-          })
+          }),
         }
       }
       return msg
@@ -315,7 +320,9 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
   const getFullMessagesForCopy = (msgs: LLMMessage[]) => msgs
 
   // Helper function to convert LLM messages to chat UI messages
-  const convertLLMMessagesToChatMessages = (llmMessages: LLMMessage[]): MessageType.Any[] => {
+  const convertLLMMessagesToChatMessages = (
+    llmMessages: LLMMessage[],
+  ): MessageType.Any[] => {
     const user = { id: 'user' }
     const assistant = { id: 'assistant' }
     const randId = () => Math.random().toString(36).substr(2, 9)
@@ -355,10 +362,12 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
           id: randId(),
           text: llmMsg.content,
           type: 'text',
-          metadata: llmMsg.tool_calls ? {
-            toolCalls: true,
-            storedToolCalls: llmMsg.tool_calls
-          } : {},
+          metadata: llmMsg.tool_calls
+            ? {
+                toolCalls: true,
+                storedToolCalls: llmMsg.tool_calls,
+              }
+            : {},
         }
         chatMessages.push(textMessage)
       }
@@ -372,10 +381,12 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
               id: randId(),
               text: item.text,
               type: 'text',
-              metadata: llmMsg.tool_calls ? {
-                toolCalls: true,
-                storedToolCalls: llmMsg.tool_calls
-              } : {},
+              metadata: llmMsg.tool_calls
+                ? {
+                    toolCalls: true,
+                    storedToolCalls: llmMsg.tool_calls,
+                  }
+                : {},
             }
             chatMessages.push(textMessage)
           } else if (item.type === 'image_url' && item.image_url?.url) {
@@ -402,7 +413,11 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
 
   const displayMessages = omitImageBase64ForDisplay(messages)
   const jsonContent = JSON.stringify(displayMessages, null, 2)
-  const fullJsonContent = JSON.stringify(getFullMessagesForCopy(messages), null, 2)
+  const fullJsonContent = JSON.stringify(
+    getFullMessagesForCopy(messages),
+    null,
+    2,
+  )
 
   const copyToClipboard = async (content: string, type: string) => {
     try {
@@ -426,7 +441,6 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
       // Try to get formatted chat - the API might expect different input
       const parsedMessages = JSON.parse(fullJsonContent)
       const result = await context.getFormattedChat(parsedMessages, null, {
-        jinja: true,
         tools,
         tool_choice: tools ? 'auto' : undefined,
       })
@@ -513,14 +527,37 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
         >
           {/* System Prompt Editor */}
           <View style={styles.section}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 16,
+              }}
+            >
               <Text style={styles.sectionTitle}>System Prompt</Text>
               <TouchableOpacity
                 onPress={handleResetSystemPrompt}
-                style={[styles.copyButton, { backgroundColor: '#6b7280', flex: 0, paddingHorizontal: 12 }]}
-                disabled={!defaultSystemPrompt || systemPrompt === defaultSystemPrompt}
+                style={[
+                  styles.copyButton,
+                  {
+                    backgroundColor: '#6b7280',
+                    flex: 0,
+                    paddingHorizontal: 12,
+                  },
+                ]}
+                disabled={
+                  !defaultSystemPrompt || systemPrompt === defaultSystemPrompt
+                }
               >
-                <Text style={[styles.copyButtonText, (!defaultSystemPrompt || systemPrompt === defaultSystemPrompt) && styles.disabledText]}>
+                <Text
+                  style={[
+                    styles.copyButtonText,
+                    (!defaultSystemPrompt ||
+                      systemPrompt === defaultSystemPrompt) &&
+                      styles.disabledText,
+                  ]}
+                >
                   Reset
                 </Text>
               </TouchableOpacity>
@@ -570,7 +607,12 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
                 disabled={!context}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.copyButtonText, !context && styles.disabledText]}>
+                <Text
+                  style={[
+                    styles.copyButtonText,
+                    !context && styles.disabledText,
+                  ]}
+                >
                   Copy Formatted
                 </Text>
               </TouchableOpacity>
@@ -583,7 +625,7 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
             <TextInput
               style={[
                 styles.textArea,
-                textAreaFocused && styles.textAreaFocused
+                textAreaFocused && styles.textAreaFocused,
               ]}
               placeholder="Paste JSON messages here..."
               placeholderTextColor={theme.colors.textSecondary}
@@ -598,7 +640,8 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
             <TouchableOpacity
               style={[
                 styles.importButton,
-                (!importText.trim() || !context || isImporting) && styles.disabledButton,
+                (!importText.trim() || !context || isImporting) &&
+                  styles.disabledButton,
               ]}
               onPress={handleImportMessages}
               disabled={!importText.trim() || !context || isImporting}
@@ -607,7 +650,8 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
               <Text
                 style={[
                   styles.importButtonText,
-                  (!importText.trim() || !context || isImporting) && styles.disabledText,
+                  (!importText.trim() || !context || isImporting) &&
+                    styles.disabledText,
                 ]}
               >
                 {isImporting ? 'Importing...' : 'Import Messages'}

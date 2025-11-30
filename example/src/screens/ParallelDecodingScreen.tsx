@@ -410,13 +410,7 @@ export default function ParallelDecodingScreen({
       const loadStatePath = stateFileExists ? statePath : undefined
 
       // Format chat to get the formatted prompt for tokenization
-      const formattedChat = await context.getFormattedChat(
-        messages,
-        undefined,
-        {
-          jinja: true,
-        },
-      )
+      const formattedChat = await context.getFormattedChat(messages, undefined)
 
       // Tokenize the formatted prompt to get question token count
       let questionTokenCount = 0
@@ -441,7 +435,6 @@ export default function ParallelDecodingScreen({
           ...params,
           reasoning_format: 'auto',
           n_predict: params.n_predict || 50,
-          jinja: true,
           // State management: load previous state if exists, always save
           load_state_path: loadStatePath,
           save_state_path: questionTokenCount > 0 ? statePath : undefined,
