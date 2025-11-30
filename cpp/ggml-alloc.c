@@ -921,10 +921,15 @@ bool lm_ggml_gallocr_reserve_n(lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph *
         }
         if (realloc) {
 #ifndef NDEBUG
-            size_t cur_size = galloc->buffers[i] ? lm_ggml_vbuffer_size(galloc->buffers[i]) : 0;
-            LM_GGML_LOG_DEBUG("%s: reallocating %s buffer from size %.02f MiB to %.02f MiB\n", __func__, lm_ggml_backend_buft_name(galloc->bufts[i]), cur_size / 1024.0 / 1024.0, new_size / 1024.0 / 1024.0);
+            {
+                size_t cur_size = galloc->buffers[i] ? lm_ggml_vbuffer_size(galloc->buffers[i]) : 0;
+                if (cur_size > 0) {
+                    LM_GGML_LOG_DEBUG("%s: reallocating %s buffer from size %.02f MiB to %.02f MiB\n",
+                        __func__, lm_ggml_backend_buft_name(galloc->bufts[i]),
+                        cur_size / 1024.0 / 1024.0, new_size / 1024.0 / 1024.0);
+                }
+            }
 #endif
-
             lm_ggml_vbuffer_free(galloc->buffers[i]);
             galloc->buffers[i] = lm_ggml_vbuffer_alloc(galloc->bufts[i], galloc->buf_tallocs[i], LM_GGML_BACKEND_BUFFER_USAGE_COMPUTE);
             if (galloc->buffers[i] == NULL) {
