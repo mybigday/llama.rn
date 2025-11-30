@@ -201,16 +201,6 @@ android {
       "**/libreact_nativemodule_core.so",
     ]
   }
-
-  sourceSets {
-    main {
-      if (isNewArchitectureEnabled()) {
-        java.srcDirs += ['src/newarch']
-      } else {
-        java.srcDirs += ['src/oldarch']
-      }
-    }
-  }
 }
 
 repositories {
