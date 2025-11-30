@@ -9766,7 +9766,8 @@ static void lm_ggml_compute_forward_solve_tri_f32(const struct lm_ggml_compute_p
             }
 
             const float diag = A_batch[i00 * n + i00];
-            LM_GGML_ASSERT(diag != 0.0f && "Zero diagonal in triangular matrix");
+            assert(diag != 0.0f && "Zero diagonal in triangular matrix");
+
             X_batch[i00 * k + i01] = (B_batch[i00 * k + i01] - sum) / diag;
         }
     }
