@@ -22,11 +22,6 @@ import type {
   NativeLlamaChatMessage,
   NativeBackendDeviceInfo,
 } from './NativeRNLlama'
-import type {
-  SchemaGrammarConverterPropOrder,
-  SchemaGrammarConverterBuiltinRule,
-} from './grammar'
-import { SchemaGrammarConverter, convertJsonSchemaToGrammar } from './grammar'
 import { BUILD_NUMBER, BUILD_COMMIT } from './version'
 
 export type RNLlamaMessagePart = {
@@ -66,15 +61,9 @@ export type {
   JinjaFormattedChatResult,
   NativeImageProcessingResult,
   NativeBackendDeviceInfo,
-
-  // Deprecated
-  SchemaGrammarConverterPropOrder,
-  SchemaGrammarConverterBuiltinRule,
 }
 
 export const RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER = '<__media__>'
-
-export { SchemaGrammarConverter, convertJsonSchemaToGrammar }
 
 const EVENT_ON_INIT_CONTEXT_PROGRESS = '@RNLlama_onInitContextProgress'
 const EVENT_ON_TOKEN = '@RNLlama_onToken'

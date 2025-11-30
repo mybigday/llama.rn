@@ -62,7 +62,7 @@
 
 #### Defined in
 
-[index.ts:559](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L559)
+[index.ts:548](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L548)
 
 ## Properties
 
@@ -72,7 +72,7 @@
 
 #### Defined in
 
-[index.ts:274](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L274)
+[index.ts:263](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L263)
 
 ___
 
@@ -82,7 +82,7 @@ ___
 
 #### Defined in
 
-[index.ts:270](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L270)
+[index.ts:259](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L259)
 
 ___
 
@@ -92,7 +92,7 @@ ___
 
 #### Defined in
 
-[index.ts:266](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L266)
+[index.ts:255](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L255)
 
 ___
 
@@ -102,7 +102,7 @@ ___
 
 #### Defined in
 
-[index.ts:264](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L264)
+[index.ts:253](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L253)
 
 ___
 
@@ -142,7 +142,7 @@ ___
 
 #### Defined in
 
-[index.ts:272](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L272)
+[index.ts:261](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L261)
 
 ___
 
@@ -165,7 +165,7 @@ Parallel processing namespace for non-blocking queue operations
 
 #### Defined in
 
-[index.ts:281](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L281)
+[index.ts:270](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L270)
 
 ___
 
@@ -175,7 +175,7 @@ ___
 
 #### Defined in
 
-[index.ts:268](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L268)
+[index.ts:257](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L257)
 
 ___
 
@@ -185,7 +185,7 @@ ___
 
 #### Defined in
 
-[index.ts:276](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L276)
+[index.ts:265](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L265)
 
 ## Methods
 
@@ -205,7 +205,7 @@ ___
 
 #### Defined in
 
-[index.ts:902](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L902)
+[index.ts:891](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L891)
 
 ___
 
@@ -228,7 +228,7 @@ ___
 
 #### Defined in
 
-[index.ts:872](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L872)
+[index.ts:861](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L861)
 
 ___
 
@@ -257,7 +257,7 @@ Multimodal support must be enabled via initMultimodal() first.
 
 #### Defined in
 
-[index.ts:722](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L722)
+[index.ts:711](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L711)
 
 ___
 
@@ -281,7 +281,7 @@ Promise resolving to the decoded audio tokens
 
 #### Defined in
 
-[index.ts:1034](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L1034)
+[index.ts:1023](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L1023)
 
 ___
 
@@ -301,7 +301,7 @@ ___
 
 #### Defined in
 
-[index.ts:833](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L833)
+[index.ts:822](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L822)
 
 ___
 
@@ -322,7 +322,7 @@ ___
 
 #### Defined in
 
-[index.ts:837](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L837)
+[index.ts:826](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L826)
 
 ___
 
@@ -346,7 +346,7 @@ Promise resolving to the guide tokens
 
 #### Defined in
 
-[index.ts:1023](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L1023)
+[index.ts:1012](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L1012)
 
 ___
 
@@ -371,7 +371,7 @@ Promise resolving to the formatted audio completion result with prompt and gramm
 
 #### Defined in
 
-[index.ts:1004](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L1004)
+[index.ts:993](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L993)
 
 ___
 
@@ -402,7 +402,7 @@ ___
 
 #### Defined in
 
-[index.ts:605](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L605)
+[index.ts:594](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L594)
 
 ___
 
@@ -416,7 +416,7 @@ ___
 
 #### Defined in
 
-[index.ts:918](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L918)
+[index.ts:907](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L907)
 
 ___
 
@@ -434,7 +434,7 @@ Promise resolving to an object with vision and audio support
 
 #### Defined in
 
-[index.ts:957](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L957)
+[index.ts:946](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L946)
 
 ___
 
@@ -460,7 +460,7 @@ Promise resolving to true if initialization was successful
 
 #### Defined in
 
-[index.ts:931](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L931)
+[index.ts:920](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L920)
 
 ___
 
@@ -486,7 +486,7 @@ Promise resolving to true if initialization was successful
 
 #### Defined in
 
-[index.ts:979](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L979)
+[index.ts:968](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L968)
 
 ___
 
@@ -500,7 +500,7 @@ ___
 
 #### Defined in
 
-[index.ts:600](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L600)
+[index.ts:589](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L589)
 
 ___
 
@@ -514,7 +514,7 @@ ___
 
 #### Defined in
 
-[index.ts:596](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L596)
+[index.ts:585](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L585)
 
 ___
 
@@ -532,7 +532,7 @@ Promise resolving to true if multimodal is enabled
 
 #### Defined in
 
-[index.ts:949](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L949)
+[index.ts:938](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L938)
 
 ___
 
@@ -550,7 +550,7 @@ Promise resolving to true if TTS is enabled
 
 #### Defined in
 
-[index.ts:994](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L994)
+[index.ts:983](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L983)
 
 ___
 
@@ -572,7 +572,7 @@ Load cached prompt & completion state from a file.
 
 #### Defined in
 
-[index.ts:580](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L580)
+[index.ts:569](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L569)
 
 ___
 
@@ -586,7 +586,7 @@ ___
 
 #### Defined in
 
-[index.ts:1046](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L1046)
+[index.ts:1035](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L1035)
 
 ___
 
@@ -604,7 +604,7 @@ Promise resolving to void
 
 #### Defined in
 
-[index.ts:968](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L968)
+[index.ts:957](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L957)
 
 ___
 
@@ -622,7 +622,7 @@ Promise resolving to void
 
 #### Defined in
 
-[index.ts:1042](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L1042)
+[index.ts:1031](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L1031)
 
 ___
 
@@ -636,7 +636,7 @@ ___
 
 #### Defined in
 
-[index.ts:914](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L914)
+[index.ts:903](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L903)
 
 ___
 
@@ -662,7 +662,7 @@ Promise resolving to an array of ranking results with scores and indices
 
 #### Defined in
 
-[index.ts:851](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L851)
+[index.ts:840](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L840)
 
 ___
 
@@ -686,7 +686,7 @@ Save current cached prompt & completion state to a file.
 
 #### Defined in
 
-[index.ts:589](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L589)
+[index.ts:578](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L578)
 
 ___
 
@@ -700,7 +700,7 @@ ___
 
 #### Defined in
 
-[index.ts:812](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L812)
+[index.ts:801](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L801)
 
 ___
 
@@ -726,4 +726,4 @@ Promise resolving to the tokenize result
 
 #### Defined in
 
-[index.ts:822](https://github.com/mybigday/llama.rn/blob/621b533/src/index.ts#L822)
+[index.ts:811](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L811)
