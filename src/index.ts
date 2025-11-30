@@ -660,7 +660,7 @@ export class LlamaContext {
       return msg
     }) as NativeLlamaChatMessage[]
 
-    const useJinja = this.isJinjaSupported() && params?.jinja
+    const useJinja = this.isJinjaSupported() && (params?.jinja ?? true)
     let tmpl
     if (template) tmpl = template // Force replace if provided
     const jsonSchema = getJsonSchema(params?.response_format)

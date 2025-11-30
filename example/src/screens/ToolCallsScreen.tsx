@@ -591,7 +591,6 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           messages: conversationMessages,
           tools: allTools,
           tool_choice: 'auto',
-          jinja: true,
         },
         (data) => {
           const {

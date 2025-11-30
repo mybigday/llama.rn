@@ -40,7 +40,6 @@ import {
 } from '../utils/storage'
 import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
 
-
 interface ProbabilityDropdownProps {
   token: TokenData
   position: { x: number; y: number }
@@ -315,7 +314,6 @@ export default function TextCompletionScreen({
                 const formatted = await context.getFormattedChat(
                   defaultMessages,
                   null,
-                  { jinja: true },
                 )
                 setPrompt(formatted.prompt)
                 setFormattedPrompt(formatted.prompt)
@@ -389,9 +387,7 @@ export default function TextCompletionScreen({
         { role: 'user' as const, content: 'Hello! Please introduce yourself.' },
       ]
       try {
-        const formatted = await ctx.getFormattedChat(defaultMessages, null, {
-          jinja: true,
-        })
+        const formatted = await ctx.getFormattedChat(defaultMessages, null)
         setPrompt(formatted.prompt)
         setFormattedPrompt(formatted.prompt) // Store the formatted prompt
         // Tokenize the prompt to show individual tokens
@@ -649,7 +645,10 @@ export default function TextCompletionScreen({
                   {promptTokens.map((token, index) => (
                     <View
                       key={`prompt-${index}`}
-                      style={[styles.token, { backgroundColor: isDark ? '#3C3C3C' : '#e3f2fd' }]}
+                      style={[
+                        styles.token,
+                        { backgroundColor: isDark ? '#3C3C3C' : '#e3f2fd' },
+                      ]}
                     >
                       <Text style={styles.tokenText}>
                         {token?.includes('\n')

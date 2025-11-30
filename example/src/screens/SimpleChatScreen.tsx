@@ -333,7 +333,6 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           ...params,
           messages: conversationMessages,
           reasoning_format: 'auto',
-          jinja: true,
         },
         (data) => {
           const { content = '', reasoning_content: reasoningContent } = data
