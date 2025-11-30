@@ -46,7 +46,7 @@ jobs:
 
   publish:
     needs: build-android
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,5 +70,5 @@ jobs:
       - name: Publish package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_1Y }}
-          SKIP_ANDROID_BUILD: "1"
+          SKIP_ANDROID_BUILD: '1'
         run: npm publish
