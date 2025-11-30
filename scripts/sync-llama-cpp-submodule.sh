@@ -45,7 +45,9 @@ if [[ "$LATEST_TAG" == "$CURRENT_TAG" ]]; then
   fi
 
   # Still need to push the staging branch for the workflow to continue
-  git push origin "$STAGING_BRANCH"
+  if [[ -z "${IGNORE_PUSH:-}" ]]; then
+    git push origin "$STAGING_BRANCH"
+  fi
   exit 0
 fi
 
@@ -70,6 +72,9 @@ else
   git commit -m "chore(sync): update cpp/ directory after llama.cpp $LATEST_TAG bootstrap"
 fi
 
-git push origin "$STAGING_BRANCH"
-
-echo "🚀 Submodule updated, bootstrap completed, and committed to staging branch"
+if [[ -z "${IGNORE_PUSH:-}" ]]; then
+  git push origin "$STAGING_BRANCH"
+  echo "🚀 Submodule updated, bootstrap completed, and committed to staging branch"
+else
+  echo "Ignoring push due to IGNORE_PUSH flag"
+fi

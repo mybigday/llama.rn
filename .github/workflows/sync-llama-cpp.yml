@@ -28,6 +28,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           lfs: true
 
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -40,17 +45,15 @@ jobs:
       - name: Run complete sync
         run: ./scripts/sync-llama-cpp-submodule.sh
         env:
+          IGNORE_PUSH: '1'
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run bootstrap
-        run: npm run bootstrap
 
       - name: Build Android libraries
         run: npm run build:android-libs
 
   sync:
     needs: build-android
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - name: Checkout repository
@@ -80,14 +83,6 @@ jobs:
         run: |
           chmod +x scripts/sync-llama-cpp-submodule.sh scripts/finalize-sync.sh
           ./scripts/sync-llama-cpp-submodule.sh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run bootstrap
-        run: npm run bootstrap
-
-      - name: Run complete sync
-        run: ./scripts/sync-llama-cpp-submodule.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

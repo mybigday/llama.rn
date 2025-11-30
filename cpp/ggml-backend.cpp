@@ -1395,14 +1395,20 @@ static bool lm_ggml_backend_sched_alloc_splits(lm_ggml_backend_sched_t sched) {
 
     // allocate graph
     if (backend_ids_changed || !lm_ggml_gallocr_alloc_graph(sched->galloc, &sched->graph)) {
+#ifdef LM_GGML_SCHED_NO_REALLOC
+        LM_GGML_ABORT("%s: failed to allocate graph, but graph re-allocation is disabled by LM_GGML_SCHED_NO_REALLOC\n", __func__);
+#endif
+
+#ifndef NDEBUG
+        LM_GGML_LOG_DEBUG("%s: failed to allocate graph, reserving (backend_ids_changed = %d)\n", __func__, backend_ids_changed);
+#endif
+
         // the re-allocation may cause the split inputs to be moved to a different address
         // synchronize without lm_ggml_backend_sched_synchronize to avoid changing cur_copy
         for (int i = 0; i < sched->n_backends; i++) {
             lm_ggml_backend_synchronize(sched->backends[i]);
         }
-#ifndef NDEBUG
-        LM_GGML_LOG_DEBUG("%s: failed to allocate graph, reserving (backend_ids_changed = %d)\n", __func__, backend_ids_changed);
-#endif
+
         lm_ggml_gallocr_reserve_n(sched->galloc, &sched->graph, sched->node_backend_ids, sched->leaf_backend_ids);
         if (!lm_ggml_gallocr_alloc_graph(sched->galloc, &sched->graph)) {
             LM_GGML_LOG_ERROR("%s: failed to allocate graph\n", __func__);
