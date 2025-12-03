@@ -683,22 +683,14 @@ bool lm_ggml_is_numa(void) {
 }
 
 #if defined(__ARM_ARCH)
-
-#if defined(__linux__) && defined(__aarch64__)
-#include <sys/auxv.h>
-#endif
-
-static void lm_ggml_init_arm_arch_features(void) {
 #if defined(__aarch64__) && defined(__ARM_FEATURE_SVE)
-#if defined(__linux__)
-    lm_ggml_arm_arch_features.sve_cnt = PR_SVE_VL_LEN_MASK & prctl(PR_SVE_GET_VL);
-#else
-    // TODO: add support of SVE for non-linux systems
-#error "TODO: SVE is not supported on this platform. To use SVE, sve_cnt needs to be initialized here."
-#endif
-#endif
+#include <arm_sve.h>
+static void lm_ggml_init_arm_arch_features(void) {
+    lm_ggml_arm_arch_features.sve_cnt = svcntb();
 }
-
+#else
+static void lm_ggml_init_arm_arch_features(void) {}
+#endif
 #endif // __ARM_ARCH
 
 struct lm_ggml_tensor * lm_ggml_new_i32(struct lm_ggml_context * ctx, int32_t value) {

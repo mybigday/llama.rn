@@ -723,6 +723,12 @@ struct lm_ggml_backend_sched {
     bool op_offload;
 
     int debug;
+
+    // used for debugging graph reallocations [LM_GGML_SCHED_DEBUG_REALLOC]
+    // ref: https://github.com/ggml-org/llama.cpp/pull/17617
+    int debug_realloc;
+    int debug_graph_size;
+    int debug_prev_graph_size;
 };
 
 #define hash_id(tensor) lm_ggml_hash_find_or_insert(&sched->hash_set, tensor)
@@ -1234,10 +1240,8 @@ void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_
                                 tensor_copy = lm_ggml_dup_tensor_layout(sched->ctx, src);
                                 lm_ggml_format_name(tensor_copy, "%s#%s#%d", lm_ggml_backend_name(backend), src->name, c);
                             }
-                            if (sched->n_copies > 1) {
-                                lm_ggml_set_input(tensor_copy);
-                                lm_ggml_set_output(tensor_copy); // prevent ggml-alloc from overwriting the tensor
-                            }
+                            lm_ggml_set_input(tensor_copy);
+                            lm_ggml_set_output(tensor_copy); // prevent ggml-alloc from overwriting the tensor
                             tensor_id_copy(src_id, src_backend_id, c) = tensor_copy;
                             SET_CAUSE(tensor_copy, "4.cpy");
                         }
@@ -1289,6 +1293,11 @@ void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_
     }
 
     int graph_size = std::max(graph->n_nodes, graph->n_leafs) + sched->n_splits*LM_GGML_SCHED_MAX_SPLIT_INPUTS*2*sched->n_copies;
+
+    // remember the actual graph_size for performing reallocation checks later [LM_GGML_SCHED_DEBUG_REALLOC]
+    sched->debug_prev_graph_size = sched->debug_graph_size;
+    sched->debug_graph_size = graph_size;
+
     if (sched->graph.size < graph_size) {
         sched->graph.size = graph_size;
         sched->graph.nodes = (lm_ggml_tensor **) realloc(sched->graph.nodes, graph_size * sizeof(struct lm_ggml_tensor *));
@@ -1395,13 +1404,20 @@ static bool lm_ggml_backend_sched_alloc_splits(lm_ggml_backend_sched_t sched) {
 
     // allocate graph
     if (backend_ids_changed || !lm_ggml_gallocr_alloc_graph(sched->galloc, &sched->graph)) {
-#ifdef LM_GGML_SCHED_NO_REALLOC
-        LM_GGML_ABORT("%s: failed to allocate graph, but graph re-allocation is disabled by LM_GGML_SCHED_NO_REALLOC\n", __func__);
-#endif
-
 #ifndef NDEBUG
         LM_GGML_LOG_DEBUG("%s: failed to allocate graph, reserving (backend_ids_changed = %d)\n", __func__, backend_ids_changed);
 #endif
+
+        if (sched->debug_realloc > 0) {
+            // we are interested only in situations where the graph was reallocated even though its size remained the same [LM_GGML_SCHED_DEBUG_REALLOC]
+            // example: https://github.com/ggml-org/llama.cpp/pull/17143
+            const bool unexpected = !backend_ids_changed && sched->debug_prev_graph_size == sched->debug_graph_size;
+
+            if (unexpected || sched->debug_realloc > 1) {
+                LM_GGML_ABORT("%s: unexpected graph reallocation (graph size = %d, nodes = %d, leafs = %d), debug_realloc = %d\n", __func__,
+                        sched->debug_graph_size, sched->graph.n_nodes, sched->graph.n_leafs, sched->debug_realloc);
+            }
+        }
 
         // the re-allocation may cause the split inputs to be moved to a different address
         // synchronize without lm_ggml_backend_sched_synchronize to avoid changing cur_copy
@@ -1620,6 +1636,14 @@ lm_ggml_backend_sched_t lm_ggml_backend_sched_new(
 
     const char * LM_GGML_SCHED_DEBUG = getenv("LM_GGML_SCHED_DEBUG");
     sched->debug = LM_GGML_SCHED_DEBUG ? atoi(LM_GGML_SCHED_DEBUG) : 0;
+
+    sched->debug_realloc = 0;
+#ifdef LM_GGML_SCHED_NO_REALLOC
+    sched->debug_realloc = 1;
+#endif
+    const char * LM_GGML_SCHED_DEBUG_REALLOC = getenv("LM_GGML_SCHED_DEBUG_REALLOC");
+    sched->debug_realloc = LM_GGML_SCHED_DEBUG_REALLOC ? atoi(LM_GGML_SCHED_DEBUG_REALLOC) : sched->debug_realloc;
+
     sched->n_backends = n_backends;
     sched->n_copies = parallel ? LM_GGML_SCHED_MAX_COPIES : 1;
 
@@ -1635,6 +1659,9 @@ lm_ggml_backend_sched_t lm_ggml_backend_sched_new(
     sched->leaf_backend_ids = (int *) calloc(nodes_size, sizeof(sched->leaf_backend_ids[0]));
     sched->prev_node_backend_ids = (int *) calloc(nodes_size, sizeof(sched->prev_node_backend_ids[0]));
     sched->prev_leaf_backend_ids = (int *) calloc(nodes_size, sizeof(sched->prev_leaf_backend_ids[0]));
+
+    sched->debug_graph_size = 0;
+    sched->debug_prev_graph_size = 0;
 
     sched->context_buffer_size = lm_ggml_sched_max_splits*LM_GGML_SCHED_MAX_SPLIT_INPUTS*2*sizeof(struct lm_ggml_tensor) + lm_ggml_graph_overhead_custom(graph_size, false);
     sched->context_buffer = (char *) malloc(sched->context_buffer_size);

@@ -2148,7 +2148,8 @@ extern "C" {
     };
 
     enum lm_ggml_scale_flag {
-        LM_GGML_SCALE_FLAG_ALIGN_CORNERS = (1 << 8)
+        LM_GGML_SCALE_FLAG_ALIGN_CORNERS = (1 << 8),
+        LM_GGML_SCALE_FLAG_ANTIALIAS     = (1 << 9),
     };
 
     // interpolate

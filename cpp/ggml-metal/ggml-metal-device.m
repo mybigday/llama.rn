@@ -894,7 +894,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
         case LM_GGML_OP_POOL_1D:
             return false;
         case LM_GGML_OP_UPSCALE:
-            return op->src[0]->type == LM_GGML_TYPE_F32 && op->op_params[0] == LM_GGML_SCALE_MODE_NEAREST;
+            return op->src[0]->type == LM_GGML_TYPE_F32 && op->op_params[0] == LM_GGML_SCALE_MODE_NEAREST && !(op->op_params[0] & LM_GGML_SCALE_FLAG_ANTIALIAS);
         case LM_GGML_OP_POOL_2D:
             return op->src[0]->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_PAD:
@@ -912,6 +912,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
             // for new head sizes, add checks here
             if (op->src[0]->ne[0] != 32 &&
                 op->src[0]->ne[0] != 40 &&
+                op->src[0]->ne[0] != 48 &&
                 op->src[0]->ne[0] != 64 &&
                 op->src[0]->ne[0] != 72 &&
                 op->src[0]->ne[0] != 80 &&
