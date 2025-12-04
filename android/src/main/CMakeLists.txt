@@ -15,6 +15,7 @@ set(RNLLAMA_LIB_DIR ${CMAKE_SOURCE_DIR}/../../../cpp)
 # Include directories for rnllama headers (needed by JNI wrapper)
 include_directories(
     ${RNLLAMA_LIB_DIR}
+    ${RNLLAMA_LIB_DIR}/common
 )
 
 find_library(LOG_LIB log)

@@ -4899,6 +4899,8 @@ static struct lm_ggml_tensor * lm_ggml_interpolate_impl(
         int64_t               ne3,
         uint32_t              mode) {
     LM_GGML_ASSERT((mode & 0xFF) < LM_GGML_SCALE_MODE_COUNT);
+    // TODO: implement antialias for modes other than bilinear
+    LM_GGML_ASSERT(!(mode & LM_GGML_SCALE_FLAG_ANTIALIAS) || (mode & 0xFF) == LM_GGML_SCALE_MODE_BILINEAR);
 
     struct lm_ggml_tensor * result = lm_ggml_new_tensor_4d(ctx, a->type, ne0, ne1, ne2, ne3);
 

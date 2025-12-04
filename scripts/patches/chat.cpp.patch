@@ -1,5 +1,5 @@
---- chat.cpp.orig	2025-10-29 15:18:34
-+++ chat.cpp	2025-10-29 15:20:44
+--- common/chat.cpp.orig	2025-10-29 15:18:34
++++ common/chat.cpp	2025-10-29 15:20:44
 @@ -6,9 +6,6 @@
  #include "log.h"
  #include "regex-partial.h"

@@ -1,0 +1,13 @@
+--- common/chat-peg-parser.cpp.orig	2025-12-04 14:56:41
++++ common/chat-peg-parser.cpp	2025-12-04 14:49:30
+@@ -1,9 +1,7 @@
+ #include "chat-peg-parser.h"
+
+-#include "nlohmann/json.hpp"
++// json type alias is already defined via chat-peg-parser.h -> chat.h -> minja/chat-template.hpp
+
+-using json = nlohmann::json;
+-
+ static std::string_view trim_trailing_space(std::string_view sv) {
+     while (!sv.empty() && std::isspace(static_cast<unsigned char>(sv.back()))) {
+         sv.remove_suffix(1);

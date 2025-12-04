@@ -31,9 +31,10 @@ Pod::Spec.new do |s|
     s.resources = "cpp/ggml-metal/ggml-metal.metal"
     base_compiler_flags += " -DRNLLAMA_BUILD_FROM_SOURCE"
     header_search_paths << '"$(PODS_TARGET_SRCROOT)/cpp"'
+    header_search_paths << '"${PODS_TARGET_SRCROOT}/cpp/common"'
   else
     # JSI bindings always compiled from source (must match RN version)
-    s.source_files = "ios/**/*.{h,m,mm}", "cpp/jsi/**/*.{h,cpp}"
+    s.source_files = "ios/*.{h,m,mm}", "cpp/jsi/**/*.{h,cpp}"
     s.vendored_frameworks = "ios/rnllama.xcframework"
     base_compiler_flags += " -DRNLLAMA_USE_FRAMEWORK_HEADERS"
   end
@@ -42,12 +43,13 @@ Pod::Spec.new do |s|
   s.preserve_paths = "cpp/nlohmann/**/*.{h,hpp}"
 
   s.compiler_flags = base_compiler_flags
-  s.pod_target_xcconfig = {
+  pod_target_xcconfig = {
     "OTHER_LDFLAGS" => base_ld_flags,
     "OTHER_CFLAGS" => base_optimizer_flags,
     "OTHER_CPLUSPLUSFLAGS" => base_optimizer_flags + " -std=c++20",
     "HEADER_SEARCH_PATHS" => header_search_paths.join(" ")
   }
+  s.pod_target_xcconfig = pod_target_xcconfig
 
   s.dependency "React-callinvoker"
   s.dependency "React"

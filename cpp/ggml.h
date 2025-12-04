@@ -2148,7 +2148,8 @@ extern "C" {
     };
 
     enum lm_ggml_scale_flag {
-        LM_GGML_SCALE_FLAG_ALIGN_CORNERS = (1 << 8)
+        LM_GGML_SCALE_FLAG_ALIGN_CORNERS = (1 << 8),
+        LM_GGML_SCALE_FLAG_ANTIALIAS     = (1 << 9),
     };
 
     // interpolate
@@ -2278,7 +2279,7 @@ extern "C" {
             float                 stop,
             float                 step);
 
-#define LM_GGML_KQ_MASK_PAD 64
+#define LM_GGML_KQ_MASK_PAD 1
 
     // q:    [n_embd_k, n_batch,     n_head,    ne3 ]
     // k:    [n_embd_k, n_kv,        n_head_kv, ne3 ]

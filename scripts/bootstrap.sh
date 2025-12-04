@@ -253,24 +253,31 @@ cp ./$LLAMA_DIR/src/llama-io.cpp ./cpp/llama-io.cpp
 cp ./$LLAMA_DIR/src/llama-memory.h ./cpp/llama-memory.h
 cp ./$LLAMA_DIR/src/llama-memory.cpp ./cpp/llama-memory.cpp
 
-cp ./$LLAMA_DIR/common/log.h ./cpp/log.h
-cp ./$LLAMA_DIR/common/log.cpp ./cpp/log.cpp
-cp ./$LLAMA_DIR/common/common.h ./cpp/common.h
-cp ./$LLAMA_DIR/common/common.cpp ./cpp/common.cpp
-cp ./$LLAMA_DIR/common/sampling.h ./cpp/sampling.h
-cp ./$LLAMA_DIR/common/sampling.cpp ./cpp/sampling.cpp
-cp ./$LLAMA_DIR/common/json-schema-to-grammar.h ./cpp/json-schema-to-grammar.h
-cp ./$LLAMA_DIR/common/json-schema-to-grammar.cpp ./cpp/json-schema-to-grammar.cpp
-cp ./$LLAMA_DIR/common/json-partial.h ./cpp/json-partial.h
-cp ./$LLAMA_DIR/common/json-partial.cpp ./cpp/json-partial.cpp
-cp ./$LLAMA_DIR/common/regex-partial.h ./cpp/regex-partial.h
-cp ./$LLAMA_DIR/common/regex-partial.cpp ./cpp/regex-partial.cpp
-cp ./$LLAMA_DIR/common/chat.h ./cpp/chat.h
-cp ./$LLAMA_DIR/common/chat.cpp ./cpp/chat.cpp
-cp ./$LLAMA_DIR/common/chat-parser.h ./cpp/chat-parser.h
-cp ./$LLAMA_DIR/common/chat-parser.cpp ./cpp/chat-parser.cpp
-cp ./$LLAMA_DIR/common/chat-parser-xml-toolcall.h ./cpp/chat-parser-xml-toolcall.h
-cp ./$LLAMA_DIR/common/chat-parser-xml-toolcall.cpp ./cpp/chat-parser-xml-toolcall.cpp
+mkdir -p ./cpp/common
+cp ./$LLAMA_DIR/common/log.h ./cpp/common/log.h
+cp ./$LLAMA_DIR/common/log.cpp ./cpp/common/log.cpp
+cp ./$LLAMA_DIR/common/common.h ./cpp/common/common.h
+cp ./$LLAMA_DIR/common/common.cpp ./cpp/common/common.cpp
+cp ./$LLAMA_DIR/common/sampling.h ./cpp/common/sampling.h
+cp ./$LLAMA_DIR/common/sampling.cpp ./cpp/common/sampling.cpp
+cp ./$LLAMA_DIR/common/json-schema-to-grammar.h ./cpp/common/json-schema-to-grammar.h
+cp ./$LLAMA_DIR/common/json-schema-to-grammar.cpp ./cpp/common/json-schema-to-grammar.cpp
+cp ./$LLAMA_DIR/common/json-partial.h ./cpp/common/json-partial.h
+cp ./$LLAMA_DIR/common/json-partial.cpp ./cpp/common/json-partial.cpp
+cp ./$LLAMA_DIR/common/regex-partial.h ./cpp/common/regex-partial.h
+cp ./$LLAMA_DIR/common/regex-partial.cpp ./cpp/common/regex-partial.cpp
+cp ./$LLAMA_DIR/common/chat.h ./cpp/common/chat.h
+cp ./$LLAMA_DIR/common/chat.cpp ./cpp/common/chat.cpp
+cp ./$LLAMA_DIR/common/chat-parser.h ./cpp/common/chat-parser.h
+cp ./$LLAMA_DIR/common/chat-parser.cpp ./cpp/common/chat-parser.cpp
+cp ./$LLAMA_DIR/common/chat-parser-xml-toolcall.h ./cpp/common/chat-parser-xml-toolcall.h
+cp ./$LLAMA_DIR/common/chat-parser-xml-toolcall.cpp ./cpp/common/chat-parser-xml-toolcall.cpp
+cp ./$LLAMA_DIR/common/chat-peg-parser.h ./cpp/common/chat-peg-parser.h
+cp ./$LLAMA_DIR/common/chat-peg-parser.cpp ./cpp/common/chat-peg-parser.cpp
+cp ./$LLAMA_DIR/common/peg-parser.h ./cpp/common/peg-parser.h
+cp ./$LLAMA_DIR/common/peg-parser.cpp ./cpp/common/peg-parser.cpp
+cp ./$LLAMA_DIR/common/unicode.h ./cpp/common/unicode.h
+cp ./$LLAMA_DIR/common/unicode.cpp ./cpp/common/unicode.cpp
 
 # Copy multimodal files from tools/mtmd
 rm -rf ./cpp/tools/mtmd
@@ -334,6 +341,9 @@ files_add_lm_prefix=(
   ./cpp/*.h
   ./cpp/*.cpp
   ./cpp/*.c
+
+  ./cpp/common/*.h
+  ./cpp/common/*.cpp
 )
 
 # Loop through each file and run the sed commands
@@ -397,17 +407,11 @@ echo "Replacement completed successfully!"
 cd example && npm install && cd ..
 
 # Apply patch
-patch -p0 -d ./cpp < ./scripts/patches/common.h.patch
-patch -p0 -d ./cpp < ./scripts/patches/common.cpp.patch
-patch -p0 -d ./cpp < ./scripts/patches/chat.h.patch
-patch -p0 -d ./cpp < ./scripts/patches/chat.cpp.patch
-patch -p0 -d ./cpp < ./scripts/patches/log.cpp.patch
-patch -p0 -d ./cpp < ./scripts/patches/ggml.c.patch
-patch -p0 -d ./cpp < ./scripts/patches/ggml-quants.c.patch
-patch -p0 -d ./cpp < ./scripts/patches/llama-mmap.cpp.patch
-patch -p0 -d ./cpp/minja < ./scripts/patches/minja.hpp.patch
-patch -p0 -d ./cpp/minja < ./scripts/patches/chat-template.hpp.patch
-patch -p0 -d ./cpp/ggml-hexagon < ./scripts/patches/ggml-hexagon.cpp.patch
+# List ./scripts/patches/ and patch it
+for patch_file in ./scripts/patches/*.patch; do
+  patch -p0 -d ./cpp < "$patch_file"
+done
+
 rm -rf ./cpp/*.orig
 rm -rf ./cpp/**/*.orig
 

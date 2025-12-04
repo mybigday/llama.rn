@@ -1,5 +1,5 @@
---- log.cpp.orig	2025-02-14 15:08:37
-+++ log.cpp	2025-02-14 15:10:49
+--- common/log.cpp.orig	2025-02-14 15:08:37
++++ common/log.cpp	2025-02-14 15:10:49
 @@ -9,6 +9,10 @@
  #include <thread>
  #include <vector>
@@ -56,4 +56,3 @@
 +        #endif
      }
  };
-

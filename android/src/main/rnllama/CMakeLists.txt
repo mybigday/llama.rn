@@ -12,6 +12,7 @@ set(RNLLAMA_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../cpp)
 
 include_directories(
     ${RNLLAMA_LIB_DIR}
+    ${RNLLAMA_LIB_DIR}/common
     ${RNLLAMA_LIB_DIR}/ggml-cpu
     ${RNLLAMA_LIB_DIR}/tools/mtmd
 )
@@ -23,6 +24,7 @@ file(GLOB GGML_CPU_CPP_FILES ${RNLLAMA_LIB_DIR}/ggml-cpu/*.cpp)
 file(GLOB GGML_CPU_AMX_FILES ${RNLLAMA_LIB_DIR}/ggml-cpu/amx/*.cpp)
 file(GLOB LLAMA_FILES ${RNLLAMA_LIB_DIR}/llama*.cpp)
 file(GLOB MTMD_FILES ${RNLLAMA_LIB_DIR}/tools/mtmd/*.cpp)
+file(GLOB COMMON_FILES ${RNLLAMA_LIB_DIR}/common/*.cpp)
 
 # Source files for rnllama library (excluding jni.cpp and jni-utils)
 set(
@@ -36,7 +38,6 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml-threading.cpp
     ${RNLLAMA_LIB_DIR}/ggml-quants.c
     ${RNLLAMA_LIB_DIR}/gguf.cpp
-    ${RNLLAMA_LIB_DIR}/log.cpp
 
     # GGML CPU files (globbed)
     ${GGML_CPU_C_FILES}
@@ -45,18 +46,12 @@ set(
 
     # Llama files (globbed)
     ${LLAMA_FILES}
-
-    # Common utilities
-    ${RNLLAMA_LIB_DIR}/sampling.cpp
     ${RNLLAMA_LIB_DIR}/unicode-data.cpp
     ${RNLLAMA_LIB_DIR}/unicode.cpp
-    ${RNLLAMA_LIB_DIR}/common.cpp
-    ${RNLLAMA_LIB_DIR}/chat.cpp
-    ${RNLLAMA_LIB_DIR}/json-schema-to-grammar.cpp
-    ${RNLLAMA_LIB_DIR}/chat-parser.cpp
-    ${RNLLAMA_LIB_DIR}/chat-parser-xml-toolcall.cpp
-    ${RNLLAMA_LIB_DIR}/json-partial.cpp
-    ${RNLLAMA_LIB_DIR}/regex-partial.cpp
+
+    # Common utilities
+    ${COMMON_FILES}
+
     ${RNLLAMA_LIB_DIR}/anyascii.c
 
     # Header-only libraries (needed for build)
