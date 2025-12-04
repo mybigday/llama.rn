@@ -29,18 +29,22 @@ Pod::Spec.new do |s|
     s.resources = "cpp/ggml-metal/ggml-metal.metal"
     base_compiler_flags += " -DRNLLAMA_BUILD_FROM_SOURCE"
   else
-    s.source_files = "ios/**/*.{h,m,mm}"
+    s.source_files = "ios/*.{h,m,mm}"
     s.vendored_frameworks = "ios/rnllama.xcframework"
   end
 
   s.dependency "React-Core"
 
   s.compiler_flags = base_compiler_flags
-  s.pod_target_xcconfig = {
+  pod_target_xcconfig = {
     "OTHER_LDFLAGS" => base_ld_flags,
     "OTHER_CFLAGS" => base_optimizer_flags,
     "OTHER_CPLUSPLUSFLAGS" => base_optimizer_flags + " -std=c++20"
   }
+  if ENV["RNLLAMA_BUILD_FROM_SOURCE"] == "1"
+    pod_target_xcconfig["HEADER_SEARCH_PATHS"] = "\"${PODS_TARGET_SRCROOT}/cpp\" \"${PODS_TARGET_SRCROOT}/cpp/common\""
+  end
+  s.pod_target_xcconfig = pod_target_xcconfig
 
   # Don't install the dependencies when we run `pod install` in the old architecture.
   if ENV['RCT_NEW_ARCH_ENABLED'] == '1' then

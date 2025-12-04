@@ -95,6 +95,8 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/minja/chat-template.hpp
     ${SOURCE_DIR}/nlohmann/json.hpp
     ${SOURCE_DIR}/nlohmann/json_fwd.hpp
+    ${SOURCE_DIR}/common/chat.h
+    ${SOURCE_DIR}/common/common.h
 
     # Multimodal support (globbed)
     ${MTMD_FILES}
