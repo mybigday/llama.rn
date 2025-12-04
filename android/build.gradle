@@ -92,6 +92,33 @@ def reactNativeArchitectures() {
   return archs.findAll { it != "armeabi-v7a" && it != "x86" } // Not building for 32-bit architectures
 }
 
+// Detect RN Version, ref from:
+// https://github.com/software-mansion/react-native-reanimated/blob/66a6bd0e3a819ca7ae46751d36e405fe32b68b71/packages/react-native-reanimated/android/build.gradle#L73
+def resolveReactNativeDirectory() {
+  def reactNativeLocation = rootProject.ext.has("REACT_NATIVE_NODE_MODULES_DIR") ? rootProject.ext.get("REACT_NATIVE_NODE_MODULES_DIR") : null
+  if (reactNativeLocation != null) {
+    return file(reactNativeLocation)
+  }
+
+  // Fallback to node resolver for custom directory structures like monorepos.
+  def reactNativePackage = file(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim())
+  if(reactNativePackage.exists()) {
+    return reactNativePackage.parentFile
+  }
+
+  throw new GradleException(
+          "[RNllama] Unable to resolve react-native location in node_modules. You should project extension property (in `app/build.gradle`) `REACT_NATIVE_NODE_MODULES_DIR` with path to react-native."
+  )
+}
+
+def reactNativeRootDir = resolveReactNativeDirectory()
+
+def reactProperties = new Properties()
+file("$reactNativeRootDir/ReactAndroid/gradle.properties").withInputStream { reactProperties.load(it) }
+
+def REACT_NATIVE_VERSION = reactProperties.getProperty("VERSION_NAME")
+def REACT_NATIVE_MINOR_VERSION = REACT_NATIVE_VERSION.startsWith("0.0.0-") ? 1000 : REACT_NATIVE_VERSION.split("\\.")[1].toInteger()
+
 android {
   ndkVersion getExtOrDefault("ndkVersion")
   def ndkVersionMajor = ndkVersion.split("\\.")[0].toInteger()
@@ -111,10 +138,20 @@ android {
     externalNativeBuild {
       cmake {
         abiFilters (*reactNativeArchitectures())
-        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}", "-DHEXAGON_SDK_ROOT=${hexagonSdkRoot}", "-DHEXAGON_TOOLS_ROOT=${hexagonToolsRoot}"
+        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+                  "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}",
+                  "-DHEXAGON_SDK_ROOT=${hexagonSdkRoot}",
+                  "-DHEXAGON_TOOLS_ROOT=${hexagonToolsRoot}",
+                  "-DANDROID_STL=c++_shared",
+                  "-DREACT_NATIVE_MINOR_VERSION=${REACT_NATIVE_MINOR_VERSION}"
       }
     }
   }
+
+  buildFeatures {
+    prefab true
+  }
+
   externalNativeBuild {
     cmake {
       path = file('src/main/CMakeLists.txt')
@@ -143,20 +180,26 @@ android {
     targetCompatibility JavaVersion.VERSION_1_8
   }
 
+
   packagingOptions {
     jniLibs {
       excludes += ["**/libcdsprpc.so"]
     }
-  }
-
-  sourceSets {
-    main {
-      if (isNewArchitectureEnabled()) {
-        java.srcDirs += ['src/newarch']
-      } else {
-        java.srcDirs += ['src/oldarch']
-      }
-    }
+    doNotStrip resolveBuildType() == "debug" ? "**/**/*.so" : ""
+    excludes = [
+      "META-INF",
+      "META-INF/**",
+      "**/libc++_shared.so",
+      "**/libfbjni.so",
+      "**/libjsi.so",
+      "**/libfolly_json.so",
+      "**/libfolly_runtime.so",
+      "**/libglog.so",
+      "**/libreactnative.so",
+      "**/libreactnativejni.so",
+      "**/libturbomodulejsijni.so",
+      "**/libreact_nativemodule_core.so",
+    ]
   }
 }
 
@@ -179,4 +222,11 @@ if (isNewArchitectureEnabled()) {
     libraryName = "RNLlama"
     codegenJavaPackageName = "com.rnllama"
   }
+}
+
+def resolveBuildType() {
+    Gradle gradle = getGradle()
+    String tskReqStr = gradle.getStartParameter().getTaskRequests()["args"].toString()
+
+    return tskReqStr.contains("Release") ? "release" : "debug"
 }
