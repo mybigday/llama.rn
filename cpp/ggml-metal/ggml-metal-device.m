@@ -146,6 +146,8 @@ struct lm_ggml_metal_library {
     id<MTLDevice> device;
 
     lm_ggml_metal_pipelines_t pipelines; // cache of compiled pipelines
+
+    NSLock * lock;
 };
 
 lm_ggml_metal_library_t lm_ggml_metal_library_init(lm_ggml_metal_device_t dev) {
@@ -296,9 +298,10 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init(lm_ggml_metal_device_t dev) {
 
     lm_ggml_metal_library_t res = calloc(1, sizeof(struct lm_ggml_metal_library));
 
-    res->obj = library;
-    res->device = device;
+    res->obj       = library;
+    res->device    = device;
     res->pipelines = lm_ggml_metal_pipelines_init();
+    res->lock      = [NSLock new];
 
     return res;
 }
@@ -365,6 +368,7 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init_from_source(lm_ggml_metal_dev
     res->obj       = library;
     res->device    = device;
     res->pipelines = lm_ggml_metal_pipelines_init();
+    res->lock      = [NSLock new];
 
     return res;
 }
@@ -380,20 +384,27 @@ void lm_ggml_metal_library_free(lm_ggml_metal_library_t lib) {
 
     lm_ggml_metal_pipelines_free(lib->pipelines);
 
+    [lib->lock release];
+
     free(lib);
 }
 
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline(lm_ggml_metal_library_t lib, const char * name) {
-    return lm_ggml_metal_pipelines_get(lib->pipelines, name);
+    [lib->lock lock];
+
+    lm_ggml_metal_pipeline_t res = lm_ggml_metal_pipelines_get(lib->pipelines, name);
+
+    [lib->lock unlock];
+
+    return res;
 }
 
 lm_ggml_metal_pipeline_t lm_ggml_metal_library_compile_pipeline(lm_ggml_metal_library_t lib, const char * base, const char * name, lm_ggml_metal_cv_t cv) {
-    // note: the pipelines are cached in the library per device, so they are shared across all metal contexts
-    lm_ggml_critical_section_start();
+    [lib->lock lock];
 
-    lm_ggml_metal_pipeline_t res = lm_ggml_metal_library_get_pipeline(lib, name);
+    lm_ggml_metal_pipeline_t res = lm_ggml_metal_pipelines_get(lib->pipelines, name);
     if (res) {
-        lm_ggml_critical_section_end();
+        [lib->lock unlock];
 
         return res;
     }
@@ -414,7 +425,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_compile_pipeline(lm_ggml_metal_li
             mtl_function = [lib->obj newFunctionWithName:base_func constantValues:cv->obj error:&error];
         }
         if (!mtl_function) {
-            lm_ggml_critical_section_end();
+            [lib->lock unlock];
 
             LM_GGML_LOG_ERROR("%s: failed to compile pipeline: base = '%s', name = '%s'\n", __func__, base, name);
             if (error) {
@@ -433,7 +444,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_compile_pipeline(lm_ggml_metal_li
                 (int) res->obj.threadExecutionWidth);
 
         if (res->obj.maxTotalThreadsPerThreadgroup == 0 || res->obj.threadExecutionWidth == 0) {
-            lm_ggml_critical_section_end();
+            [lib->lock unlock];
 
             LM_GGML_LOG_ERROR("%s: incompatible pipeline %s\n", __func__, name);
 
@@ -443,7 +454,7 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_compile_pipeline(lm_ggml_metal_li
         lm_ggml_metal_pipelines_add(lib->pipelines, name, res);
     }
 
-    lm_ggml_critical_section_end();
+    [lib->lock unlock];
 
     return res;
 }

@@ -271,6 +271,10 @@ cp ./$LLAMA_DIR/common/chat-parser.h ./cpp/chat-parser.h
 cp ./$LLAMA_DIR/common/chat-parser.cpp ./cpp/chat-parser.cpp
 cp ./$LLAMA_DIR/common/chat-parser-xml-toolcall.h ./cpp/chat-parser-xml-toolcall.h
 cp ./$LLAMA_DIR/common/chat-parser-xml-toolcall.cpp ./cpp/chat-parser-xml-toolcall.cpp
+cp ./$LLAMA_DIR/common/chat-peg-parser.h ./cpp/chat-peg-parser.h
+cp ./$LLAMA_DIR/common/chat-peg-parser.cpp ./cpp/chat-peg-parser.cpp
+cp ./$LLAMA_DIR/common/peg-parser.h ./cpp/peg-parser.h
+cp ./$LLAMA_DIR/common/peg-parser.cpp ./cpp/peg-parser.cpp
 
 # Copy multimodal files from tools/mtmd
 rm -rf ./cpp/tools/mtmd
