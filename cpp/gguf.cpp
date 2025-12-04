@@ -1169,7 +1169,7 @@ void lm_gguf_set_tensor_data(struct lm_gguf_context * ctx, const char * name, co
 struct lm_gguf_writer_base {
     size_t written_bytes {0u};
 
-    ~lm_gguf_writer_base(void) {}
+    ~lm_gguf_writer_base(void) = default;
 
     // we bet on devirtualization
     virtual void write(int8_t val) = 0;

@@ -35,6 +35,7 @@ file(GLOB GGML_CPU_CPP_FILES ${SOURCE_DIR}/ggml-cpu/*.cpp)
 file(GLOB GGML_CPU_AMX_FILES ${SOURCE_DIR}/ggml-cpu/amx/*.cpp)
 file(GLOB LLAMA_FILES ${SOURCE_DIR}/llama*.cpp)
 file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
+file(GLOB COMMON_FILES ${SOURCE_DIR}/common/*.cpp)
 
 # Platform-specific source files
 set(SOURCE_FILES_ARCH "")
@@ -56,7 +57,6 @@ set(RNLLAMA_COMMON_SOURCES
     ${SOURCE_DIR}/ggml-threading.cpp
     ${SOURCE_DIR}/ggml-quants.c
     ${SOURCE_DIR}/gguf.cpp
-    ${SOURCE_DIR}/log.cpp
 
     # GGML CPU files (globbed)
     ${GGML_CPU_C_FILES}
@@ -68,18 +68,12 @@ set(RNLLAMA_COMMON_SOURCES
 
     # Llama files (globbed)
     ${LLAMA_FILES}
-
-    # Common utilities
-    ${SOURCE_DIR}/sampling.cpp
     ${SOURCE_DIR}/unicode-data.cpp
     ${SOURCE_DIR}/unicode.cpp
-    ${SOURCE_DIR}/common.cpp
-    ${SOURCE_DIR}/chat.cpp
-    ${SOURCE_DIR}/json-schema-to-grammar.cpp
-    ${SOURCE_DIR}/chat-parser.cpp
-    ${SOURCE_DIR}/chat-parser-xml-toolcall.cpp
-    ${SOURCE_DIR}/json-partial.cpp
-    ${SOURCE_DIR}/regex-partial.cpp
+
+    # Common utilities
+    ${COMMON_FILES}
+
     ${SOURCE_DIR}/anyascii.c
 
     # Header-only libraries (needed for build)
@@ -115,6 +109,7 @@ add_executable(rnllama_tests
 target_include_directories(rnllama_tests
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/minja
@@ -148,6 +143,7 @@ add_executable(parallel_decoding_test
 target_include_directories(parallel_decoding_test
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/minja

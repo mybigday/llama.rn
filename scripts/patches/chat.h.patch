@@ -1,5 +1,5 @@
---- chat.h.orig	2025-08-06 06:21:00
-+++ chat.h	2025-08-06 06:21:56
+--- common/chat.h.orig	2025-08-06 06:21:00
++++ common/chat.h	2025-08-06 06:21:56
 @@ -9,8 +9,19 @@
  #include <vector>
  #include <map>
