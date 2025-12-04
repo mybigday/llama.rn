@@ -35,6 +35,7 @@ file(GLOB GGML_METAL_M_FILES ${SOURCE_DIR}/ggml-metal/*.m)
 file(GLOB GGML_BLAS_FILES ${SOURCE_DIR}/ggml-blas/*.cpp)
 file(GLOB LLAMA_FILES ${SOURCE_DIR}/llama*.cpp)
 file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
+file(GLOB COMMON_FILES ${SOURCE_DIR}/common/*.cpp)
 
 if (CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
     set(SOURCE_FILES_ARCH
@@ -66,7 +67,6 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/ggml-threading.cpp
     ${SOURCE_DIR}/ggml-quants.c
     ${SOURCE_DIR}/gguf.cpp
-    ${SOURCE_DIR}/log.cpp
 
     # GGML CPU files (globbed)
     ${GGML_CPU_C_FILES}
@@ -82,18 +82,12 @@ add_library(rnllama SHARED
 
     # Llama files (globbed)
     ${LLAMA_FILES}
-
-    # Common utilities
-    ${SOURCE_DIR}/sampling.cpp
     ${SOURCE_DIR}/unicode-data.cpp
     ${SOURCE_DIR}/unicode.cpp
-    ${SOURCE_DIR}/common.cpp
-    ${SOURCE_DIR}/chat.cpp
-    ${SOURCE_DIR}/json-schema-to-grammar.cpp
-    ${SOURCE_DIR}/chat-parser.cpp
-    ${SOURCE_DIR}/chat-parser-xml-toolcall.cpp
-    ${SOURCE_DIR}/json-partial.cpp
-    ${SOURCE_DIR}/regex-partial.cpp
+
+    # Common utilities
+    ${COMMON_FILES}
+
     ${SOURCE_DIR}/anyascii.c
 
     # Header-only libraries (needed for build)
@@ -123,6 +117,7 @@ add_library(rnllama SHARED
 target_include_directories(rnllama
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/minja>

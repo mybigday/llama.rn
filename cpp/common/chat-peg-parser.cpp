@@ -1,8 +1,6 @@
 #include "chat-peg-parser.h"
 
-#include "nlohmann/json.hpp"
-
-using json = nlohmann::json;
+// json type alias is already defined via chat-peg-parser.h -> chat.h -> minja/chat-template.hpp
 
 static std::string_view trim_trailing_space(std::string_view sv) {
     while (!sv.empty() && std::isspace(static_cast<unsigned char>(sv.back()))) {
