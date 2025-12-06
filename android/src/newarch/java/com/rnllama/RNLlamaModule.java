@@ -173,6 +173,11 @@ public class RNLlamaModule extends NativeRNLlamaSpec {
   }
 
   @ReactMethod
+  public void clearCache(double id, boolean clearData, final Promise promise) {
+    rnllama.clearCache(id, clearData, promise);
+  }
+
+  @ReactMethod
   public void releaseContext(double id, Promise promise) {
     rnllama.releaseContext(id, promise);
   }
