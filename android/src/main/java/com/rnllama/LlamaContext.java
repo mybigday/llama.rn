@@ -472,6 +472,10 @@ public class LlamaContext {
     releaseVocoder(this.context);
   }
 
+  public void clearCache(boolean clearData) {
+    clearCache(this.context, clearData);
+  }
+
   private void emitCompletion(int requestId, WritableMap result) {
     WritableMap event = Arguments.createMap();
     event.putInt("contextId", this.id);
@@ -881,6 +885,7 @@ public class LlamaContext {
   protected static native WritableArray decodeAudioTokens(long contextPtr, int[] tokens);
   protected static native boolean initVocoder(long contextPtr, String vocoderModelPath, int batchSize);
   protected static native void releaseVocoder(long contextPtr);
+  protected static native void clearCache(long contextPtr, boolean clearData);
 
   // Parallel decoding methods
   protected static native void enableParallelMode(long contextPtr, int n_parallel, int n_batch);
