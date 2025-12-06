@@ -137,7 +137,18 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
 
         // Manage KV cache
         auto * kv = llama_get_memory(parent_ctx->ctx);
-        llama_memory_seq_rm(kv, 0, n_past, -1);
+        bool cache_remove_success = llama_memory_seq_rm(kv, 0, n_past, -1);
+
+        // For hybrid models (LFM-2, Granite, Mamba, etc.), partial cache removal may fail
+        // In that case, do a full cache clear to prevent contamination
+        if (!cache_remove_success) {
+            LOG_WARNING("Partial cache removal failed (likely hybrid/recurrent model), doing full cache clear");
+            llama_memory_clear(kv, false);
+            embd.clear();
+            n_past = 0;
+            // Re-assign all tokens to embd since we cleared everything
+            embd = text_tokens;
+        }
 
         LOG_VERBOSE("prompt ingested, n_past: %d, cached: %s, to_eval: %s",
             n_past,
@@ -238,7 +249,16 @@ completion_token_output llama_rn_context_completion::nextToken()
         const int n_discard = n_left/2;
 
         auto * kv = llama_get_memory(parent_ctx->ctx);
-        llama_memory_seq_rm (kv, 0, parent_ctx->params.n_keep + 1            , parent_ctx->params.n_keep + n_discard + 1);
+        bool shift_success = llama_memory_seq_rm(kv, 0, parent_ctx->params.n_keep + 1, parent_ctx->params.n_keep + n_discard + 1);
+
+        // Hybrid/recurrent models cannot do partial removal for context shifting
+        if (!shift_success) {
+            LOG_ERROR("Context shifting failed for hybrid/recurrent model - context shift not supported");
+            has_next_token = false;
+            context_full = true;
+            return result;
+        }
+
         llama_memory_seq_add(kv, 0, parent_ctx->params.n_keep + 1 + n_discard, n_past, -n_discard);
 
         for (size_t i = parent_ctx->params.n_keep + 1 + n_discard; i < embd.size(); i++)
