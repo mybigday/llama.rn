@@ -75,14 +75,6 @@ void lm_ggml_metal_cv_set_bool(lm_ggml_metal_cv_t cv, bool value, int32_t idx) {
 
 struct lm_ggml_metal_pipeline {
     id<MTLComputePipelineState> obj;
-
-    // suggested dispatch sizes
-    int nsg;
-
-    int nr0;
-    int nr1;
-
-    size_t smem;
 };
 
 lm_ggml_metal_pipeline_t lm_ggml_metal_pipeline_init(void) {
@@ -90,10 +82,6 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_pipeline_init(void) {
 
     *res = (struct lm_ggml_metal_pipeline) {
         /*.obj  =*/ nil,
-        /*.nsg  =*/ 0,
-        /*.nr0  =*/ 0,
-        /*.nr1  =*/ 0,
-        /*.smem =*/ 0,
     };
 
     return res;
@@ -105,40 +93,8 @@ void lm_ggml_metal_pipeline_free(lm_ggml_metal_pipeline_t pipeline) {
     free(pipeline);
 }
 
-void lm_ggml_metal_pipeline_set_nsg(lm_ggml_metal_pipeline_t pipeline, int nsg) {
-    pipeline->nsg = nsg;
-}
-
-int lm_ggml_metal_pipeline_get_nsg(lm_ggml_metal_pipeline_t pipeline) {
-    return pipeline->nsg;
-}
-
-void lm_ggml_metal_pipeline_set_nr0(lm_ggml_metal_pipeline_t pipeline, int nr0) {
-    pipeline->nr0 = nr0;
-}
-
-int lm_ggml_metal_pipeline_get_nr0(lm_ggml_metal_pipeline_t pipeline) {
-    return pipeline->nr0;
-}
-
-void lm_ggml_metal_pipeline_set_nr1(lm_ggml_metal_pipeline_t pipeline, int nr1) {
-    pipeline->nr1 = nr1;
-}
-
-int lm_ggml_metal_pipeline_get_nr1(lm_ggml_metal_pipeline_t pipeline) {
-    return pipeline->nr1;
-}
-
-void   lm_ggml_metal_pipeline_set_smem(lm_ggml_metal_pipeline_t pipeline, size_t smem) {
-    pipeline->smem = smem;
-}
-
-size_t lm_ggml_metal_pipeline_get_smem(lm_ggml_metal_pipeline_t pipeline) {
-    return pipeline->smem;
-}
-
-int lm_ggml_metal_pipeline_max_theads_per_threadgroup(lm_ggml_metal_pipeline_t pipeline) {
-    return pipeline->obj.maxTotalThreadsPerThreadgroup;
+int lm_ggml_metal_pipeline_max_theads_per_threadgroup(struct lm_ggml_metal_pipeline_with_params pipeline) {
+    return pipeline.pipeline->obj.maxTotalThreadsPerThreadgroup;
 }
 
 struct lm_ggml_metal_library {
@@ -389,27 +345,41 @@ void lm_ggml_metal_library_free(lm_ggml_metal_library_t lib) {
     free(lib);
 }
 
-lm_ggml_metal_pipeline_t lm_ggml_metal_library_get_pipeline(lm_ggml_metal_library_t lib, const char * name) {
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline(lm_ggml_metal_library_t lib, const char * name) {
     [lib->lock lock];
 
-    lm_ggml_metal_pipeline_t res = lm_ggml_metal_pipelines_get(lib->pipelines, name);
+    struct lm_ggml_metal_pipeline_with_params res = {
+        /*.pipeline =*/ nil,
+        /*.nr0      =*/ 0,
+        /*.nr1      =*/ 0,
+        /*.nsg      =*/ 0,
+        /*.smem     =*/ 0,
+    };
+
+    res.pipeline = lm_ggml_metal_pipelines_get(lib->pipelines, name);
 
     [lib->lock unlock];
 
     return res;
 }
 
-lm_ggml_metal_pipeline_t lm_ggml_metal_library_compile_pipeline(lm_ggml_metal_library_t lib, const char * base, const char * name, lm_ggml_metal_cv_t cv) {
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_compile_pipeline(lm_ggml_metal_library_t lib, const char * base, const char * name, lm_ggml_metal_cv_t cv) {
+    struct lm_ggml_metal_pipeline_with_params res = {
+        /*.pipeline =*/ nil,
+        /*.nr0      =*/ 0,
+        /*.nr1      =*/ 0,
+        /*.nsg      =*/ 0,
+        /*.smem     =*/ 0,
+    };
+
     [lib->lock lock];
 
-    lm_ggml_metal_pipeline_t res = lm_ggml_metal_pipelines_get(lib->pipelines, name);
-    if (res) {
+    res.pipeline = lm_ggml_metal_pipelines_get(lib->pipelines, name);
+    if (res.pipeline) {
         [lib->lock unlock];
 
         return res;
     }
-
-    res = lm_ggml_metal_pipeline_init();
 
     @autoreleasepool {
         NSError * error = nil;
@@ -432,26 +402,43 @@ lm_ggml_metal_pipeline_t lm_ggml_metal_library_compile_pipeline(lm_ggml_metal_li
                 LM_GGML_LOG_ERROR("%s: %s\n", __func__, [[error description] UTF8String]);
             }
 
-            return nil;
+            return res;
         }
 
-        res->obj = [lib->device newComputePipelineStateWithFunction:mtl_function error:&error];
+        id<MTLComputePipelineState> obj = [lib->device newComputePipelineStateWithFunction:mtl_function error:&error];
 
         [mtl_function release];
 
-        LM_GGML_LOG_DEBUG("%s: loaded %-40s %16p | th_max = %4d | th_width = %4d\n", __func__, name, (void *) res->obj,
-                (int) res->obj.maxTotalThreadsPerThreadgroup,
-                (int) res->obj.threadExecutionWidth);
+        if (!obj) {
+            [lib->lock unlock];
 
-        if (res->obj.maxTotalThreadsPerThreadgroup == 0 || res->obj.threadExecutionWidth == 0) {
+            LM_GGML_LOG_ERROR("%s: failed to create pipeline state: base = '%s', name = '%s'\n", __func__, base, name);
+            if (error) {
+                LM_GGML_LOG_ERROR("%s: %s\n", __func__, [[error description] UTF8String]);
+            }
+
+            return res;
+        }
+
+        LM_GGML_LOG_DEBUG("%s: loaded %-40s %16p | th_max = %4d | th_width = %4d\n", __func__, name,
+                (void *) obj,
+                (int)    obj.maxTotalThreadsPerThreadgroup,
+                (int)    obj.threadExecutionWidth);
+
+        if (obj.maxTotalThreadsPerThreadgroup == 0 || obj.threadExecutionWidth == 0) {
+            [obj release];
+
             [lib->lock unlock];
 
             LM_GGML_LOG_ERROR("%s: incompatible pipeline %s\n", __func__, name);
 
-            return nil;
+            return res;
         }
 
-        lm_ggml_metal_pipelines_add(lib->pipelines, name, res);
+        res.pipeline = lm_ggml_metal_pipeline_init();
+        res.pipeline->obj = obj;
+
+        lm_ggml_metal_pipelines_add(lib->pipelines, name, res.pipeline);
     }
 
     [lib->lock unlock];
@@ -496,8 +483,8 @@ void lm_ggml_metal_encoder_debug_group_pop (lm_ggml_metal_encoder_t encoder) {
     [encoder->obj popDebugGroup];
 }
 
-void lm_ggml_metal_encoder_set_pipeline(lm_ggml_metal_encoder_t encoder, lm_ggml_metal_pipeline_t pipeline) {
-    [encoder->obj setComputePipelineState:pipeline->obj];
+void lm_ggml_metal_encoder_set_pipeline(lm_ggml_metal_encoder_t encoder, struct lm_ggml_metal_pipeline_with_params pipeline) {
+    [encoder->obj setComputePipelineState:pipeline.pipeline->obj];
 }
 
 void lm_ggml_metal_encoder_set_bytes(lm_ggml_metal_encoder_t encoder, void * data, size_t size, int idx) {
@@ -622,8 +609,8 @@ lm_ggml_metal_device_t lm_ggml_metal_device_init(void) {
                     LM_GGML_LOG_WARN("%s: - the tensor API is not supported in this environment - disabling\n", __func__);
                     dev->props.has_tensor = false;
                 } else {
-                    lm_ggml_metal_pipeline_t ppl = lm_ggml_metal_library_compile_pipeline(lib, "dummy_kernel", "dummy_kernel", nil);
-                    if (!ppl) {
+                    struct lm_ggml_metal_pipeline_with_params ppl = lm_ggml_metal_library_compile_pipeline(lib, "dummy_kernel", "dummy_kernel", nil);
+                    if (!ppl.pipeline) {
                         LM_GGML_LOG_WARN("%s: - the tensor API is not supported in this environment - disabling\n", __func__);
                         dev->props.has_tensor = false;
                     }
@@ -672,8 +659,8 @@ lm_ggml_metal_device_t lm_ggml_metal_device_init(void) {
                     LM_GGML_LOG_WARN("%s: - the tensor API does not support bfloat - disabling bfloat support\n", __func__);
                     dev->props.has_bfloat = false;
                 } else {
-                    lm_ggml_metal_pipeline_t ppl = lm_ggml_metal_library_compile_pipeline(lib, "dummy_kernel", "dummy_kernel", nil);
-                    if (!ppl) {
+                    struct lm_ggml_metal_pipeline_with_params ppl = lm_ggml_metal_library_compile_pipeline(lib, "dummy_kernel", "dummy_kernel", nil);
+                    if (!ppl.pipeline) {
                         LM_GGML_LOG_WARN("%s: - the tensor API does not support bfloat - disabling bfloat support\n", __func__);
                         dev->props.has_bfloat = false;
                     }
@@ -831,6 +818,8 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                 case LM_GGML_UNARY_OP_HARDSWISH:
                 case LM_GGML_UNARY_OP_HARDSIGMOID:
                 case LM_GGML_UNARY_OP_EXP:
+                case LM_GGML_UNARY_OP_SOFTPLUS:
+                case LM_GGML_UNARY_OP_EXPM1:
                     return lm_ggml_is_contiguous(op->src[0]) && op->src[0]->type == LM_GGML_TYPE_F32;
                 default:
                     return false;
@@ -863,6 +852,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
         case LM_GGML_OP_ACC:
         case LM_GGML_OP_REPEAT:
         case LM_GGML_OP_SCALE:
+        case LM_GGML_OP_FILL:
         case LM_GGML_OP_CONV_TRANSPOSE_1D:
             return true;
         case LM_GGML_OP_CONV_TRANSPOSE_2D:
@@ -880,6 +870,8 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
             return lm_ggml_is_contiguous(op->src[0]) && op->src[0]->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_SUM:
             return has_simdgroup_reduction && lm_ggml_is_contiguous(op->src[0]);
+        case LM_GGML_OP_TRI:
+            return lm_ggml_is_contiguous_rows(op->src[0]);
         case LM_GGML_OP_SUM_ROWS:
         case LM_GGML_OP_CUMSUM:
         case LM_GGML_OP_MEAN:
