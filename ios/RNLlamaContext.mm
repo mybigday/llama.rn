@@ -1248,6 +1248,13 @@
     llama->releaseVocoder();
 }
 
+- (void)clearCache:(BOOL)clearData {
+    if (llama == nullptr) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Context has been released" userInfo:nil];
+    }
+    llama->clearCache(clearData);
+}
+
 // Parallel decoding: Queue a completion request
 - (NSNumber *)queueCompletion:(NSDictionary *)params onToken:(void (^)(NSMutableDictionary *))onToken onComplete:(void (^)(NSDictionary *))onComplete {
     if (!is_model_loaded) {

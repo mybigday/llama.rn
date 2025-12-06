@@ -193,6 +193,9 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
           style: 'destructive',
           onPress: () => {
             messagesRef.current = []
+            if (context) {
+              context.clearCache(false)
+            }
             setMessagesVersion((prev) => prev + 1)
             addSystemMessage(
               "Hello! I'm ready to chat with you. How can I help you today?",
@@ -201,7 +204,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
         },
       ],
     )
-  }, [addSystemMessage])
+  }, [addSystemMessage, context])
 
   // Set up navigation header buttons
   useLayoutEffect(() => {
