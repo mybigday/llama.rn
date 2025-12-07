@@ -249,16 +249,7 @@ completion_token_output llama_rn_context_completion::nextToken()
         const int n_discard = n_left/2;
 
         auto * kv = llama_get_memory(parent_ctx->ctx);
-        bool shift_success = llama_memory_seq_rm(kv, 0, parent_ctx->params.n_keep + 1, parent_ctx->params.n_keep + n_discard + 1);
-
-        // Hybrid/recurrent models cannot do partial removal for context shifting
-        if (!shift_success) {
-            LOG_ERROR("Context shifting failed for hybrid/recurrent model - context shift not supported");
-            has_next_token = false;
-            context_full = true;
-            return result;
-        }
-
+        llama_memory_seq_rm (kv, 0, parent_ctx->params.n_keep + 1 , parent_ctx->params.n_keep + n_discard + 1);
         llama_memory_seq_add(kv, 0, parent_ctx->params.n_keep + 1 + n_discard, n_past, -n_discard);
 
         for (size_t i = parent_ctx->params.n_keep + 1 + n_discard; i < embd.size(); i++)
