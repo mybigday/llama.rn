@@ -799,6 +799,9 @@ public class RNLlama implements LifecycleEventListener {
         if (context == null) {
           throw new Exception("Context not found");
         }
+        if (context.isPredicting()) {
+          throw new Exception("Context is busy");
+        }
         context.clearCache(clearData);
         mainHandler.post(() -> {
           promise.resolve(null);

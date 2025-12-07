@@ -611,6 +611,10 @@ RCT_EXPORT_METHOD(clearCache:(double)contextId
         reject(@"llama_error", @"Context not found", nil);
         return;
     }
+    if ([context isPredicting]) {
+        reject(@"llama_error", @"Context is busy", nil);
+        return;
+    }
     @try {
         [context clearCache:clearData];
         resolve(nil);
