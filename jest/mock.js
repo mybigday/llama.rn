@@ -11,13 +11,17 @@ if (!NativeModules.RNLlama) {
     return requestIdCounter
   }
   NativeModules.RNLlama = {
-    getBackendDevicesInfo: jest.fn(async () => JSON.stringify([{
-      backend: 'cpu',
-      type: 'cpu',
-      deviceName: 'Test',
-      maxMemorySize: 12345678,
-      metadata: {},
-    }])),
+    getBackendDevicesInfo: jest.fn(async () =>
+      JSON.stringify([
+        {
+          backend: 'cpu',
+          type: 'cpu',
+          deviceName: 'Test',
+          maxMemorySize: 12345678,
+          metadata: {},
+        },
+      ]),
+    ),
 
     setContextLimit: jest.fn(),
 
@@ -185,7 +189,10 @@ if (!NativeModules.RNLlama) {
       await testResult.completion_probabilities.reduce(
         (promise, item, index) =>
           promise.then(() => {
-            const content = testResult.completion_probabilities.slice(0, index + 1).map((p) => p.content).join('')
+            const content = testResult.completion_probabilities
+              .slice(0, index + 1)
+              .map((p) => p.content)
+              .join('')
             return emitEvent({
               contextId,
               jobId,
@@ -349,25 +356,26 @@ if (!NativeModules.RNLlama) {
       }
 
       // Emit all tokens
-      testResult.completion_probabilities.reduce(
-        (promise, item, index) =>
-          promise.then(() => {
-            const content = testResult.completion_probabilities
-              .slice(0, index + 1)
-              .map((p) => p.content)
-              .join('')
-            return emitEvent({
-              contextId,
-              requestId,
-              tokenResult: {
-                token: item.content,
-                content,
-                completion_probabilities: item.probs,
-              },
-            })
-          }),
-        Promise.resolve(),
-      )
+      testResult.completion_probabilities
+        .reduce(
+          (promise, item, index) =>
+            promise.then(() => {
+              const content = testResult.completion_probabilities
+                .slice(0, index + 1)
+                .map((p) => p.content)
+                .join('')
+              return emitEvent({
+                contextId,
+                requestId,
+                tokenResult: {
+                  token: item.content,
+                  content,
+                  completion_probabilities: item.probs,
+                },
+              })
+            }),
+          Promise.resolve(),
+        )
         .then(() => {
           // Emit completion event after all tokens
           setTimeout(() => {
@@ -459,6 +467,7 @@ if (!NativeModules.RNLlama) {
     decodeAudioTokens: jest.fn(async (_id, tokens) =>
       tokens.map((token) => token - 1000).map((token) => token / 1024),
     ),
+    clearCache: jest.fn(async () => {}),
   }
 }
 
