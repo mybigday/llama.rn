@@ -6554,7 +6554,12 @@ static void lm_ggml_call_mul_mat(lm_ggml_type type, const lm_ggml_compute_params
     lm_ggml_compute_forward_mul_mat(params, &dst);
 }
 
+static inline int64_t lm_ggml_wrap_around(int64_t coord, int64_t size) {
+    return (coord  + size) % size; // adding size avoids negative number weirdness
+}
+
 // lm_ggml_compute_forward_conv_2d
+
 
 static void lm_ggml_compute_forward_conv_2d_impl(const lm_ggml_compute_params * params,
                                               const lm_ggml_tensor *         kernel,  // [KW, KH, IC, OC]
@@ -7591,6 +7596,7 @@ void lm_ggml_compute_forward_upscale(
 
 // lm_ggml_compute_forward_pad
 
+template<bool circular_t>
 static void lm_ggml_compute_forward_pad_f32(
     const lm_ggml_compute_params * params,
           lm_ggml_tensor * dst) {
@@ -7615,23 +7621,40 @@ static void lm_ggml_compute_forward_pad_f32(
     const int32_t lp3 = lm_ggml_get_op_params_i32(dst, 6);
     const int32_t rp3 = lm_ggml_get_op_params_i32(dst, 7);
 
-
     // TODO: optimize
 
     for (int64_t i2 = 0; i2 < ne2; ++i2) {
         for (int64_t i1 = ith; i1 < ne1; i1 += nth) {
             for (int64_t i0 = 0; i0 < ne0; ++i0) {
                 for (int64_t i3 = 0; i3 < ne3; ++i3) {
-                    const int64_t dst_idx = i3*(ne0*ne1*ne2) + i2*(ne0*ne1) + i1*ne0 + i0;
-                    if ((i0 >= lp0 && i0 < ne0 - rp0) \
-                         && (i1 >= lp1 && i1 < ne1 - rp1) \
-                         && (i2 >= lp2 && i2 < ne2 - rp2) \
-                         && (i3 >= lp3 && i3 < ne3 - rp3)) {
-                        const int64_t src_idx = (i3 - lp3)*nb03 + (i2 - lp2)*nb02 + (i1 - lp1)*nb01 + (i0 - lp0)*nb00;
+                    // circular means wrap around on a torus, so x and y loop around
+                    if constexpr (circular_t) {
+                        const int64_t dst_idx = i3*(ne0*ne1*ne2) + i2*(ne0*ne1) + i1*ne0 + i0;
+                        const int64_t src_i0 = lm_ggml_wrap_around(i0 - lp0, ne00);
+                        const int64_t src_i1 = lm_ggml_wrap_around(i1 - lp1, ne01);
+                        const int64_t src_i2 = lm_ggml_wrap_around(i2 - lp2, ne02);
+                        const int64_t src_i3 = lm_ggml_wrap_around(i3 - lp3, ne03);
+
+                        const int64_t src_idx =
+                            src_i3*nb03 +
+                            src_i2*nb02 +
+                            src_i1*nb01 +
+                            src_i0*nb00;
+
                         const float * src_ptr = (const float *)((char *) src0->data + src_idx);
                         dst_ptr[dst_idx] = *src_ptr;
                     } else {
-                        dst_ptr[dst_idx] = 0;
+                        const int64_t dst_idx = i3*(ne0*ne1*ne2) + i2*(ne0*ne1) + i1*ne0 + i0;
+                        if ((i0 >= lp0 && i0 < ne0 - rp0) \
+                            && (i1 >= lp1 && i1 < ne1 - rp1) \
+                            && (i2 >= lp2 && i2 < ne2 - rp2) \
+                            && (i3 >= lp3 && i3 < ne3 - rp3)) {
+                            const int64_t src_idx = (i3 - lp3)*nb03 + (i2 - lp2)*nb02 + (i1 - lp1)*nb01 + (i0 - lp0)*nb00;
+                            const float * src_ptr = (const float *)((char *) src0->data + src_idx);
+                            dst_ptr[dst_idx] = *src_ptr;
+                        } else {
+                            dst_ptr[dst_idx] = 0;
+                        }
                     }
                 }
             }
@@ -7639,16 +7662,20 @@ static void lm_ggml_compute_forward_pad_f32(
     }
 }
 
+
 void lm_ggml_compute_forward_pad(
     const lm_ggml_compute_params * params,
     lm_ggml_tensor * dst) {
-
     const lm_ggml_tensor * src0 = dst->src[0];
-
+    const bool circular = (bool) lm_ggml_get_op_params_i32(dst, 8);
     switch (src0->type) {
         case LM_GGML_TYPE_F32:
             {
-                lm_ggml_compute_forward_pad_f32(params, dst);
+                if (circular) {
+                    lm_ggml_compute_forward_pad_f32<true>(params, dst);
+                } else {
+                    lm_ggml_compute_forward_pad_f32<false>(params, dst);
+                }
             } break;
         default:
             {
