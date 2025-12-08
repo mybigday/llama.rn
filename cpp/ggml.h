@@ -204,6 +204,10 @@
 #    define LM_GGML_ATTRIBUTE_FORMAT(...) __attribute__((format(printf, __VA_ARGS__)))
 #endif
 
+#if defined(_WIN32) && !defined(_WIN32_WINNT)
+#    define _WIN32_WINNT 0x0A00
+#endif
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -2192,6 +2196,15 @@ extern "C" {
             int                  p2,
             int                  p3);
 
+    // pad each dimension with values on the other side of the torus (looping around)
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_pad_circular(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            int                   p0,
+            int                   p1,
+            int                   p2,
+            int                   p3);
+
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_pad_ext(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
@@ -2204,6 +2217,19 @@ extern "C" {
             int                  lp3,
             int                  rp3
             );
+
+    // pad each dimension with values on the other side of the torus (looping around)
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_pad_ext_circular(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            int                   lp0,
+            int                   rp0,
+            int                   lp1,
+            int                   rp1,
+            int                   lp2,
+            int                   rp2,
+            int                   lp3,
+            int                   rp3);
 
     // pad each dimension with reflection: [a, b, c, d] -> [b, a, b, c, d, c]
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_pad_reflect_1d(

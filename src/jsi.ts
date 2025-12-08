@@ -106,6 +106,7 @@ declare global {
     tokens: number[],
   ) => Promise<number[]>
   var llamaReleaseVocoder: (contextId: number) => Promise<void>
+  var llamaClearCache: (contextId: number, clearData: boolean) => Promise<void>
 
   // Parallel decoding
   var llamaEnableParallelMode: (

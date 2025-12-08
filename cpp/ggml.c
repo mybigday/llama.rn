@@ -4955,6 +4955,18 @@ struct lm_ggml_tensor * lm_ggml_pad(
     return lm_ggml_pad_ext(ctx, a, 0, p0, 0, p1, 0, p2, 0, p3);
 }
 
+// lm_ggml_pad_circular
+
+struct lm_ggml_tensor * lm_ggml_pad_circular(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        int                   p0,
+        int                   p1,
+        int                   p2,
+        int                   p3) {
+    return lm_ggml_pad_ext_circular(ctx, a, 0, p0, 0, p1, 0, p2, 0, p3);
+}
+
 struct lm_ggml_tensor * lm_ggml_pad_ext(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
@@ -4981,11 +4993,31 @@ struct lm_ggml_tensor * lm_ggml_pad_ext(
     lm_ggml_set_op_params_i32(result, 5, rp2);
     lm_ggml_set_op_params_i32(result, 6, lp3);
     lm_ggml_set_op_params_i32(result, 7, rp3);
+    lm_ggml_set_op_params_i32(result, 8, 0); // not circular by default
 
 
     result->op     = LM_GGML_OP_PAD;
     result->src[0] = a;
 
+    return result;
+}
+
+// lm_ggml_pad_ext_circular
+
+struct lm_ggml_tensor * lm_ggml_pad_ext_circular(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        int                  lp0,
+        int                  rp0,
+        int                  lp1,
+        int                  rp1,
+        int                  lp2,
+        int                  rp2,
+        int                  lp3,
+        int                  rp3
+        ) {
+    struct lm_ggml_tensor * result = lm_ggml_pad_ext(ctx, a, lp0, rp0, lp1, rp1, lp2, rp2, lp3, rp3);
+    lm_ggml_set_op_params_i32(result, 8, 1); // circular
     return result;
 }
 

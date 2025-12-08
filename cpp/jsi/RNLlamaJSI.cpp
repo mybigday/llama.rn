@@ -1829,6 +1829,25 @@ namespace rnllama_jsi {
         );
         runtime.global().setProperty(runtime, "llamaDecodeAudioTokens", decodeAudioTokens);
 
+        // Cache management
+        auto clearCache = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaClearCache"),
+            2,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                bool clearData = count > 1 && arguments[1].isBool() ? arguments[1].asBool() : false;
+                return createPromiseTask(runtime, callInvoker, [contextId, clearData]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (ctx->completion && ctx->completion->is_predicting) {
+                        throw std::runtime_error("Context is busy");
+                    }
+                    ctx->clearCache(clearData);
+                    return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaClearCache", clearCache);
+
         auto releaseVocoder = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaReleaseVocoder"),
             1,

@@ -492,4 +492,27 @@ void llama_rn_context::disableParallelMode() {
     LOG_INFO("Parallel mode disabled");
 }
 
+void llama_rn_context::clearCache(bool clear_data) {
+    if (ctx == nullptr) {
+        LOG_WARNING("Cannot clear cache: context not initialized");
+        return;
+    }
+
+    auto * kv = llama_get_memory(ctx);
+    if (kv == nullptr) {
+        LOG_WARNING("Cannot clear cache: memory not available");
+        return;
+    }
+
+    llama_memory_clear(kv, clear_data);
+
+    if (completion != nullptr) {
+        completion->embd.clear();
+        completion->n_past = 0;
+        LOG_INFO("Cache cleared and completion state reset (clear_data=%s)", clear_data ? "true" : "false");
+    } else {
+        LOG_INFO("Cache cleared (clear_data=%s)", clear_data ? "true" : "false");
+    }
+}
+
 }

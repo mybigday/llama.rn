@@ -40,6 +40,7 @@ export type RNLlamaMessagePart = {
 export type RNLlamaOAICompatibleMessage = {
   role: string
   content?: string | RNLlamaMessagePart[]
+  reasoning_content?: string
 }
 
 export type {
@@ -101,6 +102,7 @@ const jsiBindingKeys = [
   'llamaGetAudioCompletionGuideTokens',
   'llamaDecodeAudioTokens',
   'llamaReleaseVocoder',
+  'llamaClearCache',
   'llamaEnableParallelMode',
   'llamaQueueCompletion',
   'llamaCancelRequest',
@@ -943,6 +945,23 @@ export class LlamaContext {
   async releaseVocoder(): Promise<void> {
     const { llamaReleaseVocoder } = getJsi()
     return await llamaReleaseVocoder(this.id)
+  }
+
+  /**
+   * Clear the KV cache and reset conversation state
+   * @param clearData If true, clears both metadata and tensor data buffers (slower). If false, only clears metadata (faster).
+   * @returns Promise that resolves when cache is cleared
+   *
+   * Call this method between different conversations to prevent cache contamination.
+   * Without clearing, the model may use cached context from previous conversations,
+   * leading to incorrect or unexpected responses.
+   *
+   * For hybrid architecture models (e.g., LFM2), this is essential as they
+   * use recurrent state that cannot be partially removed - only fully cleared.
+   */
+  async clearCache(clearData: boolean = false): Promise<void> {
+    const { llamaClearCache } = getJsi()
+    return llamaClearCache(this.id, clearData)
   }
 
   async release(): Promise<void> {

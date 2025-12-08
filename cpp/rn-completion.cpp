@@ -137,7 +137,18 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
 
         // Manage KV cache
         auto * kv = llama_get_memory(parent_ctx->ctx);
-        llama_memory_seq_rm(kv, 0, n_past, -1);
+        bool cache_remove_success = llama_memory_seq_rm(kv, 0, n_past, -1);
+
+        // For hybrid models (LFM-2, Granite, Mamba, etc.), partial cache removal may fail
+        // In that case, do a full cache clear to prevent contamination
+        if (!cache_remove_success) {
+            LOG_WARNING("Partial cache removal failed (likely hybrid/recurrent model), doing full cache clear");
+            llama_memory_clear(kv, false);
+            embd.clear();
+            n_past = 0;
+            // Re-assign all tokens to embd since we cleared everything
+            embd = text_tokens;
+        }
 
         LOG_VERBOSE("prompt ingested, n_past: %d, cached: %s, to_eval: %s",
             n_past,
