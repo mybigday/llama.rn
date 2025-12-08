@@ -73,6 +73,10 @@
 #include "ggml-cann.h"
 #endif
 
+#ifdef LM_GGML_USE_ZENDNN
+#include "ggml-zendnn.h"
+#endif
+
 // disable C++17 deprecation warning for std::codecvt_utf8
 #if defined(__clang__)
 #    pragma clang diagnostic push
@@ -202,6 +206,9 @@ struct lm_ggml_backend_registry {
 #endif
 #ifdef LM_GGML_USE_OPENCL
         register_backend(lm_ggml_backend_opencl_reg());
+#endif
+#ifdef LM_GGML_USE_ZENDNN
+        register_backend(lm_ggml_backend_zendnn_reg());
 #endif
 #ifdef LM_GGML_USE_HEXAGON
         register_backend(lm_ggml_backend_hexagon_reg());
@@ -534,8 +541,12 @@ static lm_ggml_backend_reg_t lm_ggml_backend_load_best(const char * name, bool s
     fs::path best_path;
 
     for (const auto & search_path : search_paths) {
-        if (!fs::exists(search_path)) {
-            LM_GGML_LOG_DEBUG("%s: search path %s does not exist\n", __func__, path_str(search_path).c_str());
+        if (std::error_code ec; !fs::exists(search_path, ec)) {
+            if (ec) {
+                LM_GGML_LOG_DEBUG("%s: posix_stat(%s) failure, error-message: %s\n", __func__, path_str(search_path).c_str(), ec.message().c_str());
+            } else {
+                LM_GGML_LOG_DEBUG("%s: search path %s does not exist\n", __func__, path_str(search_path).c_str());
+            }
             continue;
         }
         fs::directory_iterator dir_it(search_path, fs::directory_options::skip_permission_denied);
@@ -575,8 +586,12 @@ static lm_ggml_backend_reg_t lm_ggml_backend_load_best(const char * name, bool s
         for (const auto & search_path : search_paths) {
             fs::path filename = backend_filename_prefix().native() + name_path.native() + backend_filename_extension().native();
             fs::path path = search_path / filename;
-            if (fs::exists(path)) {
+            if (std::error_code ec; fs::exists(path, ec)) {
                 return get_reg().load_backend(path, silent);
+            } else {
+                if (ec) {
+                    LM_GGML_LOG_DEBUG("%s: posix_stat(%s) failure, error-message: %s\n", __func__, path_str(path).c_str(), ec.message().c_str());
+                }
             }
         }
         return nullptr;
@@ -597,6 +612,7 @@ void lm_ggml_backend_load_all_from_path(const char * dir_path) {
 #endif
 
     lm_ggml_backend_load_best("blas", silent, dir_path);
+    lm_ggml_backend_load_best("zendnn", silent, dir_path);
     lm_ggml_backend_load_best("cann", silent, dir_path);
     lm_ggml_backend_load_best("cuda", silent, dir_path);
     lm_ggml_backend_load_best("hip", silent, dir_path);

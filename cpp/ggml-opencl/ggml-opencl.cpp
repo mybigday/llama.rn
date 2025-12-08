@@ -3083,6 +3083,10 @@ static bool lm_ggml_opencl_supports_op(lm_ggml_backend_dev_t dev, const struct l
         case LM_GGML_OP_REPEAT:
             return op->src[0]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32; // Assuming F32 for now, can be expanded
         case LM_GGML_OP_PAD:
+            // TODO: add circular padding support for opencl, see https://github.com/ggml-org/llama.cpp/pull/16985
+            if (lm_ggml_get_op_params_i32(op, 8) != 0) {
+                return false;
+            }
             return op->src[0]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_UPSCALE: {
             lm_ggml_scale_mode mode = (lm_ggml_scale_mode)(lm_ggml_get_op_params_i32(op, 0) & 0xFF);
