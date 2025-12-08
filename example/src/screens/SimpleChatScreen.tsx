@@ -191,10 +191,10 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
         {
           text: 'Reset',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
             messagesRef.current = []
             if (context) {
-              context.clearCache(false)
+              await context.clearCache(false)
             }
             setMessagesVersion((prev) => prev + 1)
             addSystemMessage(
