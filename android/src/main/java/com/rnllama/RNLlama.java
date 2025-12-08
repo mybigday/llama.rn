@@ -789,6 +789,40 @@ public class RNLlama implements LifecycleEventListener {
     }
   }
 
+  @ReactMethod
+  public void clearCache(double id, boolean clearData, final Promise promise) {
+    final int contextId = (int) id;
+    String taskName = "clearCache-" + contextId;
+    Future<?> future = executorService.submit(() -> {
+      try {
+        LlamaContext context = contexts.get(contextId);
+        if (context == null) {
+          throw new Exception("Context not found");
+        }
+        if (context.isPredicting()) {
+          throw new Exception("Context is busy");
+        }
+        context.clearCache(clearData);
+        mainHandler.post(() -> {
+          promise.resolve(null);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      } catch (Exception e) {
+        mainHandler.post(() -> {
+          promise.reject(e);
+          synchronized (tasks) {
+            tasks.values().removeIf(name -> name.equals(taskName));
+          }
+        });
+      }
+    });
+    synchronized (tasks) {
+      tasks.put(future, taskName);
+    }
+  }
+
   public void isVocoderEnabled(double id, final Promise promise) {
     final int contextId = (int) id;
     String taskName = "isVocoderEnabled-" + contextId;

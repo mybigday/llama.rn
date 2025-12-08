@@ -472,6 +472,7 @@ export type NativeLlamaMessagePart = {
 export type NativeLlamaChatMessage = {
   role: string
   content: string | Array<NativeLlamaMessagePart>
+  reasoning_content?: string
 }
 
 export type FormattedChatResult = {
@@ -663,6 +664,8 @@ export interface Spec extends TurboModule {
   ): Promise<Array<number>>
   decodeAudioTokens(contextId: number, tokens: number[]): Promise<Array<number>>
   releaseVocoder(contextId: number): Promise<void>
+
+  clearCache(contextId: number, clearData: boolean): Promise<void>
 
   releaseContext(contextId: number): Promise<void>
 

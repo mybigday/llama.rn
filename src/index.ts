@@ -40,6 +40,7 @@ export type RNLlamaMessagePart = {
 export type RNLlamaOAICompatibleMessage = {
   role: string
   content?: string | RNLlamaMessagePart[]
+  reasoning_content?: string
 }
 
 export type {
@@ -1030,6 +1031,22 @@ export class LlamaContext {
    */
   async releaseVocoder(): Promise<void> {
     return await RNLlama.releaseVocoder(this.id)
+  }
+
+  /**
+   * Clear the KV cache and reset conversation state
+   * @param clearData If true, clears both metadata and tensor data buffers (slower). If false, only clears metadata (faster).
+   * @returns Promise that resolves when cache is cleared
+   *
+   * Call this method between different conversations to prevent cache contamination.
+   * Without clearing, the model may use cached context from previous conversations,
+   * leading to incorrect or unexpected responses.
+   *
+   * For hybrid architecture models (e.g., LFM2), this is essential as they
+   * use recurrent state that cannot be partially removed - only fully cleared.
+   */
+  async clearCache(clearData: boolean = false): Promise<void> {
+    return RNLlama.clearCache(this.id, clearData)
   }
 
   async release(): Promise<void> {

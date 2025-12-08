@@ -87,6 +87,7 @@
 - (NSArray *)getAudioCompletionGuideTokens:(NSString *)textToSpeak;
 - (NSArray *)decodeAudioTokens:(NSArray *)tokens;
 - (void)releaseVocoder;
+- (void)clearCache:(BOOL)clearData;
 - (void)invalidate;
 
 @end

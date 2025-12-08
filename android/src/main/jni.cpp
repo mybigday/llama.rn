@@ -2092,6 +2092,19 @@ Java_com_rnllama_LlamaContext_releaseVocoder(
     llama->releaseVocoder();
 }
 
+JNIEXPORT void JNICALL
+Java_com_rnllama_LlamaContext_clearCache(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jboolean clear_data
+) {
+    UNUSED(env);
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    llama->clearCache(clear_data);
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_rnllama_LlamaContext_isVocoderEnabled(
     JNIEnv *env,

@@ -601,6 +601,28 @@ RCT_EXPORT_METHOD(releaseVocoder:(double)contextId
     resolve(nil);
 }
 
+RCT_EXPORT_METHOD(clearCache:(double)contextId
+                 withClearData:(BOOL)clearData
+                 withResolver:(RCTPromiseResolveBlock)resolve
+                 withRejecter:(RCTPromiseRejectBlock)reject)
+{
+    RNLlamaContext *context = llamaContexts[[NSNumber numberWithDouble:contextId]];
+    if (context == nil) {
+        reject(@"llama_error", @"Context not found", nil);
+        return;
+    }
+    if ([context isPredicting]) {
+        reject(@"llama_error", @"Context is busy", nil);
+        return;
+    }
+    @try {
+        [context clearCache:clearData];
+        resolve(nil);
+    } @catch (NSException *exception) {
+        reject(@"llama_error", exception.reason, nil);
+    }
+}
+
 RCT_EXPORT_METHOD(releaseContext:(double)contextId
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)

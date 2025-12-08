@@ -125,6 +125,9 @@ struct llama_rn_context {
     bool initVocoder(const std::string &vocoder_model_path, int batch_size = -1);
     bool isVocoderEnabled() const;
     void releaseVocoder();
+
+    // Cache management
+    void clearCache(bool clear_data = false);
 };
 
 // Utility functions
