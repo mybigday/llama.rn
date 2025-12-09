@@ -131,8 +131,8 @@ jobs:
           sudo rm -rf /usr/share/dotnet
           echo "Removing ghc"
           sudo rm -rf /opt/ghc
-          echo "Removing CodeQL"
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          echo "Removing hostedtoolcache"
+          sudo rm -rf /opt/hostedtoolcache
           df -h
 
       - name: Checkout
@@ -160,8 +160,8 @@ jobs:
           sudo rm -rf /usr/share/dotnet
           echo "Removing ghc"
           sudo rm -rf /opt/ghc
-          echo "Removing CodeQL"
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          echo "Removing hostedtoolcache"
+          sudo rm -rf /opt/hostedtoolcache
           df -h
 
       - name: Checkout
