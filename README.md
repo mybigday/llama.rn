@@ -8,6 +8,11 @@ React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp).
 
 [llama.cpp](https://github.com/ggerganov/llama.cpp): Inference of [LLaMA](https://arxiv.org/abs/2302.13971) model in pure C/C++
 
+> [!IMPORTANT]
+> **Starting with v0.10**, `llama.rn` requires React Native's **New Architecture**.
+>
+> For **Old Architecture** support or documentation for v0.9.x, please refer to the [`v0.9` branch](https://github.com/mybigday/llama.rn/tree/v0.9).
+
 ## Installation
 
 ```sh
