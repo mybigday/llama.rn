@@ -411,6 +411,38 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_conv(l
     return res;
 }
 
+lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_conv_batched(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op, int ssm_conv_bs) {
+    LM_GGML_ASSERT(op->src[0]->type == LM_GGML_TYPE_F32);
+    LM_GGML_ASSERT(op->src[1]->type == LM_GGML_TYPE_F32);
+
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(op->src[0]));
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(op->src[1]));
+
+    char base[256];
+    char name[256];
+
+    const char * suffix = "";
+    if (op->src[1]->ne[0] % 4 == 0) {
+        suffix = "_4";
+    }
+
+    snprintf(base, 256, "kernel_ssm_conv_%s_%s_batched%s", lm_ggml_type_name(op->src[0]->type), lm_ggml_type_name(op->src[1]->type), suffix);
+    snprintf(name, 256, "%s_ssm_conv_bs=%d", base, ssm_conv_bs);
+
+    lm_ggml_metal_pipeline_with_params res = lm_ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
+
+        lm_ggml_metal_cv_set_int16(cv, ssm_conv_bs, FC_SSM_CONV + 0);
+
+        res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
+
+        lm_ggml_metal_cv_free(cv);
+    }
+
+    return res;
+}
+
 lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_scan(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op)  {
     LM_GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
 
@@ -427,7 +459,12 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_scan(l
         res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
     }
 
-    res.smem = 32*sizeof(float)*nsg;
+    // Shared memory layout:
+    // - sgptg * NW floats for partial sums (nsg * 32)
+    // - sgptg floats for shared_x_dt (nsg)
+    // - sgptg floats for shared_dA (nsg)
+    // Total: nsg * (32 + 2) floats
+    res.smem = (32 + 2)*sizeof(float)*nsg;
 
     return res;
 }
