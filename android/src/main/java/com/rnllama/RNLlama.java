@@ -45,6 +45,10 @@ public class RNLlama implements LifecycleEventListener {
   private final HashMap<Integer, LlamaContext> contexts = new HashMap<>();
 
   public void toggleNativeLog(boolean enabled, Promise promise) {
+    if (executorService.isShutdown()) {
+      promise.reject("ERR_EXECUTOR_SHUTDOWN", "Executor service has been shutdown");
+      return;
+    }
     executorService.execute(() -> {
       try {
         LlamaContext.toggleNativeLog(reactContext, enabled);
