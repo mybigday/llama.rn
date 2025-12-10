@@ -128,6 +128,13 @@ static void lm_ggml_print_backtrace_symbols(void) {
 #elif defined(__linux__) && defined(__GLIBC__)
 #include <execinfo.h>
 static void lm_ggml_print_backtrace_symbols(void) {
+    void * trace[100];
+    int nptrs = backtrace(trace, sizeof(trace)/sizeof(trace[0]));
+    backtrace_symbols_fd(trace, nptrs, STDERR_FILENO);
+}
+#elif defined(__APPLE__)
+#include <execinfo.h>
+static void lm_ggml_print_backtrace_symbols(void) {
     // void * trace[100];
     // int nptrs = backtrace(trace, sizeof(trace)/sizeof(trace[0]));
     // backtrace_symbols_fd(trace, nptrs, STDERR_FILENO);
@@ -143,6 +150,20 @@ void lm_ggml_print_backtrace(void) {
     if (LM_GGML_NO_BACKTRACE) {
         return;
     }
+#if defined(__APPLE__)
+    // On macOS, fork+debugger attachment is problematic due to:
+    // 1. libdispatch "poisons" forked child processes
+    // 2. lldb has issues attaching to parent from forked child
+    // Use simple backtrace() instead to avoid Terminal.app crashes
+    const char * LM_GGML_BACKTRACE_LLDB = getenv("LM_GGML_BACKTRACE_LLDB");
+    if (!LM_GGML_BACKTRACE_LLDB) {
+        fprintf(stderr, "WARNING: Using native backtrace. Set LM_GGML_BACKTRACE_LLDB for more info.\n");
+        fprintf(stderr, "WARNING: LM_GGML_BACKTRACE_LLDB may cause native MacOS Terminal.app to crash.\n");
+        fprintf(stderr, "See: https://github.com/ggml-org/llama.cpp/pull/17869\n");
+        lm_ggml_print_backtrace_symbols();
+        return;
+    }
+#endif
 #if defined(__linux__)
     FILE * f = fopen("/proc/self/status", "r");
     size_t size = 0;
