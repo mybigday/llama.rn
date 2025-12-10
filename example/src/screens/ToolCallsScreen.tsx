@@ -358,8 +358,11 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         {
           text: 'Reset',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
             messagesRef.current = []
+            if (context) {
+              await context.clearCache(false)
+            }
             setMessagesVersion((prev) => prev + 1)
             addSystemMessage(
               `Hello! I'm a tool-calling AI assistant. You can customize my tools using the tools button in the header. Try asking me something!`,

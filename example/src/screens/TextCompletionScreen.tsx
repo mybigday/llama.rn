@@ -300,6 +300,7 @@ export default function TextCompletionScreen({
             setIsEditingResult(false)
             setEditableResult('')
             if (context) {
+              await context.clearCache(false)
               try {
                 const defaultMessages = [
                   {

@@ -467,8 +467,11 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         {
           text: 'Reset',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
             messagesRef.current = []
+            if (context) {
+              await context.clearCache(false)
+            }
             setMessagesVersion((prev) => prev + 1)
             setPendingMedia(null)
             const welcomeMessage = createWelcomeMessage(multimodalSupport)
