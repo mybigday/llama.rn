@@ -2,7 +2,14 @@ cmake_minimum_required(VERSION 3.10)
 
 project(llama.rn)
 
+set(CMAKE_ANDROID_STL_TYPE c++_shared)
+
+find_package(ReactAndroid CONFIG REQUIRED)
+# Try to find fbjni separately if not in ReactAndroid
+find_package(fbjni CONFIG REQUIRED)
+
 set(CMAKE_CXX_STANDARD 17)
+
 set(RNLLAMA_LIB_DIR ${CMAKE_SOURCE_DIR}/../../../cpp)
 
 # Include directories for rnllama headers (needed by JNI wrapper)
@@ -23,9 +30,13 @@ endif()
 
 # JNI wrapper source files (always build from source)
 set(JNI_SOURCE_FILES
-    ${CMAKE_SOURCE_DIR}/jni-utils.h
-    ${CMAKE_SOURCE_DIR}/jni-utils.cpp
-    ${CMAKE_SOURCE_DIR}/jni.cpp
+    ${CMAKE_SOURCE_DIR}/RNLlamaJSI.cpp
+    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/RNLlamaJSI.cpp
+    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/JSIContext.cpp
+    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/JSIUtils.cpp
+    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/JSIParams.cpp
+    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/JSITaskManager.cpp
+    ${CMAKE_SOURCE_DIR}/../../../cpp/jsi/ThreadPool.cpp
 )
 
 function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
@@ -46,9 +57,33 @@ function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
         ${JNI_SOURCE_FILES}
     )
 
-    target_link_libraries(${jni_name} PRIVATE ${LOG_LIB} android)
+    # Link JSI libraries
+    if(${REACT_NATIVE_MINOR_VERSION} GREATER_EQUAL 76)
+        target_link_libraries(${jni_name} PRIVATE
+            ${LOG_LIB}
+            android
+            fbjni::fbjni
+            ReactAndroid::jsi
+            ReactAndroid::reactnative
+        )
+    else ()
+        target_link_libraries(${jni_name} PRIVATE
+            ${LOG_LIB}
+            android
+            fbjni::fbjni
+            ReactAndroid::jsi
+            ReactAndroid::turbomodulejsijni
+            ReactAndroid::react_nativemodule_core
+        )
+    endif ()
+
+    # Ensure CallInvoker.h path is available even if prefab targets are missing usage includes
+    if(RN_PREFAB_REACTNATIVE_INCLUDE)
+        target_include_directories(${jni_name} PRIVATE ${RN_PREFAB_REACTNATIVE_INCLUDE})
+    endif()
 
     if (CMAKE_BUILD_TYPE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+
         target_compile_options(${jni_name} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
     endif ()
 

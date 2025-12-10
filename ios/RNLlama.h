@@ -1,5 +1,6 @@
-#import <React/RCTEventEmitter.h>
 #import <React/RCTBridgeModule.h>
+#import <React/RCTBridge+Private.h>
+#import <ReactCommon/RCTTurboModule.h>
 
 #if RNLLAMA_BUILD_FROM_SOURCE
 #import "json.hpp"
@@ -7,7 +8,6 @@
 #import <rnllama/nlohmann/json.hpp>
 #endif
 
-// TODO: Use RNLlamaSpec (Need to refactor NSDictionary usage)
-@interface RNLlama : RCTEventEmitter <RCTBridgeModule>
+@interface RNLlama : NSObject <RCTBridgeModule>
 
 @end
