@@ -25,6 +25,7 @@ static bool lm_ggml_is_view(const struct lm_ggml_tensor * t) {
 // ops that return true for this function must not use restrict pointers for their backend implementations
 bool lm_ggml_op_can_inplace(enum lm_ggml_op op) {
     switch (op) {
+        case LM_GGML_OP_FILL:
         case LM_GGML_OP_SCALE:
         case LM_GGML_OP_DIAG_MASK_ZERO:
         case LM_GGML_OP_DIAG_MASK_INF:
