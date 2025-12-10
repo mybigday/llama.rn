@@ -4,9 +4,15 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![npm](https://img.shields.io/npm/v/llama.rn.svg)](https://www.npmjs.com/package/llama.rn/)
 
-React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp).
+React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp) - LLM inference in C/C++
 
-[llama.cpp](https://github.com/ggerganov/llama.cpp): Inference of [LLaMA](https://arxiv.org/abs/2302.13971) model in pure C/C++
+**Key Features:**
+
+- **GPU/NPU Acceleration**: Metal (iOS), Hexagon NPU (Android, Experimental) for on-device inference
+- **Multimodal Support**: Support vision/audio understanding models through mmproj projector integration
+- **Parallel Decoding**: Slot-based concurrent request processing with automatic queue management
+- **Tool Calling**: Universal function calling support via Jinja templates
+- **Grammar Sampling**: GBNF and JSON schema support for structured, constrained output generation
 
 ## Installation
 
