@@ -5268,8 +5268,6 @@ struct lm_ggml_tensor * lm_ggml_flash_attn_ext(
 
     if (mask) {
         LM_GGML_ASSERT(lm_ggml_is_contiguous(mask));
-        LM_GGML_ASSERT(mask->ne[1] >= LM_GGML_PAD(q->ne[1], LM_GGML_KQ_MASK_PAD) &&
-                "the Flash-Attention kernel requires the mask to be padded to LM_GGML_KQ_MASK_PAD and at least n_queries big");
         //LM_GGML_ASSERT(lm_ggml_can_repeat_rows(mask, qk));
 
         LM_GGML_ASSERT(q->ne[2] % mask->ne[2] == 0);
