@@ -312,15 +312,8 @@ static struct buffer_address lm_ggml_dyn_tallocr_alloc(struct lm_ggml_dyn_talloc
 }
 
 // this is a very naive implementation, but for our case the number of free blocks should be very small
-static void lm_ggml_dyn_tallocr_free_tensor(struct lm_ggml_dyn_tallocr * alloc, struct buffer_address addr, size_t size, const struct lm_ggml_tensor * tensor) {
+static void lm_ggml_dyn_tallocr_free_bytes(struct lm_ggml_dyn_tallocr * alloc, struct buffer_address addr, size_t size) {
     size = aligned_offset(NULL, size, alloc->alignment);
-
-    AT_PRINTF("%s: freeing %s at {chunk=%d, offset=%zu} (%zu bytes) - n_free_blocks = %d\n",
-        __func__, tensor->name, addr.chunk, addr.offset, size, alloc->chunks[addr.chunk]->n_free_blocks);
-
-#ifdef LM_GGML_ALLOCATOR_DEBUG
-    remove_allocated_tensor(alloc, addr, tensor);
-#endif
 
     struct tallocr_chunk * chunk = alloc->chunks[addr.chunk];
 
@@ -357,8 +350,6 @@ static void lm_ggml_dyn_tallocr_free_tensor(struct lm_ggml_dyn_tallocr * alloc, 
     }
     // otherwise, add a new block
     lm_ggml_dyn_tallocr_insert_block(chunk, addr.offset, size);
-
-    LM_GGML_UNUSED(tensor);
 }
 
 static void lm_ggml_dyn_tallocr_reset(struct lm_ggml_dyn_tallocr * alloc) {
@@ -616,13 +607,17 @@ static void lm_ggml_gallocr_free_extra_space(lm_ggml_gallocr_t galloc, struct lm
 
     LM_GGML_ASSERT(parent_size >= node_size);
 
+    // note: we want after the freeing the chunks to continue to be aligned
+    struct lm_ggml_dyn_tallocr * p_alloc = galloc->buf_tallocs[p_hn->buffer_id];
+    parent_size = aligned_offset(NULL, parent_size, p_alloc->alignment);
+    node_size = aligned_offset(NULL, node_size, p_alloc->alignment);
+
     if (parent_size > node_size) {
-        struct lm_ggml_dyn_tallocr * p_alloc = galloc->buf_tallocs[p_hn->buffer_id];
         struct buffer_address p_addr = p_hn->addr;
         p_addr.offset += node_size;
         size_t extra_size = parent_size - node_size;
         AT_PRINTF("freeing extra %zu bytes from parent %s for %s\n", extra_size, parent->name, node->name);
-        lm_ggml_dyn_tallocr_free_tensor(p_alloc, p_addr, extra_size, parent);
+        lm_ggml_dyn_tallocr_free_bytes(p_alloc, p_addr, extra_size);
     }
 }
 
@@ -706,7 +701,14 @@ static void lm_ggml_gallocr_free_node(lm_ggml_gallocr_t galloc, struct lm_ggml_t
     struct lm_ggml_dyn_tallocr * alloc = galloc->buf_tallocs[buffer_id];
     lm_ggml_backend_buffer_type_t buft = galloc->bufts[buffer_id];
     size_t size = lm_ggml_backend_buft_get_alloc_size(buft, node);
-    lm_ggml_dyn_tallocr_free_tensor(alloc, hn->addr, size, node);
+
+    AT_PRINTF("%s: freeing %s at {chunk=%d, offset=%zu} (%zu bytes) - n_free_blocks = %d\n",
+        __func__, node->name, hn->addr.chunk, hn->addr.offset, size, alloc->chunks[hn->addr.chunk]->n_free_blocks);
+#ifdef LM_GGML_ALLOCATOR_DEBUG
+    remove_allocated_tensor(alloc, hn->addr, node);
+#endif
+
+    lm_ggml_dyn_tallocr_free_bytes(alloc, hn->addr, size);
     hn->allocated = false;
 }
 
