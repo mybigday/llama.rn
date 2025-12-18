@@ -561,14 +561,18 @@ namespace rnllama_jsi {
 
                          std::string system_info = common_params_get_system_info(ctx->params);
 
-                         return [gpuEnabled, reasonNoGPU, system_info, usedDevices, ctx](jsi::Runtime& rt) {
+                         return [gpuEnabled, reasonNoGPU, system_info, usedDevices, contextId](jsi::Runtime& rt) {
                              jsi::Object result(rt);
                              result.setProperty(rt, "gpu", gpuEnabled);
                              result.setProperty(rt, "reasonNoGPU", jsi::String::createFromUtf8(rt, reasonNoGPU));
                              result.setProperty(rt, "systemInfo", jsi::String::createFromUtf8(rt, system_info));
 
                              // Model metadata and chat template capabilities
-                             result.setProperty(rt, "model", createModelDetails(rt, ctx));
+                             long ctxPtr = g_llamaContexts.get(contextId);
+                             if (ctxPtr) {
+                                 auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
+                                 result.setProperty(rt, "model", createModelDetails(rt, ctx));
+                             }
 
                              // Maintain shape expected by TypeScript
                              result.setProperty(rt, "devices", toJsStringArray(rt, usedDevices));
@@ -640,7 +644,12 @@ namespace rnllama_jsi {
                     if (ctx->completion && ctx->completion->is_predicting) {
                          throw std::runtime_error("Context is busy");
                     }
-                    return [ctx, path](jsi::Runtime& rt) {
+                    return [contextId, path](jsi::Runtime& rt) {
+                        long ctxPtr = g_llamaContexts.get(contextId);
+                        if (!ctxPtr) {
+                            throw std::runtime_error("Context was released");
+                        }
+                        auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
                         return rnllama_jsi::loadSession(rt, ctx, path);
                     };
                 }, contextId);
@@ -1052,7 +1061,14 @@ namespace rnllama_jsi {
 
                                 auto runtime = runtimePtr;
                                 if (runtime) {
-                                    callInvoker->invokeAsync([onToken, output_copy, ctx, partial_output, has_partial_output, runtime]() {
+                                    callInvoker->invokeAsync([onToken, output_copy, contextId, partial_output, has_partial_output, runtime]() {
+                                        // Check if context is still valid (may have been released during async callback)
+                                        long ctxPtr = g_llamaContexts.get(contextId);
+                                        if (!ctxPtr) {
+                                            // Context was released, skip token callback
+                                            return;
+                                        }
+                                        auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
                                         auto& rt = *runtime;
                                         jsi::Object res = createTokenResult(rt, ctx, output_copy);
                                         if (has_partial_output) {
@@ -1068,8 +1084,19 @@ namespace rnllama_jsi {
                     common_perf_print(ctx->ctx, ctx->completion->ctx_sampling);
                     ctx->completion->endCompletion();
 
-                    return [ctx](jsi::Runtime& rt) {
-                        return createCompletionResult(rt, ctx);
+                    return [contextId](jsi::Runtime& rt) -> jsi::Value {
+                        // Check if context is still valid (may have been released during async callback)
+                        long ctxPtr = g_llamaContexts.get(contextId);
+                        if (!ctxPtr) {
+                            // Context was released, return minimal interrupted result
+                            jsi::Object res(rt);
+                            res.setProperty(rt, "text", jsi::String::createFromUtf8(rt, ""));
+                            res.setProperty(rt, "interrupted", true);
+                            res.setProperty(rt, "context_released", true);
+                            return jsi::Value(std::move(res));
+                        }
+                        auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
+                        return jsi::Value(std::move(createCompletionResult(rt, ctx)));
                     };
                 }, contextId);
             }
