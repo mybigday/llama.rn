@@ -282,11 +282,14 @@ cp ./$LLAMA_DIR/common/unicode.cpp ./cpp/common/unicode.cpp
 # Copy multimodal files from tools/mtmd
 rm -rf ./cpp/tools/mtmd
 mkdir -p ./cpp/tools/mtmd
+cp -r ./$LLAMA_DIR/tools/mtmd/models ./cpp/tools/mtmd/models
 cp ./$LLAMA_DIR/tools/mtmd/mtmd.h ./cpp/tools/mtmd/mtmd.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd.cpp ./cpp/tools/mtmd/mtmd.cpp
 cp ./$LLAMA_DIR/tools/mtmd/clip.h ./cpp/tools/mtmd/clip.h
 cp ./$LLAMA_DIR/tools/mtmd/clip.cpp ./cpp/tools/mtmd/clip.cpp
 cp ./$LLAMA_DIR/tools/mtmd/clip-impl.h ./cpp/tools/mtmd/clip-impl.h
+cp ./$LLAMA_DIR/tools/mtmd/clip-model.h ./cpp/tools/mtmd/clip-model.h
+cp ./$LLAMA_DIR/tools/mtmd/clip-graph.h ./cpp/tools/mtmd/clip-graph.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-helper.cpp ./cpp/tools/mtmd/mtmd-helper.cpp
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-helper.h ./cpp/tools/mtmd/mtmd-helper.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-audio.h ./cpp/tools/mtmd/mtmd-audio.h
@@ -336,6 +339,8 @@ files_add_lm_prefix=(
   # Multimodal files
   ./cpp/tools/mtmd/*.h
   ./cpp/tools/mtmd/*.cpp
+  ./cpp/tools/mtmd/models/*.h
+  ./cpp/tools/mtmd/models/*.cpp
 
   # llama api
   ./cpp/*.h

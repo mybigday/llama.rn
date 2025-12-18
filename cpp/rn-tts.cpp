@@ -285,8 +285,8 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
 
   init_result = common_init_from_params(vocoder_params);
   params = vocoder_params;
-  model = init_result.model.get();
-  ctx = init_result.context.get();
+  model = init_result->model();
+  ctx = init_result->context();
 
   if (model == nullptr || ctx == nullptr) {
       LOG_ERROR("Failed to load vocoder model: %s", vocoder_model_path.c_str());

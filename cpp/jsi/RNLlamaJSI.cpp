@@ -524,8 +524,8 @@ namespace rnllama_jsi {
 
                          std::vector<std::string> usedDevices;
                          bool gpuEnabled = false;
-                         if (ctx->llama_init.model != nullptr) {
-                             for (auto dev : ctx->llama_init.model->devices) {
+                         if (ctx->llama_init->model() != nullptr) {
+                             for (auto dev : ctx->llama_init->model()->devices) {
                                  if (dev == nullptr) continue;
                                  const char* used_name = lm_ggml_backend_dev_name(dev);
                                  if (used_name != nullptr) {

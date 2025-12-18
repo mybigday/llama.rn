@@ -2169,7 +2169,8 @@ static const ggml::cpu::tensor_traits * lm_ggml_repack_get_optimal_repack_type(c
     static const ggml::cpu::repack::tensor_traits<block_iq4_nl, 8, 8, LM_GGML_TYPE_Q8_0> iq4_nl_8x8_q8_0;
 
     if (cur->type == LM_GGML_TYPE_Q4_0) {
-        if (lm_ggml_cpu_has_avx2() || (lm_ggml_cpu_has_sve() && lm_ggml_cpu_has_matmul_int8() && lm_ggml_cpu_get_sve_cnt() == QK8_0)) {
+        if (lm_ggml_cpu_has_avx2() || (lm_ggml_cpu_has_sve() && lm_ggml_cpu_has_matmul_int8() && lm_ggml_cpu_get_sve_cnt() == QK8_0)
+            || (lm_ggml_cpu_has_riscv_v() && (lm_ggml_cpu_get_rvv_vlen() >= QK4_0))) {
             if (cur->ne[1] % 8 == 0) {
                 return &q4_0_8x8_q8_0;
             }

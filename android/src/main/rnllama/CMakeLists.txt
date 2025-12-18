@@ -24,6 +24,7 @@ file(GLOB GGML_CPU_CPP_FILES ${RNLLAMA_LIB_DIR}/ggml-cpu/*.cpp)
 file(GLOB GGML_CPU_AMX_FILES ${RNLLAMA_LIB_DIR}/ggml-cpu/amx/*.cpp)
 file(GLOB LLAMA_FILES ${RNLLAMA_LIB_DIR}/llama*.cpp)
 file(GLOB MTMD_FILES ${RNLLAMA_LIB_DIR}/tools/mtmd/*.cpp)
+file(GLOB MTMD_MODEL_FILES ${RNLLAMA_LIB_DIR}/tools/mtmd/models/*.cpp)
 file(GLOB COMMON_FILES ${RNLLAMA_LIB_DIR}/common/*.cpp)
 
 # Source files for rnllama library (excluding jni.cpp and jni-utils)
@@ -61,6 +62,7 @@ set(
     ${RNLLAMA_LIB_DIR}/minja/chat-template.hpp
 
     # Multimodal support (globbed)
+    ${MTMD_MODEL_FILES}
     ${MTMD_FILES}
 
     # React Native llama APIs

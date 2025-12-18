@@ -213,8 +213,8 @@ bool llama_rn_context::loadModel(common_params &params_)
     }
 
     llama_init = common_init_from_params(params);
-    model = llama_init.model.get();
-    ctx = llama_init.context.get();
+    model = llama_init->model();
+    ctx = llama_init->context();
     if (model == nullptr)
     {
         LOG_ERROR("unable to load model: %s", params_.model.path.c_str());

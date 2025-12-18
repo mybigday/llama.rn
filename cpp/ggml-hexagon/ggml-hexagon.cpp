@@ -1976,9 +1976,6 @@ static bool lm_ggml_hexagon_supported_mul_mat(const struct lm_ggml_hexagon_sessi
             break;
 
         case LM_GGML_TYPE_F16:
-            if (!opt_experimental) {
-                return false;
-            }
             break;
 
         default:
