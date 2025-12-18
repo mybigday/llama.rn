@@ -8,10 +8,19 @@ llm_build_glm4::llm_build_glm4(const llama_model & model, const llm_graph_params
 
     LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
 
+    int sections[4];
+    std::copy(std::begin(hparams.rope_sections), std::begin(hparams.rope_sections) + 4, sections);
+
     lm_ggml_tensor * cur;
     lm_ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
+
+    bool use_mrope = hparams.use_mrope();
+    if (ubatch.embd && !use_mrope) {
+        // unfortunately, we need to forcefully stop here, to avoid users complaining about wrong results
+        LM_GGML_ABORT("This GGUF does not support multimodal. Please reconvert it.");
+    }
 
     // inp_pos - contains the positions
     lm_ggml_tensor * inp_pos = build_inp_pos();
@@ -63,11 +72,25 @@ llm_build_glm4::llm_build_glm4(const llama_model & model, const llm_graph_params
                 Vcur = lm_ggml_view_3d(ctx0, cur, n_embd_head, n_head_kv, n_tokens, n_embd_head * sizeof(float),
                                     cur->nb[1], 1 * sizeof(float) * (n_embd + n_embd_gqa));
             }
-            Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                                 ext_factor, attn_factor, beta_fast, beta_slow);
 
-            Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                                 ext_factor, attn_factor, beta_fast, beta_slow);
+            if (use_mrope) {
+                Qcur = lm_ggml_rope_multi(ctx0, Qcur, inp_pos, nullptr,
+                            n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
+                            ext_factor, attn_factor, beta_fast, beta_slow);
+
+                Kcur = lm_ggml_rope_multi(ctx0, Kcur, inp_pos, nullptr,
+                            n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
+                            ext_factor, attn_factor, beta_fast, beta_slow);
+            } else {
+                // Normal RoPE
+                Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot,
+                                    rope_type, n_ctx_orig, freq_base, freq_scale,
+                                    ext_factor, attn_factor, beta_fast, beta_slow);
+
+                Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot,
+                                    rope_type, n_ctx_orig, freq_base, freq_scale,
+                                    ext_factor, attn_factor, beta_fast, beta_slow);
+            }
 
             cb(Qcur, "Qcur", il);
             cb(Kcur, "Kcur", il);

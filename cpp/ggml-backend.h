@@ -307,6 +307,7 @@ extern "C" {
     LM_GGML_API void                 lm_ggml_backend_sched_free(lm_ggml_backend_sched_t sched);
 
     // Initialize backend buffers from a measure graph
+    LM_GGML_API void                 lm_ggml_backend_sched_reserve_size(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * measure_graph, size_t * sizes);
     LM_GGML_API bool                 lm_ggml_backend_sched_reserve(lm_ggml_backend_sched_t sched, struct lm_ggml_cgraph * measure_graph); // returns success
 
     LM_GGML_API int                  lm_ggml_backend_sched_get_n_backends(lm_ggml_backend_sched_t sched);

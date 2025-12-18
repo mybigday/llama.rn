@@ -99,6 +99,7 @@ extern "C" {
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_sme        (void);
     // other
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_riscv_v    (void);
+    LM_GGML_BACKEND_API int lm_ggml_cpu_get_rvv_vlen   (void);  // risc-v vector length in bytes
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_vsx        (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_vxe        (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_wasm_simd  (void);

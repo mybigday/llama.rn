@@ -36,7 +36,7 @@ struct llama_rn_context_tts {
     bool next_token_uses_guide_token = true;
 
     // Vocoder fields (from llama_rn_context_vocoder)
-    common_init_result init_result;
+    common_init_result_ptr init_result;
     common_params params;
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;

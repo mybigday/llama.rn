@@ -31,16 +31,25 @@ llm_build_qwen2::llm_build_qwen2(const llama_model & model, const llm_graph_para
         {
             // compute Q and K and RoPE them
             lm_ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
-            Qcur = lm_ggml_add(ctx0, Qcur, model.layers[il].bq);
             cb(Qcur, "Qcur", il);
+            if (model.layers[il].bq) {
+                Qcur = lm_ggml_add(ctx0, Qcur, model.layers[il].bq);
+                cb(Qcur, "Qcur", il);
+            }
 
             lm_ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur);
-            Kcur = lm_ggml_add(ctx0, Kcur, model.layers[il].bk);
             cb(Kcur, "Kcur", il);
+            if (model.layers[il].bk) {
+                Kcur = lm_ggml_add(ctx0, Kcur, model.layers[il].bk);
+                cb(Kcur, "Kcur", il);
+            }
 
             lm_ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
-            Vcur = lm_ggml_add(ctx0, Vcur, model.layers[il].bv);
             cb(Vcur, "Vcur", il);
+            if (model.layers[il].bv) {
+                Vcur = lm_ggml_add(ctx0, Vcur, model.layers[il].bv);
+                cb(Vcur, "Vcur", il);
+            }
 
             Qcur = lm_ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
             Kcur = lm_ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
