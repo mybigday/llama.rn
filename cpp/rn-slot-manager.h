@@ -51,6 +51,7 @@ struct llama_rn_queued_request {
     // State management
     std::string load_state_path;       // File path to load state from before processing
     std::string save_state_path;       // File path to save state to after completion
+    int32_t load_state_size;           // Number of tokens to load (0 or -1 = all tokens)
     int32_t save_state_size;           // Number of tokens to save (0 or -1 = all tokens)
 
     llama_rn_queued_request() :
@@ -60,6 +61,7 @@ struct llama_rn_queued_request {
         reasoning_format(COMMON_REASONING_FORMAT_NONE),
         thinking_forced_open(false),
         embd_normalize(-1),
+        load_state_size(-1),
         save_state_size(-1)
     {}
 };
@@ -115,6 +117,7 @@ struct llama_rn_slot_manager {
         const std::string& prefill_text,
         const std::string& load_state_path,
         const std::string& save_state_path,
+        int32_t load_state_size,
         int32_t save_state_size,
         std::function<void(const completion_token_output&)> on_token,
         std::function<void(llama_rn_slot*)> on_complete

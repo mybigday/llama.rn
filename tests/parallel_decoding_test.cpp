@@ -484,6 +484,7 @@ bool test_single_request_completion() {
             "", // prefill_text
             "", // load_state_path
             "", // save_state_path
+            -1, // load_state_size
             -1, // save_state_size
             [&](const completion_token_output& token) {
                 token_callback_called = true;
@@ -566,13 +567,13 @@ bool test_request_cancellation() {
         int tokens_generated1 = 0, tokens_generated2 = 0;
 
         int32_t req_id1 = ctx.slot_manager->queue_request(
-            params, prompt1, std::vector<std::string>(), "What is the capital of France?", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1,
+            params, prompt1, std::vector<std::string>(), "What is the capital of France?", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1, -1,
             [&](const completion_token_output& token) { tokens_generated1++; },
             [&](llama_rn_slot* slot) { complete1 = true; }
         );
 
         int32_t req_id2 = ctx.slot_manager->queue_request(
-            params, prompt2, std::vector<std::string>(), "Explain quantum computing.", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1,
+            params, prompt2, std::vector<std::string>(), "Explain quantum computing.", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1, -1,
             [&](const completion_token_output& token) { tokens_generated2++; },
             [&](llama_rn_slot* slot) { complete2 = true; }
         );
@@ -634,7 +635,7 @@ bool test_sequential_requests() {
             bool complete = false;
 
             int32_t req_id = ctx.slot_manager->queue_request(
-                params, prompt, std::vector<std::string>(), prompt_str, 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1,
+                params, prompt, std::vector<std::string>(), prompt_str, 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1, -1,
                 [&](const completion_token_output& token) {},
                 [&](llama_rn_slot* slot) { complete = true; }
             );
@@ -687,7 +688,7 @@ bool test_queue_overflow() {
             std::vector<llama_token> prompt = common_tokenize(ctx.ctx, "Test", false);
 
             int32_t req_id = ctx.slot_manager->queue_request(
-                params, prompt, std::vector<std::string>(), "Test", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1,
+                params, prompt, std::vector<std::string>(), "Test", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1, -1,
                 [](const completion_token_output& token) {},
                 [](llama_rn_slot* slot) {}
             );
@@ -756,7 +757,8 @@ bool test_queue_request_with_state() {
             "",
             "",                  // no load
             full_state_path,     // save all tokens
-            -1,                  // no size limit
+            -1,                  // no load size limit
+            -1,                  // no save size limit
             [&](const completion_token_output& token) {},
             [&](llama_rn_slot* slot) {
                 complete1 = true;
@@ -801,6 +803,7 @@ bool test_queue_request_with_state() {
             "",
             full_state_path,     // load full state
             limited_state_path,  // save with limit
+            -1,                  // no load size limit
             save_size_limit,     // save only prompt tokens
             [&](const completion_token_output& token) {},
             [&](llama_rn_slot* slot) { complete2 = true; }
@@ -912,6 +915,7 @@ bool test_state_reuse() {
             "",
             "",  // no load
             save_path,  // save
+            -1,  // no load size limit
             (int32_t)prompt_tokens.size(),  // save only prompt tokens
             [&](const completion_token_output& token) {},
             [&](llama_rn_slot* slot) { complete1 = true; }
@@ -956,7 +960,8 @@ bool test_state_reuse() {
             "",
             save_path,  // load saved state
             "",  // no save this time
-            -1,
+            -1,  // no load size limit
+            -1,  // no save size limit
             [&](const completion_token_output& token) {
                 tokens_generated2++;
             },

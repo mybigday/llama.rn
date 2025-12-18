@@ -318,7 +318,7 @@
     if (context->is_model_loaded) {
         context->llama->attachThreadpoolsIfAvailable();
 
-        const auto &model_devices = context->llama->llama_init.model->devices;
+        const auto &model_devices = context->llama->llama_init->model()->devices;
         for (auto dev : model_devices) {
             auto dev_type = lm_ggml_backend_dev_type(dev);
             const char *used_name = lm_ggml_backend_dev_name(dev);
@@ -1441,6 +1441,7 @@
     // Get state parameters
     std::string load_state_path;
     std::string save_state_path;
+    int32_t load_state_size = -1;
     int32_t save_state_size = -1;
 
     if (params[@"load_state_path"] && [params[@"load_state_path"] isKindOfClass:[NSString class]]) {
@@ -1450,6 +1451,10 @@
             path = [path substringFromIndex:7];
         }
         load_state_path = [path UTF8String];
+    }
+
+    if (params[@"load_state_size"] && [params[@"load_state_size"] isKindOfClass:[NSNumber class]]) {
+        load_state_size = [params[@"load_state_size"] intValue];
     }
 
     if (params[@"save_state_path"] && [params[@"save_state_path"] isKindOfClass:[NSString class]]) {
@@ -1639,6 +1644,7 @@
         prefill_text_str,
         load_state_path,
         save_state_path,
+        load_state_size,
         save_state_size,
         token_callback,
         complete_callback

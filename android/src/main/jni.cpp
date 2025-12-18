@@ -869,8 +869,8 @@ Java_com_rnllama_LlamaContext_initContext(
         }
     }
 
-    if (llama->llama_init.model) {
-        const auto &model_devices = llama->llama_init.model->devices;
+    if (llama->llama_init->model()) {
+        const auto &model_devices = llama->llama_init->model()->devices;
         for (auto dev : model_devices) {
             auto dev_type = lm_ggml_backend_dev_type(dev);
             if (dev_type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || dev_type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
@@ -2556,6 +2556,7 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
         // Extract state paths
         std::string load_state_path;
         std::string save_state_path;
+        int32_t load_state_size = -1;
         int32_t save_state_size = -1;
 
         if (readablemap::hasKey(env, params_map, "load_state_path")) {
@@ -2569,6 +2570,10 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
                 }
                 env->ReleaseStringUTFChars(load_path, load_path_chars);
             }
+        }
+
+        if (readablemap::hasKey(env, params_map, "load_state_size")) {
+            load_state_size = readablemap::getInt(env, params_map, "load_state_size", -1);
         }
 
         if (readablemap::hasKey(env, params_map, "save_state_path")) {
@@ -2600,6 +2605,7 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
             prefill_text_str,
             load_state_path,
             save_state_path,
+            load_state_size,
             save_state_size,
             on_token,
             on_complete
