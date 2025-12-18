@@ -35,6 +35,7 @@ file(GLOB GGML_CPU_CPP_FILES ${SOURCE_DIR}/ggml-cpu/*.cpp)
 file(GLOB GGML_CPU_AMX_FILES ${SOURCE_DIR}/ggml-cpu/amx/*.cpp)
 file(GLOB LLAMA_FILES ${SOURCE_DIR}/llama*.cpp)
 file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
+file(GLOB MTMD_MODEL_FILES ${SOURCE_DIR}/tools/mtmd/models/*.cpp)
 file(GLOB COMMON_FILES ${SOURCE_DIR}/common/*.cpp)
 
 # Platform-specific source files
@@ -83,6 +84,7 @@ set(RNLLAMA_COMMON_SOURCES
     ${SOURCE_DIR}/nlohmann/json_fwd.hpp
 
     # Multimodal support (globbed)
+    ${MTMD_MODEL_FILES}
     ${MTMD_FILES}
 
     # React Native llama APIs

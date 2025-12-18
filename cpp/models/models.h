@@ -441,21 +441,11 @@ private:
                 lm_ggml_tensor * cur,
                 lm_ggml_tensor * causal_mask,
                 lm_ggml_tensor * identity,
+                lm_ggml_tensor * diag_mask,
                         int   il);
 
     lm_ggml_tensor * build_layer_ffn(
                 lm_ggml_tensor * cur,
-                        int   il);
-
-    lm_ggml_tensor * build_delta_net_recurrent(
-                lm_ggml_tensor * q,
-                lm_ggml_tensor * k,
-                lm_ggml_tensor * v,
-                lm_ggml_tensor * g,
-                lm_ggml_tensor * beta,
-                lm_ggml_tensor * state,
-                lm_ggml_tensor * causal_mask,
-                lm_ggml_tensor * identity,
                         int   il);
 
     lm_ggml_tensor * build_delta_net_chunking(
@@ -467,7 +457,17 @@ private:
                 lm_ggml_tensor * state,
                 lm_ggml_tensor * causal_mask,
                 lm_ggml_tensor * identity,
+                lm_ggml_tensor * diag_mask,
                         int   il);
+
+    lm_ggml_tensor * build_delta_net_autoregressive(
+                lm_ggml_tensor * q,
+                lm_ggml_tensor * k,
+                lm_ggml_tensor * v,
+                lm_ggml_tensor * g,
+                lm_ggml_tensor * beta,
+                lm_ggml_tensor * state,
+                int           il);
 
     lm_ggml_tensor * build_norm_gated(
                 lm_ggml_tensor * input,

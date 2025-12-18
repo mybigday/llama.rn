@@ -35,6 +35,7 @@ file(GLOB GGML_METAL_M_FILES ${SOURCE_DIR}/ggml-metal/*.m)
 file(GLOB GGML_BLAS_FILES ${SOURCE_DIR}/ggml-blas/*.cpp)
 file(GLOB LLAMA_FILES ${SOURCE_DIR}/llama*.cpp)
 file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
+file(GLOB MTMD_MODEL_FILES ${SOURCE_DIR}/tools/mtmd/models/*.cpp)
 file(GLOB COMMON_FILES ${SOURCE_DIR}/common/*.cpp)
 
 if (CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
@@ -99,6 +100,7 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/common/common.h
 
     # Multimodal support (globbed)
+    ${MTMD_MODEL_FILES}
     ${MTMD_FILES}
 
     # React Native llama APIs

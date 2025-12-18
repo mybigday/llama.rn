@@ -583,6 +583,10 @@ static lm_ggml_backend_feature * lm_ggml_backend_cpu_get_features(lm_ggml_backen
         if (lm_ggml_cpu_has_riscv_v()) {
             features.push_back({ "RISCV_V", "1" });
         }
+        if (lm_ggml_cpu_get_rvv_vlen() > 0) {
+            static std::string rvv_vlen = std::to_string(lm_ggml_cpu_get_rvv_vlen());
+            features.push_back({ "RVV_VLEN", rvv_vlen.c_str() });
+        }
         if (lm_ggml_cpu_has_vsx()) {
             features.push_back({ "VSX", "1" });
         }

@@ -312,15 +312,8 @@ static struct buffer_address lm_ggml_dyn_tallocr_alloc(struct lm_ggml_dyn_talloc
 }
 
 // this is a very naive implementation, but for our case the number of free blocks should be very small
-static void lm_ggml_dyn_tallocr_free_tensor(struct lm_ggml_dyn_tallocr * alloc, struct buffer_address addr, size_t size, const struct lm_ggml_tensor * tensor) {
+static void lm_ggml_dyn_tallocr_free_bytes(struct lm_ggml_dyn_tallocr * alloc, struct buffer_address addr, size_t size) {
     size = aligned_offset(NULL, size, alloc->alignment);
-
-    AT_PRINTF("%s: freeing %s at {chunk=%d, offset=%zu} (%zu bytes) - n_free_blocks = %d\n",
-        __func__, tensor->name, addr.chunk, addr.offset, size, alloc->chunks[addr.chunk]->n_free_blocks);
-
-#ifdef LM_GGML_ALLOCATOR_DEBUG
-    remove_allocated_tensor(alloc, addr, tensor);
-#endif
 
     struct tallocr_chunk * chunk = alloc->chunks[addr.chunk];
 
@@ -357,8 +350,6 @@ static void lm_ggml_dyn_tallocr_free_tensor(struct lm_ggml_dyn_tallocr * alloc, 
     }
     // otherwise, add a new block
     lm_ggml_dyn_tallocr_insert_block(chunk, addr.offset, size);
-
-    LM_GGML_UNUSED(tensor);
 }
 
 static void lm_ggml_dyn_tallocr_reset(struct lm_ggml_dyn_tallocr * alloc) {
@@ -603,7 +594,9 @@ static bool lm_ggml_gallocr_is_own(lm_ggml_gallocr_t galloc, struct lm_ggml_tens
 }
 
 static bool lm_ggml_gallocr_is_allocated(lm_ggml_gallocr_t galloc, struct lm_ggml_tensor * t) {
-    return t->data != NULL || lm_ggml_gallocr_hash_get(galloc, t)->allocated;
+    return t->data != NULL // tensor data already set externally
+        || t->buffer // tensor on external buffer (but not yet allocated)
+        || lm_ggml_gallocr_is_own(galloc, t); // tensor will be allocated by galloc
 }
 
 // free the extra space at the end if the new tensor is smaller
@@ -616,13 +609,17 @@ static void lm_ggml_gallocr_free_extra_space(lm_ggml_gallocr_t galloc, struct lm
 
     LM_GGML_ASSERT(parent_size >= node_size);
 
+    // note: we want after the freeing the chunks to continue to be aligned
+    struct lm_ggml_dyn_tallocr * p_alloc = galloc->buf_tallocs[p_hn->buffer_id];
+    parent_size = aligned_offset(NULL, parent_size, p_alloc->alignment);
+    node_size = aligned_offset(NULL, node_size, p_alloc->alignment);
+
     if (parent_size > node_size) {
-        struct lm_ggml_dyn_tallocr * p_alloc = galloc->buf_tallocs[p_hn->buffer_id];
         struct buffer_address p_addr = p_hn->addr;
         p_addr.offset += node_size;
         size_t extra_size = parent_size - node_size;
         AT_PRINTF("freeing extra %zu bytes from parent %s for %s\n", extra_size, parent->name, node->name);
-        lm_ggml_dyn_tallocr_free_tensor(p_alloc, p_addr, extra_size, parent);
+        lm_ggml_dyn_tallocr_free_bytes(p_alloc, p_addr, extra_size);
     }
 }
 
@@ -706,7 +703,14 @@ static void lm_ggml_gallocr_free_node(lm_ggml_gallocr_t galloc, struct lm_ggml_t
     struct lm_ggml_dyn_tallocr * alloc = galloc->buf_tallocs[buffer_id];
     lm_ggml_backend_buffer_type_t buft = galloc->bufts[buffer_id];
     size_t size = lm_ggml_backend_buft_get_alloc_size(buft, node);
-    lm_ggml_dyn_tallocr_free_tensor(alloc, hn->addr, size, node);
+
+    AT_PRINTF("%s: freeing %s at {chunk=%d, offset=%zu} (%zu bytes) - n_free_blocks = %d\n",
+        __func__, node->name, hn->addr.chunk, hn->addr.offset, size, alloc->chunks[hn->addr.chunk]->n_free_blocks);
+#ifdef LM_GGML_ALLOCATOR_DEBUG
+    remove_allocated_tensor(alloc, hn->addr, node);
+#endif
+
+    lm_ggml_dyn_tallocr_free_bytes(alloc, hn->addr, size);
     hn->allocated = false;
 }
 
@@ -821,7 +825,8 @@ static void lm_ggml_gallocr_alloc_graph_impl(lm_ggml_gallocr_t galloc, struct lm
     }
 }
 
-bool lm_ggml_gallocr_reserve_n(lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph * graph, const int * node_buffer_ids, const int * leaf_buffer_ids) {
+static bool lm_ggml_gallocr_reserve_n_impl(
+        lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph * graph, const int * node_buffer_ids, const int * leaf_buffer_ids, bool no_alloc) {
     size_t min_hash_size = graph->n_nodes + graph->n_leafs;
     // add 25% margin to avoid hash collisions
     min_hash_size += min_hash_size / 4;
@@ -926,21 +931,39 @@ bool lm_ggml_gallocr_reserve_n(lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph *
                 size_t cur_size = galloc->buffers[i] ? lm_ggml_vbuffer_size(galloc->buffers[i]) : 0;
                 if (cur_size > 0) {
                     LM_GGML_LOG_DEBUG("%s: reallocating %s buffer from size %.02f MiB to %.02f MiB\n",
-                        __func__, lm_ggml_backend_buft_name(galloc->bufts[i]),
-                        cur_size / 1024.0 / 1024.0, new_size / 1024.0 / 1024.0);
+                        __func__, lm_ggml_backend_buft_name(galloc->bufts[i]), cur_size / 1024.0 / 1024.0, new_size / 1024.0 / 1024.0);
                 }
             }
 #endif
             lm_ggml_vbuffer_free(galloc->buffers[i]);
-            galloc->buffers[i] = lm_ggml_vbuffer_alloc(galloc->bufts[i], galloc->buf_tallocs[i], LM_GGML_BACKEND_BUFFER_USAGE_COMPUTE);
-            if (galloc->buffers[i] == NULL) {
-                LM_GGML_LOG_ERROR("%s: failed to allocate %s buffer of size %zu\n", __func__, lm_ggml_backend_buft_name(galloc->bufts[i]), new_size);
-                return false;
+            if (no_alloc) {
+                galloc->buffers[i] = NULL;
+            } else {
+                galloc->buffers[i] = lm_ggml_vbuffer_alloc(galloc->bufts[i], galloc->buf_tallocs[i], LM_GGML_BACKEND_BUFFER_USAGE_COMPUTE);
+                if (galloc->buffers[i] == NULL) {
+                    LM_GGML_LOG_ERROR("%s: failed to allocate %s buffer of size %zu\n", __func__, lm_ggml_backend_buft_name(galloc->bufts[i]), new_size);
+                    return false;
+                }
             }
         }
     }
 
     return true;
+}
+
+void lm_ggml_gallocr_reserve_n_size(
+        lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph * graph, const int * node_buffer_ids, const int * leaf_buffer_ids, size_t * sizes) {
+    LM_GGML_ASSERT(lm_ggml_gallocr_reserve_n_impl(galloc, graph, node_buffer_ids, leaf_buffer_ids, /*no_alloc =*/ true));
+    for (int i = 0; i < galloc->n_buffers; i++) {
+        sizes[i] = 0;
+        for (int c = 0; c < galloc->buf_tallocs[i]->n_chunks; c++) {
+            sizes[i] += galloc->buf_tallocs[i]->chunks[c]->max_size;
+        }
+    }
+}
+
+bool lm_ggml_gallocr_reserve_n(lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph * graph, const int * node_buffer_ids, const int * leaf_buffer_ids) {
+    return lm_ggml_gallocr_reserve_n_impl(galloc, graph, node_buffer_ids, leaf_buffer_ids, /*no_alloc =*/ false);
 }
 
 bool lm_ggml_gallocr_reserve(lm_ggml_gallocr_t galloc, struct lm_ggml_cgraph *graph) {
@@ -1145,7 +1168,8 @@ static bool alloc_tensor_range(struct lm_ggml_context * ctx,
     return true;
 }
 
-lm_ggml_backend_buffer_t lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_ggml_context * ctx, lm_ggml_backend_buffer_type_t buft) {
+static lm_ggml_backend_buffer_t lm_ggml_backend_alloc_ctx_tensors_from_buft_impl(
+        struct lm_ggml_context * ctx, lm_ggml_backend_buffer_type_t buft, size_t * nbytes_total, bool no_alloc) {
     LM_GGML_ASSERT(lm_ggml_get_no_alloc(ctx) == true);
 
     size_t alignment = lm_ggml_backend_buft_get_alignment(buft);
@@ -1153,6 +1177,7 @@ lm_ggml_backend_buffer_t lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_g
 
     lm_ggml_backend_buffer_t * buffers = NULL;
     size_t n_buffers = 0;
+    *nbytes_total = 0;
 
     size_t cur_buf_size = 0;
     struct lm_ggml_tensor * first = lm_ggml_get_first_tensor(ctx);
@@ -1164,10 +1189,11 @@ lm_ggml_backend_buffer_t lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_g
 
         if (cur_buf_size > 0 && (cur_buf_size + this_size) > max_size) {
             // allocate tensors in the current buffer
-            if (!alloc_tensor_range(ctx, first, t, buft, cur_buf_size, &buffers, &n_buffers)) {
+            if (!no_alloc && !alloc_tensor_range(ctx, first, t, buft, cur_buf_size, &buffers, &n_buffers)) {
                 return NULL;
             }
             first = t;
+            *nbytes_total += cur_buf_size;
             cur_buf_size = this_size;
         } else {
             cur_buf_size += this_size;
@@ -1176,15 +1202,21 @@ lm_ggml_backend_buffer_t lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_g
 
     // allocate remaining tensors
     if (cur_buf_size > 0) {
-        if (!alloc_tensor_range(ctx, first, NULL, buft, cur_buf_size, &buffers, &n_buffers)) {
+        *nbytes_total += cur_buf_size;
+        if (!no_alloc && !alloc_tensor_range(ctx, first, NULL, buft, cur_buf_size, &buffers, &n_buffers)) {
             return NULL;
         }
+    }
+
+    if (no_alloc) {
+        return NULL;
     }
 
     if (n_buffers == 0) {
 #ifndef NDEBUG
         LM_GGML_LOG_DEBUG("%s: all tensors in the context are already allocated\n", __func__);
 #endif
+        LM_GGML_ASSERT(!buffers);
         return NULL;
     }
 
@@ -1194,8 +1226,22 @@ lm_ggml_backend_buffer_t lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_g
     } else {
         buffer = lm_ggml_backend_multi_buffer_alloc_buffer(buffers, n_buffers);
     }
-    free(buffers);
+    if (buffers) {
+        free(buffers); // can be NULL if context is empty or no_alloc
+    }
     return buffer;
+}
+
+size_t lm_ggml_backend_alloc_ctx_tensors_from_buft_size(struct lm_ggml_context * ctx, lm_ggml_backend_buffer_type_t buft) {
+    size_t nbytes_total = 0;
+    lm_ggml_backend_buffer_t buf = lm_ggml_backend_alloc_ctx_tensors_from_buft_impl(ctx, buft, &nbytes_total, /*no_alloc=*/ true);
+    LM_GGML_ASSERT(!buf);
+    return nbytes_total;
+}
+
+lm_ggml_backend_buffer_t lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_ggml_context * ctx, lm_ggml_backend_buffer_type_t buft) {
+    size_t nbytes_total = 0;
+    return lm_ggml_backend_alloc_ctx_tensors_from_buft_impl(ctx, buft, &nbytes_total, /*no_alloc =*/ false);
 }
 
 lm_ggml_backend_buffer_t lm_ggml_backend_alloc_ctx_tensors(struct lm_ggml_context * ctx, lm_ggml_backend_t backend) {
