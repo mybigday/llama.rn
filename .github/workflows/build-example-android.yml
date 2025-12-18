@@ -44,6 +44,11 @@ jobs:
       - name: Setup Node.js and build prerequisites
         uses: ./.github/actions/setup
 
+      - name: Setup Gradle cache
+        uses: burrunan/gradle-cache-action@v3
+        with:
+          gradle-version: wrapper
+
       - name: Prepare release keystore
         env:
           KEYSTORE_B64: ${{ secrets.EXAMPLE_RELEASE_KEY_STORE_B64 }}

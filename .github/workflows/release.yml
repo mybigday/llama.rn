@@ -31,6 +31,11 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
+      - name: Setup Gradle cache
+        uses: burrunan/gradle-cache-action@v3
+        with:
+          gradle-version: wrapper
+
       - name: Build Android libraries
         run: npm run build:android-libs
 

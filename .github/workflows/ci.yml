@@ -141,6 +141,11 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
+      - name: Setup Gradle cache
+        uses: burrunan/gradle-cache-action@v3
+        with:
+          gradle-version: wrapper
+
       - name: Build example for Android
         env:
           HEXAGON_SDK_VERSION: 6.4.0.2
@@ -169,6 +174,11 @@ jobs:
 
       - name: Setup
         uses: ./.github/actions/setup
+
+      - name: Setup Gradle cache
+        uses: burrunan/gradle-cache-action@v3
+        with:
+          gradle-version: wrapper
 
       - name: Build libraries
         run: |
