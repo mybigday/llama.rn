@@ -312,6 +312,14 @@ export type NativeParallelCompletionParams = NativeCompletionParams & {
   save_state_path?: string
 
   /**
+   * Number of tokens to load when loading state.
+   * If not specified or <= 0, all tokens from the state file will be loaded.
+   * Use this to limit how much of a saved state is restored.
+   * Example: `512` to load only the first 512 tokens from the state file
+   */
+  load_state_size?: number
+
+  /**
    * Number of tokens to save when saving state.
    * If not specified or <= 0, all tokens will be saved.
    * Use this to limit the size of saved state files.

@@ -80,6 +80,7 @@ int32_t llama_rn_slot_manager::queue_request(
     const std::string& prefill_text,
     const std::string& load_state_path,
     const std::string& save_state_path,
+    int32_t load_state_size,
     int32_t save_state_size,
     std::function<void(const completion_token_output&)> on_token,
     std::function<void(llama_rn_slot*)> on_complete
@@ -87,10 +88,11 @@ int32_t llama_rn_slot_manager::queue_request(
     // Generate unique request ID
     int32_t request_id = next_request_id++;
 
-    LOG_INFO("Queuing request %d with %zu prompt tokens (load_state=%s, save_state=%s, save_size=%d)",
+    LOG_INFO("Queuing request %d with %zu prompt tokens (load_state=%s, save_state=%s, load_size=%d, save_size=%d)",
              request_id, prompt.size(),
              load_state_path.empty() ? "no" : load_state_path.c_str(),
              save_state_path.empty() ? "no" : save_state_path.c_str(),
+             load_state_size,
              save_state_size);
 
     // Create queued request
@@ -107,6 +109,7 @@ int32_t llama_rn_slot_manager::queue_request(
     request.prefill_text = prefill_text;
     request.load_state_path = load_state_path;
     request.save_state_path = save_state_path;
+    request.load_state_size = load_state_size;
     request.save_state_size = save_state_size;
     request.on_token = on_token;
     request.on_complete = on_complete;
@@ -417,6 +420,7 @@ void llama_rn_slot_manager::process_pending_queue() {
                 // Assign state parameters
                 slot->load_state_path = request.load_state_path;
                 slot->save_state_path = request.save_state_path;
+                slot->load_state_size = request.load_state_size;
                 slot->save_state_size = request.save_state_size;
 
                 // Load state if provided

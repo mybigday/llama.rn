@@ -134,6 +134,7 @@ struct llama_rn_slot {
     // State management (per-slot)
     std::string load_state_path;      // Path to load state from before processing
     std::string save_state_path;      // Path to save state to after completion
+    int32_t load_state_size;          // Number of tokens to load (0 or -1 = all tokens)
     int32_t save_state_size;          // Number of tokens to save (0 or -1 = all tokens)
 
     // Constructor

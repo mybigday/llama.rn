@@ -44,6 +44,7 @@ llama_rn_slot::llama_rn_slot() :
     prompt_processing_finished(false),
     media_processed(false),
     rerank_current_index(0),
+    load_state_size(-1),
     save_state_size(-1)
 {
 }
@@ -129,6 +130,7 @@ void llama_rn_slot::reset() {
     }
     load_state_path.clear();
     save_state_path.clear();
+    load_state_size = -1;
     save_state_size = -1;
 
     // Reset timing fields
@@ -355,6 +357,13 @@ bool llama_rn_slot::load_state() {
     auto null_token_iter = std::find(state_tokens.begin(), state_tokens.end(), LLAMA_TOKEN_NULL);
     if (null_token_iter != state_tokens.end()) {
         state_tokens.resize(std::distance(state_tokens.begin(), null_token_iter));
+    }
+
+    // Apply load_state_size limit if specified
+    if (load_state_size > 0 && (size_t)load_state_size < state_tokens.size()) {
+        LOG_VERBOSE("Slot %d: Limiting loaded state from %zu to %d tokens",
+                   id, state_tokens.size(), load_state_size);
+        state_tokens.resize(load_state_size);
     }
 
     // Update slot state
