@@ -536,6 +536,14 @@ Java_com_rnllama_LlamaContext_initContext(
     if (readablemap::hasKey(env, params_map, "n_ctx")) {
         defaultParams.n_ctx = readablemap::getInt(env, params_map, "n_ctx", 512);
     }
+
+    // For vocab_only models, ensure n_ctx is set because:
+    // 1. vocab_only models have n_ctx_train = 0 (no tensors loaded)
+    // 2. Context creation fails if both n_ctx and n_ctx_train are 0
+    if (vocab_only && defaultParams.n_ctx == 0) {
+        defaultParams.n_ctx = 512;
+    }
+
     if (readablemap::hasKey(env, params_map, "n_batch")) {
         defaultParams.n_batch = readablemap::getInt(env, params_map, "n_batch", 512);
     }

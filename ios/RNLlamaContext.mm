@@ -127,6 +127,14 @@
     }
 
     if (params[@"n_ctx"]) defaultParams.n_ctx = [params[@"n_ctx"] intValue];
+
+    // For vocab_only models, ensure n_ctx is set because:
+    // 1. vocab_only models have n_ctx_train = 0 (no tensors loaded)
+    // 2. Context creation fails if both n_ctx and n_ctx_train are 0
+    if (defaultParams.vocab_only && defaultParams.n_ctx == 0) {
+        defaultParams.n_ctx = 512;
+    }
+
     if (params[@"use_mlock"]) defaultParams.use_mlock = [params[@"use_mlock"]boolValue];
 
     if (params[@"devices"]) {
