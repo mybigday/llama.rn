@@ -108,6 +108,8 @@ namespace rnllama_jsi {
     }
 
     void parseCommonParams(jsi::Runtime& runtime, const jsi::Object& params, common_params& cparams) {
+        cparams.fit_params = false;
+
         // Model path
         cparams.model.path = getPropertyAsString(runtime, params, "model");
         cparams.vocab_only = getPropertyAsBool(runtime, params, "vocab_only", false);
