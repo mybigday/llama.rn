@@ -2161,8 +2161,14 @@ static bool lm_ggml_hexagon_supported_activations(const struct lm_ggml_hexagon_s
     }
 
     // src0, src1 & dst must be mapped to the same session
-    if (!hex_supported_buffer(sess, src0, src1, dst)) {
-        return false;
+    if(src1){
+        if (!hex_supported_buffer(sess, src0, src1, dst)) {
+            return false;
+        }
+    }else{
+        if (!hex_supported_buffer(sess, src0, dst)) {
+            return false;
+        }
     }
 
     return true;
@@ -2662,6 +2668,10 @@ static void lm_ggml_hexagon_unary(const struct lm_ggml_tensor * op, uint32_t fla
                 req.op    = HTP_OP_UNARY_SILU;
                 supported = true;
             }
+            else if (lm_ggml_get_unary_op(dst) == LM_GGML_UNARY_OP_GELU){
+                req.op    = HTP_OP_UNARY_GELU;
+                supported = true;
+            }
             break;
 
         case LM_GGML_OP_GLU:
@@ -2677,6 +2687,7 @@ static void lm_ggml_hexagon_unary(const struct lm_ggml_tensor * op, uint32_t fla
         case LM_GGML_OP_SOFT_MAX:
             req.op    = HTP_OP_SOFTMAX;
             supported = true;
+            break;
 
         default:
             break;
@@ -2955,6 +2966,8 @@ static lm_ggml_status lm_ggml_backend_hexagon_graph_compute(lm_ggml_backend_t ba
                 break;
             case LM_GGML_OP_UNARY:
                 if (lm_ggml_get_unary_op(node) == LM_GGML_UNARY_OP_SILU) {
+                    lm_ggml_hexagon_unary(node, flags);
+                } else if (lm_ggml_get_unary_op(node) == LM_GGML_UNARY_OP_GELU) {
                     lm_ggml_hexagon_unary(node, flags);
                 }
                 break;
@@ -3254,7 +3267,6 @@ static bool lm_ggml_backend_hexagon_device_supports_op(lm_ggml_backend_dev_t dev
     auto sess = static_cast<lm_ggml_hexagon_session *>(dev->context);
 
     bool supp = false;
-
     switch (op->op) {
         case LM_GGML_OP_NONE:
         case LM_GGML_OP_RESHAPE:
@@ -3294,10 +3306,13 @@ static bool lm_ggml_backend_hexagon_device_supports_op(lm_ggml_backend_dev_t dev
             if (lm_ggml_get_unary_op(op) == LM_GGML_UNARY_OP_SILU) {
                 supp = lm_ggml_hexagon_supported_activations(sess, op);
             }
+            else if (lm_ggml_get_unary_op(op) == LM_GGML_UNARY_OP_GELU){
+                supp = lm_ggml_hexagon_supported_activations(sess, op);
+            }
             break;
 
         case LM_GGML_OP_GLU:
-            if ((lm_ggml_get_glu_op(op) == LM_GGML_GLU_OP_SWIGLU) /* || (lm_ggml_get_glu_op(op) == LM_GGML_GLU_OP_SWIGLU_OAI) */) {
+            if ((lm_ggml_get_glu_op(op) == LM_GGML_GLU_OP_SWIGLU) || (lm_ggml_get_glu_op(op) == LM_GGML_GLU_OP_SWIGLU_OAI) ) {
                 supp = lm_ggml_hexagon_supported_activations(sess, op);
             }
             break;
