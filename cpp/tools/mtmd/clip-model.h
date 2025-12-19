@@ -4,6 +4,7 @@
 #include "clip.h"
 #include "clip-impl.h"
 
+#include <array>
 #include <vector>
 #include <unordered_set>
 #include <cstdint>
@@ -141,6 +142,30 @@ struct clip_layer {
     lm_ggml_tensor * deepstack_fc1_b = nullptr;
     lm_ggml_tensor * deepstack_fc2_w = nullptr;
     lm_ggml_tensor * deepstack_fc2_b = nullptr;
+
+    // lfm2
+    lm_ggml_tensor * ff_norm_w     = nullptr;
+    lm_ggml_tensor * ff_norm_b     = nullptr;
+    lm_ggml_tensor * ff_norm_1_w   = nullptr;
+    lm_ggml_tensor * ff_norm_1_b   = nullptr;
+    lm_ggml_tensor * ff_up_1_w     = nullptr;
+    lm_ggml_tensor * ff_up_1_b     = nullptr;
+    lm_ggml_tensor * ff_down_1_w   = nullptr;
+    lm_ggml_tensor * ff_down_1_b   = nullptr;
+    lm_ggml_tensor * pos_bias_u    = nullptr;
+    lm_ggml_tensor * pos_bias_v    = nullptr;
+    lm_ggml_tensor * norm_conv_w   = nullptr;
+    lm_ggml_tensor * norm_conv_b   = nullptr;
+    lm_ggml_tensor * linear_pos_w  = nullptr;
+
+    lm_ggml_tensor * conv_norm_w   = nullptr;
+    lm_ggml_tensor * conv_norm_b   = nullptr;
+    lm_ggml_tensor * conv_dw_w     = nullptr;
+    lm_ggml_tensor * conv_dw_b     = nullptr;
+    lm_ggml_tensor * conv_pw1_w    = nullptr;
+    lm_ggml_tensor * conv_pw1_b    = nullptr;
+    lm_ggml_tensor * conv_pw2_w    = nullptr;
+    lm_ggml_tensor * conv_pw2_b    = nullptr;
 
     bool has_deepstack() const {
         return deepstack_fc1_w != nullptr;
@@ -285,6 +310,12 @@ struct clip_model {
     lm_ggml_tensor * mm_4h_to_h_w = nullptr;
     lm_ggml_tensor * mm_boi = nullptr;
     lm_ggml_tensor * mm_eoi = nullptr;
+
+    // lfm2 audio
+    std::array<lm_ggml_tensor *, 7> pre_encode_conv_X_w = {nullptr};
+    std::array<lm_ggml_tensor *, 7> pre_encode_conv_X_b = {nullptr};
+    lm_ggml_tensor * pre_encode_out_w = nullptr;
+    lm_ggml_tensor * pre_encode_out_b = nullptr;
 
     bool audio_has_avgpool() const {
         return proj_type == PROJECTOR_TYPE_QWEN2A
