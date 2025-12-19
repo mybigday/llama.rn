@@ -507,6 +507,8 @@ Java_com_rnllama_LlamaContext_initContext(
 
     common_params defaultParams;
 
+    defaultParams.fit_params = false;
+
     // Set model path
     const char *model_path_chars = env->GetStringUTFChars(model_path_str, nullptr);
     defaultParams.model.path = model_path_chars;

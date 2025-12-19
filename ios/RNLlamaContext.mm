@@ -109,6 +109,8 @@
     // llama_backend_init(false);
     common_params defaultParams;
 
+    defaultParams.fit_params = false;
+
     if (params[@"vocab_only"]) {
         defaultParams.vocab_only = [params[@"vocab_only"] boolValue];
         defaultParams.warmup = false;
