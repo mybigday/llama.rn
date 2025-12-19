@@ -116,6 +116,14 @@ namespace rnllama_jsi {
         }
 
         cparams.n_ctx = getPropertyAsInt(runtime, params, "n_ctx", cparams.n_ctx);
+
+        // For vocab_only models, ensure n_ctx is set because:
+        // 1. vocab_only models have n_ctx_train = 0 (no tensors loaded)
+        // 2. Context creation fails if both n_ctx and n_ctx_train are 0
+        // Use 512 as a minimal default - sufficient for tokenization
+        if (cparams.vocab_only && cparams.n_ctx == 0) {
+            cparams.n_ctx = 512;
+        }
         cparams.n_batch = getPropertyAsInt(runtime, params, "n_batch", cparams.n_batch);
         cparams.n_ubatch = getPropertyAsInt(runtime, params, "n_ubatch", cparams.n_ubatch);
         cparams.n_parallel = getPropertyAsInt(runtime, params, "n_parallel", cparams.n_parallel);
