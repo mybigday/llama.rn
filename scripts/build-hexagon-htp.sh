@@ -150,7 +150,8 @@ build_htp_version() {
         -DHEXAGON_TOOLS_ROOT="${HEXAGON_TOOLS_ROOT}" \
         -DDSP_VERSION="${dsp_version}" \
         -DPREBUILT_LIB_DIR="${prebuilt_dir}" \
-        -DHEXAGON_HTP_DEBUG=OFF
+        -DHEXAGON_HTP_DEBUG=OFF \
+        -DGGML_HEXAGON_FP32_QUANTIZE_GROUP_SIZE=128
 
     # Build
     cmake --build . --config Release
