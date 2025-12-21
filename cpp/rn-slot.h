@@ -93,6 +93,7 @@ struct llama_rn_slot {
     int current_chat_format;
     common_reasoning_format current_reasoning_format;
     bool current_thinking_forced_open;
+    std::string current_chat_parser;  // Serialized PEG parser for chat output parsing
 
     // Sampling context (per-slot)
     common_params* params;

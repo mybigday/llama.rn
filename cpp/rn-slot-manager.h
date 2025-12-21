@@ -36,6 +36,7 @@ struct llama_rn_queued_request {
     int chat_format;
     common_reasoning_format reasoning_format;
     bool thinking_forced_open;
+    std::string chat_parser;  // Serialized PEG parser for chat output parsing
 
     // Prefill text
     std::string prefill_text;
@@ -114,6 +115,7 @@ struct llama_rn_slot_manager {
         int chat_format,
         common_reasoning_format reasoning_format,
         bool thinking_forced_open,
+        const std::string& chat_parser,
         const std::string& prefill_text,
         const std::string& load_state_path,
         const std::string& save_state_path,

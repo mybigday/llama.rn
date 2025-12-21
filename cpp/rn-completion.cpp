@@ -213,7 +213,7 @@ void llama_rn_context_completion::beginCompletion() {
     beginCompletion(COMMON_CHAT_FORMAT_CONTENT_ONLY, COMMON_REASONING_FORMAT_NONE, false);
 }
 
-void llama_rn_context_completion::beginCompletion(int chat_format, common_reasoning_format reasoning_format, bool thinking_forced_open) {
+void llama_rn_context_completion::beginCompletion(int chat_format, common_reasoning_format reasoning_format, bool thinking_forced_open, const std::string &chat_parser) {
     // number of tokens to keep when resetting context
     n_remain = parent_ctx->params.n_predict;
     llama_perf_context_reset(parent_ctx->ctx);
@@ -222,6 +222,7 @@ void llama_rn_context_completion::beginCompletion(int chat_format, common_reason
     current_chat_format = chat_format;
     current_reasoning_format = reasoning_format;
     current_thinking_forced_open = thinking_forced_open;
+    current_chat_parser = chat_parser;
 }
 
 void llama_rn_context_completion::endCompletion() {
@@ -457,6 +458,11 @@ completion_chat_output llama_rn_context_completion::parseChatOutput(bool is_part
     syntax.reasoning_format = current_reasoning_format;
     syntax.thinking_forced_open = current_thinking_forced_open;
     syntax.parse_tool_calls = true;
+
+    // Load the PEG parser if available (required for COMMON_CHAT_FORMAT_PEG_* formats)
+    if (!current_chat_parser.empty()) {
+        syntax.parser.load(current_chat_parser);
+    }
 
     common_chat_msg parsed_msg = common_chat_parse(prefill_text + generated_text, is_partial, syntax);
 

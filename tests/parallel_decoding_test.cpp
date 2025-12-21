@@ -481,6 +481,7 @@ bool test_single_request_completion() {
             0, // chat_format
             COMMON_REASONING_FORMAT_NONE, // reasoning_format
             false, // thinking_forced_open
+            "", // chat_parser
             "", // prefill_text
             "", // load_state_path
             "", // save_state_path
@@ -567,13 +568,13 @@ bool test_request_cancellation() {
         int tokens_generated1 = 0, tokens_generated2 = 0;
 
         int32_t req_id1 = ctx.slot_manager->queue_request(
-            params, prompt1, std::vector<std::string>(), "What is the capital of France?", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1, -1,
+            params, prompt1, std::vector<std::string>(), "What is the capital of France?", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", -1, -1,
             [&](const completion_token_output& token) { tokens_generated1++; },
             [&](llama_rn_slot* slot) { complete1 = true; }
         );
 
         int32_t req_id2 = ctx.slot_manager->queue_request(
-            params, prompt2, std::vector<std::string>(), "Explain quantum computing.", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1, -1,
+            params, prompt2, std::vector<std::string>(), "Explain quantum computing.", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", -1, -1,
             [&](const completion_token_output& token) { tokens_generated2++; },
             [&](llama_rn_slot* slot) { complete2 = true; }
         );
@@ -635,7 +636,7 @@ bool test_sequential_requests() {
             bool complete = false;
 
             int32_t req_id = ctx.slot_manager->queue_request(
-                params, prompt, std::vector<std::string>(), prompt_str, 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1, -1,
+                params, prompt, std::vector<std::string>(), prompt_str, 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", -1, -1,
                 [&](const completion_token_output& token) {},
                 [&](llama_rn_slot* slot) { complete = true; }
             );
@@ -688,7 +689,7 @@ bool test_queue_overflow() {
             std::vector<llama_token> prompt = common_tokenize(ctx.ctx, "Test", false);
 
             int32_t req_id = ctx.slot_manager->queue_request(
-                params, prompt, std::vector<std::string>(), "Test", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", -1, -1,
+                params, prompt, std::vector<std::string>(), "Test", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", -1, -1,
                 [](const completion_token_output& token) {},
                 [](llama_rn_slot* slot) {}
             );
@@ -754,7 +755,8 @@ bool test_queue_request_with_state() {
             0,
             COMMON_REASONING_FORMAT_NONE,
             false,
-            "",
+            "",                  // chat_parser
+            "",                  // prefill_text
             "",                  // no load
             full_state_path,     // save all tokens
             -1,                  // no load size limit
@@ -800,7 +802,8 @@ bool test_queue_request_with_state() {
             0,
             COMMON_REASONING_FORMAT_NONE,
             false,
-            "",
+            "",                  // chat_parser
+            "",                  // prefill_text
             full_state_path,     // load full state
             limited_state_path,  // save with limit
             -1,                  // no load size limit
@@ -912,7 +915,8 @@ bool test_state_reuse() {
             0,
             COMMON_REASONING_FORMAT_NONE,
             false,
-            "",
+            "",  // chat_parser
+            "",  // prefill_text
             "",  // no load
             save_path,  // save
             -1,  // no load size limit
@@ -957,7 +961,8 @@ bool test_state_reuse() {
             0,
             COMMON_REASONING_FORMAT_NONE,
             false,
-            "",
+            "",  // chat_parser
+            "",  // prefill_text
             save_path,  // load saved state
             "",  // no save this time
             -1,  // no load size limit

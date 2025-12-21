@@ -77,6 +77,7 @@ int32_t llama_rn_slot_manager::queue_request(
     int chat_format,
     common_reasoning_format reasoning_format,
     bool thinking_forced_open,
+    const std::string& chat_parser,
     const std::string& prefill_text,
     const std::string& load_state_path,
     const std::string& save_state_path,
@@ -106,6 +107,7 @@ int32_t llama_rn_slot_manager::queue_request(
     request.chat_format = chat_format;
     request.reasoning_format = reasoning_format;
     request.thinking_forced_open = thinking_forced_open;
+    request.chat_parser = chat_parser;
     request.prefill_text = prefill_text;
     request.load_state_path = load_state_path;
     request.save_state_path = save_state_path;
@@ -465,6 +467,7 @@ void llama_rn_slot_manager::process_pending_queue() {
                 slot->current_chat_format = request.chat_format;
                 slot->current_reasoning_format = request.reasoning_format;
                 slot->current_thinking_forced_open = request.thinking_forced_open;
+                slot->current_chat_parser = request.chat_parser;
                 slot->prefill_text = request.prefill_text;
                 slot->n_remaining = request.params.n_predict;
                 slot->stop_words = request.params.antiprompt;

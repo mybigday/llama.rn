@@ -149,6 +149,12 @@ export type NativeCompletionParams = {
    */
   thinking_forced_open?: boolean
   /**
+   * Serialized PEG parser for chat output parsing.
+   * Required for COMMON_CHAT_FORMAT_PEG_* formats.
+   * This is typically obtained from getFormattedChat with jinja enabled.
+   */
+  chat_parser?: string
+  /**
    * Lazy grammar triggers. Default: []
    */
   grammar_triggers?: Array<{
@@ -498,6 +504,11 @@ export type JinjaFormattedChatResult = FormattedChatResult & {
   thinking_forced_open?: boolean
   preserved_tokens?: Array<string>
   additional_stops?: Array<string>
+  /**
+   * Serialized PEG parser for chat output parsing.
+   * Required for COMMON_CHAT_FORMAT_PEG_* formats.
+   */
+  chat_parser?: string
 }
 
 export type NativeImageProcessingResult = {
