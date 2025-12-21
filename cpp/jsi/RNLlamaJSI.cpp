@@ -967,6 +967,7 @@ namespace rnllama_jsi {
                 std::string reasoningFormatStr = getPropertyAsString(runtime, params, "reasoning_format", "none");
                 common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
                 bool thinking_forced_open = getPropertyAsBool(runtime, params, "thinking_forced_open", false);
+                std::string chat_parser = getPropertyAsString(runtime, params, "chat_parser");
                 std::string prefill_text = getPropertyAsString(runtime, params, "prefill_text");
                 std::vector<llama_token> guide_tokens;
                 if (params.hasProperty(runtime, "guide_tokens")) {
@@ -983,7 +984,7 @@ namespace rnllama_jsi {
                     }
                 }
 
-                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, thinking_forced_open, prefill_text, guide_tokens, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, thinking_forced_open, chat_parser, prefill_text, guide_tokens, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
 
                     if (ctx->completion == nullptr) {
@@ -1001,7 +1002,7 @@ namespace rnllama_jsi {
                     }
 
                     ctx->completion->prefill_text = prefill_text;
-                    ctx->completion->beginCompletion(chat_format, reasoning_format, thinking_forced_open);
+                    ctx->completion->beginCompletion(chat_format, reasoning_format, thinking_forced_open, chat_parser);
 
                     try {
                         if (!mediaPaths.empty() && !ctx->isMultimodalEnabled()) {
