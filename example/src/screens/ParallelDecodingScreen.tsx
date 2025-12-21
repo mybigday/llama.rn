@@ -40,6 +40,7 @@ import {
   loadCustomModels,
 } from '../utils/storage'
 import { initLlama, LlamaContext } from '../../../src'
+import type { ParallelStatus } from '../../../src'
 
 interface ConversationSlot {
   id: string
@@ -154,6 +155,10 @@ export default function ParallelDecodingScreen({
   const [customPrompt, setCustomPrompt] = useState('')
   const [isParallelMode, setIsParallelMode] = useState(false)
   const [isMultimodalEnabled, setIsMultimodalEnabled] = useState(false)
+  const [parallelStatus, setParallelStatus] = useState<ParallelStatus | null>(
+    null,
+  )
+  const statusSubscriptionRef = useRef<{ remove: () => void } | null>(null)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
@@ -267,6 +272,10 @@ export default function ParallelDecodingScreen({
   // Cleanup on unmount
   useEffect(
     () => () => {
+      if (statusSubscriptionRef.current) {
+        statusSubscriptionRef.current.remove()
+        statusSubscriptionRef.current = null
+      }
       if (context) {
         context.release()
       }
@@ -329,6 +338,21 @@ export default function ParallelDecodingScreen({
       console.log(
         `Multimodal support: ${multimodalEnabled ? 'enabled' : 'disabled'}`,
       )
+
+      // Subscribe to parallel status changes
+      try {
+        const subscription = await llamaContext.parallel.subscribeToStatus(
+          (status) => {
+            setParallelStatus(status)
+          },
+        )
+        statusSubscriptionRef.current = subscription
+        // Get initial status
+        const initialStatus = await llamaContext.parallel.getStatus()
+        setParallelStatus(initialStatus)
+      } catch (err) {
+        console.warn('Failed to subscribe to status:', err)
+      }
     } catch (error: any) {
       Alert.alert('Error', `Failed to initialize model: ${error.message}`)
     } finally {
@@ -1078,6 +1102,116 @@ export default function ParallelDecodingScreen({
           )}
         </View>
       </View>
+
+      {/* Slot Manager Status Section */}
+      {parallelStatus && (
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: theme.colors.surface, paddingVertical: 8 },
+          ]}
+        >
+          <Text
+            style={[styles.sectionTitle, { fontSize: 14, marginBottom: 8 }]}
+          >
+            Slot Manager Status
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: '#4CAF50',
+                  marginRight: 6,
+                }}
+              />
+              <Text style={{ fontSize: 12, color: theme.colors.text }}>
+                {`Active: ${parallelStatus.activeSlots}/${parallelStatus.nParallel}`}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: '#FFA500',
+                  marginRight: 6,
+                }}
+              />
+              <Text style={{ fontSize: 12, color: theme.colors.text }}>
+                {`Queued: ${parallelStatus.queuedRequests}`}
+              </Text>
+            </View>
+          </View>
+          {parallelStatus.requests.length > 0 && (
+            <View style={{ marginTop: 8 }}>
+              <Text
+                style={{
+                  fontSize: 11,
+                  color: theme.colors.textSecondary,
+                  marginBottom: 4,
+                }}
+              >
+                Active Requests:
+              </Text>
+              {parallelStatus.requests
+                .filter((r) => r.state !== 'queued')
+                .slice(0, 3)
+                .map((req) => (
+                  <View
+                    key={req.requestId}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingVertical: 2,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        color: (() => {
+                          if (req.state === 'generating') return '#4CAF50'
+                          if (req.state === 'processing_prompt') return '#FFA500'
+                          return theme.colors.textSecondary
+                        })(),
+                        width: 100,
+                      }}
+                    >
+                      {`#${req.requestId} ${req.state}`}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        color: theme.colors.textSecondary,
+                      }}
+                    >
+                      {req.tokensGenerated > 0
+                        ? `${
+                            req.tokensGenerated
+                          } tokens @ ${req.tokensPerSecond.toFixed(1)} t/s`
+                        : `prompt: ${req.promptLength} tokens`}
+                    </Text>
+                  </View>
+                ))}
+              {parallelStatus.requests.filter((r) => r.state !== 'queued')
+                .length > 3 && (
+                <Text
+                  style={{
+                    fontSize: 10,
+                    color: theme.colors.textSecondary,
+                    fontStyle: 'italic',
+                  }}
+                >
+                  {`+${parallelStatus.requests.filter((r) => r.state !== 'queued').length - 3} more...`}
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+      )}
 
       {/* Controls Section */}
       <View style={styles.section}>

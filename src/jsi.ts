@@ -8,6 +8,7 @@ import type {
   NativeSessionLoadResult,
   NativeRerankResult,
   JinjaFormattedChatResult,
+  ParallelStatus,
 } from './types'
 
 declare global {
@@ -136,4 +137,13 @@ declare global {
     params: object,
     onResult: (result: NativeRerankResult[]) => void,
   ) => Promise<{ requestId: number }>
+  var llamaGetParallelStatus: (contextId: number) => Promise<ParallelStatus>
+  var llamaSubscribeParallelStatus: (
+    contextId: number,
+    onStatus: (status: ParallelStatus) => void,
+  ) => Promise<{ subscriberId: number }>
+  var llamaUnsubscribeParallelStatus: (
+    contextId: number,
+    subscriberId: number,
+  ) => void
 }

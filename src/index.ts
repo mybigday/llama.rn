@@ -21,6 +21,8 @@ import type {
   NativeImageProcessingResult,
   NativeLlamaChatMessage,
   NativeBackendDeviceInfo,
+  ParallelStatus,
+  ParallelRequestStatus,
 } from './types'
 import { BUILD_NUMBER, BUILD_COMMIT } from './version'
 
@@ -62,6 +64,8 @@ export type {
   JinjaFormattedChatResult,
   NativeImageProcessingResult,
   NativeBackendDeviceInfo,
+  ParallelStatus,
+  ParallelRequestStatus,
 }
 
 export const RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER = '<__media__>'
@@ -108,6 +112,9 @@ const jsiBindingKeys = [
   'llamaCancelRequest',
   'llamaQueueEmbedding',
   'llamaQueueRerank',
+  'llamaGetParallelStatus',
+  'llamaSubscribeParallelStatus',
+  'llamaUnsubscribeParallelStatus',
 ] as const
 
 type JsiBindingKey = (typeof jsiBindingKeys)[number]
@@ -541,6 +548,37 @@ export class LlamaContext {
 
     configure: (config: { n_parallel?: number; n_batch?: number }) =>
       getJsi().llamaEnableParallelMode(this.id, { enabled: true, ...config }),
+
+    /**
+     * Get current parallel processing status (one-time snapshot)
+     * @returns Promise resolving to current parallel status
+     */
+    getStatus: async (): Promise<ParallelStatus> => {
+      const { llamaGetParallelStatus } = getJsi()
+      return llamaGetParallelStatus(this.id)
+    },
+
+    /**
+     * Subscribe to parallel processing status changes
+     * @param callback Called whenever parallel status changes
+     * @returns Object with remove() method to unsubscribe
+     */
+    subscribeToStatus: async (
+      callback: (status: ParallelStatus) => void,
+    ): Promise<{ remove: () => void }> => {
+      const { llamaSubscribeParallelStatus, llamaUnsubscribeParallelStatus } =
+        getJsi()
+      const { subscriberId } = await llamaSubscribeParallelStatus(
+        this.id,
+        callback,
+      )
+
+      return {
+        remove: () => {
+          llamaUnsubscribeParallelStatus(this.id, subscriberId)
+        },
+      }
+    },
   }
 
   constructor({

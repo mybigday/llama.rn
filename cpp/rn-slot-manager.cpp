@@ -125,6 +125,16 @@ int32_t llama_rn_slot_manager::queue_request(
     // Notify processing thread that new work is available
     slots_cv.notify_one();
 
+    // Notify subscribers of status change (new request queued)
+    bool has_subscribers = false;
+    {
+        std::lock_guard<std::mutex> lock(subscribers_mutex);
+        has_subscribers = !status_subscribers.empty();
+    }
+    if (has_subscribers) {
+        notify_status_change();
+    }
+
     return request_id;
 }
 
@@ -164,6 +174,16 @@ int32_t llama_rn_slot_manager::queue_embedding_request(
     }
 
     slots_cv.notify_one();
+
+    // Notify subscribers of status change (new request queued)
+    bool has_subscribers = false;
+    {
+        std::lock_guard<std::mutex> lock(subscribers_mutex);
+        has_subscribers = !status_subscribers.empty();
+    }
+    if (has_subscribers) {
+        notify_status_change();
+    }
 
     return request_id;
 }
@@ -267,6 +287,16 @@ int32_t llama_rn_slot_manager::queue_rerank_request(
 
     slots_cv.notify_one();
 
+    // Notify subscribers of status change (new request queued)
+    bool has_subscribers = false;
+    {
+        std::lock_guard<std::mutex> lock(subscribers_mutex);
+        has_subscribers = !status_subscribers.empty();
+    }
+    if (has_subscribers) {
+        notify_status_change();
+    }
+
     return request_id;
 }
 
@@ -318,6 +348,8 @@ void llama_rn_slot_manager::release_slot(llama_rn_slot* slot) {
 void llama_rn_slot_manager::cancel_request(int32_t request_id) {
     LOG_INFO("Cancelling request %d", request_id);
 
+    bool cancelled = false;
+
     // Check if request is active
     auto it = active_requests.find(request_id);
     if (it != active_requests.end()) {
@@ -328,21 +360,34 @@ void llama_rn_slot_manager::cancel_request(int32_t request_id) {
         slot->state = SLOT_STATE_DONE;
         active_requests.erase(it);
         LOG_INFO("Request %d cancelled (was active in slot %d)", request_id, slot->id);
+        cancelled = true;
+    } else {
+        // Remove from pending queue
+        auto pending_it = std::remove_if(queue_requests.begin(), queue_requests.end(),
+            [request_id](const llama_rn_queued_request& req) {
+                return req.request_id == request_id;
+            });
+        if (pending_it != queue_requests.end()) {
+            queue_requests.erase(pending_it, queue_requests.end());
+            LOG_INFO("Request %d cancelled (was in pending queue)", request_id);
+            cancelled = true;
+        }
+    }
+
+    if (!cancelled) {
+        LOG_WARNING("Request %d not found for cancellation", request_id);
         return;
     }
 
-    // Remove from pending queue
-    auto pending_it = std::remove_if(queue_requests.begin(), queue_requests.end(),
-        [request_id](const llama_rn_queued_request& req) {
-            return req.request_id == request_id;
-        });
-    if (pending_it != queue_requests.end()) {
-        queue_requests.erase(pending_it, queue_requests.end());
-        LOG_INFO("Request %d cancelled (was in pending queue)", request_id);
-        return;
+    // Notify subscribers of status change
+    bool has_subscribers = false;
+    {
+        std::lock_guard<std::mutex> lock(subscribers_mutex);
+        has_subscribers = !status_subscribers.empty();
     }
-
-    LOG_WARNING("Request %d not found for cancellation", request_id);
+    if (has_subscribers) {
+        notify_status_change();
+    }
 }
 
 // Compute similarity between two token sequences (stub for Phase 3)
@@ -1070,6 +1115,17 @@ void llama_rn_slot_manager::update_slots() {
         std::lock_guard<std::mutex> lock(slots_mutex);
         process_pending_queue();
     }
+
+    // Step 8: Notify subscribers of status change (outside of slots_mutex)
+    // Check if there are subscribers before calling notify
+    bool has_subscribers = false;
+    {
+        std::lock_guard<std::mutex> lock(subscribers_mutex);
+        has_subscribers = !status_subscribers.empty();
+    }
+    if (has_subscribers) {
+        notify_status_change();
+    }
 }
 
 // Start background processing loop
@@ -1136,6 +1192,102 @@ void llama_rn_slot_manager::stop_processing_loop() {
     }
 
     LOG_INFO("Processing loop stopped");
+}
+
+// Get current parallel status
+llama_rn_parallel_status llama_rn_slot_manager::get_status() {
+    std::lock_guard<std::mutex> lock(slots_mutex);
+
+    llama_rn_parallel_status status;
+    status.n_parallel = n_parallel;
+    status.active_slots = 0;
+    status.queued_requests = static_cast<int32_t>(queue_requests.size());
+
+    // Add active slot requests
+    for (const auto& slot : slots) {
+        if (slot.state != SLOT_STATE_IDLE && slot.state != SLOT_STATE_DONE) {
+            status.active_slots++;
+
+            llama_rn_request_status req_status;
+            req_status.request_id = slot.request_id;
+
+            // Map task type to string
+            switch (slot.task_type) {
+                case SLOT_TASK_TYPE_COMPLETION: req_status.type = "completion"; break;
+                case SLOT_TASK_TYPE_EMBEDDING: req_status.type = "embedding"; break;
+                case SLOT_TASK_TYPE_RERANK: req_status.type = "rerank"; break;
+            }
+
+            // Map state to string
+            switch (slot.state) {
+                case SLOT_STATE_IDLE: req_status.state = "idle"; break;
+                case SLOT_STATE_PROCESSING_PROMPT: req_status.state = "processing_prompt"; break;
+                case SLOT_STATE_GENERATING: req_status.state = "generating"; break;
+                case SLOT_STATE_DONE: req_status.state = "done"; break;
+            }
+
+            req_status.prompt_length = slot.num_prompt_tokens;
+            req_status.tokens_generated = slot.n_decoded;
+            req_status.prompt_ms = slot.t_prompt_processing * 1e3;
+            req_status.generation_ms = slot.t_token_generation * 1e3;
+            req_status.tokens_per_second = (slot.n_decoded > 0 && slot.t_token_generation > 0.0)
+                ? slot.n_decoded / slot.t_token_generation : 0.0;
+
+            status.requests.push_back(req_status);
+        }
+    }
+
+    // Add queued requests
+    for (const auto& queued : queue_requests) {
+        llama_rn_request_status req_status;
+        req_status.request_id = queued.request_id;
+
+        switch (queued.task_type) {
+            case SLOT_TASK_TYPE_COMPLETION: req_status.type = "completion"; break;
+            case SLOT_TASK_TYPE_EMBEDDING: req_status.type = "embedding"; break;
+            case SLOT_TASK_TYPE_RERANK: req_status.type = "rerank"; break;
+        }
+
+        req_status.state = "queued";
+        req_status.prompt_length = queued.prompt_tokens.size();
+        req_status.tokens_generated = 0;
+        req_status.prompt_ms = 0.0;
+        req_status.generation_ms = 0.0;
+        req_status.tokens_per_second = 0.0;
+
+        status.requests.push_back(req_status);
+    }
+
+    return status;
+}
+
+// Notify all subscribers of status change
+void llama_rn_slot_manager::notify_status_change() {
+    // Get status snapshot first (acquires slots_mutex inside)
+    llama_rn_parallel_status status = get_status();
+
+    std::lock_guard<std::mutex> lock(subscribers_mutex);
+    for (const auto& [id, callback] : status_subscribers) {
+        if (callback) {
+            callback(status);
+        }
+    }
+}
+
+// Add status subscriber
+int32_t llama_rn_slot_manager::add_status_subscriber(
+    std::function<void(const llama_rn_parallel_status&)> callback
+) {
+    std::lock_guard<std::mutex> lock(subscribers_mutex);
+    int32_t id = next_subscriber_id++;
+    status_subscribers[id] = callback;
+    return id;
+}
+
+// Remove status subscriber
+void llama_rn_slot_manager::remove_status_subscriber(int32_t subscriber_id) {
+    std::lock_guard<std::mutex> lock(subscribers_mutex);
+    status_subscribers.erase(subscriber_id);
 }
 
 } // namespace rnllama

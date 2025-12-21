@@ -333,6 +333,27 @@ if (!NativeModules.RNLlama) {
       }),
     )
     setGlobal(
+      'llamaGetParallelStatus',
+      jest.fn(async () => ({
+        nParallel: 4,
+        activeSlots: 0,
+        queuedRequests: 0,
+        requests: [],
+      })),
+    )
+    let statusSubscriberId = 0
+    setGlobal(
+      'llamaSubscribeParallelStatus',
+      jest.fn(async () => {
+        statusSubscriberId += 1
+        return statusSubscriberId
+      }),
+    )
+    setGlobal(
+      'llamaUnsubscribeParallelStatus',
+      jest.fn(async () => {}),
+    )
+    setGlobal(
       'llamaToggleNativeLog',
       jest.fn(async (enabled, onLog) => {
         if (enabled && typeof onLog === 'function') {
