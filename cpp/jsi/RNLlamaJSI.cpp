@@ -1516,22 +1516,22 @@ namespace rnllama_jsi {
         // Helper function to create parallel status object
         auto createParallelStatusObject = [](jsi::Runtime& rt, const rnllama::llama_rn_parallel_status& status) -> jsi::Object {
             jsi::Object result(rt);
-            result.setProperty(rt, "nParallel", status.n_parallel);
-            result.setProperty(rt, "activeSlots", status.active_slots);
-            result.setProperty(rt, "queuedRequests", status.queued_requests);
+            result.setProperty(rt, "n_parallel", status.n_parallel);
+            result.setProperty(rt, "active_slots", status.active_slots);
+            result.setProperty(rt, "queued_requests", status.queued_requests);
 
             jsi::Array requests(rt, status.requests.size());
             for (size_t i = 0; i < status.requests.size(); i++) {
                 const auto& req = status.requests[i];
                 jsi::Object reqObj(rt);
-                reqObj.setProperty(rt, "requestId", req.request_id);
+                reqObj.setProperty(rt, "request_id", req.request_id);
                 reqObj.setProperty(rt, "type", jsi::String::createFromUtf8(rt, req.type));
                 reqObj.setProperty(rt, "state", jsi::String::createFromUtf8(rt, req.state));
-                reqObj.setProperty(rt, "promptLength", (double)req.prompt_length);
-                reqObj.setProperty(rt, "tokensGenerated", (double)req.tokens_generated);
-                reqObj.setProperty(rt, "promptMs", req.prompt_ms);
-                reqObj.setProperty(rt, "generationMs", req.generation_ms);
-                reqObj.setProperty(rt, "tokensPerSecond", req.tokens_per_second);
+                reqObj.setProperty(rt, "prompt_length", (double)req.prompt_length);
+                reqObj.setProperty(rt, "tokens_generated", (double)req.tokens_generated);
+                reqObj.setProperty(rt, "prompt_ms", req.prompt_ms);
+                reqObj.setProperty(rt, "generation_ms", req.generation_ms);
+                reqObj.setProperty(rt, "tokens_per_second", req.tokens_per_second);
                 requests.setValueAtIndex(rt, i, reqObj);
             }
             result.setProperty(rt, "requests", requests);
@@ -1556,22 +1556,22 @@ namespace rnllama_jsi {
 
                     return [status](jsi::Runtime& rt) {
                         jsi::Object result(rt);
-                        result.setProperty(rt, "nParallel", status.n_parallel);
-                        result.setProperty(rt, "activeSlots", status.active_slots);
-                        result.setProperty(rt, "queuedRequests", status.queued_requests);
+                        result.setProperty(rt, "n_parallel", status.n_parallel);
+                        result.setProperty(rt, "active_slots", status.active_slots);
+                        result.setProperty(rt, "queued_requests", status.queued_requests);
 
                         jsi::Array requests(rt, status.requests.size());
                         for (size_t i = 0; i < status.requests.size(); i++) {
                             const auto& req = status.requests[i];
                             jsi::Object reqObj(rt);
-                            reqObj.setProperty(rt, "requestId", req.request_id);
+                            reqObj.setProperty(rt, "request_id", req.request_id);
                             reqObj.setProperty(rt, "type", jsi::String::createFromUtf8(rt, req.type));
                             reqObj.setProperty(rt, "state", jsi::String::createFromUtf8(rt, req.state));
-                            reqObj.setProperty(rt, "promptLength", (double)req.prompt_length);
-                            reqObj.setProperty(rt, "tokensGenerated", (double)req.tokens_generated);
-                            reqObj.setProperty(rt, "promptMs", req.prompt_ms);
-                            reqObj.setProperty(rt, "generationMs", req.generation_ms);
-                            reqObj.setProperty(rt, "tokensPerSecond", req.tokens_per_second);
+                            reqObj.setProperty(rt, "prompt_length", (double)req.prompt_length);
+                            reqObj.setProperty(rt, "tokens_generated", (double)req.tokens_generated);
+                            reqObj.setProperty(rt, "prompt_ms", req.prompt_ms);
+                            reqObj.setProperty(rt, "generation_ms", req.generation_ms);
+                            reqObj.setProperty(rt, "tokens_per_second", req.tokens_per_second);
                             requests.setValueAtIndex(rt, i, reqObj);
                         }
                         result.setProperty(rt, "requests", requests);
@@ -1613,22 +1613,22 @@ namespace rnllama_jsi {
                             auto& rt = **runtimePtr;
 
                             jsi::Object result(rt);
-                            result.setProperty(rt, "nParallel", statusCopy.n_parallel);
-                            result.setProperty(rt, "activeSlots", statusCopy.active_slots);
-                            result.setProperty(rt, "queuedRequests", statusCopy.queued_requests);
+                            result.setProperty(rt, "n_parallel", statusCopy.n_parallel);
+                            result.setProperty(rt, "active_slots", statusCopy.active_slots);
+                            result.setProperty(rt, "queued_requests", statusCopy.queued_requests);
 
                             jsi::Array requests(rt, statusCopy.requests.size());
                             for (size_t i = 0; i < statusCopy.requests.size(); i++) {
                                 const auto& req = statusCopy.requests[i];
                                 jsi::Object reqObj(rt);
-                                reqObj.setProperty(rt, "requestId", req.request_id);
+                                reqObj.setProperty(rt, "request_id", req.request_id);
                                 reqObj.setProperty(rt, "type", jsi::String::createFromUtf8(rt, req.type));
                                 reqObj.setProperty(rt, "state", jsi::String::createFromUtf8(rt, req.state));
-                                reqObj.setProperty(rt, "promptLength", (double)req.prompt_length);
-                                reqObj.setProperty(rt, "tokensGenerated", (double)req.tokens_generated);
-                                reqObj.setProperty(rt, "promptMs", req.prompt_ms);
-                                reqObj.setProperty(rt, "generationMs", req.generation_ms);
-                                reqObj.setProperty(rt, "tokensPerSecond", req.tokens_per_second);
+                                reqObj.setProperty(rt, "prompt_length", (double)req.prompt_length);
+                                reqObj.setProperty(rt, "tokens_generated", (double)req.tokens_generated);
+                                reqObj.setProperty(rt, "prompt_ms", req.prompt_ms);
+                                reqObj.setProperty(rt, "generation_ms", req.generation_ms);
+                                reqObj.setProperty(rt, "tokens_per_second", req.tokens_per_second);
                                 requests.setValueAtIndex(rt, i, reqObj);
                             }
                             result.setProperty(rt, "requests", requests);

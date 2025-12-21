@@ -335,9 +335,9 @@ if (!NativeModules.RNLlama) {
     setGlobal(
       'llamaGetParallelStatus',
       jest.fn(async () => ({
-        nParallel: 4,
-        activeSlots: 0,
-        queuedRequests: 0,
+        n_parallel: 4,
+        active_slots: 0,
+        queued_requests: 0,
         requests: [],
       })),
     )

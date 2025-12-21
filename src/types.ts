@@ -535,19 +535,19 @@ export type NativeBackendDeviceInfo = {
 }
 
 export type ParallelRequestStatus = {
-  requestId: number
+  request_id: number
   type: 'completion' | 'embedding' | 'rerank'
   state: 'queued' | 'processing_prompt' | 'generating' | 'done'
-  promptLength: number
-  tokensGenerated: number
-  promptMs: number
-  generationMs: number
-  tokensPerSecond: number
+  prompt_length: number
+  tokens_generated: number
+  prompt_ms: number
+  generation_ms: number
+  tokens_per_second: number
 }
 
 export type ParallelStatus = {
-  nParallel: number
-  activeSlots: number
-  queuedRequests: number
+  n_parallel: number
+  active_slots: number
+  queued_requests: number
   requests: ParallelRequestStatus[]
 }

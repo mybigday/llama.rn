@@ -1128,7 +1128,7 @@ export default function ParallelDecodingScreen({
                 }}
               />
               <Text style={{ fontSize: 12, color: theme.colors.text }}>
-                {`Active: ${parallelStatus.activeSlots}/${parallelStatus.nParallel}`}
+                {`Active: ${parallelStatus.active_slots}/${parallelStatus.n_parallel}`}
               </Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -1142,7 +1142,7 @@ export default function ParallelDecodingScreen({
                 }}
               />
               <Text style={{ fontSize: 12, color: theme.colors.text }}>
-                {`Queued: ${parallelStatus.queuedRequests}`}
+                {`Queued: ${parallelStatus.queued_requests}`}
               </Text>
             </View>
           </View>
@@ -1162,7 +1162,7 @@ export default function ParallelDecodingScreen({
                 .slice(0, 3)
                 .map((req) => (
                   <View
-                    key={req.requestId}
+                    key={req.request_id}
                     style={{
                       flexDirection: 'row',
                       alignItems: 'center',
@@ -1180,7 +1180,7 @@ export default function ParallelDecodingScreen({
                         width: 100,
                       }}
                     >
-                      {`#${req.requestId} ${req.state}`}
+                      {`#${req.request_id} ${req.state}`}
                     </Text>
                     <Text
                       style={{
@@ -1188,11 +1188,11 @@ export default function ParallelDecodingScreen({
                         color: theme.colors.textSecondary,
                       }}
                     >
-                      {req.tokensGenerated > 0
+                      {req.tokens_generated > 0
                         ? `${
-                            req.tokensGenerated
-                          } tokens @ ${req.tokensPerSecond.toFixed(1)} t/s`
-                        : `prompt: ${req.promptLength} tokens`}
+                            req.tokens_generated
+                          } tokens @ ${req.tokens_per_second.toFixed(1)} t/s`
+                        : `prompt: ${req.prompt_length} tokens`}
                     </Text>
                   </View>
                 ))}
