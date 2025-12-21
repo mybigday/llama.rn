@@ -570,6 +570,7 @@
         [additional_stops addObject:[NSString stringWithUTF8String:stop.c_str()]];
     }
     result[@"additional_stops"] = additional_stops;
+    result[@"chat_parser"] = [NSString stringWithUTF8String:chatParams.parser.c_str()];
 
     return result;
 }
@@ -785,12 +786,15 @@
     auto chat_format = params[@"chat_format"] ? [params[@"chat_format"] intValue] : COMMON_CHAT_FORMAT_CONTENT_ONLY;
     bool thinking_forced_open = [params[@"thinking_forced_open"] boolValue];
 
+    NSString *chatParser = params[@"chat_parser"];
+    std::string chat_parser_str = chatParser ? [chatParser UTF8String] : "";
+
     NSString *reasoningFormat = params[@"reasoning_format"];
     if (!reasoningFormat) reasoningFormat = @"none";
     std::string reasoningFormatStr = [reasoningFormat UTF8String];
     common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
 
-    llama->completion->beginCompletion(chat_format, reasoning_format, thinking_forced_open);
+    llama->completion->beginCompletion(chat_format, reasoning_format, thinking_forced_open, chat_parser_str);
     try {
         // Use the unified loadPrompt function with media paths if available
         NSArray *mediaPaths = params[@"media_paths"];
@@ -1444,6 +1448,10 @@
 
     bool thinking_forced_open = params[@"thinking_forced_open"] ? [params[@"thinking_forced_open"] boolValue] : false;
 
+    // Get chat parser
+    NSString *chatParser = params[@"chat_parser"];
+    std::string chat_parser_str = chatParser ? [chatParser UTF8String] : "";
+
     // Get prefill text
     NSString *prefillText = params[@"prefill_text"];
     std::string prefill_text_str = prefillText ? [prefillText UTF8String] : "";
@@ -1651,6 +1659,7 @@
         chat_format,
         reasoning_format,
         thinking_forced_open,
+        chat_parser_str,
         prefill_text_str,
         load_state_path,
         save_state_path,

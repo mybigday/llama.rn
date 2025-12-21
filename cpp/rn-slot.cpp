@@ -97,6 +97,7 @@ void llama_rn_slot::reset() {
     current_chat_format = 0;
     current_reasoning_format = COMMON_REASONING_FORMAT_NONE;
     current_thinking_forced_open = false;
+    current_chat_parser.clear();
 
     // Reset flags
     is_interrupted = false;
@@ -255,6 +256,11 @@ completion_chat_output llama_rn_slot::parseChatOutput(bool is_partial) {
     syntax.reasoning_format = current_reasoning_format;  // Already the correct enum type
     syntax.thinking_forced_open = current_thinking_forced_open;
     syntax.parse_tool_calls = true;
+
+    // Load the PEG parser if available (required for COMMON_CHAT_FORMAT_PEG_* formats)
+    if (!current_chat_parser.empty()) {
+        syntax.parser.load(current_chat_parser);
+    }
 
     std::string full_text = prefill_text + generated_text;
 

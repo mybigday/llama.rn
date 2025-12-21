@@ -1117,6 +1117,7 @@ Java_com_rnllama_LlamaContext_getFormattedChatWithJinja(
             writablearray::pushString(env, additional_stops, stop.c_str());
         }
         writablemap::putArray(env, result, "additional_stops", additional_stops);
+        writablemap::putString(env, result, "chat_parser", formatted.parser.c_str());
     } catch (const nlohmann::json_abi_v3_12_0::detail::parse_error& e) {
         std::string errorMessage = "JSON parse error in getFormattedChat: " + std::string(e.what());
         writablemap::putString(env, result, "_error", errorMessage.c_str());
@@ -1452,7 +1453,20 @@ Java_com_rnllama_LlamaContext_doCompletion(
         thinking_forced_open = readablemap::getBool(env, params, "thinking_forced_open", false);
     }
 
-    llama->completion->beginCompletion(chat_format, reasoning_format_enum, thinking_forced_open);
+    // Extract chat_parser if provided
+    std::string chat_parser_str = "";
+    if (readablemap::hasKey(env, params, "chat_parser")) {
+        jstring chat_parser = readablemap::getString(env, params, "chat_parser", nullptr);
+        if (chat_parser) {
+            const char *chat_parser_chars = env->GetStringUTFChars(chat_parser, nullptr);
+            if (chat_parser_chars) {
+                chat_parser_str = chat_parser_chars;
+                env->ReleaseStringUTFChars(chat_parser, chat_parser_chars);
+            }
+        }
+    }
+
+    llama->completion->beginCompletion(chat_format, reasoning_format_enum, thinking_forced_open, chat_parser_str);
     try {
         llama->completion->loadPrompt(media_paths_vector);
     } catch (const std::exception &e) {
@@ -2350,6 +2364,19 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
             thinking_forced_open = readablemap::getBool(env, params_map, "thinking_forced_open", false);
         }
 
+        // Extract chat_parser
+        std::string chat_parser_str = "";
+        if (readablemap::hasKey(env, params_map, "chat_parser")) {
+            jstring chat_parser = readablemap::getString(env, params_map, "chat_parser", nullptr);
+            if (chat_parser) {
+                const char *chat_parser_chars = env->GetStringUTFChars(chat_parser, nullptr);
+                if (chat_parser_chars) {
+                    chat_parser_str = chat_parser_chars;
+                    env->ReleaseStringUTFChars(chat_parser, chat_parser_chars);
+                }
+            }
+        }
+
         // Extract prefill_text
         const char *prefill_text_chars = "";
         jstring prefill_text = nullptr;
@@ -2612,6 +2639,7 @@ Java_com_rnllama_LlamaContext_doQueueCompletion(
             chat_format,
             reasoning_format_enum,
             thinking_forced_open,
+            chat_parser_str,
             prefill_text_str,
             load_state_path,
             save_state_path,
