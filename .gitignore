@@ -92,3 +92,4 @@ local-plan
 local-plan-done
 
 tests/*.gguf
+tests/status_changes.log

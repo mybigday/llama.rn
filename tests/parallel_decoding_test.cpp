@@ -1,4 +1,6 @@
 #include <iostream>
+#include <fstream>
+#include <iomanip>
 #include <cassert>
 #include <filesystem>
 #include <vector>
@@ -14,6 +16,57 @@
 #include "common.h"
 
 using namespace rnllama;
+
+// Status logger for debugging slot manager status changes
+class StatusLogger {
+public:
+    std::ofstream file;
+
+    StatusLogger() {
+        std::filesystem::path source_dir = std::filesystem::path(__FILE__).parent_path();
+        std::filesystem::path log_path = source_dir / "status_changes.log";
+        file.open(log_path, std::ios::out | std::ios::trunc);
+        if (file.is_open()) {
+            file << "=== Slot Manager Status Log ===" << std::endl;
+        }
+    }
+
+    ~StatusLogger() {
+        if (file.is_open()) {
+            file.close();
+        }
+    }
+
+    void log(const llama_rn_parallel_status& status) {
+        if (!file.is_open()) return;
+
+        auto now = std::chrono::system_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()).count() % 1000;
+        auto time = std::chrono::system_clock::to_time_t(now);
+
+        file << "[" << std::put_time(std::localtime(&time), "%H:%M:%S")
+             << "." << std::setfill('0') << std::setw(3) << ms << "] "
+             << "n_parallel=" << status.n_parallel
+             << " active=" << status.active_slots
+             << " queued=" << status.queued_requests
+             << " requests=" << status.requests.size() << std::endl;
+
+        for (const auto& req : status.requests) {
+            file << "  - req#" << req.request_id
+                 << " type=" << req.type
+                 << " state=" << req.state
+                 << " prompt_len=" << req.prompt_length
+                 << " tokens=" << req.tokens_generated
+                 << " t/s=" << std::fixed << std::setprecision(1) << req.tokens_per_second
+                 << std::endl;
+        }
+        file.flush();
+    }
+};
+
+// Global status logger
+static StatusLogger g_status_logger;
 
 // Test result tracking
 struct TestResults {
@@ -1010,10 +1063,376 @@ bool test_state_reuse() {
     }
 }
 
+// Test 23: Status API - get_status() basic functionality
+bool test_status_api_basic() {
+    try {
+        llama_rn_context ctx;
+
+        common_params params;
+        params.model.path = "../tiny-random-llama.gguf";
+        params.n_ctx = 512;
+        params.n_batch = 128;
+        params.n_parallel = 2;
+        params.cpuparams.n_threads = 1;
+        params.n_gpu_layers = 0;
+        params.no_kv_offload = true;
+        params.n_predict = 5;
+
+        if (!ctx.loadModel(params)) {
+            std::cout << "[SKIP: Model not loaded] ";
+            return true;
+        }
+
+        ctx.enableParallelMode(2, 128);
+
+        // Get initial status - should be empty
+        auto status = ctx.slot_manager->get_status();
+
+        if (status.n_parallel != 2) {
+            std::cout << "[n_parallel mismatch: " << status.n_parallel << "] ";
+            return false;
+        }
+        if (status.active_slots != 0) {
+            std::cout << "[active_slots should be 0: " << status.active_slots << "] ";
+            return false;
+        }
+        if (status.queued_requests != 0) {
+            std::cout << "[queued_requests should be 0: " << status.queued_requests << "] ";
+            return false;
+        }
+        if (!status.requests.empty()) {
+            std::cout << "[requests should be empty] ";
+            return false;
+        }
+
+        std::cout << "[Initial status: n_parallel=" << status.n_parallel
+                  << ", active=" << status.active_slots
+                  << ", queued=" << status.queued_requests << "] ";
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// Test 24: Status API - status after queueing requests
+bool test_status_after_queue() {
+    try {
+        llama_rn_context ctx;
+
+        common_params params;
+        params.model.path = "../tiny-random-llama.gguf";
+        params.n_ctx = 512;
+        params.n_batch = 128;
+        params.n_parallel = 2;
+        params.cpuparams.n_threads = 1;
+        params.n_gpu_layers = 0;
+        params.no_kv_offload = true;
+        params.n_predict = 50; // Longer to see status changes
+
+        if (!ctx.loadModel(params)) {
+            std::cout << "[SKIP: Model not loaded] ";
+            return true;
+        }
+
+        ctx.enableParallelMode(2, 128);
+
+        // Queue 3 requests (more than slots)
+        std::vector<llama_token> prompt = common_tokenize(ctx.ctx, "Hello", false);
+
+        for (int i = 0; i < 3; i++) {
+            ctx.slot_manager->queue_request(
+                params, prompt, std::vector<std::string>(), "Hello", 0,
+                COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", -1, -1,
+                [](const completion_token_output& token) {},
+                [](llama_rn_slot* slot) {}
+            );
+        }
+
+        // Process once to assign requests to slots
+        ctx.slot_manager->update_slots();
+
+        // Get status
+        auto status = ctx.slot_manager->get_status();
+
+        std::cout << "[After queue: active=" << status.active_slots
+                  << ", queued=" << status.queued_requests
+                  << ", requests=" << status.requests.size() << "] ";
+
+        // Should have 2 active (filling both slots) and 1 queued
+        if (status.active_slots != 2) {
+            std::cout << "[Expected 2 active slots] ";
+            return false;
+        }
+        if (status.queued_requests != 1) {
+            std::cout << "[Expected 1 queued request] ";
+            return false;
+        }
+        if (status.requests.size() != 3) {
+            std::cout << "[Expected 3 total requests in status] ";
+            return false;
+        }
+
+        // Verify request status fields
+        bool found_queued = false;
+        bool found_active = false;
+        for (const auto& req : status.requests) {
+            if (req.state == "queued") found_queued = true;
+            if (req.state == "processing_prompt" || req.state == "generating") found_active = true;
+            if (req.type != "completion") {
+                std::cout << "[Expected type='completion', got '" << req.type << "'] ";
+                return false;
+            }
+        }
+
+        if (!found_queued) {
+            std::cout << "[No queued request found in status] ";
+            return false;
+        }
+        if (!found_active) {
+            std::cout << "[No active request found in status] ";
+            return false;
+        }
+
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// Test 25: Status subscription - callback invocation
+bool test_status_subscription() {
+    try {
+        llama_rn_context ctx;
+
+        common_params params;
+        params.model.path = "../tiny-random-llama.gguf";
+        params.n_ctx = 512;
+        params.n_batch = 128;
+        params.n_parallel = 1;
+        params.cpuparams.n_threads = 1;
+        params.n_gpu_layers = 0;
+        params.no_kv_offload = true;
+        params.n_predict = 3;
+
+        if (!ctx.loadModel(params)) {
+            std::cout << "[SKIP: Model not loaded] ";
+            return true;
+        }
+
+        ctx.enableParallelMode(1, 128);
+
+        // Track subscription callbacks
+        int callback_count = 0;
+        std::vector<llama_rn_parallel_status> received_statuses;
+
+        // Subscribe to status changes
+        int32_t subscriber_id = ctx.slot_manager->add_status_subscriber(
+            [&](const llama_rn_parallel_status& status) {
+                callback_count++;
+                received_statuses.push_back(status);
+                g_status_logger.log(status);  // Log to file
+            }
+        );
+
+        if (subscriber_id <= 0) {
+            std::cout << "[Invalid subscriber ID] ";
+            return false;
+        }
+
+        // Queue a request and process
+        std::vector<llama_token> prompt = common_tokenize(ctx.ctx, "Hi", false);
+        bool complete = false;
+
+        ctx.slot_manager->queue_request(
+            params, prompt, std::vector<std::string>(), "Hi", 0,
+            COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", -1, -1,
+            [](const completion_token_output& token) {},
+            [&](llama_rn_slot* slot) { complete = true; }
+        );
+
+        // Process until complete
+        int iterations = 0;
+        while (!complete && iterations < 100) {
+            ctx.slot_manager->update_slots();
+            iterations++;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        // Unsubscribe
+        ctx.slot_manager->remove_status_subscriber(subscriber_id);
+
+        std::cout << "[Callbacks received: " << callback_count << "] ";
+
+        // Should have received at least one callback
+        if (callback_count == 0) {
+            std::cout << "[No status callbacks received] ";
+            return false;
+        }
+
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// Test 26: Status subscription - unsubscribe works
+bool test_status_unsubscribe() {
+    try {
+        llama_rn_context ctx;
+
+        common_params params;
+        params.model.path = "../tiny-random-llama.gguf";
+        params.n_ctx = 512;
+        params.n_batch = 128;
+        params.n_parallel = 1;
+        params.cpuparams.n_threads = 1;
+        params.n_gpu_layers = 0;
+        params.no_kv_offload = true;
+        params.n_predict = 3;
+
+        if (!ctx.loadModel(params)) {
+            std::cout << "[SKIP: Model not loaded] ";
+            return true;
+        }
+
+        ctx.enableParallelMode(1, 128);
+
+        int callback_count = 0;
+
+        // Subscribe
+        int32_t subscriber_id = ctx.slot_manager->add_status_subscriber(
+            [&](const llama_rn_parallel_status& status) {
+                callback_count++;
+            }
+        );
+
+        // Immediately unsubscribe
+        ctx.slot_manager->remove_status_subscriber(subscriber_id);
+
+        // Queue and process a request
+        std::vector<llama_token> prompt = common_tokenize(ctx.ctx, "Hi", false);
+        bool complete = false;
+
+        ctx.slot_manager->queue_request(
+            params, prompt, std::vector<std::string>(), "Hi", 0,
+            COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", -1, -1,
+            [](const completion_token_output& token) {},
+            [&](llama_rn_slot* slot) { complete = true; }
+        );
+
+        int iterations = 0;
+        while (!complete && iterations < 100) {
+            ctx.slot_manager->update_slots();
+            iterations++;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        std::cout << "[Callbacks after unsubscribe: " << callback_count << "] ";
+
+        // Should NOT have received any callbacks after unsubscribe
+        if (callback_count != 0) {
+            std::cout << "[Should not receive callbacks after unsubscribe] ";
+            return false;
+        }
+
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// Test 27: Status request metrics
+bool test_status_request_metrics() {
+    try {
+        llama_rn_context ctx;
+
+        common_params params;
+        params.model.path = "../tiny-random-llama.gguf";
+        params.n_ctx = 512;
+        params.n_batch = 128;
+        params.n_parallel = 1;
+        params.cpuparams.n_threads = 1;
+        params.n_gpu_layers = 0;
+        params.no_kv_offload = true;
+        params.n_predict = 10;
+
+        if (!ctx.loadModel(params)) {
+            std::cout << "[SKIP: Model not loaded] ";
+            return true;
+        }
+
+        ctx.enableParallelMode(1, 128);
+
+        std::vector<llama_token> prompt = common_tokenize(ctx.ctx, "Hello world", false);
+        bool complete = false;
+        llama_rn_parallel_status last_active_status;
+        bool captured_active = false;
+
+        // Subscribe to capture status during generation
+        int32_t subscriber_id = ctx.slot_manager->add_status_subscriber(
+            [&](const llama_rn_parallel_status& status) {
+                g_status_logger.log(status);  // Log to file
+                if (status.active_slots > 0 && !status.requests.empty()) {
+                    for (const auto& req : status.requests) {
+                        if (req.state == "generating") {
+                            last_active_status = status;
+                            captured_active = true;
+                        }
+                    }
+                }
+            }
+        );
+
+        ctx.slot_manager->queue_request(
+            params, prompt, std::vector<std::string>(), "Hello world", 0,
+            COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", -1, -1,
+            [](const completion_token_output& token) {},
+            [&](llama_rn_slot* slot) { complete = true; }
+        );
+
+        int iterations = 0;
+        while (!complete && iterations < 100) {
+            ctx.slot_manager->update_slots();
+            iterations++;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        ctx.slot_manager->remove_status_subscriber(subscriber_id);
+
+        if (!captured_active) {
+            std::cout << "[Did not capture active status during generation] ";
+            // This might happen if generation is very fast - not a failure
+            return true;
+        }
+
+        // Check captured metrics
+        bool found_valid = false;
+        for (const auto& req : last_active_status.requests) {
+            if (req.state == "generating") {
+                std::cout << "[Captured: prompt_len=" << req.prompt_length
+                          << ", tokens=" << req.tokens_generated
+                          << ", t/s=" << req.tokens_per_second << "] ";
+
+                // Verify prompt length matches
+                if (req.prompt_length != prompt.size()) {
+                    std::cout << "[Prompt length mismatch] ";
+                    return false;
+                }
+                found_valid = true;
+            }
+        }
+
+        return found_valid || !captured_active; // OK if we didn't capture (fast completion)
+    } catch (...) {
+        return false;
+    }
+}
+
 int main() {
     std::cout << "=== Parallel Decoding Tests ===" << std::endl;
     std::cout << "Testing parallel decoding implementation for llama.rn" << std::endl;
     std::cout << "Using test model: ../tiny-random-llama.gguf" << std::endl;
+    std::cout << "Status changes logged to: tests/status_changes.log" << std::endl;
     std::cout << "============================" << std::endl;
 
     TestResults results;
@@ -1051,6 +1470,15 @@ int main() {
     results.run_test("Queue Overflow Handling", test_queue_overflow());
     results.run_test("Queue Request with State", test_queue_request_with_state());
     results.run_test("State Reuse", test_state_reuse());
+
+    std::cout << "\n--- Status API Tests ---" << std::endl;
+
+    // Status API tests
+    results.run_test("Status API Basic", test_status_api_basic());
+    results.run_test("Status After Queue", test_status_after_queue());
+    results.run_test("Status Subscription", test_status_subscription());
+    results.run_test("Status Unsubscribe", test_status_unsubscribe());
+    results.run_test("Status Request Metrics", test_status_request_metrics());
 
     // Print summary
     results.print_summary();

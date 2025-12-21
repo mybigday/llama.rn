@@ -533,3 +533,21 @@ export type NativeBackendDeviceInfo = {
   maxMemorySize: number
   metadata?: Record<string, any>
 }
+
+export type ParallelRequestStatus = {
+  requestId: number
+  type: 'completion' | 'embedding' | 'rerank'
+  state: 'queued' | 'processing_prompt' | 'generating' | 'done'
+  promptLength: number
+  tokensGenerated: number
+  promptMs: number
+  generationMs: number
+  tokensPerSecond: number
+}
+
+export type ParallelStatus = {
+  nParallel: number
+  activeSlots: number
+  queuedRequests: number
+  requests: ParallelRequestStatus[]
+}

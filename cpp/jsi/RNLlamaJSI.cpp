@@ -1513,6 +1513,163 @@ namespace rnllama_jsi {
         );
         runtime.global().setProperty(runtime, "llamaQueueRerank", queueRerank);
 
+        // Helper function to create parallel status object
+        auto createParallelStatusObject = [](jsi::Runtime& rt, const rnllama::llama_rn_parallel_status& status) -> jsi::Object {
+            jsi::Object result(rt);
+            result.setProperty(rt, "nParallel", status.n_parallel);
+            result.setProperty(rt, "activeSlots", status.active_slots);
+            result.setProperty(rt, "queuedRequests", status.queued_requests);
+
+            jsi::Array requests(rt, status.requests.size());
+            for (size_t i = 0; i < status.requests.size(); i++) {
+                const auto& req = status.requests[i];
+                jsi::Object reqObj(rt);
+                reqObj.setProperty(rt, "requestId", req.request_id);
+                reqObj.setProperty(rt, "type", jsi::String::createFromUtf8(rt, req.type));
+                reqObj.setProperty(rt, "state", jsi::String::createFromUtf8(rt, req.state));
+                reqObj.setProperty(rt, "promptLength", (double)req.prompt_length);
+                reqObj.setProperty(rt, "tokensGenerated", (double)req.tokens_generated);
+                reqObj.setProperty(rt, "promptMs", req.prompt_ms);
+                reqObj.setProperty(rt, "generationMs", req.generation_ms);
+                reqObj.setProperty(rt, "tokensPerSecond", req.tokens_per_second);
+                requests.setValueAtIndex(rt, i, reqObj);
+            }
+            result.setProperty(rt, "requests", requests);
+
+            return result;
+        };
+
+        // Get parallel status (one-time snapshot)
+        auto getParallelStatus = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaGetParallelStatus"),
+            1,
+            [callInvoker, createParallelStatusObject](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+
+                return createPromiseTask(runtime, callInvoker, [contextId]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (!ctx->parallel_mode_enabled || !ctx->slot_manager) {
+                        throw std::runtime_error("Parallel mode not enabled");
+                    }
+
+                    auto status = ctx->slot_manager->get_status();
+
+                    return [status](jsi::Runtime& rt) {
+                        jsi::Object result(rt);
+                        result.setProperty(rt, "nParallel", status.n_parallel);
+                        result.setProperty(rt, "activeSlots", status.active_slots);
+                        result.setProperty(rt, "queuedRequests", status.queued_requests);
+
+                        jsi::Array requests(rt, status.requests.size());
+                        for (size_t i = 0; i < status.requests.size(); i++) {
+                            const auto& req = status.requests[i];
+                            jsi::Object reqObj(rt);
+                            reqObj.setProperty(rt, "requestId", req.request_id);
+                            reqObj.setProperty(rt, "type", jsi::String::createFromUtf8(rt, req.type));
+                            reqObj.setProperty(rt, "state", jsi::String::createFromUtf8(rt, req.state));
+                            reqObj.setProperty(rt, "promptLength", (double)req.prompt_length);
+                            reqObj.setProperty(rt, "tokensGenerated", (double)req.tokens_generated);
+                            reqObj.setProperty(rt, "promptMs", req.prompt_ms);
+                            reqObj.setProperty(rt, "generationMs", req.generation_ms);
+                            reqObj.setProperty(rt, "tokensPerSecond", req.tokens_per_second);
+                            requests.setValueAtIndex(rt, i, reqObj);
+                        }
+                        result.setProperty(rt, "requests", requests);
+
+                        return result;
+                    };
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaGetParallelStatus", getParallelStatus);
+
+        // Subscribe to parallel status changes
+        auto subscribeParallelStatus = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaSubscribeParallelStatus"),
+            2,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                auto onStatus = std::make_shared<jsi::Function>(
+                    arguments[1].asObject(runtime).asFunction(runtime)
+                );
+
+                auto runtimePtr = std::make_shared<jsi::Runtime*>(&runtime);
+
+                return createPromiseTask(runtime, callInvoker,
+                    [contextId, onStatus, callInvoker, runtimePtr]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (!ctx->parallel_mode_enabled || !ctx->slot_manager) {
+                        throw std::runtime_error("Parallel mode not enabled");
+                    }
+
+                    auto statusCallback = [contextId, callInvoker, onStatus, runtimePtr](
+                        const rnllama::llama_rn_parallel_status& status
+                    ) {
+                        // Copy status for async callback
+                        rnllama::llama_rn_parallel_status statusCopy = status;
+
+                        callInvoker->invokeAsync([onStatus, statusCopy, runtimePtr]() {
+                            if (!runtimePtr || !*runtimePtr) return;
+                            auto& rt = **runtimePtr;
+
+                            jsi::Object result(rt);
+                            result.setProperty(rt, "nParallel", statusCopy.n_parallel);
+                            result.setProperty(rt, "activeSlots", statusCopy.active_slots);
+                            result.setProperty(rt, "queuedRequests", statusCopy.queued_requests);
+
+                            jsi::Array requests(rt, statusCopy.requests.size());
+                            for (size_t i = 0; i < statusCopy.requests.size(); i++) {
+                                const auto& req = statusCopy.requests[i];
+                                jsi::Object reqObj(rt);
+                                reqObj.setProperty(rt, "requestId", req.request_id);
+                                reqObj.setProperty(rt, "type", jsi::String::createFromUtf8(rt, req.type));
+                                reqObj.setProperty(rt, "state", jsi::String::createFromUtf8(rt, req.state));
+                                reqObj.setProperty(rt, "promptLength", (double)req.prompt_length);
+                                reqObj.setProperty(rt, "tokensGenerated", (double)req.tokens_generated);
+                                reqObj.setProperty(rt, "promptMs", req.prompt_ms);
+                                reqObj.setProperty(rt, "generationMs", req.generation_ms);
+                                reqObj.setProperty(rt, "tokensPerSecond", req.tokens_per_second);
+                                requests.setValueAtIndex(rt, i, reqObj);
+                            }
+                            result.setProperty(rt, "requests", requests);
+
+                            onStatus->call(rt, result);
+                        });
+                    };
+
+                    int32_t subscriberId = ctx->slot_manager->add_status_subscriber(statusCallback);
+
+                    return [subscriberId](jsi::Runtime& rt) {
+                        jsi::Object res(rt);
+                        res.setProperty(rt, "subscriberId", subscriberId);
+                        return res;
+                    };
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaSubscribeParallelStatus", subscribeParallelStatus);
+
+        // Unsubscribe from parallel status changes
+        auto unsubscribeParallelStatus = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaUnsubscribeParallelStatus"),
+            2,
+            [](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                int subscriberId = (int)arguments[1].asNumber();
+
+                long ctxPtr = g_llamaContexts.get(contextId);
+                if (ctxPtr) {
+                    auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
+                    if (ctx->slot_manager) {
+                        ctx->slot_manager->remove_status_subscriber(subscriberId);
+                    }
+                }
+
+                return jsi::Value::undefined();
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaUnsubscribeParallelStatus", unsubscribeParallelStatus);
+
         auto releaseContext = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaReleaseContext"),
             1,
