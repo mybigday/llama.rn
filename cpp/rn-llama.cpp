@@ -275,7 +275,7 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
         inputs.tool_choice = common_chat_tool_choice_parse_oaicompat(tool_choice);
     }
     if (!json_schema.empty()) {
-        inputs.json_schema = json::parse(json_schema);
+        inputs.json_schema = json_schema;
     }
     inputs.enable_thinking = enable_thinking;
     inputs.add_generation_prompt = add_generation_prompt;
