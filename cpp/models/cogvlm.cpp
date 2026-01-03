@@ -3,12 +3,14 @@
 llm_build_cogvlm::llm_build_cogvlm(const llama_model & model, const llm_graph_params & params) :
     llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v;
-    float         kq_scale    = 1.0f / sqrtf(float(n_embd_head));
+    const float   kq_scale    = 1.0f / sqrtf(float(n_embd_head));
 
     LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
     LM_GGML_ASSERT(n_embd_head == hparams.n_rot);
 
-    lm_ggml_tensor *inpL, *cur;
+    lm_ggml_tensor * inpL;
+    lm_ggml_tensor * cur;
+
     inpL = build_inp_embd(model.tok_embd);
 
     lm_ggml_tensor * inp_pos = build_inp_pos();
@@ -44,7 +46,7 @@ llm_build_cogvlm::llm_build_cogvlm(const llama_model & model, const llm_graph_pa
         }
 
         lm_ggml_tensor * inpSA = inpL;
-        cur                 = build_norm(inpSA, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
+        cur = build_norm(inpSA, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
 
         // build self attention
         {

@@ -1023,6 +1023,11 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
             return has_simdgroup_reduction && lm_ggml_is_contiguous_rows(op->src[0]);
         case LM_GGML_OP_L2_NORM:
             return has_simdgroup_reduction && (op->ne[0] % 4 == 0 && lm_ggml_is_contiguous_1(op->src[0]));
+        case LM_GGML_OP_COUNT_EQUAL:
+            return has_simdgroup_reduction &&
+                op->src[0]->type == LM_GGML_TYPE_I32 &&
+                op->src[1]->type == LM_GGML_TYPE_I32 &&
+                op->type == LM_GGML_TYPE_I64;
         case LM_GGML_OP_ARGMAX:
             return has_simdgroup_reduction;
         case LM_GGML_OP_NORM:
