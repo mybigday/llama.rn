@@ -87,6 +87,7 @@ int lm_ggml_metal_op_leaky_relu        (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_tri               (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_opt_step_adamw    (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_opt_step_sgd      (lm_ggml_metal_op_t ctx, int idx);
+int lm_ggml_metal_op_count_equal       (lm_ggml_metal_op_t ctx, int idx);
 
 #ifdef __cplusplus
 }
