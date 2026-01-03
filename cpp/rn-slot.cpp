@@ -161,23 +161,29 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
 
         if (n_matching > 0) {
             // We can reuse the KV cache for the matching prefix
-            // Adjust n_past to the matching length
             LOG_INFO("Slot %d (req=%d): Reusing loaded state (%zu matching tokens from %zu cached, %zu prompt tokens)",
                      id, request_id, n_matching, cache_tokens.size(), tokens.size());
 
-            // Set n_past to the matching prefix length
-            // Any remaining tokens will be processed through build_batch
-            n_past = n_matching;
+            // If ALL prompt tokens match, we need to re-evaluate the last token
+            // to get fresh logits for sampling. Set n_past to n_matching - 1 so
+            // the last token gets added to the batch.
+            if (n_matching == tokens.size() && n_matching > 0) {
+                n_past = n_matching - 1;
+                n_prompt_tokens_cache = n_matching - 1;
+                LOG_INFO("Slot %d: Full prompt cached, will re-eval last token for fresh logits", id);
+            } else {
+                // Partial match - set n_past to the matching prefix length
+                // Remaining tokens will be processed through build_batch
+                n_past = n_matching;
+                n_prompt_tokens_cache = n_matching;
+            }
             n_decoded = 0;
 
-            // Track cached tokens for timing metrics
-            n_prompt_tokens_cache = n_matching;
-
-            // Clear KV cache beyond the matching prefix
+            // Clear KV cache beyond the reusable prefix
             if (parent_ctx && parent_ctx->ctx) {
                 auto * kv = llama_get_memory(parent_ctx->ctx);
-                llama_memory_seq_rm(kv, id, n_matching, -1);
-                LOG_VERBOSE("Slot %d: Cleared KV cache beyond position %zu", id, n_matching);
+                llama_memory_seq_rm(kv, id, n_past, -1);
+                LOG_VERBOSE("Slot %d: Cleared KV cache beyond position %d", id, n_past);
             }
 
             // Update cache_tokens to include the full prompt
@@ -334,58 +340,53 @@ bool llama_rn_slot::load_state() {
     // Start timing
     const int64_t t_load_start = lm_ggml_time_us();
 
-    auto * kv = llama_get_memory(parent_ctx->ctx);
-    llama_memory_seq_rm(kv, id, -1, -1);
-    LOG_VERBOSE("Slot %d: Cleared ALL KV cache cells for sequence %d", id, id);
-
     // Get size needed for token output buffer
-    size_t max_tokens = parent_ctx->params.n_ctx;
-    std::vector<llama_token> state_tokens(max_tokens);
+    std::vector<llama_token> state_tokens(n_ctx);
     size_t n_token_count_out = 0;
 
     // Load state from file into this slot's sequence
-    if (!llama_state_seq_load_file(
+    // Note: llama_state_seq_load_file handles KV cache restoration internally
+    size_t nread = llama_state_seq_load_file(
         parent_ctx->ctx,
         load_state_path.c_str(),
         id,  // Use slot ID as sequence ID
         state_tokens.data(),
         state_tokens.size(),
         &n_token_count_out
-    )) {
-        LOG_ERROR("Slot %d: Failed to load state from file: %s", id, load_state_path.c_str());
+    );
+
+    if (nread == 0) {
+        // KV cache may have been invalidated by the failed load attempt
+        cache_tokens.clear();
+        LOG_ERROR("Slot %d: Failed to load state from file (no space in KV cache or invalid file): %s",
+                  id, load_state_path.c_str());
         return false;
     }
 
     // Resize token vector to actual size
     state_tokens.resize(n_token_count_out);
 
-    // Remove LLAMA_TOKEN_NULL tokens
-    auto null_token_iter = std::find(state_tokens.begin(), state_tokens.end(), LLAMA_TOKEN_NULL);
-    if (null_token_iter != state_tokens.end()) {
-        state_tokens.resize(std::distance(state_tokens.begin(), null_token_iter));
-    }
-
     // Apply load_state_size limit if specified
     if (load_state_size > 0 && (size_t)load_state_size < state_tokens.size()) {
         LOG_VERBOSE("Slot %d: Limiting loaded state from %zu to %d tokens",
                    id, state_tokens.size(), load_state_size);
         state_tokens.resize(load_state_size);
+
+        // Truncate KV cache to match the limited token count
+        auto * kv = llama_get_memory(parent_ctx->ctx);
+        llama_memory_seq_rm(kv, id, load_state_size, -1);
     }
 
-    // Update slot state
-    embd = state_tokens;
+    // Update slot state - cache_tokens tracks what's in KV cache
     n_past = state_tokens.size();
-    cache_tokens = state_tokens;
-
-    // Remove any KV cache cells beyond n_past to ensure clean state
-    // This is needed because the state file might contain more cells than tokens
-    // (e.g., from a previous save that had more data)
-    llama_memory_seq_rm(kv, id, n_past, -1);
-    LOG_VERBOSE("Slot %d: Removed KV cache cells beyond position %d", id, n_past);
+    cache_tokens = std::move(state_tokens);
 
     // Calculate elapsed time
     const int64_t t_load_end = lm_ggml_time_us();
     const double t_load_ms = (t_load_end - t_load_start) / 1000.0;
+
+    LOG_INFO("Slot %d: Loaded %zu tokens (%.2f ms, %.2f KB)",
+             id, cache_tokens.size(), t_load_ms, nread / 1024.0);
 
     return true;
 }
@@ -460,13 +461,15 @@ bool llama_rn_slot::save_state() {
     }
 
     // Save state to file
-    if (!llama_state_seq_save_file(
+    size_t nwrite = llama_state_seq_save_file(
         parent_ctx->ctx,
         save_state_path.c_str(),
         id,  // Use slot ID as sequence ID
         state_tokens.data(),
         actual_save_size
-    )) {
+    );
+
+    if (nwrite == 0) {
         LOG_ERROR("Slot %d: Failed to save state to file: %s", id, save_state_path.c_str());
         return false;
     }
@@ -474,6 +477,9 @@ bool llama_rn_slot::save_state() {
     // Calculate elapsed time
     const int64_t t_save_end = lm_ggml_time_us();
     const double t_save_ms = (t_save_end - t_save_start) / 1000.0;
+
+    LOG_INFO("Slot %d: Saved %zu tokens (%.2f ms, %.2f KB)",
+             id, actual_save_size, t_save_ms, nwrite / 1024.0);
 
     return true;
 }
