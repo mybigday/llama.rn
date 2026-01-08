@@ -1,25 +1,25 @@
---- tools/mtmd/mtmd-audio.cpp.orig
-+++ tools/mtmd/mtmd-audio.cpp
+--- tools/mtmd/mtmd-audio.cpp.orig	2026-01-08 10:47:35
++++ tools/mtmd/mtmd-audio.cpp	2026-01-08 10:48:48
 @@ -11,7 +11,8 @@
 
- // most of the code here is copied from whisper.cpp
+ // some of the code here is copied from whisper.cpp
 
 -constexpr bool DEBUG = false;
 +// renamed to avoid conflict with Apple's DEBUG macro
 +constexpr bool MTMD_AUDIO_DEBUG = false;
 
- struct mtmd_audio_mel_filters {
-     int32_t n_mel;
-@@ -129,7 +130,7 @@
-         filters.n_fft = n_fft;
-         filters.data  = std::move(out);
+ void mtmd_audio_cache::fill_sin_cos_table(int n) {
+     sin_vals.resize(n);
+@@ -104,7 +105,7 @@
+     filters.n_fft = n_fft;
+     filters.data  = std::move(out);
 
--        if (DEBUG) { // debug
-+        if (MTMD_AUDIO_DEBUG) { // debug
-             for (size_t i = 0; i < filters.data.size(); ++i) {
-                 if (filters.data[i] != 0.0f) {
-                     printf("filters[%zu] = %f\n", i, filters.data[i] * 1000.0f);
-@@ -432,7 +433,7 @@
+-    if (DEBUG) {  // debug
++    if (MTMD_AUDIO_DEBUG) {  // debug
+         for (size_t i = 0; i < filters.data.size(); ++i) {
+             if (filters.data[i] != 0.0f) {
+                 printf("filters[%zu] = %f\n", i, filters.data[i] * 1000.0f);
+@@ -483,7 +484,7 @@
      }
 
      // Dump log_mel_spectrogram
@@ -28,7 +28,7 @@
          std::ofstream outFile("log_mel_spectrogram.json");
          outFile << "[";
          for (uint64_t i = 0; i < out.data.size() - 1; i++) {
-@@ -508,7 +509,7 @@
+@@ -552,7 +553,7 @@
 
      // because the cgraph in clip.cpp only accepts 3000 frames each, we need to split the mel
      // we always expect the mel to have 3000 silent frames at the end
