@@ -81,6 +81,7 @@ int32_t llama_rn_slot_manager::queue_request(
     const std::string& prefill_text,
     const std::string& load_state_path,
     const std::string& save_state_path,
+    const std::string& save_prompt_state_path,
     int32_t load_state_size,
     int32_t save_state_size,
     std::function<void(const completion_token_output&)> on_token,
@@ -89,10 +90,11 @@ int32_t llama_rn_slot_manager::queue_request(
     // Generate unique request ID
     int32_t request_id = next_request_id++;
 
-    LOG_INFO("Queuing request %d with %zu prompt tokens (load_state=%s, save_state=%s, load_size=%d, save_size=%d)",
+    LOG_INFO("Queuing request %d with %zu prompt tokens (load_state=%s, save_state=%s, save_prompt_state=%s, load_size=%d, save_size=%d)",
              request_id, prompt.size(),
              load_state_path.empty() ? "no" : load_state_path.c_str(),
              save_state_path.empty() ? "no" : save_state_path.c_str(),
+             save_prompt_state_path.empty() ? "no" : save_prompt_state_path.c_str(),
              load_state_size,
              save_state_size);
 
@@ -111,6 +113,7 @@ int32_t llama_rn_slot_manager::queue_request(
     request.prefill_text = prefill_text;
     request.load_state_path = load_state_path;
     request.save_state_path = save_state_path;
+    request.save_prompt_state_path = save_prompt_state_path;
     request.load_state_size = load_state_size;
     request.save_state_size = save_state_size;
     request.on_token = on_token;
@@ -467,6 +470,7 @@ void llama_rn_slot_manager::process_pending_queue() {
                 // Assign state parameters
                 slot->load_state_path = request.load_state_path;
                 slot->save_state_path = request.save_state_path;
+                slot->save_prompt_state_path = request.save_prompt_state_path;
                 slot->load_state_size = request.load_state_size;
                 slot->save_state_size = request.save_state_size;
 
@@ -658,6 +662,15 @@ void llama_rn_slot_manager::build_batch() {
                     slot.prompt_tokens = slot.embd;
                     slot.num_prompt_tokens = slot.embd.size();
                     slot.media_processed = true;
+                    if (slot.save_prompt_state_pending) {
+                        llama_pos checkpoint_tokens = (llama_pos)slot.num_prompt_tokens;
+                        if (checkpoint_tokens > 1) {
+                            checkpoint_tokens -= 1;
+                        }
+                        slot.save_prompt_state_tokens = checkpoint_tokens;
+                        LOG_VERBOSE("Slot %d: Updated prompt checkpoint target to %lld/%zu tokens after media processing",
+                                   slot.id, (long long)slot.save_prompt_state_tokens, slot.num_prompt_tokens);
+                    }
 
                     // processMedia() fills ALL tokens into KV cache, so update n_past to match
                     // This prevents the while loop from re-adding tokens that are already in KV cache
@@ -694,7 +707,13 @@ void llama_rn_slot_manager::build_batch() {
             }
 
             // Process tokens up to n_batch limit (only for non-media slots)
-            while (slot.n_past < (llama_pos)slot.num_prompt_tokens && batch.n_tokens < n_batch) {
+            size_t prompt_end = slot.num_prompt_tokens;
+            if (slot.save_prompt_state_pending && slot.save_prompt_state_tokens >= 0 &&
+                slot.n_past <= slot.save_prompt_state_tokens) {
+                prompt_end = std::min(prompt_end, (size_t)slot.save_prompt_state_tokens);
+            }
+
+            while (slot.n_past < (llama_pos)prompt_end && batch.n_tokens < n_batch) {
                 llama_token token = slot.prompt_tokens[slot.n_past];
 
                 // Skip LLAMA_TOKEN_NULL - these are media placeholders already in KV cache
@@ -1093,6 +1112,31 @@ void llama_rn_slot_manager::update_slots() {
 
                     LOG_VERBOSE("Slot %d: Prompt processing complete, time=%.3fs, tokens=%d (cached=%d)",
                                slot.id, slot.t_prompt_processing, slot.n_prompt_tokens_processed, slot.n_prompt_tokens_cache);
+                }
+            }
+        }
+    }
+
+    // Step 4.6: Save recurrent prompt checkpoints after decode (or if no decode needed)
+    {
+        std::lock_guard<std::mutex> lock(slots_mutex);
+        for (auto& slot : slots) {
+            if (!slot.save_prompt_state_pending || slot.save_prompt_state_tokens < 0) {
+                continue;
+            }
+
+            if (slot.n_decoded > 0) {
+                LOG_WARNING("Slot %d: Prompt checkpoint missed (generated tokens=%d), skipping",
+                           slot.id, slot.n_decoded);
+                slot.save_prompt_state_pending = false;
+                continue;
+            }
+
+            if (slot.n_past >= slot.save_prompt_state_tokens) {
+                const bool saved = slot.save_prompt_state_checkpoint();
+                slot.save_prompt_state_pending = false;
+                if (!saved) {
+                    LOG_WARNING("Slot %d: Failed to save prompt checkpoint", slot.id);
                 }
             }
         }

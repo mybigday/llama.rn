@@ -45,7 +45,9 @@ llama_rn_slot::llama_rn_slot() :
     media_processed(false),
     rerank_current_index(0),
     load_state_size(-1),
-    save_state_size(-1)
+    save_state_size(-1),
+    save_prompt_state_pending(false),
+    save_prompt_state_tokens(-1)
 {
 }
 
@@ -123,16 +125,20 @@ void llama_rn_slot::reset() {
     rerank_current_index = 0;
 
     // Reset state management
-    if (!load_state_path.empty() || !save_state_path.empty()) {
-        LOG_VERBOSE("Slot %d: Clearing state paths (load=%s, save=%s)",
+    if (!load_state_path.empty() || !save_state_path.empty() || !save_prompt_state_path.empty()) {
+        LOG_VERBOSE("Slot %d: Clearing state paths (load=%s, save=%s, save_prompt=%s)",
                    id,
                    load_state_path.empty() ? "none" : load_state_path.c_str(),
-                   save_state_path.empty() ? "none" : save_state_path.c_str());
+                   save_state_path.empty() ? "none" : save_state_path.c_str(),
+                   save_prompt_state_path.empty() ? "none" : save_prompt_state_path.c_str());
     }
     load_state_path.clear();
     save_state_path.clear();
+    save_prompt_state_path.clear();
     load_state_size = -1;
     save_state_size = -1;
+    save_prompt_state_pending = false;
+    save_prompt_state_tokens = -1;
 
     // Reset timing fields
     t_start_process = 0;
@@ -155,11 +161,28 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
     // Check if we have loaded state
     bool has_loaded_state = (!load_state_path.empty() && !cache_tokens.empty());
 
+    // Check if model is recurrent/hybrid - needs special handling for state reuse
+    const llama_model * model = llama_get_model(parent_ctx->ctx);
+    const bool is_recurrent_or_hybrid = llama_model_is_recurrent(model) || llama_model_is_hybrid(model);
+
     if (has_loaded_state) {
         // Find how many tokens match between cached state and new prompt
         size_t n_matching = find_common_prefix_length(cache_tokens, tokens);
 
-        if (n_matching > 0) {
+        // For recurrent/hybrid models, we can only reuse state if:
+        // 1. The cached tokens exactly match the prompt (all prompt tokens are prefix of cached)
+        // 2. We don't need to truncate the recurrent state
+        // If cached tokens exceed the prompt, we must clear and reprocess because
+        // recurrent state cannot be truncated.
+        bool can_reuse_state = (n_matching > 0);
+        if (is_recurrent_or_hybrid && n_matching < cache_tokens.size()) {
+            // Cached tokens extend beyond the prompt - can't truncate recurrent state
+            LOG_WARNING("Slot %d (req=%d): Cannot reuse recurrent state (cached %zu > matching %zu), clearing",
+                       id, request_id, cache_tokens.size(), n_matching);
+            can_reuse_state = false;
+        }
+
+        if (can_reuse_state) {
             // We can reuse the KV cache for the matching prefix
             LOG_INFO("Slot %d (req=%d): Reusing loaded state (%zu matching tokens from %zu cached, %zu prompt tokens)",
                      id, request_id, n_matching, cache_tokens.size(), tokens.size());
@@ -221,6 +244,34 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
 
         // Initialize cache_tokens with prompt tokens
         cache_tokens = tokens;
+    }
+
+    // Configure prompt checkpointing for recurrent/hybrid models when save_state_size is provided
+    save_prompt_state_pending = false;
+    save_prompt_state_tokens = -1;
+    if (!save_prompt_state_path.empty()) {
+        llama_pos checkpoint_tokens = (llama_pos)tokens.size();
+        // Save before the last prompt token so we can re-evaluate it for fresh logits on load.
+        if (checkpoint_tokens > 1) {
+            checkpoint_tokens -= 1;
+        }
+        if (checkpoint_tokens == 0) {
+            LOG_WARNING("Slot %d (req=%d): Prompt checkpoint requested with empty prompt, skipping",
+                       id, request_id);
+        } else if (n_past > checkpoint_tokens) {
+            LOG_WARNING("Slot %d (req=%d): Prompt checkpoint target %lld is before cached n_past=%lld, skipping",
+                       id, request_id, (long long)checkpoint_tokens, (long long)n_past);
+        } else {
+            save_prompt_state_tokens = checkpoint_tokens;
+            save_prompt_state_pending = true;
+            if (is_recurrent_or_hybrid) {
+                LOG_INFO("Slot %d (req=%d): Will save recurrent prompt checkpoint after %lld/%zu tokens",
+                         id, request_id, (long long)save_prompt_state_tokens, tokens.size());
+            } else {
+                LOG_INFO("Slot %d (req=%d): Will save prompt checkpoint after %lld/%zu tokens",
+                         id, request_id, (long long)save_prompt_state_tokens, tokens.size());
+            }
+        }
     }
 }
 
@@ -340,44 +391,45 @@ bool llama_rn_slot::load_state() {
     // Start timing
     const int64_t t_load_start = lm_ggml_time_us();
 
+    const llama_model * model = llama_get_model(parent_ctx->ctx);
+    const bool is_recurrent_or_hybrid = llama_model_is_recurrent(model) || llama_model_is_hybrid(model);
+
     // Get size needed for token output buffer
     std::vector<llama_token> state_tokens(n_ctx);
     size_t n_token_count_out = 0;
 
-    // Load state from file into this slot's sequence
-    // Note: llama_state_seq_load_file handles KV cache restoration internally
     size_t nread = llama_state_seq_load_file(
         parent_ctx->ctx,
         load_state_path.c_str(),
-        id,  // Use slot ID as sequence ID
+        id,
         state_tokens.data(),
         state_tokens.size(),
         &n_token_count_out
     );
 
     if (nread == 0) {
-        // KV cache may have been invalidated by the failed load attempt
         cache_tokens.clear();
-        LOG_ERROR("Slot %d: Failed to load state from file (no space in KV cache or invalid file): %s",
-                  id, load_state_path.c_str());
+        LOG_ERROR("Slot %d: Failed to load state from file: %s", id, load_state_path.c_str());
         return false;
     }
 
-    // Resize token vector to actual size
     state_tokens.resize(n_token_count_out);
 
-    // Apply load_state_size limit if specified
+    // Apply load_state_size limit if specified (not supported for recurrent/hybrid models)
     if (load_state_size > 0 && (size_t)load_state_size < state_tokens.size()) {
-        LOG_VERBOSE("Slot %d: Limiting loaded state from %zu to %d tokens",
-                   id, state_tokens.size(), load_state_size);
-        state_tokens.resize(load_state_size);
+        if (is_recurrent_or_hybrid) {
+            LOG_WARNING("Slot %d: Ignoring load_state_size=%d for recurrent/hybrid model (requires full KV state)",
+                       id, load_state_size);
+        } else {
+            LOG_VERBOSE("Slot %d: Limiting loaded state from %zu to %d tokens",
+                       id, state_tokens.size(), load_state_size);
+            state_tokens.resize(load_state_size);
 
-        // Truncate KV cache to match the limited token count
-        auto * kv = llama_get_memory(parent_ctx->ctx);
-        llama_memory_seq_rm(kv, id, load_state_size, -1);
+            auto * kv = llama_get_memory(parent_ctx->ctx);
+            llama_memory_seq_rm(kv, id, load_state_size, -1);
+        }
     }
 
-    // Update slot state - cache_tokens tracks what's in KV cache
     n_past = state_tokens.size();
     cache_tokens = std::move(state_tokens);
 
@@ -387,6 +439,112 @@ bool llama_rn_slot::load_state() {
 
     LOG_INFO("Slot %d: Loaded %zu tokens (%.2f ms, %.2f KB)",
              id, cache_tokens.size(), t_load_ms, nread / 1024.0);
+
+    return true;
+}
+
+// Save prompt checkpoint
+bool llama_rn_slot::save_prompt_state_checkpoint() {
+    if (!parent_ctx || !parent_ctx->ctx) {
+        LOG_ERROR("Slot %d: Cannot save prompt checkpoint - context not initialized", id);
+        return false;
+    }
+
+#ifdef LM_GGML_USE_OPENCL
+    const auto &model_devices = parent_ctx->llama_init->model()->devices;
+    auto has_opencl = false;
+    for (const auto &dev : model_devices) {
+        const char *dev_name = lm_ggml_backend_dev_name(dev);
+        if (strncmp(dev_name, "GPUOpenCL", 9) == 0) {
+            has_opencl = true;
+        }
+    }
+    // TODO: Figure out how to handle this in a more elegant way
+    if (has_opencl && !parent_ctx->params.kv_unified) {
+        LOG_ERROR("Slot %d: Cannot save prompt checkpoint - kv_unified is not enabled with OpenCL backend", id);
+        return false;
+    }
+    if (has_opencl && parent_ctx->params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED) {
+        LOG_ERROR("Slot %d: Cannot save prompt checkpoint - flash_attn_type is not disabled with OpenCL backend", id);
+        return false;
+    }
+#endif
+
+    if (save_prompt_state_path.empty()) {
+        LOG_VERBOSE("Slot %d: No state path to save prompt checkpoint", id);
+        return true;  // Not specified is not an error
+    }
+
+    if (n_past < 0) {
+        LOG_ERROR("Slot %d: Cannot save prompt checkpoint - invalid n_past=%lld", id, (long long)n_past);
+        return false;
+    }
+
+    if (save_prompt_state_tokens < 0) {
+        LOG_WARNING("Slot %d: Cannot save prompt checkpoint - invalid token target %lld",
+                   id, (long long)save_prompt_state_tokens);
+        return false;
+    }
+
+    size_t tokens_to_save = static_cast<size_t>(save_prompt_state_tokens);
+    if (tokens_to_save > cache_tokens.size()) {
+        LOG_WARNING("Slot %d: Prompt checkpoint token count %zu exceeds cache tokens %zu, clamping",
+                   id, tokens_to_save, cache_tokens.size());
+        tokens_to_save = cache_tokens.size();
+    }
+
+    std::vector<llama_token> state_tokens(cache_tokens.begin(), cache_tokens.begin() + tokens_to_save);
+
+    // Remove LLAMA_TOKEN_NULL tokens
+    auto null_token_iter = std::find(state_tokens.begin(), state_tokens.end(), LLAMA_TOKEN_NULL);
+    if (null_token_iter != state_tokens.end()) {
+        state_tokens.resize(std::distance(state_tokens.begin(), null_token_iter));
+    }
+
+    size_t actual_save_size = state_tokens.size();
+    if (actual_save_size == 0) {
+        LOG_WARNING("Slot %d: No tokens to save for prompt checkpoint", id);
+        return false;
+    }
+
+    const char * cache_k = lm_ggml_type_name(parent_ctx->params.cache_type_k);
+    const char * cache_v = lm_ggml_type_name(parent_ctx->params.cache_type_v);
+    llama_pos pos_min = -1;
+    llama_pos pos_max = -1;
+    if (parent_ctx && parent_ctx->ctx) {
+        auto * kv = llama_get_memory(parent_ctx->ctx);
+        if (kv != nullptr) {
+            pos_min = llama_memory_seq_pos_min(kv, id);
+            pos_max = llama_memory_seq_pos_max(kv, id);
+        }
+    }
+
+    LOG_INFO("Slot %d: Prompt checkpoint details: tokens=%zu (cache=%zu, n_past=%lld, n_ctx=%d, kv_pos=[%lld,%lld], cache_k=%s, cache_v=%s)",
+             id,
+             actual_save_size,
+             cache_tokens.size(),
+             (long long)n_past,
+             n_ctx,
+             (long long)pos_min,
+             (long long)pos_max,
+             cache_k,
+             cache_v);
+
+    size_t nwrite = llama_state_seq_save_file(
+        parent_ctx->ctx,
+        save_prompt_state_path.c_str(),
+        id,
+        state_tokens.data(),
+        actual_save_size
+    );
+
+    if (nwrite == 0) {
+        LOG_ERROR("Slot %d: Failed to save prompt checkpoint to file: %s", id, save_prompt_state_path.c_str());
+        return false;
+    }
+
+    LOG_INFO("Slot %d: Saved prompt checkpoint for %zu tokens (full state, %.2f KB)",
+             id, actual_save_size, nwrite / 1024.0);
 
     return true;
 }
@@ -429,6 +587,10 @@ bool llama_rn_slot::save_state() {
     // Start timing
     const int64_t t_save_start = lm_ggml_time_us();
 
+    // Check if model is recurrent/hybrid for save behavior
+    const llama_model * model = llama_get_model(parent_ctx->ctx);
+    const bool is_recurrent_or_hybrid = llama_model_is_recurrent(model) || llama_model_is_hybrid(model);
+
     // Get tokens for this state (cache_tokens represents all processed tokens in KV cache)
     std::vector<llama_token> state_tokens = cache_tokens;
 
@@ -447,27 +609,61 @@ bool llama_rn_slot::save_state() {
     size_t default_size = state_tokens.size();
     size_t actual_save_size = default_size;
 
-    if (save_state_size > 0 && (size_t)save_state_size <= default_size) {
-        actual_save_size = save_state_size;
+    if (is_recurrent_or_hybrid) {
+        // For recurrent/hybrid models, we MUST save all tokens because:
+        // 1. Recurrent state contains position info that can't be truncated
+        // 2. The saved token count must match the recurrent state position exactly
+        // Ignoring save_state_size for these models
+        if (save_state_size > 0 && (size_t)save_state_size < default_size) {
+            LOG_WARNING("Slot %d: Ignoring save_state_size=%d for recurrent/hybrid model (saving all %zu tokens)",
+                       id, save_state_size, default_size);
+        }
+        // actual_save_size remains default_size (all tokens)
+    } else {
+        // For standard models, respect save_state_size
+        if (save_state_size > 0 && (size_t)save_state_size <= default_size) {
+            actual_save_size = save_state_size;
+        }
+        // Save with size - 1 to force re-processing of last token when loading
+        // This ensures fresh logits are generated for sampling
+        if (actual_save_size > 1) {
+            actual_save_size--;
+            LOG_VERBOSE("Slot %d: Saving %zu tokens (reduced by 1 for logits regeneration)",
+                       id, actual_save_size);
+        }
     }
 
-    // Save with size - 1 to force re-processing of last token when loading
-    // This ensures fresh logits are generated for sampling
-    // Only do this if we have more than 1 token to save
-    if (actual_save_size > 1) {
-        actual_save_size--;
-        LOG_VERBOSE("Slot %d: Saving %zu tokens (reduced by 1 for logits regeneration)",
-                   id, actual_save_size);
-    }
-
-    // Save state to file
     size_t nwrite = llama_state_seq_save_file(
         parent_ctx->ctx,
         save_state_path.c_str(),
-        id,  // Use slot ID as sequence ID
+        id,
         state_tokens.data(),
         actual_save_size
     );
+
+    const char * cache_k = lm_ggml_type_name(parent_ctx->params.cache_type_k);
+    const char * cache_v = lm_ggml_type_name(parent_ctx->params.cache_type_v);
+    llama_pos pos_min = -1;
+    llama_pos pos_max = -1;
+    if (parent_ctx && parent_ctx->ctx) {
+        auto * kv = llama_get_memory(parent_ctx->ctx);
+        if (kv != nullptr) {
+            pos_min = llama_memory_seq_pos_min(kv, id);
+            pos_max = llama_memory_seq_pos_max(kv, id);
+        }
+    }
+
+    LOG_INFO("Slot %d: Save state details: tokens=%zu (cache=%zu, n_past=%lld, n_ctx=%d, recurrent=%d, kv_pos=[%lld,%lld], cache_k=%s, cache_v=%s)",
+             id,
+             actual_save_size,
+             cache_tokens.size(),
+             (long long)n_past,
+             n_ctx,
+             is_recurrent_or_hybrid ? 1 : 0,
+             (long long)pos_min,
+             (long long)pos_max,
+             cache_k,
+             cache_v);
 
     if (nwrite == 0) {
         LOG_ERROR("Slot %d: Failed to save state to file: %s", id, save_state_path.c_str());
