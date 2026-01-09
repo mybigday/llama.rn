@@ -318,6 +318,13 @@ export type NativeParallelCompletionParams = NativeCompletionParams & {
   save_state_path?: string
 
   /**
+   * File path to save prompt-only state to after prompt processing.
+   * Useful for fast prompt reuse (especially for recurrent/hybrid models).
+   * Example: `'/path/to/prompt_state.bin'` or `'file:///path/to/prompt_state.bin'`
+   */
+  save_prompt_state_path?: string
+
+  /**
    * Number of tokens to load when loading state.
    * If not specified or <= 0, all tokens from the state file will be loaded.
    * Use this to limit how much of a saved state is restored.
@@ -430,6 +437,8 @@ export type NativeLlamaContext = {
     size: number
     nEmbd: number
     nParams: number
+    is_recurrent: boolean
+    is_hybrid: boolean
     chatTemplates: {
       llamaChat: boolean // Chat template in llama-chat.cpp
       minja: {

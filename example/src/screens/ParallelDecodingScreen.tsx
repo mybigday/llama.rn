@@ -452,6 +452,9 @@ export default function ParallelDecodingScreen({
         questionTokenCount = 0
       }
 
+      const usePromptState =
+        !!context.model?.is_recurrent || !!context.model?.is_hybrid
+
       // Use parallel.completion for parallel processing with messages format
       const { requestId, promise, stop } = await context.parallel.completion(
         {
@@ -461,9 +464,14 @@ export default function ParallelDecodingScreen({
           n_predict: params.n_predict || 50,
           // State management: load previous state if exists, always save
           load_state_path: loadStatePath,
-          save_state_path: questionTokenCount > 0 ? statePath : undefined,
+          save_prompt_state_path:
+            usePromptState && questionTokenCount > 0 ? statePath : undefined,
+          save_state_path:
+            !usePromptState && questionTokenCount > 0 ? statePath : undefined,
           save_state_size:
-            questionTokenCount > 0 ? questionTokenCount : undefined,
+            !usePromptState && questionTokenCount > 0
+              ? questionTokenCount
+              : undefined,
         },
         (_reqId, data) => {
           const currentSlot = slotsRef.current.find((t) => t.id === slotId)
@@ -1174,7 +1182,8 @@ export default function ParallelDecodingScreen({
                         fontSize: 10,
                         color: (() => {
                           if (req.state === 'generating') return '#4CAF50'
-                          if (req.state === 'processing_prompt') return '#FFA500'
+                          if (req.state === 'processing_prompt')
+                            return '#FFA500'
                           return theme.colors.textSecondary
                         })(),
                         width: 100,
@@ -1205,7 +1214,10 @@ export default function ParallelDecodingScreen({
                     fontStyle: 'italic',
                   }}
                 >
-                  {`+${parallelStatus.requests.filter((r) => r.state !== 'queued').length - 3} more...`}
+                  {`+${
+                    parallelStatus.requests.filter((r) => r.state !== 'queued')
+                      .length - 3
+                  } more...`}
                 </Text>
               )}
             </View>
