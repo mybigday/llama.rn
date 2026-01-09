@@ -35,6 +35,8 @@ llama.rn
 - [NativeSessionLoadResult](README.md#nativesessionloadresult)
 - [NativeTokenizeResult](README.md#nativetokenizeresult)
 - [ParallelCompletionParams](README.md#parallelcompletionparams)
+- [ParallelRequestStatus](README.md#parallelrequeststatus)
+- [ParallelStatus](README.md#parallelstatus)
 - [RNLlamaMessagePart](README.md#rnllamamessagepart)
 - [RNLlamaOAICompatibleMessage](README.md#rnllamaoaicompatiblemessage)
 - [RerankParams](README.md#rerankparams)
@@ -52,6 +54,7 @@ llama.rn
 - [addNativeLogListener](README.md#addnativeloglistener)
 - [getBackendDevicesInfo](README.md#getbackenddevicesinfo)
 - [initLlama](README.md#initllama)
+- [installJsi](README.md#installjsi)
 - [loadLlamaModelInfo](README.md#loadllamamodelinfo)
 - [releaseAllLlama](README.md#releaseallllama)
 - [setContextLimit](README.md#setcontextlimit)
@@ -88,7 +91,7 @@ llama.rn
 
 #### Defined in
 
-[index.ts:221](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L221)
+[index.ts:286](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L286)
 
 ___
 
@@ -117,7 +120,7 @@ ___
 
 #### Defined in
 
-[index.ts:182](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L182)
+[index.ts:247](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L247)
 
 ___
 
@@ -127,7 +130,7 @@ ___
 
 #### Defined in
 
-[index.ts:205](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L205)
+[index.ts:270](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L270)
 
 ___
 
@@ -147,7 +150,7 @@ ___
 
 #### Defined in
 
-[index.ts:173](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L173)
+[index.ts:238](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L238)
 
 ___
 
@@ -157,7 +160,7 @@ ___
 
 #### Defined in
 
-[index.ts:123](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L123)
+[index.ts:188](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L188)
 
 ___
 
@@ -167,7 +170,7 @@ ___
 
 #### Defined in
 
-[index.ts:161](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L161)
+[index.ts:226](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L226)
 
 ___
 
@@ -186,17 +189,17 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:477](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L477)
+[types.ts:497](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L497)
 
 ___
 
 ### JinjaFormattedChatResult
 
-Ƭ **JinjaFormattedChatResult**: [`FormattedChatResult`](README.md#formattedchatresult) & { `additional_stops?`: `string`[] ; `chat_format?`: `number` ; `grammar?`: `string` ; `grammar_lazy?`: `boolean` ; `grammar_triggers?`: { `token`: `number` ; `type`: `number` ; `value`: `string`  }[] ; `preserved_tokens?`: `string`[] ; `thinking_forced_open?`: `boolean`  }
+Ƭ **JinjaFormattedChatResult**: [`FormattedChatResult`](README.md#formattedchatresult) & { `additional_stops?`: `string`[] ; `chat_format?`: `number` ; `chat_parser?`: `string` ; `grammar?`: `string` ; `grammar_lazy?`: `boolean` ; `grammar_triggers?`: { `token`: `number` ; `type`: `number` ; `value`: `string`  }[] ; `preserved_tokens?`: `string`[] ; `thinking_forced_open?`: `boolean`  }
 
 #### Defined in
 
-[NativeRNLlama.ts:484](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L484)
+[types.ts:504](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L504)
 
 ___
 
@@ -216,7 +219,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:513](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L513)
+[types.ts:538](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L538)
 
 ___
 
@@ -229,6 +232,7 @@ ___
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `chat_format?` | `number` | - |
+| `chat_parser?` | `string` | Serialized PEG parser for chat output parsing. Required for COMMON_CHAT_FORMAT_PEG_* formats. This is typically obtained from getFormattedChat with jinja enabled. |
 | `dry_allowed_length?` | `number` | Tokens that extend repetition beyond this receive exponentially increasing penalty: multiplier * base ^ (length of repeating sequence before token - allowed length). Default: `2` |
 | `dry_base?` | `number` | Set the DRY repetition penalty base value. Default: `1.75` |
 | `dry_multiplier?` | `number` | Set the DRY (Don't Repeat Yourself) repetition penalty multiplier. Default: `0.0`, which is disabled. |
@@ -258,7 +262,7 @@ ___
 | `penalty_repeat?` | `number` | Control the repetition of token sequences in the generated text. Default: `1.0` |
 | `preserved_tokens?` | `string`[] | - |
 | `prompt` | `string` | - |
-| `reasoning_format?` | `string` | - |
+| `reasoning_format?` | ``"none"`` \| ``"auto"`` \| ``"deepseek"`` | - |
 | `seed?` | `number` | Set the random number generator (RNG) seed. Default: `-1`, which is a random seed. |
 | `stop?` | `string`[] | Specify a JSON array of stopping strings. These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]` |
 | `temperature?` | `number` | Adjust the randomness of the generated text. Default: `0.8` |
@@ -272,7 +276,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:126](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L126)
+[types.ts:123](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L123)
 
 ___
 
@@ -305,7 +309,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:348](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L348)
+[types.ts:366](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L366)
 
 ___
 
@@ -329,7 +333,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:336](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L336)
+[types.ts:354](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L354)
 
 ___
 
@@ -346,7 +350,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:331](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L331)
+[types.ts:349](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L349)
 
 ___
 
@@ -363,7 +367,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:326](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L326)
+[types.ts:344](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L344)
 
 ___
 
@@ -411,7 +415,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:8](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L8)
+[types.ts:5](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L5)
 
 ___
 
@@ -427,7 +431,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:4](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L4)
+[types.ts:1](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L1)
 
 ___
 
@@ -443,7 +447,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:411](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L411)
+[types.ts:429](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L429)
 
 ___
 
@@ -461,7 +465,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:498](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L498)
+[types.ts:523](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L523)
 
 ___
 
@@ -477,7 +481,7 @@ ___
 | `contextId` | `number` | - |
 | `devices?` | `string`[] | Name of the GPU device used on Android/iOS (if available) |
 | `gpu` | `boolean` | - |
-| `model` | { `chatTemplates`: { `llamaChat`: `boolean` ; `minja`: { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  }  }  } ; `desc`: `string` ; `isChatTemplateSupported`: `boolean` ; `metadata`: `Object` ; `nEmbd`: `number` ; `nParams`: `number` ; `size`: `number`  } | - |
+| `model` | { `chatTemplates`: { `llamaChat`: `boolean` ; `minja`: { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  }  }  } ; `desc`: `string` ; `isChatTemplateSupported`: `boolean` ; `is_hybrid`: `boolean` ; `is_recurrent`: `boolean` ; `metadata`: `Object` ; `nEmbd`: `number` ; `nParams`: `number` ; `size`: `number`  } | - |
 | `model.chatTemplates` | { `llamaChat`: `boolean` ; `minja`: { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  }  }  } | - |
 | `model.chatTemplates.llamaChat` | `boolean` | - |
 | `model.chatTemplates.minja` | { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  }  } | - |
@@ -499,6 +503,8 @@ ___
 | `model.chatTemplates.minja.toolUseCaps.tools` | `boolean` | - |
 | `model.desc` | `string` | - |
 | `model.isChatTemplateSupported` | `boolean` | - |
+| `model.is_hybrid` | `boolean` | - |
+| `model.is_recurrent` | `boolean` | - |
 | `model.metadata` | `Object` | - |
 | `model.nEmbd` | `number` | - |
 | `model.nParams` | `number` | - |
@@ -508,20 +514,20 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:415](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L415)
+[types.ts:433](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L433)
 
 ___
 
 ### NativeParallelCompletionParams
 
-Ƭ **NativeParallelCompletionParams**: [`NativeCompletionParams`](README.md#nativecompletionparams) & { `load_state_path?`: `string` ; `save_state_path?`: `string` ; `save_state_size?`: `number`  }
+Ƭ **NativeParallelCompletionParams**: [`NativeCompletionParams`](README.md#nativecompletionparams) & { `load_state_path?`: `string` ; `load_state_size?`: `number` ; `save_prompt_state_path?`: `string` ; `save_state_path?`: `string` ; `save_state_size?`: `number`  }
 
 Parameters for parallel completion requests (queueCompletion).
 Extends NativeCompletionParams with parallel-mode specific options.
 
 #### Defined in
 
-[NativeRNLlama.ts:300](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L300)
+[types.ts:303](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L303)
 
 ___
 
@@ -537,7 +543,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:504](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L504)
+[types.ts:529](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L529)
 
 ___
 
@@ -554,7 +560,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:508](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L508)
+[types.ts:533](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L533)
 
 ___
 
@@ -571,7 +577,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:462](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L462)
+[types.ts:482](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L482)
 
 ___
 
@@ -591,7 +597,7 @@ ___
 
 #### Defined in
 
-[NativeRNLlama.ts:391](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/NativeRNLlama.ts#L391)
+[types.ts:409](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L409)
 
 ___
 
@@ -604,7 +610,49 @@ Extends CompletionParams with parallel-mode specific options like state manageme
 
 #### Defined in
 
-[index.ts:215](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L215)
+[index.ts:280](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L280)
+
+___
+
+### ParallelRequestStatus
+
+Ƭ **ParallelRequestStatus**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `generation_ms` | `number` |
+| `prompt_length` | `number` |
+| `prompt_ms` | `number` |
+| `request_id` | `number` |
+| `state` | ``"queued"`` \| ``"processing_prompt"`` \| ``"generating"`` \| ``"done"`` |
+| `tokens_generated` | `number` |
+| `tokens_per_second` | `number` |
+| `type` | ``"completion"`` \| ``"embedding"`` \| ``"rerank"`` |
+
+#### Defined in
+
+[types.ts:546](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L546)
+
+___
+
+### ParallelStatus
+
+Ƭ **ParallelStatus**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `active_slots` | `number` |
+| `n_parallel` | `number` |
+| `queued_requests` | `number` |
+| `requests` | [`ParallelRequestStatus`](README.md#parallelrequeststatus)[] |
+
+#### Defined in
+
+[types.ts:557](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L557)
 
 ___
 
@@ -627,7 +675,7 @@ ___
 
 #### Defined in
 
-[index.ts:27](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L27)
+[index.ts:29](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L29)
 
 ___
 
@@ -640,11 +688,12 @@ ___
 | Name | Type |
 | :------ | :------ |
 | `content?` | `string` \| [`RNLlamaMessagePart`](README.md#rnllamamessagepart)[] |
+| `reasoning_content?` | `string` |
 | `role` | `string` |
 
 #### Defined in
 
-[index.ts:40](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L40)
+[index.ts:42](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L42)
 
 ___
 
@@ -660,7 +709,7 @@ ___
 
 #### Defined in
 
-[index.ts:163](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L163)
+[index.ts:228](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L228)
 
 ___
 
@@ -678,7 +727,7 @@ ___
 
 #### Defined in
 
-[index.ts:167](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L167)
+[index.ts:232](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L232)
 
 ___
 
@@ -694,12 +743,13 @@ ___
 | `completion_probabilities?` | [`NativeCompletionTokenProb`](README.md#nativecompletiontokenprob)[] |
 | `content?` | `string` |
 | `reasoning_content?` | `string` |
+| `requestId?` | `number` |
 | `token` | `string` |
 | `tool_calls?` | [`ToolCall`](README.md#toolcall)[] |
 
 #### Defined in
 
-[index.ts:107](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L107)
+[index.ts:177](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L177)
 
 ___
 
@@ -719,7 +769,7 @@ ___
 
 #### Defined in
 
-[index.ts:98](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L98)
+[index.ts:168](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L168)
 
 ## Variables
 
@@ -736,7 +786,7 @@ ___
 
 #### Defined in
 
-[index.ts:1204](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L1204)
+[index.ts:1210](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1210)
 
 ___
 
@@ -746,7 +796,7 @@ ___
 
 #### Defined in
 
-[index.ts:66](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L66)
+[index.ts:71](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L71)
 
 ## Functions
 
@@ -770,7 +820,7 @@ ___
 
 #### Defined in
 
-[index.ts:1044](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L1044)
+[index.ts:1029](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1029)
 
 ___
 
@@ -784,7 +834,7 @@ ___
 
 #### Defined in
 
-[index.ts:1086](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L1086)
+[index.ts:1073](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1073)
 
 ___
 
@@ -805,7 +855,21 @@ ___
 
 #### Defined in
 
-[index.ts:1093](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L1093)
+[index.ts:1090](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1090)
+
+___
+
+### installJsi
+
+▸ **installJsi**(): `Promise`<`void`\>
+
+#### Returns
+
+`Promise`<`void`\>
+
+#### Defined in
+
+[index.ts:156](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L156)
 
 ___
 
@@ -825,7 +889,7 @@ ___
 
 #### Defined in
 
-[index.ts:1071](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L1071)
+[index.ts:1057](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1057)
 
 ___
 
@@ -839,7 +903,7 @@ ___
 
 #### Defined in
 
-[index.ts:1200](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L1200)
+[index.ts:1204](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1204)
 
 ___
 
@@ -859,7 +923,7 @@ ___
 
 #### Defined in
 
-[index.ts:1055](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L1055)
+[index.ts:1040](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1040)
 
 ___
 
@@ -879,4 +943,4 @@ ___
 
 #### Defined in
 
-[index.ts:1040](https://github.com/mybigday/llama.rn/blob/7eae6d0/src/index.ts#L1040)
+[index.ts:1023](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1023)
