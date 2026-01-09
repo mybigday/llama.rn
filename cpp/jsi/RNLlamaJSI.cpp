@@ -742,6 +742,7 @@ namespace rnllama_jsi {
                  bool parallelToolCalls = false;
                  std::string toolChoice = "";
                  bool enableThinking = false;
+                 std::string reasoningFormat = "none";
                  bool addGenerationPrompt = true;
                  std::string nowStr = "";
                  std::map<std::string, std::string> chatTemplateKwargs;
@@ -757,6 +758,7 @@ namespace rnllama_jsi {
                          parallelToolCalls = getPropertyAsBool(runtime, params, "parallel_tool_calls", false);
                          toolChoice = getPropertyAsString(runtime, params, "tool_choice");
                          enableThinking = getPropertyAsBool(runtime, params, "enable_thinking", false);
+                         reasoningFormat = getPropertyAsString(runtime, params, "reasoning_format", "none");
                          addGenerationPrompt = getPropertyAsBool(runtime, params, "add_generation_prompt", true);
                          nowStr = getPropertyAsString(runtime, params, "now");
 
@@ -774,12 +776,12 @@ namespace rnllama_jsi {
                      }
                  }
 
-                 return createPromiseTask(runtime, callInvoker, [contextId, messages, chatTemplate, jsonSchema, tools, parallelToolCalls, toolChoice, enableThinking, addGenerationPrompt, nowStr, chatTemplateKwargs, useJinja]() -> PromiseResultGenerator {
+                 return createPromiseTask(runtime, callInvoker, [contextId, messages, chatTemplate, jsonSchema, tools, parallelToolCalls, toolChoice, enableThinking, reasoningFormat, addGenerationPrompt, nowStr, chatTemplateKwargs, useJinja]() -> PromiseResultGenerator {
                       auto ctx = getContextOrThrow(contextId);
                       if (useJinja) {
                           auto chatParams = ctx->getFormattedChatWithJinja(
                                messages, chatTemplate, jsonSchema, tools, parallelToolCalls,
-                               toolChoice, enableThinking, addGenerationPrompt, nowStr, chatTemplateKwargs
+                               toolChoice, enableThinking, reasoningFormat, addGenerationPrompt, nowStr, chatTemplateKwargs
                           );
 
                           return [chatParams](jsi::Runtime& rt) {
@@ -814,6 +816,11 @@ namespace rnllama_jsi {
                                   triggers.setValueAtIndex(rt, i, trigger);
                               }
                               result.setProperty(rt, "grammar_triggers", triggers);
+
+                              // Return the PEG parser string for COMMON_CHAT_FORMAT_PEG_* formats
+                              if (!chatParams.parser.empty()) {
+                                  result.setProperty(rt, "chat_parser", jsi::String::createFromUtf8(rt, chatParams.parser));
+                              }
 
                               return result;
                           };

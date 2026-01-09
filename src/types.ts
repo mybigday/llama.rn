@@ -164,7 +164,7 @@ export type NativeCompletionParams = {
   }>
   preserved_tokens?: Array<string>
   chat_format?: number
-  reasoning_format?: string
+  reasoning_format?: 'none' | 'auto' | 'deepseek'
   /**
    * Path to an image file to process before generating text.
    * When provided, the image will be processed and added to the context.

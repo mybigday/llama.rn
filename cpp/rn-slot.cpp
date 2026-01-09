@@ -259,7 +259,7 @@ completion_token_output llama_rn_slot::get_next_token() {
 completion_chat_output llama_rn_slot::parseChatOutput(bool is_partial) {
     common_chat_syntax syntax;
     syntax.format = static_cast<common_chat_format>(current_chat_format);
-    syntax.reasoning_format = current_reasoning_format;  // Already the correct enum type
+    syntax.reasoning_format = current_reasoning_format;
     syntax.thinking_forced_open = current_thinking_forced_open;
     syntax.parse_tool_calls = true;
 
