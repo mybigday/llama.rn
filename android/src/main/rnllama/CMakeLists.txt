@@ -209,6 +209,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             add
             add_id
             argsort
+            fill
             clamp
             cpy
             cvt

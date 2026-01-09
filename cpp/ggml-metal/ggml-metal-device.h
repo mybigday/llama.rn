@@ -219,6 +219,8 @@ struct lm_ggml_metal_device_props {
     bool use_shared_buffers;
 
     bool supports_gpu_family_apple7;
+
+    int op_offload_min_batch_size;
 };
 
 lm_ggml_metal_device_t lm_ggml_metal_device_init(void);
