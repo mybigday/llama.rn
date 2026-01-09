@@ -162,8 +162,11 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
     bool has_loaded_state = (!load_state_path.empty() && !cache_tokens.empty());
 
     // Check if model is recurrent/hybrid - needs special handling for state reuse
-    const llama_model * model = llama_get_model(parent_ctx->ctx);
-    const bool is_recurrent_or_hybrid = llama_model_is_recurrent(model) || llama_model_is_hybrid(model);
+    bool is_recurrent_or_hybrid = false;
+    if (parent_ctx && parent_ctx->ctx) {
+        const llama_model * model = llama_get_model(parent_ctx->ctx);
+        is_recurrent_or_hybrid = llama_model_is_recurrent(model) || llama_model_is_hybrid(model);
+    }
 
     if (has_loaded_state) {
         // Find how many tokens match between cached state and new prompt
