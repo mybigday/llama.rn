@@ -365,6 +365,7 @@ export class LlamaContext {
             parallel_tool_calls: params.parallel_tool_calls,
             tool_choice: params.tool_choice,
             enable_thinking: params.enable_thinking,
+            reasoning_format: params.reasoning_format,
             add_generation_prompt: params.add_generation_prompt,
             now: params.now,
             chat_template_kwargs: params.chat_template_kwargs,
@@ -389,6 +390,10 @@ export class LlamaContext {
           if (jinjaResult.has_media) {
             nativeParams.media_paths = jinjaResult.media_paths
           }
+          if (typeof jinjaResult.thinking_forced_open === 'boolean')
+            nativeParams.thinking_forced_open = jinjaResult.thinking_forced_open
+          if (jinjaResult.chat_parser)
+            nativeParams.chat_parser = jinjaResult.chat_parser
         } else if (formattedResult.type === 'llama-chat') {
           const llamaChatResult = formattedResult as FormattedChatResult
           nativeParams.prompt = llamaChatResult.prompt || ''
@@ -633,6 +638,7 @@ export class LlamaContext {
       parallel_tool_calls?: object
       tool_choice?: string
       enable_thinking?: boolean
+      reasoning_format?: 'none' | 'auto' | 'deepseek'
       add_generation_prompt?: boolean
       now?: string | number
       chat_template_kwargs?: Record<string, string>
@@ -699,6 +705,7 @@ export class LlamaContext {
           : undefined,
         tool_choice: params?.tool_choice,
         enable_thinking: params?.enable_thinking ?? true,
+        reasoning_format: params?.reasoning_format ?? 'none',
         add_generation_prompt: params?.add_generation_prompt,
         now:
           typeof params?.now === 'number' ? params.now.toString() : params?.now,
@@ -750,6 +757,7 @@ export class LlamaContext {
           parallel_tool_calls: params.parallel_tool_calls,
           tool_choice: params.tool_choice,
           enable_thinking: params.enable_thinking,
+          reasoning_format: params.reasoning_format,
           add_generation_prompt: params.add_generation_prompt,
           now: params.now,
           chat_template_kwargs: params.chat_template_kwargs,
@@ -775,6 +783,10 @@ export class LlamaContext {
         if (jinjaResult.has_media) {
           nativeParams.media_paths = jinjaResult.media_paths
         }
+        if (typeof jinjaResult.thinking_forced_open === 'boolean')
+          nativeParams.thinking_forced_open = jinjaResult.thinking_forced_open
+        if (jinjaResult.chat_parser)
+          nativeParams.chat_parser = jinjaResult.chat_parser
       } else if (formattedResult.type === 'llama-chat') {
         const llamaChatResult = formattedResult as FormattedChatResult
         nativeParams.prompt = llamaChatResult.prompt || ''

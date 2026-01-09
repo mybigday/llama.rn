@@ -94,6 +94,7 @@ struct llama_rn_context {
       const bool& parallel_tool_calls,
       const std::string& tool_choice,
       const bool& enable_thinking,
+      const std::string& reasoning_format,
       const bool& add_generation_prompt = true,
       const std::string& now_str = "",
       const std::map<std::string, std::string>& chat_template_kwargs = {}
