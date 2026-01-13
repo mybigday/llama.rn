@@ -370,9 +370,9 @@ std::vector<common_adapter_lora_info> llama_rn_context::getLoadedLoraAdapters() 
     return this->lora;
 }
 
-bool llama_rn_context::initMultimodal(const std::string &mmproj_path, bool use_gpu) {
+bool llama_rn_context::initMultimodal(const std::string &mmproj_path, bool use_gpu, int image_min_tokens, int image_max_tokens) {
     try {
-        mtmd_wrapper = new llama_rn_context_mtmd(mmproj_path, use_gpu, model, ctx, params, has_multimodal, params);
+        mtmd_wrapper = new llama_rn_context_mtmd(mmproj_path, use_gpu, model, ctx, params, has_multimodal, params, image_min_tokens, image_max_tokens);
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("[DEBUG] Failed to initialize multimodal: %s", e.what());

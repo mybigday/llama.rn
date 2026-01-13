@@ -114,7 +114,7 @@ struct llama_rn_context {
     // Multimodal fields and methods
     llama_rn_context_mtmd *mtmd_wrapper = nullptr;
     bool has_multimodal = false;
-    bool initMultimodal(const std::string &mmproj_path, bool use_gpu);
+    bool initMultimodal(const std::string &mmproj_path, bool use_gpu, int image_min_tokens = -1, int image_max_tokens = -1);
     bool isMultimodalEnabled() const;
     bool isMultimodalSupportVision() const;
     bool isMultimodalSupportAudio() const;
