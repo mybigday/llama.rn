@@ -76,3 +76,36 @@ struct clip_graph_glm4v : clip_graph {
     clip_graph_glm4v(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;
 };
+
+struct clip_graph_mobilenetv5 : clip_graph {
+    clip_graph_mobilenetv5(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+
+    lm_ggml_tensor * rms_norm_2d(
+        lm_ggml_tensor * inp,
+        lm_ggml_tensor * weight,
+        float eps = 1e-6f);
+
+    lm_ggml_tensor* pad_same_2d(
+        lm_ggml_tensor* inp,
+        int kernel_h,
+        int kernel_w,
+        int stride_h,
+        int stride_w,
+        int dilation_h = 1,
+        int dilation_w = 1);
+
+    lm_ggml_tensor * build_edge_residual(
+        lm_ggml_tensor * inp,
+        const mobilenetv5_block & block,
+        int stride);
+
+    lm_ggml_tensor * build_inverted_residual(
+        lm_ggml_tensor * inp,
+        const mobilenetv5_block & block,
+        int stride);
+
+    lm_ggml_tensor * build_mobilenet_attn(
+        lm_ggml_tensor * inp,
+        const mobilenetv5_block & block);
+};

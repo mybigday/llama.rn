@@ -167,6 +167,10 @@ struct llm_build_exaone : public llm_graph_context {
     llm_build_exaone(const llama_model & model, const llm_graph_params & params);
 };
 
+struct llm_build_exaone_moe : public llm_graph_context {
+    llm_build_exaone_moe(const llama_model & model, const llm_graph_params & params);
+};
+
 struct llm_build_falcon : public llm_graph_context {
     llm_build_falcon(const llama_model & model, const llm_graph_params & params);
 };
@@ -466,7 +470,8 @@ private:
                 lm_ggml_tensor * cur,
                         int   il);
 
-    lm_ggml_tensor * build_delta_net_chunking(
+    // returns pair of output and new state
+    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> build_delta_net_chunking(
                 lm_ggml_tensor * q,
                 lm_ggml_tensor * k,
                 lm_ggml_tensor * v,
@@ -478,7 +483,8 @@ private:
                 lm_ggml_tensor * diag_mask,
                         int   il);
 
-    lm_ggml_tensor * build_delta_net_autoregressive(
+    // returns pair of output and new state
+    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> build_delta_net_autoregressive(
                 lm_ggml_tensor * q,
                 lm_ggml_tensor * k,
                 lm_ggml_tensor * v,
@@ -492,6 +498,11 @@ private:
                 lm_ggml_tensor * weights,
                 lm_ggml_tensor * gate,
                         int   layer);
+
+    // returns pair of qkv, z
+    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> build_qkvz(
+                lm_ggml_tensor * input,
+                        int   il);
 
     const llama_model & model;
 };
