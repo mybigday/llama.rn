@@ -115,15 +115,11 @@ static void lm_ggml_backend_blas_mul_mat(lm_ggml_backend_blas_context * ctx, str
 #endif
     }
 
-#if defined(OPENBLAS_VERSION)
+#if defined(LM_GGML_BLAS_USE_OPENBLAS)
     openblas_set_num_threads(ctx->n_threads);
-#endif
-
-#if defined(LM_GGML_BLAS_USE_BLIS)
+#elif defined(LM_GGML_BLAS_USE_BLIS)
     bli_thread_set_num_threads(ctx->n_threads);
-#endif
-
-#if defined(LM_GGML_BLAS_USE_NVPL)
+#elif defined(LM_GGML_BLAS_USE_NVPL)
     nvpl_blas_set_num_threads(ctx->n_threads);
 #endif
 
@@ -288,7 +284,7 @@ lm_ggml_backend_t lm_ggml_backend_blas_init(void) {
         /* .context = */ ctx,
     };
 
-#if defined(OPENBLAS_VERSION) && defined(LM_GGML_USE_OPENMP)
+#if defined(LM_GGML_BLAS_USE_OPENBLAS) && defined(LM_GGML_USE_OPENMP)
     if (openblas_get_parallel() != OPENBLAS_OPENMP) {
         LM_GGML_LOG_DEBUG("%s: warning: ggml is using OpenMP, but OpenBLAS was compiled without OpenMP support\n", __func__);
     }
@@ -329,7 +325,7 @@ static const char * lm_ggml_backend_blas_device_get_description(lm_ggml_backend_
         return "BLIS";
     #elif defined(LM_GGML_BLAS_USE_NVPL)
         return "NVPL";
-    #elif defined(OPENBLAS_VERSION)
+    #elif defined(LM_GGML_BLAS_USE_OPENBLAS)
         return "OpenBLAS";
     #else
         return "BLAS";

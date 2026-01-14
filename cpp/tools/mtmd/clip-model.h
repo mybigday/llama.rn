@@ -173,6 +173,45 @@ struct clip_layer {
     }
 };
 
+// Expanded MobileNetV5 block structure for Gemma3n vision encoder
+struct mobilenetv5_block {
+    // Stage 0 (Edge Residual)
+    lm_ggml_tensor * s0_conv_exp_w = nullptr;
+    lm_ggml_tensor * s0_bn1_w      = nullptr;
+    lm_ggml_tensor * s0_conv_pwl_w = nullptr;
+    lm_ggml_tensor * s0_bn2_w      = nullptr;
+
+    // Stage 1+ (Universal Inverted Residual)
+    lm_ggml_tensor * dw_start_w    = nullptr;
+    lm_ggml_tensor * dw_start_bn_w = nullptr;
+
+    lm_ggml_tensor * pw_exp_w      = nullptr;
+    lm_ggml_tensor * pw_exp_bn_w   = nullptr;
+
+    lm_ggml_tensor * dw_mid_w      = nullptr;
+    lm_ggml_tensor * dw_mid_bn_w   = nullptr;
+
+    lm_ggml_tensor * pw_proj_w     = nullptr;
+    lm_ggml_tensor * pw_proj_bn_w  = nullptr;
+
+    lm_ggml_tensor * layer_scale_w = nullptr;
+
+    // Attention (MQA) components
+    lm_ggml_tensor * attn_q_w = nullptr;
+    lm_ggml_tensor * attn_k_w = nullptr;
+    lm_ggml_tensor * attn_v_w = nullptr;
+    lm_ggml_tensor * attn_o_w = nullptr;
+
+    // Optional downsampling/norm in attention
+    lm_ggml_tensor * attn_k_dw_w   = nullptr;
+    lm_ggml_tensor * attn_k_norm_w = nullptr;
+    lm_ggml_tensor * attn_v_dw_w   = nullptr;
+    lm_ggml_tensor * attn_v_norm_w = nullptr;
+
+    // Block norm (often present in attention blocks)
+    lm_ggml_tensor * attn_norm_w   = nullptr;
+};
+
 struct clip_model {
     clip_modality modality = CLIP_MODALITY_VISION;
     projector_type proj_type = PROJECTOR_TYPE_MLP;
@@ -288,6 +327,23 @@ struct clip_model {
     // gemma3
     lm_ggml_tensor * mm_input_proj_w = nullptr;
     lm_ggml_tensor * mm_soft_emb_norm_w = nullptr;
+
+    // mobilenetv5 for gemma3n
+    std::vector<mobilenetv5_block> mobilenet_blocks;
+    std::vector<int> mobilenet_stage_ends;
+    lm_ggml_tensor * mobilenet_stem_conv_w = nullptr;
+    lm_ggml_tensor * mobilenet_stem_conv_b = nullptr;
+    lm_ggml_tensor * mobilenet_stem_norm_w = nullptr;
+    lm_ggml_tensor * mm_post_proj_norm_w = nullptr;
+
+    // Multi-Scale Fusion Adapter (MSFA) components
+    lm_ggml_tensor * msfa_concat_conv_w = nullptr;
+    lm_ggml_tensor * msfa_concat_norm_w = nullptr;
+    lm_ggml_tensor * msfa_ffn_expand_w = nullptr;
+    lm_ggml_tensor * msfa_ffn_project_w = nullptr;
+    lm_ggml_tensor * msfa_ffn_expand_bn = nullptr;
+    lm_ggml_tensor * msfa_ffn_project_bn = nullptr;
+
 
     // pixtral, glm4v
     lm_ggml_tensor * token_embd_img_break = nullptr;

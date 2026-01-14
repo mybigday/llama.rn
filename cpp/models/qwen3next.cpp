@@ -86,7 +86,15 @@ llm_build_qwen3next::llm_build_qwen3next(const llama_model & model, const llm_gr
     lm_ggml_build_forward_expand(gf, cur);
 }
 
-lm_ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
+// utility to get one slice from the third dimension
+// input dim:  [x, y, c, b]
+// output dim: [x, y, 1, b]
+static lm_ggml_tensor * get_slice_2d(lm_ggml_context * ctx0, lm_ggml_tensor * t, int64_t c) {
+    return lm_ggml_view_4d(ctx0, t, t->ne[0], t->ne[1], 1, t->ne[3],
+        t->nb[1], t->nb[2], t->nb[3], t->nb[2] * c);
+}
+
+std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_qwen3next::build_delta_net_chunking(
         lm_ggml_tensor * q,
         lm_ggml_tensor * k,
         lm_ggml_tensor * v,
@@ -187,18 +195,16 @@ lm_ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
     beta = lm_ggml_reshape_4d(ctx0, beta, 1, chunk_size, n_chunks, H_k * n_seqs);
 
     lm_ggml_tensor * g_cumsum = lm_ggml_cumsum(ctx0, g);
+    cb(g_cumsum, "g_cumsum", il); // shape: (chunk_size, 1, n_chunks, H_v * n_seqs)
 
-    cb(g_cumsum, "g_cumsum", il);
-
-    lm_ggml_tensor * gcs_i = lm_ggml_reshape_4d(ctx0, g_cumsum, chunk_size, 1, n_chunks, H_v * n_seqs);
+    lm_ggml_tensor * gcs_i = g_cumsum; // lm_ggml_reshape_4d(ctx0, g_cumsum, chunk_size, 1, n_chunks, H_v * n_seqs);
     lm_ggml_tensor * gcs_j = lm_ggml_reshape_4d(ctx0, g_cumsum, 1, chunk_size, n_chunks, H_v * n_seqs);
 
     lm_ggml_tensor * gcs_j_broadcast =
         lm_ggml_repeat_4d(ctx0, gcs_j, chunk_size, chunk_size, n_chunks, H_v * n_seqs);
 
     lm_ggml_tensor * decay_mask = lm_ggml_sub(ctx0, gcs_j_broadcast, gcs_i);
-
-    cb(decay_mask, "decay_mask", il);
+    cb(decay_mask, "decay_mask", il); // shape: (chunk_size, chunk_size, n_chunks, H_v * n_seqs)
 
     decay_mask = lm_ggml_mul(ctx0, decay_mask, diag_mask);
     decay_mask = lm_ggml_exp(ctx0, decay_mask);
@@ -208,8 +214,7 @@ lm_ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
 
     lm_ggml_tensor * k_decay = lm_ggml_mul(ctx0, kmulkbeta, decay_mask);
     lm_ggml_tensor * attn    = lm_ggml_neg(ctx0, lm_ggml_mul(ctx0, k_decay, causal_mask));
-
-    cb(attn, "attn_pre_solve", il);
+    cb(attn, "attn_pre_solve", il); // shape: (chunk_size, chunk_size, n_chunks, H_v * n_seqs)
 
     lm_ggml_tensor * attn_lower = lm_ggml_mul(ctx0, attn, causal_mask);
     lm_ggml_tensor * lhs        = lm_ggml_sub(ctx0, lm_ggml_repeat(ctx0, identity, attn_lower), attn_lower);
@@ -217,8 +222,7 @@ lm_ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
     lm_ggml_tensor * lin_solve  = lm_ggml_solve_tri(ctx0, lhs, attn, true, true, false);
     attn                     = lm_ggml_mul(ctx0, lin_solve, causal_mask);
     attn                     = lm_ggml_add(ctx0, attn, identity);
-
-    cb(attn, "attn_solved", il);
+    cb(attn, "attn_solved", il); // shape: (chunk_size, chunk_size, n_chunks, H_v * n_seqs)
 
     v = lm_ggml_mul_mat(ctx0, lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, v_beta)), attn);
 
@@ -226,116 +230,126 @@ lm_ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
     lm_ggml_tensor * gexp       = lm_ggml_exp(ctx0, g_cumsum_t);
 
     lm_ggml_tensor * kbeta_gexp = lm_ggml_mul(ctx0, k_beta, gexp);
-
-    cb(kbeta_gexp, "kbeta_gexp", il);
+    cb(kbeta_gexp, "kbeta_gexp", il); // shape: (S_k, chunk_size, n_chunks, H_v * n_seqs)
 
     lm_ggml_tensor * k_cumdecay =
         lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, lm_ggml_mul_mat(ctx0, attn, lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, kbeta_gexp)))));
+    cb(k_cumdecay, "k_cumdecay", il); // shape: (chunk_size, chunk_size, n_chunks, H_v * n_seqs)
 
-    cb(k_cumdecay, "k_cumdecay", il);
+    lm_ggml_tensor * attn_kq = lm_ggml_mul_mat(ctx0, k, q);
+    attn_kq = lm_ggml_mul(ctx0, attn_kq, decay_mask);
+    attn_kq = lm_ggml_mul(ctx0, attn_kq, diag_mask);
+    cb(attn_kq, "attn_kq", il); // shape: (chunk_size, chunk_size, n_chunks, H_v * n_seqs)
 
+
+    // vectorized calculation of key_gdiff
+    // improved from the chunked version:
+    //   g_last = torch.clamp(g_cum[:, :, -1], max=50.0).exp().unsqueeze(-1).unsqueeze(-1)
+    //   g_diff = torch.clamp(g_cum[:, :, -1:] - g_cum, max=50.0).exp()
+    //   key_gdiff = key * g_diff.unsqueeze(-1)
+    //   kgdmulvnew = (key_gdiff).transpose(-1, -2) @ v_new
+    //   last_recurrent_state = last_recurrent_state * g_last + kgdmulvnew
+
+    // get last element in g_cumsum along chunk_size dimension (ne0)
+    // example: [[x, y, z, ..., last], ...] -> [[last], ...]
+    lm_ggml_tensor * g_last = lm_ggml_view_4d(ctx0, g_cumsum, 1, 1, g_cumsum->ne[2], g_cumsum->ne[3],
+                                        g_cumsum->nb[1], g_cumsum->nb[2], g_cumsum->nb[3],
+                                        (g_cumsum->ne[0] - 1) * lm_ggml_element_size(g_cumsum));
+    g_last = lm_ggml_cont(ctx0, g_last);
+    cb(g_last, "g_last", il); // shape: (1, 1, n_chunks, H_v * n_seqs)
+
+    lm_ggml_tensor * g_last_exp = lm_ggml_exp(ctx0, g_last);
+    cb(g_last_exp, "g_last_exp", il); // shape: (1, 1, n_chunks, H_v * n_seqs)
+
+    lm_ggml_tensor * g_diff = lm_ggml_neg(ctx0, lm_ggml_sub(ctx0, g_cumsum, g_last));
+    cb(g_diff, "g_diff", il); // shape: (chunk_size, 1, n_chunks, H_v * n_seqs)
+
+    lm_ggml_tensor * g_diff_exp = lm_ggml_exp(ctx0, g_diff);
+    lm_ggml_tensor * key_gdiff = lm_ggml_mul(ctx0, k, g_diff_exp);
+    cb(key_gdiff, "key_gdiff", il); // shape: (S_k, chunk_size, n_chunks, H_v * n_seqs)
+
+
+    // state to be updated per chunk
+    lm_ggml_tensor * new_state = state; // lm_ggml_dup(ctx0, state);
+    cb(new_state, "new_state", il); // shape: (S_v, S_v, H_v, n_seqs)
+
+    // shape after loop of chunks: (S_v, chunk_size, n_chunks, H_v * n_seqs)
     lm_ggml_tensor * core_attn_out = nullptr;
-    lm_ggml_tensor * new_state = lm_ggml_dup(ctx0, state);
-
-    cb(new_state, "new_state", il);
 
     for (int64_t chunk = 0; chunk < n_chunks; chunk++) {
-        auto chunkify = [=](lm_ggml_tensor * t) {
-            return lm_ggml_cont(ctx0, lm_ggml_view_4d(ctx0, t, t->ne[0], chunk_size, 1, t->ne[3],
-                t->nb[1], t->nb[2], t->nb[3], t->nb[2] * chunk));
-        };
+        // shape: (S_k, chunk_size, 1, H_k * n_seqs)
+        lm_ggml_tensor * q_chunk = get_slice_2d(ctx0, q, chunk); // (no cont), next op: lm_ggml_mul
 
-        auto chunkify_g = [=](lm_ggml_tensor * t) {
-            return lm_ggml_cont(ctx0, lm_ggml_view_4d(ctx0, t, chunk_size, t->ne[1], 1, t->ne[3],
-                t->nb[1], t->nb[2], t->nb[3], t->nb[2] * chunk));
-        };
+        // shape: (S_v, chunk_size, 1, H_v * n_seqs)
+        lm_ggml_tensor * v_chunk = get_slice_2d(ctx0, v, chunk); // (no cont), next op: lm_ggml_repeat
 
-        lm_ggml_tensor * k_chunk = chunkify(k);
-        lm_ggml_tensor * q_chunk = chunkify(q);
-        lm_ggml_tensor * v_chunk = chunkify(v);
+        // shape: (chunk_size, 1, n_chunks, H_v * n_seqs)
+        lm_ggml_tensor * gexp_chunk = get_slice_2d(ctx0, gexp, chunk); // (no cont), next op: lm_ggml_mul
 
-        lm_ggml_tensor * g_cs_chunk = chunkify_g(g_cumsum);
-        lm_ggml_tensor * g_cs_chunk_t = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, g_cs_chunk));
-
-        lm_ggml_tensor * decay_mask_chunk = chunkify(decay_mask);
-        lm_ggml_tensor * k_cumdecay_chunk = chunkify(k_cumdecay);
-
-        lm_ggml_tensor * gexp_chunk = lm_ggml_exp(ctx0, g_cs_chunk_t);
+        // shape: (chunk_size, 1, H_v * n_seqs)
+        lm_ggml_tensor * k_cumdecay_chunk = get_slice_2d(ctx0, k_cumdecay, chunk); // (no cont), next op: lm_ggml_mul_mat
 
         // attn = (q_i @ k_i.transpose(-1, -2) * decay_mask[:, :, i]).masked_fill_(mask, 0)
-        attn = lm_ggml_mul_mat(ctx0, k_chunk, q_chunk);
-        attn = lm_ggml_mul(ctx0, attn, decay_mask_chunk);
-        attn = lm_ggml_mul(ctx0, attn, diag_mask);
+        // replaced by precomputed attn_kq
+        lm_ggml_tensor * attn_chunk = get_slice_2d(ctx0, attn_kq, chunk);
+        cb(attn_chunk, "attn_chunk", il);
 
         lm_ggml_tensor * state_t = lm_ggml_cont_4d(ctx0, lm_ggml_permute(ctx0, new_state, 1, 0, 2, 3), S_v, S_v, 1, H_v * n_seqs);
 
         // v_prime = (k_cumdecay[:, :, i]) @ last_recurrent_state
         lm_ggml_tensor * v_prime = lm_ggml_mul_mat(ctx0, state_t, k_cumdecay_chunk);
+        cb(v_prime, "v_prime_chunk", il); // shape: (S_v, 1, H_v * n_seqs)
 
         // v_new = v_i - v_prime
         lm_ggml_tensor * v_new = lm_ggml_sub(ctx0, lm_ggml_repeat(ctx0, v_chunk, v_prime), v_prime);
         lm_ggml_tensor * v_new_t = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, v_new));
+        cb(v_new, "v_new_chunk", il);
 
         // attn_inter = (q_i * g[:, :, i, :, None].exp()) @ last_recurrent_state
         lm_ggml_tensor * q_g_exp    = lm_ggml_mul(ctx0, q_chunk, gexp_chunk);
         lm_ggml_tensor * attn_inter = lm_ggml_mul_mat(ctx0, state_t, q_g_exp);
+        cb(attn_inter, "attn_inter_chunk", il);
 
         // core_attn_out[:, :, i] = attn_inter + attn @ v_new
-        lm_ggml_tensor * v_attn = lm_ggml_mul_mat(ctx0, v_new_t, attn);
+        lm_ggml_tensor * v_attn = lm_ggml_mul_mat(ctx0, v_new_t, attn_chunk);
+        cb(v_attn, "v_attn_chunk", il);
 
         lm_ggml_tensor * core_attn_out_chunk = lm_ggml_add(ctx0, attn_inter, v_attn);
+        cb(core_attn_out_chunk, "core_attn_out_chunk", il); // shape: (S_v, chunk_size, 1, H_v * n_seqs)
 
-        core_attn_out = core_attn_out == nullptr ? core_attn_out_chunk : lm_ggml_concat(ctx0, core_attn_out, core_attn_out_chunk, 1);
+        core_attn_out = core_attn_out == nullptr
+            ? core_attn_out_chunk
+            : lm_ggml_concat(ctx0, core_attn_out, core_attn_out_chunk, 2);
 
-        // g_last = torch.clamp(g_cum[:, :, -1], max=50.0).exp().unsqueeze(-1).unsqueeze(-1)
-        // g_diff = torch.clamp(g_cum[:, :, -1:] - g_cum, max=50.0).exp()
-        // key_gdiff = key * g_diff.unsqueeze(-1)
         // kgdmulvnew = (key_gdiff).transpose(-1, -2) @ v_new
+        lm_ggml_tensor * k_gdiff = lm_ggml_cont(ctx0, get_slice_2d(ctx0, key_gdiff, chunk));
+        //lm_ggml_tensor * kgdmulvnew = lm_ggml_mul_mat(ctx0, k_gdiff, v_new); // this is slower on metal, why?
+        lm_ggml_tensor * kgdmulvnew = lm_ggml_mul_mat(ctx0, v_new_t, lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, k_gdiff)));
+
         // last_recurrent_state = last_recurrent_state * g_last + kgdmulvnew
-
-        lm_ggml_tensor * g_cum_last =
-            lm_ggml_cont(ctx0, lm_ggml_view_4d(ctx0, g_cs_chunk_t, g_cs_chunk_t->ne[0], 1, g_cs_chunk_t->ne[2], g_cs_chunk_t->ne[3],
-                                        g_cs_chunk_t->nb[1], g_cs_chunk_t->nb[2], g_cs_chunk_t->nb[3],
-                                        g_cs_chunk_t->nb[0] * (g_cs_chunk_t->ne[1] - 1)));
-
-        lm_ggml_tensor * gexp_last =
-            lm_ggml_reshape_4d(ctx0, lm_ggml_exp(ctx0, g_cum_last), 1, 1, g_cum_last->ne[0] * g_cum_last->ne[2], g_cum_last->ne[3]);
-
-        lm_ggml_tensor * g_cum_last_3d =
-            lm_ggml_reshape_3d(ctx0, g_cum_last, g_cum_last->ne[0], g_cum_last->ne[2], g_cum_last->ne[3]);
-
-        lm_ggml_tensor * g_cumsum_3d = lm_ggml_reshape_3d(ctx0, g_cs_chunk, g_cs_chunk->ne[0], g_cs_chunk->ne[2], g_cs_chunk->ne[3]);
-
-        lm_ggml_tensor * g_diff = lm_ggml_neg(ctx0, lm_ggml_sub(ctx0, g_cumsum_3d, g_cum_last_3d));
-
-        lm_ggml_tensor * g_diff_exp = lm_ggml_exp(ctx0, g_diff);
-
-        lm_ggml_tensor * key_gdiff = lm_ggml_mul(ctx0, k_chunk,
-                                        lm_ggml_reshape_4d(ctx0, g_diff_exp, 1, g_diff_exp->ne[0], g_diff_exp->ne[1],
-                                                        g_diff_exp->ne[2] * g_diff_exp->ne[3]));
-
-        lm_ggml_tensor * kgdmulvnew = lm_ggml_mul_mat(ctx0, v_new_t, lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, key_gdiff)));
-
+        lm_ggml_tensor * gexp_last_chunk = lm_ggml_cont(ctx0, get_slice_2d(ctx0, g_last_exp, chunk));
         new_state = lm_ggml_add(ctx0,
-            lm_ggml_mul(ctx0, new_state, lm_ggml_reshape_4d(ctx0, gexp_last, gexp_last->ne[0], gexp_last->ne[1], H_v, n_seqs)),
+            lm_ggml_mul(ctx0, new_state, lm_ggml_reshape_4d(ctx0, gexp_last_chunk, gexp_last_chunk->ne[0], gexp_last_chunk->ne[1], H_v, n_seqs)),
             lm_ggml_reshape_4d(ctx0, kgdmulvnew, kgdmulvnew->ne[0], kgdmulvnew->ne[1], H_v, n_seqs));
     }
 
-    core_attn_out = lm_ggml_cont_4d(ctx0, core_attn_out, S_v, chunk_size * n_chunks, H_v, n_seqs);
-
-    lm_ggml_tensor * output_tokens = lm_ggml_view_4d(ctx0, core_attn_out, S_v, n_tokens, H_v, n_seqs, core_attn_out->nb[1], core_attn_out->nb[2], core_attn_out->nb[3], 0);
+    // truncate padded tokens
+    lm_ggml_tensor * output_tokens = lm_ggml_view_4d(ctx0, core_attn_out,
+            S_v, n_tokens, H_v, n_seqs,
+            lm_ggml_row_size(core_attn_out->type, S_v),
+            lm_ggml_row_size(core_attn_out->type, S_v * chunk_size * n_chunks),
+            lm_ggml_row_size(core_attn_out->type, S_v * chunk_size * n_chunks * H_v), 0);
+    output_tokens = lm_ggml_cont(ctx0, output_tokens);
     cb(output_tokens, "output_tokens", il);
 
-    // flatten output
-    lm_ggml_tensor * flat_output =
-        lm_ggml_cont_1d(ctx0, lm_ggml_permute(ctx0, output_tokens, 0, 2, 1, 3), S_v * H_v * n_tokens * n_seqs);
+    // permute back to (S_v, H_v, n_tokens, n_seqs)
+    output_tokens = lm_ggml_permute(ctx0, output_tokens, 0, 2, 1, 3);
+    output_tokens = lm_ggml_cont(ctx0, output_tokens);
 
-    lm_ggml_tensor * flat_state = lm_ggml_cont_1d(ctx0, new_state, S_v * S_v * H_v * n_seqs);
-
-    return lm_ggml_concat(ctx0, flat_output, flat_state, 0);
+    return {output_tokens, new_state};
 }
 
-lm_ggml_tensor * llm_build_qwen3next::build_delta_net_autoregressive(
+std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_qwen3next::build_delta_net_autoregressive(
         lm_ggml_tensor * q,
         lm_ggml_tensor * k,
         lm_ggml_tensor * v,
@@ -419,11 +433,7 @@ lm_ggml_tensor * llm_build_qwen3next::build_delta_net_autoregressive(
     cb(core_attn_out, "output_tokens", il);
     cb(state, "new_state", il);
 
-    // flatten output, no need to permute since n_tokens is 1 so [S_v, 1, H_v, n_seqs] and [S_v, H_v, 1, n_seqs] are equivalent memory-layout wise
-    lm_ggml_tensor * flat_output = lm_ggml_reshape_1d(ctx0, core_attn_out, S_v * H_v * n_tokens * n_seqs);
-    lm_ggml_tensor * flat_state  = lm_ggml_reshape_1d(ctx0, state, S_v * S_v * H_v * n_seqs);
-
-    return lm_ggml_concat(ctx0, flat_output, flat_state, 0);
+    return {core_attn_out, state};
 }
 
 lm_ggml_tensor * llm_build_qwen3next::build_norm_gated(
@@ -523,6 +533,88 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn(
     return cur;
 }
 
+std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_qwen3next::build_qkvz(
+                lm_ggml_tensor * input,
+                        int   il) {
+    const int64_t d_inner      = hparams.ssm_d_inner;
+    const int64_t n_seqs       = ubatch.n_seqs;
+    const int64_t head_k_dim   = hparams.ssm_d_state;
+    const int64_t num_k_heads  = hparams.ssm_n_group;
+    const int64_t num_v_heads  = hparams.ssm_dt_rank;
+    const int64_t head_v_dim   = d_inner / num_v_heads;
+    const int64_t n_seq_tokens = ubatch.n_seq_tokens;
+
+    if (model.layers[il].wqkv) {
+        // optimized path
+        lm_ggml_tensor * qkv_mixed = build_lora_mm(model.layers[il].wqkv, input);
+        qkv_mixed = lm_ggml_reshape_3d(ctx0, qkv_mixed, qkv_mixed->ne[0], n_seq_tokens, n_seqs);
+        cb(qkv_mixed, "linear_attn_qkv_mixed", il);
+
+        lm_ggml_tensor * z = build_lora_mm(model.layers[il].wqkv_gate, input);
+        cb(z, "z", il);
+
+        return { qkv_mixed, z };
+
+    } else {
+        // legacy (slower) path
+        lm_ggml_tensor * mixed_qkvz = build_lora_mm(model.layers[il].ssm_in, input);
+        cb(mixed_qkvz, "linear_attn_mixed_qkvz", il);
+
+        int64_t       qkvz_new_dim        = 2 * head_k_dim + 2 * head_v_dim * (num_v_heads / num_k_heads);
+        lm_ggml_tensor * mixed_qkvz_reshaped = lm_ggml_reshape_4d(ctx0, mixed_qkvz, qkvz_new_dim, num_k_heads, n_seq_tokens, n_seqs);
+
+        // Split mixed_qkvz into query, key, value, z
+        int64_t split_sizes_qkvz[4] = {
+            head_k_dim,                              // query size
+            head_k_dim,                              // key size
+            head_v_dim * num_v_heads / num_k_heads,  // value size
+            head_v_dim * num_v_heads / num_k_heads   // z size
+        };
+
+        lm_ggml_tensor * query =
+            lm_ggml_view_4d(ctx0, mixed_qkvz_reshaped, split_sizes_qkvz[0], num_k_heads, n_seq_tokens, n_seqs,
+                        mixed_qkvz_reshaped->nb[1], mixed_qkvz_reshaped->nb[2], mixed_qkvz_reshaped->nb[3], 0);
+        cb(query, "q", il);
+
+        lm_ggml_tensor * key = lm_ggml_view_4d(ctx0, mixed_qkvz_reshaped, split_sizes_qkvz[1], num_k_heads, n_seq_tokens, n_seqs,
+                                        mixed_qkvz_reshaped->nb[1], mixed_qkvz_reshaped->nb[2], mixed_qkvz_reshaped->nb[3],
+                                        split_sizes_qkvz[0] * lm_ggml_element_size(mixed_qkvz_reshaped));
+        cb(key, "k", il);
+
+        lm_ggml_tensor * value =
+            lm_ggml_view_4d(ctx0, mixed_qkvz_reshaped, split_sizes_qkvz[2], num_k_heads, n_seq_tokens, n_seqs,
+                        mixed_qkvz_reshaped->nb[1], mixed_qkvz_reshaped->nb[2], mixed_qkvz_reshaped->nb[3],
+                        (split_sizes_qkvz[0] + split_sizes_qkvz[1]) * lm_ggml_element_size(mixed_qkvz_reshaped));
+        cb(value, "v", il);
+
+        lm_ggml_tensor * z = lm_ggml_view_4d(ctx0, mixed_qkvz_reshaped, split_sizes_qkvz[3], num_k_heads, n_seq_tokens, n_seqs,
+                                    mixed_qkvz_reshaped->nb[1], mixed_qkvz_reshaped->nb[2], mixed_qkvz_reshaped->nb[3],
+                                    (split_sizes_qkvz[0] + split_sizes_qkvz[1] + split_sizes_qkvz[2]) * lm_ggml_element_size(mixed_qkvz_reshaped));
+        z = lm_ggml_cont(ctx0, z);
+        cb(z, "z", il);
+
+        // After creating query, key, and value_reshaped, reshape each to flatten the head dimensions
+        // query: [head_k_dim, num_k_heads, n_tokens, n_seqs] -> [head_k_dim * num_k_heads, n_tokens, n_seqs]
+        lm_ggml_tensor * query_flat = lm_ggml_cont_3d(ctx0, query, head_k_dim * num_k_heads, n_seq_tokens, n_seqs);
+        cb(query_flat, "query_flat", il);
+
+        // key: [head_k_dim, num_k_heads, n_tokens, n_seqs] -> [head_k_dim * num_k_heads, n_tokens, n_seqs]
+        lm_ggml_tensor * key_flat = lm_ggml_cont_3d(ctx0, key, head_k_dim * num_k_heads, n_seq_tokens, n_seqs);
+        cb(key_flat, "key_flat", il);
+
+        // value_reshaped: [head_v_dim, num_v_heads, n_tokens, n_seqs] -> [head_v_dim * num_v_heads, n_tokens, n_seqs]
+        lm_ggml_tensor * value_flat = lm_ggml_cont_3d(ctx0, value, head_v_dim * num_v_heads, n_seq_tokens, n_seqs);
+        cb(value_flat, "value_flat", il);
+
+        // Now concatenate along the feature dimension (dim 0) to get [conv_dim, n_tokens, n_seqs]
+        lm_ggml_tensor * qkv_mixed = lm_ggml_concat(ctx0, query_flat, key_flat, 0);
+        qkv_mixed               = lm_ggml_concat(ctx0, qkv_mixed, value_flat, 0);
+        cb(qkv_mixed, "qkv_mixed", il);
+
+        return { qkv_mixed, z };
+    }
+}
+
 lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
         llm_graph_input_rs * inp,
         lm_ggml_tensor *        cur,
@@ -547,14 +639,12 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     LM_GGML_ASSERT(ubatch.n_tokens == n_seq_tokens * n_seqs);
 
     // Input projections
-    lm_ggml_tensor * mixed_qkvz = build_lora_mm(model.layers[il].ssm_in, cur);
-    cb(mixed_qkvz, "linear_attn_mixed_qkvz", il);
+    auto qkvz = build_qkvz(cur, il);
+    lm_ggml_tensor * qkv_mixed = qkvz.first;
+    lm_ggml_tensor * z         = qkvz.second;
 
     lm_ggml_tensor * mixed_ba = build_lora_mm(model.layers[il].ssm_beta_alpha, cur);
     cb(mixed_ba, "linear_attn_mixed_ba", il);
-
-    int64_t       qkvz_new_dim        = 2 * head_k_dim + 2 * head_v_dim * (num_v_heads / num_k_heads);
-    lm_ggml_tensor * mixed_qkvz_reshaped = lm_ggml_reshape_4d(ctx0, mixed_qkvz, qkvz_new_dim, num_k_heads, n_seq_tokens, n_seqs);
 
     // Reshape mixed_ba: [batch, seq_len, hidden_size] -> [batch, seq_len, num_k_heads, 2*num_v_heads/num_k_heads]
     int64_t       ba_new_dim        = 2 * num_v_heads / num_k_heads;
@@ -575,8 +665,9 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
                                    split_sizes_ba[0] * lm_ggml_element_size(mixed_ba_reshaped));
     cb(a, "a", il);
 
-    // Reshape b and a to merge head dimensions: [batch, seq_len, num_k_heads, num_v_heads/num_k_heads] -> [batch, seq_len, num_v_heads]
-    lm_ggml_tensor * beta  = lm_ggml_cont_3d(ctx0, b, num_v_heads, n_seq_tokens, n_seqs);
+    lm_ggml_tensor * beta  = lm_ggml_cont_4d(ctx0, b, num_v_heads, 1, n_seq_tokens, n_seqs);
+
+    // Reshape a to merge head dimensions: [batch, seq_len, num_k_heads, num_v_heads/num_k_heads] -> [batch, seq_len, num_v_heads]
     lm_ggml_tensor * alpha = lm_ggml_cont_3d(ctx0, a, num_v_heads, n_seq_tokens, n_seqs);
 
     lm_ggml_tensor * alpha_biased   = lm_ggml_add(ctx0, alpha, model.layers[il].ssm_dt);
@@ -584,48 +675,6 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     cb(alpha_softplus, "a_softplus", il);
     lm_ggml_tensor * gate = lm_ggml_mul(ctx0, alpha_softplus, model.layers[il].ssm_a);  // -A_log.exp() * softplus
     cb(gate, "gate", il);
-
-    // Split mixed_qkvz into query, key, value, z
-    int64_t split_sizes_qkvz[4] = {
-        head_k_dim,                              // query size
-        head_k_dim,                              // key size
-        head_v_dim * num_v_heads / num_k_heads,  // value size
-        head_v_dim * num_v_heads / num_k_heads   // z size
-    };
-
-    lm_ggml_tensor * query =
-        lm_ggml_view_4d(ctx0, mixed_qkvz_reshaped, split_sizes_qkvz[0], num_k_heads, n_seq_tokens, n_seqs,
-                     mixed_qkvz_reshaped->nb[1], mixed_qkvz_reshaped->nb[2], mixed_qkvz_reshaped->nb[3], 0);
-    cb(query, "q", il);
-
-    lm_ggml_tensor * key = lm_ggml_view_4d(ctx0, mixed_qkvz_reshaped, split_sizes_qkvz[1], num_k_heads, n_seq_tokens, n_seqs,
-                                     mixed_qkvz_reshaped->nb[1], mixed_qkvz_reshaped->nb[2], mixed_qkvz_reshaped->nb[3],
-                                     split_sizes_qkvz[0] * sizeof(float));
-    cb(key, "k", il);
-
-    lm_ggml_tensor * value =
-        lm_ggml_view_4d(ctx0, mixed_qkvz_reshaped, split_sizes_qkvz[2], num_k_heads, n_seq_tokens, n_seqs,
-                     mixed_qkvz_reshaped->nb[1], mixed_qkvz_reshaped->nb[2], mixed_qkvz_reshaped->nb[3],
-                     (split_sizes_qkvz[0] + split_sizes_qkvz[1]) * sizeof(float));
-    cb(value, "v", il);
-
-    lm_ggml_tensor * z = lm_ggml_view_4d(ctx0, mixed_qkvz_reshaped, split_sizes_qkvz[3], num_k_heads, n_seq_tokens, n_seqs,
-                                   mixed_qkvz_reshaped->nb[1], mixed_qkvz_reshaped->nb[2], mixed_qkvz_reshaped->nb[3],
-                                   (split_sizes_qkvz[0] + split_sizes_qkvz[1] + split_sizes_qkvz[2]) * sizeof(float));
-    cb(z, "z", il);
-
-    // After creating query, key, and value_reshaped, reshape each to flatten the head dimensions
-    // query: [head_k_dim, num_k_heads, n_tokens, n_seqs] -> [head_k_dim * num_k_heads, n_tokens, n_seqs]
-    lm_ggml_tensor * query_flat = lm_ggml_cont_3d(ctx0, query, head_k_dim * num_k_heads, n_seq_tokens, n_seqs);
-    cb(query_flat, "query_flat", il);
-
-    // key: [head_k_dim, num_k_heads, n_tokens, n_seqs] -> [head_k_dim * num_k_heads, n_tokens, n_seqs]
-    lm_ggml_tensor * key_flat = lm_ggml_cont_3d(ctx0, key, head_k_dim * num_k_heads, n_seq_tokens, n_seqs);
-    cb(key_flat, "key_flat", il);
-
-    // value_reshaped: [head_v_dim, num_v_heads, n_tokens, n_seqs] -> [head_v_dim * num_v_heads, n_tokens, n_seqs]
-    lm_ggml_tensor * value_flat = lm_ggml_cont_3d(ctx0, value, head_v_dim * num_v_heads, n_seq_tokens, n_seqs);
-    cb(value_flat, "value_flat", il);
 
     // Get convolution states from cache
     lm_ggml_tensor * conv_states_all = mctx_cur->get_r_l(il);
@@ -637,23 +686,15 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     lm_ggml_tensor * conv_states = build_rs(inp, conv_states_all, hparams.n_embd_r(), n_seqs);
     cb(conv_states, "conv_states", il);
 
-    // Now concatenate along the feature dimension (dim 0) to get [conv_dim, n_tokens, n_seqs]
-    lm_ggml_tensor * qkv_mixed = lm_ggml_concat(ctx0, query_flat, key_flat, 0);
-    qkv_mixed               = lm_ggml_concat(ctx0, qkv_mixed, value_flat, 0);
-    cb(qkv_mixed, "qkv_mixed", il);
-
-    qkv_mixed = lm_ggml_permute(ctx0, qkv_mixed, 1, 0, 2, 3);
-    cb(qkv_mixed, "qkv_mixed_permuted", il);
-
-    // Calculate the total conv dimension
-    int64_t qkv_dim = head_k_dim * num_k_heads * 2 + head_v_dim * num_v_heads;
-
     // Calculate convolution kernel size
     lm_ggml_tensor * conv_kernel      = model.layers[il].ssm_conv1d;
     const int64_t conv_kernel_size = conv_kernel->ne[0];
     const int64_t conv_channels    = d_inner + 2 * hparams.ssm_n_group * hparams.ssm_d_state;
     conv_states                    = lm_ggml_reshape_3d(ctx0, conv_states, conv_kernel_size - 1, conv_channels, n_seqs);
     cb(conv_states, "conv_states_reshaped", il);
+
+    qkv_mixed = lm_ggml_permute(ctx0, qkv_mixed, 1, 0, 2, 3);
+    cb(qkv_mixed, "qkv_mixed_permuted", il);
 
     lm_ggml_tensor * conv_input = lm_ggml_concat(ctx0, conv_states, qkv_mixed, 0);
     cb(conv_input, "conv_input", il);
@@ -677,26 +718,25 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     lm_ggml_tensor * conv_output_proper = lm_ggml_ssm_conv(ctx0, conv_input, conv_kernel);
     cb(conv_output_proper, "conv_output_raw", il);
 
-    conv_output_proper = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, conv_output_proper));
-    cb(conv_output_proper, "conv_output_pre_silu", il);
-
     lm_ggml_tensor * conv_output_silu = lm_ggml_silu(ctx0, conv_output_proper);
     cb(conv_output_silu, "conv_output_silu", il);
 
-    lm_ggml_tensor * conv_qkv_mix =
-        lm_ggml_cont_2d(ctx0, lm_ggml_transpose(ctx0, conv_output_silu), qkv_dim, n_seq_tokens * n_seqs);
-    cb(conv_qkv_mix, "conv_qkv_mix", il);
+    lm_ggml_tensor * conv_qkv_mix = conv_output_silu;
+
+    // Calculate the total conv dimension
+    int64_t qkv_dim = head_k_dim * num_k_heads * 2 + head_v_dim * num_v_heads;
+    int64_t nb1_qkv = lm_ggml_row_size(conv_qkv_mix->type, qkv_dim);
 
     // Extract the convolved Q, K, V from conv_output
     lm_ggml_tensor * q_conv =
-        lm_ggml_view_2d(ctx0, conv_qkv_mix, head_k_dim * num_k_heads, n_seq_tokens * n_seqs, conv_qkv_mix->nb[1], 0);
+        lm_ggml_view_2d(ctx0, conv_qkv_mix, head_k_dim * num_k_heads, n_seq_tokens * n_seqs, nb1_qkv, 0);
     cb(q_conv, "q_conv", il);
     lm_ggml_tensor * k_conv =
-        lm_ggml_view_2d(ctx0, conv_qkv_mix, head_k_dim * num_k_heads, n_seq_tokens * n_seqs, conv_qkv_mix->nb[1],
+        lm_ggml_view_2d(ctx0, conv_qkv_mix, head_k_dim * num_k_heads, n_seq_tokens * n_seqs, nb1_qkv,
                      head_k_dim * num_k_heads * lm_ggml_element_size(conv_qkv_mix));
     cb(k_conv, "k_conv", il);
     lm_ggml_tensor * v_conv =
-        lm_ggml_view_2d(ctx0, conv_qkv_mix, head_v_dim * num_v_heads, n_seq_tokens * n_seqs, conv_qkv_mix->nb[1],
+        lm_ggml_view_2d(ctx0, conv_qkv_mix, head_v_dim * num_v_heads, n_seq_tokens * n_seqs, nb1_qkv,
                      2 * head_k_dim * num_k_heads * lm_ggml_element_size(conv_qkv_mix));
     cb(v_conv, "v_conv", il);
 
@@ -704,8 +744,6 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     q_conv = lm_ggml_cont_4d(ctx0, q_conv, head_k_dim, num_k_heads, n_seq_tokens, n_seqs);
     k_conv = lm_ggml_cont_4d(ctx0, k_conv, head_k_dim, num_k_heads, n_seq_tokens, n_seqs);
     v_conv = lm_ggml_cont_4d(ctx0, v_conv, head_v_dim, num_v_heads, n_seq_tokens, n_seqs);
-
-    beta = lm_ggml_cont_4d(ctx0, b, num_v_heads, 1, n_seq_tokens, n_seqs);
 
     lm_ggml_tensor * state = build_rs(inp, ssm_states_all, hparams.n_embd_s(), n_seqs);
     state               = lm_ggml_reshape_4d(ctx0, state, head_v_dim, head_v_dim * num_v_heads, 1, n_seqs);
@@ -738,45 +776,29 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     cb(v_conv, "v_conv_predelta", il);
 
     // Choose between build_delta_net_chunking, build_delta_net_recurrent, and build_delta_net_autoregressive based on n_tokens
-    lm_ggml_tensor * attn_out;
+    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> attn_out; // pair of (output, new_state)
     if (n_seq_tokens == 1) {
         attn_out = build_delta_net_autoregressive(q_conv, k_conv, v_conv, gate, beta, state, il);
     } else {
         attn_out = build_delta_net_chunking(q_conv, k_conv, v_conv, gate, beta, state, causal_mask, identity, diag_mask, il);
     }
-    cb(attn_out, "attn_out", il);
-
-    // The tensors were concatenated 1d, so we need to extract them 1d as well
-    const int64_t output_flat_size = head_v_dim * num_v_heads * n_seq_tokens * n_seqs;
-    lm_ggml_tensor * attn_out_1d      = lm_ggml_view_1d(ctx0, attn_out, output_flat_size, 0);
-    cb(attn_out_1d, "attn_out_1d", il);
-
-    lm_ggml_tensor * attn_out_final = lm_ggml_cont_4d(ctx0, attn_out_1d, head_v_dim, num_v_heads, n_seq_tokens, n_seqs);
-    cb(attn_out_final, "attn_out_reshaped", il);
-
-    // Extract the state part (second part of the concatenated tensor)
-    // State starts after n_tokens elements along dimension 1
-    const int64_t state_flat_size = head_v_dim * head_v_dim * num_v_heads * n_seqs;
-
-    lm_ggml_tensor * state_1d =
-        lm_ggml_view_1d(ctx0, attn_out, state_flat_size, output_flat_size * lm_ggml_element_size(attn_out));
-    cb(state_1d, "state_1d", il);
+    lm_ggml_tensor * output    = attn_out.first;
+    lm_ggml_tensor * new_state = attn_out.second;
+    cb(output, "attn_output", il);
+    cb(new_state, "new_state", il);
 
     // Update the recurrent states
     lm_ggml_build_forward_expand(gf,
-                              lm_ggml_cpy(ctx0, state_1d,
+                              lm_ggml_cpy(ctx0, new_state,
                                        lm_ggml_view_1d(ctx0, ssm_states_all, hparams.n_embd_s() * n_seqs,
                                                     kv_head * hparams.n_embd_s() * lm_ggml_element_size(ssm_states_all))));
 
-    LM_GGML_ASSERT(lm_ggml_nelements(attn_out_1d) + lm_ggml_nelements(state_1d) == lm_ggml_nelements(attn_out));
-
     // Reshape both attn_out_final and z to 2D tensors for normalization
     // attn_out_final: [head_dim, n_heads, n_tokens, n_seqs] -> [n_heads * n_tokens * n_seqs, head_dim]
-    lm_ggml_tensor * attn_out_2d_final =
-        lm_ggml_cont_2d(ctx0, attn_out_final, head_v_dim, num_v_heads * n_seq_tokens * n_seqs);
+    lm_ggml_tensor * attn_out_2d_final = lm_ggml_reshape_2d(ctx0, output, head_v_dim, num_v_heads * n_seq_tokens * n_seqs);
 
     // z: [head_dim, n_heads, n_tokens, n_seqs] -> [n_heads * n_tokens * n_seqs, head_dim]
-    lm_ggml_tensor * z_2d = lm_ggml_cont_2d(ctx0, z, head_v_dim, num_v_heads * n_seq_tokens * n_seqs);
+    lm_ggml_tensor * z_2d = lm_ggml_reshape_2d(ctx0, z, head_v_dim, num_v_heads * n_seq_tokens * n_seqs);
 
     // Apply gated normalization: self.norm(core_attn_out, z)
     lm_ggml_tensor * attn_out_norm = build_norm_gated(attn_out_2d_final, model.layers[il].ssm_norm, z_2d, il);
@@ -827,12 +849,6 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_ffn(lm_ggml_tensor * cur, cons
             // Apply sigmoid to the gate
             shared_gate = lm_ggml_sigmoid(ctx0, shared_gate);
             cb(shared_gate, "shared_expert_gate_sigmoid", il);
-
-            // The gate needs to be broadcast to match the dimensions of ffn_shexp
-            // ffn_shexp is [n_embd, n_tokens, 1, 1] and shared_gate is [1, n_tokens, 1, 1]
-            // We need to repeat the gate along the feature dimension
-            shared_gate = lm_ggml_repeat(ctx0, shared_gate, ffn_shexp);
-            cb(shared_gate, "shared_expert_gate_broadcast", il);
 
             // Apply the gate to the shared expert output
             ffn_shexp = lm_ggml_mul(ctx0, ffn_shexp, shared_gate);
