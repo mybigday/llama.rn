@@ -26,7 +26,9 @@ struct llama_rn_context_mtmd {
         llama_context *ctx,
         const common_params &params,
         bool &has_multimodal,
-        common_params &mutable_params
+        common_params &mutable_params,
+        int image_min_tokens = -1,
+        int image_max_tokens = -1
     );
 
     // Destructor - Release multimodal resources
@@ -526,7 +528,9 @@ inline llama_rn_context_mtmd::llama_rn_context_mtmd(
     llama_context *ctx,
     const common_params &params,
     bool &has_multimodal,
-    common_params &mutable_params
+    common_params &mutable_params,
+    int image_min_tokens,
+    int image_max_tokens
 ) {
     LOG_INFO("[DEBUG] Initializing multimodal with mmproj path: %s", mmproj_path.c_str());
 
@@ -544,8 +548,11 @@ inline llama_rn_context_mtmd::llama_rn_context_mtmd(
     mtmd_params.use_gpu = use_gpu;
     mtmd_params.print_timings = false;
     mtmd_params.n_threads = params.cpuparams.n_threads;
+    mtmd_params.image_min_tokens = image_min_tokens;
+    mtmd_params.image_max_tokens = image_max_tokens;
 
-    LOG_INFO("[DEBUG] Initializing mtmd context with threads=%d", mtmd_params.n_threads);
+    LOG_INFO("[DEBUG] Initializing mtmd context with threads=%d, image_min_tokens=%d, image_max_tokens=%d",
+             mtmd_params.n_threads, mtmd_params.image_min_tokens, mtmd_params.image_max_tokens);
 
     auto mtmd_ctx = mtmd_init_from_file(mmproj_path.c_str(), model, mtmd_params);
     if (mtmd_ctx == nullptr) {

@@ -1840,13 +1840,15 @@ namespace rnllama_jsi {
                 jsi::Object params = arguments[1].asObject(runtime);
                 std::string path = getPropertyAsString(runtime, params, "path");
                 bool use_gpu = getPropertyAsBool(runtime, params, "use_gpu", true);
+                int image_min_tokens = getPropertyAsInt(runtime, params, "image_min_tokens", -1);
+                int image_max_tokens = getPropertyAsInt(runtime, params, "image_max_tokens", -1);
 
-                return createPromiseTask(runtime, callInvoker, [contextId, path, use_gpu]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, path, use_gpu, image_min_tokens, image_max_tokens]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (ctx->completion && ctx->completion->is_predicting) {
                          throw std::runtime_error("Context is busy");
                     }
-                    bool result = ctx->initMultimodal(path, use_gpu);
+                    bool result = ctx->initMultimodal(path, use_gpu, image_min_tokens, image_max_tokens);
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
                 }, contextId);
             }

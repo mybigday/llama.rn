@@ -8,6 +8,7 @@ import React, {
 import {
   View,
   Text,
+  TextInput,
   StyleSheet,
   ScrollView,
   Alert,
@@ -231,6 +232,36 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       fontSize: 12,
       fontWeight: '500',
     },
+    settingContainer: {
+      marginTop: 16,
+      marginBottom: 8,
+      padding: 12,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    settingLabel: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 4,
+    },
+    settingDescription: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      marginBottom: 8,
+    },
+    settingInput: {
+      backgroundColor: theme.colors.inputBackground,
+      borderRadius: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      fontSize: 14,
+      color: theme.colors.text,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
   })
 
   const messagesRef = useRef<MessageType.Any[]>([])
@@ -259,6 +290,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     useState<CompletionParams | null>(null)
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT)
   const [customModels, setCustomModels] = useState<CustomModel[]>([])
+  const [imageMaxTokens, setImageMaxTokens] = useState<string>('')
   const insets = useSafeAreaInsets()
 
   useEffect(
@@ -581,9 +613,11 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
       // Initialize multimodal support
       setInitProgress(85)
+      const maxTokens = imageMaxTokens ? parseInt(imageMaxTokens, 10) : undefined
       const multimodalInitialized = await llamaContext.initMultimodal({
         path: mmprojPath,
         use_gpu: true,
+        image_max_tokens: maxTokens && !Number.isNaN(maxTokens) ? maxTokens : undefined,
       })
 
       if (!multimodalInitialized) {
@@ -928,6 +962,24 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             questions about visual and audio content, and engage in multimodal
             conversations.
           </Text>
+
+          {/* Image Max Tokens Setting */}
+          <View style={styles.settingContainer}>
+            <Text style={styles.settingLabel}>Max Image Tokens (optional)</Text>
+            <Text style={styles.settingDescription}>
+              Limit tokens for dynamic resolution models (e.g., Qwen-VL). Lower
+              values (256-512) improve speed, higher values (up to 4096) preserve
+              detail. Leave empty for model default.
+            </Text>
+            <TextInput
+              style={styles.settingInput}
+              value={imageMaxTokens}
+              onChangeText={setImageMaxTokens}
+              placeholder="e.g., 512"
+              placeholderTextColor={theme.colors.textSecondary}
+              keyboardType="numeric"
+            />
+          </View>
 
           {/* Custom Models Section */}
           {customModels.filter((model) => model.mmprojFilename).length > 0 && (

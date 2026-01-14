@@ -915,18 +915,33 @@ export class LlamaContext {
     return llamaGetLoadedLoraAdapters(this.id)
   }
 
+  /**
+   * Initialize multimodal support (vision/audio) with a projector model.
+   * @param path - Path to the multimodal projector model file (mmproj)
+   * @param use_gpu - Whether to use GPU for multimodal processing (default: true)
+   * @param image_min_tokens - Minimum number of tokens for image input (for dynamic resolution models)
+   * @param image_max_tokens - Maximum number of tokens for image input (for dynamic resolution models).
+   *                           Lower values reduce memory usage and improve speed for high-resolution images.
+   *                           Recommended: 256-512 for faster inference, up to 4096 for maximum detail.
+   */
   async initMultimodal({
     path,
     use_gpu: useGpu,
+    image_min_tokens: imageMinTokens,
+    image_max_tokens: imageMaxTokens,
   }: {
     path: string
     use_gpu?: boolean
+    image_min_tokens?: number
+    image_max_tokens?: number
   }): Promise<boolean> {
     const { llamaInitMultimodal } = getJsi()
     if (path.startsWith('file://')) path = path.slice(7)
     return llamaInitMultimodal(this.id, {
       path,
       use_gpu: useGpu ?? true,
+      image_min_tokens: imageMinTokens,
+      image_max_tokens: imageMaxTokens,
     })
   }
 

@@ -81,7 +81,12 @@ declare global {
   ) => Promise<Array<{ path: string; scaled?: number }>>
   var llamaInitMultimodal: (
     contextId: number,
-    params: { path: string; use_gpu?: boolean },
+    params: {
+      path: string
+      use_gpu?: boolean
+      image_min_tokens?: number
+      image_max_tokens?: number
+    },
   ) => Promise<boolean>
   var llamaIsMultimodalEnabled: (contextId: number) => Promise<boolean>
   var llamaGetMultimodalSupport: (
