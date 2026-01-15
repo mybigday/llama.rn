@@ -117,10 +117,6 @@ public class RNLlama {
     for (String libName : HTP_LIBS) {
       File outFile = new File(htpDir, libName);
 
-      if (outFile.exists()) {
-        continue;
-      }
-
       try {
         try (InputStream in = context.getAssets().open("ggml-hexagon/" + libName);
              FileOutputStream out = new FileOutputStream(outFile)) {
