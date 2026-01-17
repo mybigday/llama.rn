@@ -18,6 +18,7 @@ import BenchScreen from './screens/BenchScreen'
 import TextCompletionScreen from './screens/TextCompletionScreen'
 import ParallelDecodingScreen from './screens/ParallelDecodingScreen'
 import EmbeddingScreen from './screens/EmbeddingScreen'
+import StressTestScreen from './screens/StressTestScreen'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { createThemedStyles } from './styles/commonStyles'
 import { Menu } from './components/Menu'
@@ -265,6 +266,12 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}
+          onPress={() => navigation.navigate('StressTest')}
+        >
+          <Text style={styles.buttonText}>🔥 Stress Test</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
           onPress={toggleDeviceInfo}
         >
           <Text style={styles.buttonText}>🖥️ Device Info</Text>
@@ -433,6 +440,13 @@ function AppContent() {
           />
           <Stack.Screen name="ModelInfo" component={ModelInfoScreen} />
           <Stack.Screen name="Bench" component={BenchScreen} />
+          <Stack.Screen
+            name="StressTest"
+            component={StressTestScreen}
+            options={{
+              title: 'Stress Test',
+            }}
+          />
         </Stack.Navigator>
       </NavigationContainer>
     </GestureHandlerRootView>
