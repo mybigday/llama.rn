@@ -1698,15 +1698,22 @@ namespace rnllama_jsi {
                          }
                      }
 
-                     TaskManager::getInstance().waitForContext(contextId, 1);
+                     // Wait for ALL other tasks on this context to complete (including their
+                     // invokeAsync callbacks) before deleting. This prevents race conditions
+                     // where we delete the context while a completion's JS callback is still
+                     // accessing ctx->completion.
+                     TaskManager::getInstance().waitForContext(contextId, 0);
 
                      if (ctxPtr) {
                          auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
-                         delete ctx;
+                         // Remove from map FIRST, then delete.
+                         // This ensures any concurrent lookups via g_llamaContexts.get()
+                         // will return 0 (not found) rather than a dangling pointer.
                          removeContext(contextId);
+                         delete ctx;
                      }
                      return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
-                 }, contextId);
+                 }, contextId, false);  // trackTask=false - release should not count itself
             }
         );
         runtime.global().setProperty(runtime, "llamaReleaseContext", releaseContext);
@@ -1733,7 +1740,8 @@ namespace rnllama_jsi {
                          }
                      }
 
-                     TaskManager::getInstance().waitForAll(1);
+                     // Wait for ALL tasks to complete (including their invokeAsync callbacks)
+                     TaskManager::getInstance().waitForAll(0);
 
                      g_llamaContexts.clear([](long ptr) {
                         if (ptr) {
@@ -1742,7 +1750,7 @@ namespace rnllama_jsi {
                         }
                      });
                      return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
-                 });
+                 }, -1, false);  // contextId=-1 (not tracked), trackTask=false
             }
         );
         runtime.global().setProperty(runtime, "llamaReleaseAllContexts", releaseAllContexts);
