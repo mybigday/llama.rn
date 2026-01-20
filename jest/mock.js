@@ -118,14 +118,12 @@ if (!NativeModules.RNLlama) {
         },
         chatTemplates: {
           llamaChat: true,
-          minja: {
+          jinja: {
             default: true,
             defaultCaps: {
               parallelToolCalls: false,
               systemRole: true,
-              toolCallId: false,
               toolCalls: false,
-              toolResponses: false,
               tools: false,
             },
             toolUse: false,
