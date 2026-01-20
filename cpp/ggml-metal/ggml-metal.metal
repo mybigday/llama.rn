@@ -2809,6 +2809,15 @@ typedef struct {
 } lm_ggml_metal_kargs_pool_2d;
 
 typedef struct {
+    int32_t  k0;
+    int32_t  s0;
+    int32_t  p0;
+    int64_t  IW;
+    int64_t  OW;
+    int64_t  np;
+} lm_ggml_metal_kargs_pool_1d;
+
+typedef struct {
      int64_t ne00;
     uint64_t nb01;
 } lm_ggml_metal_kargs_argmax;
@@ -12683,6 +12692,74 @@ kernel void kernel_pool_2d_avg_f32(
     }
 
     o_ptr[cur_oh * args.OW + cur_ow] = res;
+}
+
+
+kernel void kernel_pool_1d_max_f32(
+        constant        lm_ggml_metal_kargs_pool_1d & args,
+        device  const   float * src,
+        device          float * dst,
+        uint            gid [[thread_position_in_grid]]
+) {
+
+    if (gid >= args.np) {
+        return;
+    }
+
+    const int ow  = (int)gid % args.OW;
+    const int row = (int)gid / args.OW;
+
+    const int base = ow * args.s0 - args.p0;
+
+    float acc = -INFINITY;
+
+    const int src_off = row * args.IW;
+    const int dst_off = row * args.OW;
+
+    for (int ki = 0; ki < args.k0; ++ki) {
+        int j = base + ki;
+        if (j < 0 || j >= args.IW){
+            continue;
+        }
+        float v = src[src_off + j];
+        acc = max(acc, v);
+    }
+
+    dst[dst_off + ow] = acc;
+}
+
+kernel void kernel_pool_1d_avg_f32(
+        constant        lm_ggml_metal_kargs_pool_1d & args,
+        device  const   float * src,
+        device          float * dst,
+        uint            gid [[thread_position_in_grid]]
+) {
+
+    if (gid >= args.np) {
+        return;
+    }
+
+    const int ow  = (int)gid % args.OW;
+    const int row = (int)gid / args.OW;
+
+    const int base = ow * args.s0 - args.p0;
+
+    float acc = 0.0f;
+    int   cnt = 0;
+
+    const int src_off = row * args.IW;
+    const int dst_off = row * args.OW;
+
+    for (int ki = 0; ki < args.k0; ++ki) {
+        const int j = base + ki;
+        if (j < 0 || j >= args.IW) {
+            continue;
+        }
+        acc += src[src_off + j];
+        cnt += 1;
+    }
+
+    dst[dst_off + ow] = (cnt > 0) ? (acc / (float)cnt) : 0.0f;
 }
 
 kernel void kernel_opt_step_adamw_f32(

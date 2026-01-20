@@ -37,6 +37,7 @@ file(GLOB LLAMA_FILES ${SOURCE_DIR}/llama*.cpp)
 file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
 file(GLOB MTMD_MODEL_FILES ${SOURCE_DIR}/tools/mtmd/models/*.cpp)
 file(GLOB COMMON_FILES ${SOURCE_DIR}/common/*.cpp)
+file(GLOB JINJA_FILES ${SOURCE_DIR}/common/jinja/*.cpp)
 
 # Platform-specific source files
 set(SOURCE_FILES_ARCH "")
@@ -75,13 +76,10 @@ set(RNLLAMA_COMMON_SOURCES
     # Common utilities
     ${COMMON_FILES}
 
-    ${SOURCE_DIR}/anyascii.c
+    # Jinja template engine
+    ${JINJA_FILES}
 
-    # Header-only libraries (needed for build)
-    ${SOURCE_DIR}/minja/minja.hpp
-    ${SOURCE_DIR}/minja/chat-template.hpp
-    ${SOURCE_DIR}/nlohmann/json.hpp
-    ${SOURCE_DIR}/nlohmann/json_fwd.hpp
+    ${SOURCE_DIR}/anyascii.c
 
     # Multimodal support (globbed)
     ${MTMD_MODEL_FILES}
@@ -112,10 +110,9 @@ target_include_directories(rnllama_tests
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
-        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/minja
-        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/nlohmann
 )
 
 # Platform-specific linking
@@ -146,10 +143,9 @@ target_include_directories(parallel_decoding_test
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
-        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/minja
-        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/nlohmann
 )
 
 # Platform-specific linking for parallel decoding test

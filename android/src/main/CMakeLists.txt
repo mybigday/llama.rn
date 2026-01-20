@@ -16,6 +16,7 @@ set(RNLLAMA_LIB_DIR ${CMAKE_SOURCE_DIR}/../../../cpp)
 include_directories(
     ${RNLLAMA_LIB_DIR}
     ${RNLLAMA_LIB_DIR}/common
+    ${RNLLAMA_LIB_DIR}/common/jinja
 )
 
 find_library(LOG_LIB log)

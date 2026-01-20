@@ -10,18 +10,7 @@
 #include <vector>
 #include <map>
 
-#include "minja/chat-template.hpp"
-#include "minja/minja.hpp"
-
-typedef minja::chat_template common_chat_template;
-
-struct common_chat_templates {
-    bool add_bos;
-    bool add_eos;
-    bool has_explicit_template; // Model had builtin template or template overridde was specified.
-    std::unique_ptr<common_chat_template> template_default; // always set (defaults to chatml)
-    std::unique_ptr<common_chat_template> template_tool_use;
-};
+struct common_chat_templates;
 
 struct common_chat_tool_call {
     std::string name;
@@ -202,7 +191,7 @@ common_chat_templates_ptr common_chat_templates_init(
                                            const std::string & eos_token_override = "");
 
 bool         common_chat_templates_was_explicit(const struct common_chat_templates * tmpls);
-const char * common_chat_templates_source(const struct common_chat_templates * tmpls, const char * variant = nullptr);
+std::string  common_chat_templates_source(const struct common_chat_templates * tmpls, const std::string & variant = "");
 
 
 struct common_chat_params      common_chat_templates_apply(
@@ -232,6 +221,20 @@ common_chat_msg           common_chat_peg_parse(const common_peg_arena & parser,
 common_chat_tool_choice common_chat_tool_choice_parse_oaicompat(const std::string & tool_choice);
 
 bool common_chat_templates_support_enable_thinking(const common_chat_templates * chat_templates);
+
+// Template capabilities structure (for exposing capabilities to external code)
+struct common_chat_template_caps {
+    bool supports_tools = true;
+    bool supports_tool_calls = true;
+    bool supports_system_role = true;
+    bool supports_parallel_tool_calls = true;
+};
+
+// Get template capabilities for a specific variant ("" for default, "tool_use" for tool_use template)
+common_chat_template_caps common_chat_templates_get_caps(const struct common_chat_templates * tmpls, const std::string & variant = "");
+
+// Check if a template variant exists
+bool common_chat_templates_has_variant(const struct common_chat_templates * tmpls, const std::string & variant);
 
 // Parses a JSON array of messages in OpenAI's chat completion API format.
 // T can be std::string containing JSON or nlohmann::ordered_json

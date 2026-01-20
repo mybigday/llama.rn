@@ -1,38 +1,52 @@
---- common/chat.cpp.orig	2025-10-29 15:18:34
-+++ common/chat.cpp	2025-10-29 15:20:44
-@@ -6,9 +6,6 @@
- #include "log.h"
- #include "regex-partial.h"
-
--#include <minja/chat-template.hpp>
--#include <minja/minja.hpp>
--
- #include <algorithm>
- #include <cstdio>
- #include <cctype>
-@@ -126,16 +123,6 @@
-     return diffs;
+--- common/chat.cpp.orig	2025-01-20 14:24:00
++++ common/chat.cpp	2025-01-20 14:24:00
+@@ -615,6 +615,37 @@
+     return tmpls->template_default->source();
  }
 
--typedef minja::chat_template common_chat_template;
--
--struct common_chat_templates {
--    bool add_bos;
--    bool add_eos;
--    bool has_explicit_template; // Model had builtin template or template overridde was specified.
--    std::unique_ptr<common_chat_template> template_default; // always set (defaults to chatml)
--    std::unique_ptr<common_chat_template> template_tool_use;
--};
--
- struct templates_params {
-     json messages;
-     json tools;
-@@ -812,7 +799,7 @@
-         tmpl_inputs.extra_context.merge_patch(*additional_context);
++common_chat_template_caps common_chat_templates_get_caps(const struct common_chat_templates * tmpls, const std::string & variant) {
++    common_chat_template_caps result;
++    const common_chat_template * tmpl = nullptr;
++
++    if (!variant.empty() && variant == "tool_use") {
++        tmpl = tmpls->template_tool_use.get();
++    } else {
++        tmpl = tmpls->template_default.get();
++    }
++
++    if (tmpl) {
++        auto caps = tmpl->original_caps();
++        result.supports_tools = caps.supports_tools;
++        result.supports_tool_calls = caps.supports_tool_calls;
++        result.supports_system_role = caps.supports_system_role;
++        result.supports_parallel_tool_calls = caps.supports_parallel_tool_calls;
++    }
++
++    return result;
++}
++
++bool common_chat_templates_has_variant(const struct common_chat_templates * tmpls, const std::string & variant) {
++    if (variant.empty() || variant == "default") {
++        return tmpls->template_default != nullptr;
++    }
++    if (variant == "tool_use") {
++        return tmpls->template_tool_use != nullptr;
++    }
++    return false;
++}
++
+ common_chat_templates_ptr common_chat_templates_init(
+     const struct llama_model * model,
+     const std::string & chat_template_override,
+@@ -831,7 +862,8 @@
+     if (inputs.add_generation_prompt) {
+         inp["add_generation_prompt"] = true;
      }
-     // TODO: add flag to control date/time, if only for testing purposes.
--    // tmpl_inputs.now = std::chrono::system_clock::now();
-+    tmpl_inputs.now = inputs.now;
+-    if (inp["tools"].is_null()) {
+-        inp["tools"] = json::array();
++    // Remove tools key when null, so templates can check "{% if tools is defined %}"
++    if (inp["tools"].is_null() || (inp["tools"].is_array() && inp["tools"].empty())) {
++        inp.erase("tools");
+     }
 
-     minja::chat_template_options tmpl_opts;
-     // To avoid double BOS / EOS tokens, we're manually removing begining / trailing tokens
+     jinja::global_from_json(ctx, inp, inputs.mark_input);

@@ -237,6 +237,24 @@ void lm_ggml_vec_dot_bf16(int n, float * LM_GGML_RESTRICT s, size_t bs, lm_ggml_
     sumf += __riscv_vfmv_f_s_f32m1_f32(redsum);
 
 #endif
+#if defined(__POWER9_VECTOR__)
+    const int np = (n & ~(LM_GGML_BF16_STEP - 1));
+    if (np > 0) {
+        LM_GGML_F32_VEC sum[4] = {LM_GGML_F32_VEC_ZERO};
+        for (; i < np; i += LM_GGML_BF16_STEP) {
+            LM_GGML_BF16_VEC vx0 = LM_GGML_BF16_VEC_LOAD(x + i);
+            LM_GGML_BF16_VEC vx1 = LM_GGML_BF16_VEC_LOAD(x + i + 8);
+            LM_GGML_BF16_VEC vy0 = LM_GGML_BF16_VEC_LOAD(y + i);
+            LM_GGML_BF16_VEC vy1 = LM_GGML_BF16_VEC_LOAD(y + i + 8);
+            LM_GGML_BF16_FMA_LO(sum[0], vx0, vy0);
+            LM_GGML_BF16_FMA_HI(sum[1], vx0, vy0);
+            LM_GGML_BF16_FMA_LO(sum[2], vx1, vy1);
+            LM_GGML_BF16_FMA_HI(sum[3], vx1, vy1);
+        }
+        LM_GGML_F32x4_REDUCE_4(sumf, sum[0], sum[1], sum[2], sum[3]);
+    }
+#endif
+
     for (; i < n; ++i) {
         sumf += (lm_ggml_float)(LM_GGML_BF16_TO_FP32(x[i]) *
                              LM_GGML_BF16_TO_FP32(y[i]));

@@ -630,10 +630,11 @@ extern "C" {
 
     // this tensor...
     enum lm_ggml_tensor_flag {
-        LM_GGML_TENSOR_FLAG_INPUT  =  1, // ...is an input for the GGML compute graph
-        LM_GGML_TENSOR_FLAG_OUTPUT =  2, // ...is an output for the GGML compute graph
-        LM_GGML_TENSOR_FLAG_PARAM  =  4, // ...contains trainable parameters
-        LM_GGML_TENSOR_FLAG_LOSS   =  8, // ...defines loss for numerical optimization (multiple loss tensors add up)
+        LM_GGML_TENSOR_FLAG_INPUT   =  1, // ...is an input for the GGML compute graph
+        LM_GGML_TENSOR_FLAG_OUTPUT  =  2, // ...is an output for the GGML compute graph
+        LM_GGML_TENSOR_FLAG_PARAM   =  4, // ...contains trainable parameters
+        LM_GGML_TENSOR_FLAG_LOSS    =  8, // ...defines loss for numerical optimization (multiple loss tensors add up)
+        LM_GGML_TENSOR_FLAG_COMPUTE = 16, // ...must be computed
     };
 
     enum lm_ggml_tri_type {
@@ -2577,11 +2578,42 @@ extern "C" {
         struct lm_ggml_tensor *  grad,
         struct lm_ggml_tensor *  sgd_params); // alpha, weight decay
 
+    // build forward mutiple tensors and select one of them for computing
+    // this is useful for creating graphs that have constant topology but compute different things based on the input
+    // ref: https://github.com/ggml-org/llama.cpp/pull/18550
     //
-    // automatic differentiation
+    // nodes:
+    //   | - build forward into the graph but do not compute
+    //   c - build forward into the graph and compute
     //
+    //    |  |  ...  c  ...  |
+    //    |  |  ...  c  ...  |
+    //    |  |  ...  c  ...  |
+    //   [0  1  ... idx ...  n-1]        <-- lm_ggml_build_forward_select(..., n, idx)
+    //               c
+    //               c
+    //
+    // example:
+    //   struct lm_ggml_tensor * curs[3];
+    //
+    //   curs[0]  = compute0(...);
+    //   curs[1]  = compute1(...);
+    //   curs[2]  = compute2(...);
+    //
+    //   int idx = select_branch(some_input);
+    //
+    //   struct lm_ggml_tensor * out = lm_ggml_build_forward_select(cgraph, curs, 3, idx);
+    //
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_build_forward_select(
+            struct lm_ggml_cgraph  * cgraph,
+            struct lm_ggml_tensor ** tensors,
+            int                   n_tensors,
+            int                   idx);
 
-    LM_GGML_API void lm_ggml_build_forward_expand(struct lm_ggml_cgraph * cgraph, struct lm_ggml_tensor * tensor);
+    LM_GGML_API void lm_ggml_build_forward_expand(
+            struct lm_ggml_cgraph * cgraph,
+            struct lm_ggml_tensor * tensor);
+
     LM_GGML_API void lm_ggml_build_backward_expand(
         struct lm_ggml_context *  ctx,        // context for gradient computation
         struct lm_ggml_cgraph  *  cgraph,
@@ -2613,7 +2645,7 @@ extern "C" {
     LM_GGML_API void lm_ggml_graph_print(const struct lm_ggml_cgraph * cgraph);
 
     // dump the graph into a file using the dot format
-    LM_GGML_API void lm_ggml_graph_dump_dot(const struct lm_ggml_cgraph * gb, const struct lm_ggml_cgraph * gf, const char * filename);
+    LM_GGML_API void lm_ggml_graph_dump_dot(const struct lm_ggml_cgraph * gb, const struct lm_ggml_cgraph * cgraph, const char * filename);
 
     // TODO these functions were sandwiched in the old optimization interface, is there a better place for them?
     typedef void (*lm_ggml_log_callback)(enum lm_ggml_log_level level, const char * text, void * user_data);

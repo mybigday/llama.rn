@@ -253,44 +253,38 @@ namespace rnllama_jsi {
         bool llamaChat = ctx->validateModelChatTemplate(false, nullptr);
         chatTemplates.setProperty(runtime, "llamaChat", llamaChat);
 
-        jsi::Object minja(runtime);
-        bool minjaDefault = ctx->validateModelChatTemplate(true, nullptr);
-        minja.setProperty(runtime, "default", minjaDefault);
+        jsi::Object jinja(runtime);
+        bool jinjaDefault = ctx->validateModelChatTemplate(true, nullptr);
+        jinja.setProperty(runtime, "default", jinjaDefault);
 
         jsi::Object defaultCaps(runtime);
-        if (ctx->templates && ctx->templates->template_default) {
-            auto caps = ctx->templates->template_default->original_caps();
+        if (ctx->templates && common_chat_templates_has_variant(ctx->templates.get(), "")) {
+            auto caps = common_chat_templates_get_caps(ctx->templates.get(), "");
             defaultCaps.setProperty(runtime, "tools", caps.supports_tools);
             defaultCaps.setProperty(runtime, "toolCalls", caps.supports_tool_calls);
             defaultCaps.setProperty(runtime, "parallelToolCalls", caps.supports_parallel_tool_calls);
-            defaultCaps.setProperty(runtime, "toolResponses", caps.supports_tool_responses);
             defaultCaps.setProperty(runtime, "systemRole", caps.supports_system_role);
-            defaultCaps.setProperty(runtime, "toolCallId", caps.supports_tool_call_id);
         } else {
             defaultCaps.setProperty(runtime, "tools", false);
             defaultCaps.setProperty(runtime, "toolCalls", false);
             defaultCaps.setProperty(runtime, "parallelToolCalls", false);
-            defaultCaps.setProperty(runtime, "toolResponses", false);
             defaultCaps.setProperty(runtime, "systemRole", false);
-            defaultCaps.setProperty(runtime, "toolCallId", false);
         }
-        minja.setProperty(runtime, "defaultCaps", defaultCaps);
+        jinja.setProperty(runtime, "defaultCaps", defaultCaps);
 
         bool toolUseSupported = ctx->validateModelChatTemplate(true, "tool_use");
-        minja.setProperty(runtime, "toolUse", toolUseSupported);
-        if (ctx->templates && ctx->templates->template_tool_use) {
-            auto caps = ctx->templates->template_tool_use->original_caps();
+        jinja.setProperty(runtime, "toolUse", toolUseSupported);
+        if (ctx->templates && common_chat_templates_has_variant(ctx->templates.get(), "tool_use")) {
+            auto caps = common_chat_templates_get_caps(ctx->templates.get(), "tool_use");
             jsi::Object toolUseCaps(runtime);
             toolUseCaps.setProperty(runtime, "tools", caps.supports_tools);
             toolUseCaps.setProperty(runtime, "toolCalls", caps.supports_tool_calls);
             toolUseCaps.setProperty(runtime, "parallelToolCalls", caps.supports_parallel_tool_calls);
             toolUseCaps.setProperty(runtime, "systemRole", caps.supports_system_role);
-            toolUseCaps.setProperty(runtime, "toolResponses", caps.supports_tool_responses);
-            toolUseCaps.setProperty(runtime, "toolCallId", caps.supports_tool_call_id);
-            minja.setProperty(runtime, "toolUseCaps", toolUseCaps);
+            jinja.setProperty(runtime, "toolUseCaps", toolUseCaps);
         }
 
-        chatTemplates.setProperty(runtime, "minja", minja);
+        chatTemplates.setProperty(runtime, "jinja", jinja);
         model.setProperty(runtime, "chatTemplates", chatTemplates);
 
         // Deprecated flag maintained for compatibility

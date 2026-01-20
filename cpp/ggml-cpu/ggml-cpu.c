@@ -2943,6 +2943,10 @@ static thread_ret_t lm_ggml_graph_compute_thread(void * data) {
             continue;
         }
 
+        if ((node->flags & LM_GGML_TENSOR_FLAG_COMPUTE) == 0) {
+            continue;
+        }
+
         lm_ggml_compute_forward(&params, node);
 
         if (state->ith == 0 && cplan->abort_callback &&

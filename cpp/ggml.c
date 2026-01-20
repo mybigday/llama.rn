@@ -3449,7 +3449,8 @@ struct lm_ggml_tensor * lm_ggml_cast(
 
     result->op     = LM_GGML_OP_CPY;
     result->src[0] = a;
-    result->src[1] = result;
+    result->src[1] = result; // note: this self-reference might seem redundant, but it's actually needed by some
+                             //       backends for consistency with lm_ggml_cpy_impl() above
 
     return result;
 }
@@ -4846,6 +4847,8 @@ struct lm_ggml_tensor * lm_ggml_pool_1d(
         a->ne[2],
         a->ne[3],
     };
+    LM_GGML_ASSERT(ne[0] > 0);
+
     struct lm_ggml_tensor * result = lm_ggml_new_tensor(ctx, LM_GGML_TYPE_F32, 4, ne);
 
     int32_t params[] = { op, k0, s0, p0 };
@@ -4876,6 +4879,9 @@ struct lm_ggml_tensor * lm_ggml_pool_2d(
         a->ne[2],
         a->ne[3],
     };
+    LM_GGML_ASSERT(ne[0] > 0);
+    LM_GGML_ASSERT(ne[1] > 0);
+
     result = lm_ggml_new_tensor(ctx, LM_GGML_TYPE_F32, 4, ne);
 
     int32_t params[] = { op, k0, k1, s0, s1, p0, p1 };
@@ -6728,19 +6734,34 @@ static void lm_ggml_compute_backward(
     LM_GGML_ASSERT(!src2_needs_grads || lm_ggml_are_same_shape(src2, cgraph->grads[isrc2]));
 }
 
-static size_t lm_ggml_visit_parents(struct lm_ggml_cgraph * cgraph, struct lm_ggml_tensor * node) {
-    // check if already visited
-    size_t node_hash_pos = lm_ggml_hash_find(&cgraph->visited_hash_set, node);
+static size_t lm_ggml_visit_parents_graph(struct lm_ggml_cgraph * cgraph, struct lm_ggml_tensor * node, bool compute) {
+    if (node->op != LM_GGML_OP_NONE && compute) {
+        node->flags |= LM_GGML_TENSOR_FLAG_COMPUTE;
+    }
+
+    const size_t node_hash_pos = lm_ggml_hash_find(&cgraph->visited_hash_set, node);
     LM_GGML_ASSERT(node_hash_pos != LM_GGML_HASHSET_FULL);
-    if (!lm_ggml_bitset_get(cgraph->visited_hash_set.used, node_hash_pos)) {
-        // This is the first time we see this node in the current graph.
-        cgraph->visited_hash_set.keys[node_hash_pos] = node;
-        lm_ggml_bitset_set(cgraph->visited_hash_set.used, node_hash_pos);
-        cgraph->use_counts[node_hash_pos] = 0;
-    } else {
+
+    if (lm_ggml_bitset_get(cgraph->visited_hash_set.used, node_hash_pos)) {
         // already visited
+
+        if (compute) {
+            // update the compute flag regardless
+            for (int i = 0; i < LM_GGML_MAX_SRC; ++i) {
+                struct lm_ggml_tensor * src = node->src[i];
+                if (src && ((src->flags & LM_GGML_TENSOR_FLAG_COMPUTE) == 0)) {
+                    lm_ggml_visit_parents_graph(cgraph, src, true);
+                }
+            }
+        }
+
         return node_hash_pos;
     }
+
+    // This is the first time we see this node in the current graph.
+    cgraph->visited_hash_set.keys[node_hash_pos] = node;
+    lm_ggml_bitset_set(cgraph->visited_hash_set.used, node_hash_pos);
+    cgraph->use_counts[node_hash_pos] = 0;
 
     for (int i = 0; i < LM_GGML_MAX_SRC; ++i) {
         const int k =
@@ -6750,7 +6771,7 @@ static size_t lm_ggml_visit_parents(struct lm_ggml_cgraph * cgraph, struct lm_gg
 
         struct lm_ggml_tensor * src = node->src[k];
         if (src) {
-            size_t src_hash_pos = lm_ggml_visit_parents(cgraph, src);
+            const size_t src_hash_pos = lm_ggml_visit_parents_graph(cgraph, src, compute);
 
             // Update the use count for this operand.
             cgraph->use_counts[src_hash_pos]++;
@@ -6781,17 +6802,17 @@ static size_t lm_ggml_visit_parents(struct lm_ggml_cgraph * cgraph, struct lm_gg
     return node_hash_pos;
 }
 
-static void lm_ggml_build_forward_impl(struct lm_ggml_cgraph * cgraph, struct lm_ggml_tensor * tensor, bool expand) {
+static void lm_ggml_build_forward_impl(struct lm_ggml_cgraph * cgraph, struct lm_ggml_tensor * tensor, bool expand, bool compute) {
     if (!expand) {
         // TODO: this branch isn't accessible anymore, maybe move this to lm_ggml_build_forward_expand
         lm_ggml_graph_clear(cgraph);
     }
 
-    const int n0 = cgraph->n_nodes;
+    const int n_old = cgraph->n_nodes;
 
-    lm_ggml_visit_parents(cgraph, tensor);
+    lm_ggml_visit_parents_graph(cgraph, tensor, compute);
 
-    const int n_new = cgraph->n_nodes - n0;
+    const int n_new = cgraph->n_nodes - n_old;
     LM_GGML_PRINT_DEBUG("%s: visited %d new nodes\n", __func__, n_new);
 
     if (n_new > 0) {
@@ -6800,8 +6821,22 @@ static void lm_ggml_build_forward_impl(struct lm_ggml_cgraph * cgraph, struct lm
     }
 }
 
+struct lm_ggml_tensor * lm_ggml_build_forward_select(
+        struct lm_ggml_cgraph  * cgraph,
+        struct lm_ggml_tensor ** tensors,
+        int                   n_tensors,
+        int                   idx) {
+    LM_GGML_ASSERT(idx >= 0 && idx < n_tensors);
+
+    for (int i = 0; i < n_tensors; i++) {
+        lm_ggml_build_forward_impl(cgraph, tensors[i], true, i == idx ? true : false);
+    }
+
+    return tensors[idx];
+}
+
 void lm_ggml_build_forward_expand(struct lm_ggml_cgraph * cgraph, struct lm_ggml_tensor * tensor) {
-    lm_ggml_build_forward_impl(cgraph, tensor, true);
+    lm_ggml_build_forward_impl(cgraph, tensor, true, true);
 }
 
 void lm_ggml_build_backward_expand(
@@ -7232,6 +7267,10 @@ bool lm_ggml_can_fuse_subgraph_ext(const struct lm_ggml_cgraph * cgraph,
             return false;
         }
 
+        if ((node->flags & LM_GGML_TENSOR_FLAG_COMPUTE) == 0) {
+            return false;
+        }
+
         if (lm_ggml_node_list_find_tensor(cgraph, outputs, num_outputs, node) != -1) {
             continue;
         }
@@ -7313,7 +7352,7 @@ static void lm_ggml_graph_dump_dot_leaf_edge(FILE * fp, struct lm_ggml_tensor * 
             label);
 }
 
-void lm_ggml_graph_dump_dot(const struct lm_ggml_cgraph * gb, const struct lm_ggml_cgraph * gf, const char * filename) {
+void lm_ggml_graph_dump_dot(const struct lm_ggml_cgraph * gb, const struct lm_ggml_cgraph * cgraph, const char * filename) {
     char color[16];
 
     FILE * fp = lm_ggml_fopen(filename, "w");
@@ -7334,7 +7373,7 @@ void lm_ggml_graph_dump_dot(const struct lm_ggml_cgraph * gb, const struct lm_gg
         if (node->flags & LM_GGML_TENSOR_FLAG_PARAM) {
             snprintf(color, sizeof(color), "yellow");
         } else if (grad) {
-            if (lm_ggml_graph_find(gf, node)) {
+            if (lm_ggml_graph_find(cgraph, node)) {
                 snprintf(color, sizeof(color), "green");
             } else {
                 snprintf(color, sizeof(color), "lightblue");

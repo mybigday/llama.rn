@@ -13,6 +13,7 @@ set(RNLLAMA_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../cpp)
 include_directories(
     ${RNLLAMA_LIB_DIR}
     ${RNLLAMA_LIB_DIR}/common
+    ${RNLLAMA_LIB_DIR}/common/jinja
     ${RNLLAMA_LIB_DIR}/ggml-cpu
     ${RNLLAMA_LIB_DIR}/tools/mtmd
 )
@@ -26,6 +27,7 @@ file(GLOB LLAMA_FILES ${RNLLAMA_LIB_DIR}/llama*.cpp)
 file(GLOB MTMD_FILES ${RNLLAMA_LIB_DIR}/tools/mtmd/*.cpp)
 file(GLOB MTMD_MODEL_FILES ${RNLLAMA_LIB_DIR}/tools/mtmd/models/*.cpp)
 file(GLOB COMMON_FILES ${RNLLAMA_LIB_DIR}/common/*.cpp)
+file(GLOB JINJA_FILES ${RNLLAMA_LIB_DIR}/common/jinja/*.cpp)
 
 # Source files for rnllama library (excluding jni.cpp and jni-utils)
 set(
@@ -55,11 +57,8 @@ set(
 
     ${RNLLAMA_LIB_DIR}/anyascii.c
 
-    # Header-only libraries (needed for build)
-    ${RNLLAMA_LIB_DIR}/nlohmann/json.hpp
-    ${RNLLAMA_LIB_DIR}/nlohmann/json_fwd.hpp
-    ${RNLLAMA_LIB_DIR}/minja/minja.hpp
-    ${RNLLAMA_LIB_DIR}/minja/chat-template.hpp
+    # Jinja template engine
+    ${JINJA_FILES}
 
     # Multimodal support (globbed)
     ${MTMD_MODEL_FILES}
@@ -221,6 +220,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             get_rows
             glu
             group_norm
+            solve_tri
             im2col_f32
             im2col_f16
             mean

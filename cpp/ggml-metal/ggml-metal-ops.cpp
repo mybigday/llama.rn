@@ -203,6 +203,10 @@ static int lm_ggml_metal_op_encode_impl(lm_ggml_metal_op_t ctx, int idx) {
         LM_GGML_ABORT("unsupported op");
     }
 
+    if ((node->flags & LM_GGML_TENSOR_FLAG_COMPUTE) == 0) {
+        return 1;
+    }
+
     int n_fuse = 1;
 
     // check if the current node can run concurrently with other nodes before it
@@ -431,6 +435,10 @@ static int lm_ggml_metal_op_encode_impl(lm_ggml_metal_op_t ctx, int idx) {
         case LM_GGML_OP_CONT:
             {
                 n_fuse = lm_ggml_metal_op_cpy(ctx, idx);
+            } break;
+        case LM_GGML_OP_POOL_1D:
+            {
+                n_fuse = lm_ggml_metal_op_pool_1d(ctx, idx);
             } break;
         case LM_GGML_OP_POOL_2D:
             {
@@ -1621,6 +1629,54 @@ int lm_ggml_metal_op_cpy(lm_ggml_metal_op_t ctx, int idx) {
 
     return 1;
 }
+
+int lm_ggml_metal_op_pool_1d(lm_ggml_metal_op_t ctx, int idx) {
+    lm_ggml_tensor * op = ctx->node(idx);
+
+    lm_ggml_metal_library_t lib = ctx->lib;
+    lm_ggml_metal_encoder_t enc = ctx->enc;
+
+    LM_GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb0, op->src[0], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne,  op,         ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb,  op,         nb);
+
+    const int32_t * opts = op->op_params;
+    lm_ggml_op_pool op_pool = (lm_ggml_op_pool) opts[0];
+
+    const int32_t k0 = opts[1];
+    const int32_t s0 = opts[2];
+    const int32_t p0 = opts[3];
+
+    const int64_t IW = op->src[0]->ne[0];
+    const int64_t OW = op->ne[0];
+
+    const int64_t np = lm_ggml_nelements(op);
+
+    lm_ggml_metal_kargs_pool_1d args_pool_1d = {
+        /* .k0 = */  k0,
+        /* .s0 = */  s0,
+        /* .p0 = */  p0,
+        /* .IW = */  IW,
+        /* .OW = */  OW,
+        /* .np = */  np
+    };
+
+    auto pipeline = lm_ggml_metal_library_get_pipeline_pool_1d(lib, op, op_pool);
+
+    const int nth = std::min(lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline), (int) np);
+    const int ntg = (np + nth - 1) / nth;
+
+    lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
+    lm_ggml_metal_encoder_set_bytes   (enc, &args_pool_1d, sizeof(args_pool_1d),  0);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[0]), 1);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op),         2);
+
+    lm_ggml_metal_encoder_dispatch_threadgroups(enc, ntg, 1, 1, nth, 1, 1);
+
+    return 1;
+}
+
 
 int lm_ggml_metal_op_pool_2d(lm_ggml_metal_op_t ctx, int idx) {
     lm_ggml_tensor * op = ctx->node(idx);

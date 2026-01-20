@@ -61,6 +61,7 @@ int lm_ggml_metal_op_ssm_conv          (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_ssm_scan          (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_rwkv              (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_cpy               (lm_ggml_metal_op_t ctx, int idx);
+int lm_ggml_metal_op_pool_1d           (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_pool_2d           (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_mul_mat           (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_mul_mat_id        (lm_ggml_metal_op_t ctx, int idx);

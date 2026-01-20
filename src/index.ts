@@ -624,8 +624,8 @@ export class LlamaContext {
   }
 
   isJinjaSupported(): boolean {
-    const { minja } = this.model.chatTemplates
-    return !!minja?.toolUse || !!minja?.default
+    const { jinja } = this.model.chatTemplates
+    return !!jinja?.toolUse || !!jinja?.default
   }
 
   async getFormattedChat(
@@ -722,6 +722,7 @@ export class LlamaContext {
           : undefined,
       },
     )
+    console.log(result)
     if (!useJinja) {
       return {
         type: 'llama-chat',

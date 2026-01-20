@@ -91,7 +91,7 @@ llama.rn
 
 #### Defined in
 
-[index.ts:286](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L286)
+[index.ts:286](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L286)
 
 ___
 
@@ -120,7 +120,7 @@ ___
 
 #### Defined in
 
-[index.ts:247](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L247)
+[index.ts:247](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L247)
 
 ___
 
@@ -130,7 +130,7 @@ ___
 
 #### Defined in
 
-[index.ts:270](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L270)
+[index.ts:270](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L270)
 
 ___
 
@@ -150,7 +150,7 @@ ___
 
 #### Defined in
 
-[index.ts:238](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L238)
+[index.ts:238](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L238)
 
 ___
 
@@ -160,7 +160,7 @@ ___
 
 #### Defined in
 
-[index.ts:188](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L188)
+[index.ts:188](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L188)
 
 ___
 
@@ -170,7 +170,7 @@ ___
 
 #### Defined in
 
-[index.ts:226](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L226)
+[index.ts:226](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L226)
 
 ___
 
@@ -189,7 +189,7 @@ ___
 
 #### Defined in
 
-[types.ts:497](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L497)
+[types.ts:493](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L493)
 
 ___
 
@@ -199,7 +199,7 @@ ___
 
 #### Defined in
 
-[types.ts:504](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L504)
+[types.ts:500](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L500)
 
 ___
 
@@ -219,7 +219,7 @@ ___
 
 #### Defined in
 
-[types.ts:538](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L538)
+[types.ts:534](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L534)
 
 ___
 
@@ -276,7 +276,7 @@ ___
 
 #### Defined in
 
-[types.ts:123](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L123)
+[types.ts:123](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L123)
 
 ___
 
@@ -309,7 +309,7 @@ ___
 
 #### Defined in
 
-[types.ts:366](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L366)
+[types.ts:366](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L366)
 
 ___
 
@@ -333,7 +333,7 @@ ___
 
 #### Defined in
 
-[types.ts:354](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L354)
+[types.ts:354](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L354)
 
 ___
 
@@ -350,7 +350,7 @@ ___
 
 #### Defined in
 
-[types.ts:349](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L349)
+[types.ts:349](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L349)
 
 ___
 
@@ -367,7 +367,7 @@ ___
 
 #### Defined in
 
-[types.ts:344](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L344)
+[types.ts:344](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L344)
 
 ___
 
@@ -415,7 +415,7 @@ ___
 
 #### Defined in
 
-[types.ts:5](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L5)
+[types.ts:5](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L5)
 
 ___
 
@@ -431,7 +431,7 @@ ___
 
 #### Defined in
 
-[types.ts:1](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L1)
+[types.ts:1](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L1)
 
 ___
 
@@ -447,7 +447,7 @@ ___
 
 #### Defined in
 
-[types.ts:429](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L429)
+[types.ts:429](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L429)
 
 ___
 
@@ -465,7 +465,7 @@ ___
 
 #### Defined in
 
-[types.ts:523](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L523)
+[types.ts:519](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L519)
 
 ___
 
@@ -481,26 +481,22 @@ ___
 | `contextId` | `number` | - |
 | `devices?` | `string`[] | Name of the GPU device used on Android/iOS (if available) |
 | `gpu` | `boolean` | - |
-| `model` | { `chatTemplates`: { `llamaChat`: `boolean` ; `minja`: { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  }  }  } ; `desc`: `string` ; `isChatTemplateSupported`: `boolean` ; `is_hybrid`: `boolean` ; `is_recurrent`: `boolean` ; `metadata`: `Object` ; `nEmbd`: `number` ; `nParams`: `number` ; `size`: `number`  } | - |
-| `model.chatTemplates` | { `llamaChat`: `boolean` ; `minja`: { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  }  }  } | - |
+| `model` | { `chatTemplates`: { `jinja`: { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps?`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  }  } ; `llamaChat`: `boolean`  } ; `desc`: `string` ; `isChatTemplateSupported`: `boolean` ; `is_hybrid`: `boolean` ; `is_recurrent`: `boolean` ; `metadata`: `Object` ; `nEmbd`: `number` ; `nParams`: `number` ; `size`: `number`  } | - |
+| `model.chatTemplates` | { `jinja`: { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps?`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  }  } ; `llamaChat`: `boolean`  } | - |
+| `model.chatTemplates.jinja` | { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps?`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  }  } | - |
+| `model.chatTemplates.jinja.default` | `boolean` | - |
+| `model.chatTemplates.jinja.defaultCaps` | { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  } | - |
+| `model.chatTemplates.jinja.defaultCaps.parallelToolCalls` | `boolean` | - |
+| `model.chatTemplates.jinja.defaultCaps.systemRole` | `boolean` | - |
+| `model.chatTemplates.jinja.defaultCaps.toolCalls` | `boolean` | - |
+| `model.chatTemplates.jinja.defaultCaps.tools` | `boolean` | - |
+| `model.chatTemplates.jinja.toolUse` | `boolean` | - |
+| `model.chatTemplates.jinja.toolUseCaps?` | { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCalls`: `boolean` ; `tools`: `boolean`  } | - |
+| `model.chatTemplates.jinja.toolUseCaps.parallelToolCalls` | `boolean` | - |
+| `model.chatTemplates.jinja.toolUseCaps.systemRole` | `boolean` | - |
+| `model.chatTemplates.jinja.toolUseCaps.toolCalls` | `boolean` | - |
+| `model.chatTemplates.jinja.toolUseCaps.tools` | `boolean` | - |
 | `model.chatTemplates.llamaChat` | `boolean` | - |
-| `model.chatTemplates.minja` | { `default`: `boolean` ; `defaultCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } ; `toolUse`: `boolean` ; `toolUseCaps`: { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  }  } | - |
-| `model.chatTemplates.minja.default` | `boolean` | - |
-| `model.chatTemplates.minja.defaultCaps` | { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } | - |
-| `model.chatTemplates.minja.defaultCaps.parallelToolCalls` | `boolean` | - |
-| `model.chatTemplates.minja.defaultCaps.systemRole` | `boolean` | - |
-| `model.chatTemplates.minja.defaultCaps.toolCallId` | `boolean` | - |
-| `model.chatTemplates.minja.defaultCaps.toolCalls` | `boolean` | - |
-| `model.chatTemplates.minja.defaultCaps.toolResponses` | `boolean` | - |
-| `model.chatTemplates.minja.defaultCaps.tools` | `boolean` | - |
-| `model.chatTemplates.minja.toolUse` | `boolean` | - |
-| `model.chatTemplates.minja.toolUseCaps` | { `parallelToolCalls`: `boolean` ; `systemRole`: `boolean` ; `toolCallId`: `boolean` ; `toolCalls`: `boolean` ; `toolResponses`: `boolean` ; `tools`: `boolean`  } | - |
-| `model.chatTemplates.minja.toolUseCaps.parallelToolCalls` | `boolean` | - |
-| `model.chatTemplates.minja.toolUseCaps.systemRole` | `boolean` | - |
-| `model.chatTemplates.minja.toolUseCaps.toolCallId` | `boolean` | - |
-| `model.chatTemplates.minja.toolUseCaps.toolCalls` | `boolean` | - |
-| `model.chatTemplates.minja.toolUseCaps.toolResponses` | `boolean` | - |
-| `model.chatTemplates.minja.toolUseCaps.tools` | `boolean` | - |
 | `model.desc` | `string` | - |
 | `model.isChatTemplateSupported` | `boolean` | - |
 | `model.is_hybrid` | `boolean` | - |
@@ -514,7 +510,7 @@ ___
 
 #### Defined in
 
-[types.ts:433](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L433)
+[types.ts:433](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L433)
 
 ___
 
@@ -527,7 +523,7 @@ Extends NativeCompletionParams with parallel-mode specific options.
 
 #### Defined in
 
-[types.ts:303](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L303)
+[types.ts:303](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L303)
 
 ___
 
@@ -543,7 +539,7 @@ ___
 
 #### Defined in
 
-[types.ts:529](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L529)
+[types.ts:525](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L525)
 
 ___
 
@@ -560,7 +556,7 @@ ___
 
 #### Defined in
 
-[types.ts:533](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L533)
+[types.ts:529](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L529)
 
 ___
 
@@ -577,7 +573,7 @@ ___
 
 #### Defined in
 
-[types.ts:482](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L482)
+[types.ts:478](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L478)
 
 ___
 
@@ -597,7 +593,7 @@ ___
 
 #### Defined in
 
-[types.ts:409](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L409)
+[types.ts:409](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L409)
 
 ___
 
@@ -610,7 +606,7 @@ Extends CompletionParams with parallel-mode specific options like state manageme
 
 #### Defined in
 
-[index.ts:280](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L280)
+[index.ts:280](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L280)
 
 ___
 
@@ -633,7 +629,7 @@ ___
 
 #### Defined in
 
-[types.ts:546](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L546)
+[types.ts:542](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L542)
 
 ___
 
@@ -652,7 +648,7 @@ ___
 
 #### Defined in
 
-[types.ts:557](https://github.com/mybigday/llama.rn/blob/41f1f71/src/types.ts#L557)
+[types.ts:553](https://github.com/mybigday/llama.rn/blob/426b246/src/types.ts#L553)
 
 ___
 
@@ -675,7 +671,7 @@ ___
 
 #### Defined in
 
-[index.ts:29](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L29)
+[index.ts:29](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L29)
 
 ___
 
@@ -693,7 +689,7 @@ ___
 
 #### Defined in
 
-[index.ts:42](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L42)
+[index.ts:42](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L42)
 
 ___
 
@@ -709,7 +705,7 @@ ___
 
 #### Defined in
 
-[index.ts:228](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L228)
+[index.ts:228](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L228)
 
 ___
 
@@ -727,7 +723,7 @@ ___
 
 #### Defined in
 
-[index.ts:232](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L232)
+[index.ts:232](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L232)
 
 ___
 
@@ -749,7 +745,7 @@ ___
 
 #### Defined in
 
-[index.ts:177](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L177)
+[index.ts:177](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L177)
 
 ___
 
@@ -769,7 +765,7 @@ ___
 
 #### Defined in
 
-[index.ts:168](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L168)
+[index.ts:168](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L168)
 
 ## Variables
 
@@ -786,7 +782,7 @@ ___
 
 #### Defined in
 
-[index.ts:1210](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1210)
+[index.ts:1226](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L1226)
 
 ___
 
@@ -796,7 +792,7 @@ ___
 
 #### Defined in
 
-[index.ts:71](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L71)
+[index.ts:71](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L71)
 
 ## Functions
 
@@ -820,7 +816,7 @@ ___
 
 #### Defined in
 
-[index.ts:1029](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1029)
+[index.ts:1045](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L1045)
 
 ___
 
@@ -834,7 +830,7 @@ ___
 
 #### Defined in
 
-[index.ts:1073](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1073)
+[index.ts:1089](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L1089)
 
 ___
 
@@ -855,7 +851,7 @@ ___
 
 #### Defined in
 
-[index.ts:1090](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1090)
+[index.ts:1106](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L1106)
 
 ___
 
@@ -869,7 +865,7 @@ ___
 
 #### Defined in
 
-[index.ts:156](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L156)
+[index.ts:156](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L156)
 
 ___
 
@@ -889,7 +885,7 @@ ___
 
 #### Defined in
 
-[index.ts:1057](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1057)
+[index.ts:1073](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L1073)
 
 ___
 
@@ -903,7 +899,7 @@ ___
 
 #### Defined in
 
-[index.ts:1204](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1204)
+[index.ts:1220](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L1220)
 
 ___
 
@@ -923,7 +919,7 @@ ___
 
 #### Defined in
 
-[index.ts:1040](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1040)
+[index.ts:1056](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L1056)
 
 ___
 
@@ -943,4 +939,4 @@ ___
 
 #### Defined in
 
-[index.ts:1023](https://github.com/mybigday/llama.rn/blob/41f1f71/src/index.ts#L1023)
+[index.ts:1039](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L1039)

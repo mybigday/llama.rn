@@ -226,6 +226,10 @@ static enum lm_ggml_status lm_ggml_backend_blas_graph_compute(lm_ggml_backend_t 
     for (int i = 0; i < cgraph->n_nodes; i++) {
         struct lm_ggml_tensor * node = cgraph->nodes[i];
 
+        if ((node->flags & LM_GGML_TENSOR_FLAG_COMPUTE) == 0) {
+            continue;
+        }
+
         switch (node->op) {
             case LM_GGML_OP_MUL_MAT:
                 lm_ggml_backend_blas_mul_mat(ctx, node);
