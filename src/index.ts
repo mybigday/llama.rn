@@ -722,7 +722,6 @@ export class LlamaContext {
           : undefined,
       },
     )
-    console.log(result)
     if (!useJinja) {
       return {
         type: 'llama-chat',
