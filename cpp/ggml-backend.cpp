@@ -874,9 +874,9 @@ static void lm_ggml_backend_sched_print_assignments(lm_ggml_backend_sched_t sche
         }
         if (sched->debug > 1) {
             lm_ggml_backend_t tensor_backend = lm_ggml_backend_sched_get_tensor_backend(sched, node);
-            LM_GGML_LOG_DEBUG("node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s] use=%d:", i, lm_ggml_op_name(node->op), node->name,
+            LM_GGML_LOG_DEBUG("node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s] use=%d,c=%d:", i, lm_ggml_op_name(node->op), node->name,
                 fmt_size(lm_ggml_nbytes(node)), tensor_backend ? lm_ggml_backend_name(tensor_backend) : "NULL", GET_CAUSE(node),
-                graph->use_counts[lm_ggml_hash_find(&graph->visited_hash_set, node)]);
+                graph->use_counts[lm_ggml_hash_find(&graph->visited_hash_set, node)], node->flags & LM_GGML_TENSOR_FLAG_COMPUTE ? 1 : 0);
             for (int j = 0; j < LM_GGML_MAX_SRC; j++) {
                 struct lm_ggml_tensor * src = node->src[j];
                 if (src == NULL) {
@@ -1922,6 +1922,7 @@ static struct lm_ggml_tensor * graph_copy_dup_tensor(struct lm_ggml_hash_set has
         dst->view_offs = src->view_offs;
     }
     dst->op = src->op;
+    dst->flags = src->flags;
     memcpy(dst->op_params, src->op_params, sizeof(dst->op_params));
     lm_ggml_set_name(dst, src->name);
 

@@ -654,6 +654,14 @@ static inline void __avx_f32cx8_store(lm_ggml_fp16_t *x, __m256 y) {
           vec_extract(x[0], 2) +               \
           vec_extract(x[0], 3);                \
 }
+#define LM_GGML_F32x4_REDUCE_4(res, s0, s1, s2, s3)        \
+{                                                       \
+    vector float v = vec_add(vec_add(s0, s1),           \
+                             vec_add(s2, s3));          \
+    v = vec_add(v, vec_sld(v, v, 8));                   \
+    v = vec_add(v, vec_sld(v, v, 4));                   \
+    res += (lm_ggml_float) vec_extract(v, 0);              \
+}
 
 #define LM_GGML_F32_VEC        LM_GGML_F32x4
 #define LM_GGML_F32_VEC_ZERO   LM_GGML_F32x4_ZERO
@@ -689,6 +697,29 @@ static inline unsigned char lm_ggml_endian_byte(int i) {
     vec_xst(vec_pack_to_short_fp32(r[i - LM_GGML_ENDIAN_BYTE(1)],  \
                                    r[i - LM_GGML_ENDIAN_BYTE(0)]), \
             0, p - LM_GGML_F16_EPR)
+
+//BF16 POWER9
+#define LM_GGML_BF16_STEP 16
+#define LM_GGML_BF16_EPR  8
+
+#define LM_GGML_BF16x8         vector unsigned short
+#define LM_GGML_BF16x8_ZERO    vec_splats((unsigned short)0)
+#define LM_GGML_BF16x8_LOAD(p) vec_xl(0, (const unsigned short *)(p))
+
+#define LM_GGML_BF16_VEC          LM_GGML_BF16x8
+#define LM_GGML_BF16_VEC_ZERO     LM_GGML_BF16x8_ZERO
+#define LM_GGML_BF16_VEC_LOAD     LM_GGML_BF16x8_LOAD
+#if defined(__LITTLE_ENDIAN__)
+#define LM_GGML_BF16_TO_F32_LO(v) ((vector float) vec_mergel(LM_GGML_BF16_VEC_ZERO, (v)))
+#define LM_GGML_BF16_TO_F32_HI(v) ((vector float) vec_mergeh(LM_GGML_BF16_VEC_ZERO, (v)))
+#else
+#define LM_GGML_BF16_TO_F32_LO(v) ((vector float) vec_mergel((v), LM_GGML_BF16_VEC_ZERO))
+#define LM_GGML_BF16_TO_F32_HI(v) ((vector float) vec_mergeh((v), LM_GGML_BF16_VEC_ZERO))
+#endif
+#define LM_GGML_BF16_FMA_LO(acc, x, y) \
+    (acc) = LM_GGML_F32x4_FMA((acc), LM_GGML_BF16_TO_F32_LO(x), LM_GGML_BF16_TO_F32_LO(y))
+#define LM_GGML_BF16_FMA_HI(acc, x, y) \
+    (acc) = LM_GGML_F32x4_FMA((acc), LM_GGML_BF16_TO_F32_HI(x), LM_GGML_BF16_TO_F32_HI(y))
 
 #elif defined(__wasm_simd128__)
 

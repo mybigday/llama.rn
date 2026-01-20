@@ -15,7 +15,7 @@
 #include <math.h>
 #include <string.h>
 
-#define LM_GGML_COMMON_DECL_C
+#define LM_LM_LM_LM_LM_LM_LM_GGML_COMMON_DECL_C
 #include "ggml-common.h"
 #include "hvx-utils.h"
 

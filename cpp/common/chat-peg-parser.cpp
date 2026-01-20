@@ -2,7 +2,7 @@
 
 #include "nlohmann/json.hpp"
 
-using json = nlohmann::ordered_json;
+using json = nlohmann::json;
 
 static std::string_view trim_trailing_space(std::string_view sv, int max = -1) {
     int count = 0;

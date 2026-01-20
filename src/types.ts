@@ -441,25 +441,21 @@ export type NativeLlamaContext = {
     is_hybrid: boolean
     chatTemplates: {
       llamaChat: boolean // Chat template in llama-chat.cpp
-      minja: {
-        // Chat template supported by minja.hpp
+      jinja: {
+        // Chat template supported by jinja engine
         default: boolean
         defaultCaps: {
           tools: boolean
           toolCalls: boolean
-          toolResponses: boolean
           systemRole: boolean
           parallelToolCalls: boolean
-          toolCallId: boolean
         }
         toolUse: boolean
-        toolUseCaps: {
+        toolUseCaps?: {
           tools: boolean
           toolCalls: boolean
-          toolResponses: boolean
           systemRole: boolean
           parallelToolCalls: boolean
-          toolCallId: boolean
         }
       }
     }

@@ -94,6 +94,31 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_cpy(lm_ggm
     return res;
 }
 
+lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_pool_1d(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op, lm_ggml_op_pool op_pool) {
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(op->src[0]));
+    LM_GGML_ASSERT(op->src[0]->type == LM_GGML_TYPE_F32 && op->src[0]->type == op->type);
+
+    const char * pool_str = "undefined";
+    switch (op_pool) {
+        case LM_GGML_OP_POOL_AVG: pool_str = "avg"; break;
+        case LM_GGML_OP_POOL_MAX: pool_str = "max"; break;
+        default: LM_GGML_ASSERT(false && "not implemented");
+    };
+
+    char base[256];
+    char name[256];
+
+    snprintf(base, sizeof(base), "kernel_pool_1d_%s_%s", pool_str, lm_ggml_type_name(op->src[0]->type));
+    snprintf(name, sizeof(name), "%s", base);
+
+    lm_ggml_metal_pipeline_with_params res = lm_ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    }
+
+    return res;
+}
+
 lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_pool_2d(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op, lm_ggml_op_pool op_pool) {
     LM_GGML_ASSERT(lm_ggml_is_contiguous(op->src[0]));
     LM_GGML_ASSERT(op->src[0]->type == LM_GGML_TYPE_F32 && op->src[0]->type == op->type);
