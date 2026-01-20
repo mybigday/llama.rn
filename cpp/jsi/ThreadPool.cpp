@@ -1,4 +1,5 @@
 #include "ThreadPool.h"
+#include <system_error>
 
 ThreadPool ThreadPool::instance;
 
@@ -48,6 +49,7 @@ void ThreadPool::ensureRunning() {
 }
 
 void ThreadPool::shutdown() {
+    std::unique_lock<std::mutex> shutdown_lock(shutdown_mutex);
     {
         std::unique_lock<std::mutex> lock(queue_mutex);
         if (stop && workers.empty()) {
@@ -56,9 +58,18 @@ void ThreadPool::shutdown() {
         stop = true;
     }
     condition.notify_all();
+    const auto self_id = std::this_thread::get_id();
     for (std::thread &worker : workers) {
         if (worker.joinable()) {
-            worker.join();
+            if (worker.get_id() == self_id) {
+                worker.detach();
+                continue;
+            }
+            try {
+                worker.join();
+            } catch (const std::system_error&) {
+                worker.detach();
+            }
         }
     }
     workers.clear();

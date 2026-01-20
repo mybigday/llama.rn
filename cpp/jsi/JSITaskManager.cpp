@@ -31,6 +31,25 @@ void TaskManager::finishTask(int contextId) {
     cv.notify_all();
 }
 
+void TaskManager::beginShutdown() {
+    shuttingDown.store(true, std::memory_order_relaxed);
+    cv.notify_all();
+}
+
+void TaskManager::reset() {
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        activeTasks.clear();
+        totalTasks = 0;
+    }
+    shuttingDown.store(false, std::memory_order_relaxed);
+    cv.notify_all();
+}
+
+bool TaskManager::isShuttingDown() const {
+    return shuttingDown.load(std::memory_order_relaxed);
+}
+
 void TaskManager::waitForContext(int contextId, int targetCount) {
     if (contextId < 0) {
         return;
@@ -38,6 +57,9 @@ void TaskManager::waitForContext(int contextId, int targetCount) {
 
     std::unique_lock<std::mutex> lock(mutex);
     cv.wait(lock, [this, contextId, targetCount]() {
+        if (shuttingDown.load(std::memory_order_relaxed)) {
+            return true;
+        }
         auto it = activeTasks.find(contextId);
         int count = it != activeTasks.end() ? it->second : 0;
         return count <= targetCount;
@@ -47,6 +69,9 @@ void TaskManager::waitForContext(int contextId, int targetCount) {
 void TaskManager::waitForAll(int targetCount) {
     std::unique_lock<std::mutex> lock(mutex);
     cv.wait(lock, [this, targetCount]() {
+        if (shuttingDown.load(std::memory_order_relaxed)) {
+            return true;
+        }
         return totalTasks <= targetCount;
     });
 }

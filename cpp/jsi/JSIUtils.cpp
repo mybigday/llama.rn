@@ -4,6 +4,35 @@
 
 namespace rnllama_jsi {
 
+    JsiFunctionPtr makeJsiFunction(
+        jsi::Runtime& runtime,
+        const jsi::Value& value,
+        std::shared_ptr<react::CallInvoker> callInvoker
+    ) {
+        if (!value.isObject() || !value.asObject(runtime).isFunction(runtime)) {
+            return nullptr;
+        }
+        auto fn = new jsi::Function(value.asObject(runtime).asFunction(runtime));
+        std::weak_ptr<react::CallInvoker> weakInvoker = callInvoker;
+
+        return JsiFunctionPtr(fn, [weakInvoker](jsi::Function* ptr) {
+            if (!ptr) {
+                return;
+            }
+            auto invoker = weakInvoker.lock();
+            if (!invoker || TaskManager::getInstance().isShuttingDown()) {
+                return;
+            }
+            try {
+                invoker->invokeAsync([ptr]() {
+                    delete ptr;
+                });
+            } catch (...) {
+                // Runtime may be shutting down; leak to avoid crashing on a non-JS thread.
+            }
+        });
+    }
+
     jsi::Value createPromiseTask(
         jsi::Runtime& runtime,
         std::shared_ptr<react::CallInvoker> callInvoker,
@@ -22,15 +51,16 @@ namespace rnllama_jsi {
                                   const jsi::Value& thisValue,
                                   const jsi::Value* arguments,
                                   size_t count) -> jsi::Value {
-                    
-                    auto resolve = std::make_shared<jsi::Function>(arguments[0].asObject(runtime).asFunction(runtime));
-                    auto reject = std::make_shared<jsi::Function>(arguments[1].asObject(runtime).asFunction(runtime));
 
-                    if (trackTask) {
+                    auto resolve = makeJsiFunction(runtime, arguments[0], callInvoker);
+                    auto reject = makeJsiFunction(runtime, arguments[1], callInvoker);
+                    bool shouldTrack = trackTask && !TaskManager::getInstance().isShuttingDown();
+
+                    if (shouldTrack) {
                         TaskManager::getInstance().startTask(contextId);
                     }
 
-                    ThreadPool::getInstance().enqueue([callInvoker, task, resolve, reject, contextId, trackTask, runtimePtr]() {
+                    ThreadPool::getInstance().enqueue([callInvoker, task, resolve, reject, contextId, shouldTrack, runtimePtr]() {
                         // Track whether we successfully scheduled the invokeAsync callback.
                         // The task should only be marked complete after the JS callback finishes,
                         // not when the thread pool work completes - this prevents race conditions
@@ -38,11 +68,27 @@ namespace rnllama_jsi {
                         bool invokeScheduled = false;
 
                         try {
+                            if (TaskManager::getInstance().isShuttingDown()) {
+                                if (shouldTrack) {
+                                    TaskManager::getInstance().finishTask(contextId);
+                                }
+                                return;
+                            }
                             auto resultGenerator = task();
+                            if (TaskManager::getInstance().isShuttingDown()) {
+                                if (shouldTrack) {
+                                    TaskManager::getInstance().finishTask(contextId);
+                                }
+                                return;
+                            }
                             try {
-                                callInvoker->invokeAsync([resolve, resultGenerator, runtimePtr, contextId, trackTask]() {
+                                callInvoker->invokeAsync([resolve, resultGenerator, runtimePtr, contextId, shouldTrack]() {
+                                    if (TaskManager::getInstance().isShuttingDown()) {
+                                        TaskFinishGuard guard(contextId, shouldTrack);
+                                        return;
+                                    }
                                     // Finish task AFTER the JS callback completes (when resultGenerator runs)
-                                    TaskFinishGuard guard(contextId, trackTask);
+                                    TaskFinishGuard guard(contextId, shouldTrack);
                                     auto& rt = *runtimePtr;
                                     resolve->call(rt, resultGenerator(rt));
                                 });
@@ -54,8 +100,18 @@ namespace rnllama_jsi {
                         } catch (const std::exception& e) {
                             std::string msg = e.what();
                             try {
-                                callInvoker->invokeAsync([reject, msg, runtimePtr, contextId, trackTask]() {
-                                    TaskFinishGuard guard(contextId, trackTask);
+                                if (TaskManager::getInstance().isShuttingDown()) {
+                                    if (shouldTrack) {
+                                        TaskManager::getInstance().finishTask(contextId);
+                                    }
+                                    return;
+                                }
+                                callInvoker->invokeAsync([reject, msg, runtimePtr, contextId, shouldTrack]() {
+                                    if (TaskManager::getInstance().isShuttingDown()) {
+                                        TaskFinishGuard guard(contextId, shouldTrack);
+                                        return;
+                                    }
+                                    TaskFinishGuard guard(contextId, shouldTrack);
                                     auto& rt = *runtimePtr;
                                     reject->call(rt, jsi::String::createFromUtf8(rt, msg));
                                 });
@@ -65,8 +121,18 @@ namespace rnllama_jsi {
                             }
                         } catch (...) {
                             try {
-                                callInvoker->invokeAsync([reject, runtimePtr, contextId, trackTask]() {
-                                    TaskFinishGuard guard(contextId, trackTask);
+                                if (TaskManager::getInstance().isShuttingDown()) {
+                                    if (shouldTrack) {
+                                        TaskManager::getInstance().finishTask(contextId);
+                                    }
+                                    return;
+                                }
+                                callInvoker->invokeAsync([reject, runtimePtr, contextId, shouldTrack]() {
+                                    if (TaskManager::getInstance().isShuttingDown()) {
+                                        TaskFinishGuard guard(contextId, shouldTrack);
+                                        return;
+                                    }
+                                    TaskFinishGuard guard(contextId, shouldTrack);
                                     auto& rt = *runtimePtr;
                                     reject->call(rt, jsi::String::createFromUtf8(rt, "Unknown error"));
                                 });
@@ -78,7 +144,7 @@ namespace rnllama_jsi {
 
                         // If we couldn't schedule invokeAsync, finish the task now to prevent
                         // waitForContext from hanging forever
-                        if (!invokeScheduled && trackTask) {
+                        if (!invokeScheduled && shouldTrack) {
                             TaskManager::getInstance().finishTask(contextId);
                         }
                     });

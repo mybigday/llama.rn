@@ -357,6 +357,7 @@ namespace rnllama_jsi {
         jsi::Runtime& runtime,
         std::shared_ptr<react::CallInvoker> callInvoker
     ) {
+        TaskManager::getInstance().reset();
         auto initContext = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaInitContext"),
             3,
@@ -371,7 +372,7 @@ namespace rnllama_jsi {
                 if (count > 2 && arguments[2].isObject() && arguments[2].asObject(runtime).isFunction(runtime)) {
                     useProgressCallback = true;
                     progressData = std::make_shared<ProgressCallbackData>();
-                    progressData->callback = std::make_shared<jsi::Function>(arguments[2].asObject(runtime).asFunction(runtime));
+                    progressData->callback = makeJsiFunction(runtime, arguments[2], callInvoker);
                     progressData->callInvoker = callInvoker;
                     progressData->runtime = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){});
                     progressData->contextId = contextId;
@@ -946,7 +947,7 @@ namespace rnllama_jsi {
                 std::shared_ptr<jsi::Function> onToken;
 
                 if (count > 2 && arguments[2].isObject() && arguments[2].asObject(runtime).isFunction(runtime)) {
-                    onToken = std::make_shared<jsi::Function>(arguments[2].asObject(runtime).asFunction(runtime));
+                    onToken = makeJsiFunction(runtime, arguments[2], callInvoker);
                 }
 
                 bool emitPartial = getPropertyAsBool(runtime, params, "emit_partial_completion", false);
@@ -1128,7 +1129,7 @@ namespace rnllama_jsi {
                 bool enabled = count > 0 && arguments[0].isBool() ? arguments[0].getBool() : false;
                 std::shared_ptr<jsi::Function> onLog;
                 if (enabled && count > 1 && arguments[1].isObject() && arguments[1].asObject(runtime).isFunction(runtime)) {
-                    onLog = std::make_shared<jsi::Function>(arguments[1].asObject(runtime).asFunction(runtime));
+                    onLog = makeJsiFunction(runtime, arguments[1], callInvoker);
                 }
 
                 return createPromiseTask(runtime, callInvoker, [enabled, onLog, callInvoker, runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){})]() -> PromiseResultGenerator {
@@ -1192,8 +1193,8 @@ namespace rnllama_jsi {
                 int contextId = (int)arguments[0].asNumber();
                 jsi::Object params = arguments[1].asObject(runtime);
 
-                auto onToken = std::make_shared<jsi::Function>(arguments[2].asObject(runtime).asFunction(runtime));
-                auto onComplete = std::make_shared<jsi::Function>(arguments[3].asObject(runtime).asFunction(runtime));
+                auto onToken = makeJsiFunction(runtime, arguments[2], callInvoker);
+                auto onComplete = makeJsiFunction(runtime, arguments[3], callInvoker);
 
                 auto ctxPtr = getContextOrThrow(contextId);
                 auto originalParams = ctxPtr->params;
@@ -1403,7 +1404,7 @@ namespace rnllama_jsi {
                 int contextId = (int)arguments[0].asNumber();
                 std::string text = arguments[1].asString(runtime).utf8(runtime);
                 jsi::Object params = arguments[2].asObject(runtime);
-                auto onResult = std::make_shared<jsi::Function>(arguments[3].asObject(runtime).asFunction(runtime));
+                auto onResult = makeJsiFunction(runtime, arguments[3], callInvoker);
 
                 int embd_normalize = 0;
                 bool has_embd_normalize = false;
@@ -1470,7 +1471,7 @@ namespace rnllama_jsi {
                     documents.push_back(documentsArr.getValueAtIndex(runtime, i).asString(runtime).utf8(runtime));
                 }
                 jsi::Object params = arguments[3].asObject(runtime);
-                auto onResult = std::make_shared<jsi::Function>(arguments[4].asObject(runtime).asFunction(runtime));
+                auto onResult = makeJsiFunction(runtime, arguments[4], callInvoker);
 
                 int normalize = getPropertyAsInt(runtime, params, "normalize", 0);
 
@@ -1593,9 +1594,7 @@ namespace rnllama_jsi {
             2,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                auto onStatus = std::make_shared<jsi::Function>(
-                    arguments[1].asObject(runtime).asFunction(runtime)
-                );
+                auto onStatus = makeJsiFunction(runtime, arguments[1], callInvoker);
 
                 auto runtimePtr = std::make_shared<jsi::Runtime*>(&runtime);
 
@@ -1697,6 +1696,9 @@ namespace rnllama_jsi {
                      // where we delete the context while a completion's JS callback is still
                      // accessing ctx->completion.
                      TaskManager::getInstance().waitForContext(contextId, 0);
+                     if (TaskManager::getInstance().isShuttingDown()) {
+                         return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
+                     }
 
                      if (ctxPtr) {
                          auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
@@ -1736,6 +1738,9 @@ namespace rnllama_jsi {
 
                      // Wait for ALL tasks to complete (including their invokeAsync callbacks)
                      TaskManager::getInstance().waitForAll(0);
+                     if (TaskManager::getInstance().isShuttingDown()) {
+                         return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
+                     }
 
                      g_llamaContexts.clear([](long ptr) {
                         if (ptr) {
@@ -2065,6 +2070,15 @@ namespace rnllama_jsi {
     }
 
     void cleanupJSIBindings() {
+        TaskManager::getInstance().beginShutdown();
+        {
+            std::lock_guard<std::mutex> lock(g_log_mutex);
+            g_log_handler.reset();
+            g_log_invoker.reset();
+            g_log_runtime.reset();
+        }
+        llama_log_set(llama_log_callback_default, nullptr);
+
         RequestManager::getInstance().clearAll();
         auto contexts = g_llamaContexts.snapshot();
         for (const auto& entry : contexts) {
@@ -2081,8 +2095,10 @@ namespace rnllama_jsi {
             }
         }
 
-        llama_log_set(llama_log_callback_default, nullptr);
-        TaskManager::getInstance().waitForAll();
+        if (contexts.empty()) {
+            g_context_limit.store(-1);
+            return;
+        }
         ThreadPool::getInstance().shutdown();
 
         g_llamaContexts.clear([](long ptr) {
@@ -2092,11 +2108,5 @@ namespace rnllama_jsi {
             }
         });
         g_context_limit.store(-1);
-        {
-            std::lock_guard<std::mutex> lock(g_log_mutex);
-            g_log_handler.reset();
-            g_log_invoker.reset();
-        }
-        g_log_runtime.reset();
     }
 }

@@ -11,6 +11,7 @@ namespace rnllama_jsi {
 
     using PromiseResultGenerator = std::function<jsi::Value(jsi::Runtime&)>;
     using PromiseTask = std::function<PromiseResultGenerator()>;
+    using JsiFunctionPtr = std::shared_ptr<jsi::Function>;
 
     jsi::Value createPromiseTask(
         jsi::Runtime& runtime,
@@ -18,6 +19,12 @@ namespace rnllama_jsi {
         PromiseTask task,
         int contextId = -1,
         bool trackTask = true
+    );
+
+    JsiFunctionPtr makeJsiFunction(
+        jsi::Runtime& runtime,
+        const jsi::Value& value,
+        std::shared_ptr<react::CallInvoker> callInvoker
     );
 
     // Safe console.log wrapper for JSI context
