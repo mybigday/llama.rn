@@ -301,8 +301,13 @@ cp -r ./$LLAMA_DIR/common/jinja ./cpp/common/jinja
 # Rename jinja/string.h to avoid conflict with system <string.h>
 mv ./cpp/common/jinja/string.h ./cpp/common/jinja/jinja-string.h
 # Update includes in jinja files
-sed -i '' 's|#include "string.h"|#include "jinja-string.h"|g' ./cpp/common/jinja/value.h
-sed -i '' 's|#include "jinja/string.h"|#include "jinja/jinja-string.h"|g' ./cpp/common/jinja/string.cpp
+if [ "$OS" = "Darwin" ]; then
+  sed -i '' 's|#include "string.h"|#include "jinja-string.h"|g' ./cpp/common/jinja/value.h
+  sed -i '' 's|#include "jinja/string.h"|#include "jinja/jinja-string.h"|g' ./cpp/common/jinja/string.cpp
+else
+  sed -i 's|#include "string.h"|#include "jinja-string.h"|g' ./cpp/common/jinja/value.h
+  sed -i 's|#include "jinja/string.h"|#include "jinja/jinja-string.h"|g' ./cpp/common/jinja/string.cpp
+fi
 
 rm -rf ./cpp/nlohmann
 cp -r ./$LLAMA_DIR/vendor/nlohmann ./cpp/nlohmann
