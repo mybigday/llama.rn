@@ -1,10 +1,6 @@
 #include "JSITaskManager.h"
-#include <chrono>
 
 namespace rnllama_jsi {
-
-// Timeout for waiting on tasks during cleanup to prevent deadlock
-static constexpr int TASK_WAIT_TIMEOUT_MS = 3000;
 
 TaskManager& TaskManager::getInstance() {
     static TaskManager instance;
@@ -41,8 +37,7 @@ void TaskManager::waitForContext(int contextId, int targetCount) {
     }
 
     std::unique_lock<std::mutex> lock(mutex);
-    // Use timeout to prevent deadlock during shutdown when JS thread is blocked
-    cv.wait_for(lock, std::chrono::milliseconds(TASK_WAIT_TIMEOUT_MS), [this, contextId, targetCount]() {
+    cv.wait(lock, [this, contextId, targetCount]() {
         auto it = activeTasks.find(contextId);
         int count = it != activeTasks.end() ? it->second : 0;
         return count <= targetCount;
@@ -51,8 +46,7 @@ void TaskManager::waitForContext(int contextId, int targetCount) {
 
 void TaskManager::waitForAll(int targetCount) {
     std::unique_lock<std::mutex> lock(mutex);
-    // Use timeout to prevent deadlock during shutdown when JS thread is blocked
-    cv.wait_for(lock, std::chrono::milliseconds(TASK_WAIT_TIMEOUT_MS), [this, targetCount]() {
+    cv.wait(lock, [this, targetCount]() {
         return totalTasks <= targetCount;
     });
 }

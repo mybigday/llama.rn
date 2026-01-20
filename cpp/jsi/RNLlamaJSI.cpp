@@ -606,7 +606,7 @@ namespace rnllama_jsi {
                     return [path, skip](jsi::Runtime& rt) {
                         return createModelInfo(rt, path, skip);
                     };
-                }, -1, false);
+                });
             }
         );
         runtime.global().setProperty(runtime, "llamaModelInfo", modelInfo);
@@ -623,7 +623,7 @@ namespace rnllama_jsi {
                      return [info](jsi::Runtime& rt) {
                          return jsi::String::createFromUtf8(rt, info);
                      };
-                 }, -1, false);
+                 });
             }
         );
         runtime.global().setProperty(runtime, "llamaGetBackendDevicesInfo", getBackendDevicesInfo);
@@ -1150,7 +1150,7 @@ namespace rnllama_jsi {
                         llama_log_set(llama_log_callback_default, nullptr);
                     }
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
-                }, -1, false);
+                });
             }
         );
         runtime.global().setProperty(runtime, "llamaToggleNativeLog", toggleNativeLog);
@@ -1757,7 +1757,7 @@ namespace rnllama_jsi {
                 return createPromiseTask(runtime, callInvoker, [limit]() -> PromiseResultGenerator {
                     setContextLimit(limit);
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
-                }, -1, false);
+                });
             }
         );
         runtime.global().setProperty(runtime, "llamaSetContextLimit", setContextLimitFn);
