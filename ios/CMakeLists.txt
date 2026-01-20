@@ -95,9 +95,7 @@ add_library(rnllama SHARED
     # Jinja template engine
     ${JINJA_FILES}
 
-    # Header-only libraries (needed for build)
-    ${SOURCE_DIR}/nlohmann/json.hpp
-    ${SOURCE_DIR}/nlohmann/json_fwd.hpp
+    # Headers (needed for build)
     ${SOURCE_DIR}/common/chat.h
     ${SOURCE_DIR}/common/common.h
 
@@ -124,9 +122,9 @@ target_include_directories(rnllama
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/nlohmann>
         $<INSTALL_INTERFACE:include>
 )
 

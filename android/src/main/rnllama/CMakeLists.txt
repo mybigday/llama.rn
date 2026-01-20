@@ -13,6 +13,7 @@ set(RNLLAMA_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../cpp)
 include_directories(
     ${RNLLAMA_LIB_DIR}
     ${RNLLAMA_LIB_DIR}/common
+    ${RNLLAMA_LIB_DIR}/common/jinja
     ${RNLLAMA_LIB_DIR}/ggml-cpu
     ${RNLLAMA_LIB_DIR}/tools/mtmd
 )
@@ -58,10 +59,6 @@ set(
 
     # Jinja template engine
     ${JINJA_FILES}
-
-    # Header-only libraries (needed for build)
-    ${RNLLAMA_LIB_DIR}/nlohmann/json.hpp
-    ${RNLLAMA_LIB_DIR}/nlohmann/json_fwd.hpp
 
     # Multimodal support (globbed)
     ${MTMD_MODEL_FILES}
@@ -223,6 +220,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             get_rows
             glu
             group_norm
+            solve_tri
             im2col_f32
             im2col_f16
             mean
