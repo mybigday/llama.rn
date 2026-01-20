@@ -12,6 +12,9 @@ function cp_headers() {
   mkdir -p ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/jinja
   cp ../cpp/common/jinja/*.h ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/jinja/
 
+  mkdir -p ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/nlohmann
+  cp ../cpp/nlohmann/*.hpp ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/nlohmann/
+
   # Copy necessary common headers to Headers root (for includes without path prefix)
   cp ../cpp/common/chat.h ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/
   cp ../cpp/common/common.h ../ios/rnllama.xcframework/$1/rnllama.framework/Headers/
