@@ -49,6 +49,11 @@ namespace rnllama_jsi {
         rnllama::llama_rn_context* ctx,
         const std::vector<rnllama::completion_token_output>& probs_vec
     ) {
+        if (ctx == nullptr || ctx->ctx == nullptr) {
+            // Return empty array if context is invalid
+            return jsi::Array(runtime, 0);
+        }
+
         jsi::Array out(runtime, probs_vec.size());
         for (size_t i = 0; i < probs_vec.size(); ++i) {
             const auto &prob = probs_vec[i];
@@ -77,7 +82,9 @@ namespace rnllama_jsi {
 
     inline jsi::Object createTokenProb(jsi::Runtime& runtime, rnllama::llama_rn_context* ctx, const rnllama::completion_token_output::token_prob& p) {
         jsi::Object res(runtime);
-        std::string tokStr = rnllama::tokens_to_output_formatted_string(ctx->ctx, p.tok);
+        std::string tokStr = (ctx != nullptr && ctx->ctx != nullptr)
+            ? rnllama::tokens_to_output_formatted_string(ctx->ctx, p.tok)
+            : "";
         if (tokStr.empty()) tokStr = "<UNKNOWN>";
         res.setProperty(runtime, "tok_str", jsi::String::createFromUtf8(runtime, tokStr));
         res.setProperty(runtime, "prob", (double)p.prob);
@@ -124,6 +131,16 @@ namespace rnllama_jsi {
     }
 
     inline jsi::Object createCompletionResult(jsi::Runtime& runtime, rnllama::llama_rn_context* ctx) {
+        if (ctx == nullptr) {
+            throw std::runtime_error("RNLLAMA_NULL_CONTEXT");
+        }
+        if (ctx->completion == nullptr) {
+            throw std::runtime_error("RNLLAMA_NULL_COMPLETION");
+        }
+        if (ctx->ctx == nullptr) {
+            throw std::runtime_error("RNLLAMA_NULL_LLAMA_CONTEXT");
+        }
+
         jsi::Object res(runtime);
         res.setProperty(runtime, "text", jsi::String::createFromUtf8(runtime, ctx->completion->generated_text));
 
@@ -188,6 +205,10 @@ namespace rnllama_jsi {
     
     // Overload for parallel slot
     inline jsi::Object createCompletionResult(jsi::Runtime& runtime, rnllama::llama_rn_slot* slot) {
+        if (slot == nullptr) {
+            throw std::runtime_error("RNLLAMA_NULL_SLOT");
+        }
+
         jsi::Object res(runtime);
         res.setProperty(runtime, "text", jsi::String::createFromUtf8(runtime, slot->generated_text));
 
@@ -201,13 +222,11 @@ namespace rnllama_jsi {
         }
 
         auto ctx = slot->parent_ctx;
-        if (ctx != nullptr) {
-            res.setProperty(
-                runtime,
-                "completion_probabilities",
-                createCompletionProbabilities(runtime, ctx, slot->generated_token_probs)
-            );
-        }
+        res.setProperty(
+            runtime,
+            "completion_probabilities",
+            createCompletionProbabilities(runtime, ctx, slot->generated_token_probs)
+        );
 
         res.setProperty(runtime, "tokens_predicted", (double)slot->num_tokens_predicted);
         res.setProperty(runtime, "tokens_evaluated", (double)slot->num_prompt_tokens);

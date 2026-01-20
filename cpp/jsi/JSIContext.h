@@ -45,13 +45,26 @@ namespace rnllama_jsi {
         }
         
         void clear(std::function<void(long)> deleter = nullptr) {
-            std::lock_guard<std::mutex> lock(contextMutex);
+            // Take a snapshot and clear the map first, then delete objects.
+            // This ensures any concurrent lookups via get() will return 0 (not found)
+            // rather than a dangling pointer while deletion is in progress.
+            std::vector<long> toDelete;
+            {
+                std::lock_guard<std::mutex> lock(contextMutex);
+                if (deleter) {
+                    toDelete.reserve(contextMap.size());
+                    for (auto& pair : contextMap) {
+                        toDelete.push_back(pair.second);
+                    }
+                }
+                contextMap.clear();
+            }
+            // Delete outside the lock to avoid potential deadlocks
             if (deleter) {
-                for (auto& pair : contextMap) {
-                    deleter(pair.second);
+                for (long ptr : toDelete) {
+                    deleter(ptr);
                 }
             }
-            contextMap.clear();
         }
     };
 
