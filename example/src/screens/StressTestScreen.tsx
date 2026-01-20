@@ -118,7 +118,6 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
       fontSize: 11,
       color: theme.colors.text,
       textAlignVertical: 'top' as const,
-      minHeight: 300,
       borderWidth: 1,
       borderColor: theme.colors.border,
     },
@@ -216,6 +215,7 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
   const [iterations, setIterations] = useState(5) // Unified iteration count for all tests
 
   const contextRef = useRef<LlamaContext | null>(null)
+  const logInputRef = useRef<TextInput>(null)
 
   useEffect(() => {
     contextRef.current = context
@@ -255,7 +255,11 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         globalRaceConditionsRef.current++
         setLogs((prev) => [
           ...prev,
-          `[${new Date().toLocaleTimeString('en-US', { hour12: false })}] 🔴 GLOBAL: Race condition caught - ${error?.message || String(error)}`,
+          `[${new Date().toLocaleTimeString('en-US', {
+            hour12: false,
+          })}] 🔴 GLOBAL: Race condition caught - ${
+            error?.message || String(error)
+          }`,
         ])
         // During testing, suppress the error screen for expected race conditions
         // Don't change isTesting state - let the test loop continue
@@ -285,13 +289,24 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
     setTestResults([])
   }
 
-  const generateReport = (results: TestResult[], _globalCaught: number, startTime: Date): string => {
+  const generateReport = (
+    results: TestResult[],
+    _globalCaught: number,
+    startTime: Date,
+  ): string => {
     const endTime = new Date()
     const totalDuration = endTime.getTime() - startTime.getTime()
-    const passedClean = results.filter((r) => r.status === 'passed' && !r.raceConditionsCaught).length
-    const passedWithRaces = results.filter((r) => r.status === 'passed' && (r.raceConditionsCaught ?? 0) > 0).length
+    const passedClean = results.filter(
+      (r) => r.status === 'passed' && !r.raceConditionsCaught,
+    ).length
+    const passedWithRaces = results.filter(
+      (r) => r.status === 'passed' && (r.raceConditionsCaught ?? 0) > 0,
+    ).length
     const failed = results.filter((r) => r.status === 'failed').length
-    const totalRaceCaught = results.reduce((acc, r) => acc + (r.raceConditionsCaught || 0), 0)
+    const totalRaceCaught = results.reduce(
+      (acc, r) => acc + (r.raceConditionsCaught || 0),
+      0,
+    )
 
     // Generate text report
     const lines: string[] = [
@@ -401,7 +416,9 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
       addLog(`Initializing model: ${modelName}`)
 
       const params = contextParams || (await loadContextParams())
-      addLog(`Context params: n_ctx=${params.n_ctx}, n_gpu_layers=${params.n_gpu_layers}`)
+      addLog(
+        `Context params: n_ctx=${params.n_ctx}, n_gpu_layers=${params.n_gpu_layers}`,
+      )
 
       const llamaContext = await initLlama(
         {
@@ -428,14 +445,17 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
 
   const updateTestResult = (name: string, update: Partial<TestResult>) => {
     setTestResults((prev) =>
-      prev.map((r) => (r.name === name ? { ...r, ...update } : r))
+      prev.map((r) => (r.name === name ? { ...r, ...update } : r)),
     )
   }
 
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  const sleep = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms))
 
   // Test 1: Rapid completion start/stop
-  const testRapidStartStop = async (ctx: LlamaContext): Promise<{ raceConditionsCaught: number; totalCycles: number }> => {
+  const testRapidStartStop = async (
+    ctx: LlamaContext,
+  ): Promise<{ raceConditionsCaught: number; totalCycles: number }> => {
     addLog(`  Starting ${iterations} rapid completions with immediate stops...`)
     let raceConditionsCaught = 0
 
@@ -455,7 +475,9 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
       } catch (error: any) {
         if (isRaceConditionError(error)) {
           raceConditionsCaught++
-          addLog(`    Iteration ${i + 1}: CAUGHT RACE CONDITION - ${error.message}`)
+          addLog(
+            `    Iteration ${i + 1}: CAUGHT RACE CONDITION - ${error.message}`,
+          )
         } else if (error.message?.includes('interrupted')) {
           addLog(`    Iteration ${i + 1}: OK (interrupted)`)
         } else {
@@ -465,7 +487,9 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
     }
 
     if (raceConditionsCaught > 0) {
-      addLog(`    >> Caught ${raceConditionsCaught} race condition(s) - null checks working!`)
+      addLog(
+        `    >> Caught ${raceConditionsCaught} race condition(s) - null checks working!`,
+      )
     }
     return { raceConditionsCaught, totalCycles: iterations }
   }
@@ -473,7 +497,9 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
   // Test 2: Concurrent token callbacks with errors (no race conditions expected)
   const testTokenCallbackStress = async (ctx: LlamaContext): Promise<void> => {
     const expectedTokens = iterations * 10
-    addLog(`  Running completion with heavy token callback (${expectedTokens} tokens)...`)
+    addLog(
+      `  Running completion with heavy token callback (${expectedTokens} tokens)...`,
+    )
 
     let tokenCount = 0
     let errorCount = 0
@@ -495,7 +521,9 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
   }
 
   // Test 3: Multiple sequential completions (no race conditions expected)
-  const testSequentialCompletions = async (ctx: LlamaContext): Promise<void> => {
+  const testSequentialCompletions = async (
+    ctx: LlamaContext,
+  ): Promise<void> => {
     addLog(`  Running ${iterations} sequential completions...`)
 
     for (let i = 0; i < iterations; i++) {
@@ -503,12 +531,16 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         prompt: `Say "${i}":`,
         n_predict: 10,
       })
-      addLog(`    Completion ${i + 1}: ${result.text.trim().substring(0, 30)}...`)
+      addLog(
+        `    Completion ${i + 1}: ${result.text.trim().substring(0, 30)}...`,
+      )
     }
   }
 
   // Test 4: Tokenize during completion (no race conditions expected)
-  const testTokenizeDuringCompletion = async (ctx: LlamaContext): Promise<void> => {
+  const testTokenizeDuringCompletion = async (
+    ctx: LlamaContext,
+  ): Promise<void> => {
     addLog(`  Testing ${iterations} tokenize ops during active completion...`)
 
     const completionPromise = ctx.completion({
@@ -521,7 +553,7 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
     for (let i = 0; i < iterations; i++) {
       await sleep(20)
       tokenizePromises.push(
-        ctx.tokenize(`Test string ${i}`).catch((e) => ({ error: e.message }))
+        ctx.tokenize(`Test string ${i}`).catch((e) => ({ error: e.message })),
       )
     }
 
@@ -534,7 +566,10 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
   }
 
   // Test 5: Rapid context release test (creates new context)
-  const testRapidContextRelease = async (_ctx: LlamaContext, modelPath: string): Promise<{ raceConditionsCaught: number; totalCycles: number }> => {
+  const testRapidContextRelease = async (
+    _ctx: LlamaContext,
+    modelPath: string,
+  ): Promise<{ raceConditionsCaught: number; totalCycles: number }> => {
     addLog(`  Testing ${iterations} rapid init/release cycles...`)
     let raceConditionsCaught = 0
 
@@ -551,12 +586,14 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
 
         // Start a completion but don't await it yet
         let completionError: any = null
-        const completionPromise = tempCtx.completion({
-          prompt: 'Hello',
-          n_predict: 20,
-        }).catch((e) => {
-          completionError = e
-        })
+        const completionPromise = tempCtx
+          .completion({
+            prompt: 'Hello',
+            n_predict: 20,
+          })
+          .catch((e) => {
+            completionError = e
+          })
 
         // Release while completion might be running
         await sleep(50)
@@ -564,15 +601,16 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         tempCtx = null
 
         // Wait for completion to finish/fail with timeout
-        await Promise.race([
-          completionPromise,
-          sleep(200),
-        ])
+        await Promise.race([completionPromise, sleep(200)])
 
         // Check if we caught a race condition
         if (completionError && isRaceConditionError(completionError)) {
           raceConditionsCaught++
-          addLog(`    Cycle ${i + 1}: CAUGHT RACE CONDITION - ${completionError.message || String(completionError)}`)
+          addLog(
+            `    Cycle ${i + 1}: CAUGHT RACE CONDITION - ${
+              completionError.message || String(completionError)
+            }`,
+          )
         } else {
           addLog(`    Cycle ${i + 1}: OK`)
         }
@@ -592,13 +630,18 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
     }
 
     if (raceConditionsCaught > 0) {
-      addLog(`    >> Caught ${raceConditionsCaught} race condition(s) - null checks working!`)
+      addLog(
+        `    >> Caught ${raceConditionsCaught} race condition(s) - null checks working!`,
+      )
     }
     return { raceConditionsCaught, totalCycles: iterations }
   }
 
   // Test 6: Completion with release during token callback
-  const testReleaseInCallback = async (_ctx: LlamaContext, modelPath: string): Promise<{ raceConditionsCaught: number; totalCycles: number }> => {
+  const testReleaseInCallback = async (
+    _ctx: LlamaContext,
+    modelPath: string,
+  ): Promise<{ raceConditionsCaught: number; totalCycles: number }> => {
     addLog('  Testing release during token callback...')
     let raceConditionsCaught = 0
 
@@ -617,23 +660,25 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
       let completionError: any = null
       const ctxToRelease = tempCtx
 
-      const completionPromise = tempCtx.completion(
-        {
-          prompt: 'Count to 100: 1, 2, 3,',
-          n_predict: 50,
-        },
-        async () => {
-          tokenCount++
-          if (tokenCount === 10 && !released) {
-            released = true
-            addLog('    Releasing context at token 10...')
-            await ctxToRelease.release().catch(() => {})
-            tempCtx = null
-          }
-        },
-      ).catch((e) => {
-        completionError = e
-      })
+      const completionPromise = tempCtx
+        .completion(
+          {
+            prompt: 'Count to 100: 1, 2, 3,',
+            n_predict: 50,
+          },
+          async () => {
+            tokenCount++
+            if (tokenCount === 10 && !released) {
+              released = true
+              addLog('    Releasing context at token 10...')
+              await ctxToRelease.release().catch(() => {})
+              tempCtx = null
+            }
+          },
+        )
+        .catch((e) => {
+          completionError = e
+        })
 
       // Wait for completion with timeout
       await Promise.race([
@@ -645,9 +690,15 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
       if (completionError) {
         if (isRaceConditionError(completionError)) {
           raceConditionsCaught++
-          addLog(`    CAUGHT RACE CONDITION: ${completionError.message || String(completionError)}`)
+          addLog(
+            `    CAUGHT RACE CONDITION: ${
+              completionError.message || String(completionError)
+            }`,
+          )
         } else {
-          addLog(`    Completion ended: ${completionError.message || 'released'}`)
+          addLog(
+            `    Completion ended: ${completionError.message || 'released'}`,
+          )
         }
       }
 
@@ -668,7 +719,9 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
     }
 
     if (raceConditionsCaught > 0) {
-      addLog(`    >> Caught ${raceConditionsCaught} race condition(s) - null checks working!`)
+      addLog(
+        `    >> Caught ${raceConditionsCaught} race condition(s) - null checks working!`,
+      )
     }
     return { raceConditionsCaught, totalCycles: 1 }
   }
@@ -676,7 +729,10 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
   // Test 7: Compare stopCompletion + release vs release only
   // This test tracks global errors per-section to properly measure race conditions
   // that are thrown asynchronously outside the Promise chain
-  const testStopBeforeRelease = async (_ctx: LlamaContext, modelPath: string): Promise<{ raceConditionsCaught: number; totalCycles: number }> => {
+  const testStopBeforeRelease = async (
+    _ctx: LlamaContext,
+    modelPath: string,
+  ): Promise<{ raceConditionsCaught: number; totalCycles: number }> => {
     addLog('  Comparing stopCompletion+release vs release only...')
     let raceConditionsCaught = 0
 
@@ -695,12 +751,14 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         })
 
         let completionError: any = null
-        const completionPromise = tempCtx.completion({
-          prompt: 'Write a long story about dragons and knights:',
-          n_predict: 50,
-        }).catch((e) => {
-          completionError = e
-        })
+        const completionPromise = tempCtx
+          .completion({
+            prompt: 'Write a long story about dragons and knights:',
+            n_predict: 50,
+          })
+          .catch((e) => {
+            completionError = e
+          })
 
         // Wait a bit for completion to start generating tokens
         await sleep(100)
@@ -710,10 +768,7 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         tempCtx = null
 
         // Wait for completion to finish/fail
-        await Promise.race([
-          completionPromise,
-          sleep(200),
-        ])
+        await Promise.race([completionPromise, sleep(200)])
 
         if (completionError && isRaceConditionError(completionError)) {
           addLog(`      Cycle ${i + 1}: RACE (promise)`)
@@ -748,12 +803,14 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         })
 
         let completionError: any = null
-        const completionPromise = tempCtx.completion({
-          prompt: 'Write a long story about dragons and knights:',
-          n_predict: 50,
-        }).catch((e) => {
-          completionError = e
-        })
+        const completionPromise = tempCtx
+          .completion({
+            prompt: 'Write a long story about dragons and knights:',
+            n_predict: 50,
+          })
+          .catch((e) => {
+            completionError = e
+          })
 
         // Wait a bit for completion to start generating tokens
         await sleep(100)
@@ -764,10 +821,7 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         tempCtx = null
 
         // Wait for completion to finish/fail
-        await Promise.race([
-          completionPromise,
-          sleep(200),
-        ])
+        await Promise.race([completionPromise, sleep(200)])
 
         if (completionError && isRaceConditionError(completionError)) {
           addLog(`      Cycle ${i + 1}: RACE (promise)`)
@@ -802,12 +856,14 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         })
 
         let completionError: any = null
-        const completionPromise = tempCtx.completion({
-          prompt: 'Write a long story about dragons and knights:',
-          n_predict: 50,
-        }).catch((e) => {
-          completionError = e
-        })
+        const completionPromise = tempCtx
+          .completion({
+            prompt: 'Write a long story about dragons and knights:',
+            n_predict: 50,
+          })
+          .catch((e) => {
+            completionError = e
+          })
 
         // Wait a bit for completion to start generating tokens
         await sleep(100)
@@ -892,19 +948,35 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
       // Wait for any async errors to be caught by global handler
       await sleep(200)
     }
-    const recommendedPatternRaces = globalRaceConditionsRef.current - globalBeforeD
+    const recommendedPatternRaces =
+      globalRaceConditionsRef.current - globalBeforeD
 
     // Calculate total
-    raceConditionsCaught = raceWithoutStop + raceWithStop + timeoutPatternRaces + recommendedPatternRaces
+    raceConditionsCaught =
+      raceWithoutStop +
+      raceWithStop +
+      timeoutPatternRaces +
+      recommendedPatternRaces
 
     addLog('')
     addLog('    === COMPARISON RESULTS ===')
-    addLog(`    A) Without stopCompletion:        ${raceWithoutStop} race(s) in ${iterations} cycles`)
-    addLog(`    B) With stop (no await):          ${raceWithStop} race(s) in ${iterations} cycles`)
-    addLog(`    C) Stop + await with timeout:     ${timeoutPatternRaces} race(s) in ${iterations} cycles`)
-    addLog(`    D) RECOMMENDED (stop+await+rel):  ${recommendedPatternRaces} race(s) in ${iterations} cycles`)
+    addLog(
+      `    A) Without stopCompletion:        ${raceWithoutStop} race(s) in ${iterations} cycles`,
+    )
+    addLog(
+      `    B) With stop (no await):          ${raceWithStop} race(s) in ${iterations} cycles`,
+    )
+    addLog(
+      `    C) Stop + await with timeout:     ${timeoutPatternRaces} race(s) in ${iterations} cycles`,
+    )
+    addLog(
+      `    D) RECOMMENDED (stop+await+rel):  ${recommendedPatternRaces} race(s) in ${iterations} cycles`,
+    )
     addLog('')
-    if (recommendedPatternRaces === 0 && (raceWithoutStop > 0 || raceWithStop > 0)) {
+    if (
+      recommendedPatternRaces === 0 &&
+      (raceWithoutStop > 0 || raceWithStop > 0)
+    ) {
       addLog('    ✅ RECOMMENDED PATTERN ELIMINATES RACE CONDITIONS!')
     }
     if (raceConditionsCaught > 0) {
@@ -914,7 +986,10 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
     return { raceConditionsCaught, totalCycles }
   }
 
-  type TestFn = (ctx: LlamaContext, modelPath: string) => Promise<void | { raceConditionsCaught?: number; totalCycles?: number }>
+  type TestFn = (
+    ctx: LlamaContext,
+    modelPath: string,
+  ) => Promise<void | { raceConditionsCaught?: number; totalCycles?: number }>
 
   const runTest = async (name: string, testFn: TestFn) => {
     if (!context || !modelInfo) return
@@ -931,9 +1006,16 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
       const globalRaces = globalRaceConditionsRef.current - globalBefore
       const totalRaces = testRaces + globalRaces
       const totalCycles = result?.totalCycles
-      updateTestResult(name, { status: 'passed', duration, raceConditionsCaught: totalRaces, totalCycles })
+      updateTestResult(name, {
+        status: 'passed',
+        duration,
+        raceConditionsCaught: totalRaces,
+        totalCycles,
+      })
       if (totalRaces > 0) {
-        addLog(`  PASSED (${duration}ms) - caught ${totalRaces} race condition(s)`)
+        addLog(
+          `  PASSED (${duration}ms) - caught ${totalRaces} race condition(s)`,
+        )
       } else {
         addLog(`  PASSED (${duration}ms)`)
       }
@@ -943,10 +1025,21 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
       if (isRaceConditionError(error)) {
         // Race condition caught at top level - this is actually a success
         const totalRaces = 1 + globalRaces
-        updateTestResult(name, { status: 'passed', duration, raceConditionsCaught: totalRaces })
-        addLog(`  PASSED (${duration}ms) - caught ${totalRaces} race condition(s)`)
+        updateTestResult(name, {
+          status: 'passed',
+          duration,
+          raceConditionsCaught: totalRaces,
+        })
+        addLog(
+          `  PASSED (${duration}ms) - caught ${totalRaces} race condition(s)`,
+        )
       } else {
-        updateTestResult(name, { status: 'failed', error: error.message, duration, raceConditionsCaught: globalRaces })
+        updateTestResult(name, {
+          status: 'failed',
+          error: error.message,
+          duration,
+          raceConditionsCaught: globalRaces,
+        })
         addLog(`  FAILED: ${error.message}`)
       }
     }
@@ -993,7 +1086,11 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
       // Use callback to get latest state and generate report
       setTestResults((currentResults) => {
         const globalCaught = globalRaceConditionsRef.current
-        const report = generateReport(currentResults, globalCaught, testStartTime)
+        const report = generateReport(
+          currentResults,
+          globalCaught,
+          testStartTime,
+        )
         // Append report to logs
         setLogs((prevLogs) => [...prevLogs, report])
         return currentResults
@@ -1007,7 +1104,11 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
       // Still generate report on error
       setTestResults((currentResults) => {
         const globalCaught = globalRaceConditionsRef.current
-        const report = generateReport(currentResults, globalCaught, testStartTime)
+        const report = generateReport(
+          currentResults,
+          globalCaught,
+          testStartTime,
+        )
         // Append report to logs
         setLogs((prevLogs) => [...prevLogs, report])
         return currentResults
@@ -1023,11 +1124,16 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
       return '⚠️' // Passed but caught race conditions
     }
     switch (result.status) {
-      case 'passed': return '✅'
-      case 'failed': return '❌'
-      case 'running': return '🔄'
-      case 'skipped': return '⏭️'
-      default: return '⏳'
+      case 'passed':
+        return '✅'
+      case 'failed':
+        return '❌'
+      case 'running':
+        return '🔄'
+      case 'skipped':
+        return '⏭️'
+      default:
+        return '⏳'
     }
   }
 
@@ -1113,7 +1219,7 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
 
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.testContainer}>
+      <View style={styles.testContainer}>
         {modelInfo && (
           <View style={{ marginBottom: 16 }}>
             <Text style={styles.modelNameText}>{modelInfo.name}</Text>
@@ -1170,10 +1276,12 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         <View style={styles.logContainer}>
           <Text style={styles.logTitle}>Logs</Text>
           <TextInput
+            ref={logInputRef}
             style={styles.logArea}
             value={logs.join('\n')}
             multiline
             editable={false}
+            scrollEnabled
             placeholder="Test logs will appear here..."
           />
           <View style={styles.logControlsContainer}>
@@ -1185,7 +1293,7 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
             </TouchableOpacity>
           </View>
         </View>
-      </ScrollView>
+      </View>
 
       <MaskedProgress
         visible={isTesting}
