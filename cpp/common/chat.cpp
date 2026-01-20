@@ -862,7 +862,7 @@ static std::string apply(
     if (inputs.add_generation_prompt) {
         inp["add_generation_prompt"] = true;
     }
-    // Remove tools key when null or empty, so templates can check "{% if tools is defined %}"
+    // Remove tools key when null, so templates can check "{% if tools is defined %}"
     if (inp["tools"].is_null() || (inp["tools"].is_array() && inp["tools"].empty())) {
         inp.erase("tools");
     }
