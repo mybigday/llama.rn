@@ -311,7 +311,7 @@ completion_token_output llama_rn_slot::get_next_token() {
 
 // Parse chat output (tool calls, reasoning content, etc.)
 completion_chat_output llama_rn_slot::parseChatOutput(bool is_partial) {
-    common_chat_syntax syntax;
+    common_chat_parser_params syntax;
     syntax.format = static_cast<common_chat_format>(current_chat_format);
     syntax.reasoning_format = current_reasoning_format;
     syntax.thinking_forced_open = current_thinking_forced_open;
