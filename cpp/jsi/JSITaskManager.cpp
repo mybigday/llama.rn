@@ -1,6 +1,11 @@
 #include "JSITaskManager.h"
+#include <chrono>
 
 namespace rnllama_jsi {
+
+// Timeout for waiting on tasks to complete.
+// This prevents indefinite blocking if a task fails to call finishTask().
+static constexpr auto TASK_WAIT_TIMEOUT = std::chrono::milliseconds(5000);
 
 TaskManager& TaskManager::getInstance() {
     static TaskManager instance;
@@ -56,7 +61,7 @@ void TaskManager::waitForContext(int contextId, int targetCount) {
     }
 
     std::unique_lock<std::mutex> lock(mutex);
-    cv.wait(lock, [this, contextId, targetCount]() {
+    cv.wait_for(lock, TASK_WAIT_TIMEOUT, [this, contextId, targetCount]() {
         if (shuttingDown.load(std::memory_order_relaxed)) {
             return true;
         }
@@ -68,7 +73,7 @@ void TaskManager::waitForContext(int contextId, int targetCount) {
 
 void TaskManager::waitForAll(int targetCount) {
     std::unique_lock<std::mutex> lock(mutex);
-    cv.wait(lock, [this, targetCount]() {
+    cv.wait_for(lock, TASK_WAIT_TIMEOUT, [this, targetCount]() {
         if (shuttingDown.load(std::memory_order_relaxed)) {
             return true;
         }
