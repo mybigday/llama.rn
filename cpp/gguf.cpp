@@ -734,7 +734,7 @@ struct lm_gguf_context * lm_gguf_init_from_file(const char * fname, struct lm_gg
     FILE * file = lm_ggml_fopen(fname, "rb");
 
     if (!file) {
-        LM_GGML_LOG_ERROR("%s: failed to open GGUF file '%s'\n", __func__, fname);
+        LM_GGML_LOG_ERROR("%s: failed to open GGUF file '%s' (%s)\n", __func__, fname, strerror(errno));
         return nullptr;
     }
 

@@ -219,6 +219,8 @@ cp ./$LLAMA_DIR/src/llama-kv-cache-iswa.h ./cpp/llama-kv-cache-iswa.h
 cp ./$LLAMA_DIR/src/llama-kv-cache-iswa.cpp ./cpp/llama-kv-cache-iswa.cpp
 cp ./$LLAMA_DIR/src/llama-memory-hybrid.h ./cpp/llama-memory-hybrid.h
 cp ./$LLAMA_DIR/src/llama-memory-hybrid.cpp ./cpp/llama-memory-hybrid.cpp
+cp ./$LLAMA_DIR/src/llama-memory-hybrid-iswa.h ./cpp/llama-memory-hybrid-iswa.h
+cp ./$LLAMA_DIR/src/llama-memory-hybrid-iswa.cpp ./cpp/llama-memory-hybrid-iswa.cpp
 cp ./$LLAMA_DIR/src/llama-memory-recurrent.h ./cpp/llama-memory-recurrent.h
 cp ./$LLAMA_DIR/src/llama-memory-recurrent.cpp ./cpp/llama-memory-recurrent.cpp
 cp ./$LLAMA_DIR/src/llama-adapter.h ./cpp/llama-adapter.h

@@ -67,7 +67,7 @@ lm_ggml_tensor * llm_build_nemotron_h::build_attention_layer(lm_ggml_tensor *   
                                                           const llama_model &       model,
                                                           const int64_t             n_embd_head,
                                                           const int                 il) {
-    // compute Q and K and (optionally) RoPE them
+    // compute Q and K
     lm_ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
     cb(Qcur, "Qcur", il);
     if (model.layers[il].bq) {
