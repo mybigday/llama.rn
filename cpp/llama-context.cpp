@@ -793,7 +793,7 @@ float * llama_context::get_embeddings_ith(int32_t i) {
             throw std::runtime_error(format("corrupt output buffer (j=%" PRId64 ", n_outputs=%d)", j, n_outputs));
         }
 
-        const uint32_t n_embd_out = model.hparams.get_n_embd_out();
+        const uint32_t n_embd_out = model.hparams.n_embd_out();
         return embd + j*n_embd_out;
     } catch (const std::exception & err) {
         LLAMA_LOG_ERROR("%s: invalid embeddings id %d, reason: %s\n", __func__, i, err.what());
@@ -1279,7 +1279,7 @@ int llama_context::encode(const llama_batch & batch_inp) {
                 {
                     // extract token embeddings
                     LM_GGML_ASSERT(embd != nullptr);
-                    const uint32_t n_embd_out = hparams.get_n_embd_out();
+                    const uint32_t n_embd_out = hparams.n_embd_out();
 
                     LM_GGML_ASSERT(n_tokens*n_embd_out <= (int64_t) embd_size);
                     lm_ggml_backend_tensor_get_async(backend_embd, t_embd, embd, 0, n_tokens*n_embd_out*sizeof(float));
@@ -1688,7 +1688,7 @@ int llama_context::decode(const llama_batch & batch_inp) {
                     {
                         // extract token embeddings
                         LM_GGML_ASSERT(embd != nullptr);
-                        const uint32_t n_embd_out = hparams.get_n_embd_out();
+                        const uint32_t n_embd_out = hparams.n_embd_out();
                         float * embd_out = embd + n_outputs_prev*n_embd_out;
 
                         if (n_outputs) {
@@ -1821,7 +1821,7 @@ uint32_t llama_context::output_reserve(int32_t n_outputs, const llama_batch & ba
 
     const auto n_batch    = cparams.n_batch;
     const auto n_vocab    = vocab.n_tokens();
-    const auto n_embd_out = hparams.get_n_embd_out();
+    const auto n_embd_out = hparams.n_embd_out();
 
     bool has_logits = true;
     bool has_embd   = cparams.embeddings;
@@ -2559,6 +2559,7 @@ size_t llama_context::state_write_data(llama_io_write_i & io) {
         }
     }
 
+    // [TAG_CONTEXT_STATE_LOGITS]
     // write logits
     {
         LLAMA_LOG_DEBUG("%s: - writing logits\n", __func__);
@@ -2903,7 +2904,7 @@ void llama_context::opt_epoch_iter(
                 };
                 ctx_compute_opt = lm_ggml_init(params);
             }
-            lm_ggml_opt_prepare_alloc(opt_ctx, ctx_compute_opt, gf, res->get_tokens(), res->get_logits());
+            lm_ggml_opt_prepare_alloc(opt_ctx, ctx_compute_opt, gf, res->get_inp_tokens(), res->get_logits());
             lm_ggml_opt_alloc(opt_ctx, train);
 
             res->set_inputs(&ubatch);

@@ -6,6 +6,9 @@
 #include "ggml-impl.h"
 #include "simd-mappings.h"
 
+#define LM_GGML_FA_TILE_Q  32
+#define LM_GGML_FA_TILE_KV 16
+
 #ifdef __cplusplus
 
 #include <utility>
@@ -83,5 +86,10 @@ static std::pair<int64_t, int64_t> get_thread_range(const struct lm_ggml_compute
 
     return {ir0, ir1};
 }
+
+struct lm_ggml_fa_tile_config {
+    static constexpr size_t Q  = LM_GGML_FA_TILE_Q;
+    static constexpr size_t KV = LM_GGML_FA_TILE_KV;
+};
 
 #endif

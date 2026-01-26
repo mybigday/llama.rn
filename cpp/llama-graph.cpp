@@ -23,7 +23,8 @@ void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
     }
 
     if (ubatch->embd) {
-        const int64_t n_embd   = embd->ne[0];
+        LM_GGML_ASSERT(n_embd == embd->ne[0]);
+
         const int64_t n_tokens = ubatch->n_tokens;
 
         lm_ggml_backend_tensor_set(embd, ubatch->embd, 0, n_tokens*n_embd*lm_ggml_element_size(embd));
@@ -33,8 +34,8 @@ void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
 bool llm_graph_input_embd::can_reuse(const llm_graph_params & params) {
     bool res = true;
 
-    res &= (!tokens && !params.ubatch.token) || (tokens && tokens->ne[0] == params.ubatch.n_tokens);
-    res &= (!embd   && !params.ubatch.embd)  || (embd   &&   embd->ne[1] == params.ubatch.n_tokens);
+    res &= (!params.ubatch.token) || (tokens && tokens->ne[0] == params.ubatch.n_tokens);
+    res &= (!params.ubatch.embd)  || (embd   &&   embd->ne[1] == params.ubatch.n_tokens);
 
     return res;
 }
@@ -406,6 +407,27 @@ bool llm_graph_input_attn_kv::can_reuse(const llm_graph_params & params) {
     return res;
 }
 
+void llm_graph_input_attn_k::set_input(const llama_ubatch * ubatch) {
+    mctx->set_input_k_idxs(self_k_idxs, ubatch);
+
+    mctx->set_input_kq_mask(self_kq_mask, ubatch, cparams.causal_attn);
+}
+
+bool llm_graph_input_attn_k::can_reuse(const llm_graph_params & params) {
+    const auto * mctx = static_cast<const llama_kv_cache_context *>(params.mctx);
+
+    this->mctx = mctx;
+
+    bool res = true;
+
+    res &= self_k_idxs->ne[0] == params.ubatch.n_tokens;
+
+    res &= self_kq_mask->ne[0] == mctx->get_n_kv();
+    res &= self_kq_mask->ne[1] == params.ubatch.n_tokens;
+
+    return res;
+}
+
 void llm_graph_input_attn_kv_iswa::set_input(const llama_ubatch * ubatch) {
     mctx->get_base()->set_input_k_idxs(self_k_idxs, ubatch);
     mctx->get_base()->set_input_v_idxs(self_v_idxs, ubatch);
@@ -634,7 +656,8 @@ int64_t llm_graph_result::get_max_nodes() const {
 }
 
 void llm_graph_result::reset() {
-    t_tokens      = nullptr;
+    t_inp_tokens  = nullptr;
+    t_inp_embd    = nullptr;
     t_logits      = nullptr;
     t_embd        = nullptr;
     t_embd_pooled = nullptr;
@@ -1338,17 +1361,29 @@ lm_ggml_tensor * llm_graph_context::build_moe_ffn(
 
 // input embeddings with optional lora
 lm_ggml_tensor * llm_graph_context::build_inp_embd(lm_ggml_tensor * tok_embd) const {
-    const int64_t n_embd = hparams.n_embd_inp();
+    const int64_t n_embd_inp = hparams.n_embd_inp();
+    const int64_t n_embd     = hparams.n_embd;
 
-    auto inp = std::make_unique<llm_graph_input_embd>();
+    assert(n_embd_inp >= n_embd);
 
-    lm_ggml_tensor * cur = nullptr;
+    auto inp = std::make_unique<llm_graph_input_embd>(n_embd_inp);
 
-    if (ubatch.token) {
-        inp->tokens = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, ubatch.n_tokens);
-        //cb(inp->tokens, "inp_tokens", -1);
-        lm_ggml_set_input(inp->tokens);
-        res->t_tokens = inp->tokens;
+    inp->tokens = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, ubatch.n_tokens);
+    cb(inp->tokens, "inp_tokens", -1);
+    lm_ggml_set_input(inp->tokens);
+    res->t_inp_tokens = inp->tokens;
+
+    inp->embd = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_F32, n_embd_inp, ubatch.n_tokens);
+    cb(inp->embd, "inp_embd", -1);
+    lm_ggml_set_input(inp->embd);
+
+    // select one of the 2 inputs, based on the batch contents
+    // ref: https://github.com/ggml-org/llama.cpp/pull/18550
+    std::array<lm_ggml_tensor *, 2> inps;
+
+    // token embeddings path (ubatch.token != nullptr)
+    {
+        auto & cur = inps[0];
 
         cur = lm_ggml_get_rows(ctx0, tok_embd, inp->tokens);
 
@@ -1369,19 +1404,36 @@ lm_ggml_tensor * llm_graph_context::build_inp_embd(lm_ggml_tensor * tok_embd) co
 
             cur = lm_ggml_add(ctx0, cur, inpL_delta);
         }
-    } else {
-        inp->embd = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_F32, n_embd, ubatch.n_tokens);
-        lm_ggml_set_input(inp->embd);
+
+        if (n_embd_inp != n_embd) {
+            cur = lm_ggml_pad(ctx0, cur, hparams.n_embd_inp() - n_embd, 0, 0, 0);
+        }
+    }
+
+    // vector embeddings path (ubatch.embd != nullptr)
+    {
+        auto & cur = inps[1];
 
         cur = inp->embd;
     }
+
+    assert(lm_ggml_are_same_shape (inps[0], inps[1]));
+    assert(lm_ggml_are_same_stride(inps[0], inps[1]));
+
+    lm_ggml_tensor * cur = lm_ggml_build_forward_select(gf, inps.data(), inps.size(), ubatch.token ? 0 : 1);
+
+    if (n_embd_inp != n_embd) {
+        cur = lm_ggml_view_2d(ctx0, cur, n_embd, n_tokens, cur->nb[1], 0);
+    }
+
+    res->t_inp_embd = cur;
 
     // For Granite architecture
     if (hparams.f_embedding_scale != 0.0f) {
         cur = lm_ggml_scale(ctx0, cur, hparams.f_embedding_scale);
     }
 
-    cb(cur, "inp_embd", -1);
+    cb(cur, "embd", -1);
 
     res->add_input(std::move(inp));
 
@@ -1480,7 +1532,7 @@ lm_ggml_tensor * llm_graph_context::build_inp_cross_embd() const {
     //}
 
     const auto n_embd = !cross->v_embd.empty() ? cross->n_embd : hparams.n_embd_inp();
-    const auto n_enc  = !cross->v_embd.empty() ? cross->n_enc : hparams.n_ctx_train;
+    const auto n_enc  = !cross->v_embd.empty() ? cross->n_enc  : hparams.n_ctx_train;
 
     cur = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_F32, n_embd, n_enc);
     lm_ggml_set_input(cur);
@@ -1787,9 +1839,11 @@ lm_ggml_tensor * llm_graph_context::build_attn(
         lm_ggml_tensor * v_cur,
         lm_ggml_tensor * kq_b,
         lm_ggml_tensor * sinks,
-        lm_ggml_tensor * v_mla,
+        lm_ggml_tensor * v_mla, // TODO: remove
             float     kq_scale,
             int       il) const {
+    LM_GGML_ASSERT(v_mla == nullptr);
+
     // these nodes are added to the graph together so that they are not reordered
     // by doing so, the number of splits in the graph is reduced
     // expand k later to enable rope fusion which directly writes into k-v cache
@@ -1813,6 +1867,93 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     lm_ggml_tensor * q = q_cur;
     lm_ggml_tensor * k = mctx_cur->get_k(ctx0, il);
     lm_ggml_tensor * v = mctx_cur->get_v(ctx0, il);
+
+    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
+    cb(cur, "kqv_out", il);
+
+    if (wo) {
+        cur = build_lora_mm(wo, cur);
+        if (arch == LLM_ARCH_GLM4 || arch == LLM_ARCH_GLM4_MOE) {
+            // GLM4 and GLM4_MOE seem to have numerical issues with half-precision accumulators
+            lm_ggml_mul_mat_set_prec(cur, LM_GGML_PREC_F32);
+        }
+    }
+
+    if (wo_b) {
+        cur = lm_ggml_add(ctx0, cur, wo_b);
+    }
+
+    return cur;
+}
+
+static std::unique_ptr<llm_graph_input_attn_k> build_attn_inp_k_impl(
+           lm_ggml_context * ctx0,
+     const llama_ubatch & ubatch,
+    const llama_hparams & hparams,
+    const llama_cparams & cparams,
+    const llama_kv_cache_context * mctx_cur) {
+
+    auto inp = std::make_unique<llm_graph_input_attn_k>(hparams, cparams, mctx_cur);
+
+    {
+        LM_GGML_ASSERT(hparams.swa_type == LLAMA_SWA_TYPE_NONE && "Use llama_kv_cache_iswa for SWA");
+
+        const auto n_kv     = mctx_cur->get_n_kv();
+        const auto n_tokens = ubatch.n_tokens;
+        const auto n_stream = cparams.kv_unified ? 1 : ubatch.n_seqs_unq;
+
+        inp->self_k_idxs = mctx_cur->build_input_k_idxs(ctx0, ubatch);
+
+        inp->self_kq_mask = lm_ggml_new_tensor_4d(ctx0, LM_GGML_TYPE_F32, n_kv, n_tokens/n_stream, 1, n_stream);
+        lm_ggml_set_input(inp->self_kq_mask);
+
+        inp->self_kq_mask_cnv = cparams.flash_attn ? lm_ggml_cast(ctx0, inp->self_kq_mask, LM_GGML_TYPE_F16) : inp->self_kq_mask;
+    }
+
+    return inp;
+}
+
+llm_graph_input_attn_k * llm_graph_context::build_attn_inp_k() const {
+    const auto * mctx_cur = static_cast<const llama_kv_cache_context *>(mctx);
+
+    auto inp = build_attn_inp_k_impl(ctx0, ubatch, hparams, cparams, mctx_cur);
+
+    return (llm_graph_input_attn_k *) res->add_input(std::move(inp));
+}
+
+lm_ggml_tensor * llm_graph_context::build_attn(
+        llm_graph_input_attn_k * inp,
+        lm_ggml_tensor * wo,
+        lm_ggml_tensor * wo_b,
+        lm_ggml_tensor * q_cur,
+        lm_ggml_tensor * k_cur,
+        lm_ggml_tensor * v_cur,
+        lm_ggml_tensor * kq_b,
+        lm_ggml_tensor * sinks,
+        lm_ggml_tensor * v_mla,
+            float     kq_scale,
+            int       il) const {
+    // these nodes are added to the graph together so that they are not reordered
+    // by doing so, the number of splits in the graph is reduced
+    // expand k later to enable rope fusion which directly writes into k-v cache
+    lm_ggml_build_forward_expand(gf, q_cur);
+    lm_ggml_build_forward_expand(gf, v_cur);
+    lm_ggml_build_forward_expand(gf, k_cur);
+
+    const auto * mctx_cur = inp->mctx;
+
+    // store to KV cache
+    {
+        const auto & k_idxs = inp->get_k_idxs();
+
+        lm_ggml_build_forward_expand(gf, mctx_cur->cpy_k(ctx0, k_cur, k_idxs, il));
+    }
+
+    const auto & kq_mask = inp->get_kq_mask();
+
+    lm_ggml_tensor * q = q_cur;
+    lm_ggml_tensor * k = mctx_cur->get_k(ctx0, il);
+    lm_ggml_tensor * v = lm_ggml_view_4d(ctx0, k, v_cur->ne[0], k->ne[1], k->ne[2], k->ne[3], k->nb[1], k->nb[2], k->nb[3], 0);
 
     lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
     cb(cur, "kqv_out", il);
