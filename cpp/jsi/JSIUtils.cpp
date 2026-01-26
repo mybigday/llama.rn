@@ -154,4 +154,27 @@ namespace rnllama_jsi {
             )
         );
     }
+
+    void invokeAsyncTracked(
+        std::shared_ptr<react::CallInvoker> callInvoker,
+        int contextId,
+        std::function<void(bool shouldProceed)> callback
+    ) {
+        bool shouldTrack = !TaskManager::getInstance().isShuttingDown();
+        if (shouldTrack) {
+            TaskManager::getInstance().startTask(contextId);
+        }
+        try {
+            callInvoker->invokeAsync([contextId, shouldTrack, callback]() {
+                TaskFinishGuard guard(contextId, shouldTrack);
+                bool shouldProceed = !TaskManager::getInstance().isShuttingDown();
+                callback(shouldProceed);
+            });
+        } catch (...) {
+            // invokeAsync failed - finish task to prevent waitForContext hanging
+            if (shouldTrack) {
+                TaskManager::getInstance().finishTask(contextId);
+            }
+        }
+    }
 }

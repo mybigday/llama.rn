@@ -1256,7 +1256,8 @@ namespace rnllama_jsi {
                             if (!runtime) {
                               return;
                             }
-                            callInvoker->invokeAsync([callbacks, contextId, tokenCopy, requestId, parsed_output, has_parsed_output, runtime]() {
+                            invokeAsyncTracked(callInvoker, contextId, [callbacks, contextId, tokenCopy, requestId, parsed_output, has_parsed_output, runtime](bool shouldProceed) {
+                                if (!shouldProceed) return;
                                 long ctxPtr = g_llamaContexts.get(contextId);
                                 if (ctxPtr) {
                                     auto ctx = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
@@ -1310,7 +1311,8 @@ namespace rnllama_jsi {
                             if (!runtime) {
                               return;
                             }
-                            callInvoker->invokeAsync([callbacks, contextId, requestId, text, stopped_eos, stopped_limit, stopped_word, context_full, incomplete, truncated, interrupted, chat_format_val, stopping_word, tokens_predicted, tokens_evaluated, tokens_cached, n_decoded, error_message, timings, token_probs, final_output, has_final_output, runtime]() {
+                            invokeAsyncTracked(callInvoker, contextId, [callbacks, contextId, requestId, text, stopped_eos, stopped_limit, stopped_word, context_full, incomplete, truncated, interrupted, chat_format_val, stopping_word, tokens_predicted, tokens_evaluated, tokens_cached, n_decoded, error_message, timings, token_probs, final_output, has_final_output, runtime](bool shouldProceed) {
+                                if (!shouldProceed) return;
                                 long ctxPtr = g_llamaContexts.get(contextId);
                                 if (!ctxPtr) {
                                     return;
@@ -1433,7 +1435,8 @@ namespace rnllama_jsi {
                             if (!runtime) {
                               return;
                             }
-                            callInvoker->invokeAsync([callbacks, embCopy, runtime]() {
+                            invokeAsyncTracked(callInvoker, contextId, [callbacks, embCopy, runtime](bool shouldProceed) {
+                                if (!shouldProceed) return;
                                 auto& rt = *runtime;
                                 jsi::Array res(rt, embCopy.size());
                                 for (size_t i = 0; i < embCopy.size(); i++) {
@@ -1490,7 +1493,8 @@ namespace rnllama_jsi {
                             if (!runtime) {
                               return;
                             }
-                            callInvoker->invokeAsync([callbacks, scoresCopy, runtime]() {
+                            invokeAsyncTracked(callInvoker, contextId, [callbacks, scoresCopy, runtime](bool shouldProceed) {
+                                if (!shouldProceed) return;
                                 auto& rt = *runtime;
                                 jsi::Array res(rt, scoresCopy.size());
                                 for (size_t i = 0; i < scoresCopy.size(); i++) {
