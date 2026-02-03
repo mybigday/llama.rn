@@ -73,16 +73,34 @@ MetalAvailability getMetalAvailability(bool skipGpuDevices) {
 }
 } // namespace rnllama_jsi
 
-@implementation RNLlama
+@implementation RNLlama {
+    __unsafe_unretained RCTBridge *_bridge;
+}
 
 RCT_EXPORT_MODULE()
+
+- (RCTBridge *)bridge {
+    return _bridge;
+}
+
+- (void)setBridge:(RCTBridge *)bridge {
+    _bridge = bridge;
+}
 
 RCT_EXPORT_METHOD(install:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
-    RCTBridge *bridge = [RCTBridge currentBridge];
-    RCTCxxBridge *cxxBridge = (RCTCxxBridge *)bridge;
-    auto callInvoker = bridge.jsCallInvoker;
+    RCTBridge *bridge = self.bridge ?: [RCTBridge currentBridge];
+    if (!bridge) {
+        resolve(@false);
+        return;
+    }
+
+    RCTCxxBridge *cxxBridge = (RCTCxxBridge *)bridge.batchedBridge;
+    if (!cxxBridge) {
+        cxxBridge = (RCTCxxBridge *)bridge;
+    }
+    auto callInvoker = cxxBridge.jsCallInvoker ?: bridge.jsCallInvoker;
     if (!cxxBridge.runtime) {
         resolve(@false);
         return;
