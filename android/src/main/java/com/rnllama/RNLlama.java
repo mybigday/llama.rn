@@ -30,6 +30,15 @@ public class RNLlama {
     "libggml-htp-v79.so",
     "libggml-htp-v81.so"
   };
+  private static final Pattern QUALCOMM_HINT_PATTERN =
+    Pattern.compile("(adreno|qcom|qualcomm|snapdragon)", Pattern.CASE_INSENSITIVE);
+  private static final Pattern KNOWN_HEXAGON_SOC_PATTERN =
+    Pattern.compile("\\b(SM8450|SM8550|SM8635|SM8650|SM8750|SM8845|SM8850)\\b");
+  private static final Pattern SNAPDRAGON_8_SERIES_SOC_PATTERN = Pattern.compile("\\bSM8\\d{3}\\b");
+  private static final Pattern SNAPDRAGON_8_SERIES_NAME_PATTERN =
+    Pattern.compile("SNAPDRAGON\\s*8");
+  private static final Pattern HEXAGON_CODENAME_PATTERN =
+    Pattern.compile("(taro|kalama|pineapple|sun|lanai)");
 
   private final ReactApplicationContext reactContext;
 
@@ -182,8 +191,7 @@ public class RNLlama {
     boolean hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp");
     boolean hasI8mm = cpuFeatures.contains("i8mm");
 
-    String hwInfo = (Build.HARDWARE + " " + Build.MANUFACTURER + " " + Build.MODEL).toLowerCase(Locale.ROOT);
-    boolean hasAdreno = Pattern.compile("(adreno|qcom|qualcomm)").matcher(hwInfo).find();
+    boolean hasAdreno = hasAdrenoGpuHint();
     boolean hasHexagon = isHexagonSupported();
 
     try {
@@ -191,22 +199,56 @@ public class RNLlama {
       String loadedLib = "";
       if (isArm64V8a()) {
         if (hasDotProd && hasI8mm && hasHexagon && hasAdreno) {
-          try { System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl"); jniLoaded = true; loadedLib = "rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl"; } catch (UnsatisfiedLinkError ignored) {}
-        } else if (hasDotProd && hasI8mm) {
-          try { System.loadLibrary("rnllama_jni_v8_2_dotprod_i8mm"); jniLoaded = true; loadedLib = "rnllama_jni_v8_2_dotprod_i8mm"; } catch (UnsatisfiedLinkError ignored) {}
-        } else if (hasDotProd) {
-          try { System.loadLibrary("rnllama_jni_v8_2_dotprod"); jniLoaded = true; loadedLib = "rnllama_jni_v8_2_dotprod"; } catch (UnsatisfiedLinkError ignored) {}
-        } else if (hasI8mm) {
-          try { System.loadLibrary("rnllama_jni_v8_2_i8mm"); jniLoaded = true; loadedLib = "rnllama_jni_v8_2_i8mm"; } catch (UnsatisfiedLinkError ignored) {}
-        } else if (hasFp16) {
-          try { System.loadLibrary("rnllama_jni_v8_2"); jniLoaded = true; loadedLib = "rnllama_jni_v8_2"; } catch (UnsatisfiedLinkError ignored) {}
-        } else {
-          try { System.loadLibrary("rnllama_jni_v8"); jniLoaded = true; loadedLib = "rnllama_jni_v8"; } catch (UnsatisfiedLinkError ignored) {}
+          if (tryLoadLibrary("rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl")) {
+            jniLoaded = true;
+            loadedLib = "rnllama_jni_v8_2_dotprod_i8mm_hexagon_opencl";
+          }
+        }
+
+        if (!jniLoaded && hasDotProd && hasI8mm) {
+          if (tryLoadLibrary("rnllama_jni_v8_2_dotprod_i8mm")) {
+            jniLoaded = true;
+            loadedLib = "rnllama_jni_v8_2_dotprod_i8mm";
+          }
+        }
+
+        if (!jniLoaded && hasDotProd) {
+          if (tryLoadLibrary("rnllama_jni_v8_2_dotprod")) {
+            jniLoaded = true;
+            loadedLib = "rnllama_jni_v8_2_dotprod";
+          }
+        }
+
+        if (!jniLoaded && hasI8mm) {
+          if (tryLoadLibrary("rnllama_jni_v8_2_i8mm")) {
+            jniLoaded = true;
+            loadedLib = "rnllama_jni_v8_2_i8mm";
+          }
+        }
+
+        if (!jniLoaded && hasFp16) {
+          if (tryLoadLibrary("rnllama_jni_v8_2")) {
+            jniLoaded = true;
+            loadedLib = "rnllama_jni_v8_2";
+          }
+        }
+
+        if (!jniLoaded) {
+          if (tryLoadLibrary("rnllama_jni_v8")) {
+            jniLoaded = true;
+            loadedLib = "rnllama_jni_v8";
+          }
         }
       } else if (isX86_64()) {
-        try { System.loadLibrary("rnllama_jni_x86_64"); jniLoaded = true; loadedLib = "rnllama_jni_x86_64"; } catch (UnsatisfiedLinkError ignored) {}
+        if (tryLoadLibrary("rnllama_jni_x86_64")) {
+          jniLoaded = true;
+          loadedLib = "rnllama_jni_x86_64";
+        }
       } else {
-        try { System.loadLibrary("rnllama_jni"); jniLoaded = true; loadedLib = "rnllama_jni"; } catch (UnsatisfiedLinkError ignored) {}
+        if (tryLoadLibrary("rnllama_jni")) {
+          jniLoaded = true;
+          loadedLib = "rnllama_jni";
+        }
       }
 
       if (!jniLoaded) {
@@ -259,19 +301,82 @@ public class RNLlama {
     return features.toString();
   }
 
-  private static boolean isHexagonSupported() {
+  private static boolean tryLoadLibrary(String libraryName) {
+    try {
+      System.loadLibrary(libraryName);
+      return true;
+    } catch (UnsatisfiedLinkError ignored) {
+      return false;
+    }
+  }
+
+  private static String lowerOrEmpty(String value) {
+    return value == null ? "" : value.toLowerCase(Locale.ROOT);
+  }
+
+  private static String upperOrEmpty(String value) {
+    return value == null ? "" : value.toUpperCase(Locale.ROOT);
+  }
+
+  private static boolean hasHexagonCodenameHint() {
+    String hardwareHints = lowerOrEmpty(Build.HARDWARE) + " " + lowerOrEmpty(Build.BOARD);
+    return HEXAGON_CODENAME_PATTERN.matcher(hardwareHints).find();
+  }
+
+  private static boolean hasQualcommDeviceHint() {
+    if (hasHexagonCodenameHint()) {
+      return true;
+    }
+
+    StringBuilder hints = new StringBuilder();
+    hints
+      .append(lowerOrEmpty(Build.HARDWARE)).append(' ')
+      .append(lowerOrEmpty(Build.BOARD)).append(' ')
+      .append(lowerOrEmpty(Build.MANUFACTURER)).append(' ')
+      .append(lowerOrEmpty(Build.BRAND)).append(' ')
+      .append(lowerOrEmpty(Build.MODEL));
+
     if (Build.VERSION.SDK_INT >= 31) {
-      String socModel = Build.SOC_MODEL;
-      if (socModel != null) {
-        socModel = socModel.toUpperCase(Locale.ROOT);
-        if (socModel.matches(".*(SM8450|SM8550|SM8650|SM8635|SM8750).*")) {
+      hints.append(' ')
+        .append(lowerOrEmpty(Build.SOC_MANUFACTURER)).append(' ')
+        .append(lowerOrEmpty(Build.SOC_MODEL));
+    }
+
+    return QUALCOMM_HINT_PATTERN.matcher(hints.toString()).find();
+  }
+
+  private static boolean hasAdrenoGpuHint() {
+    if (hasQualcommDeviceHint()) {
+      return true;
+    }
+
+    if (Build.VERSION.SDK_INT >= 31) {
+      String socModel = upperOrEmpty(Build.SOC_MODEL);
+      if (!socModel.isEmpty() && SNAPDRAGON_8_SERIES_SOC_PATTERN.matcher(socModel).find()) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private static boolean isHexagonSupported() {
+    boolean hasQualcommHint = hasQualcommDeviceHint();
+
+    if (Build.VERSION.SDK_INT >= 31) {
+      String socModel = upperOrEmpty(Build.SOC_MODEL);
+      if (!socModel.isEmpty()) {
+        if (KNOWN_HEXAGON_SOC_PATTERN.matcher(socModel).find()) {
+          return true;
+        }
+        if (hasQualcommHint &&
+            (SNAPDRAGON_8_SERIES_SOC_PATTERN.matcher(socModel).find() ||
+             SNAPDRAGON_8_SERIES_NAME_PATTERN.matcher(socModel).find())) {
           return true;
         }
       }
     }
-    String hardware = Build.HARDWARE.toLowerCase(Locale.ROOT);
-    String board = Build.BOARD.toLowerCase(Locale.ROOT);
-    return hardware.matches(".*(taro|kalama|pineapple|sun|lanai).*") ||
-      board.matches(".*(taro|kalama|pineapple|sun|lanai).*");
+
+    return hasQualcommHint && hasHexagonCodenameHint();
   }
 }
