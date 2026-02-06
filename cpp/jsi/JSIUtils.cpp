@@ -54,13 +54,13 @@ namespace rnllama_jsi {
 
                     auto resolve = makeJsiFunction(runtime, arguments[0], callInvoker);
                     auto reject = makeJsiFunction(runtime, arguments[1], callInvoker);
-                    bool shouldTrack = trackTask && !TaskManager::getInstance().isShuttingDown();
 
-                    if (shouldTrack) {
-                        TaskManager::getInstance().startTask(contextId);
-                    }
-
-                    ThreadPool::getInstance().enqueue([callInvoker, task, resolve, reject, contextId, shouldTrack, runtimePtr]() {
+                    ThreadPool::getInstance().enqueue([callInvoker, task, resolve, reject, contextId, trackTask, runtimePtr]() {
+                        // Track tasks when the worker starts to avoid waiting on queued work.
+                        bool shouldTrack = trackTask && !TaskManager::getInstance().isShuttingDown();
+                        if (shouldTrack) {
+                            TaskManager::getInstance().startTask(contextId);
+                        }
                         // Track whether we successfully scheduled the invokeAsync callback.
                         // The task should only be marked complete after the JS callback finishes,
                         // not when the thread pool work completes - this prevents race conditions
