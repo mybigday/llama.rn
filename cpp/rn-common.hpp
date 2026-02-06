@@ -75,7 +75,7 @@ inline static std::string backend_devices_info() {
 #ifdef LM_GGML_USE_METAL
         if (std::string(backend_name) == "Metal" || std::string(backend_name) == "metal") {
             // Try to get Metal-specific device properties
-            lm_ggml_metal_device_t metal_dev = lm_ggml_metal_device_get();
+            lm_ggml_metal_device_t metal_dev = lm_ggml_metal_device_get(0);
             if (metal_dev) {
                 const lm_ggml_metal_device_props* metal_props = lm_ggml_metal_device_get_props(metal_dev);
                 if (metal_props) {
