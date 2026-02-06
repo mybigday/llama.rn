@@ -6570,7 +6570,7 @@ static void lm_ggml_compute_backward(
         case LM_GGML_OP_DIAG_MASK_INF: {
             if (src0_needs_grads) {
                 /* lm_ggml_diag_mask_inf_impl() shouldn't be here */
-                /* ref:  https://github.com/ggerganov/llama.cpp/pull/4203#discussion_r1412377992 */
+                /* ref:  https://github.com/ggml-org/llama.cpp/pull/4203#discussion_r1412377992 */
                 const int n_past = ((const int32_t *) tensor->op_params)[0];
                 lm_ggml_add_or_set(ctx, cgraph, isrc0, lm_ggml_diag_mask_zero_impl(ctx, grad, n_past, false));
             }
@@ -7525,8 +7525,11 @@ void lm_ggml_quantize_free(void) {
 
     lm_iq2xs_free_impl(LM_GGML_TYPE_IQ2_XXS);
     lm_iq2xs_free_impl(LM_GGML_TYPE_IQ2_XS);
+    lm_iq2xs_free_impl(LM_GGML_TYPE_IQ2_S);
     lm_iq2xs_free_impl(LM_GGML_TYPE_IQ1_S);
+    lm_iq2xs_free_impl(LM_GGML_TYPE_IQ1_M);
     lm_iq3xs_free_impl(256);
+    lm_iq3xs_free_impl(512);
 
     lm_ggml_critical_section_end();
 }

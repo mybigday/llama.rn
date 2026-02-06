@@ -24,8 +24,12 @@ struct lm_ggml_metal_command_buffer {
 };
 
 struct lm_ggml_metal {
+    char name[128];
+
     lm_ggml_metal_device_t  dev;
     lm_ggml_metal_library_t lib;
+
+    lm_ggml_metal_event_t ev_cpy; // for async copies
 
     dispatch_queue_t d_queue;
 
@@ -117,7 +121,11 @@ lm_ggml_metal_t lm_ggml_metal_init(lm_ggml_metal_device_t dev) {
         }
     }
 
-    //const struct lm_ggml_metal_device_props * props_dev = lm_ggml_metal_device_get_props(dev);
+    res->ev_cpy = lm_ggml_metal_device_event_init(dev);
+
+    const struct lm_ggml_metal_device_props * props_dev = lm_ggml_metal_device_get_props(dev);
+
+    snprintf(res->name, sizeof(res->name), "%s", props_dev->name);
 
     res->d_queue = dispatch_queue_create("ggml-metal", DISPATCH_QUEUE_CONCURRENT);
 
@@ -206,7 +214,13 @@ void lm_ggml_metal_free(lm_ggml_metal_t ctx) {
 
     dispatch_release(ctx->d_queue);
 
+    lm_ggml_metal_device_event_free(ctx->dev, ctx->ev_cpy);
+
     free(ctx);
+}
+
+const char * lm_ggml_metal_get_name(lm_ggml_metal_t ctx) {
+    return ctx->name;
 }
 
 void lm_ggml_metal_synchronize(lm_ggml_metal_t ctx) {
@@ -273,8 +287,8 @@ void lm_ggml_metal_set_tensor_async(lm_ggml_metal_t ctx, struct lm_ggml_tensor *
         // wrap the source data into a Metal buffer
         id<MTLDevice> device = lm_ggml_metal_device_get_obj(ctx->dev);
         id<MTLBuffer> buf_src = [device newBufferWithBytes:data
-                                                         length:size
-                                                        options:MTLResourceStorageModeShared];
+                                                    length:size
+                                                   options:MTLResourceStorageModeShared];
 
         LM_GGML_ASSERT(buf_src);
 
@@ -316,9 +330,9 @@ void lm_ggml_metal_get_tensor_async(lm_ggml_metal_t ctx, const struct lm_ggml_te
     @autoreleasepool {
         id<MTLDevice> device = lm_ggml_metal_device_get_obj(ctx->dev);
         id<MTLBuffer> buf_dst = [device newBufferWithBytesNoCopy:data
-                                                               length:size
-                                                              options:MTLResourceStorageModeShared
-                                                          deallocator:nil];
+                                                          length:size
+                                                         options:MTLResourceStorageModeShared
+                                                     deallocator:nil];
 
         LM_GGML_ASSERT(buf_dst);
 
@@ -356,9 +370,52 @@ void lm_ggml_metal_get_tensor_async(lm_ggml_metal_t ctx, const struct lm_ggml_te
     }
 }
 
+bool lm_ggml_metal_cpy_tensor_async(lm_ggml_metal_t ctx_src, lm_ggml_metal_t ctx_dst, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst) {
+    @autoreleasepool {
+        struct lm_ggml_metal_buffer_id bid_src = lm_ggml_metal_get_buffer_id(src);
+        struct lm_ggml_metal_buffer_id bid_dst = lm_ggml_metal_get_buffer_id(dst);
+
+        if (bid_src.metal == nil || bid_dst.metal == nil) {
+            return false;
+        }
+
+        // queue the copy operation into the Metal context
+        // this will be queued at the end, after any currently ongoing GPU operations
+        id<MTLCommandQueue> queue = lm_ggml_metal_device_get_queue(ctx_src->dev);
+        id<MTLCommandBuffer> cmd_buf = [queue commandBuffer];
+        id<MTLBlitCommandEncoder> encoder = [cmd_buf blitCommandEncoder];
+
+        [encoder copyFromBuffer:bid_src.metal
+                   sourceOffset:bid_src.offs
+                       toBuffer:bid_dst.metal
+              destinationOffset:bid_dst.offs
+                           size:lm_ggml_nbytes(src)];
+
+        [encoder endEncoding];
+
+        lm_ggml_metal_event_t ev_cpy = lm_ggml_metal_get_ev_cpy(ctx_src);
+        lm_ggml_metal_event_record(ctx_src, ev_cpy);
+
+        [cmd_buf commit];
+
+        // do not wait here for completion
+        //[cmd_buf waitUntilCompleted];
+
+        // instead, remember a reference to the command buffer and wait for it later if needed
+        [ctx_src->cmd_bufs_ext addObject:cmd_buf];
+        ctx_src->cmd_buf_last = cmd_buf;
+
+        [cmd_buf retain];
+
+        lm_ggml_metal_event_wait(ctx_dst, ev_cpy);
+
+        return true;
+    }
+}
+
 enum lm_ggml_status lm_ggml_metal_graph_compute(lm_ggml_metal_t ctx, struct lm_ggml_cgraph * gf) {
     // number of nodes encoded by the main thread (empirically determined)
-    const int n_main = 64;
+    const int n_main = MAX(64, 0.1*gf->n_nodes);
 
     // number of threads in addition to the main thread
     const int n_cb = ctx->n_cb;
@@ -528,6 +585,42 @@ void lm_ggml_metal_graph_optimize(lm_ggml_metal_t ctx, struct lm_ggml_cgraph * g
     }
 
     //printf("%s: graph optimize took %.3f ms\n", __func__, (lm_ggml_time_us() - t_start) / 1000.0);
+}
+
+void lm_ggml_metal_event_record(lm_ggml_metal_t ctx, lm_ggml_metal_event_t ev) {
+    @autoreleasepool {
+        id<MTLCommandQueue> queue = lm_ggml_metal_device_get_queue(ctx->dev);
+        id<MTLCommandBuffer> cmd_buf = [queue commandBuffer];
+
+        lm_ggml_metal_event_encode_signal(ev, cmd_buf);
+
+        [cmd_buf commit];
+
+        [ctx->cmd_bufs_ext addObject:cmd_buf];
+        ctx->cmd_buf_last = cmd_buf;
+
+        [cmd_buf retain];
+    }
+}
+
+void lm_ggml_metal_event_wait(lm_ggml_metal_t ctx, lm_ggml_metal_event_t ev) {
+    @autoreleasepool {
+        id<MTLCommandQueue> queue = lm_ggml_metal_device_get_queue(ctx->dev);
+        id<MTLCommandBuffer> cmd_buf = [queue commandBuffer];
+
+        lm_ggml_metal_event_encode_wait(ev, cmd_buf);
+
+        [cmd_buf commit];
+
+        [ctx->cmd_bufs_ext addObject:cmd_buf];
+        ctx->cmd_buf_last = cmd_buf;
+
+        [cmd_buf retain];
+    }
+}
+
+lm_ggml_metal_event_t lm_ggml_metal_get_ev_cpy(lm_ggml_metal_t ctx) {
+    return ctx->ev_cpy;
 }
 
 void lm_ggml_metal_set_n_cb(lm_ggml_metal_t ctx, int n_cb) {

@@ -258,6 +258,7 @@ void lm_ggml_backend_tensor_set_async(lm_ggml_backend_t backend, struct lm_ggml_
     LM_GGML_ASSERT(offset + size <= lm_ggml_nbytes(tensor) && "tensor write out of bounds");
 
     if (backend->iface.set_tensor_async == NULL) {
+        lm_ggml_backend_synchronize(backend);
         lm_ggml_backend_tensor_set(tensor, data, offset, size);
     } else {
         backend->iface.set_tensor_async(backend, tensor, data, offset, size);
@@ -271,6 +272,7 @@ void lm_ggml_backend_tensor_get_async(lm_ggml_backend_t backend, const struct lm
     LM_GGML_ASSERT(offset + size <= lm_ggml_nbytes(tensor) && "tensor read out of bounds");
 
     if (backend->iface.get_tensor_async == NULL) {
+        lm_ggml_backend_synchronize(backend);
         lm_ggml_backend_tensor_get(tensor, data, offset, size);
     } else {
         backend->iface.get_tensor_async(backend, tensor, data, offset, size);

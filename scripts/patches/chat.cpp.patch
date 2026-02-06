@@ -38,15 +38,3 @@
  common_chat_templates_ptr common_chat_templates_init(
      const struct llama_model * model,
      const std::string & chat_template_override,
-@@ -831,7 +862,8 @@
-     if (inputs.add_generation_prompt) {
-         inp["add_generation_prompt"] = true;
-     }
--    if (inp["tools"].is_null()) {
--        inp["tools"] = json::array();
-+    // Remove tools key when null, so templates can check "{% if tools is defined %}"
-+    if (inp["tools"].is_null() || (inp["tools"].is_array() && inp["tools"].empty())) {
-+        inp.erase("tools");
-     }
-
-     jinja::global_from_json(ctx, inp, inputs.mark_input);
