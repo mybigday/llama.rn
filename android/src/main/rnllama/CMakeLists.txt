@@ -154,13 +154,10 @@ function(build_rnllama_library target_name arch cpu_flags)
                 ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp-drv.cpp
             )
 
-            # Use pre-built stub
-            set(HEXAGON_PREBUILT_STUB "${RNLLAMA_LIB_DIR}/ggml-hexagon/htp/v73/htp_iface_stub.c")
-            if (EXISTS ${HEXAGON_PREBUILT_STUB})
-                target_sources(${target_name} PRIVATE ${HEXAGON_PREBUILT_STUB})
-            else()
-                message(WARNING "Pre-built HTP stub not found: ${HEXAGON_PREBUILT_STUB}")
-            endif()
+            # Use pre-built stub (always present in source tree)
+            target_sources(${target_name} PRIVATE
+                ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp/v73/htp_iface_stub.c
+            )
 
             # Use pre-built IDL headers from build-hexagon-htp directory
             set(HEXAGON_PREBUILT_HTP_DIR "${RNLLAMA_LIB_DIR}/ggml-hexagon/htp/v73/")
