@@ -108,6 +108,7 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_poo
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_pool_2d           (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op, enum lm_ggml_op_pool op_pool);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_get_rows          (lm_ggml_metal_library_t lib, enum lm_ggml_type tsrc);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_set_rows          (lm_ggml_metal_library_t lib, enum lm_ggml_type tidx, enum lm_ggml_type tdst);
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_diag              (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_repeat            (lm_ggml_metal_library_t lib, enum lm_ggml_type tsrc);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_unary             (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_glu               (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
@@ -121,6 +122,7 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_conv_batched  (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op, int ssm_conv_bs);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_scan          (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_rwkv              (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_solve_tri         (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul_mv_ext        (lm_ggml_metal_library_t lib, enum lm_ggml_type tsrc0, enum lm_ggml_type tsrc1, int nsg, int nxpsg, int r1ptg);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul_mm            (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul_mv            (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
@@ -205,7 +207,9 @@ void lm_ggml_metal_rsets_free(lm_ggml_metal_rsets_t rsets);
 //
 
 struct lm_ggml_metal_device_props {
+    int device;
     char name[128];
+    char desc[128];
 
     size_t max_buffer_size;
     size_t max_working_set_size;
@@ -224,11 +228,15 @@ struct lm_ggml_metal_device_props {
     int op_offload_min_batch_size;
 };
 
-lm_ggml_metal_device_t lm_ggml_metal_device_init(void);
+typedef struct lm_ggml_metal_event * lm_ggml_metal_event_t;
+
+void lm_ggml_metal_event_encode_signal(lm_ggml_metal_event_t ev, lm_ggml_metal_cmd_buf_t cmd_buf);
+void lm_ggml_metal_event_encode_wait  (lm_ggml_metal_event_t ev, lm_ggml_metal_cmd_buf_t cmd_buf);
+
+lm_ggml_metal_device_t lm_ggml_metal_device_init(int device);
 void lm_ggml_metal_device_free(lm_ggml_metal_device_t dev);
 
-// return a singleton that is automatically destroyed when the program exits
-lm_ggml_metal_device_t lm_ggml_metal_device_get(void);
+lm_ggml_metal_device_t lm_ggml_metal_device_get(int device);
 
 void * lm_ggml_metal_device_get_obj  (lm_ggml_metal_device_t dev); // id<MTLDevice>
 void * lm_ggml_metal_device_get_queue(lm_ggml_metal_device_t dev); // id<MTLCommandQueue>
@@ -239,6 +247,10 @@ void lm_ggml_metal_device_rsets_add(lm_ggml_metal_device_t dev, lm_ggml_metal_rs
 void lm_ggml_metal_device_rsets_rm (lm_ggml_metal_device_t dev, lm_ggml_metal_rset_t rset);
 
 void lm_ggml_metal_device_rsets_keep_alive(lm_ggml_metal_device_t dev);
+
+lm_ggml_metal_event_t lm_ggml_metal_device_event_init(lm_ggml_metal_device_t dev);
+void lm_ggml_metal_device_event_free(lm_ggml_metal_device_t dev, lm_ggml_metal_event_t ev);
+void lm_ggml_metal_device_event_synchronize(lm_ggml_metal_device_t dev, lm_ggml_metal_event_t ev);
 
 void lm_ggml_metal_device_get_memory(lm_ggml_metal_device_t dev, size_t * free, size_t * total);
 bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct lm_ggml_tensor * op);

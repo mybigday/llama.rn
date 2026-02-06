@@ -19,6 +19,9 @@ extern "C" {
         // abort lm_ggml_graph_compute when true
         lm_ggml_abort_callback abort_callback;
         void *              abort_callback_data;
+
+        // use only reference implementations
+        bool use_ref;
     };
 
     // numa strategies
@@ -131,6 +134,8 @@ extern "C" {
     LM_GGML_BACKEND_API void lm_ggml_backend_cpu_set_n_threads     (lm_ggml_backend_t backend_cpu, int n_threads);
     LM_GGML_BACKEND_API void lm_ggml_backend_cpu_set_threadpool    (lm_ggml_backend_t backend_cpu, lm_ggml_threadpool_t threadpool);
     LM_GGML_BACKEND_API void lm_ggml_backend_cpu_set_abort_callback(lm_ggml_backend_t backend_cpu, lm_ggml_abort_callback abort_callback, void * abort_callback_data);
+
+    LM_GGML_BACKEND_API void lm_ggml_backend_cpu_set_use_ref(lm_ggml_backend_t backend_cpu, bool use_ref);
 
     LM_GGML_BACKEND_API lm_ggml_backend_reg_t lm_ggml_backend_cpu_reg(void);
 

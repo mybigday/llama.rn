@@ -64,6 +64,7 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/ggml.c
     ${SOURCE_DIR}/ggml-alloc.c
     ${SOURCE_DIR}/ggml-backend.cpp
+    ${RNLLAMA_LIB_DIR}/ggml-backend-dl.cpp
     ${SOURCE_DIR}/ggml-backend-reg.cpp
     ${SOURCE_DIR}/ggml-opt.cpp
     ${SOURCE_DIR}/ggml-threading.cpp

@@ -15,13 +15,21 @@ typedef struct lm_ggml_metal * lm_ggml_metal_t;
 lm_ggml_metal_t lm_ggml_metal_init(lm_ggml_metal_device_t dev);
 void lm_ggml_metal_free(lm_ggml_metal_t ctx);
 
+const char * lm_ggml_metal_get_name(lm_ggml_metal_t ctx);
+
 void lm_ggml_metal_synchronize(lm_ggml_metal_t ctx);
 
 void lm_ggml_metal_set_tensor_async(lm_ggml_metal_t ctx, struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size);
 void lm_ggml_metal_get_tensor_async(lm_ggml_metal_t ctx, const struct lm_ggml_tensor * tensor, void * data, size_t offset, size_t size);
+bool lm_ggml_metal_cpy_tensor_async(lm_ggml_metal_t ctx_src, lm_ggml_metal_t ctx_dst, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
 
 enum lm_ggml_status lm_ggml_metal_graph_compute (lm_ggml_metal_t ctx, struct lm_ggml_cgraph * gf);
 void             lm_ggml_metal_graph_optimize(lm_ggml_metal_t ctx, struct lm_ggml_cgraph * gf);
+
+void lm_ggml_metal_event_record(lm_ggml_metal_t ctx, lm_ggml_metal_event_t ev);
+void lm_ggml_metal_event_wait  (lm_ggml_metal_t ctx, lm_ggml_metal_event_t ev);
+
+lm_ggml_metal_event_t lm_ggml_metal_get_ev_cpy(lm_ggml_metal_t ctx);
 
 void lm_ggml_metal_set_n_cb            (lm_ggml_metal_t ctx, int n_cb);
 void lm_ggml_metal_set_abort_callback  (lm_ggml_metal_t ctx, lm_ggml_abort_callback abort_callback, void * user_data);

@@ -36,6 +36,7 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml.c
     ${RNLLAMA_LIB_DIR}/ggml-alloc.c
     ${RNLLAMA_LIB_DIR}/ggml-backend.cpp
+    ${RNLLAMA_LIB_DIR}/ggml-backend-dl.cpp
     ${RNLLAMA_LIB_DIR}/ggml-backend-reg.cpp
     ${RNLLAMA_LIB_DIR}/ggml-opt.cpp
     ${RNLLAMA_LIB_DIR}/ggml-threading.cpp
@@ -150,7 +151,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             # Add host-side hexagon sources
             target_sources(${target_name} PRIVATE
                 ${RNLLAMA_LIB_DIR}/ggml-hexagon/ggml-hexagon.cpp
-                ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp-utils.c
+                ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp-drv.cpp
             )
 
             # Use pre-built stub
@@ -236,7 +237,8 @@ function(build_rnllama_library target_name arch cpu_flags)
             mul_mv_q4_0_f32_8x_flat
             mul_mv_q4_0_f32_1d_8x_flat
             mul_mv_q4_0_f32_1d_16x_flat
-            mul_mv_q6_k
+            mul_mv_q6_k_f32
+            mul_mv_q6_k_f32_flat
             mul_mv_q8_0_f32
             mul_mv_q8_0_f32_flat
             mul_mv_mxfp4_f32
@@ -251,6 +253,8 @@ function(build_rnllama_library target_name arch cpu_flags)
             mul_mm_f32_f32_l4_lm
             mul_mm_f16_f32_l4_lm
             mul_mm_q8_0_f32_l4_lm
+            mul_mm_q8_0_f32_8x4
+            gemv_noshuffle_general_q8_0_f32
             mul
             norm
             relu

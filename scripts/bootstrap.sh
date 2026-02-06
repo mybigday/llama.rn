@@ -186,6 +186,8 @@ cp ./$LLAMA_DIR/ggml/src/ggml-alloc.c ./cpp/ggml-alloc.c
 cp ./$LLAMA_DIR/ggml/src/ggml-backend.cpp ./cpp/ggml-backend.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-backend-impl.h ./cpp/ggml-backend-impl.h
 cp ./$LLAMA_DIR/ggml/src/ggml-backend-reg.cpp ./cpp/ggml-backend-reg.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-backend-dl.h ./cpp/ggml-backend-dl.h
+cp ./$LLAMA_DIR/ggml/src/ggml-backend-dl.cpp ./cpp/ggml-backend-dl.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-common.h ./cpp/ggml-common.h
 cp ./$LLAMA_DIR/ggml/src/ggml-opt.cpp ./cpp/ggml-opt.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-quants.h ./cpp/ggml-quants.h
@@ -331,7 +333,6 @@ files_add_lm_prefix=(
   ./cpp/ggml-opencl/*.cpp
 
   ./cpp/ggml-hexagon/*.cpp
-  ./cpp/ggml-hexagon/*.c
   ./cpp/ggml-hexagon/*.h
   ./cpp/ggml-hexagon/htp/*.c
   ./cpp/ggml-hexagon/htp/*.h

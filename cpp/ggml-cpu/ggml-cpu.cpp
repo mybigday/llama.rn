@@ -105,6 +105,8 @@ struct lm_ggml_backend_cpu_context {
 
     lm_ggml_abort_callback abort_callback;
     void *              abort_callback_data;
+
+    bool                use_ref;  // use reference implementation
 };
 
 static const char * lm_ggml_backend_cpu_get_name(lm_ggml_backend_t backend) {
@@ -143,6 +145,7 @@ static lm_ggml_backend_graph_plan_t lm_ggml_backend_cpu_graph_plan_create(lm_ggm
 
     cpu_plan->cplan.abort_callback      = cpu_ctx->abort_callback;
     cpu_plan->cplan.abort_callback_data = cpu_ctx->abort_callback_data;
+    cpu_plan->cplan.use_ref             = cpu_ctx->use_ref;
 
     return cpu_plan;
 }
@@ -182,6 +185,7 @@ static enum lm_ggml_status lm_ggml_backend_cpu_graph_compute(lm_ggml_backend_t b
 
     cplan.abort_callback      = cpu_ctx->abort_callback;
     cplan.abort_callback_data = cpu_ctx->abort_callback_data;
+    cplan.use_ref             = cpu_ctx->use_ref;
 
     return lm_ggml_graph_compute(cgraph, &cplan);
 }
@@ -223,6 +227,7 @@ lm_ggml_backend_t lm_ggml_backend_cpu_init(void) {
     ctx->work_size           = 0;
     ctx->abort_callback      = NULL;
     ctx->abort_callback_data = NULL;
+    ctx->use_ref             = false;
 
     lm_ggml_backend_t cpu_backend = new lm_ggml_backend {
         /* .guid    = */ lm_ggml_backend_cpu_guid(),
@@ -268,6 +273,13 @@ void lm_ggml_backend_cpu_set_abort_callback(lm_ggml_backend_t backend_cpu, lm_gg
     struct lm_ggml_backend_cpu_context * ctx = (struct lm_ggml_backend_cpu_context *)backend_cpu->context;
     ctx->abort_callback = abort_callback;
     ctx->abort_callback_data = abort_callback_data;
+}
+
+void lm_ggml_backend_cpu_set_use_ref(lm_ggml_backend_t backend_cpu, bool use_ref) {
+    LM_GGML_ASSERT(lm_ggml_backend_is_cpu(backend_cpu));
+
+    struct lm_ggml_backend_cpu_context * ctx = (struct lm_ggml_backend_cpu_context *)backend_cpu->context;
+    ctx->use_ref = use_ref;
 }
 
 // CPU backend - device
@@ -645,6 +657,9 @@ static void * lm_ggml_backend_cpu_get_proc_address(lm_ggml_backend_reg_t reg, co
     }
     if (strcmp(name, "lm_ggml_backend_cpu_is_numa") == 0) {
         return (void *)lm_ggml_is_numa;
+    }
+    if (strcmp(name, "lm_ggml_backend_cpu_set_use_ref") == 0) {
+        return (void *)lm_ggml_backend_cpu_set_use_ref;
     }
 
     // threadpool - TODO:  move to ggml-base
