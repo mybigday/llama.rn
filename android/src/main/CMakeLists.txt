@@ -41,6 +41,14 @@ set(JNI_SOURCE_FILES
 )
 
 function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
+    if (NOT RNLLAMA_BUILD_FROM_SOURCE)
+        set(PREBUILT_CHECK_PATH ${CMAKE_SOURCE_DIR}/jniLibs/${ANDROID_ABI}/lib${rnllama_name}.so)
+        if (NOT EXISTS ${PREBUILT_CHECK_PATH})
+            message(STATUS "Skipping ${jni_name} - no prebuilt for ${ANDROID_ABI}")
+            return()
+        endif()
+    endif()
+
     set(ENABLE_OPENCL OFF)
     if (${rnllama_name} MATCHES ".*_opencl$")
         set(ENABLE_OPENCL ON)
@@ -97,11 +105,7 @@ function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
         # The prebuilt .so files will be loaded at runtime via System.loadLibrary()
         # We need to tell CMake where to find them for linking
         set(PREBUILT_LIB_PATH ${CMAKE_SOURCE_DIR}/jniLibs/${ANDROID_ABI}/lib${rnllama_name}.so)
-        if (EXISTS ${PREBUILT_LIB_PATH})
-            target_link_libraries(${jni_name} PRIVATE ${PREBUILT_LIB_PATH})
-        else()
-            message(FATAL_ERROR "Prebuilt library not found: ${PREBUILT_LIB_PATH}")
-        endif()
+        target_link_libraries(${jni_name} PRIVATE ${PREBUILT_LIB_PATH})
     endif()
 
     target_compile_options(${jni_name} PRIVATE -pthread ${cpu_flags})
