@@ -288,6 +288,33 @@ struct llm_build_jamba : public llm_graph_context_mamba {
     llm_build_jamba(const llama_model & model, const llm_graph_params & params);
 };
 
+struct llm_build_kimi_linear : public llm_graph_context_mamba {
+    llm_build_kimi_linear(const llama_model & model, const llm_graph_params & params);
+
+    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> build_kda_autoregressive(
+                lm_ggml_tensor * q,
+                lm_ggml_tensor * k,
+                lm_ggml_tensor * v,
+                lm_ggml_tensor * gk,
+                lm_ggml_tensor * beta,
+                lm_ggml_tensor * state,
+                        int   il);
+
+    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> build_kda_chunking(
+                lm_ggml_tensor * q,
+                lm_ggml_tensor * k,
+                lm_ggml_tensor * v,
+                lm_ggml_tensor * gk,
+                lm_ggml_tensor * beta,
+                lm_ggml_tensor * state,
+                lm_ggml_tensor * causal_mask,
+                lm_ggml_tensor * identity,
+                lm_ggml_tensor * diag_mask,
+                        int   il);
+
+    const llama_model & model;
+};
+
 struct llm_build_lfm2 : public llm_graph_context {
     const llama_model & model;
 
@@ -554,6 +581,10 @@ struct llm_build_starcoder2 : public llm_graph_context {
 
 struct llm_build_starcoder : public llm_graph_context {
     llm_build_starcoder(const llama_model & model, const llm_graph_params & params);
+};
+
+struct llm_build_step35_iswa : public llm_graph_context {
+    llm_build_step35_iswa(const llama_model & model, const llm_graph_params & params);
 };
 
 struct llm_build_t5_dec : public llm_graph_context {

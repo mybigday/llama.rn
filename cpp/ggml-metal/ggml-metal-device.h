@@ -53,6 +53,9 @@ struct lm_ggml_metal_pipeline_with_params {
     int nr1;
 
     size_t smem;
+
+    bool c4;
+    bool cnt;
 };
 
 int lm_ggml_metal_pipeline_max_theads_per_threadgroup(struct lm_ggml_metal_pipeline_with_params pipeline);
@@ -134,7 +137,8 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_arg
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_argsort_merge     (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_top_k             (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_top_k_merge       (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
-struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_bin               (lm_ggml_metal_library_t lib, enum lm_ggml_op op, int32_t n_fuse, bool row);
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_bin               (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op, int32_t n_fuse );
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_bin_one           (lm_ggml_metal_library_t lib, enum lm_ggml_op op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_l2_norm           (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_group_norm        (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_norm              (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op, int32_t n_fuse);
