@@ -7629,8 +7629,7 @@ static void lm_ggml_compute_forward_pad_f32(
 
     const lm_ggml_tensor * src0 = dst->src[0];
 
-    LM_GGML_ASSERT(src0->nb[0] == sizeof(float));
-    LM_GGML_ASSERT( dst->nb[0] == sizeof(float));
+    assert(dst->nb[0] == sizeof(float));
 
     const int ith = params->ith;
     const int nth = params->nth;

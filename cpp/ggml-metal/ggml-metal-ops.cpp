@@ -707,7 +707,7 @@ int lm_ggml_metal_op_acc(lm_ggml_metal_op_t ctx, int idx) {
         /*.o1   =*/ { 0 },
     };
 
-    auto pipeline = lm_ggml_metal_library_get_pipeline_bin(lib, LM_GGML_OP_ADD, 1, false);
+    auto pipeline = lm_ggml_metal_library_get_pipeline_bin_one(lib, LM_GGML_OP_ADD);
 
     lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
     lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
@@ -2895,8 +2895,6 @@ int lm_ggml_metal_op_bin(lm_ggml_metal_op_t ctx, int idx) {
     LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(op->src[0]));
     LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(op->src[1]));
 
-    bool bcast_row = false;
-
     lm_ggml_metal_buffer_id bid_src0 = lm_ggml_metal_get_buffer_id(op->src[0]);
     lm_ggml_metal_buffer_id bid_src1 = lm_ggml_metal_get_buffer_id(op->src[1]);
     lm_ggml_metal_buffer_id bid_dst  = lm_ggml_metal_get_buffer_id(op);
@@ -2990,18 +2988,7 @@ int lm_ggml_metal_op_bin(lm_ggml_metal_op_t ctx, int idx) {
 
     struct lm_ggml_metal_pipeline_with_params pipeline;
 
-    if (lm_ggml_nelements(op->src[1]) == ne10 && lm_ggml_is_contiguous(op->src[1]) && ne00 % 4 == 0 && ne10 % 4 == 0) {
-        LM_GGML_ASSERT(lm_ggml_is_contiguous(op->src[0]));
-
-        // src1 is a row
-        LM_GGML_ASSERT(ne11 == 1);
-
-        pipeline = lm_ggml_metal_library_get_pipeline_bin(lib, op->op, n_fuse, true);
-
-        bcast_row = true;
-    } else {
-        pipeline = lm_ggml_metal_library_get_pipeline_bin(lib, op->op, n_fuse, false);
-    }
+    pipeline = lm_ggml_metal_library_get_pipeline_bin(lib, op, n_fuse);
 
     if (n_fuse > 1) {
         bid_dst = lm_ggml_metal_get_buffer_id(ctx->node(idx + n_fuse - 1));
@@ -3015,20 +3002,28 @@ int lm_ggml_metal_op_bin(lm_ggml_metal_op_t ctx, int idx) {
         }
     }
 
+    if (pipeline.c4) {
+        args.ne00 = ne00/4;
+        args.ne10 = ne10/4;
+        args.ne0  = ne0/4;
+    }
+
     lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
     lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
     lm_ggml_metal_encoder_set_buffer  (enc, bid_src0, 1);
     lm_ggml_metal_encoder_set_buffer  (enc, bid_src1, 2);
     lm_ggml_metal_encoder_set_buffer  (enc, bid_dst,  3);
 
-    if (bcast_row) {
-        const int64_t n = lm_ggml_nelements(op)/4;
+    if (pipeline.cnt) {
+        const int n = pipeline.c4 ? lm_ggml_nelements(op)/4 : lm_ggml_nelements(op);
 
         lm_ggml_metal_encoder_dispatch_threadgroups(enc, n, 1, 1, 1, 1, 1);
     } else {
-        int nth = 32;
+        const int nth_max = MIN(256, lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
 
-        while (16*nth < ne0 && nth < lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline)) {
+        int nth = 1;
+
+        while (2*nth < args.ne0 && nth < nth_max) {
             nth *= 2;
         }
 

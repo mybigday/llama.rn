@@ -394,7 +394,7 @@ bool lm_ggml_metal_cpy_tensor_async(lm_ggml_metal_t ctx_src, lm_ggml_metal_t ctx
         [encoder endEncoding];
 
         lm_ggml_metal_event_t ev_cpy = lm_ggml_metal_get_ev_cpy(ctx_src);
-        lm_ggml_metal_event_record(ctx_src, ev_cpy);
+        lm_ggml_metal_event_encode_signal(ev_cpy, cmd_buf);
 
         [cmd_buf commit];
 

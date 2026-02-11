@@ -346,10 +346,12 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline(lm_
 
     struct lm_ggml_metal_pipeline_with_params res = {
         /*.pipeline =*/ nil,
+        /*.nsg      =*/ 0,
         /*.nr0      =*/ 0,
         /*.nr1      =*/ 0,
-        /*.nsg      =*/ 0,
         /*.smem     =*/ 0,
+        /*.c4       =*/ false,
+        /*.cnt      =*/ false,
     };
 
     res.pipeline = lm_ggml_metal_pipelines_get(lib->pipelines, name);
@@ -362,10 +364,12 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline(lm_
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_compile_pipeline(lm_ggml_metal_library_t lib, const char * base, const char * name, lm_ggml_metal_cv_t cv) {
     struct lm_ggml_metal_pipeline_with_params res = {
         /*.pipeline =*/ nil,
+        /*.nsg      =*/ 0,
         /*.nr0      =*/ 0,
         /*.nr1      =*/ 0,
-        /*.nsg      =*/ 0,
         /*.smem     =*/ 0,
+        /*.c4       =*/ false,
+        /*.cnt      =*/ false,
     };
 
     [lib->lock lock];
@@ -1054,7 +1058,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
         case LM_GGML_OP_MUL:
         case LM_GGML_OP_DIV:
         case LM_GGML_OP_ADD_ID:
-            return op->src[0]->type == LM_GGML_TYPE_F32;
+            return lm_ggml_is_contiguous_rows(op->src[0]) && lm_ggml_is_contiguous_rows(op->src[1]) && op->src[0]->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_ACC:
         case LM_GGML_OP_REPEAT:
         case LM_GGML_OP_SCALE:

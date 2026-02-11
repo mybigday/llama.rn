@@ -242,8 +242,8 @@ cp ./$LLAMA_DIR/src/llama-vocab.h ./cpp/llama-vocab.h
 cp ./$LLAMA_DIR/src/llama-vocab.cpp ./cpp/llama-vocab.cpp
 cp ./$LLAMA_DIR/src/llama-grammar.h ./cpp/llama-grammar.h
 cp ./$LLAMA_DIR/src/llama-grammar.cpp ./cpp/llama-grammar.cpp
-cp ./$LLAMA_DIR/src/llama-sampling.h ./cpp/llama-sampling.h
-cp ./$LLAMA_DIR/src/llama-sampling.cpp ./cpp/llama-sampling.cpp
+cp ./$LLAMA_DIR/src/llama-sampler.h ./cpp/llama-sampler.h
+cp ./$LLAMA_DIR/src/llama-sampler.cpp ./cpp/llama-sampler.cpp
 
 cp ./$LLAMA_DIR/src/unicode.h ./cpp/unicode.h
 cp ./$LLAMA_DIR/src/unicode.cpp ./cpp/unicode.cpp
