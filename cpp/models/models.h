@@ -476,6 +476,7 @@ struct llm_build_qwen3vl : public llm_graph_context {
 struct llm_build_qwen3vlmoe : public llm_graph_context {
     llm_build_qwen3vlmoe(const llama_model & model, const llm_graph_params & params);
 };
+
 struct llm_build_qwen3next : public llm_graph_context_mamba {
     llm_build_qwen3next(const llama_model & model, const llm_graph_params & params);
 private:
@@ -483,6 +484,124 @@ private:
     llm_graph_input_attn_kv * inp_attn,
                 lm_ggml_tensor * cur,
                 lm_ggml_tensor * inp_pos,
+                        int   il);
+
+    lm_ggml_tensor * build_layer_attn_linear(
+         llm_graph_input_rs * inp,
+                lm_ggml_tensor * cur,
+                lm_ggml_tensor * causal_mask,
+                lm_ggml_tensor * identity,
+                lm_ggml_tensor * diag_mask,
+                        int   il);
+
+    lm_ggml_tensor * build_layer_ffn(
+                lm_ggml_tensor * cur,
+                        int   il);
+
+    // returns pair of output and new state
+    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> build_delta_net_chunking(
+                lm_ggml_tensor * q,
+                lm_ggml_tensor * k,
+                lm_ggml_tensor * v,
+                lm_ggml_tensor * g,
+                lm_ggml_tensor * beta,
+                lm_ggml_tensor * state,
+                lm_ggml_tensor * causal_mask,
+                lm_ggml_tensor * identity,
+                lm_ggml_tensor * diag_mask,
+                        int   il);
+
+    // returns pair of output and new state
+    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> build_delta_net_autoregressive(
+                lm_ggml_tensor * q,
+                lm_ggml_tensor * k,
+                lm_ggml_tensor * v,
+                lm_ggml_tensor * g,
+                lm_ggml_tensor * beta,
+                lm_ggml_tensor * state,
+                int           il);
+
+    lm_ggml_tensor * build_norm_gated(
+                lm_ggml_tensor * input,
+                lm_ggml_tensor * weights,
+                lm_ggml_tensor * gate,
+                        int   layer);
+
+    // returns pair of qkv, z
+    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> build_qkvz(
+                lm_ggml_tensor * input,
+                        int   il);
+
+    const llama_model & model;
+};
+
+struct llm_build_qwen35 : public llm_graph_context_mamba {
+    llm_build_qwen35(const llama_model & model, const llm_graph_params & params);
+private:
+    lm_ggml_tensor * build_layer_attn(
+    llm_graph_input_attn_kv * inp_attn,
+                lm_ggml_tensor * cur,
+                lm_ggml_tensor * inp_pos,
+                        int * sections,
+                        int   il);
+
+    lm_ggml_tensor * build_layer_attn_linear(
+         llm_graph_input_rs * inp,
+                lm_ggml_tensor * cur,
+                lm_ggml_tensor * causal_mask,
+                lm_ggml_tensor * identity,
+                lm_ggml_tensor * diag_mask,
+                        int   il);
+
+    lm_ggml_tensor * build_layer_ffn(
+                lm_ggml_tensor * cur,
+                        int   il);
+
+    // returns pair of output and new state
+    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> build_delta_net_chunking(
+                lm_ggml_tensor * q,
+                lm_ggml_tensor * k,
+                lm_ggml_tensor * v,
+                lm_ggml_tensor * g,
+                lm_ggml_tensor * beta,
+                lm_ggml_tensor * state,
+                lm_ggml_tensor * causal_mask,
+                lm_ggml_tensor * identity,
+                lm_ggml_tensor * diag_mask,
+                        int   il);
+
+    // returns pair of output and new state
+    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> build_delta_net_autoregressive(
+                lm_ggml_tensor * q,
+                lm_ggml_tensor * k,
+                lm_ggml_tensor * v,
+                lm_ggml_tensor * g,
+                lm_ggml_tensor * beta,
+                lm_ggml_tensor * state,
+                int           il);
+
+    lm_ggml_tensor * build_norm_gated(
+                lm_ggml_tensor * input,
+                lm_ggml_tensor * weights,
+                lm_ggml_tensor * gate,
+                        int   layer);
+
+    // returns pair of qkv, z
+    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> build_qkvz(
+                lm_ggml_tensor * input,
+                        int   il);
+
+    const llama_model & model;
+};
+
+struct llm_build_qwen35moe : public llm_graph_context_mamba {
+    llm_build_qwen35moe(const llama_model & model, const llm_graph_params & params);
+private:
+    lm_ggml_tensor * build_layer_attn(
+    llm_graph_input_attn_kv * inp_attn,
+                lm_ggml_tensor * cur,
+                lm_ggml_tensor * inp_pos,
+                        int * sections,
                         int   il);
 
     lm_ggml_tensor * build_layer_attn_linear(
