@@ -46,9 +46,6 @@ size_t lm_ggml_metal_op_flash_attn_ext_extra_tmp(const struct lm_ggml_tensor * o
 int lm_ggml_metal_op_concat            (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_repeat            (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_acc               (lm_ggml_metal_op_t ctx, int idx);
-int lm_ggml_metal_op_scale             (lm_ggml_metal_op_t ctx, int idx);
-int lm_ggml_metal_op_fill              (lm_ggml_metal_op_t ctx, int idx);
-int lm_ggml_metal_op_clamp             (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_unary             (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_glu               (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_sum               (lm_ggml_metal_op_t ctx, int idx);
@@ -86,7 +83,6 @@ int lm_ggml_metal_op_timestep_embedding(lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_argmax            (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_argsort           (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_top_k             (lm_ggml_metal_op_t ctx, int idx);
-int lm_ggml_metal_op_leaky_relu        (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_tri               (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_opt_step_adamw    (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_opt_step_sgd      (lm_ggml_metal_op_t ctx, int idx);

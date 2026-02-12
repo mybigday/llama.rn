@@ -1011,6 +1011,15 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
     }
 
     switch (op->op) {
+        case LM_GGML_OP_SCALE:
+        case LM_GGML_OP_FILL:
+        case LM_GGML_OP_CLAMP:
+        case LM_GGML_OP_SQR:
+        case LM_GGML_OP_SQRT:
+        case LM_GGML_OP_SIN:
+        case LM_GGML_OP_COS:
+        case LM_GGML_OP_LOG:
+            return lm_ggml_is_contiguous_rows(op->src[0]) && (op->src[0]->type == LM_GGML_TYPE_F32 || op->src[0]->type == LM_GGML_TYPE_F16);
         case LM_GGML_OP_UNARY:
             switch (lm_ggml_get_unary_op(op)) {
                 case LM_GGML_UNARY_OP_TANH:
@@ -1030,7 +1039,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                 case LM_GGML_UNARY_OP_EXP:
                 case LM_GGML_UNARY_OP_SOFTPLUS:
                 case LM_GGML_UNARY_OP_EXPM1:
-                    return lm_ggml_is_contiguous(op->src[0]) && op->src[0]->type == LM_GGML_TYPE_F32;
+                    return lm_ggml_is_contiguous_rows(op->src[0]) && (op->src[0]->type == LM_GGML_TYPE_F32 || op->src[0]->type == LM_GGML_TYPE_F16);
                 default:
                     return false;
             }
@@ -1061,8 +1070,6 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
             return lm_ggml_is_contiguous_rows(op->src[0]) && lm_ggml_is_contiguous_rows(op->src[1]) && op->src[0]->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_ACC:
         case LM_GGML_OP_REPEAT:
-        case LM_GGML_OP_SCALE:
-        case LM_GGML_OP_FILL:
         case LM_GGML_OP_CONV_TRANSPOSE_1D:
             return true;
         case LM_GGML_OP_CONV_TRANSPOSE_2D:
@@ -1070,14 +1077,6 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                 (op->src[0]->type == LM_GGML_TYPE_F16 || op->src[0]->type == LM_GGML_TYPE_F32) &&
                 op->src[1]->type == LM_GGML_TYPE_F32 &&
                 op->type == LM_GGML_TYPE_F32;
-        case LM_GGML_OP_CLAMP:
-            return op->src[0]->type == LM_GGML_TYPE_F32;
-        case LM_GGML_OP_SQR:
-        case LM_GGML_OP_SQRT:
-        case LM_GGML_OP_SIN:
-        case LM_GGML_OP_COS:
-        case LM_GGML_OP_LOG:
-            return lm_ggml_is_contiguous(op->src[0]) && op->src[0]->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_SUM:
             return has_simdgroup_reduction && lm_ggml_is_contiguous(op->src[0]);
         case LM_GGML_OP_TRI:
@@ -1087,9 +1086,8 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
         case LM_GGML_OP_MEAN:
         case LM_GGML_OP_SOFT_MAX:
         case LM_GGML_OP_GROUP_NORM:
-            return has_simdgroup_reduction && lm_ggml_is_contiguous_rows(op->src[0]);
         case LM_GGML_OP_L2_NORM:
-            return has_simdgroup_reduction && (op->ne[0] % 4 == 0 && lm_ggml_is_contiguous_1(op->src[0]));
+            return has_simdgroup_reduction && lm_ggml_is_contiguous_rows(op->src[0]);
         case LM_GGML_OP_COUNT_EQUAL:
             return has_simdgroup_reduction &&
                 op->src[0]->type == LM_GGML_TYPE_I32 &&
