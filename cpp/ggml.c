@@ -5757,7 +5757,7 @@ static struct lm_ggml_tensor * lm_ggml_unary_impl(
         struct lm_ggml_tensor  * a,
         enum lm_ggml_unary_op    op,
         bool                  inplace) {
-    LM_GGML_ASSERT(lm_ggml_is_contiguous_1(a));
+    LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(a));
 
     struct lm_ggml_tensor * result = inplace ? lm_ggml_view_tensor(ctx, a) : lm_ggml_dup_tensor(ctx, a);
 

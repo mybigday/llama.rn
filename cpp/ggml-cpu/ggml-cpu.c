@@ -2874,8 +2874,8 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
                         const int64_t DV = node->src[2]->ne[0];
 
                         // Tiled flash attention scratch (tile sizes defined in common.h)
-                        // Per-thread: Q_q + KQ + mask + VKQ32 + V32 + padding
-                        size_t prefill  = sizeof(float)*(LM_GGML_FA_TILE_Q*DK + 2*LM_GGML_FA_TILE_Q*LM_GGML_FA_TILE_KV + LM_GGML_FA_TILE_Q*DV + LM_GGML_FA_TILE_KV*DV)*n_tasks;
+                        // Per-thread: Q_q + KQ + mask + VKQ32 + V32 + K_f32 + padding
+                        size_t prefill  = sizeof(float)*(LM_GGML_FA_TILE_Q*DK + 2*LM_GGML_FA_TILE_Q*LM_GGML_FA_TILE_KV + LM_GGML_FA_TILE_Q*DV + LM_GGML_FA_TILE_KV*DV + LM_GGML_FA_TILE_KV*DK)*n_tasks;
 
                         // Decode path: n_kv_chunks = n_tasks (one chunk per thread)
                         // Per-thread: VKQ accmulator (DV), partial M, partial S + intra-thread scratch for V, Q and VKQ
@@ -2947,7 +2947,11 @@ static thread_ret_t lm_ggml_graph_compute_thread(void * data) {
         /*.use_ref    =*/ cplan->use_ref,
     };
 
-    LM_GGML_PRINT_DEBUG("thread #%d compute-start cplan %p last-graph %d \n", state->ith, cplan, state->last_graph);
+#ifdef LM_GGML_USE_OPENMP
+    LM_GGML_PRINT_DEBUG("thread #%d compute-start cplan %p\n", state->ith, (const void *)cplan);
+#else
+    LM_GGML_PRINT_DEBUG("thread #%d compute-start cplan %p last-graph %d\n", state->ith, (const void *)cplan, state->last_graph);
+#endif
 
     for (int node_n = 0; node_n < cgraph->n_nodes && atomic_load_explicit(&tp->abort, memory_order_relaxed) != node_n; node_n++) {
         struct lm_ggml_tensor * node = cgraph->nodes[node_n];
@@ -2974,7 +2978,11 @@ static thread_ret_t lm_ggml_graph_compute_thread(void * data) {
         }
     }
 
-    LM_GGML_PRINT_DEBUG("thread #%d compute-done cplan %p last-graph %d \n", state->ith, cplan, state->last_graph);
+#ifdef LM_GGML_USE_OPENMP
+    LM_GGML_PRINT_DEBUG("thread #%d compute-done cplan %p\n", state->ith, (const void *)cplan);
+#else
+    LM_GGML_PRINT_DEBUG("thread #%d compute-done cplan %p last-graph %d\n", state->ith, (const void *)cplan, state->last_graph);
+#endif
 
     lm_ggml_barrier(state->threadpool);
 

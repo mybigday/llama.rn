@@ -489,9 +489,6 @@ private:
     lm_ggml_tensor * build_layer_attn_linear(
          llm_graph_input_rs * inp,
                 lm_ggml_tensor * cur,
-                lm_ggml_tensor * causal_mask,
-                lm_ggml_tensor * identity,
-                lm_ggml_tensor * diag_mask,
                         int   il);
 
     lm_ggml_tensor * build_layer_ffn(
@@ -506,9 +503,6 @@ private:
                 lm_ggml_tensor * g,
                 lm_ggml_tensor * beta,
                 lm_ggml_tensor * state,
-                lm_ggml_tensor * causal_mask,
-                lm_ggml_tensor * identity,
-                lm_ggml_tensor * diag_mask,
                         int   il);
 
     // returns pair of output and new state

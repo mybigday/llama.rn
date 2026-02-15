@@ -6,8 +6,8 @@
 #include "ggml-impl.h"
 #include "simd-mappings.h"
 
-#define LM_GGML_FA_TILE_Q  32
-#define LM_GGML_FA_TILE_KV 16
+#define LM_GGML_FA_TILE_Q  64
+#define LM_GGML_FA_TILE_KV 64
 
 #ifdef __cplusplus
 

@@ -41,8 +41,11 @@ static lm_ggml_tensor * causal_conv1d(lm_ggml_cgraph * gf, lm_ggml_context * ctx
         conv_x->nb[1], conv_x->nb[2], n_seq_tokens * conv_x->nb[0]);
     lm_ggml_build_forward_expand(gf,
         lm_ggml_cpy(ctx0, last_conv_x,
-            lm_ggml_view_1d(ctx0, conv_states_all, conv_state_size * n_seqs,
-                (kv_head * n_embd_r_total + qkv * conv_state_size) * lm_ggml_element_size(conv_states_all))));
+            lm_ggml_view_3d(ctx0, conv_states_all,
+                d_conv - 1, d_inner, n_seqs,
+                (d_conv - 1) * lm_ggml_element_size(conv_states_all),           // nb1: contiguous within one channel's conv taps
+                n_embd_r_total * lm_ggml_element_size(conv_states_all),         // nb2: stride between sequences (skip over K,V states)
+                (kv_head * n_embd_r_total + qkv * conv_state_size) * lm_ggml_element_size(conv_states_all))));  // offset to first seq's Q/K/V state
     // Reshape conv weight: GGUF [d_conv, 1, d_inner, 1] -> lm_ggml_ssm_conv expects [d_conv, d_inner]
     // GGUF stores as [d_conv, 1, d_inner, 1] with memory layout w[conv_step + channel * d_conv]
     // vLLM stores as [d_inner, d_conv] with memory layout w[channel * d_conv + conv_step]
