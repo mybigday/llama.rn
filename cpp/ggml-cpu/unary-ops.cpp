@@ -111,7 +111,7 @@ template <float (*op)(float), typename src0_t, typename dst_t>
 static void apply_unary_op(const lm_ggml_compute_params * params, lm_ggml_tensor * dst) {
     const lm_ggml_tensor * src0 = dst->src[0];
 
-    LM_GGML_ASSERT(lm_ggml_is_contiguous_1(src0) && lm_ggml_is_contiguous_1(dst) && lm_ggml_are_same_shape(src0, dst));
+    LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(src0) && lm_ggml_is_contiguous_rows(dst) && lm_ggml_are_same_shape(src0, dst));
 
     LM_GGML_TENSOR_UNARY_OP_LOCALS
 
