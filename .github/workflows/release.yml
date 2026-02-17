@@ -58,7 +58,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Pull specific submodule
+      - name: Pull OpenCL-Headers Submodule
         run: |
           git submodule sync -- ./third_party/OpenCL-Headers
           git submodule update --init --recursive ./third_party/OpenCL-Headers
