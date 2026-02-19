@@ -58,6 +58,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Pull OpenCL-Headers Submodule
+        run: |
+          git submodule sync -- ./third_party/OpenCL-Headers
+          git submodule update --init --recursive ./third_party/OpenCL-Headers
+
       - name: Setup
         uses: ./.github/actions/setup
 
