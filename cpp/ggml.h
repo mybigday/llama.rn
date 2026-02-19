@@ -752,6 +752,7 @@ extern "C" {
     LM_GGML_API bool lm_ggml_is_transposed(const struct lm_ggml_tensor * tensor);
     LM_GGML_API bool lm_ggml_is_permuted  (const struct lm_ggml_tensor * tensor);
     LM_GGML_API bool lm_ggml_is_empty     (const struct lm_ggml_tensor * tensor);
+    LM_GGML_API bool lm_ggml_is_view      (const struct lm_ggml_tensor * tensor);
     LM_GGML_API bool lm_ggml_is_scalar    (const struct lm_ggml_tensor * tensor);
     LM_GGML_API bool lm_ggml_is_vector    (const struct lm_ggml_tensor * tensor);
     LM_GGML_API bool lm_ggml_is_matrix    (const struct lm_ggml_tensor * tensor);
