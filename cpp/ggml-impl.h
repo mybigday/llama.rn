@@ -98,6 +98,10 @@ static bool lm_ggml_op_is_empty(enum lm_ggml_op op) {
     }
 }
 
+static inline bool lm_ggml_impl_is_view(const struct lm_ggml_tensor * t) {
+    return t->view_src != NULL;
+}
+
 static inline float lm_ggml_compute_softplus_f32(float input) {
     return (input > 20.0f) ? input : logf(1 + expf(input));
 }

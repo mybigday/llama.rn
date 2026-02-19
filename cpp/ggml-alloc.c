@@ -17,11 +17,6 @@
 //#define AT_PRINTF(...) LM_GGML_LOG_DEBUG(__VA_ARGS__)
 #define AT_PRINTF(...)
 
-
-static bool lm_ggml_is_view(const struct lm_ggml_tensor * t) {
-    return t->view_src != NULL;
-}
-
 // ops that return true for this function must not use restrict pointers for their backend implementations
 bool lm_ggml_op_can_inplace(enum lm_ggml_op op) {
     switch (op) {
@@ -627,7 +622,7 @@ static void lm_ggml_gallocr_allocate_node(lm_ggml_gallocr_t galloc, struct lm_gg
     LM_GGML_ASSERT(buffer_id >= 0);
     struct hash_node * hn = lm_ggml_gallocr_hash_get(galloc, node);
 
-    if (!lm_ggml_gallocr_is_allocated(galloc, node) && !lm_ggml_is_view(node)) {
+    if (!lm_ggml_gallocr_is_allocated(galloc, node) && !lm_ggml_impl_is_view(node)) {
         hn->allocated = true;
         assert(hn->addr.offset == 0);
 
@@ -658,7 +653,7 @@ static void lm_ggml_gallocr_allocate_node(lm_ggml_gallocr_t galloc, struct lm_gg
 
                 struct hash_node * p_hn = lm_ggml_gallocr_hash_get(galloc, parent);
                 if (p_hn->n_children == 1 && p_hn->n_views == 0) {
-                    if (lm_ggml_is_view(parent)) {
+                    if (lm_ggml_impl_is_view(parent)) {
                         struct lm_ggml_tensor * view_src = parent->view_src;
                         struct hash_node * view_src_hn = lm_ggml_gallocr_hash_get(galloc, view_src);
                         if (view_src_hn->n_views == 1 && view_src_hn->n_children == 0 && view_src->data == parent->data) {
@@ -739,7 +734,7 @@ static void lm_ggml_gallocr_alloc_graph_impl(lm_ggml_gallocr_t galloc, struct lm
         // LM_GGML_OP_NONE does not appear normally in the graph nodes, but is used by ggml-backend to add dependencies to
         // control when some tensors are allocated and freed. in this case, the dependencies are in `src`, but the node
         // itself is never used and should not be considered a dependency
-        if (lm_ggml_is_view(node) && node->op != LM_GGML_OP_NONE) {
+        if (lm_ggml_impl_is_view(node) && node->op != LM_GGML_OP_NONE) {
             struct lm_ggml_tensor * view_src = node->view_src;
             lm_ggml_gallocr_hash_get(galloc, view_src)->n_views += 1;
         }
@@ -806,7 +801,7 @@ static void lm_ggml_gallocr_alloc_graph_impl(lm_ggml_gallocr_t galloc, struct lm
                 parent->name, p_hn->n_children, p_hn->n_views, p_hn->allocated);
 
             if (p_hn->n_children == 0 && p_hn->n_views == 0) {
-                if (lm_ggml_is_view(parent)) {
+                if (lm_ggml_impl_is_view(parent)) {
                     struct lm_ggml_tensor * view_src = parent->view_src;
                     struct hash_node * view_src_hn = lm_ggml_gallocr_hash_get(galloc, view_src);
                     view_src_hn->n_views -= 1;
