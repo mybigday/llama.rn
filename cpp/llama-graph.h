@@ -1000,7 +1000,8 @@ struct llm_graph_context {
             lm_ggml_tensor * cls,
             lm_ggml_tensor * cls_b,
             lm_ggml_tensor * cls_out,
-            lm_ggml_tensor * cls_out_b) const;
+            lm_ggml_tensor * cls_out_b,
+            lm_ggml_tensor * cls_norm) const;
 
     //
     // sampling (backend sampling)
@@ -1014,6 +1015,7 @@ struct llm_graph_context {
 
     void build_dense_out(
             lm_ggml_tensor * dense_2,
+            lm_ggml_tensor * dense_2_b,
             lm_ggml_tensor * dense_3) const;
 };
 
