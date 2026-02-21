@@ -475,6 +475,7 @@ struct llama_model {
     struct lm_ggml_tensor * cls_b     = nullptr;
     struct lm_ggml_tensor * cls_out   = nullptr;
     struct lm_ggml_tensor * cls_out_b = nullptr;
+    struct lm_ggml_tensor * cls_norm  = nullptr;
 
     struct lm_ggml_tensor * conv1d   = nullptr;
     struct lm_ggml_tensor * conv1d_b = nullptr;
@@ -491,8 +492,9 @@ struct llama_model {
     //Dense linear projections for SentenceTransformers models like embeddinggemma
     // For Sentence Transformers models structure see
     // https://sbert.net/docs/sentence_transformer/usage/custom_models.html#structure-of-sentence-transformer-models
-    struct lm_ggml_tensor * dense_2_out_layers = nullptr;
-    struct lm_ggml_tensor * dense_3_out_layers = nullptr;
+    struct lm_ggml_tensor * dense_2_out_layers   = nullptr;
+    struct lm_ggml_tensor * dense_2_out_layers_b = nullptr;
+    struct lm_ggml_tensor * dense_3_out_layers   = nullptr;
 
     // gguf metadata
     std::unordered_map<std::string, std::string> lm_gguf_kv;
