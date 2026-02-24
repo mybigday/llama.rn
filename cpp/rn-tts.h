@@ -5,9 +5,11 @@
 #include <string>
 #include "llama.h"
 #include "nlohmann/json.hpp"
-#include "common.h"
 
 using json = nlohmann::ordered_json;
+
+struct codec_model;
+struct codec_context;
 
 namespace rnllama {
 
@@ -35,11 +37,9 @@ struct llama_rn_context_tts {
     std::vector<llama_token> guide_tokens;
     bool next_token_uses_guide_token = true;
 
-    // Vocoder fields (from llama_rn_context_vocoder)
-    common_init_result_ptr init_result;
-    common_params params;
-    llama_model *model = nullptr;
-    llama_context *ctx = nullptr;
+    // Codec runtime handles
+    ::codec_model *codec_model = nullptr;
+    ::codec_context *codec_ctx = nullptr;
     tts_type type = UNKNOWN;
 
     // Constructor and destructor

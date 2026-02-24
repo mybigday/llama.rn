@@ -77,15 +77,15 @@ export const MODELS = {
     size: '808MB (model) + 1.37GB (mmproj)',
   },
   OUTE_TTS_0_3: {
-    name: 'OuteTTS 0.3 500M (Q4_K_M) + WavTokenizer (Q5_1)',
+    name: 'OuteTTS 0.3 500M (Q4_K_M) + WavTokenizer (FP16)',
     repo: 'OuteAI/OuteTTS-0.3-500M-GGUF',
     filename: 'OuteTTS-0.3-500M-Q4_K_M.gguf',
     mmproj: undefined,
-    size: '454MB (model) + 70MB (vocoder)',
+    size: '454MB (model) + 170MB (vocoder)',
     vocoder: {
-      repo: 'ggml-org/WavTokenizer',
-      filename: 'WavTokenizer-Large-75-Q5_1.gguf',
-      size: '70MB',
+      repo: 'hans00/codec.cpp-WavTokenizer',
+      filename: 'wavtokenizer.gguf',
+      size: '170MB',
     },
   },
   EMBEDDINGGEMMA_300M: {
