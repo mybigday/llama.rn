@@ -38,6 +38,7 @@ file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
 file(GLOB MTMD_MODEL_FILES ${SOURCE_DIR}/tools/mtmd/models/*.cpp)
 file(GLOB COMMON_FILES ${SOURCE_DIR}/common/*.cpp)
 file(GLOB JINJA_FILES ${SOURCE_DIR}/common/jinja/*.cpp)
+file(GLOB CODEC_FILES ${SOURCE_DIR}/codec/src/*.cpp ${SOURCE_DIR}/codec/src/**/*.cpp)
 
 # Platform-specific source files
 set(SOURCE_FILES_ARCH "")
@@ -98,6 +99,9 @@ set(RNLLAMA_COMMON_SOURCES
 
     # Architecture-specific files
     ${SOURCE_FILES_ARCH}
+
+    # codec.cpp sources
+    ${CODEC_FILES}
 )
 
 # Create test executable
