@@ -2,7 +2,7 @@
 #include "rn-llama.h"
 #include "anyascii.h"
 #include "common.h"
-#include "codec/include/codec.h"
+#include "codec.h"
 #include <regex>
 #include <map>
 #include <sstream>

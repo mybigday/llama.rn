@@ -114,6 +114,7 @@ target_include_directories(rnllama_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include
 )
 
 # Platform-specific linking
@@ -147,6 +148,7 @@ target_include_directories(parallel_decoding_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include
 )
 
 # Platform-specific linking for parallel decoding test
