@@ -730,10 +730,6 @@ extern "C" {
     LM_GGML_API size_t  lm_ggml_type_size(enum lm_ggml_type type);             // size in bytes for all elements in a block
     LM_GGML_API size_t  lm_ggml_row_size (enum lm_ggml_type type, int64_t ne); // size in bytes for all elements in a row
 
-    LM_GGML_DEPRECATED(
-    LM_GGML_API double lm_ggml_type_sizef(enum lm_ggml_type type), // lm_ggml_type_size()/lm_ggml_blck_size() as float
-    "use lm_ggml_row_size() instead");
-
     LM_GGML_API const char * lm_ggml_type_name(enum lm_ggml_type type);
     LM_GGML_API const char * lm_ggml_op_name  (enum lm_ggml_op   op);
     LM_GGML_API const char * lm_ggml_op_symbol(enum lm_ggml_op   op);

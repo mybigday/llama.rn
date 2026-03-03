@@ -907,7 +907,8 @@ static const struct lm_ggml_type_traits type_traits[LM_GGML_TYPE_COUNT] = {
 };
 
 const struct lm_ggml_type_traits * lm_ggml_get_type_traits(enum lm_ggml_type type) {
-    LM_GGML_ASSERT(type < LM_GGML_TYPE_COUNT);
+    assert(type >= 0);
+    assert(type < LM_GGML_TYPE_COUNT);
     return &type_traits[type];
 }
 
@@ -1273,27 +1274,33 @@ size_t lm_ggml_nbytes_pad(const struct lm_ggml_tensor * tensor) {
 }
 
 int64_t lm_ggml_blck_size(enum lm_ggml_type type) {
+    assert(type >= 0);
+    assert(type < LM_GGML_TYPE_COUNT);
     return type_traits[type].blck_size;
 }
 
 size_t lm_ggml_type_size(enum lm_ggml_type type) {
+    assert(type >= 0);
+    assert(type < LM_GGML_TYPE_COUNT);
     return type_traits[type].type_size;
 }
 
 size_t lm_ggml_row_size(enum lm_ggml_type type, int64_t ne) {
+    assert(type >= 0);
+    assert(type < LM_GGML_TYPE_COUNT);
     assert(ne % lm_ggml_blck_size(type) == 0);
     return lm_ggml_type_size(type)*ne/lm_ggml_blck_size(type);
 }
 
-double lm_ggml_type_sizef(enum lm_ggml_type type) {
-    return ((double)(type_traits[type].type_size))/type_traits[type].blck_size;
-}
-
 const char * lm_ggml_type_name(enum lm_ggml_type type) {
-    return type < LM_GGML_TYPE_COUNT ? type_traits[type].type_name : "NONE";
+    assert(type >= 0);
+    assert(type < LM_GGML_TYPE_COUNT);
+    return type_traits[type].type_name;
 }
 
 bool lm_ggml_is_quantized(enum lm_ggml_type type) {
+    assert(type >= 0);
+    assert(type < LM_GGML_TYPE_COUNT);
     return type_traits[type].is_quantized;
 }
 
@@ -1637,10 +1644,22 @@ static struct lm_ggml_object * lm_ggml_new_object(struct lm_ggml_context * ctx, 
     const size_t cur_end  = cur_offs + cur_size;
 
     // align to LM_GGML_MEM_ALIGN
+    LM_GGML_ASSERT(size <= SIZE_MAX - (LM_GGML_MEM_ALIGN - 1));
     size_t size_needed = LM_GGML_PAD(size, LM_GGML_MEM_ALIGN);
 
     char * const mem_buffer = ctx->mem_buffer;
     struct lm_ggml_object * const obj_new = (struct lm_ggml_object *)(mem_buffer + cur_end);
+
+    // integer overflow checks
+    if (cur_end > SIZE_MAX - size_needed) {
+        LM_GGML_LOG_WARN("%s: overflow detected in cur_end (%zu) + size_needed (%zu)\n", __func__, cur_end, size_needed);
+        return NULL;
+    }
+    if (cur_end + size_needed > SIZE_MAX - LM_GGML_OBJECT_SIZE) {
+        LM_GGML_LOG_WARN("%s: overflow detected in cur_end (%zu) + size_needed (%zu) + LM_GGML_OBJECT_SIZE (%zu)\n", __func__,
+                cur_end, size_needed, (size_t) LM_GGML_OBJECT_SIZE);
+        return NULL;
+    }
 
     if (cur_end + size_needed + LM_GGML_OBJECT_SIZE > ctx->mem_size) {
         LM_GGML_LOG_WARN("%s: not enough space in the context's memory pool (needed %zu, available %zu)\n",
@@ -1709,6 +1728,8 @@ static struct lm_ggml_tensor * lm_ggml_new_tensor_impl(
         // allocate tensor data in the context's memory pool
         obj_alloc_size = data_size;
     }
+
+    LM_GGML_ASSERT(LM_GGML_TENSOR_SIZE <= SIZE_MAX - obj_alloc_size);
 
     struct lm_ggml_object * const obj_new = lm_ggml_new_object(ctx, LM_GGML_OBJECT_TYPE_TENSOR, LM_GGML_TENSOR_SIZE + obj_alloc_size);
     LM_GGML_ASSERT(obj_new);
