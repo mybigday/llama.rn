@@ -15,6 +15,17 @@
 #include <string>
 #include <vector>
 
+#define LM_GGUF_MAX_STRING_LENGTH  (1024*1024*1024)
+#define LM_GGUF_MAX_ARRAY_ELEMENTS (1024*1024*1024)
+
+#ifdef _WIN32
+#    define lm_gguf_ftell _ftelli64
+#    define lm_gguf_fseek _fseeki64
+#else
+#    define lm_gguf_ftell ftello
+#    define lm_gguf_fseek fseeko
+#endif
+
 template <typename T>
 struct type_to_lm_gguf_type;
 
@@ -217,17 +228,64 @@ struct lm_gguf_context {
 };
 
 struct lm_gguf_reader {
-    FILE * file;
+    lm_gguf_reader(FILE * file) : file(file) {
+        // read the remaining bytes once and update on each read
+        nbytes_remain = file_remain(file);
+    }
 
-    lm_gguf_reader(FILE * file) : file(file) {}
+    // helper for remaining bytes in a file
+    static uint64_t file_remain(FILE * file) {
+        const int64_t cur = lm_gguf_ftell(file);
+        if (cur < 0) {
+            return 0;
+        }
+        if (lm_gguf_fseek(file, 0, SEEK_END) != 0) {
+            lm_gguf_fseek(file, cur, SEEK_SET);
+
+            return 0;
+        }
+        const int64_t end = lm_gguf_ftell(file);
+        if (end < 0) {
+            lm_gguf_fseek(file, cur, SEEK_SET);
+
+            return 0;
+        }
+        lm_gguf_fseek(file, cur, SEEK_SET);
+        return static_cast<uint64_t>(end - cur);
+    }
 
     template <typename T>
     bool read(T & dst) const {
-        return fread(&dst, 1, sizeof(dst), file) == sizeof(dst);
+        const size_t size = sizeof(dst);
+        if (nbytes_remain < size) {
+            return false;
+        }
+        const size_t nread = fread(&dst, 1, size, file);
+        nbytes_remain -= nread;
+        return nread == size;
     }
 
     template <typename T>
     bool read(std::vector<T> & dst, const size_t n) const {
+        if (n > LM_GGUF_MAX_ARRAY_ELEMENTS) {
+            return false;
+        }
+        if constexpr (std::is_same<T, std::string>::value) {
+            // strings are prefixed with their length, so we need to account for that
+            if (n > SIZE_MAX / sizeof(uint64_t)) {
+                return false;
+            }
+            if (nbytes_remain < n * sizeof(uint64_t)) {
+                return false;
+            }
+        } else {
+            if (n > SIZE_MAX / sizeof(T)) {
+                return false;
+            }
+            if (nbytes_remain < n * sizeof(T)) {
+                return false;
+            }
+        }
         dst.resize(n);
         for (size_t i = 0; i < dst.size(); ++i) {
             if constexpr (std::is_same<T, bool>::value) {
@@ -277,13 +335,33 @@ struct lm_gguf_reader {
         if (!read(size)) {
             return false;
         }
-        dst.resize(size);
-        return fread(dst.data(), 1, dst.length(), file) == dst.length();
+        if (size > LM_GGUF_MAX_STRING_LENGTH) {
+            LM_GGML_LOG_ERROR("%s: string length %" PRIu64 " exceeds maximum %" PRIu64 "\n", __func__, size, (uint64_t) LM_GGUF_MAX_STRING_LENGTH);
+            return false;
+        }
+        if (size > nbytes_remain) {
+            LM_GGML_LOG_ERROR("%s: string length %" PRIu64 " exceeds remaining file size %" PRIu64 " bytes\n", __func__, size, nbytes_remain);
+            return false;
+        }
+        dst.resize(static_cast<size_t>(size));
+        const size_t nread = fread(dst.data(), 1, size, file);
+        nbytes_remain -= nread;
+        return nread == size;
     }
 
     bool read(void * dst, const size_t size) const {
-        return fread(dst, 1, size, file) == size;
+        if (size > nbytes_remain) {
+            return false;
+        }
+        const size_t nread = fread(dst, 1, size, file);
+        nbytes_remain -= nread;
+        return nread == size;
     }
+
+private:
+    FILE * file;
+
+    mutable uint64_t nbytes_remain;
 };
 
 struct lm_gguf_context * lm_gguf_init_empty(void) {
@@ -568,8 +646,8 @@ struct lm_gguf_context * lm_gguf_init_from_file_impl(FILE * file, struct lm_gguf
 
             // check that tensor type is within defined range
             if (info.t.type < 0 || info.t.type >= LM_GGML_TYPE_COUNT) {
-                LM_GGML_LOG_ERROR("%s: tensor '%s' has invalid ggml type %d (%s)\n",
-                    __func__, info.t.name, info.t.type, lm_ggml_type_name(info.t.type));
+                LM_GGML_LOG_ERROR("%s: tensor '%s' has invalid ggml type %d. should be in [0, %d)\n",
+                    __func__, info.t.name, info.t.type, LM_GGML_TYPE_COUNT);
                 ok = false;
                 break;
             }
@@ -618,14 +696,14 @@ struct lm_gguf_context * lm_gguf_init_from_file_impl(FILE * file, struct lm_gguf
     LM_GGML_ASSERT(int64_t(ctx->info.size()) == n_tensors);
 
     // we require the data section to be aligned, so take into account any padding
-    if (fseek(file, LM_GGML_PAD(ftell(file), ctx->alignment), SEEK_SET) != 0) {
+    if (lm_gguf_fseek(file, LM_GGML_PAD(lm_gguf_ftell(file), ctx->alignment), SEEK_SET) != 0) {
         LM_GGML_LOG_ERROR("%s: failed to seek to beginning of data section\n", __func__);
         lm_gguf_free(ctx);
         return nullptr;
     }
 
     // store the current file offset - this is where the data section starts
-    ctx->offset = ftell(file);
+    ctx->offset = lm_gguf_ftell(file);
 
     // compute the total size of the data section, taking into account the alignment
     {
@@ -657,10 +735,34 @@ struct lm_gguf_context * lm_gguf_init_from_file_impl(FILE * file, struct lm_gguf
         //   the lm_ggml_tensor structs to the appropriate locations in the binary blob
 
         // compute the exact size needed for the new lm_ggml_context
-        const size_t mem_size =
-            params.no_alloc ?
-            (n_tensors    )*lm_ggml_tensor_overhead() :
-            (n_tensors + 1)*lm_ggml_tensor_overhead() + ctx->size;
+        size_t mem_size = 0;
+        if (params.no_alloc) {
+            if (n_tensors != 0 && SIZE_MAX / n_tensors < lm_ggml_tensor_overhead()) {
+                LM_GGML_LOG_ERROR("%s: memory size overflow while allocating ggml context\n", __func__);
+                lm_gguf_free(ctx);
+                return nullptr;
+            }
+
+            const size_t overhead = n_tensors * lm_ggml_tensor_overhead();
+
+            mem_size = overhead;
+        } else {
+            if ((n_tensors + 1) != 0 && SIZE_MAX / (n_tensors + 1) < lm_ggml_tensor_overhead()) {
+                LM_GGML_LOG_ERROR("%s: memory size overflow while allocating ggml context\n", __func__);
+                lm_gguf_free(ctx);
+                return nullptr;
+            }
+
+            const size_t overhead = (n_tensors + 1) * lm_ggml_tensor_overhead();
+
+            if (SIZE_MAX - overhead < ctx->size) {
+                LM_GGML_LOG_ERROR("%s: memory size overflow while allocating ggml context\n", __func__);
+                lm_gguf_free(ctx);
+                return nullptr;
+            }
+
+            mem_size = overhead + ctx->size;
+        }
 
         struct lm_ggml_init_params pdata = {
             /*mem_size   =*/ mem_size,

@@ -814,7 +814,8 @@ struct llm_graph_context {
                    float   w_scale,
             llama_expert_gating_func_type gating_op,
                      int   il,
-             lm_ggml_tensor * probs_in = nullptr) const;
+             lm_ggml_tensor * probs_in = nullptr,
+             lm_ggml_tensor * gate_up_exps = nullptr) const;
 
     lm_ggml_tensor * build_moe_ffn(
              lm_ggml_tensor * cur,
@@ -835,7 +836,9 @@ struct llm_graph_context {
                    float   w_scale,
             llama_expert_gating_func_type gating_op,
                      int   il,
-             lm_ggml_tensor * probs_in = nullptr) const;
+             lm_ggml_tensor * probs_in = nullptr,
+             lm_ggml_tensor * gate_up_exps = nullptr,
+             lm_ggml_tensor * gate_up_exps_b = nullptr) const;
 
     //
     // inputs
@@ -1000,7 +1003,8 @@ struct llm_graph_context {
             lm_ggml_tensor * cls,
             lm_ggml_tensor * cls_b,
             lm_ggml_tensor * cls_out,
-            lm_ggml_tensor * cls_out_b) const;
+            lm_ggml_tensor * cls_out_b,
+            lm_ggml_tensor * cls_norm) const;
 
     //
     // sampling (backend sampling)
@@ -1014,6 +1018,7 @@ struct llm_graph_context {
 
     void build_dense_out(
             lm_ggml_tensor * dense_2,
+            lm_ggml_tensor * dense_2_b,
             lm_ggml_tensor * dense_3) const;
 };
 
