@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Clipboard,
   StyleSheet,
+  Platform,
 } from 'react-native'
 import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
@@ -219,6 +220,20 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
     setCustomModels(models)
   }
 
+  const logContextInfo = (llamaContext: LlamaContext) => {
+    addLog('')
+    addLog('📦 Context Info:')
+    if (Platform.OS === 'android') {
+      addLog(`androidLib=${llamaContext.androidLib || 'N/A'}`)
+    }
+    addLog(`gpu=${llamaContext.gpu}`)
+    addLog(`devices=${llamaContext.devices?.join(', ') || 'N/A'}`)
+    if (!llamaContext.gpu && llamaContext.reasonNoGPU) {
+      addLog(`reasonNoGPU=${llamaContext.reasonNoGPU}`)
+    }
+    addLog(`systemInfo=${llamaContext.systemInfo}`)
+  }
+
   const initializeModel = async (modelPath: string, modelKey?: string) => {
     try {
       setIsLoading(true)
@@ -256,6 +271,7 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
       setIsModelReady(true)
       setInitProgress(100)
 
+      logContextInfo(llamaContext)
       addLog('Model initialized successfully!')
       addLog('Ready to run benchmarks.')
     } catch (error: any) {
