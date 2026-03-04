@@ -129,7 +129,7 @@ function(build_rnllama_library target_name arch cpu_flags)
     # Note: Hexagon requires building DSP libraries with Hexagon SDK toolchain
     # This is a complex process that needs to be done separately
     if (ENABLE_HEXAGON)
-        # Hexagon SDK is ALWAYS required to link cdsprpc, even for prebuilt distribution
+        # Hexagon SDK is optional — if not present, build the target without Hexagon support
         set(HEXAGON_SDK_AVAILABLE OFF)
         if (HEXAGON_SDK_ROOT AND HEXAGON_TOOLS_ROOT)
             # Verify libcdsprpc.so exists
@@ -138,13 +138,12 @@ function(build_rnllama_library target_name arch cpu_flags)
                 set(HEXAGON_SDK_AVAILABLE ON)
                 message(STATUS "Hexagon SDK verified and available")
             else()
-                message(FATAL_ERROR
-                    "Hexagon SDK found but libcdsprpc.so is missing at ${CDSPRPC_LIB}.\n"
-                    "The SDK installation may be incomplete. Run 'npm run bootstrap' to reinstall.")
+                message(WARNING
+                    "Hexagon SDK found but libcdsprpc.so is missing at ${CDSPRPC_LIB}. "
+                    "Building ${target_name} without Hexagon support.")
             endif()
         else()
-            message(FATAL_ERROR
-                "Hexagon SDK is required to build ${target_name} but not found.")
+            message(STATUS "Hexagon SDK not found — building ${target_name} without Hexagon support.")
         endif()
 
         if (HEXAGON_SDK_AVAILABLE)

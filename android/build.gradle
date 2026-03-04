@@ -135,15 +135,28 @@ android {
     def homeDir = System.getProperty("user.home")
     def hexagonSdkRoot = System.getenv('HEXAGON_SDK_ROOT') ?: "${homeDir}/.hexagon-sdk/6.4.0.2"
     def hexagonToolsRoot = System.getenv('HEXAGON_TOOLS_ROOT') ?: "${homeDir}/.hexagon-sdk/6.4.0.2/tools/HEXAGON_Tools/19.0.04"
+    def hexagonPresent = file(hexagonSdkRoot).exists() && file(hexagonToolsRoot).exists()
+    def cmakeArgs = [
+      "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+      "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}",
+      "-DANDROID_STL=c++_shared",
+      "-DREACT_NATIVE_MINOR_VERSION=${REACT_NATIVE_MINOR_VERSION}"
+    ]
+
+    if (hexagonPresent) {
+      println("✅ Hexagon SDK detected — enabling DSP build")
+      cmakeArgs += [
+        "-DHEXAGON_SDK_ROOT=${hexagonSdkRoot}",
+        "-DHEXAGON_TOOLS_ROOT=${hexagonToolsRoot}"
+      ]
+    } else {
+      println("🚫 Hexagon SDK not found — building CPU-only")
+    }
+
     externalNativeBuild {
       cmake {
         abiFilters (*reactNativeArchitectures())
-        arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
-                  "-DRNLLAMA_BUILD_FROM_SOURCE=${rnllamaBuildFromSourceFlag}",
-                  "-DHEXAGON_SDK_ROOT=${hexagonSdkRoot}",
-                  "-DHEXAGON_TOOLS_ROOT=${hexagonToolsRoot}",
-                  "-DANDROID_STL=c++_shared",
-                  "-DREACT_NATIVE_MINOR_VERSION=${REACT_NATIVE_MINOR_VERSION}"
+        arguments(*cmakeArgs)
       }
     }
   }
