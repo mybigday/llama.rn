@@ -23,7 +23,7 @@ import type { ContextParams, CustomModel } from '../utils/storage'
 import { loadContextParams, loadCustomModels } from '../utils/storage'
 import { initLlama, LlamaContext } from '../../../src'
 
-// Filter models to only include LLM models (no mmproj or vocoder)
+// Filter models to only include models that Stress Test can initialize directly.
 const LLM_MODELS = Object.entries(MODELS).filter(([_key, model]) => {
   const modelWithExtras = model as typeof model & { vocoder?: any }
   return !modelWithExtras.vocoder
@@ -1149,22 +1149,18 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
             conditions and crash scenarios in the native code.
           </Text>
 
-          {customModels.filter((model) => !model.mmprojFilename).length > 0 && (
+          {customModels.length > 0 && (
             <>
               <Text style={themedStyles.modelSectionTitle}>Custom Models</Text>
-              {customModels
-                .filter((model) => !model.mmprojFilename)
-                .map((model) => (
-                  <CustomModelCard
-                    key={model.id}
-                    model={model}
-                    onInitialize={(modelPath: string) =>
-                      initializeModel(modelPath)
-                    }
-                    onModelRemoved={handleCustomModelRemoved}
-                    initializeButtonText="Test"
-                  />
-                ))}
+              {customModels.map((model) => (
+                <CustomModelCard
+                  key={model.id}
+                  model={model}
+                  onInitialize={(modelPath: string) => initializeModel(modelPath)}
+                  onModelRemoved={handleCustomModelRemoved}
+                  initializeButtonText="Test"
+                />
+              ))}
             </>
           )}
 

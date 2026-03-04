@@ -22,8 +22,7 @@ import type { ContextParams, CustomModel } from '../utils/storage'
 import { loadContextParams, loadCustomModels } from '../utils/storage'
 import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
 
-
-// Filter models to only include LLM models (no mmproj or vocoder)
+// Filter models to only include models that Bench can initialize directly.
 const LLM_MODELS = Object.entries(MODELS).filter(([_key, model]) => {
   const modelWithExtras = model as typeof model & { vocoder?: any }
   return !modelWithExtras.vocoder
@@ -348,24 +347,20 @@ export default function BenchScreen({ navigation }: { navigation: any }) {
           </Text>
 
           {/* Custom Models Section */}
-          {customModels.filter((model) => !model.mmprojFilename).length > 0 && (
+          {customModels.length > 0 && (
             <>
               <Text style={themedStyles.modelSectionTitle}>
                 Custom Models
               </Text>
-              {customModels
-                .filter((model) => !model.mmprojFilename) // Only show non-multimodal models
-                .map((model) => (
-                  <CustomModelCard
-                    key={model.id}
-                    model={model}
-                    onInitialize={(modelPath: string) =>
-                      initializeModel(modelPath)
-                    }
-                    onModelRemoved={handleCustomModelRemoved}
-                    initializeButtonText="Bench"
-                  />
-                ))}
+              {customModels.map((model) => (
+                <CustomModelCard
+                  key={model.id}
+                  model={model}
+                  onInitialize={(modelPath: string) => initializeModel(modelPath)}
+                  onModelRemoved={handleCustomModelRemoved}
+                  initializeButtonText="Bench"
+                />
+              ))}
             </>
           )}
 
