@@ -38,6 +38,13 @@ file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
 file(GLOB MTMD_MODEL_FILES ${SOURCE_DIR}/tools/mtmd/models/*.cpp)
 file(GLOB COMMON_FILES ${SOURCE_DIR}/common/*.cpp)
 file(GLOB JINJA_FILES ${SOURCE_DIR}/common/jinja/*.cpp)
+file(GLOB CODEC_FILES
+    ${SOURCE_DIR}/codec/src/*.cpp
+    ${SOURCE_DIR}/codec/src/batch/*.cpp
+    ${SOURCE_DIR}/codec/src/models/*.cpp
+    ${SOURCE_DIR}/codec/src/ops/*.cpp
+    ${SOURCE_DIR}/codec/src/runtime/*.cpp
+)
 
 if (CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
     set(SOURCE_FILES_ARCH
@@ -96,6 +103,9 @@ add_library(rnllama SHARED
     # Jinja template engine
     ${JINJA_FILES}
 
+    # codec.cpp sources
+    ${CODEC_FILES}
+
     # Headers (needed for build)
     ${SOURCE_DIR}/common/chat.h
     ${SOURCE_DIR}/common/common.h
@@ -126,6 +136,7 @@ target_include_directories(rnllama
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include>
         $<INSTALL_INTERFACE:include>
 )
 
