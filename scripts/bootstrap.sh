@@ -273,10 +273,11 @@ cp ./$LLAMA_DIR/common/regex-partial.h ./cpp/common/regex-partial.h
 cp ./$LLAMA_DIR/common/regex-partial.cpp ./cpp/common/regex-partial.cpp
 cp ./$LLAMA_DIR/common/chat.h ./cpp/common/chat.h
 cp ./$LLAMA_DIR/common/chat.cpp ./cpp/common/chat.cpp
-cp ./$LLAMA_DIR/common/chat-parser.h ./cpp/common/chat-parser.h
-cp ./$LLAMA_DIR/common/chat-parser.cpp ./cpp/common/chat-parser.cpp
-cp ./$LLAMA_DIR/common/chat-parser-xml-toolcall.h ./cpp/common/chat-parser-xml-toolcall.h
-cp ./$LLAMA_DIR/common/chat-parser-xml-toolcall.cpp ./cpp/common/chat-parser-xml-toolcall.cpp
+cp ./$LLAMA_DIR/common/chat-auto-parser.h ./cpp/common/chat-auto-parser.h
+cp ./$LLAMA_DIR/common/chat-auto-parser-helpers.h ./cpp/common/chat-auto-parser-helpers.h
+cp ./$LLAMA_DIR/common/chat-auto-parser-helpers.cpp ./cpp/common/chat-auto-parser-helpers.cpp
+cp ./$LLAMA_DIR/common/chat-auto-parser-generator.cpp ./cpp/common/chat-auto-parser-generator.cpp
+cp ./$LLAMA_DIR/common/chat-diff-analyzer.cpp ./cpp/common/chat-diff-analyzer.cpp
 cp ./$LLAMA_DIR/common/chat-peg-parser.h ./cpp/common/chat-peg-parser.h
 cp ./$LLAMA_DIR/common/chat-peg-parser.cpp ./cpp/common/chat-peg-parser.cpp
 cp ./$LLAMA_DIR/common/peg-parser.h ./cpp/common/peg-parser.h
