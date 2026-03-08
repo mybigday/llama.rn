@@ -436,6 +436,7 @@ done
 
 rm -rf ./cpp/*.orig
 rm -rf ./cpp/**/*.orig
+rm -rf ./cpp/**/*/*.orig
 
 if [ "$OS" = "Darwin" ]; then
   # Generate .xcode.env.local in iOS example
