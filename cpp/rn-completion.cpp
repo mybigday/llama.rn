@@ -121,10 +121,12 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
             LM_GGML_ASSERT(num_prompt_tokens < (size_t)parent_ctx->n_ctx);
         }
 
-        // Update sampling context
-        for (auto & token : text_tokens) {
-            common_sampler_accept(ctx_sampling, token, false);
-        }
+        // NOTE: Do NOT feed prompt tokens into the sampler.
+        // The penalty sampler should only track generated tokens.
+        // Feeding prompt tokens causes <|im_end|> (which appears
+        // in every ChatML prompt) to be penalised by repeat_penalty
+        // / frequency_penalty, preventing EOS and producing
+        // extremely verbose output on Qwen-family models.
 
         // compare the evaluated prompt with the new prompt
         n_past = is_enc_dec ? 0 : find_common_prefix_length(embd, text_tokens);
