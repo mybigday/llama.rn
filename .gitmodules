@@ -8,3 +8,6 @@
 [submodule "third_party/OpenCL-Headers"]
 	path = third_party/OpenCL-Headers
 	url = https://github.com/KhronosGroup/OpenCL-Headers
+[submodule "third_party/codec.cpp"]
+	path = third_party/codec.cpp
+	url = https://github.com/mybigday/codec.cpp.git

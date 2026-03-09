@@ -16,6 +16,7 @@ include_directories(
     ${RNLLAMA_LIB_DIR}/common/jinja
     ${RNLLAMA_LIB_DIR}/ggml-cpu
     ${RNLLAMA_LIB_DIR}/tools/mtmd
+    ${RNLLAMA_LIB_DIR}/codec/include
 )
 
 # Collect source files using glob patterns
@@ -28,6 +29,13 @@ file(GLOB MTMD_FILES ${RNLLAMA_LIB_DIR}/tools/mtmd/*.cpp)
 file(GLOB MTMD_MODEL_FILES ${RNLLAMA_LIB_DIR}/tools/mtmd/models/*.cpp)
 file(GLOB COMMON_FILES ${RNLLAMA_LIB_DIR}/common/*.cpp)
 file(GLOB JINJA_FILES ${RNLLAMA_LIB_DIR}/common/jinja/*.cpp)
+file(GLOB CODEC_FILES
+    ${RNLLAMA_LIB_DIR}/codec/src/*.cpp
+    ${RNLLAMA_LIB_DIR}/codec/src/batch/*.cpp
+    ${RNLLAMA_LIB_DIR}/codec/src/models/*.cpp
+    ${RNLLAMA_LIB_DIR}/codec/src/ops/*.cpp
+    ${RNLLAMA_LIB_DIR}/codec/src/runtime/*.cpp
+)
 
 # Source files for rnllama library (excluding jni.cpp and jni-utils)
 set(
@@ -60,6 +68,9 @@ set(
 
     # Jinja template engine
     ${JINJA_FILES}
+
+    # codec.cpp sources
+    ${CODEC_FILES}
 
     # Multimodal support (globbed)
     ${MTMD_MODEL_FILES}
