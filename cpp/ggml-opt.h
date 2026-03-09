@@ -138,7 +138,7 @@ extern "C" {
     LM_GGML_API lm_ggml_opt_context_t lm_ggml_opt_init(struct lm_ggml_opt_params params);
     LM_GGML_API void lm_ggml_opt_free(lm_ggml_opt_context_t opt_ctx);
 
-    // set gradients to zero, initilize loss, and optionally reset the optimizer
+    // set gradients to zero, initialize loss, and optionally reset the optimizer
     LM_GGML_API void lm_ggml_opt_reset(lm_ggml_opt_context_t opt_ctx, bool optimizer);
 
     LM_GGML_API bool lm_ggml_opt_static_graphs(lm_ggml_opt_context_t opt_ctx); // whether the graphs are allocated_statically
