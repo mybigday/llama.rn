@@ -41,6 +41,11 @@ struct clip_graph {
     virtual ~clip_graph() = default;
     virtual lm_ggml_cgraph * build() = 0;
 
+    // wrapper around lm_ggml_mul_mat, allow hooking (e.g. LoRA, clamping) depending on the model
+    // tensor w should be the weight matrix, and tensor x should be the input
+    virtual lm_ggml_tensor * build_mm(lm_ggml_tensor * w, lm_ggml_tensor * x) const;
+    // TODO: build_mm(w, b, x) to support bias
+
     //
     // utility functions
     //

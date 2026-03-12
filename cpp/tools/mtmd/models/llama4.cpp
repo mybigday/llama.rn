@@ -22,7 +22,7 @@ lm_ggml_cgraph * clip_graph_llama4::build() {
         lm_ggml_tensor * kernel = lm_ggml_reshape_4d(ctx0, model.patch_embeddings_0,
                                                 patch_size, patch_size, 3, n_embd);
         inp = lm_ggml_im2col(ctx0, kernel, inp, patch_size, patch_size, 0, 0, 1, 1, true, inp->type);
-        inp = lm_ggml_mul_mat(ctx0, model.patch_embeddings_0, inp);
+        inp = build_mm(model.patch_embeddings_0, inp);
         inp = lm_ggml_reshape_2d(ctx0, inp, n_embd, n_patches);
         cb(inp, "patch_conv", -1);
     }
@@ -78,15 +78,15 @@ lm_ggml_cgraph * clip_graph_llama4::build() {
 
     // based on Llama4VisionMLP2 (always uses GELU activation, no bias)
     {
-        cur = lm_ggml_mul_mat(ctx0, model.mm_model_mlp_1_w, cur);
+        cur = build_mm(model.mm_model_mlp_1_w, cur);
         cur = lm_ggml_gelu(ctx0, cur);
-        cur = lm_ggml_mul_mat(ctx0, model.mm_model_mlp_2_w, cur);
+        cur = build_mm(model.mm_model_mlp_2_w, cur);
         cur = lm_ggml_gelu(ctx0, cur);
         cb(cur, "adapter_mlp", -1);
     }
 
     // Llama4MultiModalProjector
-    cur = lm_ggml_mul_mat(ctx0, model.mm_model_proj, cur);
+    cur = build_mm(model.mm_model_proj, cur);
     cb(cur, "projected", -1);
 
     // build the graph

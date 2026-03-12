@@ -479,12 +479,50 @@ do {                                                                  \
 
 // F16 AVX512
 
-// F16 AVX
+#if defined(__AVX512FP16__)
+
+#define LM_GGML_F16_STEP 128
+#define LM_GGML_F16_EPR  32
+
+#define LM_GGML_F16x32              __m512h
+#define LM_GGML_F16x32_ZERO         _mm512_setzero_ph()
+#define LM_GGML_F16x32_SET1(x)      _mm512_set1_ph(__extension__(_Float16)(x))
+#define LM_GGML_F16x32_LOAD(x)      _mm512_loadu_ph(x)
+#define LM_GGML_F16x32_STORE(x, y)  _mm512_storeu_ph(x, y)
+#define LM_GGML_F16x32_FMA(a, b, c) _mm512_fmadd_ph(b, c, a)
+#define LM_GGML_F16x32_ADD          _mm512_add_ph
+#define LM_GGML_F16x32_MUL          _mm512_mul_ph
+#define LM_GGML_F16x32_REDUCE(res, x)                                     \
+do {                                                                   \
+    int offset = LM_GGML_F16_ARR >> 1;                                    \
+    for (int i = 0; i < offset; ++i) {                                 \
+        x[i] = _mm512_add_ph(x[i], x[offset+i]);                       \
+    }                                                                  \
+    offset >>= 1;                                                      \
+    for (int i = 0; i < offset; ++i) {                                 \
+        x[i] = _mm512_add_ph(x[i], x[offset+i]);                       \
+    }                                                                  \
+    offset >>= 1;                                                      \
+    for (int i = 0; i < offset; ++i) {                                 \
+        x[i] = _mm512_add_ph(x[i], x[offset+i]);                       \
+    }                                                                  \
+    res = (lm_ggml_float) _mm512_reduce_add_ph(x[0]);                     \
+} while (0)
+
+#define LM_GGML_F16_VEC                LM_GGML_F16x32
+#define LM_GGML_F16_VEC_ZERO           LM_GGML_F16x32_ZERO
+#define LM_GGML_F16_VEC_SET1           LM_GGML_F16x32_SET1
+#define LM_GGML_F16_VEC_LOAD(p, i)     LM_GGML_F16x32_LOAD(p)
+#define LM_GGML_F16_VEC_STORE(p, r, i) LM_GGML_F16x32_STORE(p, r[i])
+#define LM_GGML_F16_VEC_FMA            LM_GGML_F16x32_FMA
+#define LM_GGML_F16_VEC_ADD            LM_GGML_F16x32_ADD
+#define LM_GGML_F16_VEC_MUL            LM_GGML_F16x32_MUL
+#define LM_GGML_F16_VEC_REDUCE         LM_GGML_F16x32_REDUCE
+
+#else // Fallback FP16 <-> FP32
 
 #define LM_GGML_F16_STEP 64
 #define LM_GGML_F16_EPR  16
-
-// AVX512 has FP16 extension (AVX512_FP16) but I don't have it on my machine so I use FP32 instead
 
 #define LM_GGML_F32Cx16             __m512
 #define LM_GGML_F32Cx16_ZERO        _mm512_setzero_ps()
@@ -525,6 +563,8 @@ do {                                                              \
 #define LM_GGML_F16_VEC_MUL            LM_GGML_F32Cx16_MUL
 
 #define LM_GGML_F16_VEC_REDUCE         LM_GGML_F32Cx16_REDUCE
+
+#endif // __AVX512FP16__
 #elif defined(__AVX__)
 
 #define LM_GGML_SIMD

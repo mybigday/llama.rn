@@ -82,6 +82,10 @@
 #include "ggml-zendnn.h"
 #endif
 
+#ifdef LM_GGML_USE_OPENVINO
+#include "ggml-openvino.h"
+#endif
+
 namespace fs = std::filesystem;
 
 static std::string path_str(const fs::path & path) {
@@ -153,6 +157,9 @@ struct lm_ggml_backend_registry {
 #endif
 #ifdef LM_GGML_USE_RPC
         register_backend(lm_ggml_backend_rpc_reg());
+#endif
+#ifdef LM_GGML_USE_OPENVINO
+        register_backend(lm_ggml_backend_openvino_reg());
 #endif
 #ifdef LM_GGML_USE_CPU
         register_backend(lm_ggml_backend_cpu_reg());
@@ -557,6 +564,7 @@ void lm_ggml_backend_load_all_from_path(const char * dir_path) {
     lm_ggml_backend_load_best("opencl", silent, dir_path);
     lm_ggml_backend_load_best("hexagon", silent, dir_path);
     lm_ggml_backend_load_best("musa", silent, dir_path);
+    lm_ggml_backend_load_best("openvino", silent, dir_path);
     lm_ggml_backend_load_best("cpu", silent, dir_path);
     // check the environment variable LM_GGML_BACKEND_PATH to load an out-of-tree backend
     const char * backend_path = std::getenv("LM_GGML_BACKEND_PATH");

@@ -153,13 +153,22 @@ function(build_rnllama_library target_name arch cpu_flags)
                 ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp-drv.cpp
             )
 
-            # Use pre-built stub (always present in source tree)
-            target_sources(${target_name} PRIVATE
-                ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp/v73/htp_iface_stub.c
-            )
-
-            # Use pre-built IDL headers from build-hexagon-htp directory
+            # The Android host build consumes generated QAIC artifacts copied by
+            # scripts/build-hexagon-htp.sh. Keep the failure mode explicit when
+            # they have not been generated yet.
             set(HEXAGON_PREBUILT_HTP_DIR "${RNLLAMA_LIB_DIR}/ggml-hexagon/htp/v73/")
+            set(HEXAGON_HOST_STUB "${HEXAGON_PREBUILT_HTP_DIR}/htp_iface_stub.c")
+            set(HEXAGON_HOST_HEADER "${HEXAGON_PREBUILT_HTP_DIR}/htp_iface.h")
+
+            if (NOT EXISTS ${HEXAGON_HOST_STUB} OR NOT EXISTS ${HEXAGON_HOST_HEADER})
+                message(FATAL_ERROR
+                    "Hexagon host QAIC artifacts are missing. "
+                    "Run scripts/build-hexagon-htp.sh to generate ${HEXAGON_PREBUILT_HTP_DIR}.")
+            endif()
+
+            target_sources(${target_name} PRIVATE
+                ${HEXAGON_HOST_STUB}
+            )
 
             target_include_directories(${target_name} PRIVATE
                 ${HEXAGON_SDK_ROOT}/incs
@@ -280,6 +289,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             ssm_conv
             sub
             sum_rows
+            cumsum
             transpose
             concat
             tsembd

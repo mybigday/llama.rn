@@ -7,6 +7,7 @@
 #include "llama-memory.h"
 #include "llama-mmap.h"
 #include "llama-model.h"
+#include "llama-ext.h"
 
 #include <cinttypes>
 #include <cmath>
@@ -149,6 +150,10 @@ llama_context::llama_context(
 
     cparams.flash_attn = params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED;
     cparams.auto_fa    = params.flash_attn_type == LLAMA_FLASH_ATTN_TYPE_AUTO;
+
+    cparams.fused_gdn_ar = true;
+    cparams.fused_gdn_ch = true;
+    cparams.auto_fgdn    = true;
 
     // with causal attention, the batch size is limited by the context size
     cparams.n_batch = cparams.causal_attn ? std::min(cparams.n_ctx, params.n_batch) : params.n_batch;
@@ -337,6 +342,14 @@ llama_context::llama_context(
 
         if (cparams.pipeline_parallel) {
             LLAMA_LOG_INFO("%s: pipeline parallelism enabled\n", __func__);
+
+            if (!graph_reuse_disable) {
+                // TODO: figure out a way to make graph reuse work with pipeline parallelism
+                // ref: https://github.com/ggml-org/llama.cpp/pull/20463
+                LLAMA_LOG_WARN("%s: graph reuse is currently not compatible with pipeline parallelism - disabling\n", __func__);
+
+                graph_reuse_disable = true;
+            }
         }
 
         sched_reserve();
@@ -422,7 +435,7 @@ void llama_context::sched_reserve() {
     if (cparams.auto_fa) {
         auto * gf = graph_reserve(1, n_seqs, n_outputs, mctx.get(), true);
         if (!gf) {
-            throw std::runtime_error("failed to split graph for Flash Attention check");
+            throw std::runtime_error("failed to reserve graph for Flash Attention check");
         }
 
         const size_t prefix_len = strlen(LLAMA_TENSOR_NAME_FATTN) + 1;
@@ -432,8 +445,7 @@ void llama_context::sched_reserve() {
             if (n->op != LM_GGML_OP_FLASH_ATTN_EXT) {
                 continue;
             }
-            lm_ggml_backend_dev_t device_fa = lm_ggml_backend_get_device(
-                    lm_ggml_backend_sched_get_tensor_backend(sched.get(), n));
+            lm_ggml_backend_dev_t device_fa = lm_ggml_backend_get_device(lm_ggml_backend_sched_get_tensor_backend(sched.get(), n));
 
             // TODO: instead of the tensor names, use a map to keep track of which (FA) tensors belong to which layer
             LM_GGML_ASSERT(strncmp(n->name, LLAMA_TENSOR_NAME_FATTN "-", prefix_len) == 0);
@@ -448,6 +460,7 @@ void llama_context::sched_reserve() {
                 break;
             }
         }
+
         if (fa_device_mismatch) {
             cparams.flash_attn = false;
             LLAMA_LOG_WARN("%s: Flash Attention was auto, set to disabled\n", __func__);
@@ -457,6 +470,88 @@ void llama_context::sched_reserve() {
         }
 
         cparams.auto_fa = false;
+    }
+
+    if (cparams.auto_fgdn) {
+        LLAMA_LOG_INFO("%s: resolving fused Gated Delta Net support:\n", __func__);
+
+        if (cparams.fused_gdn_ar) {
+            auto * gf = graph_reserve(1, n_seqs, n_outputs, mctx.get(), true);
+            if (!gf) {
+                throw std::runtime_error("failed to reserve graph for fused Gated Delta Net check (autoregressive)");
+            }
+
+            const size_t prefix_len = strlen(LLAMA_TENSOR_NAME_FGDN_AR) + 1;
+            bool gdn_device_mismatch = false;
+            for (int i = 0; i < lm_ggml_graph_n_nodes(gf); i++) {
+                lm_ggml_tensor * n = lm_ggml_graph_node(gf, i);
+                if (n->op != LM_GGML_OP_GATED_DELTA_NET) {
+                    continue;
+                }
+                lm_ggml_backend_dev_t device_gdn = lm_ggml_backend_get_device(lm_ggml_backend_sched_get_tensor_backend(sched.get(), n));
+
+                LM_GGML_ASSERT(strncmp(n->name, LLAMA_TENSOR_NAME_FGDN_AR "-", prefix_len) == 0);
+                const int il = std::stoi(n->name + prefix_len);
+                lm_ggml_backend_dev_t device_kv = model.dev_layer(il);
+                if (device_gdn != device_kv) {
+                    LLAMA_LOG_WARN("%s: layer %d is assigned to device %s but the fused Gated Delta Net tensor "
+                            "is assigned to device %s (usually due to missing support)\n",
+                            __func__, il, lm_ggml_backend_dev_name(device_kv), lm_ggml_backend_dev_name(device_gdn));
+                    gdn_device_mismatch = true;
+                    break;
+                }
+            }
+
+            if (gdn_device_mismatch) {
+                cparams.fused_gdn_ar = false;
+                LLAMA_LOG_WARN("%s: fused Gated Delta Net (autoregressive) not supported, set to disabled\n", __func__);
+            } else {
+                LLAMA_LOG_INFO("%s: fused Gated Delta Net (autoregressive) enabled\n", __func__);
+            }
+        }
+
+        if (cparams.fused_gdn_ch) {
+            // more than one token in the batch per sequence in order to take the chunked path
+            // note: n_outputs must match n_tokens for embedding models with mean/rank pooling,
+            // because build_pooling creates inp_mean with shape [n_tokens, n_seqs] and multiplies
+            // it with t_embd which is reduced to [n_outputs, ...] via out_ids. if n_outputs != n_tokens,
+            // the lm_ggml_mul_mat assertion fails. this matches the pp reservation below (line ~553).
+            const uint32_t n_tokens_ch = 16*n_seqs;
+            auto * gf = graph_reserve(n_tokens_ch, n_seqs, n_tokens_ch, mctx.get(), true);
+            if (!gf) {
+                throw std::runtime_error("failed to reserve graph for fused Gated Delta Net check (chunked)");
+            }
+
+            const size_t prefix_len = strlen(LLAMA_TENSOR_NAME_FGDN_CH) + 1;
+            bool gdn_device_mismatch = false;
+            for (int i = 0; i < lm_ggml_graph_n_nodes(gf); i++) {
+                lm_ggml_tensor * n = lm_ggml_graph_node(gf, i);
+                if (n->op != LM_GGML_OP_GATED_DELTA_NET) {
+                    continue;
+                }
+                lm_ggml_backend_dev_t device_gdn = lm_ggml_backend_get_device(lm_ggml_backend_sched_get_tensor_backend(sched.get(), n));
+
+                LM_GGML_ASSERT(strncmp(n->name, LLAMA_TENSOR_NAME_FGDN_CH "-", prefix_len) == 0);
+                const int il = std::stoi(n->name + prefix_len);
+                lm_ggml_backend_dev_t device_kv = model.dev_layer(il);
+                if (device_gdn != device_kv) {
+                    LLAMA_LOG_WARN("%s: layer %d is assigned to device %s but the fused Gated Delta Net tensor "
+                            "is assigned to device %s (usually due to missing support)\n",
+                            __func__, il, lm_ggml_backend_dev_name(device_kv), lm_ggml_backend_dev_name(device_gdn));
+                    gdn_device_mismatch = true;
+                    break;
+                }
+            }
+
+            if (gdn_device_mismatch) {
+                cparams.fused_gdn_ch = false;
+                LLAMA_LOG_WARN("%s: fused Gated Delta Net (chunked) not supported, set to disabled\n", __func__);
+            } else {
+                LLAMA_LOG_INFO("%s: fused Gated Delta Net (chunked) enabled\n", __func__);
+            }
+        }
+
+        cparams.auto_fgdn = false;
     }
 
     // reserve worst-case graph
@@ -1070,9 +1165,11 @@ bool llama_context::set_adapter_cvec(
                 int32_t   il_end) {
     LLAMA_LOG_DEBUG("%s: il_start = %d, il_end = %d\n", __func__, il_start, il_end);
 
-    // TODO: should we reserve?
+    bool res = cvec->apply(model, data, len, n_embd, il_start, il_end);
 
-    return cvec->apply(model, data, len, n_embd, il_start, il_end);
+    sched_need_reserve = true;
+
+    return res;
 }
 
 llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, llm_graph_type gtype, llama_memory_context_i * mctx, lm_ggml_status & ret) {
@@ -1122,6 +1219,7 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
     {
         //const auto t_start_us = lm_ggml_time_us();
 
+        // FIXME this call causes a crash if any model inputs were not used in the graph and were therefore not allocated
         res->set_inputs(&ubatch);
 
         //LLAMA_LOG_INFO("graph set inputs time: %.3f ms\n", (lm_ggml_time_us() - t_start_us)/1000.0);
@@ -1848,6 +1946,7 @@ uint32_t llama_context::output_reserve(int32_t n_outputs) {
             LLAMA_LOG_ERROR("%s: failed to allocate output buffer of size %.2f MiB\n", __func__, new_size / (1024.0 * 1024.0));
             return 0;
         }
+        lm_ggml_backend_buffer_clear(buf_output.get(), 0);
     }
 
     float * output_base = (float *) lm_ggml_backend_buffer_get_base(buf_output.get());
@@ -2839,19 +2938,23 @@ llama_context * llama_init_from_model(
 
     if (params.flash_attn_type == LLAMA_FLASH_ATTN_TYPE_AUTO && lm_ggml_is_quantized(params.type_k)) {
         const uint32_t blck_size = lm_ggml_blck_size(params.type_k);
-        if (model->hparams.n_embd_head_k % blck_size != 0) {
-            LLAMA_LOG_ERROR("%s: K cache type %s with block size %u does not divide n_embd_head_k=%u\n",
-                __func__, lm_ggml_type_name(params.type_k), blck_size, model->hparams.n_embd_head_k);
-            return nullptr;
+        for (uint32_t il = 0; il < model->hparams.n_layer; ++il) {
+            if (model->hparams.n_embd_head_k(il) % blck_size != 0) {
+                LLAMA_LOG_ERROR("%s: K cache type %s with block size %u does not divide n_embd_head_k=%u\n",
+                    __func__, lm_ggml_type_name(params.type_k), blck_size, model->hparams.n_embd_head_k(il));
+                return nullptr;
+            }
         }
     }
 
     if (params.flash_attn_type == LLAMA_FLASH_ATTN_TYPE_AUTO && lm_ggml_is_quantized(params.type_v)) {
         const uint32_t blck_size = lm_ggml_blck_size(params.type_v);
-        if (model->hparams.n_embd_head_v % blck_size != 0) {
-            LLAMA_LOG_ERROR("%s: V cache type %s with block size %u does not divide n_embd_head_k=%u\n",
-                __func__, lm_ggml_type_name(params.type_v), blck_size, model->hparams.n_embd_head_v);
-            return nullptr;
+        for (uint32_t il = 0; il < model->hparams.n_layer; ++il) {
+            if (model->hparams.n_embd_head_v(il) % blck_size != 0) {
+                LLAMA_LOG_ERROR("%s: V cache type %s with block size %u does not divide n_embd_head_v=%u\n",
+                    __func__, lm_ggml_type_name(params.type_v), blck_size, model->hparams.n_embd_head_v(il));
+                return nullptr;
+            }
         }
     }
 
@@ -3041,6 +3144,19 @@ uint32_t llama_get_sampled_probs_count_ith(llama_context * ctx, int32_t i) {
     ctx->synchronize();
 
     return static_cast<uint32_t>(ctx->get_sampled_probs_count(i));
+}
+
+struct lm_ggml_cgraph * llama_graph_reserve(
+        struct llama_context * ctx,
+        uint32_t n_tokens,
+        uint32_t n_seqs,
+        uint32_t n_outputs) {
+    auto * memory = ctx->get_memory();
+    llama_memory_context_ptr mctx;
+    if (memory) {
+        mctx = memory->init_full();
+    }
+    return ctx->graph_reserve(n_tokens, n_seqs, n_outputs, mctx.get());
 }
 
 // llama adapter API

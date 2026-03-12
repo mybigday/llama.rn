@@ -547,6 +547,7 @@ struct lm_ggml_backend_opencl_context {
     cl_kernel kernel_im2col_f32, kernel_im2col_f16;
     cl_kernel kernel_argsort_f32_i32;
     cl_kernel kernel_sum_rows_f32, kernel_sum_rows_f32_4;
+    cl_kernel kernel_cumsum_blk, kernel_cumsum_add;
     cl_kernel kernel_repeat_f32;
     cl_kernel kernel_pad;
     cl_kernel kernel_tanh_f32, kernel_tanh_f32_4, kernel_tanh_f32_nc;
@@ -1925,6 +1926,24 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx, lm_ggml
         CL_CHECK((backend_ctx->kernel_sum_rows_f32 = clCreateKernel(backend_ctx->program_sum_rows_f32, "kernel_sum_rows_f32", &err), err));
         CL_CHECK((backend_ctx->kernel_sum_rows_f32_4 = clCreateKernel(backend_ctx->program_sum_rows_f32, "kernel_sum_rows_f32_4", &err), err));
         LM_GGML_LOG_CONT(".");
+    }
+
+    // cumsum
+    {
+#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+        const std::string kernel_src {
+            #include "cumsum.cl.h"
+        };
+#else
+        const std::string kernel_src = read_file("cumsum.cl");
+#endif
+        cl_program prog;
+        prog = build_program_from_source(backend_ctx->context, backend_ctx->device, kernel_src.c_str(), compile_opts);
+
+        CL_CHECK((backend_ctx->kernel_cumsum_blk = clCreateKernel(prog, "kernel_cumsum_blk", &err), err));
+        CL_CHECK((backend_ctx->kernel_cumsum_add = clCreateKernel(prog, "kernel_cumsum_add", &err), err));
+        LM_GGML_LOG_CONT(".");
+        CL_CHECK(clReleaseProgram(prog));
     }
 
     // sigmoid
@@ -3803,6 +3822,8 @@ static bool lm_ggml_opencl_supports_op(lm_ggml_backend_dev_t dev, const struct l
             return cols <= max_workgroup_size && op->src[0]->type == LM_GGML_TYPE_F32;
         }
         case LM_GGML_OP_SUM_ROWS:
+        case LM_GGML_OP_CUMSUM:
+            return op->src[0]->type == LM_GGML_TYPE_F32 && lm_ggml_is_contiguous(op->src[0]);
         case LM_GGML_OP_MEAN:
             return op->src[0]->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_FLASH_ATTN_EXT:
@@ -5775,19 +5796,12 @@ static void lm_ggml_cl_get_rows(lm_ggml_backend_t backend, const lm_ggml_tensor 
     LM_GGML_ASSERT(dst);
     LM_GGML_ASSERT(dst->extra);
 
-    const int      ne00 = src0->ne[0];
-    const cl_ulong nb01 = src0->nb[1];
-    const cl_ulong nb02 = src0->nb[2];
-    const cl_ulong nb03 = src0->nb[3];
-    const int      ne10 = src1->ne[0];
-    const cl_ulong nb10 = src1->nb[0];
-    const int      ne11 = src1->ne[1];
-    const int      ne12 = src1->ne[2];
-    const cl_ulong nb11 = src1->nb[1];
-    const cl_ulong nb12 = src1->nb[2];
-    const cl_ulong nb1  = dst->nb[1];
-    const cl_ulong nb2  = dst->nb[2];
-    const cl_ulong nb3  = dst->nb[3];
+    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+    LM_GGML_TENSOR_LOCALS(int,      ne1, src1, ne);
+    LM_GGML_TENSOR_LOCALS(cl_ulong, nb1, src1, nb);
+    LM_GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
+    LM_GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
 
     lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
 
@@ -5833,8 +5847,14 @@ static void lm_ggml_cl_get_rows(lm_ggml_backend_t backend, const lm_ggml_tensor 
     CL_CHECK(clSetKernelArg(kernel, 15, sizeof(cl_ulong), &nb2));
     CL_CHECK(clSetKernelArg(kernel, 16, sizeof(cl_ulong), &nb3));
 
-    size_t global_work_size[] = {(size_t)ne10*64, (size_t)ne11, (size_t)ne12};
-    size_t local_work_size[] = {64, 1, 1};
+    int max_workgroup_size = backend_ctx->get_kernel_workgroup_size(kernel);
+    int nth = 1;
+    while (nth < ne00 && 2*nth <= max_workgroup_size) {
+        nth *= 2;
+    }
+
+    size_t global_work_size[] = {(size_t)ne10*nth, (size_t)ne11, (size_t)ne12};
+    size_t local_work_size[] = {(size_t)nth, 1, 1};
 
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
@@ -11949,6 +11969,118 @@ static void lm_ggml_cl_sum_rows(lm_ggml_backend_t backend, const lm_ggml_tensor 
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
+static void lm_ggml_cl_cumsum(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
+    LM_GGML_ASSERT(src0);
+    LM_GGML_ASSERT(src0->extra);
+    LM_GGML_ASSERT(dst);
+    LM_GGML_ASSERT(dst->extra);
+    LM_GGML_UNUSED(src1);
+
+    LM_GGML_ASSERT(src0->nb[0] == lm_ggml_type_size(src0->type));
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(src0));
+
+    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+
+    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
+    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+
+    cl_ulong offset0 = extra0->offset + src0->view_offs;
+    cl_ulong offsetd = extrad->offset + dst->view_offs;
+
+    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+
+    cl_kernel kernel = backend_ctx->kernel_cumsum_blk;
+
+    int max_workgroup_size = backend_ctx->get_kernel_workgroup_size(kernel);
+    int nth = 1;
+    while (nth < ne00 && 2*nth <= max_workgroup_size) {
+        nth *= 2;
+    }
+
+    LM_GGML_ASSERT(ne00 <= nth*nth);
+
+    const int net0 = CEIL_DIV(ne00, nth);
+    const int net1 = ne01;
+    const int net2 = ne02;
+    const int net3 = ne03;
+
+    const cl_ulong nbt0 = sizeof(float);
+    const cl_ulong nbt1 = net0*nbt0;
+    const cl_ulong nbt2 = net1*nbt1;
+    const cl_ulong nbt3 = net2*nbt2;
+
+    static lm_ggml_cl_buffer tmp_buffer;
+    tmp_buffer.allocate(backend_ctx->context, net0*ne01*ne02*ne03*sizeof(float));
+
+    CL_CHECK(clSetKernelArg(kernel,   0, sizeof(cl_mem),   &extra0->data_device));
+    CL_CHECK(clSetKernelArg(kernel,   1, sizeof(cl_ulong), &offset0));
+    CL_CHECK(clSetKernelArg(kernel,   2, sizeof(cl_mem),   &tmp_buffer.buffer));
+    CL_CHECK(clSetKernelArg(kernel,   3, sizeof(cl_mem),   &extrad->data_device));
+    CL_CHECK(clSetKernelArg(kernel,   4, sizeof(cl_ulong), &offsetd));
+    CL_CHECK(clSetKernelArg(kernel,   5, sizeof(int),      &ne00));
+    CL_CHECK(clSetKernelArg(kernel,   6, sizeof(int),      &ne01));
+    CL_CHECK(clSetKernelArg(kernel,   7, sizeof(int),      &ne02));
+    CL_CHECK(clSetKernelArg(kernel,   8, sizeof(int),      &ne03));
+    CL_CHECK(clSetKernelArg(kernel,   9, sizeof(cl_ulong), &nb00));
+    CL_CHECK(clSetKernelArg(kernel,  10, sizeof(cl_ulong), &nb01));
+    CL_CHECK(clSetKernelArg(kernel,  11, sizeof(cl_ulong), &nb02));
+    CL_CHECK(clSetKernelArg(kernel,  12, sizeof(cl_ulong), &nb03));
+    CL_CHECK(clSetKernelArg(kernel,  13, sizeof(int),      &net0));
+    CL_CHECK(clSetKernelArg(kernel,  14, sizeof(int),      &net1));
+    CL_CHECK(clSetKernelArg(kernel,  15, sizeof(int),      &net2));
+
+    size_t global_work_size[] = { (size_t)(nth*net0*ne01), (size_t)ne02, (size_t)ne03};
+    size_t local_work_size[] = { (size_t)nth, 1, 1};
+
+    backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
+
+    if(ne00 > nth) {
+        // if a single workgroup cannot handle an entire row, each workgroup
+        // computes a partial sum and stores to dst, tmp_buffer contains the sum
+        // of the each workgroup; cumsum this buffer and add to the partial sums in dst
+        cl_ulong offsett = 0;
+        kernel = backend_ctx->kernel_cumsum_blk;
+        CL_CHECK(clSetKernelArg(kernel,   0, sizeof(cl_mem),   &tmp_buffer.buffer));
+        CL_CHECK(clSetKernelArg(kernel,   1, sizeof(cl_ulong), &offsett));
+        CL_CHECK(clSetKernelArg(kernel,   2, sizeof(cl_mem),   &tmp_buffer.buffer));
+        CL_CHECK(clSetKernelArg(kernel,   3, sizeof(cl_mem),   &tmp_buffer.buffer));
+        CL_CHECK(clSetKernelArg(kernel,   4, sizeof(cl_ulong), &offsett));
+        CL_CHECK(clSetKernelArg(kernel,   5, sizeof(int),      &net0));
+        CL_CHECK(clSetKernelArg(kernel,   6, sizeof(int),      &ne01));
+        CL_CHECK(clSetKernelArg(kernel,   7, sizeof(int),      &ne02));
+        CL_CHECK(clSetKernelArg(kernel,   8, sizeof(int),      &ne03));
+        CL_CHECK(clSetKernelArg(kernel,   9, sizeof(cl_ulong), &nbt0));
+        CL_CHECK(clSetKernelArg(kernel,  10, sizeof(cl_ulong), &nbt1));
+        CL_CHECK(clSetKernelArg(kernel,  11, sizeof(cl_ulong), &nbt2));
+        CL_CHECK(clSetKernelArg(kernel,  12, sizeof(cl_ulong), &nbt3));
+        CL_CHECK(clSetKernelArg(kernel,  13, sizeof(int),      &net0));
+        CL_CHECK(clSetKernelArg(kernel,  14, sizeof(int),      &net1));
+        CL_CHECK(clSetKernelArg(kernel,  15, sizeof(int),      &net2));
+
+        size_t global_work_size_1[] = { (size_t)net1*nth, (size_t)net2, (size_t)net3};
+        size_t local_work_size_1[] = { (size_t)nth, 1, 1};
+        backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size_1, local_work_size_1, dst);
+
+        kernel = backend_ctx->kernel_cumsum_add;
+        CL_CHECK(clSetKernelArg(kernel,   0, sizeof(cl_mem),   &tmp_buffer.buffer));
+        CL_CHECK(clSetKernelArg(kernel,   1, sizeof(cl_mem),   &extrad->data_device));
+        CL_CHECK(clSetKernelArg(kernel,   2, sizeof(cl_ulong), &offsetd));
+        CL_CHECK(clSetKernelArg(kernel,   3, sizeof(int),      &ne00));
+        CL_CHECK(clSetKernelArg(kernel,   4, sizeof(int),      &ne01));
+        CL_CHECK(clSetKernelArg(kernel,   5, sizeof(int),      &ne02));
+        CL_CHECK(clSetKernelArg(kernel,   6, sizeof(int),      &ne03));
+        CL_CHECK(clSetKernelArg(kernel,   7, sizeof(int),      &nbt0));
+        CL_CHECK(clSetKernelArg(kernel,   8, sizeof(int),      &nbt1));
+        CL_CHECK(clSetKernelArg(kernel,   9, sizeof(int),      &nbt2));
+        CL_CHECK(clSetKernelArg(kernel,  10, sizeof(int),      &nbt3));
+
+        size_t global_work_size_2[] = { (size_t)(nth*net0*ne01), (size_t)ne02, (size_t)ne03};
+        size_t local_work_size_2[] = { (size_t)nth, 1, 1};
+        backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size_2, local_work_size_2, dst);
+    }
+}
+
 static void lm_ggml_cl_glu(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
     LM_GGML_ASSERT(src0);
     LM_GGML_ASSERT(src0->extra);
@@ -12390,6 +12522,12 @@ bool lm_ggml_cl_compute_forward(lm_ggml_backend_t backend, struct lm_ggml_tensor
                 return false;
             }
             func = lm_ggml_cl_sum_rows;
+            break;
+        case LM_GGML_OP_CUMSUM:
+            if (!any_on_device) {
+                return false;
+            }
+            func = lm_ggml_cl_cumsum;
             break;
         case LM_GGML_OP_FLASH_ATTN_EXT:
             if (!any_on_device) {

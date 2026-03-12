@@ -149,6 +149,11 @@ export type NativeCompletionParams = {
    */
   thinking_forced_open?: boolean
   /**
+   * Assistant generation prompt returned by jinja chat formatting.
+   * Used for PEG chat parsing and grammar prefill.
+   */
+  generation_prompt?: string
+  /**
    * Serialized PEG parser for chat output parsing.
    * Required for COMMON_CHAT_FORMAT_PEG_* formats.
    * This is typically obtained from getFormattedChat with jinja enabled.
@@ -506,6 +511,7 @@ export type JinjaFormattedChatResult = FormattedChatResult & {
     value: string
     token: number
   }>
+  generation_prompt?: string
   thinking_forced_open?: boolean
   preserved_tokens?: Array<string>
   additional_stops?: Array<string>

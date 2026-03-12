@@ -2,11 +2,11 @@
 
 llm_build_cogvlm::llm_build_cogvlm(const llama_model & model, const llm_graph_params & params) :
     llm_graph_context(params) {
-    const int64_t n_embd_head = hparams.n_embd_head_v;
+    const int64_t n_embd_head = hparams.n_embd_head_v();
     const float   kq_scale    = 1.0f / sqrtf(float(n_embd_head));
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
-    LM_GGML_ASSERT(n_embd_head == hparams.n_rot);
+    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    LM_GGML_ASSERT(n_embd_head == n_rot);
 
     lm_ggml_tensor * inpL;
     lm_ggml_tensor * cur;
@@ -86,6 +86,10 @@ llm_build_cogvlm::llm_build_cogvlm(const llama_model & model, const llm_graph_pa
         cur = lm_ggml_add(ctx0, cur, ffn_inp);
         cb(cur, "ffn_out", il);
 
+        cur = build_cvec(cur, il);
+        cb(cur, "l_out", il);
+
+        // input for next layer
         inpL = cur;
     }
 

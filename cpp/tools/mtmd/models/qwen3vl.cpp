@@ -85,7 +85,7 @@ lm_ggml_cgraph * clip_graph_qwen3vl::build() {
 
         // self-attention
         {
-            cur = lm_ggml_mul_mat(ctx0, layer.qkv_w, cur);
+            cur = build_mm(layer.qkv_w, cur);
             cur = lm_ggml_add(ctx0, cur, layer.qkv_b);
 
             lm_ggml_tensor * Qcur = lm_ggml_view_3d(ctx0, cur, d_head, n_head, n_pos,

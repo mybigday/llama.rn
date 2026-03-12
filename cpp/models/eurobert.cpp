@@ -1,9 +1,9 @@
 #include "models.h"
 
 llm_build_eurobert::llm_build_eurobert(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
-    const int64_t n_embd_head = hparams.n_embd_head_v;
+    const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
+    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
     lm_ggml_tensor * cur;
     lm_ggml_tensor * inpL;
@@ -82,6 +82,7 @@ llm_build_eurobert::llm_build_eurobert(const llama_model & model, const llm_grap
 
         cur = lm_ggml_add(ctx0, cur, ffn_inp);
 
+        // input for next layer
         inpL = cur;
     }
     cur = inpL;

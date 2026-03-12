@@ -58,6 +58,7 @@ int lm_ggml_metal_op_soft_max          (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_ssm_conv          (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_ssm_scan          (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_rwkv              (lm_ggml_metal_op_t ctx, int idx);
+int lm_ggml_metal_op_gated_delta_net   (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_solve_tri         (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_set               (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_cpy               (lm_ggml_metal_op_t ctx, int idx);

@@ -60,6 +60,13 @@ if (appProject != null) {
       }
     }
 
+    def prepareHtpTask = applicationProject.tasks.findByName("prepareHTP")
+    if (prepareHtpTask != null) {
+      syncTask.configure {
+        dependsOn(prepareHtpTask)
+      }
+    }
+
     applicationProject.tasks.matching { it.name == "preBuild" }.configureEach {
       dependsOn(syncTask)
     }
