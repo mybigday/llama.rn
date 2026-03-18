@@ -154,6 +154,7 @@ namespace rnllama_jsi {
 
         cparams.use_mlock = getPropertyAsBool(runtime, params, "use_mlock", cparams.use_mlock);
         cparams.use_mmap = getPropertyAsBool(runtime, params, "use_mmap", cparams.use_mmap);
+        cparams.no_extra_bufts = getPropertyAsBool(runtime, params, "no_extra_bufts", cparams.no_extra_bufts);
 
         if (params.hasProperty(runtime, "flash_attn")) {
             bool fa = getPropertyAsBool(runtime, params, "flash_attn", false);
