@@ -1,11 +1,14 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BUILD_DIR="$SCRIPT_DIR/build"
+
 echo "=== Building llama.rn C++ Tests ==="
 
 # Create build directory
-mkdir -p build
-cd build
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
 
 # Get the correct SDK path for current Xcode version
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -18,7 +21,7 @@ fi
 
 # Configure
 echo "Configuring with CMake..."
-cmake .. -DCMAKE_BUILD_TYPE=Release $CMAKE_OSX_SYSROOT
+cmake "$SCRIPT_DIR" -DCMAKE_BUILD_TYPE=Release $CMAKE_OSX_SYSROOT
 
 # Build both test executables
 echo ""
