@@ -77,6 +77,13 @@ export type NativeContextParams = {
   vocab_only?: boolean
 
   /**
+   * Disable extra buffer types for weight repacking.
+   * Reduces memory usage at the cost of slower prompt processing.
+   * Default: false
+   */
+  no_extra_bufts?: boolean
+
+  /**
    * Single LoRA adapter path
    */
   lora?: string
