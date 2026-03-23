@@ -884,6 +884,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           ...convertMCPToolsToOpenAI(mcpTools),
         ]}
         context={context}
+        completionParams={completionParams}
         onImportMessages={handleImportMessages}
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
         defaultSystemPrompt={DEFAULT_SYSTEM_PROMPT}

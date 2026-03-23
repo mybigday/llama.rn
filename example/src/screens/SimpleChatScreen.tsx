@@ -509,6 +509,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
         onClose={() => setShowMessagesModal(false)}
         messages={buildLLMMessages()}
         context={context}
+        completionParams={completionParams}
         onImportMessages={handleImportMessages}
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
         defaultSystemPrompt={DEFAULT_SYSTEM_PROMPT}

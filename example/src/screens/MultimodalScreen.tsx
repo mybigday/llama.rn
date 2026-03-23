@@ -613,11 +613,14 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
       // Initialize multimodal support
       setInitProgress(85)
-      const maxTokens = imageMaxTokens ? parseInt(imageMaxTokens, 10) : undefined
+      const maxTokens = imageMaxTokens
+        ? parseInt(imageMaxTokens, 10)
+        : undefined
       const multimodalInitialized = await llamaContext.initMultimodal({
         path: mmprojPath,
         use_gpu: true,
-        image_max_tokens: maxTokens && !Number.isNaN(maxTokens) ? maxTokens : undefined,
+        image_max_tokens:
+          maxTokens && !Number.isNaN(maxTokens) ? maxTokens : undefined,
       })
 
       if (!multimodalInitialized) {
@@ -968,8 +971,8 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             <Text style={styles.settingLabel}>Max Image Tokens (optional)</Text>
             <Text style={styles.settingDescription}>
               Limit tokens for dynamic resolution models (e.g., Qwen-VL). Lower
-              values (256-512) improve speed, higher values (up to 4096) preserve
-              detail. Leave empty for model default.
+              values (256-512) improve speed, higher values (up to 4096)
+              preserve detail. Leave empty for model default.
             </Text>
             <TextInput
               style={styles.settingInput}
@@ -1123,6 +1126,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         onClose={() => setShowMessagesModal(false)}
         messages={buildLLMMessages()}
         context={context}
+        completionParams={completionParams}
         onImportMessages={handleImportMessages}
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
         defaultSystemPrompt={createSystemPrompt(multimodalSupport)}
