@@ -4,11 +4,14 @@ ROOT_DIR=$(pwd)
 OS=$(uname)
 
 LLAMA_DIR=third_party/llama.cpp
+CODEC_DIR=third_party/codec.cpp
 CPP_DIR="$ROOT_DIR/cpp"
 SRC_DIR="$ROOT_DIR/src"
 
 git submodule init "$LLAMA_DIR"
 git submodule update --recursive "$LLAMA_DIR"
+git submodule init "$CODEC_DIR"
+git submodule update --recursive "$CODEC_DIR"
 
 # Hexagon SDK setup for Android builds
 echo ""
@@ -326,6 +329,12 @@ rm -rf ./cpp/tools/mtmd/stb
 cp -r ./$LLAMA_DIR/vendor/miniaudio ./cpp/tools/mtmd/miniaudio
 cp -r ./$LLAMA_DIR/vendor/stb ./cpp/tools/mtmd/stb
 
+# Copy codec.cpp sources into cpp/codec
+rm -rf ./cpp/codec
+mkdir -p ./cpp/codec
+cp -r ./$CODEC_DIR/include ./cpp/codec/include
+cp -r ./$CODEC_DIR/src ./cpp/codec/src
+
 # List of files to process
 files_add_lm_prefix=(
   # ggml api
@@ -372,6 +381,19 @@ files_add_lm_prefix=(
 
   ./cpp/common/*.h
   ./cpp/common/*.cpp
+
+  # codec.cpp sources
+  ./cpp/codec/include/*.h
+  ./cpp/codec/src/*.h
+  ./cpp/codec/src/*.cpp
+  ./cpp/codec/src/batch/*.h
+  ./cpp/codec/src/batch/*.cpp
+  ./cpp/codec/src/models/*.h
+  ./cpp/codec/src/models/*.cpp
+  ./cpp/codec/src/ops/*.h
+  ./cpp/codec/src/ops/*.cpp
+  ./cpp/codec/src/runtime/*.h
+  ./cpp/codec/src/runtime/*.cpp
 )
 
 # Loop through each file and run the sed commands
@@ -429,6 +451,10 @@ for file in "${files_iq_add_lm_prefix[@]}"; do
     sed -i 's/iq3xs_free_impl/lm_iq3xs_free_impl/g' $file
   fi
 done
+
+# codec.cpp include aliases for prefixed include names produced by the rewrite pass
+cp ./cpp/codec/src/ops/ggml_ops.h ./cpp/codec/src/ops/lm_ggml_ops.h
+cp ./cpp/codec/src/runtime/gguf_kv.h ./cpp/codec/src/runtime/lm_gguf_kv.h
 
 echo "Replacement completed successfully!"
 

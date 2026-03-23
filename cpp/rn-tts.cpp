@@ -2,18 +2,14 @@
 #include "rn-llama.h"
 #include "anyascii.h"
 #include "common.h"
+#include "codec.h"
 #include <regex>
 #include <map>
 #include <sstream>
 #include <iomanip>
+#include <algorithm>
 #include <codecvt>
 #include <locale>
-#include <thread>
-#include <cmath>
-
-#ifdef _WIN32
-  #define M_PI 3.14159265358979323846
-#endif
 
 namespace rnllama {
 
@@ -273,191 +269,38 @@ std::string audio_data_from_speaker(json speaker, const tts_type type) {
 }
 
 // Constructor and destructor implementations
-llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path, int batch_size) {
-  common_params vocoder_params;
-  vocoder_params.model.path = vocoder_model_path;
-  vocoder_params.embedding = true;
-  vocoder_params.ctx_shift = false;
-  if (batch_size > 0) {
-      vocoder_params.n_batch = batch_size;
+llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path, int /* batch_size */) {
+  struct codec_model_params model_params = codec_model_default_params();
+  codec_model = codec_model_load_from_file(vocoder_model_path.c_str(), model_params);
+  if (codec_model == nullptr) {
+      throw std::runtime_error("Failed to load codec model");
   }
-  vocoder_params.n_ubatch = vocoder_params.n_batch;
 
-  init_result = common_init_from_params(vocoder_params);
-  params = vocoder_params;
-  model = init_result->model();
-  ctx = init_result->context();
-
-  if (model == nullptr || ctx == nullptr) {
-      LOG_ERROR("Failed to load vocoder model: %s", vocoder_model_path.c_str());
-      throw std::runtime_error("Failed to load vocoder model");
+  struct codec_context_params context_params = codec_context_default_params();
+  codec_ctx = codec_init_from_model(codec_model, context_params);
+  if (codec_ctx == nullptr) {
+      codec_model_free(codec_model);
+      codec_model = nullptr;
+      throw std::runtime_error("Failed to initialize codec context");
   }
+
   type = UNKNOWN; // Will be determined when used
 }
 
 llama_rn_context_tts::~llama_rn_context_tts() {
-  // init_result will handle cleanup automatically when it goes out of scope
-  model = nullptr;
-  ctx = nullptr;
+  if (codec_ctx != nullptr) {
+      codec_free(codec_ctx);
+      codec_ctx = nullptr;
+  }
+  if (codec_model != nullptr) {
+      codec_model_free(codec_model);
+      codec_model = nullptr;
+  }
   type = UNKNOWN;
 }
 
 void llama_rn_context_tts::setGuideTokens(const std::vector<llama_token> &tokens) {
     guide_tokens = tokens;
-}
-
-// Audio processing functions - FFT and related utilities
-static void fill_hann_window(int length, bool periodic, float * output) {
-    int offset = -1;
-    if (periodic) {
-        offset = 0;
-    }
-    for (int i = 0; i < length; i++) {
-        output[i] = 0.5 * (1.0 - cosf((2.0 * M_PI * i) / (length + offset)));
-    }
-}
-
-static void twiddle(float * real, float * imag, int k, int N) {
-    float angle = 2 * M_PI * k / N;
-    *real = cos(angle);
-    *imag = sin(angle);
-}
-
-static void irfft(int n, const float * inp_cplx, float * out_real) {
-    int N = n / 2 + 1;
-
-    std::vector<float> real_input(N);
-    std::vector<float> imag_input(N);
-    for (int i = 0; i < N; ++i) {
-        real_input[i] = inp_cplx[2 * i];
-        imag_input[i] = inp_cplx[2 * i + 1];
-    }
-
-    std::vector<float> real_output(n);
-    std::vector<float> imag_output(n);
-
-    for (int k = 0; k < n; ++k) {
-        real_output[k] = 0.0f;
-        imag_output[k] = 0.0f;
-        for (int m = 0; m < N; ++m) {
-            float twiddle_real;
-            float twiddle_imag;
-
-            twiddle(&twiddle_real, &twiddle_imag, k * m, n);
-
-            real_output[k] += real_input[m] * twiddle_real - imag_input[m] * twiddle_imag;
-            imag_output[k] += real_input[m] * twiddle_imag + imag_input[m] * twiddle_real;
-        }
-    }
-
-    for (int i = 0; i < n; ++i) {
-        out_real[i] = real_output[i] / N;
-    }
-}
-
-static void fold(const std::vector<float> & data, int64_t n_out, int64_t n_win, int64_t n_hop, int64_t n_pad, std::vector<float> & output) {
-    int64_t output_height = n_out;
-    int64_t kernel_w = n_win;
-    int64_t stride_w = n_hop;
-    int64_t width    = n_out;
-
-    output.resize(width, 0.0f);
-
-    int64_t col_idx = 0;
-    for (int64_t w_col = 0; w_col < width; ++w_col) {
-        int64_t start = w_col * stride_w - n_pad;
-        int64_t end   = start + kernel_w;
-
-        for (int64_t w_im = start; w_im < end; ++w_im) {
-            if (w_im >= 0 && w_im < output_height && col_idx < (int64_t) data.size()) {
-                output[w_im] += data[col_idx];
-            }
-            col_idx++;
-        }
-    }
-
-    output.resize(n_out - 2 * n_pad);
-}
-
-std::vector<float> embd_to_audio(
-        const float * embd,
-        const int n_codes,
-        const int n_embd,
-        const int n_thread) {
-    const int n_fft = 1280;
-    const int n_hop = 320;
-    const int n_win = 1280;
-    const int n_pad = (n_win - n_hop)/2;
-    const int n_out = (n_codes - 1)*n_hop + n_win;
-
-    std::vector<float> hann(n_fft);
-
-    fill_hann_window(hann.size(), true, hann.data());
-
-    int n_spec = n_embd*n_codes;
-
-    std::vector<float> E (n_spec);
-    std::vector<float> S (n_spec);
-    std::vector<float> ST(n_spec);
-
-    for (int l = 0; l < n_codes; ++l) {
-        for (int k = 0; k < n_embd; ++k) {
-            E[k*n_codes + l] = embd[l*n_embd + k];
-        }
-    }
-
-    for (int k = 0; k < n_embd/2; ++k) {
-        for (int l = 0; l < n_codes; ++l) {
-            float mag = E[(k           )*n_codes + l];
-            float phi = E[(k + n_embd/2)*n_codes + l];
-
-            mag = exp(mag);
-
-            if (mag > 1e2) {
-                mag = 1e2;
-            }
-            S[2*(k*n_codes + l) + 0] = mag*cosf(phi);
-            S[2*(k*n_codes + l) + 1] = mag*sinf(phi);
-        }
-    }
-
-    for (int l = 0; l < n_codes; ++l) {
-        for (int k = 0; k < n_embd/2; ++k) {
-            ST[l*n_embd + 2*k + 0] = S[2*(k*n_codes + l) + 0];
-            ST[l*n_embd + 2*k + 1] = S[2*(k*n_codes + l) + 1];
-        }
-    }
-
-    std::vector<float> res  (n_codes*n_fft);
-    std::vector<float> hann2(n_codes*n_fft);
-
-    std::vector<std::thread> workers(n_thread);
-    for (int i = 0; i < n_thread; ++i) {
-        workers[i] = std::thread([&, i]() {
-            for (int l = i; l < n_codes; l += n_thread) {
-                irfft(n_fft, ST.data() + l*n_embd, res.data() + l*n_fft);
-                for (int j = 0; j < n_fft; ++j) {
-                    res  [l*n_fft + j] *= hann[j];
-                    hann2[l*n_fft + j]  = hann[j] * hann[j];
-                }
-            }
-        });
-    }
-    for (int i = 0; i < n_thread; ++i) {
-        workers[i].join();
-    }
-
-    std::vector<float> audio;
-    std::vector<float> env;
-
-    fold(res,   n_out, n_win, n_hop, n_pad, audio);
-    fold(hann2, n_out, n_win, n_hop, n_pad, env);
-
-    for (size_t i = 0; i < audio.size(); ++i) {
-        audio[i] /= env[i];
-    }
-
-    return audio;
 }
 
 // Forward declarations from rn-llama.h
@@ -562,6 +405,11 @@ std::vector<llama_token> llama_rn_context_tts::getAudioCompletionGuideTokens(lla
 }
 
 std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* main_ctx, const std::vector<llama_token> &tokens) {
+    if (codec_ctx == nullptr || codec_model == nullptr) {
+        LOG_ERROR("Codec context is not initialized");
+        return std::vector<float>();
+    }
+
     std::vector<llama_token> tokens_audio = tokens;
     tts_type tts_type = getTTSType(main_ctx);
     if (tts_type == OUTETTS_V0_3 || tts_type == OUTETTS_V0_2) {
@@ -573,23 +421,43 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
         LOG_ERROR("Unsupported audio tokens");
         return std::vector<float>();
     }
-    const int n_codes = tokens_audio.size();
-    llama_batch batch = llama_batch_init(n_codes, 0, 1);
-    for (size_t i = 0; i < tokens_audio.size(); ++i) {
-        llama_batch_add(&batch, tokens_audio[i], i, { 0 }, true);
-    }
-    if (batch.n_tokens != n_codes) {
-        LOG_ERROR("batch.n_tokens != n_codes: %d != %d", batch.n_tokens, n_codes);
+
+    if (tokens_audio.empty()) {
         return std::vector<float>();
     }
-    if (llama_encode(ctx, batch) != 0) {
-        LOG_ERROR("llama_encode() failed");
+
+    const int n_q = std::max(codec_model_n_q(codec_model), 1);
+    if ((int)tokens_audio.size() % n_q != 0) {
+        LOG_ERROR("Invalid audio token count: %zu is not divisible by n_q=%d", tokens_audio.size(), n_q);
         return std::vector<float>();
     }
-    llama_synchronize(ctx);
-    const int n_embd = llama_model_n_embd(model);
-    const float * embd = llama_get_embeddings(ctx);
-    return embd_to_audio(embd, n_codes, n_embd, main_ctx->params.cpuparams.n_threads);
+
+    std::vector<int32_t> codec_tokens(tokens_audio.begin(), tokens_audio.end());
+    struct codec_token_buffer token_buffer = {};
+    token_buffer.data = codec_tokens.data();
+    token_buffer.n_tokens = (int32_t)codec_tokens.size();
+    token_buffer.n_frames = (int32_t)(codec_tokens.size() / n_q);
+    token_buffer.n_q = n_q;
+    token_buffer.codebook_size = codec_model_codebook_size(codec_model);
+    token_buffer.sample_rate = codec_model_sample_rate(codec_model);
+    token_buffer.hop_size = codec_model_hop_size(codec_model);
+
+    struct codec_decode_params decode_params = codec_decode_default_params();
+    if (main_ctx->params.cpuparams.n_threads > 0) {
+        decode_params.n_threads = main_ctx->params.cpuparams.n_threads;
+    }
+
+    struct codec_pcm_buffer pcm = {};
+    const enum codec_status status = codec_decode(codec_ctx, &token_buffer, &pcm, decode_params);
+    if (status != CODEC_STATUS_SUCCESS) {
+        const char *err = codec_get_last_error(codec_ctx);
+        LOG_ERROR("codec_decode() failed: %s", err != nullptr ? err : "unknown error");
+        return std::vector<float>();
+    }
+
+    std::vector<float> audio(pcm.data, pcm.data + pcm.n_samples);
+    codec_pcm_buffer_free(&pcm);
+    return audio;
 }
 
 }
