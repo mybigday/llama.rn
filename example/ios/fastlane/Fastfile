@@ -6,6 +6,7 @@ def build_example_app
     scheme: "RNLlamaExample",
     configuration: "Release",
     export_method: "app-store",
+    export_xcargs: "-allowProvisioningUpdates",
     clean: true
   )
 end
