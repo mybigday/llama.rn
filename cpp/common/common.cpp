@@ -683,7 +683,7 @@ bool fs_validate_filename(const std::string & filename, bool allow_subdirs) {
 
     size_t offset = 0;
     while (offset < filename.size()) {
-        utf8_parse_result result = parse_utf8_codepoint(filename, offset);
+        utf8_parse_result result = common_parse_utf8_codepoint(filename, offset);
 
         if (result.status != utf8_parse_result::SUCCESS) {
             return false;
@@ -1074,7 +1074,7 @@ common_init_result::common_init_result(common_params & params) :
 
     const llama_vocab * vocab = llama_model_get_vocab(model);
 
-    // load and optionally apply lora adapters (must be loaded before context creation)
+    // load and optionally apply lora adapters
     for (auto & la : params.lora_adapters) {
         llama_adapter_lora_ptr lora;
         lora.reset(llama_adapter_lora_init(model, la.path.c_str()));

@@ -75,7 +75,7 @@ struct llama_rn_context_completion {
     // Current completion parameters for chat parsing
     int current_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
     common_reasoning_format current_reasoning_format = COMMON_REASONING_FORMAT_NONE;
-    bool current_thinking_forced_open = false;
+    std::string current_generation_prompt;
     std::string current_chat_parser;  // Serialized PEG parser for chat output parsing
 
     // Sampling context
@@ -93,7 +93,7 @@ struct llama_rn_context_completion {
     void truncatePrompt(std::vector<llama_token> &prompt_tokens);
     void loadPrompt(const std::vector<std::string> &media_paths);
     void beginCompletion();
-    void beginCompletion(int chat_format, common_reasoning_format reasoning_format, bool thinking_forced_open, const std::string &chat_parser = "");
+    void beginCompletion(int chat_format, common_reasoning_format reasoning_format, const std::string &generation_prompt = "", const std::string &chat_parser = "");
     void endCompletion();
     completion_token_output nextToken();
     size_t findStoppingStrings(const std::string &text, const size_t last_token_size, const stop_type type);

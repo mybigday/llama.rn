@@ -1,6 +1,6 @@
 #include "models.h"
 
-#define CHUNK_SIZE 64
+#include "llama-impl.h"
 
 // utility to get one slice from the third dimension
 // input dim:  [x, y, c, b]
@@ -57,7 +57,7 @@ std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_delta_net_base::build_de
     g = lm_ggml_permute(ctx0, g, 0, 2, 1, 3); // [g_0, n_tokens, H_v, n_seqs]
     b = lm_ggml_permute(ctx0, b, 0, 2, 1, 3); // [  1, n_tokens, H_v, n_seqs]
 
-    const int CS = CHUNK_SIZE;
+    const int CS = kda ? 16 : 64; // chunk size
 
     const int pad = (CS - n_tokens % CS) % CS;
     const int n_chunks = (n_tokens + pad) / CS;
@@ -225,9 +225,8 @@ std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_delta_net_base::build_de
     lm_ggml_tensor * kg_t = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, kg));
     cb(kg_t, "key_gdiff_t", il);
 
-    lm_ggml_tensor * s_t = lm_ggml_transpose(ctx0, s);
-    s_t = lm_ggml_cont_4d(ctx0, s_t, S_v, S_v, 1, H_v * n_seqs);
-    cb(s_t, "dnet_add_ch_state", il);
+    s = lm_ggml_reshape_4d(ctx0, s, S_v, S_v, 1, H_v * n_seqs);
+    cb(s, "dnet_add_ch_state", il);
 
     // [CS, S_v, n_chunks, H_v * n_seqs]
     lm_ggml_tensor * v_t = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, v));
@@ -240,7 +239,7 @@ std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_delta_net_base::build_de
         lm_ggml_tensor * ch_kg_t    = get_slice_2d(ctx0, kg_t,    chunk); // [ CS, S_k, 1, H_v * n_seqs]
 
         // [CS, S_v, 1, H_v * n_seqs]
-        lm_ggml_tensor * v_t_p = lm_ggml_mul_mat(ctx0, ch_k_cd, s_t);
+        lm_ggml_tensor * v_t_p = lm_ggml_mul_mat(ctx0, ch_k_cd, s);
         cb(v_t_p, "v_prime", il);
 
         // [CS, S_v, 1, H_v * n_seqs]
@@ -252,7 +251,7 @@ std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_delta_net_base::build_de
         cb(v_attn, "v_attn", il);
 
         // [S_v, CS, 1, H_v * n_seqs]
-        lm_ggml_tensor * attn_inter = lm_ggml_mul_mat(ctx0, s_t, ch_q_g_exp);
+        lm_ggml_tensor * attn_inter = lm_ggml_mul_mat(ctx0, s, ch_q_g_exp);
         cb(attn_inter, "attn_inter", il);
 
         // [S_v, CS, 1, H_v * n_seqs]
@@ -268,12 +267,10 @@ std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_delta_net_base::build_de
         // last_recurrent_state = last_recurrent_state * g_last + kgdmulvnew
         lm_ggml_tensor * ch_g_last_exp_t = get_slice_2d(ctx0, g_last_exp_t, chunk);
 
-        s_t = lm_ggml_mul(ctx0, s_t, ch_g_last_exp_t);
-        s_t = lm_ggml_add(ctx0, s_t, kgv);
-        cb(s_t, "dnet_add_ch_state", il);
+        s = lm_ggml_mul(ctx0, s, ch_g_last_exp_t);
+        s = lm_ggml_add(ctx0, s, kgv);
+        cb(s, "dnet_add_ch_state", il);
     }
-
-    s_t = lm_ggml_reshape_4d(ctx0, s_t, S_v, S_v, H_v, n_seqs);
 
     // truncate padded tokens
     lm_ggml_tensor * o = lm_ggml_view_4d(ctx0, v,
@@ -282,7 +279,7 @@ std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_delta_net_base::build_de
             lm_ggml_row_size(v->type, S_v * CS * n_chunks),
             lm_ggml_row_size(v->type, S_v * CS * n_chunks * H_v), 0);
     o = lm_ggml_permute  (ctx0, o, 0, 2, 1, 3); // [S_v, H_v, n_tokens, n_seqs]
-    s = lm_ggml_transpose(ctx0, s_t);
+    s = lm_ggml_reshape_4d(ctx0, s, S_v, S_v, H_v, n_seqs);
     cb(s, "output_state", il);
 
     return {o, s};
@@ -341,11 +338,9 @@ std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_delta_net_base::build_de
     g = lm_ggml_exp(ctx0, g);
     s = lm_ggml_mul(ctx0, s, g);
 
-    lm_ggml_tensor * s_t = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, s));
-
     // [1, S_v, H_v, n_seqs]
     lm_ggml_tensor * sk;
-    sk = lm_ggml_mul     (ctx0, s_t, k);
+    sk = lm_ggml_mul     (ctx0, s, k);
     sk = lm_ggml_sum_rows(ctx0, sk);
 
     // [S_v, 1, H_v, n_seqs]
@@ -362,15 +357,89 @@ std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_delta_net_base::build_de
     k  = lm_ggml_repeat(ctx0, k, s);
     kd = lm_ggml_mul   (ctx0, k, d_t);
 
-    s_t = lm_ggml_add(ctx0, s_t, kd);
+    s = lm_ggml_add(ctx0, s, kd);
 
-    cb(s_t, "dnet_add_ar_state", il);
+    cb(s, "dnet_add_ar_state", il);
 
-    lm_ggml_tensor * s_q = lm_ggml_mul     (ctx0, s_t, q);
+    lm_ggml_tensor * s_q = lm_ggml_mul     (ctx0, s, q);
     lm_ggml_tensor * o   = lm_ggml_sum_rows(ctx0, s_q);
 
     o = lm_ggml_permute  (ctx0, o, 2, 0, 1, 3); // [S_v, H_v, n_tokens, n_seqs]
-    s = lm_ggml_transpose(ctx0, s_t);           // [S_v, S_v, H_v, n_seqs]
 
     return {o, s};
+}
+
+std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_delta_net_base::build_delta_net_fused(
+        lm_ggml_tensor * q,
+        lm_ggml_tensor * k,
+        lm_ggml_tensor * v,
+        lm_ggml_tensor * g,
+        lm_ggml_tensor * b,
+        lm_ggml_tensor * s,
+        int           il) {
+    const int64_t S_k      = q->ne[0];
+    const int64_t H_k      = q->ne[1];
+    const int64_t n_tokens = q->ne[2];
+    const int64_t n_seqs   = q->ne[3];
+
+    const int64_t S_v = v->ne[0];
+    const int64_t H_v = v->ne[1];
+
+    LM_GGML_ASSERT(S_k == S_v);
+    LM_GGML_ASSERT(H_v % H_k == 0);
+
+    LM_GGML_ASSERT(q->ne[0] == S_k && q->ne[1] == H_k && q->ne[2] == n_tokens && q->ne[3] == n_seqs);
+    LM_GGML_ASSERT(k->ne[0] == S_k && k->ne[1] == H_k && k->ne[2] == n_tokens && k->ne[3] == n_seqs);
+    LM_GGML_ASSERT(v->ne[0] == S_v && v->ne[1] == H_v && v->ne[2] == n_tokens && v->ne[3] == n_seqs);
+
+    LM_GGML_ASSERT(g->ne[0] == 1   || g->ne[0] == S_v);
+    LM_GGML_ASSERT(                   g->ne[1] == H_v && g->ne[2] == n_tokens && g->ne[3] == n_seqs);
+    LM_GGML_ASSERT(b->ne[0] == 1   && b->ne[1] == H_v && b->ne[2] == n_tokens && b->ne[3] == n_seqs);
+    LM_GGML_ASSERT(s->ne[0] == S_v && s->ne[1] == S_v && s->ne[2] == H_v      && s->ne[3] == n_seqs);
+
+    lm_ggml_tensor * result = lm_ggml_gated_delta_net(ctx0, q, k, v, g, b, s);
+    if (n_tokens == 1) {
+        cb(result, LLAMA_TENSOR_NAME_FGDN_AR, il);
+    } else {
+        cb(result, LLAMA_TENSOR_NAME_FGDN_CH, il);
+    }
+
+    lm_ggml_tensor * output = lm_ggml_view_4d(ctx0, result,
+            S_v, H_v, n_tokens, n_seqs,
+            lm_ggml_row_size(result->type, S_v),
+            lm_ggml_row_size(result->type, S_v * H_v),
+            lm_ggml_row_size(result->type, S_v * H_v * n_tokens), 0);
+
+    lm_ggml_tensor * new_state = lm_ggml_view_4d(ctx0, result,
+            S_v, S_v, H_v, n_seqs,
+            lm_ggml_row_size(result->type, S_v),
+            lm_ggml_row_size(result->type, S_v * S_v),
+            lm_ggml_row_size(result->type, S_v * S_v * H_v),
+            lm_ggml_row_size(result->type, S_v * H_v * n_tokens * n_seqs));
+
+    return {output, new_state};
+}
+
+std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_delta_net_base::build_delta_net(
+        lm_ggml_tensor * q,
+        lm_ggml_tensor * k,
+        lm_ggml_tensor * v,
+        lm_ggml_tensor * g,
+        lm_ggml_tensor * b,
+        lm_ggml_tensor * s,
+        int           il) {
+    const int64_t n_seq_tokens = q->ne[2];
+
+    if (n_seq_tokens == 1) {
+        if (cparams.fused_gdn_ar) {
+            return build_delta_net_fused(q, k, v, g, b, s, il);
+        }
+        return build_delta_net_autoregressive(q, k, v, g, b, s, il);
+    }
+
+    if (cparams.fused_gdn_ch) {
+        return build_delta_net_fused(q, k, v, g, b, s, il);
+    }
+
+    return build_delta_net_chunking(q, k, v, g, b, s, il);
 }

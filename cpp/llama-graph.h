@@ -764,10 +764,11 @@ struct llm_graph_context {
              lm_ggml_tensor * cur,
                      int   il) const;
 
-    // do mat_mul, while optionally apply lora
+    // do mat_mul, while optionally apply lora and per-tensor scale
     lm_ggml_tensor * build_lora_mm(
               lm_ggml_tensor * w,
-              lm_ggml_tensor * cur) const;
+              lm_ggml_tensor * cur,
+              lm_ggml_tensor * w_s = nullptr) const;
 
     // do mat_mul_id, while optionally apply lora
     lm_ggml_tensor * build_lora_mm_id(
@@ -810,12 +811,14 @@ struct llm_graph_context {
                  int64_t   n_expert_used,
          llm_ffn_op_type   type_op,
                     bool   norm_w,
-                    bool   scale_w,
                    float   w_scale,
             llama_expert_gating_func_type gating_op,
                      int   il,
              lm_ggml_tensor * probs_in = nullptr,
-             lm_ggml_tensor * gate_up_exps = nullptr) const;
+             lm_ggml_tensor * gate_up_exps = nullptr,
+             lm_ggml_tensor * up_exps_s = nullptr,
+             lm_ggml_tensor * gate_exps_s = nullptr,
+             lm_ggml_tensor * down_exps_s = nullptr) const;
 
     lm_ggml_tensor * build_moe_ffn(
              lm_ggml_tensor * cur,
@@ -832,13 +835,15 @@ struct llm_graph_context {
                  int64_t   n_expert_used,
          llm_ffn_op_type   type_op,
                     bool   norm_w,
-                    bool   scale_w,
                    float   w_scale,
             llama_expert_gating_func_type gating_op,
                      int   il,
              lm_ggml_tensor * probs_in = nullptr,
              lm_ggml_tensor * gate_up_exps = nullptr,
-             lm_ggml_tensor * gate_up_exps_b = nullptr) const;
+             lm_ggml_tensor * gate_up_exps_b = nullptr,
+             lm_ggml_tensor * up_exps_s = nullptr,
+             lm_ggml_tensor * gate_exps_s = nullptr,
+             lm_ggml_tensor * down_exps_s = nullptr) const;
 
     //
     // inputs

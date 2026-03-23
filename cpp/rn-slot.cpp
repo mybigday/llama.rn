@@ -31,7 +31,6 @@ llama_rn_slot::llama_rn_slot() :
     stopped_limit(false),
     current_chat_format(0),
     current_reasoning_format(COMMON_REASONING_FORMAT_NONE),
-    current_thinking_forced_open(false),
     ctx_sampling(nullptr),
     t_start_process(0),
     t_start_generation(0),
@@ -98,7 +97,7 @@ void llama_rn_slot::reset() {
     // Reset chat parsing state
     current_chat_format = 0;
     current_reasoning_format = COMMON_REASONING_FORMAT_NONE;
-    current_thinking_forced_open = false;
+    current_generation_prompt.clear();
     current_chat_parser.clear();
 
     // Reset flags
@@ -314,7 +313,7 @@ completion_chat_output llama_rn_slot::parseChatOutput(bool is_partial) {
     common_chat_parser_params syntax;
     syntax.format = static_cast<common_chat_format>(current_chat_format);
     syntax.reasoning_format = current_reasoning_format;
-    syntax.thinking_forced_open = current_thinking_forced_open;
+    syntax.generation_prompt = current_generation_prompt;
     syntax.parse_tool_calls = true;
 
     // Load the PEG parser if available (required for COMMON_CHAT_FORMAT_PEG_* formats)

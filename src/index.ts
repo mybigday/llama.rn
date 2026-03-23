@@ -390,6 +390,8 @@ export class LlamaContext {
           if (jinjaResult.has_media) {
             nativeParams.media_paths = jinjaResult.media_paths
           }
+          if (typeof jinjaResult.generation_prompt === 'string')
+            nativeParams.generation_prompt = jinjaResult.generation_prompt
           if (typeof jinjaResult.thinking_forced_open === 'boolean')
             nativeParams.thinking_forced_open = jinjaResult.thinking_forced_open
           if (jinjaResult.chat_parser)
@@ -783,6 +785,8 @@ export class LlamaContext {
         if (jinjaResult.has_media) {
           nativeParams.media_paths = jinjaResult.media_paths
         }
+        if (typeof jinjaResult.generation_prompt === 'string')
+          nativeParams.generation_prompt = jinjaResult.generation_prompt
         if (typeof jinjaResult.thinking_forced_open === 'boolean')
           nativeParams.thinking_forced_open = jinjaResult.thinking_forced_open
         if (jinjaResult.chat_parser)

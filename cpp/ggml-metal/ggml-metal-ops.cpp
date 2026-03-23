@@ -333,6 +333,10 @@ static int lm_ggml_metal_op_encode_impl(lm_ggml_metal_op_t ctx, int idx) {
             {
                 n_fuse = lm_ggml_metal_op_rwkv(ctx, idx);
             } break;
+        case LM_GGML_OP_GATED_DELTA_NET:
+            {
+                n_fuse = lm_ggml_metal_op_gated_delta_net(ctx, idx);
+            } break;
         case LM_GGML_OP_SOLVE_TRI:
             {
                 n_fuse = lm_ggml_metal_op_solve_tri(ctx, idx);
@@ -631,7 +635,7 @@ int lm_ggml_metal_op_acc(lm_ggml_metal_op_t ctx, int idx) {
     const bool inplace = (bool) ((const int32_t *) op->op_params)[4];
 
     if (!inplace) {
-        // run a separete kernel to cpy src->dst
+        // run a separate kernel to cpy src->dst
         // not sure how to avoid this
         // TODO: make a simpler cpy_bytes kernel
 
@@ -1562,6 +1566,81 @@ int lm_ggml_metal_op_rwkv(lm_ggml_metal_op_t ctx, int idx) {
     return 1;
 }
 
+int lm_ggml_metal_op_gated_delta_net(lm_ggml_metal_op_t ctx, int idx) {
+    lm_ggml_tensor * op = ctx->node(idx);
+
+    lm_ggml_metal_library_t lib = ctx->lib;
+    lm_ggml_metal_encoder_t enc = ctx->enc;
+
+
+    LM_GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb0, op->src[0], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne1, op->src[1], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb1, op->src[1], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne2, op->src[2], ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb2, op->src[2], nb);
+    LM_GGML_TENSOR_LOCALS( int32_t, ne,  op,         ne);
+    LM_GGML_TENSOR_LOCALS(uint64_t, nb,  op,         nb);
+
+    auto pipeline = lm_ggml_metal_library_get_pipeline_gated_delta_net(lib, op);
+
+    int ida = 0;
+
+    lm_ggml_metal_kargs_gated_delta_net args = {
+        /*.ne00 =*/ ne00,
+        /*.ne01 =*/ ne01,
+        /*.ne02 =*/ ne02,
+        /*.ne03 =*/ ne03,
+        /*.nb00 =*/ nb00,
+        /*.nb01 =*/ nb01,
+        /*.nb02 =*/ nb02,
+        /*.nb03 =*/ nb03,
+        /*.ne10 =*/ ne10,
+        /*.ne11 =*/ ne11,
+        /*.ne12 =*/ ne12,
+        /*.ne13 =*/ ne13,
+        /*.nb10 =*/ nb10,
+        /*.nb11 =*/ nb11,
+        /*.nb12 =*/ nb12,
+        /*.nb13 =*/ nb13,
+        /*.ne20 =*/ ne20,
+        /*.ne21 =*/ ne21,
+        /*.ne22 =*/ ne22,
+        /*.ne23 =*/ ne23,
+        /*.nb20 =*/ nb20,
+        /*.nb21 =*/ nb21,
+        /*.nb22 =*/ nb22,
+        /*.nb23 =*/ nb23,
+        /*.ns02 =*/ (int32_t) (nb02/sizeof(float)),
+        /*.ns12 =*/ (int32_t) (nb12/sizeof(float)),
+        /*.ns22 =*/ (int32_t) (nb22/sizeof(float)),
+        /*.ne0  =*/ ne0,
+        /*.ne1  =*/ ne1,
+        /*.ne2  =*/ ne2,
+        /*.ne3  =*/ ne3,
+        /*.nb0  =*/ nb0,
+        /*.nb1  =*/ nb1,
+        /*.nb2  =*/ nb2,
+        /*.nb3  =*/ nb3,
+    };
+
+    lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
+    lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args),                  ida++);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[0]), ida++); // q
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[1]), ida++); // k
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[2]), ida++); // v
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[3]), ida++); // gate
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[4]), ida++); // beta
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op->src[5]), ida++); // state
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(op),         ida++); // dst
+
+    const int nsg = pipeline.nsg;
+
+    lm_ggml_metal_encoder_dispatch_threadgroups(enc, op->src[2]->ne[0]/nsg, op->src[2]->ne[1], op->src[2]->ne[3], 32, nsg, 1);
+
+    return 1;
+}
+
 int lm_ggml_metal_op_solve_tri(lm_ggml_metal_op_t ctx, int idx) {
     lm_ggml_tensor * op = ctx->node(idx);
 
@@ -1644,7 +1723,7 @@ int lm_ggml_metal_op_set(lm_ggml_metal_op_t ctx, int idx) {
     const bool inplace = (bool) ((const int32_t *) op->op_params)[4];
 
     if (!inplace) {
-        // run a separete kernel to cpy src->dst
+        // run a separate kernel to cpy src->dst
         // not sure how to avoid this
         // TODO: make a simpler cpy_bytes kernel
 
@@ -1963,6 +2042,7 @@ int lm_ggml_metal_op_mul_mat(lm_ggml_metal_op_t ctx, int idx) {
           (
            op->src[0]->type == LM_GGML_TYPE_F32  || // TODO: helper function
            op->src[0]->type == LM_GGML_TYPE_F16  ||
+           op->src[0]->type == LM_GGML_TYPE_BF16 ||
            op->src[0]->type == LM_GGML_TYPE_Q4_0 ||
            op->src[0]->type == LM_GGML_TYPE_Q4_1 ||
            op->src[0]->type == LM_GGML_TYPE_Q5_0 ||
@@ -1977,6 +2057,8 @@ int lm_ggml_metal_op_mul_mat(lm_ggml_metal_op_t ctx, int idx) {
            op->src[0]->type == LM_GGML_TYPE_Q4_K ||
            op->src[0]->type == LM_GGML_TYPE_Q5_K ||
            op->src[0]->type == LM_GGML_TYPE_Q6_K ||
+           op->src[0]->type == LM_GGML_TYPE_Q2_K ||
+           op->src[0]->type == LM_GGML_TYPE_Q3_K ||
            false) && (ne11 >= 4 && ne11 <= 8)
          )
         )
@@ -2005,7 +2087,7 @@ int lm_ggml_metal_op_mul_mat(lm_ggml_metal_op_t ctx, int idx) {
         const int16_t r0ptg  = nypsg*nsg;         // num src0 rows per threadgroup
               int16_t r1ptg  = 4;                 // num src1 rows per threadgroup
 
-        // note: not sure how optimal are those across all different hardware. there might be someting cleverer
+        // note: not sure how optimal are those across all different hardware. there might be something cleverer
         switch (ne11) {
             case 2:
                 r1ptg = 2; break;
@@ -3098,9 +3180,7 @@ int lm_ggml_metal_op_bin(lm_ggml_metal_op_t ctx, int idx) {
     lm_ggml_metal_encoder_set_buffer  (enc, bid_dst,  3);
 
     if (pipeline.cnt) {
-        const int n = pipeline.c4 ? lm_ggml_nelements(op)/4 : lm_ggml_nelements(op);
-
-        lm_ggml_metal_encoder_dispatch_threadgroups(enc, n, 1, 1, 1, 1, 1);
+        lm_ggml_metal_encoder_dispatch_threadgroups(enc, args.ne0, lm_ggml_nrows(op), 1, 1, 1, 1);
     } else {
         const int nth_max = MIN(256, lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
 
@@ -3729,32 +3809,43 @@ int lm_ggml_metal_op_upscale(lm_ggml_metal_op_t ctx, int idx) {
     LM_GGML_TENSOR_LOCALS( int32_t, ne,  op,         ne);
     LM_GGML_TENSOR_LOCALS(uint64_t, nb,  op,         nb);
 
-    const float sf0 = (float)ne0/op->src[0]->ne[0];
-    const float sf1 = (float)ne1/op->src[0]->ne[1];
-    const float sf2 = (float)ne2/op->src[0]->ne[2];
-    const float sf3 = (float)ne3/op->src[0]->ne[3];
+    float sf0 = (float)ne0/op->src[0]->ne[0];
+    float sf1 = (float)ne1/op->src[0]->ne[1];
+    float sf2 = (float)ne2/op->src[0]->ne[2];
+    float sf3 = (float)ne3/op->src[0]->ne[3];
+
+    const int32_t mode_flags = lm_ggml_get_op_params_i32(op, 0);
+
+    float poffs = 0.5f;
+
+    if (mode_flags & LM_GGML_SCALE_FLAG_ALIGN_CORNERS) {
+        poffs = 0.0f;
+        sf0 = ne0 > 1 && ne00 > 1 ? (float)(ne0 - 1) / (ne00 - 1) : sf0;
+        sf1 = ne1 > 1 && ne01 > 1 ? (float)(ne1 - 1) / (ne01 - 1) : sf1;
+    }
 
     lm_ggml_metal_kargs_upscale args = {
-        /*.ne00 =*/ ne00,
-        /*.ne01 =*/ ne01,
-        /*.ne02 =*/ ne02,
-        /*.ne03 =*/ ne03,
-        /*.nb00 =*/ nb00,
-        /*.nb01 =*/ nb01,
-        /*.nb02 =*/ nb02,
-        /*.nb03 =*/ nb03,
-        /*.ne0 =*/ ne0,
-        /*.ne1 =*/ ne1,
-        /*.ne2 =*/ ne2,
-        /*.ne3 =*/ ne3,
-        /*.nb0 =*/ nb0,
-        /*.nb1 =*/ nb1,
-        /*.nb2 =*/ nb2,
-        /*.nb3 =*/ nb3,
-        /*.sf0 =*/ sf0,
-        /*.sf1 =*/ sf1,
-        /*.sf2 =*/ sf2,
-        /*.sf3 =*/ sf3
+        /*.ne00  =*/ ne00,
+        /*.ne01  =*/ ne01,
+        /*.ne02  =*/ ne02,
+        /*.ne03  =*/ ne03,
+        /*.nb00  =*/ nb00,
+        /*.nb01  =*/ nb01,
+        /*.nb02  =*/ nb02,
+        /*.nb03  =*/ nb03,
+        /*.ne0   =*/ ne0,
+        /*.ne1   =*/ ne1,
+        /*.ne2   =*/ ne2,
+        /*.ne3   =*/ ne3,
+        /*.nb0   =*/ nb0,
+        /*.nb1   =*/ nb1,
+        /*.nb2   =*/ nb2,
+        /*.nb3   =*/ nb3,
+        /*.sf0   =*/ sf0,
+        /*.sf1   =*/ sf1,
+        /*.sf2   =*/ sf2,
+        /*.sf3   =*/ sf3,
+        /*.poffs =*/ poffs,
     };
 
     auto pipeline = lm_ggml_metal_library_get_pipeline_upscale(lib, op);

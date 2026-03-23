@@ -277,20 +277,26 @@ namespace rnllama_jsi {
         sparams.top_n_sigma = getPropertyAsDouble(runtime, params, "top_n_sigma", sparams.top_n_sigma);
 
         // Grammar
+        sparams.grammar = {};
+        sparams.generation_prompt.clear();
+        sparams.grammar_triggers.clear();
+        sparams.preserved_tokens.clear();
+
         std::string grammar = getPropertyAsString(runtime, params, "grammar");
         if (!grammar.empty()) {
-            sparams.grammar = grammar;
+            sparams.grammar = {COMMON_GRAMMAR_TYPE_USER, std::move(grammar)};
         }
 
         std::string jsonSchema = getPropertyAsString(runtime, params, "json_schema");
-        if (!jsonSchema.empty() && grammar.empty()) {
-            sparams.grammar = json_schema_to_grammar(json::parse(jsonSchema));
+        if (!jsonSchema.empty() && sparams.grammar.empty()) {
+            sparams.grammar = {COMMON_GRAMMAR_TYPE_OUTPUT_FORMAT, json_schema_to_grammar(json::parse(jsonSchema))};
         }
+
+        sparams.generation_prompt = getPropertyAsString(runtime, params, "generation_prompt");
 
         sparams.grammar_lazy = getPropertyAsBool(runtime, params, "grammar_lazy", false);
 
         if (params.hasProperty(runtime, "preserved_tokens")) {
-            sparams.preserved_tokens.clear();
             auto preservedVal = params.getProperty(runtime, "preserved_tokens");
             if (preservedVal.isObject() && preservedVal.asObject(runtime).isArray(runtime)) {
                 jsi::Array preserved = preservedVal.asObject(runtime).asArray(runtime);
@@ -309,7 +315,6 @@ namespace rnllama_jsi {
         }
 
         if (params.hasProperty(runtime, "grammar_triggers")) {
-            sparams.grammar_triggers.clear();
             auto triggersVal = params.getProperty(runtime, "grammar_triggers");
             if (triggersVal.isObject() && triggersVal.asObject(runtime).isArray(runtime)) {
                 jsi::Array triggers = triggersVal.asObject(runtime).asArray(runtime);

@@ -90,11 +90,11 @@ lm_ggml_cgraph * clip_graph_qwen2vl::build() {
         // self-attention
         {
             lm_ggml_tensor * Qcur = lm_ggml_add(ctx0,
-                lm_ggml_mul_mat(ctx0, layer.q_w, cur), layer.q_b);
+                build_mm(layer.q_w, cur), layer.q_b);
             lm_ggml_tensor * Kcur = lm_ggml_add(ctx0,
-                lm_ggml_mul_mat(ctx0, layer.k_w, cur), layer.k_b);
+                build_mm(layer.k_w, cur), layer.k_b);
             lm_ggml_tensor * Vcur = lm_ggml_add(ctx0,
-                lm_ggml_mul_mat(ctx0, layer.v_w, cur), layer.v_b);
+                build_mm(layer.v_w, cur), layer.v_b);
 
             Qcur = lm_ggml_reshape_3d(ctx0, Qcur, d_head, n_head, n_patches);
             Kcur = lm_ggml_reshape_3d(ctx0, Kcur, d_head, n_head, n_patches);

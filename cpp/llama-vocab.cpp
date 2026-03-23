@@ -1719,7 +1719,7 @@ private:
 };
 
 void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
-    struct lm_gguf_context * ctx = ml.meta.get();
+    struct lm_gguf_context * ctx = ml.metadata;
 
     // determine vocab type
     {
@@ -1833,7 +1833,7 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 const char * pc = (const char *) lm_gguf_get_arr_data(ctx, precompiled_charsmap_keyidx);
                 precompiled_charsmap.assign(pc, pc + n_precompiled_charsmap);
 #if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-                // correct endiannes of data in precompiled_charsmap binary blob
+                // correct endianness of data in precompiled_charsmap binary blob
                 uint32_t * xcda_blob_size = (uint32_t *) &precompiled_charsmap[0];
                 *xcda_blob_size = __builtin_bswap32(*xcda_blob_size);
                 assert(*xcda_blob_size + sizeof(uint32_t) < n_precompiled_charsmap);
@@ -2129,19 +2129,28 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
         throw std::runtime_error("cannot find tokenizer vocab in model file\n");
     }
 
+    const uint32_t n_tokens = lm_gguf_get_arr_n(ctx, token_idx);
+
     const float * scores = nullptr;
     const int score_idx = lm_gguf_find_key(ctx, kv(LLM_KV_TOKENIZER_SCORES).c_str());
     if (score_idx != -1) {
+        const uint32_t n_scores = lm_gguf_get_arr_n(ctx, score_idx);
+        if (n_scores < n_tokens) {
+            throw std::runtime_error("Index out of array bounds for scores (" + std::to_string(n_scores) + " < " + std::to_string(n_tokens) + ")\n");
+        }
         scores = (const float * ) lm_gguf_get_arr_data(ctx, score_idx);
     }
 
     const int * toktypes = nullptr;
     const int toktype_idx = lm_gguf_find_key(ctx, kv(LLM_KV_TOKENIZER_TOKEN_TYPE).c_str());
     if (toktype_idx != -1) {
+        const uint32_t n_toktypes = lm_gguf_get_arr_n(ctx, toktype_idx);
+        if (n_toktypes < n_tokens) {
+            throw std::runtime_error("Index out of array bounds for toktypes (" + std::to_string(n_toktypes) + " < " + std::to_string(n_tokens) + ")\n");
+        }
         toktypes = (const int * ) lm_gguf_get_arr_data(ctx, toktype_idx);
     }
 
-    uint32_t n_tokens = lm_gguf_get_arr_n(ctx, token_idx);
     id_to_token.resize(n_tokens);
 
     for (uint32_t i = 0; i < n_tokens; i++) {
