@@ -224,6 +224,24 @@ namespace rnllama_jsi {
         return arr;
     }
 
+    static bool isThinkingForcedOpen(const common_chat_params& chatParams) {
+        if (!chatParams.supports_thinking || chatParams.thinking_start_tag.empty()) {
+            return false;
+        }
+
+        const size_t lastStart = chatParams.generation_prompt.rfind(chatParams.thinking_start_tag);
+        if (lastStart == std::string::npos) {
+            return false;
+        }
+
+        if (chatParams.thinking_end_tag.empty()) {
+            return true;
+        }
+
+        const size_t lastEnd = chatParams.generation_prompt.rfind(chatParams.thinking_end_tag);
+        return lastEnd == std::string::npos || lastEnd < lastStart;
+    }
+
     static jsi::Object createModelDetails(jsi::Runtime& runtime, rnllama::llama_rn_context* ctx) {
         jsi::Object model(runtime);
 
@@ -788,6 +806,13 @@ namespace rnllama_jsi {
                               result.setProperty(rt, "grammar", jsi::String::createFromUtf8(rt, chatParams.grammar));
                               result.setProperty(rt, "grammar_lazy", chatParams.grammar_lazy);
                               result.setProperty(rt, "generation_prompt", jsi::String::createFromUtf8(rt, chatParams.generation_prompt));
+                              result.setProperty(rt, "thinking_forced_open", isThinkingForcedOpen(chatParams));
+                              if (!chatParams.thinking_start_tag.empty()) {
+                                  result.setProperty(rt, "thinking_start_tag", jsi::String::createFromUtf8(rt, chatParams.thinking_start_tag));
+                              }
+                              if (!chatParams.thinking_end_tag.empty()) {
+                                  result.setProperty(rt, "thinking_end_tag", jsi::String::createFromUtf8(rt, chatParams.thinking_end_tag));
+                              }
 
                               // Preserve the same shape as legacy native bridge
                               result.setProperty(rt, "type", jsi::String::createFromUtf8(rt, "jinja"));

@@ -283,6 +283,17 @@ export type ParallelCompletionParams = Omit<
 > &
   CompletionBaseParams
 
+type ReasoningBudgetChatMetadata = {
+  thinking_start_tag?: string
+  thinking_end_tag?: string
+}
+
+type NativeCompletionRequestParams = NativeCompletionParams &
+  ReasoningBudgetChatMetadata
+
+type NativeParallelCompletionRequestParams = NativeParallelCompletionParams &
+  ReasoningBudgetChatMetadata
+
 export type BenchResult = {
   nKvMax: number
   nBatch: number
@@ -348,7 +359,7 @@ export class LlamaContext {
       stop: () => Promise<void>
     }> => {
       const { llamaQueueCompletion, llamaCancelRequest } = getJsi()
-      const nativeParams = {
+      const nativeParams: NativeParallelCompletionRequestParams = {
         ...params,
         prompt: params.prompt || '',
         emit_partial_completion: true, // Always emit for queued requests
@@ -394,6 +405,10 @@ export class LlamaContext {
             nativeParams.generation_prompt = jinjaResult.generation_prompt
           if (typeof jinjaResult.thinking_forced_open === 'boolean')
             nativeParams.thinking_forced_open = jinjaResult.thinking_forced_open
+          if (typeof jinjaResult.thinking_start_tag === 'string')
+            nativeParams.thinking_start_tag = jinjaResult.thinking_start_tag
+          if (typeof jinjaResult.thinking_end_tag === 'string')
+            nativeParams.thinking_end_tag = jinjaResult.thinking_end_tag
           if (jinjaResult.chat_parser)
             nativeParams.chat_parser = jinjaResult.chat_parser
         } else if (formattedResult.type === 'llama-chat') {
@@ -411,7 +426,7 @@ export class LlamaContext {
         nativeParams.media_paths = params.media_paths
       }
 
-      if (nativeParams.response_format && !nativeParams.grammar) {
+      if (params.response_format && !nativeParams.grammar) {
         const jsonSchema = getJsonSchema(params.response_format)
         if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
       }
@@ -743,7 +758,7 @@ export class LlamaContext {
     params: CompletionParams,
     callback?: (data: TokenData) => void,
   ): Promise<NativeCompletionResult> {
-    const nativeParams = {
+    const nativeParams: NativeCompletionRequestParams = {
       ...params,
       prompt: params.prompt || '',
       emit_partial_completion: !!callback,
@@ -789,6 +804,10 @@ export class LlamaContext {
           nativeParams.generation_prompt = jinjaResult.generation_prompt
         if (typeof jinjaResult.thinking_forced_open === 'boolean')
           nativeParams.thinking_forced_open = jinjaResult.thinking_forced_open
+        if (typeof jinjaResult.thinking_start_tag === 'string')
+          nativeParams.thinking_start_tag = jinjaResult.thinking_start_tag
+        if (typeof jinjaResult.thinking_end_tag === 'string')
+          nativeParams.thinking_end_tag = jinjaResult.thinking_end_tag
         if (jinjaResult.chat_parser)
           nativeParams.chat_parser = jinjaResult.chat_parser
       } else if (formattedResult.type === 'llama-chat') {
@@ -806,7 +825,7 @@ export class LlamaContext {
       nativeParams.media_paths = params.media_paths
     }
 
-    if (nativeParams.response_format && !nativeParams.grammar) {
+    if (params.response_format && !nativeParams.grammar) {
       const jsonSchema = getJsonSchema(params.response_format)
       if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
     }

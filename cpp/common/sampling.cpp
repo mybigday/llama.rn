@@ -286,13 +286,23 @@ struct common_sampler * common_sampler_init(const struct llama_model * model, st
 
     // reasoning budget sampler — added first so it can force tokens before other samplers
     if (params.reasoning_budget_tokens >= 0 && !params.reasoning_budget_forced.empty()) {
-        samplers.push_back(common_reasoning_budget_init(
-            vocab,
-            params.reasoning_budget_start,
-            params.reasoning_budget_end,
-            params.reasoning_budget_forced,
-            params.reasoning_budget_tokens,
-            prefill_tokens));
+        if (params.reasoning_budget_activate_immediately) {
+            samplers.push_back(common_reasoning_budget_init(
+                vocab,
+                params.reasoning_budget_start,
+                params.reasoning_budget_end,
+                params.reasoning_budget_forced,
+                params.reasoning_budget_tokens,
+                REASONING_BUDGET_COUNTING));
+        } else {
+            samplers.push_back(common_reasoning_budget_init(
+                vocab,
+                params.reasoning_budget_start,
+                params.reasoning_budget_end,
+                params.reasoning_budget_forced,
+                params.reasoning_budget_tokens,
+                prefill_tokens));
+        }
     }
 
     if (params.has_logit_bias()) {
