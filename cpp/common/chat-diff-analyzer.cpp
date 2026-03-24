@@ -349,15 +349,14 @@ void analyze_reasoning::compare_thinking_enabled() {
             }
         }
     } else if (!left_trimmed.empty() && !right_trimmed.empty()) {
-        // Full-output diff is noisy (e.g., SmolLM3 changes the system message when
-        // enable_thinking flips). Try to find reasoning markers by tail-anchoring:
-        // one output's generation prompt tail may appear in the other with extra
-        // reasoning markers appended.
+        // Full-output diff is noisy (e.g., SmolLM3 changes the system message when enable_thinking flips).
+        // Try to find reasoning markers by tail-anchoring:
+        // one output's generation prompt tail may appear in the other with extra reasoning markers appended.
         const auto & output_A = comparison->output_A;
         const auto & output_B = comparison->output_B;
         const size_t anchor_len = 64;
 
-        for (int dir = 0; dir < 2 && mode == reasoning_mode::NONE; dir++) {
+        for (int dir = 0; dir < 2; dir++) {
             const auto & base     = dir == 0 ? output_B : output_A;
             const auto & extended = dir == 0 ? output_A : output_B;
 
@@ -370,12 +369,11 @@ void analyze_reasoning::compare_thinking_enabled() {
             if (extra.empty()) continue;
 
             auto seg = prune_whitespace_segments(segmentize_markers(extra));
-            if (seg.size() == 2 &&
-                seg[0].type == segment_type::MARKER &&
-                seg[1].type == segment_type::MARKER) {
+            if (seg.size() == 2 && seg[0].type == segment_type::MARKER && seg[1].type == segment_type::MARKER) {
                 if (start.empty()) start = seg[0].value;
                 if (end.empty())   end   = seg[1].value;
                 mode = reasoning_mode::TAG_BASED;
+                break;
             }
         }
     }
