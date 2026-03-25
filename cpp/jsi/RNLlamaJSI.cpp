@@ -762,7 +762,6 @@ namespace rnllama_jsi {
                  std::string nowStr = "";
                  std::map<std::string, std::string> chatTemplateKwargs;
                  bool useJinja = false;
-                 bool forcePureContent = false;
 
                  if (count > 3 && arguments[3].isObject()) {
                      jsi::Object params = arguments[3].asObject(runtime);
@@ -777,7 +776,6 @@ namespace rnllama_jsi {
                          reasoningFormat = getPropertyAsString(runtime, params, "reasoning_format", "none");
                          addGenerationPrompt = getPropertyAsBool(runtime, params, "add_generation_prompt", true);
                          nowStr = getPropertyAsString(runtime, params, "now");
-                         forcePureContent = getPropertyAsBool(runtime, params, "force_pure_content", false);
 
                          std::string kwargsStr = getPropertyAsString(runtime, params, "chat_template_kwargs");
                           if (!kwargsStr.empty()) {
@@ -793,12 +791,12 @@ namespace rnllama_jsi {
                      }
                  }
 
-                 return createPromiseTask(runtime, callInvoker, [contextId, messages, chatTemplate, jsonSchema, tools, parallelToolCalls, toolChoice, enableThinking, reasoningFormat, addGenerationPrompt, nowStr, chatTemplateKwargs, useJinja, forcePureContent]() -> PromiseResultGenerator {
+                 return createPromiseTask(runtime, callInvoker, [contextId, messages, chatTemplate, jsonSchema, tools, parallelToolCalls, toolChoice, enableThinking, reasoningFormat, addGenerationPrompt, nowStr, chatTemplateKwargs, useJinja]() -> PromiseResultGenerator {
                       auto ctx = getContextOrThrow(contextId);
                       if (useJinja) {
                           auto chatParams = ctx->getFormattedChatWithJinja(
                                messages, chatTemplate, jsonSchema, tools, parallelToolCalls,
-                               toolChoice, enableThinking, reasoningFormat, addGenerationPrompt, nowStr, chatTemplateKwargs, forcePureContent
+                               toolChoice, enableThinking, reasoningFormat, addGenerationPrompt, nowStr, chatTemplateKwargs
                           );
 
                           return [chatParams](jsi::Runtime& rt) {
