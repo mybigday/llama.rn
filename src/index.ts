@@ -262,6 +262,13 @@ export type CompletionBaseParams = {
   now?: string | number
   chat_template_kwargs?: Record<string, string>
   /**
+   * When enabled, forces the chat parser to treat the entire model output as
+   * plain content, skipping separate parsing of reasoning tokens and tool calls.
+   * Also bypasses jinja template validation so templates that only accept typed
+   * content (e.g. TranslateGemma) are not rejected during capability detection.
+   */
+  force_pure_content?: boolean
+  /**
    * Prefill text to be used for chat parsing (Generation Prompt + Content)
    * Used for if last assistant message is for prefill purpose
    */
@@ -380,6 +387,7 @@ export class LlamaContext {
             add_generation_prompt: params.add_generation_prompt,
             now: params.now,
             chat_template_kwargs: params.chat_template_kwargs,
+            force_pure_content: params.force_pure_content,
           },
         )
         if (formattedResult.type === 'jinja') {
@@ -659,6 +667,7 @@ export class LlamaContext {
       add_generation_prompt?: boolean
       now?: string | number
       chat_template_kwargs?: Record<string, string>
+      force_pure_content?: boolean
     },
   ): Promise<FormattedChatResult | JinjaFormattedChatResult> {
     const mediaPaths: string[] = []
@@ -703,7 +712,15 @@ export class LlamaContext {
       return msg
     }) as NativeLlamaChatMessage[]
 
-    const useJinja = this.isJinjaSupported() && (params?.jinja ?? true)
+    const forcePureContent = params?.force_pure_content ?? false
+    // When force_pure_content is set, accept any model that has a chat_template
+    // string in its metadata without requiring template validation to pass.
+    const hasChatTemplate = !!(this.model.metadata as Record<string, unknown>)[
+      'tokenizer.chat_template'
+    ]
+    const useJinja =
+      (forcePureContent ? hasChatTemplate : this.isJinjaSupported()) &&
+      (params?.jinja ?? true)
     let tmpl
     if (template) tmpl = template
     const jsonSchema = getJsonSchema(params?.response_format)
@@ -737,6 +754,7 @@ export class LlamaContext {
               ),
             )
           : undefined,
+        force_pure_content: forcePureContent,
       },
     )
     if (!useJinja) {
@@ -778,6 +796,7 @@ export class LlamaContext {
           add_generation_prompt: params.add_generation_prompt,
           now: params.now,
           chat_template_kwargs: params.chat_template_kwargs,
+          force_pure_content: params.force_pure_content,
         },
       )
       if (formattedResult.type === 'jinja') {
