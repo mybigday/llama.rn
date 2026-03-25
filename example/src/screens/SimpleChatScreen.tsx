@@ -1,53 +1,52 @@
-import React, {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useCallback,
-} from 'react'
-import { View, Text, ScrollView, Alert, TouchableOpacity } from 'react-native'
+import React, { useState, useRef, useCallback } from 'react'
+import { View, Alert } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Chat } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
-import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
-import CustomModelModal from '../components/CustomModelModal'
-import CustomModelCard from '../components/CustomModelCard'
 import { Bubble } from '../components/Bubble'
-import { MaskedProgress } from '../components/MaskedProgress'
-import { HeaderButton } from '../components/HeaderButton'
 import { Menu } from '../components/Menu'
 import { MessagesModal } from '../components/MessagesModal'
 import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
+import { ExampleModelSetup } from '../components/ExampleModelSetup'
 import {
   createThemedStyles,
   chatDarkTheme,
   chatLightTheme,
 } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
-import { MODELS } from '../utils/constants'
-import type {
-  ContextParams,
-  CompletionParams,
-  CustomModel,
-} from '../utils/storage'
+import type { ContextParams, CompletionParams } from '../utils/storage'
+import { loadContextParams, loadCompletionParams } from '../utils/storage'
+import { initLlama } from '../../../src' // import 'llama.rn'
 import {
-  loadContextParams,
-  loadCompletionParams,
-  loadCustomModels,
-} from '../utils/storage'
-import type { LLMMessage } from '../utils/llmMessages'
-import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
-
-const user = { id: 'user' }
-const assistant = { id: 'assistant' }
-
-const randId = () => Math.random().toString(36).substr(2, 9)
+  useStoredCompletionParams,
+  useStoredContextParams,
+  useStoredCustomModels,
+} from '../hooks/useStoredSetting'
+import { useExampleContext } from '../hooks/useExampleContext'
+import { useExampleScreenHeader } from '../hooks/useExampleScreenHeader'
+import { createExampleModelDefinitions } from '../utils/exampleModels'
+import {
+  CHAT_ASSISTANT,
+  CHAT_USER,
+  buildConversationMessages,
+  createMessageId,
+  createSystemTextMessage,
+  createUserTextMessage,
+} from '../features/chatHelpers'
 
 const DEFAULT_SYSTEM_PROMPT =
   'You are a helpful, harmless, and honest AI assistant. Be concise and helpful in your responses.'
+
+const SIMPLE_CHAT_MODELS = createExampleModelDefinitions([
+  'SMOL_LM_3',
+  'GEMMA_3_4B_QAT',
+  'QWEN_3_4B',
+  'GEMMA_3N_E2B',
+  'GEMMA_3N_E4B',
+])
 
 export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   const { isDark, theme } = useTheme()
@@ -56,43 +55,27 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
   const messagesRef = useRef<MessageType.Any[]>([])
   const [, setMessagesVersion] = useState(0) // For UI updates
   const [isLoading, setIsLoading] = useState(false)
-  const [context, setContext] = useState<LlamaContext | null>(null)
-  const [isModelReady, setIsModelReady] = useState(false)
-  const [initProgress, setInitProgress] = useState(0)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
   const [showMessagesModal, setShowMessagesModal] = useState(false)
   const [showSessionModal, setShowSessionModal] = useState(false)
   const [showCustomModelModal, setShowCustomModelModal] = useState(false)
-  const [contextParams, setContextParams] = useState<ContextParams | null>(null)
-  const [completionParams, setCompletionParams] =
-    useState<CompletionParams | null>(null)
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT)
-  const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const insets = useSafeAreaInsets()
-
-  useEffect(
-    () => () => {
-      if (context) {
-        context.release()
-      }
-    },
-    [context],
-  )
-
-  // Load custom models on mount
-  useEffect(() => {
-    const loadCustomModelsData = async () => {
-      try {
-        const models = await loadCustomModels()
-        setCustomModels(models)
-      } catch (error) {
-        console.error('Error loading custom models:', error)
-      }
-    }
-    loadCustomModelsData()
-  }, [])
+  const {
+    context,
+    initProgress,
+    isModelReady,
+    replaceContext,
+    setInitProgress,
+  } = useExampleContext()
+  const { value: contextParams, setValue: setContextParams } =
+    useStoredContextParams()
+  const { value: completionParams, setValue: setCompletionParams } =
+    useStoredCompletionParams()
+  const { value: customModels, reload: reloadCustomModels } =
+    useStoredCustomModels()
 
   const handleSaveContextParams = (params: ContextParams) => {
     setContextParams(params)
@@ -102,45 +85,8 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
     setCompletionParams(params)
   }
 
-  const handleCustomModelAdded = async (_model: CustomModel) => {
-    // Reload custom models to reflect the new addition
-    const models = await loadCustomModels()
-    setCustomModels(models)
-  }
-
-  const handleCustomModelRemoved = async () => {
-    // Reload custom models to reflect the removal
-    const models = await loadCustomModels()
-    setCustomModels(models)
-  }
-
-  const buildLLMMessages = (): LLMMessage[] => {
-    const conversationMessages: LLMMessage[] = [
-      {
-        role: 'system',
-        content: systemPrompt,
-      },
-    ]
-
-    // Add previous messages from chat history
-    const recentMessages = messagesRef.current
-      .filter(
-        (msg): msg is MessageType.Text =>
-          msg.type === 'text' && !msg.metadata?.system,
-      )
-      .reverse() // Reverse to get chronological order
-      .slice(-10) // Keep last 10 messages for context
-      .map((msg) => ({
-        role:
-          msg.author.id === user.id
-            ? ('user' as const)
-            : ('assistant' as const),
-        content: msg.text,
-        reasoning_content: msg.metadata?.completionResult?.reasoning_content,
-      }))
-
-    return [...conversationMessages, ...recentMessages]
-  }
+  const buildLLMMessages = () =>
+    buildConversationMessages(messagesRef.current, systemPrompt, CHAT_USER.id)
 
   const addMessage = useCallback((message: MessageType.Any) => {
     messagesRef.current = [message, ...messagesRef.current]
@@ -165,14 +111,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
 
   const addSystemMessage = useCallback(
     (text: string, metadata = {}) => {
-      const textMessage: MessageType.Text = {
-        author: assistant,
-        createdAt: Date.now(),
-        id: randId(),
-        text,
-        type: 'text',
-        metadata: { system: true, ...metadata },
-      }
+      const textMessage = createSystemTextMessage(text, metadata)
       addMessage(textMessage)
       return textMessage.id
     },
@@ -206,45 +145,45 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
     )
   }, [addSystemMessage, context])
 
-  // Set up navigation header buttons
-  useLayoutEffect(() => {
-    if (isModelReady) {
-      navigation.setOptions({
-        headerRight: () => (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton iconName="refresh" onPress={handleReset} />
-            <HeaderButton
-              iconName="cog-outline"
-              onPress={() => setShowCompletionParamsModal(true)}
-            />
-            <Menu
-              actions={[
-                {
-                  id: 'messages',
-                  title: 'Messages',
-                  onPress: () => setShowMessagesModal(true),
-                },
-                {
-                  id: 'sessions',
-                  title: 'Sessions',
-                  onPress: () => setShowSessionModal(true),
-                },
-              ]}
-            />
-          </View>
-        ),
-      })
-    } else {
-      navigation.setOptions({
-        headerRight: () => (
-          <HeaderButton
-            iconName="cog-outline"
-            onPress={() => setShowContextParamsModal(true)}
-          />
-        ),
-      })
-    }
-  }, [navigation, isModelReady, handleReset])
+  useExampleScreenHeader({
+    navigation,
+    isModelReady,
+    readyActions: [
+      {
+        key: 'reset',
+        iconName: 'refresh',
+        onPress: handleReset,
+      },
+      {
+        key: 'completion-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowCompletionParamsModal(true),
+      },
+    ],
+    setupActions: [
+      {
+        key: 'context-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowContextParamsModal(true),
+      },
+    ],
+    renderReadyExtras: () => (
+      <Menu
+        actions={[
+          {
+            id: 'messages',
+            title: 'Messages',
+            onPress: () => setShowMessagesModal(true),
+          },
+          {
+            id: 'sessions',
+            title: 'Sessions',
+            onPress: () => setShowSessionModal(true),
+          },
+        ]}
+      />
+    ),
+  })
 
   const handleImportMessages = (newMessages: MessageType.Any[]) => {
     // Reset messages and add system message back
@@ -285,8 +224,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
         },
       )
 
-      setContext(llamaContext)
-      setIsModelReady(true)
+      await replaceContext(llamaContext)
       setInitProgress(100)
 
       // Add welcome message
@@ -305,11 +243,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
     if (!context || isLoading) return
 
     const userMessage: MessageType.Text = {
-      author: user,
-      createdAt: Date.now(),
-      id: randId(),
-      text: message.text,
-      type: 'text',
+      ...createUserTextMessage(message.text),
     }
 
     addMessage(userMessage)
@@ -319,9 +253,9 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
       // Build conversation messages using the reusable function
       const conversationMessages = buildLLMMessages()
 
-      const responseId = randId()
+      const responseId = createMessageId()
       const responseMessage: MessageType.Text = {
-        author: assistant,
+        author: CHAT_ASSISTANT,
         createdAt: Date.now(),
         id: responseId,
         text: '',
@@ -395,86 +329,30 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
 
   if (!isModelReady) {
     return (
-      <View style={themedStyles.container}>
-        <ScrollView
-          style={themedStyles.setupContainer}
-          contentContainerStyle={themedStyles.scrollContent}
-        >
-          <Text style={themedStyles.setupDescription}>
-            Download the model to start chatting. This model provides fast,
-            efficient text generation for conversational AI.
-          </Text>
-
-          {/* Custom Models Section */}
-          {customModels.length > 0 && (
-            <>
-              <Text style={themedStyles.modelSectionTitle}>Custom Models</Text>
-              {customModels.map((model) => (
-                <CustomModelCard
-                  key={model.id}
-                  model={model}
-                  onInitialize={initializeModel}
-                  onModelRemoved={handleCustomModelRemoved}
-                  initializeButtonText="Initialize"
-                />
-              ))}
-            </>
-          )}
-
-          {/* Add Custom Model Button */}
-          <TouchableOpacity
-            style={themedStyles.addCustomModelButton}
-            onPress={() => setShowCustomModelModal(true)}
-          >
-            <Text style={themedStyles.addCustomModelButtonText}>
-              + Add Custom Model
-            </Text>
-          </TouchableOpacity>
-
-          {/* Predefined Models Section */}
-          <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
-          {[
-            'SMOL_LM_3',
-            'GEMMA_3_4B_QAT',
-            'QWEN_3_4B',
-            'GEMMA_3N_E2B',
-            'GEMMA_3N_E4B',
-          ].map((model) => {
-            const modelInfo = MODELS[model as keyof typeof MODELS]
-            return (
-              <ModelDownloadCard
-                key={model}
-                title={modelInfo.name}
-                repo={modelInfo.repo}
-                filename={modelInfo.filename}
-                size={modelInfo.size}
-                onInitialize={initializeModel}
-              />
-            )
-          })}
-        </ScrollView>
+      <>
+        <ExampleModelSetup
+          description="Download the model to start chatting. This model provides fast, efficient text generation for conversational AI."
+          defaultModels={SIMPLE_CHAT_MODELS}
+          customModels={customModels || []}
+          onInitializeCustomModel={(_model, modelPath) =>
+            initializeModel(modelPath)
+          }
+          onInitializeModel={(_model, modelPath) => initializeModel(modelPath)}
+          onReloadCustomModels={reloadCustomModels}
+          showCustomModelModal={showCustomModelModal}
+          onOpenCustomModelModal={() => setShowCustomModelModal(true)}
+          onCloseCustomModelModal={() => setShowCustomModelModal(false)}
+          isLoading={isLoading}
+          initProgress={initProgress}
+          progressText={`Initializing model... ${initProgress}%`}
+        />
 
         <ContextParamsModal
           visible={showContextParamsModal}
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
         />
-
-        <CustomModelModal
-          visible={showCustomModelModal}
-          onClose={() => setShowCustomModelModal(false)}
-          onModelAdded={handleCustomModelAdded}
-          title="Add Custom Model"
-          enableFileSelection
-        />
-
-        <MaskedProgress
-          visible={isLoading}
-          text={`Initializing model... ${initProgress}%`}
-          progress={initProgress}
-          showProgressBar={initProgress > 0}
-        />
-      </View>
+      </>
     )
   }
 
@@ -486,7 +364,7 @@ export default function SimpleChatScreen({ navigation }: { navigation: any }) {
         theme={isDark ? chatDarkTheme : chatLightTheme}
         messages={messagesRef.current}
         onSendPress={handleSendPress}
-        user={user}
+        user={CHAT_USER}
         textInputProps={{
           editable: !isLoading,
           placeholder: isLoading

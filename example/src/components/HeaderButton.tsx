@@ -34,10 +34,7 @@ export function HeaderButton({
   const { theme } = useTheme()
 
   return (
-    <TouchableOpacity
-      style={styles.button}
-      onPress={onPress}
-    >
+    <TouchableOpacity style={styles.button} onPress={onPress}>
       <Icon name={iconName} size={size} color={theme.colors.primary} />
     </TouchableOpacity>
   )

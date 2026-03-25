@@ -1,10 +1,4 @@
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useLayoutEffect,
-  useCallback,
-} from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   View,
   Text,
@@ -17,28 +11,26 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import ReactNativeBlobUtil from 'react-native-blob-util'
+import { ExampleModelSetup } from '../components/ExampleModelSetup'
 import { useTheme } from '../contexts/ThemeContext'
 import { createThemedStyles } from '../styles/commonStyles'
-import ModelDownloadCard, {
-  MtmdModelDownloadCard,
-} from '../components/ModelDownloadCard'
-import { HeaderButton } from '../components/HeaderButton'
-import { MaskedProgress } from '../components/MaskedProgress'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
-import CustomModelModal from '../components/CustomModelModal'
-import CustomModelCard from '../components/CustomModelCard'
 import { MODELS } from '../utils/constants'
-import type {
-  ContextParams,
-  CompletionParams,
-  CustomModel,
-} from '../utils/storage'
+import type { ContextParams, CompletionParams } from '../utils/storage'
+import { loadContextParams, loadCompletionParams } from '../utils/storage'
 import {
-  loadContextParams,
-  loadCompletionParams,
-  loadCustomModels,
-} from '../utils/storage'
+  useStoredCompletionParams,
+  useStoredContextParams,
+  useStoredCustomModels,
+} from '../hooks/useStoredSetting'
+import { useExampleScreenHeader } from '../hooks/useExampleScreenHeader'
+import { buildParallelStatePath } from '../features/parallelHelpers'
+import {
+  createExampleModelDefinitions,
+  isTextGenerationModel,
+  type ExampleModelKey,
+} from '../utils/exampleModels'
 import { initLlama, LlamaContext } from '../../../src'
 import type { ParallelStatus } from '../../../src'
 
@@ -64,45 +56,14 @@ interface ConversationSlot {
   }
 }
 
-const LLM_MODELS = Object.entries(MODELS).filter(([_key, model]) => {
-  const modelWithExtras = model as typeof model & {
-    vocoder?: any
-    embedding?: any
-    ranking?: any
-  }
-  return (
-    !modelWithExtras.vocoder &&
-    !modelWithExtras.embedding &&
-    !modelWithExtras.ranking
-  )
-})
+const PARALLEL_MODELS = createExampleModelDefinitions(
+  Object.entries(MODELS)
+    .filter(([_key, model]) => model.mmproj || isTextGenerationModel(model))
+    .map(([key]) => key as ExampleModelKey),
+)
 
 const SYSTEM_PROMPT =
   'You are a helpful AI assistant. Be concise and direct in your responses.'
-
-// Helper to generate a simple hash for a question (for state file naming)
-const hashString = (str: string): string => {
-  let hash = 0
-  for (let i = 0; i < str.length; i += 1) {
-    const char = str.charCodeAt(i)
-    hash = (hash << 5) - hash + char
-    hash &= hash // Convert to 32bit integer
-  }
-  return Math.abs(hash).toString(36)
-}
-
-// Helper to get state file path for a question (per model)
-const getStatePath = (modelPath: string, prompt: string): string => {
-  // Extract model filename without extension
-  const modelFilename =
-    modelPath
-      .split('/')
-      .pop()
-      ?.replace(/\.[^./]+$/, '') || 'unknown'
-  const questionHash = hashString(prompt.trim().toLowerCase())
-  const cacheDir = ReactNativeBlobUtil.fs.dirs.CacheDir
-  return `${cacheDir}/state_${modelFilename}_${questionHash}.bin`
-}
 
 const EXAMPLE_PROMPTS = [
   'What is the capital of France?',
@@ -143,6 +104,7 @@ export default function ParallelDecodingScreen({
 }) {
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
+  const styles = createStyles(theme, themedStyles)
   const insets = useSafeAreaInsets()
 
   const [context, setContext] = useState<LlamaContext | null>(null)
@@ -163,12 +125,14 @@ export default function ParallelDecodingScreen({
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
   const [showCustomModelModal, setShowCustomModelModal] = useState(false)
-  const [contextParams, setContextParams] = useState<ContextParams | null>(null)
-  const [completionParams, setCompletionParams] =
-    useState<CompletionParams | null>(null)
-  const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const slotsRef = useRef<ConversationSlot[]>([])
   const imageCache = useRef<Map<string, string>>(new Map())
+  const { value: contextParams, setValue: setContextParams } =
+    useStoredContextParams()
+  const { value: completionParams, setValue: setCompletionParams } =
+    useStoredCompletionParams()
+  const { value: customModels, reload: reloadCustomModels } =
+    useStoredCustomModels()
 
   const handleSaveContextParams = (params: ContextParams) => {
     setContextParams(params)
@@ -176,18 +140,6 @@ export default function ParallelDecodingScreen({
 
   const handleSaveCompletionParams = (params: CompletionParams) => {
     setCompletionParams(params)
-  }
-
-  const handleCustomModelAdded = async (_model: CustomModel) => {
-    // Reload custom models to reflect the new addition
-    const models = await loadCustomModels()
-    setCustomModels(models)
-  }
-
-  const handleCustomModelRemoved = async () => {
-    // Reload custom models to reflect the removal
-    const models = await loadCustomModels()
-    setCustomModels(models)
   }
 
   const clearSlots = useCallback(async () => {
@@ -211,63 +163,51 @@ export default function ParallelDecodingScreen({
     slotsRef.current = []
   }, [])
 
-  // Load custom models on mount
-  useEffect(() => {
-    const loadCustomModelsData = async () => {
-      try {
-        const models = await loadCustomModels()
-        setCustomModels(models)
-      } catch (error) {
-        console.error('Error loading custom models:', error)
-      }
-    }
-    loadCustomModelsData()
-  }, [])
+  const showParallelInfo = useCallback(() => {
+    Alert.alert(
+      'Parallel Decoding',
+      [
+        `This demo showcases parallel request processing using ${parallelSlots} slots.`,
+        '',
+        'Multiple requests are processed concurrently, improving throughput and efficiency.',
+        '',
+        isMultimodalEnabled
+          ? 'Multimodal mode is enabled! Try sending multimodal prompts with images.'
+          : 'Load a multimodal model (SmolVLM, InternVL3, etc.) to enable image understanding.',
+        '',
+        'Try sending multiple prompts and watch them process in parallel!',
+      ].join('\n'),
+    )
+  }, [parallelSlots, isMultimodalEnabled])
 
-  // Set up header buttons
-  useLayoutEffect(() => {
-    if (isModelReady) {
-      navigation.setOptions({
-        headerRight: () => (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton iconName="refresh" onPress={clearSlots} />
-            <HeaderButton
-              iconName="cog-outline"
-              onPress={() => setShowCompletionParamsModal(true)}
-            />
-            <HeaderButton
-              iconName="information-outline"
-              onPress={() => {
-                Alert.alert(
-                  'Parallel Decoding',
-                  [
-                    `This demo showcases parallel request processing using ${parallelSlots} slots.`,
-                    '',
-                    'Multiple requests are processed concurrently, improving throughput and efficiency.',
-                    '',
-                    isMultimodalEnabled
-                      ? 'Multimodal mode is enabled! Try sending multimodal prompts with images.'
-                      : 'Load a multimodal model (SmolVLM, InternVL3, etc.) to enable image understanding.',
-                    '',
-                    'Try sending multiple prompts and watch them process in parallel!',
-                  ].join('\n'),
-                )
-              }}
-            />
-          </View>
-        ),
-      })
-    } else {
-      navigation.setOptions({
-        headerRight: () => (
-          <HeaderButton
-            iconName="cog-outline"
-            onPress={() => setShowContextParamsModal(true)}
-          />
-        ),
-      })
-    }
-  }, [navigation, isModelReady, parallelSlots, isMultimodalEnabled, clearSlots])
+  useExampleScreenHeader({
+    navigation,
+    isModelReady,
+    readyActions: [
+      {
+        key: 'clear-slots',
+        iconName: 'refresh',
+        onPress: clearSlots,
+      },
+      {
+        key: 'completion-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowCompletionParamsModal(true),
+      },
+      {
+        key: 'parallel-info',
+        iconName: 'information-outline',
+        onPress: showParallelInfo,
+      },
+    ],
+    setupActions: [
+      {
+        key: 'context-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowContextParamsModal(true),
+      },
+    ],
+  })
 
   // Cleanup on unmount
   useEffect(
@@ -384,6 +324,32 @@ export default function ParallelDecodingScreen({
     )
   }
 
+  const settleConversationResult = async (
+    slotId: string,
+    completionPromise: Promise<{
+      text?: string
+      timings?: ConversationSlot['timings']
+    }>,
+  ) => {
+    try {
+      const result = await completionPromise
+      updateSlot(slotId, {
+        status: 'completed',
+        response: result.text || '',
+        endTime: Date.now(),
+        timings: result.timings,
+      })
+      console.log('Timings:', result.timings)
+    } catch (error) {
+      console.error('Promise error:', error)
+      updateSlot(slotId, {
+        status: 'error',
+        response: `${error}`,
+        endTime: Date.now(),
+      })
+    }
+  }
+
   const startConversation = async (prompt: string, images?: string[]) => {
     if (!context || !isParallelMode) {
       Alert.alert('Error', 'Model not ready or parallel mode not enabled')
@@ -397,37 +363,12 @@ export default function ParallelDecodingScreen({
     try {
       // Load completion params
       const params = completionParams || (await loadCompletionParams())
-
-      // Build user message content with images if provided
-      const userContent: Array<{
-        type: 'text' | 'image_url'
-        text?: string
-        image_url?: { url: string }
-      }> = []
-
-      // Add images first
-      if (images && images.length > 0) {
-        images.forEach((imageUrl) => {
-          userContent.push({
-            type: 'image_url',
-            image_url: { url: imageUrl },
-          })
-        })
-      }
-
-      // Add text prompt
-      userContent.push({
-        type: 'text',
-        text: prompt,
-      })
-
-      const messages = [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userContent },
-      ]
-
-      // Get state path for this question (model-specific)
-      const statePath = getStatePath(modelPathRef.current, prompt)
+      const messages = buildConversationMessages(prompt, images)
+      const statePath = buildParallelStatePath(
+        ReactNativeBlobUtil.fs.dirs.CacheDir,
+        modelPathRef.current,
+        prompt,
+      )
 
       // Check if state file exists on filesystem
       const stateFileExists = await ReactNativeBlobUtil.fs.exists(statePath)
@@ -486,26 +427,7 @@ export default function ParallelDecodingScreen({
       // Update slot with requestId and stop function
       updateSlot(slotId, { requestId, stop })
 
-      // Await promise to get the final result
-      promise
-        .then((result) => {
-          const finalText = result.text || ''
-          updateSlot(slotId, {
-            status: 'completed',
-            response: finalText,
-            endTime: Date.now(),
-            timings: result.timings,
-          })
-          console.log('Timings:', result.timings)
-        })
-        .catch((err) => {
-          console.error('Promise error:', err)
-          updateSlot(slotId, {
-            status: 'error',
-            response: `${err}`,
-            endTime: Date.now(),
-          })
-        })
+      void settleConversationResult(slotId, promise)
     } catch (error) {
       console.error('Completion error:', error)
       updateSlot(slotId, {
@@ -513,6 +435,14 @@ export default function ParallelDecodingScreen({
         response: `Error: ${error}`,
         endTime: Date.now(),
       })
+    }
+  }
+
+  const queueConversationStart = async (prompt: string, images?: string[]) => {
+    try {
+      await startConversation(prompt, images)
+    } catch (error) {
+      handleStartConversationError(prompt, error)
     }
   }
 
@@ -525,21 +455,37 @@ export default function ParallelDecodingScreen({
       return cached
     }
 
+    const tempPath = `${
+      ReactNativeBlobUtil.fs.dirs.CacheDir
+    }/parallel_image_${Date.now()}_${Math.random().toString(36).slice(2)}.tmp`
+
     try {
       console.log(`Downloading image from ${url}`)
-      const response = await fetch(url)
-      const blob = await response.blob()
-      let dataUri = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(reader.result as string)
-        reader.onerror = reject
-        reader.readAsDataURL(blob)
-      })
-      // NOTE: Replace octet-stream with jpeg on Android
-      dataUri = dataUri.replace(
-        'data:application/octet-stream;base64,',
-        'data:image/jpeg;base64,',
+      const response = await withTimeout(
+        ReactNativeBlobUtil.config({
+          fileCache: true,
+          followRedirect: true,
+          path: tempPath,
+        }).fetch('GET', url),
+        15000,
+        `Timed out downloading image from ${url}`,
       )
+      const statusCode = response.info().status
+      if (statusCode < 200 || statusCode >= 300) {
+        throw new Error(`Image download failed with status ${statusCode}`)
+      }
+
+      const base64 = await withTimeout(
+        ReactNativeBlobUtil.fs.readFile(tempPath, 'base64'),
+        5000,
+        `Timed out reading downloaded image from ${url}`,
+      )
+      const contentType =
+        response.info().headers['content-type'] ||
+        response.info().headers['Content-Type']
+      const dataUri = `data:${normalizeImageMimeType(
+        contentType,
+      )};base64,${base64}`
 
       // Store in cache
       imageCache.current.set(url, dataUri)
@@ -547,57 +493,50 @@ export default function ParallelDecodingScreen({
     } catch (error) {
       console.error(`Failed to download image from ${url}:`, error)
       throw error
+    } finally {
+      try {
+        const tempFileExists = await ReactNativeBlobUtil.fs.exists(tempPath)
+        if (tempFileExists) {
+          await ReactNativeBlobUtil.fs.unlink(tempPath)
+        }
+      } catch (cleanupError) {
+        console.warn('Failed to clean up temporary image file:', cleanupError)
+      }
     }
   }
 
   const sendExamplePrompts = async () => {
     if (isMultimodalEnabled) {
-      // Download all images in parallel, then send examples with delays
-      const downloadPromises = MULTIMODAL_EXAMPLE_PROMPTS.map(
-        async (example, index) => {
-          // Skip if imageUrl is missing
-          if (!example.imageUrl) {
-            return { success: false, text: example.text, index }
-          }
+      await runSequentially(MULTIMODAL_EXAMPLE_PROMPTS, async (example) => {
+        let images: string[] | undefined
 
+        if (example.imageUrl) {
           try {
-            // Download image from URL
             const imageDataUri = await downloadImageAsDataUri(example.imageUrl)
-            return { success: true, text: example.text, imageDataUri, index }
+            images = [imageDataUri]
           } catch (error) {
             console.error('Failed to download image for example:', error)
-            // Return text-only if image download fails
-            return { success: false, text: example.text, index }
           }
-        },
-      )
-
-      const results = await Promise.all(downloadPromises)
-
-      // Send all examples with small delays
-      results.forEach((result) => {
-        if (result.success && result.imageDataUri) {
-          setTimeout(
-            () => startConversation(result.text, [result.imageDataUri]),
-            result.index * 100,
-          )
-        } else {
-          setTimeout(() => startConversation(result.text), result.index * 100)
         }
+
+        await queueConversationStart(example.text, images)
       })
-    } else {
-      // Send text-only examples
-      EXAMPLE_PROMPTS.forEach((prompt, index) => {
-        setTimeout(() => startConversation(prompt), index * 100)
-      })
+      return
     }
+
+    await runSequentially(EXAMPLE_PROMPTS, async (prompt) => {
+      await queueConversationStart(prompt)
+    })
   }
 
   const sendCustomPrompt = () => {
-    if (customPrompt.trim()) {
-      startConversation(customPrompt)
-      setCustomPrompt('')
+    const prompt = customPrompt.trim()
+    if (!prompt) {
+      return
     }
+
+    setCustomPrompt('')
+    void queueConversationStart(prompt)
   }
 
   const cancelSlot = async (slot: ConversationSlot) => {
@@ -692,9 +631,7 @@ export default function ParallelDecodingScreen({
       return
     }
 
-    const currentActiveCount = slots.filter(
-      (t) => t.status === 'processing' || t.status === 'idle',
-    ).length
+    const currentActiveCount = countActiveSlots(slots)
     if (currentActiveCount > 0) {
       Alert.alert('Error', 'Cannot change slot count while requests are active')
       return
@@ -717,286 +654,48 @@ export default function ParallelDecodingScreen({
     }
   }
 
-  const getSlotDuration = (slot: ConversationSlot) => {
-    if (slot.startTime && slot.endTime) {
-      const duration = ((slot.endTime - slot.startTime) / 1000).toFixed(2)
-      return `${duration}s`
-    }
-    return '-'
-  }
-
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: theme.colors.background,
-    },
-    content: {
-      flex: 1,
-    },
-    section: {
-      padding: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.colors.border,
-    },
-    sectionTitle: {
-      fontSize: 16,
-      fontWeight: 'bold',
-      color: theme.colors.text,
-      marginBottom: 12,
-    },
-    statsRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      marginBottom: 6,
-    },
-    statBox: {
-      flex: 1,
-      padding: 12,
-      marginHorizontal: 4,
-      backgroundColor: theme.colors.surface,
-      borderRadius: 8,
-      alignItems: 'center',
-    },
-    statLabel: {
-      fontSize: 12,
-      color: theme.colors.textSecondary,
-      marginBottom: 4,
-    },
-    statValue: {
-      fontSize: 16,
-      fontWeight: 'bold',
-      color: theme.colors.primary,
-    },
-    controlsRow: {
-      flexDirection: 'row',
-      marginBottom: 12,
-    },
-    button: {
-      flex: 1,
-      padding: 4,
-      height: 42,
-      backgroundColor: theme.colors.primary,
-      borderRadius: 8,
-      marginHorizontal: 4,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    buttonDisabled: {
-      backgroundColor: theme.colors.border,
-    },
-    buttonText: {
-      color: theme.colors.white,
-      fontWeight: '600',
-      fontSize: 12,
-      textAlign: 'center',
-    },
-    inputRow: {
-      flexDirection: 'row',
-      marginBottom: 4,
-    },
-    input: {
-      flex: 1,
-      padding: 12,
-      backgroundColor: theme.colors.surface,
-      borderRadius: 8,
-      marginRight: 8,
-      color: theme.colors.text,
-    },
-    sendButton: {
-      padding: 12,
-      backgroundColor: theme.colors.primary,
-      borderRadius: 8,
-      justifyContent: 'center',
-      alignItems: 'center',
-      minWidth: 60,
-    },
-    slotsContainer: {
-      flex: 1,
-      padding: 16,
-    },
-    slot: {
-      marginBottom: 16,
-      padding: 12,
-      backgroundColor: theme.colors.surface,
-      borderRadius: 8,
-      borderLeftWidth: 4,
-    },
-    slotIdle: {
-      borderLeftColor: theme.colors.border,
-    },
-    slotProcessing: {
-      borderLeftColor: '#FFA500',
-    },
-    slotCompleted: {
-      borderLeftColor: '#4CAF50',
-    },
-    slotError: {
-      borderLeftColor: '#F44336',
-    },
-    slotHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      marginBottom: 8,
-    },
-    slotStatus: {
-      fontSize: 12,
-      fontWeight: '600',
-      textTransform: 'uppercase',
-    },
-    slotDuration: {
-      fontSize: 12,
-      color: theme.colors.textSecondary,
-    },
-    cancelButton: {
-      marginLeft: 8,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      backgroundColor: theme.colors.error,
-      borderRadius: 4,
-    },
-    cancelButtonText: {
-      color: theme.colors.white,
-      fontSize: 11,
-      fontWeight: '600',
-    },
-    slotPrompt: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: theme.colors.text,
-      marginBottom: 8,
-    },
-    slotResponse: {
-      fontSize: 14,
-      color: theme.colors.textSecondary,
-      lineHeight: 20,
-    },
-    emptyState: {
-      flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: 32,
-    },
-    emptyStateText: {
-      fontSize: 16,
-      color: theme.colors.textSecondary,
-      textAlign: 'center',
-      lineHeight: 24,
-    },
-  })
+  const activeCount = countActiveSlots(slots)
+  const completedCount = countCompletedSlots(slots)
+  const avgDuration = calculateAverageDuration(slots)
+  const activeRequests =
+    parallelStatus?.requests.filter((request) => request.state !== 'queued') ||
+    []
+  const hasActiveRequests = activeCount > 0
 
   if (!isModelReady) {
     return (
-      <View style={styles.container}>
-        <ScrollView contentContainerStyle={{ padding: 16 }}>
-          <Text
-            style={{ fontSize: 16, color: theme.colors.text, marginBottom: 16 }}
-          >
-            Select a model to start parallel decoding demo
-          </Text>
-
-          {/* Custom Models Section */}
-          {customModels.length > 0 && (
-            <>
-              <Text style={themedStyles.modelSectionTitle}>Custom Models</Text>
-              {customModels.map((model) => (
-                <CustomModelCard
-                  key={model.id}
-                  model={model}
-                  onInitialize={(modelPath, mmprojPath) => {
-                    initializeModel(modelPath, mmprojPath)
-                  }}
-                  onModelRemoved={handleCustomModelRemoved}
-                  initializeButtonText="Initialize"
-                />
-              ))}
-            </>
-          )}
-
-          {/* Add Custom Model Button */}
-          <TouchableOpacity
-            style={themedStyles.addCustomModelButton}
-            onPress={() => setShowCustomModelModal(true)}
-          >
-            <Text style={themedStyles.addCustomModelButtonText}>
-              + Add Custom Model
-            </Text>
-          </TouchableOpacity>
-
-          {/* Predefined Models Section */}
-          <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
-          {LLM_MODELS.map(([key, model]) => {
-            // Use MtmdModelDownloadCard for multimodal models
-            if (model.mmproj) {
-              return (
-                <MtmdModelDownloadCard
-                  key={key}
-                  title={model.name}
-                  repo={model.repo}
-                  filename={model.filename}
-                  mmproj={model.mmproj}
-                  size={model.size}
-                  onInitialize={(modelPath, mmprojPath) => {
-                    initializeModel(modelPath, mmprojPath)
-                  }}
-                />
-              )
-            }
-
-            // Use regular ModelDownloadCard for text-only models
-            return (
-              <ModelDownloadCard
-                key={key}
-                title={model.name}
-                repo={model.repo}
-                filename={model.filename}
-                size={model.size}
-                onInitialize={initializeModel}
-              />
-            )
-          })}
-        </ScrollView>
+      <>
+        <ExampleModelSetup
+          description="Download a model to see how llama.rn queues multiple requests, reuses prompt state, and runs them across parallel slots."
+          defaultModels={PARALLEL_MODELS}
+          customModels={customModels || []}
+          onInitializeCustomModel={(_model, modelPath, mmprojPath) =>
+            initializeModel(modelPath, mmprojPath)
+          }
+          onInitializeModel={(_model, modelPath, mmprojPath) =>
+            initializeModel(modelPath, mmprojPath)
+          }
+          onReloadCustomModels={reloadCustomModels}
+          showCustomModelModal={showCustomModelModal}
+          onOpenCustomModelModal={() => setShowCustomModelModal(true)}
+          onCloseCustomModelModal={() => setShowCustomModelModal(false)}
+          customModelModalTitle="Add Custom Parallel Model"
+          isLoading={isLoading}
+          initProgress={initProgress}
+          progressText={`Initializing model... ${initProgress}%`}
+        />
 
         <ContextParamsModal
           visible={showContextParamsModal}
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
         />
-
-        <CustomModelModal
-          visible={showCustomModelModal}
-          onClose={() => setShowCustomModelModal(false)}
-          onModelAdded={handleCustomModelAdded}
-          title="Add Custom Model"
-          enableFileSelection
-        />
-
-        <MaskedProgress
-          visible={isLoading}
-          text={`Initializing model... ${initProgress}%`}
-          progress={initProgress}
-          showProgressBar={initProgress > 0}
-        />
-      </View>
+      </>
     )
   }
 
-  const activeCount = slots.filter(
-    (t) => t.status === 'processing' || t.status === 'idle',
-  ).length
-  const completedCount = slots.filter((t) => t.status === 'completed').length
-  const avgDuration =
-    completedCount > 0
-      ? (
-          slots
-            .filter((t) => t.startTime && t.endTime)
-            .reduce((sum, t) => sum + (t.endTime! - t.startTime!) / 1000, 0) /
-          completedCount
-        ).toFixed(2)
-      : '0'
-
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
-      {/* Stats Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Parallel Processing Stats</Text>
         <View style={styles.statsRow}>
@@ -1014,210 +713,91 @@ export default function ParallelDecodingScreen({
           </View>
         </View>
 
-        {/* Configurable Slot Count */}
-        <View style={{ marginTop: 12 }}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <Text style={{ fontSize: 14, color: theme.colors.text }}>
-              Number of Slots:
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={styles.slotCountSection}>
+          <View style={styles.slotCountHeader}>
+            <Text style={styles.slotCountLabel}>Number of Slots:</Text>
+            <View style={styles.slotCountControls}>
               <TouchableOpacity
                 style={[
-                  {
-                    backgroundColor: theme.colors.primary,
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: 12,
-                  },
-                  (parallelSlots <= 1 || activeCount > 0) && { opacity: 0.5 },
+                  styles.slotAdjustButton,
+                  (parallelSlots <= 1 || hasActiveRequests) &&
+                    styles.slotAdjustButtonDisabled,
                 ]}
                 onPress={() =>
                   parallelSlots > 1 && updateParallelSlots(parallelSlots - 1)
                 }
-                disabled={parallelSlots <= 1 || activeCount > 0}
+                disabled={parallelSlots <= 1 || hasActiveRequests}
               >
-                <Text
-                  style={{
-                    color: theme.colors.white,
-                    fontSize: 20,
-                    fontWeight: 'bold',
-                  }}
-                >
-                  -
-                </Text>
+                <Text style={styles.slotAdjustButtonText}>-</Text>
               </TouchableOpacity>
-              <Text
-                style={{
-                  fontSize: 18,
-                  fontWeight: 'bold',
-                  color: theme.colors.primary,
-                  minWidth: 24,
-                  textAlign: 'center',
-                }}
-              >
-                {parallelSlots}
-              </Text>
+              <Text style={styles.slotCountValue}>{parallelSlots}</Text>
               <TouchableOpacity
                 style={[
-                  {
-                    backgroundColor: theme.colors.primary,
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginLeft: 12,
-                  },
-                  (parallelSlots >= 8 || activeCount > 0) && { opacity: 0.5 },
+                  styles.slotAdjustButton,
+                  (parallelSlots >= 8 || hasActiveRequests) &&
+                    styles.slotAdjustButtonDisabled,
                 ]}
                 onPress={() =>
                   parallelSlots < 8 && updateParallelSlots(parallelSlots + 1)
                 }
-                disabled={parallelSlots >= 8 || activeCount > 0}
+                disabled={parallelSlots >= 8 || hasActiveRequests}
               >
-                <Text
-                  style={{
-                    color: theme.colors.white,
-                    fontSize: 20,
-                    fontWeight: 'bold',
-                  }}
-                >
-                  +
-                </Text>
+                <Text style={styles.slotAdjustButtonText}>+</Text>
               </TouchableOpacity>
             </View>
           </View>
-          {activeCount > 0 && (
-            <Text
-              style={{
-                fontSize: 11,
-                color: theme.colors.textSecondary,
-                marginTop: 4,
-                textAlign: 'right',
-              }}
-            >
+          {hasActiveRequests && (
+            <Text style={styles.slotCountHint}>
               Cannot change while requests are active
             </Text>
           )}
         </View>
       </View>
 
-      {/* Slot Manager Status Section */}
       {parallelStatus && (
-        <View
-          style={[
-            styles.section,
-            { backgroundColor: theme.colors.surface, paddingVertical: 8 },
-          ]}
-        >
-          <Text
-            style={[styles.sectionTitle, { fontSize: 14, marginBottom: 8 }]}
-          >
-            Slot Manager Status
-          </Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <View
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: '#4CAF50',
-                  marginRight: 6,
-                }}
-              />
-              <Text style={{ fontSize: 12, color: theme.colors.text }}>
+        <View style={[styles.section, styles.statusSection]}>
+          <Text style={styles.statusSectionTitle}>Slot Manager Status</Text>
+          <View style={styles.statusLegendRow}>
+            <View style={styles.statusLegendItem}>
+              <View style={[styles.statusDot, styles.statusDotActive]} />
+              <Text style={styles.statusLegendText}>
                 {`Active: ${parallelStatus.active_slots}/${parallelStatus.n_parallel}`}
               </Text>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <View
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: '#FFA500',
-                  marginRight: 6,
-                }}
-              />
-              <Text style={{ fontSize: 12, color: theme.colors.text }}>
+            <View style={styles.statusLegendItem}>
+              <View style={[styles.statusDot, styles.statusDotQueued]} />
+              <Text style={styles.statusLegendText}>
                 {`Queued: ${parallelStatus.queued_requests}`}
               </Text>
             </View>
           </View>
-          {parallelStatus.requests.length > 0 && (
-            <View style={{ marginTop: 8 }}>
-              <Text
-                style={{
-                  fontSize: 11,
-                  color: theme.colors.textSecondary,
-                  marginBottom: 4,
-                }}
-              >
-                Active Requests:
-              </Text>
-              {parallelStatus.requests
-                .filter((r) => r.state !== 'queued')
-                .slice(0, 3)
-                .map((req) => (
-                  <View
-                    key={req.request_id}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      paddingVertical: 2,
-                    }}
+          {activeRequests.length > 0 && (
+            <View style={styles.statusRequests}>
+              <Text style={styles.statusRequestsLabel}>Active Requests:</Text>
+              {activeRequests.slice(0, 3).map((req) => (
+                <View key={req.request_id} style={styles.statusRequestRow}>
+                  <Text
+                    style={[
+                      styles.statusRequestState,
+                      {
+                        color: getParallelRequestStatusColor(req.state, theme),
+                      },
+                    ]}
                   >
-                    <Text
-                      style={{
-                        fontSize: 10,
-                        color: (() => {
-                          if (req.state === 'generating') return '#4CAF50'
-                          if (req.state === 'processing_prompt')
-                            return '#FFA500'
-                          return theme.colors.textSecondary
-                        })(),
-                        width: 100,
-                      }}
-                    >
-                      {`#${req.request_id} ${req.state}`}
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 10,
-                        color: theme.colors.textSecondary,
-                      }}
-                    >
-                      {req.tokens_generated > 0
-                        ? `${
-                            req.tokens_generated
-                          } tokens @ ${req.tokens_per_second.toFixed(1)} t/s`
-                        : `prompt: ${req.prompt_length} tokens`}
-                    </Text>
-                  </View>
-                ))}
-              {parallelStatus.requests.filter((r) => r.state !== 'queued')
-                .length > 3 && (
-                <Text
-                  style={{
-                    fontSize: 10,
-                    color: theme.colors.textSecondary,
-                    fontStyle: 'italic',
-                  }}
-                >
-                  {`+${
-                    parallelStatus.requests.filter((r) => r.state !== 'queued')
-                      .length - 3
-                  } more...`}
+                    {`#${req.request_id} ${req.state}`}
+                  </Text>
+                  <Text style={styles.statusRequestDetails}>
+                    {req.tokens_generated > 0
+                      ? `${
+                          req.tokens_generated
+                        } tokens @ ${req.tokens_per_second.toFixed(1)} t/s`
+                      : `prompt: ${req.prompt_length} tokens`}
+                  </Text>
+                </View>
+              ))}
+              {activeRequests.length > 3 && (
+                <Text style={styles.statusRequestOverflow}>
+                  {`+${activeRequests.length - 3} more...`}
                 </Text>
               )}
             </View>
@@ -1225,14 +805,13 @@ export default function ParallelDecodingScreen({
         </View>
       )}
 
-      {/* Controls Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Controls</Text>
         <View style={styles.controlsRow}>
           <TouchableOpacity
-            style={[styles.button, activeCount > 0 && styles.buttonDisabled]}
+            style={[styles.button, hasActiveRequests && styles.buttonDisabled]}
             onPress={sendExamplePrompts}
-            disabled={activeCount > 0}
+            // disabled={hasActiveRequests}
           >
             <Text style={styles.buttonText}>
               {isMultimodalEnabled
@@ -1244,9 +823,9 @@ export default function ParallelDecodingScreen({
             <Text style={styles.buttonText}>Clear All</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.button, activeCount === 0 && styles.buttonDisabled]}
+            style={[styles.button, !hasActiveRequests && styles.buttonDisabled]}
             onPress={cancelAllRequests}
-            disabled={activeCount === 0}
+            disabled={!hasActiveRequests}
           >
             <Text style={styles.buttonText}>Cancel All</Text>
           </TouchableOpacity>
@@ -1276,7 +855,6 @@ export default function ParallelDecodingScreen({
         </View>
       </View>
 
-      {/* Slots Section */}
       <ScrollView style={styles.slotsContainer}>
         {slots.length === 0 ? (
           <View style={styles.emptyState}>
@@ -1302,19 +880,12 @@ export default function ParallelDecodingScreen({
                 <Text
                   style={[
                     styles.slotStatus,
-                    {
-                      color: (() => {
-                        if (slot.status === 'processing') return '#FFA500'
-                        if (slot.status === 'completed') return '#4CAF50'
-                        if (slot.status === 'error') return '#F44336'
-                        return theme.colors.textSecondary
-                      })(),
-                    },
+                    { color: getSlotStatusColor(slot.status, theme) },
                   ]}
                 >
                   {slot.status}
                 </Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={styles.slotMeta}>
                   <Text style={styles.slotDuration}>
                     {getSlotDuration(slot)}
                   </Text>
@@ -1337,52 +908,20 @@ export default function ParallelDecodingScreen({
                 </Text>
               )}
               {slot.timings && slot.status === 'completed' && (
-                <View
-                  style={{
-                    marginTop: 8,
-                    paddingTop: 8,
-                    borderTopWidth: 1,
-                    borderTopColor: theme.colors.border,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      color: theme.colors.textSecondary,
-                      marginBottom: 4,
-                    }}
-                  >
-                    Performance:
-                  </Text>
-                  <View
-                    style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}
-                  >
+                <View style={styles.timingsSection}>
+                  <Text style={styles.timingsLabel}>Performance:</Text>
+                  <View style={styles.timingsRow}>
                     {slot.timings.cache_n > 0 && (
-                      <Text
-                        style={{
-                          fontSize: 10,
-                          color: theme.colors.textSecondary,
-                        }}
-                      >
+                      <Text style={styles.timingText}>
                         {`Cache: ${slot.timings.cache_n} tokens`}
                       </Text>
                     )}
-                    <Text
-                      style={{
-                        fontSize: 10,
-                        color: theme.colors.textSecondary,
-                      }}
-                    >
+                    <Text style={styles.timingText}>
                       {`Prompt: ${slot.timings.prompt_per_second.toFixed(
                         2,
                       )} t/s`}
                     </Text>
-                    <Text
-                      style={{
-                        fontSize: 10,
-                        color: theme.colors.textSecondary,
-                      }}
-                    >
+                    <Text style={styles.timingText}>
                       {`Generation: ${slot.timings.predicted_per_second.toFixed(
                         2,
                       )} t/s`}
@@ -1402,4 +941,401 @@ export default function ParallelDecodingScreen({
       />
     </View>
   )
+}
+
+function buildConversationMessages(prompt: string, images?: string[]) {
+  const userContent: Array<{
+    type: 'text' | 'image_url'
+    text?: string
+    image_url?: { url: string }
+  }> = []
+
+  if (images && images.length > 0) {
+    images.forEach((imageUrl) => {
+      userContent.push({
+        type: 'image_url',
+        image_url: { url: imageUrl },
+      })
+    })
+  }
+
+  userContent.push({
+    type: 'text',
+    text: prompt,
+  })
+
+  return [
+    { role: 'system' as const, content: SYSTEM_PROMPT },
+    { role: 'user' as const, content: userContent },
+  ]
+}
+
+function countActiveSlots(slots: ConversationSlot[]) {
+  return slots.filter(
+    (slot) => slot.status === 'processing' || slot.status === 'idle',
+  ).length
+}
+
+function countCompletedSlots(slots: ConversationSlot[]) {
+  return slots.filter((slot) => slot.status === 'completed').length
+}
+
+function calculateAverageDuration(slots: ConversationSlot[]) {
+  const completedSlots = slots.filter((slot) => slot.startTime && slot.endTime)
+  if (completedSlots.length === 0) {
+    return '0'
+  }
+
+  const totalDuration = completedSlots.reduce(
+    (sum, slot) => sum + (slot.endTime! - slot.startTime!) / 1000,
+    0,
+  )
+  return (totalDuration / completedSlots.length).toFixed(2)
+}
+
+function runSequentially<T>(items: T[], task: (item: T) => Promise<void>) {
+  return items.reduce(
+    (pending, item) => pending.then(() => task(item)),
+    Promise.resolve(),
+  )
+}
+
+function normalizeImageMimeType(contentType?: string) {
+  if (!contentType || contentType === 'application/octet-stream') {
+    return 'image/jpeg'
+  }
+  return contentType
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+) {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(timeoutMessage))
+      }, timeoutMs)
+    }),
+  ])
+}
+
+function handleStartConversationError(prompt: string, error: unknown) {
+  console.error(`Failed to start conversation for prompt: ${prompt}`, error)
+}
+
+function getSlotDuration(slot: ConversationSlot) {
+  if (slot.startTime && slot.endTime) {
+    return `${((slot.endTime - slot.startTime) / 1000).toFixed(2)}s`
+  }
+  return '-'
+}
+
+function getSlotStatusColor(
+  status: ConversationSlot['status'],
+  theme: ReturnType<typeof useTheme>['theme'],
+) {
+  if (status === 'processing') return '#FFA500'
+  if (status === 'completed') return '#4CAF50'
+  if (status === 'error') return '#F44336'
+  return theme.colors.textSecondary
+}
+
+function getParallelRequestStatusColor(
+  status: string,
+  theme: ReturnType<typeof useTheme>['theme'],
+) {
+  if (status === 'generating') return '#4CAF50'
+  if (status === 'processing_prompt') return '#FFA500'
+  return theme.colors.textSecondary
+}
+
+function createStyles(
+  theme: ReturnType<typeof useTheme>['theme'],
+  themedStyles: ReturnType<typeof createThemedStyles>,
+) {
+  return StyleSheet.create({
+    container: themedStyles.container,
+    section: {
+      padding: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+    },
+    sectionTitle: {
+      fontSize: 16,
+      fontWeight: '700' as const,
+      color: theme.colors.text,
+      marginBottom: 12,
+    },
+    statsRow: {
+      flexDirection: 'row' as const,
+      justifyContent: 'space-between' as const,
+      marginBottom: 6,
+    },
+    statBox: {
+      flex: 1,
+      padding: 12,
+      marginHorizontal: 4,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 8,
+      alignItems: 'center' as const,
+    },
+    statLabel: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      marginBottom: 4,
+    },
+    statValue: {
+      fontSize: 16,
+      fontWeight: '700' as const,
+      color: theme.colors.primary,
+    },
+    slotCountSection: {
+      marginTop: 12,
+    },
+    slotCountHeader: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'space-between' as const,
+    },
+    slotCountLabel: {
+      fontSize: 14,
+      color: theme.colors.text,
+    },
+    slotCountControls: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+    },
+    slotAdjustButton: {
+      backgroundColor: theme.colors.primary,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+    },
+    slotAdjustButtonDisabled: {
+      opacity: 0.5,
+    },
+    slotAdjustButtonText: {
+      color: theme.colors.white,
+      fontSize: 20,
+      fontWeight: '700' as const,
+    },
+    slotCountValue: {
+      fontSize: 18,
+      fontWeight: '700' as const,
+      color: theme.colors.primary,
+      minWidth: 48,
+      textAlign: 'center' as const,
+    },
+    slotCountHint: {
+      fontSize: 11,
+      color: theme.colors.textSecondary,
+      marginTop: 4,
+      textAlign: 'right' as const,
+    },
+    statusSection: {
+      backgroundColor: theme.colors.surface,
+      paddingVertical: 8,
+    },
+    statusSectionTitle: {
+      fontSize: 14,
+      fontWeight: '700' as const,
+      color: theme.colors.text,
+      marginBottom: 8,
+    },
+    statusLegendRow: {
+      flexDirection: 'row' as const,
+      flexWrap: 'wrap' as const,
+      gap: 12,
+    },
+    statusLegendItem: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+    },
+    statusDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      marginRight: 6,
+    },
+    statusDotActive: {
+      backgroundColor: '#4CAF50',
+    },
+    statusDotQueued: {
+      backgroundColor: '#FFA500',
+    },
+    statusLegendText: {
+      fontSize: 12,
+      color: theme.colors.text,
+    },
+    statusRequests: {
+      marginTop: 8,
+    },
+    statusRequestsLabel: {
+      fontSize: 11,
+      color: theme.colors.textSecondary,
+      marginBottom: 4,
+    },
+    statusRequestRow: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      paddingVertical: 2,
+    },
+    statusRequestState: {
+      fontSize: 10,
+      width: 100,
+    },
+    statusRequestDetails: {
+      fontSize: 10,
+      color: theme.colors.textSecondary,
+    },
+    statusRequestOverflow: {
+      fontSize: 10,
+      color: theme.colors.textSecondary,
+      fontStyle: 'italic' as const,
+    },
+    controlsRow: {
+      flexDirection: 'row' as const,
+      marginBottom: 12,
+    },
+    button: {
+      flex: 1,
+      padding: 4,
+      height: 42,
+      backgroundColor: theme.colors.primary,
+      borderRadius: 8,
+      marginHorizontal: 4,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+    },
+    buttonDisabled: {
+      backgroundColor: theme.colors.border,
+    },
+    buttonText: {
+      color: theme.colors.white,
+      fontWeight: '600' as const,
+      fontSize: 12,
+      textAlign: 'center' as const,
+    },
+    inputRow: {
+      flexDirection: 'row' as const,
+      marginBottom: 4,
+    },
+    input: {
+      flex: 1,
+      padding: 12,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 8,
+      marginRight: 8,
+      color: theme.colors.text,
+    },
+    sendButton: {
+      padding: 12,
+      backgroundColor: theme.colors.primary,
+      borderRadius: 8,
+      justifyContent: 'center' as const,
+      alignItems: 'center' as const,
+      minWidth: 60,
+    },
+    slotsContainer: {
+      flex: 1,
+      padding: 16,
+    },
+    slot: {
+      marginBottom: 16,
+      padding: 12,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 8,
+      borderLeftWidth: 4,
+    },
+    slotIdle: {
+      borderLeftColor: theme.colors.border,
+    },
+    slotProcessing: {
+      borderLeftColor: '#FFA500',
+    },
+    slotCompleted: {
+      borderLeftColor: '#4CAF50',
+    },
+    slotError: {
+      borderLeftColor: '#F44336',
+    },
+    slotHeader: {
+      flexDirection: 'row' as const,
+      justifyContent: 'space-between' as const,
+      marginBottom: 8,
+    },
+    slotStatus: {
+      fontSize: 12,
+      fontWeight: '600' as const,
+      textTransform: 'uppercase' as const,
+    },
+    slotMeta: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+    },
+    slotDuration: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+    },
+    cancelButton: {
+      marginLeft: 8,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      backgroundColor: theme.colors.error,
+      borderRadius: 4,
+    },
+    cancelButtonText: {
+      color: theme.colors.white,
+      fontSize: 11,
+      fontWeight: '600' as const,
+    },
+    slotPrompt: {
+      fontSize: 14,
+      fontWeight: '600' as const,
+      color: theme.colors.text,
+      marginBottom: 8,
+    },
+    slotResponse: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      lineHeight: 20,
+    },
+    timingsSection: {
+      marginTop: 8,
+      paddingTop: 8,
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border,
+    },
+    timingsLabel: {
+      fontSize: 11,
+      color: theme.colors.textSecondary,
+      marginBottom: 4,
+    },
+    timingsRow: {
+      flexDirection: 'row' as const,
+      flexWrap: 'wrap' as const,
+      gap: 8,
+    },
+    timingText: {
+      fontSize: 10,
+      color: theme.colors.textSecondary,
+    },
+    emptyState: {
+      flex: 1,
+      justifyContent: 'center' as const,
+      alignItems: 'center' as const,
+      padding: 32,
+    },
+    emptyStateText: {
+      fontSize: 16,
+      color: theme.colors.textSecondary,
+      textAlign: 'center' as const,
+      lineHeight: 24,
+    },
+  })
 }

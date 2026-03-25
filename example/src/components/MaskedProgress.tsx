@@ -12,7 +12,12 @@ interface MaskedProgressProps {
 }
 
 export function MaskedProgress(props: MaskedProgressProps) {
-  const { visible, text = 'Loading...', progress = 0, showProgressBar = false } = props
+  const {
+    visible,
+    text = 'Loading...',
+    progress = 0,
+    showProgressBar = false,
+  } = props
   const { theme } = useTheme()
 
   const styles = StyleSheet.create({

@@ -1,16 +1,9 @@
-import React, {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useCallback,
-} from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import {
   View,
   Text,
   TextInput,
   StyleSheet,
-  ScrollView,
   Alert,
   Image,
   TouchableOpacity,
@@ -21,18 +14,15 @@ import { Chat } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
 import { pick, keepLocalCopy } from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
-import { MtmdModelDownloadCard } from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
-import CustomModelModal from '../components/CustomModelModal'
-import CustomModelCard from '../components/CustomModelCard'
 import { Bubble } from '../components/Bubble'
-import { HeaderButton } from '../components/HeaderButton'
 import { Menu } from '../components/Menu'
 import { MessagesModal } from '../components/MessagesModal'
 import { MaskedProgress } from '../components/MaskedProgress'
 import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
+import { ExampleModelSetup } from '../components/ExampleModelSetup'
 import {
   createThemedStyles,
   chatDarkTheme,
@@ -40,236 +30,47 @@ import {
 } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
-import type {
-  ContextParams,
-  CompletionParams,
-  CustomModel,
-} from '../utils/storage'
-import {
-  loadContextParams,
-  loadCompletionParams,
-  loadCustomModels,
-} from '../utils/storage'
+import type { ContextParams, CompletionParams } from '../utils/storage'
+import { loadContextParams, loadCompletionParams } from '../utils/storage'
 import type { LLMMessage } from '../utils/llmMessages'
-import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
+import { initLlama } from '../../../src' // import 'llama.rn'
+import {
+  useStoredCompletionParams,
+  useStoredContextParams,
+  useStoredCustomModels,
+} from '../hooks/useStoredSetting'
+import { useExampleContext } from '../hooks/useExampleContext'
+import { useExampleScreenHeader } from '../hooks/useExampleScreenHeader'
+import {
+  CHAT_ASSISTANT,
+  CHAT_USER,
+  createMessageId,
+  createSystemTextMessage,
+} from '../features/chatHelpers'
+import {
+  DEFAULT_MULTIMODAL_SYSTEM_PROMPT,
+  createMultimodalSystemPrompt,
+  createMultimodalWelcomeMessage,
+} from '../features/multimodalHelpers'
+import {
+  createExampleModelDefinitions,
+  type ExampleModelKey,
+} from '../utils/exampleModels'
 
-const user = { id: 'user' }
-const assistant = { id: 'assistant' }
-
-const randId = () => Math.random().toString(36).substr(2, 9)
-
-const DEFAULT_SYSTEM_PROMPT =
-  'You are a helpful AI assistant. Be concise and helpful in your responses.'
-
-const createSystemPrompt = (
-  multimodalSupport: { vision: boolean; audio: boolean } | null,
-) => {
-  if (!multimodalSupport) {
-    return DEFAULT_SYSTEM_PROMPT
-  }
-
-  const capabilities = []
-  if (multimodalSupport.vision) capabilities.push('vision')
-  if (multimodalSupport.audio) capabilities.push('audio')
-
-  if (capabilities.length === 0) {
-    return DEFAULT_SYSTEM_PROMPT
-  }
-
-  const capabilityText =
-    capabilities.length > 1
-      ? `${capabilities.slice(0, -1).join(', ')} and ${
-          capabilities[capabilities.length - 1]
-        }`
-      : capabilities[0]
-
-  const mediaTypes = []
-  if (multimodalSupport.vision) mediaTypes.push('images')
-  if (multimodalSupport.audio) mediaTypes.push('audio')
-
-  const mediaText =
-    mediaTypes.length > 1
-      ? `${mediaTypes.slice(0, -1).join(', ')} and ${
-          mediaTypes[mediaTypes.length - 1]
-        }`
-      : mediaTypes[0]
-  let analysisText
-  if (multimodalSupport.vision && multimodalSupport.audio) {
-    analysisText = 'see and analyze images and listen to and analyze audio'
-  } else if (multimodalSupport.vision) {
-    analysisText = 'see and analyze images'
-  } else {
-    analysisText = 'listen to and analyze audio'
-  }
-
-  return `You are a helpful AI assistant with ${capabilityText} capabilities. You can ${analysisText} that users share. Be descriptive when analyzing ${mediaText} and helpful in answering questions about multimedia content. Be concise and helpful in your responses.`
-}
-
-const createWelcomeMessage = (
-  multimodalSupport: { vision: boolean; audio: boolean } | null,
-) => {
-  if (!multimodalSupport) {
-    return "Hello! I'm an AI assistant ready to help with text conversations. How can I help you today?"
-  }
-
-  const capabilities = []
-  if (multimodalSupport.vision) capabilities.push('images')
-  if (multimodalSupport.audio) capabilities.push('audio files')
-
-  if (capabilities.length === 0) {
-    return "Hello! I'm an AI assistant ready to help with text conversations. How can I help you today?"
-  }
-
-  const capabilityText =
-    capabilities.length > 1
-      ? `${capabilities.slice(0, -1).join(', ')} and ${
-          capabilities[capabilities.length - 1]
-        }`
-      : capabilities[0]
-
-  let senseText
-  if (multimodalSupport.vision && multimodalSupport.audio) {
-    senseText = 'see or hear'
-  } else if (multimodalSupport.vision) {
-    senseText = 'see'
-  } else {
-    senseText = 'hear'
-  }
-
-  const contentType =
-    capabilities.length > 1
-      ? 'multimedia'
-      : capabilities[0]?.replace(' files', '')
-
-  return `Hello! I'm a multimodal AI assistant. You can share ${capabilityText} with me and I'll analyze them, answer questions about what I ${senseText}, or engage in conversations about ${contentType} content. How can I help you today?`
-}
+const MULTIMODAL_MODELS = createExampleModelDefinitions(
+  Object.entries(MODELS)
+    .filter(([_key, model]) => model.mmproj)
+    .map(([key]) => key as ExampleModelKey),
+)
 
 export default function MultimodalScreen({ navigation }: { navigation: any }) {
   const { isDark, theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
-
-  const styles = StyleSheet.create({
-    // Using themed styles for common patterns
-    container: themedStyles.container,
-    header: {
-      ...themedStyles.header,
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    },
-    headerTitle: themedStyles.headerTitle,
-    setupContainer: themedStyles.setupContainer,
-    scrollContent: themedStyles.scrollContent,
-    setupDescription: themedStyles.setupDescription,
-    loadingContainer: themedStyles.loadingContainer,
-    loadingText: themedStyles.loadingText,
-    progressContainer: themedStyles.progressContainer,
-    progressBar: themedStyles.progressBar,
-    progressFill: themedStyles.progressFill,
-    pendingMediaContainer: {
-      position: 'absolute',
-      bottom: 80,
-      left: 16,
-      right: 16,
-      backgroundColor: theme.colors.surface,
-      borderRadius: 8,
-      padding: 12,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-    },
-    pendingMediaText: {
-      color: theme.colors.text,
-      fontSize: 14,
-      marginBottom: 8,
-    },
-    pendingMediaImage: {
-      width: 60,
-      height: 60,
-      borderRadius: 4,
-      marginRight: 8,
-    },
-    pendingMediaRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
-    pendingMediaInfo: {
-      flex: 1,
-    },
-    cancelButton: {
-      backgroundColor: theme.colors.error,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 4,
-    },
-    cancelButtonText: {
-      color: theme.colors.white,
-      fontSize: 12,
-      fontWeight: '600',
-    },
-    pendingMediaPreview: {
-      width: 60,
-      height: 60,
-      borderRadius: 8,
-      marginBottom: 4,
-    },
-    pendingMediaIcon: {
-      width: 60,
-      height: 60,
-      borderRadius: 8,
-      backgroundColor: theme.colors.surface,
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginBottom: 4,
-    },
-    removePendingButton: {
-      backgroundColor: theme.colors.error,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      borderRadius: 6,
-    },
-    removePendingText: {
-      color: theme.colors.white,
-      fontSize: 12,
-      fontWeight: '500',
-    },
-    settingContainer: {
-      marginTop: 16,
-      marginBottom: 8,
-      padding: 12,
-      backgroundColor: theme.colors.surface,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-    },
-    settingLabel: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: theme.colors.text,
-      marginBottom: 4,
-    },
-    settingDescription: {
-      fontSize: 12,
-      color: theme.colors.textSecondary,
-      marginBottom: 8,
-    },
-    settingInput: {
-      backgroundColor: theme.colors.inputBackground,
-      borderRadius: 6,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      fontSize: 14,
-      color: theme.colors.text,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-    },
-  })
+  const styles = createStyles(theme, themedStyles)
 
   const messagesRef = useRef<MessageType.Any[]>([])
   const [, setMessagesVersion] = useState(0) // For UI updates
   const [isLoading, setIsLoading] = useState(false)
-  const [context, setContext] = useState<LlamaContext | null>(null)
-  const [isModelReady, setIsModelReady] = useState(false)
-  const [initProgress, setInitProgress] = useState(0)
   const [pendingMedia, setPendingMedia] = useState<{
     data: string // base64 data URL
     mimeType: string
@@ -285,35 +86,24 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
   const [showMessagesModal, setShowMessagesModal] = useState(false)
   const [showSessionModal, setShowSessionModal] = useState(false)
   const [showCustomModelModal, setShowCustomModelModal] = useState(false)
-  const [contextParams, setContextParams] = useState<ContextParams | null>(null)
-  const [completionParams, setCompletionParams] =
-    useState<CompletionParams | null>(null)
-  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT)
-  const [customModels, setCustomModels] = useState<CustomModel[]>([])
+  const [systemPrompt, setSystemPrompt] = useState(
+    DEFAULT_MULTIMODAL_SYSTEM_PROMPT,
+  )
   const [imageMaxTokens, setImageMaxTokens] = useState<string>('')
   const insets = useSafeAreaInsets()
-
-  useEffect(
-    () => () => {
-      if (context) {
-        context.release()
-      }
-    },
-    [context],
-  )
-
-  // Load custom models on mount
-  useEffect(() => {
-    const loadCustomModelsData = async () => {
-      try {
-        const models = await loadCustomModels()
-        setCustomModels(models)
-      } catch (error) {
-        console.error('Error loading custom models:', error)
-      }
-    }
-    loadCustomModelsData()
-  }, [])
+  const {
+    context,
+    initProgress,
+    isModelReady,
+    replaceContext,
+    setInitProgress,
+  } = useExampleContext()
+  const { value: contextParams, setValue: setContextParams } =
+    useStoredContextParams()
+  const { value: completionParams, setValue: setCompletionParams } =
+    useStoredCompletionParams()
+  const { value: customModels, reload: reloadCustomModels } =
+    useStoredCustomModels()
 
   const handleSaveContextParams = (params: ContextParams) => {
     setContextParams(params)
@@ -321,18 +111,6 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
   const handleSaveCompletionParams = (params: CompletionParams) => {
     setCompletionParams(params)
-  }
-
-  const handleCustomModelAdded = async (_model: CustomModel) => {
-    // Reload custom models to reflect the new addition
-    const models = await loadCustomModels()
-    setCustomModels(models)
-  }
-
-  const handleCustomModelRemoved = async () => {
-    // Reload custom models to reflect the removal
-    const models = await loadCustomModels()
-    setCustomModels(models)
   }
 
   const buildLLMMessages = (
@@ -368,7 +146,9 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     // Group consecutive messages by author and merge content
     const groupedMessages = recentMessages.reduce<LLMMessage[]>((acc, msg) => {
       const role =
-        msg.author.id === user.id ? ('user' as const) : ('assistant' as const)
+        msg.author.id === CHAT_USER.id
+          ? ('user' as const)
+          : ('assistant' as const)
       const lastGroup = acc[acc.length - 1]
 
       // If this is a new author or we don't have a previous group, start a new group
@@ -474,14 +254,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
   const addSystemMessage = useCallback(
     (text: string, metadata = {}) => {
-      const textMessage: MessageType.Text = {
-        author: assistant,
-        createdAt: Date.now(),
-        id: randId(),
-        text,
-        type: 'text',
-        metadata: { system: true, ...metadata },
-      }
+      const textMessage = createSystemTextMessage(text, metadata)
       addMessage(textMessage)
     },
     [addMessage],
@@ -506,53 +279,54 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             }
             setMessagesVersion((prev) => prev + 1)
             setPendingMedia(null)
-            const welcomeMessage = createWelcomeMessage(multimodalSupport)
+            const welcomeMessage =
+              createMultimodalWelcomeMessage(multimodalSupport)
             addSystemMessage(welcomeMessage)
           },
         },
       ],
     )
-  }, [multimodalSupport, addSystemMessage])
+  }, [multimodalSupport, addSystemMessage, context])
 
-  // Set up navigation header buttons
-  useLayoutEffect(() => {
-    if (isModelReady) {
-      navigation.setOptions({
-        headerRight: () => (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton iconName="refresh" onPress={handleReset} />
-            <HeaderButton
-              iconName="cog-outline"
-              onPress={() => setShowCompletionParamsModal(true)}
-            />
-            <Menu
-              actions={[
-                {
-                  id: 'messages',
-                  title: 'Messages',
-                  onPress: () => setShowMessagesModal(true),
-                },
-                {
-                  id: 'sessions',
-                  title: 'Sessions',
-                  onPress: () => setShowSessionModal(true),
-                },
-              ]}
-            />
-          </View>
-        ),
-      })
-    } else {
-      navigation.setOptions({
-        headerRight: () => (
-          <HeaderButton
-            iconName="cog-outline"
-            onPress={() => setShowContextParamsModal(true)}
-          />
-        ),
-      })
-    }
-  }, [navigation, isModelReady, handleReset])
+  useExampleScreenHeader({
+    navigation,
+    isModelReady,
+    readyActions: [
+      {
+        key: 'reset',
+        iconName: 'refresh',
+        onPress: handleReset,
+      },
+      {
+        key: 'completion-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowCompletionParamsModal(true),
+      },
+    ],
+    setupActions: [
+      {
+        key: 'context-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowContextParamsModal(true),
+      },
+    ],
+    renderReadyExtras: () => (
+      <Menu
+        actions={[
+          {
+            id: 'messages',
+            title: 'Messages',
+            onPress: () => setShowMessagesModal(true),
+          },
+          {
+            id: 'sessions',
+            title: 'Sessions',
+            onPress: () => setShowSessionModal(true),
+          },
+        ]}
+      />
+    ),
+  })
 
   const handleImportMessages = (newMessages: MessageType.Any[]) => {
     // Reset messages and add system message back
@@ -560,7 +334,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
     setMessagesVersion((prev) => prev + 1)
 
     // Add the initial system message based on current capabilities
-    const welcomeMessage = createWelcomeMessage(multimodalSupport)
+    const welcomeMessage = createMultimodalWelcomeMessage(multimodalSupport)
     addSystemMessage(welcomeMessage)
 
     // Add imported messages
@@ -633,15 +407,14 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       setMultimodalSupport(support)
 
       // Update system prompt based on actual capabilities
-      const dynamicSystemPrompt = createSystemPrompt(support)
+      const dynamicSystemPrompt = createMultimodalSystemPrompt(support)
       setSystemPrompt(dynamicSystemPrompt)
 
-      setContext(llamaContext)
-      setIsModelReady(true)
+      await replaceContext(llamaContext)
       setInitProgress(100)
 
       // Create dynamic welcome message based on capabilities
-      const welcomeMessage = createWelcomeMessage(support)
+      const welcomeMessage = createMultimodalWelcomeMessage(support)
       addSystemMessage(welcomeMessage)
     } catch (error: any) {
       Alert.alert('Error', `Failed to initialize model: ${error.message}`)
@@ -711,9 +484,9 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       // Now add the user messages to the chat UI
       if (pendingMedia && pendingMedia.type === 'image') {
         const imageMessage: MessageType.Image = {
-          author: user,
+          author: CHAT_USER,
           createdAt: Date.now(),
-          id: randId(),
+          id: createMessageId(),
           name: 'image',
           size: 0,
           type: 'image',
@@ -727,18 +500,18 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
       if (message.text.trim()) {
         const userMessage: MessageType.Text = {
-          author: user,
+          author: CHAT_USER,
           createdAt: Date.now(),
-          id: randId(),
+          id: createMessageId(),
           text: message.text,
           type: 'text',
         }
         addMessage(userMessage)
       }
 
-      const responseId = randId()
+      const responseId = createMessageId()
       const responseMessage: MessageType.Text = {
-        author: assistant,
+        author: CHAT_ASSISTANT,
         createdAt: Date.now(),
         id: responseId,
         text: '',
@@ -954,19 +727,28 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
 
   if (!isModelReady) {
     return (
-      <View style={styles.container}>
-        <ScrollView
-          style={styles.setupContainer}
-          contentContainerStyle={styles.scrollContent}
+      <>
+        <ExampleModelSetup
+          description="Download a multimodal model to start analyzing images and audio. These models can understand and describe images and audio, answer questions about visual and audio content, and engage in multimodal conversations."
+          defaultModels={MULTIMODAL_MODELS}
+          customModels={(customModels || []).filter(
+            (model) => model.mmprojFilename,
+          )}
+          onInitializeCustomModel={(_model, modelPath, mmprojPath) =>
+            initializeModel(modelPath, mmprojPath || '')
+          }
+          onInitializeModel={(_model, modelPath, mmprojPath) =>
+            initializeModel(modelPath, mmprojPath)
+          }
+          onReloadCustomModels={reloadCustomModels}
+          showCustomModelModal={showCustomModelModal}
+          onOpenCustomModelModal={() => setShowCustomModelModal(true)}
+          onCloseCustomModelModal={() => setShowCustomModelModal(false)}
+          requireMMProj
+          isLoading={isLoading}
+          initProgress={initProgress}
+          progressText={`Initializing model... ${initProgress}%`}
         >
-          <Text style={styles.setupDescription}>
-            Download a multimodal model to start analyzing images and audio.
-            These models can understand and describe images and audio, answer
-            questions about visual and audio content, and engage in multimodal
-            conversations.
-          </Text>
-
-          {/* Image Max Tokens Setting */}
           <View style={styles.settingContainer}>
             <Text style={styles.settingLabel}>Max Image Tokens (optional)</Text>
             <Text style={styles.settingDescription}>
@@ -983,76 +765,14 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
               keyboardType="numeric"
             />
           </View>
-
-          {/* Custom Models Section */}
-          {customModels.filter((model) => model.mmprojFilename).length > 0 && (
-            <>
-              <Text style={themedStyles.modelSectionTitle}>Custom Models</Text>
-              {customModels
-                .filter((model) => model.mmprojFilename) // Only show models with mmproj
-                .map((model) => (
-                  <CustomModelCard
-                    key={model.id}
-                    model={model}
-                    onInitialize={(modelPath, mmprojPath) =>
-                      initializeModel(modelPath, mmprojPath || '')
-                    }
-                    onModelRemoved={handleCustomModelRemoved}
-                    initializeButtonText="Initialize"
-                  />
-                ))}
-            </>
-          )}
-
-          {/* Add Custom Model Button */}
-          <TouchableOpacity
-            style={themedStyles.addCustomModelButton}
-            onPress={() => setShowCustomModelModal(true)}
-          >
-            <Text style={themedStyles.addCustomModelButtonText}>
-              + Add Custom Model
-            </Text>
-          </TouchableOpacity>
-
-          {/* Predefined Models Section */}
-          <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
-          {Object.values(MODELS)
-            .filter((model) => model.mmproj)
-            .map((modelInfo) => (
-              <MtmdModelDownloadCard
-                key={modelInfo.name}
-                title={modelInfo.name}
-                repo={modelInfo.repo}
-                filename={modelInfo.filename}
-                mmproj={modelInfo.mmproj || ''}
-                size={modelInfo.size}
-                onInitialize={initializeModel}
-              />
-            ))}
-        </ScrollView>
+        </ExampleModelSetup>
 
         <ContextParamsModal
           visible={showContextParamsModal}
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
         />
-
-        <CustomModelModal
-          visible={showCustomModelModal}
-          onClose={() => setShowCustomModelModal(false)}
-          onModelAdded={handleCustomModelAdded}
-          requireMMProj
-          title="Add Custom Model"
-          enableFileSelection
-        />
-
-        <MaskedProgress
-          visible={isLoading}
-          text={`Initializing model... ${initProgress}%`}
-          progress={initProgress}
-          showProgressBar={initProgress > 0}
-        />
-      </View>
+      </>
     )
   }
 
@@ -1068,7 +788,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
             ? handleAttachmentPress
             : undefined
         }
-        user={user}
+        user={CHAT_USER}
         renderBubble={renderBubble}
         theme={isDark ? chatDarkTheme : chatLightTheme}
         showUserAvatars
@@ -1129,7 +849,7 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
         completionParams={completionParams}
         onImportMessages={handleImportMessages}
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
-        defaultSystemPrompt={createSystemPrompt(multimodalSupport)}
+        defaultSystemPrompt={createMultimodalSystemPrompt(multimodalSupport)}
       />
 
       <SessionModal
@@ -1146,4 +866,124 @@ export default function MultimodalScreen({ navigation }: { navigation: any }) {
       />
     </View>
   )
+}
+
+function createStyles(
+  theme: ReturnType<typeof useTheme>['theme'],
+  themedStyles: ReturnType<typeof createThemedStyles>,
+) {
+  return StyleSheet.create({
+    container: themedStyles.container,
+    header: {
+      ...themedStyles.header,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    headerTitle: themedStyles.headerTitle,
+    setupContainer: themedStyles.setupContainer,
+    scrollContent: themedStyles.scrollContent,
+    setupDescription: themedStyles.setupDescription,
+    loadingContainer: themedStyles.loadingContainer,
+    loadingText: themedStyles.loadingText,
+    progressContainer: themedStyles.progressContainer,
+    progressBar: themedStyles.progressBar,
+    progressFill: themedStyles.progressFill,
+    pendingMediaContainer: {
+      position: 'absolute',
+      bottom: 80,
+      left: 16,
+      right: 16,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 8,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    pendingMediaText: {
+      color: theme.colors.text,
+      fontSize: 14,
+      marginBottom: 8,
+    },
+    pendingMediaImage: {
+      width: 60,
+      height: 60,
+      borderRadius: 4,
+      marginRight: 8,
+    },
+    pendingMediaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    pendingMediaInfo: {
+      flex: 1,
+    },
+    cancelButton: {
+      backgroundColor: theme.colors.error,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 4,
+    },
+    cancelButtonText: {
+      color: theme.colors.white,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    pendingMediaPreview: {
+      width: 60,
+      height: 60,
+      borderRadius: 8,
+      marginBottom: 4,
+    },
+    pendingMediaIcon: {
+      width: 60,
+      height: 60,
+      borderRadius: 8,
+      backgroundColor: theme.colors.surface,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 4,
+    },
+    removePendingButton: {
+      backgroundColor: theme.colors.error,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 6,
+    },
+    removePendingText: {
+      color: theme.colors.white,
+      fontSize: 12,
+      fontWeight: '500',
+    },
+    settingContainer: {
+      marginTop: 16,
+      marginBottom: 8,
+      padding: 12,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    settingLabel: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 4,
+    },
+    settingDescription: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      marginBottom: 8,
+    },
+    settingInput: {
+      backgroundColor: theme.colors.inputBackground,
+      borderRadius: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      fontSize: 14,
+      color: theme.colors.text,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+  })
 }

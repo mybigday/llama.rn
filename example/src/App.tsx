@@ -1,32 +1,43 @@
 /* eslint-disable jsx-a11y/accessible-emoji */
 import * as React from 'react'
-import { View, Text, StyleSheet, ScrollView, Linking, Alert, Modal, TouchableOpacity as RNTouchableOpacity } from 'react-native'
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Linking,
+  Alert,
+  Modal,
+  TouchableOpacity as RNTouchableOpacity,
+} from 'react-native'
 import {
   GestureHandlerRootView,
   TouchableOpacity,
 } from 'react-native-gesture-handler'
 import { enableScreens } from 'react-native-screens'
-import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native'
+import {
+  NavigationContainer,
+  DefaultTheme,
+  DarkTheme,
+} from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
-import { toggleNativeLog, addNativeLogListener, BuildInfo, getBackendDevicesInfo } from '../../src'
-import SimpleChatScreen from './screens/SimpleChatScreen'
-import MultimodalScreen from './screens/MultimodalScreen'
-import TTSScreen from './screens/TTSScreen'
-import ToolCallsScreen from './screens/ToolCallsScreen'
-import ModelInfoScreen from './screens/ModelInfoScreen'
-import BenchScreen from './screens/BenchScreen'
-import TextCompletionScreen from './screens/TextCompletionScreen'
-import ParallelDecodingScreen from './screens/ParallelDecodingScreen'
-import EmbeddingScreen from './screens/EmbeddingScreen'
-import StressTestScreen from './screens/StressTestScreen'
+import {
+  toggleNativeLog,
+  addNativeLogListener,
+  BuildInfo,
+  getBackendDevicesInfo,
+} from '../../src'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { createThemedStyles } from './styles/commonStyles'
 import { Menu } from './components/Menu'
+import { EXAMPLE_SCREENS } from './config/screens'
 
 // Catch logs from llama.cpp
 toggleNativeLog(true)
 addNativeLogListener((level, text) => {
-  console.log(['[rnllama]', level ? `[${level}]` : '', text].filter(Boolean).join(' '))
+  console.log(
+    ['[rnllama]', level ? `[${level}]` : '', text].filter(Boolean).join(' '),
+  )
 })
 
 enableScreens()
@@ -173,7 +184,10 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
       setDeviceInfo(devices)
     } catch (error) {
       console.error('Error getting device info:', error)
-      Alert.alert('Error', `${error instanceof Error ? error.message : 'Unknown error'}`)
+      Alert.alert(
+        'Error',
+        `${error instanceof Error ? error.message : 'Unknown error'}`,
+      )
     }
   }
 
@@ -210,70 +224,18 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => navigation.navigate('SimpleChat')}
-        >
-          <Text style={styles.buttonText}>💬 Simple Chat</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => navigation.navigate('TextCompletion')}
-        >
-          <Text style={styles.buttonText}>✏️ Text Completion</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => navigation.navigate('ParallelDecoding')}
-        >
-          <Text style={styles.buttonText}>⚡ Parallel Decoding</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => navigation.navigate('Multimodal')}
-        >
-          <Text style={styles.buttonText}>👁️ Multimodal</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => navigation.navigate('ToolCalling')}
-        >
-          <Text style={styles.buttonText}>🛠️ Tool Calling & MCP</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => navigation.navigate('Embeddings')}
-        >
-          <Text style={styles.buttonText}>🔍 Vector Search (in-memory) & Rerank</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => navigation.navigate('TTS')}
-        >
-          <Text style={styles.buttonText}>🔊 Text-to-Speech (OuteTTS)</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => navigation.navigate('ModelInfo')}
-        >
-          <Text style={styles.buttonText}>📊 Model Info</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => navigation.navigate('Bench')}
-        >
-          <Text style={styles.buttonText}>🏋️ Bench</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => navigation.navigate('StressTest')}
-        >
-          <Text style={styles.buttonText}>🔥 Stress Test</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={toggleDeviceInfo}
-        >
+        {EXAMPLE_SCREENS.map((screen) => (
+          <TouchableOpacity
+            key={screen.routeName}
+            style={styles.button}
+            onPress={() => navigation.navigate(screen.routeName)}
+          >
+            <Text style={styles.buttonText}>
+              {`${screen.emoji} ${screen.homeLabel}`}
+            </Text>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity style={styles.button} onPress={toggleDeviceInfo}>
           <Text style={styles.buttonText}>🖥️ Device Info</Text>
         </TouchableOpacity>
         <View style={styles.repoLink}>
@@ -283,7 +245,6 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
             </Text>
           </TouchableOpacity>
         </View>
-
       </View>
 
       {/* Device Info Modal */}
@@ -315,7 +276,9 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
                   <View style={styles.deviceCardHeader}>
                     <Text style={styles.deviceName}>{device.deviceName}</Text>
                     <View style={styles.deviceBadge}>
-                      <Text style={styles.deviceBadgeText}>{device.backend}</Text>
+                      <Text style={styles.deviceBadgeText}>
+                        {device.backend}
+                      </Text>
                     </View>
                   </View>
                   <Text style={styles.deviceDetail}>
@@ -324,14 +287,15 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
                   <Text style={styles.deviceDetail}>
                     {`Memory: ${formatBytes(device.maxMemorySize)}`}
                   </Text>
-                  {device.metadata && Object.keys(device.metadata).length > 0 && (
-                    <Text style={styles.deviceDetail}>
-                      {`Metadata: ${Object.entries(device.metadata)
-                        .filter(([_, v]) => v === true)
-                        .map(([k]) => k)
-                        .join(', ')}`}
-                    </Text>
-                  )}
+                  {device.metadata &&
+                    Object.keys(device.metadata).length > 0 && (
+                      <Text style={styles.deviceDetail}>
+                        {`Metadata: ${Object.entries(device.metadata)
+                          .filter(([_, v]) => v === true)
+                          .map(([k]) => k)
+                          .join(', ')}`}
+                      </Text>
+                    )}
                 </View>
               ))}
             </ScrollView>
@@ -353,7 +317,9 @@ function AppContent() {
   const navigationTheme = theme.dark ? DarkTheme : DefaultTheme
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.colors.background }}>
+    <GestureHandlerRootView
+      style={{ flex: 1, backgroundColor: theme.colors.background }}
+    >
       <NavigationContainer theme={navigationTheme}>
         <Stack.Navigator
           screenOptions={{
@@ -389,64 +355,16 @@ function AppContent() {
           }}
         >
           <Stack.Screen name="Home" component={HomeScreen} />
-          <Stack.Screen
-            name="SimpleChat"
-            component={SimpleChatScreen}
-            options={{
-              title: 'Simple Chat',
-            }}
-          />
-          <Stack.Screen
-            name="TextCompletion"
-            component={TextCompletionScreen}
-            options={{
-              title: 'Text Completion',
-            }}
-          />
-          <Stack.Screen
-            name="ParallelDecoding"
-            component={ParallelDecodingScreen}
-            options={{
-              title: 'Parallel Decoding',
-            }}
-          />
-          <Stack.Screen
-            name="Multimodal"
-            component={MultimodalScreen}
-            options={{
-              title: 'Multimodal Chat',
-            }}
-          />
-          <Stack.Screen
-            name="ToolCalling"
-            component={ToolCallsScreen}
-            options={{
-              title: 'Tool Calling & MCP',
-            }}
-          />
-          <Stack.Screen
-            name="Embeddings"
-            component={EmbeddingScreen}
-            options={{
-              title: 'Vector Search (in-memory) & Rerank',
-            }}
-          />
-          <Stack.Screen
-            name="TTS"
-            component={TTSScreen}
-            options={{
-              title: 'Text-to-Speech',
-            }}
-          />
-          <Stack.Screen name="ModelInfo" component={ModelInfoScreen} />
-          <Stack.Screen name="Bench" component={BenchScreen} />
-          <Stack.Screen
-            name="StressTest"
-            component={StressTestScreen}
-            options={{
-              title: 'Stress Test',
-            }}
-          />
+          {EXAMPLE_SCREENS.map((screen) => (
+            <Stack.Screen
+              key={screen.routeName}
+              name={screen.routeName}
+              component={screen.component}
+              options={{
+                title: screen.title,
+              }}
+            />
+          ))}
         </Stack.Navigator>
       </NavigationContainer>
     </GestureHandlerRootView>

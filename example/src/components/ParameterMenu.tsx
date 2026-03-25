@@ -28,12 +28,17 @@ export function ParameterMenu({
   const menuActions = options.map((option) => ({
     id: option,
     title: option,
-    ...(Platform.OS === 'ios' && value === option && {
-      state: 'on' as const,
-    }),
+    ...(Platform.OS === 'ios' &&
+      value === option && {
+        state: 'on' as const,
+      }),
   }))
 
-  const handleMenuAction = ({ nativeEvent }: { nativeEvent: { event: string } }) => {
+  const handleMenuAction = ({
+    nativeEvent,
+  }: {
+    nativeEvent: { event: string }
+  }) => {
     onSelect(nativeEvent.event)
   }
 

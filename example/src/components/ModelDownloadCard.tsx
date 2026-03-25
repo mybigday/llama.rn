@@ -70,150 +70,151 @@ interface MtmdModelDownloadCardProps {
 }
 
 // Create themed styles function
-const createStyles = (theme: any) => StyleSheet.create({
-  card: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    padding: 16,
-    marginVertical: 8,
-    marginHorizontal: 16,
-    shadowColor: theme.colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  header: {
-    marginBottom: 8,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerColumn: {
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: theme.colors.text,
-    flexShrink: 1,
-  },
-  size: {
-    fontSize: 14,
-    color: theme.colors.textSecondary,
-    fontWeight: '500',
-  },
-  sizeColumn: {
-    fontSize: 14,
-    color: theme.colors.textSecondary,
-    fontWeight: '500',
-    marginTop: 4,
-  },
-  description: {
-    fontSize: 14,
-    color: theme.colors.textSecondary,
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  progressContainer: {
-    marginBottom: 16,
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: theme.colors.border,
-    borderRadius: 2,
-    marginBottom: 8,
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: theme.colors.primary,
-    borderRadius: 2,
-  },
-  progressText: {
-    fontSize: 12,
-    color: theme.colors.textSecondary,
-    textAlign: 'center',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  downloadButton: {
-    backgroundColor: theme.colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    flex: 1,
-  },
-  downloadButtonText: {
-    color: theme.colors.white,
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  downloadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-  },
-  downloadingText: {
-    marginLeft: 8,
-    fontSize: 16,
-    color: theme.colors.primary,
-  },
-  downloadedContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flex: 1,
-  },
-  downloadedIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  checkmark: {
-    fontSize: 20,
-    color: '#4CAF50',
-    marginRight: 8,
-  },
-  downloadedText: {
-    fontSize: 16,
-    color: '#4CAF50',
-    fontWeight: '500',
-  },
-  deleteButton: {
-    backgroundColor: theme.colors.error,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  deleteButtonText: {
-    color: theme.colors.white,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  initializeButton: {
-    backgroundColor: theme.colors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-    marginLeft: 8,
-  },
-  initializeButtonText: {
-    color: theme.colors.white,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  actionButtonsContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-})
+const createStyles = (theme: any) =>
+  StyleSheet.create({
+    card: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      padding: 16,
+      marginVertical: 8,
+      marginHorizontal: 16,
+      shadowColor: theme.colors.shadow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    header: {
+      marginBottom: 8,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    headerColumn: {
+      flexDirection: 'column',
+      alignItems: 'flex-start',
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: theme.colors.text,
+      flexShrink: 1,
+    },
+    size: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      fontWeight: '500',
+    },
+    sizeColumn: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      fontWeight: '500',
+      marginTop: 4,
+    },
+    description: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      marginBottom: 16,
+      lineHeight: 20,
+    },
+    progressContainer: {
+      marginBottom: 16,
+    },
+    progressBar: {
+      height: 4,
+      backgroundColor: theme.colors.border,
+      borderRadius: 2,
+      marginBottom: 8,
+    },
+    progressFill: {
+      height: '100%',
+      backgroundColor: theme.colors.primary,
+      borderRadius: 2,
+    },
+    progressText: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      textAlign: 'center',
+    },
+    buttonContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    downloadButton: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 24,
+      paddingVertical: 12,
+      borderRadius: 8,
+      flex: 1,
+    },
+    downloadButtonText: {
+      color: theme.colors.white,
+      fontSize: 16,
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+    downloadingContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+      justifyContent: 'center',
+    },
+    downloadingText: {
+      marginLeft: 8,
+      fontSize: 16,
+      color: theme.colors.primary,
+    },
+    downloadedContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      flex: 1,
+    },
+    downloadedIndicator: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    checkmark: {
+      fontSize: 20,
+      color: '#4CAF50',
+      marginRight: 8,
+    },
+    downloadedText: {
+      fontSize: 16,
+      color: '#4CAF50',
+      fontWeight: '500',
+    },
+    deleteButton: {
+      backgroundColor: theme.colors.error,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 6,
+    },
+    deleteButtonText: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    initializeButton: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 6,
+      marginLeft: 8,
+    },
+    initializeButtonText: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    actionButtonsContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+  })
 
 // Common utility functions
 const formatSize = (bytes: number): string => {
@@ -435,7 +436,9 @@ function BaseModelDownloadCard({
           </Text>
           {progress.total > 0 && (
             <Text style={styles.progressText}>
-              {`(${formatSize(progress.written)} / ${formatSize(progress.total)})`}
+              {`(${formatSize(progress.written)} / ${formatSize(
+                progress.total,
+              )})`}
             </Text>
           )}
         </View>

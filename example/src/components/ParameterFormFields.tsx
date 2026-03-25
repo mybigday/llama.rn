@@ -84,7 +84,10 @@ export function ParameterSwitch({
         <Switch
           value={value}
           onValueChange={onValueChange}
-          trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+          trackColor={{
+            false: theme.colors.border,
+            true: theme.colors.primary,
+          }}
           thumbColor={theme.colors.white}
         />
       </View>

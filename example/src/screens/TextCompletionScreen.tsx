@@ -1,10 +1,4 @@
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useLayoutEffect,
-  useCallback,
-} from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import {
   View,
   Text,
@@ -17,28 +11,27 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { TokenData } from '../../../src'
-import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
-import CustomModelModal from '../components/CustomModelModal'
-import CustomModelCard from '../components/CustomModelCard'
-import { HeaderButton } from '../components/HeaderButton'
-import { MaskedProgress } from '../components/MaskedProgress'
 import { ParameterTextInput } from '../components/ParameterFormFields'
+import { ExampleModelSetup } from '../components/ExampleModelSetup'
 import { createThemedStyles } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
-import { MODELS } from '../utils/constants'
-import type {
-  ContextParams,
-  CompletionParams,
-  CustomModel,
-} from '../utils/storage'
+import type { ContextParams, CompletionParams } from '../utils/storage'
+import { initLlama } from '../../../src' // import 'llama.rn'
 import {
-  loadContextParams,
-  loadCompletionParams,
-  loadCustomModels,
-} from '../utils/storage'
-import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
+  useStoredCompletionParams,
+  useStoredContextParams,
+  useStoredCustomModels,
+} from '../hooks/useStoredSetting'
+import { useExampleContext } from '../hooks/useExampleContext'
+import { useExampleScreenHeader } from '../hooks/useExampleScreenHeader'
+import { createExampleModelDefinitions } from '../utils/exampleModels'
+import {
+  buildGeneratedCompletionText,
+  getDefaultTextCompletionMessages,
+  getTokenHeatmapColor,
+} from '../features/textCompletionHelpers'
 
 interface ProbabilityDropdownProps {
   token: TokenData
@@ -51,56 +44,23 @@ function ProbabilityDropdown({
   position,
   onClose,
 }: ProbabilityDropdownProps) {
-  const localStyles = {
-    probabilityDropdown: {
-      position: 'absolute' as 'absolute',
-      backgroundColor: '#fff',
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: '#ccc',
-      padding: 8,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.2,
-      shadowRadius: 4,
-      elevation: 5,
-      zIndex: 1000,
-      minWidth: 200,
-    },
-    probabilityItem: {
-      flexDirection: 'row' as 'row',
-      justifyContent: 'space-between' as 'space-between',
-      paddingVertical: 4,
-      paddingHorizontal: 8,
-    },
-    probabilityToken: {
-      fontFamily: 'monospace',
-      fontSize: 12,
-      flex: 1,
-    },
-    probabilityValue: {
-      fontFamily: 'monospace',
-      fontSize: 12,
-      fontWeight: '600' as '600',
-      marginLeft: 8,
-    },
-  }
+  const styles = createProbabilityDropdownStyles()
 
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose}>
         <View
           style={[
-            localStyles.probabilityDropdown,
+            styles.probabilityDropdown,
             { top: position.y, left: position.x },
           ]}
         >
           {token.completion_probabilities?.[0]?.probs?.map((prob, idx) => (
-            <View key={idx} style={localStyles.probabilityItem}>
-              <Text style={localStyles.probabilityToken}>
+            <View key={idx} style={styles.probabilityItem}>
+              <Text style={styles.probabilityToken}>
                 {JSON.stringify(prob.tok_str)}
               </Text>
-              <Text style={localStyles.probabilityValue}>
+              <Text style={styles.probabilityValue}>
                 {`${(prob.prob * 100).toFixed(2)}%`}
               </Text>
             </View>
@@ -111,6 +71,14 @@ function ProbabilityDropdown({
   )
 }
 
+const TEXT_COMPLETION_MODELS = createExampleModelDefinitions([
+  'SMOL_LM_3',
+  'GEMMA_3_4B_QAT',
+  'QWEN_3_4B',
+  'GEMMA_3N_E2B',
+  'GEMMA_3N_E4B',
+])
+
 export default function TextCompletionScreen({
   navigation,
 }: {
@@ -118,121 +86,15 @@ export default function TextCompletionScreen({
 }) {
   const { theme, isDark } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
-
-  const styles = StyleSheet.create({
-    container: themedStyles.container,
-    setupContainer: themedStyles.setupContainer,
-    scrollContent: themedStyles.scrollContent,
-    setupDescription: themedStyles.setupDescription,
-    contentContainer: {
-      flex: 1,
-      padding: 10,
-    },
-    textAreaContainer: {
-      flex: 1,
-      marginBottom: 10,
-    },
-    textInput: {
-      ...themedStyles.textInput,
-      height: 120,
-      textAlignVertical: 'top',
-    },
-    outputContainer: {
-      flex: 1,
-      backgroundColor: theme.colors.inputBackground,
-      borderColor: theme.colors.border,
-      borderWidth: 1,
-      borderRadius: 8,
-      padding: 10,
-      marginTop: 10,
-    },
-    outputText: {
-      color: theme.colors.text,
-      fontSize: 16,
-      lineHeight: 22,
-    },
-    tokenText: {
-      color: theme.colors.textSecondary,
-      fontSize: 12,
-      fontFamily: 'monospace',
-      margin: 2,
-    },
-    label: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: theme.colors.text,
-      marginBottom: 5,
-    },
-    textArea: {
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      borderRadius: 8,
-      padding: 10,
-      fontSize: 14,
-      minHeight: 60,
-      textAlignVertical: 'top',
-      backgroundColor: theme.colors.inputBackground,
-      color: theme.colors.text,
-    },
-    promptTextArea: {
-      fontFamily: 'monospace',
-      backgroundColor: theme.colors.inputBackground,
-    },
-    editButtonContainer: {
-      marginTop: 10,
-      alignItems: 'flex-end',
-    },
-    editButton: {
-      backgroundColor: theme.colors.primary,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 6,
-    },
-    editButtonText: {
-      color: theme.colors.white,
-      fontSize: 14,
-      fontWeight: '600',
-    },
-    tokenContainer: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-    },
-    token: {
-      padding: 2,
-      borderRadius: 2,
-      margin: 1,
-    },
-    actionButton: {
-      backgroundColor: theme.colors.primary,
-      padding: 12,
-      borderRadius: 8,
-      alignItems: 'center',
-      marginVertical: 10,
-    },
-    actionButtonText: {
-      color: theme.colors.white,
-      fontSize: 16,
-      fontWeight: '600',
-    },
-    stopButton: {
-      backgroundColor: theme.colors.error,
-    },
-  })
+  const styles = createStyles(theme, themedStyles)
   const [prompt, setPrompt] = useState('')
   const [grammar, setGrammar] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
-  const [context, setContext] = useState<LlamaContext | null>(null)
-  const [isModelReady, setIsModelReady] = useState(false)
-  const [initProgress, setInitProgress] = useState(0)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
   const [showCustomModelModal, setShowCustomModelModal] = useState(false)
-  const [contextParams, setContextParams] = useState<ContextParams | null>(null)
-  const [completionParams, setCompletionParams] =
-    useState<CompletionParams | null>(null)
-  const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const [tokens, setTokens] = useState<TokenData[]>([])
   const [selectedToken, setSelectedToken] = useState<{
     token: TokenData
@@ -244,44 +106,19 @@ export default function TextCompletionScreen({
   const [promptTokens, setPromptTokens] = useState<string[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
   const insets = useSafeAreaInsets()
-
-  useEffect(
-    () => () => {
-      if (context) {
-        context.release()
-      }
-    },
-    [context],
-  )
-
-  useEffect(() => {
-    const loadCustomModelsData = async () => {
-      try {
-        const models = await loadCustomModels()
-        setCustomModels(models)
-      } catch (error) {
-        console.error('Error loading custom models:', error)
-      }
-    }
-    loadCustomModelsData()
-  }, [])
-
-  useEffect(() => {
-    const loadParams = async () => {
-      try {
-        const ctxParams = await loadContextParams()
-        const compParams = await loadCompletionParams()
-        setContextParams(ctxParams)
-        setCompletionParams({
-          ...compParams,
-          n_probs: 5,
-        })
-      } catch (error) {
-        console.error('Error loading params:', error)
-      }
-    }
-    loadParams()
-  }, [])
+  const {
+    context,
+    initProgress,
+    isModelReady,
+    replaceContext,
+    setInitProgress,
+  } = useExampleContext()
+  const { value: contextParams, setValue: setContextParams } =
+    useStoredContextParams()
+  const { value: completionParams, setValue: setCompletionParams } =
+    useStoredCompletionParams()
+  const { value: customModels, reload: reloadCustomModels } =
+    useStoredCustomModels()
 
   const handleReset = useCallback(() => {
     Alert.alert(
@@ -302,16 +139,7 @@ export default function TextCompletionScreen({
             if (context) {
               await context.clearCache(false)
               try {
-                const defaultMessages = [
-                  {
-                    role: 'system' as const,
-                    content: 'You are a helpful AI assistant.',
-                  },
-                  {
-                    role: 'user' as const,
-                    content: 'Hello! Please introduce yourself.',
-                  },
-                ]
+                const defaultMessages = getDefaultTextCompletionMessages()
                 const formatted = await context.getFormattedChat(
                   defaultMessages,
                   null,
@@ -337,31 +165,29 @@ export default function TextCompletionScreen({
     )
   }, [context])
 
-  // Set up navigation header buttons
-  useLayoutEffect(() => {
-    if (isModelReady) {
-      navigation.setOptions({
-        headerRight: () => (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton iconName="refresh" onPress={handleReset} />
-            <HeaderButton
-              iconName="cog-outline"
-              onPress={() => setShowCompletionParamsModal(true)}
-            />
-          </View>
-        ),
-      })
-    } else {
-      navigation.setOptions({
-        headerRight: () => (
-          <HeaderButton
-            iconName="cog-outline"
-            onPress={() => setShowContextParamsModal(true)}
-          />
-        ),
-      })
-    }
-  }, [navigation, isModelReady, handleReset])
+  useExampleScreenHeader({
+    navigation,
+    isModelReady,
+    readyActions: [
+      {
+        key: 'reset',
+        iconName: 'refresh',
+        onPress: handleReset,
+      },
+      {
+        key: 'completion-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowCompletionParamsModal(true),
+      },
+    ],
+    setupActions: [
+      {
+        key: 'context-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowContextParamsModal(true),
+      },
+    ],
+  })
 
   const handleInitModel = async (modelUri: string, params?: ContextParams) => {
     setIsLoading(true)
@@ -378,15 +204,11 @@ export default function TextCompletionScreen({
         },
       )
       console.log('Model initialized')
-      setContext(ctx)
-      setIsModelReady(true)
+      await replaceContext(ctx)
       setInitProgress(100)
 
       // Set default system/user message format as initial prompt
-      const defaultMessages = [
-        { role: 'system' as const, content: 'You are a helpful AI assistant.' },
-        { role: 'user' as const, content: 'Hello! Please introduce yourself.' },
-      ]
+      const defaultMessages = getDefaultTextCompletionMessages()
       try {
         const formatted = await ctx.getFormattedChat(defaultMessages, null)
         setPrompt(formatted.prompt)
@@ -422,14 +244,6 @@ export default function TextCompletionScreen({
     })
   }
 
-  const getTokenColor = (prob?: number): string => {
-    if (prob === undefined) return 'transparent'
-    const normalizedProb = Math.max(0, Math.min(1, prob))
-    const red = Math.round(255 * (1 - normalizedProb))
-    const green = Math.round(255 * normalizedProb)
-    return `rgba(${red}, ${green}, 0, 0.3)`
-  }
-
   const handleGenerate = async () => {
     if (!context || !formattedPrompt) {
       Alert.alert('Error', 'Please enter a prompt')
@@ -442,8 +256,7 @@ export default function TextCompletionScreen({
     abortControllerRef.current = controller
 
     // Use the complete text (formatted prompt + any existing generated tokens) as the prompt
-    const existingGenerated = tokens.map((t) => t.token).join('')
-    const fullPrompt = formattedPrompt + existingGenerated
+    const fullPrompt = buildGeneratedCompletionText(formattedPrompt, tokens)
 
     try {
       await context.completion(
@@ -504,72 +317,22 @@ export default function TextCompletionScreen({
   const renderContent = () => {
     if (!isModelReady) {
       return (
-        <View style={styles.setupContainer}>
-          <ScrollView contentContainerStyle={styles.scrollContent}>
-            <Text style={styles.setupDescription}>
-              Select a model to start text completion
-            </Text>
-            {/* Custom Models Section */}
-            {customModels.length > 0 && (
-              <>
-                <Text style={themedStyles.modelSectionTitle}>
-                  Custom Models
-                </Text>
-                {customModels.map((model) => (
-                  <CustomModelCard
-                    key={model.id}
-                    model={model}
-                    onInitialize={(modelPath) => handleInitModel(modelPath)}
-                    onModelRemoved={async () => {
-                      const models = await loadCustomModels()
-                      setCustomModels(models)
-                    }}
-                    initializeButtonText="Initialize"
-                  />
-                ))}
-              </>
-            )}
-
-            {/* Add Custom Model Button */}
-            <TouchableOpacity
-              style={themedStyles.addCustomModelButton}
-              onPress={() => setShowCustomModelModal(true)}
-            >
-              <Text style={themedStyles.addCustomModelButtonText}>
-                + Add Custom Model
-              </Text>
-            </TouchableOpacity>
-
-            {/* Predefined Models Section */}
-            <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
-            {[
-              'SMOL_LM_3',
-              'GEMMA_3_4B_QAT',
-              'QWEN_3_4B',
-              'GEMMA_3N_E2B',
-              'GEMMA_3N_E4B',
-            ].map((modelKey) => {
-              const model = MODELS[modelKey as keyof typeof MODELS]
-              return (
-                <ModelDownloadCard
-                  key={modelKey}
-                  title={model.name}
-                  repo={model.repo}
-                  filename={model.filename}
-                  size={model.size}
-                  onInitialize={(modelPath) => handleInitModel(modelPath)}
-                />
-              )
-            })}
-          </ScrollView>
-
-          <MaskedProgress
-            visible={isLoading}
-            text={`Initializing model... ${initProgress}%`}
-            progress={initProgress}
-            showProgressBar={initProgress > 0}
-          />
-        </View>
+        <ExampleModelSetup
+          description="Select a model to start text completion"
+          defaultModels={TEXT_COMPLETION_MODELS}
+          customModels={customModels || []}
+          onInitializeCustomModel={(_model, modelPath) =>
+            handleInitModel(modelPath)
+          }
+          onInitializeModel={(_model, modelPath) => handleInitModel(modelPath)}
+          onReloadCustomModels={reloadCustomModels}
+          showCustomModelModal={showCustomModelModal}
+          onOpenCustomModelModal={() => setShowCustomModelModal(true)}
+          onCloseCustomModelModal={() => setShowCustomModelModal(false)}
+          isLoading={isLoading}
+          initProgress={initProgress}
+          progressText={`Initializing model... ${initProgress}%`}
+        />
       )
     }
 
@@ -667,7 +430,7 @@ export default function TextCompletionScreen({
                         onPress={(e) => handleTokenPress(e, token)}
                         style={[
                           styles.token,
-                          { backgroundColor: getTokenColor(firstProb) },
+                          { backgroundColor: getTokenHeatmapColor(firstProb) },
                         ]}
                       >
                         <Text style={styles.tokenText}>
@@ -684,8 +447,10 @@ export default function TextCompletionScreen({
                     style={styles.editButton}
                     onPress={() => {
                       // Combine formatted prompt + generated text for editing
-                      const fullText =
-                        formattedPrompt + tokens.map((t) => t.token).join('')
+                      const fullText = buildGeneratedCompletionText(
+                        formattedPrompt,
+                        tokens,
+                      )
                       setEditableResult(fullText)
                       setIsEditingResult(true)
                     }}
@@ -1171,17 +936,148 @@ export default function TextCompletionScreen({
         onClose={() => setShowCompletionParamsModal(false)}
         onSave={handleSaveCompletionParams}
       />
-
-      <CustomModelModal
-        visible={showCustomModelModal}
-        onClose={() => setShowCustomModelModal(false)}
-        onModelAdded={async () => {
-          const models = await loadCustomModels()
-          setCustomModels(models)
-        }}
-        title="Add Custom Model"
-        enableFileSelection
-      />
     </View>
   )
+}
+
+function createProbabilityDropdownStyles() {
+  return StyleSheet.create({
+    probabilityDropdown: {
+      position: 'absolute' as const,
+      backgroundColor: '#fff',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#ccc',
+      padding: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 5,
+      zIndex: 1000,
+      minWidth: 200,
+    },
+    probabilityItem: {
+      flexDirection: 'row' as const,
+      justifyContent: 'space-between' as const,
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+    },
+    probabilityToken: {
+      fontFamily: 'monospace',
+      fontSize: 12,
+      flex: 1,
+    },
+    probabilityValue: {
+      fontFamily: 'monospace',
+      fontSize: 12,
+      fontWeight: '600' as const,
+      marginLeft: 8,
+    },
+  })
+}
+
+function createStyles(
+  theme: ReturnType<typeof useTheme>['theme'],
+  themedStyles: ReturnType<typeof createThemedStyles>,
+) {
+  return StyleSheet.create({
+    container: themedStyles.container,
+    setupContainer: themedStyles.setupContainer,
+    scrollContent: themedStyles.scrollContent,
+    setupDescription: themedStyles.setupDescription,
+    contentContainer: {
+      flex: 1,
+      padding: 10,
+    },
+    textAreaContainer: {
+      flex: 1,
+      marginBottom: 10,
+    },
+    textInput: {
+      ...themedStyles.textInput,
+      height: 120,
+      textAlignVertical: 'top',
+    },
+    outputContainer: {
+      flex: 1,
+      backgroundColor: theme.colors.inputBackground,
+      borderColor: theme.colors.border,
+      borderWidth: 1,
+      borderRadius: 8,
+      padding: 10,
+      marginTop: 10,
+    },
+    outputText: {
+      color: theme.colors.text,
+      fontSize: 16,
+      lineHeight: 22,
+    },
+    tokenText: {
+      color: theme.colors.textSecondary,
+      fontSize: 12,
+      fontFamily: 'monospace',
+      margin: 2,
+    },
+    label: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 5,
+    },
+    textArea: {
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: 8,
+      padding: 10,
+      fontSize: 14,
+      minHeight: 60,
+      textAlignVertical: 'top',
+      backgroundColor: theme.colors.inputBackground,
+      color: theme.colors.text,
+    },
+    promptTextArea: {
+      fontFamily: 'monospace',
+      backgroundColor: theme.colors.inputBackground,
+    },
+    editButtonContainer: {
+      marginTop: 10,
+      alignItems: 'flex-end',
+    },
+    editButton: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 6,
+    },
+    editButtonText: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    tokenContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+    },
+    token: {
+      padding: 2,
+      borderRadius: 2,
+      margin: 1,
+    },
+    actionButton: {
+      backgroundColor: theme.colors.primary,
+      padding: 12,
+      borderRadius: 8,
+      alignItems: 'center',
+      marginVertical: 10,
+    },
+    actionButtonText: {
+      color: theme.colors.white,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    stopButton: {
+      backgroundColor: theme.colors.error,
+    },
+  })
 }

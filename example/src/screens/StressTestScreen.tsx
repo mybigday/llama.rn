@@ -1,33 +1,46 @@
 /* eslint-disable no-plusplus, no-await-in-loop, no-restricted-syntax */
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   View,
   Text,
-  ScrollView,
   Alert,
   TextInput,
   TouchableOpacity,
   Clipboard,
   StyleSheet,
 } from 'react-native'
-import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
-import CustomModelModal from '../components/CustomModelModal'
-import CustomModelCard from '../components/CustomModelCard'
+import { ExampleModelSetup } from '../components/ExampleModelSetup'
 import { MaskedProgress } from '../components/MaskedProgress'
-import { HeaderButton } from '../components/HeaderButton'
 import { createThemedStyles } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
-import type { ContextParams, CustomModel } from '../utils/storage'
-import { loadContextParams, loadCustomModels } from '../utils/storage'
+import type { ContextParams } from '../utils/storage'
+import { loadContextParams } from '../utils/storage'
 import { initLlama, LlamaContext } from '../../../src'
+import {
+  useStoredContextParams,
+  useStoredCustomModels,
+} from '../hooks/useStoredSetting'
+import { useExampleScreenHeader } from '../hooks/useExampleScreenHeader'
+import {
+  createExampleModelDefinitions,
+  type ExampleModelKey,
+} from '../utils/exampleModels'
+import {
+  formatStressTestReport,
+  isRaceConditionError,
+} from '../features/stressTestHelpers'
 
-// Filter models to only include models that Stress Test can initialize directly.
 const LLM_MODELS = Object.entries(MODELS).filter(([_key, model]) => {
   const modelWithExtras = model as typeof model & { vocoder?: any }
   return !modelWithExtras.vocoder
 })
+
+const STRESS_TEST_MODELS = createExampleModelDefinitions(
+  LLM_MODELS.map(([key]) => key as ExampleModelKey),
+  'Test',
+)
 
 interface TestResult {
   name: string
@@ -36,22 +49,6 @@ interface TestResult {
   duration?: number
   raceConditionsCaught?: number
   totalCycles?: number // Total iterations/cycles for this test
-}
-
-// Known error codes from our null checks in JSICompletion.h
-const RACE_CONDITION_ERRORS = [
-  'RNLLAMA_NULL_CONTEXT',
-  'RNLLAMA_NULL_COMPLETION',
-  'RNLLAMA_NULL_LLAMA_CONTEXT',
-  'RNLLAMA_NULL_SLOT',
-]
-
-const isRaceConditionError = (error: any): boolean => {
-  // Check both message and the error itself as string
-  const message = error?.message || ''
-  const errorStr = String(error)
-  const combined = `${message} ${errorStr}`
-  return RACE_CONDITION_ERRORS.some((code) => combined.includes(code))
 }
 
 export default function StressTestScreen({ navigation }: { navigation: any }) {
@@ -63,139 +60,7 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
   // Track if we're actively testing (to suppress error screen for expected race conditions)
   const isTestingRef = useRef(false)
 
-  const styles = StyleSheet.create({
-    container: themedStyles.container,
-    setupContainer: themedStyles.setupContainer,
-    scrollContent: themedStyles.scrollContent,
-    setupDescription: themedStyles.setupDescription,
-    testContainer: {
-      flex: 1,
-      padding: 16,
-    },
-    testButtonContainer: {
-      marginBottom: 16,
-      flexDirection: 'row' as const,
-      flexWrap: 'wrap' as const,
-      gap: 8,
-    },
-    testButton: {
-      backgroundColor: theme.colors.primary,
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      borderRadius: 8,
-      alignItems: 'center' as const,
-      minWidth: 120,
-    },
-    testButtonDisabled: {
-      backgroundColor: theme.colors.disabled,
-    },
-    testButtonText: {
-      color: theme.colors.white,
-      fontSize: 14,
-      fontWeight: '600' as const,
-    },
-    logContainer: {
-      flex: 1,
-      backgroundColor: theme.colors.surface,
-      borderRadius: 8,
-      padding: 12,
-      marginTop: 16,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-    },
-    logTitle: {
-      fontSize: 16,
-      fontWeight: '600' as const,
-      color: theme.colors.text,
-      marginBottom: 8,
-    },
-    logArea: {
-      flex: 1,
-      backgroundColor: theme.colors.inputBackground,
-      borderRadius: 6,
-      padding: 8,
-      fontFamily: 'Courier',
-      fontSize: 11,
-      color: theme.colors.text,
-      textAlignVertical: 'top' as const,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-    },
-    logButton: {
-      backgroundColor: theme.colors.buttonBackground,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      borderRadius: 6,
-    },
-    logButtonText: {
-      color: theme.colors.white,
-      fontSize: 14,
-      fontWeight: '600' as const,
-    },
-    modelNameText: {
-      fontSize: 18,
-      fontWeight: '600' as const,
-      color: theme.colors.text,
-    },
-    modelPathText: {
-      fontSize: 14,
-      color: theme.colors.textSecondary,
-      marginTop: 4,
-    },
-    logControlsContainer: {
-      flexDirection: 'row' as const,
-      justifyContent: 'space-between' as const,
-      marginTop: 8,
-    },
-    resultItem: {
-      flexDirection: 'row' as const,
-      alignItems: 'center' as const,
-      paddingVertical: 4,
-    },
-    resultStatus: {
-      width: 20,
-      textAlign: 'center' as const,
-      marginRight: 8,
-    },
-    resultName: {
-      flex: 1,
-      color: theme.colors.text,
-      fontSize: 13,
-    },
-    resultDuration: {
-      color: theme.colors.textSecondary,
-      fontSize: 12,
-    },
-    summaryContainer: {
-      backgroundColor: theme.colors.card,
-      borderRadius: 8,
-      padding: 12,
-      marginBottom: 16,
-    },
-    summaryText: {
-      color: theme.colors.text,
-      fontSize: 14,
-      fontWeight: '600' as const,
-    },
-    iterationsRow: {
-      flexDirection: 'row' as const,
-      alignItems: 'center' as const,
-      marginBottom: 12,
-      gap: 8,
-    },
-    iterationsInput: {
-      backgroundColor: theme.colors.surface,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      borderRadius: 6,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      color: theme.colors.text,
-      fontSize: 14,
-      width: 60,
-      textAlign: 'center' as const,
-    },
-  })
+  const styles = createStyles(theme, themedStyles)
 
   const [context, setContext] = useState<LlamaContext | null>(null)
   const [isModelReady, setIsModelReady] = useState(false)
@@ -204,8 +69,6 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
   const [initProgress, setInitProgress] = useState(0)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCustomModelModal, setShowCustomModelModal] = useState(false)
-  const [contextParams, setContextParams] = useState<ContextParams | null>(null)
-  const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const [logs, setLogs] = useState<string[]>([])
   const [testResults, setTestResults] = useState<TestResult[]>([])
   const [modelInfo, setModelInfo] = useState<{
@@ -216,6 +79,10 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
 
   const contextRef = useRef<LlamaContext | null>(null)
   const logInputRef = useRef<TextInput>(null)
+  const { value: contextParams, setValue: setContextParams } =
+    useStoredContextParams()
+  const { value: customModels, reload: reloadCustomModels } =
+    useStoredCustomModels()
 
   useEffect(() => {
     contextRef.current = context
@@ -229,18 +96,6 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
     },
     [],
   )
-
-  useEffect(() => {
-    const loadCustomModelsData = async () => {
-      try {
-        const models = await loadCustomModels()
-        setCustomModels(models)
-      } catch (error) {
-        console.error('Error loading custom models:', error)
-      }
-    }
-    loadCustomModelsData()
-  }, [])
 
   // Set up global error handler to catch race conditions thrown outside Promise chains
   useEffect(() => {
@@ -293,110 +148,40 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
     results: TestResult[],
     _globalCaught: number,
     startTime: Date,
-  ): string => {
-    const endTime = new Date()
-    const totalDuration = endTime.getTime() - startTime.getTime()
-    const passedClean = results.filter(
-      (r) => r.status === 'passed' && !r.raceConditionsCaught,
-    ).length
-    const passedWithRaces = results.filter(
-      (r) => r.status === 'passed' && (r.raceConditionsCaught ?? 0) > 0,
-    ).length
-    const failed = results.filter((r) => r.status === 'failed').length
-    const totalRaceCaught = results.reduce(
-      (acc, r) => acc + (r.raceConditionsCaught || 0),
-      0,
-    )
-
-    // Generate text report
-    const lines: string[] = [
-      '═══════════════════════════════════════════',
-      '          STRESS TEST REPORT',
-      '═══════════════════════════════════════════',
-      '',
-      `Timestamp: ${endTime.toISOString()}`,
-      `Model: ${modelInfo?.name || 'Unknown'}`,
-      `Path: ${modelInfo?.path || 'Unknown'}`,
-      '',
-      '───────────────────────────────────────────',
-      '               SUMMARY',
-      '───────────────────────────────────────────',
-      '',
-      `Total Tests:              ${results.length}`,
-      `Passed (clean):           ${passedClean}`,
-      `Passed (w/ races caught): ${passedWithRaces}`,
-      `Failed:                   ${failed}`,
-      `Total Duration:           ${totalDuration}ms`,
-      `Race Conditions Caught:   ${totalRaceCaught}`,
-      '',
-      '───────────────────────────────────────────',
-      '            TEST RESULTS',
-      '───────────────────────────────────────────',
-      '',
-    ]
-
-    const getStatusIcon = (status: string, racesCaught?: number): string => {
-      if (status === 'passed' && racesCaught && racesCaught > 0) return '[WARN]'
-      if (status === 'passed') return '[PASS]'
-      if (status === 'failed') return '[FAIL]'
-      return '[SKIP]'
-    }
-
-    for (const r of results) {
-      const statusIcon = getStatusIcon(r.status, r.raceConditionsCaught)
-      const durationStr = r.duration !== undefined ? `${r.duration}ms` : '-'
-      // Show races as "3/10 races" so dev knows the ratio
-      const raceStr = r.raceConditionsCaught
-        ? `${r.raceConditionsCaught}/${r.totalCycles || '?'} races`
-        : ''
-
-      lines.push(`${statusIcon} ${r.name}`)
-      const infoParts = [raceStr, durationStr].filter(Boolean)
-      lines.push(`       ${infoParts.join(' | ')}`)
-      if (r.error) {
-        lines.push(`       Error: ${r.error}`)
-      }
-      lines.push('')
-    }
-
-    return lines.join('\n')
-  }
+  ): string =>
+    formatStressTestReport({
+      results,
+      modelName: modelInfo?.name || 'Unknown',
+      modelPath: modelInfo?.path || 'Unknown',
+      startTime,
+      endTime: new Date(),
+    })
 
   const copyLogs = () => {
     Clipboard.setString(logs.join('\n'))
   }
 
-  useLayoutEffect(() => {
-    if (isModelReady) {
-      navigation.setOptions({
-        headerRight: () => (
-          <HeaderButton iconName="refresh" onPress={clearLogs} />
-        ),
-      })
-    } else {
-      navigation.setOptions({
-        headerRight: () => (
-          <HeaderButton
-            iconName="cog-outline"
-            onPress={() => setShowContextParamsModal(true)}
-          />
-        ),
-      })
-    }
-  }, [navigation, isModelReady])
+  useExampleScreenHeader({
+    navigation,
+    isModelReady,
+    readyActions: [
+      {
+        key: 'clear-logs',
+        iconName: 'refresh',
+        onPress: clearLogs,
+      },
+    ],
+    setupActions: [
+      {
+        key: 'context-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowContextParamsModal(true),
+      },
+    ],
+  })
 
   const handleSaveContextParams = (params: ContextParams) => {
     setContextParams(params)
-  }
-
-  const handleCustomModelAdded = async (_model: CustomModel) => {
-    const models = await loadCustomModels()
-    setCustomModels(models)
-  }
-
-  const handleCustomModelRemoved = async () => {
-    const models = await loadCustomModels()
-    setCustomModels(models)
   }
 
   const initializeModel = async (modelPath: string, modelKey?: string) => {
@@ -1139,77 +924,33 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
 
   if (!isModelReady) {
     return (
-      <View style={styles.container}>
-        <ScrollView
-          style={styles.setupContainer}
-          contentContainerStyle={styles.scrollContent}
-        >
-          <Text style={styles.setupDescription}>
-            Load a model to run stress tests. These tests help identify race
-            conditions and crash scenarios in the native code.
-          </Text>
-
-          {customModels.length > 0 && (
-            <>
-              <Text style={themedStyles.modelSectionTitle}>Custom Models</Text>
-              {customModels.map((model) => (
-                <CustomModelCard
-                  key={model.id}
-                  model={model}
-                  onInitialize={(modelPath: string) => initializeModel(modelPath)}
-                  onModelRemoved={handleCustomModelRemoved}
-                  initializeButtonText="Test"
-                />
-              ))}
-            </>
-          )}
-
-          <TouchableOpacity
-            style={themedStyles.addCustomModelButton}
-            onPress={() => setShowCustomModelModal(true)}
-          >
-            <Text style={themedStyles.addCustomModelButtonText}>
-              + Add Custom Model
-            </Text>
-          </TouchableOpacity>
-
-          <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
-          {LLM_MODELS.map(([key, model]) => (
-            <ModelDownloadCard
-              key={key}
-              title={model.name}
-              repo={model.repo}
-              filename={model.filename}
-              size={model.size}
-              initializeButtonText="Test"
-              onInitialize={(modelPath: string) =>
-                initializeModel(modelPath, key)
-              }
-            />
-          ))}
-        </ScrollView>
+      <>
+        <ExampleModelSetup
+          description="Load a model to run stress tests. These tests help identify race conditions and crash scenarios in the native code."
+          defaultModels={STRESS_TEST_MODELS}
+          customModels={customModels || []}
+          onInitializeCustomModel={(_model, modelPath) =>
+            initializeModel(modelPath)
+          }
+          onInitializeModel={(model, modelPath) =>
+            initializeModel(modelPath, model.key)
+          }
+          onReloadCustomModels={reloadCustomModels}
+          showCustomModelModal={showCustomModelModal}
+          onOpenCustomModelModal={() => setShowCustomModelModal(true)}
+          onCloseCustomModelModal={() => setShowCustomModelModal(false)}
+          customModelModalTitle="Add Custom Test Model"
+          isLoading={isLoading}
+          initProgress={initProgress}
+          progressText={`Initializing model... ${initProgress}%`}
+        />
 
         <ContextParamsModal
           visible={showContextParamsModal}
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
         />
-
-        <CustomModelModal
-          visible={showCustomModelModal}
-          onClose={() => setShowCustomModelModal(false)}
-          onModelAdded={handleCustomModelAdded}
-          title="Add Custom Test Model"
-          enableFileSelection
-        />
-
-        <MaskedProgress
-          visible={isLoading}
-          text={`Initializing model... ${initProgress}%`}
-          progress={initProgress}
-          showProgressBar={initProgress > 0}
-        />
-      </View>
+      </>
     )
   }
 
@@ -1299,4 +1040,143 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
       />
     </View>
   )
+}
+
+function createStyles(
+  theme: ReturnType<typeof useTheme>['theme'],
+  themedStyles: ReturnType<typeof createThemedStyles>,
+) {
+  return StyleSheet.create({
+    container: themedStyles.container,
+    setupContainer: themedStyles.setupContainer,
+    scrollContent: themedStyles.scrollContent,
+    setupDescription: themedStyles.setupDescription,
+    testContainer: {
+      flex: 1,
+      padding: 16,
+    },
+    testButtonContainer: {
+      marginBottom: 16,
+      flexDirection: 'row' as const,
+      flexWrap: 'wrap' as const,
+      gap: 8,
+    },
+    testButton: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 8,
+      alignItems: 'center' as const,
+      minWidth: 120,
+    },
+    testButtonDisabled: {
+      backgroundColor: theme.colors.disabled,
+    },
+    testButtonText: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: '600' as const,
+    },
+    logContainer: {
+      flex: 1,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 8,
+      padding: 12,
+      marginTop: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    logTitle: {
+      fontSize: 16,
+      fontWeight: '600' as const,
+      color: theme.colors.text,
+      marginBottom: 8,
+    },
+    logArea: {
+      flex: 1,
+      backgroundColor: theme.colors.inputBackground,
+      borderRadius: 6,
+      padding: 8,
+      fontFamily: 'Courier',
+      fontSize: 11,
+      color: theme.colors.text,
+      textAlignVertical: 'top' as const,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    logButton: {
+      backgroundColor: theme.colors.buttonBackground,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 6,
+    },
+    logButtonText: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: '600' as const,
+    },
+    modelNameText: {
+      fontSize: 18,
+      fontWeight: '600' as const,
+      color: theme.colors.text,
+    },
+    modelPathText: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      marginTop: 4,
+    },
+    logControlsContainer: {
+      flexDirection: 'row' as const,
+      justifyContent: 'space-between' as const,
+      marginTop: 8,
+    },
+    resultItem: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      paddingVertical: 4,
+    },
+    resultStatus: {
+      width: 20,
+      textAlign: 'center' as const,
+      marginRight: 8,
+    },
+    resultName: {
+      flex: 1,
+      color: theme.colors.text,
+      fontSize: 13,
+    },
+    resultDuration: {
+      color: theme.colors.textSecondary,
+      fontSize: 12,
+    },
+    summaryContainer: {
+      backgroundColor: theme.colors.card,
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 16,
+    },
+    summaryText: {
+      color: theme.colors.text,
+      fontSize: 14,
+      fontWeight: '600' as const,
+    },
+    iterationsRow: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      marginBottom: 12,
+      gap: 8,
+    },
+    iterationsInput: {
+      backgroundColor: theme.colors.surface,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      color: theme.colors.text,
+      fontSize: 14,
+      width: 60,
+      textAlign: 'center' as const,
+    },
+  })
 }
