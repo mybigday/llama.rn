@@ -1,6 +1,6 @@
 --- common/chat.cpp.orig	2026-03-08 11:52:53
 +++ common/chat.cpp	2026-03-08 11:53:41
-@@ -105,10 +105,18 @@
+@@ -105,10 +105,16 @@
          } else {
              auto & parts = jmsg["content"] = json::array();
              for (const auto & part : content_parts) {
@@ -19,7 +19,7 @@
              }
          }
      } else {
-@@ -291,6 +299,11 @@
+@@ -291,6 +297,11 @@
                          common_chat_msg_content_part msg_part;
                          msg_part.type = type;
                          msg_part.text = part.at("text");
@@ -31,7 +31,7 @@
                          msg.content_parts.push_back(msg_part);
                      }
                  } else if (!content.is_null()) {
-@@ -1145,6 +1153,63 @@
+@@ -1145,6 +1156,72 @@
      return data;
  }
 
@@ -57,6 +57,7 @@
 +    };
 +
 +    auto parser = build_chat_peg_parser([&](common_chat_peg_builder & p) {
++        auto generation_prompt = p.prefix(inputs.generation_prompt, "<start_function_call>");
 +        auto tool_choice = p.choice();
 +
 +        foreach_function(inputs.tools, [&](const json & tool) {
@@ -75,8 +76,9 @@
 +            tool_choice |= p.rule("tool-" + name, tool_parser);
 +        });
 +
-+        auto ret = inputs.parallel_tool_calls ? p.one_or_more(tool_choice) : tool_choice;
-+        return wrap_for_generation_prompt(p, p.trigger_rule("tool-call", ret) + p.end(), inputs);
++        auto tool_calls = p.trigger_rule("tool-call",
++            inputs.parallel_tool_calls ? p.one_or_more(tool_choice) : tool_choice);
++        return generation_prompt + tool_calls + p.end();
 +    });
 +
 +    data.parser = parser.save();
@@ -102,7 +104,7 @@
  // Kimi K2 Thinking - uses unique tool call ID format: functions.<name>:<index>
  // The ID contains both the function name and an incrementing counter
  static common_chat_params common_chat_params_init_kimi_k2(const common_chat_template &    tmpl,
-@@ -1509,6 +1574,12 @@
+@@ -1509,6 +1586,12 @@
          return common_chat_params_init_functionary_v3_2(tmpl, params);
      }
 
@@ -115,7 +117,7 @@
      // Kimi K2 Thinking - uses unique tool call ID format: functions.<name>:<index>
      // Detection: template has "<|tool_calls_section_begin|>" and "functions." prefix in tool call IDs
      if (src.find("<|tool_calls_section_begin|>") != std::string::npos &&
-@@ -1570,5 +1641,35 @@
+@@ -1570,5 +1653,35 @@
      LM_GGML_ASSERT(chat_templates != nullptr);
      LM_GGML_ASSERT(chat_templates->template_default != nullptr);
      return chat_templates->template_default->caps.to_map();

@@ -1177,6 +1177,7 @@ static common_chat_params common_chat_params_init_function_gemma(
     };
 
     auto parser = build_chat_peg_parser([&](common_chat_peg_builder & p) {
+        auto generation_prompt = p.prefix(inputs.generation_prompt, "<start_function_call>");
         auto tool_choice = p.choice();
 
         foreach_function(inputs.tools, [&](const json & tool) {
@@ -1195,8 +1196,9 @@ static common_chat_params common_chat_params_init_function_gemma(
             tool_choice |= p.rule("tool-" + name, tool_parser);
         });
 
-        auto ret = inputs.parallel_tool_calls ? p.one_or_more(tool_choice) : tool_choice;
-        return wrap_for_generation_prompt(p, p.trigger_rule("tool-call", ret) + p.end(), inputs);
+        auto tool_calls = p.trigger_rule("tool-call",
+            inputs.parallel_tool_calls ? p.one_or_more(tool_choice) : tool_choice);
+        return generation_prompt + tool_calls + p.end();
     });
 
     data.parser = parser.save();
