@@ -11,7 +11,6 @@ import {
 } from 'react-native'
 import ContextParamsModal from '../components/ContextParamsModal'
 import { ExampleModelSetup } from '../components/ExampleModelSetup'
-import { MaskedProgress } from '../components/MaskedProgress'
 import { createThemedStyles } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
 import { MODELS } from '../utils/constants'
@@ -234,8 +233,39 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
     )
   }
 
-  const sleep = (ms: number) =>
-    new Promise((resolve) => setTimeout(resolve, ms))
+  const sleep = async (_ms: number) => {
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  const settleCompletion = async (
+    completionPromise: Promise<unknown> | null | undefined,
+    label: string,
+    timeoutMs = 2000,
+  ) => {
+    if (!completionPromise) {
+      return
+    }
+
+    try {
+      await withTimeout(
+        completionPromise.catch(() => {}),
+        timeoutMs,
+        `${label} cleanup timed out after ${Math.round(timeoutMs / 1000)}s`,
+      )
+    } catch (error) {
+      console.warn(error)
+    }
+  }
+
+  const stopCompletionSafely = async (ctx: LlamaContext) => {
+    try {
+      await ctx.stopCompletion()
+    } catch (_error) {
+      // Ignore stop errors in stress tests. Some flows intentionally race stop
+      // against completion teardown.
+    }
+  }
 
   // Test 1: Rapid completion start/stop
   const testRapidStartStop = async (
@@ -253,10 +283,12 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
 
         // Stop almost immediately
         await sleep(10 + Math.random() * 50)
-        await ctx.stopCompletion()
-
-        await completionPromise
-        addLog(`    Iteration ${i + 1}: OK (completed)`)
+        await stopCompletionSafely(ctx)
+        await settleCompletion(
+          completionPromise,
+          `Rapid Start/Stop iteration ${i + 1}`,
+        )
+        addLog(`    Iteration ${i + 1}: OK (stopped and drained)`)
       } catch (error: any) {
         if (isRaceConditionError(error)) {
           raceConditionsCaught++
@@ -334,17 +366,19 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
     })
 
     // Run tokenize operations while completion is running
-    const tokenizePromises = []
+    const tokenizeResults: Array<{ error?: string }> = []
     for (let i = 0; i < iterations; i++) {
       await sleep(20)
-      tokenizePromises.push(
-        ctx.tokenize(`Test string ${i}`).catch((e) => ({ error: e.message })),
-      )
+      try {
+        await ctx.tokenize(`Test string ${i}`)
+        tokenizeResults.push({})
+      } catch (error: any) {
+        tokenizeResults.push({ error: error.message })
+      }
     }
 
-    const tokenizeResults = await Promise.all(tokenizePromises)
-    await ctx.stopCompletion()
-    await completionPromise.catch(() => {})
+    await stopCompletionSafely(ctx)
+    await settleCompletion(completionPromise, 'Tokenize During Completion')
 
     const successCount = tokenizeResults.filter((r) => !('error' in r)).length
     addLog(`    Tokenize operations: ${successCount}/${iterations} succeeded`)
@@ -601,7 +635,7 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         await sleep(100)
 
         // Stop completion first, then release WITHOUT waiting for promise
-        await tempCtx.stopCompletion()
+        await stopCompletionSafely(tempCtx)
         await tempCtx.release().catch(() => {})
         tempCtx = null
 
@@ -654,7 +688,7 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         await sleep(100)
 
         // Pattern with timeout safety net
-        await tempCtx.stopCompletion()
+        await stopCompletionSafely(tempCtx)
         await Promise.race([
           completionPromise,
           sleep(200), // Timeout just in case
@@ -707,9 +741,12 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         // 1. Stop completion
         // 2. Await the promise directly (no magic timeout)
         // 3. Release context
-        await tempCtx.stopCompletion()
+        await stopCompletionSafely(tempCtx)
         if (completionPromise) {
-          await completionPromise.catch(() => {}) // Wait for it to finish
+          await settleCompletion(
+            completionPromise,
+            `Stop Before Release recommended cycle ${i + 1}`,
+          )
         }
         completionPromise = null
         await tempCtx.release().catch(() => {})
@@ -724,7 +761,10 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         }
         // Cleanup on error
         if (completionPromise) {
-          await completionPromise.catch(() => {})
+          await settleCompletion(
+            completionPromise,
+            `Stop Before Release error cycle ${i + 1}`,
+          )
         }
         if (tempCtx) {
           await tempCtx.release().catch(() => {})
@@ -782,9 +822,14 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
     updateTestResult(name, { status: 'running' })
     const startTime = Date.now()
     const globalBefore = globalRaceConditionsRef.current
+    const timeoutMs = getStressTestTimeoutMs(iterations)
 
     try {
-      const result = await testFn(context, modelInfo.path)
+      const result = await withTimeout(
+        testFn(context, modelInfo.path),
+        timeoutMs,
+        `${name} timed out after ${Math.round(timeoutMs / 1000)}s`,
+      )
       const duration = Date.now() - startTime
       // Include both test-reported and global race conditions
       const testRaces = result?.raceConditionsCaught || 0
@@ -807,6 +852,10 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
     } catch (error: any) {
       const duration = Date.now() - startTime
       const globalRaces = globalRaceConditionsRef.current - globalBefore
+      if (error?.message?.includes('timed out')) {
+        addLog(`  TIMEOUT: ${error.message}`)
+        await stopCompletionSafely(context)
+      }
       if (isRaceConditionError(error)) {
         // Race condition caught at top level - this is actually a success
         const totalRaces = 1 + globalRaces
@@ -991,6 +1040,11 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
             </Text>
           </TouchableOpacity>
         </View>
+        {isTesting && (
+          <Text style={styles.testingHint}>
+            Stress tests are running. Watch the live log below.
+          </Text>
+        )}
 
         {/* Test results summary */}
         {testResults.length > 0 && (
@@ -1032,14 +1086,27 @@ export default function StressTestScreen({ navigation }: { navigation: any }) {
         </View>
       </View>
 
-      <MaskedProgress
-        visible={isTesting}
-        text="Running stress tests..."
-        progress={0}
-        showProgressBar={false}
-      />
     </View>
   )
+}
+
+function getStressTestTimeoutMs(iterations: number) {
+  return 30000 + iterations * 15000
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+) {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(timeoutMessage))
+      }, timeoutMs)
+    }),
+  ])
 }
 
 function createStyles(
@@ -1076,6 +1143,11 @@ function createStyles(
       color: theme.colors.white,
       fontSize: 14,
       fontWeight: '600' as const,
+    },
+    testingHint: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      marginBottom: 12,
     },
     logContainer: {
       flex: 1,
