@@ -1,6 +1,123 @@
 --- common/chat.cpp.orig	2026-03-08 11:52:53
 +++ common/chat.cpp	2026-03-08 11:53:41
-@@ -1570,5 +1570,35 @@
+@@ -105,10 +105,16 @@
+         } else {
+             auto & parts = jmsg["content"] = json::array();
+             for (const auto & part : content_parts) {
+-                parts.push_back({
++                json jpart = {
+                     {"type", part.type},
+                     {"text", part.text},
+-                });
++                };
++                if (part.extra_fields.is_object()) {
++                    for (const auto & [k, v] : part.extra_fields.items()) {
++                        jpart[k] = v;
++                    }
++                }
++                parts.push_back(jpart);
+             }
+         }
+     } else {
+@@ -291,6 +297,11 @@
+                         common_chat_msg_content_part msg_part;
+                         msg_part.type = type;
+                         msg_part.text = part.at("text");
++                        for (const auto & [k, v] : part.items()) {
++                            if (k != "type" && k != "text") {
++                                msg_part.extra_fields[k] = v;
++                            }
++                        }
+                         msg.content_parts.push_back(msg_part);
+                     }
+                 } else if (!content.is_null()) {
+@@ -1145,6 +1156,72 @@
+     return data;
+ }
+
++static common_chat_params common_chat_params_init_function_gemma(
++    const common_chat_template &          tmpl,
++    const autoparser::generation_params & inputs) {
++    common_chat_params data;
++
++    data.prompt = common_chat_template_direct_apply(tmpl, inputs);
++
++    auto has_tools       = inputs.tools.is_array() && !inputs.tools.empty();
++    auto include_grammar = has_tools && inputs.tool_choice != COMMON_CHAT_TOOL_CHOICE_NONE;
++
++    if (!has_tools || inputs.tool_choice == COMMON_CHAT_TOOL_CHOICE_NONE) {
++        data.format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
++        return data;
++    }
++
++    data.format           = COMMON_CHAT_FORMAT_PEG_NATIVE;
++    data.preserved_tokens = {
++        "<start_function_call>",
++        "<end_function_call>",
++    };
++
++    auto parser = build_chat_peg_parser([&](common_chat_peg_builder & p) {
++        auto generation_prompt = p.prefix(inputs.generation_prompt, "<start_function_call>");
++        auto tool_choice = p.choice();
++
++        foreach_function(inputs.tools, [&](const json & tool) {
++            const auto & function = tool.at("function");
++            std::string  name     = function.at("name");
++            const auto & schema   = function.at("parameters");
++
++            auto tool_parser = p.tool(
++                p.tool_open(
++                    p.literal("<start_function_call>call:") +
++                    p.tool_name(p.literal(name))) +
++                p.tool_args(p.schema(p.json(), "tool-" + name + "-schema", schema)) +
++                p.tool_close(p.literal("<end_function_call>"))
++            );
++
++            tool_choice |= p.rule("tool-" + name, tool_parser);
++        });
++
++        auto tool_calls = p.trigger_rule("tool-call",
++            inputs.parallel_tool_calls ? p.one_or_more(tool_choice) : tool_choice);
++        return generation_prompt + tool_calls + p.end();
++    });
++
++    data.parser = parser.save();
++
++    if (include_grammar) {
++        data.grammar_lazy = inputs.tool_choice == COMMON_CHAT_TOOL_CHOICE_AUTO;
++        data.grammar      = build_grammar([&](const common_grammar_builder & builder) {
++            foreach_function(inputs.tools, [&](const json & tool) {
++                auto schema = tool.at("function").at("parameters");
++                builder.resolve_refs(schema);
++            });
++            parser.build_grammar(builder, data.grammar_lazy);
++        });
++
++        data.grammar_triggers = {
++            { COMMON_GRAMMAR_TRIGGER_TYPE_WORD, "<start_function_call>" }
++        };
++    }
++
++    return data;
++}
++
+ // Kimi K2 Thinking - uses unique tool call ID format: functions.<name>:<index>
+ // The ID contains both the function name and an incrementing counter
+ static common_chat_params common_chat_params_init_kimi_k2(const common_chat_template &    tmpl,
+@@ -1509,6 +1586,12 @@
+         return common_chat_params_init_functionary_v3_2(tmpl, params);
+     }
+
++    // FunctionGemma - uses <start_function_call>call:name{...}<end_function_call>
++    if (src.find("<start_function_call>") != std::string::npos) {
++        LOG_DBG("Using specialized template: FunctionGemma\n");
++        return common_chat_params_init_function_gemma(tmpl, params);
++    }
++
+     // Kimi K2 Thinking - uses unique tool call ID format: functions.<name>:<index>
+     // Detection: template has "<|tool_calls_section_begin|>" and "functions." prefix in tool call IDs
+     if (src.find("<|tool_calls_section_begin|>") != std::string::npos &&
+@@ -1570,5 +1653,35 @@
      LM_GGML_ASSERT(chat_templates != nullptr);
      LM_GGML_ASSERT(chat_templates->template_default != nullptr);
      return chat_templates->template_default->caps.to_map();
