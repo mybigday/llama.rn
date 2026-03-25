@@ -1,6 +1,25 @@
 --- common/chat.h.orig	2025-01-20 14:24:00
 +++ common/chat.h	2025-01-20 14:24:00
-@@ -237,6 +237,20 @@
+@@ -40,10 +40,14 @@
+ struct common_chat_msg_content_part {
+     std::string type;
+     std::string text;
++    // Preserves non-standard fields from the original JSON (e.g. source_lang_code,
++    // target_lang_code for TranslateGemma) so they survive the parse/serialize round-trip.
++    nlohmann::ordered_json extra_fields;
+
+     // TODO @ngxson : no known chat templates support reasoning_content in content parts yet
+     //                this can be useful for models with interleaved thinking (like Kimi-K2)
+     //                if you see any templates explicitly support this, please ping me
+     // std::string reasoning_content;
+
+     bool operator==(const common_chat_msg_content_part & other) const {
+-        return type == other.type && text == other.text;
++        return type == other.type && text == other.text && extra_fields == other.extra_fields;
+     }
+ };
+
+@@ -237,6 +241,20 @@
  bool common_chat_templates_support_enable_thinking(const common_chat_templates * chat_templates);
 
 +// Template capabilities structure (for exposing capabilities to external code)
