@@ -262,7 +262,8 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
         const std::string& reasoning_format,
         const bool& add_generation_prompt,
         const std::string& now_str,
-        const std::map<std::string, std::string>& chat_template_kwargs
+        const std::map<std::string, std::string>& chat_template_kwargs,
+        const bool& force_pure_content
 ) const {
     common_chat_templates_inputs inputs;
     inputs.use_jinja = true;
@@ -295,6 +296,7 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
     }
 
     inputs.chat_template_kwargs = chat_template_kwargs;
+    inputs.force_pure_content = force_pure_content;
 
     // If chat_template is provided, create new one and use it (probably slow)
     if (!chat_template.empty()) {

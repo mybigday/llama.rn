@@ -97,7 +97,8 @@ struct llama_rn_context {
       const std::string& reasoning_format,
       const bool& add_generation_prompt = true,
       const std::string& now_str = "",
-      const std::map<std::string, std::string>& chat_template_kwargs = {}
+      const std::map<std::string, std::string>& chat_template_kwargs = {},
+      const bool& force_pure_content = false
     ) const;
     std::string getFormattedChat(
       const std::string &messages,
