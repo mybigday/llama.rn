@@ -1027,7 +1027,16 @@ namespace rnllama_jsi {
                         ctx->tts_wrapper->setGuideTokens(guide_tokens);
                     }
 
+                    // Save antiprompt and grammar before rewind (rewind clears them)
+                    auto saved_antiprompt = ctx->params.antiprompt;
+                    auto saved_grammar = ctx->params.sampling.grammar;
+
                     ctx->completion->rewind();
+
+                    // Restore antiprompt and grammar after rewind
+                    ctx->params.antiprompt = saved_antiprompt;
+                    ctx->params.sampling.grammar = saved_grammar;
+
                     if (!ctx->completion->initSampling()) {
                         throw std::runtime_error("Failed to initialize sampling");
                     }
