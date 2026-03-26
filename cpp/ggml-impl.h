@@ -773,6 +773,5 @@ inline bool lm_ggml_check_edges(const struct lm_ggml_cgraph *                cgr
 
 // expose GGUF internals for test code
 LM_GGML_API size_t lm_gguf_type_size(enum lm_gguf_type type);
-LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_file_impl(FILE * file, struct lm_gguf_init_params params);
 LM_GGML_API void lm_gguf_write_to_buf(const struct lm_gguf_context * ctx, std::vector<int8_t> & buf, bool only_meta);
 #endif // __cplusplus

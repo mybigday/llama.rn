@@ -4970,6 +4970,7 @@ static struct lm_ggml_tensor * lm_ggml_interpolate_impl(
     LM_GGML_ASSERT((mode & 0xFF) < LM_GGML_SCALE_MODE_COUNT);
     // TODO: implement antialias for modes other than bilinear
     LM_GGML_ASSERT(!(mode & LM_GGML_SCALE_FLAG_ANTIALIAS) || (mode & 0xFF) == LM_GGML_SCALE_MODE_BILINEAR);
+    LM_GGML_ASSERT(a->type == LM_GGML_TYPE_F32);
 
     struct lm_ggml_tensor * result = lm_ggml_new_tensor_4d(ctx, a->type, ne0, ne1, ne2, ne3);
 
@@ -5315,6 +5316,7 @@ struct lm_ggml_tensor * lm_ggml_flash_attn_ext(
     LM_GGML_ASSERT(q->ne[3] == v->ne[3]);
 
     if (mask) {
+        LM_GGML_ASSERT(mask->type == LM_GGML_TYPE_F16);
         LM_GGML_ASSERT(lm_ggml_is_contiguous(mask));
         //LM_GGML_ASSERT(lm_ggml_can_repeat_rows(mask, qk));
 

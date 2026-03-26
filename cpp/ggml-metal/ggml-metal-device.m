@@ -1039,6 +1039,10 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                 case LM_GGML_UNARY_OP_EXP:
                 case LM_GGML_UNARY_OP_SOFTPLUS:
                 case LM_GGML_UNARY_OP_EXPM1:
+                case LM_GGML_UNARY_OP_FLOOR:
+                case LM_GGML_UNARY_OP_CEIL:
+                case LM_GGML_UNARY_OP_ROUND:
+                case LM_GGML_UNARY_OP_TRUNC:
                     return lm_ggml_is_contiguous_rows(op->src[0]) && (op->src[0]->type == LM_GGML_TYPE_F32 || op->src[0]->type == LM_GGML_TYPE_F16);
                 default:
                     return false;
@@ -1148,6 +1152,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                 op->src[0]->ne[0] != 192 &&
                 op->src[0]->ne[0] != 256 &&
                 op->src[0]->ne[0] != 320 &&
+                op->src[0]->ne[0] != 512 &&
                 op->src[0]->ne[0] != 576) {
                 return false;
             }
