@@ -77,6 +77,7 @@ extern "C" {
     };
 
     LM_GGML_API struct lm_gguf_context * lm_gguf_init_empty(void);
+    LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_file_ptr(FILE * file, struct lm_gguf_init_params params);
     LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_file(const char * fname, struct lm_gguf_init_params params);
     //LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_buffer(..);
 
@@ -189,6 +190,7 @@ extern "C" {
     //
 
     // write the entire context to a binary file
+    LM_GGML_API bool lm_gguf_write_to_file_ptr(const struct lm_gguf_context * ctx, FILE * file, bool only_meta);
     LM_GGML_API bool lm_gguf_write_to_file(const struct lm_gguf_context * ctx, const char * fname, bool only_meta);
 
     // get the size in bytes of the meta data (header, kv pairs, tensor info) including padding

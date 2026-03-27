@@ -6,6 +6,9 @@
 
 #include <vector>
 
+// FIXME temporary function for better error messages
+bool llama_model_saver_supports_arch(llm_arch arch);
+
 struct llama_model_saver {
     struct lm_gguf_context * lm_gguf_ctx = nullptr;
     const bool lm_gguf_ctx_owned;
@@ -37,4 +40,5 @@ struct llama_model_saver {
     void add_tensors_from_model();
 
     void save(const std::string & path_model);
+    void save(FILE * file);
 };
