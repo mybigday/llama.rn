@@ -983,6 +983,7 @@ namespace rnllama_jsi {
                 if (ctx->completion && ctx->completion->is_predicting) {
                      throw std::runtime_error("Context is busy");
                 }
+                ctx->completion->rewind();
 
                 parseCompletionParams(runtime, params, ctx);
 
@@ -1027,7 +1028,6 @@ namespace rnllama_jsi {
                         ctx->tts_wrapper->setGuideTokens(guide_tokens);
                     }
 
-                    ctx->completion->rewind();
                     if (!ctx->completion->initSampling()) {
                         throw std::runtime_error("Failed to initialize sampling");
                     }
