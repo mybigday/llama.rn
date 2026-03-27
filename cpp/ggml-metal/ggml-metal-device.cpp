@@ -246,6 +246,10 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_unary(lm_g
                 case LM_GGML_UNARY_OP_EXP:         op_num = OP_UNARY_NUM_EXP;         break;
                 case LM_GGML_UNARY_OP_SOFTPLUS:    op_num = OP_UNARY_NUM_SOFTPLUS;    break;
                 case LM_GGML_UNARY_OP_EXPM1:       op_num = OP_UNARY_NUM_EXPM1;       break;
+                case LM_GGML_UNARY_OP_FLOOR:       op_num = OP_UNARY_NUM_FLOOR;       break;
+                case LM_GGML_UNARY_OP_CEIL:        op_num = OP_UNARY_NUM_CEIL;        break;
+                case LM_GGML_UNARY_OP_ROUND:       op_num = OP_UNARY_NUM_ROUND;       break;
+                case LM_GGML_UNARY_OP_TRUNC:       op_num = OP_UNARY_NUM_TRUNC;       break;
                 default: LM_GGML_ABORT("fatal error");
             } break;
         default: LM_GGML_ABORT("fatal error");

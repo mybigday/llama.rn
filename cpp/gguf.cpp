@@ -394,7 +394,11 @@ bool lm_gguf_read_emplace_helper(const struct lm_gguf_reader & gr, std::vector<s
     return true;
 }
 
-struct lm_gguf_context * lm_gguf_init_from_file_impl(FILE * file, struct lm_gguf_init_params params) {
+struct lm_gguf_context * lm_gguf_init_from_file_ptr(FILE * file, struct lm_gguf_init_params params) {
+    if (!file) {
+        return nullptr;
+    }
+
     const struct lm_gguf_reader gr(file);
     struct lm_gguf_context * ctx = new lm_gguf_context;
 
@@ -848,7 +852,7 @@ struct lm_gguf_context * lm_gguf_init_from_file(const char * fname, struct lm_gg
         return nullptr;
     }
 
-    struct lm_gguf_context * result = lm_gguf_init_from_file_impl(file, params);
+    struct lm_gguf_context * result = lm_gguf_init_from_file_ptr(file, params);
     fclose(file);
     return result;
 }
@@ -1508,6 +1512,19 @@ void lm_gguf_write_to_buf(const struct lm_gguf_context * ctx, std::vector<int8_t
     lm_gguf_write_out(ctx, gw, only_meta);
 }
 
+bool lm_gguf_write_to_file_ptr(const struct lm_gguf_context * ctx, FILE * file, bool only_meta) {
+    LM_GGML_ASSERT(file);
+
+    try {
+        lm_gguf_writer_file gw(file);
+        lm_gguf_write_out(ctx, gw, only_meta);
+    } catch (const std::runtime_error& ex) {
+        LM_GGML_LOG_ERROR("%s: failed to write GGUF data: %s\n", __func__, ex.what());
+        return false;
+    }
+    return true;
+}
+
 bool lm_gguf_write_to_file(const struct lm_gguf_context * ctx, const char * fname, bool only_meta) {
     FILE * file = lm_ggml_fopen(fname, "wb");
 
@@ -1516,17 +1533,13 @@ bool lm_gguf_write_to_file(const struct lm_gguf_context * ctx, const char * fnam
         return false;
     }
 
-    try {
-        lm_gguf_writer_file gw(file);
-        lm_gguf_write_out(ctx, gw, only_meta);
-    } catch (const std::runtime_error& ex) {
-        LM_GGML_LOG_ERROR("%s: failed to write GGUF data into '%s': %s\n", __func__, fname, ex.what());
-        fclose(file);
-        return false;
+    const bool success = lm_gguf_write_to_file_ptr(ctx, file, only_meta);
+    if (!success) {
+        LM_GGML_LOG_ERROR("%s: failed to write GGUF data into '%s'\n", __func__, fname);
     }
 
     fclose(file);
-    return true;
+    return success;
 }
 
 size_t lm_gguf_get_meta_size(const struct lm_gguf_context * ctx) {

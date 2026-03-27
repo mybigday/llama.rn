@@ -304,6 +304,8 @@ cp ./$LLAMA_DIR/tools/mtmd/mtmd-helper.cpp ./cpp/tools/mtmd/mtmd-helper.cpp
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-helper.h ./cpp/tools/mtmd/mtmd-helper.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-audio.h ./cpp/tools/mtmd/mtmd-audio.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-audio.cpp ./cpp/tools/mtmd/mtmd-audio.cpp
+cp ./$LLAMA_DIR/tools/mtmd/mtmd-image.h ./cpp/tools/mtmd/mtmd-image.h
+cp ./$LLAMA_DIR/tools/mtmd/mtmd-image.cpp ./cpp/tools/mtmd/mtmd-image.cpp
 
 rm -rf ./cpp/common/jinja
 cp -r ./$LLAMA_DIR/common/jinja ./cpp/common/jinja

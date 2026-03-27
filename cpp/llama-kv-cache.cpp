@@ -1561,7 +1561,6 @@ lm_ggml_tensor * llama_kv_cache::build_rope_shift(
                                 // ref: https://github.com/ggml-org/llama.cpp/pull/13870
                                 ? LLAMA_ROPE_TYPE_NEOX
                                 : hparams.rope_type;
-
     lm_ggml_tensor * tmp;
 
     if (lm_ggml_is_quantized(cur->type)) {
