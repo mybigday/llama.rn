@@ -657,6 +657,7 @@ See the [contributing guide](CONTRIBUTING.md) to learn how to contribute to the 
 - [BRICKS](https://bricks.tools): Our product for building interactive signage in simple way. We provide LLM functions as Generator LLM/Assistant.
 - [ChatterUI](https://github.com/Vali-98/ChatterUI): Simple frontend for LLMs built in react-native.
 - [PocketPal AI](https://github.com/a-ghorbani/pocketpal-ai): An app that brings language models directly to your phone.
+- [InferrLM](https://github.com/sbhjt-gr/InferrLM): On-device AI for iOS & Android.
 
 ## Node.js binding
 
