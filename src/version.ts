@@ -1,2 +1,2 @@
-export const BUILD_NUMBER = '8641'
-export const BUILD_COMMIT = '5208e2d'
+export const BUILD_NUMBER = '8642'
+export const BUILD_COMMIT = '7c7d6ce'
