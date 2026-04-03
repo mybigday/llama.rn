@@ -12,6 +12,12 @@ struct clip_graph_siglip : clip_graph {
     lm_ggml_cgraph * build() override;
 };
 
+struct clip_graph_gemma4v : clip_graph {
+    clip_graph_gemma4v(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+    lm_ggml_tensor * build_mm(lm_ggml_tensor * w, lm_ggml_tensor * x) const override;
+};
+
 struct clip_graph_pixtral : clip_graph {
     clip_graph_pixtral(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;

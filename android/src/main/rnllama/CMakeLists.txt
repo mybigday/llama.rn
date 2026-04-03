@@ -271,6 +271,8 @@ function(build_rnllama_library target_name arch cpu_flags)
             gemv_noshuffle_q4_1_f32
             gemm_noshuffle_q4_1_f32
             gemv_noshuffle_general_q8_0_f32
+            gemv_noshuffle_q4_k_f32
+            gemm_noshuffle_q4_k_f32
             gemv_noshuffle_q6_k_f32
             gemm_noshuffle_q6_k_f32
             mul

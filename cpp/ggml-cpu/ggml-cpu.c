@@ -2350,11 +2350,15 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
         case LM_GGML_OP_FLASH_ATTN_BACK:
         case LM_GGML_OP_SSM_CONV:
         case LM_GGML_OP_SSM_SCAN:
+            {
+                n_tasks = n_threads;
+            } break;
         case LM_GGML_OP_RWKV_WKV6:
         case LM_GGML_OP_GATED_LINEAR_ATTN:
         case LM_GGML_OP_RWKV_WKV7:
             {
-                n_tasks = n_threads;
+                const int64_t n_heads = node->src[1]->ne[1];
+                n_tasks = MIN(n_threads, n_heads);
             } break;
         case LM_GGML_OP_WIN_PART:
         case LM_GGML_OP_WIN_UNPART:

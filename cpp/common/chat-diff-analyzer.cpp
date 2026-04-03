@@ -92,6 +92,34 @@ static std::vector<std::function<void(const common_chat_template & tmpl, autopar
               LOG_DBG(ANSI_ORANGE "[Patch: Functionary 3.1]\n" ANSI_RESET);
           }
       },
+      // Gemma4 - custom dict format: <|tool_call>call:name{key:<|"|>val<|"|>}<tool_call|>
+      [](const common_chat_template & tmpl, autoparser & analysis) -> void {
+          if (tmpl.src.find("'<|tool_call>call:'") != std::string::npos) {
+              analysis.tools.format.mode           = tool_format::TAG_WITH_GEMMA4_DICT;
+              analysis.tools.format.per_call_start = "<|tool_call>";
+              analysis.tools.format.per_call_end   = "<tool_call|>";
+              analysis.tools.format.section_start  = "";
+              analysis.tools.format.section_end    = "";
+              analysis.tools.function.name_prefix  = "call:";
+              analysis.tools.function.name_suffix  = "";
+              analysis.tools.arguments.start       = "{";
+              analysis.tools.arguments.end         = "}";
+              analysis.tools.arguments.name_prefix = "";
+              analysis.tools.arguments.name_suffix = ":";
+              analysis.tools.arguments.separator   = ",";
+              analysis.reasoning.mode              = reasoning_mode::TAG_BASED;
+              analysis.reasoning.start             = "<|channel>thought";
+              analysis.reasoning.end               = "<channel|>";
+              analysis.preserved_tokens.clear();
+              analysis.preserved_tokens.push_back("<|tool_call>");
+              analysis.preserved_tokens.push_back("<tool_call|>");
+              analysis.preserved_tokens.push_back("<|tool_response>");
+              analysis.preserved_tokens.push_back("<tool_response|>");
+              analysis.preserved_tokens.push_back("<|\"|>");
+              analysis.preserved_tokens.push_back("<|turn>");
+              LOG_DBG(ANSI_ORANGE "[Patch: Gemma4]\n" ANSI_RESET);
+          }
+      },
       // DeepSeek-R1-Distill-Qwen
       [](const common_chat_template & tmpl, autoparser & analysis) -> void {
           if (tmpl.src.find(
@@ -287,7 +315,7 @@ void analyze_reasoning::compare_reasoning_presence() {
             return p.literal(reasoning_content) + p.space() + p.optional(p.tag("post", (p.marker() + p.space())) + p.rest());
         });
         auto parser_wrapped = build_tagged_peg_parser([&](common_peg_parser_builder &p) {
-            return p.tag("pre", p.marker()) + p.space() + p.literal(reasoning_content) + p.space() + p.tag("post", (p.marker() + p.space())) + p.rest();
+            return p.tag("pre", p.marker() + p.space()) + p.literal(reasoning_content) + p.space() + p.tag("post", (p.marker() + p.space())) + p.rest();
         });
         // try the more aggressive parse first, if it fails, fall back to the delimiter one
         auto result = parser_wrapped.parse_anywhere_and_extract(comparison->output_B);
@@ -297,7 +325,7 @@ void analyze_reasoning::compare_reasoning_presence() {
         if (result.result.success()) {
             if (!result.tags["pre"].empty() && !result.tags["post"].empty()) {
                 mode = reasoning_mode::TAG_BASED;
-                start = trim_whitespace(result.tags["pre"]);
+                start = trim_leading_whitespace(result.tags["pre"]);
                 end   = trim_trailing_whitespace(result.tags["post"]);
             } else if (!result.tags["post"].empty()) {
                 mode = reasoning_mode::TAG_BASED;
@@ -333,7 +361,7 @@ void analyze_reasoning::compare_thinking_enabled() {
     if (left_trimmed.empty() && !diff.right.empty()) {
         if (!right_trimmed.empty() && string_ends_with(comparison->output_B, right_trimmed)) {
             if (start.empty()) {
-                start = right_trimmed;
+                start = trim_leading_whitespace(diff.right);
                 mode  = reasoning_mode::TAG_BASED;
             }
         }
@@ -344,7 +372,7 @@ void analyze_reasoning::compare_thinking_enabled() {
                 if (seg.size() >= 2 && seg[seg.size() - 1].value == left_trimmed && seg[seg.size() - 2].type == segment_type::MARKER) {
                     start = seg[seg.size() - 2].value;
                 }
-                end = left_trimmed;
+                end = trim_trailing_whitespace(diff.left);
                 mode = reasoning_mode::TAG_BASED;
             }
         }
@@ -363,15 +391,23 @@ void analyze_reasoning::compare_thinking_enabled() {
             size_t len = std::min(base.size(), anchor_len);
             std::string anchor = base.substr(base.size() - len);
             auto pos = extended.rfind(anchor);
-            if (pos == std::string::npos || pos + len >= extended.size()) continue;
+            if (pos == std::string::npos || pos + len >= extended.size()) {
+                continue;
+            }
 
             std::string extra = trim_whitespace(extended.substr(pos + len));
-            if (extra.empty()) continue;
+            if (extra.empty()) {
+                continue;
+            }
 
             auto seg = prune_whitespace_segments(segmentize_markers(extra));
             if (seg.size() == 2 && seg[0].type == segment_type::MARKER && seg[1].type == segment_type::MARKER) {
-                if (start.empty()) start = seg[0].value;
-                if (end.empty())   end   = seg[1].value;
+                if (start.empty()) {
+                    start = seg[0].value;
+                }
+                if (end.empty()) {
+                    end   = seg[1].value;
+                }
                 mode = reasoning_mode::TAG_BASED;
                 break;
             }
@@ -423,7 +459,7 @@ void analyze_reasoning::compare_reasoning_scope() {
         LOG_DBG(ANSI_ORANGE "%s: Detected TOOLS_ONLY reasoning mode\n" ANSI_RESET, __func__);
 
         auto parser_wrapped = build_tagged_peg_parser([&](common_peg_parser_builder &p) {
-            return p.tag("pre", p.marker()) + p.space() + p.literal(reasoning_content) + p.space() + p.tag("post", (p.marker() + p.space()));
+            return p.tag("pre", p.marker() + p.space()) + p.literal(reasoning_content) + p.space() + p.tag("post", (p.marker() + p.space()));
         });
         auto result = parser_wrapped.parse_anywhere_and_extract(comparison->output_B);
         if (result.result.success()) {
@@ -516,7 +552,7 @@ analyze_content::analyze_content(const common_chat_template & tmpl, const analyz
         // Take the more promising diff
         std::string pure_content = rdiff.length() > diff_tools.left.length() ? rdiff : diff_tools.left;
         auto parser_wrapped = build_tagged_peg_parser([&](common_peg_parser_builder &p) {
-            return p.tag("pre", p.marker()) + p.space() + p.literal(response) + p.space() + p.tag("post", (p.marker() + p.space())) + p.rest();
+            return p.tag("pre", p.marker() + p.space()) + p.literal(response) + p.space() + p.tag("post", (p.marker() + p.space())) + p.rest();
         });
         auto result = parser_wrapped.parse_anywhere_and_extract(pure_content);
         start = result.tags["pre"];
