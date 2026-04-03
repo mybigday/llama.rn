@@ -394,6 +394,13 @@ struct mtmd_context {
                     img_end = "<|IMAGE_END|>";
                     image_preproc = std::make_unique<mtmd_image_preprocessor_dyn_size>(ctx_v);
                 } break;
+            case PROJECTOR_TYPE_GEMMA4V:
+                {
+                    // <|image> ... (image embeddings) ... <image|>
+                    img_beg = "<|image>";
+                    img_end = "<image|>";
+                    image_preproc = std::make_unique<mtmd_image_preprocessor_dyn_size>(ctx_v);
+                } break;
             case PROJECTOR_TYPE_DEEPSEEKOCR:
                 {
                     img_end = "\n"; // prevent empty batch on llama-server
@@ -641,6 +648,11 @@ struct mtmd_tokenizer {
                 add_text(ctx->img_beg, true); // add image begin token
             }
 
+            // sanity check
+            LM_GGML_ASSERT(bitmap->nx > 0 && bitmap->ny > 0);
+            LM_GGML_ASSERT(bitmap->data.size() == (size_t)bitmap->nx * bitmap->ny * 3);
+            LM_GGML_ASSERT(ctx->image_preproc != nullptr);
+
             // convert mtmd_bitmap to clip_image_u8
             clip_image_u8_ptr img_u8(clip_image_u8_init());
             img_u8->nx = bitmap->nx;
@@ -649,7 +661,6 @@ struct mtmd_tokenizer {
             std::memcpy(img_u8->buf.data(), bitmap->data.data(), img_u8->nx * img_u8->ny * 3);
 
             // preprocess image
-            LM_GGML_ASSERT(ctx->image_preproc != nullptr);
             clip_image_f32_batch batch_f32;
             bool ok = ctx->image_preproc->preprocess(*img_u8, batch_f32);
             if (!ok) {
@@ -772,6 +783,11 @@ struct mtmd_tokenizer {
             if (!ctx->aud_beg.empty()) {
                 add_text(ctx->aud_beg, true); // add audio begin token
             }
+
+            // sanity check
+            LM_GGML_ASSERT(ctx->audio_preproc != nullptr);
+            LM_GGML_ASSERT(bitmap->data.size() > sizeof(float));
+            LM_GGML_ASSERT(bitmap->data.size() % sizeof(float) == 0);
 
             // preprocess audio
             std::vector<mtmd_audio_mel> mel_spec_chunks;
@@ -965,6 +981,7 @@ float * mtmd_get_output_embd(mtmd_context * ctx) {
 bool mtmd_decode_use_non_causal(mtmd_context * ctx) {
     switch (ctx->proj_type_v()) {
         case PROJECTOR_TYPE_GEMMA3:
+        case PROJECTOR_TYPE_GEMMA4V:
             return true;
         default:
             return false;
