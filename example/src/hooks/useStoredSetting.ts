@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   loadCompletionParams,
   loadContextParams,
@@ -29,17 +29,32 @@ export function useStoredSetting<T>(
   { initialValue, logLabel }: UseStoredSettingOptions<T>,
 ): StoredSettingResult<T> {
   const [value, setValue] = useState<T | null>(initialValue)
+  const initialValueRef = useRef<T | null>(initialValue)
+  const isMountedRef = useRef(true)
+
+  useEffect(() => {
+    initialValueRef.current = initialValue
+  }, [initialValue])
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false
+    },
+    [],
+  )
 
   const reload = useCallback(async () => {
     try {
       const nextValue = await loadValue()
-      setValue(nextValue)
+      if (isMountedRef.current) {
+        setValue(nextValue)
+      }
       return nextValue
     } catch (error) {
       console.error(`Failed to load ${logLabel}:`, error)
-      return initialValue
+      return initialValueRef.current
     }
-  }, [initialValue, loadValue, logLabel])
+  }, [loadValue, logLabel])
 
   useEffect(() => {
     void reload()
