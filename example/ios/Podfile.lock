@@ -8,7 +8,7 @@ PODS:
   - hermes-engine (0.82.0):
     - hermes-engine/Pre-built (= 0.82.0)
   - hermes-engine/Pre-built (0.82.0)
-  - llama-rn (0.12.0-rc.2):
+  - llama-rn (0.12.0-rc.3):
     - boost
     - DoubleConversion
     - fast_float
@@ -3021,13 +3021,13 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   boost: 7e761d76ca2ce687f7cc98e698152abd03a18f90
   DoubleConversion: cb417026b2400c8f53ae97020b2be961b59470cb
-  fast_float: 914e00b8b67cb8ba184a778c7bbc2e9fe98d37b3
+  fast_float: b32c788ed9c6a8c584d114d0047beda9664e7cc6
   FBLazyVector: 41b4dd99afd0aad861444ee141abdedaa6c3d238
-  fmt: b85d977e8fe789fd71c77123f9f4920d88c4d170
-  glog: 682871fb30f4a65f657bf357581110656ea90b08
-  hermes-engine: dfa4c7386b81faeb1c577de5b56a0c00560210f0
-  llama-rn: 98d4fe23c11c7670820f114eb02732dae7b6d4af
-  RCT-Folly: fb64616e25cfac1c3d10bfd784d68926325ae67f
+  fmt: bf3b0f2427f5c78a3d39ac34a7dbe72faabf986d
+  glog: 5683914934d5b6e4240e497e0f4a3b42d1854183
+  hermes-engine: 8642d8f14a548ab718ec112e9bebdfdd154138b5
+  llama-rn: 2d4b10e1d59ad28a6311c299935ab5108cb06ad7
+  RCT-Folly: 846fda9475e61ec7bcbf8a3fe81edfcaeb090669
   RCTDeprecation: 22bf66112da540a7d40e536366ddd8557934fca1
   RCTRequired: a0ed4dc41b35f79fbb6d8ba320e06882a8c792cf
   RCTTypeSafety: 59a046ff1e602409a86b89fcd6edff367a5b14af

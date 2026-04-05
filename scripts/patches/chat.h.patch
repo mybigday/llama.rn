@@ -1,6 +1,15 @@
 --- common/chat.h.orig	2026-03-25 00:00:00
 +++ common/chat.h	2026-03-25 00:00:00
-@@ -40,13 +40,16 @@
+@@ -8,7 +8,7 @@
+ #include "jinja/runtime.h"
+ #include "jinja/caps.h"
+ 
+-#include "nlohmann/json_fwd.hpp"
++#include "nlohmann/json.hpp"
+ 
+ #include <chrono>
+ #include <functional>
+@@ -38,13 +38,16 @@
  struct common_chat_msg_content_part {
      std::string type;
      std::string text;
@@ -18,7 +27,7 @@
 +        return type == other.type && text == other.text && extra_fields == other.extra_fields;
      }
  };
-@@ -287,6 +291,20 @@
+@@ -253,6 +256,20 @@
  bool common_chat_templates_support_enable_thinking(const common_chat_templates * chat_templates);
  
 +// Template capabilities structure (for exposing capabilities to external code)
