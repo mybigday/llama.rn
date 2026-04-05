@@ -1,8 +1,8 @@
 diff --git a/node_modules/react-native/third-party-podspecs/fmt.podspec b/node_modules/react-native/third-party-podspecs/fmt.podspec
-index 2f38990..1ba1905 100644
+index 2f38990..222ac1b 100644
 --- a/node_modules/react-native/third-party-podspecs/fmt.podspec
 +++ b/node_modules/react-native/third-party-podspecs/fmt.podspec
-@@ -19,8 +19,18 @@ Pod::Spec.new do |spec|
+@@ -19,8 +19,10 @@ Pod::Spec.new do |spec|
    }
    spec.pod_target_xcconfig = {
      "CLANG_CXX_LANGUAGE_STANDARD" => rct_cxx_language_standard(),
