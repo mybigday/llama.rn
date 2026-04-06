@@ -82,6 +82,8 @@ build-ios/
 build-tvos/
 bin/
 ios/rnllama.xcframework/**/*.framework
+ios/rnllama.xcframework/**/dSYMs/
+ios/rnllama.xcframework/**/*.bcsymbolmap
 
 # Hexagon DSP build artifacts
 build-hexagon-htp/
