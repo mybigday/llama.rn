@@ -358,7 +358,8 @@ struct clip_model {
     // MINICPMV projection
     lm_ggml_tensor * mm_model_pos_embed_k = nullptr;
     lm_ggml_tensor * mm_model_query = nullptr;
-    lm_ggml_tensor * mm_model_proj = nullptr;
+    lm_ggml_tensor * mm_model_proj   = nullptr;
+    lm_ggml_tensor * mm_model_proj_b = nullptr;
     lm_ggml_tensor * mm_model_kv_proj = nullptr;
     lm_ggml_tensor * mm_model_attn_q_w = nullptr;
     lm_ggml_tensor * mm_model_attn_q_b = nullptr;
@@ -418,6 +419,11 @@ struct clip_model {
     lm_ggml_tensor * mm_4h_to_h_w = nullptr;
     lm_ggml_tensor * mm_boi = nullptr;
     lm_ggml_tensor * mm_eoi = nullptr;
+
+    // hunyuanocr perceiver
+    lm_ggml_tensor * mm_pre_norm_w  = nullptr;
+    lm_ggml_tensor * mm_img_begin   = nullptr;
+    lm_ggml_tensor * mm_img_end     = nullptr;
 
     // deepseek ocr sam
     lm_ggml_tensor * patch_embed_proj_w = nullptr;
