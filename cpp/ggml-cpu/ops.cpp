@@ -4829,6 +4829,7 @@ void lm_ggml_compute_forward_get_rows(
     const lm_ggml_tensor * src0 = dst->src[0];
 
     switch (src0->type) {
+        case LM_GGML_TYPE_Q1_0:
         case LM_GGML_TYPE_Q4_0:
         case LM_GGML_TYPE_Q4_1:
         case LM_GGML_TYPE_Q5_0:
@@ -5554,6 +5555,7 @@ void lm_ggml_compute_forward_clamp(
                 lm_ggml_compute_forward_clamp_f16(params, dst);
             } break;
         case LM_GGML_TYPE_BF16:
+        case LM_GGML_TYPE_Q1_0:
         case LM_GGML_TYPE_Q4_0:
         case LM_GGML_TYPE_Q4_1:
         case LM_GGML_TYPE_Q5_0:
