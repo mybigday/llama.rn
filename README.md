@@ -25,6 +25,24 @@ React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp) - LL
 npm install llama.rn
 ```
 
+`llama.rn` downloads the pre-built `ios/rnllama.xcframework` and `android/src/main/jniLibs` from the matching GitHub release during `postinstall`. Existing downloads are reused, and each archive is verified with SHA-256 before extraction.
+
+#### Bun
+
+Bun does not run dependency lifecycle scripts unless the package is trusted. If you install `llama.rn` with Bun and want the native downloads to run automatically, add it to `trustedDependencies` and re-run `bun install`:
+
+```json
+{
+  "trustedDependencies": ["llama.rn"]
+}
+```
+
+If you prefer not to trust dependency lifecycle scripts, run the downloader manually before `npx pod-install` or your Android build:
+
+```sh
+node ./node_modules/llama.rn/install/download-native-artifacts.js
+```
+
 #### iOS
 
 Please re-run `npx pod-install` again.

@@ -81,6 +81,10 @@ jniLibs/
 build-ios/
 build-tvos/
 bin/
+llama-rn-android-jni-libs.tar.gz
+llama-rn-ios-xcframework.tar.gz
+android/src/main/.llama-rn-android-jni-libs.sha256
+ios/.llama-rn-ios-xcframework.sha256
 ios/rnllama.xcframework/**/*.framework
 ios/rnllama.xcframework/**/dSYMs/
 ios/rnllama.xcframework/**/*.bcsymbolmap

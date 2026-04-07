@@ -9,6 +9,8 @@
   "source": "src/index",
   "files": [
     "bin",
+    "install/download-native-artifacts.js",
+    "install/native-artifacts.json",
     "third_party/OpenCL-Headers/CL",
     "src",
     "lib",
@@ -20,7 +22,9 @@
     "*.podspec",
     "!lib/typescript/example",
     "!ios/build",
+    "!ios/rnllama.xcframework/**",
     "!android/build",
+    "!android/src/main/jniLibs/**",
     "!android/gradle",
     "!android/gradlew",
     "!android/gradlew.bat",
@@ -36,8 +40,10 @@
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
+    "postinstall": "node ./install/download-native-artifacts.js",
+    "download:native-artifacts": "node ./install/download-native-artifacts.js",
     "build": "bob build",
-    "prepack": "npm run build:ios-frameworks && ([ \"$SKIP_ANDROID_BUILD\" = \"1\" ] || npm run build:android-libs) && bob build",
+    "prepack": "bob build",
     "release": "release-it",
     "example": "npm --prefix example",
     "build:ios-frameworks": "./scripts/build-ios.sh",
@@ -58,6 +64,9 @@
     "llama-2"
   ],
   "repository": "https://github.com/mybigday/llama.rn",
+  "bin": {
+    "llama-rn-download-artifacts": "./install/download-native-artifacts.js"
+  },
   "author": "Jhen-Jie Hong <developer@jhen.me> (https://github.com/mybigday)",
   "license": "MIT",
   "bugs": {

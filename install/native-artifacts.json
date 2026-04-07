@@ -1,0 +1,18 @@
+{
+  "artifacts": [
+    {
+      "name": "android-jni-libs",
+      "assetName": "llama-rn-android-jni-libs.tar.gz",
+      "relativePath": "android/src/main/jniLibs",
+      "markerPath": "android/src/main/.llama-rn-android-jni-libs.sha256",
+      "sha256": null
+    },
+    {
+      "name": "ios-xcframework",
+      "assetName": "llama-rn-ios-xcframework.tar.gz",
+      "relativePath": "ios/rnllama.xcframework",
+      "markerPath": "ios/.llama-rn-ios-xcframework.sha256",
+      "sha256": null
+    }
+  ]
+}
