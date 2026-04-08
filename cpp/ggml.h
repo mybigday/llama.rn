@@ -902,15 +902,17 @@ extern "C" {
             struct lm_ggml_tensor  * b,
             struct lm_ggml_tensor  * ids);
 
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_add1(
+    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_add1(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
-            struct lm_ggml_tensor  * b);
+            struct lm_ggml_tensor  * b),
+        "use lm_ggml_add instead");
 
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_add1_inplace(
+    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_add1_inplace(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
-            struct lm_ggml_tensor  * b);
+            struct lm_ggml_tensor  * b),
+        "use lm_ggml_add_inplace instead");
 
     // dst = a
     // view(dst, nb1, nb2, nb3, offset) += b

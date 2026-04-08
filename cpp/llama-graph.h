@@ -308,7 +308,7 @@ public:
     lm_ggml_tensor * self_kq_mask     = nullptr; // F32 [n_kv, n_batch/n_stream, 1, n_stream]
     lm_ggml_tensor * self_kq_mask_cnv = nullptr; //     [n_kv, n_batch/n_stream, 1, n_stream]
 
-    // note: assumes v_rot^ == I
+    // note: assumes v_rot^2 == I
     lm_ggml_tensor * self_k_rot = nullptr;
     lm_ggml_tensor * self_v_rot = nullptr;
 
@@ -388,9 +388,11 @@ public:
     lm_ggml_tensor * self_kq_mask_swa     = nullptr; // F32 [n_kv, n_batch/n_stream, 1, n_stream]
     lm_ggml_tensor * self_kq_mask_swa_cnv = nullptr; //     [n_kv, n_batch/n_stream, 1, n_stream]
 
-    // note: using same rotation matrices for both base and swa cache
     lm_ggml_tensor * self_k_rot = nullptr;
     lm_ggml_tensor * self_v_rot = nullptr;
+
+    lm_ggml_tensor * self_k_rot_swa = nullptr;
+    lm_ggml_tensor * self_v_rot_swa = nullptr;
 
     const llama_hparams hparams;
     const llama_cparams cparams;
