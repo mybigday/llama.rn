@@ -1,5 +1,12 @@
 #include "models.h"
 
+// get 2D slice view from a 3D tensor, the idx corresponds to the 3rd dim
+static lm_ggml_tensor * lm_ggml_view_2d_slice(lm_ggml_context * ctx0, lm_ggml_tensor * x, int idx) {
+    LM_GGML_ASSERT(idx < (int) x->ne[2]);
+    return lm_ggml_view_2d(ctx0, x, x->ne[0], x->ne[1], lm_ggml_row_size(x->type, x->ne[0]),
+                        idx * x->ne[0] * x->ne[1] * lm_ggml_element_size(x));
+}
+
 llm_build_gemma3n_iswa::llm_build_gemma3n_iswa(const llama_model & model, const llm_graph_params & params) :
     llm_graph_context(params),
     model(model),
@@ -22,8 +29,11 @@ llm_build_gemma3n_iswa::llm_build_gemma3n_iswa(const llama_model & model, const 
     // TODO: is causal == true correct? might need some changes
     auto * inp_attn = build_attn_inp_kv_iswa();
 
-    // inp_per_layer shape: [n_embd_altup, n_tokens, n_layer]
-    lm_ggml_tensor * inp_per_layer = project_per_layer_inputs(inpL, get_per_layer_inputs());
+    lm_ggml_tensor * inp_per_layer = build_inp_per_layer();
+    lm_ggml_build_forward_expand(gf, inp_per_layer);
+
+    // inp_per_layer now has shape: [n_embd_altup, n_tokens, n_layer]
+    inp_per_layer = project_per_layer_inputs(inpL, inp_per_layer);
 
     // inpL now has only 1 altup, project it to the rest of the altups
     // these "added" altups will be concat to the last dim of inpL
@@ -37,8 +47,7 @@ llm_build_gemma3n_iswa::llm_build_gemma3n_iswa(const llama_model & model, const 
         inpL                        = lm_ggml_concat(ctx0, inpL, altup_added, 2);  // shape: [n_embd, n_tokens, n_altup]
         cb(inpL, "inp_stacked", -1);
     }
-    // inpL now has shape:          [n_embd,       n_tokens, n_altup]
-    // inp_per_layer now has shape: [n_embd_altup, n_tokens, n_layer]
+    // inpL now has shape: [n_embd, n_tokens, n_altup]
 
     for (int il = 0; il < n_layer; ++il) {
         // this block is made to be closely resemble Gemma3p5DecoderLayer on python code
@@ -49,8 +58,8 @@ llm_build_gemma3n_iswa::llm_build_gemma3n_iswa(const llama_model & model, const 
         lm_ggml_tensor * predictions = altup_predict(cur, il);  // [n_embd, n_tokens, n_altup]
 
         // predicted value will go through self-attention and laurel
-        lm_ggml_tensor * active_prediction = view_2d_slice(predictions, i_altup_act);  // [n_embd, n_tokens]
-        cur                             = active_prediction;
+        lm_ggml_tensor * active_prediction = lm_ggml_view_2d_slice(ctx0, predictions, i_altup_act);  // [n_embd, n_tokens]
+        cur = active_prediction;
         cb(cur, "active_prediction", il);
 
         // norm
@@ -151,12 +160,13 @@ llm_build_gemma3n_iswa::llm_build_gemma3n_iswa(const llama_model & model, const 
 
         lm_ggml_tensor * first_prediction;                                                   // [n_embd, n_tokens]
         {
-            first_prediction = view_2d_slice(corrected, i_altup_act);                     // [n_embd, n_tokens]
+            first_prediction = lm_ggml_view_2d_slice(ctx0, corrected, i_altup_act);          // [n_embd, n_tokens]
             first_prediction = lm_ggml_mul(ctx0, first_prediction, model.layers[il].altup_correct_scale);
             first_prediction = build_lora_mm(model.layers[il].per_layer_inp_gate, first_prediction);
             first_prediction = lm_ggml_gelu(ctx0, first_prediction);                 // [n_embd_altup, n_tokens]
             cb(first_prediction, "first_prediction_gated", il);
-            lm_ggml_tensor * inp_this_layer = view_2d_slice(inp_per_layer, il);      // [n_embd_altup, n_tokens]
+
+            lm_ggml_tensor * inp_this_layer = lm_ggml_view_2d_slice(ctx0, inp_per_layer, il);   // [n_embd_altup, n_tokens]
             first_prediction = lm_ggml_mul(ctx0, first_prediction, inp_this_layer);  // [n_embd_altup, n_tokens]
             cb(first_prediction, "first_prediction_scaled", il);
 
@@ -167,7 +177,7 @@ llm_build_gemma3n_iswa::llm_build_gemma3n_iswa(const llama_model & model, const 
         }
         // equivalent to python code: corrected_predictions[1:] += first_prediction
         {
-            lm_ggml_tensor * slice_first = view_2d_slice(corrected, 0);
+            lm_ggml_tensor * slice_first = lm_ggml_view_2d_slice(ctx0, corrected, 0);
             lm_ggml_tensor * slice_rest  = lm_ggml_view_3d(
                 ctx0, corrected, n_embd, n_tokens, n_altup - 1, lm_ggml_row_size(corrected->type, n_embd),
                 lm_ggml_row_size(corrected->type, n_embd * n_tokens), n_embd * n_tokens * lm_ggml_element_size(corrected));
@@ -185,7 +195,7 @@ llm_build_gemma3n_iswa::llm_build_gemma3n_iswa(const llama_model & model, const 
 
     // cur now has multiple altup(s), we want to merge them back to 1 altup
     {
-        lm_ggml_tensor * target_magnitude = calc_magnitude(view_2d_slice(cur, i_altup_act));  // [n_embd, n_tokens]
+        lm_ggml_tensor * target_magnitude = calc_magnitude(lm_ggml_view_2d_slice(ctx0, cur, i_altup_act));  // [n_embd, n_tokens]
         // do a view to skip the first slice (active altup)
         lm_ggml_tensor * alt_slice =
             lm_ggml_view_3d(ctx0, cur, n_embd, n_tokens, n_altup - 1, lm_ggml_row_size(cur->type, n_embd),
@@ -197,9 +207,9 @@ llm_build_gemma3n_iswa::llm_build_gemma3n_iswa(const llama_model & model, const 
         cb(altup_unembd, "altup_unembd", -1);
 
         // equivalent to torch.mean(hidden_states, dim=0)
-        cur = view_2d_slice(cur, 0);  // [n_embd, n_tokens]
+        cur = lm_ggml_view_2d_slice(ctx0, cur, 0);  // [n_embd, n_tokens]
         for (int i = 0; i < n_altup - 1; ++i) {
-            cur = lm_ggml_add(ctx0, cur, view_2d_slice(altup_unembd, i));
+            cur = lm_ggml_add(ctx0, cur, lm_ggml_view_2d_slice(ctx0, altup_unembd, i));
         }
         cur = lm_ggml_scale(ctx0, cur, 1.0f / float(n_altup));  // [n_embd, n_tokens]
         cb(cur, "unembd_merged", -1);
@@ -235,23 +245,16 @@ lm_ggml_tensor * llm_build_gemma3n_iswa::calc_magnitude(lm_ggml_tensor * x) {
     return lm_ggml_sqrt(ctx0, lm_ggml_sum_rows(ctx0, lm_ggml_sqr(ctx0, x)));
 }
 
-// get 2D slice view from a 3D tensor, the idx corresponds to the 3rd dim
-lm_ggml_tensor * llm_build_gemma3n_iswa::view_2d_slice(lm_ggml_tensor * x, int idx) {
-    LM_GGML_ASSERT(idx < (int) x->ne[2]);
-    return lm_ggml_view_2d(ctx0, x, x->ne[0], x->ne[1], lm_ggml_row_size(x->type, x->ne[0]),
-                        idx * x->ne[0] * x->ne[1] * lm_ggml_element_size(x));
-}
-
 // equivalent to get_per_layer_inputs() in python code
 // output shape: [n_embd_altup, n_layer, n_tokens]
-lm_ggml_tensor * llm_build_gemma3n_iswa::get_per_layer_inputs() {
+lm_ggml_tensor * llm_build_gemma3n_iswa::build_inp_per_layer() {
     auto inp = std::make_unique<llm_graph_input_embd>(n_embd);
     lm_ggml_tensor * inp_per_layer;
     if (ubatch.token) {
         inp->tokens = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, ubatch.n_tokens);
         lm_ggml_set_input(inp->tokens);
         res->t_inp_tokens = inp->tokens;
-        inp_per_layer = lm_ggml_get_rows(ctx0, model.tok_embd_per_layer, inp->tokens);
+        inp_per_layer = lm_ggml_get_rows(ctx0, model.per_layer_tok_embd, inp->tokens);
         inp_per_layer = lm_ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer, n_tokens);
         inp_per_layer = lm_ggml_scale(ctx0, inp_per_layer, sqrtf((float) n_embd_altup));
         cb(inp_per_layer, "inp_per_layer_selected", -1);
@@ -259,10 +262,10 @@ lm_ggml_tensor * llm_build_gemma3n_iswa::get_per_layer_inputs() {
     } else {
         // Vision embedding path: use padding token (ID=0) embedding
         // TODO: verify if this is the correct behavior in transformers implementation
-        const int64_t embd_size = model.tok_embd_per_layer->ne[0];  // n_embd_altup * n_layer
+        const int64_t embd_size = model.per_layer_tok_embd->ne[0];  // n_embd_altup * n_layer
 
         // Extract and dequantize padding token embedding (row 0)
-        lm_ggml_tensor * padding = lm_ggml_view_1d(ctx0, model.tok_embd_per_layer, embd_size, 0);
+        lm_ggml_tensor * padding = lm_ggml_view_1d(ctx0, model.per_layer_tok_embd, embd_size, 0);
         inp_per_layer = lm_ggml_cast(ctx0, padding, LM_GGML_TYPE_F32);
 
         // Reshape to [n_embd_altup, n_layer, 1]
@@ -275,18 +278,19 @@ lm_ggml_tensor * llm_build_gemma3n_iswa::get_per_layer_inputs() {
 // equivalent to project_per_layer_inputs() in python code
 // this calculates the per-layer inputs, so the final tensor shape will have n_layer as the last dim
 // output shape: [n_embd_altup, n_tokens, n_layer]
-lm_ggml_tensor * llm_build_gemma3n_iswa::project_per_layer_inputs(lm_ggml_tensor * inputs_embeds, lm_ggml_tensor * inp_per_layer) {
+lm_ggml_tensor * llm_build_gemma3n_iswa::project_per_layer_inputs(lm_ggml_tensor * inp_batch, lm_ggml_tensor * inp_per_layer) {
     const float per_layer_projection_scale = 1.0f / sqrtf((float) n_embd);
     const float per_layer_input_scale      = 1.0f / sqrtf(2.0f);
 
-    lm_ggml_tensor * per_layer_proj = lm_ggml_mul_mat(ctx0, model.per_layer_model_proj, inputs_embeds);
-    per_layer_proj               = lm_ggml_scale(ctx0, per_layer_proj, per_layer_projection_scale);
-    per_layer_proj               = lm_ggml_reshape_3d(ctx0, per_layer_proj, n_embd_altup, n_layer, n_tokens);
-    per_layer_proj               = build_norm(per_layer_proj, model.per_layer_proj_norm, NULL, LLM_NORM_RMS,
-                                              -1);  // [n_embd_altup, n_layer, n_tokens]
+    lm_ggml_tensor * per_layer_proj;
+    per_layer_proj = lm_ggml_mul_mat   (ctx0, model.per_layer_model_proj, inp_batch);
+    per_layer_proj = lm_ggml_scale     (ctx0, per_layer_proj, per_layer_projection_scale);
+    per_layer_proj = lm_ggml_reshape_3d(ctx0, per_layer_proj, n_embd_altup, n_layer, n_tokens);
+
+    per_layer_proj = build_norm(per_layer_proj, model.per_layer_proj_norm, NULL, LLM_NORM_RMS, -1);
     cb(per_layer_proj, "per_layer_proj", -1);
 
-    inp_per_layer = lm_ggml_add(ctx0, per_layer_proj, inp_per_layer);
+    inp_per_layer = lm_ggml_add  (ctx0, per_layer_proj, inp_per_layer);
     inp_per_layer = lm_ggml_scale(ctx0, inp_per_layer, per_layer_input_scale);
     cb(inp_per_layer, "inp_per_layer", -1);
 
@@ -337,7 +341,7 @@ lm_ggml_tensor * llm_build_gemma3n_iswa::altup_compute_router_modalities(lm_ggml
 // input cur shape: [n_embd, n_tokens, n_altup]
 // output    shape: [n_embd, n_tokens, n_altup]
 lm_ggml_tensor * llm_build_gemma3n_iswa::altup_predict(lm_ggml_tensor * cur, int il) {
-    lm_ggml_tensor * activated  = view_2d_slice(cur, i_altup_act);                 // [n_embd, n_tokens]
+    lm_ggml_tensor * activated  = lm_ggml_view_2d_slice(ctx0, cur, i_altup_act);      // [n_embd, n_tokens]
     lm_ggml_tensor * modalities = altup_compute_router_modalities(activated, il);  // [n_altup, n_tokens]
     cb(modalities, "modalities", il);
 
@@ -365,7 +369,7 @@ lm_ggml_tensor * llm_build_gemma3n_iswa::altup_correct(lm_ggml_tensor * predicti
     lm_ggml_tensor * modalities = altup_compute_router_modalities(activated, il);  // [n_altup, n_tokens]
     cb(modalities, "modalities", il);
 
-    lm_ggml_tensor * active_prediction = view_2d_slice(predictions, i_altup_act);
+    lm_ggml_tensor * active_prediction = lm_ggml_view_2d_slice(ctx0, predictions, i_altup_act);
     lm_ggml_tensor * innovation        = lm_ggml_sub(ctx0, activated, active_prediction);  // [n_embd, n_tokens]
     cb(innovation, "innovation", il);
 

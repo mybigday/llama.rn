@@ -256,9 +256,11 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
 
     llm_build_gemma3n_iswa(const llama_model & model, const llm_graph_params & params);
     lm_ggml_tensor * calc_magnitude(lm_ggml_tensor * x);
-    lm_ggml_tensor * view_2d_slice(lm_ggml_tensor * x, int idx);
-    lm_ggml_tensor * get_per_layer_inputs();
-    lm_ggml_tensor * project_per_layer_inputs(lm_ggml_tensor * inputs_embeds, lm_ggml_tensor * inp_per_layer);
+
+    // TODO: refactor in common "per-layer" functionality [TAG_PER_LAYER]
+    lm_ggml_tensor * build_inp_per_layer();
+    lm_ggml_tensor * project_per_layer_inputs(lm_ggml_tensor * inp_batch, lm_ggml_tensor * inp_per_layer);
+
     lm_ggml_tensor * gaussian_topk(lm_ggml_tensor * x);
     lm_ggml_tensor * altup_compute_router_modalities(lm_ggml_tensor * x, int il);
     lm_ggml_tensor * altup_predict(lm_ggml_tensor * cur, int il);
@@ -272,9 +274,10 @@ struct llm_build_gemma4_iswa : public llm_graph_context {
     const int64_t n_embd_per_layer;
 
     llm_build_gemma4_iswa(const llama_model & model, const llm_graph_params & params);
-    lm_ggml_tensor * view_2d_slice(lm_ggml_tensor * x, int idx);
-    lm_ggml_tensor * get_per_layer_inputs();
-    lm_ggml_tensor * project_per_layer_inputs(lm_ggml_tensor * inputs_embeds, lm_ggml_tensor * inp_per_layer);
+
+    // TODO: refactor in common "per-layer" functionality [TAG_PER_LAYER]
+    lm_ggml_tensor * build_inp_per_layer();
+    lm_ggml_tensor * project_per_layer_inputs(lm_ggml_tensor * inp_batch, lm_ggml_tensor * inp_per_layer);
 };
 
 struct llm_build_gemma_embedding : public llm_graph_context {

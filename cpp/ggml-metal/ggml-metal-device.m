@@ -1184,6 +1184,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                            case LM_GGML_TYPE_F16:
                            case LM_GGML_TYPE_BF16:
                            case LM_GGML_TYPE_Q8_0:
+                           case LM_GGML_TYPE_Q1_0:
                            case LM_GGML_TYPE_Q4_0:
                            case LM_GGML_TYPE_Q4_1:
                            case LM_GGML_TYPE_Q5_0:
@@ -1210,6 +1211,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                             default:
                                 return false;
                         }
+                    case LM_GGML_TYPE_Q1_0:
                     case LM_GGML_TYPE_Q4_0:
                     case LM_GGML_TYPE_Q4_1:
                     case LM_GGML_TYPE_Q5_0:
