@@ -187,6 +187,7 @@ cp ./$LLAMA_DIR/ggml/src/ggml-alloc.c ./cpp/ggml-alloc.c
 cp ./$LLAMA_DIR/ggml/src/ggml-backend.cpp ./cpp/ggml-backend.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-backend-impl.h ./cpp/ggml-backend-impl.h
 cp ./$LLAMA_DIR/ggml/src/ggml-backend-reg.cpp ./cpp/ggml-backend-reg.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-backend-meta.cpp ./cpp/ggml-backend-meta.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-backend-dl.h ./cpp/ggml-backend-dl.h
 cp ./$LLAMA_DIR/ggml/src/ggml-backend-dl.cpp ./cpp/ggml-backend-dl.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-common.h ./cpp/ggml-common.h
@@ -196,6 +197,7 @@ cp ./$LLAMA_DIR/ggml/src/ggml-quants.c ./cpp/ggml-quants.c
 cp ./$LLAMA_DIR/ggml/src/ggml-threading.cpp ./cpp/ggml-threading.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-threading.h ./cpp/ggml-threading.h
 cp ./$LLAMA_DIR/ggml/src/gguf.cpp ./cpp/gguf.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-ext.h ./cpp/ggml-ext.h
 
 # llama api
 cp ./$LLAMA_DIR/include/llama.h ./cpp/llama.h

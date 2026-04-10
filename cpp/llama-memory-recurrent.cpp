@@ -1,5 +1,6 @@
 #include "llama-memory-recurrent.h"
 
+#include "ggml-backend.h"
 #include "llama-impl.h"
 #include "llama-io.h"
 #include "llama-batch.h"
@@ -91,8 +92,8 @@ llama_memory_recurrent::llama_memory_recurrent(
             throw std::runtime_error("failed to create ggml context for rs cache");
         }
 
-        lm_ggml_tensor * r = lm_ggml_new_tensor_1d(ctx, type_r, hparams.n_embd_r()*mem_size);
-        lm_ggml_tensor * s = lm_ggml_new_tensor_1d(ctx, type_s, hparams.n_embd_s()*mem_size);
+        lm_ggml_tensor * r = lm_ggml_new_tensor_2d(ctx, type_r, hparams.n_embd_r(), mem_size);
+        lm_ggml_tensor * s = lm_ggml_new_tensor_2d(ctx, type_s, hparams.n_embd_s(), mem_size);
         lm_ggml_format_name(r, "cache_r_l%d", i);
         lm_ggml_format_name(s, "cache_s_l%d", i);
         r_l[i] = r;

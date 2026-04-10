@@ -55,6 +55,7 @@ set(RNLLAMA_COMMON_SOURCES
     ${SOURCE_DIR}/ggml-alloc.c
     ${SOURCE_DIR}/ggml-backend.cpp
     ${SOURCE_DIR}/ggml-backend-dl.cpp
+    ${SOURCE_DIR}/ggml-backend-meta.cpp
     ${SOURCE_DIR}/ggml-backend-reg.cpp
     ${SOURCE_DIR}/ggml-opt.cpp
     ${SOURCE_DIR}/ggml-threading.cpp

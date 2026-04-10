@@ -366,7 +366,11 @@ bool llama_rn_slot::load_state() {
 #ifdef LM_GGML_USE_OPENCL
     const auto &model_devices = parent_ctx->llama_init->model()->devices;
     auto has_opencl = false;
-    for (const auto &dev : model_devices) {
+    for (const auto &dev_info : model_devices) {
+        auto dev = dev_info.dev;
+        if (dev == nullptr) {
+            continue;
+        }
         const char *dev_name = lm_ggml_backend_dev_name(dev);
         if (strncmp(dev_name, "GPUOpenCL", 9) == 0) {
             has_opencl = true;
@@ -455,7 +459,11 @@ bool llama_rn_slot::save_prompt_state_checkpoint() {
 #ifdef LM_GGML_USE_OPENCL
     const auto &model_devices = parent_ctx->llama_init->model()->devices;
     auto has_opencl = false;
-    for (const auto &dev : model_devices) {
+    for (const auto &dev_info : model_devices) {
+        auto dev = dev_info.dev;
+        if (dev == nullptr) {
+            continue;
+        }
         const char *dev_name = lm_ggml_backend_dev_name(dev);
         if (strncmp(dev_name, "GPUOpenCL", 9) == 0) {
             has_opencl = true;
@@ -562,7 +570,11 @@ bool llama_rn_slot::save_state() {
 #ifdef LM_GGML_USE_OPENCL
     const auto &model_devices = parent_ctx->llama_init->model()->devices;
     auto has_opencl = false;
-    for (const auto &dev : model_devices) {
+    for (const auto &dev_info : model_devices) {
+        auto dev = dev_info.dev;
+        if (dev == nullptr) {
+            continue;
+        }
         const char *dev_name = lm_ggml_backend_dev_name(dev);
         if (strncmp(dev_name, "GPUOpenCL", 9) == 0) {
             has_opencl = true;

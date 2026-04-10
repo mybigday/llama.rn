@@ -90,6 +90,8 @@ static lm_ggml_backend_buffer_i lm_ggml_backend_metal_buffer_shared_i = {
     /* .memset_tensor   = */ lm_ggml_backend_metal_buffer_shared_memset_tensor,
     /* .set_tensor      = */ lm_ggml_backend_metal_buffer_shared_set_tensor,
     /* .get_tensor      = */ lm_ggml_backend_metal_buffer_shared_get_tensor,
+    /* .set_tensor_2d   = */ NULL,
+    /* .get_tensor_2d   = */ NULL,
     /* .cpy_tensor      = */ lm_ggml_backend_metal_buffer_shared_cpy_tensor,
     /* .clear           = */ lm_ggml_backend_metal_buffer_shared_clear,
     /* .reset           = */ NULL,
@@ -158,15 +160,17 @@ static void lm_ggml_backend_metal_buffer_private_clear(lm_ggml_backend_buffer_t 
 }
 
 static lm_ggml_backend_buffer_i lm_ggml_backend_metal_buffer_private_i = {
-    /* .free_buffer     = */ lm_ggml_backend_metal_buffer_private_free_buffer,
-    /* .get_base        = */ lm_ggml_backend_metal_buffer_private_get_base,
-    /* .init_tensor     = */ NULL,
-    /* .memset_tensor   = */ lm_ggml_backend_metal_buffer_private_memset_tensor,
-    /* .set_tensor      = */ lm_ggml_backend_metal_buffer_private_set_tensor,
-    /* .get_tensor      = */ lm_ggml_backend_metal_buffer_private_get_tensor,
-    /* .cpy_tensor      = */ lm_ggml_backend_metal_buffer_private_cpy_tensor,
-    /* .clear           = */ lm_ggml_backend_metal_buffer_private_clear,
-    /* .reset           = */ NULL,
+    /* .free_buffer             = */ lm_ggml_backend_metal_buffer_private_free_buffer,
+    /* .get_base                = */ lm_ggml_backend_metal_buffer_private_get_base,
+    /* .init_tensor             = */ NULL,
+    /* .memset_tensor           = */ lm_ggml_backend_metal_buffer_private_memset_tensor,
+    /* .set_tensor              = */ lm_ggml_backend_metal_buffer_private_set_tensor,
+    /* .get_tensor              = */ lm_ggml_backend_metal_buffer_private_get_tensor,
+    /* .get_tensor_2d_async     = */ NULL,
+    /* .set_tensor_2d_async     = */ NULL,
+    /* .cpy_tensor              = */ lm_ggml_backend_metal_buffer_private_cpy_tensor,
+    /* .clear                   = */ lm_ggml_backend_metal_buffer_private_clear,
+    /* .reset                   = */ NULL,
 };
 
 static bool lm_ggml_backend_buffer_is_metal(lm_ggml_backend_buffer_t buffer) {
@@ -563,6 +567,8 @@ static lm_ggml_backend_i lm_ggml_backend_metal_i = {
     /* .free                    = */ lm_ggml_backend_metal_free,
     /* .set_tensor_async        = */ lm_ggml_backend_metal_set_tensor_async,
     /* .get_tensor_async        = */ lm_ggml_backend_metal_get_tensor_async,
+    /* .get_tensor_2d_async     = */ NULL,
+    /* .set_tensor_2d_async     = */ NULL,
     /* .cpy_tensor_async        = */ lm_ggml_backend_metal_cpy_tensor_async, // only needed for multi-GPU setups
     /* .synchronize             = */ lm_ggml_backend_metal_synchronize,
     /* .graph_plan_create       = */ NULL,

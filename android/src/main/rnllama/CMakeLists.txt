@@ -37,6 +37,7 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml-alloc.c
     ${RNLLAMA_LIB_DIR}/ggml-backend.cpp
     ${RNLLAMA_LIB_DIR}/ggml-backend-dl.cpp
+    ${RNLLAMA_LIB_DIR}/ggml-backend-meta.cpp
     ${RNLLAMA_LIB_DIR}/ggml-backend-reg.cpp
     ${RNLLAMA_LIB_DIR}/ggml-opt.cpp
     ${RNLLAMA_LIB_DIR}/ggml-threading.cpp

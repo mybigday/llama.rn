@@ -68,7 +68,7 @@ extern "C" {
     LM_GGML_API void                           lm_ggml_backend_buffer_reset         (lm_ggml_backend_buffer_t buffer);
 
     // tensor copy between different backends
-    LM_GGML_API void lm_ggml_backend_tensor_copy(struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
+    LM_GGML_API void lm_ggml_backend_tensor_copy(const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
 
     //
     // Backend (stream)
@@ -83,13 +83,17 @@ extern "C" {
     LM_GGML_API size_t                     lm_ggml_backend_get_alignment(lm_ggml_backend_t backend);
     LM_GGML_API size_t                     lm_ggml_backend_get_max_size(lm_ggml_backend_t backend);
 
-    LM_GGML_API void lm_ggml_backend_tensor_set_async(lm_ggml_backend_t backend,       struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size);
-    LM_GGML_API void lm_ggml_backend_tensor_get_async(lm_ggml_backend_t backend, const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size);
+    LM_GGML_API void lm_ggml_backend_tensor_set_async   (lm_ggml_backend_t backend,       struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size);
+    LM_GGML_API void lm_ggml_backend_tensor_get_async   (lm_ggml_backend_t backend, const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size);
+    LM_GGML_API void lm_ggml_backend_tensor_set_2d_async(lm_ggml_backend_t backend,       struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data);
+    LM_GGML_API void lm_ggml_backend_tensor_get_2d_async(lm_ggml_backend_t backend, const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data);
 
     // "offset" refers to the offset in tensor->data for setting/getting data
-    LM_GGML_API void lm_ggml_backend_tensor_set(      struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size);
-    LM_GGML_API void lm_ggml_backend_tensor_get(const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size);
-    LM_GGML_API void lm_ggml_backend_tensor_memset(   struct lm_ggml_tensor * tensor,     uint8_t value, size_t offset, size_t size);
+    LM_GGML_API void lm_ggml_backend_tensor_set   (      struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size);
+    LM_GGML_API void lm_ggml_backend_tensor_get   (const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size);
+    LM_GGML_API void lm_ggml_backend_tensor_set_2d(      struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data);
+    LM_GGML_API void lm_ggml_backend_tensor_get_2d(const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data);
+    LM_GGML_API void lm_ggml_backend_tensor_memset(      struct lm_ggml_tensor * tensor,     uint8_t value, size_t offset, size_t size);
 
     LM_GGML_API void lm_ggml_backend_synchronize(lm_ggml_backend_t backend);
 
@@ -109,7 +113,7 @@ extern "C" {
     // the copy is performed after all the currently queued operations in backend_src
     // backend_dst will wait for the copy to complete before performing other operations
     // automatic fallback to sync copy if async is not supported
-    LM_GGML_API void lm_ggml_backend_tensor_copy_async(lm_ggml_backend_t backend_src, lm_ggml_backend_t backend_dst, struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
+    LM_GGML_API void lm_ggml_backend_tensor_copy_async(lm_ggml_backend_t backend_src, lm_ggml_backend_t backend_dst, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
 
     LM_GGML_API lm_ggml_backend_dev_t lm_ggml_backend_get_device(lm_ggml_backend_t backend);
 
@@ -135,7 +139,9 @@ extern "C" {
         // integrated GPU device using host memory
         LM_GGML_BACKEND_DEVICE_TYPE_IGPU,
         // accelerator devices intended to be used together with the CPU backend (e.g. BLAS or AMX)
-        LM_GGML_BACKEND_DEVICE_TYPE_ACCEL
+        LM_GGML_BACKEND_DEVICE_TYPE_ACCEL,
+        // "meta" device wrapping multiple other devices for tensor parallelism
+        LM_GGML_BACKEND_DEVICE_TYPE_META,
     };
 
     // functionality supported by the device
@@ -196,7 +202,9 @@ extern "C" {
 
     // Common functions that may be obtained using lm_ggml_backend_reg_get_proc_address
 
-    // Split buffer type for tensor parallelism
+    // AllReduce operation for tensor parallelism (meta backend)
+    typedef bool                         (*lm_ggml_backend_allreduce_tensor_t)(lm_ggml_backend_t * backends, struct lm_ggml_tensor ** tensors, size_t n_backends);
+    // Split buffer type for tensor parallelism (old)
     typedef lm_ggml_backend_buffer_type_t   (*lm_ggml_backend_split_buffer_type_t)(int main_device, const float * tensor_split);
     // Set the number of threads for the backend
     typedef void                         (*lm_ggml_backend_set_n_threads_t)(lm_ggml_backend_t backend, int n_threads);

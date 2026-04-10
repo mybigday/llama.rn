@@ -82,6 +82,7 @@ static std::vector<lm_ggml_backend_dev_t> getFilteredDefaultDevices() {
         switch (lm_ggml_backend_dev_type(dev)) {
             case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
             case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
+            case LM_GGML_BACKEND_DEVICE_TYPE_META:
                 break;
             case LM_GGML_BACKEND_DEVICE_TYPE_GPU: {
                 lm_ggml_backend_reg_t reg = lm_ggml_backend_dev_backend_reg(dev);
@@ -550,7 +551,8 @@ namespace rnllama_jsi {
                          std::vector<std::string> usedDevices;
                          bool gpuEnabled = false;
                          if (ctx->llama_init->model() != nullptr) {
-                             for (auto dev : ctx->llama_init->model()->devices) {
+                             for (const auto & dev_info : ctx->llama_init->model()->devices) {
+                                 auto dev = dev_info.dev;
                                  if (dev == nullptr) continue;
                                  const char* used_name = lm_ggml_backend_dev_name(dev);
                                  if (used_name != nullptr) {
