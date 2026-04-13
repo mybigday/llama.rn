@@ -354,7 +354,7 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     cb(last_conv_states, "last_conv_states", il);
 
     lm_ggml_tensor * state_update_target =
-        lm_ggml_view_1d(ctx0, conv_states_all, (conv_kernel_size - 1) * conv_channels * n_seqs,
+        lm_ggml_view_2d(ctx0, conv_states_all, (conv_kernel_size - 1) * conv_channels, n_seqs, conv_states_all->nb[1],
                      kv_head * (conv_kernel_size - 1) * conv_channels * lm_ggml_element_size(conv_states_all));
     cb(state_update_target, "state_update_target", il);
 
@@ -445,7 +445,7 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     // Update the recurrent states
     lm_ggml_build_forward_expand(gf,
             lm_ggml_cpy(ctx0, new_state,
-                lm_ggml_view_1d(ctx0, ssm_states_all, hparams.n_embd_s() * n_seqs,
+                lm_ggml_view_2d(ctx0, ssm_states_all, hparams.n_embd_s(), n_seqs, ssm_states_all->nb[1],
                     kv_head * hparams.n_embd_s() * lm_ggml_element_size(ssm_states_all))));
 
     // z: [head_dim, n_heads, n_tokens, n_seqs] -> [n_heads * n_tokens * n_seqs, head_dim]

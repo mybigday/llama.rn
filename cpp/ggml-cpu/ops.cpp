@@ -664,6 +664,7 @@ void lm_ggml_compute_forward_add(
             {
                 lm_ggml_compute_forward_add_non_quantized(params, dst);
             } break;
+        case LM_GGML_TYPE_Q1_0:
         case LM_GGML_TYPE_Q4_0:
         case LM_GGML_TYPE_Q4_1:
         case LM_GGML_TYPE_Q5_0:
@@ -1113,6 +1114,7 @@ void lm_ggml_compute_forward_add1(
                     LM_GGML_ABORT("fatal error");
                 }
             } break;
+        case LM_GGML_TYPE_Q1_0:
         case LM_GGML_TYPE_Q4_0:
         case LM_GGML_TYPE_Q4_1:
         case LM_GGML_TYPE_Q5_0:
@@ -1242,6 +1244,7 @@ void lm_ggml_compute_forward_acc(
             } break;
         case LM_GGML_TYPE_F16:
         case LM_GGML_TYPE_BF16:
+        case LM_GGML_TYPE_Q1_0:
         case LM_GGML_TYPE_Q4_0:
         case LM_GGML_TYPE_Q4_1:
         case LM_GGML_TYPE_Q5_0:
@@ -4331,6 +4334,7 @@ void lm_ggml_compute_forward_out_prod(
     const lm_ggml_tensor * src0 = dst->src[0];
 
     switch (src0->type) {
+        case LM_GGML_TYPE_Q1_0:
         case LM_GGML_TYPE_Q4_0:
         case LM_GGML_TYPE_Q4_1:
         case LM_GGML_TYPE_Q5_0:
@@ -4606,6 +4610,7 @@ void lm_ggml_compute_forward_set(
             } break;
         case LM_GGML_TYPE_F16:
         case LM_GGML_TYPE_BF16:
+        case LM_GGML_TYPE_Q1_0:
         case LM_GGML_TYPE_Q4_0:
         case LM_GGML_TYPE_Q4_1:
         case LM_GGML_TYPE_Q5_0:

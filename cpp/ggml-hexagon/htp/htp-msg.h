@@ -28,7 +28,7 @@ enum htp_status {
     HTP_STATUS_VTCM_TOO_SMALL = 5,
 };
 
-// The values must match the lm_ggml_type.
+// The values must match the lm_lm_ggml_type.
 // Duplicated here because we can't include full ggml.h in the htp build.
 // We have some static_asserts in the cpp code to ensure things are in sync.
 enum htp_data_type {
@@ -130,7 +130,7 @@ struct htp_tensor {
     uint32_t data;                // Buffer offset in the messages, and data pointer on the NSP
     uint32_t type;                // Data type
     uint32_t ne[HTP_MAX_DIMS];    // Number of elements
-    uint32_t nb[HTP_MAX_DIMS];    // Stride in bytes (see ggml.h lm_ggml_tensor)
+    uint32_t nb[HTP_MAX_DIMS];    // Stride in bytes (see ggml.h lm_lm_ggml_tensor)
 };
 
 #define HTP_MAX_OP_PARAMS 64

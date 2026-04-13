@@ -103,6 +103,12 @@ struct clip_graph_conformer : clip_graph {
     lm_ggml_cgraph * build() override;
 };
 
+struct clip_graph_gemma4a : clip_graph {
+    clip_graph_gemma4a(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+    lm_ggml_tensor * build_mm(lm_ggml_tensor * w, lm_ggml_tensor * x) const override;
+};
+
 struct clip_graph_glm4v : clip_graph {
     clip_graph_glm4v(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;
@@ -144,6 +150,11 @@ struct clip_graph_mobilenetv5 : clip_graph {
     lm_ggml_tensor * build_mobilenet_attn(
         lm_ggml_tensor * inp,
         const mobilenetv5_block & block);
+};
+
+struct clip_graph_qwen3a : clip_graph {
+    clip_graph_qwen3a(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
 };
 
 struct clip_graph_kimik25 : clip_graph {

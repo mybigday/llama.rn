@@ -7,10 +7,14 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstddef>
 #include <mutex>
+#include <thread>
+#include <cstddef>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
+#include <unordered_map>
+#include <regex>
 
 #ifdef _WIN32
 #    include <sal.h>
@@ -33,7 +37,7 @@
 #include "ggml-impl.h"
 #include "ggml-quants.h"
 #include "op-desc.h"
-#include "htp-msg.h"
+#include "htp-ops.h"
 #include "htp_iface.h"
 #include "htp-drv.h"
 
@@ -44,12 +48,14 @@ static int    opt_etm          = 0;
 static int    opt_verbose      = 0;
 static int    opt_profile      = 0;
 static int    opt_hostbuf      = 1; // hostbuf ON by default
-static int    opt_experimental = 0;
 static int    opt_use_hmx      = 1; // when set, enable HMX; when 0, use HVX only
 
 // Enable all stages by default
-static int opt_opmask = HTP_OPMASK_QUEUE | HTP_OPMASK_QUANTIZE | HTP_OPMASK_COMPUTE;
-static int opt_opsync = 0;  // synchronous ops
+static int opt_opmask   = HTP_OPMASK_QUEUE | HTP_OPMASK_COMPUTE;
+static int opt_opsync   = 0;  // synchronous ops
+static int opt_opbatch  = 1024; // max number of ops in a batch
+static int opt_opqueue  = 16;   // max number of pending batches
+static std::regex* opt_opfilter = NULL; // regex of ops to not claim
 
 #define HEX_VERBOSE(...) \
     if (opt_verbose) LM_GGML_LOG_DEBUG(__VA_ARGS__)
@@ -86,7 +92,7 @@ static void lm_ggml_hexagon_dump_op_exec(const std::string &sess_name, const lm_
 
     op_desc desc(op);
     LM_GGML_LOG_DEBUG("ggml-hex: %s execute-op %s: %s : %s : %s : %s : %s : flags 0x%x\n", sess_name.c_str(),
-                lm_ggml_op_name(op->op), desc.names, desc.dims, desc.types, desc.strides, desc.buffs, req_flags);
+                lm_ggml_op_desc(op), desc.names, desc.dims, desc.types, desc.strides, desc.buffs, req_flags);
 }
 
 static void lm_ggml_hexagon_dump_op_supp(const std::string &sess_name, const struct lm_ggml_tensor * op, bool supp) {
@@ -94,7 +100,7 @@ static void lm_ggml_hexagon_dump_op_supp(const std::string &sess_name, const str
 
     op_desc desc(op);
     LM_GGML_LOG_DEBUG("ggml-hex: %s supports-op %s : %s : %s : %s : %s : %s : %s\n", sess_name.c_str(),
-                lm_ggml_op_name(op->op), desc.names, desc.dims, desc.types, desc.strides, desc.buffs, supp ? "yes" : "no");
+                lm_ggml_op_desc(op), desc.names, desc.dims, desc.types, desc.strides, desc.buffs, supp ? "yes" : "no");
 }
 
 static void lm_ggml_hexagon_dump_op_prof(const std::string &sess_name, const lm_ggml_tensor * op,
@@ -103,25 +109,16 @@ static void lm_ggml_hexagon_dump_op_prof(const std::string &sess_name, const lm_
 
     op_desc desc(op);
     LM_GGML_LOG_DEBUG("ggml-hex: %s profile-op %s: %s : %s : %s : %s : %s : op-usec %u op-cycles %u op-pkts %u (%f) call-usec %llu\n", sess_name.c_str(),
-                lm_ggml_op_name(op->op), desc.names, desc.dims, desc.types, desc.strides, desc.buffs,
+                lm_ggml_op_desc(op), desc.names, desc.dims, desc.types, desc.strides, desc.buffs,
                 op_usec, op_cycles, op_pkts, (float) op_cycles / op_pkts, (unsigned long long) call_usec);
 }
 
 // ** backend sessions
 
+struct lm_ggml_hexagon_opbatch;
+struct lm_ggml_hexagon_opshm;
+
 struct lm_ggml_hexagon_session {
-    lm_ggml_hexagon_session(int dev_id, lm_ggml_backend_dev_t dev) noexcept(false);
-    ~lm_ggml_hexagon_session() noexcept(true);
-
-    void allocate(int dev_id) noexcept(false);
-    void release() noexcept(true);
-
-    void enqueue(struct htp_general_req &req, struct dspqueue_buffer *bufs, uint32_t n_bufs, bool sync = false);
-    void flush();
-
-    lm_ggml_backend_buffer_type buffer_type        = {};
-    lm_ggml_backend_buffer_type repack_buffer_type = {};
-
     std::string      name;
     remote_handle64  handle;
     dspqueue_t       queue;
@@ -133,87 +130,28 @@ struct lm_ggml_hexagon_session {
     bool             valid_handle;
     bool             valid_queue;
     bool             valid_iface;
-    std::atomic<int> op_pending;
-    uint32_t         prof_usecs;
-    uint32_t         prof_cycles;
-    uint32_t         prof_pkts;
+
+    std::atomic<int>      op_pending;
+    lm_ggml_hexagon_opbatch *op_batch;
+    lm_ggml_hexagon_opshm   *op_shm;
+
+    lm_ggml_backend_buffer_type buffer_type        = {};
+    lm_ggml_backend_buffer_type repack_buffer_type = {};
+
+    lm_ggml_hexagon_session(int dev_id, lm_ggml_backend_dev_t dev) noexcept(false);
+    ~lm_ggml_hexagon_session() noexcept(true);
+
+    const char* c_name() const { return name.c_str(); }
+
+    void allocate(int dev_id) noexcept(false);
+    void release() noexcept(true);
+
+    void enqueue_op(htp_op_code opcode, const lm_ggml_tensor *op);
+    void flush(bool all = true);
+
+    void flush_pending(bool all = false);
+    void flush_batch();
 };
-
-void lm_ggml_hexagon_session::enqueue(struct htp_general_req &req, struct dspqueue_buffer *bufs, uint32_t n_bufs, bool sync) {
-    // Bump pending flag (cleared in the session::flush once we get the response)
-    this->op_pending++;  // atomic inc
-
-    int err = dspqueue_write(this->queue,
-                             0,                       // flags - the framework will autoset this
-                             n_bufs,                  // number of buffers
-                             bufs,                    // buffer references
-                             sizeof(req),             // Message length
-                             (const uint8_t *) &req,  // Message
-                             DSPQUEUE_TIMEOUT         // Timeout
-    );
-
-    if (err != 0) {
-        LM_GGML_ABORT("ggml-hex: %s dspqueue_write failed: 0x%08x\n", this->name.c_str(), (unsigned) err);
-    }
-
-    if (sync) {
-        flush();
-    }
-}
-
-// Flush HTP response queue i.e wait for all outstanding requests to complete
-void lm_ggml_hexagon_session::flush() {
-    dspqueue_t q = this->queue;
-
-    // Repeatedly read packets from the queue until it's empty. We don't
-    // necessarily get a separate callback for each packet, and new packets
-    // may arrive while we're processing the previous one.
-
-    while (this->op_pending) {
-        struct htp_general_rsp rsp;
-        uint32_t               rsp_size;
-        uint32_t               flags;
-
-        struct dspqueue_buffer bufs[HTP_MAX_PACKET_BUFFERS];
-        uint32_t               n_bufs;
-
-        // Read response packet from queue
-        int err = dspqueue_read(q, &flags,
-                                HTP_MAX_PACKET_BUFFERS,  // Maximum number of buffer references
-                                &n_bufs,                 // Number of buffer references
-                                bufs,                    // Buffer references
-                                sizeof(rsp),             // Max message length
-                                &rsp_size,               // Message length
-                                (uint8_t *) &rsp,        // Message
-                                DSPQUEUE_TIMEOUT);       // Timeout
-
-        if (err == AEE_EEXPIRED) {
-            // TODO: might need to bail out if the HTP is stuck on something
-            continue;
-        }
-
-        if (err != 0) {
-            LM_GGML_ABORT("ggml-hex: dspqueue_read failed: 0x%08x\n", (unsigned) err);
-        }
-
-        // Basic sanity checks
-        if (rsp_size != sizeof(rsp)) {
-            LM_GGML_ABORT("ggml-hex: dspcall : bad response (size)\n");
-        }
-
-        if (rsp.status != HTP_STATUS_OK) {
-            LM_GGML_LOG_ERROR("ggml-hex: dspcall : dsp-rsp: %s\n", status_to_str(rsp.status));
-            // TODO: handle errors
-        }
-
-        // TODO: update profiling implementation, currently only works for opt_opsync mode
-        this->prof_usecs  = rsp.prof_usecs;
-        this->prof_cycles = rsp.prof_cycles;
-        this->prof_pkts   = rsp.prof_pkts;
-
-        this->op_pending--;  // atomic dec
-    }
-}
 
 // ** backend buffers
 
@@ -227,82 +165,99 @@ struct lm_ggml_backend_hexagon_buffer_type_context {
     std::string            name;
 };
 
-struct lm_ggml_backend_hexagon_buffer_context {
-    bool mmap_to(lm_ggml_hexagon_session * s) {
-        HEX_VERBOSE("ggml-hex: %s mmaping buffer: base %p domain-id %d session-id %d size %zu fd %d repack %d\n",
-                    s->name.c_str(), (void *) this->base, s->domain_id, s->session_id, this->size, this->fd,
-                    (int) this->repack);
+struct lm_ggml_hexagon_shared_buffer {
+    lm_ggml_hexagon_session * sess;
+    uint8_t *              base;
+    size_t                 size;
+    int                    fd;
+    bool                   mapped;
+    bool                   pinned;
 
-        int err = fastrpc_mmap(s->domain_id, this->fd, (void *) this->base, 0, this->size, FASTRPC_MAP_FD);
+    void mmap(bool pinned = false) {
+        int err = fastrpc_mmap(sess->domain_id, this->fd, (void *) this->base, 0, this->size, FASTRPC_MAP_FD_DELAYED);
         if (err != 0) {
-            LM_GGML_LOG_ERROR("ggml-hex: buffer mapping failed : domain_id %d size %zu fd %d error 0x%08x\n",
-                    s->domain_id, this->size, this->fd, (unsigned) err);
-            return false;
+            LM_GGML_LOG_ERROR("ggml-hex: %s buffer mapping failed : domain_id %d size %zu fd %d error 0x%08x\n", sess->c_name(),
+                    sess->domain_id, this->size, this->fd, (unsigned) err);
+            throw std::runtime_error("ggml-hex: fastrpc_mmap failed (see log for details)");
         }
 
-        return true;
-    }
+        if (pinned) {
+            err = htp_iface_mmap(sess->handle, this->fd, this->size, pinned);
+            if (err != 0) {
+                LM_GGML_LOG_ERROR("ggml-hex: %s buffer pinning failed : domain_id %d size %zu fd %d error 0x%08x\n", sess->c_name(),
+                        sess->domain_id, this->size, this->fd, (unsigned) err);
+                throw std::runtime_error("ggml-hex: htp_iface_mmap failed (see log for details)");
+            }
+        }
 
-    bool mmap() {
-        if (this->mapped) {
-            return true;
-        }
-        if (!mmap_to(this->sess)) {
-            return false;
-        }
         this->mapped = true;
-        return true;
+        this->pinned = pinned;
+        HEX_VERBOSE("ggml-hex: %s mapped buffer: base %p size %zu fd %d pinned %u\n",
+                sess->c_name(), (void *) this->base, this->size, this->fd, pinned);
     }
 
-    void munmap() {
-        if (!this->mapped) {
-            return;
-        }
+    void unmap() {
+        if (!this->mapped) return;
 
-        fastrpc_munmap(this->sess->domain_id, this->fd, this->base, this->size);
+        htp_iface_munmap(sess->handle, this->fd);
+        fastrpc_munmap(sess->domain_id, this->fd, (void *) this->base, this->size);
+
+        HEX_VERBOSE("ggml-hex: %s unmapped buffer: base %p size %zu fd %d\n", sess->c_name(),
+                (void *) this->base, size, this->fd);
+
         this->mapped = false;
+        this->fd     = -1;
     }
 
-    lm_ggml_backend_hexagon_buffer_context(lm_ggml_hexagon_session * sess, size_t size, bool repack) {
-        size += 4 * 1024;  // extra page for padding
+    void alloc(size_t size, bool pinned = false) {
+        if (this->base) return;
 
-        this->base = (uint8_t *) rpcmem_alloc2(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS | RPCMEM_HEAP_NOREG, size);
+        this->base = (uint8_t *) rpcmem_alloc2(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS, size);
         if (!this->base) {
-            LM_GGML_LOG_ERROR("ggml-hex: %s failed to allocate buffer : size %zu\n", sess->name.c_str(), size);
+            LM_GGML_LOG_ERROR("ggml-hex: %s failed to allocate buffer : size %zu\n", sess->c_name(), size);
             throw std::runtime_error("ggml-hex: rpcmem_alloc failed (see log for details)");
         }
 
         this->fd = rpcmem_to_fd(this->base);
         if (this->fd < 0) {
-            LM_GGML_LOG_ERROR("ggml-hex: %s failed to get FD for buffer %p\n", sess->name.c_str(), (void *) this->base);
-            rpcmem_free(this->base);
-            this->base = NULL;
+            LM_GGML_LOG_ERROR("ggml-hex: %s failed to get FD for buffer %p\n", sess->c_name(), (void *) this->base);
             throw std::runtime_error("ggml-hex: rpcmem_to_fd failed (see log for details)");
         }
+        this->size = size;
 
-        HEX_VERBOSE("ggml-hex: %s allocated buffer: base %p size %zu fd %d repack %d\n", sess->name.c_str(),
-                    (void *) this->base, size, this->fd, (int) repack);
+        HEX_VERBOSE("ggml-hex: %s allocated buffer: base %p size %zu fd %d pinned %d\n", sess->c_name(),
+                    (void *) this->base, this->size, this->fd, (int) pinned);
+
+        mmap(pinned);
+    }
+
+    void free() {
+        if (!this->base) return;
+
+        unmap();
+        rpcmem_free(this->base);
+
+        HEX_VERBOSE("ggml-hex: %s freed buffer: base %p size %zu fd %d\n", sess->c_name(),
+                (void *) this->base, size, this->fd);
+
+        this->base = NULL;
+    }
+
+    lm_ggml_hexagon_shared_buffer(lm_ggml_hexagon_session * sess, size_t size, bool pinned = false) {
+        size += 4 * 1024;  // extra page for padding
 
         this->sess   = sess;
-        this->size   = size;
+        this->size   = 0;
+        this->base   = nullptr;
+        this->fd     = -1;
         this->mapped = false;
-        this->repack = repack;
+
+        alloc(size, pinned);
     }
 
-    ~lm_ggml_backend_hexagon_buffer_context() {
-        munmap();
-        if (this->base) {
-            rpcmem_free(this->base);
-            this->base = NULL;
-        }
+    ~lm_ggml_hexagon_shared_buffer() {
+        free();
     }
-
-    lm_ggml_hexagon_session * sess;  // primary session
-    uint8_t *              base;
-    size_t                 size;
-    int                    fd;
-    bool                   mapped;  // mmap is done
-    bool                   repack;  // repacked buffer
 };
 
 static lm_ggml_hexagon_session * lm_ggml_backend_hexagon_buffer_get_sess(lm_ggml_backend_buffer_t buffer) {
@@ -310,30 +265,26 @@ static lm_ggml_hexagon_session * lm_ggml_backend_hexagon_buffer_get_sess(lm_ggml
 }
 
 static void lm_ggml_backend_hexagon_buffer_free_buffer(lm_ggml_backend_buffer_t buffer) {
-    auto ctx = static_cast<lm_ggml_backend_hexagon_buffer_context *>(buffer->context);
-    delete ctx;
+    auto sbuf = static_cast<lm_ggml_hexagon_shared_buffer *>(buffer->context);
+    delete sbuf;
 }
 
 static void * lm_ggml_backend_hexagon_buffer_get_base(lm_ggml_backend_buffer_t buffer) {
-    auto ctx = static_cast<lm_ggml_backend_hexagon_buffer_context *>(buffer->context);
-    return ctx->base;
+    auto sbuf = static_cast<lm_ggml_hexagon_shared_buffer *>(buffer->context);
+    return sbuf->base;
 }
 
 static enum lm_ggml_status lm_ggml_backend_hexagon_buffer_init_tensor(lm_ggml_backend_buffer_t buffer, lm_ggml_tensor * tensor) {
-    auto ctx  = static_cast<lm_ggml_backend_hexagon_buffer_context *>(buffer->context);
-    auto sess = ctx->sess;
+    auto sbuf = static_cast<lm_ggml_hexagon_shared_buffer *>(buffer->context);
+    auto sess = sbuf->sess;
 
-    HEX_VERBOSE("ggml-hex: %s init-tensor %s : base %p data %p nbytes %zu usage %d repack %d\n", sess->name.c_str(),
-                tensor->name, (void *) ctx->base, tensor->data, lm_ggml_nbytes(tensor), (int) buffer->usage,
-                (int) ctx->repack);
+    HEX_VERBOSE("ggml-hex: %s init-tensor %s : base %p data %p nbytes %zu usage %d\n", sess->c_name(),
+                tensor->name, (void *) sbuf->base, tensor->data, lm_ggml_nbytes(tensor), (int) buffer->usage);
 
     if (tensor->view_src != NULL && tensor->view_offs == 0) {
-        ; // nothing to do for the view
-    } else {
-        if (!ctx->mapped) {
-            ctx->mmap();
-        }
+        return LM_GGML_STATUS_SUCCESS; // nothing to do for the view
     }
+
     return LM_GGML_STATUS_SUCCESS;
 }
 
@@ -1387,11 +1338,10 @@ static void lm_ggml_backend_hexagon_buffer_set_tensor(lm_ggml_backend_buffer_t b
                                                    const void *          data,
                                                    size_t                offset,
                                                    size_t                size) {
-    auto ctx  = (lm_ggml_backend_hexagon_buffer_context *) buffer->context;
-    auto sess = ctx->sess;
+    auto sbuf = (lm_ggml_hexagon_shared_buffer *) buffer->context;
+    auto sess = sbuf->sess;
 
-    HEX_VERBOSE("ggml-hex: %s set-tensor %s : data %p offset %zu size %zu\n", sess->name.c_str(), tensor->name, data,
-                offset, size);
+    HEX_VERBOSE("ggml-hex: %s set-tensor %s : data %p offset %zu size %zu\n", sess->c_name(), tensor->name, data, offset, size);
 
     switch (tensor->type) {
         case LM_GGML_TYPE_Q4_0:
@@ -1430,11 +1380,10 @@ static void lm_ggml_backend_hexagon_buffer_get_tensor(lm_ggml_backend_buffer_t b
                                                    void *                data,
                                                    size_t                offset,
                                                    size_t                size) {
-    auto ctx  = (lm_ggml_backend_hexagon_buffer_context *) buffer->context;
-    auto sess = ctx->sess;
+    auto sbuf = (lm_ggml_hexagon_shared_buffer *) buffer->context;
+    auto sess = sbuf->sess;
 
-    HEX_VERBOSE("ggml-hex: %s get-tensor %s : data %p offset %zu size %zu\n", sess->name.c_str(), tensor->name, data,
-                offset, size);
+    HEX_VERBOSE("ggml-hex: %s get-tensor %s : data %p offset %zu size %zu\n", sess->c_name(), tensor->name, data, offset, size);
 
     switch (tensor->type) {
         case LM_GGML_TYPE_Q4_0:
@@ -1478,10 +1427,10 @@ static bool lm_ggml_backend_hexagon_buffer_cpy_tensor(lm_ggml_backend_buffer_t  
 }
 
 static void lm_ggml_backend_hexagon_buffer_clear(lm_ggml_backend_buffer_t buffer, uint8_t value) {
-    auto ctx  = (lm_ggml_backend_hexagon_buffer_context *) buffer->context;
-    auto sess = ctx->sess;
-    HEX_VERBOSE("ggml-hex: %s clear-buff base %p size %zu\n", sess->name.c_str(), (void *) ctx->base, ctx->size);
-    memset(ctx->base, value, ctx->size);
+    auto sbuf = (lm_ggml_hexagon_shared_buffer *) buffer->context;
+    auto sess = sbuf->sess;
+    HEX_VERBOSE("ggml-hex: %s clear-buff base %p size %zu\n", sess->c_name(), (void *) sbuf->base, sbuf->size);
+    memset(sbuf->base, value, sbuf->size);
 }
 
 static lm_ggml_backend_buffer_i lm_ggml_backend_hexagon_buffer_interface = {
@@ -1508,10 +1457,10 @@ static lm_ggml_backend_buffer_t lm_ggml_backend_hexagon_buffer_type_alloc_buffer
             lm_ggml_backend_buffer_type_t buffer_type, size_t size) {
     auto sess = static_cast<lm_ggml_backend_hexagon_buffer_type_context *>(buffer_type->context)->sess;
     try {
-        lm_ggml_backend_hexagon_buffer_context * ctx = new lm_ggml_backend_hexagon_buffer_context(sess, size, false /*repack*/);
-        return lm_ggml_backend_buffer_init(buffer_type, lm_ggml_backend_hexagon_buffer_interface, ctx, size);
+        lm_ggml_hexagon_shared_buffer * sbuf = new lm_ggml_hexagon_shared_buffer(sess, size);
+        return lm_ggml_backend_buffer_init(buffer_type, lm_ggml_backend_hexagon_buffer_interface, sbuf, size);
     } catch (const std::exception & exc) {
-        LM_GGML_LOG_ERROR("ggml-hex: %s failed to allocate buffer context: %s\n", sess->name.c_str(), exc.what());
+        LM_GGML_LOG_ERROR("ggml-hex: %s failed to allocate buffer context (host): %s\n", sess->c_name(), exc.what());
         return nullptr;
     }
 }
@@ -1520,10 +1469,10 @@ static lm_ggml_backend_buffer_t lm_ggml_backend_hexagon_repack_buffer_type_alloc
             lm_ggml_backend_buffer_type_t buffer_type, size_t size) {
     auto sess = static_cast<lm_ggml_backend_hexagon_buffer_type_context *>(buffer_type->context)->sess;
     try {
-        lm_ggml_backend_hexagon_buffer_context * ctx = new lm_ggml_backend_hexagon_buffer_context(sess, size, true /*repack*/);
-        return lm_ggml_backend_buffer_init(buffer_type, lm_ggml_backend_hexagon_buffer_interface, ctx, size);
+        lm_ggml_hexagon_shared_buffer * sbuf = new lm_ggml_hexagon_shared_buffer(sess, size);
+        return lm_ggml_backend_buffer_init(buffer_type, lm_ggml_backend_hexagon_buffer_interface, sbuf, size);
     } catch (const std::exception & exc) {
-        LM_GGML_LOG_ERROR("ggml-hex: %s failed to allocate buffer context: %s\n", sess->name.c_str(), exc.what());
+        LM_GGML_LOG_ERROR("ggml-hex: %s failed to allocate buffer context (repack): %s\n", sess->c_name(), exc.what());
         return nullptr;
     }
 }
@@ -1538,7 +1487,7 @@ static size_t lm_ggml_backend_hexagon_buffer_type_get_alloc_size(lm_ggml_backend
 }
 
 static size_t lm_ggml_backend_hexagon_buffer_type_get_max_size(lm_ggml_backend_buffer_type_t buffer_type) {
-    return 1 * 1024 * 1024 * 1024;  // 1GB per buffer
+    return 1UL * 1024 * 1024 * 1024;  // 1GB per buffer
     LM_GGML_UNUSED(buffer_type);
 }
 
@@ -1570,6 +1519,373 @@ static lm_ggml_backend_buffer_type_i lm_ggml_backend_hexagon_repack_buffer_type_
     /* .is_host          = */ lm_ggml_backend_hexagon_repack_buffer_type_is_host,
 };
 
+// Backend session implementation
+
+struct lm_ggml_hexagon_opshm {
+    lm_ggml_hexagon_shared_buffer *sbuf;
+
+    std::vector<bool> block_mask;
+    size_t            block_size;
+
+    uint8_t * base()     const { return this->sbuf->base; }
+    int       fd()       const { return this->sbuf->fd;   }
+    size_t    n_blocks() const { return this->block_mask.size(); }
+
+    lm_ggml_hexagon_opshm(lm_ggml_hexagon_session *sess, size_t max_batch, size_t max_pending) {
+        size_t n_bufs    = HTP_OP_MAX_BUFS;
+        size_t n_ops     = max_batch;
+        size_t n_tensors = n_ops + n_ops * HTP_OP_MAX_INPUTS;
+
+        block_mask.resize(max_pending, true);
+
+        block_size = sizeof(htp_buf_desc) * n_bufs    +
+                     sizeof(htp_tensor)   * n_tensors +
+                     sizeof(htp_op_desc)  * n_ops;
+
+        sbuf = new lm_ggml_hexagon_shared_buffer(sess, block_size * block_mask.size(), true /* pinned */);
+
+        if (opt_verbose) {
+            LM_GGML_LOG_INFO("ggml-hex: %s allocated shared buf %zu : block-size %zu max-batch %zu max-pending %zu\n",
+                    sess->c_name(), (size_t) sbuf->size, block_size, max_batch, max_pending);
+        }
+    }
+
+    ~lm_ggml_hexagon_opshm() {
+        delete sbuf;
+    }
+
+    uint8_t * allocate() {
+        auto it = std::find(block_mask.begin(), block_mask.end(), true);
+        if (it == block_mask.end())
+            return nullptr;
+
+        unsigned int i = std::distance(block_mask.begin(), it);
+        uint8_t*  addr = sbuf->base + (i * block_size);
+        block_mask[i]  = false;
+
+        HEX_VERBOSE("ggml-hex: %s allocated op shm #%u %p\n", sbuf->sess->c_name(), i, (void*) addr);
+        return addr;
+    }
+
+    void release(uint8_t * addr) {
+        int i = (addr - sbuf->base) / block_size;
+        block_mask[i] = true;
+        HEX_VERBOSE("ggml-hex: %s released op shm #%u %p\n", sbuf->sess->c_name(), i, (void*) addr);
+    }
+};
+
+struct lm_ggml_hexagon_opbatch {
+    const char* name;
+
+    std::vector<htp_buf_desc> buffers;
+    std::vector<htp_tensor>   tensors;
+    std::vector<htp_op_desc>  ops;
+
+    std::unordered_map<int, int>                b_map; // buffer fd   to index
+    std::unordered_map<const lm_ggml_tensor*, int> t_map; // tensor ptr  to index
+    std::unordered_multimap<void*, int>         d_map; // tensor data to index
+
+    unsigned int n_bufs;     // num buffers in the batch
+    unsigned int n_tens;     // num tensors ...
+    unsigned int n_ops;      // num ops ...
+    size_t       b_vmem;     // sum of all buffer sizes
+
+    unsigned int n_bufs_max;
+    unsigned int n_tens_max;
+    unsigned int n_ops_max;
+    size_t       b_vmem_max;
+
+    void reset() {
+        n_bufs = 0;
+        n_tens = 0;
+        n_ops  = 0;
+        b_vmem = 0;
+
+        b_map.clear();
+        t_map.clear();
+        d_map.clear();
+    }
+
+    lm_ggml_hexagon_opbatch(lm_ggml_hexagon_session *sess, size_t max_batch) {
+        name = sess->c_name();
+
+        n_bufs_max = HTP_OP_MAX_BUFS;
+        n_ops_max  = max_batch;
+        n_tens_max = n_ops_max + n_ops_max * HTP_OP_MAX_INPUTS;
+
+        b_vmem_max = HTP_OP_MAX_VMEM;
+
+        buffers.resize(n_bufs_max);
+        tensors.resize(n_tens_max);
+        ops.resize(n_ops_max);
+
+        b_map.reserve(n_bufs_max);
+        t_map.reserve(n_tens_max);
+        d_map.reserve(n_tens_max);
+
+        reset();
+    }
+
+    bool empty() const { return n_ops == 0; }
+
+    // add buffer and return its index
+    int add_buffer(lm_ggml_hexagon_shared_buffer * sbuf) {
+        // Lookup by fd
+        auto it = b_map.find(sbuf->fd);
+        if (it != b_map.end()) { return it->second; }
+
+        // Add new buffer to the batch
+        int bi = n_bufs++;
+        LM_GGML_ASSERT(n_bufs < HTP_OP_MAX_BUFS);
+
+        b_map.insert({sbuf->fd, bi});
+
+        htp_buf_desc &b = buffers[bi];
+        b.base = (uint64_t) sbuf->base;
+        b.fd   = sbuf->fd;
+        b.size = sbuf->size;
+
+        b_vmem += b.size;
+
+        HEX_VERBOSE("ggml-hex: add-buffer #%u : fd %d base %p size %zu : vmem %zu\n", bi, b.fd, (void*) sbuf->base, (size_t) b.size, b_vmem);
+
+        return bi;
+    }
+
+    bool same_shape(const htp_tensor * h, const lm_ggml_tensor * t) const {
+        return (h->ne[0] == t->ne[0]) && (h->ne[1] == t->ne[1]) && (h->ne[2] == t->ne[2]) && (h->ne[3] == t->ne[3]) &&
+               (h->nb[0] == t->nb[0]) && (h->nb[1] == t->nb[1]) && (h->nb[2] == t->nb[2]) && (h->nb[3] == t->nb[3]);
+    }
+
+    // add tensor and return its index
+    int add_tensor(const lm_ggml_tensor * t) {
+        auto sbuf = static_cast<lm_ggml_hexagon_shared_buffer *>(t->buffer->context);
+
+        // First lookup by tensor data
+        auto range = d_map.equal_range(t->data);
+        for (auto it = range.first; it != range.second; ++it) {
+            htp_tensor * h = &tensors[it->second];
+            if (same_shape(h, t)) { return it->second; }
+        }
+
+        // Lookup by tensor ptr
+        auto it = t_map.find(t);
+        if (it != t_map.end()) { return it->second; }
+
+        // Add new tensor to the batch
+        int ti = n_tens++;
+        LM_GGML_ASSERT(n_tens <= n_tens_max);
+
+        t_map.insert({t,       ti});
+        d_map.insert({t->data, ti});
+
+        uint64_t t_offset = (uint8_t *) t->data - sbuf->base;
+        size_t   t_size   = lm_ggml_nbytes(t);
+
+        htp_tensor &h = tensors[ti];
+        h.bi    = add_buffer(sbuf);
+        h.data  = t_offset;
+        h.size  = t_size;
+        h.type  = t->type;
+        h.ne[0] = t->ne[0]; h.ne[1] = t->ne[1]; h.ne[2] = t->ne[2]; h.ne[3] = t->ne[3];
+        h.nb[0] = t->nb[0]; h.nb[1] = t->nb[1]; h.nb[2] = t->nb[2]; h.nb[3] = t->nb[3];
+
+        h.flags = 0;
+        if (lm_ggml_backend_buffer_get_usage(t->buffer) == LM_GGML_BACKEND_BUFFER_USAGE_COMPUTE) {
+            h.flags |= HTP_TENSOR_COMPUTE;
+        }
+
+        HEX_VERBOSE("ggml-hex: add-tensor #%u %s : bi %d data %p offset %zu size %zu flags 0x%x : %zu:%zu:%zu:%zu\n",
+                ti, t->name, h.bi, (void*) t->data, (size_t) t_offset, t_size, h.flags,
+                (size_t) t->ne[0], (size_t) t->ne[1], (size_t) t->ne[2], (size_t) t->ne[3]);
+
+        return ti;
+    }
+
+    bool fit_op(const struct lm_ggml_tensor *t) const {
+        if (n_ops >= n_ops_max ) return false;
+
+        // check how much extras we will need
+        size_t extra_bufs = 0;
+        size_t extra_vmem = 0;
+        size_t extra_tens = 0;
+
+        auto fit_tensor = [&](const lm_ggml_tensor *t) {
+            if (!t_map.count(t)) {
+                extra_tens++;
+
+                auto sbuf = static_cast<lm_ggml_hexagon_shared_buffer *>(t->buffer->context);
+                if (!b_map.count(sbuf->fd)) {
+                    extra_vmem += sbuf->size;
+                    extra_bufs += 1;
+                }
+            }
+        };
+
+        for (unsigned int i=0; i < HTP_OP_MAX_INPUTS && t->src[i]; i++) {
+            fit_tensor(t->src[i]);
+        }
+        fit_tensor(t);
+
+        if ((extra_bufs + n_bufs) > n_bufs_max) return false;
+        if ((extra_tens + n_tens) > n_tens_max) return false;
+        if ((extra_vmem + b_vmem) > b_vmem_max) return false;
+
+        return true;
+    }
+
+    // assumes that fit_op() was called first and returned true
+    void add_op(htp_op_code opcode, const struct lm_ggml_tensor * t) {
+        // Add new op
+        htp_op_desc &o = ops[n_ops++];
+        LM_GGML_ASSERT(n_ops <= n_ops_max);
+
+        memcpy(&o.params, &t->op_params, sizeof(t->op_params));
+        o.opcode = opcode;
+        o.flags  = 0;
+
+        if (!(opt_opmask & HTP_OPMASK_COMPUTE)) {
+            o.flags |= HTP_OPFLAGS_SKIP_COMPUTE;
+        }
+
+        lm_ggml_hexagon_dump_op_exec(name, t, o.flags);
+
+        for (unsigned int i=0; i < HTP_OP_MAX_INPUTS; i++) {
+            o.src[i] = t->src[i] ? add_tensor(t->src[i]) : 0xffff;
+        }
+        o.dst = add_tensor(t);
+    }
+
+    size_t flush(uint8_t * mem_addr, size_t mem_size) {
+        static_assert(sizeof(htp_buf_desc) % 8 == 0, "sizeof(htp_buf_desc) must be multiple of 8");
+        static_assert(sizeof(htp_tensor)   % 8 == 0, "sizeof(htp_tensor) must be multiple of 8");
+        static_assert(sizeof(htp_op_desc)  % 8 == 0, "sizeof(htp_op_desc) must be multiple of 8");
+
+        const size_t b_size = sizeof(htp_buf_desc) * n_bufs;
+        const size_t t_size = sizeof(htp_tensor)   * n_tens;
+        const size_t o_size = sizeof(htp_op_desc)  * n_ops;
+
+        const size_t m_size = b_size + t_size + o_size;
+        LM_GGML_ASSERT(m_size <= mem_size);
+
+        uint8_t * b_ptr = (uint8_t *) mem_addr;
+        uint8_t * t_ptr = (uint8_t *) b_ptr + b_size;
+        uint8_t * o_ptr = (uint8_t *) t_ptr + t_size;
+
+        memcpy(b_ptr, (void *) buffers.data(), b_size);
+        memcpy(t_ptr, (void *) tensors.data(), t_size);
+        memcpy(o_ptr, (void *) ops.data(),     o_size);
+
+        HEX_VERBOSE("ggml-hex: %s flush-opbatch : n-bufs %u n-tensors %u n-ops %u vmem %zu : b-size %zu t-size %zu o-size %zu\n",
+                name, n_bufs, n_tens, n_ops, b_vmem, b_size, t_size, o_size);
+
+        if (opt_verbose > 1) {
+            htp_buf_desc *b = (htp_buf_desc*) b_ptr;
+            for (unsigned int i=0; i < n_bufs; i++) {
+                LM_GGML_LOG_DEBUG("ggml-hex: %s htp-buf #%u : fd %d base %p size %zu\n", name, i,
+                            b[i].fd, (void *) b[i].base, (size_t) b[i].size);
+            }
+            htp_tensor *t = (htp_tensor*) t_ptr;
+            for (unsigned int i=0; i < n_tens; i++) {
+                LM_GGML_LOG_DEBUG("ggml-hex: %s htp-tensor #%u : bi %u offset %u size %u : %zu:%zu:%zu:%zu\n",
+                            name, i, t[i].bi, t[i].data, t[i].size,
+                            (size_t) t[i].ne[0], (size_t) t[i].ne[1], (size_t) t[i].ne[2], (size_t) t[i].ne[3]);
+            }
+        }
+
+        reset();
+
+        return m_size;
+    }
+};
+
+// Flush HTP response queue i.e wait for all outstanding requests to complete
+void lm_ggml_hexagon_session::flush_pending(bool all) {
+    while (this->op_pending) {
+        struct htp_opbatch_rsp rsp;
+        uint32_t               rsp_size;
+        uint32_t               flags;
+
+        struct dspqueue_buffer dbuf;
+        uint32_t               n_dbufs;
+
+        // Read response packet from queue
+        int err = dspqueue_read(this->queue, &flags, 1, &n_dbufs, &dbuf, sizeof(rsp), &rsp_size, (uint8_t *) &rsp, DSPQUEUE_TIMEOUT);
+        if (err == AEE_EEXPIRED) {
+            continue;
+        }
+
+        if (err != 0) {
+            LM_GGML_ABORT("ggml-hex: dspqueue_read failed: 0x%08x\n", (unsigned) err);
+        }
+
+        // Basic sanity checks
+        if (rsp_size != sizeof(rsp) || n_dbufs != 1) {
+            LM_GGML_ABORT("ggml-hex: %s dspcall : bad response : size %u dspbufs %u\n", this->c_name(), rsp_size, n_dbufs);
+        }
+
+        op_shm->release((uint8_t*) dbuf.ptr);
+
+        if (rsp.status != HTP_STATUS_OK) {
+            LM_GGML_LOG_ERROR("ggml-hex: %s dspcall : dsp-rsp: %s\n", this->c_name(), status_to_str(rsp.status));
+            // TODO: handle errors
+        }
+
+        // FIXME: profile will be per opreq
+        // this->prof_usecs  = rsp.prof_usecs;
+        // this->prof_cycles = rsp.prof_cycles;
+        // this->prof_pkts   = rsp.prof_pkts;
+
+        this->op_pending--;  // atomic dec
+
+        if (!all) break;
+    }
+}
+
+void lm_ggml_hexagon_session::flush_batch() {
+    if (op_batch->empty()) { return; }
+
+    htp_opbatch_req req;
+    req.n_bufs    = op_batch->n_bufs;
+    req.n_tensors = op_batch->n_tens;
+    req.n_ops     = op_batch->n_ops;
+
+    dspqueue_buffer dbuf;
+    dbuf.fd     = op_shm->fd();
+    dbuf.flags  = DSPQUEUE_BUFFER_FLAG_FLUSH_SENDER | DSPQUEUE_BUFFER_FLAG_INVALIDATE_RECIPIENT;
+    dbuf.ptr    = op_shm->allocate();
+    if (!dbuf.ptr) {
+        flush_pending(false);
+        dbuf.ptr = op_shm->allocate();
+    }
+
+    dbuf.offset = (uint8_t*) dbuf.ptr - (uint8_t*) op_shm->base();
+    dbuf.size   = op_batch->flush((uint8_t*) dbuf.ptr, op_shm->block_size);
+
+    // Bump pending flag (cleared in the session::flush once we get the response)
+    this->op_pending++;  // atomic inc
+
+    HEX_VERBOSE("ggml-hex: %s: queue-opbatch : %p size %u\n", this->c_name(), dbuf.ptr, dbuf.size);
+
+    int err = dspqueue_write(this->queue, 0, 1, &dbuf, sizeof(req), (const uint8_t*) &req, DSPQUEUE_TIMEOUT);
+    if (err != 0) {
+        LM_GGML_ABORT("ggml-hex: %s dspqueue_write failed: 0x%08x\n", this->c_name(), (unsigned) err);
+    }
+}
+
+void lm_ggml_hexagon_session::enqueue_op(htp_op_code opcode, const lm_ggml_tensor *op) {
+    if (!op_batch->fit_op(op)) {
+        flush_batch();
+    }
+    op_batch->add_op(opcode, op);
+}
+
+// Flush HTP response queue i.e wait for all outstanding requests to complete
+void lm_ggml_hexagon_session::flush(bool all) {
+    flush_batch();
+    flush_pending(all);
+}
+
 void lm_ggml_hexagon_session::allocate(int dev_id) noexcept(false) {
     this->valid_session = false;
     this->valid_handle  = false;
@@ -1582,9 +1898,6 @@ void lm_ggml_hexagon_session::allocate(int dev_id) noexcept(false) {
     this->name       = std::string("HTP") + std::to_string(dev_id);
 
     this->op_pending  = 0;
-    this->prof_usecs  = 0;
-    this->prof_cycles = 0;
-    this->prof_pkts   = 0;
 
     LM_GGML_LOG_INFO("ggml-hex: allocating new session: %s\n", this->name.c_str());
 
@@ -1676,11 +1989,14 @@ void lm_ggml_hexagon_session::allocate(int dev_id) noexcept(false) {
         }
     }
 
+    const size_t req_q_size = (sizeof(htp_opbatch_req) * opt_opqueue * 2) + 1024;
+    const size_t rsp_q_size = (sizeof(htp_opbatch_rsp) * opt_opqueue * 2) + 1024;
+
     // Now let's setup the DSP queue
     err = dspqueue_create(this->domain_id,
                           0,              // Flags
-                          128 * 1024,     // Request  queue size (in bytes)
-                          64 * 1024,      // Response queue size (in bytes)
+                          req_q_size,     // Request  queue size (in bytes)
+                          rsp_q_size,     // Response queue size (in bytes)
                           nullptr,        // Read packet callback (we handle reads explicitly)
                           nullptr,        // Error callback (we handle errors during reads)
                           (void *) this,  // Callback context
@@ -1715,12 +2031,19 @@ void lm_ggml_hexagon_session::allocate(int dev_id) noexcept(false) {
         throw std::runtime_error("ggml-hex: iface start failed (see log for details)");
     }
     this->valid_iface = true;
+
+    // Allocate buffers and state for op batching
+    this->op_batch = new lm_ggml_hexagon_opbatch(this, opt_opbatch);
+    this->op_shm   = new lm_ggml_hexagon_opshm(this, opt_opbatch, opt_opqueue);
 }
 
 void lm_ggml_hexagon_session::release() noexcept(true) {
     LM_GGML_LOG_INFO("ggml-hex: releasing session: %s\n", this->name.c_str());
 
     int err;
+
+    delete this->op_batch;
+    delete this->op_shm;
 
     // Stop the DSP-side service and close the queue
     if (this->valid_iface) {
@@ -1752,6 +2075,9 @@ void lm_ggml_hexagon_session::release() noexcept(true) {
 lm_ggml_hexagon_session::lm_ggml_hexagon_session(int dev_id, lm_ggml_backend_dev_t dev) noexcept(false) {
     buffer_type.device        = dev;
     repack_buffer_type.device = dev;
+
+    op_batch = nullptr;
+    op_shm   = nullptr;
 
     try {
         allocate(dev_id);
@@ -1815,9 +2141,13 @@ static bool lm_ggml_hexagon_supported_flash_attn_ext(const struct lm_ggml_hexago
         return false;
     }
 
-    return opt_experimental;
-}
+    if (dst->ne[2] != 1 || dst->ne[3] != 1) {
+        // FA during prompt still needs work
+        return false;
+    }
 
+    return true;
+}
 
 static bool lm_ggml_hexagon_supported_mul_mat(const struct lm_ggml_hexagon_session * sess, const struct lm_ggml_tensor * dst) {
     const struct lm_ggml_tensor * src0 = dst->src[0];
@@ -2082,6 +2412,23 @@ static bool lm_ggml_hexagon_supported_softmax(const struct lm_ggml_hexagon_sessi
         }
     }
 
+    // Reject non-HVX-aligned sizes when ne[0] > HVX_F32_LANES
+    // The HVX softmax implementation has issues with tail handling for larger non-aligned sizes
+    // Small sizes (ne[0] <= 32) work correctly with tail-only processing
+    const int64_t ne0 = src0->ne[0];
+    if (ne0 > 32 && (ne0 & (32 - 1)) != 0) {
+        return false;
+    }
+
+    // HVX vector size constraints for softmax
+    #define SOFTMAX_MAX_ROW_SIZE 131072  // 128K elements max for numerical precision
+
+    // Reject very large row sizes to avoid numerical precision issues
+    // Softmax accumulation over many elements can lead to precision loss
+    if (ne0 > SOFTMAX_MAX_ROW_SIZE) {
+        return false;
+    }
+
     return true;
 }
 
@@ -2249,388 +2596,9 @@ static bool lm_ggml_hexagon_supported_cumsum(const struct lm_ggml_hexagon_sessio
     return true;
 }
 
-enum dspqbuf_type {
-    DSPQBUF_TYPE_DSP_WRITE_CPU_READ = 0,
-    DSPQBUF_TYPE_CPU_WRITE_DSP_READ,
-    DSPQBUF_TYPE_CONSTANT,
-};
-
-static void dspqbuf_dump(dspqueue_buffer * d, const struct lm_ggml_tensor * t, dspqbuf_type type) {
-    if (opt_verbose < 2) return;
-
-    auto buf  = static_cast<lm_ggml_backend_hexagon_buffer_context *>(t->buffer->context);
-    auto sess = buf->sess;
-
-    LM_GGML_LOG_DEBUG("ggml-hex: %s dspqbuf : %s base-addr %p base-size %zu data %p offset %u size %u\n", sess->name.c_str(),
-                t->name, (void *) buf->base, buf->size, (void *) d->ptr, (unsigned int) d->offset,
-                (unsigned int) d->size);
-}
-
-// Init hexagon tensor from GGML tensor and Hexagon buffer
-static void htp_req_tensor_init(htp_tensor * h, const lm_ggml_tensor * t) {
-    h->data  = 0;  // updated by the receiver
-    h->type  = t->type;
-    h->ne[0] = t->ne[0];
-    h->ne[1] = t->ne[1];
-    h->ne[2] = t->ne[2];
-    h->ne[3] = t->ne[3];
-    h->nb[0] = t->nb[0];
-    h->nb[1] = t->nb[1];
-    h->nb[2] = t->nb[2];
-    h->nb[3] = t->nb[3];
-}
-
-static size_t htp_req_buff_init(htp_tensor *h, dspqueue_buffer * d, const lm_ggml_tensor * t, dspqbuf_type type) {
-    if (!t) {
-        return 0;
-    }
-
-    auto buf = static_cast<lm_ggml_backend_hexagon_buffer_context *>(t->buffer->context);
-
-    memset(d, 0, sizeof(*d));
-    d->fd     = buf->fd;
-    d->ptr    = t->data;
-    d->offset = (uint8_t *) t->data - buf->base;
-    d->size   = lm_ggml_nbytes(t);
-
-    if (!d->size) {
-        // Some requests contain srcs where lm_ggml_nbytes() returns 0 but the rest of the op is non-empty
-        d->size = 64;
-    }
-
-    switch (type) {
-        case DSPQBUF_TYPE_DSP_WRITE_CPU_READ:
-            // Flush CPU
-            d->flags = DSPQUEUE_BUFFER_FLAG_FLUSH_SENDER;
-            break;
-        case DSPQBUF_TYPE_CPU_WRITE_DSP_READ:
-            // Flush CPU, Invalidate DSP
-            d->flags = DSPQUEUE_BUFFER_FLAG_FLUSH_SENDER | DSPQUEUE_BUFFER_FLAG_INVALIDATE_RECIPIENT;
-            break;
-        default:
-            // Constant buffer, no cache maintenance
-            d->flags = 0;
-            break;
-    }
-
-    htp_req_tensor_init(h, t);
-
-    dspqbuf_dump(d, t, type);
-
-    return 1;
-}
-
-typedef size_t (*htp_req_init_func_t)(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * op);
-
-template <htp_req_init_func_t _init_req_func>
-static inline void lm_ggml_hexagon_dispatch_op(lm_ggml_hexagon_session *sess, const struct lm_ggml_tensor * op, uint32_t flags) {
-    uint64_t t = lm_ggml_time_us();
-
-    // Construct HTP request
-    htp_general_req req;
-    memset(&req, 0, sizeof(req));
-
-    req.flags = flags;
-    if (!(opt_opmask & HTP_OPMASK_QUANTIZE)) {
-        req.flags |= HTP_OPFLAGS_SKIP_QUANTIZE;
-    }
-    if (!(opt_opmask & HTP_OPMASK_COMPUTE)) {
-        req.flags |= HTP_OPFLAGS_SKIP_COMPUTE;
-    }
-
-    lm_ggml_hexagon_dump_op_exec(sess->name, op, req.flags);
-
-    if ((opt_opmask & HTP_OPMASK_QUEUE)) {
-        dspqueue_buffer bufs[HTP_MAX_PACKET_BUFFERS];
-        size_t n_bufs = _init_req_func(&req, bufs, op);
-        sess->enqueue(req, bufs, n_bufs, opt_opsync);
-    }
-
-    t = lm_ggml_time_us() - t;
-
-    lm_ggml_hexagon_dump_op_prof(sess->name, op, sess->prof_usecs, sess->prof_cycles, sess->prof_pkts, t);
-}
-
-template <bool _is_src0_constant>
-static inline size_t init_binary_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    switch (t->op) {
-        case LM_GGML_OP_MUL_MAT:
-            req->op = HTP_OP_MUL_MAT;
-            break;
-        case LM_GGML_OP_MUL:
-            req->op = HTP_OP_MUL;
-            break;
-        case LM_GGML_OP_ADD:
-            req->op = HTP_OP_ADD;
-            break;
-        case LM_GGML_OP_SUB:
-            req->op = HTP_OP_SUB;
-            break;
-        case LM_GGML_OP_DIV:
-            req->op = HTP_OP_DIV;
-            break;
-        default:
-            LM_GGML_ABORT("ggml-hex: binary : unsupported op: %d\n", t->op);
-            break;
-    }
-
-    // src0: Weights (mulmat) or First Operand (binary op).
-    // If constant (e.g. weights), no cache management is needed.
-    // src1: Input Activations (mulmat) or Second Operand (binary op).
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], _is_src0_constant ? DSPQBUF_TYPE_CONSTANT : DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src1, &bufs[n_bufs], t->src[1], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-static inline size_t init_cpy_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    req->op = HTP_OP_CPY;
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-static inline size_t init_cont_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    // CONT is just a contiguous copy — reuse CPY op
-    req->op = HTP_OP_CPY;
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-static inline size_t init_repeat_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    req->op = HTP_OP_REPEAT;
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-static inline size_t init_cumsum_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    req->op = HTP_OP_CUMSUM;
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-static inline size_t init_get_rows_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    req->op = HTP_OP_GET_ROWS;
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src1, &bufs[n_bufs], t->src[1], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-static inline size_t init_argsort_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    req->op = HTP_OP_ARGSORT;
-    memcpy(&req->op_params, &t->op_params, sizeof(t->op_params));
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-template <bool _is_src0_constant>
-static inline size_t init_binary_id_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    switch (t->op) {
-        case LM_GGML_OP_MUL_MAT_ID:
-            req->op = HTP_OP_MUL_MAT_ID;
-            break;
-        case LM_GGML_OP_ADD_ID:
-            req->op = HTP_OP_ADD_ID;
-            break;
-        default:
-            LM_GGML_ABORT("ggml-hex: unsupported op: %d\n", t->op);
-    }
-
-    // src0: Weights (mulmat) or Input Activations (other op).
-    // If constant, no cache management is needed.
-    // src1: Input Activations (mulmat) or Second Operand (binary op).
-    // src2: Expert IDs (mulmat) or Activated Experts (other op).
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], _is_src0_constant ? DSPQBUF_TYPE_CONSTANT : DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src1, &bufs[n_bufs], t->src[1], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src2, &bufs[n_bufs], t->src[2], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-static inline size_t init_set_rows_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    req->op = HTP_OP_SET_ROWS;
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src1, &bufs[n_bufs], t->src[1], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-static inline size_t init_unary_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    memcpy(&req->op_params, &t->op_params, sizeof(t->op_params));
-
-    bool supported = false;
-
-    switch (t->op) {
-        case LM_GGML_OP_RMS_NORM:
-            req->op   = HTP_OP_RMS_NORM;
-            supported = true;
-            break;
-
-        case LM_GGML_OP_SCALE:
-            req->op   = HTP_OP_SCALE;
-            supported = true;
-            break;
-
-        case LM_GGML_OP_SQR:
-            req->op   = HTP_OP_SQR;
-            supported = true;
-            break;
-
-        case LM_GGML_OP_SQRT:
-            req->op   = HTP_OP_SQRT;
-            supported = true;
-            break;
-
-        case LM_GGML_OP_UNARY:
-            switch (lm_ggml_get_unary_op(t)) {
-            case LM_GGML_UNARY_OP_SILU:
-                req->op   = HTP_OP_UNARY_SILU;
-                supported = true;
-                break;
-            case  LM_GGML_UNARY_OP_GELU:
-                req->op   = HTP_OP_UNARY_GELU;
-                supported = true;
-                break;
-            case LM_GGML_UNARY_OP_SIGMOID:
-                req->op   = HTP_OP_UNARY_SIGMOID;
-                supported = true;
-                break;
-            case LM_GGML_UNARY_OP_NEG:
-                req->op   = HTP_OP_UNARY_NEG;
-                supported = true;
-                break;
-            case LM_GGML_UNARY_OP_EXP:
-                req->op   = HTP_OP_UNARY_EXP;
-                supported = true;
-                break;
-            case LM_GGML_UNARY_OP_SOFTPLUS:
-                req->op   = HTP_OP_UNARY_SOFTPLUS;
-                supported = true;
-                break;
-            default:
-                break;
-            }
-            break;
-
-        case LM_GGML_OP_GLU:
-            if (lm_ggml_get_glu_op(t) == LM_GGML_GLU_OP_SWIGLU) {
-                req->op   = HTP_OP_GLU_SWIGLU;
-                supported = true;
-            } else if (lm_ggml_get_glu_op(t) == LM_GGML_GLU_OP_SWIGLU_OAI) {
-                req->op   = HTP_OP_GLU_SWIGLU_OAI;
-                supported = true;
-            } else if (lm_ggml_get_glu_op(t) == LM_GGML_GLU_OP_GEGLU) {
-                req->op   = HTP_OP_GLU_GEGLU;
-                supported = true;
-            }
-            break;
-
-        case LM_GGML_OP_SOFT_MAX:
-            req->op   = HTP_OP_SOFTMAX;
-            supported = true;
-            break;
-
-        default:
-            break;
-    }
-
-    if (!supported) {
-        LM_GGML_ABORT("ggml-hex: unary : unsupported op: %d\n", t->op);
-    }
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src1, &bufs[n_bufs], t->src[1], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-static inline size_t init_sum_rows_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    memcpy(&req->op_params, &t->op_params, sizeof(t->op_params));
-    req->op = HTP_OP_SUM_ROWS;
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-static inline size_t init_rope_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    memcpy(&req->op_params, &t->op_params, sizeof(t->op_params));
-    req->op = HTP_OP_ROPE;
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src1, &bufs[n_bufs], t->src[1], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src2, &bufs[n_bufs], t->src[2], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-static inline size_t init_flash_attn_ext_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    memcpy(&req->op_params, &t->op_params, sizeof(t->op_params));
-    req->op = HTP_OP_FLASH_ATTN_EXT;
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src1, &bufs[n_bufs], t->src[1], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src2, &bufs[n_bufs], t->src[2], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src3, &bufs[n_bufs], t->src[3], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src4, &bufs[n_bufs], t->src[4], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
-static inline size_t init_ssm_conv_req(htp_general_req * req, dspqueue_buffer * bufs, const lm_ggml_tensor * t) {
-    req->op = HTP_OP_SSM_CONV;
-
-    size_t n_bufs = 0;
-    n_bufs += htp_req_buff_init(&req->src0, &bufs[n_bufs], t->src[0], DSPQBUF_TYPE_CPU_WRITE_DSP_READ);
-    n_bufs += htp_req_buff_init(&req->src1, &bufs[n_bufs], t->src[1], DSPQBUF_TYPE_CONSTANT);
-    n_bufs += htp_req_buff_init(&req->dst,  &bufs[n_bufs], t,         DSPQBUF_TYPE_DSP_WRITE_CPU_READ);
-
-    return n_bufs;
-}
-
 static const char * lm_ggml_backend_hexagon_name(lm_ggml_backend_t backend) {
     auto sess = static_cast<lm_ggml_hexagon_session *>(backend->context);
-    return sess->name.c_str();
+    return sess->c_name();
 }
 
 static void lm_ggml_backend_hexagon_free(lm_ggml_backend_t backend) {
@@ -2639,181 +2607,74 @@ static void lm_ggml_backend_hexagon_free(lm_ggml_backend_t backend) {
     delete backend;
 }
 
-// Map weight type to its activation quantization family.
-// Types in the same family produce identical Q8 formats in VTCM and can
-// safely share quantized activation data via SKIP_QUANTIZE.
-// When adding a new quantized type, assign it the correct family here.
-static inline int act_quant_family(enum lm_ggml_type wtype) {
-    switch (wtype) {
-        case LM_GGML_TYPE_Q4_0:
-        case LM_GGML_TYPE_Q8_0:
-        case LM_GGML_TYPE_IQ4_NL:
-        case LM_GGML_TYPE_MXFP4:
-            return 1;  // Q8x4x2
+static htp_op_code op_remap_to_htp(const lm_ggml_tensor * t) {
+    switch (t->op) {
+        case LM_GGML_OP_FLASH_ATTN_EXT: return HTP_OP_FLASH_ATTN_EXT;
+        case LM_GGML_OP_MUL_MAT:        return HTP_OP_MUL_MAT;
+        case LM_GGML_OP_MUL_MAT_ID:     return HTP_OP_MUL_MAT_ID;
+        case LM_GGML_OP_MUL:            return HTP_OP_MUL;
+        case LM_GGML_OP_ADD:            return HTP_OP_ADD;
+        case LM_GGML_OP_ADD_ID:         return HTP_OP_ADD_ID;
+        case LM_GGML_OP_SUB:            return HTP_OP_SUB;
+        case LM_GGML_OP_DIV:            return HTP_OP_DIV;
+        case LM_GGML_OP_CPY:            return HTP_OP_CPY;
+        case LM_GGML_OP_CONT:           return HTP_OP_CPY;
+        case LM_GGML_OP_GET_ROWS:       return HTP_OP_GET_ROWS;
+        case LM_GGML_OP_SET_ROWS:       return HTP_OP_SET_ROWS;
+        case LM_GGML_OP_SUM_ROWS:       return HTP_OP_SUM_ROWS;
+        case LM_GGML_OP_ARGSORT:        return HTP_OP_ARGSORT;
+        case LM_GGML_OP_RMS_NORM:       return HTP_OP_RMS_NORM;
+        case LM_GGML_OP_SCALE:          return HTP_OP_SCALE;
+        case LM_GGML_OP_SQR:            return HTP_OP_SQR;
+        case LM_GGML_OP_SQRT:           return HTP_OP_SQRT;
+        case LM_GGML_OP_SOFT_MAX:       return HTP_OP_SOFTMAX;
+        case LM_GGML_OP_SSM_CONV:       return HTP_OP_SSM_CONV;
+        case LM_GGML_OP_ROPE:           return HTP_OP_ROPE;
+        case LM_GGML_OP_REPEAT:         return HTP_OP_REPEAT;
+        case LM_GGML_OP_CUMSUM:         return HTP_OP_CUMSUM;
+
+        case LM_GGML_OP_UNARY:
+            switch (lm_ggml_get_unary_op(t)) {
+                case LM_GGML_UNARY_OP_SILU:     return HTP_OP_UNARY_SILU;
+                case LM_GGML_UNARY_OP_GELU:     return HTP_OP_UNARY_GELU;
+                case LM_GGML_UNARY_OP_SIGMOID:  return HTP_OP_UNARY_SIGMOID;
+                case LM_GGML_UNARY_OP_NEG:      return HTP_OP_UNARY_NEG;
+                case LM_GGML_UNARY_OP_EXP:      return HTP_OP_UNARY_EXP;
+                case LM_GGML_UNARY_OP_SOFTPLUS: return HTP_OP_UNARY_SOFTPLUS;
+            default:
+                break;
+            }
+            break;
+
+        case LM_GGML_OP_GLU:
+            switch (lm_ggml_get_glu_op(t)) {
+                case LM_GGML_GLU_OP_SWIGLU:     return HTP_OP_GLU_SWIGLU;
+                case LM_GGML_GLU_OP_SWIGLU_OAI: return HTP_OP_GLU_SWIGLU_OAI;
+                case LM_GGML_GLU_OP_GEGLU:      return HTP_OP_GLU_GEGLU;
+                default: break;
+            }
+            break;
+
         default:
-            return 0;  // unknown / not quantized
+            LM_GGML_ABORT("\nggml-hex: graph-compute %s is not supported\n", lm_ggml_op_desc(t));
     }
+    return HTP_OP_INVALID;
 }
 
-static inline bool op_reuse_src1(const lm_ggml_tensor * op1, const lm_ggml_tensor * op0) {
-    return (op0 && op0->src[1] == op1->src[1] &&
-            act_quant_family(op0->src[0]->type) == act_quant_family(op1->src[0]->type) &&
-            act_quant_family(op0->src[0]->type) != 0);
-}
-
-static inline bool is_compute_op(lm_ggml_tensor *node)
+static inline bool op_is_compute(lm_ggml_tensor *node)
 {
     return !lm_ggml_op_is_empty(node->op) && !lm_ggml_is_empty(node) && (node->flags & LM_GGML_TENSOR_FLAG_COMPUTE);
-}
-
-// scan the graph and figure out last compute op index
-static inline int last_compute_op(lm_ggml_cgraph * graph) {
-    int last = 0;
-    for (int i = 0; i < graph->n_nodes; ++i) {
-        if (is_compute_op(graph->nodes[i])) {
-            last = i;
-        }
-    }
-
-    return last;
 }
 
 static lm_ggml_status lm_ggml_backend_hexagon_graph_compute(lm_ggml_backend_t backend, lm_ggml_cgraph * graph) {
     auto sess = static_cast<lm_ggml_hexagon_session *>(backend->context);
 
-    HEX_VERBOSE("ggml-hex: %s graph-compute n_nodes %d\n", sess->name.c_str(), graph->n_nodes);
-
-    const int last = last_compute_op(graph);
-
-    const struct lm_ggml_tensor * prev_op = nullptr;  // prev executed op
+    HEX_VERBOSE("ggml-hex: %s graph-compute n_nodes %d\n", sess->c_name(), graph->n_nodes);
 
     for (int i = 0; i < graph->n_nodes; ++i) {
-        lm_ggml_tensor * node = graph->nodes[i];
-
-        if (!is_compute_op(node)) {
-            continue;
-        }
-
-        uint32_t flags = 0;
-
-        // skip quantizer if src1 is reused
-        if (op_reuse_src1(node, prev_op)) {
-            flags |= HTP_OPFLAGS_SKIP_QUANTIZE;
-        }
-
-        prev_op = node;
-
-        // ask for early notification for the last Op
-        if (i == last) {
-            flags |= HTP_OPFLAGS_EARLY_WAKEUP;
-        }
-
-        switch (node->op) {
-            case LM_GGML_OP_MUL_MAT:
-                if (lm_ggml_is_quantized(node->src[0]->type)) {
-                    lm_ggml_hexagon_dispatch_op<init_binary_req<true>>(sess, node, flags);
-                } else {
-                    lm_ggml_hexagon_dispatch_op<init_binary_req<false>>(sess, node, flags);
-                }
-                break;
-            case LM_GGML_OP_MUL_MAT_ID:
-                if (lm_ggml_is_quantized(node->src[0]->type)) {
-                    lm_ggml_hexagon_dispatch_op<init_binary_id_req<true>>(sess, node, flags);
-                } else {
-                    lm_ggml_hexagon_dispatch_op<init_binary_id_req<false>>(sess, node, flags);
-                }
-                break;
-            case LM_GGML_OP_MUL:
-            case LM_GGML_OP_ADD:
-            case LM_GGML_OP_SUB:
-            case LM_GGML_OP_DIV:
-                lm_ggml_hexagon_dispatch_op<init_binary_req<false>>(sess, node, flags);
-                break;
-            case LM_GGML_OP_ADD_ID:
-                lm_ggml_hexagon_dispatch_op<init_binary_id_req<false>>(sess, node, flags);
-                break;
-            case LM_GGML_OP_RMS_NORM:
-            case LM_GGML_OP_SCALE:
-                lm_ggml_hexagon_dispatch_op<init_unary_req>(sess, node, flags);
-                break;
-            case LM_GGML_OP_SQR:
-            case LM_GGML_OP_SQRT:
-                lm_ggml_hexagon_dispatch_op<init_unary_req>(sess, node, flags);
-                break;
-            case LM_GGML_OP_SUM_ROWS:
-                lm_ggml_hexagon_dispatch_op<init_sum_rows_req>(sess, node, flags);
-                break;
-            case LM_GGML_OP_UNARY:
-                switch (lm_ggml_get_unary_op(node)) {
-                    case LM_GGML_UNARY_OP_NEG:
-                    case LM_GGML_UNARY_OP_EXP:
-                    case LM_GGML_UNARY_OP_SIGMOID:
-                    case LM_GGML_UNARY_OP_SOFTPLUS:
-                    case LM_GGML_UNARY_OP_SILU:
-                    case LM_GGML_UNARY_OP_GELU:
-                        lm_ggml_hexagon_dispatch_op<init_unary_req>(sess, node, flags);
-                        break;
-                    default:
-                        break;
-                }
-                break;
-            case LM_GGML_OP_GLU:
-                switch (lm_ggml_get_glu_op(node)) {
-                    case LM_GGML_GLU_OP_SWIGLU:
-                    case LM_GGML_GLU_OP_SWIGLU_OAI:
-                    case LM_GGML_GLU_OP_GEGLU:
-                        lm_ggml_hexagon_dispatch_op<init_unary_req>(sess, node, flags);
-                        break;
-                    default:
-                        break;
-                }
-                break;
-            case LM_GGML_OP_SOFT_MAX:
-                lm_ggml_hexagon_dispatch_op<init_unary_req>(sess, node, flags);
-                break;
-
-            case LM_GGML_OP_ROPE:
-                lm_ggml_hexagon_dispatch_op<init_rope_req>(sess, node, flags);
-                break;
-
-            case LM_GGML_OP_FLASH_ATTN_EXT:
-                lm_ggml_hexagon_dispatch_op<init_flash_attn_ext_req>(sess, node, flags);
-                break;
-
-            case LM_GGML_OP_SET_ROWS:
-                lm_ggml_hexagon_dispatch_op<init_set_rows_req>(sess, node, flags);
-                break;
-
-            case LM_GGML_OP_GET_ROWS:
-                lm_ggml_hexagon_dispatch_op<init_get_rows_req>(sess, node, flags);
-                break;
-
-            case LM_GGML_OP_CPY:
-                lm_ggml_hexagon_dispatch_op<init_cpy_req>(sess, node, flags);
-                break;
-
-            case LM_GGML_OP_CONT:
-                lm_ggml_hexagon_dispatch_op<init_cont_req>(sess, node, flags);
-                break;
-
-            case LM_GGML_OP_REPEAT:
-                lm_ggml_hexagon_dispatch_op<init_repeat_req>(sess, node, flags);
-                break;
-
-            case LM_GGML_OP_ARGSORT:
-                lm_ggml_hexagon_dispatch_op<init_argsort_req>(sess, node, flags);
-                break;
-
-            case LM_GGML_OP_SSM_CONV:
-                lm_ggml_hexagon_dispatch_op<init_ssm_conv_req>(sess, node, flags);
-                break;
-
-            case LM_GGML_OP_CUMSUM:
-                lm_ggml_hexagon_dispatch_op<init_cumsum_req>(sess, node, flags);
-                break;
-
-            default:
-                LM_GGML_ABORT("\nggml-hex: graph-compute %s is not supported\n", lm_ggml_op_desc(node));
+        lm_ggml_tensor * n = graph->nodes[i];
+        if (op_is_compute(n)) {
+            sess->enqueue_op(op_remap_to_htp(n), n);
         }
     }
 
@@ -2826,7 +2687,7 @@ static lm_ggml_status lm_ggml_backend_hexagon_graph_compute(lm_ggml_backend_t ba
 static void lm_ggml_backend_hexagon_synchronize(lm_ggml_backend_t backend) {
     auto sess = static_cast<lm_ggml_hexagon_session *>(backend->context);
 
-    HEX_VERBOSE("ggml-hex: %s synchronize\n", sess->name.c_str());
+    HEX_VERBOSE("ggml-hex: %s synchronize\n", sess->c_name());
 
     // Wait until all pending ops complete
     sess->flush();
@@ -3045,7 +2906,7 @@ static lm_ggml_backend_t lm_ggml_backend_hexagon_device_init(lm_ggml_backend_dev
 
 static const char * lm_ggml_backend_hexagon_device_get_name(lm_ggml_backend_dev_t dev) {
     auto sess = static_cast<lm_ggml_hexagon_session *>(dev->context);
-    return sess->name.c_str();
+    return sess->c_name();
 
     LM_GGML_UNUSED(dev);
 }
@@ -3056,8 +2917,7 @@ static const char * lm_ggml_backend_hexagon_device_get_description(lm_ggml_backe
 }
 
 static void lm_ggml_backend_hexagon_device_get_memory(lm_ggml_backend_dev_t dev, size_t * free, size_t * total) {
-    // ~2GB per session for now
-    *free  = 2ULL * 1024 * 1024 * 1024;
+    *free  = 0;
     *total = *free;
 
     LM_GGML_UNUSED(dev);
@@ -3172,6 +3032,11 @@ static bool lm_ggml_hexagon_supported_repeat(const struct lm_ggml_hexagon_sessio
 static bool lm_ggml_backend_hexagon_device_supports_op(lm_ggml_backend_dev_t dev, const struct lm_ggml_tensor * op) {
     auto sess = static_cast<lm_ggml_hexagon_session *>(dev->context);
 
+    // reject ops that match the filter
+    if (opt_opfilter && std::regex_match(lm_ggml_op_desc(op), *opt_opfilter)) {
+        return false;
+    }
+
     // all srcs & dsts must be mapped to the same session
     if (!lm_ggml_hexagon_supported_buffers(sess, op)) {
         lm_ggml_hexagon_dump_op_supp(sess->name, op, false);
@@ -3188,19 +3053,19 @@ static bool lm_ggml_backend_hexagon_device_supports_op(lm_ggml_backend_dev_t dev
             supp = true;
             break;
 
+        case LM_GGML_OP_MUL:
+        case LM_GGML_OP_ADD:
+        case LM_GGML_OP_SUB:
+        case LM_GGML_OP_DIV:
+            supp = lm_ggml_hexagon_supported_binary(sess, op);
+            break;
+
         case LM_GGML_OP_MUL_MAT:
             supp = lm_ggml_hexagon_supported_mul_mat(sess, op);
             break;
 
         case LM_GGML_OP_MUL_MAT_ID:
             supp = lm_ggml_hexagon_supported_mul_mat_id(sess, op);
-            break;
-
-        case LM_GGML_OP_MUL:
-        case LM_GGML_OP_ADD:
-        case LM_GGML_OP_SUB:
-        case LM_GGML_OP_DIV:
-            supp = lm_ggml_hexagon_supported_binary(sess, op);
             break;
 
         case LM_GGML_OP_ADD_ID:
@@ -3241,6 +3106,7 @@ static bool lm_ggml_backend_hexagon_device_supports_op(lm_ggml_backend_dev_t dev
                     break;
             }
             break;
+
         case LM_GGML_OP_GLU:
             switch (lm_ggml_get_glu_op(op)) {
                 case LM_GGML_GLU_OP_SWIGLU:
@@ -3252,6 +3118,7 @@ static bool lm_ggml_backend_hexagon_device_supports_op(lm_ggml_backend_dev_t dev
                     break;
             }
             break;
+
         case LM_GGML_OP_ROPE:
             supp = lm_ggml_hexagon_supported_rope(sess, op);
             break;
@@ -3440,11 +3307,13 @@ static void lm_ggml_hexagon_init(lm_ggml_backend_reg * reg) {
     static_assert((unsigned int) HTP_TYPE_IQ4_NL == (unsigned int) LM_GGML_TYPE_IQ4_NL,
                   "please update hexagon_type to match lm_ggml_type");
 
-    const char * str_experimental = getenv("LM_GGML_HEXAGON_EXPERIMENTAL");
     const char * str_verbose = getenv("LM_GGML_HEXAGON_VERBOSE");
     const char * str_hostbuf = getenv("LM_GGML_HEXAGON_HOSTBUF");
     const char * str_opmask  = getenv("LM_GGML_HEXAGON_OPMASK");
     const char * str_opsync  = getenv("LM_GGML_HEXAGON_OPSYNC");
+    const char * str_opbatch = getenv("LM_GGML_HEXAGON_OPBATCH");
+    const char * str_opqueue = getenv("LM_GGML_HEXAGON_OPQUEUE");
+    const char * str_opfilter= getenv("LM_GGML_HEXAGON_OPFILTER");
     const char * str_profile = getenv("LM_GGML_HEXAGON_PROFILE");
     const char * str_etm     = getenv("LM_GGML_HEXAGON_ETM");
     const char * str_nhvx    = getenv("LM_GGML_HEXAGON_NHVX");
@@ -3452,16 +3321,21 @@ static void lm_ggml_hexagon_init(lm_ggml_backend_reg * reg) {
     const char * str_ndev    = getenv("LM_GGML_HEXAGON_NDEV");
     const char * str_arch    = getenv("LM_GGML_HEXAGON_ARCH");
 
-    opt_experimental = str_experimental ? atoi(str_experimental) : 0;
+    auto RE_ICASE = std::regex_constants::icase;
+
+    opt_opfilter     = str_opfilter     ? new std::regex(str_opfilter, RE_ICASE) : NULL;
     opt_verbose      = str_verbose ? atoi(str_verbose) : 0;
     opt_hostbuf      = str_hostbuf ? atoi(str_hostbuf) : opt_hostbuf;
-    opt_opmask       = str_opmask  ? strtoul(str_opmask, NULL, 0) : opt_opmask;
-    opt_opsync       = str_opsync  ? atoi(str_opsync)  : 0;
+    opt_opmask       = str_opmask  ? strtoul(str_opmask, NULL, 0)  : opt_opmask;
+    opt_opsync       = str_opsync  ? atoi(str_opsync)              : opt_opsync;
+    opt_opbatch      = str_opbatch ? strtoul(str_opbatch, NULL, 0) : opt_opbatch;
+    opt_opqueue      = str_opqueue ? strtoul(str_opqueue, NULL, 0) : opt_opqueue;
     opt_profile      = str_profile ? atoi(str_profile) : 0;
     opt_etm          = str_etm     ? atoi(str_etm)     : 0;
     opt_nhvx         = str_nhvx    ? strtoul(str_nhvx, NULL, 0) : opt_nhvx;
     opt_use_hmx      = str_use_hmx ? atoi(str_use_hmx) : opt_use_hmx;
     opt_ndev         = str_ndev    ? strtoul(str_ndev, NULL, 0) : opt_ndev;
+    opt_hostbuf      = str_hostbuf ? atoi(str_hostbuf) : opt_hostbuf;
 
     if (opt_ndev > LM_GGML_HEXAGON_MAX_SESSIONS) {
         opt_ndev = LM_GGML_HEXAGON_MAX_SESSIONS;
@@ -3474,12 +3348,7 @@ static void lm_ggml_hexagon_init(lm_ggml_backend_reg * reg) {
         opt_arch = strtoul(str_arch, NULL, 0);
     }
 
-    opt_hostbuf = str_hostbuf ? atoi(str_hostbuf) : 1;
-
     reg->context = new lm_ggml_hexagon_registry(reg);
-
-    HEX_VERBOSE("ggml-hex: size-of-general-req %zu size-of-general-rsp %zu\n", sizeof(struct htp_general_req),
-                sizeof(struct htp_general_rsp));
 }
 
 static const struct lm_ggml_backend_reg_i lm_ggml_backend_hexagon_reg_i = {
