@@ -154,6 +154,7 @@ namespace rnllama_jsi {
 
         cparams.use_mlock = getPropertyAsBool(runtime, params, "use_mlock", cparams.use_mlock);
         cparams.use_mmap = getPropertyAsBool(runtime, params, "use_mmap", cparams.use_mmap);
+        cparams.no_extra_bufts = getPropertyAsBool(runtime, params, "no_extra_bufts", cparams.no_extra_bufts);
 
         if (params.hasProperty(runtime, "flash_attn")) {
             bool fa = getPropertyAsBool(runtime, params, "flash_attn", false);
@@ -211,15 +212,22 @@ namespace rnllama_jsi {
         }
 
         if (params.hasProperty(runtime, "lora_list")) {
-            jsi::Array loraList = params.getProperty(runtime, "lora_list").asObject(runtime).asArray(runtime);
-            for (size_t i = 0; i < loraList.size(runtime); i++) {
-                jsi::Object item = loraList.getValueAtIndex(runtime, i).asObject(runtime);
-                std::string path = getPropertyAsString(runtime, item, "path");
-                if (!path.empty()) {
-                    common_adapter_lora_info la;
-                    la.path = path;
-                    la.scale = getPropertyAsFloat(runtime, item, "scaled", 1.0f);
-                    cparams.lora_adapters.push_back(la);
+            jsi::Value loraListValue = params.getProperty(runtime, "lora_list");
+            if (loraListValue.isObject() && loraListValue.asObject(runtime).isArray(runtime)) {
+                jsi::Array loraList = loraListValue.asObject(runtime).asArray(runtime);
+                for (size_t i = 0; i < loraList.size(runtime); i++) {
+                    jsi::Value itemValue = loraList.getValueAtIndex(runtime, i);
+                    if (!itemValue.isObject()) {
+                        continue;
+                    }
+                    jsi::Object item = itemValue.asObject(runtime);
+                    std::string path = getPropertyAsString(runtime, item, "path");
+                    if (!path.empty()) {
+                        common_adapter_lora_info la;
+                        la.path = path;
+                        la.scale = getPropertyAsFloat(runtime, item, "scaled", 1.0f);
+                        cparams.lora_adapters.push_back(la);
+                    }
                 }
             }
         }
@@ -276,20 +284,59 @@ namespace rnllama_jsi {
         sparams.top_n_sigma = getPropertyAsDouble(runtime, params, "top_n_sigma", sparams.top_n_sigma);
 
         // Grammar
+        sparams.grammar = {};
+        sparams.generation_prompt.clear();
+        sparams.grammar_triggers.clear();
+        sparams.preserved_tokens.clear();
+        sparams.reasoning_budget_tokens = -1;
+        sparams.reasoning_budget_activate_immediately = false;
+        sparams.reasoning_budget_start.clear();
+        sparams.reasoning_budget_end.clear();
+        sparams.reasoning_budget_forced.clear();
+
         std::string grammar = getPropertyAsString(runtime, params, "grammar");
         if (!grammar.empty()) {
-            sparams.grammar = grammar;
+            sparams.grammar = {COMMON_GRAMMAR_TYPE_USER, std::move(grammar)};
         }
 
         std::string jsonSchema = getPropertyAsString(runtime, params, "json_schema");
-        if (!jsonSchema.empty() && grammar.empty()) {
-            sparams.grammar = json_schema_to_grammar(json::parse(jsonSchema));
+        if (!jsonSchema.empty() && sparams.grammar.empty()) {
+            sparams.grammar = {COMMON_GRAMMAR_TYPE_OUTPUT_FORMAT, json_schema_to_grammar(json::parse(jsonSchema))};
+        }
+
+        sparams.generation_prompt = getPropertyAsString(runtime, params, "generation_prompt");
+
+        const int thinkingBudgetTokens = getPropertyAsInt(runtime, params, "thinking_budget_tokens", -1);
+        if (thinkingBudgetTokens >= 0) {
+            const std::string thinkingEndTag = getPropertyAsString(runtime, params, "thinking_end_tag");
+            if (!thinkingEndTag.empty()) {
+                const std::string thinkingStartTag = getPropertyAsString(runtime, params, "thinking_start_tag");
+                const std::string thinkingBudgetMessage = getPropertyAsString(runtime, params, "thinking_budget_message");
+
+                if (!thinkingStartTag.empty()) {
+                    sparams.reasoning_budget_start = common_tokenize(
+                        ctx->ctx, thinkingStartTag, /* add_special= */ false, /* parse_special= */ true);
+                }
+                sparams.reasoning_budget_end = common_tokenize(
+                    ctx->ctx, thinkingEndTag, /* add_special= */ false, /* parse_special= */ true);
+                sparams.reasoning_budget_forced = common_tokenize(
+                    ctx->ctx, thinkingBudgetMessage + thinkingEndTag, /* add_special= */ false, /* parse_special= */ true);
+
+                if (!sparams.reasoning_budget_end.empty() && !sparams.reasoning_budget_forced.empty()) {
+                    sparams.reasoning_budget_tokens = thinkingBudgetTokens;
+                    sparams.reasoning_budget_activate_immediately = getPropertyAsBool(
+                        runtime, params, "thinking_forced_open", false);
+                } else {
+                    sparams.reasoning_budget_start.clear();
+                    sparams.reasoning_budget_end.clear();
+                    sparams.reasoning_budget_forced.clear();
+                }
+            }
         }
 
         sparams.grammar_lazy = getPropertyAsBool(runtime, params, "grammar_lazy", false);
 
         if (params.hasProperty(runtime, "preserved_tokens")) {
-            sparams.preserved_tokens.clear();
             auto preservedVal = params.getProperty(runtime, "preserved_tokens");
             if (preservedVal.isObject() && preservedVal.asObject(runtime).isArray(runtime)) {
                 jsi::Array preserved = preservedVal.asObject(runtime).asArray(runtime);
@@ -308,7 +355,6 @@ namespace rnllama_jsi {
         }
 
         if (params.hasProperty(runtime, "grammar_triggers")) {
-            sparams.grammar_triggers.clear();
             auto triggersVal = params.getProperty(runtime, "grammar_triggers");
             if (triggersVal.isObject() && triggersVal.asObject(runtime).isArray(runtime)) {
                 jsi::Array triggers = triggersVal.asObject(runtime).asArray(runtime);

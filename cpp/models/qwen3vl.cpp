@@ -4,10 +4,10 @@ llm_build_qwen3vl::llm_build_qwen3vl(const llama_model & model, const llm_graph_
     const size_t n_deepstack_layers = hparams.n_deepstack_layers;
 
     const int64_t n_embd      = hparams.n_embd;
-    const int64_t n_embd_head = hparams.n_embd_head_v;
+    const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
-    LM_GGML_ASSERT(n_embd_head == hparams.n_rot);
+    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    LM_GGML_ASSERT(n_embd_head == n_rot);
 
     lm_ggml_tensor * cur;
     lm_ggml_tensor * inpL;

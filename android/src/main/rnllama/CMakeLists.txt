@@ -45,6 +45,7 @@ set(
     ${RNLLAMA_LIB_DIR}/ggml-alloc.c
     ${RNLLAMA_LIB_DIR}/ggml-backend.cpp
     ${RNLLAMA_LIB_DIR}/ggml-backend-dl.cpp
+    ${RNLLAMA_LIB_DIR}/ggml-backend-meta.cpp
     ${RNLLAMA_LIB_DIR}/ggml-backend-reg.cpp
     ${RNLLAMA_LIB_DIR}/ggml-opt.cpp
     ${RNLLAMA_LIB_DIR}/ggml-threading.cpp
@@ -140,7 +141,7 @@ function(build_rnllama_library target_name arch cpu_flags)
     # Note: Hexagon requires building DSP libraries with Hexagon SDK toolchain
     # This is a complex process that needs to be done separately
     if (ENABLE_HEXAGON)
-        # Hexagon SDK is ALWAYS required to link cdsprpc, even for prebuilt distribution
+        # Hexagon SDK is optional — if not present, build the target without Hexagon support
         set(HEXAGON_SDK_AVAILABLE OFF)
         if (HEXAGON_SDK_ROOT AND HEXAGON_TOOLS_ROOT)
             # Verify libcdsprpc.so exists
@@ -149,13 +150,12 @@ function(build_rnllama_library target_name arch cpu_flags)
                 set(HEXAGON_SDK_AVAILABLE ON)
                 message(STATUS "Hexagon SDK verified and available")
             else()
-                message(FATAL_ERROR
-                    "Hexagon SDK found but libcdsprpc.so is missing at ${CDSPRPC_LIB}.\n"
-                    "The SDK installation may be incomplete. Run 'npm run bootstrap' to reinstall.")
+                message(WARNING
+                    "Hexagon SDK found but libcdsprpc.so is missing at ${CDSPRPC_LIB}. "
+                    "Building ${target_name} without Hexagon support.")
             endif()
         else()
-            message(FATAL_ERROR
-                "Hexagon SDK is required to build ${target_name} but not found.")
+            message(STATUS "Hexagon SDK not found — building ${target_name} without Hexagon support.")
         endif()
 
         if (HEXAGON_SDK_AVAILABLE)
@@ -165,13 +165,22 @@ function(build_rnllama_library target_name arch cpu_flags)
                 ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp-drv.cpp
             )
 
-            # Use pre-built stub (always present in source tree)
-            target_sources(${target_name} PRIVATE
-                ${RNLLAMA_LIB_DIR}/ggml-hexagon/htp/v73/htp_iface_stub.c
-            )
-
-            # Use pre-built IDL headers from build-hexagon-htp directory
+            # The Android host build consumes generated QAIC artifacts copied by
+            # scripts/build-hexagon-htp.sh. Keep the failure mode explicit when
+            # they have not been generated yet.
             set(HEXAGON_PREBUILT_HTP_DIR "${RNLLAMA_LIB_DIR}/ggml-hexagon/htp/v73/")
+            set(HEXAGON_HOST_STUB "${HEXAGON_PREBUILT_HTP_DIR}/htp_iface_stub.c")
+            set(HEXAGON_HOST_HEADER "${HEXAGON_PREBUILT_HTP_DIR}/htp_iface.h")
+
+            if (NOT EXISTS ${HEXAGON_HOST_STUB} OR NOT EXISTS ${HEXAGON_HOST_HEADER})
+                message(FATAL_ERROR
+                    "Hexagon host QAIC artifacts are missing. "
+                    "Run scripts/build-hexagon-htp.sh to generate ${HEXAGON_PREBUILT_HTP_DIR}.")
+            endif()
+
+            target_sources(${target_name} PRIVATE
+                ${HEXAGON_HOST_STUB}
+            )
 
             target_include_directories(${target_name} PRIVATE
                 ${HEXAGON_SDK_ROOT}/incs
@@ -223,6 +232,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             cpy
             cvt
             diag_mask_inf
+            diag
             div
             gelu
             gemv_noshuffle_general
@@ -248,6 +258,9 @@ function(build_rnllama_library target_name arch cpu_flags)
             mul_mv_q4_1_f32
             mul_mv_q4_1_f32_flat
             mul_mv_q4_k_f32
+            mul_mv_q4_k_f32_flat
+            mul_mv_q5_k_f32
+            mul_mv_q5_k_f32_flat
             mul_mv_q6_k_f32
             mul_mv_q6_k_f32_flat
             mul_mv_q8_0_f32
@@ -266,12 +279,22 @@ function(build_rnllama_library target_name arch cpu_flags)
             mul_mm_q4_0_f32_l4_lm
             mul_mm_q4_1_f32_l4_lm
             mul_mm_q8_0_f32_l4_lm
+            mul_mm_q4_k_f32_l4_lm
+            mul_mm_q5_k_f32_l4_lm
             mul_mm_q6_k_f32_l4_lm
             mul_mm_q8_0_f32_8x4
+            gemv_noshuffle_q4_1_f32
+            gemm_noshuffle_q4_1_f32
             gemv_noshuffle_general_q8_0_f32
+            gemv_noshuffle_q4_k_f32
+            gemm_noshuffle_q4_k_f32
+            gemv_noshuffle_q6_k_f32
+            gemm_noshuffle_q6_k_f32
             mul
+            neg
             norm
             relu
+            l2_norm
             rms_norm
             rope
             scale
@@ -287,11 +310,13 @@ function(build_rnllama_library target_name arch cpu_flags)
             ssm_conv
             sub
             sum_rows
+            cumsum
             transpose
             concat
             tsembd
             upscale
             tanh
+            exp
             expm1
             softplus
             pad

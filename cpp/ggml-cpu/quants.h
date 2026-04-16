@@ -12,6 +12,7 @@ extern "C" {
 #endif
 
 // Quantization
+void quantize_row_q1_0(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
 void quantize_row_q4_0(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
 void quantize_row_q4_1(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
 void quantize_row_q5_0(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
@@ -20,6 +21,7 @@ void quantize_row_q8_0(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT
 void quantize_row_q8_1(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
 
 void quantize_row_mxfp4(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
+void quantize_row_nvfp4(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
 
 void quantize_row_q2_K(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
 void quantize_row_q3_K(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
@@ -35,6 +37,7 @@ void quantize_row_iq4_nl (const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTR
 void quantize_row_iq4_xs (const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
 
 // Dot product
+void lm_ggml_vec_dot_q1_0_q8_0(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
 void lm_ggml_vec_dot_q4_0_q8_0(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
 void lm_ggml_vec_dot_q4_1_q8_1(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
 void lm_ggml_vec_dot_q5_0_q8_0(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
@@ -42,6 +45,7 @@ void lm_ggml_vec_dot_q5_1_q8_1(int n, float * LM_GGML_RESTRICT s, size_t bs, con
 void lm_ggml_vec_dot_q8_0_q8_0(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
 
 void lm_ggml_vec_dot_mxfp4_q8_0(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
+void lm_ggml_vec_dot_nvfp4_q8_0(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
 
 void lm_ggml_vec_dot_q2_K_q8_K(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
 void lm_ggml_vec_dot_q3_K_q8_K(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
@@ -66,6 +70,7 @@ void lm_ggml_vec_dot_iq3_s_q8_K  (int n, float * LM_GGML_RESTRICT s, size_t bs, 
 void quantize_row_q8_0_generic(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT vy, int64_t k);
 void quantize_row_q8_1_generic(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT vy, int64_t k);
 void quantize_row_q8_K_generic(const float * LM_GGML_RESTRICT x, void * LM_GGML_RESTRICT y, int64_t k);
+void lm_ggml_vec_dot_q1_0_q8_0_generic(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
 void lm_ggml_vec_dot_q4_0_q8_0_generic(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
 void lm_ggml_vec_dot_q4_1_q8_1_generic(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
 void lm_ggml_vec_dot_q5_0_q8_0_generic(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
@@ -73,6 +78,7 @@ void lm_ggml_vec_dot_q5_1_q8_1_generic(int n, float * LM_GGML_RESTRICT s, size_t
 void lm_ggml_vec_dot_q8_0_q8_0_generic(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
 
 void lm_ggml_vec_dot_mxfp4_q8_0_generic(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
+void lm_ggml_vec_dot_nvfp4_q8_0_generic(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
 
 void lm_ggml_vec_dot_tq1_0_q8_K_generic(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);
 void lm_ggml_vec_dot_tq2_0_q8_K_generic(int n, float * LM_GGML_RESTRICT s, size_t bs, const void * LM_GGML_RESTRICT vx, size_t bx, const void * LM_GGML_RESTRICT vy, size_t by, int nrc);

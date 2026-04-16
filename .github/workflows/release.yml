@@ -4,6 +4,16 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to upload assets to during a manual run. Leave blank to use the most recently published release tag.
+        required: false
+        type: string
+      publish_to_npm:
+        description: Publish the current package version to npm during a manual run.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -39,14 +49,17 @@ jobs:
       - name: Build Android libraries
         run: npm run build:android-libs
 
+      - name: Package Android JNI libraries
+        run: tar -czf llama-rn-android-jni-libs.tar.gz android/src/main/jniLibs
+
       - name: Upload Android build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: android-prebuilt-libs
+          name: android-build-artifacts
           path: |
             bin/
             cpp/ggml-hexagon/htp/v73/
-            android/src/main/jniLibs/
+            llama-rn-android-jni-libs.tar.gz
           retention-days: 1
 
   publish:
@@ -66,19 +79,83 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
+      - name: Resolve release version
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag || '' }}
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          PACKAGE_TAG="v$PACKAGE_VERSION"
+          RELEASE_TAG="$PACKAGE_TAG"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "$INPUT_RELEASE_TAG" ]; then
+              RELEASE_TAG="$INPUT_RELEASE_TAG"
+            else
+              RELEASE_TAG=$(gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')
+            fi
+
+            if [ -z "$RELEASE_TAG" ]; then
+              echo "Unable to determine release tag for workflow_dispatch" >&2
+              exit 1
+            fi
+          fi
+
+          echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "package_tag=$PACKAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Validate pushed tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if [ "${GITHUB_REF_NAME}" != "${{ steps.release.outputs.package_tag }}" ]; then
+            echo "Git tag ${GITHUB_REF_NAME} does not match package version tag ${{ steps.release.outputs.package_tag }}" >&2
+            exit 1
+          fi
+
       - name: Download Android build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: android-prebuilt-libs
+          name: android-build-artifacts
+
+      - name: Build iOS frameworks
+        run: npm run build:ios-frameworks
+
+      - name: Package iOS xcframework
+        run: COPYFILE_DISABLE=1 tar -czf llama-rn-ios-xcframework.tar.gz ios/rnllama.xcframework
+
+      - name: Write native artifact manifest
+        run: node ./install/write-native-artifacts-manifest.js
+
+      - name: Upload native release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              llama-rn-android-jni-libs.tar.gz \
+              llama-rn-ios-xcframework.tar.gz \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              llama-rn-android-jni-libs.tar.gz \
+              llama-rn-ios-xcframework.tar.gz \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_TAG" \
+              --notes ""
+          fi
 
       - name: Configure npm authentication
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_to_npm }}
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_1Y }}
 
       - name: Publish package
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_to_npm }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_1Y }}
-          SKIP_ANDROID_BUILD: '1'
         run: npm publish

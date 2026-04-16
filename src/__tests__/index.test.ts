@@ -1,3 +1,4 @@
+import { NativeModules } from 'react-native'
 import { initLlama, releaseAllLlama } from '..'
 import type { TokenData } from '..'
 
@@ -5,11 +6,54 @@ jest.mock('..', () => require('../../jest/mock'))
 
 Math.random = () => 0.5
 
+test('LoRA inputs are normalized and deduplicated', async () => {
+  await NativeModules.RNLlama.install()
+  const mocks = global as typeof globalThis & {
+    llamaInitContext: jest.Mock
+    llamaApplyLoraAdapters: jest.Mock
+  }
+  const { llamaInitContext, llamaApplyLoraAdapters } = mocks
+
+  const context = await initLlama({
+    model: 'test.gguf',
+    lora: 'file:///adapter-a.gguf',
+    lora_scaled: 0.25,
+    lora_list: [
+      { path: 'file:///adapter-a.gguf', scaled: 0.75 },
+      { path: 'file:///adapter-b.gguf', scaled: 0.5 },
+    ],
+  })
+
+  const initParams = llamaInitContext.mock.calls.at(-1)?.[1]
+  expect(initParams).toEqual(
+    expect.objectContaining({
+      lora_list: [
+        { path: '/adapter-a.gguf', scaled: 0.75 },
+        { path: '/adapter-b.gguf', scaled: 0.5 },
+      ],
+    }),
+  )
+  expect(initParams).not.toHaveProperty('lora')
+
+  await context.applyLoraAdapters([
+    { path: 'file:///adapter-b.gguf', scaled: 0.5 },
+    { path: 'file:///adapter-b.gguf', scaled: 1.0 },
+    { path: '/adapter-c.gguf' },
+  ])
+
+  expect(llamaApplyLoraAdapters).toHaveBeenLastCalledWith(context.id, [
+    { path: '/adapter-b.gguf', scaled: 1.0 },
+    { path: '/adapter-c.gguf', scaled: undefined },
+  ])
+
+  await context.release()
+})
+
 test('Mock', async () => {
   const context = await initLlama({
     model: 'test.gguf',
   })
-  expect(context.id).toBe(0)
+  expect(context.id).toBeGreaterThanOrEqual(0)
   const events: TokenData[] = []
   const completionResult = await context.completion({
     prompt: 'Test',

@@ -1,4 +1,4 @@
-import React, { useState, useLayoutEffect } from 'react'
+import React, { useState } from 'react'
 import {
   View,
   Text,
@@ -11,149 +11,58 @@ import {
 } from 'react-native'
 import { saveDocuments } from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
-import { TTSModelDownloadCard } from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
 import TTSParamsModal from '../components/TTSParamsModal'
 import { AudioPlayer } from '../components/AudioPlayer'
+import { ExampleModelSetup } from '../components/ExampleModelSetup'
 import { createThemedStyles } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
-import { MODELS } from '../utils/constants'
 import type {
   ContextParams,
   CompletionParams,
   TTSParams,
 } from '../utils/storage'
-import {
-  loadContextParams,
-  loadCompletionParams,
-  loadTTSParams,
-} from '../utils/storage'
-import { HeaderButton } from '../components/HeaderButton'
-import { MaskedProgress } from '../components/MaskedProgress'
+import { loadContextParams, loadCompletionParams } from '../utils/storage'
 import { createWavFile } from '../utils/audioUtils'
-import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
+import { initLlama } from '../../../src' // import 'llama.rn'
+import {
+  useStoredCompletionParams,
+  useStoredContextParams,
+  useStoredTTSParams,
+} from '../hooks/useStoredSetting'
+import { useExampleContext } from '../hooks/useExampleContext'
+import { useExampleScreenHeader } from '../hooks/useExampleScreenHeader'
+import { createExampleModelDefinitions } from '../utils/exampleModels'
+
+const TTS_MODELS = createExampleModelDefinitions(['OUTE_TTS_0_3'])
 
 export default function TTSScreen({ navigation }: { navigation: any }) {
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
-
-  const styles = StyleSheet.create({
-    // Using themed styles for common patterns
-    container: themedStyles.container,
-    setupContainer: themedStyles.setupContainer,
-    scrollContent: themedStyles.scrollContent,
-    setupDescription: themedStyles.setupDescription,
-    loadingContainer: themedStyles.loadingContainer,
-    loadingText: themedStyles.loadingText,
-    header: {
-      ...themedStyles.header,
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    },
-    headerTitle: {
-      fontSize: 18,
-      fontWeight: '600',
-      color: theme.colors.text,
-    },
-    textInput: {
-      ...themedStyles.textInput,
-      height: 120,
-      textAlignVertical: 'top',
-    },
-    button: themedStyles.primaryButton,
-    buttonText: themedStyles.primaryButtonText,
-    disabledButton: themedStyles.primaryButtonDisabled,
-    generateButton: {
-      backgroundColor: theme.colors.primary,
-      borderRadius: 12,
-      paddingVertical: 16,
-      alignItems: 'center',
-    },
-    generateButtonText: {
-      color: theme.colors.white,
-      fontSize: 18,
-      fontWeight: '600',
-    },
-    audioCard: {
-      backgroundColor: theme.colors.surface,
-      borderRadius: 12,
-      padding: 16,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-    },
-    audioDescription: {
-      fontSize: 16,
-      color: theme.colors.text,
-      marginBottom: 16,
-      fontStyle: 'italic',
-    },
-    infoSection: {
-      backgroundColor: theme.colors.surface,
-      borderRadius: 12,
-      padding: 16,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-    },
-    infoTitle: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: theme.colors.text,
-      marginBottom: 8,
-      marginTop: 16,
-    },
-    infoText: {
-      fontSize: 14,
-      color: theme.colors.textSecondary,
-      lineHeight: 20,
-    },
-    content: {
-      flex: 1,
-      padding: 16,
-    },
-    inputSection: {
-      marginBottom: 24,
-    },
-    sectionTitle: {
-      fontSize: 18,
-      fontWeight: '600',
-      color: theme.colors.text,
-      marginBottom: 12,
-    },
-    characterCount: {
-      fontSize: 12,
-      color: theme.colors.textSecondary,
-      textAlign: 'right',
-      marginTop: 4,
-    },
-    controlSection: {
-      marginBottom: 24,
-    },
-    generateButtonDisabled: {
-      backgroundColor: theme.colors.disabled,
-    },
-    audioSection: {
-      marginBottom: 24,
-    },
-  })
+  const styles = createStyles(theme, themedStyles)
   const [inputText, setInputText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [context, setContext] = useState<LlamaContext | null>(null)
-  const [isModelReady, setIsModelReady] = useState(false)
   const [isVocoderReady, setIsVocoderReady] = useState(false)
   const [generatedAudio, setGeneratedAudio] = useState<string | null>(null)
   const [audioData, setAudioData] = useState<Float32Array | null>(null)
   const [sampleRate, setSampleRate] = useState<number>(24000)
-  const [initProgress, setInitProgress] = useState(0)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
   const [showTTSParamsModal, setShowTTSParamsModal] = useState(false)
-  const [contextParams, setContextParams] = useState<ContextParams | null>(null)
-  const [completionParams, setCompletionParams] =
-    useState<CompletionParams | null>(null)
-  const [ttsParams, setTtsParams] = useState<TTSParams | null>(null)
+  const {
+    context,
+    initProgress,
+    isModelReady,
+    replaceContext,
+    setInitProgress,
+  } = useExampleContext()
+  const { value: contextParams, setValue: setContextParams } =
+    useStoredContextParams()
+  const { value: completionParams, setValue: setCompletionParams } =
+    useStoredCompletionParams()
+  const { value: ttsParams, setValue: setTtsParams } = useStoredTTSParams()
 
   const handleSaveContextParams = (params: ContextParams) => {
     setContextParams(params)
@@ -234,47 +143,29 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
     }
   }
 
-  // Load TTS parameters on mount
-  useLayoutEffect(() => {
-    const loadTTSParamsAsync = async () => {
-      try {
-        const params = await loadTTSParams()
-        setTtsParams(params)
-      } catch (error) {
-        console.error('Failed to load TTS params:', error)
-      }
-    }
-    loadTTSParamsAsync()
-  }, [])
-
-  // Set up navigation header button
-  useLayoutEffect(() => {
-    if (isModelReady) {
-      navigation.setOptions({
-        headerRight: () => (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton
-              iconName="speaker"
-              onPress={() => setShowTTSParamsModal(true)}
-            />
-            <HeaderButton
-              iconName="cog-outline"
-              onPress={() => setShowCompletionParamsModal(true)}
-            />
-          </View>
-        ),
-      })
-    } else {
-      navigation.setOptions({
-        headerRight: () => (
-          <HeaderButton
-            iconName="cog-outline"
-            onPress={() => setShowContextParamsModal(true)}
-          />
-        ),
-      })
-    }
-  }, [navigation, isModelReady])
+  useExampleScreenHeader({
+    navigation,
+    isModelReady,
+    readyActions: [
+      {
+        key: 'tts-settings',
+        iconName: 'speaker',
+        onPress: () => setShowTTSParamsModal(true),
+      },
+      {
+        key: 'completion-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowCompletionParamsModal(true),
+      },
+    ],
+    setupActions: [
+      {
+        key: 'context-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowContextParamsModal(true),
+      },
+    ],
+  })
 
   const initializeModels = async (ttsPath: string, vocoderPath: string) => {
     try {
@@ -294,8 +185,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         },
       )
 
-      setContext(llamaContext)
-      setIsModelReady(true)
+      await replaceContext(llamaContext)
 
       // Initialize vocoder directly after TTS model
       try {
@@ -412,26 +302,22 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
 
   if (!isModelReady) {
     return (
-      <View style={styles.container}>
-        <ScrollView
-          style={styles.setupContainer}
-          contentContainerStyle={styles.scrollContent}
-        >
-          <Text style={styles.setupDescription}>
-            Download the OuteTTS model to convert text into natural-sounding
-            speech. For full audio generation and playback, you&apos;ll also
-            need the WavTokenizer vocoder model.
-          </Text>
-
-          <TTSModelDownloadCard
-            title={MODELS.OUTE_TTS_0_3.name}
-            repo={MODELS.OUTE_TTS_0_3.repo}
-            filename={MODELS.OUTE_TTS_0_3.filename}
-            size={MODELS.OUTE_TTS_0_3.size}
-            vocoder={MODELS.OUTE_TTS_0_3.vocoder}
-            onInitialize={initializeModels}
-          />
-        </ScrollView>
+      <>
+        <ExampleModelSetup
+          description="Download the OuteTTS model to convert text into natural-sounding speech. For full audio generation and playback, you'll also need the WavTokenizer vocoder model."
+          defaultModels={TTS_MODELS}
+          onInitializeModel={(_model, ttsPath, vocoderPath) =>
+            initializeModels(ttsPath, vocoderPath)
+          }
+          isLoading={isLoading}
+          initProgress={initProgress}
+          progressText={
+            context
+              ? 'Initializing vocoder...'
+              : `Initializing TTS model... ${initProgress}%`
+          }
+          showProgressBar={!context && initProgress > 0}
+        />
 
         <ContextParamsModal
           visible={showContextParamsModal}
@@ -444,18 +330,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
           onClose={() => setShowTTSParamsModal(false)}
           onSave={handleSaveTTSParams}
         />
-
-        <MaskedProgress
-          visible={isLoading}
-          text={
-            context
-              ? 'Initializing vocoder...'
-              : `Initializing TTS model... ${initProgress}%`
-          }
-          progress={initProgress}
-          showProgressBar={!context && initProgress > 0}
-        />
-      </View>
+      </>
     )
   }
 
@@ -572,4 +447,108 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       />
     </View>
   )
+}
+
+function createStyles(
+  theme: ReturnType<typeof useTheme>['theme'],
+  themedStyles: ReturnType<typeof createThemedStyles>,
+) {
+  return StyleSheet.create({
+    container: themedStyles.container,
+    setupContainer: themedStyles.setupContainer,
+    scrollContent: themedStyles.scrollContent,
+    setupDescription: themedStyles.setupDescription,
+    loadingContainer: themedStyles.loadingContainer,
+    loadingText: themedStyles.loadingText,
+    header: {
+      ...themedStyles.header,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    headerTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: theme.colors.text,
+    },
+    textInput: {
+      ...themedStyles.textInput,
+      height: 120,
+      textAlignVertical: 'top',
+    },
+    button: themedStyles.primaryButton,
+    buttonText: themedStyles.primaryButtonText,
+    disabledButton: themedStyles.primaryButtonDisabled,
+    generateButton: {
+      backgroundColor: theme.colors.primary,
+      borderRadius: 12,
+      paddingVertical: 16,
+      alignItems: 'center',
+    },
+    generateButtonText: {
+      color: theme.colors.white,
+      fontSize: 18,
+      fontWeight: '600',
+    },
+    audioCard: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    audioDescription: {
+      fontSize: 16,
+      color: theme.colors.text,
+      marginBottom: 16,
+      fontStyle: 'italic',
+    },
+    infoSection: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    infoTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 8,
+      marginTop: 16,
+    },
+    infoText: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      lineHeight: 20,
+    },
+    content: {
+      flex: 1,
+      padding: 16,
+    },
+    inputSection: {
+      marginBottom: 24,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 12,
+    },
+    characterCount: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      textAlign: 'right',
+      marginTop: 4,
+    },
+    controlSection: {
+      marginBottom: 24,
+    },
+    generateButtonDisabled: {
+      backgroundColor: theme.colors.disabled,
+    },
+    audioSection: {
+      marginBottom: 24,
+    },
+  })
 }

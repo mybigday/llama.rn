@@ -1,0 +1,15 @@
+diff --git a/node_modules/react-native/third-party-podspecs/fmt.podspec b/node_modules/react-native/third-party-podspecs/fmt.podspec
+index 2f38990..222ac1b 100644
+--- a/node_modules/react-native/third-party-podspecs/fmt.podspec
++++ b/node_modules/react-native/third-party-podspecs/fmt.podspec
+@@ -19,8 +19,10 @@ Pod::Spec.new do |spec|
+   }
+   spec.pod_target_xcconfig = {
+     "CLANG_CXX_LANGUAGE_STANDARD" => rct_cxx_language_standard(),
++    "GCC_PREPROCESSOR_DEFINITIONS" => "$(inherited) FMT_USE_CONSTEVAL=0",
+     "GCC_WARN_INHIBIT_ALL_WARNINGS" => "YES" # Disable warnings because we don't control this library
+   }
++  spec.prepare_command = "ruby -e \"path = 'include/fmt/base.h'; contents = File.read(path); unless contents.include?('#ifndef FMT_USE_CONSTEVAL'); contents.sub!('#if !defined(__cpp_lib_is_constant_evaluated)', %Q{#ifndef FMT_USE_CONSTEVAL\\n#if !defined(__cpp_lib_is_constant_evaluated)}); contents.sub!(%Q{#if FMT_USE_CONSTEVAL\\n#  define FMT_CONSTEVAL consteval}, %Q{#endif\\n#if FMT_USE_CONSTEVAL\\n#  define FMT_CONSTEVAL consteval}); File.write(path, contents); end\""
+   spec.platforms = min_supported_versions
+   spec.libraries = "c++"
+   spec.public_header_files = "include/fmt/*.h"

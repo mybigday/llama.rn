@@ -4,6 +4,17 @@
 
 namespace rnllama_jsi {
 
+    jsi::Value createJsiError(
+        jsi::Runtime& runtime,
+        const std::string& message
+    ) {
+        auto ErrorConstructor = runtime.global().getPropertyAsFunction(runtime, "Error");
+        return ErrorConstructor.callAsConstructor(
+            runtime,
+            jsi::String::createFromUtf8(runtime, message)
+        );
+    }
+
     JsiFunctionPtr makeJsiFunction(
         jsi::Runtime& runtime,
         const jsi::Value& value,
@@ -82,7 +93,7 @@ namespace rnllama_jsi {
                                 return;
                             }
                             try {
-                                callInvoker->invokeAsync([resolve, resultGenerator, runtimePtr, contextId, shouldTrack]() {
+                                callInvoker->invokeAsync([resolve, reject, resultGenerator, runtimePtr, contextId, shouldTrack]() {
                                     if (TaskManager::getInstance().isShuttingDown()) {
                                         TaskFinishGuard guard(contextId, shouldTrack);
                                         return;
@@ -90,7 +101,13 @@ namespace rnllama_jsi {
                                     // Finish task AFTER the JS callback completes (when resultGenerator runs)
                                     TaskFinishGuard guard(contextId, shouldTrack);
                                     auto& rt = *runtimePtr;
-                                    resolve->call(rt, resultGenerator(rt));
+                                    try {
+                                        resolve->call(rt, resultGenerator(rt));
+                                    } catch (const std::exception& e) {
+                                        reject->call(rt, createJsiError(rt, e.what()));
+                                    } catch (...) {
+                                        reject->call(rt, createJsiError(rt, "Unknown error"));
+                                    }
                                 });
                                 invokeScheduled = true;
                             } catch (...) {
@@ -113,7 +130,7 @@ namespace rnllama_jsi {
                                     }
                                     TaskFinishGuard guard(contextId, shouldTrack);
                                     auto& rt = *runtimePtr;
-                                    reject->call(rt, jsi::String::createFromUtf8(rt, msg));
+                                    reject->call(rt, createJsiError(rt, msg));
                                 });
                                 invokeScheduled = true;
                             } catch (...) {
@@ -134,7 +151,7 @@ namespace rnllama_jsi {
                                     }
                                     TaskFinishGuard guard(contextId, shouldTrack);
                                     auto& rt = *runtimePtr;
-                                    reject->call(rt, jsi::String::createFromUtf8(rt, "Unknown error"));
+                                    reject->call(rt, createJsiError(rt, "Unknown error"));
                                 });
                                 invokeScheduled = true;
                             } catch (...) {

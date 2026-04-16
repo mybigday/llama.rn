@@ -589,6 +589,7 @@ void lm_ggml_opt_free(lm_ggml_opt_context_t opt_ctx) {
     lm_ggml_backend_buffer_free(opt_ctx->buf_cpu);
     lm_ggml_free(opt_ctx->ctx_static);
     lm_ggml_free(opt_ctx->ctx_cpu);
+    lm_ggml_free(opt_ctx->ctx_copy);
     delete opt_ctx;
 }
 

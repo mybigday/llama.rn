@@ -276,6 +276,12 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
       throw std::runtime_error("Failed to load codec model");
   }
 
+  if (!codec_model_has_decoder(codec_model)) {
+      codec_model_free(codec_model);
+      codec_model = nullptr;
+      throw std::runtime_error("Codec model does not have a decoder");
+  }
+
   struct codec_context_params context_params = codec_context_default_params();
   codec_ctx = codec_init_from_model(codec_model, context_params);
   if (codec_ctx == nullptr) {

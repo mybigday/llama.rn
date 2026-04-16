@@ -72,6 +72,7 @@ add_library(rnllama SHARED
     ${SOURCE_DIR}/ggml-alloc.c
     ${SOURCE_DIR}/ggml-backend.cpp
     ${SOURCE_DIR}/ggml-backend-dl.cpp
+    ${SOURCE_DIR}/ggml-backend-meta.cpp
     ${SOURCE_DIR}/ggml-backend-reg.cpp
     ${SOURCE_DIR}/ggml-opt.cpp
     ${SOURCE_DIR}/ggml-threading.cpp
@@ -158,4 +159,7 @@ set_target_properties(rnllama PROPERTIES
     VERSION 1.0.0
     PUBLIC_HEADER "${PUBLIC_HEADERS}"
     XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC NO
+    # Generate dSYMs so packaged xcframework slices can be symbolicated in App Store crash logs.
+    XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT "dwarf-with-dsym"
+    XCODE_ATTRIBUTE_GCC_GENERATE_DEBUGGING_SYMBOLS YES
 )

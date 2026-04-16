@@ -82,6 +82,7 @@ static std::vector<lm_ggml_backend_dev_t> getFilteredDefaultDevices() {
         switch (lm_ggml_backend_dev_type(dev)) {
             case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
             case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
+            case LM_GGML_BACKEND_DEVICE_TYPE_META:
                 break;
             case LM_GGML_BACKEND_DEVICE_TYPE_GPU: {
                 lm_ggml_backend_reg_t reg = lm_ggml_backend_dev_backend_reg(dev);
@@ -172,6 +173,24 @@ namespace rnllama_jsi {
         return g_llamaContexts.size() >= static_cast<size_t>(limit);
     }
 
+    static bool isContextBusy(rnllama::llama_rn_context* ctx) {
+        if (ctx == nullptr) {
+            return false;
+        }
+
+        if (ctx->completion && ctx->completion->is_predicting) {
+            return true;
+        }
+
+        return ctx->slot_manager && ctx->slot_manager->has_pending_work();
+    }
+
+    static void throwIfContextBusy(rnllama::llama_rn_context* ctx) {
+        if (isContextBusy(ctx)) {
+            throw std::runtime_error("Context is busy");
+        }
+    }
+
     static void ensureBackendInitialized() {
         std::call_once(backend_init_once, []() {
             llama_backend_init();
@@ -222,6 +241,24 @@ namespace rnllama_jsi {
             arr.setValueAtIndex(runtime, i, jsi::String::createFromUtf8(runtime, values[i]));
         }
         return arr;
+    }
+
+    static bool isThinkingForcedOpen(const common_chat_params& chatParams) {
+        if (!chatParams.supports_thinking || chatParams.thinking_start_tag.empty()) {
+            return false;
+        }
+
+        const size_t lastStart = chatParams.generation_prompt.rfind(chatParams.thinking_start_tag);
+        if (lastStart == std::string::npos) {
+            return false;
+        }
+
+        if (chatParams.thinking_end_tag.empty()) {
+            return true;
+        }
+
+        const size_t lastEnd = chatParams.generation_prompt.rfind(chatParams.thinking_end_tag);
+        return lastEnd == std::string::npos || lastEnd < lastStart;
     }
 
     static jsi::Object createModelDetails(jsi::Runtime& runtime, rnllama::llama_rn_context* ctx) {
@@ -511,18 +548,11 @@ namespace rnllama_jsi {
                              throw std::runtime_error("Embedding is not supported in encoder-decoder models");
                          }
 
-                         if (!ctx->params.lora_adapters.empty()) {
-                             int lora_result = ctx->applyLoraAdapters(ctx->params.lora_adapters);
-                             if (lora_result != 0) {
-                                 delete ctx;
-                                 throw std::runtime_error("Failed to apply lora adapters");
-                             }
-                         }
-
                          std::vector<std::string> usedDevices;
                          bool gpuEnabled = false;
                          if (ctx->llama_init->model() != nullptr) {
-                             for (auto dev : ctx->llama_init->model()->devices) {
+                             for (const auto & dev_info : ctx->llama_init->model()->devices) {
+                                 auto dev = dev_info.dev;
                                  if (dev == nullptr) continue;
                                  const char* used_name = lm_ggml_backend_dev_name(dev);
                                  if (used_name != nullptr) {
@@ -638,9 +668,7 @@ namespace rnllama_jsi {
 
                 return createPromiseTask(runtime, callInvoker, [contextId, path]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    if (ctx->completion && ctx->completion->is_predicting) {
-                         throw std::runtime_error("Context is busy");
-                    }
+                    throwIfContextBusy(ctx);
                     return [contextId, path](jsi::Runtime& rt) {
                         long ctxPtr = g_llamaContexts.get(contextId);
                         if (!ctxPtr) {
@@ -664,9 +692,7 @@ namespace rnllama_jsi {
 
                 return createPromiseTask(runtime, callInvoker, [contextId, path, size]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    if (ctx->completion && ctx->completion->is_predicting) {
-                         throw std::runtime_error("Context is busy");
-                    }
+                    throwIfContextBusy(ctx);
                     int tokens_saved = rnllama_jsi::saveSession(ctx, path, size);
                     return [tokens_saved](jsi::Runtime& rt) {
                         return jsi::Value(tokens_saved);
@@ -744,6 +770,7 @@ namespace rnllama_jsi {
                  std::string nowStr = "";
                  std::map<std::string, std::string> chatTemplateKwargs;
                  bool useJinja = false;
+                 bool forcePureContent = false;
 
                  if (count > 3 && arguments[3].isObject()) {
                      jsi::Object params = arguments[3].asObject(runtime);
@@ -758,6 +785,7 @@ namespace rnllama_jsi {
                          reasoningFormat = getPropertyAsString(runtime, params, "reasoning_format", "none");
                          addGenerationPrompt = getPropertyAsBool(runtime, params, "add_generation_prompt", true);
                          nowStr = getPropertyAsString(runtime, params, "now");
+                         forcePureContent = getPropertyAsBool(runtime, params, "force_pure_content", false);
 
                          std::string kwargsStr = getPropertyAsString(runtime, params, "chat_template_kwargs");
                           if (!kwargsStr.empty()) {
@@ -773,12 +801,12 @@ namespace rnllama_jsi {
                      }
                  }
 
-                 return createPromiseTask(runtime, callInvoker, [contextId, messages, chatTemplate, jsonSchema, tools, parallelToolCalls, toolChoice, enableThinking, reasoningFormat, addGenerationPrompt, nowStr, chatTemplateKwargs, useJinja]() -> PromiseResultGenerator {
+                 return createPromiseTask(runtime, callInvoker, [contextId, messages, chatTemplate, jsonSchema, tools, parallelToolCalls, toolChoice, enableThinking, reasoningFormat, addGenerationPrompt, nowStr, chatTemplateKwargs, useJinja, forcePureContent]() -> PromiseResultGenerator {
                       auto ctx = getContextOrThrow(contextId);
                       if (useJinja) {
                           auto chatParams = ctx->getFormattedChatWithJinja(
                                messages, chatTemplate, jsonSchema, tools, parallelToolCalls,
-                               toolChoice, enableThinking, reasoningFormat, addGenerationPrompt, nowStr, chatTemplateKwargs
+                               toolChoice, enableThinking, reasoningFormat, addGenerationPrompt, nowStr, chatTemplateKwargs, forcePureContent
                           );
 
                           return [chatParams](jsi::Runtime& rt) {
@@ -787,7 +815,14 @@ namespace rnllama_jsi {
                               result.setProperty(rt, "chat_format", (int)chatParams.format);
                               result.setProperty(rt, "grammar", jsi::String::createFromUtf8(rt, chatParams.grammar));
                               result.setProperty(rt, "grammar_lazy", chatParams.grammar_lazy);
-                              result.setProperty(rt, "thinking_forced_open", chatParams.thinking_forced_open);
+                              result.setProperty(rt, "generation_prompt", jsi::String::createFromUtf8(rt, chatParams.generation_prompt));
+                              result.setProperty(rt, "thinking_forced_open", isThinkingForcedOpen(chatParams));
+                              if (!chatParams.thinking_start_tag.empty()) {
+                                  result.setProperty(rt, "thinking_start_tag", jsi::String::createFromUtf8(rt, chatParams.thinking_start_tag));
+                              }
+                              if (!chatParams.thinking_end_tag.empty()) {
+                                  result.setProperty(rt, "thinking_end_tag", jsi::String::createFromUtf8(rt, chatParams.thinking_end_tag));
+                              }
 
                               // Preserve the same shape as legacy native bridge
                               result.setProperty(rt, "type", jsi::String::createFromUtf8(rt, "jinja"));
@@ -852,7 +887,7 @@ namespace rnllama_jsi {
 
                     if (!ctx->completion) throw std::runtime_error("Completion not initialized");
                     if (ctx->params.embedding != true) throw std::runtime_error("Embedding is not enabled");
-                    if (ctx->completion->is_predicting) throw std::runtime_error("Context is predicting");
+                    throwIfContextBusy(ctx);
 
                     common_params embdParams = ctx->params;
                     embdParams.embedding = true;
@@ -895,7 +930,7 @@ namespace rnllama_jsi {
 
                     if (!ctx->completion) throw std::runtime_error("Completion not initialized");
                     if (ctx->params.embedding != true) throw std::runtime_error("Embedding is not enabled");
-                    if (ctx->completion->is_predicting) throw std::runtime_error("Context is predicting");
+                    throwIfContextBusy(ctx);
 
                     std::vector<float> scores = ctx->completion->rerank(query, documents);
 
@@ -953,9 +988,8 @@ namespace rnllama_jsi {
                 bool emitPartial = getPropertyAsBool(runtime, params, "emit_partial_completion", false);
 
                 auto ctx = getContextOrThrow(contextId);
-                if (ctx->completion && ctx->completion->is_predicting) {
-                     throw std::runtime_error("Context is busy");
-                }
+                throwIfContextBusy(ctx);
+                ctx->completion->rewind();
 
                 parseCompletionParams(runtime, params, ctx);
 
@@ -970,7 +1004,7 @@ namespace rnllama_jsi {
                 int chat_format = getPropertyAsInt(runtime, params, "chat_format", 0);
                 std::string reasoningFormatStr = getPropertyAsString(runtime, params, "reasoning_format", "none");
                 common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
-                bool thinking_forced_open = getPropertyAsBool(runtime, params, "thinking_forced_open", false);
+                std::string generation_prompt = getPropertyAsString(runtime, params, "generation_prompt");
                 std::string chat_parser = getPropertyAsString(runtime, params, "chat_parser");
                 std::string prefill_text = getPropertyAsString(runtime, params, "prefill_text");
                 std::vector<llama_token> guide_tokens;
@@ -988,25 +1022,25 @@ namespace rnllama_jsi {
                     }
                 }
 
-                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, thinking_forced_open, chat_parser, prefill_text, guide_tokens, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, guide_tokens, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
 
                     if (ctx->completion == nullptr) {
                         throw std::runtime_error("Completion not initialized");
                     }
+                    throwIfContextBusy(ctx);
 
                     if (!guide_tokens.empty() && ctx->tts_wrapper != nullptr) {
                         ctx->params.vocoder.use_guide_tokens = true;
                         ctx->tts_wrapper->setGuideTokens(guide_tokens);
                     }
 
-                    ctx->completion->rewind();
                     if (!ctx->completion->initSampling()) {
                         throw std::runtime_error("Failed to initialize sampling");
                     }
 
                     ctx->completion->prefill_text = prefill_text;
-                    ctx->completion->beginCompletion(chat_format, reasoning_format, thinking_forced_open, chat_parser);
+                    ctx->completion->beginCompletion(chat_format, reasoning_format, generation_prompt, chat_parser);
 
                     try {
                         if (!mediaPaths.empty() && !ctx->isMultimodalEnabled()) {
@@ -1213,7 +1247,7 @@ namespace rnllama_jsi {
                 int chat_format = getPropertyAsInt(runtime, params, "chat_format", 0);
                 std::string reasoningFormatStr = getPropertyAsString(runtime, params, "reasoning_format", "none");
                 common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
-                bool thinking_forced_open = getPropertyAsBool(runtime, params, "thinking_forced_open", false);
+                std::string generation_prompt = getPropertyAsString(runtime, params, "generation_prompt");
                 std::string chat_parser = getPropertyAsString(runtime, params, "chat_parser");
                 std::string prefill_text = getPropertyAsString(runtime, params, "prefill_text");
                 std::string load_state_path = stripFileScheme(getPropertyAsString(runtime, params, "load_state_path"));
@@ -1222,7 +1256,7 @@ namespace rnllama_jsi {
                 int load_state_size = getPropertyAsInt(runtime, params, "load_state_size", -1);
                 int save_state_size = getPropertyAsInt(runtime, params, "save_state_size", -1);
 
-                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, cparams, mediaPaths, chat_format, reasoning_format, thinking_forced_open, chat_parser, prefill_text, load_state_path, save_state_path, save_prompt_state_path, load_state_size, save_state_size, onToken, onComplete, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, cparams, mediaPaths, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, load_state_path, save_state_path, save_prompt_state_path, load_state_size, save_state_size, onToken, onComplete, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->parallel_mode_enabled || !ctx->slot_manager) {
                         throw std::runtime_error("Parallel mode not enabled");
@@ -1365,7 +1399,7 @@ namespace rnllama_jsi {
                     };
 
                     int requestId = ctx->slot_manager->queue_request(
-                        cparams, tokens, mediaPaths, cparams.prompt, chat_format, reasoning_format, thinking_forced_open, chat_parser, prefill_text, load_state_path, save_state_path, save_prompt_state_path, load_state_size, save_state_size,
+                        cparams, tokens, mediaPaths, cparams.prompt, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, load_state_path, save_state_path, save_prompt_state_path, load_state_size, save_state_size,
                         tokenCallback, completeCallback
                     );
 
@@ -1791,11 +1825,8 @@ namespace rnllama_jsi {
 
                 return createPromiseTask(runtime, callInvoker, [contextId, lora_adapters]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    if (ctx->completion && ctx->completion->is_predicting) {
-                         throw std::runtime_error("Context is busy");
-                    }
-                    int result = ctx->applyLoraAdapters(lora_adapters);
-                    if (result != 0) throw std::runtime_error("Failed to apply lora adapters");
+                    throwIfContextBusy(ctx);
+                    ctx->applyLoraAdapters(lora_adapters);
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
                 }, contextId);
             }
@@ -1809,9 +1840,7 @@ namespace rnllama_jsi {
                 int contextId = (int)arguments[0].asNumber();
                 return createPromiseTask(runtime, callInvoker, [contextId]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    if (ctx->completion && ctx->completion->is_predicting) {
-                         throw std::runtime_error("Context is busy");
-                    }
+                    throwIfContextBusy(ctx);
                     ctx->removeLoraAdapters();
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
                 }, contextId);
@@ -1856,9 +1885,7 @@ namespace rnllama_jsi {
 
                 return createPromiseTask(runtime, callInvoker, [contextId, path, use_gpu, image_min_tokens, image_max_tokens]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    if (ctx->completion && ctx->completion->is_predicting) {
-                         throw std::runtime_error("Context is busy");
-                    }
+                    throwIfContextBusy(ctx);
                     bool result = ctx->initMultimodal(path, use_gpu, image_min_tokens, image_max_tokens);
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
                 }, contextId);
@@ -1908,6 +1935,7 @@ namespace rnllama_jsi {
                 int contextId = (int)arguments[0].asNumber();
                 return createPromiseTask(runtime, callInvoker, [contextId]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
+                    throwIfContextBusy(ctx);
                     ctx->releaseMultimodal();
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
                 }, contextId);
@@ -1927,9 +1955,7 @@ namespace rnllama_jsi {
 
                 return createPromiseTask(runtime, callInvoker, [contextId, path, n_batch]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    if (ctx->completion && ctx->completion->is_predicting) {
-                         throw std::runtime_error("Context is busy");
-                    }
+                    throwIfContextBusy(ctx);
                     bool result = ctx->initVocoder(path, n_batch);
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
                 }, contextId);
@@ -2048,9 +2074,7 @@ namespace rnllama_jsi {
                 bool clearData = count > 1 && arguments[1].isBool() ? arguments[1].asBool() : false;
                 return createPromiseTask(runtime, callInvoker, [contextId, clearData]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    if (ctx->completion && ctx->completion->is_predicting) {
-                        throw std::runtime_error("Context is busy");
-                    }
+                    throwIfContextBusy(ctx);
                     ctx->clearCache(clearData);
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
                 }, contextId);
@@ -2065,6 +2089,7 @@ namespace rnllama_jsi {
                 int contextId = (int)arguments[0].asNumber();
                 return createPromiseTask(runtime, callInvoker, [contextId]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
+                    throwIfContextBusy(ctx);
                     ctx->releaseVocoder();
                     return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
                 }, contextId);

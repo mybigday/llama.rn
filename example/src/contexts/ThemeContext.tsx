@@ -1,9 +1,4 @@
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-} from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Appearance } from 'react-native'
 import type { ColorSchemeName } from 'react-native'
@@ -98,10 +93,13 @@ interface ThemeProviderProps {
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const [themeMode, setThemeModeState] = useState<ThemeMode>('system')
   const [systemColorScheme, setSystemColorScheme] = useState<ColorSchemeName>(
-    Appearance.getColorScheme() || 'light'
+    Appearance.getColorScheme() || 'light',
   )
 
-  const getEffectiveTheme = (mode: ThemeMode, systemScheme: ColorSchemeName): Theme => {
+  const getEffectiveTheme = (
+    mode: ThemeMode,
+    systemScheme: ColorSchemeName,
+  ): Theme => {
     if (mode === 'system') {
       return systemScheme === 'dark' ? darkTheme : lightTheme
     }

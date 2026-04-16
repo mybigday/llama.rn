@@ -206,7 +206,7 @@ bool test_queue_request_structure() {
         req.params.n_predict = 10;
         req.chat_format = 1;
         req.reasoning_format = COMMON_REASONING_FORMAT_NONE;
-        req.thinking_forced_open = false;
+        req.generation_prompt = "";
 
         // Verify fields
         return req.request_id == 1 &&
@@ -437,7 +437,7 @@ bool test_chat_format_per_slot() {
     }
 }
 
-// Test 13: Reasoning format field
+// Test 13: Reasoning format and generation prompt fields
 bool test_reasoning_format() {
     try {
         llama_rn_slot slot;
@@ -445,10 +445,10 @@ bool test_reasoning_format() {
         slot.reset();
 
         slot.current_reasoning_format = COMMON_REASONING_FORMAT_AUTO; // THINKING
-        slot.current_thinking_forced_open = true;
+        slot.current_generation_prompt = "<think>";
 
         return slot.current_reasoning_format == COMMON_REASONING_FORMAT_AUTO &&
-               slot.current_thinking_forced_open;
+               slot.current_generation_prompt == "<think>";
     } catch (...) {
         return false;
     }
@@ -533,7 +533,7 @@ bool test_single_request_completion() {
             "Hello", // prompt_text
             0, // chat_format
             COMMON_REASONING_FORMAT_NONE, // reasoning_format
-            false, // thinking_forced_open
+            "", // generation_prompt
             "", // chat_parser
             "", // prefill_text
             "", // load_state_path
@@ -622,13 +622,13 @@ bool test_request_cancellation() {
         int tokens_generated1 = 0, tokens_generated2 = 0;
 
         int32_t req_id1 = ctx.slot_manager->queue_request(
-            params, prompt1, std::vector<std::string>(), "What is the capital of France?", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", "", -1, -1,
+            params, prompt1, std::vector<std::string>(), "What is the capital of France?", 0, COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
             [&](const completion_token_output& token) { tokens_generated1++; },
             [&](llama_rn_slot* slot) { complete1 = true; }
         );
 
         int32_t req_id2 = ctx.slot_manager->queue_request(
-            params, prompt2, std::vector<std::string>(), "Explain quantum computing.", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", "", -1, -1,
+            params, prompt2, std::vector<std::string>(), "Explain quantum computing.", 0, COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
             [&](const completion_token_output& token) { tokens_generated2++; },
             [&](llama_rn_slot* slot) { complete2 = true; }
         );
@@ -690,7 +690,7 @@ bool test_sequential_requests() {
             bool complete = false;
 
             int32_t req_id = ctx.slot_manager->queue_request(
-                params, prompt, std::vector<std::string>(), prompt_str, 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", "", -1, -1,
+                params, prompt, std::vector<std::string>(), prompt_str, 0, COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
                 [&](const completion_token_output& token) {},
                 [&](llama_rn_slot* slot) { complete = true; }
             );
@@ -743,7 +743,7 @@ bool test_queue_overflow() {
             std::vector<llama_token> prompt = common_tokenize(ctx.ctx, "Test", false);
 
             int32_t req_id = ctx.slot_manager->queue_request(
-                params, prompt, std::vector<std::string>(), "Test", 0, COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", "", -1, -1,
+                params, prompt, std::vector<std::string>(), "Test", 0, COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
                 [](const completion_token_output& token) {},
                 [](llama_rn_slot* slot) {}
             );
@@ -808,7 +808,7 @@ bool test_queue_request_with_state() {
             "Hello",
             0,
             COMMON_REASONING_FORMAT_NONE,
-            false,
+            "",
             "",                  // chat_parser
             "",                  // prefill_text
             "",                  // no load
@@ -856,7 +856,7 @@ bool test_queue_request_with_state() {
             "Hello",
             0,
             COMMON_REASONING_FORMAT_NONE,
-            false,
+            "",
             "",                  // chat_parser
             "",                  // prefill_text
             full_state_path,     // load full state
@@ -970,7 +970,7 @@ bool test_state_reuse() {
             "Hello",
             0,
             COMMON_REASONING_FORMAT_NONE,
-            false,
+            "",
             "",  // chat_parser
             "",  // prefill_text
             "",  // no load
@@ -1017,7 +1017,7 @@ bool test_state_reuse() {
             "Hello",
             0,
             COMMON_REASONING_FORMAT_NONE,
-            false,
+            "",
             "",  // chat_parser
             "",  // prefill_text
             save_path,  // load saved state
@@ -1147,7 +1147,7 @@ bool test_status_after_queue() {
         for (int i = 0; i < 3; i++) {
             ctx.slot_manager->queue_request(
                 params, prompt, std::vector<std::string>(), "Hello", 0,
-                COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", "", -1, -1,
+                COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
                 [](const completion_token_output& token) {},
                 [](llama_rn_slot* slot) {}
             );
@@ -1250,7 +1250,7 @@ bool test_status_subscription() {
 
         ctx.slot_manager->queue_request(
             params, prompt, std::vector<std::string>(), "Hi", 0,
-            COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", "", -1, -1,
+            COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
             [](const completion_token_output& token) {},
             [&](llama_rn_slot* slot) { complete = true; }
         );
@@ -1320,7 +1320,7 @@ bool test_status_unsubscribe() {
 
         ctx.slot_manager->queue_request(
             params, prompt, std::vector<std::string>(), "Hi", 0,
-            COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", "", -1, -1,
+            COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
             [](const completion_token_output& token) {},
             [&](llama_rn_slot* slot) { complete = true; }
         );
@@ -1390,7 +1390,7 @@ bool test_status_request_metrics() {
 
         ctx.slot_manager->queue_request(
             params, prompt, std::vector<std::string>(), "Hello world", 0,
-            COMMON_REASONING_FORMAT_NONE, false, "", "", "", "", "", -1, -1,
+            COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
             [](const completion_token_output& token) {},
             [&](llama_rn_slot* slot) { complete = true; }
         );

@@ -2,10 +2,10 @@
 
 
 llm_build_baichuan::llm_build_baichuan(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
-    const int64_t n_embd_head = hparams.n_embd_head_v;
+    const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
-    LM_GGML_ASSERT(n_embd_head == hparams.n_rot);
+    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    LM_GGML_ASSERT(n_embd_head == n_rot);
 
     lm_ggml_tensor * cur;
     lm_ggml_tensor * inpL;
@@ -56,6 +56,7 @@ llm_build_baichuan::llm_build_baichuan(const llama_model & model, const llm_grap
                             );
                     break;
                 case LLM_TYPE_13B:
+                case LLM_TYPE_UNKNOWN:
                     break;
                 default:
                     LM_GGML_ABORT("fatal error");

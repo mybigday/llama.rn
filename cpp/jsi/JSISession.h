@@ -81,6 +81,6 @@ namespace rnllama_jsi {
         if (!llama_state_save_file(ctx->ctx, path.c_str(), session_tokens.data(), save_size)) {
              throw std::runtime_error("Failed to save session");
         }
-        return session_tokens.size();
+        return save_size;
     }
 }

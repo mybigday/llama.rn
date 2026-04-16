@@ -427,7 +427,9 @@ extern "C" {
         // LM_GGML_TYPE_IQ4_NL_4_8 = 37,
         // LM_GGML_TYPE_IQ4_NL_8_8 = 38,
         LM_GGML_TYPE_MXFP4   = 39, // MXFP4 (1 block)
-        LM_GGML_TYPE_COUNT   = 40,
+        LM_GGML_TYPE_NVFP4   = 40, // NVFP4 (4 blocks, E4M3 scale)
+        LM_GGML_TYPE_Q1_0    = 41,
+        LM_GGML_TYPE_COUNT   = 42,
     };
 
     // precision
@@ -463,6 +465,8 @@ extern "C" {
         LM_GGML_FTYPE_MOSTLY_IQ1_M   = 23, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_BF16    = 24, // except 1d tensors
         LM_GGML_FTYPE_MOSTLY_MXFP4   = 25, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_NVFP4   = 26, // except 1d tensors
+        LM_GGML_FTYPE_MOSTLY_Q1_0    = 27, // except 1d tensors
     };
 
     // available tensor operations:
@@ -556,6 +560,7 @@ extern "C" {
         LM_GGML_OP_GATED_LINEAR_ATTN,
         LM_GGML_OP_RWKV_WKV7,
         LM_GGML_OP_SOLVE_TRI,
+        LM_GGML_OP_GATED_DELTA_NET,
 
         LM_GGML_OP_UNARY,
 
@@ -897,15 +902,17 @@ extern "C" {
             struct lm_ggml_tensor  * b,
             struct lm_ggml_tensor  * ids);
 
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_add1(
+    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_add1(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
-            struct lm_ggml_tensor  * b);
+            struct lm_ggml_tensor  * b),
+        "use lm_ggml_add instead");
 
-    LM_GGML_API struct lm_ggml_tensor * lm_ggml_add1_inplace(
+    LM_GGML_DEPRECATED(LM_GGML_API struct lm_ggml_tensor * lm_ggml_add1_inplace(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,
-            struct lm_ggml_tensor  * b);
+            struct lm_ggml_tensor  * b),
+        "use lm_ggml_add_inplace instead");
 
     // dst = a
     // view(dst, nb1, nb2, nb3, offset) += b
@@ -2467,6 +2474,17 @@ extern "C" {
         bool                  lower,
         bool                  uni);
 
+    // TODO: add lm_ggml_gated_delta_net_set_bcast() to be able to configure Q, K broadcast type: tiled vs interleaved [TAG_LM_GGML_GDN_BCAST]
+    // ref: https://github.com/ggml-org/llama.cpp/pull/19468#discussion_r2786394306
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_gated_delta_net(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * q,
+            struct lm_ggml_tensor  * k,
+            struct lm_ggml_tensor  * v,
+            struct lm_ggml_tensor  * g,
+            struct lm_ggml_tensor  * beta,
+            struct lm_ggml_tensor  * state);
+
     // custom operators
 
     typedef void (*lm_ggml_custom1_op_t)(struct lm_ggml_tensor * dst , const struct lm_ggml_tensor * a, int ith, int nth, void * userdata);
@@ -2579,7 +2597,7 @@ extern "C" {
         struct lm_ggml_tensor *  grad,
         struct lm_ggml_tensor *  sgd_params); // alpha, weight decay
 
-    // build forward mutiple tensors and select one of them for computing
+    // build forward multiple tensors and select one of them for computing
     // this is useful for creating graphs that have constant topology but compute different things based on the input
     // ref: https://github.com/ggml-org/llama.cpp/pull/18550
     //

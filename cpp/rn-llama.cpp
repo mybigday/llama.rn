@@ -15,6 +15,24 @@
 
 namespace rnllama {
 
+namespace {
+
+void populate_lora_metadata(common_adapter_lora_info &la) {
+    if (la.ptr == nullptr) {
+        la.task_name.clear();
+        la.prompt_prefix.clear();
+        return;
+    }
+
+    char buf[1024];
+    llama_adapter_meta_val_str(la.ptr, "adapter.lora.task_name", buf, sizeof(buf));
+    la.task_name = buf;
+    llama_adapter_meta_val_str(la.ptr, "adapter.lora.prompt_prefix", buf, sizeof(buf));
+    la.prompt_prefix = buf;
+}
+
+} // namespace
+
 std::string get_backend_devices_info() {
     return backend_devices_info();
 }
@@ -185,10 +203,11 @@ bool llama_rn_context::attachThreadpoolsIfAvailable() {
 }
 
 llama_rn_context::~llama_rn_context() {
-    cleanupThreadpools();
-
     // Disable parallel mode first (cleans up slot_manager)
     disableParallelMode();
+
+    removeLoraAdapters();
+    cleanupThreadpools();
 
     if (completion != nullptr) {
         delete completion;
@@ -201,6 +220,7 @@ llama_rn_context::~llama_rn_context() {
 
 bool llama_rn_context::loadModel(common_params &params_)
 {
+    removeLoraAdapters();
     params = params_;
 
     // Ensure n_parallel is set to a reasonable default for parallel decoding support
@@ -222,6 +242,15 @@ bool llama_rn_context::loadModel(common_params &params_)
     }
     templates = common_chat_templates_init(model, params.chat_template);
     n_ctx = llama_n_ctx(ctx);
+
+    // Init-time adapters are already loaded and applied by common_init_from_params().
+    // Mirror the resulting adapter metadata so getLoadedLoraAdapters() reflects reality
+    // without forcing a second load/apply pass in the JSI layer.
+    lora = params.lora_adapters;
+    owned_lora.clear();
+    for (auto &la : lora) {
+        populate_lora_metadata(la);
+    }
 
     // Log the actual n_seq_max that was set
     uint32_t n_seq_max = llama_n_seq_max(ctx);
@@ -262,7 +291,8 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
         const std::string& reasoning_format,
         const bool& add_generation_prompt,
         const std::string& now_str,
-        const std::map<std::string, std::string>& chat_template_kwargs
+        const std::map<std::string, std::string>& chat_template_kwargs,
+        const bool& force_pure_content
 ) const {
     common_chat_templates_inputs inputs;
     inputs.use_jinja = true;
@@ -295,6 +325,7 @@ common_chat_params llama_rn_context::getFormattedChatWithJinja(
     }
 
     inputs.chat_template_kwargs = chat_template_kwargs;
+    inputs.force_pure_content = force_pure_content;
 
     // If chat_template is provided, create new one and use it (probably slow)
     if (!chat_template.empty()) {
@@ -348,22 +379,41 @@ llama_rn_tokenize_result llama_rn_context::tokenize(const std::string &text, con
   return tokenize_result;
 }
 
-int llama_rn_context::applyLoraAdapters(std::vector<common_adapter_lora_info> lora) {
-    for (auto &la : lora) {
-        la.ptr = llama_adapter_lora_init(model, la.path.c_str());
-        if (la.ptr == nullptr) {
-            LOG_ERROR("failed to apply lora adapter '%s'\n", la.path.c_str());
-            return -1;
-        }
+void llama_rn_context::applyLoraAdapters(std::vector<common_adapter_lora_info> lora) {
+    if (model == nullptr || ctx == nullptr) {
+        throw std::runtime_error("Cannot apply LoRA adapters: context is not initialized");
     }
-    this->lora = lora;
+
+    std::vector<llama_adapter_lora_ptr> loaded_adapters;
+    loaded_adapters.reserve(lora.size());
+
+    for (auto &la : lora) {
+        llama_adapter_lora_ptr adapter(llama_adapter_lora_init(model, la.path.c_str()));
+        if (adapter == nullptr) {
+            throw std::runtime_error(
+                "Failed to apply LoRA adapter '" + la.path +
+                "'. Check native logs for the detailed loader error. The adapter may not match the loaded base model."
+            );
+        }
+
+        la.ptr = adapter.get();
+        populate_lora_metadata(la);
+        loaded_adapters.emplace_back(std::move(adapter));
+    }
+
     common_set_adapter_lora(ctx, lora);
-    return 0;
+    owned_lora = std::move(loaded_adapters);
+    this->lora = std::move(lora);
 }
 
 void llama_rn_context::removeLoraAdapters() {
+    if (ctx != nullptr) {
+        std::vector<common_adapter_lora_info> empty_lora;
+        common_set_adapter_lora(ctx, empty_lora); // apply empty list
+    }
+
     this->lora.clear();
-    common_set_adapter_lora(ctx, this->lora); // apply empty list
+    owned_lora.clear();
 }
 
 std::vector<common_adapter_lora_info> llama_rn_context::getLoadedLoraAdapters() {

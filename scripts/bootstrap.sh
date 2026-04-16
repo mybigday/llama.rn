@@ -190,6 +190,7 @@ cp ./$LLAMA_DIR/ggml/src/ggml-alloc.c ./cpp/ggml-alloc.c
 cp ./$LLAMA_DIR/ggml/src/ggml-backend.cpp ./cpp/ggml-backend.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-backend-impl.h ./cpp/ggml-backend-impl.h
 cp ./$LLAMA_DIR/ggml/src/ggml-backend-reg.cpp ./cpp/ggml-backend-reg.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-backend-meta.cpp ./cpp/ggml-backend-meta.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-backend-dl.h ./cpp/ggml-backend-dl.h
 cp ./$LLAMA_DIR/ggml/src/ggml-backend-dl.cpp ./cpp/ggml-backend-dl.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-common.h ./cpp/ggml-common.h
@@ -199,6 +200,7 @@ cp ./$LLAMA_DIR/ggml/src/ggml-quants.c ./cpp/ggml-quants.c
 cp ./$LLAMA_DIR/ggml/src/ggml-threading.cpp ./cpp/ggml-threading.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-threading.h ./cpp/ggml-threading.h
 cp ./$LLAMA_DIR/ggml/src/gguf.cpp ./cpp/gguf.cpp
+cp ./$LLAMA_DIR/ggml/src/ggml-ext.h ./cpp/ggml-ext.h
 
 # llama api
 cp ./$LLAMA_DIR/include/llama.h ./cpp/llama.h
@@ -241,6 +243,7 @@ cp ./$LLAMA_DIR/src/llama-hparams.h ./cpp/llama-hparams.h
 cp ./$LLAMA_DIR/src/llama-hparams.cpp ./cpp/llama-hparams.cpp
 cp ./$LLAMA_DIR/src/llama-impl.h ./cpp/llama-impl.h
 cp ./$LLAMA_DIR/src/llama-impl.cpp ./cpp/llama-impl.cpp
+cp ./$LLAMA_DIR/src/llama-ext.h ./cpp/llama-ext.h
 
 cp ./$LLAMA_DIR/src/llama-vocab.h ./cpp/llama-vocab.h
 cp ./$LLAMA_DIR/src/llama-vocab.cpp ./cpp/llama-vocab.cpp
@@ -276,21 +279,25 @@ cp ./$LLAMA_DIR/common/regex-partial.h ./cpp/common/regex-partial.h
 cp ./$LLAMA_DIR/common/regex-partial.cpp ./cpp/common/regex-partial.cpp
 cp ./$LLAMA_DIR/common/chat.h ./cpp/common/chat.h
 cp ./$LLAMA_DIR/common/chat.cpp ./cpp/common/chat.cpp
-cp ./$LLAMA_DIR/common/chat-parser.h ./cpp/common/chat-parser.h
-cp ./$LLAMA_DIR/common/chat-parser.cpp ./cpp/common/chat-parser.cpp
-cp ./$LLAMA_DIR/common/chat-parser-xml-toolcall.h ./cpp/common/chat-parser-xml-toolcall.h
-cp ./$LLAMA_DIR/common/chat-parser-xml-toolcall.cpp ./cpp/common/chat-parser-xml-toolcall.cpp
+cp ./$LLAMA_DIR/common/chat-auto-parser.h ./cpp/common/chat-auto-parser.h
+cp ./$LLAMA_DIR/common/chat-auto-parser-helpers.h ./cpp/common/chat-auto-parser-helpers.h
+cp ./$LLAMA_DIR/common/chat-auto-parser-helpers.cpp ./cpp/common/chat-auto-parser-helpers.cpp
+cp ./$LLAMA_DIR/common/chat-auto-parser-generator.cpp ./cpp/common/chat-auto-parser-generator.cpp
+cp ./$LLAMA_DIR/common/chat-diff-analyzer.cpp ./cpp/common/chat-diff-analyzer.cpp
 cp ./$LLAMA_DIR/common/chat-peg-parser.h ./cpp/common/chat-peg-parser.h
 cp ./$LLAMA_DIR/common/chat-peg-parser.cpp ./cpp/common/chat-peg-parser.cpp
 cp ./$LLAMA_DIR/common/peg-parser.h ./cpp/common/peg-parser.h
 cp ./$LLAMA_DIR/common/peg-parser.cpp ./cpp/common/peg-parser.cpp
 cp ./$LLAMA_DIR/common/unicode.h ./cpp/common/unicode.h
 cp ./$LLAMA_DIR/common/unicode.cpp ./cpp/common/unicode.cpp
+cp ./$LLAMA_DIR/common/reasoning-budget.h ./cpp/common/reasoning-budget.h
+cp ./$LLAMA_DIR/common/reasoning-budget.cpp ./cpp/common/reasoning-budget.cpp
 
 # Copy multimodal files from tools/mtmd
 rm -rf ./cpp/tools/mtmd
 mkdir -p ./cpp/tools/mtmd
 cp -r ./$LLAMA_DIR/tools/mtmd/models ./cpp/tools/mtmd/models
+cp -r ./$LLAMA_DIR/tools/mtmd/debug ./cpp/tools/mtmd/debug
 cp ./$LLAMA_DIR/tools/mtmd/mtmd.h ./cpp/tools/mtmd/mtmd.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd.cpp ./cpp/tools/mtmd/mtmd.cpp
 cp ./$LLAMA_DIR/tools/mtmd/clip.h ./cpp/tools/mtmd/clip.h
@@ -302,6 +309,8 @@ cp ./$LLAMA_DIR/tools/mtmd/mtmd-helper.cpp ./cpp/tools/mtmd/mtmd-helper.cpp
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-helper.h ./cpp/tools/mtmd/mtmd-helper.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-audio.h ./cpp/tools/mtmd/mtmd-audio.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-audio.cpp ./cpp/tools/mtmd/mtmd-audio.cpp
+cp ./$LLAMA_DIR/tools/mtmd/mtmd-image.h ./cpp/tools/mtmd/mtmd-image.h
+cp ./$LLAMA_DIR/tools/mtmd/mtmd-image.cpp ./cpp/tools/mtmd/mtmd-image.cpp
 
 rm -rf ./cpp/common/jinja
 cp -r ./$LLAMA_DIR/common/jinja ./cpp/common/jinja
@@ -366,6 +375,8 @@ files_add_lm_prefix=(
   ./cpp/tools/mtmd/*.cpp
   ./cpp/tools/mtmd/models/*.h
   ./cpp/tools/mtmd/models/*.cpp
+  ./cpp/tools/mtmd/debug/*.h
+  ./cpp/tools/mtmd/debug/*.cpp
 
   # llama api
   ./cpp/*.h
@@ -461,6 +472,7 @@ done
 
 rm -rf ./cpp/*.orig
 rm -rf ./cpp/**/*.orig
+rm -rf ./cpp/**/*/*.orig
 
 if [ "$OS" = "Darwin" ]; then
   # Generate .xcode.env.local in iOS example

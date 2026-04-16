@@ -1,5 +1,13 @@
 --- common/common.h.orig	2025-12-18 13:39:06
 +++ common/common.h	2025-12-18 13:39:58
+@@ -284,6 +284,7 @@
+     // reasoning budget sampler parameters
+     // these are populated by the server/CLI based on chat template params
+     int32_t                  reasoning_budget_tokens   = -1;   // -1 = disabled, >= 0 = token budget
++    bool                     reasoning_budget_activate_immediately = false;
+     std::vector<llama_token> reasoning_budget_start;           // start tag token sequence
+     std::vector<llama_token> reasoning_budget_end;             // end tag token sequence
+     std::vector<llama_token> reasoning_budget_forced;          // forced sequence (message + end tag)
 @@ -307,6 +307,7 @@
  struct lm_ggml_opt_optimizer_params common_opt_lr_pars(void * userdata);
 

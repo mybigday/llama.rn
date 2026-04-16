@@ -52,7 +52,7 @@ export default function CompletionParamsModal({
       const parsedFloat = parseFloat(text)
 
       // For integer fields
-      if (paramKey === 'n_predict') {
+      if (paramKey === 'n_predict' || paramKey === 'thinking_budget_tokens') {
         updateParam(paramKey, Number.isNaN(parsedInt) ? text : parsedInt)
       } else {
         // For float fields (temperature, top_p)
@@ -99,6 +99,12 @@ export default function CompletionParamsModal({
         4096,
         'Max Tokens (-1 for no limit)',
       ),
+      validateIntegerParam(
+        params.thinking_budget_tokens,
+        0,
+        999999,
+        'Thinking Budget Tokens',
+      ),
       validateNumberParam(params.temperature, 0.0, 2.0, 'Temperature'),
       validateNumberParam(params.top_p, 0.0, 1.0, 'Top-p'),
     ]
@@ -117,6 +123,11 @@ export default function CompletionParamsModal({
     if (typeof converted.n_predict === 'string') {
       const num = parseInt(converted.n_predict, 10)
       converted.n_predict = Number.isNaN(num) ? undefined : num
+    }
+
+    if (typeof converted.thinking_budget_tokens === 'string') {
+      const num = parseInt(converted.thinking_budget_tokens, 10)
+      converted.thinking_budget_tokens = Number.isNaN(num) ? undefined : num
     }
 
     if (typeof converted.temperature === 'string') {
@@ -209,6 +220,24 @@ export default function CompletionParamsModal({
         description="Enable thinking in the response if the model supports it."
         value={params.enable_thinking || false}
         onValueChange={(value) => updateParam('enable_thinking', value)}
+      />
+
+      <ParameterTextInput
+        label="Thinking Budget Tokens"
+        description="Maximum tokens allowed inside the model's thinking block before forcing it closed. Leave blank to disable. Only applies when chat formatting exposes thinking tags."
+        value={params.thinking_budget_tokens?.toString()}
+        onChangeText={(text) => handleTextInput(text, 'thinking_budget_tokens')}
+        keyboardType="numeric"
+        placeholder="1024"
+      />
+
+      <ParameterTextInput
+        label="Thinking Budget Message"
+        description="Optional message injected just before the thinking end tag when the budget is exhausted. Leave blank to close thinking immediately with the end tag only."
+        value={params.thinking_budget_message}
+        onChangeText={(text) => updateParam('thinking_budget_message', text)}
+        keyboardType="default"
+        placeholder="Reasoning budget reached."
       />
 
       {/* Stop Sequences */}

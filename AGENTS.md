@@ -56,8 +56,9 @@
 
 ### Platform Builds
 
-- **iOS:** Uses pre-built `ios/rnllama.xcframework` by default. Set `RNLLAMA_BUILD_FROM_SOURCE=1` in the Podfile to build from source. `scripts/build-ios.sh` builds device/simulator frameworks. Metal is enabled unless `RNLLAMA_DISABLE_METAL=1`.
-- **Android:** Uses pre-built `.so` libraries by default. Set `rnllamaBuildFromSource=true` in `android/gradle.properties` to build from source. `scripts/build-android.sh` builds native libs (OpenCL via `scripts/build-opencl.sh`). CMake config lives in `android/build.gradle` and `ios/CMakeLists.txt`.
+- **iOS:** Library consumers use pre-built `ios/rnllama.xcframework` by default. The example app (`example/ios/Podfile`) sets `RNLLAMA_BUILD_FROM_SOURCE=1` to build from source, so C++ changes take effect when building the example. `scripts/build-ios.sh` builds device/simulator frameworks for release. Metal is enabled unless `RNLLAMA_DISABLE_METAL=1`.
+- **Android:** Library consumers use pre-built `.so` libraries by default. The example app (`example/android/gradle.properties`) sets `rnllamaBuildFromSource=true` to build from source. `scripts/build-android.sh` builds native libs (OpenCL via `scripts/build-opencl.sh`). CMake config lives in `android/build.gradle` and `ios/CMakeLists.txt`.
+- **For library users:** Pre-built frameworks/libs are recommended (the default). Only enable build-from-source if you need to modify C++ code or apply custom patches.
 
 ## Common Development Commands
 
@@ -81,7 +82,7 @@ npm run build:android          # Build Android example app
 ## Development Workflow
 
 - **TypeScript layer:** Edit `src/index.ts`, `src/types.ts`, `src/jsi.ts`, and `src/grammar.ts`. `NativeRNLlama.install()` only installs JSI; all APIs are invoked via JSI bindings. Run `npm run typecheck` and `npm run lint` before committing.
-- **C++ core:** Edit files in `cpp/`. If you update llama.cpp itself, change `third_party/llama.cpp` and rerun `npm run bootstrap`. Rebuild native libs or the example app to validate changes.
+- **C++ core:** Edit files in `cpp/`. The example app builds from source, so `npm run build:ios` / `npm run build:android` will compile your C++ changes directly. If you update llama.cpp itself, change `third_party/llama.cpp` and rerun `npm run bootstrap`. For releasing pre-built frameworks/libs, run `npm run build:ios-frameworks` / `npm run build:android-libs`.
 - **JSI bridge/platform glue:** Implement binding logic in `cpp/jsi/*`. iOS installs live in `ios/RNLlama.mm` + `ios/RNLlamaJSI.mm`; Android uses `android/src/main/java/com/rnllama/RNLlama.java` (native loader), `android/src/main/java/com/rnllama/RNLlamaModuleShared.java`, and `android/src/main/RNLlamaJSI.cpp`.
 
 ### Adding Patches

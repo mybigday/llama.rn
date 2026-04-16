@@ -102,6 +102,7 @@ void lm_ggml_compute_forward_rwkv_wkv6(const struct lm_ggml_compute_params * par
 void lm_ggml_compute_forward_rwkv_wkv7(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_solve_tri(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_gla(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
+void lm_ggml_compute_forward_gated_delta_net(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_map_custom1(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_map_custom2(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);
 void lm_ggml_compute_forward_map_custom3(const struct lm_ggml_compute_params * params, struct lm_ggml_tensor * dst);

@@ -30,7 +30,11 @@ llama_rn_context_completion::~llama_rn_context_completion() {
 void llama_rn_context_completion::rewind() {
     is_interrupted = false;
     parent_ctx->params.antiprompt.clear();
-    parent_ctx->params.sampling.grammar.clear();
+    parent_ctx->params.sampling.grammar = {};
+    parent_ctx->params.sampling.grammar_lazy = false;
+    parent_ctx->params.sampling.grammar_triggers.clear();
+    parent_ctx->params.sampling.preserved_tokens.clear();
+    parent_ctx->params.sampling.generation_prompt.clear();
     num_prompt_tokens = 0;
     num_tokens_predicted = 0;
     prefill_text = "";
@@ -121,10 +125,12 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
             LM_GGML_ASSERT(num_prompt_tokens < (size_t)parent_ctx->n_ctx);
         }
 
-        // Update sampling context
-        for (auto & token : text_tokens) {
-            common_sampler_accept(ctx_sampling, token, false);
-        }
+        // NOTE: Do NOT feed prompt tokens into the sampler.
+        // The penalty sampler should only track generated tokens.
+        // Feeding prompt tokens causes <|im_end|> (which appears
+        // in every ChatML prompt) to be penalised by repeat_penalty
+        // / frequency_penalty, preventing EOS and producing
+        // extremely verbose output on Qwen-family models.
 
         // compare the evaluated prompt with the new prompt
         n_past = is_enc_dec ? 0 : find_common_prefix_length(embd, text_tokens);
@@ -210,10 +216,10 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
 }
 
 void llama_rn_context_completion::beginCompletion() {
-    beginCompletion(COMMON_CHAT_FORMAT_CONTENT_ONLY, COMMON_REASONING_FORMAT_NONE, false);
+    beginCompletion(COMMON_CHAT_FORMAT_CONTENT_ONLY, COMMON_REASONING_FORMAT_NONE);
 }
 
-void llama_rn_context_completion::beginCompletion(int chat_format, common_reasoning_format reasoning_format, bool thinking_forced_open, const std::string &chat_parser) {
+void llama_rn_context_completion::beginCompletion(int chat_format, common_reasoning_format reasoning_format, const std::string &generation_prompt, const std::string &chat_parser) {
     // number of tokens to keep when resetting context
     n_remain = parent_ctx->params.n_predict;
     llama_perf_context_reset(parent_ctx->ctx);
@@ -221,7 +227,7 @@ void llama_rn_context_completion::beginCompletion(int chat_format, common_reason
 
     current_chat_format = chat_format;
     current_reasoning_format = reasoning_format;
-    current_thinking_forced_open = thinking_forced_open;
+    current_generation_prompt = generation_prompt;
     current_chat_parser = chat_parser;
 }
 
@@ -456,7 +462,7 @@ completion_chat_output llama_rn_context_completion::parseChatOutput(bool is_part
     common_chat_parser_params syntax;
     syntax.format = static_cast<common_chat_format>(current_chat_format);
     syntax.reasoning_format = current_reasoning_format;
-    syntax.thinking_forced_open = current_thinking_forced_open;
+    syntax.generation_prompt = current_generation_prompt;
     syntax.parse_tool_calls = true;
 
     // Load the PEG parser if available (required for COMMON_CHAT_FORMAT_PEG_* formats)

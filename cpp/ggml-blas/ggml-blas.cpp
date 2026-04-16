@@ -121,6 +121,8 @@ static void lm_ggml_backend_blas_mul_mat(lm_ggml_backend_blas_context * ctx, str
     bli_thread_set_num_threads(ctx->n_threads);
 #elif defined(LM_GGML_BLAS_USE_NVPL)
     nvpl_blas_set_num_threads(ctx->n_threads);
+#elif defined(LM_GGML_BLAS_USE_MKL)
+    mkl_set_num_threads(ctx->n_threads);
 #endif
 
     for (int64_t i13 = 0; i13 < ne13; i13++) {
@@ -260,6 +262,8 @@ static struct lm_ggml_backend_i blas_backend_i = {
     /* .get_name                = */ lm_ggml_backend_blas_get_name,
     /* .free                    = */ lm_ggml_backend_blas_free,
     /* .set_tensor_async        = */ NULL,
+    /* .get_tensor_2d_async     = */ NULL,
+    /* .set_tensor_2d_async     = */ NULL,
     /* .get_tensor_async        = */ NULL,
     /* .cpy_tensor_async        = */ NULL,
     /* .synchronize             = */ NULL,
@@ -339,8 +343,8 @@ static const char * lm_ggml_backend_blas_device_get_description(lm_ggml_backend_
 }
 
 static void lm_ggml_backend_blas_device_get_memory(lm_ggml_backend_dev_t dev, size_t * free, size_t * total) {
-    // TODO
-    *free = 0;
+    // no memory to report
+    *free  = 0;
     *total = 0;
 
     LM_GGML_UNUSED(dev);

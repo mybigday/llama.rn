@@ -16,6 +16,7 @@ import type { LlamaContext } from '../../../src'
 import { createThemedStyles } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
 import type { LLMMessage } from '../utils/llmMessages'
+import { loadCompletionParams, type CompletionParams } from '../utils/storage'
 
 interface MessagesModalProps {
   visible: boolean
@@ -23,6 +24,7 @@ interface MessagesModalProps {
   messages: LLMMessage[]
   tools?: any[]
   context: LlamaContext | null
+  completionParams?: CompletionParams | null
   onImportMessages?: (messages: MessageType.Any[]) => void
   onUpdateSystemPrompt?: (systemPrompt: string) => void
   defaultSystemPrompt?: string
@@ -34,6 +36,7 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
   messages,
   tools,
   context,
+  completionParams,
   onImportMessages,
   onUpdateSystemPrompt,
   defaultSystemPrompt = '',
@@ -431,6 +434,22 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
     copyToClipboard(fullJsonContent, 'Raw JSON')
   }
 
+  const getFormattedChatParams = async () => {
+    const params = completionParams || (await loadCompletionParams())
+
+    return {
+      jinja: params.jinja,
+      tools,
+      parallel_tool_calls: params.parallel_tool_calls,
+      tool_choice: params.tool_choice ?? (tools ? 'auto' : undefined),
+      enable_thinking: params.enable_thinking,
+      reasoning_format: params.reasoning_format ?? 'auto',
+      add_generation_prompt: params.add_generation_prompt,
+      now: params.now,
+      chat_template_kwargs: params.chat_template_kwargs,
+    }
+  }
+
   const handleCopyFormattedChat = async () => {
     if (!context) {
       Alert.alert('Error', 'Context not available')
@@ -440,10 +459,11 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
     try {
       // Try to get formatted chat - the API might expect different input
       const parsedMessages = JSON.parse(fullJsonContent)
-      const result = await context.getFormattedChat(parsedMessages, null, {
-        tools,
-        tool_choice: tools ? 'auto' : undefined,
-      })
+      const result = await context.getFormattedChat(
+        parsedMessages,
+        null,
+        await getFormattedChatParams(),
+      )
       if (result && typeof result === 'object' && 'prompt' in result) {
         copyToClipboard(result.prompt, 'Formatted chat')
       } else {
@@ -469,10 +489,15 @@ const MessagesModal: React.FC<MessagesModalProps> = ({
     try {
       // Parse JSON
       const parsedMessages = JSON.parse(importText.trim())
+      const formattedChatParams = await getFormattedChatParams()
 
       // Validate with context - simplified validation
       if (Array.isArray(parsedMessages)) {
-        await context.getFormattedChat(parsedMessages)
+        await context.getFormattedChat(
+          parsedMessages,
+          null,
+          formattedChatParams,
+        )
       } else {
         throw new TypeError('Messages must be an array')
       }

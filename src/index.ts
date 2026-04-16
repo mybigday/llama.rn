@@ -262,6 +262,13 @@ export type CompletionBaseParams = {
   now?: string | number
   chat_template_kwargs?: Record<string, string>
   /**
+   * When enabled, forces the chat parser to treat the entire model output as
+   * plain content, skipping separate parsing of reasoning tokens and tool calls.
+   * Also bypasses jinja template validation so templates that only accept typed
+   * content (e.g. TranslateGemma) are not rejected during capability detection.
+   */
+  force_pure_content?: boolean
+  /**
    * Prefill text to be used for chat parsing (Generation Prompt + Content)
    * Used for if last assistant message is for prefill purpose
    */
@@ -282,6 +289,17 @@ export type ParallelCompletionParams = Omit<
   'emit_partial_completion' | 'prompt'
 > &
   CompletionBaseParams
+
+type ReasoningBudgetChatMetadata = {
+  thinking_start_tag?: string
+  thinking_end_tag?: string
+}
+
+type NativeCompletionRequestParams = NativeCompletionParams &
+  ReasoningBudgetChatMetadata
+
+type NativeParallelCompletionRequestParams = NativeParallelCompletionParams &
+  ReasoningBudgetChatMetadata
 
 export type BenchResult = {
   nKvMax: number
@@ -348,7 +366,7 @@ export class LlamaContext {
       stop: () => Promise<void>
     }> => {
       const { llamaQueueCompletion, llamaCancelRequest } = getJsi()
-      const nativeParams = {
+      const nativeParams: NativeParallelCompletionRequestParams = {
         ...params,
         prompt: params.prompt || '',
         emit_partial_completion: true, // Always emit for queued requests
@@ -369,6 +387,7 @@ export class LlamaContext {
             add_generation_prompt: params.add_generation_prompt,
             now: params.now,
             chat_template_kwargs: params.chat_template_kwargs,
+            force_pure_content: params.force_pure_content,
           },
         )
         if (formattedResult.type === 'jinja') {
@@ -390,8 +409,14 @@ export class LlamaContext {
           if (jinjaResult.has_media) {
             nativeParams.media_paths = jinjaResult.media_paths
           }
+          if (typeof jinjaResult.generation_prompt === 'string')
+            nativeParams.generation_prompt = jinjaResult.generation_prompt
           if (typeof jinjaResult.thinking_forced_open === 'boolean')
             nativeParams.thinking_forced_open = jinjaResult.thinking_forced_open
+          if (typeof jinjaResult.thinking_start_tag === 'string')
+            nativeParams.thinking_start_tag = jinjaResult.thinking_start_tag
+          if (typeof jinjaResult.thinking_end_tag === 'string')
+            nativeParams.thinking_end_tag = jinjaResult.thinking_end_tag
           if (jinjaResult.chat_parser)
             nativeParams.chat_parser = jinjaResult.chat_parser
         } else if (formattedResult.type === 'llama-chat') {
@@ -409,7 +434,7 @@ export class LlamaContext {
         nativeParams.media_paths = params.media_paths
       }
 
-      if (nativeParams.response_format && !nativeParams.grammar) {
+      if (params.response_format && !nativeParams.grammar) {
         const jsonSchema = getJsonSchema(params.response_format)
         if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
       }
@@ -642,6 +667,7 @@ export class LlamaContext {
       add_generation_prompt?: boolean
       now?: string | number
       chat_template_kwargs?: Record<string, string>
+      force_pure_content?: boolean
     },
   ): Promise<FormattedChatResult | JinjaFormattedChatResult> {
     const mediaPaths: string[] = []
@@ -686,7 +712,15 @@ export class LlamaContext {
       return msg
     }) as NativeLlamaChatMessage[]
 
-    const useJinja = this.isJinjaSupported() && (params?.jinja ?? true)
+    const forcePureContent = params?.force_pure_content ?? false
+    // When force_pure_content is set, accept any model that has a chat_template
+    // string in its metadata without requiring template validation to pass.
+    const hasChatTemplate = !!(this.model.metadata as Record<string, unknown>)[
+      'tokenizer.chat_template'
+    ]
+    const useJinja =
+      (forcePureContent ? hasChatTemplate : this.isJinjaSupported()) &&
+      (params?.jinja ?? true)
     let tmpl
     if (template) tmpl = template
     const jsonSchema = getJsonSchema(params?.response_format)
@@ -720,6 +754,7 @@ export class LlamaContext {
               ),
             )
           : undefined,
+        force_pure_content: forcePureContent,
       },
     )
     if (!useJinja) {
@@ -741,7 +776,7 @@ export class LlamaContext {
     params: CompletionParams,
     callback?: (data: TokenData) => void,
   ): Promise<NativeCompletionResult> {
-    const nativeParams = {
+    const nativeParams: NativeCompletionRequestParams = {
       ...params,
       prompt: params.prompt || '',
       emit_partial_completion: !!callback,
@@ -761,6 +796,7 @@ export class LlamaContext {
           add_generation_prompt: params.add_generation_prompt,
           now: params.now,
           chat_template_kwargs: params.chat_template_kwargs,
+          force_pure_content: params.force_pure_content,
         },
       )
       if (formattedResult.type === 'jinja') {
@@ -783,8 +819,14 @@ export class LlamaContext {
         if (jinjaResult.has_media) {
           nativeParams.media_paths = jinjaResult.media_paths
         }
+        if (typeof jinjaResult.generation_prompt === 'string')
+          nativeParams.generation_prompt = jinjaResult.generation_prompt
         if (typeof jinjaResult.thinking_forced_open === 'boolean')
           nativeParams.thinking_forced_open = jinjaResult.thinking_forced_open
+        if (typeof jinjaResult.thinking_start_tag === 'string')
+          nativeParams.thinking_start_tag = jinjaResult.thinking_start_tag
+        if (typeof jinjaResult.thinking_end_tag === 'string')
+          nativeParams.thinking_end_tag = jinjaResult.thinking_end_tag
         if (jinjaResult.chat_parser)
           nativeParams.chat_parser = jinjaResult.chat_parser
       } else if (formattedResult.type === 'llama-chat') {
@@ -802,7 +844,7 @@ export class LlamaContext {
       nativeParams.media_paths = params.media_paths
     }
 
-    if (nativeParams.response_format && !nativeParams.grammar) {
+    if (params.response_format && !nativeParams.grammar) {
       const jsonSchema = getJsonSchema(params.response_format)
       if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
     }
@@ -894,12 +936,7 @@ export class LlamaContext {
     loraList: Array<{ path: string; scaled?: number }>,
   ): Promise<void> {
     const { llamaApplyLoraAdapters } = getJsi()
-    let loraAdapters: Array<{ path: string; scaled?: number }> = []
-    if (loraList)
-      loraAdapters = loraList.map((l) => ({
-        path: l.path.replace(/file:\/\//, ''),
-        scaled: l.scaled,
-      }))
+    const loraAdapters = normalizeLoraAdapters({ loraList })
     return llamaApplyLoraAdapters(this.id, loraAdapters)
   }
 
@@ -1085,6 +1122,48 @@ const poolTypeMap = {
   rank: 4,
 }
 
+type LoraAdapterInput = {
+  path: string
+  scaled?: number
+}
+
+const stripFilePrefix = (path: string) => path.replace(/^file:\/\//, '')
+
+function normalizeLoraAdapters({
+  lora,
+  loraScaled,
+  loraList,
+}: {
+  lora?: string
+  loraScaled?: number
+  loraList?: Array<LoraAdapterInput>
+}): Array<LoraAdapterInput> {
+  const adapters = new Map<string, LoraAdapterInput>()
+
+  if (lora) {
+    const normalizedPath = stripFilePrefix(lora)
+    if (normalizedPath) {
+      adapters.set(normalizedPath, {
+        path: normalizedPath,
+        scaled: loraScaled,
+      })
+    }
+  }
+
+  if (loraList) {
+    loraList.forEach((adapter) => {
+      const normalizedPath = stripFilePrefix(adapter.path)
+      if (!normalizedPath) return
+      adapters.set(normalizedPath, {
+        path: normalizedPath,
+        scaled: adapter.scaled,
+      })
+    })
+  }
+
+  return Array.from(adapters.values())
+}
+
 export async function getBackendDevicesInfo(): Promise<
   Array<NativeBackendDeviceInfo>
 > {
@@ -1108,6 +1187,7 @@ export async function initLlama(
     is_model_asset: isModelAsset,
     pooling_type: poolingType,
     lora,
+    lora_scaled: loraScaled,
     lora_list: loraList,
     devices,
     ...rest
@@ -1119,15 +1199,11 @@ export async function initLlama(
   let path = model
   if (path.startsWith('file://')) path = path.slice(7)
 
-  let loraPath = lora
-  if (loraPath?.startsWith('file://')) loraPath = loraPath.slice(7)
-
-  let loraAdapters: Array<{ path: string; scaled?: number }> = []
-  if (loraList)
-    loraAdapters = loraList.map((l) => ({
-      path: l.path.replace(/file:\/\//, ''),
-      scaled: l.scaled,
-    }))
+  const loraAdapters = normalizeLoraAdapters({
+    lora,
+    loraScaled,
+    loraList,
+  })
 
   const contextId = contextIdCounter + contextIdRandom()
   contextIdCounter += 1
@@ -1195,8 +1271,7 @@ export async function initLlama(
       is_model_asset: !!isModelAsset,
       use_progress_callback: !!progressCallback,
       pooling_type: poolType,
-      lora: loraPath,
-      lora_list: loraAdapters,
+      ...(loraAdapters.length > 0 ? { lora_list: loraAdapters } : {}),
       devices: filteredDevs.length > 0 ? filteredDevs : undefined,
       ...rest,
     },
