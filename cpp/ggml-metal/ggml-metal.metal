@@ -2029,6 +2029,7 @@ LM_GGML_TABLE_END()
 #define OP_UNARY_NUM_CEIL        118
 #define OP_UNARY_NUM_ROUND       119
 #define OP_UNARY_NUM_TRUNC       120
+#define OP_UNARY_NUM_XIELU       121
 
 #define OP_SUM_ROWS_NUM_SUM_ROWS 10
 #define OP_SUM_ROWS_NUM_MEAN     11
@@ -2917,6 +2918,29 @@ typedef struct {
     int32_t  p0;
     int32_t  p1;
 } lm_ggml_metal_kargs_pad_reflect_1d;
+
+typedef struct {
+    int64_t  ne00;
+    int64_t  ne01;
+    int64_t  ne02;
+    int64_t  ne03;
+    uint64_t nb00;
+    uint64_t nb01;
+    uint64_t nb02;
+    uint64_t nb03;
+    int64_t  ne0;
+    int64_t  ne1;
+    int64_t  ne2;
+    int64_t  ne3;
+    uint64_t nb0;
+    uint64_t nb1;
+    uint64_t nb2;
+    uint64_t nb3;
+    int32_t  s0;
+    int32_t  s1;
+    int32_t  s2;
+    int32_t  s3;
+} lm_ggml_metal_kargs_roll;
 
 typedef struct {
     uint64_t nb1;
@@ -4208,6 +4232,15 @@ kernel void kernel_unary_impl(
 
         if (FC_OP == OP_UNARY_NUM_TRUNC) {
             dst_ptr[i0] = (T) trunc(x);
+        }
+
+        if (FC_OP == OP_UNARY_NUM_XIELU) {
+            const TC xi      = x;
+            const TC gate    = TC(xi > TC(0.0f));
+            const TC clamped = fmin(xi, TC(args.val));
+            const TC y_pos   = TC(args.scale) * xi * xi + TC(args.bias) * xi;
+            const TC y_neg   = (exp(clamped) - TC(1.0f) - xi) * TC(args.slope) + TC(args.bias) * xi;
+            dst_ptr[i0] = (T) (gate * y_pos + (TC(1.0f) - gate) * y_neg);
         }
     }
 
@@ -8267,6 +8300,40 @@ kernel void kernel_upscale_bicubic_f32(
         }
 
         dst_ptr[i0] = sum;
+    }
+}
+
+kernel void kernel_roll_f32(
+    constant lm_ggml_metal_kargs_roll & args,
+    device  const char * src0,
+    device        char * dst,
+    uint3 tgpig[[threadgroup_position_in_grid]],
+    uint3 tpitg[[thread_position_in_threadgroup]],
+    uint3   ntg[[threads_per_threadgroup]]) {
+
+    const int64_t i3 = tgpig.z;
+    const int64_t i2 = tgpig.y;
+    const int64_t i1 = tgpig.x;
+
+    device const float * src0_ptr = (device const float *) src0;
+    device       float * dst_ptr  = (device       float *) dst;
+
+    for (int i0 = tpitg.x; i0 < args.ne0; i0 += ntg.x) {
+        // apply shifts and wrap around
+        int64_t i00 = i0 - args.s0;
+        int64_t i01 = i1 - args.s1;
+        int64_t i02 = i2 - args.s2;
+        int64_t i03 = i3 - args.s3;
+
+        if (i00 < 0) { i00 += args.ne00; } else if (i00 >= args.ne00) { i00 -= args.ne00; }
+        if (i01 < 0) { i01 += args.ne01; } else if (i01 >= args.ne01) { i01 -= args.ne01; }
+        if (i02 < 0) { i02 += args.ne02; } else if (i02 >= args.ne02) { i02 -= args.ne02; }
+        if (i03 < 0) { i03 += args.ne03; } else if (i03 >= args.ne03) { i03 -= args.ne03; }
+
+        int64_t src_idx = i03*args.ne02*args.ne01*args.ne00 + i02*args.ne01*args.ne00 + i01*args.ne00 + i00;
+        int64_t dst_idx = i3 *args.ne2 *args.ne1 *args.ne0  + i2 *args.ne1 *args.ne0  + i1 *args.ne0  + i0;
+
+        dst_ptr[dst_idx] = src0_ptr[src_idx];
     }
 }
 

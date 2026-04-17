@@ -1043,6 +1043,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                 case LM_GGML_UNARY_OP_CEIL:
                 case LM_GGML_UNARY_OP_ROUND:
                 case LM_GGML_UNARY_OP_TRUNC:
+                case LM_GGML_UNARY_OP_XIELU:
                     return lm_ggml_is_contiguous_rows(op->src[0]) && (op->src[0]->type == LM_GGML_TYPE_F32 || op->src[0]->type == LM_GGML_TYPE_F16);
                 default:
                     return false;
@@ -1137,6 +1138,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
         case LM_GGML_OP_ARGSORT:
         case LM_GGML_OP_TOP_K:
         case LM_GGML_OP_ARANGE:
+        case LM_GGML_OP_ROLL:
             return true;
         case LM_GGML_OP_FLASH_ATTN_EXT:
             // for new head sizes, add checks here
@@ -1158,6 +1160,23 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
             }
             if (op->src[1]->type != op->src[2]->type) {
                 return false;
+            }
+            switch (op->src[1]->type) {
+                case LM_GGML_TYPE_F32:
+                case LM_GGML_TYPE_F16:
+                case LM_GGML_TYPE_Q8_0:
+                case LM_GGML_TYPE_Q4_0:
+                case LM_GGML_TYPE_Q4_1:
+                case LM_GGML_TYPE_Q5_0:
+                case LM_GGML_TYPE_Q5_1:
+                    break;
+                case LM_GGML_TYPE_BF16:
+                    if (!has_bfloat) {
+                        return false;
+                    }
+                    break;
+                default:
+                    return false;
             }
             return has_simdgroup_mm; // TODO: over-restricted for vec-kernels
         case LM_GGML_OP_SSM_CONV:

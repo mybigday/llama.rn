@@ -250,6 +250,7 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_unary(lm_g
                 case LM_GGML_UNARY_OP_CEIL:        op_num = OP_UNARY_NUM_CEIL;        break;
                 case LM_GGML_UNARY_OP_ROUND:       op_num = OP_UNARY_NUM_ROUND;       break;
                 case LM_GGML_UNARY_OP_TRUNC:       op_num = OP_UNARY_NUM_TRUNC;       break;
+                case LM_GGML_UNARY_OP_XIELU:       op_num = OP_UNARY_NUM_XIELU;       break;
                 default: LM_GGML_ABORT("fatal error");
             } break;
         default: LM_GGML_ABORT("fatal error");
@@ -1813,6 +1814,23 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_upscale(lm
         res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
 
         lm_ggml_metal_cv_free(cv);
+    }
+
+    return res;
+}
+
+lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_roll(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op) {
+    assert(op->op == LM_GGML_OP_ROLL);
+
+    char base[256];
+    char name[256];
+
+    snprintf(base, 256, "kernel_roll_%s", lm_ggml_type_name(op->src[0]->type));
+    snprintf(name, 256, "%s", base);
+
+    lm_ggml_metal_pipeline_with_params res = lm_ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
     }
 
     return res;

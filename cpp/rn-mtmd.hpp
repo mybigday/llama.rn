@@ -565,7 +565,8 @@ inline llama_rn_context_mtmd::llama_rn_context_mtmd(
 
     // Check if the model uses M-RoPE or non-causal attention
     bool uses_mrope = mtmd_decode_use_mrope(mtmd_ctx);
-    bool uses_non_causal = mtmd_decode_use_non_causal(mtmd_ctx);
+    // No chunk exists during context init; nullptr uses the default image path.
+    bool uses_non_causal = mtmd_decode_use_non_causal(mtmd_ctx, nullptr);
     LOG_INFO("[DEBUG] Model multimodal properties: uses_mrope=%d, uses_non_causal=%d",
              uses_mrope ? 1 : 0,
              uses_non_causal ? 1 : 0);

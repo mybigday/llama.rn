@@ -1,6 +1,7 @@
 #include "llama-graph.h"
 
 #include "llama-impl.h"
+#include "llama-model.h"
 #include "llama-batch.h"
 #include "llama-cparams.h"
 
@@ -1059,6 +1060,84 @@ lm_ggml_tensor * llm_graph_context::build_norm(
     return cur;
 }
 
+
+llm_graph_qkv llm_graph_context::build_qkv(
+        const llama_layer & layer,
+              lm_ggml_tensor * cur,
+                  int64_t   n_embd_head,
+                  int64_t   n_head,
+                  int64_t   n_head_kv,
+                      int   il) const {
+    const int64_t n_embd_q  = n_embd_head * n_head;
+    const int64_t n_embd_kv = n_embd_head * n_head_kv;
+
+    lm_ggml_tensor * Qcur, * Kcur, * Vcur;
+
+    if (layer.wqkv) {
+        // fused QKV path
+        lm_ggml_tensor * qkv = build_lora_mm(layer.wqkv, cur, layer.wqkv_s);
+        cb(qkv, "wqkv", il);
+        if (layer.bqkv) {
+            qkv = lm_ggml_add(ctx0, qkv, layer.bqkv);
+            cb(qkv, "bqkv", il);
+        }
+        if (hparams.f_clamp_kqv > 0.0f) {
+            qkv = lm_ggml_clamp(ctx0, qkv, -hparams.f_clamp_kqv, hparams.f_clamp_kqv);
+            cb(qkv, "wqkv_clamped", il);
+        }
+        Qcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head, n_head,    n_tokens,
+            lm_ggml_row_size(qkv->type, n_embd_head), qkv->nb[1], 0);
+        Kcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head, n_head_kv, n_tokens,
+            lm_ggml_row_size(qkv->type, n_embd_head), qkv->nb[1],
+            lm_ggml_row_size(qkv->type, n_embd_q));
+        Vcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head, n_head_kv, n_tokens,
+            lm_ggml_row_size(qkv->type, n_embd_head), qkv->nb[1],
+            lm_ggml_row_size(qkv->type, n_embd_q + n_embd_kv));
+    } else {
+        // separate Q/K/V path
+        Qcur = build_lora_mm(layer.wq, cur, layer.wq_s);
+        cb(Qcur, "Qcur", il);
+        if (layer.bq) {
+            Qcur = lm_ggml_add(ctx0, Qcur, layer.bq);
+            cb(Qcur, "Qcur", il);
+        }
+        if (hparams.f_clamp_kqv > 0.0f) {
+            Qcur = lm_ggml_clamp(ctx0, Qcur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv);
+            cb(Qcur, "Qcur_clamped", il);
+        }
+        Kcur = build_lora_mm(layer.wk, cur, layer.wk_s);
+        cb(Kcur, "Kcur", il);
+        if (layer.bk) {
+            Kcur = lm_ggml_add(ctx0, Kcur, layer.bk);
+            cb(Kcur, "Kcur", il);
+        }
+        if (hparams.f_clamp_kqv > 0.0f) {
+            Kcur = lm_ggml_clamp(ctx0, Kcur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv);
+            cb(Kcur, "Kcur_clamped", il);
+        }
+        Vcur = build_lora_mm(layer.wv, cur, layer.wv_s);
+        cb(Vcur, "Vcur", il);
+        if (layer.bv) {
+            Vcur = lm_ggml_add(ctx0, Vcur, layer.bv);
+            cb(Vcur, "Vcur", il);
+        }
+        if (hparams.f_clamp_kqv > 0.0f) {
+            Vcur = lm_ggml_clamp(ctx0, Vcur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv);
+            cb(Vcur, "Vcur_clamped", il);
+        }
+        Qcur = lm_ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
+        Kcur = lm_ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
+        Vcur = lm_ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
+    }
+
+    cb(Qcur, "Qcur", il);
+    cb(Kcur, "Kcur", il);
+    cb(Vcur, "Vcur", il);
+
+    return { Qcur, Kcur, Vcur };
+}
+
+
 lm_ggml_tensor * llm_graph_context::build_ffn(
          lm_ggml_tensor * cur,
          lm_ggml_tensor * up,
@@ -2011,6 +2090,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
         llm_graph_input_attn_no_cache * inp,
         lm_ggml_tensor * wo,
         lm_ggml_tensor * wo_b,
+        lm_ggml_tensor * wo_s,
         lm_ggml_tensor * q_cur,
         lm_ggml_tensor * k_cur,
         lm_ggml_tensor * v_cur,
@@ -2044,7 +2124,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     cb(cur, "kqv_out", il);
 
     if (wo) {
-        cur = build_lora_mm(wo, cur);
+        cur = build_lora_mm(wo, cur, wo_s);
     }
 
     if (wo_b) {
@@ -2095,6 +2175,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
         llm_graph_input_attn_kv * inp,
         lm_ggml_tensor * wo,
         lm_ggml_tensor * wo_b,
+        lm_ggml_tensor * wo_s,
         lm_ggml_tensor * q_cur,
         lm_ggml_tensor * k_cur,
         lm_ggml_tensor * v_cur,
@@ -2146,10 +2227,15 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     }
 
     if (wo) {
-        cur = build_lora_mm(wo, cur);
         if (arch == LLM_ARCH_GLM4 || arch == LLM_ARCH_GLM4_MOE || arch == LLM_ARCH_JAIS2) {
             // GLM4, GLM4_MOE, and JAIS2 seem to have numerical issues with half-precision accumulators
+            cur = build_lora_mm(wo, cur);
             lm_ggml_mul_mat_set_prec(cur, LM_GGML_PREC_F32);
+            if (wo_s) {
+                cur = lm_ggml_mul(ctx0, cur, wo_s);
+            }
+        } else {
+            cur = build_lora_mm(wo, cur, wo_s);
         }
     }
 
@@ -2193,6 +2279,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
         llm_graph_input_attn_k * inp,
         lm_ggml_tensor * wo,
         lm_ggml_tensor * wo_b,
+        lm_ggml_tensor * wo_s,
         lm_ggml_tensor * q_cur,
         lm_ggml_tensor * k_cur,
         lm_ggml_tensor * v_cur,
@@ -2227,10 +2314,15 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     cb(cur, "kqv_out", il);
 
     if (wo) {
-        cur = build_lora_mm(wo, cur);
         if (arch == LLM_ARCH_GLM4 || arch == LLM_ARCH_GLM4_MOE) {
             // GLM4 and GLM4_MOE seem to have numerical issues with half-precision accumulators
+            cur = build_lora_mm(wo, cur);
             lm_ggml_mul_mat_set_prec(cur, LM_GGML_PREC_F32);
+            if (wo_s) {
+                cur = lm_ggml_mul(ctx0, cur, wo_s);
+            }
+        } else {
+            cur = build_lora_mm(wo, cur, wo_s);
         }
     }
 
@@ -2245,6 +2337,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
         llm_graph_input_attn_kv_iswa * inp,
         lm_ggml_tensor * wo,
         lm_ggml_tensor * wo_b,
+        lm_ggml_tensor * wo_s,
         lm_ggml_tensor * q_cur,
         lm_ggml_tensor * k_cur,
         lm_ggml_tensor * v_cur,
@@ -2313,7 +2406,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     }
 
     if (wo) {
-        cur = build_lora_mm(wo, cur);
+        cur = build_lora_mm(wo, cur, wo_s);
     }
 
     if (wo_b) {
@@ -2344,6 +2437,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
         llm_graph_input_attn_cross * inp,
         lm_ggml_tensor * wo,
         lm_ggml_tensor * wo_b,
+        lm_ggml_tensor * wo_s,
         lm_ggml_tensor * q_cur,
         lm_ggml_tensor * k_cur,
         lm_ggml_tensor * v_cur,
@@ -2368,7 +2462,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     cb(cur, "kqv_out", il);
 
     if (wo) {
-        cur = build_lora_mm(wo, cur);
+        cur = build_lora_mm(wo, cur, wo_s);
     }
 
     if (wo_b) {

@@ -1030,6 +1030,8 @@ void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_
         LM_GGML_ABORT("%s: failed to initialize context\n", __func__);
     }
 
+    graph->uid = lm_ggml_graph_next_uid();
+
     // pass 1: assign backends to ops with pre-allocated inputs
     for (int i = 0; i < graph->n_leafs; i++) {
         struct lm_ggml_tensor * leaf = graph->leafs[i];
@@ -1476,6 +1478,11 @@ void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_
         sched->leaf_backend_ids[graph_copy->n_leafs] = tensor_backend_id(leaf);
         assert(graph_copy->size > graph_copy->n_leafs);
         graph_copy->leafs[graph_copy->n_leafs++] = leaf;
+    }
+
+    // set ids for all splits
+    for (int i = 0; i < sched->n_splits; ++i) {
+        sched->splits[i].graph.uid = lm_ggml_graph_next_uid();
     }
 }
 

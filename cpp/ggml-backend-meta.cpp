@@ -5,9 +5,6 @@
 #include "ggml-alloc.h"
 #include "ggml-cpp.h"
 
-// TODO: tmp
-#include "ggml-ext.h"
-
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -1422,22 +1419,48 @@ struct lm_ggml_backend_meta_context {
     size_t                      max_tmp_size  = 0;
     size_t                      max_subgraphs = 0;
 
+    void *                               comm_ctx       = nullptr;
+    lm_ggml_backend_comm_allreduce_tensor_t comm_allreduce = nullptr;
+
     lm_ggml_backend_meta_context(lm_ggml_backend_dev_t meta_dev, const char * params) {
         const size_t n_devs = lm_ggml_backend_meta_dev_n_devs(meta_dev);
         name = "Meta(";
+        std::vector<lm_ggml_backend_t> simple_backends;
         backend_configs.reserve(n_devs);
+        simple_backends.reserve(n_devs);
         for (size_t i = 0; i < n_devs; i++) {
             lm_ggml_backend_dev_t simple_dev = lm_ggml_backend_meta_dev_simple_dev(meta_dev, i);
             if (i > 0) {
                 name += ",";
             }
             name += lm_ggml_backend_dev_name(simple_dev);
-            backend_configs.emplace_back(lm_ggml_backend_dev_init(simple_dev, params));
+            simple_backends.push_back(lm_ggml_backend_dev_init(simple_dev, params));
+            backend_configs.emplace_back(simple_backends.back());
         }
         name += ")";
+
+        if (n_devs > 1) {
+            lm_ggml_backend_comm_init_t comm_init = (lm_ggml_backend_comm_init_t) lm_ggml_backend_reg_get_proc_address(
+                lm_ggml_backend_dev_backend_reg(lm_ggml_backend_get_device(simple_backends[0])), "lm_ggml_backend_comm_init");
+            if (comm_init != nullptr) {
+                comm_ctx = comm_init(simple_backends.data(), simple_backends.size());
+            }
+        }
+        if (comm_ctx != nullptr) {
+            comm_allreduce = (lm_ggml_backend_comm_allreduce_tensor_t)
+                lm_ggml_backend_reg_get_proc_address(lm_ggml_backend_dev_backend_reg(
+                    lm_ggml_backend_get_device(simple_backends[0])), "lm_ggml_backend_comm_allreduce_tensor");
+            LM_GGML_ASSERT(comm_allreduce != nullptr);
+        }
     }
 
     ~lm_ggml_backend_meta_context() {
+        if (comm_ctx != nullptr) {
+            lm_ggml_backend_comm_free_t comm_free = (lm_ggml_backend_comm_free_t) lm_ggml_backend_reg_get_proc_address(
+                lm_ggml_backend_dev_backend_reg(lm_ggml_backend_get_device(backend_configs[0].backend)), "lm_ggml_backend_comm_free");
+            LM_GGML_ASSERT(comm_free != nullptr);
+            comm_free(comm_ctx);
+        }
         for (auto & bc : backend_configs) {
             lm_ggml_backend_free(bc.backend);
         }
@@ -1848,20 +1871,15 @@ static enum lm_ggml_status lm_ggml_backend_meta_graph_compute(lm_ggml_backend_t 
 
         if (n_backends > 1 && i < n_subgraphs - 1) {
             bool backend_allreduce_success = false;
-            lm_ggml_backend_allreduce_tensor_t allreduce_tensor = (lm_ggml_backend_allreduce_tensor_t) lm_ggml_backend_reg_get_proc_address(
-                lm_ggml_backend_dev_backend_reg(lm_ggml_backend_get_device(backend_ctx->backend_configs[0].backend)), "lm_ggml_backend_allreduce_tensor");
-            if (allreduce_tensor) {
-                std::vector<lm_ggml_backend_t> backends;
-                backends.reserve(n_backends);
+            if (backend_ctx->comm_ctx) {
                 std::vector<lm_ggml_tensor *> nodes;
                 nodes.reserve(n_backends);
                 for (size_t j = 0; j < n_backends; j++) {
                     auto & bcj = backend_ctx->backend_configs[j];
-                    backends.push_back(bcj.backend);
                     lm_ggml_cgraph * cgraph_ij = bcj.cgraphs[i].cgraph_main;
                     nodes.push_back(cgraph_ij->nodes[cgraph_ij->n_nodes-1]);
                 }
-                backend_allreduce_success = allreduce_tensor(backends.data(), nodes.data(), n_backends);
+                backend_allreduce_success = backend_ctx->comm_allreduce(backend_ctx->comm_ctx, nodes.data());
             }
 
             if (!backend_allreduce_success) {

@@ -197,7 +197,6 @@ cp ./$LLAMA_DIR/ggml/src/ggml-quants.c ./cpp/ggml-quants.c
 cp ./$LLAMA_DIR/ggml/src/ggml-threading.cpp ./cpp/ggml-threading.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-threading.h ./cpp/ggml-threading.h
 cp ./$LLAMA_DIR/ggml/src/gguf.cpp ./cpp/gguf.cpp
-cp ./$LLAMA_DIR/ggml/src/ggml-ext.h ./cpp/ggml-ext.h
 
 # llama api
 cp ./$LLAMA_DIR/include/llama.h ./cpp/llama.h
@@ -449,6 +448,12 @@ rm -rf ./cpp/**/*.orig
 rm -rf ./cpp/**/*/*.orig
 
 if [ "$OS" = "Darwin" ]; then
+  # Refresh Pods after source list changes so the example target picks up
+  # renamed/added/removed native files from the updated llama.cpp snapshot.
+  cd example
+  npm run pods
+  cd ..
+
   # Generate .xcode.env.local in iOS example
   cd example/ios
   echo export NODE_BINARY=$(command -v node) > .xcode.env.local
