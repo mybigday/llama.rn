@@ -2195,7 +2195,12 @@ int lm_ggml_metal_op_mul_mat(lm_ggml_metal_op_t ctx, int idx) {
         const size_t smem = pipeline.smem;
 
         lm_ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
-        lm_ggml_metal_encoder_dispatch_threadgroups(enc, ((ne11 + 31)/32), ((ne01 + 63)/64), ne12*ne13, 128, 1, 1);
+
+        const int nr0 = pipeline.nr0;
+        const int nr1 = pipeline.nr1;
+        const int nsg = pipeline.nsg;
+
+        lm_ggml_metal_encoder_dispatch_threadgroups(enc, ((ne11 + nr1 - 1) / nr1), ((ne01 + nr0 - 1) / nr0), ne12 * ne13, 32, nsg, 1);
     } else {
         auto pipeline = lm_ggml_metal_library_get_pipeline_mul_mv(lib, op);
 

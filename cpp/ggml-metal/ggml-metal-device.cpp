@@ -677,7 +677,15 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul_mm(lm_
     const lm_ggml_type tsrc1 = op->src[1]->type;
 
     const bool bc_inp = op->src[0]->ne[0] % 32 != 0;
-    const bool bc_out = op->ne[0] % 64 != 0 || op->ne[1] % 32 != 0;
+
+    constexpr int NRA = SZ_SIMDGROUP * N_MM_BLOCK_Y * N_MM_SIMD_GROUP_Y;
+    constexpr int NRB = SZ_SIMDGROUP * N_MM_BLOCK_X * N_MM_SIMD_GROUP_X;
+
+    const bool has_tensor = lm_ggml_metal_device_get_props(lm_ggml_metal_library_get_device(lib))->has_tensor;
+
+    const bool bc_out = has_tensor
+        ? (op->ne[0] % NRA != 0 || op->ne[1] % NRB != 0)
+        : (op->ne[0] % 64  != 0 || op->ne[1] % 32  != 0);
 
     snprintf(base, 256, "kernel_mul_mm_%s_%s", lm_ggml_type_name(tsrc0), lm_ggml_type_name(tsrc1));
     snprintf(name, 256, "%s_bci=%d_bco=%d", base, bc_inp, bc_out);
@@ -694,8 +702,20 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul_mm(lm_
         lm_ggml_metal_cv_free(cv);
     }
 
-    // when the output size is not multiple of 64x32, we need extra smem to prevent out-of-bounds writes
-    res.smem = bc_out ? 8192 : 4096 + 2048;
+    if (has_tensor) {
+        res.nr0 = NRA;
+        res.nr1 = NRB;
+
+        const size_t smem_a = NRA * N_MM_NK_TOTAL * sizeof(lm_ggml_fp16_t);
+        res.smem = smem_a;
+    } else {
+        res.nr0 = 64;
+        res.nr1 = 32;
+
+        res.smem = bc_out ? 8192 : (4096 + 2048);
+    }
+
+    res.nsg = N_MM_SIMD_GROUP_X * N_MM_SIMD_GROUP_Y;
 
     return res;
 }

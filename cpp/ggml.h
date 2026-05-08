@@ -438,6 +438,12 @@ extern "C" {
         LM_GGML_PREC_F32     = 10,
     };
 
+    // op hint
+    enum lm_ggml_op_hint {
+        LM_GGML_HINT_NONE             = 0,
+        LM_GGML_HINT_SRC0_IS_HADAMARD = 1,
+    };
+
     // model file types
     enum lm_ggml_ftype {
         LM_GGML_FTYPE_UNKNOWN        = -1,
@@ -1418,6 +1424,11 @@ extern "C" {
     LM_GGML_API void lm_ggml_mul_mat_set_prec(
             struct lm_ggml_tensor * a,
             enum lm_ggml_prec       prec);
+
+    // change the hint of a matrix multiplication
+    LM_GGML_API void lm_ggml_mul_mat_set_hint(
+            struct lm_ggml_tensor * a,
+            enum lm_ggml_op_hint    hint);
 
     // indirect matrix multiplication
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_mul_mat_id(

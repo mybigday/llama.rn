@@ -84,6 +84,7 @@ enum llm_type {
     LLM_TYPE_26B,
     LLM_TYPE_27B,
     LLM_TYPE_30B,
+    LLM_TYPE_31B,
     LLM_TYPE_32B,
     LLM_TYPE_34B,
     LLM_TYPE_35B,
@@ -118,6 +119,7 @@ enum llm_type {
     LLM_TYPE_16B_A1B,
     LLM_TYPE_21B_A3B, // Ernie MoE small
     LLM_TYPE_24B_A2B, // lfm2moe
+    LLM_TYPE_26B_A4B, // Gemma4
     LLM_TYPE_30B_A3B,
     LLM_TYPE_31B_A3_5B,
     LLM_TYPE_35B_A3B, // Qwen3.5
@@ -244,6 +246,8 @@ struct llama_layer {
     struct lm_ggml_tensor * wkv_b     = nullptr;
     struct lm_ggml_tensor * wk_b      = nullptr;
     struct lm_ggml_tensor * wv_b      = nullptr;
+    struct lm_ggml_tensor * wqkv_b    = nullptr;
+    struct lm_ggml_tensor * wo_b      = nullptr;
     struct lm_ggml_tensor * wq_cross  = nullptr;
     struct lm_ggml_tensor * wk_cross  = nullptr;
     struct lm_ggml_tensor * wv_cross  = nullptr;
@@ -253,13 +257,6 @@ struct llama_layer {
     struct lm_ggml_tensor * wv_enc    = nullptr;
     struct lm_ggml_tensor * wo_enc    = nullptr;
     struct lm_ggml_tensor * wqkv_gate = nullptr;
-
-    // attention bias
-    struct lm_ggml_tensor * bq   = nullptr;
-    struct lm_ggml_tensor * bk   = nullptr;
-    struct lm_ggml_tensor * bv   = nullptr;
-    struct lm_ggml_tensor * bo   = nullptr;
-    struct lm_ggml_tensor * bqkv = nullptr;
 
     // relative position bias
     struct lm_ggml_tensor * attn_rel_b       = nullptr;
@@ -580,14 +577,8 @@ struct llama_model {
     int64_t t_load_us  = 0;
     int64_t t_start_us = 0;
 
-    explicit llama_model(const struct llama_model_params & params);
-    ~llama_model();
-
-    void load_stats  (llama_model_loader & ml);
-    void load_arch   (llama_model_loader & ml);
-    void load_hparams(llama_model_loader & ml);
-    void load_vocab  (llama_model_loader & ml);
-    bool load_tensors(llama_model_loader & ml); // returns false if cancelled by progress_callback
+    explicit llama_model(const llama_model_params & params);
+    virtual ~llama_model();
 
     std::string arch_name() const;
     std::string type_name() const;
@@ -623,20 +614,93 @@ struct llama_model {
 
     lm_ggml_tensor * get_rope_factors(const llama_cparams & cparams, int il) const;
 
-    // TODO: move this to new llm_arch_model_i interface
     llama_memory_i * create_memory(const llama_memory_params & params, const llama_cparams & cparams) const;
 
-    // TODO: move this to new llm_arch_model_i interface
     lm_ggml_cgraph * build_graph(const llm_graph_params & params) const;
 
-private:
+    virtual void load_stats  (llama_model_loader & ml) = 0;
+    virtual void load_hparams(llama_model_loader & ml) = 0;
+    virtual void load_vocab  (llama_model_loader & ml) = 0;
+    virtual bool load_tensors(llama_model_loader & ml) = 0; // returns false if cancelled by progress_callback
+
+    // model must define these
+    virtual void load_arch_hparams(llama_model_loader & ml) = 0;
+    virtual void load_arch_tensors(llama_model_loader & ml) = 0;
+    virtual std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const = 0;
+
+protected:
     llama_model_params params;
 
     struct impl;
     std::unique_ptr<impl> pimpl;
 };
 
+llama_model * llama_model_create(llm_arch arch, const llama_model_params & params);
+llama_model * llama_model_create(llama_model_loader & ml, const llama_model_params & params);
+
+// model must inherit from this
+struct llama_model_base : public llama_model {
+    friend struct llama_model;
+
+    llama_model * model;
+    llama_model_loader * ml = nullptr;
+    const LLM_TN tn;
+
+    // llama_model_loader is not yet defined at this point, so we will set it after construction
+    const int TENSOR_DUPLICATED;
+    const int TENSOR_NOT_REQUIRED;
+    const int TENSOR_SKIP;
+    const int TENSOR_SKIP_IF_VIRTUAL;
+
+    explicit llama_model_base(const llama_model_params & params);
+    virtual ~llama_model_base() = default;
+
+    lm_ggml_tensor * create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
+
+    // convenience overload of create_tensor that doesn't require llama_model_loader
+    lm_ggml_tensor * create_tensor(const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
+
+    // helper: try merged gate_up_exps first, fall back to separate gate and up
+    void create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_,
+                int64_t n_ff_, int64_t n_expert_, int flags);
+
+    // helper: try to load merged qkv first, fall back to separate q, k, v
+    void create_tensor_qkv(llama_layer & layer, int bid,
+                int64_t n_embd_, int64_t n_embd_q_, int64_t n_embd_k_, int64_t n_embd_v_,
+                int flags);
+
+    void load_stats  (llama_model_loader & ml) override;
+    void load_hparams(llama_model_loader & ml) override;
+    void load_vocab  (llama_model_loader & ml) override;
+    bool load_tensors(llama_model_loader & ml) override;
+
+    // model must define these
+    void load_arch_hparams(llama_model_loader & ml) override = 0;
+    void load_arch_tensors(llama_model_loader & ml) override = 0;
+    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override = 0;
+};
+
 const char * llm_type_name(llm_type type);
+
+// convenience macro for loading local variables for load_tensors() in llama_model_base
+// note: cast to int64_t since we will use these for the tensor dimensions
+#define LLAMA_LOAD_LOCALS \
+    const int     n_layer        = hparams.n_layer;          LM_GGML_UNUSED(n_layer); \
+    const int64_t n_head         = hparams.n_head();         LM_GGML_UNUSED(n_head); \
+    const int64_t n_head_kv      = hparams.n_head_kv();      LM_GGML_UNUSED(n_head_kv); \
+    const int64_t n_embd         = hparams.n_embd;           LM_GGML_UNUSED(n_embd); \
+    const int64_t n_embd_k_gqa   = hparams.n_embd_k_gqa();   LM_GGML_UNUSED(n_embd_k_gqa); \
+    const int64_t n_embd_v_gqa   = hparams.n_embd_v_gqa();   LM_GGML_UNUSED(n_embd_v_gqa); \
+    const int64_t n_embd_head_k  = hparams.n_embd_head_k();  LM_GGML_UNUSED(n_embd_head_k); \
+    const int64_t n_embd_head_v  = hparams.n_embd_head_v();  LM_GGML_UNUSED(n_embd_head_v); \
+    const int64_t n_ff           = hparams.n_ff();           LM_GGML_UNUSED(n_ff); \
+    const int64_t n_embd_gqa     = n_embd_v_gqa;             LM_GGML_UNUSED(n_embd_gqa); \
+    const int64_t n_vocab        = vocab.n_tokens();         LM_GGML_UNUSED(n_vocab); \
+    const int64_t n_token_types  = vocab.n_token_types();    LM_GGML_UNUSED(n_token_types); \
+    const int64_t n_rot          = hparams.n_rot();          LM_GGML_UNUSED(n_rot); \
+    const int64_t n_expert       = hparams.n_expert;         LM_GGML_UNUSED(n_expert); \
+    const int64_t n_expert_used  = hparams.n_expert_used;    LM_GGML_UNUSED(n_expert_used); \
+    const int64_t n_ctx_train    = hparams.n_ctx_train;      LM_GGML_UNUSED(n_ctx_train);
 
 // For internal test use
 // TODO: remove

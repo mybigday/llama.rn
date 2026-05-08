@@ -5,7 +5,21 @@ lm_ggml_cgraph * clip_graph_hunyuanocr::build() {
     const int pw    = n_patches_x;
     const int ph    = n_patches_y;
 
-    lm_ggml_tensor * pos_embd = resize_position_embeddings(LM_GGML_SCALE_MODE_BILINEAR);
+    // Position embedding interpolation.
+    // HunyuanVL needs scale factors sf=(target+0.1)/n_grid, which the standard
+    // lm_ggml_interpolate cannot express. To avoid adding a new ggml op, the
+    // resize is computed on CPU in clip_image_batch_encode and uploaded here
+    // as a graph input (named "hunyuanvl_pos_embd").
+    // HunyuanOCR uses the same square layout and the standard ratio-based
+    // interpolation provided by resize_position_embeddings().
+    lm_ggml_tensor * pos_embd = nullptr;
+    if (proj_type == PROJECTOR_TYPE_HUNYUANVL && model.position_embeddings) {
+        pos_embd = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_F32, n_embd, ph * pw);
+        lm_ggml_set_name(pos_embd, "hunyuanvl_pos_embd");
+        lm_ggml_set_input(pos_embd);
+    } else {
+        pos_embd = resize_position_embeddings(LM_GGML_SCALE_MODE_BILINEAR);
+    }
 
     lm_ggml_tensor * inp = build_inp();
     lm_ggml_tensor * cur = build_vit(inp, n_patches, NORM_TYPE_NORMAL, hparams.ffn_op, pos_embd, nullptr);

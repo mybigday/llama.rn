@@ -1,6 +1,7 @@
 #import "ggml-metal-device.h"
 
 #import "ggml-impl.h"
+#import "ggml-backend-impl.h"
 
 #include <Foundation/Foundation.h>
 
@@ -95,8 +96,8 @@ int lm_ggml_metal_pipeline_max_theads_per_threadgroup(struct lm_ggml_metal_pipel
 
 struct lm_ggml_metal_library {
     id<MTLLibrary> obj;
-    id<MTLDevice> device;
 
+    lm_ggml_metal_device_t dev;
     lm_ggml_metal_pipelines_t pipelines; // cache of compiled pipelines
 
     NSLock * lock;
@@ -251,7 +252,7 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init(lm_ggml_metal_device_t dev) {
     lm_ggml_metal_library_t res = calloc(1, sizeof(struct lm_ggml_metal_library));
 
     res->obj       = library;
-    res->device    = device;
+    res->dev       = dev;
     res->pipelines = lm_ggml_metal_pipelines_init();
     res->lock      = [NSLock new];
 
@@ -318,7 +319,7 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init_from_source(lm_ggml_metal_dev
     }
 
     res->obj       = library;
-    res->device    = device;
+    res->dev       = dev;
     res->pipelines = lm_ggml_metal_pipelines_init();
     res->lock      = [NSLock new];
 
@@ -339,6 +340,10 @@ void lm_ggml_metal_library_free(lm_ggml_metal_library_t lib) {
     [lib->lock release];
 
     free(lib);
+}
+
+lm_ggml_metal_device_t lm_ggml_metal_library_get_device(lm_ggml_metal_library_t lib) {
+    return lib->dev;
 }
 
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline(lm_ggml_metal_library_t lib, const char * name) {
@@ -405,7 +410,8 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_compile_pipeline
             return res;
         }
 
-        id<MTLComputePipelineState> obj = [lib->device newComputePipelineStateWithFunction:mtl_function error:&error];
+        id<MTLDevice> device = lm_ggml_metal_device_get_obj(lib->dev);
+        id<MTLComputePipelineState> obj = [device newComputePipelineStateWithFunction:mtl_function error:&error];
 
         [mtl_function release];
 
@@ -699,7 +705,7 @@ lm_ggml_metal_device_t lm_ggml_metal_device_init(int device) {
                     "    auto sB = tB.slice(0, 0); \n"
                     "    mm.run(sB, sA, cT); \n"
                     " \n"
-                    "    auto tC = tensor<device float, dextents<int32_t, 2>, tensor_inline>(C, dextents<int32_t, 2>(4, 4)); \n"
+                    "    auto tC = tensor<device float, dextents<int32_t, 2>, tensor_inline>(C, dextents<int32_t, 2>(16, 16)); \n"
                     " \n"
                     "    cT.store(tC); \n"
                     "}";
@@ -749,7 +755,7 @@ lm_ggml_metal_device_t lm_ggml_metal_device_init(int device) {
                     "    auto sB = tB.slice(0, 0); \n"
                     "    mm.run(sB, sA, cT); \n"
                     " \n"
-                    "    auto tC = tensor<device float, dextents<int32_t, 2>, tensor_inline>(C, dextents<int32_t, 2>(4, 4)); \n"
+                    "    auto tC = tensor<device float, dextents<int32_t, 2>, tensor_inline>(C, dextents<int32_t, 2>(16, 16)); \n"
                     " \n"
                     "    cT.store(tC); \n"
                     "}";
@@ -814,7 +820,7 @@ lm_ggml_metal_device_t lm_ggml_metal_device_init(int device) {
             }
 
             // print MTL GPU family:
-            LM_GGML_LOG_INFO("%s: GPU name:   %s\n", __func__, dev->props.name);
+            LM_GGML_LOG_INFO("%s: GPU name:   %s (%s)\n", __func__, dev->props.name, dev->props.desc);
 
             // determine max supported GPU family
             // https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf
@@ -931,13 +937,13 @@ void lm_ggml_metal_device_rsets_keep_alive(lm_ggml_metal_device_t dev) {
 }
 
 struct lm_ggml_metal_event {
-    void * obj; // id<MTLEvent>
+    void * obj; // id<MTLSharedEvent>
 
     atomic_int value;
 };
 
 void lm_ggml_metal_event_encode_signal(lm_ggml_metal_event_t ev, lm_ggml_metal_cmd_buf_t cmd_buf_raw) {
-    id<MTLEvent> event = (id<MTLEvent>)ev->obj;
+    id<MTLSharedEvent> event = (id<MTLSharedEvent>)ev->obj;
 
     id<MTLCommandBuffer> cmd_buf = (id<MTLCommandBuffer>) cmd_buf_raw;
 
@@ -945,7 +951,7 @@ void lm_ggml_metal_event_encode_signal(lm_ggml_metal_event_t ev, lm_ggml_metal_c
 }
 
 void lm_ggml_metal_event_encode_wait(lm_ggml_metal_event_t ev, lm_ggml_metal_cmd_buf_t cmd_buf_raw) {
-    id<MTLEvent> event = (id<MTLEvent>)ev->obj;
+    id<MTLSharedEvent> event = (id<MTLSharedEvent>)ev->obj;
 
     id<MTLCommandBuffer> cmd_buf = (id<MTLCommandBuffer>) cmd_buf_raw;
 
@@ -953,7 +959,7 @@ void lm_ggml_metal_event_encode_wait(lm_ggml_metal_event_t ev, lm_ggml_metal_cmd
 }
 
 lm_ggml_metal_event_t lm_ggml_metal_device_event_init(lm_ggml_metal_device_t dev) {
-    id<MTLEvent> event = [dev->mtl_device newEvent];
+    id<MTLSharedEvent> event = [dev->mtl_device newSharedEvent];
 
     lm_ggml_metal_event_t ev = calloc(1, sizeof(struct lm_ggml_metal_event));
 
@@ -964,7 +970,7 @@ lm_ggml_metal_event_t lm_ggml_metal_device_event_init(lm_ggml_metal_device_t dev
 }
 
 void lm_ggml_metal_device_event_free(lm_ggml_metal_device_t dev, lm_ggml_metal_event_t ev) {
-    id<MTLEvent> event = ev->obj;
+    id<MTLSharedEvent> event = ev->obj;
     [event release];
 
     free(ev);
@@ -973,14 +979,13 @@ void lm_ggml_metal_device_event_free(lm_ggml_metal_device_t dev, lm_ggml_metal_e
 }
 
 void lm_ggml_metal_device_event_synchronize(lm_ggml_metal_device_t dev, lm_ggml_metal_event_t ev) {
-    @autoreleasepool {
-        id<MTLEvent> event = ev->obj;
-
-        id<MTLCommandBuffer> cmd_buf = [dev->mtl_queue commandBuffer];
-        [cmd_buf encodeWaitForEvent:event value:atomic_load_explicit(&ev->value, memory_order_relaxed)];
-        [cmd_buf commit];
-        [cmd_buf waitUntilCompleted];
+    id<MTLSharedEvent> event = ev->obj;
+    const bool res = [event waitUntilSignaledValue:atomic_load_explicit(&ev->value, memory_order_relaxed) timeoutMS:60000];
+    if (!res) {
+        LM_GGML_ABORT("%s: failed to wait for event\n", __func__);
     }
+
+    LM_GGML_UNUSED(dev);
 }
 
 void lm_ggml_metal_device_get_memory(lm_ggml_metal_device_t dev, size_t * free, size_t * total) {
@@ -1731,6 +1736,47 @@ void lm_ggml_metal_buffer_get_tensor(lm_ggml_metal_buffer_t buf, const struct lm
         [cmd_buf commit];
         [cmd_buf waitUntilCompleted];
     }
+}
+
+bool lm_ggml_metal_buffer_cpy_tensor(lm_ggml_metal_buffer_t buf_dst, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst) {
+    lm_ggml_metal_buffer_t buf_src = (lm_ggml_metal_buffer_t)src->buffer->context;
+
+    const size_t size = lm_ggml_nbytes(src);
+
+    // if both buffers are shared, we can use memcpy directly
+    if (buf_dst->is_shared && buf_src->is_shared) {
+        memcpy(dst->data, src->data, size);
+        return true;
+    }
+
+    // for private buffers, we need to use Metal blit commands
+    @autoreleasepool {
+        struct lm_ggml_metal_buffer_id bid_src = lm_ggml_metal_buffer_get_id(buf_src, src);
+        struct lm_ggml_metal_buffer_id bid_dst = lm_ggml_metal_buffer_get_id(buf_dst, dst);
+
+        if (bid_src.metal == nil || bid_dst.metal == nil) {
+            return false;
+        }
+
+        id<MTLCommandBuffer> cmd_buf = [buf_dst->dev->mtl_queue commandBufferWithUnretainedReferences];
+
+        {
+            id<MTLBlitCommandEncoder> encoder = [cmd_buf blitCommandEncoder];
+
+            [encoder copyFromBuffer:bid_src.metal
+                       sourceOffset:bid_src.offs
+                           toBuffer:bid_dst.metal
+                  destinationOffset:bid_dst.offs
+                               size:size];
+
+            [encoder endEncoding];
+        }
+
+        [cmd_buf commit];
+        [cmd_buf waitUntilCompleted];
+    }
+
+    return true;
 }
 
 void lm_ggml_metal_buffer_clear(lm_ggml_metal_buffer_t buf, uint8_t value) {

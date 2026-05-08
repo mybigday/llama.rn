@@ -83,7 +83,6 @@
 #elif defined(__x86_64__) || defined(__i386__) || defined(_M_IX86) || defined(_M_X64)
 // quants.c
 #define lm_ggml_vec_dot_nvfp4_q8_0_generic lm_ggml_vec_dot_nvfp4_q8_0
-#define lm_ggml_vec_dot_q1_0_q8_0_generic lm_ggml_vec_dot_q1_0_q8_0
 // repack.cpp
 #define lm_ggml_quantize_mat_q8_0_4x4_generic lm_ggml_quantize_mat_q8_0_4x4
 #define lm_ggml_quantize_mat_q8_K_4x4_generic lm_ggml_quantize_mat_q8_K_4x4
@@ -204,7 +203,6 @@
 #elif defined(__riscv)
 // quants.c
 #define lm_ggml_vec_dot_nvfp4_q8_0_generic lm_ggml_vec_dot_nvfp4_q8_0
-#define lm_ggml_vec_dot_q1_0_q8_0_generic lm_ggml_vec_dot_q1_0_q8_0
 // repack.cpp
 #define lm_ggml_quantize_mat_q8_0_4x1_generic lm_ggml_quantize_mat_q8_0_4x1
 #define lm_ggml_quantize_mat_q8_0_4x4_generic lm_ggml_quantize_mat_q8_0_4x4

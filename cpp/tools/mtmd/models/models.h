@@ -43,8 +43,21 @@ struct clip_graph_youtuvl : clip_graph {
     lm_ggml_cgraph * build() override;
 };
 
+struct clip_graph_yasa2 : clip_graph {
+    clip_graph_yasa2(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+
+    lm_ggml_tensor * layer_norm_channels(lm_ggml_tensor * inp, lm_ggml_tensor * w, lm_ggml_tensor * b, float eps = 1e-6f);
+    lm_ggml_tensor * convnext_grn(lm_ggml_tensor * inp, lm_ggml_tensor * w, lm_ggml_tensor * b);
+};
+
 struct clip_graph_minicpmv : clip_graph {
     clip_graph_minicpmv(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+};
+
+struct clip_graph_minicpmv4_6 : clip_graph {
+    clip_graph_minicpmv4_6(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;
 };
 
@@ -100,6 +113,11 @@ struct clip_graph_deepseekocr : clip_graph {
 
 struct clip_graph_conformer : clip_graph {
     clip_graph_conformer(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+};
+
+struct clip_graph_granite_speech : clip_graph {
+    clip_graph_granite_speech(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;
 };
 

@@ -147,6 +147,7 @@ echo "Headers embedded successfully"
 cp -r ./$LLAMA_DIR/ggml/src/ggml-blas ./cpp/
 rm ./cpp/ggml-blas/CMakeLists.txt
 
+rm -rf ./cpp/ggml-opencl
 cp -r ./$LLAMA_DIR/ggml/src/ggml-opencl ./cpp/
 rm ./cpp/ggml-opencl/CMakeLists.txt
 
@@ -288,6 +289,9 @@ cp ./$LLAMA_DIR/common/unicode.h ./cpp/common/unicode.h
 cp ./$LLAMA_DIR/common/unicode.cpp ./cpp/common/unicode.cpp
 cp ./$LLAMA_DIR/common/reasoning-budget.h ./cpp/common/reasoning-budget.h
 cp ./$LLAMA_DIR/common/reasoning-budget.cpp ./cpp/common/reasoning-budget.cpp
+cp ./$LLAMA_DIR/common/fit.h ./cpp/common/fit.h
+cp ./$LLAMA_DIR/common/fit.cpp ./cpp/common/fit.cpp
+cp ./$LLAMA_DIR/common/build-info.h ./cpp/common/build-info.h
 
 # Copy multimodal files from tools/mtmd
 rm -rf ./cpp/tools/mtmd
@@ -317,9 +321,12 @@ mv ./cpp/common/jinja/string.h ./cpp/common/jinja/jinja-string.h
 if [ "$OS" = "Darwin" ]; then
   sed -i '' 's|#include "string.h"|#include "jinja-string.h"|g' ./cpp/common/jinja/value.h
   sed -i '' 's|#include "jinja/string.h"|#include "jinja/jinja-string.h"|g' ./cpp/common/jinja/string.cpp
+  # llama-ext.h lives at cpp/llama-ext.h, not cpp/src/llama-ext.h
+  sed -i '' 's|#include "../src/llama-ext.h"|#include "../llama-ext.h"|g' ./cpp/common/fit.cpp
 else
   sed -i 's|#include "string.h"|#include "jinja-string.h"|g' ./cpp/common/jinja/value.h
   sed -i 's|#include "jinja/string.h"|#include "jinja/jinja-string.h"|g' ./cpp/common/jinja/string.cpp
+  sed -i 's|#include "../src/llama-ext.h"|#include "../llama-ext.h"|g' ./cpp/common/fit.cpp
 fi
 
 rm -rf ./cpp/nlohmann
@@ -473,3 +480,10 @@ echo "export const BUILD_NUMBER = '$BUILD_NUMBER'" > "$SRC_DIR/version.ts"
 echo "export const BUILD_COMMIT = '$BUILD_COMMIT'" >> "$SRC_DIR/version.ts"
 
 cd "$ROOT_DIR"
+
+# Generate build-info.cpp from upstream template (used by common.cpp's debug log)
+sed -e "s|@LLAMA_BUILD_NUMBER@|$BUILD_NUMBER|g" \
+    -e "s|@LLAMA_BUILD_COMMIT@|$BUILD_COMMIT|g" \
+    -e "s|@BUILD_COMPILER@|unknown|g" \
+    -e "s|@BUILD_TARGET@|unknown|g" \
+    "$LLAMA_DIR/common/build-info.cpp.in" > "$CPP_DIR/common/build-info.cpp"

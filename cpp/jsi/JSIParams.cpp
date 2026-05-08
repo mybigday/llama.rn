@@ -17,7 +17,7 @@ namespace rnllama_jsi {
         return a < b ? a : b;
     }
 
-    static void set_best_cores(cpu_params & params, int n_threads) {
+    static void set_best_cores(common_cpu_params & params, int n_threads) {
         const int max_threads = (int) std::thread::hardware_concurrency();
 
         int default_n_threads = 0;

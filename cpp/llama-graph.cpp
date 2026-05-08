@@ -65,8 +65,13 @@ static lm_ggml_tensor * lm_ggml_mul_mat_aux(
 
     lm_ggml_tensor * res;
 
-    res = lm_ggml_reshape_2d(ctx, cur, n, lm_ggml_nelements(cur)/n);
+    if (!lm_ggml_is_contiguous(cur)) {
+        res = lm_ggml_cont_2d   (ctx, cur, n, lm_ggml_nelements(cur)/n);
+    } else {
+        res = lm_ggml_reshape_2d(ctx, cur, n, lm_ggml_nelements(cur)/n);
+    }
     res = lm_ggml_mul_mat   (ctx, rot, res);
+    lm_ggml_mul_mat_set_hint(res, LM_GGML_HINT_SRC0_IS_HADAMARD);
     res = lm_ggml_reshape_4d(ctx, res, cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3]);
 
     return res;
@@ -1077,9 +1082,9 @@ llm_graph_qkv llm_graph_context::build_qkv(
         // fused QKV path
         lm_ggml_tensor * qkv = build_lora_mm(layer.wqkv, cur, layer.wqkv_s);
         cb(qkv, "wqkv", il);
-        if (layer.bqkv) {
-            qkv = lm_ggml_add(ctx0, qkv, layer.bqkv);
-            cb(qkv, "bqkv", il);
+        if (layer.wqkv_b) {
+            qkv = lm_ggml_add(ctx0, qkv, layer.wqkv_b);
+            cb(qkv, "wqkv_b", il);
         }
         if (hparams.f_clamp_kqv > 0.0f) {
             qkv = lm_ggml_clamp(ctx0, qkv, -hparams.f_clamp_kqv, hparams.f_clamp_kqv);
@@ -1097,8 +1102,8 @@ llm_graph_qkv llm_graph_context::build_qkv(
         // separate Q/K/V path
         Qcur = build_lora_mm(layer.wq, cur, layer.wq_s);
         cb(Qcur, "Qcur", il);
-        if (layer.bq) {
-            Qcur = lm_ggml_add(ctx0, Qcur, layer.bq);
+        if (layer.wq_b) {
+            Qcur = lm_ggml_add(ctx0, Qcur, layer.wq_b);
             cb(Qcur, "Qcur", il);
         }
         if (hparams.f_clamp_kqv > 0.0f) {
@@ -1107,8 +1112,8 @@ llm_graph_qkv llm_graph_context::build_qkv(
         }
         Kcur = build_lora_mm(layer.wk, cur, layer.wk_s);
         cb(Kcur, "Kcur", il);
-        if (layer.bk) {
-            Kcur = lm_ggml_add(ctx0, Kcur, layer.bk);
+        if (layer.wk_b) {
+            Kcur = lm_ggml_add(ctx0, Kcur, layer.wk_b);
             cb(Kcur, "Kcur", il);
         }
         if (hparams.f_clamp_kqv > 0.0f) {
@@ -1117,8 +1122,8 @@ llm_graph_qkv llm_graph_context::build_qkv(
         }
         Vcur = build_lora_mm(layer.wv, cur, layer.wv_s);
         cb(Vcur, "Vcur", il);
-        if (layer.bv) {
-            Vcur = lm_ggml_add(ctx0, Vcur, layer.bv);
+        if (layer.wv_b) {
+            Vcur = lm_ggml_add(ctx0, Vcur, layer.wv_b);
             cb(Vcur, "Vcur", il);
         }
         if (hparams.f_clamp_kqv > 0.0f) {
