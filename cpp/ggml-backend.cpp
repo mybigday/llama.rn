@@ -965,7 +965,7 @@ static void lm_ggml_backend_sched_print_assignments(lm_ggml_backend_sched_t sche
         }
         if (sched->debug > 1) {
             lm_ggml_backend_t tensor_backend = lm_ggml_backend_sched_get_tensor_backend(sched, node);
-            LM_GGML_LOG_DEBUG("node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s] use=%d,c=%d:", i, lm_ggml_op_name(node->op), node->name,
+            LM_GGML_LOG_DEBUG("node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s] use=%d,c=%d:", i, lm_ggml_op_desc(node), node->name,
                 fmt_size(lm_ggml_nbytes(node)), tensor_backend ? lm_ggml_backend_name(tensor_backend) : "NULL", GET_CAUSE(node),
                 graph->use_counts[lm_ggml_hash_find(&graph->visited_hash_set, node)], node->flags & LM_GGML_TENSOR_FLAG_COMPUTE ? 1 : 0);
             for (int j = 0; j < LM_GGML_MAX_SRC; j++) {

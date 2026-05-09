@@ -2261,6 +2261,58 @@ static bool lm_ggml_hexagon_supported_flash_attn_ext(const struct lm_ggml_hexago
     return true;
 }
 
+static bool lm_ggml_hexagon_supported_gated_delta_net(const struct lm_ggml_hexagon_session * sess, const struct lm_ggml_tensor * op) {
+    const struct lm_ggml_tensor * q     = op->src[0];
+    const struct lm_ggml_tensor * k     = op->src[1];
+    const struct lm_ggml_tensor * v     = op->src[2];
+    const struct lm_ggml_tensor * g     = op->src[3];
+    const struct lm_ggml_tensor * beta  = op->src[4];
+    const struct lm_ggml_tensor * state = op->src[5];
+    const struct lm_ggml_tensor * dst   = op;
+
+    if (!q || !k || !v || !g || !beta || !state) {
+        return false;
+    }
+
+    if (q->type != LM_GGML_TYPE_F32 || k->type != LM_GGML_TYPE_F32 || v->type != LM_GGML_TYPE_F32 ||
+        g->type != LM_GGML_TYPE_F32 || beta->type != LM_GGML_TYPE_F32 || state->type != LM_GGML_TYPE_F32 ||
+        dst->type != LM_GGML_TYPE_F32) {
+        return false;
+    }
+
+    if (!lm_ggml_is_contiguous_rows(q) || !lm_ggml_is_contiguous_rows(k) || !lm_ggml_is_contiguous_rows(v) ||
+        !lm_ggml_is_contiguous(g) || !lm_ggml_is_contiguous(beta) || !lm_ggml_is_contiguous(state) ||
+        !lm_ggml_is_contiguous(dst)) {
+        return false;
+    }
+
+    const int64_t S_v      = v->ne[0];
+    const int64_t H        = v->ne[1];
+    const int64_t n_tokens = v->ne[2];
+    const int64_t n_seqs   = v->ne[3];
+
+    if (S_v <= 0 || S_v > 128 || H <= 0 || n_tokens <= 0 || n_seqs <= 0) {
+        return false;
+    }
+    if (q->ne[0] != S_v || k->ne[0] != S_v || q->ne[1] <= 0 || k->ne[1] <= 0 ||
+        q->ne[2] != n_tokens || k->ne[2] != n_tokens || q->ne[3] <= 0 || k->ne[3] <= 0 ||
+        (n_seqs % q->ne[3]) != 0 || (n_seqs % k->ne[3]) != 0) {
+        return false;
+    }
+    if ((g->ne[0] != 1 && g->ne[0] != S_v) || beta->ne[0] != 1) {
+        return false;
+    }
+    if (lm_ggml_nelements(state) != S_v * S_v * H * n_seqs) {
+        return false;
+    }
+    if (dst->ne[0] != S_v * H || dst->ne[1] != n_tokens * n_seqs + S_v * n_seqs) {
+        return false;
+    }
+
+    LM_GGML_UNUSED(sess);
+    return true;
+}
+
 static bool lm_ggml_hexagon_supported_mul_mat(const struct lm_ggml_hexagon_session * sess, const struct lm_ggml_tensor * dst) {
     const struct lm_ggml_tensor * src0 = dst->src[0];
     const struct lm_ggml_tensor * src1 = dst->src[1];
@@ -2420,8 +2472,8 @@ static bool lm_ggml_hexagon_supported_unary(const struct lm_ggml_hexagon_session
         return false;
     }
 
-    // TODO: add support for non-contiguous elements within a row
-    if (!lm_ggml_is_contiguous_rows(src0) || !lm_ggml_is_contiguous_rows(dst)) {
+    // dst must be contiguous; src0 may be non-contiguous
+    if (!lm_ggml_is_contiguous(dst)) {
         return false;
     }
 
@@ -2777,32 +2829,34 @@ static void lm_ggml_backend_hexagon_free(lm_ggml_backend_t backend) {
 
 static htp_op_code op_remap_to_htp(const lm_ggml_tensor * t) {
     switch (t->op) {
-        case LM_GGML_OP_FLASH_ATTN_EXT: return HTP_OP_FLASH_ATTN_EXT;
-        case LM_GGML_OP_MUL_MAT:        return HTP_OP_MUL_MAT;
-        case LM_GGML_OP_MUL_MAT_ID:     return HTP_OP_MUL_MAT_ID;
-        case LM_GGML_OP_MUL:            return HTP_OP_MUL;
-        case LM_GGML_OP_ADD:            return HTP_OP_ADD;
-        case LM_GGML_OP_ADD_ID:         return HTP_OP_ADD_ID;
-        case LM_GGML_OP_SUB:            return HTP_OP_SUB;
-        case LM_GGML_OP_DIV:            return HTP_OP_DIV;
-        case LM_GGML_OP_CPY:            return HTP_OP_CPY;
-        case LM_GGML_OP_CONT:           return HTP_OP_CPY;
-        case LM_GGML_OP_GET_ROWS:       return HTP_OP_GET_ROWS;
-        case LM_GGML_OP_SET_ROWS:       return HTP_OP_SET_ROWS;
-        case LM_GGML_OP_SUM_ROWS:       return HTP_OP_SUM_ROWS;
-        case LM_GGML_OP_ARGSORT:        return HTP_OP_ARGSORT;
-        case LM_GGML_OP_RMS_NORM:       return HTP_OP_RMS_NORM;
-        case LM_GGML_OP_SCALE:          return HTP_OP_SCALE;
-        case LM_GGML_OP_SQR:            return HTP_OP_SQR;
-        case LM_GGML_OP_SQRT:           return HTP_OP_SQRT;
-        case LM_GGML_OP_SOFT_MAX:       return HTP_OP_SOFTMAX;
-        case LM_GGML_OP_SSM_CONV:       return HTP_OP_SSM_CONV;
-        case LM_GGML_OP_ROPE:           return HTP_OP_ROPE;
-        case LM_GGML_OP_REPEAT:         return HTP_OP_REPEAT;
-        case LM_GGML_OP_CUMSUM:         return HTP_OP_CUMSUM;
-        case LM_GGML_OP_FILL:           return HTP_OP_FILL;
-        case LM_GGML_OP_DIAG:           return HTP_OP_DIAG;
-        case LM_GGML_OP_SOLVE_TRI:      return HTP_OP_SOLVE_TRI;
+        case LM_GGML_OP_FLASH_ATTN_EXT:  return HTP_OP_FLASH_ATTN_EXT;
+        case LM_GGML_OP_MUL_MAT:         return HTP_OP_MUL_MAT;
+        case LM_GGML_OP_MUL_MAT_ID:      return HTP_OP_MUL_MAT_ID;
+        case LM_GGML_OP_MUL:             return HTP_OP_MUL;
+        case LM_GGML_OP_ADD:             return HTP_OP_ADD;
+        case LM_GGML_OP_ADD_ID:          return HTP_OP_ADD_ID;
+        case LM_GGML_OP_SUB:             return HTP_OP_SUB;
+        case LM_GGML_OP_DIV:             return HTP_OP_DIV;
+        case LM_GGML_OP_CPY:             return HTP_OP_CPY;
+        case LM_GGML_OP_CONT:            return HTP_OP_CPY;
+        case LM_GGML_OP_GET_ROWS:        return HTP_OP_GET_ROWS;
+        case LM_GGML_OP_SET_ROWS:        return HTP_OP_SET_ROWS;
+        case LM_GGML_OP_SUM_ROWS:        return HTP_OP_SUM_ROWS;
+        case LM_GGML_OP_ARGSORT:         return HTP_OP_ARGSORT;
+        case LM_GGML_OP_L2_NORM:         return HTP_OP_L2_NORM;
+        case LM_GGML_OP_RMS_NORM:        return HTP_OP_RMS_NORM;
+        case LM_GGML_OP_SCALE:           return HTP_OP_SCALE;
+        case LM_GGML_OP_SQR:             return HTP_OP_SQR;
+        case LM_GGML_OP_SQRT:            return HTP_OP_SQRT;
+        case LM_GGML_OP_SOFT_MAX:        return HTP_OP_SOFTMAX;
+        case LM_GGML_OP_SSM_CONV:        return HTP_OP_SSM_CONV;
+        case LM_GGML_OP_GATED_DELTA_NET: return HTP_OP_GATED_DELTA_NET;
+        case LM_GGML_OP_ROPE:            return HTP_OP_ROPE;
+        case LM_GGML_OP_REPEAT:          return HTP_OP_REPEAT;
+        case LM_GGML_OP_CUMSUM:          return HTP_OP_CUMSUM;
+        case LM_GGML_OP_FILL:            return HTP_OP_FILL;
+        case LM_GGML_OP_DIAG:            return HTP_OP_DIAG;
+        case LM_GGML_OP_SOLVE_TRI:       return HTP_OP_SOLVE_TRI;
         case LM_GGML_OP_UNARY:
             switch (lm_ggml_get_unary_op(t)) {
                 case LM_GGML_UNARY_OP_SILU:     return HTP_OP_UNARY_SILU;
@@ -3253,6 +3307,10 @@ static bool lm_ggml_backend_hexagon_device_supports_op(lm_ggml_backend_dev_t dev
             supp = lm_ggml_hexagon_supported_add_id(sess, op);
             break;
 
+        case LM_GGML_OP_L2_NORM:
+            supp = lm_ggml_hexagon_supported_unary(sess, op);
+            break;
+
         case LM_GGML_OP_RMS_NORM:
         case LM_GGML_OP_SCALE:
             supp = lm_ggml_hexagon_supported_unary(sess, op);
@@ -3334,6 +3392,10 @@ static bool lm_ggml_backend_hexagon_device_supports_op(lm_ggml_backend_dev_t dev
 
         case LM_GGML_OP_SSM_CONV:
             supp = lm_ggml_hexagon_supported_ssm_conv(sess, op);
+            break;
+
+        case LM_GGML_OP_GATED_DELTA_NET:
+            supp = lm_ggml_hexagon_supported_gated_delta_net(sess, op);
             break;
 
         case LM_GGML_OP_CUMSUM:
