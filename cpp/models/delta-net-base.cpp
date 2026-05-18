@@ -1,6 +1,7 @@
 #include "models.h"
 
 #include "llama-impl.h"
+#include "llama-memory-recurrent.h"
 
 // utility to get one slice from the third dimension
 // input dim:  [x, y, c, b]
@@ -397,7 +398,9 @@ std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_delta_net_base::build_de
     LM_GGML_ASSERT(b->ne[0] == 1   && b->ne[1] == H_v && b->ne[2] == n_tokens && b->ne[3] == n_seqs);
     LM_GGML_ASSERT(s->ne[0] == S_v && s->ne[1] == S_v && s->ne[2] == H_v      && s->ne[3] == n_seqs);
 
-    lm_ggml_tensor * result = lm_ggml_gated_delta_net(ctx0, q, k, v, g, b, s);
+    // K=1 (final state only): reshape to 3D (S_v*S_v*H_v, 1, n_seqs) for lm_ggml_gated_delta_net.
+    lm_ggml_tensor * s_3d = lm_ggml_reshape_3d(ctx0, s, S_v * S_v * H_v, 1, n_seqs);
+    lm_ggml_tensor * result = lm_ggml_gated_delta_net(ctx0, q, k, v, g, b, s_3d);
     if (n_tokens == 1) {
         cb(result, LLAMA_TENSOR_NAME_FGDN_AR, il);
     } else {
@@ -442,4 +445,142 @@ std::pair<lm_ggml_tensor *, lm_ggml_tensor *> llm_build_delta_net_base::build_de
     }
 
     return build_delta_net_chunking(q, k, v, g, b, s, il);
+}
+
+bool llm_build_delta_net_base::keep_rs() const {
+    const int64_t n_seq_tokens = ubatch.n_seq_tokens;
+    return cparams.n_rs_seq > 0
+        && n_seq_tokens > 1
+        && (uint32_t) n_seq_tokens <= 1 + cparams.n_rs_seq;
+}
+
+lm_ggml_tensor * llm_build_delta_net_base::build_conv_state(
+        llm_graph_input_rs * inp,
+        lm_ggml_tensor *        conv_states_all,
+        lm_ggml_tensor *        qkv_mixed,
+        int64_t              conv_kernel_size,
+        int64_t              conv_channels,
+        int                  il) {
+    const auto * mctx_cur   = inp->mctx;
+    const auto   kv_head    = mctx_cur->get_head();
+    const uint32_t mem_size = mctx_cur->get_size();
+    const int64_t n_seqs       = ubatch.n_seqs;
+    const int64_t n_seq_tokens = ubatch.n_seq_tokens;
+    const bool    keep         = keep_rs();
+
+    lm_ggml_tensor * conv_states = build_rs(inp, conv_states_all, hparams.n_embd_r(), n_seqs);
+    cb(conv_states, "conv_states", il);
+
+    conv_states = lm_ggml_reshape_3d(ctx0, conv_states, conv_kernel_size - 1, conv_channels, n_seqs);
+    cb(conv_states, "conv_states_reshaped", il);
+
+    qkv_mixed = lm_ggml_transpose(ctx0, qkv_mixed);
+    cb(qkv_mixed, "qkv_mixed_transposed", il);
+
+    lm_ggml_tensor * conv_input = lm_ggml_concat(ctx0, conv_states, qkv_mixed, 0);
+    cb(conv_input, "conv_input", il);
+
+    if (!keep) {
+        lm_ggml_tensor * last_conv_states =
+            lm_ggml_view_3d(ctx0, conv_input, conv_kernel_size - 1, conv_channels, n_seqs, conv_input->nb[1],
+                         conv_input->nb[2], (conv_input->ne[0] - conv_states->ne[0]) * lm_ggml_element_size(conv_input));
+        cb(last_conv_states, "last_conv_states", il);
+
+        lm_ggml_tensor * state_update_target =
+            lm_ggml_view_2d(ctx0, conv_states_all, (conv_kernel_size - 1) * conv_channels, n_seqs, conv_states_all->nb[1],
+                         kv_head * (conv_kernel_size - 1) * conv_channels * lm_ggml_element_size(conv_states_all));
+        cb(state_update_target, "state_update_target", il);
+
+        lm_ggml_build_forward_expand(gf, lm_ggml_cpy(ctx0, last_conv_states, state_update_target));
+    } else {
+        const int64_t row_count = (conv_kernel_size - 1) * conv_channels;
+        const size_t  row_size  = row_count * lm_ggml_element_size(conv_states_all);
+        for (int64_t t = 1; t <= n_seq_tokens; ++t) {
+            const uint32_t slot = (uint32_t)(n_seq_tokens - t);
+            lm_ggml_tensor * src =
+                lm_ggml_view_3d(ctx0, conv_input, conv_kernel_size - 1, conv_channels, n_seqs,
+                             conv_input->nb[1], conv_input->nb[2],
+                             t * lm_ggml_element_size(conv_input));
+            lm_ggml_tensor * dst =
+                lm_ggml_view_2d(ctx0, conv_states_all, row_count, n_seqs,
+                             conv_states_all->nb[1],
+                             ((size_t) slot * mem_size + kv_head) * row_size);
+            lm_ggml_build_forward_expand(gf, lm_ggml_cpy(ctx0, src, dst));
+        }
+    }
+
+    return conv_input;
+}
+
+lm_ggml_tensor * llm_build_delta_net_base::build_recurrent_attn(
+        llm_graph_input_rs * inp,
+        lm_ggml_tensor *        ssm_states_all,
+        lm_ggml_tensor *        q,
+        lm_ggml_tensor *        k,
+        lm_ggml_tensor *        v,
+        lm_ggml_tensor *        g,
+        lm_ggml_tensor *        b,
+        lm_ggml_tensor *        s,
+        int                  il) {
+    const auto * mctx_cur   = inp->mctx;
+    const auto   kv_head    = mctx_cur->get_head();
+    const uint32_t mem_size = mctx_cur->get_size();
+
+    const int64_t S_v          = s->ne[0];
+    const int64_t H_v          = s->ne[2];
+    const int64_t n_seqs       = s->ne[3];
+    const int64_t n_seq_tokens = q->ne[2];
+
+    if (!keep_rs()) {
+        auto attn_out = build_delta_net(q, k, v, g, b, s, il);
+        lm_ggml_tensor * output    = attn_out.first;
+        lm_ggml_tensor * new_state = attn_out.second;
+        cb(output, "attn_output", il);
+        cb(new_state, "new_state", il);
+
+        lm_ggml_build_forward_expand(gf,
+                lm_ggml_cpy(ctx0, new_state,
+                    lm_ggml_view_2d(ctx0, ssm_states_all, hparams.n_embd_s(), n_seqs, ssm_states_all->nb[1],
+                        kv_head * hparams.n_embd_s() * lm_ggml_element_size(ssm_states_all))));
+
+        return output;
+    }
+
+    const int64_t D = S_v * S_v * H_v;
+    const int64_t K = (int64_t) cparams.n_rs_seq + 1;
+
+    // TODO: remove pad + simplify
+    lm_ggml_tensor * state_in_3d = lm_ggml_reshape_3d(ctx0, s, D, 1, n_seqs);
+    lm_ggml_tensor * state_3d    = lm_ggml_pad(ctx0, state_in_3d, 0, K - 1, 0, 0);
+
+    lm_ggml_tensor * gdn_out = lm_ggml_gated_delta_net(ctx0, q, k, v, g, b, state_3d);
+    cb(gdn_out, LLAMA_TENSOR_NAME_FGDN_CH, il);
+
+    const int64_t attn_score_elems    = S_v * H_v * n_seq_tokens * n_seqs;
+    const int64_t state_size_per_snap = S_v * S_v * H_v * n_seqs;
+
+    lm_ggml_tensor * output = lm_ggml_view_4d(ctx0, gdn_out,
+        S_v, H_v, n_seq_tokens, n_seqs,
+        lm_ggml_row_size(gdn_out->type, S_v),
+        lm_ggml_row_size(gdn_out->type, S_v * H_v),
+        lm_ggml_row_size(gdn_out->type, S_v * H_v * n_seq_tokens),
+        0);
+    cb(output, "attn_output", il);
+
+    const size_t row_size = hparams.n_embd_s() * lm_ggml_element_size(ssm_states_all);
+    for (int64_t k_i = 0; k_i < K; ++k_i) {
+        const uint32_t cache_slot = (uint32_t) (K - 1 - k_i);
+        lm_ggml_tensor * src = lm_ggml_view_4d(ctx0, gdn_out,
+            S_v, S_v, H_v, n_seqs,
+            lm_ggml_row_size(gdn_out->type, S_v),
+            lm_ggml_row_size(gdn_out->type, S_v * S_v),
+            lm_ggml_row_size(gdn_out->type, S_v * S_v * H_v),
+            lm_ggml_row_size(gdn_out->type, attn_score_elems + k_i * state_size_per_snap));
+        lm_ggml_tensor * dst = lm_ggml_view_2d(ctx0, ssm_states_all,
+            hparams.n_embd_s(), n_seqs, ssm_states_all->nb[1],
+            ((size_t) cache_slot * mem_size + kv_head) * row_size);
+        lm_ggml_build_forward_expand(gf, lm_ggml_cpy(ctx0, src, dst));
+    }
+
+    return output;
 }

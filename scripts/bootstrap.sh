@@ -268,6 +268,14 @@ cp ./$LLAMA_DIR/common/common.h ./cpp/common/common.h
 cp ./$LLAMA_DIR/common/common.cpp ./cpp/common/common.cpp
 cp ./$LLAMA_DIR/common/sampling.h ./cpp/common/sampling.h
 cp ./$LLAMA_DIR/common/sampling.cpp ./cpp/common/sampling.cpp
+cp ./$LLAMA_DIR/common/speculative.h ./cpp/common/speculative.h
+cp ./$LLAMA_DIR/common/speculative.cpp ./cpp/common/speculative.cpp
+cp ./$LLAMA_DIR/common/ngram-cache.h ./cpp/common/ngram-cache.h
+cp ./$LLAMA_DIR/common/ngram-cache.cpp ./cpp/common/ngram-cache.cpp
+cp ./$LLAMA_DIR/common/ngram-map.h ./cpp/common/ngram-map.h
+cp ./$LLAMA_DIR/common/ngram-map.cpp ./cpp/common/ngram-map.cpp
+cp ./$LLAMA_DIR/common/ngram-mod.h ./cpp/common/ngram-mod.h
+cp ./$LLAMA_DIR/common/ngram-mod.cpp ./cpp/common/ngram-mod.cpp
 cp ./$LLAMA_DIR/common/json-schema-to-grammar.h ./cpp/common/json-schema-to-grammar.h
 cp ./$LLAMA_DIR/common/json-schema-to-grammar.cpp ./cpp/common/json-schema-to-grammar.cpp
 cp ./$LLAMA_DIR/common/json-partial.h ./cpp/common/json-partial.h
@@ -323,10 +331,12 @@ if [ "$OS" = "Darwin" ]; then
   sed -i '' 's|#include "jinja/string.h"|#include "jinja/jinja-string.h"|g' ./cpp/common/jinja/string.cpp
   # llama-ext.h lives at cpp/llama-ext.h, not cpp/src/llama-ext.h
   sed -i '' 's|#include "../src/llama-ext.h"|#include "../llama-ext.h"|g' ./cpp/common/fit.cpp
+  sed -i '' 's|#include "../src/llama-ext.h"|#include "../llama-ext.h"|g' ./cpp/common/speculative.cpp
 else
   sed -i 's|#include "string.h"|#include "jinja-string.h"|g' ./cpp/common/jinja/value.h
   sed -i 's|#include "jinja/string.h"|#include "jinja/jinja-string.h"|g' ./cpp/common/jinja/string.cpp
   sed -i 's|#include "../src/llama-ext.h"|#include "../llama-ext.h"|g' ./cpp/common/fit.cpp
+  sed -i 's|#include "../src/llama-ext.h"|#include "../llama-ext.h"|g' ./cpp/common/speculative.cpp
 fi
 
 rm -rf ./cpp/nlohmann

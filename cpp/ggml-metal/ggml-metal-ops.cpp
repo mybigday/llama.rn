@@ -2120,7 +2120,7 @@ int lm_ggml_metal_op_mul_mat(lm_ggml_metal_op_t ctx, int idx) {
                 LM_GGML_ABORT("unsupported ne11");
         };
 
-        auto pipeline = lm_ggml_metal_library_get_pipeline_mul_mv_ext(lib, op->src[0]->type, op->src[1]->type, nsg, nxpsg, r1ptg);
+        auto pipeline = lm_ggml_metal_library_get_pipeline_mul_mv_ext(lib, op, nsg, nxpsg, r1ptg);
 
         lm_ggml_metal_kargs_mul_mv_ext args = {
             /*.ne00  =*/ ne00,

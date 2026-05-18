@@ -753,7 +753,9 @@ static struct lm_ggml_backend_meta_split_state lm_ggml_backend_meta_get_split_st
         LM_GGML_ASSERT(src_ss[2].axis == LM_GGML_BACKEND_SPLIT_AXIS_1);
         LM_GGML_ASSERT(src_ss[3].axis == LM_GGML_BACKEND_SPLIT_AXIS_1);
         LM_GGML_ASSERT(src_ss[4].axis == LM_GGML_BACKEND_SPLIT_AXIS_1);
-        LM_GGML_ASSERT(src_ss[5].axis == LM_GGML_BACKEND_SPLIT_AXIS_2);
+        // state shape is (S_v*S_v*H, K, n_seqs); the heads dim is nested inside axis 0,
+        // so a head-aligned split on the input cache reshapes to axis 0 here (not axis 2).
+        LM_GGML_ASSERT(src_ss[5].axis == LM_GGML_BACKEND_SPLIT_AXIS_2 || src_ss[5].axis == LM_GGML_BACKEND_SPLIT_AXIS_1 || src_ss[5].axis == LM_GGML_BACKEND_SPLIT_AXIS_0);
         return {LM_GGML_BACKEND_SPLIT_AXIS_0, {0}, 1};
     };
 
@@ -2140,4 +2142,3 @@ lm_ggml_backend_t lm_ggml_backend_meta_simple_backend(lm_ggml_backend_t meta_bac
     const lm_ggml_backend_meta_context * backend_ctx = (const lm_ggml_backend_meta_context *) meta_backend->context;
     return backend_ctx->backend_configs[index].backend;
 }
-

@@ -848,6 +848,9 @@ void llm_graph_result::set_outputs() {
     if (t_embd_pooled != nullptr) {
         lm_ggml_set_output(t_embd_pooled);
     }
+    if (t_h_pre_norm != nullptr) {
+        lm_ggml_set_output(t_h_pre_norm);
+    }
     for (auto & [seq_id, t] : t_sampled) {
         if (t != nullptr) {
             lm_ggml_set_output(t);
@@ -2528,7 +2531,8 @@ lm_ggml_tensor * llm_graph_context::build_rs(
             int32_t   rs_zero,
         const llm_graph_get_rows_fn & get_state_rows) const {
 
-    lm_ggml_tensor * states = lm_ggml_reshape_2d(ctx0, s, state_size, rs_size);
+    LM_GGML_UNUSED(rs_size);
+    lm_ggml_tensor * states = lm_ggml_reshape_2d(ctx0, s, state_size, s->ne[1]);
 
     // Clear a single state which will then be copied to the other cleared states.
     // Note that this is a no-op when the view is zero-sized.

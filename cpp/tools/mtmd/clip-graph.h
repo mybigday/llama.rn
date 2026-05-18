@@ -11,6 +11,10 @@
 
 #define DEFAULT_INTERPOLATION_MODE (LM_GGML_SCALE_MODE_BILINEAR | LM_GGML_SCALE_FLAG_ANTIALIAS)
 
+struct build_vit_opts {
+    lm_ggml_tensor * attn_mask = nullptr;
+};
+
 struct clip_graph {
     const clip_model & model;
     const clip_hparams & hparams;
@@ -63,7 +67,8 @@ struct clip_graph {
                 norm_type norm_t,
                 ffn_op_type ffn_t,
                 lm_ggml_tensor * learned_pos_embd,
-                std::function<lm_ggml_tensor *(lm_ggml_tensor *, const clip_layer &)> add_pos);
+                std::function<lm_ggml_tensor *(lm_ggml_tensor *, const clip_layer &)> add_pos,
+                const build_vit_opts & opts = {});
 
     // build the input after conv2d (inp_raw --> patches)
     // returns tensor with shape [n_embd, n_patches]
@@ -98,7 +103,8 @@ struct clip_graph {
             lm_ggml_tensor * v_cur,
             lm_ggml_tensor * kq_mask,
             float kq_scale,
-            int il) const;
+            int il,
+            lm_ggml_tensor * sinks = nullptr) const;
 
     // implementation of the 2D RoPE without adding a new op in ggml
     // this is not efficient (use double the memory), but works on all backends
