@@ -32,6 +32,7 @@ enum llm_graph_type {
     LLM_GRAPH_TYPE_DEFAULT,
     LLM_GRAPH_TYPE_ENCODER,
     LLM_GRAPH_TYPE_DECODER,
+    LLM_GRAPH_TYPE_DECODER_MTP,
 };
 
 enum llm_ffn_op_type {
@@ -644,6 +645,7 @@ public:
     lm_ggml_tensor * get_logits()      const { return t_logits; }
     lm_ggml_tensor * get_embd()        const { return t_embd; }
     lm_ggml_tensor * get_embd_pooled() const { return t_embd_pooled; }
+    lm_ggml_tensor * get_h_pre_norm()  const { return t_h_pre_norm; }
 
     lm_ggml_cgraph  * get_gf()  const { return gf; }
     lm_ggml_context * get_ctx() const { return ctx_compute.get(); }
@@ -672,6 +674,7 @@ public:
     lm_ggml_tensor * t_logits      = nullptr;
     lm_ggml_tensor * t_embd        = nullptr;
     lm_ggml_tensor * t_embd_pooled = nullptr;
+    lm_ggml_tensor * t_h_pre_norm  = nullptr; // [n_embd, n_outputs] hidden state before final output norm
 
     std::map<llama_seq_id, lm_ggml_tensor*> t_sampled_logits;
     std::map<llama_seq_id, lm_ggml_tensor*> t_candidates;

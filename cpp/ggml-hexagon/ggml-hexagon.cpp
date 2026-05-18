@@ -2865,6 +2865,7 @@ static htp_op_code op_remap_to_htp(const lm_ggml_tensor * t) {
                 case LM_GGML_UNARY_OP_NEG:      return HTP_OP_UNARY_NEG;
                 case LM_GGML_UNARY_OP_EXP:      return HTP_OP_UNARY_EXP;
                 case LM_GGML_UNARY_OP_SOFTPLUS: return HTP_OP_UNARY_SOFTPLUS;
+                case LM_GGML_UNARY_OP_TANH:     return HTP_OP_UNARY_TANH;
             default:
                 break;
             }
@@ -3335,6 +3336,7 @@ static bool lm_ggml_backend_hexagon_device_supports_op(lm_ggml_backend_dev_t dev
                 case LM_GGML_UNARY_OP_EXP:
                 case LM_GGML_UNARY_OP_SIGMOID:
                 case LM_GGML_UNARY_OP_SOFTPLUS:
+                case LM_GGML_UNARY_OP_TANH:
                     supp = lm_ggml_hexagon_supported_unary(sess, op);
                     break;
                 case LM_GGML_UNARY_OP_SILU:

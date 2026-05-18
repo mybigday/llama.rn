@@ -672,7 +672,7 @@ lm_ggml_metal_device_t lm_ggml_metal_device_init(int device) {
                 ![[dev->mtl_device name] containsString:@"M6"] &&
                 ![[dev->mtl_device name] containsString:@"A19"] &&
                 ![[dev->mtl_device name] containsString:@"A20"]) {
-                LM_GGML_LOG_WARN("%s: tensor API disabled for pre-M5 and pre-A19 devices\n", __func__);
+                LM_GGML_LOG_INFO("%s: tensor API disabled for pre-M5 and pre-A19 devices\n", __func__);
                 dev->props.has_tensor = false;
             }
 

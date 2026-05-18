@@ -262,6 +262,12 @@ function(build_rnllama_library target_name arch cpu_flags)
             mul_mv_id_mxfp4_f32_flat
             gemm_moe_q4_0_f32_ns
             gemv_moe_q4_0_f32_ns
+            gemm_moe_q4_1_f32_ns
+            gemv_moe_q4_1_f32_ns
+            gemm_moe_q5_0_f32_ns
+            gemv_moe_q5_0_f32_ns
+            gemm_moe_q5_1_f32_ns
+            gemv_moe_q5_1_f32_ns
             gemm_moe_mxfp4_f32
             gemv_moe_mxfp4_f32
             gemm_moe_mxfp4_f32_ns
@@ -330,6 +336,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             flash_attn_f32_f16
             flash_attn_f16
             flash_attn_f32
+            gemm_xmem_f16_f32_os8
         )
         set(GGML_OPENCL_KERNEL_DIR ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels)
         set(GGML_OPENCL_KERNEL_HEADERS "")

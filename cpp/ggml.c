@@ -6218,11 +6218,13 @@ struct lm_ggml_tensor * lm_ggml_gated_delta_net(
     LM_GGML_ASSERT(g->ne[0] == 1 || g->ne[0] == S_v);
     LM_GGML_ASSERT(beta->ne[0] == 1);
 
-    LM_GGML_ASSERT(lm_ggml_nelements(state) == S_v * S_v * H * n_seqs);
-
-    // concat output and new_state into a single tensor
-    // output: S_v * H * n_tokens * n_seqs, state: S_v * S_v * H * n_seqs
-    const int64_t ne[4] = { S_v * H, n_tokens * n_seqs + S_v * n_seqs, 1, 1 };
+    // state is a 3D tensor (S_v*S_v*H, K, n_seqs). K is the snapshot slot count.
+    LM_GGML_ASSERT(state->ne[0] == S_v * S_v * H);
+    LM_GGML_ASSERT(state->ne[2] == n_seqs);
+    LM_GGML_ASSERT(state->ne[3] == 1);
+    const int64_t K = state->ne[1];
+    const int64_t state_rows = K * S_v * n_seqs;
+    const int64_t ne[4] = { S_v * H, n_tokens * n_seqs + state_rows, 1, 1 };
     struct lm_ggml_tensor * result = lm_ggml_new_tensor(ctx, LM_GGML_TYPE_F32, 4, ne);
 
     result->op     = LM_GGML_OP_GATED_DELTA_NET;

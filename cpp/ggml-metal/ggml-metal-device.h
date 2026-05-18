@@ -129,7 +129,7 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_rwkv              (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_gated_delta_net   (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_solve_tri         (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
-struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul_mv_ext        (lm_ggml_metal_library_t lib, enum lm_ggml_type tsrc0, enum lm_ggml_type tsrc1, int nsg, int nxpsg, int r1ptg);
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul_mv_ext        (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op, int nsg, int nxpsg, int r1ptg);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul_mm            (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul_mv            (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul_mm_id_map0    (lm_ggml_metal_library_t lib, int ne02, int ne20);
