@@ -16,6 +16,12 @@ export const EXAMPLE_SCREEN_METADATA: Array<
     emoji: '✏️',
   },
   {
+    routeName: 'StructuredOutput',
+    title: 'Structured Output',
+    homeLabel: 'Structured Output',
+    emoji: '🧾',
+  },
+  {
     routeName: 'ParallelDecoding',
     title: 'Parallel Decoding',
     homeLabel: 'Parallel Decoding',

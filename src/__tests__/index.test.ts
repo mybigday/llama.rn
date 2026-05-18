@@ -1,6 +1,6 @@
 import { NativeModules } from 'react-native'
 import { initLlama, releaseAllLlama } from '..'
-import type { TokenData } from '..'
+import type { JinjaFormattedChatResult, TokenData } from '..'
 
 jest.mock('..', () => require('../../jest/mock'))
 
@@ -85,6 +85,111 @@ test('Mock', async () => {
 
   await context.release()
   await releaseAllLlama()
+})
+
+test('message completion passes response_format through chat formatting', async () => {
+  const context = await initLlama({
+    model: 'test.gguf',
+  })
+  const getFormattedChat = jest.spyOn(context, 'getFormattedChat')
+  const formattedResult: JinjaFormattedChatResult = {
+    type: 'jinja',
+    prompt: 'formatted prompt',
+    grammar: 'root ::= "{}"',
+    has_media: false,
+    media_paths: [],
+  }
+  getFormattedChat.mockResolvedValueOnce(formattedResult)
+
+  const schema = {
+    type: 'object',
+    properties: {
+      title: { type: 'string' },
+    },
+    required: ['title'],
+  }
+
+  await context.completion({
+    messages: [{ role: 'user', content: 'Extract a title' }],
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        strict: true,
+        schema,
+      },
+    },
+  })
+
+  expect(getFormattedChat).toHaveBeenLastCalledWith(
+    [{ role: 'user', content: 'Extract a title' }],
+    undefined,
+    expect.objectContaining({
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          strict: true,
+          schema,
+        },
+      },
+    }),
+  )
+
+  await context.release()
+  getFormattedChat.mockRestore()
+})
+
+test('parallel message completion passes response_format through chat formatting', async () => {
+  const context = await initLlama({
+    model: 'test.gguf',
+    n_parallel: 2,
+  })
+  const getFormattedChat = jest.spyOn(context, 'getFormattedChat')
+  const formattedResult: JinjaFormattedChatResult = {
+    type: 'jinja',
+    prompt: 'formatted prompt',
+    grammar: 'root ::= "{}"',
+    has_media: false,
+    media_paths: [],
+  }
+  getFormattedChat.mockResolvedValueOnce(formattedResult)
+
+  const schema = {
+    type: 'object',
+    properties: {
+      title: { type: 'string' },
+    },
+    required: ['title'],
+  }
+
+  const request = await context.parallel.completion({
+    messages: [{ role: 'user', content: 'Extract a title' }],
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        strict: true,
+        schema,
+      },
+    },
+  })
+
+  await request.promise
+
+  expect(getFormattedChat).toHaveBeenLastCalledWith(
+    [{ role: 'user', content: 'Extract a title' }],
+    undefined,
+    expect.objectContaining({
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          strict: true,
+          schema,
+        },
+      },
+    }),
+  )
+
+  await context.release()
+  getFormattedChat.mockRestore()
 })
 
 test('Parallel APIs - completion', async () => {

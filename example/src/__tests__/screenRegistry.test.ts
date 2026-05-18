@@ -7,6 +7,7 @@ describe('example screen registry', () => {
     expect(routeNames).toEqual([
       'SimpleChat',
       'TextCompletion',
+      'StructuredOutput',
       'ParallelDecoding',
       'Multimodal',
       'ToolCalling',

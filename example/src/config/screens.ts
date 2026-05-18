@@ -5,6 +5,7 @@ import ToolCallsScreen from '../screens/ToolCallsScreen'
 import ModelInfoScreen from '../screens/ModelInfoScreen'
 import BenchScreen from '../screens/BenchScreen'
 import TextCompletionScreen from '../screens/TextCompletionScreen'
+import StructuredOutputScreen from '../screens/StructuredOutputScreen'
 import ParallelDecodingScreen from '../screens/ParallelDecodingScreen'
 import EmbeddingScreen from '../screens/EmbeddingScreen'
 import StressTestScreen from '../screens/StressTestScreen'
@@ -20,6 +21,7 @@ const SCREEN_COMPONENTS: Record<
 > = {
   SimpleChat: SimpleChatScreen,
   TextCompletion: TextCompletionScreen,
+  StructuredOutput: StructuredOutputScreen,
   ParallelDecoding: ParallelDecodingScreen,
   Multimodal: MultimodalScreen,
   ToolCalling: ToolCallsScreen,

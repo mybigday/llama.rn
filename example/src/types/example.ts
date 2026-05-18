@@ -4,6 +4,7 @@ import type { LlamaContext } from '../../../src'
 export type ExampleRouteName =
   | 'SimpleChat'
   | 'TextCompletion'
+  | 'StructuredOutput'
   | 'ParallelDecoding'
   | 'Multimodal'
   | 'ToolCalling'
