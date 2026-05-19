@@ -45,6 +45,15 @@ const MTP_MODELS = createExampleModelDefinitions(
   'Initialize MTP Model',
 )
 
+type MTPRunMetrics = {
+  predicted: number
+  drafted: number
+  accepted: number
+  acceptRate: number
+  wallSeconds: number
+  tokensPerSecond: number
+}
+
 function parseBoundedInteger(
   value: string,
   fallback: number,
@@ -56,9 +65,35 @@ function parseBoundedInteger(
   return Math.max(min, Math.min(max, parsed))
 }
 
-function formatRate(accepted?: number, drafted?: number) {
-  if (!accepted || !drafted) return '0.0%'
-  return `${((accepted / drafted) * 100).toFixed(1)}%`
+function createMTPRunMetrics(
+  result: NativeCompletionResult,
+  wallSeconds: number,
+): MTPRunMetrics {
+  const predicted = result.tokens_predicted || 0
+  const drafted = result.draft_tokens || 0
+  const accepted = result.draft_tokens_accepted || 0
+  return {
+    predicted,
+    drafted,
+    accepted,
+    acceptRate: drafted > 0 ? accepted / drafted : 0,
+    wallSeconds,
+    tokensPerSecond: wallSeconds > 0 ? predicted / wallSeconds : 0,
+  }
+}
+
+function logMTPMetrics(metrics: MTPRunMetrics) {
+  console.log(
+    [
+      'MTP metrics:',
+      `  predicted: ${metrics.predicted}`,
+      `  drafted: ${metrics.drafted}`,
+      `  accepted: ${metrics.accepted}`,
+      `  accept_rate: ${metrics.acceptRate.toFixed(3)}`,
+      `  wall_seconds: ${metrics.wallSeconds.toFixed(2)}`,
+      `  tokens_per_second: ${metrics.tokensPerSecond.toFixed(2)}`,
+    ].join('\n'),
+  )
 }
 
 export default function MTPSpeculativeScreen({
@@ -86,6 +121,9 @@ export default function MTPSpeculativeScreen({
   )
   const [isMTPEnabled, setIsMTPEnabled] = useState(true)
   const [lastResult, setLastResult] = useState<NativeCompletionResult | null>(
+    null,
+  )
+  const [lastRunMetrics, setLastRunMetrics] = useState<MTPRunMetrics | null>(
     null,
   )
   const {
@@ -116,10 +154,15 @@ export default function MTPSpeculativeScreen({
     () => parseBoundedInteger(maxTokensText, DEFAULT_MAX_TOKENS, 1, 4096),
     [maxTokensText],
   )
+  const displayedMetrics = useMemo(() => {
+    if (!lastResult) return null
+    return lastRunMetrics ?? createMTPRunMetrics(lastResult, 0)
+  }, [lastResult, lastRunMetrics])
 
   const handleReset = useCallback(async () => {
     setOutput('')
     setLastResult(null)
+    setLastRunMetrics(null)
     setPrompt(DEFAULT_PROMPT)
     if (context) {
       await context.clearCache(false)
@@ -193,6 +236,7 @@ export default function MTPSpeculativeScreen({
       await replaceContext(ctx)
       setOutput('')
       setLastResult(null)
+      setLastRunMetrics(null)
       setInitProgress(100)
     } catch (error) {
       Alert.alert('Error', `Failed to initialize MTP model: ${error}`)
@@ -217,8 +261,10 @@ export default function MTPSpeculativeScreen({
     setIsGenerating(true)
     setOutput('')
     setLastResult(null)
+    setLastRunMetrics(null)
 
     try {
+      const startedAt = Date.now()
       const result = await context.completion(
         {
           ...completionParams,
@@ -247,8 +293,12 @@ export default function MTPSpeculativeScreen({
           setOutput((current) => current + tokenData.token)
         },
       )
+      const elapsedSeconds = (Date.now() - startedAt) / 1000
+      const metrics = createMTPRunMetrics(result, elapsedSeconds)
+      logMTPMetrics(metrics)
 
       setLastResult(result)
+      setLastRunMetrics(metrics)
       const finalText = result.content || result.text
       if (finalText) {
         setOutput(finalText)
@@ -393,31 +443,46 @@ export default function MTPSpeculativeScreen({
           </Text>
         </View>
 
-        {lastResult && (
+        {lastResult && displayedMetrics && (
           <View style={styles.metricsPanel}>
             <Text style={styles.metricsTitle}>MTP Metrics</Text>
             <View style={styles.metricsGrid}>
               <MetricItem
                 label="Generated"
-                value={`${lastResult.tokens_predicted} tokens`}
+                value={`${displayedMetrics.predicted} tokens`}
                 styles={styles}
               />
               <MetricItem
                 label="Drafted"
-                value={`${lastResult.draft_tokens || 0} tokens`}
+                value={`${displayedMetrics.drafted} tokens`}
                 styles={styles}
               />
               <MetricItem
                 label="Accepted"
-                value={`${lastResult.draft_tokens_accepted || 0} tokens`}
+                value={`${displayedMetrics.accepted} tokens`}
                 styles={styles}
               />
               <MetricItem
                 label="Accept Rate"
-                value={formatRate(
-                  lastResult.draft_tokens_accepted,
-                  lastResult.draft_tokens,
-                )}
+                value={`${(displayedMetrics.acceptRate * 100).toFixed(1)}%`}
+                styles={styles}
+              />
+              <MetricItem
+                label="Wall"
+                value={
+                  displayedMetrics.wallSeconds > 0
+                    ? `${displayedMetrics.wallSeconds.toFixed(2)} s`
+                    : '--'
+                }
+                styles={styles}
+              />
+              <MetricItem
+                label="Throughput"
+                value={
+                  displayedMetrics.tokensPerSecond > 0
+                    ? `${displayedMetrics.tokensPerSecond.toFixed(2)} t/s`
+                    : '--'
+                }
                 styles={styles}
               />
               <MetricItem

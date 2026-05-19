@@ -464,8 +464,8 @@ export type NativeCompletionResult = {
 
   tokens_predicted: number
   tokens_evaluated: number
-  draft_tokens?: number
-  draft_tokens_accepted?: number
+  draft_tokens: number
+  draft_tokens_accepted: number
   truncated: boolean
   stopped_eos: boolean
   stopped_word: string
