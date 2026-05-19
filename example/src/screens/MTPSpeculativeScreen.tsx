@@ -214,14 +214,20 @@ export default function MTPSpeculativeScreen({
         {
           ...baseParams,
           model: modelUri,
-          use_mlock: true,
+          use_mlock: false,
+          use_mmap: true,
           n_ctx: MTP_CONTEXT,
           n_batch: MTP_BATCH,
           n_ubatch: MTP_UBATCH,
+          n_parallel: 1,
           n_gpu_layers: baseParams.n_gpu_layers ?? 99,
           flash_attn_type: 'auto',
           cache_type_k: 'q8_0',
           cache_type_v: 'q8_0',
+          ctx_shift: true,
+          kv_unified: false,
+          swa_full: false,
+          no_extra_bufts: false,
           speculative: {
             type: 'draft-mtp',
             n_max: MAX_DRAFT_TOKENS,
@@ -234,6 +240,13 @@ export default function MTPSpeculativeScreen({
       )
 
       await replaceContext(ctx)
+      console.log(
+        [
+          'MTP context:',
+          `  devices: ${ctx.devices?.join(', ') || 'N/A'}`,
+          `  system_info: ${ctx.systemInfo}`,
+        ].join('\n'),
+      )
       setOutput('')
       setLastResult(null)
       setLastRunMetrics(null)
