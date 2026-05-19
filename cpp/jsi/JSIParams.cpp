@@ -62,6 +62,12 @@ namespace rnllama_jsi {
     }
 #endif
 
+#if defined(__APPLE__)
+    static int default_apple_n_threads() {
+        return std::max(1, common_cpu_get_num_math() / 2);
+    }
+#endif
+
     std::string getPropertyAsString(jsi::Runtime& runtime, const jsi::Object& obj, const char* name, const std::string& defaultValue) {
         if (obj.hasProperty(runtime, name)) {
             auto val = obj.getProperty(runtime, name);
@@ -296,6 +302,10 @@ namespace rnllama_jsi {
         std::string cpuMask = getPropertyAsString(runtime, params, "cpu_mask");
 #if defined(__ANDROID__)
         set_best_cores(cparams.cpuparams, cparams.cpuparams.n_threads);
+#elif defined(__APPLE__)
+        if (cparams.cpuparams.n_threads < 0) {
+            cparams.cpuparams.n_threads = default_apple_n_threads();
+        }
 #endif
 
         cparams.n_gpu_layers = getPropertyAsInt(runtime, params, "n_gpu_layers", cparams.n_gpu_layers);
