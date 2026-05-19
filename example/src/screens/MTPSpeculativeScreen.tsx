@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   ScrollView,
@@ -12,7 +12,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { initLlama } from '../../../src'
 import type { NativeCompletionResult } from '../../../src'
 import ContextParamsModal from '../components/ContextParamsModal'
-import CompletionParamsModal from '../components/CompletionParamsModal'
 import { ExampleModelSetup } from '../components/ExampleModelSetup'
 import {
   ParameterSwitch,
@@ -22,12 +21,11 @@ import { useTheme } from '../contexts/ThemeContext'
 import { useExampleContext } from '../hooks/useExampleContext'
 import { useExampleScreenHeader } from '../hooks/useExampleScreenHeader'
 import {
-  useStoredCompletionParams,
   useStoredContextParams,
   useStoredCustomModels,
 } from '../hooks/useStoredSetting'
 import { createThemedStyles, Spacing } from '../styles/commonStyles'
-import type { CompletionParams, ContextParams } from '../utils/storage'
+import type { ContextParams } from '../utils/storage'
 import { createExampleModelDefinitions } from '../utils/exampleModels'
 
 const DEFAULT_PROMPT =
@@ -39,9 +37,10 @@ const DEFAULT_MAX_TOKENS = 128
 const MTP_CONTEXT = 4096
 const MTP_BATCH = 1024
 const MTP_UBATCH = 512
+const OUTPUT_FLUSH_INTERVAL_MS = 250
 
 const MTP_MODELS = createExampleModelDefinitions(
-  ['QWEN_3_6_35B_A3B_MTP'],
+  ['QWEN_3_5_4B_MTP', 'QWEN_3_6_35B_A3B_MTP'],
   'Initialize MTP Model',
 )
 
@@ -110,8 +109,6 @@ export default function MTPSpeculativeScreen({
   const [isLoading, setIsLoading] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
-  const [showCompletionParamsModal, setShowCompletionParamsModal] =
-    useState(false)
   const [showCustomModelModal, setShowCustomModelModal] = useState(false)
   const [draftTokensText, setDraftTokensText] = useState(
     DEFAULT_DRAFT_TOKENS.toString(),
@@ -120,12 +117,15 @@ export default function MTPSpeculativeScreen({
     DEFAULT_MAX_TOKENS.toString(),
   )
   const [isMTPEnabled, setIsMTPEnabled] = useState(true)
+  const [draftCapacity, setDraftCapacity] = useState(DEFAULT_DRAFT_TOKENS)
   const [lastResult, setLastResult] = useState<NativeCompletionResult | null>(
     null,
   )
   const [lastRunMetrics, setLastRunMetrics] = useState<MTPRunMetrics | null>(
     null,
   )
+  const outputBufferRef = useRef('')
+  const lastOutputFlushAtRef = useRef(0)
   const {
     context,
     initProgress,
@@ -135,8 +135,6 @@ export default function MTPSpeculativeScreen({
   } = useExampleContext()
   const { value: contextParams, setValue: setContextParams } =
     useStoredContextParams()
-  const { value: completionParams, setValue: setCompletionParams } =
-    useStoredCompletionParams()
   const { value: customModels, reload: reloadCustomModels } =
     useStoredCustomModels()
 
@@ -160,6 +158,8 @@ export default function MTPSpeculativeScreen({
   }, [lastResult, lastRunMetrics])
 
   const handleReset = useCallback(async () => {
+    outputBufferRef.current = ''
+    lastOutputFlushAtRef.current = 0
     setOutput('')
     setLastResult(null)
     setLastRunMetrics(null)
@@ -178,11 +178,6 @@ export default function MTPSpeculativeScreen({
         iconName: 'refresh',
         onPress: handleReset,
       },
-      {
-        key: 'completion-settings',
-        iconName: 'cog-outline',
-        onPress: () => setShowCompletionParamsModal(true),
-      },
     ],
     setupActions: [
       {
@@ -197,10 +192,6 @@ export default function MTPSpeculativeScreen({
     setContextParams(params)
   }
 
-  const handleSaveCompletionParams = (params: CompletionParams) => {
-    setCompletionParams(params)
-  }
-
   const handleInitModel = async (
     modelUri: string,
     params?: ContextParams,
@@ -210,6 +201,7 @@ export default function MTPSpeculativeScreen({
 
     try {
       const baseParams = params || contextParams || {}
+      const initDraftTokens = draftTokens
       const ctx = await initLlama(
         {
           ...baseParams,
@@ -230,9 +222,9 @@ export default function MTPSpeculativeScreen({
           no_extra_bufts: false,
           speculative: {
             type: 'draft-mtp',
-            n_max: MAX_DRAFT_TOKENS,
+            n_max: initDraftTokens,
           },
-          spec_draft_n_max: MAX_DRAFT_TOKENS,
+          spec_draft_n_max: initDraftTokens,
         },
         (progress) => {
           setInitProgress(progress)
@@ -250,6 +242,7 @@ export default function MTPSpeculativeScreen({
       setOutput('')
       setLastResult(null)
       setLastRunMetrics(null)
+      setDraftCapacity(initDraftTokens)
       setInitProgress(100)
     } catch (error) {
       Alert.alert('Error', `Failed to initialize MTP model: ${error}`)
@@ -270,8 +263,17 @@ export default function MTPSpeculativeScreen({
       Alert.alert('Error', 'Please enter a prompt.')
       return
     }
+    if (isMTPEnabled && draftTokens > draftCapacity) {
+      Alert.alert(
+        'Error',
+        `Draft Tokens cannot exceed the initialized MTP capacity (${draftCapacity}). Reinitialize the model to use a larger value.`,
+      )
+      return
+    }
 
     setIsGenerating(true)
+    outputBufferRef.current = ''
+    lastOutputFlushAtRef.current = Date.now()
     setOutput('')
     setLastResult(null)
     setLastRunMetrics(null)
@@ -280,7 +282,6 @@ export default function MTPSpeculativeScreen({
       const startedAt = Date.now()
       const result = await context.completion(
         {
-          ...completionParams,
           messages: [
             {
               role: 'user',
@@ -303,7 +304,12 @@ export default function MTPSpeculativeScreen({
           spec_draft_n_max: isMTPEnabled ? draftTokens : 0,
         },
         (tokenData) => {
-          setOutput((current) => current + tokenData.token)
+          outputBufferRef.current += tokenData.token
+          const now = Date.now()
+          if (now - lastOutputFlushAtRef.current >= OUTPUT_FLUSH_INTERVAL_MS) {
+            lastOutputFlushAtRef.current = now
+            setOutput(outputBufferRef.current)
+          }
         },
       )
       const elapsedSeconds = (Date.now() - startedAt) / 1000
@@ -313,10 +319,9 @@ export default function MTPSpeculativeScreen({
       setLastResult(result)
       setLastRunMetrics(metrics)
       const finalText = result.content || result.text
-      if (finalText) {
-        setOutput(finalText)
-      }
+      setOutput(finalText || outputBufferRef.current)
     } catch (error) {
+      setOutput(outputBufferRef.current)
       if (error !== 'aborted') {
         Alert.alert('Error', `Failed to generate: ${error}`)
       }
@@ -521,11 +526,6 @@ export default function MTPSpeculativeScreen({
         visible={showContextParamsModal}
         onClose={() => setShowContextParamsModal(false)}
         onSave={handleSaveContextParams}
-      />
-      <CompletionParamsModal
-        visible={showCompletionParamsModal}
-        onClose={() => setShowCompletionParamsModal(false)}
-        onSave={handleSaveCompletionParams}
       />
     </View>
   )

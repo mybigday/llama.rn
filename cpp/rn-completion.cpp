@@ -334,8 +334,11 @@ void llama_rn_context_completion::evalMTPPrompt() {
 
         const size_t n_eval = std::min<size_t>(n_batch, spec_prompt.size() - offset);
         for (size_t i = 0; i < n_eval; ++i) {
+            // MTP consumes pre-norm embeddings from every target row, but prompt logits are unused.
+            // Keep one output row per decode batch to preserve the usual llama.cpp graph shape.
+            const bool needs_logits = i + 1 == n_eval;
             common_batch_add(spec_batch, spec_prompt[offset + i],
-                             (llama_pos) (offset + i), { seq_id }, true);
+                             (llama_pos) (offset + i), { seq_id }, needs_logits);
         }
 
         const int ret = llama_decode(parent_ctx->ctx, spec_batch);

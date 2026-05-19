@@ -66,6 +66,40 @@ void lm_ggml_metal_cv_set_bool(lm_ggml_metal_cv_t cv, bool value, int32_t idx) {
     [cv->obj setConstantValue:&value type:MTLDataTypeBool atIndex:idx];
 }
 
+static void lm_ggml_metal_compile_options_configure(MTLCompileOptions * options) {
+    options.fastMathEnabled = YES;
+
+#if (defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 130000) || \
+    (defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 160000) || \
+    (defined(__TV_OS_VERSION_MAX_ALLOWED) && __TV_OS_VERSION_MAX_ALLOWED >= 160000)
+    if (@available(macOS 13.0, iOS 16.0, tvOS 16.0, *)) {
+        options.optimizationLevel = MTLLibraryOptimizationLevelDefault;
+    }
+#endif
+
+#if (defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000) || \
+    (defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 180000) || \
+    (defined(__TV_OS_VERSION_MAX_ALLOWED) && __TV_OS_VERSION_MAX_ALLOWED >= 180000)
+    if (@available(macOS 15.0, iOS 18.0, tvOS 18.0, *)) {
+        options.languageVersion = MTLLanguageVersion3_2;
+        options.mathMode = MTLMathModeFast;
+        options.mathFloatingPointFunctions = MTLMathFloatingPointFunctionsFast;
+    }
+#elif (defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 140000) || \
+      (defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 170000) || \
+      (defined(__TV_OS_VERSION_MAX_ALLOWED) && __TV_OS_VERSION_MAX_ALLOWED >= 170000)
+    if (@available(macOS 14.0, iOS 17.0, tvOS 17.0, *)) {
+        options.languageVersion = MTLLanguageVersion3_1;
+    }
+#elif (defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 130000) || \
+      (defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 160000) || \
+      (defined(__TV_OS_VERSION_MAX_ALLOWED) && __TV_OS_VERSION_MAX_ALLOWED >= 160000)
+    if (@available(macOS 13.0, iOS 16.0, tvOS 16.0, *)) {
+        options.languageVersion = MTLLanguageVersion3_0;
+    }
+#endif
+}
+
 //
 // MTLComputePipelineState wrapper
 //
@@ -227,8 +261,7 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init(lm_ggml_metal_device_t dev) {
 
                 MTLCompileOptions * options = [MTLCompileOptions new];
                 options.preprocessorMacros = prep;
-
-                //[options setFastMathEnabled:false];
+                lm_ggml_metal_compile_options_configure(options);
 
                 library = [device newLibraryWithSource:src options:options error:&error];
                 if (error) {
@@ -284,6 +317,7 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init_from_source(lm_ggml_metal_dev
 
         MTLCompileOptions * options = [MTLCompileOptions new];
         options.preprocessorMacros = prep;
+        lm_ggml_metal_compile_options_configure(options);
 
         library = [device newLibraryWithSource:src options:options error:&error];
         if (error) {
