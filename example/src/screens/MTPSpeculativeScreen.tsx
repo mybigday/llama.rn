@@ -30,14 +30,13 @@ import { createThemedStyles, Spacing } from '../styles/commonStyles'
 import type { CompletionParams, ContextParams } from '../utils/storage'
 import { createExampleModelDefinitions } from '../utils/exampleModels'
 
-const DEFAULT_PROMPT = [
-  'Explain why multi-token prediction can speed up on-device text generation.',
-  'Keep the answer concise and include one practical tradeoff.',
-].join('\n')
+const DEFAULT_PROMPT =
+  'Write a concise TypeScript function that groups an array of objects by a key.'
 
-const DEFAULT_DRAFT_TOKENS = 4
+const DEFAULT_DRAFT_TOKENS = 3
 const MAX_DRAFT_TOKENS = 32
-const DEFAULT_MAX_TOKENS = 256
+const DEFAULT_MAX_TOKENS = 128
+const MTP_CONTEXT = 4096
 const MTP_BATCH = 1024
 const MTP_UBATCH = 512
 
@@ -173,15 +172,16 @@ export default function MTPSpeculativeScreen({
           ...baseParams,
           model: modelUri,
           use_mlock: true,
-          n_ctx: baseParams.n_ctx ?? 8192,
+          n_ctx: MTP_CONTEXT,
           n_batch: MTP_BATCH,
           n_ubatch: MTP_UBATCH,
           n_gpu_layers: baseParams.n_gpu_layers ?? 99,
+          flash_attn_type: 'auto',
+          cache_type_k: 'q8_0',
+          cache_type_v: 'q8_0',
           speculative: {
             type: 'draft-mtp',
-            draft: {
-              n_max: MAX_DRAFT_TOKENS,
-            },
+            n_max: MAX_DRAFT_TOKENS,
           },
           spec_draft_n_max: MAX_DRAFT_TOKENS,
         },
@@ -221,15 +221,24 @@ export default function MTPSpeculativeScreen({
     try {
       const result = await context.completion(
         {
-          prompt: trimmedPrompt,
           ...completionParams,
+          messages: [
+            {
+              role: 'user',
+              content: trimmedPrompt,
+            },
+          ],
+          chat_template_kwargs: {
+            preserve_thinking: true,
+          },
           n_predict: maxTokens,
+          temperature: 0.6,
+          top_k: 20,
+          top_p: 0.95,
           speculative: isMTPEnabled
             ? {
                 type: 'draft-mtp',
-                draft: {
-                  n_max: draftTokens,
-                },
+                n_max: draftTokens,
               }
             : false,
           spec_draft_n_max: isMTPEnabled ? draftTokens : 0,

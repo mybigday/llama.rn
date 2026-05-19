@@ -250,6 +250,8 @@ export type CompletionResponseFormat = {
   schema?: object // for json_object type
 }
 
+export type ChatTemplateKwargs = Record<string, string | number | boolean>
+
 export type CompletionBaseParams = {
   prompt?: string
   messages?: RNLlamaOAICompatibleMessage[]
@@ -266,7 +268,7 @@ export type CompletionBaseParams = {
    * Timestamp in seconds since epoch to apply to chat template's strftime_now
    */
   now?: string | number
-  chat_template_kwargs?: Record<string, string>
+  chat_template_kwargs?: ChatTemplateKwargs
   /**
    * When enabled, forces the chat parser to treat the entire model output as
    * plain content, skipping separate parsing of reasoning tokens and tool calls.
@@ -280,6 +282,7 @@ export type CompletionBaseParams = {
    */
   prefill_text?: string
 }
+
 export type CompletionParams = Omit<
   NativeCompletionParams,
   'emit_partial_completion' | 'prompt'
@@ -673,7 +676,7 @@ export class LlamaContext {
       reasoning_format?: 'none' | 'auto' | 'deepseek'
       add_generation_prompt?: boolean
       now?: string | number
-      chat_template_kwargs?: Record<string, string>
+      chat_template_kwargs?: ChatTemplateKwargs
       force_pure_content?: boolean
     },
   ): Promise<FormattedChatResult | JinjaFormattedChatResult> {

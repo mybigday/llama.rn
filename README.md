@@ -198,17 +198,35 @@ const context = await initLlama({
   n_ctx: 4096,
   n_batch: 1024,
   n_ubatch: 512,
+  n_gpu_layers: 99,
+  flash_attn_type: 'auto',
+  cache_type_k: 'q8_0',
+  cache_type_v: 'q8_0',
   speculative: {
     type: 'draft-mtp',
-    draft: {
-      n_max: 4,
-    },
+    n_max: 3,
   },
 })
 
 const result = await context.completion({
-  prompt: 'Explain speculative decoding in one paragraph.',
+  messages: [
+    {
+      role: 'user',
+      content:
+        'Write a concise TypeScript function that groups an array of objects by a key.',
+    },
+  ],
+  chat_template_kwargs: {
+    preserve_thinking: true,
+  },
   n_predict: 128,
+  temperature: 0.6,
+  top_k: 20,
+  top_p: 0.95,
+  speculative: {
+    type: 'draft-mtp',
+    n_max: 3,
+  },
 })
 
 console.log(result.text)
