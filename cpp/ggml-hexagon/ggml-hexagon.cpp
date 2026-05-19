@@ -2744,6 +2744,18 @@ static bool lm_ggml_hexagon_supported_ssm_conv(const struct lm_ggml_hexagon_sess
     return true;
 }
 
+static bool lm_ggml_hexagon_supported_pad(const struct lm_ggml_hexagon_session * sess, const struct lm_ggml_tensor * op) {
+    const struct lm_ggml_tensor * src0 = op->src[0];
+    const struct lm_ggml_tensor * dst  = op;
+
+    if (src0->type != LM_GGML_TYPE_F32 || dst->type != LM_GGML_TYPE_F32) {
+        return false;
+    }
+
+    LM_GGML_UNUSED(sess);
+    return true;
+}
+
 static bool lm_ggml_hexagon_supported_cumsum(const struct lm_ggml_hexagon_session * sess, const struct lm_ggml_tensor * op) {
     const struct lm_ggml_tensor * src0 = op->src[0];
     const struct lm_ggml_tensor * dst  = op;
@@ -2816,6 +2828,21 @@ static bool lm_ggml_hexagon_supported_solve_tri(const struct lm_ggml_hexagon_ses
     return true;
 }
 
+static bool lm_ggml_hexagon_supported_tri(const struct lm_ggml_hexagon_session * sess, const struct lm_ggml_tensor * op) {
+
+    const struct lm_ggml_tensor * src0 = op->src[0];
+    const struct lm_ggml_tensor * dst  = op;
+
+    if (src0->type != LM_GGML_TYPE_F32) { return false; }
+    if (dst->type  != LM_GGML_TYPE_F32) { return false; }
+    if (!lm_ggml_are_same_shape(src0, dst)) { return false; }
+    if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(dst)) { return false; }
+
+    return true;
+
+    LM_GGML_UNUSED(sess);
+}
+
 static const char * lm_ggml_backend_hexagon_name(lm_ggml_backend_t backend) {
     auto sess = static_cast<lm_ggml_hexagon_session *>(backend->context);
     return sess->c_name();
@@ -2857,6 +2884,9 @@ static htp_op_code op_remap_to_htp(const lm_ggml_tensor * t) {
         case LM_GGML_OP_FILL:            return HTP_OP_FILL;
         case LM_GGML_OP_DIAG:            return HTP_OP_DIAG;
         case LM_GGML_OP_SOLVE_TRI:       return HTP_OP_SOLVE_TRI;
+        case LM_GGML_OP_TRI:             return HTP_OP_TRI;
+        case LM_GGML_OP_PAD:             return HTP_OP_PAD;
+
         case LM_GGML_OP_UNARY:
             switch (lm_ggml_get_unary_op(t)) {
                 case LM_GGML_UNARY_OP_SILU:     return HTP_OP_UNARY_SILU;
@@ -3414,6 +3444,14 @@ static bool lm_ggml_backend_hexagon_device_supports_op(lm_ggml_backend_dev_t dev
 
         case LM_GGML_OP_SOLVE_TRI:
             supp = lm_ggml_hexagon_supported_solve_tri(sess, op);
+            break;
+
+        case LM_GGML_OP_TRI:
+            supp = lm_ggml_hexagon_supported_tri(sess, op);
+            break;
+
+        case LM_GGML_OP_PAD:
+            supp = lm_ggml_hexagon_supported_pad(sess, op);
             break;
 
         default:
