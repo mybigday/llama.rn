@@ -6,6 +6,8 @@
 #include "sampling.h"
 #include "nlohmann/json.hpp"
 #include "chat.h"
+#include "speculative.h"
+#include <deque>
 
 using json = nlohmann::ordered_json;
 
@@ -60,6 +62,8 @@ struct llama_rn_context_completion {
     std::string prefill_text;
     std::string generated_text;
     std::vector<completion_token_output> generated_token_probs;
+    size_t num_draft_tokens = 0;
+    size_t num_draft_tokens_accepted = 0;
     size_t num_prompt_tokens = 0;
     size_t num_tokens_predicted = 0;
     llama_pos n_past = 0;
@@ -81,6 +85,17 @@ struct llama_rn_context_completion {
     // Sampling context
     common_sampler *ctx_sampling = nullptr;
 
+    // Speculative decoding context for MTP.
+    common_speculative *spec = nullptr;
+    llama_context_ptr spec_ctx;
+    llama_batch spec_batch = {};
+    bool spec_batch_initialized = false;
+    llama_tokens spec_prompt;
+    llama_token spec_id_last = LLAMA_TOKEN_NULL;
+    llama_pos spec_n_past = 0;
+    llama_tokens spec_draft;
+    std::deque<completion_token_output> spec_pending_tokens;
+
     // Constructor
     llama_rn_context_completion(llama_rn_context* parent);
 
@@ -96,6 +111,12 @@ struct llama_rn_context_completion {
     void beginCompletion(int chat_format, common_reasoning_format reasoning_format, const std::string &generation_prompt = "", const std::string &chat_parser = "");
     void endCompletion();
     completion_token_output nextToken();
+    bool shouldUseMTP() const;
+    void resetSpeculative();
+    void initMTP();
+    void evalMTPPrompt();
+    bool refillMTPTokens();
+    completion_token_output nextTokenMTP();
     size_t findStoppingStrings(const std::string &text, const size_t last_token_size, const stop_type type);
     completion_token_output doCompletion();
     completion_chat_output parseChatOutput(bool is_partial);

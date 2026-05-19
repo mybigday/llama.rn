@@ -6,13 +6,14 @@ jest.mock('..', () => require('../../jest/mock'))
 
 Math.random = () => 0.5
 
-test('LoRA inputs are normalized and deduplicated', async () => {
+test('LoRA and speculative inputs are passed through', async () => {
   await NativeModules.RNLlama.install()
   const mocks = global as typeof globalThis & {
     llamaInitContext: jest.Mock
     llamaApplyLoraAdapters: jest.Mock
+    llamaCompletion: jest.Mock
   }
-  const { llamaInitContext, llamaApplyLoraAdapters } = mocks
+  const { llamaInitContext, llamaApplyLoraAdapters, llamaCompletion } = mocks
 
   const context = await initLlama({
     model: 'test.gguf',
@@ -22,6 +23,14 @@ test('LoRA inputs are normalized and deduplicated', async () => {
       { path: 'file:///adapter-a.gguf', scaled: 0.75 },
       { path: 'file:///adapter-b.gguf', scaled: 0.5 },
     ],
+    speculative: {
+      enabled: true,
+      draft: {
+        n_max: 4,
+        p_min: 0.6,
+      },
+    },
+    spec_draft_n_min: 1,
   })
 
   const initParams = llamaInitContext.mock.calls.at(-1)?.[1]
@@ -31,9 +40,28 @@ test('LoRA inputs are normalized and deduplicated', async () => {
         { path: '/adapter-a.gguf', scaled: 0.75 },
         { path: '/adapter-b.gguf', scaled: 0.5 },
       ],
+      speculative: {
+        enabled: true,
+        draft: {
+          n_max: 4,
+          p_min: 0.6,
+        },
+      },
+      spec_draft_n_min: 1,
     }),
   )
   expect(initParams).not.toHaveProperty('lora')
+
+  await context.completion({
+    prompt: 'Test',
+    speculative: false,
+  })
+
+  expect(llamaCompletion.mock.calls.at(-1)?.[1]).toEqual(
+    expect.objectContaining({
+      speculative: false,
+    }),
+  )
 
   await context.applyLoraAdapters([
     { path: 'file:///adapter-b.gguf', scaled: 0.5 },

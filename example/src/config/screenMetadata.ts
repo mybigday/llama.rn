@@ -22,6 +22,12 @@ export const EXAMPLE_SCREEN_METADATA: Array<
     emoji: '🧾',
   },
   {
+    routeName: 'MTPSpeculative',
+    title: 'MTP Speculative Decoding',
+    homeLabel: 'MTP Speculative Decoding',
+    emoji: '🚀',
+  },
+  {
     routeName: 'ParallelDecoding',
     title: 'Parallel Decoding',
     homeLabel: 'Parallel Decoding',

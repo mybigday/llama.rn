@@ -21,6 +21,9 @@ import type {
   NativeImageProcessingResult,
   NativeLlamaChatMessage,
   NativeBackendDeviceInfo,
+  NativeSpeculativeConfig,
+  NativeSpeculativeParams,
+  NativeSpeculativeType,
   ParallelStatus,
   ParallelRequestStatus,
 } from './types'
@@ -64,6 +67,9 @@ export type {
   JinjaFormattedChatResult,
   NativeImageProcessingResult,
   NativeBackendDeviceInfo,
+  NativeSpeculativeConfig,
+  NativeSpeculativeParams,
+  NativeSpeculativeType,
   ParallelStatus,
   ParallelRequestStatus,
 }

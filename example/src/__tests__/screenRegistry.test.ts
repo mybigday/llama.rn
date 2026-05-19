@@ -8,6 +8,7 @@ describe('example screen registry', () => {
       'SimpleChat',
       'TextCompletion',
       'StructuredOutput',
+      'MTPSpeculative',
       'ParallelDecoding',
       'Multimodal',
       'ToolCalling',

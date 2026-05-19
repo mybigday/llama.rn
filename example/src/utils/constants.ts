@@ -27,6 +27,13 @@ export const MODELS = {
     mmproj: undefined,
     size: '1.93GB',
   },
+  QWEN_3_6_35B_A3B_MTP: {
+    name: 'Qwen3.6 35B A3B MTP (Q8_0)',
+    repo: 'ggml-org/Qwen3.6-35B-A3B-MTP-GGUF',
+    filename: 'Qwen3.6-35B-A3B-MTP-Q8_0.gguf',
+    mmproj: undefined,
+    size: '37.8GB',
+  },
   SMOL_VLM_500M: {
     name: 'SmolVLM 500M Instruct (Q8_0)',
     repo: 'ggml-org/SmolVLM-500M-Instruct-GGUF',
@@ -127,7 +134,7 @@ export const MODELS = {
     mmproj: undefined,
     ranking: true,
     size: '636MB',
-  }
+  },
 }
 
 export const HUGGINGFACE_BASE_URL = 'https://huggingface.co'

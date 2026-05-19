@@ -1064,6 +1064,10 @@ namespace rnllama_jsi {
                         ctx->tts_wrapper->setGuideTokens(guide_tokens);
                     }
 
+                    if (!mediaPaths.empty() && ctx->completion->shouldUseMTP()) {
+                        throw std::runtime_error("MTP speculative decoding currently supports text-only completion");
+                    }
+
                     if (!ctx->completion->initSampling()) {
                         throw std::runtime_error("Failed to initialize sampling");
                     }
@@ -1271,6 +1275,10 @@ namespace rnllama_jsi {
                     for (size_t i = 0; i < paths.size(runtime); i++) {
                         mediaPaths.push_back(paths.getValueAtIndex(runtime, i).asString(runtime).utf8(runtime));
                     }
+                }
+
+                if (hasSpeculativeType(cparams.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_MTP)) {
+                    throw std::runtime_error("MTP speculative decoding is not supported for queued parallel completions");
                 }
 
                 int chat_format = getPropertyAsInt(runtime, params, "chat_format", 0);
