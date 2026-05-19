@@ -334,9 +334,8 @@ void llama_rn_context_completion::evalMTPPrompt() {
 
         const size_t n_eval = std::min<size_t>(n_batch, spec_prompt.size() - offset);
         for (size_t i = 0; i < n_eval; ++i) {
-            // MTP mirrors target pre-norm hidden rows during prefill; logits are only needed when sampling.
             common_batch_add(spec_batch, spec_prompt[offset + i],
-                             (llama_pos) (offset + i), { seq_id }, false);
+                             (llama_pos) (offset + i), { seq_id }, true);
         }
 
         const int ret = llama_decode(parent_ctx->ctx, spec_batch);
