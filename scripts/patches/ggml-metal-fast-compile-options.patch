@@ -1,6 +1,8 @@
---- ggml-metal/ggml-metal-device.m.orig
+diff --git ggml-metal/ggml-metal-device.m ggml-metal/ggml-metal-device.m
+index 39f3fc8a..bec36da1 100644
+--- ggml-metal/ggml-metal-device.m
 +++ ggml-metal/ggml-metal-device.m
-@@ -64,6 +64,43 @@ void lm_ggml_metal_cv_set_bool(lm_ggml_metal_cv_t cv, bool value, int32_t idx) {
+@@ -66,6 +66,40 @@ void lm_ggml_metal_cv_set_bool(lm_ggml_metal_cv_t cv, bool value, int32_t idx) {
      [cv->obj setConstantValue:&value type:MTLDataTypeBool atIndex:idx];
  }
  
@@ -41,7 +43,7 @@
  //
  // MTLComputePipelineState wrapper
  //
-@@ -226,8 +263,7 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init(lm_ggml_metal_device_t dev) {
+@@ -227,8 +261,7 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init(lm_ggml_metal_device_t dev) {
  
                  MTLCompileOptions * options = [MTLCompileOptions new];
                  options.preprocessorMacros = prep;
@@ -51,7 +53,7 @@
  
                  library = [device newLibraryWithSource:src options:options error:&error];
                  if (error) {
-@@ -283,6 +319,7 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init_from_source(lm_ggml_metal_devi
+@@ -284,6 +317,7 @@ lm_ggml_metal_library_t lm_ggml_metal_library_init_from_source(lm_ggml_metal_dev
  
          MTLCompileOptions * options = [MTLCompileOptions new];
          options.preprocessorMacros = prep;
