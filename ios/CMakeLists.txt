@@ -55,6 +55,7 @@ set(PUBLIC_HEADERS
     ${SOURCE_DIR}/rn-tts.h
     ${SOURCE_DIR}/llama.h
     ${SOURCE_DIR}/llama-impl.h
+    ${SOURCE_DIR}/common/speculative.h
     ${SOURCE_DIR}/ggml.h
 )
 
@@ -100,6 +101,7 @@ add_library(rnllama SHARED
     # Headers (needed for build)
     ${SOURCE_DIR}/common/chat.h
     ${SOURCE_DIR}/common/common.h
+    ${SOURCE_DIR}/common/speculative.h
 
     # Multimodal support (globbed)
     ${MTMD_MODEL_FILES}

@@ -12,6 +12,7 @@ namespace rnllama_jsi {
     bool getPropertyAsBool(jsi::Runtime& runtime, const jsi::Object& obj, const char* name, bool defaultValue = false);
     float getPropertyAsFloat(jsi::Runtime& runtime, const jsi::Object& obj, const char* name, float defaultValue = 0.0f);
 
+    bool hasSpeculativeType(const common_params_speculative& speculative, common_speculative_type type);
     void parseCommonParams(jsi::Runtime& runtime, const jsi::Object& params, common_params& cparams);
     void parseCompletionParams(jsi::Runtime& runtime, const jsi::Object& params, rnllama::llama_rn_context* ctx);
 }

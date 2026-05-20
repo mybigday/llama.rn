@@ -187,4 +187,6 @@ jobs:
       - name: Build example for Android
         run: |
           sed -i 's/rnllamaBuildFromSource=true/rnllamaBuildFromSource=false/g' example/android/gradle.properties
-          npm run build:android
+          sed -i 's/reactNativeArchitectures=.*/reactNativeArchitectures=arm64-v8a,x86_64/g' example/android/gradle.properties
+          cd example/android
+          ./gradlew assembleDebug --stacktrace

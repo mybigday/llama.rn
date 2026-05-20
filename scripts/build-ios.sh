@@ -34,6 +34,7 @@ copy_headers() {
   cp "$ROOT_DIR"/cpp/common/chat.h "$framework_path/Headers/"
   cp "$ROOT_DIR"/cpp/common/common.h "$framework_path/Headers/"
   cp "$ROOT_DIR"/cpp/common/sampling.h "$framework_path/Headers/"
+  cp "$ROOT_DIR"/cpp/common/speculative.h "$framework_path/Headers/"
   cp "$ROOT_DIR"/cpp/common/json-schema-to-grammar.h "$framework_path/Headers/"
   cp "$ROOT_DIR"/cpp/common/peg-parser.h "$framework_path/Headers/"
 }

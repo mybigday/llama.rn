@@ -188,6 +188,53 @@ Please visit the [Documentation](docs/API) for more details.
 
 You can also visit the [example](example) to see how to use it.
 
+## MTP Speculative Decoding
+
+MTP speculative decoding can be enabled for GGUF models that contain MTP/NextN layers:
+
+```js
+const context = await initLlama({
+  model: modelPath,
+  n_ctx: 4096,
+  n_batch: 1024,
+  n_ubatch: 512,
+  n_gpu_layers: 99,
+  flash_attn_type: 'auto',
+  cache_type_k: 'q8_0',
+  cache_type_v: 'q8_0',
+  speculative: {
+    type: 'draft-mtp',
+    n_max: 3,
+  },
+})
+
+const result = await context.completion({
+  messages: [
+    {
+      role: 'user',
+      content:
+        'Write a concise TypeScript function that groups an array of objects by a key.',
+    },
+  ],
+  chat_template_kwargs: {
+    preserve_thinking: true,
+  },
+  n_predict: 128,
+  temperature: 0.6,
+  top_k: 20,
+  top_p: 0.95,
+  speculative: {
+    type: 'draft-mtp',
+    n_max: 3,
+  },
+})
+
+console.log(result.text)
+console.log(result.draft_tokens, result.draft_tokens_accepted)
+```
+
+Use `speculative: false` on a completion call to disable MTP for that request. For recurrent or hybrid models, enable MTP at `initLlama` time with a positive `spec_draft_n_max` or `speculative.draft.n_max` so llama.cpp can allocate rollback state. Current MTP support is text-only and is not used by queued parallel completions.
+
 ## Multimodal (Vision & Audio)
 
 `llama.rn` supports multimodal capabilities including vision (images) and audio processing. This allows you to interact with models that can understand both text and media content.

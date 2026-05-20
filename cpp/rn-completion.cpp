@@ -5,7 +5,9 @@
 #include "rn-common.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <cstdlib>
+#include <limits>
 
 // Include multimodal support
 #include "tools/mtmd/mtmd.h"
@@ -21,6 +23,7 @@ llama_rn_context_completion::llama_rn_context_completion(llama_rn_context* paren
 
 // Destructor
 llama_rn_context_completion::~llama_rn_context_completion() {
+    resetSpeculative();
     if (ctx_sampling != nullptr) {
         common_sampler_free(ctx_sampling);
         ctx_sampling = nullptr;
@@ -28,6 +31,7 @@ llama_rn_context_completion::~llama_rn_context_completion() {
 }
 
 void llama_rn_context_completion::rewind() {
+    resetSpeculative();
     is_interrupted = false;
     parent_ctx->params.antiprompt.clear();
     parent_ctx->params.sampling.grammar = {};
@@ -37,6 +41,8 @@ void llama_rn_context_completion::rewind() {
     parent_ctx->params.sampling.generation_prompt.clear();
     num_prompt_tokens = 0;
     num_tokens_predicted = 0;
+    num_draft_tokens = 0;
+    num_draft_tokens_accepted = 0;
     prefill_text = "";
     generated_text = "";
     generated_text.reserve(parent_ctx->params.n_ctx);
@@ -235,8 +241,274 @@ void llama_rn_context_completion::endCompletion() {
     is_predicting = false;
 }
 
+bool llama_rn_context_completion::shouldUseMTP() const {
+    const auto & types = parent_ctx->params.speculative.types;
+    return std::find(types.begin(), types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != types.end() &&
+        parent_ctx->params.speculative.draft.n_max > 0;
+}
+
+void llama_rn_context_completion::resetSpeculative() {
+    if (spec != nullptr) {
+        common_speculative_free(spec);
+        spec = nullptr;
+    }
+    spec_ctx.reset();
+    if (spec_batch_initialized) {
+        llama_batch_free(spec_batch);
+        spec_batch = {};
+        spec_batch_initialized = false;
+    }
+    spec_prompt.clear();
+    spec_id_last = LLAMA_TOKEN_NULL;
+    spec_n_past = 0;
+    spec_draft.clear();
+    spec_pending_tokens.clear();
+}
+
+void llama_rn_context_completion::initMTP() {
+    if (!shouldUseMTP()) {
+        return;
+    }
+    if (llama_model_has_encoder(parent_ctx->model)) {
+        throw std::runtime_error("MTP speculative decoding is only supported for decoder-only models");
+    }
+    if (embd.empty()) {
+        throw std::runtime_error("MTP speculative decoding requires a non-empty prompt");
+    }
+
+    const auto n_mtp = parent_ctx->params.speculative.draft.n_max;
+    if ((llama_model_is_recurrent(parent_ctx->model) || llama_model_is_hybrid(parent_ctx->model)) &&
+        llama_n_rs_seq(parent_ctx->ctx) < (uint32_t) n_mtp) {
+        throw std::runtime_error(
+            "MTP for recurrent or hybrid models must be enabled when loading the model "
+            "with speculative.type='draft-mtp' and speculative.n_max/spec_draft_n_max set");
+    }
+
+    resetSpeculative();
+
+    auto cparams = common_context_params_to_llama(parent_ctx->params);
+    cparams.ctx_type = LLAMA_CONTEXT_TYPE_MTP;
+    cparams.n_rs_seq = 0;
+
+    spec_ctx.reset(llama_init_from_model(parent_ctx->model, cparams));
+    if (spec_ctx == nullptr) {
+        throw std::runtime_error("failed to create MTP draft context");
+    }
+
+    parent_ctx->params.speculative.draft.ctx_tgt = parent_ctx->ctx;
+    parent_ctx->params.speculative.draft.ctx_dft = spec_ctx.get();
+
+    spec = common_speculative_init(parent_ctx->params.speculative, 1);
+    if (spec == nullptr) {
+        throw std::runtime_error("failed to initialize MTP speculative decoding");
+    }
+
+    spec_batch = llama_batch_init(llama_n_batch(parent_ctx->ctx), 0, 1);
+    spec_batch_initialized = true;
+
+    llama_memory_clear(llama_get_memory(parent_ctx->ctx), false);
+    llama_memory_clear(llama_get_memory(spec_ctx.get()), false);
+    n_past = 0;
+
+    evalMTPPrompt();
+}
+
+void llama_rn_context_completion::evalMTPPrompt() {
+    const llama_seq_id seq_id = 0;
+    const size_t n_prompt = embd.size();
+
+    spec_prompt.clear();
+    spec_pending_tokens.clear();
+    spec_draft.clear();
+    spec_id_last = embd.back();
+
+    if (n_prompt > 1) {
+        spec_prompt.assign(embd.begin(), embd.end() - 1);
+    }
+
+    const int32_t n_batch = std::max<int32_t>(1, llama_n_batch(parent_ctx->ctx));
+    size_t offset = 0;
+
+    while (offset < spec_prompt.size()) {
+        common_batch_clear(spec_batch);
+
+        const size_t n_eval = std::min<size_t>(n_batch, spec_prompt.size() - offset);
+        for (size_t i = 0; i < n_eval; ++i) {
+            // MTP consumes pre-norm embeddings from every target row, but prompt logits are unused.
+            // Keep one output row per decode batch to preserve the usual llama.cpp graph shape.
+            const bool needs_logits = i + 1 == n_eval;
+            common_batch_add(spec_batch, spec_prompt[offset + i],
+                             (llama_pos) (offset + i), { seq_id }, needs_logits);
+        }
+
+        const int ret = llama_decode(parent_ctx->ctx, spec_batch);
+        if (ret != 0) {
+            throw std::runtime_error("failed to evaluate MTP prompt batch, ret=" + std::to_string(ret));
+        }
+        if (!common_speculative_process(spec, spec_batch)) {
+            throw std::runtime_error("failed to process MTP prompt batch");
+        }
+
+        offset += n_eval;
+    }
+
+    spec_n_past = (llama_pos) spec_prompt.size();
+    n_past = spec_n_past;
+
+    common_speculative_begin(spec, seq_id, spec_prompt);
+}
+
+bool llama_rn_context_completion::refillMTPTokens() {
+    const llama_seq_id seq_id = 0;
+
+    if (spec_id_last == LLAMA_TOKEN_NULL || stopped_eos || stopped_limit || context_full) {
+        return false;
+    }
+    if (parent_ctx->params.n_predict >= 0 && n_remain == 0) {
+        stopped_limit = true;
+        has_next_token = false;
+        return false;
+    }
+
+    const int32_t n_ctx = parent_ctx->params.n_ctx;
+    if (spec_n_past + 1 >= n_ctx) {
+        context_full = true;
+        has_next_token = false;
+        return false;
+    }
+
+    spec_draft.clear();
+
+    const int32_t remaining =
+        parent_ctx->params.n_predict < 0 ? std::numeric_limits<int32_t>::max() : (int32_t) n_remain;
+    const int32_t n_draft_remaining = remaining == std::numeric_limits<int32_t>::max()
+        ? parent_ctx->params.speculative.draft.n_max
+        : std::max<int32_t>(0, remaining - 1);
+    const int32_t n_draft_ctx = std::max<int32_t>(0, n_ctx - (int32_t) spec_n_past - 1);
+    const int32_t n_draft_batch = std::max<int32_t>(0, llama_n_batch(parent_ctx->ctx) - 1);
+    const int32_t n_draft_limit = std::min<int32_t>(
+        parent_ctx->params.speculative.draft.n_max,
+        std::min<int32_t>(n_draft_remaining, std::min<int32_t>(n_draft_ctx, n_draft_batch)));
+
+    if (n_draft_limit > 0) {
+        common_speculative_get_draft_params(spec, seq_id) = {
+            /* .drafting = */ true,
+            /* .n_max    = */ n_draft_limit,
+            /* .n_past   = */ spec_n_past,
+            /* .id_last  = */ spec_id_last,
+            /* .prompt   = */ &spec_prompt,
+            /* .result   = */ &spec_draft,
+        };
+        common_speculative_draft(spec);
+
+        if ((int32_t) spec_draft.size() > n_draft_limit) {
+            spec_draft.resize(n_draft_limit);
+        }
+
+        common_context_seq_rm(spec_ctx.get(), seq_id, spec_n_past, -1);
+    }
+
+    const size_t n_draft = spec_draft.size();
+    num_draft_tokens += n_draft;
+
+    common_batch_clear(spec_batch);
+    common_batch_add(spec_batch, spec_id_last, spec_n_past, { seq_id }, true);
+    for (size_t i = 0; i < n_draft; ++i) {
+        common_batch_add(spec_batch, spec_draft[i],
+                         spec_n_past + (llama_pos) i + 1, { seq_id }, true);
+    }
+
+    const int ret = llama_decode(parent_ctx->ctx, spec_batch);
+    if (ret != 0) {
+        throw std::runtime_error("failed to evaluate MTP target batch, ret=" + std::to_string(ret));
+    }
+    if (!common_speculative_process(spec, spec_batch)) {
+        throw std::runtime_error("failed to process MTP target batch");
+    }
+
+    auto accepted = common_sampler_sample_and_accept_n(ctx_sampling, parent_ctx->ctx, spec_draft);
+    if (accepted.empty()) {
+        return false;
+    }
+
+    size_t accepted_count = accepted.size();
+    bool saw_eos = false;
+    const llama_vocab* vocab = llama_model_get_vocab(parent_ctx->model);
+    for (size_t i = 0; i < accepted.size(); ++i) {
+        if (llama_vocab_is_eog(vocab, accepted[i])) {
+            accepted_count = i + 1;
+            saw_eos = true;
+            break;
+        }
+
+        completion_token_output output;
+        output.tok = accepted[i];
+        output.text = common_token_to_piece(parent_ctx->ctx, accepted[i]);
+        spec_pending_tokens.push_back(std::move(output));
+    }
+
+    const size_t n_accepted_draft = saw_eos
+        ? accepted_count - 1
+        : accepted.size() - 1;
+    if (n_draft > 0) {
+        const size_t n_accepted = std::min(n_accepted_draft, n_draft);
+        num_draft_tokens_accepted += n_accepted;
+        common_speculative_accept(spec, seq_id, (uint16_t) n_accepted);
+    }
+
+    for (size_t i = 0; i < accepted_count; ++i) {
+        spec_prompt.push_back(spec_id_last);
+        spec_id_last = accepted[i];
+    }
+
+    spec_n_past += (llama_pos) accepted_count;
+    n_past = spec_n_past;
+
+    common_context_seq_rm(parent_ctx->ctx, seq_id, spec_n_past, -1);
+    common_context_seq_rm(spec_ctx.get(), seq_id, spec_n_past, -1);
+
+    if (saw_eos) {
+        stopped_eos = true;
+        has_next_token = false;
+    }
+
+    if (parent_ctx->params.n_predict >= 0) {
+        const size_t emitted = spec_pending_tokens.size();
+        n_remain = emitted >= n_remain ? 0 : n_remain - emitted;
+        if (n_remain == 0 && !saw_eos) {
+            stopped_limit = true;
+            has_next_token = false;
+        }
+    }
+
+    return !spec_pending_tokens.empty();
+}
+
+completion_token_output llama_rn_context_completion::nextTokenMTP() {
+    completion_token_output result;
+    result.tok = -1;
+
+    if (spec == nullptr) {
+        initMTP();
+    }
+
+    if (spec_pending_tokens.empty() && !refillMTPTokens()) {
+        return result;
+    }
+
+    result = std::move(spec_pending_tokens.front());
+    spec_pending_tokens.pop_front();
+    num_tokens_predicted++;
+    has_next_token = !spec_pending_tokens.empty() || (!stopped_eos && !stopped_limit && !context_full);
+    return result;
+}
+
 completion_token_output llama_rn_context_completion::nextToken()
 {
+    if (shouldUseMTP()) {
+        return nextTokenMTP();
+    }
+
     completion_token_output result;
     result.tok = -1;
 
