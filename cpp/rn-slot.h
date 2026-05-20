@@ -4,6 +4,8 @@
 #include "common.h"
 #include "llama.h"
 #include "sampling.h"
+#include "speculative.h"
+#include <deque>
 #include <vector>
 #include <string>
 #include <functional>
@@ -96,8 +98,22 @@ struct llama_rn_slot {
     std::string current_chat_parser;  // Serialized PEG parser for chat output parsing
 
     // Sampling context (per-slot)
+    common_params params_storage;
     common_params* params;
     common_sampler* ctx_sampling;
+
+    // Speculative decoding context for MTP.
+    common_speculative *spec = nullptr;
+    llama_context *spec_ctx = nullptr;
+    llama_batch spec_batch = {};
+    bool spec_batch_initialized = false;
+    llama_tokens spec_prompt;
+    llama_token spec_id_last = LLAMA_TOKEN_NULL;
+    llama_pos spec_n_past = 0;
+    llama_tokens spec_draft;
+    std::deque<llama_token> spec_pending_tokens;
+    size_t num_draft_tokens;
+    size_t num_draft_tokens_accepted;
 
     // Timing
     int64_t t_start_process;       // Start time for processing (us)
@@ -153,6 +169,12 @@ struct llama_rn_slot {
     bool has_next_token() const;
     completion_token_output get_next_token();
     completion_chat_output parseChatOutput(bool is_partial);
+    bool should_use_mtp() const;
+    void reset_speculative();
+    void init_mtp();
+    void eval_mtp_prompt();
+    bool refill_mtp_tokens();
+    completion_token_output next_token_mtp();
 
     // Timing methods
     slot_timings get_timings() const;      // Get timing information for this slot

@@ -12,8 +12,14 @@ test('LoRA and speculative inputs are passed through', async () => {
     llamaInitContext: jest.Mock
     llamaApplyLoraAdapters: jest.Mock
     llamaCompletion: jest.Mock
+    llamaQueueCompletion: jest.Mock
   }
-  const { llamaInitContext, llamaApplyLoraAdapters, llamaCompletion } = mocks
+  const {
+    llamaInitContext,
+    llamaApplyLoraAdapters,
+    llamaCompletion,
+    llamaQueueCompletion,
+  } = mocks
 
   const context = await initLlama({
     model: 'test.gguf',
@@ -62,6 +68,58 @@ test('LoRA and speculative inputs are passed through', async () => {
       speculative: false,
     }),
   )
+
+  const queued = await context.parallel.completion({
+    prompt: 'Parallel',
+    speculative: {
+      type: 'draft-mtp',
+      n_max: 4,
+    },
+    spec_draft_n_min: 1,
+  })
+  const queuedResult = await queued.promise
+
+  expect(llamaQueueCompletion.mock.calls.at(-1)?.[1]).toEqual(
+    expect.objectContaining({
+      speculative: {
+        type: 'draft-mtp',
+        n_max: 4,
+      },
+      spec_draft_n_min: 1,
+      emit_partial_completion: true,
+    }),
+  )
+  expect(queuedResult).toEqual(
+    expect.objectContaining({
+      draft_tokens: 0,
+      draft_tokens_accepted: 0,
+    }),
+  )
+
+  const delayedResult = {
+    ...queuedResult,
+    text: 'final',
+    content: 'final',
+    draft_tokens: 2,
+    draft_tokens_accepted: 1,
+  }
+  llamaQueueCompletion.mockImplementationOnce(
+    async (_ctx, _params, onToken, onComplete) => {
+      onToken({ token: 'partial', content: 'partial' }, 4242)
+      setTimeout(() => onComplete(delayedResult), 10)
+      return { requestId: 4242 }
+    },
+  )
+
+  const delayed = await context.parallel.completion({ prompt: 'Delayed' })
+  let resolvedFromToken = false
+  const delayedResolution = delayed.promise.then((value) => {
+    resolvedFromToken = true
+    return value
+  })
+  await Promise.resolve()
+  expect(resolvedFromToken).toBe(false)
+  await expect(delayedResolution).resolves.toEqual(delayedResult)
 
   await context.applyLoraAdapters([
     { path: 'file:///adapter-b.gguf', scaled: 0.5 },

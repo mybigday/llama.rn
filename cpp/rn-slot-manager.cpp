@@ -5,6 +5,7 @@
 #include "rn-common.hpp"
 #include "ggml.h"
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 namespace rnllama {
@@ -464,8 +465,9 @@ void llama_rn_slot_manager::process_pending_queue() {
 
         switch (request.task_type) {
             case SLOT_TASK_TYPE_COMPLETION: {
-                slot->params = &request.params;
-                slot->ctx_sampling = common_sampler_init(parent_ctx->model, request.params.sampling);
+                slot->params_storage = request.params;
+                slot->params = &slot->params_storage;
+                slot->ctx_sampling = common_sampler_init(parent_ctx->model, slot->params->sampling);
 
                 // Assign state parameters
                 slot->load_state_path = request.load_state_path;
@@ -524,7 +526,8 @@ void llama_rn_slot_manager::process_pending_queue() {
             }
 
             case SLOT_TASK_TYPE_EMBEDDING: {
-                slot->params = &request.params;
+                slot->params_storage = request.params;
+                slot->params = &slot->params_storage;
                 // Start timing (no state loading for embeddings)
                 slot->t_start_process = lm_ggml_time_us();
 
@@ -594,6 +597,9 @@ void llama_rn_slot_manager::build_batch() {
     // First pass: Add tokens from GENERATING slots (previously sampled tokens)
     for (auto& slot : slots) {
         if (slot.state == SLOT_STATE_GENERATING) {
+            if (slot.task_type == SLOT_TASK_TYPE_COMPLETION && slot.should_use_mtp()) {
+                continue;
+            }
             // Only add if we have generated tokens (skip first iteration after prompt)
             if (!slot.generated_tokens.empty()) {
                 // Get the last generated token
@@ -615,6 +621,24 @@ void llama_rn_slot_manager::build_batch() {
     // Second pass: Add prompt tokens from PROCESSING_PROMPT slots
     for (auto& slot : slots) {
         if (slot.state == SLOT_STATE_PROCESSING_PROMPT) {
+            if (slot.task_type == SLOT_TASK_TYPE_COMPLETION && slot.should_use_mtp()) {
+                if (!slot.media_paths.empty()) {
+                    LOG_ERROR("Slot %d: MTP speculative decoding does not support media inputs", slot.id);
+                    slot.incomplete = true;
+                    slot.error_message = "MTP speculative decoding currently supports text-only queued completions";
+                    slot.state = SLOT_STATE_DONE;
+                    if (slot.on_complete_callback) {
+                        slot.on_complete_callback(&slot);
+                    }
+                    continue;
+                }
+
+                slot.state = SLOT_STATE_GENERATING;
+                slot.i_batch = -1;
+                LOG_INFO("Slot %d: Transitioned to GENERATING state with MTP speculative decoding", slot.id);
+                continue;
+            }
+
             // Check if we need to process media first (deferred processing)
             // Process media at the very start (n_past == 0) before any prompt tokens
             if (!slot.media_processed && !slot.media_paths.empty() && slot.n_past == 0) {
@@ -850,6 +874,108 @@ void llama_rn_slot_manager::sample_and_callback() {
                     continue;
                 }
 
+                if (slot.should_use_mtp()) {
+                    auto finish_slot = [&slot]() {
+                        slot.state = SLOT_STATE_DONE;
+
+                        if (!slot.save_state_path.empty()) {
+                            slot.save_state();
+                        }
+
+                        if (slot.on_complete_callback) {
+                            slot.on_complete_callback(&slot);
+                        }
+                    };
+
+                    auto emit_token = [&](completion_token_output token_output) -> bool {
+                        if (token_output.text.empty()) {
+                            token_output.text = common_token_to_piece(parent_ctx->ctx, token_output.tok);
+                        }
+                        token_output.request_id = slot.request_id;
+
+                        slot.generated_text += token_output.text;
+
+                        const int64_t t_current = lm_ggml_time_us();
+                        slot.t_token_generation = (t_current - slot.t_start_generation) / 1e6;
+
+                        slot.generated_tokens.push_back(token_output.tok);
+                        slot.n_decoded++;
+                        slot.cache_tokens.push_back(token_output.tok);
+
+                        if (slot.on_token_callback) {
+                            slot.on_token_callback(token_output);
+                        }
+
+                        bool should_stop = false;
+
+                        if (slot.n_remaining > 0) {
+                            slot.n_remaining--;
+                            if (slot.n_remaining == 0) {
+                                slot.stopped_limit = true;
+                                should_stop = true;
+                                LOG_INFO("Slot %d: Stopped on token limit", slot.id);
+                            }
+                        }
+
+                        if (slot.context_full) {
+                            should_stop = true;
+                            LOG_WARNING("Slot %d: Context full", slot.id);
+                        }
+
+                        if (!slot.stop_words.empty() && !slot.generated_text.empty()) {
+                            const std::string& text = slot.generated_text;
+                            const size_t last_token_size = token_output.text.size();
+
+                            for (const std::string& word : slot.stop_words) {
+                                const size_t search_start = text.size() > word.size() + last_token_size
+                                    ? text.size() - word.size() - last_token_size
+                                    : 0;
+                                size_t pos = text.find(word, search_start);
+
+                                if (pos != std::string::npos) {
+                                    slot.stopped_word = true;
+                                    slot.stopping_word = word;
+                                    should_stop = true;
+                                    LOG_INFO("Slot %d: Stopped on word '%s'", slot.id, word.c_str());
+                                    break;
+                                }
+                            }
+                        }
+
+                        return should_stop;
+                    };
+
+                    try {
+                        bool should_stop = false;
+
+                        completion_token_output token_output = slot.next_token_mtp();
+                        const bool emitted = token_output.tok != -1;
+                        if (emitted) {
+                            should_stop = emit_token(std::move(token_output));
+                        }
+
+                        const bool done = should_stop ||
+                            slot.stopped_limit ||
+                            slot.context_full ||
+                            (slot.stopped_eos && slot.spec_pending_tokens.empty());
+
+                        if (done) {
+                            finish_slot();
+                        } else if (!emitted) {
+                            slot.incomplete = true;
+                            slot.error_message = "MTP speculative decoding did not produce a token";
+                            finish_slot();
+                        }
+                    } catch (const std::exception& e) {
+                        LOG_ERROR("Slot %d: MTP speculative decoding failed: %s", slot.id, e.what());
+                        slot.incomplete = true;
+                        slot.error_message = e.what();
+                        finish_slot();
+                    }
+
+                    continue;
+                }
+
                 if (slot.i_batch == -1) {
                     LOG_VERBOSE("Slot %d: Sampling from media processing logits (batch index -1)", slot.id);
                 } else if (slot.i_batch < 0 || slot.i_batch >= batch.n_tokens) {
@@ -899,6 +1025,7 @@ void llama_rn_slot_manager::sample_and_callback() {
 
                 slot.generated_tokens.push_back(new_token_id);
                 slot.n_decoded++;
+                slot.num_tokens_predicted++;
 
                 // Update cache_tokens to keep track of all processed tokens
                 // This is needed for state saving
@@ -1211,6 +1338,9 @@ void llama_rn_slot_manager::start_processing_loop() {
                     // Wake up if: there are pending requests, or processing should stop
                     return !queue_requests.empty() || !processing_active.load();
                 });
+            } else if (has_work) {
+                lock.unlock();
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
         }
 

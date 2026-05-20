@@ -155,6 +155,34 @@ bool test_slot_prompt_loading() {
     }
 }
 
+bool test_slot_mtp_params_and_reset() {
+    try {
+        llama_rn_slot slot;
+        slot.id = 0;
+        slot.reset();
+
+        common_params params;
+        params.speculative.types = { COMMON_SPECULATIVE_TYPE_DRAFT_MTP };
+        params.speculative.draft.n_max = 4;
+
+        slot.params_storage = params;
+        slot.params = &slot.params_storage;
+
+        if (!slot.should_use_mtp()) return false;
+
+        slot.num_draft_tokens = 8;
+        slot.num_draft_tokens_accepted = 6;
+        slot.reset();
+
+        return !slot.should_use_mtp() &&
+               slot.params == nullptr &&
+               slot.num_draft_tokens == 0 &&
+               slot.num_draft_tokens_accepted == 0;
+    } catch (...) {
+        return false;
+    }
+}
+
 // Test 4: Slot Manager initialization with actual context
 bool test_slot_manager_initialization() {
     try {
@@ -1446,6 +1474,7 @@ int main() {
     results.run_test("Slot Initialization", test_slot_initialization());
     results.run_test("Slot State Transitions", test_slot_state_transitions());
     results.run_test("Slot Prompt Loading", test_slot_prompt_loading());
+    results.run_test("Slot MTP Params and Reset", test_slot_mtp_params_and_reset());
     results.run_test("Slot Cache Prefix Matching", test_cache_prefix_matching());
     results.run_test("Slot has_next_token Logic", test_has_next_token());
     results.run_test("Slot Request Lifecycle", test_slot_request_lifecycle());

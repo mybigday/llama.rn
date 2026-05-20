@@ -1277,10 +1277,6 @@ namespace rnllama_jsi {
                     }
                 }
 
-                if (hasSpeculativeType(cparams.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_MTP)) {
-                    throw std::runtime_error("MTP speculative decoding is not supported for queued parallel completions");
-                }
-
                 int chat_format = getPropertyAsInt(runtime, params, "chat_format", 0);
                 std::string reasoningFormatStr = getPropertyAsString(runtime, params, "reasoning_format", "none");
                 common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
@@ -1360,6 +1356,8 @@ namespace rnllama_jsi {
                             std::string stopping_word = slot->stopping_word;
                             size_t tokens_predicted = slot->num_tokens_predicted;
                             size_t tokens_evaluated = slot->num_prompt_tokens;
+                            size_t draft_tokens = slot->num_draft_tokens;
+                            size_t draft_tokens_accepted = slot->num_draft_tokens_accepted;
                             llama_pos tokens_cached = slot->n_past;
                             int32_t n_decoded = slot->n_decoded;
                             std::string error_message = slot->error_message;
@@ -1382,7 +1380,7 @@ namespace rnllama_jsi {
                             if (!runtime) {
                               return;
                             }
-                            invokeAsyncTracked(callInvoker, contextId, [callbacks, contextId, requestId, text, stopped_eos, stopped_limit, stopped_word, context_full, incomplete, truncated, interrupted, chat_format_val, stopping_word, tokens_predicted, tokens_evaluated, tokens_cached, n_decoded, error_message, timings, token_probs, final_output, has_final_output, runtime](bool shouldProceed) {
+                            invokeAsyncTracked(callInvoker, contextId, [callbacks, contextId, requestId, text, stopped_eos, stopped_limit, stopped_word, context_full, incomplete, truncated, interrupted, chat_format_val, stopping_word, tokens_predicted, tokens_evaluated, draft_tokens, draft_tokens_accepted, tokens_cached, n_decoded, error_message, timings, token_probs, final_output, has_final_output, runtime](bool shouldProceed) {
                                 if (!shouldProceed) return;
                                 long ctxPtr = g_llamaContexts.get(contextId);
                                 if (!ctxPtr) {
@@ -1405,6 +1403,8 @@ namespace rnllama_jsi {
                                 res.setProperty(rt, "stopping_word", jsi::String::createFromUtf8(rt, stopping_word));
                                 res.setProperty(rt, "tokens_predicted", (double)tokens_predicted);
                                 res.setProperty(rt, "tokens_evaluated", (double)tokens_evaluated);
+                                res.setProperty(rt, "draft_tokens", (double)draft_tokens);
+                                res.setProperty(rt, "draft_tokens_accepted", (double)draft_tokens_accepted);
                                 res.setProperty(rt, "tokens_cached", (double)tokens_cached);
                                 res.setProperty(rt, "n_decoded", (double)n_decoded);
 

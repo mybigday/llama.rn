@@ -3,8 +3,11 @@
 #include "rn-llama.h"
 #include "rn-common.hpp"
 #include "chat.h"
+#include <algorithm>
 #include <cstring>
+#include <limits>
 #include <mutex>
+#include <stdexcept>
 
 namespace rnllama {
 
@@ -31,6 +34,7 @@ llama_rn_slot::llama_rn_slot() :
     stopped_limit(false),
     current_chat_format(0),
     current_reasoning_format(COMMON_REASONING_FORMAT_NONE),
+    params(nullptr),
     ctx_sampling(nullptr),
     t_start_process(0),
     t_start_generation(0),
@@ -46,12 +50,15 @@ llama_rn_slot::llama_rn_slot() :
     load_state_size(-1),
     save_state_size(-1),
     save_prompt_state_pending(false),
-    save_prompt_state_tokens(-1)
+    save_prompt_state_tokens(-1),
+    num_draft_tokens(0),
+    num_draft_tokens_accepted(0)
 {
 }
 
 // Destructor
 llama_rn_slot::~llama_rn_slot() {
+    reset_speculative();
     if (ctx_sampling != nullptr) {
         common_sampler_free(ctx_sampling);
         ctx_sampling = nullptr;
@@ -66,6 +73,7 @@ void llama_rn_slot::reset() {
     n_decoded = 0;
     n_remaining = -1;
     i_batch = -1;
+    params = nullptr;
 
     // Clear token vectors
     prompt_tokens.clear();
@@ -87,6 +95,9 @@ void llama_rn_slot::reset() {
     stopping_word.clear();
     stop_words.clear();
     error_message.clear();
+    num_draft_tokens = 0;
+    num_draft_tokens_accepted = 0;
+    reset_speculative();
 
     // Clear multimodal state
     bitmap_past_hashes.clear();
@@ -306,6 +317,277 @@ completion_token_output llama_rn_slot::get_next_token() {
     }
 
     return output;
+}
+
+bool llama_rn_slot::should_use_mtp() const {
+    if (params == nullptr || params->speculative.draft.n_max <= 0) {
+        return false;
+    }
+
+    const auto & types = params->speculative.types;
+    return std::find(types.begin(), types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != types.end();
+}
+
+void llama_rn_slot::reset_speculative() {
+    if (spec != nullptr) {
+        common_speculative_free(spec);
+        spec = nullptr;
+    }
+    if (spec_ctx != nullptr) {
+        llama_free(spec_ctx);
+        spec_ctx = nullptr;
+    }
+    if (spec_batch_initialized) {
+        llama_batch_free(spec_batch);
+        spec_batch = {};
+        spec_batch_initialized = false;
+    }
+    spec_prompt.clear();
+    spec_id_last = LLAMA_TOKEN_NULL;
+    spec_n_past = 0;
+    spec_draft.clear();
+    spec_pending_tokens.clear();
+}
+
+void llama_rn_slot::init_mtp() {
+    if (!should_use_mtp() || spec != nullptr) {
+        return;
+    }
+    if (parent_ctx == nullptr || parent_ctx->ctx == nullptr || parent_ctx->model == nullptr) {
+        throw std::runtime_error("MTP speculative decoding requires an initialized context");
+    }
+    if (llama_model_has_encoder(parent_ctx->model)) {
+        throw std::runtime_error("MTP speculative decoding is only supported for decoder-only models");
+    }
+    if (!media_paths.empty()) {
+        throw std::runtime_error("MTP speculative decoding currently supports text-only queued completions");
+    }
+    if (prompt_tokens.empty()) {
+        throw std::runtime_error("MTP speculative decoding requires a non-empty prompt");
+    }
+    if (!load_state_path.empty() || !save_prompt_state_path.empty()) {
+        throw std::runtime_error("MTP speculative decoding for queued completions does not support prompt state load/save");
+    }
+
+    const auto n_mtp = params->speculative.draft.n_max;
+    if ((llama_model_is_recurrent(parent_ctx->model) || llama_model_is_hybrid(parent_ctx->model)) &&
+        llama_n_rs_seq(parent_ctx->ctx) < (uint32_t) n_mtp) {
+        throw std::runtime_error(
+            "MTP for recurrent or hybrid models must be enabled when loading the model "
+            "with speculative.type='draft-mtp' and speculative.n_max/spec_draft_n_max set");
+    }
+
+    reset_speculative();
+
+    auto cparams = common_context_params_to_llama(*params);
+    cparams.ctx_type = LLAMA_CONTEXT_TYPE_MTP;
+    cparams.n_rs_seq = 0;
+
+    spec_ctx = llama_init_from_model(parent_ctx->model, cparams);
+    if (spec_ctx == nullptr) {
+        throw std::runtime_error("failed to create MTP draft context");
+    }
+
+    params->speculative.draft.ctx_tgt = parent_ctx->ctx;
+    params->speculative.draft.ctx_dft = spec_ctx;
+
+    const uint32_t n_seq = std::max<uint32_t>(
+        (uint32_t) std::max<int32_t>(1, params->n_parallel),
+        (uint32_t) id + 1);
+    spec = common_speculative_init(params->speculative, n_seq);
+    if (spec == nullptr) {
+        throw std::runtime_error("failed to initialize MTP speculative decoding");
+    }
+
+    spec_batch = llama_batch_init(llama_n_batch(parent_ctx->ctx), 0, 1);
+    spec_batch_initialized = true;
+
+    common_context_seq_rm(parent_ctx->ctx, id, -1, -1);
+    common_context_seq_rm(spec_ctx, id, -1, -1);
+    n_past = 0;
+
+    eval_mtp_prompt();
+
+    const int64_t t_now = lm_ggml_time_us();
+    t_start_generation = t_now;
+    t_prompt_processing = (t_start_generation - t_start_process) / 1e6;
+    prompt_processing_finished = false;
+    n_prompt_tokens_processed = num_prompt_tokens - n_prompt_tokens_cache;
+}
+
+void llama_rn_slot::eval_mtp_prompt() {
+    const llama_seq_id seq_id = id;
+    const size_t n_prompt = prompt_tokens.size();
+
+    spec_prompt.clear();
+    spec_pending_tokens.clear();
+    spec_draft.clear();
+    spec_id_last = prompt_tokens.back();
+
+    if (n_prompt > 1) {
+        spec_prompt.assign(prompt_tokens.begin(), prompt_tokens.end() - 1);
+    }
+
+    const int32_t n_batch = std::max<int32_t>(1, llama_n_batch(parent_ctx->ctx));
+    size_t offset = 0;
+
+    while (offset < spec_prompt.size()) {
+        common_batch_clear(spec_batch);
+
+        const size_t n_eval = std::min<size_t>(n_batch, spec_prompt.size() - offset);
+        for (size_t i = 0; i < n_eval; ++i) {
+            const bool needs_logits = i + 1 == n_eval;
+            common_batch_add(spec_batch, spec_prompt[offset + i],
+                             (llama_pos) (offset + i), { seq_id }, needs_logits);
+        }
+
+        const int ret = llama_decode(parent_ctx->ctx, spec_batch);
+        if (ret != 0) {
+            throw std::runtime_error("failed to evaluate MTP prompt batch, ret=" + std::to_string(ret));
+        }
+        if (!common_speculative_process(spec, spec_batch)) {
+            throw std::runtime_error("failed to process MTP prompt batch");
+        }
+
+        offset += n_eval;
+    }
+
+    spec_n_past = (llama_pos) spec_prompt.size();
+    n_past = spec_n_past;
+
+    common_speculative_begin(spec, seq_id, spec_prompt);
+}
+
+bool llama_rn_slot::refill_mtp_tokens() {
+    const llama_seq_id seq_id = id;
+
+    if (spec_id_last == LLAMA_TOKEN_NULL || stopped_eos || stopped_limit || context_full) {
+        return false;
+    }
+    if (n_remaining == 0) {
+        stopped_limit = true;
+        return false;
+    }
+
+    if (spec_n_past + 1 >= n_ctx) {
+        context_full = true;
+        return false;
+    }
+
+    spec_draft.clear();
+
+    const int32_t remaining = n_remaining < 0
+        ? std::numeric_limits<int32_t>::max()
+        : n_remaining;
+    const int32_t n_draft_remaining = remaining == std::numeric_limits<int32_t>::max()
+        ? params->speculative.draft.n_max
+        : std::max<int32_t>(0, remaining - 1);
+    const int32_t n_draft_ctx = std::max<int32_t>(0, n_ctx - (int32_t) spec_n_past - 1);
+    const int32_t n_draft_batch = std::max<int32_t>(0, llama_n_batch(parent_ctx->ctx) - 1);
+    const int32_t n_draft_limit = std::min<int32_t>(
+        params->speculative.draft.n_max,
+        std::min<int32_t>(n_draft_remaining, std::min<int32_t>(n_draft_ctx, n_draft_batch)));
+
+    if (n_draft_limit > 0) {
+        common_speculative_get_draft_params(spec, seq_id) = {
+            /* .drafting = */ true,
+            /* .n_max    = */ n_draft_limit,
+            /* .n_past   = */ spec_n_past,
+            /* .id_last  = */ spec_id_last,
+            /* .prompt   = */ &spec_prompt,
+            /* .result   = */ &spec_draft,
+        };
+        common_speculative_draft(spec);
+
+        if ((int32_t) spec_draft.size() > n_draft_limit) {
+            spec_draft.resize(n_draft_limit);
+        }
+
+        common_context_seq_rm(spec_ctx, seq_id, spec_n_past, -1);
+    }
+
+    const size_t n_draft = spec_draft.size();
+    num_draft_tokens += n_draft;
+
+    common_batch_clear(spec_batch);
+    common_batch_add(spec_batch, spec_id_last, spec_n_past, { seq_id }, true);
+    for (size_t i = 0; i < n_draft; ++i) {
+        common_batch_add(spec_batch, spec_draft[i],
+                         spec_n_past + (llama_pos) i + 1, { seq_id }, true);
+    }
+
+    const int ret = llama_decode(parent_ctx->ctx, spec_batch);
+    if (ret != 0) {
+        throw std::runtime_error("failed to evaluate MTP target batch, ret=" + std::to_string(ret));
+    }
+    if (!common_speculative_process(spec, spec_batch)) {
+        throw std::runtime_error("failed to process MTP target batch");
+    }
+
+    auto accepted = common_sampler_sample_and_accept_n(ctx_sampling, parent_ctx->ctx, spec_draft);
+    if (accepted.empty()) {
+        return false;
+    }
+
+    size_t accepted_count = accepted.size();
+    bool saw_eos = false;
+    const llama_vocab* vocab = llama_model_get_vocab(parent_ctx->model);
+    for (size_t i = 0; i < accepted.size(); ++i) {
+        if (llama_vocab_is_eog(vocab, accepted[i])) {
+            accepted_count = i + 1;
+            saw_eos = true;
+            break;
+        }
+
+        spec_pending_tokens.push_back(accepted[i]);
+    }
+
+    const size_t n_accepted_draft = saw_eos
+        ? accepted_count - 1
+        : accepted.size() - 1;
+    if (n_draft > 0) {
+        const size_t n_accepted = std::min(n_accepted_draft, n_draft);
+        num_draft_tokens_accepted += n_accepted;
+        common_speculative_accept(spec, seq_id, (uint16_t) n_accepted);
+    }
+
+    for (size_t i = 0; i < accepted_count; ++i) {
+        spec_prompt.push_back(spec_id_last);
+        spec_id_last = accepted[i];
+    }
+
+    spec_n_past += (llama_pos) accepted_count;
+    n_past = spec_n_past;
+
+    common_context_seq_rm(parent_ctx->ctx, seq_id, spec_n_past, -1);
+    common_context_seq_rm(spec_ctx, seq_id, spec_n_past, -1);
+
+    if (saw_eos) {
+        stopped_eos = true;
+    }
+
+    return !spec_pending_tokens.empty();
+}
+
+completion_token_output llama_rn_slot::next_token_mtp() {
+    completion_token_output result;
+    result.tok = -1;
+    result.request_id = request_id;
+
+    if (spec == nullptr) {
+        init_mtp();
+    }
+
+    if (spec_pending_tokens.empty() && !refill_mtp_tokens()) {
+        return result;
+    }
+
+    result.tok = spec_pending_tokens.front();
+    result.text = common_token_to_piece(parent_ctx->ctx, result.tok);
+    spec_pending_tokens.pop_front();
+    result.request_id = request_id;
+    num_tokens_predicted++;
+    return result;
 }
 
 // Parse chat output (tool calls, reasoning content, etc.)
