@@ -401,6 +401,11 @@ for file in "${files_add_lm_prefix[@]}"; do
     continue
   fi
 
+  # ggml-ext.h is a local compatibility shim, not a copied upstream header.
+  if [[ $file == "./cpp/ggml-ext.h" ]]; then
+    continue
+  fi
+
   # Add prefix to avoid redefinition with other libraries using ggml like whisper.rn
   if [ "$OS" = "Darwin" ]; then
     sed -i '' 's/GGML_/LM_GGML_/g' $file
