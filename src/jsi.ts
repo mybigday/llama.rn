@@ -2,6 +2,7 @@
 import type {
   NativeContextParams,
   NativeCompletionParams,
+  NativeParallelCompletionParams,
   NativeCompletionResult,
   NativeTokenizeResult,
   NativeEmbeddingResult,
@@ -121,7 +122,7 @@ declare global {
   ) => Promise<boolean>
   var llamaQueueCompletion: (
     contextId: number,
-    params: NativeCompletionParams,
+    params: NativeParallelCompletionParams,
     onToken: (token: any, requestId: number) => void,
     onComplete: (result: any) => void,
   ) => Promise<{ requestId: number }>

@@ -77,6 +77,8 @@ if (!NativeModules.RNLlama) {
       ],
       completion_probabilities: completionProbabilities,
       content: '*giggles*',
+      draft_tokens: 0,
+      draft_tokens_accepted: 0,
       text: '*giggles*',
       stopped_eos: true,
       stopped_limit: false,

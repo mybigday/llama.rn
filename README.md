@@ -233,7 +233,7 @@ console.log(result.text)
 console.log(result.draft_tokens, result.draft_tokens_accepted)
 ```
 
-Use `speculative: false` on a completion call to disable MTP for that request. For recurrent or hybrid models, enable MTP at `initLlama` time with a positive `spec_draft_n_max` or `speculative.draft.n_max` so llama.cpp can allocate rollback state. Current MTP support is text-only and is not used by queued parallel completions.
+Use `speculative: false` on a completion call to disable MTP for that request. For recurrent or hybrid models, enable MTP at `initLlama` time with a positive `spec_draft_n_max` or `speculative.draft.n_max` so llama.cpp can allocate rollback state. Current MTP support is text-only, including queued parallel completions.
 
 ## Multimodal (Vision & Audio)
 
