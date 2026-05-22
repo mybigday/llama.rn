@@ -43,8 +43,8 @@ copy_framework_support_files() {
   local framework_path="$1"
 
   copy_headers "$framework_path"
-  cp "$ROOT_DIR/cpp/ggml-metal/ggml-metal.metal" \
-    "$framework_path/ggml-metal.metal"
+  # ggml-metal.metal is no longer shipped: its bytes are embedded into the framework
+  # binary via cpp/ggml-metal/ggml-metal-embed.s (LM_GGML_METAL_EMBED_LIBRARY).
 }
 
 assert_matching_dsym() {

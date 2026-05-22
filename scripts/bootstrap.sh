@@ -113,7 +113,7 @@ cp ./$LLAMA_DIR/ggml/include/gguf.h ./cpp/gguf.h
 
 cp -r ./$LLAMA_DIR/ggml/src/ggml-metal ./cpp/
 rm ./cpp/ggml-metal/CMakeLists.txt
-# Keep ggml-metal.metal for runtime compilation
+# Keep ggml-metal.metal as build-time input — it is embedded into the framework via ggml-metal-embed.s
 # rm ./cpp/ggml-metal/ggml-metal.metal
 
 # Embed headers into ggml-metal.metal for runtime compilation
@@ -454,6 +454,33 @@ for file in "${files_iq_add_lm_prefix[@]}"; do
     sed -i 's/iq3xs_free_impl/lm_iq3xs_free_impl/g' $file
   fi
 done
+
+# Embed ggml-metal.metal into an assembly file so the framework binary carries
+# the merged shader source as a __DATA symbol range. ggml-metal-device.m's
+# LM_GGML_METAL_EMBED_LIBRARY branch then compiles directly from those bytes,
+# avoiding the runtime NSBundle resource load + .metal file path resolution
+# (and the associated MTLCompilerService XPC interruptions on some iOS devices,
+# see llama.rn#348).
+echo "Generating ggml-metal-embed.s..."
+EMBED_ASM="./cpp/ggml-metal/ggml-metal-embed.s"
+METAL_FILE="./cpp/ggml-metal/ggml-metal.metal"
+{
+  # Mach-O section name limit is 16 chars; drop the LM_ prefix here (only the
+  # exported symbols carry it). Matches upstream llama.cpp's __ggml_metallib.
+  echo '.section __DATA,__ggml_metallib'
+  echo '.globl _lm_ggml_metallib_start'
+  echo '_lm_ggml_metallib_start:'
+  # 16 bytes per line, .byte 0xNN,0xNN,...,0xNN
+  # (no -w16: macOS BSD od rejects it; both GNU od and BSD od default to 16 bytes/line)
+  od -An -vtx1 "$METAL_FILE" | awk 'NF>0 {
+    printf ".byte 0x%s", $1
+    for (i=2; i<=NF; i++) printf ",0x%s", $i
+    printf "\n"
+  }'
+  echo '.globl _lm_ggml_metallib_end'
+  echo '_lm_ggml_metallib_end:'
+} > "$EMBED_ASM"
+echo "ggml-metal-embed.s generated ($(wc -l < "$EMBED_ASM") lines)"
 
 echo "Replacement completed successfully!"
 
