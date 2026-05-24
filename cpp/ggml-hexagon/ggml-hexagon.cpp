@@ -2735,9 +2735,10 @@ static bool lm_ggml_hexagon_supported_ssm_conv(const struct lm_ggml_hexagon_sess
     if (dst->ne[0] != d_inner || dst->ne[1] != n_t || dst->ne[2] != n_s) {
         return false;
     }
-
-    // TODO: add support for non-contiguous tensors
-    if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1) || !lm_ggml_is_contiguous(dst)) {
+    if (src0->nb[0] != sizeof(float) || src1->nb[0] != sizeof(float) || dst->nb[0] != sizeof(float)) {
+        return false;
+    }
+    if (src0->nb[1] != src0->ne[0] * sizeof(float) || src1->nb[1] != src1->ne[0] * sizeof(float)) {
         return false;
     }
 

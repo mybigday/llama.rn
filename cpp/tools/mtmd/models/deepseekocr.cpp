@@ -88,164 +88,168 @@ static lm_ggml_tensor * get_rel_pos(lm_ggml_context * ctx0,
     return cur;  // [C, k_size, q_size]
 }
 
+
+lm_ggml_tensor * clip_graph_deepseekocr::build_sam(lm_ggml_tensor * inp_raw) {
+    // Building SAM
+    const int n_embd  = hparams.sam_n_embd;
+    const int n_layer = hparams.sam_n_layer;
+    const int n_heads = hparams.sam_n_head;
+    const int d_heads = n_embd / n_heads;
+    const int window  = hparams.attn_window_size;
+
+    lm_ggml_tensor * inpL;
+
+    inpL = lm_ggml_conv_2d_sk_p0(ctx0, model.patch_embed_proj_w, inp_raw);
+    inpL = lm_ggml_add(ctx0, inpL, lm_ggml_reshape_3d(ctx0, model.patch_embed_proj_b, 1, 1, n_embd));
+    inpL = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, inpL, 1, 2, 0, 3));
+
+    lm_ggml_tensor * rel_pos_indices_local;
+    lm_ggml_tensor * rel_pos_indices_global;
+
+    rel_pos_indices_local  = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_I32, window, window);
+    rel_pos_indices_global = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_I32, inpL->ne[1], inpL->ne[2]);
+    lm_ggml_set_name(rel_pos_indices_local, "rel_pos_indices_local");
+    lm_ggml_set_name(rel_pos_indices_global, "rel_pos_indices_global");
+    lm_ggml_set_input(rel_pos_indices_local);
+    lm_ggml_set_input(rel_pos_indices_global);
+
+    lm_ggml_tensor * cur;
+    const auto    tgt_size = inpL->ne[1];
+    const auto    str_size = model.pos_embed->ne[1];
+
+    if (str_size != tgt_size) {
+        lm_ggml_tensor * old_pos_embed = nullptr;
+        old_pos_embed               = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, model.pos_embed, 2, 0, 1, 3));
+        lm_ggml_tensor * new_pos_embed =
+            lm_ggml_interpolate(ctx0, old_pos_embed, tgt_size, tgt_size, n_embd, 1, LM_GGML_SCALE_MODE_BICUBIC);
+        new_pos_embed = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, new_pos_embed, 1, 2, 0, 3));
+        cur           = lm_ggml_add(ctx0, inpL, new_pos_embed);
+    } else {
+        cur = lm_ggml_add(ctx0, inpL, model.pos_embed);
+    }
+
+    // loop over layers
+    for (int il = 0; il < n_layer; il++) {
+        auto &        layer    = model.sam_layers[il];
+        lm_ggml_tensor * shortcut = cur;
+
+        // layernorm1
+        cur = build_norm(cur, layer.ln_1_w, layer.ln_1_b, NORM_TYPE_NORMAL, eps, il);
+
+        const int64_t w0 = cur->ne[1];
+        const int64_t h0 = cur->ne[2];
+
+        lm_ggml_tensor * indices;
+
+        if (hparams.is_global_attn(il)) {
+            indices = rel_pos_indices_global;
+        } else {
+            // local attention layer - apply window partition
+            cur     = window_partition(ctx0, cur, window);
+            indices = rel_pos_indices_local;
+        }
+
+        const int64_t W = cur->ne[1];
+        const int64_t H = cur->ne[2];
+        // self-attention
+        {
+            const int B = cur->ne[3];
+
+            cur = lm_ggml_mul_mat(ctx0, layer.qkv_w, cur);
+            cur = lm_ggml_add(ctx0, cur, layer.qkv_b);
+            cur = lm_ggml_cont(ctx0, cur); // Ensure tensor is contiguous before reshape
+            cur = lm_ggml_reshape_4d(ctx0, cur, n_embd, 3, W * H, B);
+
+            lm_ggml_tensor * Q;
+            lm_ggml_tensor * K;
+            lm_ggml_tensor * V;
+
+            Q = lm_ggml_view_3d(ctx0, cur, n_embd, W * H, B, cur->nb[2], cur->nb[3], 0 * cur->nb[1]);
+            Q = lm_ggml_reshape_4d(ctx0, lm_ggml_cont(ctx0, Q), d_heads, n_heads, W * H, B);
+
+            K = lm_ggml_view_3d(ctx0, cur, n_embd, W * H, B, cur->nb[2], cur->nb[3], 1 * cur->nb[1]);
+            K = lm_ggml_reshape_4d(ctx0, lm_ggml_cont(ctx0, K), d_heads, n_heads, W * H, B);
+
+            V = lm_ggml_view_3d(ctx0, cur, n_embd, W * H, B, cur->nb[2], cur->nb[3], 2 * cur->nb[1]);
+            V = lm_ggml_reshape_4d(ctx0, lm_ggml_cont(ctx0, V), d_heads, n_heads, W * H, B);
+
+            lm_ggml_tensor * mask;
+            lm_ggml_tensor * rw;
+            lm_ggml_tensor * rh;
+            lm_ggml_tensor * qr;
+
+            rw = get_rel_pos(ctx0, layer.rel_pos_w, indices, W, W); // [W, W, C]
+            rh = get_rel_pos(ctx0, layer.rel_pos_h, indices, H, H); // [H, H, C]
+            qr = lm_ggml_permute(ctx0, Q, 0, 2, 1, 3);
+            qr = lm_ggml_reshape_4d(ctx0, lm_ggml_cont(ctx0, qr), d_heads, W, H, B * n_heads);
+
+            rw = lm_ggml_mul_mat(ctx0, rw,
+                              lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, qr, 0, 2, 1, 3))); // [B*n_heads, W, H, W]
+            rw   = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, rw, 0, 2, 1, 3)); // [B*n_heads, H, W, W]
+            rw   = lm_ggml_reshape_4d(ctx0, rw, W, 1, W * H, n_heads * B);
+            rw   = lm_ggml_repeat_4d(ctx0, rw, W, H, W * H, n_heads * B);
+            rh   = lm_ggml_mul_mat(ctx0, rh, qr); // [B*n_heads, H, W, H]
+            rh   = lm_ggml_reshape_4d(ctx0, rh, 1, H, W * H, n_heads * B);
+            mask = lm_ggml_add(ctx0, rw, rh); // [B*n_heads, H*W, H, W]
+            mask = lm_ggml_reshape_4d(ctx0, mask, W * H, W * H, n_heads, B);
+            // casting mask to F16 only required when flash-attn is enabled
+            if (flash_attn_type == CLIP_FLASH_ATTN_TYPE_ENABLED) {
+                mask = lm_ggml_cast(ctx0, mask, LM_GGML_TYPE_F16);
+            }
+
+            const float scale = 1.0f / sqrtf(static_cast<float>(d_heads));
+
+            cur = build_attn(layer.o_w, layer.o_b, Q, K, V, mask, scale,
+                             il); // [B, H*W, n_embd]
+            cur = lm_ggml_reshape_4d(ctx0, lm_ggml_cont(ctx0, cur), n_embd, W, H, B);
+        }
+
+        if (hparams.is_global_attn(il) == false) {
+            // local attention layer - reverse window partition
+            cur = window_unpartition(ctx0, cur, w0, h0, window);
+        }
+
+        // re-add the layer input, e.g., residual
+        cur = lm_ggml_add(ctx0, cur, shortcut);
+
+        lm_ggml_tensor * inpFF = cur;
+
+        // layernorm2
+        cur = build_norm(inpFF, layer.ln_2_w, layer.ln_2_b, NORM_TYPE_NORMAL, eps, il);
+
+        // ffn
+        cur = build_ffn(cur, layer.ff_up_w, layer.ff_up_b, nullptr, nullptr, layer.ff_down_w, layer.ff_down_b,
+                        hparams.ffn_op, il);
+
+        // residual 2
+        cur = lm_ggml_add(ctx0, cur, inpFF);
+        cb(cur, "sam_layer_out", il);
+    }
+
+    cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 2, 0, 1, 3));
+
+    cur = lm_ggml_conv_2d(ctx0, model.neck_0_w, cur, 1, 1, 0, 0, 1, 1);
+    cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 1, 2, 0, 3));
+    cur = build_norm(cur, model.neck_1_w, model.neck_1_b, NORM_TYPE_NORMAL, hparams.eps, -1);
+    cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 2, 0, 1, 3));
+
+    cur = lm_ggml_conv_2d(ctx0, model.neck_2_w, cur, 1, 1, 1, 1, 1, 1);
+    cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 1, 2, 0, 3));
+    cur = build_norm(cur, model.neck_3_w, model.neck_3_b, NORM_TYPE_NORMAL, hparams.eps, -1);
+    cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 2, 0, 1, 3));
+
+    cur = lm_ggml_conv_2d(ctx0, model.net_2, cur, 2, 2, 1, 1, 1, 1);
+    cur = lm_ggml_conv_2d(ctx0, model.net_3, cur, 2, 2, 1, 1, 1, 1);
+    cb(cur, "sam_output", -1);
+
+    lm_ggml_build_forward_expand(gf, cur);
+    return cur;
+}
+
 lm_ggml_cgraph * clip_graph_deepseekocr::build() {
     // patch embedding
     lm_ggml_tensor * inp_raw = build_inp_raw();
-
-    lm_ggml_tensor * sam_out;
-    // Building SAM
-    {
-        const int n_embd  = hparams.sam_n_embd;
-        const int n_layer = hparams.sam_n_layer;
-        const int n_heads = hparams.sam_n_head;
-        const int d_heads = n_embd / n_heads;
-        const int window  = hparams.attn_window_size;
-
-        lm_ggml_tensor * inpL;
-
-        inpL = lm_ggml_conv_2d_sk_p0(ctx0, model.patch_embed_proj_w, inp_raw);
-        inpL = lm_ggml_add(ctx0, inpL, lm_ggml_reshape_3d(ctx0, model.patch_embed_proj_b, 1, 1, n_embd));
-        inpL = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, inpL, 1, 2, 0, 3));
-
-        lm_ggml_tensor * rel_pos_indices_local;
-        lm_ggml_tensor * rel_pos_indices_global;
-
-        rel_pos_indices_local  = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_I32, window, window);
-        rel_pos_indices_global = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_I32, inpL->ne[1], inpL->ne[2]);
-        lm_ggml_set_name(rel_pos_indices_local, "rel_pos_indices_local");
-        lm_ggml_set_name(rel_pos_indices_global, "rel_pos_indices_global");
-        lm_ggml_set_input(rel_pos_indices_local);
-        lm_ggml_set_input(rel_pos_indices_global);
-
-        lm_ggml_tensor * cur;
-        const auto    tgt_size = inpL->ne[1];
-        const auto    str_size = model.pos_embed->ne[1];
-
-        if (str_size != tgt_size) {
-            lm_ggml_tensor * old_pos_embed = nullptr;
-            old_pos_embed               = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, model.pos_embed, 2, 0, 1, 3));
-            lm_ggml_tensor * new_pos_embed =
-                lm_ggml_interpolate(ctx0, old_pos_embed, tgt_size, tgt_size, n_embd, 1, LM_GGML_SCALE_MODE_BICUBIC);
-            new_pos_embed = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, new_pos_embed, 1, 2, 0, 3));
-            cur           = lm_ggml_add(ctx0, inpL, new_pos_embed);
-        } else {
-            cur = lm_ggml_add(ctx0, inpL, model.pos_embed);
-        }
-
-        // loop over layers
-        for (int il = 0; il < n_layer; il++) {
-            auto &        layer    = model.sam_layers[il];
-            lm_ggml_tensor * shortcut = cur;
-
-            // layernorm1
-            cur = build_norm(cur, layer.ln_1_w, layer.ln_1_b, NORM_TYPE_NORMAL, eps, il);
-
-            const int64_t w0 = cur->ne[1];
-            const int64_t h0 = cur->ne[2];
-
-            lm_ggml_tensor * indices;
-
-            if (hparams.is_global_attn(il)) {
-                indices = rel_pos_indices_global;
-            } else {
-                // local attention layer - apply window partition
-                cur     = window_partition(ctx0, cur, window);
-                indices = rel_pos_indices_local;
-            }
-
-            const int64_t W = cur->ne[1];
-            const int64_t H = cur->ne[2];
-            // self-attention
-            {
-                const int B = cur->ne[3];
-
-                cur = lm_ggml_mul_mat(ctx0, layer.qkv_w, cur);
-                cur = lm_ggml_add(ctx0, cur, layer.qkv_b);
-                cur = lm_ggml_cont(ctx0, cur);  // Ensure tensor is contiguous before reshape
-                cur = lm_ggml_reshape_4d(ctx0, cur, n_embd, 3, W * H, B);
-
-                lm_ggml_tensor * Q;
-                lm_ggml_tensor * K;
-                lm_ggml_tensor * V;
-
-                Q = lm_ggml_view_3d(ctx0, cur, n_embd, W * H, B, cur->nb[2], cur->nb[3], 0 * cur->nb[1]);
-                Q = lm_ggml_reshape_4d(ctx0, lm_ggml_cont(ctx0, Q), d_heads, n_heads, W * H, B);
-
-                K = lm_ggml_view_3d(ctx0, cur, n_embd, W * H, B, cur->nb[2], cur->nb[3], 1 * cur->nb[1]);
-                K = lm_ggml_reshape_4d(ctx0, lm_ggml_cont(ctx0, K), d_heads, n_heads, W * H, B);
-
-                V = lm_ggml_view_3d(ctx0, cur, n_embd, W * H, B, cur->nb[2], cur->nb[3], 2 * cur->nb[1]);
-                V = lm_ggml_reshape_4d(ctx0, lm_ggml_cont(ctx0, V), d_heads, n_heads, W * H, B);
-
-                lm_ggml_tensor * mask;
-                lm_ggml_tensor * rw;
-                lm_ggml_tensor * rh;
-                lm_ggml_tensor * qr;
-
-                rw = get_rel_pos(ctx0, layer.rel_pos_w, indices, W, W);  // [W, W, C]
-                rh = get_rel_pos(ctx0, layer.rel_pos_h, indices, H, H);  // [H, H, C]
-                qr = lm_ggml_permute(ctx0, Q, 0, 2, 1, 3);
-                qr = lm_ggml_reshape_4d(ctx0, lm_ggml_cont(ctx0, qr), d_heads, W, H, B * n_heads);
-
-                rw   = lm_ggml_mul_mat(ctx0, rw,
-                                    lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, qr, 0, 2, 1, 3)));  // [B*n_heads, W, H, W]
-                rw   = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, rw, 0, 2, 1, 3));                // [B*n_heads, H, W, W]
-                rw   = lm_ggml_reshape_4d(ctx0, rw, W, 1, W * H, n_heads * B);
-                rw   = lm_ggml_repeat_4d(ctx0, rw, W, H, W * H, n_heads * B);
-                rh   = lm_ggml_mul_mat(ctx0, rh, qr);  // [B*n_heads, H, W, H]
-                rh   = lm_ggml_reshape_4d(ctx0, rh, 1, H, W * H, n_heads * B);
-                mask = lm_ggml_add(ctx0, rw, rh);      // [B*n_heads, H*W, H, W]
-                mask = lm_ggml_reshape_4d(ctx0, mask, W * H, W * H, n_heads, B);
-                mask = lm_ggml_cast(ctx0, mask, LM_GGML_TYPE_F16);
-
-                const float scale = 1.0f / sqrtf(static_cast<float>(d_heads));
-
-                cur = build_attn(layer.o_w, layer.o_b, Q, K, V, mask, scale,
-                                 il);  // [B, H*W, n_embd]
-                cur = lm_ggml_reshape_4d(ctx0, lm_ggml_cont(ctx0, cur), n_embd, W, H, B);
-            }
-
-            if (hparams.is_global_attn(il) == false) {
-                // local attention layer - reverse window partition
-                cur = window_unpartition(ctx0, cur, w0, h0, window);
-            }
-
-            // re-add the layer input, e.g., residual
-            cur = lm_ggml_add(ctx0, cur, shortcut);
-
-            lm_ggml_tensor * inpFF = cur;
-
-            // layernorm2
-            cur = build_norm(inpFF, layer.ln_2_w, layer.ln_2_b, NORM_TYPE_NORMAL, eps, il);
-
-            // ffn
-            cur = build_ffn(cur, layer.ff_up_w, layer.ff_up_b, nullptr, nullptr, layer.ff_down_w, layer.ff_down_b,
-                            hparams.ffn_op, il);
-
-            // residual 2
-            cur = lm_ggml_add(ctx0, cur, inpFF);
-            cb(cur, "sam_layer_out", il);
-        }
-
-        cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 2, 0, 1, 3));
-
-        cur = lm_ggml_conv_2d(ctx0, model.neck_0_w, cur, 1, 1, 0, 0, 1, 1);
-        cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 1, 2, 0, 3));
-        cur = build_norm(cur, model.neck_1_w, model.neck_1_b, NORM_TYPE_NORMAL, hparams.eps, -1);
-        cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 2, 0, 1, 3));
-
-        cur = lm_ggml_conv_2d(ctx0, model.neck_2_w, cur, 1, 1, 1, 1, 1, 1);
-        cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 1, 2, 0, 3));
-        cur = build_norm(cur, model.neck_3_w, model.neck_3_b, NORM_TYPE_NORMAL, hparams.eps, -1);
-        cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 2, 0, 1, 3));
-
-        cur = lm_ggml_conv_2d(ctx0, model.net_2, cur, 2, 2, 1, 1, 1, 1);
-        cur = lm_ggml_conv_2d(ctx0, model.net_3, cur, 2, 2, 1, 1, 1, 1);
-        cb(cur, "sam_output", -1);
-
-        lm_ggml_build_forward_expand(gf, cur);
-        sam_out = cur;
-    }
+    lm_ggml_tensor * sam_out = build_sam(inp_raw);
 
     lm_ggml_tensor * clip_out;
     // Building DS-OCR CLIP

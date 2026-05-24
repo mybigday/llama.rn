@@ -8,7 +8,7 @@ PODS:
   - hermes-engine (0.82.0):
     - hermes-engine/Pre-built (= 0.82.0)
   - hermes-engine/Pre-built (0.82.0)
-  - llama-rn (0.12.2):
+  - llama-rn (0.12.3):
     - boost
     - DoubleConversion
     - fast_float
@@ -3026,7 +3026,7 @@ SPEC CHECKSUMS:
   fmt: bf3b0f2427f5c78a3d39ac34a7dbe72faabf986d
   glog: 5683914934d5b6e4240e497e0f4a3b42d1854183
   hermes-engine: 8642d8f14a548ab718ec112e9bebdfdd154138b5
-  llama-rn: 7c747bc3524474d621a96e5c2e13996958d175d7
+  llama-rn: 3572e98802d66df7bac065705dac4c8b4928d200
   RCT-Folly: 846fda9475e61ec7bcbf8a3fe81edfcaeb090669
   RCTDeprecation: 22bf66112da540a7d40e536366ddd8557934fca1
   RCTRequired: a0ed4dc41b35f79fbb6d8ba320e06882a8c792cf
@@ -3097,7 +3097,7 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: c5c4f5280e4ae0f9f4a739c64c4260fe0b3edaf1
   ReactCodegen: 374f1c9242fbdd673b460d358b33860c0cc9d926
   ReactCommon: 25c7f94aee74ddd93a8287756a8ac0830a309544
-  RNAudioAPI: 8f309254a527a858541a692c2ef2db606ad44c14
+  RNAudioAPI: 8a9d346fac228321993ac9016b6a6c70fa9cf9fb
   RNCAsyncStorage: 29f0230e1a25f36c20b05f65e2eb8958d6526e82
   RNCClipboard: f538e2ba34c187a6597c2f17c4faa4e1cafae97c
   RNGestureHandler: f1dd7f92a0faa2868a919ab53bb9d66eb4ebfcf5
@@ -3107,4 +3107,4 @@ SPEC CHECKSUMS:
 
 PODFILE CHECKSUM: 9ae6aa21acbbf582851316ed853d11bbc9718098
 
-COCOAPODS: 1.15.2
+COCOAPODS: 1.16.2
