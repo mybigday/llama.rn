@@ -73,6 +73,7 @@ lib/
 docs/API/.nojekyll
 
 *.metallib
+cpp/ggml-metal/ggml-metal-embed.s
 .xocde.env.local
 
 build-arm64/
