@@ -76,6 +76,7 @@ LM_GGML_API size_t lm_ggml_gallocr_get_buffer_size(lm_ggml_gallocr_t galloc, int
 // Utils
 // Create a buffer and allocate all the tensors in a lm_ggml_context
 // lm_ggml_backend_alloc_ctx_tensors_from_buft_size returns the size of the buffer that would be allocated by lm_ggml_backend_alloc_ctx_tensors_from_buft
+// lm_ggml_backend_alloc_ctx_tensors_from_buft returns NULL on failure or if all tensors in ctx are already allocated or zero-sized
 LM_GGML_API size_t                       lm_ggml_backend_alloc_ctx_tensors_from_buft_size(struct lm_ggml_context * ctx, lm_ggml_backend_buffer_type_t buft);
 LM_GGML_API struct lm_ggml_backend_buffer * lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_ggml_context * ctx, lm_ggml_backend_buffer_type_t buft);
 LM_GGML_API struct lm_ggml_backend_buffer * lm_ggml_backend_alloc_ctx_tensors(struct lm_ggml_context * ctx, lm_ggml_backend_t backend);
