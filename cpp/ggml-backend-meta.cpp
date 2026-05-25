@@ -1275,6 +1275,9 @@ static void lm_ggml_backend_meta_buffer_set_tensor(lm_ggml_backend_buffer_t buff
             for (size_t j = 0; j < n_bufs; j++) {
                 lm_ggml_tensor * simple_tensor = lm_ggml_backend_meta_buffer_simple_tensor(tensor, j);
                 const size_t chunk_size_j = simple_tensor->nb[split_state.axis + 1];
+                if (chunk_size_j == 0) {
+                    continue;
+                }
                 const size_t simple_offset = i_start * chunk_size_j;
                 lm_ggml_backend_tensor_set_2d(simple_tensor, (const char *) data + offset_j, simple_offset, chunk_size_j, i_stop - i_start, chunk_size_j, chunk_size_full);
                 offset_j += chunk_size_j;
@@ -1382,6 +1385,9 @@ static void lm_ggml_backend_meta_buffer_get_tensor(lm_ggml_backend_buffer_t buff
             for (size_t j = 0; j < n_bufs; j++){
                 const lm_ggml_tensor * simple_tensor = lm_ggml_backend_meta_buffer_simple_tensor(tensor, j);
                 const size_t chunk_size_j = simple_tensor->nb[split_state.axis + 1];
+                if (chunk_size_j == 0) {
+                    continue;
+                }
                 const size_t simple_offset = i_start * chunk_size_j;
                 lm_ggml_backend_tensor_get_2d(simple_tensor, (char *) data + offset_j, simple_offset, chunk_size_j, i_stop - i_start, chunk_size_j, chunk_size_full);
                 offset_j += chunk_size_j;
@@ -1445,6 +1451,7 @@ static lm_ggml_backend_buffer_t lm_ggml_backend_meta_buffer_type_alloc_buffer(lm
     buf_ctx->buf_configs.reserve(n_simple_bufts);
     for (size_t i = 0; i < n_simple_bufts; i++) {
         lm_ggml_backend_buffer_t simple_buf = lm_ggml_backend_buft_alloc_buffer(lm_ggml_backend_meta_buft_simple_buft(buft, i), size);
+        LM_GGML_ASSERT(simple_buf != nullptr);
         max_size = std::max(max_size, lm_ggml_backend_buffer_get_size(simple_buf));
         buf_ctx->buf_configs.emplace_back(lm_ggml_init(params), simple_buf);
     }
@@ -1474,8 +1481,27 @@ struct lm_ggml_backend_buffer * lm_ggml_backend_meta_alloc_ctx_tensors_from_buft
         t->data = (void *) 0x2000000000000000; // FIXME
     }
     for (size_t i = 0; i < n_simple_bufts; i++) {
-        meta_buf_ctx->buf_configs[i].buf = lm_ggml_backend_alloc_ctx_tensors_from_buft(
-            meta_buf_ctx->buf_configs[i].ctx, lm_ggml_backend_meta_buft_simple_buft(buft, i));
+        lm_ggml_context * ctx = meta_buf_ctx->buf_configs[i].ctx;
+        lm_ggml_backend_buffer_type_t simple_buft = lm_ggml_backend_meta_buft_simple_buft(buft, i);
+
+        // If a lm_ggml_context only has zero-sized tensors, lm_ggml_backend_alloc_ctx_tensors_from_buft returns NULL.
+        // For those edge cases, allocate a dummy buffer instead.
+        bool any_nonzero_slice = false;
+        for (lm_ggml_tensor * t = lm_ggml_get_first_tensor(ctx); t != nullptr; t = lm_ggml_get_next_tensor(ctx, t)) {
+            if (lm_ggml_nelements(t) != 0) {
+                any_nonzero_slice = true;
+                break;
+            }
+        }
+        if (any_nonzero_slice) {
+            meta_buf_ctx->buf_configs[i].buf = lm_ggml_backend_alloc_ctx_tensors_from_buft(ctx, simple_buft);
+        } else {
+            meta_buf_ctx->buf_configs[i].buf = lm_ggml_backend_buft_alloc_buffer(simple_buft, 0);
+            for (lm_ggml_tensor * t = lm_ggml_get_first_tensor(ctx); t != nullptr; t = lm_ggml_get_next_tensor(ctx, t)) {
+                t->buffer = meta_buf_ctx->buf_configs[i].buf;
+            }
+        }
+        LM_GGML_ASSERT(meta_buf_ctx->buf_configs[i].buf != nullptr);
         meta_buf->size = std::max(meta_buf->size, lm_ggml_backend_buffer_get_size(meta_buf_ctx->buf_configs[i].buf));
     }
     return meta_buf;
@@ -1605,6 +1631,9 @@ static void lm_ggml_backend_meta_set_tensor_async(lm_ggml_backend_t backend, lm_
                 lm_ggml_backend_t simple_backend = lm_ggml_backend_meta_simple_backend(backend, j);
                 lm_ggml_tensor * simple_tensor = lm_ggml_backend_meta_buffer_simple_tensor(tensor, j);
                 const size_t chunk_size_j = simple_tensor->nb[split_state.axis + 1];
+                if (chunk_size_j == 0) {
+                    continue;
+                }
                 lm_ggml_backend_tensor_set_2d_async(simple_backend, simple_tensor, (const char *) data + offset_j, offset, chunk_size_j,
                     i_stop - i_start, chunk_size_j, chunk_size_full);
                 offset_j += chunk_size_j;
@@ -1646,6 +1675,9 @@ static void lm_ggml_backend_meta_get_tensor_async(lm_ggml_backend_t backend, con
                 lm_ggml_backend_t simple_backend = lm_ggml_backend_meta_simple_backend(backend, j);
                 const lm_ggml_tensor * simple_tensor = lm_ggml_backend_meta_buffer_simple_tensor(tensor, j);
                 const size_t chunk_size_j = simple_tensor->nb[split_state.axis + 1];
+                if (chunk_size_j == 0) {
+                    continue;
+                }
                 lm_ggml_backend_tensor_get_2d_async(simple_backend, simple_tensor, (char *) data + offset_j, offset, chunk_size_j,
                     i_stop - i_start, chunk_size_j, chunk_size_full);
                 offset_j += chunk_size_j;
