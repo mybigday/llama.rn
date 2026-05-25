@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(rnllama VERSION 1.0.0 LANGUAGES CXX C)
+project(rnllama VERSION 1.0.0 LANGUAGES CXX C ASM)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,7 @@ add_definitions(
     -DLM_GGML_USE_BLAS
     -DLM_GGML_BLAS_USE_ACCELERATE
     -DLM_GGML_USE_METAL
+    -DLM_GGML_METAL_EMBED_LIBRARY=1
 )
 
 if (CMAKE_OSX_ARCHITECTURES STREQUAL "arm64;x86_64")
@@ -32,6 +33,8 @@ file(GLOB GGML_CPU_CPP_FILES ${SOURCE_DIR}/ggml-cpu/*.cpp)
 file(GLOB GGML_CPU_AMX_FILES ${SOURCE_DIR}/ggml-cpu/amx/*.cpp)
 file(GLOB GGML_METAL_CPP_FILES ${SOURCE_DIR}/ggml-metal/*.cpp)
 file(GLOB GGML_METAL_M_FILES ${SOURCE_DIR}/ggml-metal/*.m)
+file(GLOB GGML_METAL_S_FILES ${SOURCE_DIR}/ggml-metal/*.s)
+set_source_files_properties(${GGML_METAL_S_FILES} PROPERTIES LANGUAGE ASM)
 file(GLOB GGML_BLAS_FILES ${SOURCE_DIR}/ggml-blas/*.cpp)
 file(GLOB LLAMA_FILES ${SOURCE_DIR}/llama*.cpp)
 file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
@@ -81,6 +84,7 @@ add_library(rnllama SHARED
     # GGML Metal files (globbed)
     ${GGML_METAL_CPP_FILES}
     ${GGML_METAL_M_FILES}
+    ${GGML_METAL_S_FILES}
 
     # GGML BLAS files (globbed)
     ${GGML_BLAS_FILES}

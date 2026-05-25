@@ -5,7 +5,7 @@ base_ld_flags = "-framework Accelerate -framework Foundation -framework Metal -f
 base_compiler_flags = "-fno-objc-arc -DLM_GGML_USE_CPU -DLM_GGML_USE_ACCELERATE -DLM_GGML_USE_BLAS -DLM_GGML_BLAS_USE_ACCELERATE -DLM_GGML_USE_CPU_REPACK -Wno-shorten-64-to-32"
 
 if ENV["RNLLAMA_DISABLE_METAL"] != "1" then
-  base_compiler_flags += " -DLM_GGML_USE_METAL" # -DLM_GGML_METAL_NDEBUG
+  base_compiler_flags += " -DLM_GGML_USE_METAL -DLM_GGML_METAL_EMBED_LIBRARY=1" # -DLM_GGML_METAL_NDEBUG
 end
 
 # Use base_optimizer_flags = "" for debug builds
@@ -31,11 +31,10 @@ Pod::Spec.new do |s|
   header_search_paths = ['$(inherited)']
 
   if ENV["RNLLAMA_BUILD_FROM_SOURCE"] == "1"
-    s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,m,mm}"
+    s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,m,mm,s}"
     # Exclude standalone tooling sources copied from llama.cpp. The mtmd debug
     # CLI depends on common/arg.h and should not be linked into the RN library.
     s.exclude_files = "cpp/ggml-opencl/*.{c,cpp}", "cpp/ggml-hexagon/**/*.{c,cpp}", "cpp/tools/mtmd/debug/*.cpp"
-    s.resources = "cpp/ggml-metal/ggml-metal.metal"
     base_compiler_flags += " -DRNLLAMA_BUILD_FROM_SOURCE"
     header_search_paths << '"$(PODS_TARGET_SRCROOT)/cpp"'
     header_search_paths << '"${PODS_TARGET_SRCROOT}/cpp/common"'

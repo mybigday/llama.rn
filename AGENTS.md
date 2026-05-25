@@ -49,7 +49,7 @@
 2. Copies source files to `cpp/` directory
 3. Renames symbols with `LM_` prefix to prevent conflicts
 4. Applies patches from `scripts/patches/`
-5. Builds Metal shader libraries (`.metallib`) for iOS GPU acceleration
+5. Inlines `ggml-common.h` / `ggml-metal-impl.h` into `ggml-metal.metal` and emits `ggml-metal-embed.s` so the merged Metal source is embedded into the framework binary (avoids `.metallib` distribution and runtime `.metal` file loading; see #348)
 6. Generates version info from llama.cpp git history
 
 **Always run `npm run bootstrap` after updating the llama.cpp submodule.**
