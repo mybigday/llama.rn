@@ -1189,8 +1189,8 @@ extern "C" {
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a);
 
-    // a - x
-    // b - dy
+    // a - dy
+    // b - x
     LM_GGML_API struct lm_ggml_tensor * lm_ggml_silu_back(
             struct lm_ggml_context * ctx,
             struct lm_ggml_tensor  * a,

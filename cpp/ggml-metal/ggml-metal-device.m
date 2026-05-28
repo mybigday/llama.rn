@@ -628,6 +628,50 @@ void lm_ggml_metal_rsets_free(lm_ggml_metal_rsets_t rsets) {
     free(rsets);
 }
 
+static enum lm_ggml_metal_device_id lm_ggml_metal_device_id_parse(const char * name) {
+    if (!name) {
+        return LM_GGML_METAL_DEVICE_GENERIC;
+    }
+
+    static const char prefix[] = "Apple ";
+    if (strncmp(name, prefix, sizeof(prefix) - 1) != 0) {
+        return LM_GGML_METAL_DEVICE_GENERIC;
+    }
+    const char * suffix = name + sizeof(prefix) - 1;
+
+    static const struct {
+        const char * name;
+        enum lm_ggml_metal_device_id id;
+    } table[] = {
+        {"M1",       LM_GGML_METAL_DEVICE_M1},
+        {"M1 Pro",   LM_GGML_METAL_DEVICE_M1_PRO},
+        {"M1 Max",   LM_GGML_METAL_DEVICE_M1_MAX},
+        {"M1 Ultra", LM_GGML_METAL_DEVICE_M1_ULTRA},
+        {"M2",       LM_GGML_METAL_DEVICE_M2},
+        {"M2 Pro",   LM_GGML_METAL_DEVICE_M2_PRO},
+        {"M2 Max",   LM_GGML_METAL_DEVICE_M2_MAX},
+        {"M2 Ultra", LM_GGML_METAL_DEVICE_M2_ULTRA},
+        {"M3",       LM_GGML_METAL_DEVICE_M3},
+        {"M3 Pro",   LM_GGML_METAL_DEVICE_M3_PRO},
+        {"M3 Max",   LM_GGML_METAL_DEVICE_M3_MAX},
+        {"M3 Ultra", LM_GGML_METAL_DEVICE_M3_ULTRA},
+        {"M4",       LM_GGML_METAL_DEVICE_M4},
+        {"M4 Pro",   LM_GGML_METAL_DEVICE_M4_PRO},
+        {"M4 Max",   LM_GGML_METAL_DEVICE_M4_MAX},
+        {"M5",       LM_GGML_METAL_DEVICE_M5},
+        {"M5 Pro",   LM_GGML_METAL_DEVICE_M5_PRO},
+        {"M5 Max",   LM_GGML_METAL_DEVICE_M5_MAX},
+        {"M5 Ultra", LM_GGML_METAL_DEVICE_M5_ULTRA},
+    };
+
+    for (size_t i = 0; i < sizeof(table)/sizeof(table[0]); ++i) {
+        if (strcmp(suffix, table[i].name) == 0) {
+            return table[i].id;
+        }
+    }
+    return LM_GGML_METAL_DEVICE_GENERIC;
+}
+
 lm_ggml_metal_device_t lm_ggml_metal_device_init(int device) {
     lm_ggml_metal_device_t dev = calloc(1, sizeof(struct lm_ggml_metal_device));
 
@@ -794,6 +838,8 @@ lm_ggml_metal_device_t lm_ggml_metal_device_init(int device) {
             }
 
             dev->props.supports_gpu_family_apple7 = [dev->mtl_device supportsFamily:MTLGPUFamilyApple7];
+
+            dev->props.device_id = lm_ggml_metal_device_id_parse([[dev->mtl_device name] UTF8String]);
 
             dev->props.op_offload_min_batch_size  = getenv("LM_GGML_OP_OFFLOAD_MIN_BATCH") ? atoi(getenv("LM_GGML_OP_OFFLOAD_MIN_BATCH")) : 32;
 
