@@ -1125,25 +1125,12 @@ static inline void __lasx_f32cx8_store(lm_ggml_fp16_t * x, __m256 y) {
 #define LM_GGML_F16_EPR  4
 
 static inline __m128 __lsx_f16x4_load(const lm_ggml_fp16_t * x) {
-    float tmp[4];
-
-    tmp[0] = LM_GGML_CPU_FP16_TO_FP32(x[0]);
-    tmp[1] = LM_GGML_CPU_FP16_TO_FP32(x[1]);
-    tmp[2] = LM_GGML_CPU_FP16_TO_FP32(x[2]);
-    tmp[3] = LM_GGML_CPU_FP16_TO_FP32(x[3]);
-
-    return (__m128)__lsx_vld(tmp, 0);
+    return __lsx_vfcvtl_s_h(__lsx_vld((const void *)x, 0));
 }
 
 static inline void __lsx_f16x4_store(lm_ggml_fp16_t * x, __m128 y) {
-    float arr[4];
-
-    __lsx_vst(y, arr, 0);
-
-    x[0] = LM_GGML_CPU_FP32_TO_FP16(arr[0]);
-    x[1] = LM_GGML_CPU_FP32_TO_FP16(arr[1]);
-    x[2] = LM_GGML_CPU_FP32_TO_FP16(arr[2]);
-    x[3] = LM_GGML_CPU_FP32_TO_FP16(arr[3]);
+    __m128i a = __lsx_vfcvt_h_s(y, y);
+    memcpy(x, &a, sizeof(lm_ggml_fp16_t) * 4);
 }
 
 #define LM_GGML_F32Cx4             __m128

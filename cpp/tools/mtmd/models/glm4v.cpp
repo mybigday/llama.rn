@@ -16,8 +16,8 @@ lm_ggml_cgraph * clip_graph_glm4v::build() {
     lm_ggml_set_name(positions, "positions");
     lm_ggml_set_input(positions);
 
-    LM_GGML_ASSERT(img.nx % (patch_size * 2) == 0);
-    LM_GGML_ASSERT(img.ny % (patch_size * 2) == 0);
+    LM_GGML_ASSERT(img.nx() % (patch_size * 2) == 0);
+    LM_GGML_ASSERT(img.ny() % (patch_size * 2) == 0);
 
     // second conv dimension
     {

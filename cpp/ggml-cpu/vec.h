@@ -14,6 +14,35 @@
 // floating point type used to accumulate sums
 typedef double lm_ggml_float;
 
+#if defined(__ARM_FEATURE_SVE)
+inline static void lm_ggml_sve_f16_fma_widened(
+        svfloat32_t * acc_lo,
+        svfloat32_t * acc_hi,
+        svfloat16_t x,
+        svfloat16_t y) {
+#if defined(__ARM_FEATURE_SVE2)
+    *acc_lo = svmlalb_f32(*acc_lo, x, y);
+    *acc_hi = svmlalt_f32(*acc_hi, x, y);
+#else
+    // Plain SVE fallback path if SVE2 instructions not available
+    svfloat16_t x_even = svtrn1_f16(x, x);
+    svfloat16_t x_odd = svtrn2_f16(x, x);
+
+    svfloat16_t y_even = svtrn1_f16(y, y);
+    svfloat16_t y_odd = svtrn2_f16(y, y);
+
+    svbool_t pg = svptrue_b32();
+
+    *acc_lo = svmla_f32_x(pg, *acc_lo, svcvt_f32_f16_x(pg, x_even), svcvt_f32_f16_x(pg, y_even));
+    *acc_hi = svmla_f32_x(pg, *acc_hi, svcvt_f32_f16_x(pg, x_odd), svcvt_f32_f16_x(pg, y_odd));
+#endif
+}
+
+inline static lm_ggml_float lm_ggml_sve_sum_f32x2(svfloat32_t sum_lo, svfloat32_t sum_hi) {
+    return (lm_ggml_float) (svaddv_f32(svptrue_b32(), sum_lo) + svaddv_f32(svptrue_b32(), sum_hi));
+}
+#endif
+
 #define LM_GGML_GELU_FP16
 #define LM_GGML_GELU_QUICK_FP16
 
@@ -122,108 +151,61 @@ inline static void lm_ggml_vec_dot_f16_unroll(const int n, const int xs, float *
 #if defined(LM_GGML_SIMD)
     #if defined(__ARM_FEATURE_SVE)
 
-        const int sve_register_length = svcntb() * 8;
-        const int lm_ggml_f16_epr = sve_register_length / 16; // running when 16
-        const int lm_ggml_f16_step = 8 * lm_ggml_f16_epr; // choose 8 SVE registers
+        const int lm_ggml_f16_epr = svcnth();
+        const int lm_ggml_f16_step = 2 * lm_ggml_f16_epr;
+        int np = n - (n % lm_ggml_f16_step);
+        int np2 = n - (n % lm_ggml_f16_epr);
 
-        int np = (n & ~(lm_ggml_f16_step - 1));
-
-        svfloat16_t sum_00 = svdup_n_f16(0.0f);
-        svfloat16_t sum_01 = svdup_n_f16(0.0f);
-        svfloat16_t sum_02 = svdup_n_f16(0.0f);
-        svfloat16_t sum_03 = svdup_n_f16(0.0f);
-
-        svfloat16_t sum_10 = svdup_n_f16(0.0f);
-        svfloat16_t sum_11 = svdup_n_f16(0.0f);
-        svfloat16_t sum_12 = svdup_n_f16(0.0f);
-        svfloat16_t sum_13 = svdup_n_f16(0.0f);
-
-        svfloat16_t ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8;
-        svfloat16_t ay1, ay2, ay3, ay4, ay5, ay6, ay7, ay8;
+        svfloat32_t sum_0_0_lo = svdup_n_f32(0.0f);
+        svfloat32_t sum_0_0_hi = svdup_n_f32(0.0f);
+        svfloat32_t sum_0_1_lo = svdup_n_f32(0.0f);
+        svfloat32_t sum_0_1_hi = svdup_n_f32(0.0f);
+        svfloat32_t sum_1_0_lo = svdup_n_f32(0.0f);
+        svfloat32_t sum_1_0_hi = svdup_n_f32(0.0f);
+        svfloat32_t sum_1_1_lo = svdup_n_f32(0.0f);
+        svfloat32_t sum_1_1_hi = svdup_n_f32(0.0f);
 
         for (int i = 0; i < np; i += lm_ggml_f16_step) {
-            ay1 = LM_GGML_F16x_VEC_LOAD(y + i + 0 * lm_ggml_f16_epr, 0); // 8 elements
+            const svfloat16_t ay0 = LM_GGML_F16x_VEC_LOAD(y + i, 0);
+            const svfloat16_t ax00 = LM_GGML_F16x_VEC_LOAD(x[0] + i, 0);
+            const svfloat16_t ax01 = LM_GGML_F16x_VEC_LOAD(x[1] + i, 0);
 
-            ax1 = LM_GGML_F16x_VEC_LOAD(x[0] + i + 0*lm_ggml_f16_epr, 0); // 8 elements
-            sum_00 = LM_GGML_F16x_VEC_FMA(sum_00, ax1, ay1);     // sum_00 = sum_00+ax1*ay1
-            ax1 = LM_GGML_F16x_VEC_LOAD(x[1] + i + 0*lm_ggml_f16_epr, 0); // 8 elements
-            sum_10 = LM_GGML_F16x_VEC_FMA(sum_10, ax1, ay1);
+            lm_ggml_sve_f16_fma_widened(&sum_0_0_lo, &sum_0_0_hi, ax00, ay0);
+            lm_ggml_sve_f16_fma_widened(&sum_1_0_lo, &sum_1_0_hi, ax01, ay0);
 
-            ay2 = LM_GGML_F16x_VEC_LOAD(y + i + 1 * lm_ggml_f16_epr, 1); // next 8 elements
+            const svfloat16_t ay1 = LM_GGML_F16x_VEC_LOAD(y + i + 1 * lm_ggml_f16_epr, 0);
+            const svfloat16_t ax10 = LM_GGML_F16x_VEC_LOAD(x[0] + i + 1 * lm_ggml_f16_epr, 0);
+            const svfloat16_t ax11 = LM_GGML_F16x_VEC_LOAD(x[1] + i + 1 * lm_ggml_f16_epr, 0);
 
-            ax2 = LM_GGML_F16x_VEC_LOAD(x[0] + i + 1*lm_ggml_f16_epr, 1); // next 8 elements
-            sum_01 = LM_GGML_F16x_VEC_FMA(sum_01, ax2, ay2);
-            ax2 = LM_GGML_F16x_VEC_LOAD(x[1] + i + 1*lm_ggml_f16_epr, 1);
-            sum_11 = LM_GGML_F16x_VEC_FMA(sum_11, ax2, ay2);
-
-            ay3 = LM_GGML_F16x_VEC_LOAD(y + i + 2 * lm_ggml_f16_epr, 2);
-
-            ax3 = LM_GGML_F16x_VEC_LOAD(x[0] + i + 2*lm_ggml_f16_epr, 2);
-            sum_02 = LM_GGML_F16x_VEC_FMA(sum_02, ax3, ay3);
-            ax3 = LM_GGML_F16x_VEC_LOAD(x[1] + i + 2*lm_ggml_f16_epr, 2);
-            sum_12 = LM_GGML_F16x_VEC_FMA(sum_12, ax3, ay3);
-
-            ay4 = LM_GGML_F16x_VEC_LOAD(y + i + 3 * lm_ggml_f16_epr, 3);
-
-            ax4 = LM_GGML_F16x_VEC_LOAD(x[0] + i + 3*lm_ggml_f16_epr, 3);
-            sum_03 = LM_GGML_F16x_VEC_FMA(sum_03, ax4, ay4);
-            ax4 = LM_GGML_F16x_VEC_LOAD(x[1] + i + 3*lm_ggml_f16_epr, 3);
-            sum_13 = LM_GGML_F16x_VEC_FMA(sum_13, ax4, ay4);
-
-            ay5 = LM_GGML_F16x_VEC_LOAD(y + i + 4 * lm_ggml_f16_epr, 4);
-
-            ax5 = LM_GGML_F16x_VEC_LOAD(x[0] + i + 4*lm_ggml_f16_epr, 4);
-
-            sum_00 = LM_GGML_F16x_VEC_FMA(sum_00, ax5, ay5);
-            ax5 = LM_GGML_F16x_VEC_LOAD(x[1] + i + 4*lm_ggml_f16_epr, 4);
-            sum_10 = LM_GGML_F16x_VEC_FMA(sum_10, ax5, ay5);
-
-            ay6 = LM_GGML_F16x_VEC_LOAD(y + i + 5 * lm_ggml_f16_epr, 5);
-
-            ax6 = LM_GGML_F16x_VEC_LOAD(x[0] + i + 5*lm_ggml_f16_epr, 5);
-
-            sum_01 = LM_GGML_F16x_VEC_FMA(sum_01, ax6, ay6);
-            ax6 = LM_GGML_F16x_VEC_LOAD(x[1] + i + 5*lm_ggml_f16_epr, 5);
-            sum_11 = LM_GGML_F16x_VEC_FMA(sum_11, ax6, ay6);
-
-            ay7 = LM_GGML_F16x_VEC_LOAD(y + i + 6 * lm_ggml_f16_epr, 6);
-
-            ax7 = LM_GGML_F16x_VEC_LOAD(x[0] + i + 6*lm_ggml_f16_epr, 6);
-
-            sum_02 = LM_GGML_F16x_VEC_FMA(sum_02, ax7, ay7);
-            ax7 = LM_GGML_F16x_VEC_LOAD(x[1] + i + 6*lm_ggml_f16_epr, 6);
-            sum_12 = LM_GGML_F16x_VEC_FMA(sum_12, ax7, ay7);
-
-            ay8 = LM_GGML_F16x_VEC_LOAD(y + i + 7 * lm_ggml_f16_epr, 7);
-
-            ax8 = LM_GGML_F16x_VEC_LOAD(x[0] + i + 7*lm_ggml_f16_epr, 7);
-
-            sum_03 = LM_GGML_F16x_VEC_FMA(sum_03, ax8, ay8);
-            ax8 = LM_GGML_F16x_VEC_LOAD(x[1] + i + 7*lm_ggml_f16_epr, 7);
-            sum_13 = LM_GGML_F16x_VEC_FMA(sum_13, ax8, ay8);
+            lm_ggml_sve_f16_fma_widened(&sum_0_1_lo, &sum_0_1_hi, ax10, ay1);
+            lm_ggml_sve_f16_fma_widened(&sum_1_1_lo, &sum_1_1_hi, ax11, ay1);
         }
 
-        const int np2 = (n & ~(lm_ggml_f16_epr - 1));
-        for (int k = np; k < np2; k += lm_ggml_f16_epr) {
-            svfloat16_t ry = LM_GGML_F16x_VEC_LOAD(y + k, 0);
+        for (int i = np; i < np2; i += lm_ggml_f16_epr) {
+            const svfloat16_t ry = LM_GGML_F16x_VEC_LOAD(y + i, 0);
+            const svfloat16_t rx0 = LM_GGML_F16x_VEC_LOAD(x[0] + i, 0);
+            const svfloat16_t rx1 = LM_GGML_F16x_VEC_LOAD(x[1] + i, 0);
 
-            svfloat16_t rx = LM_GGML_F16x_VEC_LOAD(x[0] + k, 0);
-            sum_00 = LM_GGML_F16x_VEC_FMA(sum_00, rx, ry);
-            rx = LM_GGML_F16x_VEC_LOAD(x[1] + k, 0);
-            sum_10 = LM_GGML_F16x_VEC_FMA(sum_10, rx, ry);
+            lm_ggml_sve_f16_fma_widened(&sum_0_0_lo, &sum_0_0_hi, rx0, ry);
+            lm_ggml_sve_f16_fma_widened(&sum_1_0_lo, &sum_1_0_hi, rx1, ry);
         }
 
         if (np2 < n) {
-            svbool_t pg = svwhilelt_b16(np2, n);
-            svfloat16_t hx_0 = svld1_f16(pg, (const __fp16 *)(x[0] + np2));
-            svfloat16_t hx_1 = svld1_f16(pg, (const __fp16 *)(x[1] + np2));
-            svfloat16_t hy = svld1_f16(pg, (const __fp16 *)(y + np2));
+            const svbool_t pg = svwhilelt_b16(np2, n);
+            const svfloat16_t ay = svld1_f16(pg, (const __fp16 *)(y + np2));
+            const svfloat16_t ax0 = svld1_f16(pg, (const __fp16 *)(x[0] + np2));
+            const svfloat16_t ax1 = svld1_f16(pg, (const __fp16 *)(x[1] + np2));
 
-            sum_00 = svmad_f16_x(pg, hx_0, hy, sum_00);
-            sum_10 = svmad_f16_x(pg, hx_1, hy, sum_10);
+            lm_ggml_sve_f16_fma_widened(&sum_0_0_lo, &sum_0_0_hi, ax0, ay);
+            lm_ggml_sve_f16_fma_widened(&sum_1_0_lo, &sum_1_0_hi, ax1, ay);
         }
-        LM_GGML_F16x_VEC_REDUCE(sumf[0], sum_00, sum_01, sum_02, sum_03);
-        LM_GGML_F16x_VEC_REDUCE(sumf[1], sum_10, sum_11, sum_12, sum_13);
+
+        svfloat32_t sum_0_lo = svadd_f32_x(DEFAULT_PG32, sum_0_0_lo, sum_0_1_lo);
+        svfloat32_t sum_0_hi = svadd_f32_x(DEFAULT_PG32, sum_0_0_hi, sum_0_1_hi);
+        svfloat32_t sum_1_lo = svadd_f32_x(DEFAULT_PG32, sum_1_0_lo, sum_1_1_lo);
+        svfloat32_t sum_1_hi = svadd_f32_x(DEFAULT_PG32, sum_1_0_hi, sum_1_1_hi);
+        sumf[0] = lm_ggml_sve_sum_f32x2(sum_0_lo, sum_0_hi);
+        sumf[1] = lm_ggml_sve_sum_f32x2(sum_1_lo, sum_1_hi);
         np = n;
     #elif defined(__riscv_v_intrinsic)
         #if defined(__riscv_zvfh)
