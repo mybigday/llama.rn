@@ -293,7 +293,6 @@
 #define lm_ggml_gemm_q8_0_4x8_q8_0_generic lm_ggml_gemm_q8_0_4x8_q8_0
 #elif defined(__wasm__)
 // quants.c
-#define lm_ggml_vec_dot_q4_1_q8_1_generic lm_ggml_vec_dot_q4_1_q8_1
 #define lm_ggml_vec_dot_tq1_0_q8_K_generic lm_ggml_vec_dot_tq1_0_q8_K
 #define lm_ggml_vec_dot_tq2_0_q8_K_generic lm_ggml_vec_dot_tq2_0_q8_K
 #define lm_ggml_vec_dot_iq2_xxs_q8_K_generic lm_ggml_vec_dot_iq2_xxs_q8_K

@@ -682,9 +682,16 @@ struct llm_graph_params {
             }
         }
 
+        // TODO: https://github.com/ggml-org/llama.cpp/pull/24340#discussion_r3448035248
+        if (cparams.nextn_layer_offset != other.cparams.nextn_layer_offset) {
+            return false;
+        }
+
         return
-            cparams.embeddings  == other.cparams.embeddings  &&
-            cparams.causal_attn == other.cparams.causal_attn &&
+            cparams.embeddings              == other.cparams.embeddings              &&
+            cparams.embeddings_nextn        == other.cparams.embeddings_nextn        &&
+            cparams.embeddings_nextn_masked == other.cparams.embeddings_nextn_masked &&
+            cparams.causal_attn             == other.cparams.causal_attn             &&
             arch  == other.arch  &&
             gtype == other.gtype &&
             cvec  == other.cvec  &&
@@ -853,11 +860,12 @@ struct llm_graph_context {
               lm_ggml_tensor * cur,
               lm_ggml_tensor * w_s = nullptr) const;
 
-    // do mat_mul_id, while optionally apply lora
+    // do mat_mul_id, while optionally apply lora and per-expert scale
     lm_ggml_tensor * build_lora_mm_id(
               lm_ggml_tensor * w,   // lm_ggml_tensor * as
               lm_ggml_tensor * cur, // lm_ggml_tensor * b
-              lm_ggml_tensor * ids) const;
+              lm_ggml_tensor * ids,
+              lm_ggml_tensor * w_s = nullptr) const;
 
     lm_ggml_tensor * build_norm(
              lm_ggml_tensor * cur,

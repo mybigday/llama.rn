@@ -1123,13 +1123,24 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
             return true;
         case LM_GGML_OP_CONCAT:
             {
-                // kernel_concat copies one float-sized value per element.
-                // Other scalar types need a type-generic copy kernel first.
                 const enum lm_ggml_type src0_type = op->src[0]->type;
                 const enum lm_ggml_type src1_type = op->src[1]->type;
-                return src0_type == src1_type &&
-                       src0_type == op->type &&
-                       (src0_type == LM_GGML_TYPE_F32 || src0_type == LM_GGML_TYPE_I32);
+                if (src0_type != src1_type || src0_type != op->type) {
+                    return false;
+                }
+                switch (src0_type) {
+                    case LM_GGML_TYPE_F32:
+                    case LM_GGML_TYPE_F16:
+                    case LM_GGML_TYPE_I8:
+                    case LM_GGML_TYPE_I16:
+                    case LM_GGML_TYPE_I32:
+                    case LM_GGML_TYPE_I64:
+                        return true;
+                    case LM_GGML_TYPE_BF16:
+                        return has_bfloat;
+                    default:
+                        return false;
+                }
             }
         case LM_GGML_OP_ADD:
         case LM_GGML_OP_SUB:
@@ -1173,6 +1184,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
         case LM_GGML_OP_RMS_NORM:
             return has_simdgroup_reduction && (lm_ggml_is_contiguous_rows(op->src[0]));
         case LM_GGML_OP_ROPE:
+        case LM_GGML_OP_ROPE_BACK:
             return true;
         case LM_GGML_OP_IM2COL:
             return lm_ggml_is_contiguous(op->src[1]) && op->src[1]->type == LM_GGML_TYPE_F32 && (op->type == LM_GGML_TYPE_F16 || op->type == LM_GGML_TYPE_F32);
