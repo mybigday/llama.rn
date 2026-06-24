@@ -103,6 +103,22 @@ type MTPOutputEntry = {
   timings?: MTPCompletionTimingSummary
 }
 
+function getMTPContextDefaults(hasSeparateDraftModel: boolean) {
+  if (hasSeparateDraftModel) {
+    return {
+      flash_attn_type: 'off',
+      cache_type_k: 'f16',
+      cache_type_v: 'f16',
+    } as const
+  }
+
+  return {
+    flash_attn_type: 'auto',
+    cache_type_k: 'q8_0',
+    cache_type_v: 'q8_0',
+  } as const
+}
+
 function parseBoundedInteger(
   value: string,
   fallback: number,
@@ -373,6 +389,7 @@ export default function MTPSpeculativeScreen({
       delete safeParams.draft_model
       const initDraftTokens = draftTokens
       const initParallelSlots = parallelSlots
+      const mtpDefaults = getMTPContextDefaults(!!draftModelUri)
       const ctx = await initLlama(
         {
           ...safeParams,
@@ -385,9 +402,7 @@ export default function MTPSpeculativeScreen({
           n_ubatch: MTP_UBATCH,
           n_parallel: initParallelSlots,
           n_gpu_layers: safeParams.n_gpu_layers ?? 99,
-          flash_attn_type: 'auto',
-          cache_type_k: 'q8_0',
-          cache_type_v: 'q8_0',
+          ...mtpDefaults,
           ctx_shift: true,
           kv_unified: false,
           swa_full: false,
@@ -659,20 +674,6 @@ export default function MTPSpeculativeScreen({
           initProgress={initProgress}
           progressText={`Initializing MTP model... ${initProgress}%`}
         >
-          <Text style={themedStyles.modelSectionTitle}>
-            Target + Draft MTP Models
-          </Text>
-          <DraftModelDownloadCard
-            title={GEMMA_E2B_DRAFT_MTP_MODEL.title}
-            size={GEMMA_E2B_DRAFT_MTP_MODEL.size}
-            target={GEMMA_E2B_DRAFT_MTP_MODEL.target}
-            draft={GEMMA_E2B_DRAFT_MTP_MODEL.draft}
-            initializeButtonText="Initialize MTP Pair"
-            onInitialize={(modelPath, draftModelPath) =>
-              handleInitModel(modelPath, undefined, draftModelPath)
-            }
-          />
-
           <View style={styles.controlsGrid}>
             <View style={styles.controlItem}>
               <ParameterTextInput
@@ -705,6 +706,20 @@ export default function MTPSpeculativeScreen({
               parallel API and uses the selected slot count at initialization.
             </Text>
           </View>
+
+          <Text style={themedStyles.modelSectionTitle}>
+            Target + Draft MTP Models
+          </Text>
+          <DraftModelDownloadCard
+            title={GEMMA_E2B_DRAFT_MTP_MODEL.title}
+            size={GEMMA_E2B_DRAFT_MTP_MODEL.size}
+            target={GEMMA_E2B_DRAFT_MTP_MODEL.target}
+            draft={GEMMA_E2B_DRAFT_MTP_MODEL.draft}
+            initializeButtonText="Initialize MTP Pair"
+            onInitialize={(modelPath, draftModelPath) =>
+              handleInitModel(modelPath, undefined, draftModelPath)
+            }
+          />
         </ExampleModelSetup>
 
         <ContextParamsModal

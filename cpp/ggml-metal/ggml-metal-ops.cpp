@@ -2824,6 +2824,9 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
         // simdgroups per threadgroup (a.k.a. warps)
         //nsg = ne01 <= nqptg ? MAX(4, MIN(nsgmax, MIN(ne11/ncpsg, (int64_t) pipeline.maxTotalThreadsPerThreadgroup/32))) : 4;
         int32_t nsg = ne00 >= 512 ? 8 : 4;
+        while (nsg > 1 && FATTN_SMEM(nsg) > props_dev->max_theadgroup_memory_size) {
+            nsg /= 2;
+        }
 
         const size_t smem = FATTN_SMEM(nsg);
 
@@ -2962,6 +2965,9 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
             nsg = 1;
             while (2*nwg*nsg*ncpsg < ne11 && nsg < 4) {
                 nsg *= 2;
+            }
+            while (nsg > 1 && FATTN_SMEM(nsg) > props_dev->max_theadgroup_memory_size) {
+                nsg /= 2;
             }
         }
 
