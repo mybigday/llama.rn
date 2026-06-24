@@ -303,7 +303,6 @@ export default function MTPSpeculativeScreen({
     DEFAULT_PARALLEL_SLOTS.toString(),
   )
   const [isMTPEnabled, setIsMTPEnabled] = useState(true)
-  const [usesSeparateDraftModel, setUsesSeparateDraftModel] = useState(false)
   const [draftCapacity, setDraftCapacity] = useState(DEFAULT_DRAFT_TOKENS)
   const [slotCapacity, setSlotCapacity] = useState(DEFAULT_PARALLEL_SLOTS)
   const [lastRunMetrics, setLastRunMetrics] = useState<MTPRunMetrics | null>(
@@ -349,9 +348,6 @@ export default function MTPSpeculativeScreen({
     [parallelSlotsText],
   )
   const displayedMetrics = lastRunMetrics
-  const generateButtonLabel = usesSeparateDraftModel
-    ? 'Generate'
-    : 'Generate in Parallel'
 
   const handleReset = useCallback(async () => {
     activeStopsRef.current = []
@@ -403,7 +399,7 @@ export default function MTPSpeculativeScreen({
       delete safeParams.draft_model
       const hasSeparateDraftModel = !!draftModelUri
       const initDraftTokens = draftTokens
-      const initParallelSlots = hasSeparateDraftModel ? 1 : parallelSlots
+      const initParallelSlots = parallelSlots
       const mtpDefaults = getMTPContextDefaults(hasSeparateDraftModel)
       const ctx = await initLlama(
         {
@@ -433,23 +429,19 @@ export default function MTPSpeculativeScreen({
         },
       )
 
-      if (!hasSeparateDraftModel) {
-        const enabled = await ctx.parallel.enable({
-          n_parallel: initParallelSlots,
-          n_batch: MTP_BATCH,
-        })
-        if (!enabled) {
-          throw new Error('Failed to enable parallel mode')
-        }
+      const enabled = await ctx.parallel.enable({
+        n_parallel: initParallelSlots,
+        n_batch: MTP_BATCH,
+      })
+      if (!enabled) {
+        throw new Error('Failed to enable parallel mode')
       }
 
       await replaceContext(ctx)
       console.log(
         [
           'MTP context:',
-          `  mode: ${
-            hasSeparateDraftModel ? 'single-completion' : 'parallel'
-          }`,
+          '  mode: parallel',
           `  parallel_slots: ${initParallelSlots}`,
           `  draft_model: ${draftModelUri || 'embedded'}`,
           `  devices: ${ctx.devices?.join(', ') || 'N/A'}`,
@@ -458,7 +450,6 @@ export default function MTPSpeculativeScreen({
       )
       setOutput('')
       setLastRunMetrics(null)
-      setUsesSeparateDraftModel(hasSeparateDraftModel)
       setDraftCapacity(initDraftTokens)
       setSlotCapacity(initParallelSlots)
       setInitProgress(100)
@@ -488,7 +479,7 @@ export default function MTPSpeculativeScreen({
       )
       return
     }
-    if (!usesSeparateDraftModel && parallelSlots > slotCapacity) {
+    if (parallelSlots > slotCapacity) {
       Alert.alert(
         'Error',
         `Parallel Slots cannot exceed the initialized slot capacity (${slotCapacity}). Reinitialize the model to use more slots.`,
@@ -550,10 +541,23 @@ export default function MTPSpeculativeScreen({
       const successfulResults: MTPQueuedResult[] = []
       const failedResults: unknown[] = []
 
-      if (usesSeparateDraftModel) {
-        await prompts.reduce<Promise<void>>(async (previous, item, index) => {
-          await previous
+      const configured = await context.parallel.configure({
+        n_parallel: parallelSlots,
+        n_batch: MTP_BATCH,
+      })
+      if (!configured) {
+        throw new Error('Failed to configure parallel mode')
+      }
+
+      const queuedRequests = await Promise.all(
+        prompts.map(async (item, index) => {
           const requestStartedAt = Date.now()
+          const { requestId, promise, stop } =
+            await context.parallel.completion(
+              createCompletionParams(item),
+              (_requestId, tokenData) => handleToken(index, tokenData),
+            )
+
           const currentEntry = outputEntriesRef.current[index] || {
             prompt: item,
             text: '',
@@ -561,142 +565,76 @@ export default function MTPSpeculativeScreen({
           outputEntriesRef.current[index] = {
             ...currentEntry,
             prompt: item,
+            requestId,
           }
           setOutput(formatOutputEntries(outputEntriesRef.current))
-          activeStopsRef.current = [() => context.stopCompletion()]
+          activeStopsRef.current.push(stop)
 
-          try {
-            const result = await context.completion(
-              createCompletionParams(item),
-              (tokenData) => handleToken(index, tokenData),
-            )
-            const completedResult = {
-              index,
-              prompt: item,
-              result,
-              wallSeconds: (Date.now() - requestStartedAt) / 1000,
-            }
-            const timings =
-              createMTPCompletionTimingSummary(completedResult)
-            logMTPCompletionTimings(completedResult, timings)
-            successfulResults.push(completedResult)
-
-            const entry = outputEntriesRef.current[index]
-            if (entry) {
-              entry.text = result.content || result.text
-              entry.timings = timings
-            }
-            setOutput(formatOutputEntries(outputEntriesRef.current))
-          } catch (error) {
-            if (error === 'aborted') {
-              throw error
-            }
-            failedResults.push(error)
-            const entry = outputEntriesRef.current[index]
-            if (entry) {
-              entry.text = `Error: ${error}`
-              entry.timings = undefined
-            }
-            setOutput(formatOutputEntries(outputEntriesRef.current))
+          return {
+            index,
+            prompt: item,
+            requestId,
+            promise,
+            requestStartedAt,
           }
-        }, Promise.resolve())
-      } else {
-        const configured = await context.parallel.configure({
-          n_parallel: parallelSlots,
-          n_batch: MTP_BATCH,
-        })
-        if (!configured) {
-          throw new Error('Failed to configure parallel mode')
-        }
+        }),
+      )
 
-        const queuedRequests = await Promise.all(
-          prompts.map(async (item, index) => {
-            const requestStartedAt = Date.now()
-            const { requestId, promise, stop } =
-              await context.parallel.completion(
-                createCompletionParams(item),
-                (_requestId, tokenData) => handleToken(index, tokenData),
-              )
-
-            const currentEntry = outputEntriesRef.current[index] || {
-              prompt: item,
-              text: '',
-            }
-            outputEntriesRef.current[index] = {
-              ...currentEntry,
-              prompt: item,
-              requestId,
-            }
-            setOutput(formatOutputEntries(outputEntriesRef.current))
-            activeStopsRef.current.push(stop)
-
-            return {
-              index,
-              prompt: item,
-              requestId,
-              promise,
-              requestStartedAt,
-            }
-          }),
-        )
-
-        const settledResults = await Promise.all(
-          queuedRequests.map(async (item) => {
-            try {
-              const result = await item.promise
-              const completedResult = {
-                index: item.index,
-                prompt: item.prompt,
-                requestId: item.requestId,
-                result,
-                wallSeconds: (Date.now() - item.requestStartedAt) / 1000,
-              }
-              const timings =
-                createMTPCompletionTimingSummary(completedResult)
-              logMTPCompletionTimings(completedResult, timings)
-              return {
-                status: 'fulfilled' as const,
-                timings,
-                ...completedResult,
-              }
-            } catch (error) {
-              return {
-                status: 'rejected' as const,
-                index: item.index,
-                requestId: item.requestId,
-                error,
-              }
-            }
-          }),
-        )
-
-        settledResults.forEach((item) => {
-          const entry = outputEntriesRef.current[item.index]
-          if (!entry) return
-          if (item.status === 'fulfilled') {
-            successfulResults.push({
+      const settledResults = await Promise.all(
+        queuedRequests.map(async (item) => {
+          try {
+            const result = await item.promise
+            const completedResult = {
               index: item.index,
               prompt: item.prompt,
               requestId: item.requestId,
-              result: item.result,
-              wallSeconds: item.wallSeconds,
-            })
-            entry.text = item.result.content || item.result.text
-            entry.timings = item.timings
-          } else {
-            failedResults.push(item.error)
-            entry.text = `Error: ${item.error}`
-            entry.timings = undefined
+              result,
+              wallSeconds: (Date.now() - item.requestStartedAt) / 1000,
+            }
+            const timings = createMTPCompletionTimingSummary(completedResult)
+            logMTPCompletionTimings(completedResult, timings)
+            return {
+              status: 'fulfilled' as const,
+              timings,
+              ...completedResult,
+            }
+          } catch (error) {
+            return {
+              status: 'rejected' as const,
+              index: item.index,
+              requestId: item.requestId,
+              error,
+            }
           }
-        })
-      }
+        }),
+      )
+
+      settledResults.forEach((item) => {
+        const entry = outputEntriesRef.current[item.index]
+        if (!entry) return
+        if (item.status === 'fulfilled') {
+          successfulResults.push({
+            index: item.index,
+            prompt: item.prompt,
+            requestId: item.requestId,
+            result: item.result,
+            wallSeconds: item.wallSeconds,
+          })
+          entry.text = item.result.content || item.result.text
+          entry.timings = item.timings
+        } else {
+          failedResults.push(item.error)
+          entry.text = `Error: ${item.error}`
+          entry.timings = undefined
+        }
+      })
       setOutput(formatOutputEntries(outputEntriesRef.current))
 
       const elapsedSeconds = (Date.now() - startedAt) / 1000
       const metrics = createMTPRunMetrics(
         successfulResults,
         elapsedSeconds,
-        usesSeparateDraftModel ? 1 : parallelSlots,
+        parallelSlots,
       )
       logMTPMetrics(metrics)
       setLastRunMetrics(metrics)
@@ -778,9 +716,8 @@ export default function MTPSpeculativeScreen({
             <Text style={styles.setupNoteText}>
               MTP works with text-only embedded draft models such as Qwen MTP,
               or a compatible target model plus separate draft assistant such as
-              Gemma 4 E2B. Embedded MTP models use the parallel queue; separate
-              draft assistant models run each prompt through the single
-              completion path.
+              Gemma 4 E2B. Both modes use the parallel queue for concurrent
+              prompts.
             </Text>
           </View>
 
@@ -886,7 +823,7 @@ export default function MTPSpeculativeScreen({
             style={styles.actionButton}
             onPress={handleGenerate}
           >
-            <Text style={styles.actionButtonText}>{generateButtonLabel}</Text>
+            <Text style={styles.actionButtonText}>Generate in Parallel</Text>
           </TouchableOpacity>
         )}
 

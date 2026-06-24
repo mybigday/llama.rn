@@ -106,6 +106,19 @@ struct llama_rn_slot_manager {
     llama_batch batch;
     int32_t n_batch;                       // Max batch size
 
+    // Shared MTP speculative decoding state. llama.cpp's MTP driver is
+    // multi-sequence, so queued slots borrow this instead of creating one
+    // speculative context per slot.
+    common_speculative *mtp_spec = nullptr;
+    llama_context *mtp_spec_ctx = nullptr;
+    int32_t mtp_spec_n_max = 0;
+    int32_t mtp_spec_n_min = 0;
+    float mtp_spec_p_min = 0.0f;
+    bool mtp_spec_backend_sampling = true;
+    int32_t mtp_spec_n_gpu_layers = -1;
+    lm_ggml_type mtp_spec_cache_type_k = LM_GGML_TYPE_F16;
+    lm_ggml_type mtp_spec_cache_type_v = LM_GGML_TYPE_F16;
+
     // Configuration
     float slot_prompt_similarity;          // Threshold for cache reuse (0.0-1.0)
     bool continuous_batching;              // Allow mixing prompt/generation
@@ -182,6 +195,9 @@ struct llama_rn_slot_manager {
     void build_batch();
     bool process_batch();
     void sample_and_callback();
+    common_speculative* ensure_mtp_speculative(common_params& params);
+    llama_context* get_mtp_draft_context() const;
+    void reset_mtp_speculative();
 
     // Process pending queue
     void process_pending_queue();
