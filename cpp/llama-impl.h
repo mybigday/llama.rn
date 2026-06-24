@@ -3,6 +3,7 @@
 #include "ggml.h" // for lm_ggml_log_level
 
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #ifdef __GNUC__
@@ -39,6 +40,19 @@ struct no_init {
     T value;
     no_init() = default;
 };
+
+template <typename dst_t, typename src_t>
+static inline dst_t llama_cast(src_t v) {
+    if constexpr (std::is_same_v<src_t, dst_t>) {
+        return v;
+    } else if constexpr (std::is_same_v<src_t, lm_ggml_fp16_t> && std::is_same_v<dst_t, float>) {
+        return lm_ggml_fp16_to_fp32(v);
+    } else if constexpr (std::is_same_v<src_t, float> && std::is_same_v<dst_t, lm_ggml_fp16_t>) {
+        return lm_ggml_fp32_to_fp16(v);
+    } else {
+        static_assert(std::is_same_v<dst_t, void>, "unsupported type combination");
+    }
+}
 
 struct time_meas {
     time_meas(int64_t & t_acc, bool disable = false);

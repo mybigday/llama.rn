@@ -56,8 +56,8 @@ lm_ggml_cgraph * clip_graph_mimovl::build() {
                                            patch_size, patch_size, 0, 0, 1, 1);
         inp = lm_ggml_add(ctx0, inp, inp_1);
 
-        LM_GGML_ASSERT(img.nx % (patch_size * 2) == 0);
-        LM_GGML_ASSERT(img.ny % (patch_size * 2) == 0);
+        LM_GGML_ASSERT(img.nx() % (patch_size * 2) == 0);
+        LM_GGML_ASSERT(img.ny() % (patch_size * 2) == 0);
 
         inp = lm_ggml_permute(ctx0, inp, 1, 2, 0, 3);  // [w,h,c,b] -> [c,w,h,b]
         inp = lm_ggml_cont_4d(ctx0, inp, n_embd * 2, n_patches_x / 2, n_patches_y, batch_size);

@@ -105,6 +105,7 @@ struct llama_rn_slot {
     // Speculative decoding context for MTP.
     common_speculative *spec = nullptr;
     llama_context *spec_ctx = nullptr;
+    bool spec_is_shared = false;
     llama_batch spec_batch = {};
     bool spec_batch_initialized = false;
     llama_tokens spec_prompt;

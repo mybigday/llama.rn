@@ -1133,6 +1133,37 @@ const poolTypeMap = {
   rank: 4,
 }
 
+const normalizeFileUri = (path?: string) =>
+  path?.startsWith('file://') ? path.slice(7) : path
+
+const normalizeSpeculativeDraftPaths = (
+  speculative?: NativeSpeculativeConfig,
+): NativeSpeculativeConfig | undefined => {
+  if (
+    !speculative ||
+    typeof speculative !== 'object' ||
+    Array.isArray(speculative)
+  ) {
+    return speculative
+  }
+
+  const { draft } = speculative
+  if (!draft || typeof draft !== 'object') {
+    return speculative
+  }
+
+  return {
+    ...speculative,
+    draft: {
+      ...draft,
+      model: normalizeFileUri(draft.model),
+      path: normalizeFileUri(draft.path),
+      model_draft: normalizeFileUri(draft.model_draft),
+      draft_model: normalizeFileUri(draft.draft_model),
+    },
+  }
+}
+
 type LoraAdapterInput = {
   path: string
   scaled?: number
@@ -1195,6 +1226,8 @@ export async function getBackendDevicesInfo(): Promise<
 export async function initLlama(
   {
     model,
+    model_draft: modelDraft,
+    draft_model: draftModelAlias,
     is_model_asset: isModelAsset,
     pooling_type: poolingType,
     lora,
@@ -1207,8 +1240,12 @@ export async function initLlama(
 ): Promise<LlamaContext> {
   await installJsi()
   const { llamaInitContext } = getJsi()
-  let path = model
-  if (path.startsWith('file://')) path = path.slice(7)
+  const path = normalizeFileUri(model) || model
+  const draftPath = normalizeFileUri(modelDraft || draftModelAlias)
+  const nativeRest = {
+    ...rest,
+    speculative: normalizeSpeculativeDraftPaths(rest.speculative),
+  }
 
   const loraAdapters = normalizeLoraAdapters({
     lora,
@@ -1235,17 +1272,23 @@ export async function initLlama(
 
   const poolType = poolTypeMap[poolingType as keyof typeof poolTypeMap]
 
-  if (rest.cache_type_k && !validCacheTypes.includes(rest.cache_type_k)) {
+  if (
+    nativeRest.cache_type_k &&
+    !validCacheTypes.includes(nativeRest.cache_type_k)
+  ) {
     console.warn(
-      `[RNLlama] initLlama: Invalid cache K type: ${rest.cache_type_k}, falling back to f16`,
+      `[RNLlama] initLlama: Invalid cache K type: ${nativeRest.cache_type_k}, falling back to f16`,
     )
-    delete rest.cache_type_k
+    delete nativeRest.cache_type_k
   }
-  if (rest.cache_type_v && !validCacheTypes.includes(rest.cache_type_v)) {
+  if (
+    nativeRest.cache_type_v &&
+    !validCacheTypes.includes(nativeRest.cache_type_v)
+  ) {
     console.warn(
-      `[RNLlama] initLlama: Invalid cache V type: ${rest.cache_type_v}, falling back to f16`,
+      `[RNLlama] initLlama: Invalid cache V type: ${nativeRest.cache_type_v}, falling back to f16`,
     )
-    delete rest.cache_type_v
+    delete nativeRest.cache_type_v
   }
 
   let filteredDevs: Array<string> = []
@@ -1283,8 +1326,9 @@ export async function initLlama(
       use_progress_callback: !!progressCallback,
       pooling_type: poolType,
       ...(loraAdapters.length > 0 ? { lora_list: loraAdapters } : {}),
+      ...(draftPath ? { model_draft: draftPath } : {}),
       devices: filteredDevs.length > 0 ? filteredDevs : undefined,
-      ...rest,
+      ...nativeRest,
     },
     progressCallback,
   )

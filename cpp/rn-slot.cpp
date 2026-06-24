@@ -1,6 +1,7 @@
 #include "rn-slot.h"
 #include "rn-completion.h"
 #include "rn-llama.h"
+#include "rn-slot-manager.h"
 #include "rn-common.hpp"
 #include "chat.h"
 #include <algorithm>
@@ -36,6 +37,7 @@ llama_rn_slot::llama_rn_slot() :
     current_reasoning_format(COMMON_REASONING_FORMAT_NONE),
     params(nullptr),
     ctx_sampling(nullptr),
+    spec_is_shared(false),
     t_start_process(0),
     t_start_generation(0),
     t_last_used(0),
@@ -330,13 +332,18 @@ bool llama_rn_slot::should_use_mtp() const {
 
 void llama_rn_slot::reset_speculative() {
     if (spec != nullptr) {
-        common_speculative_free(spec);
+        if (!spec_is_shared) {
+            common_speculative_free(spec);
+        }
         spec = nullptr;
     }
     if (spec_ctx != nullptr) {
-        llama_free(spec_ctx);
+        if (!spec_is_shared) {
+            llama_free(spec_ctx);
+        }
         spec_ctx = nullptr;
     }
+    spec_is_shared = false;
     if (spec_batch_initialized) {
         llama_batch_free(spec_batch);
         spec_batch = {};
@@ -379,24 +386,26 @@ void llama_rn_slot::init_mtp() {
 
     reset_speculative();
 
-    auto cparams = common_context_params_to_llama(*params);
-    cparams.ctx_type = LLAMA_CONTEXT_TYPE_MTP;
-    cparams.n_rs_seq = 0;
+    if (parent_ctx->slot_manager != nullptr) {
+        spec = parent_ctx->slot_manager->ensure_mtp_speculative(*params);
+        spec_ctx = parent_ctx->slot_manager->get_mtp_draft_context();
+        spec_is_shared = true;
+    } else {
+        spec_ctx = parent_ctx->createMTPDraftContext(*params);
+        if (spec_ctx == nullptr) {
+            throw std::runtime_error("failed to create MTP draft context");
+        }
 
-    spec_ctx = llama_init_from_model(parent_ctx->model, cparams);
-    if (spec_ctx == nullptr) {
-        throw std::runtime_error("failed to create MTP draft context");
-    }
+        params->speculative.draft.ctx_tgt = parent_ctx->ctx;
+        params->speculative.draft.ctx_dft = spec_ctx;
 
-    params->speculative.draft.ctx_tgt = parent_ctx->ctx;
-    params->speculative.draft.ctx_dft = spec_ctx;
-
-    const uint32_t n_seq = std::max<uint32_t>(
-        (uint32_t) std::max<int32_t>(1, params->n_parallel),
-        (uint32_t) id + 1);
-    spec = common_speculative_init(params->speculative, n_seq);
-    if (spec == nullptr) {
-        throw std::runtime_error("failed to initialize MTP speculative decoding");
+        const uint32_t n_seq = std::max<uint32_t>(
+            (uint32_t) std::max<int32_t>(1, params->n_parallel),
+            (uint32_t) id + 1);
+        spec = common_speculative_init(params->speculative, n_seq);
+        if (spec == nullptr) {
+            throw std::runtime_error("failed to initialize MTP speculative decoding");
+        }
     }
 
     spec_batch = llama_batch_init(llama_n_batch(parent_ctx->ctx), 0, 1);

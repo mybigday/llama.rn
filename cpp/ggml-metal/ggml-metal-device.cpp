@@ -66,7 +66,6 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_bas
     const char * op_str = "undefined";
     switch (op) {
         case LM_GGML_OP_ADD_ID: op_str = "add_id"; break;
-        case LM_GGML_OP_CONCAT: op_str = "concat"; break;
         default: LM_GGML_ABORT("fatal error");
     };
 
@@ -201,6 +200,21 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_repeat(lm_
     char name[256];
 
     snprintf(base, 256, "kernel_repeat_%s", lm_ggml_type_name(tsrc));
+    snprintf(name, 256, "%s", base);
+
+    lm_ggml_metal_pipeline_with_params res = lm_ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    }
+
+    return res;
+}
+
+lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_concat(lm_ggml_metal_library_t lib, lm_ggml_type tsrc) {
+    char base[256];
+    char name[256];
+
+    snprintf(base, 256, "kernel_concat_%s", lm_ggml_type_name(tsrc));
     snprintf(name, 256, "%s", base);
 
     lm_ggml_metal_pipeline_with_params res = lm_ggml_metal_library_get_pipeline(lib, name);
@@ -590,8 +604,8 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_gated_delt
     const int ne20 = op->src[2]->ne[0]; // S_v
     const int ne21 = op->src[2]->ne[1]; // H
     const int ne30 = op->src[3]->ne[0]; // G
-    // state is src[5], 3D (S_v*S_v*H, K, n_seqs); K is the snapshot slot count.
-    const int K = op->src[5]->ne[1];
+    // state is src[5], 4D [S_v, S_v, H_v, n_seqs] (s0 only); K is op param 0.
+    const int K = lm_ggml_get_op_params_i32(op, 0);
 
     const int nsg = op->src[2]->ne[0]/32;
 
@@ -1689,7 +1703,9 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_norm(lm_gg
 }
 
 lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_rope(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op) {
-    assert(op->op == LM_GGML_OP_ROPE);
+    assert(op->op == LM_GGML_OP_ROPE || op->op == LM_GGML_OP_ROPE_BACK);
+
+    const bool is_back = op->op == LM_GGML_OP_ROPE_BACK;
 
     char base[256];
     char name[256];
@@ -1713,13 +1729,14 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_rope(lm_gg
         snprintf(base, 256, "kernel_rope_norm_%s", lm_ggml_type_name(op->src[0]->type));
     }
 
-    snprintf(name, 256, "%s_imrope=%d", base, is_imrope ? 1 : 0);
+    snprintf(name, 256, "%s_imrope=%d_is_back=%d", base, is_imrope ? 1 : 0, is_back ? 1 : 0);
 
     lm_ggml_metal_pipeline_with_params res = lm_ggml_metal_library_get_pipeline(lib, name);
     if (!res.pipeline) {
         lm_ggml_metal_cv_t cv = lm_ggml_metal_cv_init();
 
         lm_ggml_metal_cv_set_bool(cv, is_imrope, FC_ROPE + 0);
+        lm_ggml_metal_cv_set_bool(cv, is_back,   FC_ROPE + 1);
 
         res = lm_ggml_metal_library_compile_pipeline(lib, base, name, cv);
 
@@ -1732,14 +1749,24 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_rope(lm_gg
 lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_im2col(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op) {
     assert(op->op == LM_GGML_OP_IM2COL);
 
+    LM_GGML_TENSOR_LOCALS(int64_t, ne0, op->src[0], ne);
+
     LM_GGML_ASSERT(lm_ggml_is_contiguous(op->src[1]));
     LM_GGML_ASSERT(op->src[1]->type == LM_GGML_TYPE_F32);
     LM_GGML_ASSERT(op->type         == LM_GGML_TYPE_F16 || op->type == LM_GGML_TYPE_F32);
 
+    const bool is_2D = ((const int32_t *)(op->op_params))[6] == 1;
+    const int64_t KH = is_2D ? ne01 : 1;
+    const int64_t KW = ne00;
+
     char base[256];
     char name[256];
 
-    snprintf(base, 256, "kernel_im2col_%s", lm_ggml_type_name(op->type));
+    if (KH*KW <= 1024) {
+        snprintf(base, 256, "kernel_im2col_%s", lm_ggml_type_name(op->type));
+    } else {
+        snprintf(base, 256, "kernel_im2col_ext_%s", lm_ggml_type_name(op->type));
+    }
     snprintf(name, 256, "%s", base);
 
     lm_ggml_metal_pipeline_with_params res = lm_ggml_metal_library_get_pipeline(lib, name);

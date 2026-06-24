@@ -286,11 +286,7 @@ void llama_rn_context_completion::initMTP() {
 
     resetSpeculative();
 
-    auto cparams = common_context_params_to_llama(parent_ctx->params);
-    cparams.ctx_type = LLAMA_CONTEXT_TYPE_MTP;
-    cparams.n_rs_seq = 0;
-
-    spec_ctx.reset(llama_init_from_model(parent_ctx->model, cparams));
+    spec_ctx.reset(parent_ctx->createMTPDraftContext(parent_ctx->params));
     if (spec_ctx == nullptr) {
         throw std::runtime_error("failed to create MTP draft context");
     }

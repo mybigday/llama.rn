@@ -10,7 +10,7 @@ lm_ggml_cgraph * clip_graph_gemma4v::build() {
     lm_ggml_set_name(inp_raw, "inp_raw_scaled");
 
     lm_ggml_tensor * inp = lm_ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
-    inp = lm_ggml_reshape_2d(ctx0, inp, n_patches, n_embd);
+    inp = lm_ggml_reshape_3d(ctx0, inp, n_patches, n_embd, n_batch);
     inp = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, inp));
     lm_ggml_set_name(inp, "inp");
     // note: no patch bias
@@ -51,10 +51,11 @@ lm_ggml_cgraph * clip_graph_gemma4v::build() {
         // first half
         lm_ggml_tensor * first;
         {
-            first = lm_ggml_view_3d(ctx0, cur,
-                n_dim/2, n_head, n_pos,
+            first = lm_ggml_view_4d(ctx0, cur,
+                n_dim/2, n_head, n_pos, n_batch,
                 cur->nb[1],
                 cur->nb[2],
+                cur->nb[3],
                 0);
             first = lm_ggml_rope_ext(
                 ctx0,
@@ -70,10 +71,11 @@ lm_ggml_cgraph * clip_graph_gemma4v::build() {
         // second half
         lm_ggml_tensor * second;
         {
-            second = lm_ggml_view_3d(ctx0, cur,
-                n_dim/2, n_head, n_pos,
+            second = lm_ggml_view_4d(ctx0, cur,
+                n_dim/2, n_head, n_pos, n_batch,
                 cur->nb[1],
                 cur->nb[2],
+                cur->nb[3],
                 n_dim/2 * lm_ggml_element_size(cur));
             second = lm_ggml_rope_ext(
                 ctx0,
@@ -103,14 +105,14 @@ lm_ggml_cgraph * clip_graph_gemma4v::build() {
         const int kernel_size = hparams.n_merge;
         LM_GGML_ASSERT(kernel_size > 0);
 
-        // [n_embd, n_patches] -> [n_patches_x, n_patches_y, n_embd, 1]
-        cur = lm_ggml_cont_4d(ctx0, lm_ggml_transpose(ctx0, cur), n_patches_x, n_patches_y, n_embd, 1);
+        // [n_embd, n_patches] -> [n_patches_x, n_patches_y, n_embd, n_batch]
+        cur = lm_ggml_cont_4d(ctx0, lm_ggml_transpose(ctx0, cur), n_patches_x, n_patches_y, n_embd, n_batch);
         cur = lm_ggml_pool_2d(ctx0, cur, LM_GGML_OP_POOL_AVG,
                            kernel_size, kernel_size, kernel_size, kernel_size, 0, 0);
         const int out_x = n_patches_x / kernel_size;
         const int out_y = n_patches_y / kernel_size;
-        // [out_x, out_y, n_embd, 1] -> [n_embd, out_x * out_y]
-        cur = lm_ggml_reshape_3d(ctx0, cur, out_x * out_y, n_embd, 1);
+        // [out_x, out_y, n_embd, n_batch] -> [n_embd, out_x * out_y, n_batch]
+        cur = lm_ggml_reshape_3d(ctx0, cur, out_x * out_y, n_embd, n_batch);
         cur = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, cur));
         cur = lm_ggml_scale(ctx0, cur, sqrtf((float)n_embd));
         cb(cur, "pooled", -1);
@@ -124,12 +126,12 @@ lm_ggml_cgraph * clip_graph_gemma4v::build() {
     }
 
     // Gemma4MultimodalEmbedder
-    cur = build_mm(model.mm_input_proj_w, cur);
-    cb(cur, "projected", -1);
-
-    // embedding_post_projection_norm
-    cur = lm_ggml_rms_norm(ctx0, cur, hparams.eps);
-    cb(cur, "projected_normed", -1);
+    {
+        // embedding_pre_projection_norm
+        cur = lm_ggml_rms_norm(ctx0, cur, hparams.eps);
+        cur = build_mm(model.mm_input_proj_w, cur);
+        cb(cur, "projected", -1);
+    }
 
     lm_ggml_build_forward_expand(gf, cur);
     return gf;

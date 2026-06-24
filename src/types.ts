@@ -19,10 +19,21 @@ export type NativeSpeculativeParams = {
   p_min?: number
   p_split?: number
   draft?: {
+    /**
+     * Optional separate draft model path for MTP/speculative decoding.
+     * When omitted, MTP uses the loaded target model's embedded draft layers.
+     */
+    model?: string
+    path?: string
+    model_draft?: string
+    draft_model?: string
     n_max?: number
     n_min?: number
     p_min?: number
     p_split?: number
+    n_gpu_layers?: number
+    cache_type_k?: string
+    cache_type_v?: string
   }
 }
 
@@ -33,6 +44,16 @@ export type NativeSpeculativeConfig =
 
 export type NativeContextParams = {
   model: string
+  /**
+   * Optional separate draft model path for MTP/speculative decoding.
+   * Leave unset for hybrid/embedded MTP models such as Qwen MTP.
+   */
+  model_draft?: string
+  /**
+   * Alias for model_draft.
+   */
+  draft_model?: string
+  is_model_draft_asset?: boolean
   /**
    * Chat template to override the default one from the model.
    */
@@ -139,6 +160,9 @@ export type NativeContextParams = {
   spec_draft_n_min?: number
   spec_draft_p_min?: number
   spec_draft_p_split?: number
+  spec_draft_n_gpu_layers?: number
+  spec_draft_cache_type_k?: string
+  spec_draft_cache_type_v?: string
 
   pooling_type?: number
 

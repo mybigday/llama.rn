@@ -10,9 +10,14 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { initLlama } from '../../../src'
-import type { NativeCompletionResult } from '../../../src'
+import type {
+  CompletionParams,
+  NativeCompletionResult,
+  TokenData,
+} from '../../../src'
 import ContextParamsModal from '../components/ContextParamsModal'
 import { ExampleModelSetup } from '../components/ExampleModelSetup'
+import { DraftModelDownloadCard } from '../components/ModelDownloadCard'
 import {
   ParameterSwitch,
   ParameterTextInput,
@@ -49,6 +54,19 @@ const MTP_MODELS = createExampleModelDefinitions(
   'Initialize MTP Model',
 )
 
+const GEMMA_E2B_DRAFT_MTP_MODEL = {
+  title: 'Gemma 4 E2B QAT + MTP Assistant',
+  size: '3.35GB + 76.5MB',
+  target: {
+    repo: 'google/gemma-4-E2B-it-qat-q4_0-gguf',
+    filename: 'gemma-4-E2B_q4_0-it.gguf',
+  },
+  draft: {
+    repo: 'lym00/gemma-4-E2B-it-qat-q4_0-unquantized-assistant-gguf-test',
+    filename: 'gemma-4-E2B-it-qat-assistant-q4_0.gguf',
+  },
+}
+
 type MTPRunMetrics = {
   requests: number
   slots: number
@@ -65,7 +83,7 @@ type MTPRunMetrics = {
 type MTPQueuedResult = {
   index: number
   prompt: string
-  requestId: number
+  requestId?: number
   result: NativeCompletionResult
   wallSeconds: number
 }
@@ -87,6 +105,22 @@ type MTPOutputEntry = {
   requestId?: number
   text: string
   timings?: MTPCompletionTimingSummary
+}
+
+function getMTPContextDefaults(hasSeparateDraftModel: boolean) {
+  if (hasSeparateDraftModel) {
+    return {
+      flash_attn_type: 'off',
+      cache_type_k: 'f16',
+      cache_type_v: 'f16',
+    } as const
+  }
+
+  return {
+    flash_attn_type: 'auto',
+    cache_type_k: 'q8_0',
+    cache_type_v: 'q8_0',
+  } as const
 }
 
 function parseBoundedInteger(
@@ -153,7 +187,7 @@ function createMTPRunMetrics(
 function logMTPMetrics(metrics: MTPRunMetrics) {
   console.log(
     [
-      'MTP parallel metrics:',
+      'MTP metrics:',
       `  requests: ${metrics.requests}`,
       `  slots: ${metrics.slots}`,
       `  predicted: ${metrics.predicted}`,
@@ -205,10 +239,14 @@ function logMTPCompletionTimings(
   item: MTPQueuedResult,
   timings: MTPCompletionTimingSummary,
 ) {
+  const requestIdLine =
+    typeof item.requestId === 'number'
+      ? [`  native_request_id: ${item.requestId}`]
+      : []
   console.log(
     [
       `MTP completion [${item.index + 1}] timings:`,
-      `  request_id: ${item.requestId}`,
+      ...requestIdLine,
       ...formatMTPCompletionTimingSummary(timings)
         .split('\n')
         .map((line) => `  ${line}`),
@@ -227,7 +265,9 @@ function formatOutputEntries(entries: MTPOutputEntry[]) {
   return entries
     .map((entry, index) => {
       const requestLabel =
-        typeof entry.requestId === 'number' ? ` request ${entry.requestId}` : ''
+        typeof entry.requestId === 'number'
+          ? ` (native request ${entry.requestId})`
+          : ''
       const timings = entry.timings
         ? `\n\nTimings\n${formatMTPCompletionTimingSummary(entry.timings)}`
         : ''
@@ -347,28 +387,33 @@ export default function MTPSpeculativeScreen({
   const handleInitModel = async (
     modelUri: string,
     params?: ContextParams,
+    draftModelUri?: string,
   ) => {
     setIsLoading(true)
     setInitProgress(0)
 
     try {
       const baseParams = params || contextParams || {}
+      const safeParams = { ...baseParams }
+      delete safeParams.model_draft
+      delete safeParams.draft_model
+      const hasSeparateDraftModel = !!draftModelUri
       const initDraftTokens = draftTokens
       const initParallelSlots = parallelSlots
+      const mtpDefaults = getMTPContextDefaults(hasSeparateDraftModel)
       const ctx = await initLlama(
         {
-          ...baseParams,
+          ...safeParams,
           model: modelUri,
+          ...(draftModelUri ? { model_draft: draftModelUri } : {}),
           use_mlock: false,
           use_mmap: true,
           n_ctx: MTP_CONTEXT,
           n_batch: MTP_BATCH,
           n_ubatch: MTP_UBATCH,
           n_parallel: initParallelSlots,
-          n_gpu_layers: baseParams.n_gpu_layers ?? 99,
-          flash_attn_type: 'auto',
-          cache_type_k: 'q8_0',
-          cache_type_v: 'q8_0',
+          n_gpu_layers: safeParams.n_gpu_layers ?? 99,
+          ...mtpDefaults,
           ctx_shift: true,
           kv_unified: false,
           swa_full: false,
@@ -396,7 +441,9 @@ export default function MTPSpeculativeScreen({
       console.log(
         [
           'MTP context:',
+          '  mode: parallel',
           `  parallel_slots: ${initParallelSlots}`,
+          `  draft_model: ${draftModelUri || 'embedded'}`,
           `  devices: ${ctx.devices?.join(', ') || 'N/A'}`,
           `  system_info: ${ctx.systemInfo}`,
         ].join('\n'),
@@ -450,8 +497,50 @@ export default function MTPSpeculativeScreen({
     setOutput(formatOutputEntries(outputEntriesRef.current))
     setLastRunMetrics(null)
 
+    const createCompletionParams = (item: string): CompletionParams => ({
+      messages: [
+        {
+          role: 'user',
+          content: item,
+        },
+      ],
+      enable_thinking: false,
+      chat_template_kwargs: {
+        preserve_thinking: false,
+      },
+      n_predict: maxTokens,
+      temperature: -1,
+      penalty_last_n: 64,
+      penalty_repeat: 1.05,
+      top_k: 20,
+      top_p: 0.95,
+      speculative: isMTPEnabled
+        ? {
+            type: 'draft-mtp',
+            n_max: draftTokens,
+          }
+        : false,
+      spec_draft_n_max: isMTPEnabled ? draftTokens : 0,
+    })
+
+    const handleToken = (index: number, tokenData: TokenData) => {
+      console.log(`[${index + 1}] ${JSON.stringify(tokenData)}`)
+      const entry = outputEntriesRef.current[index]
+      if (!entry) return
+
+      entry.text = tokenData.accumulated_text || entry.text + tokenData.token
+      const now = Date.now()
+      if (now - lastOutputFlushAtRef.current >= OUTPUT_FLUSH_INTERVAL_MS) {
+        lastOutputFlushAtRef.current = now
+        setOutput(formatOutputEntries(outputEntriesRef.current))
+      }
+    }
+
     try {
       const startedAt = Date.now()
+      const successfulResults: MTPQueuedResult[] = []
+      const failedResults: unknown[] = []
+
       const configured = await context.parallel.configure({
         n_parallel: parallelSlots,
         n_batch: MTP_BATCH,
@@ -463,46 +552,11 @@ export default function MTPSpeculativeScreen({
       const queuedRequests = await Promise.all(
         prompts.map(async (item, index) => {
           const requestStartedAt = Date.now()
-          const { requestId, promise, stop } = await context.parallel.completion(
-            {
-              messages: [
-                {
-                  role: 'user',
-                  content: item,
-                },
-              ],
-              chat_template_kwargs: {
-                preserve_thinking: true,
-              },
-              n_predict: maxTokens,
-              temperature: 0.6,
-              top_k: 20,
-              top_p: 0.95,
-              speculative: isMTPEnabled
-                ? {
-                    type: 'draft-mtp',
-                    n_max: draftTokens,
-                  }
-                : false,
-              spec_draft_n_max: isMTPEnabled ? draftTokens : 0,
-            },
-            (_requestId, tokenData) => {
-              console.log(`[${index + 1}] ${JSON.stringify(tokenData)}`)
-              const entry = outputEntriesRef.current[index]
-              if (!entry) return
-
-              entry.text =
-                tokenData.accumulated_text || entry.text + tokenData.token
-              const now = Date.now()
-              if (
-                now - lastOutputFlushAtRef.current >=
-                OUTPUT_FLUSH_INTERVAL_MS
-              ) {
-                lastOutputFlushAtRef.current = now
-                setOutput(formatOutputEntries(outputEntriesRef.current))
-              }
-            },
-          )
+          const { requestId, promise, stop } =
+            await context.parallel.completion(
+              createCompletionParams(item),
+              (_requestId, tokenData) => handleToken(index, tokenData),
+            )
 
           const currentEntry = outputEntriesRef.current[index] || {
             prompt: item,
@@ -537,8 +591,7 @@ export default function MTPSpeculativeScreen({
               result,
               wallSeconds: (Date.now() - item.requestStartedAt) / 1000,
             }
-            const timings =
-              createMTPCompletionTimingSummary(completedResult)
+            const timings = createMTPCompletionTimingSummary(completedResult)
             logMTPCompletionTimings(completedResult, timings)
             return {
               status: 'fulfilled' as const,
@@ -556,9 +609,6 @@ export default function MTPSpeculativeScreen({
         }),
       )
 
-      const elapsedSeconds = (Date.now() - startedAt) / 1000
-      const successfulResults: MTPQueuedResult[] = []
-
       settledResults.forEach((item) => {
         const entry = outputEntriesRef.current[item.index]
         if (!entry) return
@@ -573,12 +623,14 @@ export default function MTPSpeculativeScreen({
           entry.text = item.result.content || item.result.text
           entry.timings = item.timings
         } else {
+          failedResults.push(item.error)
           entry.text = `Error: ${item.error}`
           entry.timings = undefined
         }
       })
       setOutput(formatOutputEntries(outputEntriesRef.current))
 
+      const elapsedSeconds = (Date.now() - startedAt) / 1000
       const metrics = createMTPRunMetrics(
         successfulResults,
         elapsedSeconds,
@@ -587,13 +639,10 @@ export default function MTPSpeculativeScreen({
       logMTPMetrics(metrics)
       setLastRunMetrics(metrics)
 
-      const failedResults = settledResults.filter(
-        (item) => item.status === 'rejected',
-      )
       if (failedResults.length > 0) {
         Alert.alert(
           'Error',
-          `${failedResults.length} queued request(s) failed. See output for details.`,
+          `${failedResults.length} request(s) failed. See output for details.`,
         )
       }
     } catch (error) {
@@ -619,9 +668,9 @@ export default function MTPSpeculativeScreen({
     return (
       <>
         <ExampleModelSetup
-          description="Download an MTP-enabled GGUF model to queue text-only prompts through the parallel API with native draft token metrics."
+          description="Download an embedded MTP GGUF model or a target/draft model pair to generate text-only prompts with native draft token metrics."
           defaultModels={MTP_MODELS}
-          defaultModelSectionTitle="MTP Models"
+          defaultModelSectionTitle="Embedded MTP Models"
           defaultModelsFirst
           customModels={customModels || []}
           customModelSectionTitle="Custom MTP Models"
@@ -665,11 +714,26 @@ export default function MTPSpeculativeScreen({
           <View style={styles.setupNote}>
             <Text style={styles.setupNoteTitle}>Requirements</Text>
             <Text style={styles.setupNoteText}>
-              MTP works only with text-only models that include draft prediction
-              layers. This demo queues one prompt per line through the parallel
-              API and uses the selected slot count at initialization.
+              MTP works with text-only embedded draft models such as Qwen MTP,
+              or a compatible target model plus separate draft assistant such as
+              Gemma 4 E2B. Both modes use the parallel queue for concurrent
+              prompts.
             </Text>
           </View>
+
+          <Text style={themedStyles.modelSectionTitle}>
+            Target + Draft MTP Models
+          </Text>
+          <DraftModelDownloadCard
+            title={GEMMA_E2B_DRAFT_MTP_MODEL.title}
+            size={GEMMA_E2B_DRAFT_MTP_MODEL.size}
+            target={GEMMA_E2B_DRAFT_MTP_MODEL.target}
+            draft={GEMMA_E2B_DRAFT_MTP_MODEL.draft}
+            initializeButtonText="Initialize MTP Pair"
+            onInitialize={(modelPath, draftModelPath) =>
+              handleInitModel(modelPath, undefined, draftModelPath)
+            }
+          />
         </ExampleModelSetup>
 
         <ContextParamsModal

@@ -456,6 +456,7 @@ namespace rnllama_jsi {
                 int contextId = (int)arguments[0].asNumber();
                 jsi::Object params = arguments[1].asObject(runtime);
                 bool isModelAsset = getPropertyAsBool(runtime, params, "is_model_asset", false);
+                bool isModelDraftAsset = getPropertyAsBool(runtime, params, "is_model_draft_asset", false);
 
                 bool useProgressCallback = getPropertyAsBool(runtime, params, "use_progress_callback", false);
                 int progressCallbackEvery = getPropertyAsInt(runtime, params, "progress_callback_every", 1);
@@ -480,6 +481,10 @@ namespace rnllama_jsi {
 #if defined(__APPLE__)
                 if (isModelAsset) {
                     cparams.model.path = resolveIosModelPath(cparams.model.path, true);
+                }
+                if (isModelDraftAsset && !cparams.speculative.draft.mparams.path.empty()) {
+                    cparams.speculative.draft.mparams.path =
+                        resolveIosModelPath(cparams.speculative.draft.mparams.path, true);
                 }
 #endif
 

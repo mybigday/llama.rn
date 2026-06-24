@@ -1,0 +1,10 @@
+--- ggml-metal/ggml-metal-ops.cpp.orig
++++ ggml-metal/ggml-metal-ops.cpp
+@@ -2826,0 +2827,3 @@
++        while (nsg > 1 && FATTN_SMEM(nsg) > props_dev->max_theadgroup_memory_size) {
++            nsg /= 2;
++        }
+@@ -2965,0 +2969,3 @@
++            while (nsg > 1 && FATTN_SMEM(nsg) > props_dev->max_theadgroup_memory_size) {
++                nsg /= 2;
++            }

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <stdexcept>
 
 namespace rnllama {
 
@@ -28,6 +29,8 @@ llama_rn_slot_manager::llama_rn_slot_manager(llama_rn_context* ctx) :
 llama_rn_slot_manager::~llama_rn_slot_manager() {
     // Stop processing loop if active
     stop_processing_loop();
+
+    reset_mtp_speculative();
 
     // Free batch
     if (batch.token != nullptr) {
@@ -67,6 +70,102 @@ bool llama_rn_slot_manager::init(int32_t n_parallel_, int32_t n_batch_, int32_t 
 
     LOG_INFO("Slot manager initialized successfully");
     return true;
+}
+
+common_speculative* llama_rn_slot_manager::ensure_mtp_speculative(common_params& params) {
+    if (parent_ctx == nullptr || parent_ctx->ctx == nullptr) {
+        throw std::runtime_error("MTP speculative decoding requires an initialized context");
+    }
+
+    const auto& draft = params.speculative.draft;
+    const bool compatible =
+        mtp_spec != nullptr &&
+        mtp_spec_ctx != nullptr &&
+        mtp_spec_n_max == draft.n_max &&
+        mtp_spec_n_min == draft.n_min &&
+        mtp_spec_p_min == draft.p_min &&
+        mtp_spec_backend_sampling == draft.backend_sampling &&
+        mtp_spec_n_gpu_layers == draft.n_gpu_layers &&
+        mtp_spec_cache_type_k == draft.cache_type_k &&
+        mtp_spec_cache_type_v == draft.cache_type_v;
+
+    if (compatible) {
+        params.speculative.draft.ctx_tgt = parent_ctx->ctx;
+        params.speculative.draft.ctx_dft = mtp_spec_ctx;
+        return mtp_spec;
+    }
+
+    if (mtp_spec != nullptr || mtp_spec_ctx != nullptr) {
+        for (const auto& slot : slots) {
+            if (slot.spec_is_shared && slot.state == SLOT_STATE_GENERATING) {
+                throw std::runtime_error("cannot change MTP speculative parameters while queued MTP slots are active");
+            }
+        }
+        reset_mtp_speculative();
+    }
+
+    mtp_spec_ctx = parent_ctx->createMTPDraftContext(params);
+    if (mtp_spec_ctx == nullptr) {
+        throw std::runtime_error("failed to create MTP draft context");
+    }
+
+    params.speculative.draft.ctx_tgt = parent_ctx->ctx;
+    params.speculative.draft.ctx_dft = mtp_spec_ctx;
+
+    const uint32_t n_seq = std::max<int32_t>(1, n_parallel);
+    mtp_spec = common_speculative_init(params.speculative, n_seq);
+    if (mtp_spec == nullptr) {
+        llama_free(mtp_spec_ctx);
+        mtp_spec_ctx = nullptr;
+        throw std::runtime_error("failed to initialize MTP speculative decoding");
+    }
+
+    mtp_spec_n_max = draft.n_max;
+    mtp_spec_n_min = draft.n_min;
+    mtp_spec_p_min = draft.p_min;
+    mtp_spec_backend_sampling = draft.backend_sampling;
+    mtp_spec_n_gpu_layers = draft.n_gpu_layers;
+    mtp_spec_cache_type_k = draft.cache_type_k;
+    mtp_spec_cache_type_v = draft.cache_type_v;
+
+    LOG_INFO("Initialized shared MTP speculative state for %d queued slots", n_parallel);
+    return mtp_spec;
+}
+
+llama_context* llama_rn_slot_manager::get_mtp_draft_context() const {
+    return mtp_spec_ctx;
+}
+
+void llama_rn_slot_manager::reset_mtp_speculative() {
+    for (auto& slot : slots) {
+        if (!slot.spec_is_shared) {
+            continue;
+        }
+        if (slot.spec == mtp_spec) {
+            slot.spec = nullptr;
+        }
+        if (slot.spec_ctx == mtp_spec_ctx) {
+            slot.spec_ctx = nullptr;
+        }
+        slot.spec_is_shared = false;
+    }
+
+    if (mtp_spec != nullptr) {
+        common_speculative_free(mtp_spec);
+        mtp_spec = nullptr;
+    }
+    if (mtp_spec_ctx != nullptr) {
+        llama_free(mtp_spec_ctx);
+        mtp_spec_ctx = nullptr;
+    }
+
+    mtp_spec_n_max = 0;
+    mtp_spec_n_min = 0;
+    mtp_spec_p_min = 0.0f;
+    mtp_spec_backend_sampling = true;
+    mtp_spec_n_gpu_layers = -1;
+    mtp_spec_cache_type_k = LM_GGML_TYPE_F16;
+    mtp_spec_cache_type_v = LM_GGML_TYPE_F16;
 }
 
 // Queue a new request

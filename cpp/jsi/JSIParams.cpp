@@ -171,10 +171,25 @@ namespace rnllama_jsi {
         const jsi::Object& obj,
         common_params_speculative_draft& draft
     ) {
+        draft.mparams.path = getPropertyAsString(runtime, obj, "model", draft.mparams.path);
+        draft.mparams.path = getPropertyAsString(runtime, obj, "path", draft.mparams.path);
+        draft.mparams.path = getPropertyAsString(runtime, obj, "model_draft", draft.mparams.path);
+        draft.mparams.path = getPropertyAsString(runtime, obj, "draft_model", draft.mparams.path);
         draft.n_max = getPropertyAsInt(runtime, obj, "n_max", draft.n_max);
         draft.n_min = getPropertyAsInt(runtime, obj, "n_min", draft.n_min);
         draft.p_min = getPropertyAsFloat(runtime, obj, "p_min", draft.p_min);
         draft.p_split = getPropertyAsFloat(runtime, obj, "p_split", draft.p_split);
+        draft.n_gpu_layers = getPropertyAsInt(runtime, obj, "n_gpu_layers", draft.n_gpu_layers);
+
+        std::string cacheTypeK = getPropertyAsString(runtime, obj, "cache_type_k");
+        if (!cacheTypeK.empty()) {
+            draft.cache_type_k = rnllama::kv_cache_type_from_str(cacheTypeK);
+        }
+
+        std::string cacheTypeV = getPropertyAsString(runtime, obj, "cache_type_v");
+        if (!cacheTypeV.empty()) {
+            draft.cache_type_v = rnllama::kv_cache_type_from_str(cacheTypeV);
+        }
     }
 
     bool hasSpeculativeType(const common_params_speculative& speculative, common_speculative_type type) {
@@ -266,6 +281,22 @@ namespace rnllama_jsi {
             runtime, params, "spec_draft_p_split", cparams.speculative.draft.p_split);
         cparams.speculative.draft.p_split = getPropertyAsFloat(
             runtime, params, "speculative.p_split", cparams.speculative.draft.p_split);
+        cparams.speculative.draft.mparams.path = getPropertyAsString(
+            runtime, params, "model_draft", cparams.speculative.draft.mparams.path);
+        cparams.speculative.draft.mparams.path = getPropertyAsString(
+            runtime, params, "draft_model", cparams.speculative.draft.mparams.path);
+        cparams.speculative.draft.n_gpu_layers = getPropertyAsInt(
+            runtime, params, "spec_draft_n_gpu_layers", cparams.speculative.draft.n_gpu_layers);
+
+        std::string draftCacheTypeK = getPropertyAsString(runtime, params, "spec_draft_cache_type_k");
+        if (!draftCacheTypeK.empty()) {
+            cparams.speculative.draft.cache_type_k = rnllama::kv_cache_type_from_str(draftCacheTypeK);
+        }
+
+        std::string draftCacheTypeV = getPropertyAsString(runtime, params, "spec_draft_cache_type_v");
+        if (!draftCacheTypeV.empty()) {
+            cparams.speculative.draft.cache_type_v = rnllama::kv_cache_type_from_str(draftCacheTypeV);
+        }
 
         applySpeculativeTypeNames(cparams.speculative, typeNames);
 
