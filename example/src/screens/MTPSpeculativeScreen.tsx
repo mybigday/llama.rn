@@ -13,6 +13,7 @@ import { initLlama } from '../../../src'
 import type { NativeCompletionResult } from '../../../src'
 import ContextParamsModal from '../components/ContextParamsModal'
 import { ExampleModelSetup } from '../components/ExampleModelSetup'
+import { DraftModelDownloadCard } from '../components/ModelDownloadCard'
 import {
   ParameterSwitch,
   ParameterTextInput,
@@ -48,6 +49,19 @@ const MTP_MODELS = createExampleModelDefinitions(
   ['QWEN_3_5_4B_MTP', 'QWEN_3_6_35B_A3B_MTP'],
   'Initialize MTP Model',
 )
+
+const GEMMA_E2B_DRAFT_MTP_MODEL = {
+  title: 'Gemma 4 E2B QAT + MTP Assistant',
+  size: '3.35GB + 76.5MB',
+  target: {
+    repo: 'google/gemma-4-E2B-it-qat-q4_0-gguf',
+    filename: 'gemma-4-E2B_q4_0-it.gguf',
+  },
+  draft: {
+    repo: 'lym00/gemma-4-E2B-it-qat-q4_0-unquantized-assistant-gguf-test',
+    filename: 'gemma-4-E2B-it-qat-assistant-q4_0.gguf',
+  },
+}
 
 type MTPRunMetrics = {
   requests: number
@@ -347,25 +361,30 @@ export default function MTPSpeculativeScreen({
   const handleInitModel = async (
     modelUri: string,
     params?: ContextParams,
+    draftModelUri?: string,
   ) => {
     setIsLoading(true)
     setInitProgress(0)
 
     try {
       const baseParams = params || contextParams || {}
+      const safeParams = { ...baseParams }
+      delete safeParams.model_draft
+      delete safeParams.draft_model
       const initDraftTokens = draftTokens
       const initParallelSlots = parallelSlots
       const ctx = await initLlama(
         {
-          ...baseParams,
+          ...safeParams,
           model: modelUri,
+          ...(draftModelUri ? { model_draft: draftModelUri } : {}),
           use_mlock: false,
           use_mmap: true,
           n_ctx: MTP_CONTEXT,
           n_batch: MTP_BATCH,
           n_ubatch: MTP_UBATCH,
           n_parallel: initParallelSlots,
-          n_gpu_layers: baseParams.n_gpu_layers ?? 99,
+          n_gpu_layers: safeParams.n_gpu_layers ?? 99,
           flash_attn_type: 'auto',
           cache_type_k: 'q8_0',
           cache_type_v: 'q8_0',
@@ -397,6 +416,7 @@ export default function MTPSpeculativeScreen({
         [
           'MTP context:',
           `  parallel_slots: ${initParallelSlots}`,
+          `  draft_model: ${draftModelUri || 'embedded'}`,
           `  devices: ${ctx.devices?.join(', ') || 'N/A'}`,
           `  system_info: ${ctx.systemInfo}`,
         ].join('\n'),
@@ -619,9 +639,9 @@ export default function MTPSpeculativeScreen({
     return (
       <>
         <ExampleModelSetup
-          description="Download an MTP-enabled GGUF model to queue text-only prompts through the parallel API with native draft token metrics."
+          description="Download an embedded MTP GGUF model or a target/draft model pair to queue text-only prompts through the parallel API with native draft token metrics."
           defaultModels={MTP_MODELS}
-          defaultModelSectionTitle="MTP Models"
+          defaultModelSectionTitle="Embedded MTP Models"
           defaultModelsFirst
           customModels={customModels || []}
           customModelSectionTitle="Custom MTP Models"
@@ -639,6 +659,20 @@ export default function MTPSpeculativeScreen({
           initProgress={initProgress}
           progressText={`Initializing MTP model... ${initProgress}%`}
         >
+          <Text style={themedStyles.modelSectionTitle}>
+            Target + Draft MTP Models
+          </Text>
+          <DraftModelDownloadCard
+            title={GEMMA_E2B_DRAFT_MTP_MODEL.title}
+            size={GEMMA_E2B_DRAFT_MTP_MODEL.size}
+            target={GEMMA_E2B_DRAFT_MTP_MODEL.target}
+            draft={GEMMA_E2B_DRAFT_MTP_MODEL.draft}
+            initializeButtonText="Initialize MTP Pair"
+            onInitialize={(modelPath, draftModelPath) =>
+              handleInitModel(modelPath, undefined, draftModelPath)
+            }
+          />
+
           <View style={styles.controlsGrid}>
             <View style={styles.controlItem}>
               <ParameterTextInput
@@ -665,9 +699,10 @@ export default function MTPSpeculativeScreen({
           <View style={styles.setupNote}>
             <Text style={styles.setupNoteTitle}>Requirements</Text>
             <Text style={styles.setupNoteText}>
-              MTP works only with text-only models that include draft prediction
-              layers. This demo queues one prompt per line through the parallel
-              API and uses the selected slot count at initialization.
+              MTP works with text-only embedded draft models such as Qwen MTP,
+              or a compatible target model plus separate draft assistant such as
+              Gemma 4 E2B. This demo queues one prompt per line through the
+              parallel API and uses the selected slot count at initialization.
             </Text>
           </View>
         </ExampleModelSetup>

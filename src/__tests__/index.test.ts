@@ -23,6 +23,7 @@ test('LoRA and speculative inputs are passed through', async () => {
 
   const context = await initLlama({
     model: 'test.gguf',
+    model_draft: 'file:///draft-top.gguf',
     lora: 'file:///adapter-a.gguf',
     lora_scaled: 0.25,
     lora_list: [
@@ -32,6 +33,7 @@ test('LoRA and speculative inputs are passed through', async () => {
     speculative: {
       enabled: true,
       draft: {
+        model: 'file:///draft-nested.gguf',
         n_max: 4,
         p_min: 0.6,
       },
@@ -46,9 +48,11 @@ test('LoRA and speculative inputs are passed through', async () => {
         { path: '/adapter-a.gguf', scaled: 0.75 },
         { path: '/adapter-b.gguf', scaled: 0.5 },
       ],
+      model_draft: '/draft-top.gguf',
       speculative: {
         enabled: true,
         draft: {
+          model: '/draft-nested.gguf',
           n_max: 4,
           p_min: 0.6,
         },
