@@ -1020,8 +1020,16 @@ static std::string build_soprano_prompt(const std::string &text_to_speak) {
 // "1"); the JS layer passes it via `speaker.id` in the speaker JSON.
 // Defaults to 0 when absent.  The prep_csm converter mapped CSM's
 // `embed_text_tokens` onto the backbone's standard `model.embed_tokens`,
-// so feeding these text tokens via `b.token` (which generateAudioCodes
-// does) drives the right text embedding without any out-of-band lookup.
+// so feeding these text tokens as ordinary backbone tokens drives the
+// right text embedding without any out-of-band lookup.
+//
+// We do NOT emit a leading `<|begin_of_text|>` here: the completion
+// path tokenizes with `add_bos=true` for Llama-family vocabs (CSM's
+// backbone is Llama-3.2-1B), so the tokenizer already prepends the BOS.
+// Embedding a literal `<|begin_of_text|>` in the prompt would
+// double-BOS the sequence and drift CSM's output vs the reference
+// CsmProcessor.  (Old standalone `generateAudioCodes` tokenized with
+// `add_special=false`, which is why the literal worked there.)
 static std::string build_csm_prompt(json speaker, const std::string &text_to_speak) {
     int speaker_id = 0;
     if (speaker.is_object() && speaker.contains("id")) {
@@ -1031,7 +1039,7 @@ static std::string build_csm_prompt(json speaker, const std::string &text_to_spe
     }
     std::string out;
     out.reserve(text_to_speak.size() + 32);
-    out += "<|begin_of_text|>[";
+    out += "[";
     out += std::to_string(speaker_id);
     out += "]";
     out += text_to_speak;
