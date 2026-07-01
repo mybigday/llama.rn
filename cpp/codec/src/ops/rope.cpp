@@ -5,7 +5,8 @@ lm_ggml_tensor * codec_op_rope(
     lm_ggml_tensor * x_dth,
     int32_t n_dims,
     float freq_base,
-    float freq_scale) {
+    float freq_scale,
+    codec_rope_mode mode) {
     if (ctx == nullptr || x_dth == nullptr) {
         return nullptr;
     }
@@ -31,7 +32,7 @@ lm_ggml_tensor * codec_op_rope(
         t_pos,
         nullptr,
         n_dims,
-        LM_GGML_ROPE_TYPE_NORMAL,
+        mode,
         0,
         freq_base,
         freq_scale,

@@ -27,6 +27,7 @@ struct codec_model {
     int32_t n_threads;
 
     int32_t sample_rate;
+    int32_t encode_sample_rate;
     bool has_encoder;
     bool has_decoder;
     int32_t hop_size;
@@ -36,6 +37,10 @@ struct codec_model {
     int32_t win_length;
     int32_t n_mels;
     int32_t latent_dim;
+    // 0 means "single-channel only" (legacy default).  Multi-channel codecs
+    // (e.g. MOSS-Audio-Tokenizer in stereo mode) set this to the expected
+    // number of input channels; codec_encode_impl validates against it.
+    int32_t expected_channels = 1;
     const struct codec_model_vtable * vtable = nullptr;
     void * impl = nullptr;
 };
@@ -64,8 +69,8 @@ struct codec_graph_cache_entry {
     size_t required_mem_size = 0;
     codec_graph_build_fn build_fn = nullptr;
     std::vector<uint8_t> build_user_data;
-    int32_t last_graph_size = 0;
-    bool allocated = false; // whether this entry's graph has been allocated in the backend scheduler
+    int32_t last_graph_size = 0; // exact ggml graph capacity: max(n_nodes, n_leafs)
+    int32_t last_sched_graph_size = 0; // exact scheduler base size: n_nodes + n_leafs
 };
 
 struct codec_context {
@@ -82,9 +87,8 @@ struct codec_context {
     lm_ggml_cgraph * eval_graph = nullptr;
     lm_ggml_tensor * eval_output = nullptr;
     codec_graph_cache_entry * eval_entry = nullptr;
-    codec_graph_cache_entry * eval_alloc_entry = nullptr;
+    bool eval_graph_allocated = false; // sched_alloc_graph done for current eval_ctx
     int32_t sched_reserved_graph_size = 0;
-    bool sched_needs_reset = false;
 };
 
 struct codec_model_vtable {
@@ -93,6 +97,11 @@ struct codec_model_vtable {
     void * (*create_impl)();
     void (*destroy_impl)(void *);
     enum codec_status (*init)(struct codec_model * model);
+    size_t (*graph_size)(
+        const struct codec_model * model,
+        const struct codec_graph_cache_key * key,
+        const void * user_data,
+        struct lm_ggml_tensor * out);
     enum codec_status (*encode)(
         struct codec_context * ctx,
         const std::vector<float> & pcm,
@@ -133,6 +142,9 @@ std::string codec_lm_gguf_value_to_string(lm_gguf_context * gf, int key_id);
 void codec_collect_lm_gguf_metadata(codec_model * model);
 int32_t codec_read_i32_kv(lm_gguf_context * gf, const char * key, int32_t fallback);
 int32_t codec_read_i32_kv_any(lm_gguf_context * gf, const char * const * keys, size_t n_keys, int32_t fallback);
+void codec_read_i32_array_kv(lm_gguf_context * gf, const char * key, int32_t * dst, int32_t dst_n);
+void codec_read_i32_array_kv_vec(lm_gguf_context * gf, const char * key, std::vector<int32_t> * dst);
+void codec_read_f32_array_kv(lm_gguf_context * gf, const char * key, float * dst, int32_t dst_n);
 float codec_read_f32_kv(lm_gguf_context * gf, const char * key, float fallback);
 bool codec_read_bool_kv(lm_gguf_context * gf, const char * key, bool fallback);
 int codec_count_tensors_with_prefix(const codec_model * model, const char * prefix);
@@ -140,5 +152,10 @@ int32_t codec_infer_n_q_from_tensor_names(const codec_model * model);
 
 bool codec_safe_add_i32(int32_t a, int32_t b, int32_t * out);
 bool codec_safe_mul_i32(int32_t a, int32_t b, int32_t * out);
+size_t codec_graph_size_exact(
+    const struct codec_model * model,
+    const struct codec_graph_cache_key * key,
+    const void * user_data,
+    struct lm_ggml_tensor * out);
 
 #endif

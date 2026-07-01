@@ -12,6 +12,11 @@ lm_ggml_tensor * codec_rvq_argmin_map_custom1(
     lm_ggml_context * ctx_eval,
     lm_ggml_tensor * distances_ct);
 
+lm_ggml_tensor * codec_rvq_select_indices_ggml(
+    lm_ggml_context * ctx_eval,
+    lm_ggml_tensor * residual_ct,
+    lm_ggml_tensor * codebook_dc);
+
 bool codec_rvq_build_layer_ggml(
     lm_ggml_context * ctx_eval,
     lm_ggml_tensor * residual_ct,

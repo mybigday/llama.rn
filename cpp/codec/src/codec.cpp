@@ -1,10 +1,21 @@
 #include "codec_internal.h"
 
+#include "runtime/perf_log.h"
 #include "batch/batch.h"
 #include "models/dac.h"
 #include "models/mimi.h"
 #include "models/qwen3_tts_tokenizer.h"
+#include "models/chatterbox_s3g.h"
+#include "models/chatterbox_s3t.h"
+#include "models/soprano.h"
+#include "models/nemo_nano_codec.h"
+#include "models/neucodec.h"
 #include "models/wavtokenizer.h"
+#include "models/xcodec2.h"
+#include "models/snac.h"
+#include "models/moss_audio.h"
+#include "models/xy_tokenizer.h"
+#include "models/bluemagpie_audiovae.h"
 #include "ops/safe_math.h"
 #include "runtime/graph.h"
 #include "runtime/lm_gguf_kv.h"
@@ -97,6 +108,41 @@ enum codec_arch codec_arch_from_string(const std::string & arch) {
         return CODEC_ARCH_QWEN3_TTS_TOKENIZER;
     }
 
+    if (arch == "soprano") {
+        return CODEC_ARCH_SOPRANO;
+    }
+
+    if (arch == "nemo_nano_codec" || arch == "nemo-nano-codec" || arch == "nemo") {
+        return CODEC_ARCH_NEMO_NANO_CODEC;
+    }
+    if (arch == "neucodec") {
+        return CODEC_ARCH_NEUCODEC;
+    }
+    if (arch == "distill_neucodec" || arch == "distill-neucodec") {
+        return CODEC_ARCH_DISTILL_NEUCODEC;
+    }
+    if (arch == "chatterbox_s3t" || arch == "chatterbox-s3t" || arch == "s3t") {
+        return CODEC_ARCH_CHATTERBOX_S3T;
+    }
+    if (arch == "chatterbox_s3g" || arch == "chatterbox-s3g" || arch == "s3g") {
+        return CODEC_ARCH_CHATTERBOX_S3G;
+    }
+    if (arch == "xcodec2" || arch == "x-codec2" || arch == "x_codec2") {
+        return CODEC_ARCH_XCODEC2;
+    }
+    if (arch == "snac" || arch == "snac_24khz") {
+        return CODEC_ARCH_SNAC;
+    }
+    if (arch == "moss_audio_tokenizer" || arch == "moss-audio-tokenizer" || arch == "moss_audio") {
+        return CODEC_ARCH_MOSS_AUDIO;
+    }
+    if (arch == "xy_tokenizer" || arch == "xy-tokenizer") {
+        return CODEC_ARCH_XY_TOKENIZER;
+    }
+    if (arch == "bluemagpie_audiovae" || arch == "bluemagpie-audiovae") {
+        return CODEC_ARCH_BLUEMAGPIE_AUDIOVAE;
+    }
+
     return CODEC_ARCH_UNKNOWN;
 }
 
@@ -110,6 +156,28 @@ static const codec_model_vtable * codec_model_vtable_for_arch(enum codec_arch ar
             return codec_mimi_vtable();
         case CODEC_ARCH_QWEN3_TTS_TOKENIZER:
             return codec_qwen3_tts_tokenizer_vtable();
+        case CODEC_ARCH_SOPRANO:
+            return codec_soprano_vtable();
+        case CODEC_ARCH_NEMO_NANO_CODEC:
+            return codec_nemo_nano_codec_vtable();
+        case CODEC_ARCH_NEUCODEC:
+            return codec_neucodec_vtable();
+        case CODEC_ARCH_DISTILL_NEUCODEC:
+            return codec_distill_neucodec_vtable();
+        case CODEC_ARCH_CHATTERBOX_S3T:
+            return codec_chatterbox_s3t_vtable();
+        case CODEC_ARCH_CHATTERBOX_S3G:
+            return codec_chatterbox_s3g_vtable();
+        case CODEC_ARCH_XCODEC2:
+            return codec_xcodec2_vtable();
+        case CODEC_ARCH_SNAC:
+            return codec_snac_vtable();
+        case CODEC_ARCH_MOSS_AUDIO:
+            return codec_moss_audio_vtable();
+        case CODEC_ARCH_XY_TOKENIZER:
+            return codec_xy_tokenizer_vtable();
+        case CODEC_ARCH_BLUEMAGPIE_AUDIOVAE:
+            return codec_bluemagpie_audiovae_vtable();
         case CODEC_ARCH_UNKNOWN:
         default:
             return nullptr;
@@ -122,6 +190,17 @@ const char * codec_arch_name(enum codec_arch arch) {
         case CODEC_ARCH_DAC:                return "DAC";
         case CODEC_ARCH_MIMI:               return "Mimi";
         case CODEC_ARCH_QWEN3_TTS_TOKENIZER:return "Qwen3-TTS-Tokenizer";
+        case CODEC_ARCH_SOPRANO:            return "Soprano";
+        case CODEC_ARCH_NEMO_NANO_CODEC:    return "NeMo-Nano-Codec";
+        case CODEC_ARCH_NEUCODEC:           return "NeuCodec";
+        case CODEC_ARCH_DISTILL_NEUCODEC:   return "Distill-NeuCodec";
+        case CODEC_ARCH_CHATTERBOX_S3T:     return "Chatterbox-S3T";
+        case CODEC_ARCH_CHATTERBOX_S3G:     return "Chatterbox-S3G";
+        case CODEC_ARCH_XCODEC2:            return "XCodec2";
+        case CODEC_ARCH_SNAC:               return "SNAC";
+        case CODEC_ARCH_MOSS_AUDIO:         return "MOSS-Audio-Tokenizer";
+        case CODEC_ARCH_XY_TOKENIZER:       return "XY-Tokenizer";
+        case CODEC_ARCH_BLUEMAGPIE_AUDIOVAE:return "BlueMagpie-AudioVAE";
         case CODEC_ARCH_UNKNOWN:
         default:                            return "unknown";
     }
@@ -138,6 +217,7 @@ enum codec_status codec_model_init_arch(struct codec_model * model) {
         return model->vtable->init(model);
     }
     model->sample_rate = codec_read_i32_kv(model->gguf, "codec.sample_rate", 0);
+    model->encode_sample_rate = codec_read_i32_kv(model->gguf, "codec.encode_sample_rate", 0);
     model->has_encoder = codec_read_bool_kv(model->gguf, "codec.has_encoder", false);
     model->has_decoder = codec_read_bool_kv(model->gguf, "codec.has_decoder", false);
     model->hop_size = codec_read_i32_kv(model->gguf, "codec.hop_size", 0);
@@ -315,6 +395,7 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
     }
 
     model->sample_rate = 0;
+    model->encode_sample_rate = 0;
     model->has_encoder = false;
     model->has_decoder = false;
     model->hop_size = 0;
@@ -429,6 +510,8 @@ static enum codec_status codec_encode_impl(
     struct codec_latent_buffer * out_latent,
     struct codec_encode_params params) {
 
+    CODEC_PERF_SCOPE("encode_total");
+
     if (ctx == nullptr || ctx->model == nullptr || audio == nullptr || out_tokens == nullptr) {
         return CODEC_STATUS_INVALID_ARG;
     }
@@ -439,10 +522,18 @@ static enum codec_status codec_encode_impl(
     }
     codec_context_set_error(ctx, "");
 
-    if (ctx->model->sample_rate > 0 && audio->sample_rate != ctx->model->sample_rate) {
+    const int32_t expect_sr = ctx->model->encode_sample_rate > 0 ? ctx->model->encode_sample_rate : ctx->model->sample_rate;
+    if (expect_sr > 0 && audio->sample_rate != expect_sr) {
         std::ostringstream oss;
-        oss << "sample_rate mismatch: got " << audio->sample_rate << ", expected " << ctx->model->sample_rate
+        oss << "sample_rate mismatch: got " << audio->sample_rate << ", expected " << expect_sr
             << " (resample before codec_encode)";
+        codec_context_set_error(ctx, oss.str());
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    const int32_t expect_ch = ctx->model->expected_channels > 0 ? ctx->model->expected_channels : 1;
+    if (audio->n_channels != expect_ch) {
+        std::ostringstream oss;
+        oss << "n_channels mismatch: got " << audio->n_channels << ", expected " << expect_ch;
         codec_context_set_error(ctx, oss.str());
         return CODEC_STATUS_INVALID_ARG;
     }
@@ -488,6 +579,8 @@ enum codec_status codec_decode(
     const struct codec_token_buffer * tokens,
     struct codec_pcm_buffer * out_pcm,
     struct codec_decode_params params) {
+
+    CODEC_PERF_SCOPE("decode_total");
 
     if (ctx == nullptr || ctx->model == nullptr || tokens == nullptr || out_pcm == nullptr) {
         return CODEC_STATUS_INVALID_ARG;

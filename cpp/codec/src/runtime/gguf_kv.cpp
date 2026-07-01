@@ -103,6 +103,77 @@ int32_t codec_read_i32_kv_any(struct lm_gguf_context * gf, const char * const * 
     return fallback;
 }
 
+void codec_read_i32_array_kv(struct lm_gguf_context * gf, const char * key, int32_t * dst, int32_t dst_n) {
+    if (gf == nullptr || key == nullptr || dst == nullptr || dst_n <= 0) {
+        return;
+    }
+
+    const int key_id = lm_gguf_find_key(gf, key);
+    if (key_id < 0 || lm_gguf_get_kv_type(gf, key_id) != LM_GGUF_TYPE_ARRAY) {
+        return;
+    }
+
+    const enum lm_gguf_type arr_t = lm_gguf_get_arr_type(gf, key_id);
+    const size_t n = lm_gguf_get_arr_n(gf, key_id);
+    const size_t n_copy = std::min(n, (size_t) dst_n);
+
+    if (arr_t == LM_GGUF_TYPE_UINT32) {
+        const uint32_t * src = static_cast<const uint32_t *>(lm_gguf_get_arr_data(gf, key_id));
+        if (src != nullptr) {
+            for (size_t i = 0; i < n_copy; ++i) {
+                dst[i] = (int32_t) src[i];
+            }
+        }
+    } else if (arr_t == LM_GGUF_TYPE_INT32) {
+        const int32_t * src = static_cast<const int32_t *>(lm_gguf_get_arr_data(gf, key_id));
+        if (src != nullptr) {
+            for (size_t i = 0; i < n_copy; ++i) {
+                dst[i] = src[i];
+            }
+        }
+    }
+}
+
+void codec_read_f32_array_kv(struct lm_gguf_context * gf, const char * key, float * dst, int32_t dst_n) {
+    if (gf == nullptr || key == nullptr || dst == nullptr || dst_n <= 0) {
+        return;
+    }
+    const int key_id = lm_gguf_find_key(gf, key);
+    if (key_id < 0 || lm_gguf_get_kv_type(gf, key_id) != LM_GGUF_TYPE_ARRAY) {
+        return;
+    }
+    const enum lm_gguf_type arr_t = lm_gguf_get_arr_type(gf, key_id);
+    const size_t n = lm_gguf_get_arr_n(gf, key_id);
+    const size_t n_copy = std::min(n, (size_t) dst_n);
+    if (arr_t == LM_GGUF_TYPE_FLOAT32) {
+        const float * src = static_cast<const float *>(lm_gguf_get_arr_data(gf, key_id));
+        if (src != nullptr) {
+            for (size_t i = 0; i < n_copy; ++i) dst[i] = src[i];
+        }
+    }
+}
+
+void codec_read_i32_array_kv_vec(struct lm_gguf_context * gf, const char * key, std::vector<int32_t> * dst) {
+    if (gf == nullptr || key == nullptr || dst == nullptr) {
+        return;
+    }
+
+    const int key_id = lm_gguf_find_key(gf, key);
+    if (key_id < 0 || lm_gguf_get_kv_type(gf, key_id) != LM_GGUF_TYPE_ARRAY) {
+        return;
+    }
+
+    const enum lm_gguf_type arr_t = lm_gguf_get_arr_type(gf, key_id);
+    const size_t n = lm_gguf_get_arr_n(gf, key_id);
+    if (arr_t != LM_GGUF_TYPE_UINT32 && arr_t != LM_GGUF_TYPE_INT32) {
+        dst->clear();
+        return;
+    }
+
+    dst->assign(n, 0);
+    codec_read_i32_array_kv(gf, key, dst->data(), (int32_t) dst->size());
+}
+
 float codec_read_f32_kv(struct lm_gguf_context * gf, const char * key, float fallback) {
     const int key_id = lm_gguf_find_key(gf, key);
     if (key_id < 0) {

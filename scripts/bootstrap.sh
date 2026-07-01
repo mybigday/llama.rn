@@ -329,6 +329,12 @@ rm -rf ./cpp/codec
 mkdir -p ./cpp/codec
 cp -r ./$CODEC_DIR/include ./cpp/codec/include
 cp -r ./$CODEC_DIR/src ./cpp/codec/src
+# codec_common — generic audio-LM API mirroring llama.cpp's `common/`.
+# See third_party/codec.cpp/docs/codec_common_api.md.  We skip the nested
+# `third-party/` submodule (llama.cpp pinned for codec.cpp's standalone
+# tts-cli) — llama.rn supplies its own llama.cpp headers.
+cp -r ./$CODEC_DIR/common ./cpp/codec/common
+rm -rf ./cpp/codec/common/third-party
 
 # List of files to process
 files_add_lm_prefix=(
@@ -387,6 +393,10 @@ files_add_lm_prefix=(
   ./cpp/codec/src/ops/*.cpp
   ./cpp/codec/src/runtime/*.h
   ./cpp/codec/src/runtime/*.cpp
+  ./cpp/codec/src/lm/*.h
+  ./cpp/codec/src/lm/*.cpp
+  ./cpp/codec/common/*.h
+  ./cpp/codec/common/*.cpp
 )
 
 # Loop through each file and run the sed commands

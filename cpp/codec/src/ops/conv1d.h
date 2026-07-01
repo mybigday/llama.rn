@@ -29,6 +29,14 @@ lm_ggml_tensor * codec_conv1d_causal(
     int32_t stride,
     int32_t dilation);
 
+lm_ggml_tensor * codec_conv1d_causal_replicate(
+    lm_ggml_context * ctx,
+    lm_ggml_tensor * x,
+    lm_ggml_tensor * w,
+    lm_ggml_tensor * b,
+    int32_t stride,
+    int32_t dilation);
+
 lm_ggml_tensor * codec_conv1d_depthwise_causal(
     lm_ggml_context * ctx,
     lm_ggml_tensor * x,
