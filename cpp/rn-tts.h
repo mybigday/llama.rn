@@ -40,8 +40,18 @@ enum tts_type {
 
 // Audio completion result structure.
 // `flow` tells JS which downstream path to take:
-//   "tokens"           — standard completion → tryAddAudioToken → decodeAudioTokens
-//   "codec_lm_ar"      — generateAudioCodes (codec_lm AR loop) → decodeAudioTokens
+//   "tokens"           — standard completion → tryAddAudioToken → decodeAudioTokens.
+//                        Also used for CODEC_LM_AR models (CSM / Qwen3-TTS /
+//                        MOSS-TTSD / MOSS-TTS-Realtime / Chatterbox): the
+//                        completion loop drives the codec_lm step machine per
+//                        `llama_decode` via `tryCodecLmAudioStep`; JS collects
+//                        `audio_tokens` from the completion result the same
+//                        way it does for OuteTTS/Soprano/NeuTTS.
+//   "codec_lm_ar"      — DEPRECATED shim.  Older JS branches on this to call
+//                        `generateAudioCodes`; kept as a source-compat wrapper
+//                        around the standard `completion` loop.  New JS should
+//                        just look at `flow === "tokens"` and use `completion`
+//                        + `decodeAudioTokens` directly.
 //   "continuous_embd"  — standard completion loop but each step drives the
 //                        codec_lm's continuous-latent step machine
 //                        (BlueMagpie-TTS / VoxCPM); collect `audio_embeddings`
@@ -191,6 +201,35 @@ struct llama_rn_context_tts {
     bool audio_embeddings_pending = false;       // feedback embd ready
     bool audio_embeddings_done = false;          // stop head fired
 
+    // Codebook codec_lm-AR flow (CSM / Qwen3-TTS / MOSS-TTSD /
+    // MOSS-TTS-Realtime / Chatterbox).  Structurally parallel to the
+    // continuous flow above but the codec_lm produces N codebook codes per
+    // step (not a latent patch); those codes are appended to `audio_tokens`
+    // interleaved (T, N) so the standard `decodeAudioTokens` path picks
+    // them up.  `pending_next_embd` carries the composed audio embedding
+    // that becomes the next `llama_decode`'s `b.embd`.
+    //   - pending_speaker_emb_*: one-shot injection before the first token
+    //     batch, sourced from `codec_lm_speaker_encode` (voice-clone
+    //     models).  Cleared once fed to `llama_decode`.
+    //   - pending_next_embd: composed by `codec_lm_compose_next_embd`
+    //     after each step; ~hidden_dim floats.  Cleared once the completion
+    //     loop injects it as the next batch's `b.embd`.
+    //   - codec_lm_ar_step: monotonically incremented per emitted frame,
+    //     used by `compose_next_embd` for models with learned per-step
+    //     positional embeddings (Chatterbox `speech_pos_emb`).
+    //   - codec_lm_ar_rng: seed state for the codebook-internal sampler
+    //     (`sample_codec_logits`).  Seeded from the completion params on
+    //     first call; persists across steps within a completion.
+    std::vector<float> pending_speaker_emb_prefix;  // [rows * hidden_dim]
+    int pending_speaker_emb_rows = 0;
+    int pending_speaker_emb_hidden_dim = 0;
+    std::vector<float> pending_next_embd;           // [hidden_dim], next b.embd
+    bool codec_lm_ar_pending_embd = false;          // next_embd ready
+    bool codec_lm_ar_done = false;                  // codec_lm stop fired
+    int  codec_lm_ar_step = 0;                      // AR step index
+    uint64_t codec_lm_ar_rng = 0;                   // codebook sampler seed
+    bool codec_lm_ar_stopped_on_eos = false;        // for progress-cb result
+
     // Constructor and destructor
     // `use_gpu` mirrors codec.cpp's `codec_model_params.use_gpu` — set true
     // to offload codec + codec_lm graphs (Mimi / S3G / depth decoder etc.)
@@ -209,10 +248,14 @@ struct llama_rn_context_tts {
     // Full capability snapshot — single source of truth for JS-side wrappers.
     llama_rn_tts_capabilities getTTSCapabilities(llama_rn_context* main_ctx);
     llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak);
-    // codec_lm AR driver — drives the backbone + codec_lm step-state-machine
-    // end-to-end, writes (T*n_q) interleaved codes into audio_tokens AND
-    // returns them in the result for streaming convenience.  Returns
-    // result.codes.empty() on failure (check logs).
+    // DEPRECATED source-compat shim.  As of the "one completion API"
+    // refactor, codec_lm-AR TTS (CSM / Qwen3-TTS / MOSS-TTSD /
+    // MOSS-TTS-Realtime / Chatterbox) shares the standard `completion`
+    // loop with everything else — this wrapper just primes params +
+    // optional speaker prefix and drives it, then drains
+    // `audio_tokens` into the result for streaming callers.  New callers
+    // should skip this and use `completion` + `decodeAudioTokens`
+    // directly.  Returns result.codes.empty() on failure (check logs).
     llama_rn_audio_codes_result generateAudioCodes(llama_rn_context* main_ctx, const llama_rn_audio_codes_options &opts, const llama_rn_audio_codes_progress_cb &on_frame = nullptr);
 
     // True when the loaded codec.gguf's codec_lm reports
@@ -233,6 +276,44 @@ struct llama_rn_context_tts {
     // `audio_embeddings_pending = true` for the completion loop to
     // consume via `pending_feedback_embd`.
     bool tryContinuousAudioStep(llama_rn_context* main_ctx, const float * hidden, int hidden_dim);
+
+    // True when the loaded codec.gguf's codec_lm reports a codebook AR kind
+    // (`residual_depth_ar` or `parallel_heads_delay`).  Probed lazily
+    // (opens the codec_lm handle on first call); idempotent.  Returns false
+    // for continuous-latent kinds (use `isTTSContinuous` instead) and for
+    // codec.gguf's without an LM section.  The completion loop uses this
+    // to switch to the codec_lm step-machine per-step hook instead of
+    // standard token sampling.
+    bool isTTSCodecLmAR(llama_rn_context* main_ctx);
+
+    // Codec_lm-AR per-step hook, called from the completion loop after
+    // each `llama_decode` when `isTTSCodecLmAR` is true.
+    //   1. For `residual_depth_ar` codec_lm's where c0 comes from the
+    //      backbone's own head (MOSS-TTS-Realtime / MOSS-TTSD, i.e.
+    //      `audio_codebook_offset > 0`), stashes the backbone-sampled
+    //      token via `codec_lm_state_set_text_context` BEFORE step_begin.
+    //   2. Runs `codec_lm_step_begin(hidden)` then loops
+    //      `step_logits` → `sample_codec_logits` → `step_push_code`
+    //      `n_codebook` times, then `step_finish` to get the frame's N
+    //      codes.
+    //   3. Detects the model-specific stop condition (currently: CSM's
+    //      "codes[0]==0 after step>0" heuristic; other kinds don't have
+    //      one in the codebook path — they rely on the backbone emitting
+    //      an actual EOS token which the completion loop already handles).
+    //      On stop: `codec_lm_ar_done = true`, no next_embd produced.
+    //   4. Appends the frame's N codes to `audio_tokens` (T, N)
+    //      interleaved; `decodeAudioTokens` consumes them unchanged.
+    //   5. Composes next-step backbone embed via
+    //      `codec_lm_compose_next_embd(codes, codec_lm_ar_step, out)` and
+    //      writes it to `pending_next_embd`; the completion loop injects
+    //      that as the next batch's `b.embd`.
+    //
+    // `backbone_sampled_tok` is the backbone's own sampled token this step
+    // (from `common_sampler_sample`).  Only consumed for text-modality-cb0
+    // models; ignored otherwise.  Pass -1 when unavailable / not needed.
+    bool tryCodecLmAudioStep(llama_rn_context* main_ctx,
+                             llama_token backbone_sampled_tok,
+                             const float * hidden, int hidden_dim);
     // Encode a reference audio clip into codec tokens via the loaded
     // codec.gguf's encoder.  Used by voice-clone TTS models to register
     // a custom speaker without a Python pre-bake step.  `pcm` is F32 mono

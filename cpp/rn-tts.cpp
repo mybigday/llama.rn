@@ -320,6 +320,16 @@ void llama_rn_context_tts::reset() {
     pending_feedback_embd.clear();
     audio_embeddings_pending = false;
     audio_embeddings_done = false;
+
+    pending_speaker_emb_prefix.clear();
+    pending_speaker_emb_rows = 0;
+    pending_speaker_emb_hidden_dim = 0;
+    pending_next_embd.clear();
+    codec_lm_ar_pending_embd = false;
+    codec_lm_ar_done = false;
+    codec_lm_ar_step = 0;
+    codec_lm_ar_rng = 0;
+    codec_lm_ar_stopped_on_eos = false;
 }
 
 // Forward declarations from rn-llama.h
@@ -1090,12 +1100,22 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     // `flow = "continuous_embd"` + `embedding = true`.  Detection is
     // dynamic: no dedicated `tts_type` yet, so we probe the codec_lm.
     const bool is_continuous_lm = this->isTTSContinuous(main_ctx);
-    const bool embedding = is_continuous_lm
+    // Codebook codec_lm-AR (CSM / Qwen3-TTS / MOSS-TTSD /
+    // MOSS-TTS-Realtime / Chatterbox) now shares the same completion
+    // loop: the per-step hook `tryCodecLmAudioStep` fires from
+    // `rn-completion.cpp`, appending codes to `audio_tokens` and
+    // composing the next backbone embed.  Emit `flow = "tokens"` +
+    // `embedding = true` so JS treats these exactly like Type A
+    // (OuteTTS / Soprano / NeuTTS) — `completion` + `decodeAudioTokens`.
+    // The `generateAudioCodes` wrapper still works for source compat but
+    // new JS callers should skip it.
+    const bool is_codec_lm_ar =
+        profile.decode_kind == tts_decode_kind::CODEC_LM_AR;
+    const bool embedding = is_continuous_lm || is_codec_lm_ar
         || profile.decode_kind == tts_decode_kind::HIDDEN_STATES;
     const std::string flow = is_continuous_lm
         ? "continuous_embd"
-        : (profile.decode_kind == tts_decode_kind::CODEC_LM_AR
-            ? "codec_lm_ar" : "tokens");
+        : "tokens";
     switch (profile.prompt_kind) {
         case tts_prompt_kind::OUTETTS_LEGACY:
         case tts_prompt_kind::OUTETTS_V0_3:
@@ -1256,6 +1276,25 @@ struct scoped_embeddings_flag {
 
 } // namespace
 
+// generateAudioCodes — source-compat wrapper.
+//
+// After the codec_lm-AR refactor, all Type B/C/D flows (CSM / Qwen3-TTS /
+// MOSS-TTSD / MOSS-TTS-Realtime / Chatterbox) share the standard
+// `completion` loop with everything else.  The per-step codec_lm state
+// machine that used to live inside this function is now
+// `tryCodecLmAudioStep` (rn-tts.cpp), driven from `rn-completion.cpp`.
+//
+// This wrapper keeps the historical `generateAudioCodes(opts, on_frame)`
+// entry point working: it seeds the codec_lm sampler + optional speaker
+// prefix, primes the completion params, and runs the completion loop
+// until the codec_lm signals stop (or `max_frames` frames are emitted).
+// The (T × n_codebook) codes are drained from `tts_wrapper->audio_tokens`
+// into the result, matching the old signature.
+//
+// New JS callers can skip this wrapper: `getFormattedAudioCompletion`
+// now returns `flow = "tokens"` for codec_lm-AR models, so `completion` +
+// `decodeAudioTokens` works the same way it does for OuteTTS / Soprano /
+// NeuTTS.
 llama_rn_audio_codes_result llama_rn_context_tts::generateAudioCodes(
     llama_rn_context * main_ctx,
     const llama_rn_audio_codes_options & opts,
@@ -1267,14 +1306,17 @@ llama_rn_audio_codes_result llama_rn_context_tts::generateAudioCodes(
         LOG_ERROR("generateAudioCodes: main context not initialized");
         return result;
     }
+    if (main_ctx->completion == nullptr) {
+        LOG_ERROR("generateAudioCodes: completion context not initialized");
+        return result;
+    }
     if (codec_model == nullptr) {
         LOG_ERROR("generateAudioCodes: codec model not loaded");
         return result;
     }
 
-    // Lazy codec_lm + state init.  codec_lm is already created during
-    // getTTSType() if the codec.gguf carries `lm.*` metadata; create here
-    // too in case the caller skipped capability detection.
+    // Lazy codec_lm probe — reused by the completion loop's
+    // `isTTSCodecLmAR` check below.
     if (codec_lm == nullptr && !codec_lm_probed) {
         codec_lm_probed = true;
         codec_lm = ::codec_lm_create(codec_model);
@@ -1285,23 +1327,17 @@ llama_rn_audio_codes_result llama_rn_context_tts::generateAudioCodes(
                   err && *err ? err : "no `lm.*` section in codec.gguf");
         return result;
     }
-    if (codec_lm_state == nullptr) {
-        codec_lm_state = ::codec_lm_state_new(codec_lm);
-        if (codec_lm_state == nullptr) {
-            LOG_ERROR("generateAudioCodes: codec_lm_state_new failed");
-            return result;
-        }
-    } else {
-        ::codec_lm_state_reset(codec_lm_state);
-    }
-
     const ::codec_lm_info * info = ::codec_lm_get_info(codec_lm);
-    const int n_cb     = info->n_codebook;
-    const int hidden   = info->hidden_dim;
-    const int audio_ed = info->audio_embed_dim;
-    const int compose_ed = info->compose_audio_embed_dim > 0
-        ? info->compose_audio_embed_dim : audio_ed;
-
+    if (info == nullptr) {
+        LOG_ERROR("generateAudioCodes: codec_lm_get_info returned NULL");
+        return result;
+    }
+    if (info->is_continuous) {
+        LOG_ERROR("generateAudioCodes: this codec_lm is continuous-latent; use completion() + decodeAudioEmbeddings() instead");
+        return result;
+    }
+    const int n_cb   = info->n_codebook;
+    const int hidden = info->hidden_dim;
     const int model_n_embd = llama_model_n_embd(main_ctx->model);
     if (model_n_embd != hidden) {
         LOG_ERROR("generateAudioCodes: backbone n_embd=%d != codec_lm hidden=%d",
@@ -1309,57 +1345,9 @@ llama_rn_audio_codes_result llama_rn_context_tts::generateAudioCodes(
         return result;
     }
 
-    // Continuous-latent codec_lm kinds (BlueMagpie-TTS / VoxCPM,
-    // continuous_latent_cfm) do not flow through generateAudioCodes.
-    // They go through the standard `completion` loop plus the
-    // `tryContinuousAudioStep` hook (see rn-completion.cpp).  JS callers
-    // pick up `audio_embeddings` from the completion result and feed
-    // them to `decodeAudioEmbeddings`.  If we reach here with a
-    // continuous codec_lm, refuse — the caller wired the wrong path.
-    if (info->is_continuous) {
-        LOG_ERROR("generateAudioCodes: this codec_lm is continuous-latent; use completion() + decodeAudioEmbeddings() instead");
-        return result;
-    }
-
-    if (compose_ed != hidden) {
-        LOG_ERROR("generateAudioCodes: compose_audio_embed_dim=%d != backbone hidden=%d",
-                  compose_ed, hidden);
-        return result;
-    }
-
-    // Tokenize prompt.  CSM's prompt embeds the BOS / EOS markers verbatim
-    // (`<|begin_of_text|>...<|end_of_text|>`), so add_special=false here.
-    const std::vector<llama_token> prompt_tokens = ::common_tokenize(
-        main_ctx->ctx, opts.prompt, /*add_special=*/false, /*parse_special=*/true);
-    if (prompt_tokens.empty()) {
-        LOG_ERROR("generateAudioCodes: prompt tokenizes to zero tokens");
-        return result;
-    }
-
-    // Reset state, switch into embeddings mode, wipe KV.
-    audio_tokens.clear();
-    pending_codebook1 = -1;
-    scoped_embeddings_flag embd_guard(main_ctx->ctx, true);
-    ::llama_memory_clear(::llama_get_memory(main_ctx->ctx), true);
-
-    // Feed prompt as tokens.  prep_csm mapped CSM's `embed_text_tokens`
-    // onto the standard backbone `model.embed_tokens`, so b.token feeding
-    // drives the right text embedding without out-of-band lookup.
-    const int32_t n_ctx_max = (int32_t) llama_n_ctx(main_ctx->ctx);
-    if ((int32_t) prompt_tokens.size() >= n_ctx_max) {
-        LOG_ERROR("generateAudioCodes: prompt (%zu) >= n_ctx (%d)",
-                  prompt_tokens.size(), n_ctx_max);
-        return result;
-    }
-
-    int32_t pos = 0;
-
-    // Optional speaker-conditioning prefix (output of
-    // `codec_lm_speaker_encode` for the loaded voice-clone codec).  Fed
-    // first via b.embd so the AR loop sees it ahead of the text prompt.
-    // Caller is responsible for matching speaker_emb_hidden_dim to the
-    // backbone n_embd (we validate before feeding to avoid corrupting
-    // the KV cache with mismatched embedding rows).
+    // Stash optional speaker-conditioning prefix (output of
+    // `codec_lm_speaker_encode`) so the completion loop's first
+    // `llama_decode` injects it as an embd-batch before the token prompt.
     if (!opts.speaker_emb_prefix.empty() && opts.speaker_emb_rows > 0 &&
         opts.speaker_emb_hidden_dim > 0) {
         if (opts.speaker_emb_hidden_dim != hidden) {
@@ -1370,246 +1358,101 @@ llama_rn_audio_codes_result llama_rn_context_tts::generateAudioCodes(
             LOG_ERROR("generateAudioCodes: speaker_emb_prefix length %zu != rows(%d) × hidden(%d) — skipping prefix",
                       opts.speaker_emb_prefix.size(),
                       opts.speaker_emb_rows, opts.speaker_emb_hidden_dim);
-        } else if ((int32_t) (pos + opts.speaker_emb_rows + prompt_tokens.size()) >= n_ctx_max) {
-            LOG_ERROR("generateAudioCodes: speaker prefix (%d) + prompt (%zu) >= n_ctx (%d) — skipping prefix",
-                      opts.speaker_emb_rows, prompt_tokens.size(), n_ctx_max);
         } else {
-            scoped_llama_batch sb(opts.speaker_emb_rows, hidden, 1);
-            llama_batch & b = sb.b;
-            b.n_tokens = opts.speaker_emb_rows;
-            std::memcpy(b.embd, opts.speaker_emb_prefix.data(),
-                        (size_t) opts.speaker_emb_rows * (size_t) hidden * sizeof(float));
-            for (int32_t i = 0; i < b.n_tokens; ++i) {
-                b.pos[i]       = pos + i;
-                b.n_seq_id[i]  = 1;
-                b.seq_id[i][0] = 0;
-                b.logits[i]    = 0; // hidden state read after the prompt
-            }
-            b.token = nullptr;
-            if (::llama_decode(main_ctx->ctx, b) != 0) {
-                LOG_ERROR("generateAudioCodes: llama_decode (speaker prefix) failed");
-                return result;
-            }
-            pos += b.n_tokens;
+            pending_speaker_emb_prefix       = opts.speaker_emb_prefix;
+            pending_speaker_emb_rows         = opts.speaker_emb_rows;
+            pending_speaker_emb_hidden_dim   = opts.speaker_emb_hidden_dim;
         }
     }
 
-    {
-        scoped_llama_batch pb((int32_t) prompt_tokens.size(), 0, 1);
-        llama_batch & b = pb.b;
-        b.n_tokens = (int32_t) prompt_tokens.size();
-        for (int32_t i = 0; i < b.n_tokens; ++i) {
-            b.token[i]       = prompt_tokens[(size_t) i];
-            b.pos[i]         = pos + i;
-            b.n_seq_id[i]    = 1;
-            b.seq_id[i][0]   = 0;
-            b.logits[i]      = (i == b.n_tokens - 1) ? 1 : 0;
-        }
-        if (::llama_decode(main_ctx->ctx, b) != 0) {
-            LOG_ERROR("generateAudioCodes: llama_decode (prompt) failed");
-            return result;
-        }
-        pos += b.n_tokens;
+    // Configure completion params for a codec_lm-AR run.  We reuse the
+    // caller's temperature / top_p / top_k / seed (they get applied to
+    // the codec_lm's codebook sampler in `tryCodecLmAudioStep` and to
+    // the backbone's sampler in the standard completion path).  Each
+    // frame corresponds to one `llama_decode` = one predicted token
+    // slot; cap at `max_frames`.
+    const int max_frames = std::max(opts.max_frames, 1);
+    main_ctx->params.prompt        = opts.prompt;
+    main_ctx->params.n_predict     = max_frames;
+    main_ctx->params.embedding     = true;    // for llama_get_embeddings_ith
+    main_ctx->params.sampling.temp = opts.temperature;
+    main_ctx->params.sampling.top_p = opts.top_p;
+    main_ctx->params.sampling.top_k = opts.top_k;
+    if (opts.seed != 0) {
+        main_ctx->params.sampling.seed = opts.seed;
     }
+    // The codec_lm sampler seed lives on the tts wrapper (persists across
+    // steps within a completion, re-seeded in `reset()`).
+    codec_lm_ar_rng = opts.seed ? (uint64_t) opts.seed : 0xC0DEC1ABULL;
 
-    auto read_hidden = [&]() -> const float * {
-        // The last (and only) row with logits[i]==1 is at index 0 in the
-        // embeddings output buffer.
-        return ::llama_get_embeddings_ith(main_ctx->ctx, 0);
-    };
+    llama_set_embeddings(main_ctx->ctx, true);
 
-    const float * h_in = read_hidden();
-    if (h_in == nullptr) {
-        LOG_ERROR("generateAudioCodes: llama_get_embeddings_ith returned NULL");
+    // Drive the standard completion loop.  `rewind()` clears
+    // `audio_tokens` + tts flags + resets sampler.  `loadPrompt({})`
+    // tokenizes the prompt through the standard pipeline.  Then
+    // `doCompletion()` runs the codec_lm step per `llama_decode`.
+    main_ctx->completion->rewind();
+    if (!main_ctx->completion->initSampling()) {
+        LOG_ERROR("generateAudioCodes: initSampling failed");
         return result;
     }
+    main_ctx->completion->loadPrompt({});
+    if (main_ctx->completion->context_full) {
+        LOG_ERROR("generateAudioCodes: prompt exceeds n_ctx (%d)",
+                  main_ctx->n_ctx);
+        return result;
+    }
+    main_ctx->completion->beginCompletion();
 
-    // Single reusable per-step batch (1 embedding row).
-    scoped_llama_batch step_batch(1, hidden, 1);
-
-    std::vector<float> next_embd((size_t) hidden, 0.0f);
-    std::vector<int32_t> codes((size_t) n_cb, 0);
-
-    uint64_t rng = opts.seed ? (uint64_t) opts.seed : 0xC0DEC1ABULL;
-
-    const int max_frames = std::max(opts.max_frames, 1);
-    result.codes.reserve((size_t) max_frames * (size_t) n_cb);
-
-    // For text-modality codec_lm models (MOSS-TTS-Realtime: cb-0 is a token
-    // sampled from the backbone's lm_head over the Qwen3 text vocab), pull
-    // the backbone's logits at the latest output position and stash the
-    // sampled text token via codec_lm_state_set_text_context BEFORE
-    // step_begin so the depth decoder's pos-0 input is wired correctly.
-    // codec_lm's step_logits(0) for these models then returns the same
-    // logits (tied to the backbone's text head), so we sample again into
-    // codes[0] — harmless and keeps the per-step loop uniform.
-    const tts_model_profile &gen_profile = profile_for_type(type);
-    const bool text_modality_cb0 = (gen_profile.audio_codebook_offset > 0);
-
-    // Per-stage perf accumulators (µs).  Logged every 25 frames so we can
-    // tell whether backbone decode or codec_lm depth is the bottleneck on
-    // codec_lm-AR models like CSM (32-cb residual depth) without spamming
-    // logcat per-step.
-    auto now_us = []() -> int64_t {
+    const auto now_us = []() -> int64_t {
         const auto t = std::chrono::steady_clock::now().time_since_epoch();
         return std::chrono::duration_cast<std::chrono::microseconds>(t).count();
     };
-    int64_t us_step_begin = 0, us_depth_sample = 0, us_step_finish = 0;
-    int64_t us_compose = 0, us_backbone = 0, us_read_hidden = 0;
     const int64_t loop_t0 = now_us();
 
     int step = 0;
-    for (; step < max_frames; ++step) {
-        if (pos + 1 >= n_ctx_max) {
-            LOG_WARNING("generateAudioCodes: context full at frame %d", step);
-            break;
-        }
+    while (main_ctx->completion->has_next_token) {
+        const size_t codes_before = audio_tokens.size();
+        (void) main_ctx->completion->doCompletion();
 
-        if (text_modality_cb0) {
-            const float * backbone_logits = ::llama_get_logits_ith(main_ctx->ctx, 0);
-            if (backbone_logits != nullptr) {
-                const int32_t n_vocab = (int32_t) llama_vocab_n_tokens(
-                    llama_model_get_vocab(main_ctx->model));
-                const int32_t text_tok = sample_codec_logits(
-                    backbone_logits, n_vocab, opts.temperature,
-                    opts.top_k, opts.top_p, &rng);
-                ::codec_lm_state_set_text_context(codec_lm_state, text_tok);
+        // A completed frame appended `n_cb` codes to audio_tokens.  Feed
+        // the progress callback + capture stop.
+        if (audio_tokens.size() >= codes_before + (size_t) n_cb) {
+            std::vector<int32_t> frame_codes(
+                audio_tokens.begin() + (int64_t) codes_before,
+                audio_tokens.begin() + (int64_t) codes_before + n_cb);
+            if (on_frame) {
+                if (!on_frame(step, frame_codes)) {
+                    result.aborted = true;
+                    break;
+                }
             }
-        }
-
-        int64_t t = now_us();
-        if (::codec_lm_step_begin(codec_lm_state, h_in) != CODEC_STATUS_SUCCESS) {
-            const char * err = ::codec_lm_state_get_last_error(codec_lm_state);
-            LOG_ERROR("generateAudioCodes: codec_lm_step_begin failed: %s",
-                      err && *err ? err : "(no error message)");
-            break;
-        }
-        us_step_begin += now_us() - t;
-
-        t = now_us();
-        bool step_ok = true;
-        for (int cb = 0; cb < n_cb; ++cb) {
-            int32_t cb_idx = -1, vocab = 0;
-            const float * logits = ::codec_lm_step_logits(codec_lm_state, &cb_idx, &vocab);
-            if (logits == nullptr || vocab <= 0) {
-                LOG_ERROR("generateAudioCodes: step_logits failed at cb=%d", cb);
-                step_ok = false; break;
-            }
-            const int32_t code = sample_codec_logits(logits, vocab,
-                opts.temperature, opts.top_k, opts.top_p, &rng);
-            if (::codec_lm_step_push_code(codec_lm_state, code) != CODEC_STATUS_SUCCESS) {
-                LOG_ERROR("generateAudioCodes: step_push_code failed at cb=%d code=%d",
-                          cb, code);
-                step_ok = false; break;
-            }
-        }
-        us_depth_sample += now_us() - t;
-        if (!step_ok) break;
-
-        t = now_us();
-        if (::codec_lm_step_finish(codec_lm_state, codes.data()) != CODEC_STATUS_SUCCESS) {
-            LOG_ERROR("generateAudioCodes: codec_lm_step_finish failed");
-            break;
-        }
-        us_step_finish += now_us() - t;
-
-        // CSM EOS heuristic: training-time audio-EOS frame has codes all
-        // zero; trip on cb-0==0 after step 0 to avoid stopping on the
-        // initial frame which is also frequently zero for cb-0.
-        const bool csm_eos = (type == CSM_1B) && step > 0 && codes[0] == 0;
-        if (csm_eos) {
-            result.stopped_on_eos = true;
-        } else {
-            // Append (T, n_cb) interleaved.
-            const size_t prev_size = result.codes.size();
-            result.codes.resize(prev_size + (size_t) n_cb);
-            for (int cb = 0; cb < n_cb; ++cb) {
-                result.codes[prev_size + (size_t) cb] = codes[(size_t) cb];
-            }
-            audio_tokens.insert(audio_tokens.end(), codes.begin(), codes.end());
-        }
-
-        if (on_frame) {
-            if (!on_frame(step, codes)) {
-                result.aborted = true;
+            step++;
+            if (step >= max_frames) {
                 break;
             }
         }
-        if (csm_eos) break;
-
-        // Compose next-step embedding from sampled codes.
-        int64_t t2 = now_us();
-        if (::codec_lm_compose_audio_embd(codec_lm, codes.data(), next_embd.data())
-                != CODEC_STATUS_SUCCESS) {
-            const char * err = ::codec_lm_get_last_error(codec_lm);
-            LOG_ERROR("generateAudioCodes: compose_audio_embd failed: %s",
-                      err && *err ? err : "(no error message)");
+        if (codec_lm_ar_done) {
             break;
-        }
-        us_compose += now_us() - t2;
-
-        // Feed the composed audio embedding as the next position.
-        t2 = now_us();
-        {
-            llama_batch & b = step_batch.b;
-            b.n_tokens = 1;
-            std::memcpy(b.embd, next_embd.data(), (size_t) hidden * sizeof(float));
-            b.pos[0]       = pos;
-            b.n_seq_id[0]  = 1;
-            b.seq_id[0][0] = 0;
-            b.logits[0]    = 1;
-            // batch.token must be NULL when embd is set; llama_batch_init
-            // leaves token allocated, so blank it out explicitly.
-            b.token = nullptr;
-            if (::llama_decode(main_ctx->ctx, b) != 0) {
-                LOG_ERROR("generateAudioCodes: llama_decode (step %d) failed", step);
-                break;
-            }
-            pos += 1;
-        }
-        us_backbone += now_us() - t2;
-
-        t2 = now_us();
-        h_in = read_hidden();
-        if (h_in == nullptr) {
-            LOG_ERROR("generateAudioCodes: hidden state read returned NULL at step %d", step);
-            break;
-        }
-        us_read_hidden += now_us() - t2;
-
-        if ((step + 1) % 25 == 0) {
-            const int64_t loop_us = now_us() - loop_t0;
-            const int n = step + 1;
-            LOG_INFO("generateAudioCodes perf @ step %d: "
-                     "wall=%.2fs (%.1f frames/s)  per-step avg ms — "
-                     "backbone=%.2f  depth(begin+sample+finish)=%.2f  compose=%.3f  read_h=%.3f",
-                     step,
-                     (double) loop_us / 1e6,
-                     (double) n / ((double) loop_us / 1e6),
-                     (double) us_backbone / 1000.0 / n,
-                     (double) (us_step_begin + us_depth_sample + us_step_finish) / 1000.0 / n,
-                     (double) us_compose / 1000.0 / n,
-                     (double) us_read_hidden / 1000.0 / n);
         }
     }
+    main_ctx->completion->endCompletion();
 
     if (step > 0) {
         const int64_t loop_us = now_us() - loop_t0;
-        LOG_INFO("generateAudioCodes done: %d frames in %.2fs (%.1f frames/s)  "
-                 "totals ms — backbone=%.0f  step_begin=%.0f  depth_sample=%.0f  "
-                 "step_finish=%.0f  compose=%.0f  read_h=%.0f",
+        LOG_INFO("generateAudioCodes done: %d frames in %.2fs (%.1f frames/s)",
                  step, (double) loop_us / 1e6,
-                 (double) step / ((double) loop_us / 1e6),
-                 (double) us_backbone / 1000.0,
-                 (double) us_step_begin / 1000.0,
-                 (double) us_depth_sample / 1000.0,
-                 (double) us_step_finish / 1000.0,
-                 (double) us_compose / 1000.0,
-                 (double) us_read_hidden / 1000.0);
+                 (double) step / std::max((double) loop_us / 1e6, 1e-6));
     }
 
+    // Drain audio_tokens (llama_token = int32_t) into the result.
+    result.codes.reserve(audio_tokens.size());
+    for (const llama_token t : audio_tokens) {
+        result.codes.push_back((int32_t) t);
+    }
     result.n_codebook = n_cb;
     result.n_frames = (int) (result.codes.size() / (size_t) std::max(n_cb, 1));
+    result.stopped_on_eos = codec_lm_ar_stopped_on_eos;
     return result;
 }
 
@@ -1656,6 +1499,200 @@ bool llama_rn_context_tts::isTTSContinuous(llama_rn_context * main_ctx) {
                         model_n_embd, info->hidden_dim);
         }
     }
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Codebook codec_lm-AR per-step hook (CSM / Qwen3-TTS / MOSS-TTSD /
+// MOSS-TTS-Realtime / Chatterbox).
+//
+// Extracted verbatim (semantics-preserving) from `generateAudioCodes`
+// so the completion loop in `rn-completion.cpp` can drive one codec_lm
+// step per `llama_decode` iteration.  Structurally parallel to
+// `tryContinuousAudioStep`: state on `llama_rn_context_tts`, no direct
+// `llama_decode` calls (that's the completion loop's job).
+// ─────────────────────────────────────────────────────────────────────
+bool llama_rn_context_tts::isTTSCodecLmAR(llama_rn_context * main_ctx) {
+    if (codec_model == nullptr) {
+        return false;
+    }
+    if (codec_lm == nullptr && !codec_lm_probed) {
+        codec_lm_probed = true;
+        codec_lm = ::codec_lm_create(codec_model);
+    }
+    if (codec_lm == nullptr) {
+        return false;
+    }
+    const ::codec_lm_info * info = ::codec_lm_get_info(codec_lm);
+    if (info == nullptr || info->is_continuous) {
+        return false;
+    }
+    // Only codebook AR kinds route through this hook.  Continuous-latent
+    // is handled by `tryContinuousAudioStep`; UNKNOWN kinds mean the
+    // codec.gguf carries a partial `lm.*` section we can't drive.
+    if (info->kind != CODEC_LM_KIND_RESIDUAL_DEPTH_AR &&
+        info->kind != CODEC_LM_KIND_PARALLEL_HEADS_DELAY) {
+        return false;
+    }
+    if (main_ctx != nullptr && main_ctx->model != nullptr) {
+        const int model_n_embd = llama_model_n_embd(main_ctx->model);
+        if (model_n_embd != info->hidden_dim) {
+            LOG_WARNING("isTTSCodecLmAR: backbone n_embd=%d != codec_lm hidden=%d",
+                        model_n_embd, info->hidden_dim);
+        }
+    }
+    return true;
+}
+
+bool llama_rn_context_tts::tryCodecLmAudioStep(
+    llama_rn_context * main_ctx,
+    llama_token        backbone_sampled_tok,
+    const float *      hidden,
+    int                hidden_dim) {
+
+    if (codec_lm == nullptr) {
+        LOG_ERROR("tryCodecLmAudioStep: codec_lm not created");
+        return false;
+    }
+    if (hidden == nullptr || hidden_dim <= 0) {
+        LOG_ERROR("tryCodecLmAudioStep: null / empty hidden state");
+        return false;
+    }
+    const ::codec_lm_info * info = ::codec_lm_get_info(codec_lm);
+    if (info == nullptr || info->is_continuous) {
+        LOG_ERROR("tryCodecLmAudioStep: codec_lm is not codebook-AR");
+        return false;
+    }
+    if (hidden_dim != info->hidden_dim) {
+        LOG_ERROR("tryCodecLmAudioStep: hidden dim mismatch (got %d, expected %d)",
+                  hidden_dim, info->hidden_dim);
+        return false;
+    }
+    const int compose_ed = info->compose_audio_embed_dim > 0
+        ? info->compose_audio_embed_dim : info->audio_embed_dim;
+    if (compose_ed != info->hidden_dim) {
+        LOG_ERROR("tryCodecLmAudioStep: compose_audio_embed_dim=%d != hidden=%d",
+                  compose_ed, info->hidden_dim);
+        return false;
+    }
+
+    if (codec_lm_state == nullptr) {
+        codec_lm_state = ::codec_lm_state_new(codec_lm);
+        if (codec_lm_state == nullptr) {
+            LOG_ERROR("tryCodecLmAudioStep: codec_lm_state_new failed");
+            return false;
+        }
+    }
+
+    const int n_cb = info->n_codebook;
+    const tts_model_profile & profile = profile_for_type(type);
+    const bool text_modality_cb0 = (profile.audio_codebook_offset > 0);
+
+    // Seed the codebook-internal sampler on first use.  We reuse the
+    // completion's sampling params so JS callers don't need to plumb a
+    // second temperature / top_p / top_k / seed knob just for the codec_lm
+    // side.  If the user wants split sampling later, add a
+    // `codec_lm_sampling` sub-struct on `common_params_sampling`.
+    if (codec_lm_ar_rng == 0) {
+        const auto & sp = main_ctx->params.sampling;
+        codec_lm_ar_rng = sp.seed != 0 && sp.seed != (uint32_t) -1
+            ? (uint64_t) sp.seed : 0xC0DEC1ABULL;
+    }
+    const auto & sp = main_ctx->params.sampling;
+    const float   samp_temp = sp.temp > 0 ? sp.temp : 0.9f;
+    const float   samp_topp = sp.top_p > 0 ? sp.top_p : 0.95f;
+    const int32_t samp_topk = sp.top_k > 0 ? sp.top_k : 50;
+
+    // Text-modality cb0 (MOSS-TTS-Realtime / MOSS-TTSD): the c0 token is
+    // sampled from the BACKBONE's own lm_head (Qwen3 text vocab), not the
+    // codec_lm's depth decoder.  Read the backbone logits at the latest
+    // output position and hand the sampled token to the depth decoder
+    // BEFORE step_begin so pos-0 is wired correctly.  Prefer the
+    // caller-provided `backbone_sampled_tok` when the completion loop's
+    // main sampler already produced it; fall back to sampling directly
+    // when the completion loop bypasses that sampler (as it does for
+    // codec_lm-AR flows).  For CSM / Qwen3-TTS / Chatterbox this branch
+    // is skipped and set_text_context is a no-op.
+    if (text_modality_cb0) {
+        int32_t text_tok = backbone_sampled_tok;
+        if (text_tok < 0) {
+            const float * backbone_logits = ::llama_get_logits_ith(main_ctx->ctx, -1);
+            if (backbone_logits != nullptr) {
+                const int32_t n_vocab = (int32_t) llama_vocab_n_tokens(
+                    llama_model_get_vocab(main_ctx->model));
+                text_tok = sample_codec_logits(
+                    backbone_logits, n_vocab, samp_temp,
+                    samp_topk, samp_topp, &codec_lm_ar_rng);
+            }
+        }
+        if (text_tok >= 0) {
+            ::codec_lm_state_set_text_context(codec_lm_state, text_tok);
+        }
+    }
+
+    if (::codec_lm_step_begin(codec_lm_state, hidden) != CODEC_STATUS_SUCCESS) {
+        const char * err = ::codec_lm_state_get_last_error(codec_lm_state);
+        LOG_ERROR("tryCodecLmAudioStep: codec_lm_step_begin failed: %s",
+                  err && *err ? err : "(no error message)");
+        return false;
+    }
+
+    for (int cb = 0; cb < n_cb; ++cb) {
+        int32_t cb_idx = -1, vocab = 0;
+        const float * logits = ::codec_lm_step_logits(codec_lm_state, &cb_idx, &vocab);
+        if (logits == nullptr || vocab <= 0) {
+            LOG_ERROR("tryCodecLmAudioStep: step_logits failed at cb=%d", cb);
+            return false;
+        }
+        const int32_t code = sample_codec_logits(logits, vocab,
+            samp_temp, samp_topk, samp_topp, &codec_lm_ar_rng);
+        if (::codec_lm_step_push_code(codec_lm_state, code) != CODEC_STATUS_SUCCESS) {
+            LOG_ERROR("tryCodecLmAudioStep: step_push_code failed at cb=%d code=%d",
+                      cb, code);
+            return false;
+        }
+    }
+
+    std::vector<int32_t> codes((size_t) n_cb, 0);
+    if (::codec_lm_step_finish(codec_lm_state, codes.data()) != CODEC_STATUS_SUCCESS) {
+        LOG_ERROR("tryCodecLmAudioStep: codec_lm_step_finish failed");
+        return false;
+    }
+
+    // Stop detection.  CSM: training-time audio-EOS frame is codes all
+    // zero — trip on cb-0==0 after step>0 (initial frame is often 0 too).
+    // Other kinds don't have a codebook-side stop in the current
+    // profiles; they either use a max_frames cap or a backbone-level EOS
+    // that the standard completion path already catches.
+    const bool csm_eos = (type == CSM_1B) && codec_lm_ar_step > 0 && codes[0] == 0;
+    if (csm_eos) {
+        codec_lm_ar_done = true;
+        codec_lm_ar_stopped_on_eos = true;
+        codec_lm_ar_pending_embd = false;
+        return true;
+    }
+
+    // Append (T, n_cb) interleaved codes to audio_tokens so
+    // decodeAudioTokens (mapped through the codec_token_buffer path)
+    // picks them up unchanged.  audio_tokens uses llama_token elements;
+    // the codec values fit in int32_t which is the llama_token type.
+    audio_tokens.insert(audio_tokens.end(), codes.begin(), codes.end());
+
+    // Compose next-step backbone embed.  `compose_next_embd` adds the
+    // per-step positional embedding for models that have one
+    // (Chatterbox); falls back to `compose_audio_embd` otherwise.
+    pending_next_embd.assign((size_t) hidden_dim, 0.0f);
+    if (::codec_lm_compose_next_embd(codec_lm, codes.data(),
+                                     codec_lm_ar_step,
+                                     pending_next_embd.data())
+            != CODEC_STATUS_SUCCESS) {
+        const char * err = ::codec_lm_get_last_error(codec_lm);
+        LOG_ERROR("tryCodecLmAudioStep: compose_next_embd failed: %s",
+                  err && *err ? err : "(no error message)");
+        return false;
+    }
+    codec_lm_ar_pending_embd = true;
+    codec_lm_ar_step += 1;
     return true;
 }
 

@@ -1047,6 +1047,13 @@ export class LlamaContext {
      * `encodeSpeaker`) into the speaker object — voice-clone models on
      * the codec_lm_ar flow can spread this straight into
      * `generateAudioCodes` instead of threading the matrix manually.
+     *
+     * NOTE: new native builds route codec_lm-AR through the standard
+     * `completion` loop (flow = 'tokens' + embedding = true).  The
+     * speaker prefix is stashed on the native tts wrapper and injected
+     * ahead of the token prompt in the completion loop — callers only
+     * need to remember to pass `speakerEmbPrefix` into
+     * `generateAudioCodes` (which now wraps `completion` internally).
      */
     speakerEmbPrefix?: number[]
     speakerEmbRows?: number
@@ -1129,10 +1136,20 @@ export class LlamaContext {
   }
 
   /**
-   * Drive the backbone + codec_lm AR loop for codec_lm-flow models
-   * (currently CSM). Pipe `getFormattedAudioCompletion`'s `prompt` straight
-   * into this when its `flow` field is `'codec_lm_ar'`; pass the returned
-   * `codes` into `decodeAudioTokens` to get the final PCM.
+   * DEPRECATED: source-compat wrapper for codec_lm-AR TTS.
+   *
+   * As of the "one completion API" refactor, codec_lm-AR models (CSM /
+   * Qwen3-TTS / MOSS-TTSD / MOSS-TTS-Realtime / Chatterbox) run through
+   * the standard `completion` loop with `flow = 'tokens'` and
+   * `embedding = true`.  The per-step codec_lm state machine that used
+   * to live inside this call is now a hook on the completion loop
+   * (`tryCodecLmAudioStep`); the codes get appended to
+   * `result.audio_tokens` the same way OuteTTS / Soprano / NeuTTS do.
+   *
+   * This method still works — internally it just primes params +
+   * speaker prefix, runs `completion`, and drains `audio_tokens` — but
+   * new callers should skip it and use `completion()` +
+   * `decodeAudioTokens` directly.
    *
    * `onFrame` (optional) fires after each AR step with that frame's
    * codes for streaming UIs. It is fire-and-forget — its return value
