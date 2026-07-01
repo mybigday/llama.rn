@@ -95,22 +95,92 @@ declare global {
   var llamaReleaseMultimodal: (contextId: number) => Promise<void>
   var llamaInitVocoder: (
     contextId: number,
-    params: { path: string; n_batch?: number },
+    params: { path: string; n_batch?: number; use_gpu?: boolean },
   ) => Promise<boolean>
   var llamaIsVocoderEnabled: (contextId: number) => Promise<boolean>
   var llamaGetFormattedAudioCompletion: (
     contextId: number,
     speaker: string,
     text: string,
-  ) => Promise<{ prompt: string; grammar?: string }>
-  var llamaGetAudioCompletionGuideTokens: (
-    contextId: number,
-    text: string,
-  ) => Promise<number[]>
+  ) => Promise<{
+    prompt: string
+    grammar?: string
+    embedding: boolean
+    // 'tokens'      — feed `prompt` through `completion()` and collect audio tokens
+    // 'codec_lm_ar' — feed `prompt` through `generateAudioCodes()` to drive the
+    //                 backbone + codec_lm AR loop (CSM family)
+    flow: 'tokens' | 'codec_lm_ar' | ''
+  }>
+  var llamaGetTTSCapabilities: (contextId: number) => Promise<{
+    type: number
+    promptKind:
+      | 'outetts_legacy'
+      | 'outetts_v0_3'
+      | 'outetts_v1_0'
+      | 'soprano'
+      | 'neutts'
+      | 'csm'
+      | 'qwen3_tts'
+      | 'moss_tts_realtime'
+      | 'moss_ttsd'
+      | 'chatterbox'
+      | 'chatterbox_multilingual'
+      | ''
+    family:
+      | 'outetts'
+      | 'soprano'
+      | 'neutts'
+      | 'csm'
+      | 'qwen3_tts'
+      | 'moss_tts'
+      | 'moss_ttsd'
+      | 'chatterbox'
+      | ''
+    requiresPhonemes: boolean
+    defaultLanguage: string
+  }>
   var llamaDecodeAudioTokens: (
     contextId: number,
     tokens: number[],
   ) => Promise<number[]>
+  var llamaGenerateAudioCodes: (
+    contextId: number,
+    optsJson: string,
+    onFrame?: (step: number, codes: number[]) => void,
+  ) => Promise<{
+    codes: number[]
+    nCodebook: number
+    nFrames: number
+    stoppedOnEos: boolean
+    aborted: boolean
+    // Continuous-latent path (BlueMagpie-TTS / VoxCPM): `codes` is empty
+    // and `pcm` carries the decoded audio directly.  `sampleRate` is the
+    // codec's native rate.  Callers detect via `isContinuous === true`
+    // and skip the `decodeAudioTokens` step.
+    isContinuous: boolean
+    pcm: number[]
+    sampleRate: number
+  }>
+  var llamaEncodeSpeaker: (
+    contextId: number,
+    optsJson: string,
+  ) => Promise<{
+    refCodes: number[]
+    nQ: number
+    nFrames: number
+    sampleRate: number
+    codebookSize: number
+    refText: string
+    speakerEmb?: number[]
+    speakerNRows: number
+    speakerHiddenDim: number
+  }>
+  var llamaDecodeAudioEmbeddings: (
+    contextId: number,
+    embeddings: number[],
+    embeddingDim: number,
+  ) => Promise<number[]>
+  var llamaGetAudioSampleRate: (contextId: number) => Promise<number>
   var llamaReleaseVocoder: (contextId: number) => Promise<void>
   var llamaClearCache: (contextId: number, clearData: boolean) => Promise<void>
 
