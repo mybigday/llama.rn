@@ -1040,7 +1040,7 @@ export class LlamaContext {
     prompt: string
     grammar?: string
     embedding: boolean
-    flow: 'tokens' | 'codec_lm_ar' | ''
+    flow: 'tokens' | 'codec_lm_ar' | 'continuous_embd' | ''
     /**
      * Pre-computed speaker-conditioning prefix lifted off the caller's
      * speaker JSON. Present when the caller baked `speakerEmb` (output of
@@ -1162,12 +1162,6 @@ export class LlamaContext {
     nFrames: number
     stoppedOnEos: boolean
     aborted: boolean
-    // Continuous-latent path (BlueMagpie-TTS / VoxCPM): `codes` is empty
-    // and `pcm` carries the decoded audio directly.  Callers detect via
-    // `isContinuous === true` and skip `decodeAudioTokens`.
-    isContinuous: boolean
-    pcm: number[]
-    sampleRate: number
   }> {
     const { llamaGenerateAudioCodes } = getJsi()
     const { onFrame, ...rest } = options

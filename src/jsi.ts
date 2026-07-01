@@ -106,10 +106,15 @@ declare global {
     prompt: string
     grammar?: string
     embedding: boolean
-    // 'tokens'      — feed `prompt` through `completion()` and collect audio tokens
-    // 'codec_lm_ar' — feed `prompt` through `generateAudioCodes()` to drive the
-    //                 backbone + codec_lm AR loop (CSM family)
-    flow: 'tokens' | 'codec_lm_ar' | ''
+    // 'tokens'           — feed `prompt` through `completion()` and collect audio tokens
+    // 'codec_lm_ar'      — feed `prompt` through `generateAudioCodes()` to drive the
+    //                      backbone + codec_lm AR loop (CSM family)
+    // 'continuous_embd'  — feed `prompt` through `completion()`; the loop drives the
+    //                      codec_lm's continuous-latent step machine per
+    //                      `llama_decode` (BlueMagpie-TTS / VoxCPM).  Collect
+    //                      `embeddings` + `embedding_dim` from the completion
+    //                      result and pass them to `decodeAudioEmbeddings`.
+    flow: 'tokens' | 'codec_lm_ar' | 'continuous_embd' | ''
   }>
   var llamaGetTTSCapabilities: (contextId: number) => Promise<{
     type: number
@@ -153,13 +158,6 @@ declare global {
     nFrames: number
     stoppedOnEos: boolean
     aborted: boolean
-    // Continuous-latent path (BlueMagpie-TTS / VoxCPM): `codes` is empty
-    // and `pcm` carries the decoded audio directly.  `sampleRate` is the
-    // codec's native rate.  Callers detect via `isContinuous === true`
-    // and skip the `decodeAudioTokens` step.
-    isContinuous: boolean
-    pcm: number[]
-    sampleRate: number
   }>
   var llamaEncodeSpeaker: (
     contextId: number,

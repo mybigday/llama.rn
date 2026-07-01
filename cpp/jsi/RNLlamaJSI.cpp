@@ -2113,18 +2113,6 @@ namespace rnllama_jsi {
                             obj.setProperty(rt, "nFrames",       jsi::Value((double) r.n_frames));
                             obj.setProperty(rt, "stoppedOnEos",  jsi::Value(r.stopped_on_eos));
                             obj.setProperty(rt, "aborted",       jsi::Value(r.aborted));
-                            // Continuous-latent path (BlueMagpie-TTS / VoxCPM):
-                            // `codes` is empty; the PCM is already decoded
-                            // and delivered here.  JS callers detect via
-                            // `isContinuous === true` and play `pcm` at
-                            // `sampleRate` directly.
-                            obj.setProperty(rt, "isContinuous",  jsi::Value(r.is_continuous));
-                            obj.setProperty(rt, "sampleRate",    jsi::Value((double) r.sample_rate));
-                            jsi::Array pcm_arr(rt, r.pcm.size());
-                            for (size_t i = 0; i < r.pcm.size(); ++i) {
-                                pcm_arr.setValueAtIndex(rt, i, (double) r.pcm[i]);
-                            }
-                            obj.setProperty(rt, "pcm", pcm_arr);
                             return obj;
                         };
                     } catch (const std::exception &e) {

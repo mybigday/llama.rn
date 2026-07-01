@@ -40,8 +40,13 @@ enum tts_type {
 
 // Audio completion result structure.
 // `flow` tells JS which downstream path to take:
-//   "tokens"      — standard completion → tryAddAudioToken → decodeAudioTokens
-//   "codec_lm_ar" — generateAudioCodes (codec_lm AR loop) → decodeAudioTokens
+//   "tokens"           — standard completion → tryAddAudioToken → decodeAudioTokens
+//   "codec_lm_ar"      — generateAudioCodes (codec_lm AR loop) → decodeAudioTokens
+//   "continuous_embd"  — standard completion loop but each step drives the
+//                        codec_lm's continuous-latent step machine
+//                        (BlueMagpie-TTS / VoxCPM); collect `audio_embeddings`
+//                        from the completion result and feed them into
+//                        `decodeAudioEmbeddings` to get PCM.
 struct llama_rn_audio_completion_result {
     std::string prompt;
     std::string grammar;
@@ -82,17 +87,6 @@ struct llama_rn_audio_codes_result {
     int n_frames = 0;
     bool stopped_on_eos = false;
     bool aborted = false;
-
-    // Continuous-latent path (BlueMagpie-TTS / VoxCPM): the AR loop drives
-    // codec_common::audio_lm_observe_hidden per backbone step, accumulates
-    // latent patches internally, then audio_lm_decode_audio produces PCM
-    // directly — bypassing the codec_token path entirely.  When the loaded
-    // codec_lm is continuous-latent kind, `codes` stays empty and
-    // `pcm` + `sample_rate` carry the decoded audio.  JS callers can just
-    // play `pcm` at `sample_rate`; there's no `decodeAudioTokens` step.
-    std::vector<float> pcm;
-    int sample_rate = 0;
-    bool is_continuous = false;
 };
 
 // On-device speaker encoding result.  Caller drops this into a speaker JSON
@@ -179,6 +173,24 @@ struct llama_rn_context_tts {
     std::vector<llama_rn_audio_code_range> resolved_code_ranges;
     bool resolved_ranges_ready = false;
 
+    // Continuous-latent flow (BlueMagpie-TTS / VoxCPM): the completion loop
+    // in `rn-completion.cpp` calls `tryContinuousAudioStep` after each
+    // `llama_decode`; that hook runs codec_lm_step_generate +
+    // step_feedback_embd and accumulates the produced latent patch here
+    // (frame-major, [T, latent_dim]) plus records the LocEnc feedback embd
+    // as the payload for the NEXT batch's `b.embd`.  When the stop head
+    // fires, `audio_embeddings_done` is set and the completion loop
+    // terminates.  The completion result surfaces
+    // `audio_embeddings` / `audio_embedding_dim` alongside the standard
+    // fields; JS collects them and calls `decodeAudioEmbeddings` to get
+    // PCM.  Kept off the codec_lm path (generateAudioCodes) — that stays
+    // codebook-only.
+    std::vector<float> audio_embeddings;         // [n_frames * latent_dim]
+    int audio_embedding_dim = 0;                 // latent_dim
+    std::vector<float> pending_feedback_embd;    // [hidden_dim], next b.embd
+    bool audio_embeddings_pending = false;       // feedback embd ready
+    bool audio_embeddings_done = false;          // stop head fired
+
     // Constructor and destructor
     // `use_gpu` mirrors codec.cpp's `codec_model_params.use_gpu` — set true
     // to offload codec + codec_lm graphs (Mimi / S3G / depth decoder etc.)
@@ -202,12 +214,25 @@ struct llama_rn_context_tts {
     // returns them in the result for streaming convenience.  Returns
     // result.codes.empty() on failure (check logs).
     llama_rn_audio_codes_result generateAudioCodes(llama_rn_context* main_ctx, const llama_rn_audio_codes_options &opts, const llama_rn_audio_codes_progress_cb &on_frame = nullptr);
-    // Continuous-latent variant (BlueMagpie-TTS / VoxCPM path).
-    // Dispatched to internally by generateAudioCodes when
-    // `codec_lm_get_info(codec_lm)->is_continuous` is true.  Public here
-    // only so the JSI wrapper can invoke it directly if needed; JS
-    // callers should stick to `generateAudioCodes` — it handles both.
-    llama_rn_audio_codes_result generateAudioCodesContinuous(llama_rn_context* main_ctx, const llama_rn_audio_codes_options &opts, const llama_rn_audio_codes_progress_cb &on_frame, const ::codec_lm_info * info);
+
+    // True when the loaded codec.gguf's codec_lm reports
+    // `is_continuous = true` (BlueMagpie-TTS / VoxCPM continuous-latent
+    // CFM).  Probed lazily (opens the codec_lm handle on first call);
+    // idempotent.  The completion loop uses this to switch to the
+    // step-hook-driven path instead of standard token sampling.
+    bool isTTSContinuous(llama_rn_context* main_ctx);
+
+    // Continuous-latent per-step hook, called from the completion loop
+    // after each `llama_decode` when `isTTSContinuous` is true.
+    // Runs codec_lm_step_generate on the just-read backbone hidden and
+    // accumulates the produced latent patch into `audio_embeddings`.
+    // Also runs codec_lm_step_feedback_embd to produce the LocEnc feedback
+    // embedding for the NEXT `llama_decode` (into `pending_feedback_embd`)
+    // unless the stop head fired.  Returns true iff the step succeeded;
+    // sets `audio_embeddings_done = true` on stop, otherwise leaves
+    // `audio_embeddings_pending = true` for the completion loop to
+    // consume via `pending_feedback_embd`.
+    bool tryContinuousAudioStep(llama_rn_context* main_ctx, const float * hidden, int hidden_dim);
     // Encode a reference audio clip into codec tokens via the loaded
     // codec.gguf's encoder.  Used by voice-clone TTS models to register
     // a custom speaker without a Python pre-bake step.  `pcm` is F32 mono

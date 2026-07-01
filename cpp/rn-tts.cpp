@@ -315,6 +315,11 @@ void llama_rn_context_tts::reset() {
     if (codec_lm_state != nullptr) {
         codec_lm_state_reset(codec_lm_state);
     }
+    audio_embeddings.clear();
+    audio_embedding_dim = 0;
+    pending_feedback_embd.clear();
+    audio_embeddings_pending = false;
+    audio_embeddings_done = false;
 }
 
 // Forward declarations from rn-llama.h
@@ -1076,9 +1081,21 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
 
     const tts_model_profile &profile = profile_for_type(tts_type);
     const std::string grammar = build_dynamic_grammar(profile, text_to_speak);
-    const bool embedding = profile.decode_kind == tts_decode_kind::HIDDEN_STATES;
-    const std::string flow = (profile.decode_kind == tts_decode_kind::CODEC_LM_AR)
-        ? "codec_lm_ar" : "tokens";
+
+    // Continuous-latent codec_lm (BlueMagpie-TTS / VoxCPM) hijacks the
+    // standard `tokens` flow: the completion loop drives the codec_lm
+    // step machine via `tryContinuousAudioStep` on each `llama_decode`,
+    // accumulating latent patches into `audio_embeddings` which JS then
+    // hands to `decodeAudioEmbeddings`.  Signalled via
+    // `flow = "continuous_embd"` + `embedding = true`.  Detection is
+    // dynamic: no dedicated `tts_type` yet, so we probe the codec_lm.
+    const bool is_continuous_lm = this->isTTSContinuous(main_ctx);
+    const bool embedding = is_continuous_lm
+        || profile.decode_kind == tts_decode_kind::HIDDEN_STATES;
+    const std::string flow = is_continuous_lm
+        ? "continuous_embd"
+        : (profile.decode_kind == tts_decode_kind::CODEC_LM_AR
+            ? "codec_lm_ar" : "tokens");
     switch (profile.prompt_kind) {
         case tts_prompt_kind::OUTETTS_LEGACY:
         case tts_prompt_kind::OUTETTS_V0_3:
@@ -1292,18 +1309,16 @@ llama_rn_audio_codes_result llama_rn_context_tts::generateAudioCodes(
         return result;
     }
 
-    // Continuous-latent branch (BlueMagpie-TTS / VoxCPM, codec_lm kind
-    // continuous_latent_cfm).  No per-step codebook sampling — the backbone
-    // emits a hidden state each step; the codec_lm's tslm_adapter + FSQ +
-    // RALM + LocDiT CFM produce one latent patch which we accumulate and
-    // then feed to codec_decode_quantized_representation at the end.  We
-    // delegate the whole step (step_generate + step_feedback_embd) to
-    // codec_common::audio_lm_observe_hidden so the host owns only the AR
-    // control flow (prompt feed, per-step llama_decode, embedding readout,
-    // stop check).
+    // Continuous-latent codec_lm kinds (BlueMagpie-TTS / VoxCPM,
+    // continuous_latent_cfm) do not flow through generateAudioCodes.
+    // They go through the standard `completion` loop plus the
+    // `tryContinuousAudioStep` hook (see rn-completion.cpp).  JS callers
+    // pick up `audio_embeddings` from the completion result and feed
+    // them to `decodeAudioEmbeddings`.  If we reach here with a
+    // continuous codec_lm, refuse — the caller wired the wrong path.
     if (info->is_continuous) {
-        result.is_continuous = true;
-        return generateAudioCodesContinuous(main_ctx, opts, on_frame, info);
+        LOG_ERROR("generateAudioCodes: this codec_lm is continuous-latent; use completion() + decodeAudioEmbeddings() instead");
+        return result;
     }
 
     if (compose_ed != hidden) {
@@ -1599,257 +1614,125 @@ llama_rn_audio_codes_result llama_rn_context_tts::generateAudioCodes(
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Continuous-latent codec_lm AR driver (BlueMagpie-TTS / VoxCPM).
+// Continuous-latent codec_lm per-step hook (BlueMagpie-TTS / VoxCPM).
 //
-// Each backbone step emits a hidden state (no codebook token); we hand
-// it to `codec_lm_step_generate` which internally runs
-// tslm_adapter → FSQ → RALM → LocDiT CFM diffusion and produces one
-// latent patch (patch_size × latent_dim).  We accumulate patches, use
-// `codec_lm_step_feedback_embd` (LocEnc(patch) projected into backbone
-// hidden space) as the next `b.embd`, and stop when the codec_lm's stop
-// head fires.  At end of loop, `codec_decode_quantized_representation`
-// turns the (D × T) latent grid into PCM.
+// Called from `rn-completion.cpp`'s `nextToken` after each `llama_decode`
+// when the loaded codec_lm reports `is_continuous = true`.
 //
-// Mirrors codec_common::audio_lm_observe_hidden semantics but calls the
-// codec.cpp APIs directly so it can share the already-loaded codec_lm
-// / codec_lm_state / codec_ctx owned by this llama_rn_context_tts (the
-// codec_common wrapper opens its own codec context from a GGUF path,
-// which we'd rather not duplicate).
+//   1. `codec_lm_step_generate` runs tslm_adapter → FSQ → RALM → LocDiT
+//      CFM diffusion on the just-read backbone hidden and produces one
+//      latent patch (patch_size × latent_dim).  We append it to
+//      `audio_embeddings` frame-major so
+//      `decodeAudioEmbeddings(audio_embeddings, latent_dim)` on the JS
+//      side reproduces `codec_decode_quantized_representation`.
+//   2. If the stop head fires, `audio_embeddings_done = true` and the
+//      completion loop terminates — no feedback embd is produced.
+//   3. Otherwise `codec_lm_step_feedback_embd` writes the LocEnc feedback
+//      into `pending_feedback_embd`; the completion loop injects that
+//      into the next `llama_decode` via `b.embd`.
+//
+// State (codec_lm_state, audio_embeddings, pending_feedback_embd) is
+// reset by `llama_rn_context_tts::reset()` at rewind time.
 // ─────────────────────────────────────────────────────────────────────
-llama_rn_audio_codes_result llama_rn_context_tts::generateAudioCodesContinuous(
-    llama_rn_context * main_ctx,
-    const llama_rn_audio_codes_options & opts,
-    const llama_rn_audio_codes_progress_cb & on_frame,
-    const ::codec_lm_info * info) {
-
-    llama_rn_audio_codes_result result;
-    result.is_continuous = true;
-
-    if (info == nullptr) {
-        LOG_ERROR("generateAudioCodesContinuous: null codec_lm_info");
-        return result;
+bool llama_rn_context_tts::isTTSContinuous(llama_rn_context * main_ctx) {
+    if (codec_model == nullptr) {
+        return false;
     }
-    const int hidden     = info->hidden_dim;
+    if (codec_lm == nullptr && !codec_lm_probed) {
+        codec_lm_probed = true;
+        codec_lm = ::codec_lm_create(codec_model);
+    }
+    if (codec_lm == nullptr) {
+        return false;
+    }
+    const ::codec_lm_info * info = ::codec_lm_get_info(codec_lm);
+    if (info == nullptr || !info->is_continuous) {
+        return false;
+    }
+    if (main_ctx != nullptr && main_ctx->model != nullptr) {
+        const int model_n_embd = llama_model_n_embd(main_ctx->model);
+        if (model_n_embd != info->hidden_dim) {
+            LOG_WARNING("isTTSContinuous: backbone n_embd=%d != codec_lm hidden=%d",
+                        model_n_embd, info->hidden_dim);
+        }
+    }
+    return true;
+}
+
+bool llama_rn_context_tts::tryContinuousAudioStep(
+    llama_rn_context * main_ctx,
+    const float *      hidden,
+    int                hidden_dim) {
+    (void) main_ctx;
+
+    if (codec_lm == nullptr) {
+        LOG_ERROR("tryContinuousAudioStep: codec_lm not created");
+        return false;
+    }
+    if (hidden == nullptr || hidden_dim <= 0) {
+        LOG_ERROR("tryContinuousAudioStep: null / empty hidden state");
+        return false;
+    }
+    const ::codec_lm_info * info = ::codec_lm_get_info(codec_lm);
+    if (info == nullptr || !info->is_continuous) {
+        LOG_ERROR("tryContinuousAudioStep: codec_lm is not continuous-latent");
+        return false;
+    }
+    if (hidden_dim != info->hidden_dim) {
+        LOG_ERROR("tryContinuousAudioStep: hidden dim mismatch (got %d, expected %d)",
+                  hidden_dim, info->hidden_dim);
+        return false;
+    }
     const int patch_size = info->patch_size;
     const int latent_dim = info->latent_dim;
     if (patch_size <= 0 || latent_dim <= 0) {
-        LOG_ERROR("generateAudioCodesContinuous: bad shape (patch=%d, latent=%d)",
+        LOG_ERROR("tryContinuousAudioStep: bad shape (patch=%d, latent=%d)",
                   patch_size, latent_dim);
-        return result;
+        return false;
     }
 
-    // Tokenize prompt (same flags as the codebook path — CSM-style prompts
-    // may embed BOS/EOS markers verbatim).
-    const std::vector<llama_token> prompt_tokens = ::common_tokenize(
-        main_ctx->ctx, opts.prompt, /*add_special=*/false, /*parse_special=*/true);
-    if (prompt_tokens.empty()) {
-        LOG_ERROR("generateAudioCodesContinuous: prompt tokenizes to zero tokens");
-        return result;
-    }
-    const int32_t n_ctx_max = (int32_t) llama_n_ctx(main_ctx->ctx);
-    if ((int32_t) prompt_tokens.size() >= n_ctx_max) {
-        LOG_ERROR("generateAudioCodesContinuous: prompt (%zu) >= n_ctx (%d)",
-                  prompt_tokens.size(), n_ctx_max);
-        return result;
-    }
-
-    // Reset per-sequence codec_lm state so step_generate starts fresh.
-    if (codec_lm_state != nullptr) {
-        ::codec_lm_state_reset(codec_lm_state);
-    }
-
-    audio_tokens.clear();
-    pending_codebook1 = -1;
-    scoped_embeddings_flag embd_guard(main_ctx->ctx, true);
-    ::llama_memory_clear(::llama_get_memory(main_ctx->ctx), true);
-
-    int32_t pos = 0;
-
-    // Optional speaker prefix (same shape as the codebook path).
-    if (!opts.speaker_emb_prefix.empty() && opts.speaker_emb_rows > 0 &&
-        opts.speaker_emb_hidden_dim > 0) {
-        if (opts.speaker_emb_hidden_dim != hidden) {
-            LOG_ERROR("generateAudioCodesContinuous: speaker_emb_hidden_dim=%d != backbone n_embd=%d — skipping prefix",
-                      opts.speaker_emb_hidden_dim, hidden);
-        } else if ((int32_t) opts.speaker_emb_prefix.size() !=
-                   opts.speaker_emb_rows * opts.speaker_emb_hidden_dim) {
-            LOG_ERROR("generateAudioCodesContinuous: speaker_emb_prefix length mismatch — skipping prefix");
-        } else if ((int32_t) (pos + opts.speaker_emb_rows + prompt_tokens.size()) >= n_ctx_max) {
-            LOG_ERROR("generateAudioCodesContinuous: speaker prefix + prompt >= n_ctx — skipping prefix");
-        } else {
-            scoped_llama_batch sb(opts.speaker_emb_rows, hidden, 1);
-            llama_batch & b = sb.b;
-            b.n_tokens = opts.speaker_emb_rows;
-            std::memcpy(b.embd, opts.speaker_emb_prefix.data(),
-                        (size_t) opts.speaker_emb_rows * (size_t) hidden * sizeof(float));
-            for (int32_t i = 0; i < b.n_tokens; ++i) {
-                b.pos[i]       = pos + i;
-                b.n_seq_id[i]  = 1;
-                b.seq_id[i][0] = 0;
-                b.logits[i]    = 0;
-            }
-            b.token = nullptr;
-            if (::llama_decode(main_ctx->ctx, b) != 0) {
-                LOG_ERROR("generateAudioCodesContinuous: llama_decode (speaker prefix) failed");
-                return result;
-            }
-            pos += b.n_tokens;
+    if (codec_lm_state == nullptr) {
+        codec_lm_state = ::codec_lm_state_new(codec_lm);
+        if (codec_lm_state == nullptr) {
+            LOG_ERROR("tryContinuousAudioStep: codec_lm_state_new failed");
+            return false;
         }
     }
 
-    // Feed prompt as tokens; last row emits embeddings.
-    {
-        scoped_llama_batch pb((int32_t) prompt_tokens.size(), 0, 1);
-        llama_batch & b = pb.b;
-        b.n_tokens = (int32_t) prompt_tokens.size();
-        for (int32_t i = 0; i < b.n_tokens; ++i) {
-            b.token[i]       = prompt_tokens[(size_t) i];
-            b.pos[i]         = pos + i;
-            b.n_seq_id[i]    = 1;
-            b.seq_id[i][0]   = 0;
-            b.logits[i]      = (i == b.n_tokens - 1) ? 1 : 0;
-        }
-        if (::llama_decode(main_ctx->ctx, b) != 0) {
-            LOG_ERROR("generateAudioCodesContinuous: llama_decode (prompt) failed");
-            return result;
-        }
-        pos += b.n_tokens;
-    }
-
-    auto read_hidden = [&]() -> const float * {
-        return ::llama_get_embeddings_ith(main_ctx->ctx, 0);
-    };
-
-    const float * h_in = read_hidden();
-    if (h_in == nullptr) {
-        LOG_ERROR("generateAudioCodesContinuous: llama_get_embeddings_ith returned NULL");
-        return result;
-    }
-
-    // Per-step buffers.
-    scoped_llama_batch step_batch(1, hidden, 1);
-    std::vector<float> patch((size_t) patch_size * (size_t) latent_dim, 0.0f);
-    std::vector<float> next_embd((size_t) hidden, 0.0f);
-
-    // Accumulator laid out frame-major [T, latent_dim] while we go —
-    // transposed to channel-major [latent_dim, T] before decode.
-    std::vector<float> latents_tf;
-    int total_frames = 0;
-
-    // Diffusion / CFG hyper-params.  Codec_common defaults are cfg=2.0,
-    // n_timesteps=10 (BlueMagpie training-time).  Expose via opts later if
-    // callers need to tweak; for now use those.
+    // BlueMagpie / VoxCPM training-time defaults.
     const float   cfg_value   = 2.0f;
     const int32_t n_timesteps = 10;
 
-    const int max_frames = std::max(opts.max_frames, 1);
-
-    int step = 0;
-    for (; step < max_frames; ++step) {
-        if (pos + 1 >= n_ctx_max) {
-            LOG_WARNING("generateAudioCodesContinuous: context full at step %d", step);
-            break;
-        }
-
-        int32_t stop = 0;
-        const enum codec_status rc = ::codec_lm_step_generate(
-            codec_lm_state, h_in, cfg_value, n_timesteps,
-            /*noise=*/nullptr, patch.data(), &stop);
-        if (rc != CODEC_STATUS_SUCCESS) {
-            const char * err = ::codec_lm_state_get_last_error(codec_lm_state);
-            LOG_ERROR("generateAudioCodesContinuous: step_generate failed: %s",
-                      err && *err ? err : "(no error message)");
-            break;
-        }
-
-        // Accumulate patch (frame-major).
-        latents_tf.insert(latents_tf.end(), patch.begin(), patch.end());
-        total_frames += patch_size;
-
-        if (on_frame) {
-            // Signal progress to JS via an empty codes payload — the
-            // continuous path has no per-step tokens, so callers just
-            // treat `step` as a frame counter.  Return false to abort.
-            std::vector<int32_t> empty_codes;
-            if (!on_frame(step, empty_codes)) {
-                result.aborted = true;
-                break;
-            }
-        }
-
-        if (stop) {
-            result.stopped_on_eos = true;
-            break;
-        }
-
-        // Feedback embedding: LocEnc(last patch) → backbone hidden.
-        if (::codec_lm_step_feedback_embd(codec_lm_state, next_embd.data())
-                != CODEC_STATUS_SUCCESS) {
-            LOG_ERROR("generateAudioCodesContinuous: step_feedback_embd failed");
-            break;
-        }
-
-        // Feed as next backbone position.
-        {
-            llama_batch & b = step_batch.b;
-            b.n_tokens = 1;
-            std::memcpy(b.embd, next_embd.data(), (size_t) hidden * sizeof(float));
-            b.pos[0]       = pos;
-            b.n_seq_id[0]  = 1;
-            b.seq_id[0][0] = 0;
-            b.logits[0]    = 1;
-            b.token        = nullptr;
-            if (::llama_decode(main_ctx->ctx, b) != 0) {
-                LOG_ERROR("generateAudioCodesContinuous: llama_decode (step %d) failed", step);
-                break;
-            }
-            pos += 1;
-        }
-
-        h_in = read_hidden();
-        if (h_in == nullptr) {
-            LOG_ERROR("generateAudioCodesContinuous: hidden read NULL at step %d", step);
-            break;
-        }
-    }
-
-    if (total_frames <= 0) {
-        LOG_ERROR("generateAudioCodesContinuous: no latents accumulated");
-        return result;
-    }
-
-    // Transpose [T, D] → [D, T] for codec_decode_quantized_representation.
-    std::vector<float> latents_dt((size_t) total_frames * (size_t) latent_dim);
-    for (int32_t t = 0; t < total_frames; ++t) {
-        for (int32_t d = 0; d < latent_dim; ++d) {
-            latents_dt[(size_t) d * (size_t) total_frames + (size_t) t] =
-                latents_tf[(size_t) t * (size_t) latent_dim + (size_t) d];
-        }
-    }
-
-    struct codec_decode_params dp = codec_decode_default_params();
-    if (main_ctx->params.cpuparams.n_threads > 0) {
-        dp.n_threads = main_ctx->params.cpuparams.n_threads;
-    }
-    struct codec_pcm_buffer pcm = {};
-    const enum codec_status drc = ::codec_decode_quantized_representation(
-        codec_ctx, latents_dt.data(), latent_dim, total_frames, &pcm, dp);
-    if (drc != CODEC_STATUS_SUCCESS) {
-        const char * err = ::codec_get_last_error(codec_ctx);
-        LOG_ERROR("generateAudioCodesContinuous: decode_latents failed: %s",
+    std::vector<float> patch((size_t) patch_size * (size_t) latent_dim, 0.0f);
+    int32_t stop = 0;
+    const enum codec_status rc = ::codec_lm_step_generate(
+        codec_lm_state, hidden, cfg_value, n_timesteps,
+        /*noise=*/nullptr, patch.data(), &stop);
+    if (rc != CODEC_STATUS_SUCCESS) {
+        const char * err = ::codec_lm_state_get_last_error(codec_lm_state);
+        LOG_ERROR("tryContinuousAudioStep: step_generate failed: %s",
                   err && *err ? err : "(no error message)");
-        return result;
+        return false;
     }
 
-    result.pcm.assign(pcm.data, pcm.data + (size_t) pcm.n_samples * (size_t) pcm.n_channels);
-    result.sample_rate = pcm.sample_rate;
-    result.n_frames = total_frames;
-    result.n_codebook = 0;
-    ::codec_pcm_buffer_free(&pcm);
+    // Accumulate patch (frame-major [T, latent_dim]).
+    audio_embeddings.insert(audio_embeddings.end(), patch.begin(), patch.end());
+    audio_embedding_dim = latent_dim;
 
-    LOG_INFO("generateAudioCodesContinuous done: %d steps, %d latent frames, %d PCM samples @ %d Hz",
-             step, total_frames, (int) result.pcm.size(), result.sample_rate);
-    return result;
+    if (stop) {
+        audio_embeddings_done = true;
+        audio_embeddings_pending = false;
+        return true;
+    }
+
+    pending_feedback_embd.assign((size_t) hidden_dim, 0.0f);
+    if (::codec_lm_step_feedback_embd(codec_lm_state, pending_feedback_embd.data())
+            != CODEC_STATUS_SUCCESS) {
+        LOG_ERROR("tryContinuousAudioStep: step_feedback_embd failed");
+        return false;
+    }
+    audio_embeddings_pending = true;
+    return true;
 }
 
 // Returns the cached resolved code ranges for this context, populating
