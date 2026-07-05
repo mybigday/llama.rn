@@ -30,8 +30,8 @@ set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
 
 # Collect source files using glob patterns
 file(GLOB MODEL_FILES ${SOURCE_DIR}/models/*.cpp)
-file(GLOB GGML_CPU_C_FILES ${SOURCE_DIR}/ggml-cpu/*.c)
-file(GLOB GGML_CPU_CPP_FILES ${SOURCE_DIR}/ggml-cpu/*.cpp)
+file(GLOB GGML_CPU_C_FILES ${SOURCE_DIR}/ggml-cpu/*.c ${SOURCE_DIR}/ggml-cpu/arch/x86/*.c)
+file(GLOB GGML_CPU_CPP_FILES ${SOURCE_DIR}/ggml-cpu/*.cpp ${SOURCE_DIR}/ggml-cpu/arch/x86/*.cpp)
 file(GLOB GGML_CPU_AMX_FILES ${SOURCE_DIR}/ggml-cpu/amx/*.cpp)
 file(GLOB LLAMA_FILES ${SOURCE_DIR}/llama*.cpp)
 file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
@@ -170,4 +170,59 @@ elseif(UNIX AND NOT APPLE)
         m
         dl
     )
+endif()
+
+# BlueMagpie CLI probe: measures per-step latency of the continuous_embd
+# completion-loop hook on host, so we can pin down the bottleneck without
+# fighting Pixel's OOM killer.
+add_executable(bluemagpie_probe
+    bluemagpie_probe.cpp
+    ${RNLLAMA_COMMON_SOURCES}
+)
+target_include_directories(bluemagpie_probe
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common
+)
+if(APPLE)
+    target_link_libraries(bluemagpie_probe PRIVATE
+        "-framework Accelerate"
+        "-framework Foundation"
+    )
+elseif(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(bluemagpie_probe PRIVATE Threads::Threads m dl)
+    # Native SIMD for accurate perf measurement (skip the forced-generic
+    # define; the ggml-cpu arch sources will pick native ARM/x86 kernels).
+    target_compile_options(bluemagpie_probe PRIVATE -march=native -U LM_GGML_CPU_GENERIC)
+endif()
+
+add_executable(barbet_hidden_dump
+    barbet_hidden_dump.cpp
+    ${RNLLAMA_COMMON_SOURCES}
+)
+target_include_directories(barbet_hidden_dump
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common
+)
+if(APPLE)
+    target_link_libraries(barbet_hidden_dump PRIVATE
+        "-framework Accelerate"
+        "-framework Foundation"
+    )
+elseif(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(barbet_hidden_dump PRIVATE Threads::Threads m dl)
+    target_compile_options(barbet_hidden_dump PRIVATE -march=native -U LM_GGML_CPU_GENERIC)
 endif()

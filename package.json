@@ -213,7 +213,9 @@
     "tests/build",
     "*.d.ts",
     "tests/build/",
-    "third_party/llama.cpp/"
+    "third_party/llama.cpp/",
+    "build/",
+    "build-host/"
   ],
   "prettier": {
     "trailingComma": "all",
