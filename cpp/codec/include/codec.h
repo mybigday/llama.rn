@@ -133,13 +133,13 @@ struct codec_batch {
     int32_t hop_size;
 };
 
-struct codec_lm_gguf_kv {
+struct codec_gguf_kv {
     const char * key;
     const char * value;
 };
 
-struct codec_lm_gguf_metadata {
-    struct codec_lm_gguf_kv * items;
+struct codec_gguf_metadata {
+    struct codec_gguf_kv * items;
     size_t n_items;
 };
 
@@ -200,8 +200,8 @@ int32_t codec_model_win_length(const struct codec_model * model);
 int32_t codec_model_n_mels(const struct codec_model * model);
 int32_t codec_model_latent_dim(const struct codec_model * model);
 
-const struct codec_lm_gguf_metadata * codec_model_metadata(const struct codec_model * model);
-void codec_metadata_free(struct codec_lm_gguf_metadata * meta);
+const struct codec_gguf_metadata * codec_model_metadata(const struct codec_model * model);
+void codec_metadata_free(struct codec_gguf_metadata * meta);
 
 const char * codec_arch_name(enum codec_arch arch);
 

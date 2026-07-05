@@ -42,4 +42,11 @@ lm_ggml_tensor * codec_graph_cast_f32(lm_ggml_context * ctx_eval, lm_ggml_tensor
 // GGUFs ship F16 weights, so this is the hot path.
 lm_ggml_tensor * codec_graph_mat_lhs(lm_ggml_context * ctx_eval, lm_ggml_tensor * t);
 
+// Fetch a matmul weight (src[0] side) for the graph WITHOUT the F16→F32 dequant
+// CPY that codec_graph_weight bakes in: F16/BF16 weights pass through untouched
+// (lm_ggml_mul_mat consumes them natively), quantized types are cast.  Use this for
+// every tensor that lands as the LHS of lm_ggml_mul_mat in a hot per-step graph.
+lm_ggml_tensor * codec_graph_weight_mat(lm_ggml_context * ctx_eval, const codec_model * model, const char * name);
+lm_ggml_tensor * codec_graph_weight_mat(lm_ggml_context * ctx_eval, const codec_model * model, const std::string & name);
+
 #endif

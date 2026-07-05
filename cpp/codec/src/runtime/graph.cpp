@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <cstring>
 
 static bool codec_graph_key_equal(const codec_graph_cache_key & a, const codec_graph_cache_key & b) {
     return a.kind == b.kind &&
@@ -136,8 +137,6 @@ bool codec_graph_cache_get_or_build(
         return false;
     }
 
-    codec_graph_release(ctx);
-
     codec_graph_cache_entry * cached = nullptr;
     for (codec_graph_cache_entry & entry : ctx->graph_cache) {
         if (codec_graph_key_equal(entry.key, key)) {
@@ -145,6 +144,35 @@ bool codec_graph_cache_get_or_build(
             break;
         }
     }
+
+    // Consecutive-call fast path: if the resolved entry is the exact same entry
+    // built by the immediately previous call, its eval graph is still alive and
+    // galloc-allocated, and the incoming user_data bytes are byte-identical to
+    // the stored build_user_data, then the previously built graph, its tensors,
+    // and the galloc allocation are all still valid.  Skip the rebuild + the
+    // galloc re-plan entirely and reuse them; codec_graph_get_tensor still
+    // resolves names via the live eval_ctx.  This only triggers for back-to-back
+    // identical (entry, user_data) calls — any intervening call to a different
+    // entry sets ctx->eval_entry != cached and forces the slow path (the safety
+    // gate that prevents dangling galloc allocations).
+    if (cached != nullptr && ctx->eval_entry == cached && ctx->eval_ctx != nullptr &&
+        ctx->eval_graph != nullptr && ctx->eval_graph_allocated) {
+        const size_t nbytes = cached->build_user_data.size();
+        const bool same_bytes =
+            (user_data_size == nbytes) &&
+            (nbytes == 0 || std::memcmp(cached->build_user_data.data(), user_data, nbytes) == 0);
+        if (same_bytes) {
+            *out_entry = cached;
+            return true;
+        }
+    }
+
+    // Slow path: a rebuild is actually needed.  Release the previously built
+    // eval graph now (this also clears eval_graph_allocated so codec_graph_prepare_io
+    // re-plans galloc for the new graph).  Doing the release here — rather than
+    // unconditionally at function entry — is what lets the fast path above keep
+    // the prior allocation alive.
+    codec_graph_release(ctx);
 
     if (cached == nullptr) {
         codec_graph_cache_entry entry;
@@ -159,6 +187,13 @@ bool codec_graph_cache_get_or_build(
         }
         ctx->graph_cache.push_back(entry);
         cached = &ctx->graph_cache.back();
+    } else if (user_data_size > 0) {
+        // Existing entry, but the user_data bytes differ (or were never stored):
+        // refresh the stored copy so the rebuilt graph uses the current inputs
+        // and the next fast-path comparison is against the right bytes.  (Fixes
+        // a latent stale-user_data hazard: build_fn reads build_user_data.data().)
+        const uint8_t * src = static_cast<const uint8_t *>(user_data);
+        cached->build_user_data.assign(src, src + user_data_size);
     }
 
     if (!codec_graph_ensure_eval_arena(ctx, cached->required_mem_size, error)) {

@@ -349,6 +349,60 @@ enum codec_status codec_lm_step_feedback_embd(
     struct codec_lm_state * st,
     float *                 out_embd);
 
+// Prefill the RALM (residual LM) over the whole prompt prefix before the first
+// codec_lm_step_generate.  The reference _inference runs the RALM causally over
+// every prefix position: at each position it forms
+//   enc_out  = fsq(tslm_adapter(h)) on audio positions, tslm_adapter(h) (no FSQ)
+//              on text positions;
+//   ralm_in  = fusion_concat_proj(concat(enc_out, audio_mask * feat_embed_lm)).
+// codec_lm handles ONLY the text-position semantics here (audio prefix
+// continuation is not yet wired): every prefill position is treated as a text
+// position, so enc_out = tslm_adapter(h) WITHOUT FSQ and the feat_embed_lm half
+// of the fusion input is zero.  This matches zero-shot ("null" speaker) prompts,
+// which is what the current host path drives.
+//
+// The K/V for all `n_pos` positions is written into the persistent RALM cache,
+// kv_pos is set to n_pos, and the LAST position's (lm_hidden, residual_hidden)
+// are cached so the FIRST subsequent codec_lm_step_generate consumes them
+// directly (the `<|audio_start|>` text position → non-FSQ lm_hidden) and runs no
+// RALM step of its own (matching the reference's iteration-0 semantics).
+//
+//   hiddens    : [n_pos * hidden_dim] backbone (Barbet) hiddens, position-major
+//                (position p's hidden at offset p*hidden_dim).
+//   n_pos      : number of prefix positions (T).
+//   hidden_dim : must equal info->hidden_dim.
+//
+// CONTINUOUS_LATENT_CFM only; other kinds return CODEC_STATUS_NOT_SUPPORTED.
+// After this call the state is "primed"; codec_lm_state_reset clears it.
+enum codec_status codec_lm_text_prefill(
+    struct codec_lm_state * st,
+    const float *           hiddens,
+    int32_t                 n_pos,
+    int32_t                 hidden_dim);
+
+// Configure the min_len stop guard for continuous-latent generation.  The
+// reference suppresses the stop flag for patches 0..min_len (0-based patch
+// index, `if i > min_len and stop == 1: break`), so a stop head that fires
+// early on the first few patches is ignored.  Default is read from the GGUF
+// key `codec.lm.min_len` (falling back to 2).  Set n < 0 to restore the
+// GGUF/default value.  CONTINUOUS_LATENT_CFM only; no-op for other kinds.
+enum codec_status codec_lm_set_continuous_min_len(
+    struct codec_lm_state * st,
+    int32_t                 min_len);
+
+// Teacher-force the NEXT codec_lm_step_generate's trajectory (parity testing).
+// The supplied reference latent `patch` [patch_size*latent_dim] replaces the
+// codec's own generated patch as the cond for the next step AND as the LocEnc
+// feedback source for THIS step — so codec replays the reference trajectory
+// exactly and every emitted patch stays comparable to the reference (free-
+// running feedback diverges chaotically after a few steps under F16).  The
+// patch the graph emits is still codec's own.  Consumed once per step; re-arm
+// before each step.  Pass NULL to disarm.  CONTINUOUS_LATENT_CFM only.
+enum codec_status codec_lm_set_teacher_patch(
+    struct codec_lm_state * st,
+    const float *           patch,
+    int32_t                 n);
+
 // =====================================================================
 // Speaker-conditioning encoder.
 //

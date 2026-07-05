@@ -79,7 +79,7 @@ std::string codec_lm_read_string_kv(const codec_model * codec, const char * key)
     if (kid < 0) {
         return std::string();
     }
-    return codec_lm_gguf_value_to_string(codec->gguf, kid);
+    return codec_gguf_value_to_string(codec->gguf, kid);
 }
 
 // ---------------------------------------------------------------------
@@ -685,6 +685,48 @@ enum codec_status codec_lm_step_feedback_embd(struct codec_lm_state * st, float 
         return CODEC_STATUS_NOT_SUPPORTED;
     }
     return st->lm->vtable->step_feedback_embd(st, out_embd);
+}
+
+enum codec_status codec_lm_text_prefill(
+    struct codec_lm_state * st, const float * hiddens, int32_t n_pos, int32_t hidden_dim) {
+    if (st == nullptr || st->lm == nullptr || hiddens == nullptr) {
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    if (n_pos <= 0 || hidden_dim <= 0) {
+        st->last_error = "codec_lm_text_prefill: n_pos and hidden_dim must be > 0";
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    if (hidden_dim != st->lm->info.hidden_dim) {
+        st->last_error = "codec_lm_text_prefill: hidden_dim mismatch";
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    if (st->lm->vtable == nullptr || st->lm->vtable->text_prefill == nullptr) {
+        st->last_error = "codec_lm_text_prefill not supported for this kind";
+        return CODEC_STATUS_NOT_SUPPORTED;
+    }
+    return st->lm->vtable->text_prefill(st, hiddens, n_pos, hidden_dim);
+}
+
+enum codec_status codec_lm_set_continuous_min_len(struct codec_lm_state * st, int32_t min_len) {
+    if (st == nullptr || st->lm == nullptr) {
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    if (st->lm->vtable == nullptr || st->lm->vtable->set_min_len == nullptr) {
+        st->last_error = "codec_lm_set_continuous_min_len not supported for this kind";
+        return CODEC_STATUS_NOT_SUPPORTED;
+    }
+    return st->lm->vtable->set_min_len(st, min_len);
+}
+
+enum codec_status codec_lm_set_teacher_patch(struct codec_lm_state * st, const float * patch, int32_t n) {
+    if (st == nullptr || st->lm == nullptr) {
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    if (st->lm->vtable == nullptr || st->lm->vtable->set_teacher_patch == nullptr) {
+        st->last_error = "codec_lm_set_teacher_patch not supported for this kind";
+        return CODEC_STATUS_NOT_SUPPORTED;
+    }
+    return st->lm->vtable->set_teacher_patch(st, patch, n);
 }
 
 // ---------------------------------------------------------------------

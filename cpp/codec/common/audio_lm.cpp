@@ -60,6 +60,7 @@ struct audio_lm_context {
     int32_t latent_dim      = 0;
     float   cont_cfg        = 2.0f;
     int32_t cont_timesteps  = 10;
+    int32_t cont_min_len    = -1;   // -1 = use model default (GGUF codec.lm.min_len / 2)
     std::vector<float> latents;        // channel-major [latent_dim, n_frames]
     int32_t            latent_n_frames = 0;
 
@@ -89,7 +90,7 @@ struct audio_lm_context {
 static uint32_t read_modality_or_infer(audio_lm_context * ctx) {
     uint32_t mask = 0;
 
-    const codec_lm_gguf_metadata * meta = codec_model_metadata(ctx->model);
+    const codec_gguf_metadata * meta = codec_model_metadata(ctx->model);
     bool saw_explicit = false;
 
     if (meta != nullptr) {
@@ -97,7 +98,7 @@ static uint32_t read_modality_or_infer(audio_lm_context * ctx) {
             const char * key = meta->items[i].key;
             const char * val = meta->items[i].value;
             if (key == nullptr || val == nullptr) continue;
-            // Match "true" loosely — codec_lm_gguf_metadata serialises
+            // Match "true" loosely — codec_gguf_metadata serialises
             // bools as the strings "true" / "false".
             const bool on = (std::strcmp(val, "true") == 0 ||
                              std::strcmp(val, "1")    == 0);
@@ -597,10 +598,34 @@ bool audio_lm_is_continuous(const audio_lm_context * ctx) {
     return ctx != nullptr && ctx->is_continuous;
 }
 
-void audio_lm_set_continuous_params(audio_lm_context * ctx, float cfg_value, int32_t n_timesteps) {
+void audio_lm_set_continuous_params(audio_lm_context * ctx, float cfg_value,
+                                    int32_t n_timesteps, int32_t min_len) {
     if (ctx == nullptr) return;
     if (cfg_value   > 0.0f) ctx->cont_cfg       = cfg_value;
     if (n_timesteps > 0)    ctx->cont_timesteps = n_timesteps;
+    ctx->cont_min_len = min_len;   // <0 keeps the model default
+    if (ctx->state != nullptr && ctx->is_continuous) {
+        codec_lm_set_continuous_min_len(ctx->state, min_len);
+    }
+}
+
+bool audio_lm_text_prefill(audio_lm_context * ctx, const float * hiddens,
+                           int32_t n_pos, int32_t hidden_dim) {
+    if (ctx == nullptr || ctx->state == nullptr || hiddens == nullptr) {
+        if (ctx) ctx->last_error = "audio_lm_text_prefill: no codec_lm state";
+        return false;
+    }
+    if (!ctx->is_continuous) {
+        ctx->last_error = "audio_lm_text_prefill: model is not a continuous-latent kind";
+        return false;
+    }
+    enum codec_status rc = codec_lm_text_prefill(ctx->state, hiddens, n_pos, hidden_dim);
+    if (rc != CODEC_STATUS_SUCCESS) {
+        const char * raw = codec_lm_state_get_last_error(ctx->state);
+        ctx->last_error = std::string("audio_lm_text_prefill: failed (") + (raw ? raw : "?") + ")";
+        return false;
+    }
+    return true;
 }
 
 observe_action audio_lm_observe_hidden(audio_lm_context * ctx,

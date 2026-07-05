@@ -3,6 +3,7 @@
 #include <ggml-backend.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <unordered_map>
 
@@ -147,6 +148,42 @@ lm_ggml_tensor * codec_graph_weight_or_null(lm_ggml_context * ctx_eval, const co
 
 lm_ggml_tensor * codec_graph_weight(lm_ggml_context * ctx_eval, const codec_model * model, const char * name) {
     return codec_graph_weight_or_null(ctx_eval, model, name);
+}
+
+lm_ggml_tensor * codec_graph_weight_mat(lm_ggml_context * ctx_eval, const codec_model * model, const char * name) {
+    if (ctx_eval == nullptr || model == nullptr || model->weights == nullptr || name == nullptr) {
+        return nullptr;
+    }
+    lm_ggml_tensor * w = lm_ggml_get_tensor(model->weights, name);
+    if (w == nullptr) {
+        return nullptr;
+    }
+    // LHS pass-through for the graph's hot matmuls: F16/BF16 weights feed
+    // lm_ggml_mul_mat natively, so we must NOT bake a dequant CPY into the graph.
+    // That per-eval full-weight F16->F32 copy dominated BlueMagpie's CFM wall
+    // time (30% of compute — the matmuls themselves are tiny), see Phase-4
+    // profiling.
+    //
+    // Block-quantized types (Q8_0, …) are cast to F32 here on purpose.  The
+    // alternative — native quantized mul_mat — re-quantizes the F32 activation
+    // to the block type per matmul, which measurably degrades CFM parity
+    // (Q8 e2e audio corr 0.99979 -> 0.99809, below the parity gate).  Set
+    // CODEC_MAT_NATIVE_QUANT=1 to opt into the faster-but-lossy native path
+    // (~8x on Vulkan for this graph); default keeps parity.  Note an F16 GGUF
+    // on GPU is both faster than cast-Q8 and bit-parity, so Q8 is off the
+    // critical config on UMA hardware.
+    if (w->type == LM_GGML_TYPE_F32 || w->type == LM_GGML_TYPE_F16 || w->type == LM_GGML_TYPE_BF16) {
+        return w;
+    }
+    static const bool native_quant = std::getenv("CODEC_MAT_NATIVE_QUANT") != nullptr;
+    if (native_quant && lm_ggml_is_quantized(w->type)) {
+        return w;
+    }
+    return lm_ggml_cast(ctx_eval, w, LM_GGML_TYPE_F32);
+}
+
+lm_ggml_tensor * codec_graph_weight_mat(lm_ggml_context * ctx_eval, const codec_model * model, const std::string & name) {
+    return codec_graph_weight_mat(ctx_eval, model, name.c_str());
 }
 
 lm_ggml_tensor * codec_graph_weight(lm_ggml_context * ctx_eval, const codec_model * model, const std::string & name) {

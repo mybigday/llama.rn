@@ -268,8 +268,18 @@ observe_action audio_lm_observe_hidden(audio_lm_context * ctx,
 // instead of observe_token / observe_codes).
 bool audio_lm_is_continuous(const audio_lm_context * ctx);
 
-// Set CFG strength + diffusion steps for the continuous path (defaults 2.0 / 10).
-void audio_lm_set_continuous_params(audio_lm_context * ctx, float cfg_value, int32_t n_timesteps);
+// Set CFG strength + diffusion steps + min_len stop guard for the continuous
+// path (defaults 2.0 / 10 / -1).  min_len < 0 leaves the model default (GGUF
+// `codec.lm.min_len`, else 2): the stop flag is ignored for patches 0..min_len.
+void audio_lm_set_continuous_params(audio_lm_context * ctx, float cfg_value,
+                                    int32_t n_timesteps, int32_t min_len = -1);
+
+// Prefill the RALM over the whole prompt prefix before the first
+// audio_lm_observe_hidden.  `hiddens` is [n_pos * hidden_dim] backbone hiddens
+// (position-major).  Continuous-latent kinds only; returns false otherwise.
+// After this the first observe_hidden consumes the primed prefill state.
+bool audio_lm_text_prefill(audio_lm_context * ctx, const float * hiddens,
+                           int32_t n_pos, int32_t hidden_dim);
 
 // ─────────────────────────────────────────────────────────────────────
 // Multi-codebook frame observe (Type C / Type D)

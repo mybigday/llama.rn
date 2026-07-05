@@ -19,20 +19,20 @@ char * codec_strdup(const char * s) {
     return out;
 }
 
-void codec_metadata_add(struct codec_lm_gguf_metadata * meta, const char * key, const std::string & value) {
+void codec_metadata_add(struct codec_gguf_metadata * meta, const char * key, const std::string & value) {
     const size_t next = meta->n_items + 1;
     void * p = std::realloc(meta->items, next * sizeof(meta->items[0]));
     if (p == nullptr) {
         return;
     }
 
-    meta->items = static_cast<struct codec_lm_gguf_kv *>(p);
+    meta->items = static_cast<struct codec_gguf_kv *>(p);
     meta->items[meta->n_items].key = codec_strdup(key);
     meta->items[meta->n_items].value = codec_strdup(value.c_str());
     meta->n_items = next;
 }
 
-std::string codec_lm_gguf_value_to_string(struct lm_gguf_context * gf, int key_id) {
+std::string codec_gguf_value_to_string(struct lm_gguf_context * gf, int key_id) {
     std::ostringstream oss;
 
     switch (lm_gguf_get_kv_type(gf, key_id)) {
@@ -62,7 +62,7 @@ std::string codec_lm_gguf_value_to_string(struct lm_gguf_context * gf, int key_i
     return oss.str();
 }
 
-void codec_collect_lm_gguf_metadata(struct codec_model * model) {
+void codec_collect_gguf_metadata(struct codec_model * model) {
     const int n_kv = lm_gguf_get_n_kv(model->gguf);
 
     for (int i = 0; i < n_kv; ++i) {
@@ -71,7 +71,7 @@ void codec_collect_lm_gguf_metadata(struct codec_model * model) {
             continue;
         }
 
-        codec_metadata_add(&model->metadata, key, codec_lm_gguf_value_to_string(model->gguf, i));
+        codec_metadata_add(&model->metadata, key, codec_gguf_value_to_string(model->gguf, i));
     }
 }
 

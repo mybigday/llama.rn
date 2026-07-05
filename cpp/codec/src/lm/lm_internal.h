@@ -136,6 +136,18 @@ struct codec_lm_kind_vtable {
         float cfg_value, int32_t n_timesteps, const float * noise,
         float * out_patch, int32_t * out_stop);
     enum codec_status (*step_feedback_embd)(codec_lm_state * st, float * out_embd);
+
+    // Prefill the RALM over the whole prompt prefix (continuous_latent_cfm).
+    // NULL for other kinds → codec_lm_text_prefill returns NOT_SUPPORTED.
+    enum codec_status (*text_prefill)(codec_lm_state * st, const float * hiddens,
+        int32_t n_pos, int32_t hidden_dim);
+    // Configure the min_len stop guard (continuous_latent_cfm).  NULL for other
+    // kinds → codec_lm_set_continuous_min_len returns NOT_SUPPORTED.
+    enum codec_status (*set_min_len)(codec_lm_state * st, int32_t min_len);
+    // Teacher-force the next step's trajectory (continuous_latent_cfm, parity
+    // tests): the reference patch replaces the codec's own patch as the cond +
+    // LocEnc feedback source.  NULL for other kinds.
+    enum codec_status (*set_teacher_patch)(codec_lm_state * st, const float * patch, int32_t n);
 };
 
 // Map between the GGUF string and the C enum.  Returns

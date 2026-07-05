@@ -400,9 +400,9 @@ void llama_rn_context::releaseMultimodal() {
     }
 }
 
-bool llama_rn_context::initVocoder(const std::string &vocoder_model_path, int batch_size) {
+bool llama_rn_context::initVocoder(const std::string &vocoder_model_path, int batch_size, bool use_gpu) {
     try {
-        tts_wrapper = new llama_rn_context_tts(vocoder_model_path, batch_size);
+        tts_wrapper = new llama_rn_context_tts(vocoder_model_path, batch_size, use_gpu);
         has_vocoder = true;
         return true;
     } catch (const std::exception& e) {

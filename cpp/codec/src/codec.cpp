@@ -76,7 +76,7 @@ static lm_ggml_backend_t codec_backend_init(bool use_gpu) {
     return backend;
 }
 
-void codec_metadata_free(struct codec_lm_gguf_metadata * meta) {
+void codec_metadata_free(struct codec_gguf_metadata * meta) {
     if (meta == nullptr || meta->items == nullptr) {
         return;
     }
@@ -431,7 +431,7 @@ struct codec_model * codec_model_load_from_file(const char * path_model, struct 
         }
     }
 
-    codec_collect_lm_gguf_metadata(model);
+    codec_collect_gguf_metadata(model);
     const enum codec_status init_st = codec_model_init_arch(model);
     if (init_st != CODEC_STATUS_SUCCESS) {
         codec_model_free(model);
@@ -865,6 +865,6 @@ int32_t codec_model_latent_dim(const struct codec_model * model) {
     return model ? model->latent_dim : -1;
 }
 
-const struct codec_lm_gguf_metadata * codec_model_metadata(const struct codec_model * model) {
+const struct codec_gguf_metadata * codec_model_metadata(const struct codec_model * model) {
     return model ? &model->metadata : nullptr;
 }

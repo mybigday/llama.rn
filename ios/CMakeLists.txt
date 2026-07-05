@@ -38,12 +38,14 @@ file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
 file(GLOB MTMD_MODEL_FILES ${SOURCE_DIR}/tools/mtmd/models/*.cpp)
 file(GLOB COMMON_FILES ${SOURCE_DIR}/common/*.cpp)
 file(GLOB JINJA_FILES ${SOURCE_DIR}/common/jinja/*.cpp)
-file(GLOB CODEC_FILES
+file(GLOB CODEC_FILES CONFIGURE_DEPENDS
     ${SOURCE_DIR}/codec/src/*.cpp
     ${SOURCE_DIR}/codec/src/batch/*.cpp
     ${SOURCE_DIR}/codec/src/models/*.cpp
     ${SOURCE_DIR}/codec/src/ops/*.cpp
     ${SOURCE_DIR}/codec/src/runtime/*.cpp
+    ${SOURCE_DIR}/codec/src/lm/*.cpp
+    ${SOURCE_DIR}/codec/common/*.cpp
 )
 
 if (CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
@@ -137,6 +139,7 @@ target_include_directories(rnllama
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common>
         $<INSTALL_INTERFACE:include>
 )
 

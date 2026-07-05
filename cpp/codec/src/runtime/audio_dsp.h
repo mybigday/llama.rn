@@ -133,9 +133,8 @@ void codec_runtime_slaney_mel_filterbank(
 // flattened (F32).  `out_n_partials` is set to `n_partials`.  Trim-silence
 // is intentionally not applied — the trained checkpoints' conds.pt were
 // produced with `trim_top_db=20`, so callers wanting bit-parity with that
-// path supply already-trimmed PCM (Phase B `examples/tts.py` does this
-// host-side with librosa, since the trimming is energy-RMS based and not
-// in the model definition proper).
+// path supply already-trimmed PCM (the host trims with librosa or an
+// equivalent energy-RMS gate; not part of the model definition proper).
 bool codec_runtime_chatterbox_ve_mel_partials(
     const std::vector<float> & pcm,
     int32_t                    sample_rate,
