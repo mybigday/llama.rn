@@ -11,6 +11,24 @@ export class ModelDownloader {
   private activeDownloads = new Map<string, boolean>()
 
   /**
+   * Resolve the on-disk directory for a model.  When `repo` is given, the
+   * model lives under `${DocumentDir}/models/${repo->safe}/`, isolating
+   * files from repos that happen to share a filename (e.g. all
+   * `codec-q8_0.gguf` from CSM / Qwen3-TTS / NeuTTS / ... would otherwise
+   * collide).  Legacy callers that pass no repo fall back to the flat
+   * `${DocumentDir}/models/` path.
+   */
+  private static repoDir(repo?: string): string {
+    const base = `${RNBlobUtil.fs.dirs.DocumentDir}/models`
+    if (!repo) return base
+    return `${base}/${repo.replace(/[/\\]/g, '--')}`
+  }
+
+  private static filePath(filename: string, repo?: string): string {
+    return `${this.repoDir(repo)}/${filename}`
+  }
+
+  /**
    * Detect if a filename follows the split GGUF pattern: xx-00001-of-00003.gguf
    * Returns split info if it's a split file, null otherwise
    */
@@ -90,9 +108,9 @@ export class ModelDownloader {
     this.activeDownloads.set(downloadKey, true)
 
     try {
-      const downloadDir = `${RNBlobUtil.fs.dirs.DocumentDir}/models`
+      const downloadDir = ModelDownloader.repoDir(repo)
 
-      // Create models directory if it doesn't exist
+      // Create models directory (and per-repo subdir) if missing
       if (!(await RNBlobUtil.fs.exists(downloadDir))) {
         await RNBlobUtil.fs.mkdir(downloadDir)
       }
@@ -236,7 +254,7 @@ export class ModelDownloader {
       await Promise.all(
         filenames.map(async filename => {
           try {
-            await RNBlobUtil.fs.unlink(`${RNBlobUtil.fs.dirs.DocumentDir}/models/${filename}.tmp`)
+            await RNBlobUtil.fs.unlink(`${ModelDownloader.filePath(filename, repo)}.tmp`)
           } catch {
             // Ignore cleanup errors
           }
@@ -268,10 +286,10 @@ export class ModelDownloader {
 
     try {
       const url = getModelDownloadUrl(repo, filename)
-      const downloadDir = `${RNBlobUtil.fs.dirs.DocumentDir}/models`
-      const filePath = `${downloadDir}/${filename}`
+      const downloadDir = ModelDownloader.repoDir(repo)
+      const filePath = ModelDownloader.filePath(filename, repo)
 
-      // Create models directory if it doesn't exist
+      // Create models directory (and per-repo subdir) if missing
       if (!(await RNBlobUtil.fs.exists(downloadDir))) {
         await RNBlobUtil.fs.mkdir(downloadDir)
       }
@@ -319,9 +337,7 @@ export class ModelDownloader {
 
       // Clean up temp file if it exists
       try {
-        await RNBlobUtil.fs.unlink(
-          `${RNBlobUtil.fs.dirs.DocumentDir}/models/${filename}.tmp`,
-        )
+        await RNBlobUtil.fs.unlink(`${ModelDownloader.filePath(filename, repo)}.tmp`)
       } catch {
         // Ignore cleanup errors
       }
@@ -336,45 +352,42 @@ export class ModelDownloader {
     }
   }
 
-  static async isModelDownloaded(filename: string): Promise<boolean> {
+  static async isModelDownloaded(filename: string, repo?: string): Promise<boolean> {
     const splitFilenames = this.generateSplitFilenames(filename)
 
     if (splitFilenames.length > 1) {
       // For split files, check if all parts exist
       const existsChecks = await Promise.all(
-        splitFilenames.map(splitFilename => {
-          const filePath = `${RNBlobUtil.fs.dirs.DocumentDir}/models/${splitFilename}`
-          return RNBlobUtil.fs.exists(filePath)
-        })
+        splitFilenames.map(splitFilename =>
+          RNBlobUtil.fs.exists(this.filePath(splitFilename, repo)),
+        ),
       )
       return existsChecks.every(exists => exists)
     }
 
     // Single file check
-    const filePath = `${RNBlobUtil.fs.dirs.DocumentDir}/models/${filename}`
-    return RNBlobUtil.fs.exists(filePath)
+    return RNBlobUtil.fs.exists(this.filePath(filename, repo))
   }
 
-  static async getModelPath(filename: string): Promise<string | null> {
+  static async getModelPath(filename: string, repo?: string): Promise<string | null> {
     const splitFilenames = this.generateSplitFilenames(filename)
 
     if (splitFilenames.length > 1) {
       // For split files, return the first file path if all parts exist
       const existsChecks = await Promise.all(
-        splitFilenames.map(splitFilename => {
-          const filePath = `${RNBlobUtil.fs.dirs.DocumentDir}/models/${splitFilename}`
-          return RNBlobUtil.fs.exists(filePath)
-        })
+        splitFilenames.map(splitFilename =>
+          RNBlobUtil.fs.exists(this.filePath(splitFilename, repo)),
+        ),
       )
 
       if (existsChecks.every(exists => exists)) {
-        return `${RNBlobUtil.fs.dirs.DocumentDir}/models/${splitFilenames[0]}`
+        return this.filePath(splitFilenames[0]!, repo)
       }
       return null
     }
 
     // Single file check
-    const filePath = `${RNBlobUtil.fs.dirs.DocumentDir}/models/${filename}`
+    const filePath = this.filePath(filename, repo)
     const exists = await RNBlobUtil.fs.exists(filePath)
     return exists ? filePath : null
   }
@@ -448,14 +461,14 @@ export class ModelDownloader {
     return this.formatBytes(size)
   }
 
-  static async deleteModel(filename: string): Promise<void> {
+  static async deleteModel(filename: string, repo?: string): Promise<void> {
     const splitFilenames = this.generateSplitFilenames(filename)
 
     if (splitFilenames.length > 1) {
       // For split files, delete all parts
       await Promise.all(
         splitFilenames.map(async splitFilename => {
-          const filePath = `${RNBlobUtil.fs.dirs.DocumentDir}/models/${splitFilename}`
+          const filePath = this.filePath(splitFilename, repo)
           const exists = await RNBlobUtil.fs.exists(filePath)
           if (exists) {
             await RNBlobUtil.fs.unlink(filePath)
@@ -466,7 +479,7 @@ export class ModelDownloader {
     }
 
     // Single file deletion
-    const filePath = `${RNBlobUtil.fs.dirs.DocumentDir}/models/${filename}`
+    const filePath = this.filePath(filename, repo)
     const exists = await RNBlobUtil.fs.exists(filePath)
     if (exists) {
       await RNBlobUtil.fs.unlink(filePath)
@@ -477,15 +490,14 @@ export class ModelDownloader {
    * Get the total size of a model (single file or sum of all split parts)
    * Returns size in bytes, or null if model is not downloaded
    */
-  static async getModelSize(filename: string): Promise<number | null> {
+  static async getModelSize(filename: string, repo?: string): Promise<number | null> {
     const splitFilenames = this.generateSplitFilenames(filename)
 
     if (splitFilenames.length > 1) {
       // For split files, sum all parts
       try {
         const statPromises = splitFilenames.map(async splitFilename => {
-          const filePath = `${RNBlobUtil.fs.dirs.DocumentDir}/models/${splitFilename}`
-          const stat = await RNBlobUtil.fs.stat(filePath)
+          const stat = await RNBlobUtil.fs.stat(this.filePath(splitFilename, repo))
           return parseInt(stat.size.toString(), 10)
         })
 
@@ -498,9 +510,8 @@ export class ModelDownloader {
     }
 
     // Single file size
-    const filePath = `${RNBlobUtil.fs.dirs.DocumentDir}/models/${filename}`
     try {
-      const stat = await RNBlobUtil.fs.stat(filePath)
+      const stat = await RNBlobUtil.fs.stat(this.filePath(filename, repo))
       return parseInt(stat.size.toString(), 10)
     } catch {
       return null
@@ -510,8 +521,8 @@ export class ModelDownloader {
   /**
    * Get formatted size string (e.g., "1.2 GB")
    */
-  static async getModelSizeFormatted(filename: string): Promise<string | null> {
-    const size = await this.getModelSize(filename)
+  static async getModelSizeFormatted(filename: string, repo?: string): Promise<string | null> {
+    const size = await this.getModelSize(filename, repo)
     if (size === null) return null
 
     return this.formatBytes(size)

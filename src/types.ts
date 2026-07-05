@@ -287,11 +287,11 @@ export type NativeCompletionParams = {
   seed?: number
 
   /**
-   * Guide tokens for the completion.
-   * Help prevent hallucinations by forcing the TTS to use the correct words.
-   * Default: `[]`
+   * Output token embeddings during generation.
+   * When enabled, completion results include generated token embeddings and their dimension.
+   * Default: `false`
    */
-  guide_tokens?: Array<number>
+  embedding?: boolean
 
   emit_partial_completion: boolean
 }
@@ -403,6 +403,8 @@ export type NativeCompletionResult = {
   timings: NativeCompletionResultTimings
 
   completion_probabilities?: Array<NativeCompletionTokenProb>
+  embeddings?: Array<number>
+  embedding_dim?: number
   audio_tokens?: Array<number>
 }
 

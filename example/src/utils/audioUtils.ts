@@ -1,3 +1,23 @@
+// Decode a base64-encoded 16-bit little-endian PCM buffer (as bundled in
+// example/src/assets/voices/*.ts) into a Float32Array normalized to [-1, 1].
+// Whitespace inside the base64 string is stripped first so callers can keep
+// the source asset wrapped for readability.
+export const decodeBase64Pcm16 = (b64: string): Float32Array => {
+  const clean = b64.replace(/\s+/g, '')
+  const binStr = global.atob
+    ? global.atob(clean)
+    : Buffer.from(clean, 'base64').toString('binary')
+  const bytes = new Uint8Array(binStr.length)
+  for (let i = 0; i < binStr.length; i += 1) bytes[i] = binStr.charCodeAt(i)
+  const view = new DataView(bytes.buffer)
+  const nSamples = bytes.length >> 1
+  const out = new Float32Array(nSamples)
+  for (let i = 0; i < nSamples; i += 1) {
+    out[i] = view.getInt16(i * 2, true) / 0x8000
+  }
+  return out
+}
+
 // WAV file creation utility
 export const createWavFile = (audioData: Float32Array, sampleRate: number, bitDepth: number = 16): ArrayBuffer => {
   const numChannels = 1 // Mono

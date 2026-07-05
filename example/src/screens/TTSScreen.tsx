@@ -11,6 +11,7 @@ import {
 } from 'react-native'
 import { saveDocuments } from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
+import { toIPA } from 'phonemize/all'
 import { TTSModelDownloadCard } from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
@@ -31,8 +32,23 @@ import {
 } from '../utils/storage'
 import { HeaderButton } from '../components/HeaderButton'
 import { MaskedProgress } from '../components/MaskedProgress'
-import { createWavFile } from '../utils/audioUtils'
+import { createWavFile, decodeBase64Pcm16 } from '../utils/audioUtils'
+import { DEFAULT_REF_AUDIO } from '../assets/voices/en_f1'
 import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
+
+const models: (typeof MODELS.OUTE_TTS_0_3)[] = [
+  MODELS.OUTE_TTS_0_3,
+  MODELS.OUTE_TTS_1_0,
+  MODELS.SOPRANO_1_1,
+  MODELS.NEUTTS_NANO,
+  MODELS.NEUTTS_AIR,
+  MODELS.CSM_1B,
+  MODELS.QWEN3_TTS_0_6B,
+  MODELS.MOSS_TTS_REALTIME,
+  MODELS.MOSS_TTSD_V07,
+  MODELS.CHATTERBOX_MULTILINGUAL,
+  MODELS.BLUEMAGPIE_TTS,
+]
 
 export default function TTSScreen({ navigation }: { navigation: any }) {
   const { theme } = useTheme()
@@ -167,6 +183,46 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
     setTtsParams(params)
   }
 
+  // Encode the bundled ResembleAI Chatterbox demo clip into a speaker JSON
+  // for voice-clone families. Returns null if the loaded codec doesn't
+  // produce a speakerEmb (i.e. the family isn't a voice-clone arch).
+  const encodeDefaultRefVoice = async (): Promise<object | null> => {
+    if (!context || !isVocoderReady) {
+      Alert.alert(
+        'Vocoder not ready',
+        'Load a TTS model + vocoder before encoding a reference voice.',
+      )
+      return null
+    }
+    const pcm = decodeBase64Pcm16(DEFAULT_REF_AUDIO.pcm16Base64)
+    const enc = await context.encodeSpeaker({
+      refAudioPCM: pcm,
+      refAudioSampleRate: DEFAULT_REF_AUDIO.sampleRate,
+      refText: DEFAULT_REF_AUDIO.refText,
+    })
+    if (!enc.speakerEmb || enc.speakerNRows === 0) {
+      Alert.alert(
+        'No speaker section',
+        "The loaded codec.gguf doesn't carry a speaker section — this codec isn't a voice-clone arch (try Chatterbox / Qwen3-TTS / MOSS-TTSD).",
+      )
+      return null
+    }
+    // Shape matches what getFormattedAudioCompletion's resolver lifts out
+    // (speakerEmb / speakerNRows / speakerHiddenDim) plus the codec-token
+    // bundle for any model whose speaker JSON expects ref_codes too.
+    return {
+      ref_text: enc.refText,
+      ref_codes: enc.refCodes,
+      n_q: enc.nQ,
+      n_frames: enc.nFrames,
+      sample_rate: enc.sampleRate,
+      codebook_size: enc.codebookSize,
+      speakerEmb: enc.speakerEmb,
+      speakerNRows: enc.speakerNRows,
+      speakerHiddenDim: enc.speakerHiddenDim,
+    }
+  }
+
   const saveAudioAsWav = async () => {
     if (!audioData || audioData.length === 0) {
       Alert.alert('No Audio', 'No audio data available to save.')
@@ -282,11 +338,31 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       setInitProgress(0)
 
       const params = contextParams || (await loadContextParams())
+      // Override context params with TTS-appropriate defaults so real
+      // devices don't OOM.  The generic DEFAULT_CONTEXT_PARAMS assumes chat
+      // workloads (n_ctx=8192, mlock on, f16 KV), which pushes voice-clone /
+      // continuous-latent models like BlueMagpie over Pixel's per-process
+      // budget once the codec (up to ~1.8GB) is mmap'd.
+      //   - n_ctx=4096 covers real TTS prompt lengths (BlueMagpie continuous
+      //     uses 1 KV position per patch → 2000 max; token-flow families
+      //     stay under 4k tokens) while halving attn KV vs 8192.
+      //   - use_mlock=false lets the OS demand-page cold model regions; the
+      //     "failed to mlock" warning at init was a symptom of forced
+      //     residency + tight RAM.
+      //   - cache_type_k/v='q8_0' further halves attn KV memory at
+      //     negligible TTS quality cost.
+      const ttsParams = {
+        ...params,
+        n_ctx: Math.min(params.n_ctx ?? 8192, 4096),
+        use_mlock: false,
+        cache_type_k: 'q8_0' as const,
+        cache_type_v: 'q8_0' as const,
+      }
       // Initialize the TTS model
       const llamaContext = await initLlama(
         {
           model: ttsPath,
-          ...params,
+          ...ttsParams,
         },
         (progress) => {
           // Progress is reported as 1 to 100
@@ -303,9 +379,9 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         setIsVocoderReady(true)
       } catch (vocoderError) {
         console.log('Vocoder initialization error:', vocoderError)
-        Alert.alert(
+          Alert.alert(
           'TTS Model Loaded',
-          'OuteTTS model loaded successfully, but vocoder initialization failed. Audio tokens can be generated but not played.',
+          'TTS model loaded successfully, but vocoder initialization failed. Audio tokens can be generated but not played.',
         )
       }
     } catch (error: any) {
@@ -322,30 +398,125 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
     try {
       setIsLoading(true)
 
-      const text = inputText.trim()
-      // Get formatted prompt and guide tokens using OuteTTS format
-      const { prompt: formattedPrompt, grammar } =
-        await context.getFormattedAudioCompletion(
-          ttsParams?.speakerConfig || null,
-          text,
+      const prompt = inputText.trim()
+      const caps = await context.getTTSCapabilities()
+      const {
+        prompt: formattedPrompt,
+        grammar,
+        embedding,
+        flow,
+        speakerEmbPrefix,
+        speakerEmbRows,
+        speakerEmbHiddenDim,
+      } = await context.getFormattedAudioCompletion({
+        prompt,
+        speaker: ttsParams?.speakerConfig || undefined,
+        phonemizer: (text: string, language: string) =>
+          toIPA(text, { anyAscii: true, language })
+            .replace(/ɫ/g, 'l')
+            .replace(/oʊ/g, 'əʊ')
+            .replace(/ˈ\b/g, ''),
+      })
+
+      const params = completionParams || (await loadCompletionParams())
+
+      const ttsSamplingDefaults: {
+        temperature: number
+        top_p: number
+        top_k?: number
+      } =
+        caps.family === 'neutts'
+          ? { temperature: 1.0, top_k: 50, top_p: 1.0 }
+          : { temperature: 0.7, top_p: 0.9 }
+
+      // codec_lm AR flow (CSM and similar multi-codebook RVQ models): the
+      // backbone never emits text tokens — codec_lm.generateAudioCodes
+      // drives the AR loop and returns the (T × n_codebook) interleaved
+      // code matrix straight from the residual depth decoder.
+      if (flow === 'codec_lm_ar') {
+        const audioSampleRate = await context.getAudioSampleRate()
+        const arResult = await context.generateAudioCodes({
+          prompt: formattedPrompt,
+          // codec_lm-AR frame rates are 12.5–25 Hz; 200 frames is 8–16 s
+          // of audio.  Capping below the previous 500 default makes CPU
+          // smoke-tests finish in reasonable wall-clock and gives caller a
+          // hard ceiling — JS callers that want longer audio should bump
+          // params.n_predict themselves.
+          maxFrames: params?.n_predict
+            ? Math.min(params.n_predict, 600)
+            : 200,
+          temperature: params.temperature ?? ttsSamplingDefaults.temperature,
+          topP: params.top_p ?? ttsSamplingDefaults.top_p,
+          topK:
+            (params as { top_k?: number }).top_k ??
+            ttsSamplingDefaults.top_k ??
+            50,
+          seed: 0,
+          ...(speakerEmbPrefix
+            ? {
+                speakerEmbPrefix,
+                speakerEmbRows,
+                speakerEmbHiddenDim,
+              }
+            : {}),
+        })
+
+        if (arResult.codes.length === 0) {
+          setGeneratedAudio(
+            `No audio frames produced (codec_lm AR loop returned empty).`,
+          )
+          Alert.alert(
+            'Generation Failed',
+            'codec_lm AR loop produced no frames — check that the codec.gguf carries a `lm.*` section and the backbone matches the codec_lm host arch.',
+          )
+          return
+        }
+
+        setGeneratedAudio(
+          `Generated ${arResult.nFrames} frames × ${arResult.nCodebook} codebooks for: "${inputText.trim()}"`,
         )
 
-      const guideTokens: number[] = await context.getAudioCompletionGuideTokens(
-        text,
-      )
+        if (isVocoderReady && context.decodeAudioTokens) {
+          try {
+            const decodedAudio = await context.decodeAudioTokens(
+              arResult.codes,
+            )
+            const audioFloat32 = new Float32Array(decodedAudio)
+            setAudioData(audioFloat32)
+            setSampleRate(audioSampleRate)
+            setGeneratedAudio(
+              `Generated audio data (${audioFloat32.length} samples) for: "${inputText.trim()}"`,
+            )
+          } catch (decodeError) {
+            console.log('codec_lm AR audio decoding error:', decodeError)
+          }
+        }
+
+        Alert.alert(
+          'Speech Generated',
+          `Successfully generated ${arResult.nFrames} audio frames${
+            arResult.stoppedOnEos ? ' (stopped on EOS)' : ''
+          }! ${
+            isVocoderReady
+              ? 'Audio data is ready for playback.'
+              : 'Note: Audio playback requires vocoder setup.'
+          }`,
+        )
+        return
+      }
 
       const collectedTokens: number[] = []
-      const params = completionParams || (await loadCompletionParams())
 
       const result = await context.completion(
         {
           prompt: formattedPrompt,
           grammar,
-          guide_tokens: guideTokens,
-          n_predict: params.n_predict || 4096,
-          temperature: params.temperature || 0.7,
-          top_p: params.top_p || 0.9,
-          stop: params.stop || ['<|im_end|>'],
+          embedding,
+          n_predict: params?.n_predict || 4096,
+          temperature: params.temperature ?? ttsSamplingDefaults.temperature,
+          top_p: params.top_p ?? ttsSamplingDefaults.top_p,
+          top_k: (params as { top_k?: number }).top_k ?? ttsSamplingDefaults.top_k,
+          stop: params.stop || ['<|im_end|>', '<|SPEECH_GENERATION_END|>'],
         },
         (data) => {
           // Collect tokens for potential audio processing
@@ -355,8 +526,52 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         },
       )
 
-      // Check if we got audio tokens
-      if (result.audio_tokens && result.audio_tokens.length > 0) {
+      const audioSampleRate = await context.getAudioSampleRate()
+
+      if (
+        result.embeddings &&
+        result.embedding_dim &&
+        result.embeddings.length > 0
+      ) {
+        setGeneratedAudio(
+          `Generated ${
+            result.embeddings.length / result.embedding_dim
+          } audio embedding frames for: "${inputText.trim()}"`,
+        )
+
+        if (isVocoderReady && context.decodeAudioEmbeddings) {
+          try {
+            const decodedAudio = await context.decodeAudioEmbeddings(
+              result.embeddings,
+              result.embedding_dim,
+            )
+            console.log('Generated audio data length:', decodedAudio.length)
+
+            const audioFloat32 = new Float32Array(decodedAudio)
+            setAudioData(audioFloat32)
+            setSampleRate(audioSampleRate)
+
+            setGeneratedAudio(
+              `Generated audio data (${
+                audioFloat32.length
+              } samples) for: "${inputText.trim()}"`,
+            )
+          } catch (decodeError) {
+            console.log('Audio embedding decoding error:', decodeError)
+          }
+        }
+
+        Alert.alert(
+          'Speech Generated',
+          `Successfully generated ${
+            result.embeddings.length / result.embedding_dim
+          } audio embedding frames! ${
+            isVocoderReady
+              ? 'Audio data is ready for playback.'
+              : 'Note: Audio playback requires vocoder setup.'
+          }`,
+        )
+      } else if (result.audio_tokens && result.audio_tokens.length > 0) {
         setGeneratedAudio(
           `Generated ${
             result.audio_tokens.length
@@ -374,7 +589,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
             // Convert ArrayBuffer to Float32Array for AudioPlayer
             const audioFloat32 = new Float32Array(decodedAudio)
             setAudioData(audioFloat32)
-            setSampleRate(24000) // OuteTTS default sample rate
+            setSampleRate(audioSampleRate)
 
             setGeneratedAudio(
               `Generated audio data (${
@@ -400,7 +615,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         )
         Alert.alert(
           'Processing Complete',
-          'Text was processed but no audio tokens were generated. This may require proper OuteTTS model configuration.',
+          'Text was processed but no audio tokens were generated. Check your model configuration.',
         )
       }
     } catch (error: any) {
@@ -418,19 +633,22 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
           contentContainerStyle={styles.scrollContent}
         >
           <Text style={styles.setupDescription}>
-            Download the OuteTTS model to convert text into natural-sounding
-            speech. For full audio generation and playback, you&apos;ll also
-            need the WavTokenizer vocoder model.
+            Download a TTS model to convert text into natural-sounding speech.
+            Each model includes a paired vocoder for full audio generation and
+            playback.
           </Text>
 
-          <TTSModelDownloadCard
-            title={MODELS.OUTE_TTS_0_3.name}
-            repo={MODELS.OUTE_TTS_0_3.repo}
-            filename={MODELS.OUTE_TTS_0_3.filename}
-            size={MODELS.OUTE_TTS_0_3.size}
-            vocoder={MODELS.OUTE_TTS_0_3.vocoder}
-            onInitialize={initializeModels}
-          />
+          {models.map((model) => (
+            <TTSModelDownloadCard
+              key={model.name}
+              title={model.name}
+              repo={model.repo}
+              filename={model.filename}
+              size={model.size}
+              vocoder={model.vocoder}
+              onInitialize={initializeModels}
+            />
+          ))}
         </ScrollView>
 
         <ContextParamsModal
@@ -443,6 +661,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
           visible={showTTSParamsModal}
           onClose={() => setShowTTSParamsModal(false)}
           onSave={handleSaveTTSParams}
+          onEncodeDefaultRef={encodeDefaultRefVoice}
         />
 
         <MaskedProgress
@@ -520,7 +739,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
                 <Text style={styles.infoText}>
                   {isVocoderReady
                     ? 'Audio data will appear here after generation'
-                    : 'Download WavTokenizer for audio playback'}
+                    : 'Vocoder not ready — audio playback unavailable'}
                 </Text>
               )}
             </View>
@@ -528,26 +747,27 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         )}
 
         <View style={styles.infoSection}>
-          <Text style={styles.infoTitle}>About OuteTTS</Text>
+          <Text style={styles.infoTitle}>About Text-to-Speech</Text>
           <Text style={styles.infoText}>
-            OuteTTS is a neural text-to-speech model that converts written text
-            into natural-sounding speech. It supports various languages and can
-            generate high-quality audio with proper intonation and
-            pronunciation.
+            Multiple neural TTS models are supported — OuteTTS, Soprano and
+            Kani TTS. Each uses a paired vocoder to decode
+            audio tokens into natural-sounding speech with proper intonation
+            and pronunciation.
           </Text>
 
           <Text style={styles.infoTitle}>Speaker Configuration</Text>
           <Text style={styles.infoText}>
             Tap the &quot;TTS&quot; button in the header to configure a custom
-            speaker voice. You can import speaker configurations from the
-            OuteTTS Speaker Creator or leave it empty to use the default voice.
+            speaker voice. Speaker configs are model-specific — refer to each
+            model&apos;s documentation, or leave it empty to use the default
+            voice.
           </Text>
 
           <Text style={styles.infoTitle}>Tips for Better Results</Text>
           <Text style={styles.infoText}>
             {`• Use clear, well-punctuated text
 • Shorter texts often produce better quality
-• Configure custom speaker for different voices
+• Configure a custom speaker for different voices
 • Avoid special characters and abbreviations`}
           </Text>
         </View>

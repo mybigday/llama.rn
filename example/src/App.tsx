@@ -250,7 +250,7 @@ function HomeScreenComponent({ navigation }: { navigation: any }) {
           style={styles.button}
           onPress={() => navigation.navigate('TTS')}
         >
-          <Text style={styles.buttonText}>🔊 Text-to-Speech (OuteTTS)</Text>
+          <Text style={styles.buttonText}>🔊 Text-to-Speech</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.button}

@@ -36,6 +36,7 @@ enum tts_type {
     MOSS_TTSD_V07 = 10,
     CHATTERBOX_T3 = 11,             // English Chatterbox (t3_cfg)
     CHATTERBOX_T3_MULTILINGUAL = 12, // 23-language Chatterbox (t3_mtl23ls_v3)
+    BLUEMAGPIE_TTS = 13,             // OpenFormosa BlueMagpie-TTS (Barbet + AudioVAE)
 };
 
 // Audio completion result structure.
@@ -201,6 +202,18 @@ struct llama_rn_context_tts {
     bool audio_embeddings_pending = false;       // feedback embd ready
     bool audio_embeddings_done = false;          // stop head fired
 
+    // Prompt-prefill scratch for the continuous-latent flow.  The completion
+    // loop decodes the whole text prompt with per-position logits and
+    // accumulates every position's backbone hidden here (position-major,
+    // [n_prompt * hidden_dim]).  Once the full prompt is decoded it calls
+    // `tryContinuousPrefill(...)` which forwards these to
+    // `codec_lm_text_prefill` (seeding the RALM K/V cache + priming patch 0),
+    // then clears the buffer.  `continuous_prefill_done` guards single-run
+    // semantics within a generation; `reset()` clears it (and the RALM state
+    // via `codec_lm_state_reset`) so a second completion re-primes.
+    std::vector<float> prompt_hiddens;           // [n_prompt * hidden_dim]
+    bool continuous_prefill_done = false;        // prefill ran this generation
+
     // Codebook codec_lm-AR flow (CSM / Qwen3-TTS / MOSS-TTSD /
     // MOSS-TTS-Realtime / Chatterbox).  Structurally parallel to the
     // continuous flow above but the codec_lm produces N codebook codes per
@@ -276,6 +289,18 @@ struct llama_rn_context_tts {
     // `audio_embeddings_pending = true` for the completion loop to
     // consume via `pending_feedback_embd`.
     bool tryContinuousAudioStep(llama_rn_context* main_ctx, const float * hidden, int hidden_dim);
+
+    // Continuous-latent prompt-prefill hook, called from the completion loop
+    // ONCE after the whole text prompt has been decoded (with per-position
+    // logits) and before the first `tryContinuousAudioStep`.  Forwards the
+    // per-position backbone hiddens ([n_pos * dim], position-major) to
+    // `codec_lm_text_prefill`, which runs the prefix through tslm_adapter +
+    // the RALM causally, seeds the RALM K/V cache for positions [0..n_pos),
+    // and caches the last position's non-FSQ lm_hidden so the FIRST
+    // subsequent `codec_lm_step_generate` runs a "primed" step (its h_in is
+    // ignored).  Guards kind/dim like `tryContinuousAudioStep`.  Returns true
+    // on success (or harmless no-op when already primed).
+    bool tryContinuousPrefill(llama_rn_context* main_ctx, const float * hiddens, int n_pos, int dim);
 
     // True when the loaded codec.gguf's codec_lm reports a codebook AR kind
     // (`residual_depth_ar` or `parallel_heads_delay`).  Probed lazily

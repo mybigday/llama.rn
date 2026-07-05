@@ -138,6 +138,7 @@ declare global {
       | 'moss_ttsd'
       | 'chatterbox'
       | 'chatterbox_multilingual'
+      | 'bluemagpie'
       | ''
     family:
       | 'outetts'
@@ -148,6 +149,7 @@ declare global {
       | 'moss_tts'
       | 'moss_ttsd'
       | 'chatterbox'
+      | 'bluemagpie'
       | ''
     requiresPhonemes: boolean
     defaultLanguage: string

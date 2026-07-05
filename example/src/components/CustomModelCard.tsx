@@ -93,12 +93,13 @@ export default function CustomModelCard({
         // Check if model is downloaded first
         const isDownloaded = await ModelDownloader.isModelDownloaded(
           model.filename,
+          model.repo,
         )
 
         if (isDownloaded) {
           // Calculate model size for downloaded files
           const modelSizeFormatted =
-            await ModelDownloader.getModelSizeFormatted(model.filename)
+            await ModelDownloader.getModelSizeFormatted(model.filename, model.repo)
           if (modelSizeFormatted) {
             setModelSize(modelSizeFormatted)
           }
@@ -106,7 +107,7 @@ export default function CustomModelCard({
           // Calculate mmproj size if exists
           if (model.mmprojFilename) {
             const mmprojSizeFormatted =
-              await ModelDownloader.getModelSizeFormatted(model.mmprojFilename)
+              await ModelDownloader.getModelSizeFormatted(model.mmprojFilename, model.repo)
             if (mmprojSizeFormatted) {
               setMmprojSize(mmprojSizeFormatted)
             }
@@ -344,9 +345,9 @@ export default function CustomModelCard({
                   }
                 } else {
                   // Handle downloaded files via ModelDownloader
-                  await ModelDownloader.deleteModel(model.filename)
+                  await ModelDownloader.deleteModel(model.filename, model.repo)
                   if (model.mmprojFilename) {
-                    await ModelDownloader.deleteModel(model.mmprojFilename)
+                    await ModelDownloader.deleteModel(model.mmprojFilename, model.repo)
                   }
                 }
               } catch (fileError) {

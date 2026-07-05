@@ -28,7 +28,6 @@
 - [decodeAudioTokens](LlamaContext.md#decodeaudiotokens)
 - [detokenize](LlamaContext.md#detokenize)
 - [embedding](LlamaContext.md#embedding)
-- [getAudioCompletionGuideTokens](LlamaContext.md#getaudiocompletionguidetokens)
 - [getFormattedAudioCompletion](LlamaContext.md#getformattedaudiocompletion)
 - [getFormattedChat](LlamaContext.md#getformattedchat)
 - [getLoadedLoraAdapters](LlamaContext.md#getloadedloraadapters)
@@ -346,29 +345,9 @@ ___
 
 ___
 
-### getAudioCompletionGuideTokens
-
-▸ **getAudioCompletionGuideTokens**(`textToSpeak`): `Promise`<`number`[]\>
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `textToSpeak` | `string` |
-
-#### Returns
-
-`Promise`<`number`[]\>
-
-#### Defined in
-
-[index.ts:999](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L999)
-
-___
-
 ### getFormattedAudioCompletion
 
-▸ **getFormattedAudioCompletion**(`speaker`, `textToSpeak`): `Promise`<{ `grammar?`: `string` ; `prompt`: `string`  }\>
+▸ **getFormattedAudioCompletion**(`speaker`, `textToSpeak`): `Promise`<{ `embedding`: `boolean` ; `grammar?`: `string` ; `prompt`: `string`  }\>
 
 #### Parameters
 

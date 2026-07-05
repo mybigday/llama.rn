@@ -24,13 +24,22 @@ interface TTSParamsModalProps {
   visible: boolean
   onClose: () => void
   onSave: (params: TTSParams) => void
+  /**
+   * Optional voice-clone shortcut: runs `encodeSpeaker` on the bundled
+   * Chatterbox demo clip and returns a speaker JSON the user can paste/save.
+   * Caller (TTSScreen) wires this up only when a vocoder context is ready
+   * and the loaded family is a voice-clone arch.
+   */
+  onEncodeDefaultRef?: () => Promise<object | null>
 }
 
 export default function TTSParamsModal({
   visible,
   onClose,
   onSave,
+  onEncodeDefaultRef,
 }: TTSParamsModalProps) {
+  const [encodingDefault, setEncodingDefault] = useState(false)
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
   const [speakerConfigText, setSpeakerConfigText] = useState('')
@@ -166,6 +175,31 @@ export default function TTSParamsModal({
     })
   }
 
+  const onUseChatterboxDemo = async () => {
+    if (!onEncodeDefaultRef || encodingDefault) return
+    setEncodingDefault(true)
+    try {
+      const speakerJson = await onEncodeDefaultRef()
+      if (!speakerJson) return
+      const pretty = JSON.stringify(speakerJson, null, 2)
+      setSpeakerConfigText(pretty)
+      updateParam('speakerConfig', speakerJson)
+      setValidationResult({
+        isValid: true,
+        message:
+          'Encoded bundled Chatterbox demo voice — save to apply, or edit before saving.',
+      })
+    } catch (e: any) {
+      Alert.alert(
+        'Encode failed',
+        e?.message ||
+          'Could not encode the bundled reference clip. Make sure a voice-clone codec is loaded.',
+      )
+    } finally {
+      setEncodingDefault(false)
+    }
+  }
+
   return (
     <BaseParameterModal
       visible={visible}
@@ -196,6 +230,30 @@ export default function TTSParamsModal({
             <Text style={styles.linkButtonText}>Open Speaker Creator</Text>
           </TouchableOpacity>
         </View>
+
+        {onEncodeDefaultRef && (
+          <View style={styles.linkContainer}>
+            <Text style={styles.linkText}>
+              Voice-clone families (Chatterbox / Qwen3-TTS / MOSS-TTSD): encode
+              the bundled ResembleAI Chatterbox demo clip (en_f1, 3s) as the
+              reference speaker.
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.linkButton,
+                encodingDefault && { opacity: 0.6 },
+              ]}
+              onPress={onUseChatterboxDemo}
+              disabled={encodingDefault}
+            >
+              <Text style={styles.linkButtonText}>
+                {encodingDefault
+                  ? 'Encoding…'
+                  : 'Use Chatterbox demo voice'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <TextInput
           style={styles.textInput}

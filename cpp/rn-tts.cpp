@@ -320,6 +320,8 @@ void llama_rn_context_tts::reset() {
     pending_feedback_embd.clear();
     audio_embeddings_pending = false;
     audio_embeddings_done = false;
+    prompt_hiddens.clear();
+    continuous_prefill_done = false;
 
     pending_speaker_emb_prefix.clear();
     pending_speaker_emb_rows = 0;
@@ -368,6 +370,7 @@ enum class tts_prompt_kind {
     MOSS_TTS_REALTIME,
     MOSS_TTSD,
     CHATTERBOX,
+    BLUEMAGPIE,
 };
 
 enum class tts_decode_kind {
@@ -441,6 +444,15 @@ static const tts_model_profile TTS_PROFILES[] = {
     // path is tracked separately (see rn-tts plans / chatterbox.md in codec.cpp).
     {CHATTERBOX_T3,              tts_prompt_kind::CHATTERBOX, {1, {}}, tts_decode_kind::UNSUPPORTED, 0},
     {CHATTERBOX_T3_MULTILINGUAL, tts_prompt_kind::CHATTERBOX, {1, {}}, tts_decode_kind::UNSUPPORTED, 0},
+    // BlueMagpie-TTS (OpenFormosa): Barbet (Mamba2+attn hybrid) backbone + AudioVAE
+    // continuous-latent codec_lm.  Continuous flow doesn't consume codebooks; the
+    // completion loop's `tryContinuousAudioStep` hook drives codec_lm_step_generate
+    // and accumulates patches into audio_embeddings, which JS pipes to
+    // `decodeAudioEmbeddings`.  n_codebook / code_ranges are unused on this path
+    // — same convention as the SOPRANO HIDDEN_STATES profile.  Emitted flow is
+    // "continuous_embd" (see getFormattedAudioCompletion), so decode_kind stays
+    // HIDDEN_STATES to keep `embedding = true` and skip token-flow handling.
+    {BLUEMAGPIE_TTS, tts_prompt_kind::BLUEMAGPIE, {0, {}}, tts_decode_kind::HIDDEN_STATES, 0},
 };
 
 // Takes the resolved (vocab-probed) code ranges + n_codebook from the
@@ -516,6 +528,11 @@ static tts_type type_from_string(const std::string &value) {
     }
     if (contains_case_insensitive(value, "chatterbox")) {
         return CHATTERBOX_T3;
+    }
+    if (contains_case_insensitive(value, "bluemagpie") ||
+        contains_case_insensitive(value, "blue-magpie") ||
+        contains_case_insensitive(value, "barbet")) {
+        return BLUEMAGPIE_TTS;
     }
     return UNKNOWN;
 }
@@ -866,6 +883,14 @@ tts_type llama_rn_context_tts::getTTSType(llama_rn_context* main_ctx, json speak
         const ::codec_lm_info * info = ::codec_lm_get_info(codec_lm);
         const std::string host_arch = info && info->host_arch ? info->host_arch : "";
         const int n_cb = info ? info->n_codebook : 0;
+        // Continuous-latent codec_lm (BlueMagpie-TTS / VoxCPM) — no codebooks,
+        // AR loop emits latent patches instead.  host_arch is "barbet" for
+        // BlueMagpie; VoxCPM will land here with "minicpm4" once its converter
+        // exists.  Take the continuous flag as the discriminator since
+        // codec_lm_info.is_continuous is set by codec.cpp on this family.
+        if (info && info->is_continuous) {
+            if (host_arch == "barbet") return BLUEMAGPIE_TTS;
+        }
         // Disambiguate codec_lm-driven models by host_arch + n_codebook.
         if (host_arch == "llama" && n_cb == 32) return CSM_1B;
         if (host_arch == "qwen3" && n_cb == 16) return QWEN3_TTS_0_6B;
@@ -965,9 +990,16 @@ llama_rn_tts_capabilities llama_rn_context_tts::getTTSCapabilities(llama_rn_cont
                 ? "chatterbox_multilingual" : "chatterbox";
             cap.family = "chatterbox";
             break;
+        case tts_prompt_kind::BLUEMAGPIE:
+            cap.prompt_kind = "bluemagpie";
+            cap.family = "bluemagpie";
+            break;
     }
     cap.requires_phonemes = (profile.prompt_kind == tts_prompt_kind::NEUTTS);
-    cap.default_language = "en-us";
+    // BlueMagpie was trained on Taiwanese-Mandarin data — flag zh-tw so the
+    // JS-side language picker defaults right; other families keep en-us.
+    cap.default_language =
+        (profile.prompt_kind == tts_prompt_kind::BLUEMAGPIE) ? "zh-tw" : "en-us";
     return cap;
 }
 
@@ -1089,6 +1121,27 @@ static std::string build_chatterbox_prompt(json speaker, const std::string &text
     return text_to_speak;
 }
 
+// BlueMagpie-TTS prompt: `[spk] + text + [audio_start]`.
+// The upstream driver (`bluemagpie/model.py::_generate` → `_build_inputs`,
+// speaker_slot="null" default when no centroid is provided) puts the learned
+// spk token at position 0.  This slot was trained via speaker dropout — its
+// embedding tells the LM "null speaker mode", which the stop_head was
+// conditioned on.
+//
+// CRITICAL: the spk / audio_start ids are NOT the `<|speaker|>` (114674) /
+// `<|audio_start|>` (114666) entries in tokenizer.json.  BlueMagpie's
+// `bluemagpie/config.py::resolve_barbet_config` auto-allocates them in the
+// Megatron *padding region* — spk=114826, audio_start=114822 — and the model
+// was conditioned on THOSE embedding rows.  Feeding the tokenizer.json ids
+// gives position 0 the wrong embedding, so the whole causal hidden trajectory
+// diverges and the stop head never fires.  The converter now bakes those
+// padding-region ids as CONTROL tokens `<|bm_spk|>` / `<|bm_audio_start|>`, so
+// emitting those strings (parse_special=true) tokenizes onto the correct rows.
+static std::string build_bluemagpie_prompt(json speaker, const std::string &text_to_speak) {
+    (void) speaker;
+    return "<|bm_spk|>" + text_to_speak + "<|bm_audio_start|>";
+}
+
 llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak) {
     json speaker = speaker_json_str.empty() ? json::object() : json::parse(speaker_json_str);
     const tts_type tts_type = getTTSType(main_ctx, speaker);
@@ -1144,6 +1197,8 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
             return {build_moss_ttsd_prompt(speaker, text_to_speak), "", embedding, flow};
         case tts_prompt_kind::CHATTERBOX:
             return {build_chatterbox_prompt(speaker, text_to_speak), "", embedding, flow};
+        case tts_prompt_kind::BLUEMAGPIE:
+            return {build_bluemagpie_prompt(speaker, text_to_speak), "", embedding, flow};
     }
     return {"", "", false, ""};
 }
@@ -1744,15 +1799,29 @@ bool llama_rn_context_tts::tryContinuousAudioStep(
         }
     }
 
-    // BlueMagpie / VoxCPM training-time defaults.
-    const float   cfg_value   = 2.0f;
-    const int32_t n_timesteps = 10;
+    // BlueMagpie official release defaults (models/bluemagpie
+    // release_metadata.json on the upstream HF repo): guidance_scale = 2.8,
+    // num_timesteps = 9.  These replace the earlier VoxCPM-style 2.0/10.
+    const float   cfg_value   = 2.8f;
+    const int32_t n_timesteps = 9;
+
+    // Per-step wall-clock timing so we can see where CPU goes on device.
+    // Logged at INFO so `adb logcat` surfaces it; the constants module below
+    // hosts the counters so the total-time summary fires when generation
+    // finishes (either via stop head or n_predict cap).
+    const auto now_us_local = []() -> int64_t {
+        const auto t = std::chrono::steady_clock::now().time_since_epoch();
+        return std::chrono::duration_cast<std::chrono::microseconds>(t).count();
+    };
+    const int64_t t_step_start = now_us_local();
 
     std::vector<float> patch((size_t) patch_size * (size_t) latent_dim, 0.0f);
     int32_t stop = 0;
+    const int64_t t_gen_start = now_us_local();
     const enum codec_status rc = ::codec_lm_step_generate(
         codec_lm_state, hidden, cfg_value, n_timesteps,
         /*noise=*/nullptr, patch.data(), &stop);
+    const int64_t t_gen_us = now_us_local() - t_gen_start;
     if (rc != CODEC_STATUS_SUCCESS) {
         const char * err = ::codec_lm_state_get_last_error(codec_lm_state);
         LOG_ERROR("tryContinuousAudioStep: step_generate failed: %s",
@@ -1767,16 +1836,80 @@ bool llama_rn_context_tts::tryContinuousAudioStep(
     if (stop) {
         audio_embeddings_done = true;
         audio_embeddings_pending = false;
+        const int step_idx = (int) (audio_embeddings.size() / (size_t) (patch_size * latent_dim)) - 1;
+        LOG_INFO("continuous step %d: step_generate=%.1fms (STOP)",
+                 step_idx, (double) t_gen_us / 1000.0);
         return true;
     }
 
     pending_feedback_embd.assign((size_t) hidden_dim, 0.0f);
+    const int64_t t_fb_start = now_us_local();
     if (::codec_lm_step_feedback_embd(codec_lm_state, pending_feedback_embd.data())
             != CODEC_STATUS_SUCCESS) {
         LOG_ERROR("tryContinuousAudioStep: step_feedback_embd failed");
         return false;
     }
+    const int64_t t_fb_us = now_us_local() - t_fb_start;
+    const int64_t t_step_us = now_us_local() - t_step_start;
+    // Log every N steps (compact) — every step is too spammy but we still
+    // want a signal that things are progressing.  Sampling schedule: first 5,
+    // then every 10 → catches early ramp-up + steady state.
+    const int step_idx = (int) (audio_embeddings.size() / (size_t) (patch_size * latent_dim)) - 1;
+    if (step_idx < 5 || (step_idx % 10) == 0) {
+        LOG_INFO("continuous step %d: step_generate=%.1fms feedback=%.1fms total=%.1fms",
+                 step_idx,
+                 (double) t_gen_us / 1000.0,
+                 (double) t_fb_us / 1000.0,
+                 (double) t_step_us / 1000.0);
+    }
     audio_embeddings_pending = true;
+    return true;
+}
+
+bool llama_rn_context_tts::tryContinuousPrefill(
+    llama_rn_context * main_ctx,
+    const float *      hiddens,
+    int                n_pos,
+    int                dim) {
+    (void) main_ctx;
+
+    if (codec_lm == nullptr) {
+        LOG_ERROR("tryContinuousPrefill: codec_lm not created");
+        return false;
+    }
+    if (hiddens == nullptr || n_pos <= 0 || dim <= 0) {
+        LOG_ERROR("tryContinuousPrefill: null / empty hiddens (n_pos=%d, dim=%d)",
+                  n_pos, dim);
+        return false;
+    }
+    const ::codec_lm_info * info = ::codec_lm_get_info(codec_lm);
+    if (info == nullptr || !info->is_continuous) {
+        LOG_ERROR("tryContinuousPrefill: codec_lm is not continuous-latent");
+        return false;
+    }
+    if (dim != info->hidden_dim) {
+        LOG_ERROR("tryContinuousPrefill: hidden dim mismatch (got %d, expected %d)",
+                  dim, info->hidden_dim);
+        return false;
+    }
+
+    if (codec_lm_state == nullptr) {
+        codec_lm_state = ::codec_lm_state_new(codec_lm);
+        if (codec_lm_state == nullptr) {
+            LOG_ERROR("tryContinuousPrefill: codec_lm_state_new failed");
+            return false;
+        }
+    }
+
+    const enum codec_status rc =
+        ::codec_lm_text_prefill(codec_lm_state, hiddens, n_pos, dim);
+    if (rc != CODEC_STATUS_SUCCESS) {
+        const char * err = ::codec_lm_state_get_last_error(codec_lm_state);
+        LOG_ERROR("tryContinuousPrefill: codec_lm_text_prefill failed: %s",
+                  err && *err ? err : "(no error message)");
+        return false;
+    }
+    LOG_INFO("continuous prefill: seeded RALM K/V for %d prompt positions", n_pos);
     return true;
 }
 
@@ -1992,9 +2125,21 @@ std::vector<float> llama_rn_context_tts::decodeAudioEmbeddings(llama_rn_context*
 
     struct codec_pcm_buffer pcm = {};
     const int n_frames = (int) (embeddings.size() / (size_t) embedding_dim);
+    // The accumulator is frame-major [T, dim] (one row per latent frame), but
+    // codec_decode_quantized_representation expects channel-major [dim, T]
+    // (data[d * n_frames + t]) — same convention as codec_common's
+    // audio_lm_decode_audio, which transposes before decoding.  Without this
+    // transpose the AudioVAE decodes a scrambled latent matrix: the output
+    // still *sounds* like fluent speech but says entirely wrong words.
+    std::vector<float> chan_major((size_t) embedding_dim * (size_t) n_frames);
+    for (int t = 0; t < n_frames; ++t) {
+        for (int d = 0; d < embedding_dim; ++d) {
+            chan_major[(size_t) d * n_frames + t] = embeddings[(size_t) t * embedding_dim + d];
+        }
+    }
     const enum codec_status status = codec_decode_quantized_representation(
         codec_ctx,
-        embeddings.data(),
+        chan_major.data(),
         embedding_dim,
         n_frames,
         &pcm,
