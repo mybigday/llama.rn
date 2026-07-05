@@ -396,6 +396,46 @@ completion_token_output llama_rn_context_completion::nextToken()
                 parent_ctx->tts_wrapper->codec_lm_ar_pending_embd = false;
                 parent_ctx->tts_wrapper->pending_next_embd.clear();
             }
+        } else if (is_continuous_tts) {
+            // Continuous-latent TTS prompt decode: the RALM must see the
+            // WHOLE prompt's per-position backbone hiddens before generation
+            // (codec_lm_text_prefill).  llama_batch_get_one only requests
+            // logits/embeddings on the LAST position, so build a manual token
+            // batch with logits[i]=1 for every token in the chunk and gather
+            // each position's hidden into tts_wrapper->prompt_hiddens (in
+            // order, across n_batch chunks).  tryContinuousPrefill fires once
+            // the full prompt is decoded (below).
+            llama_batch b = llama_batch_init(n_eval, 0, 1);
+            b.n_tokens = n_eval;
+            for (int i = 0; i < n_eval; ++i) {
+                b.token[i]     = embd[n_past + i];
+                b.pos[i]       = n_past + i;
+                b.n_seq_id[i]  = 1;
+                b.seq_id[i][0] = 0;
+                b.logits[i]    = 1;
+            }
+            const int rc = llama_decode(parent_ctx->ctx, b);
+            if (rc) {
+                llama_batch_free(b);
+                LOG_ERROR("failed to eval continuous TTS prompt, n_eval: %d, n_past: %d",
+                          n_eval, (int) n_past);
+                has_next_token = false;
+                return result;
+            }
+            const int dim = llama_model_n_embd(parent_ctx->model);
+            for (int i = 0; i < n_eval; ++i) {
+                const float * h = llama_get_embeddings_ith(parent_ctx->ctx, i);
+                if (h == nullptr || dim <= 0) {
+                    llama_batch_free(b);
+                    LOG_ERROR("continuous TTS: NULL hidden for prompt pos %d (n_past=%d)",
+                              i, (int) n_past);
+                    has_next_token = false;
+                    return result;
+                }
+                parent_ctx->tts_wrapper->prompt_hiddens.insert(
+                    parent_ctx->tts_wrapper->prompt_hiddens.end(), h, h + dim);
+            }
+            llama_batch_free(b);
         } else {
             if (llama_decode(parent_ctx->ctx, llama_batch_get_one(&embd[n_past], n_eval)))
             {
@@ -431,6 +471,33 @@ completion_token_output llama_rn_context_completion::nextToken()
                 LOG_ERROR("continuous TTS: llama_get_embeddings_ith returned NULL at n_past=%d", (int) n_past);
                 has_next_token = false;
                 return result;
+            }
+            // Before the FIRST step, run the RALM text-prefill so it has
+            // seen the whole prompt's per-position hiddens (call sequence:
+            // prefill(all positions) → step (primed, patch 0, ignores h_in)
+            // → feedback embd → decode → step → ...).  Guarded to run once
+            // per generation; `reset()` clears the flag + the RALM state.
+            if (!parent_ctx->tts_wrapper->continuous_prefill_done) {
+                const int n_prompt =
+                    (int) (parent_ctx->tts_wrapper->prompt_hiddens.size() / (size_t) dim);
+                if (n_prompt <= 0) {
+                    LOG_ERROR("continuous TTS: no prompt hiddens gathered for prefill (n_past=%d)",
+                              (int) n_past);
+                    has_next_token = false;
+                    return result;
+                }
+                if (!parent_ctx->tts_wrapper->tryContinuousPrefill(
+                        parent_ctx,
+                        parent_ctx->tts_wrapper->prompt_hiddens.data(),
+                        n_prompt, dim)) {
+                    LOG_ERROR("tryContinuousPrefill failed at n_past=%d", (int) n_past);
+                    has_next_token = false;
+                    return result;
+                }
+                parent_ctx->tts_wrapper->continuous_prefill_done = true;
+                // Free the scratch — the K/V is now in the RALM cache.
+                parent_ctx->tts_wrapper->prompt_hiddens.clear();
+                parent_ctx->tts_wrapper->prompt_hiddens.shrink_to_fit();
             }
             // Run one codec_lm step on the just-produced hidden state,
             // accumulating the latent patch into

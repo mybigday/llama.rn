@@ -234,6 +234,8 @@ namespace rnllama_jsi {
         sparams.seed = getPropertyAsInt(runtime, params, "seed", -1);
         ctx->params.n_predict = getPropertyAsInt(runtime, params, "n_predict", ctx->params.n_predict);
         ctx->params.sampling.ignore_eos = getPropertyAsBool(runtime, params, "ignore_eos", ctx->params.sampling.ignore_eos);
+        ctx->params.embedding = getPropertyAsBool(runtime, params, "embedding", false);
+        llama_set_embeddings(ctx->ctx, ctx->params.embedding);
 
         sparams.temp = getPropertyAsDouble(runtime, params, "temperature", sparams.temp);
         sparams.n_probs = getPropertyAsInt(runtime, params, "n_probs", sparams.n_probs);

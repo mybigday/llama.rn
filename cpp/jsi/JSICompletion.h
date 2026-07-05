@@ -180,6 +180,15 @@ namespace rnllama_jsi {
             res.setProperty(runtime, "audio_tokens", audioTokens);
         }
 
+        if (!ctx->completion->embeddings.empty()) {
+            jsi::Array embeddings(runtime, ctx->completion->embeddings.size());
+            for (size_t i = 0; i < ctx->completion->embeddings.size(); i++) {
+                embeddings.setValueAtIndex(runtime, i, (double)ctx->completion->embeddings[i]);
+            }
+            res.setProperty(runtime, "embeddings", embeddings);
+            res.setProperty(runtime, "embedding_dim", (double)ctx->completion->embedding_dim);
+        }
+
         const auto timings = llama_perf_context(ctx->ctx);
 
         jsi::Object timingsObj(runtime);
