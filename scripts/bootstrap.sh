@@ -205,6 +205,14 @@ cp ./$LLAMA_DIR/include/llama.h ./cpp/llama.h
 cp ./$LLAMA_DIR/include/llama-cpp.h ./cpp/llama-cpp.h
 rm -rf ./cpp/models
 cp -r ./$LLAMA_DIR/src/models ./cpp/models
+# Ship llama.rn-vendored per-arch model builders that upstream llama.cpp
+# doesn't have yet (Barbet: BlueMagpie-TTS backbone, Mamba2 + attention
+# hybrid). The prefix-rewrite pass below turns ggml_→lm_ggml_ regardless,
+# so the vendor source can use either form — we keep it as lm_ggml_ so
+# clangd is quiet without a compile_commands.json.
+if [ -d ./scripts/vendor/models ]; then
+  cp ./scripts/vendor/models/*.cpp ./cpp/models/
+fi
 cp ./$LLAMA_DIR/src/llama.cpp ./cpp/llama.cpp
 cp ./$LLAMA_DIR/src/llama-chat.h ./cpp/llama-chat.h
 cp ./$LLAMA_DIR/src/llama-chat.cpp ./cpp/llama-chat.cpp

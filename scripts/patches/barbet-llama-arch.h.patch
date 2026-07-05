@@ -1,0 +1,10 @@
+--- llama-arch.h.orig
++++ llama-arch.h
+@@ -129,6 +129,7 @@ enum llm_arch {
+     LLM_ARCH_LLAMA_EMBED,
+     LLM_ARCH_MAINCODER,
+     LLM_ARCH_KIMI_LINEAR,
++    LLM_ARCH_BARBET,
+     LLM_ARCH_UNKNOWN,
+ };
+ 

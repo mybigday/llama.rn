@@ -419,6 +419,18 @@ struct llm_build_nemotron_h : public llm_build_mamba_base {
         const llama_model & model, int64_t n_embd_head, int il);
 };
 
+// Barbet — Open-Formosa R2 text-semantic LM (BlueMagpie-TTS backbone).
+// Mamba2 + attention hybrid: motif `global, sliding, sliding, mamba2` over 28
+// layers, per-head q/k RMSNorm on attention layers, SwiGLU FFN throughout.
+// Sliding-window attention is approximated by full causal attention — Barbet's
+// SWA size (8192) covers the entire TTS use, so the numeric result matches.
+struct llm_build_barbet : public llm_build_mamba_base {
+    llm_build_barbet(const llama_model & model, const llm_graph_params & params);
+    lm_ggml_tensor * build_attention_layer(lm_ggml_tensor * cur, lm_ggml_tensor * inp_pos,
+        llm_graph_input_attn_kv * inp_attn, const llama_model & model,
+        int64_t n_embd_head, int il);
+};
+
 struct llm_build_neo_bert : public llm_graph_context {
     llm_build_neo_bert(const llama_model & model, const llm_graph_params & params);
 };
