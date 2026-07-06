@@ -1334,8 +1334,14 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
         prefix.resize((size_t)n_rows * hidden);
 
         // Store the text tokens for per-step trailing text injection.
+        // The talker prefix already baked `consumed` text tokens into its
+        // embedding rows (see audio_lm_build_talker_prefix docs — text[0] is
+        // summed at row 8 → consumed=1).  Trailing text picks up from index
+        // `consumed` so we don't re-emit the tokens the prefix already saw;
+        // stopping trailing at 0 was making the model hit eos_code_c0 after
+        // only rendering the first character or two.
         talker_text_tokens.assign(text_toks.begin(), text_toks.end());
-        talker_trailing = 0;
+        talker_trailing = consumed;
 
         // Also stash the prefix on `this` so rn-completion.cpp's nextToken
         // can inject it as an embd batch before starting the AR loop.
