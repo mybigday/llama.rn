@@ -45,8 +45,11 @@
 #include "rn-tts.h"
 #include "codec_lm.h"
 #include "common.h"
+#include "utils/wav_io.h"
+#include "nlohmann/json.hpp"
 
 using namespace rnllama;
+using json = nlohmann::ordered_json;
 
 // Minimal mono 16-bit PCM WAV writer (no libsndfile dep).
 static bool write_wav_mono16(const std::string & path, const std::vector<float> & pcm, int sample_rate) {
@@ -86,6 +89,7 @@ int main(int argc, char ** argv) {
     std::string codec_path;
     std::string text = "Hello world";
     std::string speaker_json_path;
+    std::string ref_audio_path;   // WAV for voice-clone models (Qwen3-TTS etc)
     int  n_predict = 300;   // upper bound; per-family stop conditions dominate
     int  threads   = 8;
     std::string out_wav;
@@ -102,6 +106,7 @@ int main(int argc, char ** argv) {
         else if (is("--codec")        && i + 1 < argc) codec_path        = argv[++i];
         else if (is("--text")         && i + 1 < argc) text              = argv[++i];
         else if (is("--speaker-json") && i + 1 < argc) speaker_json_path = argv[++i];
+        else if (is("--ref-audio")    && i + 1 < argc) ref_audio_path    = argv[++i];
         else if (is("--n-predict")    && i + 1 < argc) n_predict         = std::atoi(argv[++i]);
         else if (is("--threads")      && i + 1 < argc) threads           = std::atoi(argv[++i]);
         else if (is("--out-wav")      && i + 1 < argc) out_wav           = argv[++i];
@@ -162,6 +167,49 @@ int main(int argc, char ** argv) {
     const auto t2 = std::chrono::steady_clock::now();
     std::printf("[probe] codec loaded in %.2fs\n",
                 std::chrono::duration<double>(t2 - t1).count());
+
+    // Voice-clone models (Qwen3-TTS / MOSS-TTSD / Chatterbox): if the caller
+    // provided --ref-audio, load the WAV, encode a speaker embedding via
+    // ctx.tts_wrapper->encodeSpeaker, and inject the resulting x_vector into
+    // the speaker JSON so getFormattedAudioCompletion picks it up.  Without
+    // this, Qwen3-TTS-0.6B-Base falls into a degenerate short-output mode
+    // (voice-clone-only training).
+    if (!ref_audio_path.empty()) {
+        codec_example_wav_data wav;
+        std::string werr;
+        if (!codec_example_load_wav_pcm16(ref_audio_path.c_str(), &wav, &werr)) {
+            std::fprintf(stderr, "[probe] failed to load ref-audio %s: %s\n",
+                         ref_audio_path.c_str(), werr.c_str());
+            return 3;
+        }
+        // Downmix + F32 convert.
+        const int32_t nch = wav.n_channels > 0 ? wav.n_channels : 1;
+        const int32_t nframes = (int32_t) (wav.pcm_i16.size() / (size_t) nch);
+        std::vector<float> pcm((size_t) nframes, 0.0f);
+        for (int32_t i = 0; i < nframes; ++i) {
+            float acc = 0.0f;
+            for (int32_t c = 0; c < nch; ++c) {
+                acc += wav.pcm_i16[(size_t) i * (size_t) nch + (size_t) c] / 32768.0f;
+            }
+            pcm[(size_t) i] = acc / (float) nch;
+        }
+        std::printf("[probe] ref-audio %s: %d frames @ %d Hz\n",
+                    ref_audio_path.c_str(), nframes, wav.sample_rate);
+        rnllama::llama_rn_encode_speaker_options sp_opts;
+        sp_opts.pcm = std::move(pcm);
+        sp_opts.input_sample_rate = wav.sample_rate;
+        auto sp = ctx.tts_wrapper->encodeSpeaker(&ctx, sp_opts);
+        if (!sp.speaker_emb.empty()) {
+            std::printf("[probe] speaker_emb: %d rows × %d hidden (%zu floats)\n",
+                        sp.speaker_n_rows, sp.speaker_hidden_dim, sp.speaker_emb.size());
+            // Merge x_vector into the speaker JSON so build_talker_prefix picks it up.
+            json spk_json = speaker_json.empty() ? json::object() : json::parse(speaker_json);
+            spk_json["x_vector"] = sp.speaker_emb;
+            speaker_json = spk_json.dump();
+        } else {
+            std::fprintf(stderr, "[probe] encodeSpeaker produced empty embedding; ignoring\n");
+        }
+    }
 
     // Build prompt via the exact same entry point the JS layer uses.
     const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(
