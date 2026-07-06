@@ -2601,7 +2601,22 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
     }
     if (profile.decode_kind == tts_decode_kind::UNSUPPORTED) {
         // Chatterbox T3 with audio_lm path active decodes via audio_lm_decode_audio.
+        // Codes were accumulated into audio_tokens by the legacy codec_lm_state_*
+        // step path (Chatterbox doesn't hit the audio_lm Phase B fork today), so
+        // push them into the audio_lm accumulator first — decode_audio applies
+        // the codec's expected shape unshift internally.
         if (audio_lm_ctx != nullptr) {
+            if (!tokens.empty()) {
+                const int32_t n_q = 1;  // Chatterbox S3G is single-codebook
+                const int32_t n_frames = (int32_t) tokens.size() / n_q;
+                std::vector<int32_t> flat(tokens.begin(), tokens.end());
+                if (!codec_common::audio_lm_push_codes(audio_lm_ctx, flat.data(),
+                                                       n_frames, n_q)) {
+                    LOG_ERROR("decodeAudioTokens: audio_lm_push_codes failed: %s",
+                              codec_common::audio_lm_last_error(audio_lm_ctx));
+                    return {};
+                }
+            }
             codec_common::audio_lm_audio_output pcm_out;
             if (!codec_common::audio_lm_decode_audio(audio_lm_ctx, &pcm_out)) {
                 LOG_ERROR("decodeAudioTokens: audio_lm_decode_audio failed: %s",
