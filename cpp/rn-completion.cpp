@@ -94,6 +94,18 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
 
     if (!has_media) {
         std::vector<llama_token> text_tokens;
+
+        // Backbones with no text tokenizer (e.g. Chatterbox T3, tokenizer.ggml.model=none)
+        // must not call llama_tokenize — it asserts.  Leave embd empty; the TTS prefill
+        // block in nextToken() will take over from n_past = -1 (normalized to 0).
+        if (llama_vocab_type(vocab) == LLAMA_VOCAB_TYPE_NONE) {
+            embd.clear();
+            n_past = -1;
+            num_prompt_tokens = 0;
+            has_next_token = true;   // let the completion loop start
+            return;
+        }
+
         // Text-only path - use modified tokenization for encoder-decoder models
         text_tokens = ::common_tokenize(parent_ctx->ctx, parent_ctx->params.prompt, add_bos || is_enc_dec, true);
         num_prompt_tokens = text_tokens.size();
@@ -206,8 +218,8 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
 
     has_next_token = true;
 
-    LOG_INFO("[DEBUG] Input processed: n_past=%d, embd.size=%zu, num_prompt_tokens=%zu, has_media=%d",
-            n_past, embd.size(), num_prompt_tokens, has_media ? 1 : 0);
+    LOG_VERBOSE("loadPrompt: n_past=%d embd.size=%zu num_prompt_tokens=%zu has_media=%d",
+               n_past, (size_t)embd.size(), num_prompt_tokens, has_media ? 1 : 0);
 }
 
 void llama_rn_context_completion::beginCompletion() {
@@ -293,6 +305,9 @@ completion_token_output llama_rn_context_completion::nextToken()
         parent_ctx->isVocoderEnabled() &&
         parent_ctx->tts_wrapper != nullptr &&
         parent_ctx->tts_wrapper->isTTSCodecLmAR(parent_ctx);
+    LOG_VERBOSE("nextToken: is_continuous=%d is_codec_lm_ar=%d chatterbox_pending=%d",
+               (int)is_continuous_tts, (int)is_codec_lm_ar_tts,
+               parent_ctx->tts_wrapper ? (int)parent_ctx->tts_wrapper->chatterbox_prefill_pending : -1);
 
     if ((is_continuous_tts || is_codec_lm_ar_tts) && !parent_ctx->params.embedding) {
         LOG_ERROR("codec_lm TTS requires context created with embedding=true — please reinitialize the context");
@@ -421,6 +436,59 @@ completion_token_output llama_rn_context_completion::nextToken()
         // Grow embd to match n_past so the while loop below is skipped
         // (n_past == embd.size()) and subsequent calls drive the normal
         // inject_ar_embd → step_now_codec_ar cycle at the right KV positions.
+        while ((llama_pos) embd.size() < n_past) {
+            embd.push_back(llama_vocab_bos(vocab));
+        }
+    }
+
+    // Chatterbox T3 prefill: when getFormattedAudioCompletion returned
+    // flow="chatterbox_embd", tokenize the text (via the baked BPE in the
+    // codec GGUF), build the CFG prompt embedding pair, and decode both
+    // cond + uncond sequences into the backbone KV cache (seq_ids 0 and 1).
+    // After prefill, fire the first codec_lm step and pad embd to match
+    // chatterbox_n_past so the inject_ar_embd cycle continues from there.
+    // Only runs once per generation: chatterbox_prefill_pending is cleared
+    // here and chatterbox_n_past > 0 on subsequent nextToken calls.
+    if (is_codec_lm_ar_tts &&
+        parent_ctx->tts_wrapper->chatterbox_prefill_pending) {
+
+        LOG_INFO("Chatterbox prefill: entering block, n_past=%d text='%s'",
+                 n_past,
+                 parent_ctx->tts_wrapper->chatterbox_text.substr(0,40).c_str());
+
+        parent_ctx->tts_wrapper->chatterbox_prefill_pending = false;
+
+        // Empty prompt → loadPrompt sets n_past = -1.  Normalize here.
+        if (n_past < 0) n_past = 0;
+
+        // Text is stored on tts_wrapper (backbone has no text tokenizer).
+        const std::string & text = parent_ctx->tts_wrapper->chatterbox_text;
+        const float cfg_weight   = parent_ctx->tts_wrapper->chatterbox_cfg_weight;
+
+        if (!parent_ctx->tts_wrapper->tryChatterboxPrefill(
+                parent_ctx, text,
+                /*ref_pcm=*/nullptr, /*ref_n_samples=*/0,
+                /*ref_sample_rate=*/0, cfg_weight)) {
+            LOG_ERROR("tryChatterboxPrefill failed");
+            has_next_token = false;
+            return result;
+        }
+
+        n_past = parent_ctx->tts_wrapper->chatterbox_n_past;
+
+        const float * last_h = llama_get_embeddings_ith(parent_ctx->ctx, -1);
+        const int dim = llama_model_n_embd(parent_ctx->model);
+        if (!last_h || dim <= 0) {
+            LOG_ERROR("Chatterbox prefill: NULL hidden after decode");
+            has_next_token = false;
+            return result;
+        }
+        if (!parent_ctx->tts_wrapper->tryCodecLmAudioStep(
+                parent_ctx, /*backbone_sampled_tok=*/-1, last_h, dim)) {
+            LOG_ERROR("Chatterbox: first tryCodecLmAudioStep failed");
+            has_next_token = false;
+            return result;
+        }
         while ((llama_pos) embd.size() < n_past) {
             embd.push_back(llama_vocab_bos(vocab));
         }

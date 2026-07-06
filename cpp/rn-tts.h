@@ -285,8 +285,17 @@ struct llama_rn_context_tts {
     // ── Chatterbox T3 ────────────────────────────────────────────────────
     // Chatterbox drives a dual-sequence CFG decode loop (cond + uncond lanes
     // in parallel, seq_ids 0 and 1).  n_seq_chatterbox is 1 (no CFG) or 2.
-    int chatterbox_n_seq = 0;     // set during talker prefill
-    int chatterbox_n_past = 0;    // KV-cache position after prefill
+    int  chatterbox_n_seq     = 0;     // set during tryChatterboxPrefill
+    int  chatterbox_n_past    = 0;     // KV-cache position after prefill
+    // Set by getFormattedAudioCompletion when flow="chatterbox_embd"; signals
+    // rn-completion.cpp to call tryChatterboxPrefill before the AR loop.
+    // Survives rewind()/reset() (same design as talker_prefix_*); cleared
+    // at the entry of getFormattedAudioCompletion for non-Chatterbox models.
+    bool chatterbox_prefill_pending = false;
+    std::string chatterbox_text;           // text stored here so params.prompt
+                                           // can be empty (backbone has no tokenizer)
+    // CFG weight for the Chatterbox AR loop (passed to tryChatterboxPrefill).
+    float chatterbox_cfg_weight = 0.7f;
 
     // Constructor and destructor
     // `use_gpu` mirrors codec.cpp's `codec_model_params.use_gpu` — set true

@@ -300,8 +300,8 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
       audio_lm_ctx = codec_common::audio_lm_init(alm_params, &alm_err);
       if (audio_lm_ctx == nullptr) {
           // Not a hard failure; the model may just lack an LM section.
-          // Log but continue.
-          (void) alm_err; // suppress unused-variable warning in release
+          LOG_WARNING("audio_lm_init failed (non-fatal): %s",
+                      alm_err.empty() ? "(no error)" : alm_err.c_str());
       }
   }
 
@@ -930,6 +930,9 @@ tts_type llama_rn_context_tts::getTTSType(llama_rn_context* main_ctx, json speak
     if (codec_lm == nullptr && !codec_lm_probed && codec_model != nullptr) {
         codec_lm_probed = true;
         codec_lm = ::codec_lm_create(codec_model);
+        if (codec_lm == nullptr) {
+            LOG_VERBOSE("codec_lm_create: %s", ::codec_lm_get_create_error());
+        }
     }
     if (codec_lm != nullptr) {
         const ::codec_lm_info * info = ::codec_lm_get_info(codec_lm);
@@ -958,6 +961,28 @@ tts_type llama_rn_context_tts::getTTSType(llama_rn_context* main_ctx, json speak
         if (host_arch == "llama" && n_cb == 1)  return CHATTERBOX_T3;
         // Other codec_lm families (LFM2-Audio, etc.) will land here once
         // their profiles are wired; fall through to vocab / name detection.
+    }
+
+    // Chatterbox S3G codec: the vocoder GGUF has no embedded LM (the T3
+    // backbone is a separate file), so codec_lm_create returns nullptr.
+    // Detect by the codec arch enum which is always set correctly by codec.cpp.
+    // Distinguish English (S3G standard) from multilingual by the backbone's
+    // `general.name` — the multilingual GGUF has a meaningless hash name so
+    // we fall back to CHATTERBOX_T3 (both share the same runtime path anyway).
+    if (codec_model != nullptr) {
+        const codec_arch ca = ::codec_model_arch(codec_model);
+        if (ca == CODEC_ARCH_CHATTERBOX_S3G) {
+            // Check backbone name for multilingual marker.
+            if (main_ctx && main_ctx->model) {
+                const std::string bname = main_ctx->model->name;
+                if (contains_case_insensitive(bname, "chatterbox-multilingual") ||
+                    contains_case_insensitive(bname, "chatterbox_multilingual") ||
+                    contains_case_insensitive(bname, "mtl23ls")) {
+                    return CHATTERBOX_T3_MULTILINGUAL;
+                }
+            }
+            return CHATTERBOX_T3;
+        }
     }
 
     // Vocab-based detection runs next because gguf `general.name` is often
@@ -1195,13 +1220,15 @@ static std::string build_bluemagpie_prompt(json speaker, const std::string &text
 }
 
 llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak) {
-    // Always clear the talker prefix here so a stale prefix from a previous
-    // talker generation does not pollute a subsequent non-talker generation.
-    // (reset() intentionally skips these fields so the prefix survives the
-    // rewind() that fires between getFormattedAudioCompletion and nextToken.)
+    // Always clear per-generation state that survives reset() here so that
+    // stale data from a previous generation doesn't pollute a new one.
+    // (reset() intentionally skips these fields so they survive the rewind()
+    // that fires between getFormattedAudioCompletion and nextToken.)
     talker_prefix_embd.clear();
-    talker_prefix_rows   = 0;
-    talker_prefix_hidden = 0;
+    talker_prefix_rows           = 0;
+    talker_prefix_hidden         = 0;
+    chatterbox_prefill_pending   = false;
+    chatterbox_text.clear();
 
     json speaker = speaker_json_str.empty() ? json::object() : json::parse(speaker_json_str);
     const tts_type tts_type = getTTSType(main_ctx, speaker);
@@ -1335,11 +1362,18 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     const bool is_chatterbox = (profile.prompt_kind == tts_prompt_kind::CHATTERBOX) &&
                                 audio_lm_ctx != nullptr;
     if (is_chatterbox) {
-        // Store text so tryChatterboxPrefill can read it via this field.
-        // We reuse talker_text_tokens as a scratch string carrier; the
-        // actual text is in the result prompt field.
+        // Signal rn-completion.cpp to call tryChatterboxPrefill before the
+        // AR loop starts.  Survives rewind() — see talker_prefix design note.
+        chatterbox_prefill_pending = true;
+        chatterbox_text            = text_to_speak;  // stored here; params.prompt stays empty
+        // Default CFG weight; the JS layer can override via params if needed.
+        chatterbox_cfg_weight      = 0.7f;
+
         llama_rn_audio_completion_result res;
-        res.prompt     = text_to_speak;  // passed to tryChatterboxPrefill
+        // Empty prompt: the backbone has no text tokenizer (tokenizer.ggml.model=none).
+        // loadPrompt("") sets n_past=-1 (empty batch guard); the Chatterbox prefill
+        // block in rn-completion.cpp normalizes that to 0 and calls tryChatterboxPrefill.
+        res.prompt     = "";
         res.grammar    = "";
         res.embedding  = true;
         res.flow       = "chatterbox_embd";
@@ -2225,6 +2259,15 @@ bool llama_rn_context_tts::tryChatterboxPrefill(
 
     const int hidden = llama_model_n_embd(main_ctx->model);
     if (hidden <= 0) return false;
+
+    // CFG needs seq_id 0 (cond) + seq_id 1 (uncond).  If the backbone context
+    // was initialised with n_seq_max=1, we cannot use CFG — silently degrade.
+    const uint32_t n_seq_max = llama_n_seq_max(main_ctx->ctx);
+    if (n_seq_max < 2 && cfg_weight > 0.0f) {
+        LOG_WARNING("tryChatterboxPrefill: cfg_weight=%.2f but n_seq_max=%u — disabling CFG",
+                 cfg_weight, n_seq_max);
+        cfg_weight = 0.0f;
+    }
 
     // Tokenize text with the baked BPE.
     std::vector<int32_t> text_ids(text.size() + 64);
