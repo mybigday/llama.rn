@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cmath>
 #include <codecvt>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <locale>
@@ -1722,13 +1723,30 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
         return false;
     }
 
-    // Stop detection.  CSM: training-time audio-EOS frame is codes all
-    // zero — trip on cb-0==0 after step>0 (initial frame is often 0 too).
-    // Other kinds don't have a codebook-side stop in the current
-    // profiles; they either use a max_frames cap or a backbone-level EOS
-    // that the standard completion path already catches.
-    const bool csm_eos = (type == CSM_1B) && codec_lm_ar_step > 0 && codes[0] == 0;
-    if (csm_eos) {
+    // Stop detection — metadata-driven for all codebook-AR models.
+    // `codec_lm_step_is_eos` inspects the just-emitted `codes` against the
+    // gguf's `codec.lm.eos_code_c0` / `eos_min_step` metadata (read into
+    // codec_lm_info).  The state's internal AR frame counter was just
+    // incremented by codec_lm_step_finish above, so the EOS gate lines up
+    // with the frame we just produced (upstream computes `ar_frame - 1`).
+    // This covers CSM, Qwen3-TTS, MOSS-TTSD, MOSS-TTS-Realtime, Chatterbox
+    // — each gets its cb0 sentinel from the gguf for free.
+    //
+    // Fallback: ggufs predating the metadata report eos_code_c0 < 0.  For
+    // those we keep the legacy CSM heuristic (cb-0==0 after step>0; the
+    // initial frame is often all-zero too) so stale CSM ggufs still stop.
+    bool is_eos = false;
+    if (info->eos_code_c0 >= 0) {
+        int32_t eos_flag = 0;
+        if (::codec_lm_step_is_eos(codec_lm_state, codes.data(), n_cb, &eos_flag)
+                == CODEC_STATUS_SUCCESS) {
+            is_eos = (eos_flag != 0);
+        }
+    } else if (type == CSM_1B) {
+        // Legacy path: gguf has no eos metadata (eos_code_c0 == -1).
+        is_eos = codec_lm_ar_step > 0 && codes[0] == 0;
+    }
+    if (is_eos) {
         codec_lm_ar_done = true;
         codec_lm_ar_stopped_on_eos = true;
         codec_lm_ar_pending_embd = false;
@@ -1989,6 +2007,22 @@ static int codec_decode_n_q_for_profile(const tts_model_profile &profile, ::code
     return std::max(codec_model_n_q(codec_model), 1);
 }
 
+// Read a scalar int32 GGUF metadata value from the codec model, returning
+// `fallback` when the key is absent.  Mirrors codec_common's `meta_str` +
+// std::atoi used by audio_lm's decode transform.
+static int32_t codec_meta_i32(::codec_model *codec_model, const char *key, int32_t fallback) {
+    if (codec_model == nullptr || key == nullptr) return fallback;
+    const struct codec_lm_gguf_metadata *meta = codec_model_metadata(codec_model);
+    if (meta == nullptr) return fallback;
+    for (size_t i = 0; i < meta->n_items; ++i) {
+        if (meta->items[i].key != nullptr && std::strcmp(meta->items[i].key, key) == 0 &&
+            meta->items[i].value != nullptr) {
+            return (int32_t) std::atoi(meta->items[i].value);
+        }
+    }
+    return fallback;
+}
+
 std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* main_ctx, const std::vector<llama_token> &tokens) {
     if (codec_ctx == nullptr || codec_model == nullptr) {
         LOG_ERROR("Codec context is not initialized");
@@ -2040,6 +2074,13 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
 
     const size_t n_frames = tokens_audio.size() / (size_t) n_cb_in;
 
+    // NOTE: this codes->PCM transform is kept in lock-step with the
+    // metadata-driven `audio_lm_decode_audio` in
+    // cpp/codec/common/audio_lm.cpp (upstream codec.cpp).  rn drives its own
+    // AR loop and calls codec_decode directly rather than routing through an
+    // audio_lm_context, so the offset/delay-unshift/cb0_speech_offset/clamp
+    // logic is mirrored here.  If upstream's transform changes, update both.
+    //
     // For parallel_heads_delay codec_lm (MOSS-TTSD), each codebook was
     // emitted with a per-channel delay offset; reverse the shift before
     // forming the codec_token_buffer.  Aligned frame count is
@@ -2067,14 +2108,32 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
     }
     const size_t n_frames_aligned = (max_delay > 0) ? (n_frames - (size_t) max_delay) : n_frames;
 
+    // Merged text+speech cb0 remap (MOSS-TTSD): subtract speech_token_range[0]
+    // from the first audio codebook so the merged vocab maps back to raw
+    // quantizer index space (mirrors codec_common audio_lm_decode_audio's
+    // cb0_speech_offset handling; the key is written by the MOSS converter).
+    // Absent (== 0) for CSM / Qwen3-TTS / Realtime, so those are unaffected.
+    const int32_t cb0_speech_offset = codec_meta_i32(codec_model, "codec.lm.cb0_speech_offset", 0);
+    const int32_t codebook_sz = codec_model_codebook_size(codec_model);
+
     std::vector<int32_t> codec_tokens;
-    if (audio_cb_off > 0 || max_delay > 0) {
+    if (audio_cb_off > 0 || max_delay > 0 || cb0_speech_offset != 0) {
         codec_tokens.resize(n_frames_aligned * (size_t) n_q);
         for (size_t t = 0; t < n_frames_aligned; ++t) {
             for (int q = 0; q < n_q; ++q) {
                 const size_t src_t = t + (size_t) audio_delays[(size_t) q];
-                codec_tokens[t * (size_t) n_q + (size_t) q] =
-                    (int32_t) tokens_audio[src_t * (size_t) n_cb_in + (size_t) (audio_cb_off + q)];
+                int32_t code = (int32_t) tokens_audio[src_t * (size_t) n_cb_in + (size_t) (audio_cb_off + q)];
+                if (q == 0 && cb0_speech_offset != 0) {
+                    code -= cb0_speech_offset;
+                }
+                // Guard the codec's get_rows against pad / control codes
+                // (speech_pad, bos/eos sentinels) the LM can emit before stop;
+                // the HF processor drops such frames — we clamp into range.
+                if (codebook_sz > 0) {
+                    if (code < 0)             code = 0;
+                    if (code >= codebook_sz)  code = codebook_sz - 1;
+                }
+                codec_tokens[t * (size_t) n_q + (size_t) q] = code;
             }
         }
     } else {
@@ -2083,7 +2142,10 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
     struct codec_token_buffer token_buffer = {};
     token_buffer.data = codec_tokens.data();
     token_buffer.n_tokens = (int32_t)codec_tokens.size();
-    token_buffer.n_frames = (int32_t) n_frames;
+    // Delay-unshift trims max_delay tail frames; the buffer carries
+    // n_frames_aligned frames (== n_frames when no delay).  Upstream
+    // audio_lm_decode_audio uses the trimmed count (n_frames_out) here.
+    token_buffer.n_frames = (int32_t) n_frames_aligned;
     token_buffer.n_q = n_q;
     token_buffer.codebook_size = codec_model_codebook_size(codec_model);
     token_buffer.sample_rate = codec_model_sample_rate(codec_model);

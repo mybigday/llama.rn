@@ -44,6 +44,13 @@ enum codec_graph_kind {
     CODEC_GRAPH_BLUEMAGPIE_CFM             = 53,  // LocDiT + unrolled CFM Euler (codec_bluemagpie_cfm_eval, e2e test)
     CODEC_GRAPH_BLUEMAGPIE_CFM_STEP        = 56,  // continuous_latent_cfm adaptor — unified per-step graph
     CODEC_GRAPH_BLUEMAGPIE_CFM_PREFILL     = 57,  // continuous_latent_cfm adaptor — RALM full-prefix prefill
+
+    CODEC_GRAPH_POCKET_MIMI_DECODE = 60,  // Pocket-TTS Mimi-variant: latent [32,T] → PCM 24 kHz
+    CODEC_GRAPH_POCKET_MIMI_ENCODE = 61,  // Pocket-TTS Mimi-variant: PCM 24 kHz → latent [32,T]
+
+    CODEC_GRAPH_FLOW_LM_PREFILL = 62,  // Pocket-TTS FlowLM: text+voice prefix → KV cache
+    CODEC_GRAPH_FLOW_LM_STEP    = 63,  // Pocket-TTS FlowLM: one AR frame (transformer + LSD flow + EOS)
+    CODEC_GRAPH_FLOW_LM_SPKPROJ = 64,  // Pocket-TTS FlowLM: mu [ldim,T] → speaker_proj rows
 };
 
 bool codec_runtime_init(codec_context * ctx, std::string * error);

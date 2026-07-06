@@ -620,10 +620,22 @@ static enum codec_status codec_moss_run_encode(
 static enum codec_status codec_moss_run_decode(
     struct codec_context * ctx,
     const struct codec_token_buffer * tokens,
-    struct codec_pcm_buffer * out_pcm) {
+    struct codec_pcm_buffer * out_pcm,
+    int32_t n_q_override) {
 
     codec_moss_audio & cfg = *static_cast<codec_moss_audio *>(ctx->model->impl);
-    if (tokens == nullptr || tokens->data == nullptr || tokens->n_q != cfg.n_q || tokens->n_frames <= 0) {
+    if (tokens == nullptr || tokens->data == nullptr || tokens->n_frames <= 0) {
+        codec_context_set_error(ctx, "invalid MOSS-Audio token buffer");
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    // RVQ decodes with `n_q_dec` residual levels (the reference decode_codes
+    // sums quantizers[:nq]).  MOSS-TTS-Realtime's LM predicts only the first
+    // 16 of the codec's 32 quantizers, so accept any 1..cfg.n_q and truncate
+    // the residual sum.  `n_q_override` (from decode params) wins; else the
+    // buffer's own n_q; else the codec's full n_q.
+    int32_t n_q_dec = n_q_override > 0 ? n_q_override
+                    : (tokens->n_q > 0 ? tokens->n_q : cfg.n_q);
+    if (n_q_dec < 1 || n_q_dec > cfg.n_q || tokens->n_q != n_q_dec) {
         codec_context_set_error(ctx, "invalid MOSS-Audio token buffer");
         return CODEC_STATUS_INVALID_ARG;
     }
@@ -633,7 +645,7 @@ static enum codec_status codec_moss_run_decode(
     build.n_codes    = n_codes;
     build.n_channels = cfg.number_channels;
     build.interleave = cfg.channel_interleave;
-    build.n_q        = cfg.n_q;
+    build.n_q        = n_q_dec;
     build.latent_dim = cfg.latent_dim;
     build.rvq_dim    = cfg.rvq_dim;
     build.cb_dim     = cfg.codebook_dim;
@@ -647,7 +659,7 @@ static enum codec_status codec_moss_run_decode(
     if (!codec_graph_cache_get_or_build(
             ctx,
             { CODEC_GRAPH_MOSS_AUDIO_DECODE,
-              /*n_frames=*/n_codes, /*n_q=*/cfg.n_q, /*hop=*/cfg.hop_size,
+              /*n_frames=*/n_codes, /*n_q=*/n_q_dec, /*hop=*/cfg.hop_size,
               /*n_in=*/0, /*latent_dim=*/cfg.latent_dim },
             codec_moss_build_decode,
             &build,
@@ -669,10 +681,10 @@ static enum codec_status codec_moss_run_decode(
     }
     // Repack tokens from (T, Q) interleaved to (n_q, T) for the graph's
     // (ne[0]=t, ne[1]=n_q) layout — same memory move as encode but reversed.
-    std::vector<int32_t> codes_qt((size_t) cfg.n_q * (size_t) n_codes);
+    std::vector<int32_t> codes_qt((size_t) n_q_dec * (size_t) n_codes);
     for (int32_t t = 0; t < n_codes; ++t) {
-        for (int32_t q = 0; q < cfg.n_q; ++q) {
-            int32_t v = tokens->data[t * cfg.n_q + q];
+        for (int32_t q = 0; q < n_q_dec; ++q) {
+            int32_t v = tokens->data[t * n_q_dec + q];
             if (v < 0) v = 0;
             if (v > cfg.codebook_size - 1) v = cfg.codebook_size - 1;
             codes_qt[(size_t) q * (size_t) n_codes + (size_t) t] = v;
@@ -741,8 +753,7 @@ enum codec_status codec_moss_audio_decode(
     const struct codec_token_buffer * tokens,
     struct codec_pcm_buffer * out_pcm,
     struct codec_decode_params params) {
-    (void) params;
-    return codec_moss_run_decode(ctx, tokens, out_pcm);
+    return codec_moss_run_decode(ctx, tokens, out_pcm, params.n_q);
 }
 
 enum codec_status codec_moss_audio_init(struct codec_model * model) {

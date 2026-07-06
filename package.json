@@ -214,8 +214,10 @@
     "*.d.ts",
     "tests/build/",
     "third_party/llama.cpp/",
+    "third_party/codec.cpp/",
     "build/",
-    "build-host/"
+    "build-host/",
+    ".scratch/"
   ],
   "prettier": {
     "trailingComma": "all",

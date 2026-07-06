@@ -28,6 +28,7 @@ enum codec_arch {
     CODEC_ARCH_MOSS_AUDIO = 13,
     CODEC_ARCH_XY_TOKENIZER = 14,
     CODEC_ARCH_BLUEMAGPIE_AUDIOVAE = 15,
+    CODEC_ARCH_POCKET_MIMI = 16,
 };
 
 enum codec_status {
@@ -133,13 +134,13 @@ struct codec_batch {
     int32_t hop_size;
 };
 
-struct codec_gguf_kv {
+struct codec_lm_gguf_kv {
     const char * key;
     const char * value;
 };
 
-struct codec_gguf_metadata {
-    struct codec_gguf_kv * items;
+struct codec_lm_gguf_metadata {
+    struct codec_lm_gguf_kv * items;
     size_t n_items;
 };
 
@@ -200,8 +201,8 @@ int32_t codec_model_win_length(const struct codec_model * model);
 int32_t codec_model_n_mels(const struct codec_model * model);
 int32_t codec_model_latent_dim(const struct codec_model * model);
 
-const struct codec_gguf_metadata * codec_model_metadata(const struct codec_model * model);
-void codec_metadata_free(struct codec_gguf_metadata * meta);
+const struct codec_lm_gguf_metadata * codec_model_metadata(const struct codec_model * model);
+void codec_metadata_free(struct codec_lm_gguf_metadata * meta);
 
 const char * codec_arch_name(enum codec_arch arch);
 

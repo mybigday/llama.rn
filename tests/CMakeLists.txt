@@ -38,7 +38,21 @@ file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
 file(GLOB MTMD_MODEL_FILES ${SOURCE_DIR}/tools/mtmd/models/*.cpp)
 file(GLOB COMMON_FILES ${SOURCE_DIR}/common/*.cpp)
 file(GLOB JINJA_FILES ${SOURCE_DIR}/common/jinja/*.cpp)
-file(GLOB CODEC_FILES ${SOURCE_DIR}/codec/src/*.cpp ${SOURCE_DIR}/codec/src/**/*.cpp ${SOURCE_DIR}/codec/common/*.cpp)
+file(GLOB CODEC_FILES
+    ${SOURCE_DIR}/codec/src/*.cpp
+    ${SOURCE_DIR}/codec/src/batch/*.cpp
+    ${SOURCE_DIR}/codec/src/lm/*.cpp
+    ${SOURCE_DIR}/codec/src/models/*.cpp
+    ${SOURCE_DIR}/codec/src/ops/*.cpp
+    ${SOURCE_DIR}/codec/src/runtime/*.cpp
+    ${SOURCE_DIR}/codec/common/audio_lm.cpp
+    ${SOURCE_DIR}/codec/common/utils/*.cpp
+)
+# NB: tts_runner{,_flow}.cpp are excluded — they are the codec.cpp reference
+# host loop that pulls in llama.cpp's `common_*` symbols under their un-prefixed
+# names, which conflict with the LM_-prefixed common/ in this project.
+# rn-tts drives its own AR loop through the low-level codec_lm_* + codec_common
+# APIs, so we only need audio_lm.cpp from codec/common.
 
 # Platform-specific source files
 set(SOURCE_FILES_ARCH "")
@@ -120,6 +134,7 @@ target_include_directories(rnllama_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common/utils
 )
 
 # Platform-specific linking
@@ -155,6 +170,7 @@ target_include_directories(parallel_decoding_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common/utils
 )
 
 # Platform-specific linking for parallel decoding test
@@ -188,6 +204,7 @@ target_include_directories(bluemagpie_probe
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common/utils
 )
 if(APPLE)
     target_link_libraries(bluemagpie_probe PRIVATE
@@ -200,6 +217,32 @@ elseif(UNIX AND NOT APPLE)
     # Native SIMD for accurate perf measurement (skip the forced-generic
     # define; the ggml-cpu arch sources will pick native ARM/x86 kernels).
     target_compile_options(bluemagpie_probe PRIVATE -march=native -U LM_GGML_CPU_GENERIC)
+endif()
+
+add_executable(tts_probe
+    tts_probe.cpp
+    ${RNLLAMA_COMMON_SOURCES}
+)
+target_include_directories(tts_probe
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common/utils
+)
+if(APPLE)
+    target_link_libraries(tts_probe PRIVATE
+        "-framework Accelerate"
+        "-framework Foundation"
+    )
+elseif(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(tts_probe PRIVATE Threads::Threads m dl)
+    target_compile_options(tts_probe PRIVATE -march=native -U LM_GGML_CPU_GENERIC)
 endif()
 
 add_executable(barbet_hidden_dump
@@ -215,6 +258,7 @@ target_include_directories(barbet_hidden_dump
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common/utils
 )
 if(APPLE)
     target_link_libraries(barbet_hidden_dump PRIVATE

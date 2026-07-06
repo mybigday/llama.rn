@@ -32,6 +32,7 @@ static const char * codec_lm_kind_name_internal(enum codec_lm_kind kind) {
         case CODEC_LM_KIND_PARALLEL_HEADS_DELAY:  return "parallel_heads_delay";
         case CODEC_LM_KIND_RESIDUAL_DEPTH_AR:     return "residual_depth_ar";
         case CODEC_LM_KIND_CONTINUOUS_LATENT_CFM: return "continuous_latent_cfm";
+        case CODEC_LM_KIND_FLOW_LM:               return "flow_lm";
         case CODEC_LM_KIND_UNKNOWN:               break;
     }
     return "unknown";
@@ -54,6 +55,9 @@ enum codec_lm_kind codec_lm_kind_from_string(const char * s) {
     if (std::strcmp(s, "continuous_latent_cfm") == 0) {
         return CODEC_LM_KIND_CONTINUOUS_LATENT_CFM;
     }
+    if (std::strcmp(s, "flow_lm") == 0) {
+        return CODEC_LM_KIND_FLOW_LM;
+    }
     return CODEC_LM_KIND_UNKNOWN;
 }
 
@@ -62,6 +66,7 @@ const codec_lm_kind_vtable * codec_lm_vtable_for_kind(enum codec_lm_kind kind) {
         case CODEC_LM_KIND_PARALLEL_HEADS_DELAY:  return &codec_lm_vtable_parallel_heads_delay;
         case CODEC_LM_KIND_RESIDUAL_DEPTH_AR:     return &codec_lm_vtable_residual_depth_ar;
         case CODEC_LM_KIND_CONTINUOUS_LATENT_CFM: return &codec_lm_vtable_continuous_latent_cfm;
+        case CODEC_LM_KIND_FLOW_LM:               return &codec_lm_vtable_flow_lm;
         case CODEC_LM_KIND_UNKNOWN:               break;
     }
     return nullptr;
@@ -79,7 +84,7 @@ std::string codec_lm_read_string_kv(const codec_model * codec, const char * key)
     if (kid < 0) {
         return std::string();
     }
-    return codec_gguf_value_to_string(codec->gguf, kid);
+    return codec_lm_gguf_value_to_string(codec->gguf, kid);
 }
 
 // ---------------------------------------------------------------------
@@ -166,7 +171,32 @@ static bool codec_lm_populate_info(codec_lm * lm) {
         return false;
     }
 
-    const int32_t hidden       = codec_read_i32_kv(gf, "codec.lm.hidden_dim", 0);
+    int32_t hidden             = codec_read_i32_kv(gf, "codec.lm.hidden_dim", 0);
+
+    // FlowLM (Pocket-TTS): self-contained continuous-latent AR.  No codebooks,
+    // no external backbone; uses codec.lm.d_model / ldim.  Populate minimal info
+    // and skip the codebook + continuous_latent_cfm metadata paths below.
+    if (lm->kind == CODEC_LM_KIND_FLOW_LM) {
+        const int32_t d_model    = codec_read_i32_kv(gf, "codec.lm.d_model", 0);
+        const int32_t ldim       = codec_read_i32_kv(gf, "codec.lm.ldim", 0);
+        if (d_model <= 0 || ldim <= 0) {
+            lm->last_error = "codec.lm flow_lm: d_model / ldim must be > 0";
+            return false;
+        }
+        lm->host_arch_buf   = codec_lm_read_string_kv(lm->codec, "codec.lm.host_arch");
+        lm->info.kind          = lm->kind;
+        lm->info.hidden_dim    = d_model;
+        lm->info.is_continuous = true;
+        lm->info.latent_dim    = ldim;
+        lm->info.patch_size    = 1;
+        lm->info.n_codebook    = 0;
+        lm->info.codebook_sizes = nullptr;
+        lm->info.delay_pattern  = nullptr;
+        lm->info.host_arch      = lm->host_arch_buf.empty() ? "" : lm->host_arch_buf.c_str();
+        lm->info.eos_code_c0    = -1;
+        lm->info.eos_min_step   = 0;
+        return true;
+    }
 
     // Continuous-latent kinds (CONTINUOUS_LATENT_CFM) don't have codebooks;
     // they emit a continuous latent patch per step.  Populate the continuous
@@ -227,6 +257,12 @@ static bool codec_lm_populate_info(codec_lm * lm) {
     lm->info.delay_pattern    = lm->delay_pattern_buf.data();
     lm->info.host_arch        = lm->host_arch_buf.empty() ? "" : lm->host_arch_buf.c_str();
     }
+
+    // End-of-audio metadata (applies to every kind; continuous kinds get
+    // the -1 default since they signal stop via step_generate).  Default
+    // eos_code_c0 = -1 (no sentinel), eos_min_step = 0.
+    lm->info.eos_code_c0  = codec_read_i32_kv(gf, "codec.lm.eos_code_c0", -1);
+    lm->info.eos_min_step = codec_read_i32_kv(gf, "codec.lm.eos_min_step", 0);
 
     // Speaker-conditioning encoder section is optional.  Absent means
     // codec_lm_speaker_get_info returns NULL and codec_lm_speaker_encode
@@ -358,6 +394,7 @@ void codec_lm_free(struct codec_lm * lm) {
         return;
     }
     speaker_arch_free(lm);
+    codec_lm_chatterbox_free_state(lm);
     if (lm->vtable != nullptr && lm->vtable->free != nullptr) {
         lm->vtable->free(lm);
     }
@@ -412,6 +449,7 @@ struct codec_lm_state * codec_lm_state_new(struct codec_lm * lm) {
     st->next_cb            = 0;
     st->step_in_progress   = false;
     st->logits_pending     = false;
+    st->ar_frame           = 0;
 
     if (lm->vtable->state_init != nullptr && !lm->vtable->state_init(st)) {
         if (lm->vtable->state_free != nullptr) {
@@ -447,6 +485,7 @@ void codec_lm_state_reset(struct codec_lm_state * st) {
     st->step_in_progress   = false;
     st->logits_pending     = false;
     st->text_token_context = -1;
+    st->ar_frame           = 0;
     std::fill(st->codes_buf.begin(), st->codes_buf.end(), 0);
     if (st->lm != nullptr && st->lm->vtable != nullptr && st->lm->vtable->state_reset != nullptr) {
         st->lm->vtable->state_reset(st);
@@ -656,6 +695,49 @@ enum codec_status codec_lm_step_finish(
                     (size_t) st->lm->info.n_codebook * sizeof(int32_t));
     }
     st->step_in_progress = false;
+    st->ar_frame        += 1;   // one more AR frame completed
+    return CODEC_STATUS_SUCCESS;
+}
+
+// ---------------------------------------------------------------------
+// End-of-audio decision
+// ---------------------------------------------------------------------
+
+enum codec_status codec_lm_step_is_eos(
+    struct codec_lm_state * st,
+    const int32_t * codes,
+    int32_t n_codes,
+    int32_t * out_is_eos) {
+    if (st == nullptr || st->lm == nullptr || codes == nullptr ||
+        out_is_eos == nullptr || n_codes <= 0) {
+        if (st != nullptr) {
+            st->last_error = "codec_lm_step_is_eos: null args or n_codes <= 0";
+        }
+        return CODEC_STATUS_INVALID_ARG;
+    }
+    *out_is_eos = 0;
+
+    // Only codebook kinds carry a cb0 EOS sentinel.  Continuous-latent
+    // kinds signal stop via codec_lm_step_generate's out_stop flag.
+    if (st->lm->kind != CODEC_LM_KIND_RESIDUAL_DEPTH_AR &&
+        st->lm->kind != CODEC_LM_KIND_PARALLEL_HEADS_DELAY) {
+        st->last_error = "codec_lm_step_is_eos: kind has no cb0 EOS concept";
+        return CODEC_STATUS_NOT_SUPPORTED;
+    }
+
+    const int32_t eos_c0 = st->lm->info.eos_code_c0;
+    if (eos_c0 < 0) {
+        // Model has no sentinel (e.g. Moshi) — never EOS.
+        return CODEC_STATUS_SUCCESS;
+    }
+
+    // `ar_frame` was incremented by the preceding step_finish, so the
+    // frame index of the just-emitted `codes` is `ar_frame - 1`.  Gate the
+    // sentinel behind eos_min_step on that index.
+    const int32_t this_frame = st->ar_frame - 1;
+    if (this_frame >= st->lm->info.eos_min_step && codes[0] == eos_c0) {
+        *out_is_eos = 1;
+    }
     return CODEC_STATUS_SUCCESS;
 }
 

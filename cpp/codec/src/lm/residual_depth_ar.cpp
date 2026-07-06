@@ -115,6 +115,17 @@ struct rda_impl {
     //     storage; if set, head at position p uses slice `[p]` and
     //     `depth_heads` should be empty.
     std::vector<lm_ggml_tensor *> audio_embds;
+    // Qwen3-TTS talker text-prompt projection: text_embd (V_text, H_text)
+    // → text_projection MLP (fc2 ∘ silu ∘ fc1) → (H_talker).  Used only to
+    // assemble the talker prompt prefix host-side; null for other models.
+    lm_ggml_tensor * tp_text_embd      = nullptr; // (H_text, V_text)
+    lm_ggml_tensor * tp_fc1_w          = nullptr; // (H_text, H_mid)
+    lm_ggml_tensor * tp_fc1_b          = nullptr; // (H_mid,)
+    lm_ggml_tensor * tp_fc2_w          = nullptr; // (H_mid, H_out)
+    lm_ggml_tensor * tp_fc2_b          = nullptr; // (H_out,)
+    int32_t       tp_text_dim       = 0;       // H_text (fc1 in)
+    int32_t       tp_mid_dim        = 0;       // H_mid  (fc1 out / fc2 in)
+    int32_t       tp_out_dim        = 0;       // H_out  (fc2 out = talker hidden)
     lm_ggml_tensor * text_embd         = nullptr; // c0_is_text only (Moshi)
     lm_ggml_tensor * c0_head           = nullptr; // when !depth_emits_c0
     std::vector<lm_ggml_tensor *> depth_heads;    // per-cb 2D heads
@@ -866,6 +877,21 @@ bool init(codec_lm * lm) {
     if (impl->c0_is_text) {
         impl->text_embd = find_required(lm, "lm.depth.text_embd.weight");
         if (!impl->text_embd) { delete impl; return false; }
+    }
+
+    // Qwen3-TTS talker text-projection (optional; present only when the
+    // converter baked lm.text_embd + lm.text_projection.*).  Used purely to
+    // build the talker prompt prefix host-side.
+    impl->tp_text_embd = lm_ggml_get_tensor(lm->codec->weights, "lm.text_embd.weight");
+    impl->tp_fc1_w     = lm_ggml_get_tensor(lm->codec->weights, "lm.text_projection.fc1.weight");
+    impl->tp_fc1_b     = lm_ggml_get_tensor(lm->codec->weights, "lm.text_projection.fc1.bias");
+    impl->tp_fc2_w     = lm_ggml_get_tensor(lm->codec->weights, "lm.text_projection.fc2.weight");
+    impl->tp_fc2_b     = lm_ggml_get_tensor(lm->codec->weights, "lm.text_projection.fc2.bias");
+    if (impl->tp_text_embd && impl->tp_fc1_w && impl->tp_fc2_w) {
+        // ggml layout: fc weights stored (in, out) as ne[0]=in, ne[1]=out.
+        impl->tp_text_dim = (int32_t) impl->tp_text_embd->ne[0]; // H_text
+        impl->tp_mid_dim  = (int32_t) impl->tp_fc1_w->ne[1];     // H_mid
+        impl->tp_out_dim  = (int32_t) impl->tp_fc2_w->ne[1];     // H_out
     }
 
     // c0 source: either a backbone-side c0_head OR depth-internal head[0].
@@ -1624,7 +1650,110 @@ enum codec_status compose_audio_embd(codec_lm * lm, const int32_t * codes, float
     return CODEC_STATUS_SUCCESS;
 }
 
+// Host-side text-projection for the Qwen3-TTS talker prompt:
+//   out[H_out] = fc2(silu(fc1(text_embd[text_token])))
+// fc weights are stored (in, out) as ggml ne[0]=in, ne[1]=out, so
+//   y[o] = sum_i x[i] * W[i + o*in] + b[o].
+// A few tokens per prompt → cheap enough to run on the CPU directly
+// without a graph (deterministic, no per-step cost).
+static bool rda_project_text_token(rda_impl * impl, int32_t text_token,
+                                   float * out, int32_t out_cap,
+                                   std::string * err) {
+    if (!impl || !impl->tp_text_embd || !impl->tp_fc1_w || !impl->tp_fc2_w) {
+        if (err) *err = "text projection tensors not loaded";
+        return false;
+    }
+    if (out_cap < impl->tp_out_dim) {
+        if (err) *err = "text projection output buffer too small";
+        return false;
+    }
+    const int32_t H_in  = impl->tp_text_dim;
+    const int32_t H_mid = impl->tp_mid_dim;
+    const int32_t H_out = impl->tp_out_dim;
+
+    std::vector<float> x((size_t) H_in);
+    if (!rda_copy_embd_row(impl->tp_text_embd, text_token, H_in,
+                           x.data(), "lm.text_embd", err)) {
+        return false;
+    }
+
+    // fc1: (H_in) -> (H_mid), then SiLU.
+    std::vector<float> w1((size_t) H_in * H_mid);
+    if (!codec_tensor_as_vec_f32(impl->tp_fc1_w, &w1)) {
+        if (err) *err = "failed to read text_projection.fc1.weight";
+        return false;
+    }
+    std::vector<float> b1;
+    if (impl->tp_fc1_b) { codec_tensor_as_vec_f32(impl->tp_fc1_b, &b1); }
+    std::vector<float> mid((size_t) H_mid);
+    for (int32_t o = 0; o < H_mid; ++o) {
+        double acc = b1.empty() ? 0.0 : b1[o];
+        const float * wcol = w1.data() + (size_t) o * H_in;
+        for (int32_t i = 0; i < H_in; ++i) acc += (double) x[i] * wcol[i];
+        const double v = acc;
+        mid[o] = (float) (v / (1.0 + std::exp(-v)));   // SiLU
+    }
+
+    // fc2: (H_mid) -> (H_out).
+    std::vector<float> w2((size_t) H_mid * H_out);
+    if (!codec_tensor_as_vec_f32(impl->tp_fc2_w, &w2)) {
+        if (err) *err = "failed to read text_projection.fc2.weight";
+        return false;
+    }
+    std::vector<float> b2;
+    if (impl->tp_fc2_b) { codec_tensor_as_vec_f32(impl->tp_fc2_b, &b2); }
+    for (int32_t o = 0; o < H_out; ++o) {
+        double acc = b2.empty() ? 0.0 : b2[o];
+        const float * wcol = w2.data() + (size_t) o * H_mid;
+        for (int32_t i = 0; i < H_mid; ++i) acc += (double) mid[i] * wcol[i];
+        out[o] = (float) acc;
+    }
+    return true;
+}
+
 }  // namespace
+
+// Public entry (declared in codec_lm.h): project one text-vocab token
+// through the Qwen3-TTS talker text_projection MLP.  Guards on kind so a
+// wrong-kind lm returns false rather than misreading impl.
+bool codec_lm_project_text(struct codec_lm * lm, int32_t text_token,
+                           float * out, int32_t out_cap) {
+    if (!lm || !lm->impl || !out) return false;
+    if (lm->kind != CODEC_LM_KIND_RESIDUAL_DEPTH_AR) return false;
+    rda_impl * impl = static_cast<rda_impl *>(lm->impl);
+    std::string err;
+    bool ok = rda_project_text_token(impl, text_token, out, out_cap, &err);
+    if (!ok) lm->last_error = err;
+    return ok;
+}
+
+// Read one row of the codec_embedding table (audio_embd cb 0) into `out`,
+// dequanting from F16/BF16/F32 as needed.  Used for the Qwen3-TTS talker
+// codec control-tag lane, which needs codes (2148..2157) that
+// `codec_lm_audio_embd`'s F32-data fast path can't serve for an F16 table.
+bool codec_lm_codec_embd_row(struct codec_lm * lm, int32_t code,
+                             float * out, int32_t out_cap) {
+    if (!lm || !lm->impl || !out) return false;
+    if (lm->kind != CODEC_LM_KIND_RESIDUAL_DEPTH_AR) return false;
+    rda_impl * impl = static_cast<rda_impl *>(lm->impl);
+    if (impl->audio_embds.empty() || impl->audio_embds[0] == nullptr) return false;
+    if (out_cap < impl->audio_embed_dim) return false;
+    std::string err;
+    bool ok = rda_copy_embd_row(impl->audio_embds[0], code,
+                                impl->audio_embed_dim, out, "codec_embedding", &err);
+    if (!ok) lm->last_error = err;
+    return ok;
+}
+
+// Report the talker text-projection output dim (talker hidden), or 0 when
+// the model has no text projection (non-Qwen3-TTS).
+int32_t codec_lm_text_proj_dim(struct codec_lm * lm) {
+    if (!lm || !lm->impl) return 0;
+    if (lm->kind != CODEC_LM_KIND_RESIDUAL_DEPTH_AR) return 0;
+    rda_impl * impl = static_cast<rda_impl *>(lm->impl);
+    return (impl->tp_text_embd && impl->tp_fc1_w && impl->tp_fc2_w)
+         ? impl->tp_out_dim : 0;
+}
 
 const codec_lm_kind_vtable codec_lm_vtable_residual_depth_ar = {
     /*.kind               =*/ CODEC_LM_KIND_RESIDUAL_DEPTH_AR,

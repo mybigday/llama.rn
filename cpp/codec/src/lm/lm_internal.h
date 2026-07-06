@@ -12,6 +12,12 @@
 
 struct codec_lm_kind_vtable;
 
+// Free the lazily-allocated Chatterbox T3 host-orchestration state
+// (tokenizer + dequanted embed tables) registered by the
+// `codec_lm_chatterbox_*` helpers.  No-op when none was created.
+// Implemented in chatterbox_t3.cpp; called from codec_lm_free.
+void codec_lm_chatterbox_free_state(struct codec_lm * lm);
+
 struct codec_lm {
     // Borrowed; not freed by codec_lm_free.  All weights and the
     // lm_ggml_backend live on this codec_model.
@@ -69,6 +75,13 @@ struct codec_lm_state {
     std::vector<int32_t> codes_buf;
     int32_t next_cb        = 0;
     bool    step_in_progress = false;
+
+    // Kind-agnostic AR frame counter for the end-of-audio decision.
+    // Incremented once per successful codec_lm_step_finish (0-based frame
+    // index of the NEXT frame to be produced; equivalently, the count of
+    // frames already finished).  Reset to 0 by codec_lm_state_reset.  Used
+    // by codec_lm_step_is_eos to gate the cb0 sentinel behind eos_min_step.
+    int32_t ar_frame       = 0;
     // logits_pending == true after step_logits; cleared by push_code.
     // Used to enforce the alternating logits/push_code order.
     bool    logits_pending = false;
@@ -159,6 +172,7 @@ const codec_lm_kind_vtable * codec_lm_vtable_for_kind(enum codec_lm_kind kind);
 extern const codec_lm_kind_vtable codec_lm_vtable_parallel_heads_delay;
 extern const codec_lm_kind_vtable codec_lm_vtable_residual_depth_ar;
 extern const codec_lm_kind_vtable codec_lm_vtable_continuous_latent_cfm;
+extern const codec_lm_kind_vtable codec_lm_vtable_flow_lm;
 
 // Read a string KV from the codec_model's GGUF.  Returns empty string
 // if the key is absent.

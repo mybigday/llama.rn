@@ -301,7 +301,16 @@ lm_ggml_tensor * codec_op_lm_per_pos_linear(
         // of drift versus the legacy cast-to-F32 path.  PREC_F32 keeps
         // the dot product accumulator in F32 without materialising a
         // dequanted weight tensor — best of both worlds.
-        lm_ggml_tensor * w_lhs = codec_graph_mat_lhs(ctx, w);
+        // Dequant F16/BF16 weights to F32 before mul_mat.  lm_ggml_mul_mat with
+        // an F16 src[0] converts src[1] (the activations) to F16 for the
+        // F16 vec_dot path — which overflows to +/-inf when an activation
+        // exceeds F16 max (65504).  The Qwen3-TTS depth FFN legitimately
+        // produces SwiGLU activations ~1.4e5 (large-activation channels),
+        // so the F16 activation cast turns them into inf -> NaN logits.
+        // Casting the weight to F32 keeps both operands F32 (no activation
+        // downcast); LM_GGML_PREC_F32 alone does not prevent the src[1] cast.
+        // codec_graph_cast_f32 is a no-op for weights already F32.
+        lm_ggml_tensor * w_lhs = codec_graph_cast_f32(ctx, w);
         lm_ggml_tensor * y     = lm_ggml_mul_mat(ctx, w_lhs, x_2d);
         lm_ggml_mul_mat_set_prec(y, LM_GGML_PREC_F32);
         return y;

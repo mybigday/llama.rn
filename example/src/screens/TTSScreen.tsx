@@ -32,7 +32,7 @@ import {
 } from '../utils/storage'
 import { HeaderButton } from '../components/HeaderButton'
 import { MaskedProgress } from '../components/MaskedProgress'
-import { createWavFile, decodeBase64Pcm16 } from '../utils/audioUtils'
+import { createWavFile, decodeBase64Pcm16, dumpTtsWavToDisk } from '../utils/audioUtils'
 import { DEFAULT_REF_AUDIO } from '../assets/voices/en_f1'
 import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
 
@@ -484,6 +484,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
             const audioFloat32 = new Float32Array(decodedAudio)
             setAudioData(audioFloat32)
             setSampleRate(audioSampleRate)
+            void dumpTtsWavToDisk(audioFloat32, audioSampleRate)
             setGeneratedAudio(
               `Generated audio data (${audioFloat32.length} samples) for: "${inputText.trim()}"`,
             )
@@ -550,6 +551,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
             const audioFloat32 = new Float32Array(decodedAudio)
             setAudioData(audioFloat32)
             setSampleRate(audioSampleRate)
+            void dumpTtsWavToDisk(audioFloat32, audioSampleRate)
 
             setGeneratedAudio(
               `Generated audio data (${
@@ -590,6 +592,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
             const audioFloat32 = new Float32Array(decodedAudio)
             setAudioData(audioFloat32)
             setSampleRate(audioSampleRate)
+            void dumpTtsWavToDisk(audioFloat32, audioSampleRate)
 
             setGeneratedAudio(
               `Generated audio data (${

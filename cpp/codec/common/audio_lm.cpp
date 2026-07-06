@@ -23,6 +23,43 @@ struct audio_lm_context {
     int32_t  hidden        = 0;
     bool     has_spk_enc   = false;
 
+    // codes→PCM decode transform (parallel_heads_delay / control-cb0 models).
+    // Populated at init from GGUF metadata + codec_lm_info; the decode path
+    // reads them so no model-name switch is needed.
+    //
+    //   audio_cb_offset: number of leading codebooks that are PURE text/
+    //     control and get dropped entirely before decode (Moshi-style
+    //     c0_input_modality="text").  0 for CSM / Qwen3-TTS / Realtime and
+    //     also for MOSS-TTSD (whose cb0 is a *merged* text+speech channel,
+    //     handled via cb0_speech_offset below, not dropped).
+    //   cb0_speech_offset: value subtracted from codebook-0 codes to map the
+    //     merged text+speech vocab back into raw quantizer index space
+    //     (MOSS-TTSD: speech_token_range[0]).  0 = no remap.
+    //   delay_pattern[q] (indexed over the FULL n_cb): per-codebook emission
+    //     delay to reverse before forming the codec buffer (MOSS-TTSD
+    //     [0,1,…,7]).  Empty when all-zero.
+    int32_t              audio_cb_offset   = 0;
+    int32_t              cb0_speech_offset = 0;
+    std::vector<int32_t> delay_pattern;   // empty → no delay to unshift
+
+    // Merged-cb0 models (MOSS-TTSD): the prompt embedding is the sum over all
+    // n_cb embedding tables (cb0=text token, cb1..N-1=speech_pad).  When true,
+    // the host must feed composed prompt embeddings via inputs_embeds.
+    bool    prompt_needs_composed = false;
+    int32_t speech_pad_code       = 0;   // codec.lm.speech_pad_token
+
+    // Qwen3-TTS talker prompt control tags (codec-vocab, looked up in
+    // audio_embd_0 = codec_embedding).  -1 when absent (non-Qwen3-TTS).
+    int32_t q3_nothink_id   = -1;
+    int32_t q3_think_bos_id = -1;
+    int32_t q3_think_eos_id = -1;
+    int32_t q3_codec_pad_id = -1;
+    int32_t q3_codec_bos_id = -1;
+    int32_t q3_tts_pad_id   = -1;   // text-vocab (projected)
+    int32_t q3_tts_bos_id   = -1;   // text-vocab (projected)
+    int32_t q3_tts_eos_id   = -1;   // text-vocab (projected)
+    bool    has_talker_proj = false;
+
     // Type A audio-token range.  `audio_tok_offset < 0` → disabled
     // (every token surfaces as PASSTHROUGH).  Set from GGUF metadata
     // at init; hosts override via `audio_lm_set_audio_token_range`.
@@ -90,7 +127,7 @@ struct audio_lm_context {
 static uint32_t read_modality_or_infer(audio_lm_context * ctx) {
     uint32_t mask = 0;
 
-    const codec_gguf_metadata * meta = codec_model_metadata(ctx->model);
+    const codec_lm_gguf_metadata * meta = codec_model_metadata(ctx->model);
     bool saw_explicit = false;
 
     if (meta != nullptr) {
@@ -98,7 +135,7 @@ static uint32_t read_modality_or_infer(audio_lm_context * ctx) {
             const char * key = meta->items[i].key;
             const char * val = meta->items[i].value;
             if (key == nullptr || val == nullptr) continue;
-            // Match "true" loosely — codec_gguf_metadata serialises
+            // Match "true" loosely — codec_lm_gguf_metadata serialises
             // bools as the strings "true" / "false".
             const bool on = (std::strcmp(val, "true") == 0 ||
                              std::strcmp(val, "1")    == 0);
@@ -138,6 +175,88 @@ static uint32_t read_modality_or_infer(audio_lm_context * ctx) {
     }
 
     return mask;
+}
+
+static const char * meta_str(const audio_lm_context * ctx, const char * key);
+
+// Determine the codes→PCM decode transform from GGUF metadata.  This is
+// the single source of truth for both `audio_lm_get_prompt_info` (which
+// reports it) and `audio_lm_decode_audio` (which applies it).
+//
+//   audio_cb_offset = 1  when codebook 0 is a text/control channel that is
+//     NOT an audio quantizer level.  Two cases:
+//       * parallel_heads_delay: cb0 is the backbone text vocab (MOSS-TTSD).
+//       * residual_depth_ar with `c0_input_modality="text"` (Moshi).
+//     For residual_depth_ar with c0 modality "audio" (CSM, Qwen3-TTS) or
+//     "none" (MOSS-TTS-Realtime, LFM2) cb0 IS an audio codebook → offset 0.
+//   delay_pattern = codec_lm_info.delay_pattern (over the full n_cb), used
+//     to reverse the per-codebook emission shift before decode.
+static void init_decode_transform(audio_lm_context * ctx) {
+    ctx->audio_cb_offset   = 0;
+    ctx->cb0_speech_offset = 0;
+    ctx->delay_pattern.clear();
+    if (ctx->lm == nullptr) return;
+
+    const codec_lm_info * info = codec_lm_get_info(ctx->lm);
+    if (info == nullptr) return;
+
+    const char * kind = meta_str(ctx, "codec.lm.kind");
+    const bool is_depth = kind && std::strcmp(kind, "residual_depth_ar") == 0;
+
+    // Pure text/control leading codebooks are DROPPED before decode.  This
+    // is the Moshi-style residual_depth_ar case (c0_input_modality="text"):
+    // cb0 is a backbone text token with no audio content.  MOSS-TTSD is NOT
+    // this case — its cb0 is a merged text+speech channel and stays in the
+    // decode via cb0_speech_offset below.
+    if (is_depth) {
+        const char * c0mod = meta_str(ctx, "codec.lm.residual.c0_input_modality");
+        ctx->audio_cb_offset = (c0mod && std::strcmp(c0mod, "text") == 0) ? 1 : 0;
+    }
+
+    // MOSS-TTSD merged-cb0 remap: subtract speech_token_range[0] from cb0
+    // codes to map the merged text+speech vocab back into raw quantizer
+    // index space (mirrors the HF processor shifting_outputs()).  Written by
+    // the converter as a scalar since array element values aren't surfaced.
+    if (const char * v = meta_str(ctx, "codec.lm.cb0_speech_offset")) {
+        ctx->cb0_speech_offset = std::atoi(v);
+    }
+
+    if (info->delay_pattern != nullptr && info->n_codebook > 0) {
+        bool any_delay = false;
+        ctx->delay_pattern.assign(info->delay_pattern,
+                                  info->delay_pattern + info->n_codebook);
+        for (int32_t d : ctx->delay_pattern) if (d != 0) { any_delay = true; break; }
+        if (!any_delay) ctx->delay_pattern.clear();   // nothing to unshift
+    }
+
+    // Merged-cb0 models need the composed multi-modal prompt embedding.  The
+    // cb0_speech_offset is the distinguishing signal: it is only set for the
+    // merged text+speech cb0 (MOSS-TTSD).  Read the speech-pad code used to
+    // fill cb1..N-1 during prompt/prefill.
+    if (ctx->cb0_speech_offset != 0) {
+        ctx->prompt_needs_composed = true;
+        if (const char * v = meta_str(ctx, "codec.lm.speech_pad_token")) {
+            ctx->speech_pad_code = std::atoi(v);
+        }
+    }
+
+    // Qwen3-TTS talker control tags + text projection (residual_depth_ar
+    // with the qwen3tts metadata baked in).  Present only for the Qwen3-TTS
+    // talker; other residual models leave these -1 / has_talker_proj=false.
+    auto read_i = [&](const char * key, int32_t & dst) {
+        if (const char * v = meta_str(ctx, key)) dst = std::atoi(v);
+    };
+    read_i("codec.lm.qwen3tts.nothink_id",   ctx->q3_nothink_id);
+    read_i("codec.lm.qwen3tts.think_bos_id", ctx->q3_think_bos_id);
+    read_i("codec.lm.qwen3tts.think_eos_id", ctx->q3_think_eos_id);
+    read_i("codec.lm.pad_code_c0",           ctx->q3_codec_pad_id);
+    read_i("codec.lm.bos_code_c0",           ctx->q3_codec_bos_id);
+    read_i("codec.lm.qwen3tts.tts_pad_id",   ctx->q3_tts_pad_id);
+    read_i("codec.lm.qwen3tts.tts_bos_id",   ctx->q3_tts_bos_id);
+    read_i("codec.lm.qwen3tts.tts_eos_id",   ctx->q3_tts_eos_id);
+    if (ctx->lm != nullptr) {
+        ctx->has_talker_proj = codec_lm_text_proj_dim(ctx->lm) > 0;
+    }
 }
 
 // =====================================================================
@@ -192,6 +311,7 @@ audio_lm_context * audio_lm_init(const audio_lm_params & p, std::string * err) {
     }
 
     ctx->modality_mask = read_modality_or_infer(ctx);
+    init_decode_transform(ctx);
     return ctx;
 }
 
@@ -239,6 +359,10 @@ int32_t audio_lm_hidden_dim(const audio_lm_context * ctx) {
 
 const char * audio_lm_last_error(const audio_lm_context * ctx) {
     return ctx ? ctx->last_error.c_str() : "";
+}
+
+struct codec_lm * audio_lm_get_lm(audio_lm_context * ctx) {
+    return ctx ? ctx->lm : nullptr;
 }
 
 // =====================================================================
@@ -400,6 +524,20 @@ void audio_lm_get_audio_token_range(const audio_lm_context * ctx,
     if (out_eos_id) *out_eos_id = ctx ? ctx->audio_tok_eos    : -1;
 }
 
+void audio_lm_get_lm_eos(const audio_lm_context * ctx,
+                         int32_t * out_eos_code_c0, int32_t * out_eos_min_step) {
+    int32_t eos_c0 = -1, eos_min = 0;
+    if (ctx != nullptr && ctx->lm != nullptr) {
+        const codec_lm_info * info = codec_lm_get_info(ctx->lm);
+        if (info != nullptr) {
+            eos_c0  = info->eos_code_c0;
+            eos_min = info->eos_min_step;
+        }
+    }
+    if (out_eos_code_c0)  *out_eos_code_c0  = eos_c0;
+    if (out_eos_min_step) *out_eos_min_step = eos_min;
+}
+
 // ─── Type B embed-override config ───────────────────────────────────
 
 void audio_lm_set_uses_embed_override(audio_lm_context * ctx,
@@ -523,6 +661,20 @@ observe_action audio_lm_observe_codes(
     ctx->codes.resize(prev + (size_t) n_codes);
     std::memcpy(ctx->codes.data() + prev, codes, (size_t) n_codes * sizeof(int32_t));
     ctx->codes_n_frames += 1;
+
+    // Model-owned end-of-audio: if the codec_lm declares a cb0 EOS
+    // sentinel (codec.lm.eos_code_c0 metadata), let it decide.  This is a
+    // no-op when metadata is absent (eos_code_c0 defaults to -1 →
+    // out_is_eos always 0) or for kinds without the concept (NOT_SUPPORTED,
+    // treated as "not EOS").  The host used to hardcode this per-model.
+    if (ctx->lm != nullptr && ctx->state != nullptr) {
+        int32_t is_eos = 0;
+        const enum codec_status ers =
+            codec_lm_step_is_eos(ctx->state, codes, n_codes, &is_eos);
+        if (ers == CODEC_STATUS_SUCCESS && is_eos) {
+            return OBSERVE_STOP;
+        }
+    }
 
     // Type B/C/D: compose next backbone-input embed when override is on
     // AND we have a codec_lm to compose with.  For residual_depth_ar
@@ -674,6 +826,602 @@ observe_action audio_lm_observe_hidden(audio_lm_context * ctx,
     return OBSERVE_CONSUMED_EMBED;
 }
 
+// =====================================================================
+// Phase B: prompt assembly + codebook step machine passthroughs
+// =====================================================================
+
+// Look up a raw GGUF metadata string value by key.  Returns nullptr when
+// absent.  Used to key model-specific prompt assembly off host_arch / kind.
+static const char * meta_str(const audio_lm_context * ctx, const char * key) {
+    if (ctx == nullptr || ctx->model == nullptr) return nullptr;
+    const codec_lm_gguf_metadata * meta = codec_model_metadata(ctx->model);
+    if (meta == nullptr) return nullptr;
+    for (size_t i = 0; i < meta->n_items; ++i) {
+        if (meta->items[i].key && std::strcmp(meta->items[i].key, key) == 0) {
+            return meta->items[i].value;
+        }
+    }
+    return nullptr;
+}
+
+// Read an integer-valued KV (stored stringified) with a default fallback.
+static int32_t meta_i32_or(const audio_lm_context * ctx, const char * key,
+                           int32_t dflt) {
+    const char * v = meta_str(ctx, key);
+    if (v == nullptr || *v == '\0') return dflt;
+    return (int32_t) std::atoi(v);
+}
+
+// Read a bool-valued KV ("true"/"1" → true) with a default fallback.
+static bool parse_bool_meta(const audio_lm_context * ctx, const char * key,
+                            bool dflt) {
+    const char * v = meta_str(ctx, key);
+    if (v == nullptr || *v == '\0') return dflt;
+    return v[0] == 't' || v[0] == 'T' || v[0] == '1';
+}
+
+bool audio_lm_get_prompt_info(const audio_lm_context * ctx,
+                              audio_lm_prompt_info    * out) {
+    if (ctx == nullptr || out == nullptr) return false;
+    *out = audio_lm_prompt_info();
+    if (ctx->lm == nullptr) {
+        if (ctx) const_cast<audio_lm_context*>(ctx)->last_error =
+            "audio_lm_get_prompt_info: no codec_lm adaptor";
+        return false;
+    }
+
+    const codec_lm_info * info = codec_lm_get_info(ctx->lm);
+    const char * arch = meta_str(ctx, "codec.lm.host_arch");
+    const char * kind = meta_str(ctx, "codec.lm.kind");
+    out->host_arch    = arch ? arch : (info && info->host_arch ? info->host_arch : "");
+    out->n_codebook   = ctx->n_cb;
+    out->hidden_dim   = ctx->hidden;
+    out->is_continuous = ctx->is_continuous;
+    if (info != nullptr) {
+        out->eos_code_c0  = info->eos_code_c0;
+        out->eos_min_step = info->eos_min_step;
+    }
+    // Merged-cb0 speech sub-range (MOSS-TTSD) — surfaced for the host's
+    // auto-grammar.  cb0_speech_offset is speech_token_range[0] (start);
+    // cb0_speech_range_end mirrors speech_token_range[1] (exclusive end).
+    out->cb0_speech_range_start = meta_i32_or(ctx, "codec.lm.cb0_speech_offset", -1);
+    out->cb0_speech_range_end   = meta_i32_or(ctx, "codec.lm.cb0_speech_range_end", -1);
+    // rn-tts sampling defaults.
+    out->default_temperature = 0.9f;
+    out->default_top_p       = 0.95f;
+    out->default_top_k       = 50;
+
+    const bool is_delay = kind && std::strcmp(kind, "parallel_heads_delay") == 0;
+    const bool is_depth = kind && std::strcmp(kind, "residual_depth_ar") == 0;
+    if (ctx->is_continuous)        out->model_kind = audio_lm_prompt_info::KIND_CONTINUOUS_CFM;
+    else if (is_delay)             out->model_kind = audio_lm_prompt_info::KIND_PARALLEL_HEADS_DELAY;
+    else if (is_depth)             out->model_kind = audio_lm_prompt_info::KIND_RESIDUAL_DEPTH_AR;
+
+    // ── Per-arch / per-family prompt template ──────────────────────────
+    // barbet == BlueMagpie continuous latent CFM.
+    if (out->host_arch == "barbet" || ctx->is_continuous) {
+        // <|bm_spk|> text <|bm_audio_start|>  (control tokens, no BOS)
+        out->prompt_prefix = "<|bm_spk|>";
+        out->prompt_suffix = "<|bm_audio_start|>";
+        out->add_bos       = false;
+        out->parse_special = true;
+        out->cb0_from_backbone = false;
+        out->is_continuous = true;
+        return true;
+    }
+
+    if (out->host_arch == "llama") {
+        // CSM: [<speaker_id>]text<|end_of_text|>.  add_bos=true handles BOS;
+        // speaker id defaults to 0 (host may override the prefix via extra).
+        out->prompt_prefix = "[0]";
+        out->prompt_suffix = "<|end_of_text|>";
+        out->add_bos       = true;
+        out->parse_special = true;
+        out->cb0_from_backbone = false;
+        out->audio_codebook_offset = ctx->audio_cb_offset;   // 0 for CSM
+        return true;
+    }
+
+    // qwen3 family — MOSS-TTSD (delay) is a plain [S1] pass-through;
+    // Qwen3-TTS / MOSS-TTS-Realtime (depth) use ChatML.
+    if (out->host_arch == "qwen3") {
+        out->audio_codebook_offset = ctx->audio_cb_offset;
+        // cb0_from_backbone = "the backbone lm_head samples cb0 as a text
+        // token".  MOSS-TTSD (parallel_heads_delay): cb0 is the merged
+        // text+speech vocab sampled from the backbone, so true.  Qwen3-TTS /
+        // MOSS-TTS-Realtime (residual_depth_ar): cb0 is an audio codebook the
+        // depth decoder samples, so false.
+        out->cb0_from_backbone     = is_delay;
+        if (is_delay) {
+            // MOSS-TTSD chat template (fnlp/MOSS-TTSD-v0.5 tokenizer_config):
+            //   <|begin_of_style|>{system}<|end_of_style|>
+            //   <|begin_of_text|>{text}<|end_of_text|>
+            //   <|begin_of_speech|>
+            // where the caller's [S1]/[S2] speaker tags map to
+            // <speaker1>/<speaker2> (host does that substitution before
+            // tokenizing).  The trailing <|begin_of_speech|> opens the audio
+            // channel; generation then emits speech frames until cb0 samples
+            // the text EOS (eos_code_c0=151643).
+            out->prompt_prefix =
+                "<|begin_of_style|>You are a speech synthesizer that generates "
+                "natural, realistic, and human-like conversational audio from "
+                "dialogue text.<|end_of_style|>\n<|begin_of_text|>";
+            out->prompt_suffix = "<|end_of_text|>\n<|begin_of_speech|>";
+            out->add_bos       = false;
+            out->parse_special = true;
+            return true;
+        }
+        // MOSS-TTS-Realtime (residual_depth_ar, ChatML): the reference
+        // processor (processing_mossttsrealtime.py) prefixes a fixed TTS
+        // system prompt describing the engine, then puts the text in a user
+        // turn and opens an assistant turn where the 16 audio channels are
+        // generated.  Without the system prompt the backbone hidden states
+        // drift off-distribution and the depth decoder emits noise.  We
+        // detect realtime by the n_codebook==16 depth layout carried in
+        // metadata (Qwen3-TTS is 16-group residual too, but host_arch is
+        // still "qwen3"; the realtime kind ships codec.lm.n_codebook=16 and
+        // c0_input_modality="none").
+        {
+            const char * c0mod = meta_str(ctx, "codec.lm.residual.c0_input_modality");
+            const bool is_realtime = is_depth && c0mod &&
+                                     std::strcmp(c0mod, "none") == 0;
+            if (is_realtime) {
+                // Streaming interleave: the spoken text is fed one token per
+                // audio frame into the ASSISTANT turn (the system prompt says
+                // "based on the text given in the assistant").  The context
+                // prefix is the system prompt + an empty user turn + the
+                // assistant opener; the spoken text is NOT baked into it —
+                // the host streams it through the composed per-step input.
+                // (processing_mossttsrealtime.py tts_system_prompt +
+                //  streaming_mossttsrealtime.py prefill/step.)
+                out->prompt_prefix =
+                    "<|im_start|>system\nYou are a highly expressive "
+                    "text-to-speech (TTS) engine developed by Mosi "
+                    "Intelligence. \nYou possess natural language "
+                    "understanding, emotional modeling, and multi-style "
+                    "speech generation capabilities, allowing you to generate "
+                    "the corresponding speech based on the text given in the "
+                    "assistant.<|im_end|>\n<|im_start|>user\n";
+                out->prompt_suffix =
+                    "<|im_end|>\n<|im_start|>assistant\n";
+                out->add_bos       = false;
+                out->parse_special = true;
+
+                // Streaming interleave params (metadata-driven, with the
+                // reference constants as fallbacks).
+                out->streaming_interleave  = true;
+                out->text_externally_added =
+                    parse_bool_meta(ctx, "codec.lm.compose.text_externally_added", true);
+                out->prefill_text_len =
+                    meta_i32_or(ctx, "codec.lm.compose.prefill_text_len", 12);
+                out->text_pad_id    = meta_i32_or(ctx, "codec.lm.text_pad", 151655);
+                out->audio_pad_code = meta_i32_or(ctx, "codec.lm.audio_pad_token", 1024);
+                out->bos_code_c0    = meta_i32_or(ctx, "codec.lm.bos_code_c0", 1025);
+                // Reference streaming sampling defaults.
+                out->default_temperature = 0.8f;
+                out->default_top_p       = 0.6f;
+                out->default_top_k       = 30;
+                out->default_repetition_penalty = 1.1f;
+                out->repetition_window          = 50;
+                return true;
+            }
+        }
+        // ChatML for Qwen3-TTS.
+        out->prompt_prefix = "<|im_start|>user\n";
+        out->prompt_suffix = "<|im_end|>\n<|im_start|>assistant\n";
+        out->add_bos       = false;
+        out->parse_special = true;
+        return true;
+    }
+
+    // lfm2 — LFM2-Audio-1.5B sequential text→audio TTS.  The reference
+    // (liquid_audio ChatState + generate_sequential) prefills a ChatML
+    // conversation whose system turn primes pure read-aloud TTS, puts the
+    // input text in a user turn, and opens an assistant turn.  Generation
+    // then free-runs in TEXT modality (backbone tied-embedding lm_head) until
+    // the model emits <|audio_start|> (id 128), switches to AUDIO_OUT and
+    // depth-decodes 8-codebook Mimi frames until cb0 == EOAudio (2048) or the
+    // backbone emits <|im_end|> (id 7).  The <|startoftext|> BOS is prepended
+    // by the tokenizer (add_bos=true).
+    if (out->host_arch == "lfm2") {
+        // TTS system prompt: "Perform TTS. Use the [voice] voice." — this is
+        // what flips the model into immediate AUDIO_OUT (it emits
+        // <|audio_start|> as the first generated token).  Voice ∈ {US male,
+        // US female, UK male, UK female}; US male is the default.  (Liquid4All/
+        // liquid-audio TTS example.)
+        out->prompt_prefix =
+            "<|im_start|>system\nPerform TTS. Use the US male voice."
+            "<|im_end|>\n<|im_start|>user\n";
+        out->prompt_suffix =
+            "<|im_end|>\n<|im_start|>assistant\n";
+        out->add_bos       = true;   // <|startoftext|>
+        out->parse_special = true;
+        out->cb0_from_backbone = false;      // depth decoder emits all 8 cb
+        out->audio_codebook_offset = ctx->audio_cb_offset;  // 0 for LFM2
+        // Sequential text→audio switch.  Special-token ids are fixed for the
+        // LFM2-Audio tokenizer (added_tokens_decoder in tokenizer_config).
+        out->sequential_text_audio = true;
+        out->audio_start_id = meta_i32_or(ctx, "codec.lm.audio_start_id", 128);
+        out->text_end_id    = meta_i32_or(ctx, "codec.lm.text_end_id",    7);
+        out->max_text_tokens = meta_i32_or(ctx, "codec.lm.max_text_tokens", 64);
+        // Reference TTS defaults: greedy text, greedy audio (temperature=None
+        // → argmax in generate_sequential).  Host --temp overrides.
+        out->default_temperature = 0.0f;
+        out->default_top_p       = 1.0f;
+        out->default_top_k       = 0;
+        return true;
+    }
+
+    // Unknown arch — return the raw kind but empty template.
+    return true;
+}
+
+// Emit a GBNF alternation matching the decimal literals [lo, hi] (inclusive),
+// as `"<" ( ... ) ">"`-style terminals are assembled by the caller.  Rather
+// than a full digit-range decomposition we lean on the fact that GBNF can
+// enumerate a bounded set compactly via nested digit ranges; for a 0..N-1
+// speech vocab this stays small.  We build the classic "0..max" numeric rule
+// used by the rn-tts NeuTTS/Soprano grammars (decade/hundred/thousand digit
+// bands) generalised to `max`.
+static std::string gbnf_uint_range_rule(int32_t max_inclusive) {
+    // Produce alternatives for [0, max_inclusive].  We special-case up to
+    // 9999 (covers MOSS-TTSD's 0..1023); larger vocabs fall back to a loose
+    // "[0-9]+" (still correct membership-wise for the model's own emissions,
+    // just not a tight upper bound).
+    if (max_inclusive < 0) return "[0-9]+";
+    if (max_inclusive > 9999) return "[0-9]+";
+    // NOTE: keep the whole alternation on ONE line — llama.cpp's GBNF parser
+    // treats a bare newline as the end of a rule, so `\n | ...` continuations
+    // fail with "expecting name at |".
+    std::string out;
+    auto add = [&](const std::string & alt) {
+        if (!out.empty()) out += " | ";
+        out += alt;
+    };
+    // single digit 0..9 (bounded by max)
+    {
+        int hi = max_inclusive < 9 ? max_inclusive : 9;
+        add("[0-" + std::to_string(hi) + "]");
+    }
+    // two digits 10..99
+    if (max_inclusive >= 10) add("[1-9] [0-9]");
+    // three digits 100..999
+    if (max_inclusive >= 100) add("[1-9] [0-9] [0-9]");
+    // four digits 1000..max (tight upper bound on the leading digit band)
+    if (max_inclusive >= 1000) {
+        // Enumerate 1000..max_inclusive by leading-digit bands so we don't
+        // over-admit (e.g. max=1023 must not accept 1099).  Keep it simple:
+        // a loose "[1-9] [0-9] [0-9] [0-9]" would over-admit up to 9999; for
+        // the common 0..1023 case emit an exact band for the thousands.
+        const int thousands = max_inclusive / 1000;      // e.g. 1
+        const int rem       = max_inclusive % 1000;      // e.g. 23
+        // full lower thousands: [1 .. thousands-1] followed by any 3 digits
+        if (thousands >= 2) {
+            add("[1-" + std::to_string(thousands - 1) + "] [0-9] [0-9] [0-9]");
+        }
+        // the top thousand band, capped at rem
+        // thousands digit is fixed; the trailing 3 digits are 000..rem
+        std::string band = "\"" + std::to_string(thousands) + "\" ";
+        const int h = rem / 100, t = (rem / 10) % 10, o = rem % 10;
+        // 000..(h-1)99  |  h(0..t-1)9? ... approximate tight bound
+        std::string sub;
+        auto addsub = [&](const std::string & a) {
+            if (!sub.empty()) sub += " | ";
+            sub += a;
+        };
+        if (h >= 1) addsub("[0-" + std::to_string(h - 1) + "] [0-9] [0-9]");
+        if (t >= 1) addsub("\"" + std::to_string(h) + "\" [0-" + std::to_string(t - 1) + "] [0-9]");
+        addsub("\"" + std::to_string(h) + "\" \"" + std::to_string(t) + "\" [0-" + std::to_string(o) + "]");
+        add(band + "( " + sub + " )");
+    }
+    return out;
+}
+
+std::string tts_auto_grammar(const audio_lm_prompt_info & pi,
+                             const std::string & text) {
+    (void) text;  // reserved for future prompt-dependent grammars
+
+    // MOSS-TTSD (and any merged-cb0 parallel-heads-delay model): constrain
+    // decode-phase cb0 to the speech-token range ∪ {eos_code_c0}.  The
+    // backbone tokens for the speech sub-range detokenize as the decimal
+    // pieces "<0>".."<N-1>" (N = range_end - range_start); the end sentinel
+    // detokenizes to a fixed control string.  We match those piece strings.
+    if (pi.model_kind == audio_lm_prompt_info::KIND_PARALLEL_HEADS_DELAY &&
+        pi.cb0_from_backbone &&
+        pi.cb0_speech_range_start >= 0 &&
+        pi.cb0_speech_range_end   > pi.cb0_speech_range_start) {
+        const int32_t n_speech = pi.cb0_speech_range_end - pi.cb0_speech_range_start;
+        const std::string num_rule = gbnf_uint_range_rule(n_speech - 1);
+        // A speech frame's cb0 is one "<CODE>" piece; audio ends with the
+        // end-of-speech sentinel.  The delay-pattern tail frames (cb0 forced
+        // to eos while cb1..N flush) are handled by the runtime, not the
+        // grammar, so `end` may appear once and then trailing eos repeats are
+        // allowed too (end+ ) to cover the flush window.
+        std::string g;
+        g += "root ::= speech* end+\n";
+        g += "speech ::= \"<\" SPEECHID \">\"\n";
+        g += "end ::= \"<|end_of_speech|>\"\n";
+        g += "SPEECHID ::= " + num_rule + "\n";
+        return g;
+    }
+
+    return "";
+}
+
+// ─── Codebook step machine passthroughs ─────────────────────────────
+
+bool audio_lm_step_set_text_context(audio_lm_context * ctx, int32_t text_token) {
+    if (ctx == nullptr || ctx->state == nullptr) {
+        if (ctx) ctx->last_error = "audio_lm_step_set_text_context: no codec_lm state";
+        return false;
+    }
+    if (codec_lm_state_set_text_context(ctx->state, text_token) != CODEC_STATUS_SUCCESS) {
+        const char * raw = codec_lm_state_get_last_error(ctx->state);
+        ctx->last_error = std::string("set_text_context failed (") + (raw ? raw : "?") + ")";
+        return false;
+    }
+    return true;
+}
+
+bool audio_lm_step_begin(audio_lm_context * ctx, const float * last_hidden, int32_t hidden_dim) {
+    if (ctx == nullptr || ctx->state == nullptr) {
+        if (ctx) ctx->last_error = "audio_lm_step_begin: no codec_lm state";
+        return false;
+    }
+    if (last_hidden == nullptr || hidden_dim != ctx->hidden) {
+        ctx->last_error = "audio_lm_step_begin: null hidden or wrong dim";
+        return false;
+    }
+    if (codec_lm_step_begin(ctx->state, last_hidden) != CODEC_STATUS_SUCCESS) {
+        const char * raw = codec_lm_state_get_last_error(ctx->state);
+        ctx->last_error = std::string("step_begin failed (") + (raw ? raw : "?") + ")";
+        return false;
+    }
+    return true;
+}
+
+const float * audio_lm_step_logits(audio_lm_context * ctx, int32_t * out_cb_idx, int32_t * out_n) {
+    if (ctx == nullptr || ctx->state == nullptr) {
+        if (ctx) ctx->last_error = "audio_lm_step_logits: no codec_lm state";
+        return nullptr;
+    }
+    const float * lg = codec_lm_step_logits(ctx->state, out_cb_idx, out_n);
+    if (lg == nullptr) {
+        const char * raw = codec_lm_state_get_last_error(ctx->state);
+        ctx->last_error = std::string("step_logits returned null (") + (raw ? raw : "?") + ")";
+    }
+    return lg;
+}
+
+bool audio_lm_step_push_code(audio_lm_context * ctx, int32_t code) {
+    if (ctx == nullptr || ctx->state == nullptr) {
+        if (ctx) ctx->last_error = "audio_lm_step_push_code: no codec_lm state";
+        return false;
+    }
+    if (codec_lm_step_push_code(ctx->state, code) != CODEC_STATUS_SUCCESS) {
+        const char * raw = codec_lm_state_get_last_error(ctx->state);
+        ctx->last_error = std::string("step_push_code failed (") + (raw ? raw : "?") + ")";
+        return false;
+    }
+    return true;
+}
+
+bool audio_lm_step_finish(audio_lm_context * ctx, int32_t * out_codes, int32_t n_codes) {
+    if (ctx == nullptr || ctx->state == nullptr || out_codes == nullptr) {
+        if (ctx) ctx->last_error = "audio_lm_step_finish: null state / out_codes";
+        return false;
+    }
+    if (n_codes < ctx->n_cb) {
+        ctx->last_error = "audio_lm_step_finish: out_codes buffer smaller than n_codebook";
+        return false;
+    }
+    if (codec_lm_step_finish(ctx->state, out_codes) != CODEC_STATUS_SUCCESS) {
+        const char * raw = codec_lm_state_get_last_error(ctx->state);
+        ctx->last_error = std::string("step_finish failed (") + (raw ? raw : "?") + ")";
+        return false;
+    }
+    return true;
+}
+
+bool audio_lm_prompt_needs_composed_embd(const audio_lm_context * ctx) {
+    return ctx != nullptr && ctx->prompt_needs_composed;
+}
+
+bool audio_lm_compose_prompt_embd(audio_lm_context * ctx,
+                                  int32_t            text_token,
+                                  float *            out_embd,
+                                  int32_t            out_dim) {
+    if (ctx == nullptr || out_embd == nullptr) return false;
+    if (ctx->lm == nullptr) {
+        ctx->last_error = "audio_lm_compose_prompt_embd: no codec_lm adaptor";
+        return false;
+    }
+    if (out_dim < ctx->hidden) {
+        ctx->last_error = "audio_lm_compose_prompt_embd: out buffer smaller than hidden_dim";
+        return false;
+    }
+    if (ctx->n_cb <= 0) {
+        ctx->last_error = "audio_lm_compose_prompt_embd: n_codebook unknown";
+        return false;
+    }
+    // cb0 = raw text token (merged vocab, NOT speech-offset); cb1..N-1 =
+    // speech_pad code — exactly the HF processor's prompt grid before the
+    // delay shift.  compose_audio_embd sums the per-channel embeddings.
+    std::vector<int32_t> codes((size_t) ctx->n_cb, ctx->speech_pad_code);
+    codes[0] = text_token;
+    const enum codec_status rc =
+        codec_lm_compose_audio_embd(ctx->lm, codes.data(), out_embd);
+    if (rc != CODEC_STATUS_SUCCESS) {
+        const char * raw = codec_lm_get_last_error(ctx->lm);
+        ctx->last_error = std::string("audio_lm_compose_prompt_embd: compose failed (")
+                           + (raw && *raw ? raw : "?") + ")";
+        return false;
+    }
+    return true;
+}
+
+bool audio_lm_compose_audio_codes_embd(audio_lm_context * ctx,
+                                       const int32_t *    codes,
+                                       int32_t            n_codes,
+                                       float *            out_embd,
+                                       int32_t            out_dim) {
+    if (ctx == nullptr || codes == nullptr || out_embd == nullptr) return false;
+    if (ctx->lm == nullptr) {
+        ctx->last_error = "audio_lm_compose_audio_codes_embd: no codec_lm adaptor";
+        return false;
+    }
+    if (out_dim < ctx->hidden) {
+        ctx->last_error = "audio_lm_compose_audio_codes_embd: out buffer smaller than hidden_dim";
+        return false;
+    }
+    if (n_codes != ctx->n_cb) {
+        ctx->last_error = "audio_lm_compose_audio_codes_embd: n_codes != n_codebook";
+        return false;
+    }
+    const enum codec_status rc =
+        codec_lm_compose_audio_embd(ctx->lm, codes, out_embd);
+    if (rc != CODEC_STATUS_SUCCESS) {
+        const char * raw = codec_lm_get_last_error(ctx->lm);
+        ctx->last_error = std::string("audio_lm_compose_audio_codes_embd: compose failed (")
+                           + (raw && *raw ? raw : "?") + ")";
+        return false;
+    }
+    return true;
+}
+
+bool audio_lm_talker_has_projection(const audio_lm_context * ctx) {
+    return ctx != nullptr && ctx->has_talker_proj &&
+           ctx->q3_nothink_id >= 0 && ctx->q3_codec_bos_id >= 0;
+}
+
+// Helper: codec lane lookup — codec_embedding[code] (= audio_embd cb 0),
+// dequanting from the F16 table.
+static bool talker_codec_embd(audio_lm_context * ctx, int32_t code,
+                              float * out, int32_t dim) {
+    if (!codec_lm_codec_embd_row(ctx->lm, code, out, dim)) {
+        const char * raw = codec_lm_get_last_error(ctx->lm);
+        ctx->last_error = std::string("talker: codec_embedding lookup failed (")
+                          + (raw && *raw ? raw : "?") + ")";
+        return false;
+    }
+    return true;
+}
+
+bool audio_lm_build_talker_prefix(audio_lm_context * ctx,
+                                  const int32_t *    role_tokens,
+                                  int32_t            n_role,
+                                  const int32_t *    text_tokens,
+                                  int32_t            n_text,
+                                  const float *      xvector,
+                                  int32_t            xvec_dim,
+                                  float *            out_embds,
+                                  int32_t            out_cap_rows,
+                                  int32_t *          out_n_rows,
+                                  int32_t *          out_text_consumed) {
+    if (!ctx || !out_embds || !out_n_rows || !out_text_consumed) return false;
+    if (!audio_lm_talker_has_projection(ctx)) {
+        ctx->last_error = "audio_lm_build_talker_prefix: no talker projection";
+        return false;
+    }
+    const int32_t H = ctx->hidden;
+    if (xvector != nullptr && xvec_dim != H) {
+        ctx->last_error = "audio_lm_build_talker_prefix: xvector dim != hidden";
+        return false;
+    }
+    if (n_text < 1) {
+        ctx->last_error = "audio_lm_build_talker_prefix: need >=1 text token";
+        return false;
+    }
+
+    // The codec control stream (auto-language, with x-vector row inserted):
+    //   [nothink, think_bos, think_eos, <XVEC>, codec_pad, codec_bos]
+    // The text lane aligned to it (all but last col):
+    //   [tts_pad, tts_pad, tts_pad, tts_pad, tts_bos]
+    // and text[0] is summed with the final codec col (codec_bos).
+    const int32_t n_ctrl = 5 + (xvector ? 1 : 0);   // control rows (excl. text[0] row)
+    const int32_t n_rows = n_role + n_ctrl + 1;      // + text[0] row
+    if (n_rows > out_cap_rows) {
+        ctx->last_error = "audio_lm_build_talker_prefix: output row cap too small";
+        return false;
+    }
+
+    std::vector<float> tmp((size_t) H);
+    auto proj = [&](int32_t tok, float * dst) -> bool {
+        if (!codec_lm_project_text(ctx->lm, tok, dst, H)) {
+            const char * raw = codec_lm_get_last_error(ctx->lm);
+            ctx->last_error = std::string("talker: project_text failed (")
+                              + (raw && *raw ? raw : "?") + ")";
+            return false;
+        }
+        return true;
+    };
+
+    int32_t r = 0;
+    // Role header: projected text only (codec lane empty → zero).
+    for (int32_t i = 0; i < n_role; ++i, ++r) {
+        if (!proj(role_tokens[i], out_embds + (size_t) r * H)) return false;
+    }
+    // Control stream text lane = tts_pad for all but the last (tts_bos).
+    // codec lane cycles [nothink, think_bos, think_eos, XVEC, codec_pad].
+    struct CtrlRow { int32_t text_tok; int32_t codec_tag; bool is_xvec; };
+    std::vector<CtrlRow> ctrl;
+    ctrl.push_back({ctx->q3_tts_pad_id, ctx->q3_nothink_id,   false});
+    ctrl.push_back({ctx->q3_tts_pad_id, ctx->q3_think_bos_id, false});
+    ctrl.push_back({ctx->q3_tts_pad_id, ctx->q3_think_eos_id, false});
+    if (xvector) ctrl.push_back({ctx->q3_tts_pad_id, -1, true});
+    ctrl.push_back({ctx->q3_tts_bos_id, ctx->q3_codec_pad_id, false});
+    for (const CtrlRow & c : ctrl) {
+        float * dst = out_embds + (size_t) r * H;
+        if (!proj(c.text_tok, dst)) return false;
+        if (c.is_xvec) {
+            for (int32_t i = 0; i < H; ++i) dst[i] += xvector[i];
+        } else {
+            if (!talker_codec_embd(ctx, c.codec_tag, tmp.data(), H)) return false;
+            for (int32_t i = 0; i < H; ++i) dst[i] += tmp[i];
+        }
+        ++r;
+    }
+    // Final row: text_proj(text[0]) + codec_embd[codec_bos].
+    {
+        float * dst = out_embds + (size_t) r * H;
+        if (!proj(text_tokens[0], dst)) return false;
+        if (!talker_codec_embd(ctx, ctx->q3_codec_bos_id, tmp.data(), H)) return false;
+        for (int32_t i = 0; i < H; ++i) dst[i] += tmp[i];
+        ++r;
+    }
+
+    *out_n_rows        = r;
+    *out_text_consumed = 1;   // text[0] folded into the prefix
+    return true;
+}
+
+bool audio_lm_talker_trailing_text_embd(audio_lm_context * ctx,
+                                        const int32_t *    text_tokens,
+                                        int32_t            n_text,
+                                        int32_t            trailing_idx,
+                                        float *            out_embd,
+                                        int32_t            out_dim) {
+    if (!ctx || !out_embd) return false;
+    if (out_dim < ctx->hidden) {
+        ctx->last_error = "talker_trailing_text_embd: out buffer too small";
+        return false;
+    }
+    // trailing_idx counts from the first *trailing* token (text[1]).  Once
+    // the text is exhausted, feed tts_eos (matches the reference's
+    // trailing_text_hidden = proj(text[1:]) ++ tts_eos).
+    const int32_t tok_pos = trailing_idx + 1;   // maps to text_tokens[tok_pos]
+    const int32_t tok = (tok_pos < n_text && text_tokens)
+                      ? text_tokens[tok_pos]
+                      : ctx->q3_tts_eos_id;
+    if (!codec_lm_project_text(ctx->lm, tok, out_embd, out_dim)) {
+        const char * raw = codec_lm_get_last_error(ctx->lm);
+        ctx->last_error = std::string("talker_trailing_text_embd: project failed (")
+                          + (raw && *raw ? raw : "?") + ")";
+        return false;
+    }
+    return true;
+}
+
 bool audio_lm_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * out) {
     if (ctx == nullptr || out == nullptr) return false;
 
@@ -719,17 +1467,84 @@ bool audio_lm_decode_audio(audio_lm_context * ctx, audio_lm_audio_output * out) 
         return false;
     }
 
+    // ── LM codes → codec quantizer codes transform ──────────────────────
+    // The AR loop accumulated the FULL (T, n_cb) frame, including a possible
+    // text/control cb0 and a per-codebook emission delay.  Mirror the
+    // upstream MOSS processor (see rn-tts decodeAudioTokens):
+    //   * slice codebooks [0, audio_cb_offset) — they aren't audio levels;
+    //   * reverse the delay_pattern shift so codebook q at output frame t
+    //     comes from input frame t + delay[audio_cb_offset + q];
+    //   * decode the remaining n_q = n_cb - offset codebooks (RVQ decodes
+    //     with fewer levels than the codec's native n_q — Realtime's codec
+    //     has 32 levels but the LM only predicts the first 16/15).
+    const int32_t n_cb_in = ctx->n_cb;
+    const int32_t offset  = ctx->audio_cb_offset;
+    const int32_t n_q     = n_cb_in - offset;
+    if (n_q <= 0) {
+        ctx->last_error = "audio_lm_decode_audio: audio_cb_offset >= n_codebook";
+        return false;
+    }
+
+    // Per-audio-codebook delays (indexed within the audio slice).
+    std::vector<int32_t> audio_delays((size_t) n_q, 0);
+    int32_t max_delay = 0;
+    if (!ctx->delay_pattern.empty() &&
+        (int32_t) ctx->delay_pattern.size() >= n_cb_in) {
+        for (int32_t q = 0; q < n_q; ++q) {
+            const int32_t d = ctx->delay_pattern[(size_t) (offset + q)];
+            audio_delays[(size_t) q] = d;
+            if (d > max_delay) max_delay = d;
+        }
+    }
+
+    const int32_t n_frames_in = ctx->codes_n_frames;
+    if (max_delay > 0 && n_frames_in <= max_delay) {
+        ctx->last_error = "audio_lm_decode_audio: too few frames to cover delay_pattern";
+        return false;
+    }
+    const int32_t n_frames_out = (max_delay > 0) ? (n_frames_in - max_delay) : n_frames_in;
+
+    const int32_t codebook_sz = codec_model_codebook_size(ctx->model);
+    std::vector<int32_t> decode_codes;
+    const int32_t * codes_ptr = ctx->codes.data();
+    if (offset > 0 || max_delay > 0 || ctx->cb0_speech_offset != 0) {
+        decode_codes.resize((size_t) n_frames_out * (size_t) n_q);
+        for (int32_t t = 0; t < n_frames_out; ++t) {
+            for (int32_t q = 0; q < n_q; ++q) {
+                const int32_t src_t = t + audio_delays[(size_t) q];
+                int32_t code = ctx->codes[(size_t) src_t * n_cb_in + (offset + q)];
+                // Merged text+speech cb0 (MOSS-TTSD): map back to raw
+                // quantizer index space.  Only the first *audio* codebook
+                // (q==0 after any pure-control slice) carries the offset.
+                if (q == 0 && ctx->cb0_speech_offset != 0) {
+                    code -= ctx->cb0_speech_offset;
+                }
+                // Guard the codec's embedding get_rows against pad / control
+                // codes (speech_pad=1024, bos/eos sentinels) that the LM can
+                // emit before stop — the HF processor drops such frames; we
+                // clamp into the valid quantizer range instead of aborting.
+                if (codebook_sz > 0) {
+                    if (code < 0)            code = 0;
+                    if (code >= codebook_sz) code = codebook_sz - 1;
+                }
+                decode_codes[(size_t) t * n_q + q] = code;
+            }
+        }
+        codes_ptr = decode_codes.data();
+    }
+
     codec_token_buffer tokens = {};
-    tokens.data         = ctx->codes.data();
-    tokens.n_tokens     = (int32_t) ctx->codes.size();
-    tokens.n_frames     = ctx->codes_n_frames;
-    tokens.n_q          = ctx->n_cb;
+    tokens.data         = const_cast<int32_t *>(codes_ptr);
+    tokens.n_tokens     = n_frames_out * n_q;
+    tokens.n_frames     = n_frames_out;
+    tokens.n_q          = n_q;
     tokens.codebook_size = codec_model_codebook_size(ctx->model);
     tokens.sample_rate   = codec_model_sample_rate(ctx->model);
     tokens.hop_size      = codec_model_hop_size(ctx->model);
 
     codec_pcm_buffer pcm = {};
     auto dp = codec_decode_default_params();
+    dp.n_q = n_q;
     const enum codec_status rc =
         codec_decode(ctx->codec_ctx, &tokens, &pcm, dp);
     if (rc != CODEC_STATUS_SUCCESS) {
