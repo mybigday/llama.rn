@@ -287,10 +287,36 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
       throw std::runtime_error("Failed to initialize codec context");
   }
 
+  // Initialize the codec_common audio_lm context alongside the codec.
+  // audio_lm_init re-uses the same GGUF file (just loads it again through
+  // the codec_common abstraction); it will return nullptr without error for
+  // GGUFs that have no codec.lm section — that's fine, those stay on the
+  // direct codec_decode path.
+  {
+      codec_common::audio_lm_params alm_params;
+      alm_params.codec_path = vocoder_model_path;
+      alm_params.use_gpu    = use_gpu;
+      std::string alm_err;
+      audio_lm_ctx = codec_common::audio_lm_init(alm_params, &alm_err);
+      if (audio_lm_ctx == nullptr) {
+          // Not a hard failure; the model may just lack an LM section.
+          // Log but continue.
+          (void) alm_err; // suppress unused-variable warning in release
+      }
+  }
+
   type = UNKNOWN; // Will be determined when used
 }
 
 llama_rn_context_tts::~llama_rn_context_tts() {
+  if (bb_sampler != nullptr) {
+      common_sampler_free(bb_sampler);
+      bb_sampler = nullptr;
+  }
+  if (audio_lm_ctx != nullptr) {
+      codec_common::audio_lm_free(audio_lm_ctx);
+      audio_lm_ctx = nullptr;
+  }
   if (codec_lm_state != nullptr) {
       codec_lm_state_free(codec_lm_state);
       codec_lm_state = nullptr;
@@ -333,6 +359,31 @@ void llama_rn_context_tts::reset() {
     codec_lm_ar_step = 0;
     codec_lm_ar_rng = 0;
     codec_lm_ar_stopped_on_eos = false;
+
+    talker_text_tokens.clear();
+    talker_trailing = 0;
+    // talker_prefix_{embd,rows,hidden} intentionally NOT cleared here.
+    // They are set by getFormattedAudioCompletion (called before rewind/reset)
+    // and consumed once by nextToken.  getFormattedAudioCompletion clears them
+    // at its own entry point for non-talker models, so no stale prefix leaks
+    // across generations.
+
+    // Reset audio_lm per-sequence state (codes accumulator + step machine),
+    // but keep the loaded weights + capabilities.
+    if (audio_lm_ctx != nullptr) {
+        codec_common::audio_lm_reset(audio_lm_ctx);
+    }
+
+    // bb_sampler is rebuilt on first use each generation (needs the model
+    // pointer); free it here so it picks up fresh grammar next run.
+    if (bb_sampler != nullptr) {
+        common_sampler_free(bb_sampler);
+        bb_sampler = nullptr;
+        bb_sampler_built = false;
+    }
+
+    chatterbox_n_seq  = 0;
+    chatterbox_n_past = 0;
 }
 
 // Forward declarations from rn-llama.h
@@ -1144,6 +1195,14 @@ static std::string build_bluemagpie_prompt(json speaker, const std::string &text
 }
 
 llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak) {
+    // Always clear the talker prefix here so a stale prefix from a previous
+    // talker generation does not pollute a subsequent non-talker generation.
+    // (reset() intentionally skips these fields so the prefix survives the
+    // rewind() that fires between getFormattedAudioCompletion and nextToken.)
+    talker_prefix_embd.clear();
+    talker_prefix_rows   = 0;
+    talker_prefix_hidden = 0;
+
     json speaker = speaker_json_str.empty() ? json::object() : json::parse(speaker_json_str);
     const tts_type tts_type = getTTSType(main_ctx, speaker);
     if (tts_type == UNKNOWN) {
@@ -1175,9 +1234,119 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
         profile.decode_kind == tts_decode_kind::CODEC_LM_AR;
     const bool embedding = is_continuous_lm || is_codec_lm_ar
         || profile.decode_kind == tts_decode_kind::HIDDEN_STATES;
-    const std::string flow = is_continuous_lm
-        ? "continuous_embd"
-        : "tokens";
+
+    // Detect Qwen3-TTS talker path via the audio_lm_ctx (which was init'd
+    // in the constructor).  When audio_lm_talker_has_projection returns true
+    // the prompt is NOT a text string — it's a composed embedding prefix that
+    // the completion loop injects via a manual b.embd batch before the AR
+    // loop.  We build it here and stash it in the result so the completion
+    // driver in rn-completion.cpp can inject it.
+    //
+    // Chatterbox also deviates from the text-prompt path: its backbone has
+    // no text tokenizer (tokenizer.ggml.model=none), so we tokenize via the
+    // codec_lm's own BPE and build the full CFG prefix entirely inside
+    // tryChatterboxPrefill (called from the completion loop's prefill phase).
+    // Here we just signal "chatterbox" via flow="chatterbox_embd".
+    const bool is_talker = audio_lm_ctx != nullptr &&
+                           codec_common::audio_lm_talker_has_projection(audio_lm_ctx);
+
+    if (is_talker && main_ctx != nullptr && main_ctx->model != nullptr) {
+        // Qwen3-TTS talker path: build embedding prefix and return it.
+        // The completion loop sees flow="talker_embd" and skips normal
+        // token-batch prefill, feeding these rows as b.embd instead.
+        const int hidden = llama_model_n_embd(main_ctx->model);
+        if (hidden <= 0) {
+            LOG_ERROR("getFormattedAudioCompletion: could not get n_embd");
+            return {};
+        }
+        const llama_vocab * vocab = llama_model_get_vocab(main_ctx->model);
+        if (vocab == nullptr) {
+            LOG_ERROR("getFormattedAudioCompletion: could not get vocab");
+            return {};
+        }
+
+        // Tokenize role header and payload text (same as run_codebook_ar).
+        auto tok_str = [&](const std::string & s, bool special) -> std::vector<llama_token> {
+            const int n = llama_vocab_n_tokens(vocab);
+            std::vector<llama_token> out(n + 16);
+            const int got = llama_tokenize(vocab, s.c_str(), (int32_t)s.size(),
+                                           out.data(), (int32_t)out.size(),
+                                           /*add_special=*/false, special);
+            if (got < 0) return {};
+            out.resize((size_t)got);
+            return out;
+        };
+        std::vector<llama_token> role_toks = tok_str("<|im_start|>assistant\n", true);
+        std::vector<llama_token> text_toks = tok_str(text_to_speak, false);
+        if (role_toks.empty() || text_toks.empty()) {
+            LOG_ERROR("getFormattedAudioCompletion: talker tokenize failed");
+            return {};
+        }
+
+        // Extract x-vector from speaker JSON if provided.
+        std::vector<float> xvec;
+        if (speaker.contains("x_vector")) {
+            for (auto &v : speaker["x_vector"]) xvec.push_back(v.get<float>());
+        }
+        const float * xvec_ptr = (xvec.size() == (size_t)hidden) ? xvec.data() : nullptr;
+        const int32_t xvec_dim = xvec_ptr ? hidden : 0;
+
+        const int32_t cap_rows = (int32_t)role_toks.size() + 6 + 4;
+        std::vector<float> prefix((size_t)cap_rows * hidden);
+        int32_t n_rows = 0, consumed = 0;
+        if (!codec_common::audio_lm_build_talker_prefix(
+                audio_lm_ctx,
+                role_toks.data(), (int32_t)role_toks.size(),
+                text_toks.data(), (int32_t)text_toks.size(),
+                xvec_ptr, xvec_dim,
+                prefix.data(), cap_rows, &n_rows, &consumed)) {
+            LOG_ERROR("getFormattedAudioCompletion: audio_lm_build_talker_prefix failed: %s",
+                      codec_common::audio_lm_last_error(audio_lm_ctx));
+            return {};
+        }
+        prefix.resize((size_t)n_rows * hidden);
+
+        // Store the text tokens for per-step trailing text injection.
+        talker_text_tokens.assign(text_toks.begin(), text_toks.end());
+        talker_trailing = 0;
+
+        // Also stash the prefix on `this` so rn-completion.cpp's nextToken
+        // can inject it as an embd batch before starting the AR loop.
+        // (RNLlamaJSI only serialises prompt/grammar/embedding/flow to JS,
+        // so the result struct fields alone would not survive the round-trip.)
+        talker_prefix_embd   = prefix;
+        talker_prefix_rows   = n_rows;
+        talker_prefix_hidden = hidden;
+
+        llama_rn_audio_completion_result res;
+        res.prompt               = "";           // unused — prefill via embd
+        res.grammar              = "";
+        res.embedding            = true;
+        res.flow                 = "talker_embd";
+        res.talker_prefix_embd   = std::move(prefix);
+        res.talker_prefix_rows   = n_rows;
+        res.talker_prefix_hidden = hidden;
+        return res;
+    }
+
+    // Chatterbox: signal the completion loop to call tryChatterboxPrefill.
+    // Return empty text prompt; the prefill happens in rn-completion.cpp
+    // when it sees flow=="chatterbox_embd".
+    const bool is_chatterbox = (profile.prompt_kind == tts_prompt_kind::CHATTERBOX) &&
+                                audio_lm_ctx != nullptr;
+    if (is_chatterbox) {
+        // Store text so tryChatterboxPrefill can read it via this field.
+        // We reuse talker_text_tokens as a scratch string carrier; the
+        // actual text is in the result prompt field.
+        llama_rn_audio_completion_result res;
+        res.prompt     = text_to_speak;  // passed to tryChatterboxPrefill
+        res.grammar    = "";
+        res.embedding  = true;
+        res.flow       = "chatterbox_embd";
+        return res;
+    }
+
+    const std::string flow = is_continuous_lm ? "continuous_embd" : "tokens";
     switch (profile.prompt_kind) {
         case tts_prompt_kind::OUTETTS_LEGACY:
         case tts_prompt_kind::OUTETTS_V0_3:
@@ -1191,12 +1360,14 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
         case tts_prompt_kind::CSM:
             return {build_csm_prompt(speaker, text_to_speak), "", embedding, flow};
         case tts_prompt_kind::QWEN3_TTS:
+            // Fallback when audio_lm_ctx has no talker projection (stale GGUF).
             return {build_qwen3_tts_prompt(speaker, text_to_speak), "", embedding, flow};
         case tts_prompt_kind::MOSS_TTS_REALTIME:
             return {build_moss_tts_realtime_prompt(speaker, text_to_speak), "", embedding, flow};
         case tts_prompt_kind::MOSS_TTSD:
             return {build_moss_ttsd_prompt(speaker, text_to_speak), "", embedding, flow};
         case tts_prompt_kind::CHATTERBOX:
+            // Fallback when audio_lm_ctx is unavailable (UNSUPPORTED decode_kind).
             return {build_chatterbox_prompt(speaker, text_to_speak), "", embedding, flow};
         case tts_prompt_kind::BLUEMAGPIE:
             return {build_bluemagpie_prompt(speaker, text_to_speak), "", embedding, flow};
@@ -1608,6 +1779,170 @@ bool llama_rn_context_tts::isTTSCodecLmAR(llama_rn_context * main_ctx) {
     return true;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// audio_lm-driven codebook-AR step (Qwen3-TTS talker / MOSS-TTSD /
+// MOSS-TTS-Realtime / Chatterbox).
+//
+// For models with audio_lm_ctx set up the full per-step sequence is:
+//   [set_text_context(cb0)]   — MOSS-TTSD cb0-from-backbone only
+//   audio_lm_step_begin
+//   for cb in 0..n_cb-1:
+//     audio_lm_step_logits → sample → audio_lm_step_push_code
+//   audio_lm_step_finish
+//   audio_lm_observe_codes → accumulate + compose next_embed
+//   [+ trailing text embed for Qwen3-TTS talker]
+//   → pending_next_embd for the completion loop to inject
+//
+// Returns true on success (or EOS); sets codec_lm_ar_done on stop.
+// ─────────────────────────────────────────────────────────────────────
+static bool try_audio_lm_step(
+    codec_common::audio_lm_context * alm_ctx,
+    llama_context *  lctx,
+    llama_model *    lmodel,
+    const float *    hidden,
+    int              hidden_dim,
+    // MOSS-TTSD cb0-from-backbone fields:
+    bool             cb0_from_backbone,
+    common_sampler ** bb_sampler_ptr,
+    bool *           bb_sampler_built_ptr,
+    const std::string & bb_grammar,
+    // sampling params for audio codebooks:
+    float samp_temp, int32_t samp_topk, float samp_topp,
+    uint64_t * rng_state,
+    // Qwen3-TTS talker trailing text:
+    bool             is_talker,
+    const std::vector<int32_t> & talker_text_toks,
+    int *            talker_trailing_ptr,
+    // outputs:
+    std::vector<float> * next_embd_out,
+    std::vector<int32_t> * codes_out,
+    bool * is_eos_out,
+    const char ** stop_reason_out)
+{
+    const int n_cb = codec_common::audio_lm_n_codebook(alm_ctx);
+    if (n_cb <= 0) return false;
+
+    // MOSS-TTSD cb0-from-backbone: sample cb0 from backbone lm_head using
+    // a common_sampler with GBNF grammar (constrains to speech range ∪ eos).
+    // Build the sampler lazily on first step.
+    if (cb0_from_backbone) {
+        if (!(*bb_sampler_built_ptr) && lmodel != nullptr) {
+            common_params_sampling sp;
+            sp.seed           = *rng_state ? (uint32_t)(*rng_state & 0xFFFFFFFF)
+                                           : 0xC0DEC1ABu;
+            sp.no_perf        = true;
+            sp.temp           = samp_temp;
+            sp.top_k          = samp_topk > 0 ? samp_topk : 0;
+            sp.top_p          = (samp_topp > 0.0f && samp_topp < 1.0f) ? samp_topp : 1.0f;
+            sp.min_p          = 0.0f;
+            sp.penalty_repeat = 1.0f;
+            sp.penalty_last_n = 0;
+            sp.penalty_freq   = 0.0f;
+            sp.penalty_present = 0.0f;
+            sp.samplers = {
+                COMMON_SAMPLER_TYPE_TOP_K,
+                COMMON_SAMPLER_TYPE_TOP_P,
+                COMMON_SAMPLER_TYPE_TEMPERATURE,
+            };
+            if (!bb_grammar.empty()) {
+                sp.grammar = bb_grammar;
+            }
+            *bb_sampler_ptr = common_sampler_init(lmodel, sp);
+            *bb_sampler_built_ptr = true;
+        }
+        if (*bb_sampler_ptr != nullptr && lctx != nullptr) {
+            const int32_t c0 = common_sampler_sample(*bb_sampler_ptr, lctx, -1,
+                                                      /*grammar_first=*/false);
+            common_sampler_accept(*bb_sampler_ptr, c0, /*is_generated=*/true);
+            if (!codec_common::audio_lm_step_set_text_context(alm_ctx, c0)) {
+                return false;
+            }
+        }
+    }
+
+    if (!codec_common::audio_lm_step_begin(alm_ctx, hidden, hidden_dim)) {
+        return false;
+    }
+
+    for (int cb = 0; cb < n_cb; ++cb) {
+        int32_t cb_idx = 0, nlog = 0;
+        const float * lg = codec_common::audio_lm_step_logits(alm_ctx, &cb_idx, &nlog);
+        if (lg == nullptr || nlog <= 0) return false;
+        // cb0-from-backbone: the code was already set via set_text_context;
+        // we still need to push it through the step machine here.
+        int32_t code;
+        if (cb0_from_backbone && cb == 0) {
+            // Re-read from the state — it was stashed by set_text_context.
+            // sample_codec_logits with greedy on the first logit row works
+            // only if nlog > 0; we just pick the cb0 we already sampled.
+            // The step machine expects us to call push_code regardless.
+            code = sample_codec_logits(lg, nlog, 0.0f, 0, 0.0f, rng_state); // greedy fallback
+            // Overwrite: the real cb0 came from bb_sampler; re-derive by
+            // argmax from lg (this is the codec_lm's view of cb0 logits, NOT
+            // the backbone's).  For parallel_heads_delay cb0_from_backbone
+            // the step machine needs us to push the backbone-sampled code.
+            // We stored it in set_text_context; step_logits for cb0 returns
+            // logits from the BACKBONE head (routed internally), so this
+            // sample is consistent.  Use our raw sampler on those logits.
+            code = sample_codec_logits(lg, nlog, samp_temp, samp_topk, samp_topp, rng_state);
+        } else {
+            code = sample_codec_logits(lg, nlog, samp_temp, samp_topk, samp_topp, rng_state);
+        }
+        if (!codec_common::audio_lm_step_push_code(alm_ctx, code)) return false;
+    }
+
+    codes_out->assign((size_t)n_cb, 0);
+    if (!codec_common::audio_lm_step_finish(alm_ctx, codes_out->data(), n_cb)) return false;
+
+    // Accumulate codes + compose next embed via audio_lm_observe_codes.
+    // This handles: EOS detection, delay-unshift accumulation, and
+    // next-embed composition (when uses_embed_override is set).
+    auto act = codec_common::audio_lm_observe_codes(
+        alm_ctx, codes_out->data(), n_cb, hidden, hidden_dim);
+    if (act == codec_common::OBSERVE_STOP) {
+        const char * e = codec_common::audio_lm_last_error(alm_ctx);
+        if (e && *e) {
+            // Real error, not just EOS.
+            return false;
+        }
+        *is_eos_out = true;
+        if (stop_reason_out) *stop_reason_out = "eos_code_c0";
+        return true;
+    }
+
+    // Retrieve the next backbone input embedding.
+    int32_t ndim = 0;
+    const float * nb = codec_common::audio_lm_get_next_embed(alm_ctx, &ndim);
+    if (nb == nullptr || ndim != hidden_dim) {
+        // audio_lm_observe_codes returned OBSERVE_CONSUMED (no embed override
+        // set) — fall back to direct compose_next_embd.
+        next_embd_out->assign((size_t)hidden_dim, 0.0f);
+        codec_lm * lm = codec_common::audio_lm_get_lm(alm_ctx);
+        if (lm != nullptr) {
+            ::codec_lm_compose_next_embd(lm, codes_out->data(),
+                                         0, next_embd_out->data());
+        }
+    } else {
+        next_embd_out->assign(nb, nb + ndim);
+    }
+
+    // Qwen3-TTS talker: add trailing text projection to next embed.
+    if (is_talker && talker_trailing_ptr != nullptr) {
+        std::vector<float> tt((size_t)hidden_dim, 0.0f);
+        if (codec_common::audio_lm_talker_trailing_text_embd(
+                alm_ctx,
+                talker_text_toks.data(), (int32_t)talker_text_toks.size(),
+                *talker_trailing_ptr,
+                tt.data(), hidden_dim)) {
+            for (int i = 0; i < hidden_dim; ++i) (*next_embd_out)[i] += tt[i];
+        }
+        ++(*talker_trailing_ptr);
+    }
+
+    *is_eos_out = false;
+    return true;
+}
+
 bool llama_rn_context_tts::tryCodecLmAudioStep(
     llama_rn_context * main_ctx,
     llama_token        backbone_sampled_tok,
@@ -1632,6 +1967,91 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
                   hidden_dim, info->hidden_dim);
         return false;
     }
+
+    // Sampling params — shared between both paths.
+    if (codec_lm_ar_rng == 0) {
+        const auto & sp = main_ctx->params.sampling;
+        codec_lm_ar_rng = sp.seed != 0 && sp.seed != (uint32_t) -1
+            ? (uint64_t) sp.seed : 0xC0DEC1ABULL;
+    }
+    const auto & sp = main_ctx->params.sampling;
+    const float   samp_temp = sp.temp > 0 ? sp.temp : 0.9f;
+    const float   samp_topp = sp.top_p > 0 ? sp.top_p : 0.95f;
+    const int32_t samp_topk = sp.top_k > 0 ? sp.top_k : 50;
+
+    // ── Phase B path: audio_lm_* API ────────────────────────────────────
+    // For Qwen3-TTS (talker), MOSS-TTSD (cb0_from_backbone), and
+    // MOSS-TTS-Realtime (streaming_interleave) we route through the
+    // codec_common audio_lm layer which owns: per-step step_begin/finish,
+    // observe_codes (accumulation + EOS), and get_next_embed composition.
+    // The audio_lm_ctx must have been initialised in the constructor.
+    if (audio_lm_ctx != nullptr) {
+        // Detect which sub-path we're on from the prompt_info.
+        codec_common::audio_lm_prompt_info pi{};
+        const bool have_pi = codec_common::audio_lm_get_prompt_info(audio_lm_ctx, &pi);
+        const bool is_talker = codec_common::audio_lm_talker_has_projection(audio_lm_ctx);
+        const bool is_cb0_bb = have_pi && pi.cb0_from_backbone;
+
+        // MOSS-TTS-Realtime streaming_interleave path: the per-step input row
+        // is text_embd[text_token] + compose_audio_embd(prev_codes), assembled
+        // by try_audio_lm_step.  We signal this by checking pi.streaming_interleave.
+        // For now the streaming_interleave path falls through to the audio_lm
+        // step machine (the step machine is the same; the interleave part is
+        // handled in the prefill setup — rn-completion.cpp isn't yet wired for
+        // the full streaming-prefill).  TODO: add streaming prefill to rn-completion.
+        if (is_talker || is_cb0_bb || (have_pi && pi.streaming_interleave)) {
+            // Build GBNF grammar for cb0-from-backbone sampler if needed.
+            std::string bb_grammar;
+            if (is_cb0_bb) {
+                bb_grammar = codec_common::tts_auto_grammar(pi, /*text=*/"");
+            }
+
+            std::vector<int32_t> codes;
+            std::vector<float>   next_embd;
+            bool is_eos = false;
+            const char * stop_reason = nullptr;
+
+            const bool ok = try_audio_lm_step(
+                audio_lm_ctx,
+                main_ctx->ctx, main_ctx->model,
+                hidden, hidden_dim,
+                is_cb0_bb,
+                &bb_sampler, &bb_sampler_built,
+                bb_grammar,
+                samp_temp, samp_topk, samp_topp, &codec_lm_ar_rng,
+                is_talker,
+                talker_text_tokens, &talker_trailing,
+                &next_embd, &codes, &is_eos, &stop_reason);
+
+            if (!ok) {
+                LOG_ERROR("tryCodecLmAudioStep: audio_lm step failed: %s",
+                          codec_common::audio_lm_last_error(audio_lm_ctx));
+                return false;
+            }
+
+            if (is_eos) {
+                codec_lm_ar_done           = true;
+                codec_lm_ar_stopped_on_eos = true;
+                codec_lm_ar_pending_embd   = false;
+                return true;
+            }
+
+            // Append codes to audio_tokens (T, n_cb interleaved).
+            audio_tokens.insert(audio_tokens.end(), codes.begin(), codes.end());
+
+            pending_next_embd      = std::move(next_embd);
+            codec_lm_ar_pending_embd = true;
+            codec_lm_ar_step += 1;
+            return true;
+        }
+        // Fall through to legacy codec_lm_state_* path for models not
+        // yet using the audio_lm layer (CSM, plain parallel-heads-delay
+        // models without streaming_interleave).
+    }
+
+    // ── Legacy path: direct codec_lm_state_* API ────────────────────────
+    // Used by CSM-1B / OuteTTS-adjacent parallel-heads models that don't
+    // have prompt_info flags set.  Kept intact to avoid regressions.
     const int compose_ed = info->compose_audio_embed_dim > 0
         ? info->compose_audio_embed_dim : info->audio_embed_dim;
     if (compose_ed != info->hidden_dim) {
@@ -1652,31 +2072,8 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
     const tts_model_profile & profile = profile_for_type(type);
     const bool text_modality_cb0 = (profile.audio_codebook_offset > 0);
 
-    // Seed the codebook-internal sampler on first use.  We reuse the
-    // completion's sampling params so JS callers don't need to plumb a
-    // second temperature / top_p / top_k / seed knob just for the codec_lm
-    // side.  If the user wants split sampling later, add a
-    // `codec_lm_sampling` sub-struct on `common_params_sampling`.
-    if (codec_lm_ar_rng == 0) {
-        const auto & sp = main_ctx->params.sampling;
-        codec_lm_ar_rng = sp.seed != 0 && sp.seed != (uint32_t) -1
-            ? (uint64_t) sp.seed : 0xC0DEC1ABULL;
-    }
-    const auto & sp = main_ctx->params.sampling;
-    const float   samp_temp = sp.temp > 0 ? sp.temp : 0.9f;
-    const float   samp_topp = sp.top_p > 0 ? sp.top_p : 0.95f;
-    const int32_t samp_topk = sp.top_k > 0 ? sp.top_k : 50;
-
-    // Text-modality cb0 (MOSS-TTS-Realtime / MOSS-TTSD): the c0 token is
-    // sampled from the BACKBONE's own lm_head (Qwen3 text vocab), not the
-    // codec_lm's depth decoder.  Read the backbone logits at the latest
-    // output position and hand the sampled token to the depth decoder
-    // BEFORE step_begin so pos-0 is wired correctly.  Prefer the
-    // caller-provided `backbone_sampled_tok` when the completion loop's
-    // main sampler already produced it; fall back to sampling directly
-    // when the completion loop bypasses that sampler (as it does for
-    // codec_lm-AR flows).  For CSM / Qwen3-TTS / Chatterbox this branch
-    // is skipped and set_text_context is a no-op.
+    // Text-modality cb0 (old path — MOSS-TTSD / MOSS-TTS-Realtime when
+    // audio_lm_ctx is unavailable or doesn't have the flags set).
     if (text_modality_cb0) {
         int32_t text_tok = backbone_sampled_tok;
         if (text_tok < 0) {
@@ -1723,18 +2120,8 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
         return false;
     }
 
-    // Stop detection — metadata-driven for all codebook-AR models.
-    // `codec_lm_step_is_eos` inspects the just-emitted `codes` against the
-    // gguf's `codec.lm.eos_code_c0` / `eos_min_step` metadata (read into
-    // codec_lm_info).  The state's internal AR frame counter was just
-    // incremented by codec_lm_step_finish above, so the EOS gate lines up
-    // with the frame we just produced (upstream computes `ar_frame - 1`).
-    // This covers CSM, Qwen3-TTS, MOSS-TTSD, MOSS-TTS-Realtime, Chatterbox
-    // — each gets its cb0 sentinel from the gguf for free.
-    //
-    // Fallback: ggufs predating the metadata report eos_code_c0 < 0.  For
-    // those we keep the legacy CSM heuristic (cb-0==0 after step>0; the
-    // initial frame is often all-zero too) so stale CSM ggufs still stop.
+    // Stop detection — metadata-driven EOS via codec_lm_step_is_eos,
+    // falling back to CSM legacy heuristic for stale GGUFs.
     bool is_eos = false;
     if (info->eos_code_c0 >= 0) {
         int32_t eos_flag = 0;
@@ -1743,25 +2130,17 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
             is_eos = (eos_flag != 0);
         }
     } else if (type == CSM_1B) {
-        // Legacy path: gguf has no eos metadata (eos_code_c0 == -1).
         is_eos = codec_lm_ar_step > 0 && codes[0] == 0;
     }
     if (is_eos) {
-        codec_lm_ar_done = true;
+        codec_lm_ar_done           = true;
         codec_lm_ar_stopped_on_eos = true;
-        codec_lm_ar_pending_embd = false;
+        codec_lm_ar_pending_embd   = false;
         return true;
     }
 
-    // Append (T, n_cb) interleaved codes to audio_tokens so
-    // decodeAudioTokens (mapped through the codec_token_buffer path)
-    // picks them up unchanged.  audio_tokens uses llama_token elements;
-    // the codec values fit in int32_t which is the llama_token type.
     audio_tokens.insert(audio_tokens.end(), codes.begin(), codes.end());
 
-    // Compose next-step backbone embed.  `compose_next_embd` adds the
-    // per-step positional embedding for models that have one
-    // (Chatterbox); falls back to `compose_audio_embd` otherwise.
     pending_next_embd.assign((size_t) hidden_dim, 0.0f);
     if (::codec_lm_compose_next_embd(codec_lm, codes.data(),
                                      codec_lm_ar_step,
@@ -1774,6 +2153,145 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
     }
     codec_lm_ar_pending_embd = true;
     codec_lm_ar_step += 1;
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Qwen3-TTS talker prefill hook.
+//
+// Called ONCE from rn-completion.cpp when flow == "talker_embd" and the
+// prefill embd batch has already been decoded into the backbone KV cache.
+// At this point `last_hidden` is the last row's backbone hidden state.
+// We arm audio_lm for the embed-override path so audio_lm_observe_codes
+// will compose the next backbone input embedding per step.
+// ─────────────────────────────────────────────────────────────────────
+bool llama_rn_context_tts::tryTalkerPrefill(
+    llama_rn_context * main_ctx,
+    const float *      last_hidden,
+    int                hidden_dim) {
+    (void) main_ctx;
+    if (audio_lm_ctx == nullptr) {
+        LOG_ERROR("tryTalkerPrefill: audio_lm_ctx not initialised");
+        return false;
+    }
+    if (last_hidden == nullptr || hidden_dim <= 0) {
+        LOG_ERROR("tryTalkerPrefill: null hidden state");
+        return false;
+    }
+    // Enable embed-override: observe_codes will call compose_next_embd
+    // and get_next_embed will return the composed embedding.  start_step=1
+    // matches run_codebook_ar's convention.
+    codec_common::audio_lm_set_uses_embed_override(audio_lm_ctx, true, 1);
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Chatterbox T3 prefill hook.
+//
+// Tokenizes `text` via codec_lm_chatterbox_tokenize, builds the full
+// CFG prompt embedding prefix via codec_lm_chatterbox_build_prompt,
+// and decodes it into two parallel KV-cache sequences (seq_id 0 = cond,
+// seq_id 1 = uncond when cfg_weight > 0).  Sets chatterbox_n_seq and
+// chatterbox_n_past on success.
+// ─────────────────────────────────────────────────────────────────────
+bool llama_rn_context_tts::tryChatterboxPrefill(
+    llama_rn_context * main_ctx,
+    const std::string & text,
+    const float *       ref_pcm,
+    int                 ref_n_samples,
+    int                 ref_sample_rate,
+    float               cfg_weight) {
+
+    if (audio_lm_ctx == nullptr) {
+        LOG_ERROR("tryChatterboxPrefill: audio_lm_ctx not initialised");
+        return false;
+    }
+    if (main_ctx == nullptr || main_ctx->ctx == nullptr || main_ctx->model == nullptr) {
+        LOG_ERROR("tryChatterboxPrefill: invalid backbone context");
+        return false;
+    }
+
+    // Get the codec_lm handle from audio_lm_ctx.
+    ::codec_lm * lm = codec_common::audio_lm_get_lm(audio_lm_ctx);
+    if (lm == nullptr) {
+        LOG_ERROR("tryChatterboxPrefill: no codec_lm inside audio_lm_ctx");
+        return false;
+    }
+    const ::codec_lm_chatterbox_info * ci = ::codec_lm_chatterbox_get_info(lm);
+    if (ci == nullptr) {
+        LOG_ERROR("tryChatterboxPrefill: model is not a Chatterbox T3 adaptor");
+        return false;
+    }
+
+    const int hidden = llama_model_n_embd(main_ctx->model);
+    if (hidden <= 0) return false;
+
+    // Tokenize text with the baked BPE.
+    std::vector<int32_t> text_ids(text.size() + 64);
+    int32_t n_text = 0;
+    if (::codec_lm_chatterbox_tokenize(lm, text.c_str(),
+                                        text_ids.data(), (int32_t)text_ids.size(),
+                                        &n_text) != CODEC_STATUS_SUCCESS) {
+        LOG_ERROR("tryChatterboxPrefill: tokenize failed: %s",
+                  ::codec_lm_get_last_error(lm));
+        return false;
+    }
+    text_ids.resize((size_t)n_text);
+
+    const int32_t n_seq_cap = (cfg_weight > 0.0f) ? 2 : 1;
+    const int32_t seq_len_cap = ci->cond_rows + (n_text + 2) + 2;
+    std::vector<float> prompt((size_t)seq_len_cap * n_seq_cap * hidden);
+    int32_t seq_len = 0, n_seq = 0;
+
+    if (::codec_lm_chatterbox_build_prompt(
+            lm,
+            text_ids.data(), n_text,
+            cfg_weight,
+            /*speaker_emb=*/nullptr, 0,
+            /*ref_speech_tokens=*/nullptr, 0,
+            /*emotion=*/nullptr,
+            ref_pcm, ref_n_samples, ref_sample_rate,
+            prompt.data(), seq_len_cap * n_seq_cap,
+            &seq_len, &n_seq) != CODEC_STATUS_SUCCESS) {
+        LOG_ERROR("tryChatterboxPrefill: build_prompt failed: %s",
+                  ::codec_lm_get_last_error(lm));
+        return false;
+    }
+
+    // Decode: seq_id 0 = cond, seq_id 1 = uncond.  Both sequences share
+    // the same positions [0, seq_len).  logits requested only at the last
+    // position of each sequence (the start-of-speech position).
+    const int32_t total = seq_len * n_seq;
+    llama_batch b = llama_batch_init(total, hidden, 1);
+    b.token    = nullptr;
+    b.n_tokens = total;
+    int32_t bi = 0;
+    for (int32_t s = 0; s < n_seq; ++s) {
+        for (int32_t r = 0; r < seq_len; ++r) {
+            std::memcpy(b.embd + (size_t)bi * hidden,
+                        prompt.data() + ((size_t)s * seq_len + r) * hidden,
+                        (size_t)hidden * sizeof(float));
+            b.pos[bi]       = r;
+            b.n_seq_id[bi]  = 1;
+            b.seq_id[bi][0] = s;
+            b.logits[bi]    = (r == seq_len - 1) ? 1 : 0;
+            ++bi;
+        }
+    }
+    const int rc = llama_decode(main_ctx->ctx, b);
+    llama_batch_free(b);
+    if (rc != 0) {
+        LOG_ERROR("tryChatterboxPrefill: llama_decode prefill failed");
+        return false;
+    }
+
+    // Arm embed override and remember loop state.
+    codec_common::audio_lm_set_uses_embed_override(audio_lm_ctx, true, 1);
+    chatterbox_n_seq  = n_seq;
+    chatterbox_n_past = seq_len;
+
+    LOG_INFO("tryChatterboxPrefill: %d text tokens, seq_len=%d n_seq=%d",
+             n_text, seq_len, n_seq);
     return true;
 }
 
@@ -2039,9 +2557,50 @@ std::vector<float> llama_rn_context_tts::decodeAudioTokens(llama_rn_context* mai
         return decodeAudioEmbeddings(main_ctx, main_ctx->completion->embeddings, main_ctx->completion->embedding_dim);
     }
     if (profile.decode_kind == tts_decode_kind::UNSUPPORTED) {
+        // Chatterbox T3 with audio_lm path active decodes via audio_lm_decode_audio.
+        if (audio_lm_ctx != nullptr) {
+            codec_common::audio_lm_audio_output pcm_out;
+            if (!codec_common::audio_lm_decode_audio(audio_lm_ctx, &pcm_out)) {
+                LOG_ERROR("decodeAudioTokens: audio_lm_decode_audio failed: %s",
+                          codec_common::audio_lm_last_error(audio_lm_ctx));
+                return {};
+            }
+            return pcm_out.pcm;
+        }
         LOG_ERROR("This TTS model's codec is not supported by codec.cpp yet");
         return std::vector<float>();
     }
+
+    // For codec_lm-AR models that used the audio_lm_ctx path (Qwen3-TTS /
+    // MOSS-TTSD / MOSS-TTS-Realtime), audio_lm_decode_audio reads the
+    // internal accumulator filled by audio_lm_observe_codes, applies the
+    // correct delay-pattern unshift and cb0_speech_offset remapping, and
+    // calls codec_decode.  This is the codec_common-canonical decode path
+    // and avoids the duplicate logic below.
+    if (profile.decode_kind == tts_decode_kind::CODEC_LM_AR && audio_lm_ctx != nullptr) {
+        // Check that we actually used the audio_lm step machine (not the
+        // legacy codec_lm_state path): the audio_lm accumulator has codes
+        // iff observe_codes was called at least once.
+        codec_common::audio_lm_prompt_info pi{};
+        const bool have_pi = codec_common::audio_lm_get_prompt_info(audio_lm_ctx, &pi);
+        const bool used_alm_path = have_pi && (
+            codec_common::audio_lm_talker_has_projection(audio_lm_ctx) ||
+            pi.cb0_from_backbone ||
+            pi.streaming_interleave);
+        if (used_alm_path) {
+            codec_common::audio_lm_audio_output pcm_out;
+            if (!codec_common::audio_lm_decode_audio(audio_lm_ctx, &pcm_out)) {
+                LOG_ERROR("decodeAudioTokens: audio_lm_decode_audio failed: %s",
+                          codec_common::audio_lm_last_error(audio_lm_ctx));
+                return {};
+            }
+            if (!pcm_out.pcm.empty()) return pcm_out.pcm;
+            // Empty PCM from audio_lm_decode_audio — fall through to direct path
+            // (may happen if the accumulator is empty due to EOS on frame 0).
+            LOG_WARNING("decodeAudioTokens: audio_lm_decode_audio returned empty PCM; falling back to direct path");
+        }
+    }
+
     std::vector<llama_token> tokens_audio = tokens;
 
     if (tokens_audio.empty()) {

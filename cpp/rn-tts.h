@@ -14,6 +14,8 @@ struct codec_context;
 struct codec_lm;
 struct codec_lm_state;
 struct codec_lm_info;
+struct common_sampler;
+namespace codec_common { struct audio_lm_context; struct audio_lm_prompt_info; }
 
 namespace rnllama {
 
@@ -63,6 +65,12 @@ struct llama_rn_audio_completion_result {
     std::string grammar;
     bool embedding;
     std::string flow;
+    // Qwen3-TTS talker: pre-built prefix embedding rows (row-major,
+    // n_prefix_rows * hidden floats) injected before the AR loop starts.
+    // Non-empty only when flow == "talker_embd".
+    std::vector<float> talker_prefix_embd;
+    int talker_prefix_rows   = 0;
+    int talker_prefix_hidden = 0;
 };
 
 // Options + per-frame progress hook for the codec_lm AR driver.
@@ -174,6 +182,18 @@ struct llama_rn_context_tts {
     bool codec_lm_probed = false;
     tts_type type = UNKNOWN;
 
+    // codec_common audio_lm context (Phase B / audio_lm_* API).  Wraps
+    // the codec_model + codec_lm into the codec_common abstraction layer
+    // that knows about per-model prompt formats (talker, cb0_from_backbone,
+    // streaming_interleave, chatterbox).  Initialized once alongside
+    // codec_ctx; drives Qwen3-TTS / MOSS-TTSD / MOSS-Realtime / Chatterbox.
+    // Freed in dtor.  NULL for codec-only GGUF files without an LM section.
+    ::codec_common::audio_lm_context * audio_lm_ctx = nullptr;
+    // Prompt info cached after audio_lm_ctx init (filled by
+    // audio_lm_get_prompt_info; empty when no LM section).
+    // NOT heap-allocated — it's a plain struct stored by value below.
+    bool audio_lm_pi_valid = false;
+
     // Vocab-probed audio token ranges.  Resolved lazily on first
     // tryAddAudioToken / isAudioToken / etc. — replaces the hardcoded
     // `tts_model_profile::audio.code_ranges` values which only matched
@@ -243,6 +263,31 @@ struct llama_rn_context_tts {
     uint64_t codec_lm_ar_rng = 0;                   // codebook sampler seed
     bool codec_lm_ar_stopped_on_eos = false;        // for progress-cb result
 
+    // ── Qwen3-TTS talker (audio_lm_talker_has_projection) ──────────────
+    // These fields survive across steps within one generation; reset() clears
+    // them.  Populated by getFormattedAudioCompletion when the talker prefix
+    // is built, consumed per-step by tryCodecLmAudioStep.
+    std::vector<int32_t> talker_text_tokens;   // tokenized payload text
+    int talker_trailing = 0;                   // trailing text emit counter
+    // Pre-built talker prefix embedding (row-major, n_rows * hidden floats).
+    // Set in getFormattedAudioCompletion; consumed once by nextToken in
+    // rn-completion.cpp to prime the backbone KV before the AR loop starts.
+    std::vector<float> talker_prefix_embd;
+    int talker_prefix_rows   = 0;
+    int talker_prefix_hidden = 0;
+
+    // ── MOSS-TTSD cb0-from-backbone backbone sampler ────────────────────
+    // Built when pi.cb0_from_backbone is detected; uses GBNF grammar from
+    // tts_auto_grammar to constrain backbone cb0 sampling to the speech range.
+    ::common_sampler * bb_sampler = nullptr;
+    bool bb_sampler_built = false;
+
+    // ── Chatterbox T3 ────────────────────────────────────────────────────
+    // Chatterbox drives a dual-sequence CFG decode loop (cond + uncond lanes
+    // in parallel, seq_ids 0 and 1).  n_seq_chatterbox is 1 (no CFG) or 2.
+    int chatterbox_n_seq = 0;     // set during talker prefill
+    int chatterbox_n_past = 0;    // KV-cache position after prefill
+
     // Constructor and destructor
     // `use_gpu` mirrors codec.cpp's `codec_model_params.use_gpu` — set true
     // to offload codec + codec_lm graphs (Mimi / S3G / depth decoder etc.)
@@ -301,6 +346,24 @@ struct llama_rn_context_tts {
     // ignored).  Guards kind/dim like `tryContinuousAudioStep`.  Returns true
     // on success (or harmless no-op when already primed).
     bool tryContinuousPrefill(llama_rn_context* main_ctx, const float * hiddens, int n_pos, int dim);
+
+    // Talker-prefix prefill: called ONCE from the completion loop when
+    // `flow == "talker_embd"` is detected and the prefix embd batch has been
+    // built and decoded.  Sets up `audio_lm_set_uses_embed_override` so the
+    // per-step observe/compose wiring works, then schedules the first
+    // next-embd via `audio_lm_get_next_embed` (which returns the cur hidden
+    // from the last prefill row).  Returns true on success.
+    bool tryTalkerPrefill(llama_rn_context * main_ctx,
+                          const float * last_hidden, int hidden_dim);
+
+    // Chatterbox T3 prefill: tokenize text, build cond+uncond prompts via
+    // codec_lm_chatterbox_build_prompt, and decode them via two-sequence
+    // llama_decode.  Sets chatterbox_n_seq + chatterbox_n_past on success.
+    bool tryChatterboxPrefill(llama_rn_context * main_ctx,
+                              const std::string & text,
+                              const float * ref_pcm,
+                              int ref_n_samples, int ref_sample_rate,
+                              float cfg_weight);
 
     // True when the loaded codec.gguf's codec_lm reports a codebook AR kind
     // (`residual_depth_ar` or `parallel_heads_delay`).  Probed lazily
