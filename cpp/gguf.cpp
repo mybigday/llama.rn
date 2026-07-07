@@ -228,9 +228,18 @@ struct lm_gguf_context {
 };
 
 struct lm_gguf_reader {
-    lm_gguf_reader(FILE * file) : file(file) {
-        // read the remaining bytes once and update on each read
-        nbytes_remain = file_remain(file);
+    lm_gguf_reader(
+            lm_gguf_reader_callback_t callback,
+            void * userdata,
+            size_t max_chunk_read,
+            uint64_t data_offset = 0,
+            uint64_t nbytes_remain = 0)
+        : callback(callback),
+          userdata(userdata),
+          max_chunk_read(max_chunk_read),
+          data_offset(data_offset),
+          nbytes_remain(nbytes_remain) {
+        LM_GGML_ASSERT(max_chunk_read > 0);
     }
 
     // helper for remaining bytes in a file
@@ -257,12 +266,10 @@ struct lm_gguf_reader {
     template <typename T>
     bool read(T & dst) const {
         const size_t size = sizeof(dst);
-        if (nbytes_remain < size) {
+        if (size > nbytes_remain) {
             return false;
         }
-        const size_t nread = fread(&dst, 1, size, file);
-        nbytes_remain -= nread;
-        return nread == size;
+        return read_raw(&dst, size) == size;
     }
 
     template <typename T>
@@ -344,24 +351,71 @@ struct lm_gguf_reader {
             return false;
         }
         dst.resize(static_cast<size_t>(size));
-        const size_t nread = fread(dst.data(), 1, size, file);
-        nbytes_remain -= nread;
-        return nread == size;
+        return read_raw(dst.data(), static_cast<size_t>(size)) == size;
     }
 
     bool read(void * dst, const size_t size) const {
         if (size > nbytes_remain) {
             return false;
         }
-        const size_t nread = fread(dst, 1, size, file);
-        nbytes_remain -= nread;
-        return nread == size;
+        return read_raw(dst, size) == size;
+    }
+
+    uint64_t tell() const {
+        return data_offset;
+    }
+
+    bool seek(uint64_t absolute_offset) const {
+        const uint64_t end_offset = uint64_t(data_offset) + nbytes_remain;
+        if (absolute_offset > end_offset) {
+            return false;
+        }
+
+        data_offset = absolute_offset;
+        nbytes_remain = end_offset - absolute_offset;
+
+        return true;
     }
 
 private:
-    FILE * file;
+    size_t read_raw(void * dst, size_t size) const {
+        if (callback == nullptr || size == 0) {
+            return 0;
+        }
 
-    mutable uint64_t nbytes_remain;
+        uint8_t * data = static_cast<uint8_t *>(dst);
+        size_t total_nread = 0;
+        bool reached_eof = false;
+
+        while (total_nread < size) {
+            const size_t chunk_size = std::min(max_chunk_read, size - total_nread);
+            if (data_offset + total_nread < data_offset) {
+                break;
+            }
+            const size_t nread = callback(userdata, static_cast<void *>(data + total_nread), data_offset + total_nread, chunk_size);
+            total_nread += nread;
+            if (nread != chunk_size) {
+                reached_eof = true;
+                break;
+            }
+        }
+
+        data_offset += total_nread;
+        LM_GGML_ASSERT(total_nread <= nbytes_remain);
+        nbytes_remain -= total_nread;
+
+        if (reached_eof) {
+            nbytes_remain = 0;
+        }
+
+        return total_nread;
+    }
+
+    lm_gguf_reader_callback_t callback = nullptr;
+    void * userdata = nullptr;
+    size_t max_chunk_read = 0;
+    mutable uint64_t data_offset = 0;
+    mutable uint64_t nbytes_remain = 0;
 };
 
 struct lm_gguf_context * lm_gguf_init_empty(void) {
@@ -394,12 +448,7 @@ bool lm_gguf_read_emplace_helper(const struct lm_gguf_reader & gr, std::vector<s
     return true;
 }
 
-struct lm_gguf_context * lm_gguf_init_from_file_ptr(FILE * file, struct lm_gguf_init_params params) {
-    if (!file) {
-        return nullptr;
-    }
-
-    const struct lm_gguf_reader gr(file);
+static struct lm_gguf_context * lm_gguf_init_from_reader(const struct lm_gguf_reader & gr, struct lm_gguf_init_params params) {
     struct lm_gguf_context * ctx = new lm_gguf_context;
 
     bool ok = true;
@@ -700,14 +749,14 @@ struct lm_gguf_context * lm_gguf_init_from_file_ptr(FILE * file, struct lm_gguf_
     LM_GGML_ASSERT(int64_t(ctx->info.size()) == n_tensors);
 
     // we require the data section to be aligned, so take into account any padding
-    if (lm_gguf_fseek(file, LM_GGML_PAD(lm_gguf_ftell(file), ctx->alignment), SEEK_SET) != 0) {
+    if (n_tensors > 0 && !gr.seek(LM_GGML_PAD(gr.tell(), ctx->alignment))) {
         LM_GGML_LOG_ERROR("%s: failed to seek to beginning of data section\n", __func__);
         lm_gguf_free(ctx);
         return nullptr;
     }
 
     // store the current file offset - this is where the data section starts
-    ctx->offset = lm_gguf_ftell(file);
+    ctx->offset = gr.tell();
 
     // compute the total size of the data section, taking into account the alignment
     {
@@ -842,6 +891,89 @@ struct lm_gguf_context * lm_gguf_init_from_file_ptr(FILE * file, struct lm_gguf_
     }
 
     return ctx;
+}
+
+struct lm_gguf_context * lm_gguf_init_from_callback(lm_gguf_reader_callback_t callback, void * userdata, size_t max_chunk_read, uint64_t max_expected_size, struct lm_gguf_init_params params) {
+    if (callback == nullptr) {
+        return nullptr;
+    }
+
+    const struct lm_gguf_reader gr(callback, userdata, max_chunk_read == 0 ? SIZE_MAX : max_chunk_read, 0, max_expected_size);
+    return lm_gguf_init_from_reader(gr, params);
+}
+
+struct lm_gguf_file_reader {
+    FILE * file;
+    uint64_t offset;
+};
+
+static size_t lm_gguf_file_reader_callback(void * userdata, void * output, uint64_t offset, size_t len) {
+    LM_GGML_ASSERT(len > 0);
+
+    lm_gguf_file_reader & reader = *static_cast<lm_gguf_file_reader *>(userdata);
+
+    if (reader.offset != offset) {
+        if (offset > INT64_MAX || lm_gguf_fseek(reader.file, static_cast<int64_t>(offset), SEEK_SET) != 0) {
+            return 0;
+        }
+
+        reader.offset = offset;
+    }
+
+    const size_t nread = fread(static_cast<uint8_t *>(output), 1, len, reader.file);
+    reader.offset += nread;
+    return nread;
+}
+
+struct lm_gguf_context * lm_gguf_init_from_file_ptr(FILE * file, struct lm_gguf_init_params params) {
+    if (!file) {
+        return nullptr;
+    }
+
+    const int64_t cur = lm_gguf_ftell(file);
+    if (cur < 0) {
+        return nullptr;
+    }
+
+    lm_gguf_file_reader reader = {
+        /*.file   = */ file,
+        /*.offset = */ static_cast<uint64_t>(cur),
+    };
+    const struct lm_gguf_reader gr(lm_gguf_file_reader_callback, &reader, SIZE_MAX, reader.offset, lm_gguf_reader::file_remain(file));
+    return lm_gguf_init_from_reader(gr, params);
+}
+
+struct lm_gguf_buffer_reader {
+    const uint8_t * data;
+    size_t          size;
+};
+
+static size_t lm_gguf_buffer_reader_callback(void * userdata, void * output, uint64_t offset, size_t len) {
+    LM_GGML_ASSERT(len > 0);
+
+    const lm_gguf_buffer_reader & reader = *static_cast<lm_gguf_buffer_reader *>(userdata);
+
+    if (offset > reader.size || len > reader.size - offset) {
+        return 0;
+    }
+
+    const size_t data_offset = static_cast<size_t>(offset);
+    const size_t nread = std::min(len, reader.size - data_offset);
+    memcpy(static_cast<uint8_t *>(output), reader.data + data_offset, nread);
+    return nread;
+}
+
+struct lm_gguf_context * lm_gguf_init_from_buffer(const void * data, size_t size, struct lm_gguf_init_params params) {
+    if (data == nullptr || size == 0) {
+        return nullptr;
+    }
+
+    lm_gguf_buffer_reader reader = {
+        /*.data = */ static_cast<const uint8_t *>(data),
+        /*.size = */ size,
+    };
+    const struct lm_gguf_reader gr(lm_gguf_buffer_reader_callback, &reader, SIZE_MAX, 0, size);
+    return lm_gguf_init_from_reader(gr, params);
 }
 
 struct lm_gguf_context * lm_gguf_init_from_file(const char * fname, struct lm_gguf_init_params params) {

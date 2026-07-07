@@ -50,6 +50,10 @@
 #include "llamafile/sgemm.h"
 #endif
 
+#ifdef LM_GGML_USE_CPU_RISCV64_SPACEMIT
+#    include "spacemit/ime.h"
+#endif
+
 // Note: once we move threading into a separate C++ file
 // will use std::hardware_destructive_interference_size instead of hardcoding it here
 // and we'll use C++ attribute syntax.
@@ -1245,6 +1249,12 @@ void lm_ggml_compute_forward_mul_mat(
     const struct lm_ggml_tensor * src0 = dst->src[0];
     const struct lm_ggml_tensor * src1 = dst->src[1];
 
+    const int32_t hint = lm_ggml_get_op_params_i32(dst, 1);
+    if (hint == LM_GGML_HINT_SRC0_IS_HADAMARD && !params->use_ref) {
+        lm_ggml_compute_forward_fwht(params, dst);
+        return;
+    }
+
     LM_GGML_TENSOR_BINARY_OP_LOCALS
 
     const int ith = params->ith;
@@ -1902,6 +1912,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_im2col_3d(params, tensor);
             } break;
+        case LM_GGML_OP_COL2IM_1D:
+            {
+                lm_ggml_compute_forward_col2im_1d(params, tensor);
+            } break;
         case LM_GGML_OP_CONV_2D:
             {
                 lm_ggml_compute_forward_conv_2d(params, tensor);
@@ -2333,6 +2347,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
         case LM_GGML_OP_CONV_2D:
         case LM_GGML_OP_CONV_3D:
         case LM_GGML_OP_CONV_2D_DW:
+        case LM_GGML_OP_COL2IM_1D:
         case LM_GGML_OP_CONV_TRANSPOSE_1D:
         case LM_GGML_OP_CONV_TRANSPOSE_2D:
             {
@@ -2933,7 +2948,9 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
                 case LM_GGML_OP_GATED_DELTA_NET:
                     {
                         const int64_t S_v = node->src[2]->ne[0];
-                        cur = S_v * sizeof(float) * n_tasks;
+                        const int64_t K   = lm_ggml_get_op_params_i32(node, 0);
+                        const int64_t per_thread = S_v + (K > 1 ? S_v * S_v : 0);
+                        cur = per_thread * sizeof(float) * n_tasks;
                     } break;
                 case LM_GGML_OP_COUNT:
                     {
@@ -2959,6 +2976,45 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
     return cplan;
 }
 
+
+// Try to fuse the current node with subsequent nodes for better performance.
+// Returns the number of nodes skipped by fusion (>=1), or 0 if no fusion was applied.
+static bool lm_ggml_cpu_disable_fusion = false;  // initialized once in lm_ggml_cpu_init(), read-only afterwards
+
+static int lm_ggml_cpu_try_fuse_ops(
+        const struct lm_ggml_cgraph * cgraph,
+        const int node_n,
+        const struct lm_ggml_compute_params * params,
+        const struct lm_ggml_cplan * cplan) {
+
+    if (lm_ggml_cpu_disable_fusion || cplan->use_ref) {
+        return 0;
+    }
+
+    struct lm_ggml_tensor * node = cgraph->nodes[node_n];
+
+    if (node->op == LM_GGML_OP_RMS_NORM) {
+        // RMS_NORM + MUL fusion
+        const enum lm_ggml_op fuse_ops[] = { LM_GGML_OP_RMS_NORM, LM_GGML_OP_MUL };
+        if (lm_ggml_can_fuse(cgraph, node_n, fuse_ops, 2)) {
+            struct lm_ggml_tensor * mul_node = cgraph->nodes[node_n + 1];
+            const struct lm_ggml_tensor * mul_w = (mul_node->src[0] == node)
+                ? mul_node->src[1] : mul_node->src[0];
+            if (node->src[0]->type  == LM_GGML_TYPE_F32 &&
+                mul_node->type      == LM_GGML_TYPE_F32 &&
+                mul_w->type         == LM_GGML_TYPE_F32 &&
+                mul_w->ne[0]        == node->ne[0]   &&
+                mul_w->nb[0]        == sizeof(float)) {
+
+                lm_ggml_compute_forward_rms_norm_mul_fused(params, node, mul_node);
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
 static thread_ret_t lm_ggml_graph_compute_thread(void * data) {
     struct lm_ggml_compute_state * state = (struct lm_ggml_compute_state *) data;
     struct lm_ggml_threadpool    * tp    = state->threadpool;
@@ -2966,7 +3022,11 @@ static thread_ret_t lm_ggml_graph_compute_thread(void * data) {
     const struct lm_ggml_cgraph * cgraph = tp->cgraph;
     const struct lm_ggml_cplan  * cplan  = tp->cplan;
 
+#ifdef LM_GGML_USE_CPU_RISCV64_SPACEMIT
+    lm_ggml_backend_cpu_riscv64_spacemit_set_numa_thread_affinity(state->ith);
+#else
     set_numa_thread_affinity(state->ith);
+#endif
 
     struct lm_ggml_compute_params params = {
         /*.ith        =*/ state->ith,
@@ -2995,7 +3055,14 @@ static thread_ret_t lm_ggml_graph_compute_thread(void * data) {
             continue;
         }
 
-        lm_ggml_compute_forward(&params, node);
+        // TODO: move fused-op detection into lm_ggml_graph_plan so fusion decisions are made once at planning time
+        // Try fused ops, fall back to normal compute
+        const int n_fused = lm_ggml_cpu_try_fuse_ops(cgraph, node_n, &params, cplan);
+        if (n_fused > 0) {
+            node_n += n_fused;
+        } else {
+            lm_ggml_compute_forward(&params, node);
+        }
 
         if (state->ith == 0 && cplan->abort_callback &&
                 cplan->abort_callback(cplan->abort_callback_data)) {
@@ -3015,6 +3082,10 @@ static thread_ret_t lm_ggml_graph_compute_thread(void * data) {
 #endif
 
     lm_ggml_barrier(state->threadpool);
+
+#ifdef LM_GGML_USE_CPU_RISCV64_SPACEMIT
+    lm_ggml_backend_cpu_riscv64_spacemit_clear_numa_thread_affinity_threaded(state->ith);
+#endif
 
     return 0;
 }
@@ -3756,6 +3827,11 @@ void lm_ggml_cpu_init(void) {
 #if defined(__riscv)
         lm_ggml_init_riscv_arch_features();
 #endif
+
+        {
+            const char * env = getenv("LM_GGML_CPU_DISABLE_FUSION");
+            lm_ggml_cpu_disable_fusion = (env != NULL && atoi(env) == 1);
+        }
 
         is_first_call = false;
     }

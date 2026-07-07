@@ -306,7 +306,7 @@ void lm_ggml_backend_tensor_get_2d_async(lm_ggml_backend_t backend, const struct
     LM_GGML_ASSERT(tensor);
     LM_GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
 
-    if (n_copies <= 1 || backend->iface.set_tensor_2d_async == NULL) {
+    if (n_copies <= 1 || backend->iface.get_tensor_2d_async == NULL) {
         for (size_t i = 0; i < n_copies; i++) {
             lm_ggml_backend_tensor_get_async(backend, tensor, (char *) data + i*stride_data, offset + i*stride_tensor, size);
         }
@@ -317,7 +317,7 @@ void lm_ggml_backend_tensor_get_2d_async(lm_ggml_backend_t backend, const struct
     }
 
     LM_GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
-    LM_GGML_ASSERT(offset + (n_copies-1)*stride_tensor + size <= lm_ggml_nbytes(tensor) && "tensor write out of bounds");
+    LM_GGML_ASSERT(offset + (n_copies-1)*stride_tensor + size <= lm_ggml_nbytes(tensor) && "tensor read out of bounds");
     backend->iface.get_tensor_2d_async(backend, tensor, data, offset, size, n_copies, stride_tensor, stride_data);
 }
 
@@ -379,7 +379,7 @@ void lm_ggml_backend_tensor_get_2d(const struct lm_ggml_tensor * tensor, void * 
     lm_ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
     LM_GGML_ASSERT(buf != NULL && "tensor buffer not set");
 
-    if (n_copies <= 1 || buf->iface.set_tensor_2d == NULL) {
+    if (n_copies <= 1 || buf->iface.get_tensor_2d == NULL) {
         for (size_t i = 0; i < n_copies; i++) {
             lm_ggml_backend_tensor_get(tensor, (char *) data + i*stride_data, offset + i*stride_tensor, size);
         }
@@ -965,7 +965,7 @@ static void lm_ggml_backend_sched_print_assignments(lm_ggml_backend_sched_t sche
         }
         if (sched->debug > 1) {
             lm_ggml_backend_t tensor_backend = lm_ggml_backend_sched_get_tensor_backend(sched, node);
-            LM_GGML_LOG_DEBUG("node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s] use=%d,c=%d:", i, lm_ggml_op_name(node->op), node->name,
+            LM_GGML_LOG_DEBUG("node #%3d (%10.10s): %20.20s (%5.5s) [%5.5s %8.8s] use=%d,c=%d:", i, lm_ggml_op_desc(node), node->name,
                 fmt_size(lm_ggml_nbytes(node)), tensor_backend ? lm_ggml_backend_name(tensor_backend) : "NULL", GET_CAUSE(node),
                 graph->use_counts[lm_ggml_hash_find(&graph->visited_hash_set, node)], node->flags & LM_GGML_TENSOR_FLAG_COMPUTE ? 1 : 0);
             for (int j = 0; j < LM_GGML_MAX_SRC; j++) {
@@ -1029,6 +1029,8 @@ void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_
     if (sched->ctx == NULL) {
         LM_GGML_ABORT("%s: failed to initialize context\n", __func__);
     }
+
+    graph->uid = lm_ggml_graph_next_uid();
 
     // pass 1: assign backends to ops with pre-allocated inputs
     for (int i = 0; i < graph->n_leafs; i++) {
@@ -1476,6 +1478,11 @@ void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_
         sched->leaf_backend_ids[graph_copy->n_leafs] = tensor_backend_id(leaf);
         assert(graph_copy->size > graph_copy->n_leafs);
         graph_copy->leafs[graph_copy->n_leafs++] = leaf;
+    }
+
+    // set ids for all splits
+    for (int i = 0; i < sched->n_splits; ++i) {
+        sched->splits[i].graph.uid = lm_ggml_graph_next_uid();
     }
 }
 

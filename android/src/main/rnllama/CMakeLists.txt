@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.12)
 
 project(rnllama)
 
@@ -21,15 +21,15 @@ include_directories(
 )
 
 # Collect source files using glob patterns
-file(GLOB MODEL_FILES ${RNLLAMA_LIB_DIR}/models/*.cpp)
-file(GLOB GGML_CPU_C_FILES ${RNLLAMA_LIB_DIR}/ggml-cpu/*.c)
-file(GLOB GGML_CPU_CPP_FILES ${RNLLAMA_LIB_DIR}/ggml-cpu/*.cpp)
-file(GLOB GGML_CPU_AMX_FILES ${RNLLAMA_LIB_DIR}/ggml-cpu/amx/*.cpp)
-file(GLOB LLAMA_FILES ${RNLLAMA_LIB_DIR}/llama*.cpp)
-file(GLOB MTMD_FILES ${RNLLAMA_LIB_DIR}/tools/mtmd/*.cpp)
-file(GLOB MTMD_MODEL_FILES ${RNLLAMA_LIB_DIR}/tools/mtmd/models/*.cpp)
-file(GLOB COMMON_FILES ${RNLLAMA_LIB_DIR}/common/*.cpp)
-file(GLOB JINJA_FILES ${RNLLAMA_LIB_DIR}/common/jinja/*.cpp)
+file(GLOB MODEL_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/models/*.cpp)
+file(GLOB GGML_CPU_C_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/ggml-cpu/*.c)
+file(GLOB GGML_CPU_CPP_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/ggml-cpu/*.cpp)
+file(GLOB GGML_CPU_AMX_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/ggml-cpu/amx/*.cpp)
+file(GLOB LLAMA_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/llama*.cpp)
+file(GLOB MTMD_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/tools/mtmd/*.cpp)
+file(GLOB MTMD_MODEL_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/tools/mtmd/models/*.cpp)
+file(GLOB COMMON_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/common/*.cpp)
+file(GLOB JINJA_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/common/jinja/*.cpp)
 file(GLOB CODEC_FILES CONFIGURE_DEPENDS
     ${RNLLAMA_LIB_DIR}/codec/src/*.cpp
     ${RNLLAMA_LIB_DIR}/codec/src/batch/*.cpp
@@ -238,8 +238,6 @@ function(build_rnllama_library target_name arch cpu_flags)
             diag
             div
             gelu
-            gemv_noshuffle_general
-            gemv_noshuffle
             get_rows
             glu
             group_norm
@@ -247,7 +245,6 @@ function(build_rnllama_library target_name arch cpu_flags)
             im2col_f32
             im2col_f16
             mean
-            mul_mat_Ab_Bi_8x4
             mul_mv_f16_f16
             mul_mv_f16_f32_1row
             mul_mv_f16_f32_l4
@@ -262,12 +259,18 @@ function(build_rnllama_library target_name arch cpu_flags)
             mul_mv_q4_1_f32_flat
             mul_mv_q4_k_f32
             mul_mv_q4_k_f32_flat
+            mul_mv_q5_0_f32
+            mul_mv_q5_0_f32_flat
+            mul_mv_q5_1_f32
+            mul_mv_q5_1_f32_flat
             mul_mv_q5_k_f32
             mul_mv_q5_k_f32_flat
             mul_mv_q6_k_f32
             mul_mv_q6_k_f32_flat
             mul_mv_q8_0_f32
             mul_mv_q8_0_f32_flat
+            mul_mv_iq4_nl_f32
+            mul_mv_iq4_nl_f32_flat
             mul_mv_mxfp4_f32
             mul_mv_mxfp4_f32_flat
             mul_mv_id_q4_0_f32_8x_flat
@@ -275,24 +278,56 @@ function(build_rnllama_library target_name arch cpu_flags)
             mul_mv_id_q8_0_f32_flat
             mul_mv_id_mxfp4_f32
             mul_mv_id_mxfp4_f32_flat
+            gemm_moe_q4_0_f32_ns
+            gemv_moe_q4_0_f32_ns
+            gemm_moe_q4_1_f32_ns
+            gemv_moe_q4_1_f32_ns
+            gemm_moe_q5_0_f32_ns
+            gemv_moe_q5_0_f32_ns
+            gemm_moe_q5_1_f32_ns
+            gemv_moe_q5_1_f32_ns
+            gemm_moe_q4_k_f32_ns
+            gemv_moe_q4_k_f32_ns
+            gemm_moe_q5_k_f32_ns
+            gemv_moe_q5_k_f32_ns
+            gemm_moe_q6_k_f32_ns
+            gemv_moe_q6_k_f32_ns
             gemm_moe_mxfp4_f32
             gemv_moe_mxfp4_f32
+            gemm_moe_mxfp4_f32_ns
+            gemv_moe_mxfp4_f32_ns
+            moe_reorder_b
+            moe_sort_by_expert
             mul_mm_f32_f32_l4_lm
             mul_mm_f16_f32_l4_lm
             mul_mm_q4_0_f32_l4_lm
             mul_mm_q4_1_f32_l4_lm
+            mul_mm_q5_0_f32_l4_lm
+            mul_mm_q5_1_f32_l4_lm
             mul_mm_q8_0_f32_l4_lm
+            mul_mm_iq4_nl_f32_l4_lm
             mul_mm_q4_k_f32_l4_lm
             mul_mm_q5_k_f32_l4_lm
             mul_mm_q6_k_f32_l4_lm
-            mul_mm_q8_0_f32_8x4
+            gemv_noshuffle_q4_0_f32
+            gemv_noshuffle_q4_0_f32_spec
+            gemm_noshuffle_q4_0_f32
             gemv_noshuffle_q4_1_f32
             gemm_noshuffle_q4_1_f32
-            gemv_noshuffle_general_q8_0_f32
+            gemv_noshuffle_iq4_nl_f32
+            gemm_noshuffle_iq4_nl_f32
+            gemv_noshuffle_q5_0_f32
+            gemm_noshuffle_q5_0_f32
+            gemv_noshuffle_q5_1_f32
+            gemm_noshuffle_q5_1_f32
+            gemv_noshuffle_q8_0_f32
+            gemm_noshuffle_q8_0_f32
             gemv_noshuffle_q4_k_f32
             gemm_noshuffle_q4_k_f32
             gemv_noshuffle_q6_k_f32
             gemm_noshuffle_q6_k_f32
+            gemv_noshuffle_q5_k_f32
+            gemm_noshuffle_q5_k_f32
             mul
             neg
             norm
@@ -311,6 +346,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             sqr
             sqrt
             ssm_conv
+            gated_delta_net
             sub
             sum_rows
             cumsum
@@ -331,6 +367,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             flash_attn_f32_f16
             flash_attn_f16
             flash_attn_f32
+            gemm_xmem_f16_f32_os8
         )
         set(GGML_OPENCL_KERNEL_DIR ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels)
         set(GGML_OPENCL_KERNEL_HEADERS "")

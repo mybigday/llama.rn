@@ -21,6 +21,9 @@ import type {
   NativeImageProcessingResult,
   NativeLlamaChatMessage,
   NativeBackendDeviceInfo,
+  NativeSpeculativeConfig,
+  NativeSpeculativeParams,
+  NativeSpeculativeType,
   ParallelStatus,
   ParallelRequestStatus,
 } from './types'
@@ -64,6 +67,9 @@ export type {
   JinjaFormattedChatResult,
   NativeImageProcessingResult,
   NativeBackendDeviceInfo,
+  NativeSpeculativeConfig,
+  NativeSpeculativeParams,
+  NativeSpeculativeType,
   ParallelStatus,
   ParallelRequestStatus,
 }
@@ -261,6 +267,8 @@ export type CompletionResponseFormat = {
   schema?: object // for json_object type
 }
 
+export type ChatTemplateKwargs = Record<string, string | number | boolean>
+
 export type CompletionBaseParams = {
   prompt?: string
   messages?: RNLlamaOAICompatibleMessage[]
@@ -277,7 +285,7 @@ export type CompletionBaseParams = {
    * Timestamp in seconds since epoch to apply to chat template's strftime_now
    */
   now?: string | number
-  chat_template_kwargs?: Record<string, string>
+  chat_template_kwargs?: ChatTemplateKwargs
   /**
    * When enabled, forces the chat parser to treat the entire model output as
    * plain content, skipping separate parsing of reasoning tokens and tool calls.
@@ -291,6 +299,7 @@ export type CompletionBaseParams = {
    */
   prefill_text?: string
 }
+
 export type CompletionParams = Omit<
   NativeCompletionParams,
   'emit_partial_completion' | 'prompt'
@@ -399,6 +408,7 @@ export class LlamaContext {
             tools: params.tools,
             parallel_tool_calls: params.parallel_tool_calls,
             tool_choice: params.tool_choice,
+            response_format: params.response_format,
             enable_thinking: params.enable_thinking,
             reasoning_format: params.reasoning_format,
             add_generation_prompt: params.add_generation_prompt,
@@ -683,7 +693,7 @@ export class LlamaContext {
       reasoning_format?: 'none' | 'auto' | 'deepseek'
       add_generation_prompt?: boolean
       now?: string | number
-      chat_template_kwargs?: Record<string, string>
+      chat_template_kwargs?: ChatTemplateKwargs
       force_pure_content?: boolean
     },
   ): Promise<FormattedChatResult | JinjaFormattedChatResult> {
@@ -808,6 +818,7 @@ export class LlamaContext {
           tools: params.tools,
           parallel_tool_calls: params.parallel_tool_calls,
           tool_choice: params.tool_choice,
+          response_format: params.response_format,
           enable_thinking: params.enable_thinking,
           reasoning_format: params.reasoning_format,
           add_generation_prompt: params.add_generation_prompt,
@@ -1365,6 +1376,37 @@ const poolTypeMap = {
   rank: 4,
 }
 
+const normalizeFileUri = (path?: string) =>
+  path?.startsWith('file://') ? path.slice(7) : path
+
+const normalizeSpeculativeDraftPaths = (
+  speculative?: NativeSpeculativeConfig,
+): NativeSpeculativeConfig | undefined => {
+  if (
+    !speculative ||
+    typeof speculative !== 'object' ||
+    Array.isArray(speculative)
+  ) {
+    return speculative
+  }
+
+  const { draft } = speculative
+  if (!draft || typeof draft !== 'object') {
+    return speculative
+  }
+
+  return {
+    ...speculative,
+    draft: {
+      ...draft,
+      model: normalizeFileUri(draft.model),
+      path: normalizeFileUri(draft.path),
+      model_draft: normalizeFileUri(draft.model_draft),
+      draft_model: normalizeFileUri(draft.draft_model),
+    },
+  }
+}
+
 type LoraAdapterInput = {
   path: string
   scaled?: number
@@ -1427,6 +1469,8 @@ export async function getBackendDevicesInfo(): Promise<
 export async function initLlama(
   {
     model,
+    model_draft: modelDraft,
+    draft_model: draftModelAlias,
     is_model_asset: isModelAsset,
     pooling_type: poolingType,
     lora,
@@ -1439,8 +1483,12 @@ export async function initLlama(
 ): Promise<LlamaContext> {
   await installJsi()
   const { llamaInitContext } = getJsi()
-  let path = model
-  if (path.startsWith('file://')) path = path.slice(7)
+  const path = normalizeFileUri(model) || model
+  const draftPath = normalizeFileUri(modelDraft || draftModelAlias)
+  const nativeRest = {
+    ...rest,
+    speculative: normalizeSpeculativeDraftPaths(rest.speculative),
+  }
 
   const loraAdapters = normalizeLoraAdapters({
     lora,
@@ -1467,17 +1515,23 @@ export async function initLlama(
 
   const poolType = poolTypeMap[poolingType as keyof typeof poolTypeMap]
 
-  if (rest.cache_type_k && !validCacheTypes.includes(rest.cache_type_k)) {
+  if (
+    nativeRest.cache_type_k &&
+    !validCacheTypes.includes(nativeRest.cache_type_k)
+  ) {
     console.warn(
-      `[RNLlama] initLlama: Invalid cache K type: ${rest.cache_type_k}, falling back to f16`,
+      `[RNLlama] initLlama: Invalid cache K type: ${nativeRest.cache_type_k}, falling back to f16`,
     )
-    delete rest.cache_type_k
+    delete nativeRest.cache_type_k
   }
-  if (rest.cache_type_v && !validCacheTypes.includes(rest.cache_type_v)) {
+  if (
+    nativeRest.cache_type_v &&
+    !validCacheTypes.includes(nativeRest.cache_type_v)
+  ) {
     console.warn(
-      `[RNLlama] initLlama: Invalid cache V type: ${rest.cache_type_v}, falling back to f16`,
+      `[RNLlama] initLlama: Invalid cache V type: ${nativeRest.cache_type_v}, falling back to f16`,
     )
-    delete rest.cache_type_v
+    delete nativeRest.cache_type_v
   }
 
   let filteredDevs: Array<string> = []
@@ -1515,8 +1569,9 @@ export async function initLlama(
       use_progress_callback: !!progressCallback,
       pooling_type: poolType,
       ...(loraAdapters.length > 0 ? { lora_list: loraAdapters } : {}),
+      ...(draftPath ? { model_draft: draftPath } : {}),
       devices: filteredDevs.length > 0 ? filteredDevs : undefined,
-      ...rest,
+      ...nativeRest,
     },
     progressCallback,
   )

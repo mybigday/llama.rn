@@ -4,6 +4,7 @@
 #include "clip.h"
 #include "clip-impl.h"
 
+#include <algorithm>
 #include <array>
 #include <vector>
 #include <unordered_set>
@@ -35,6 +36,16 @@ enum resize_algo {
     // RESIZE_ALGO_LANCZOS, // TODO
 };
 
+// Padding style for img_tool::resize
+//   PAD_NONE    - no padding; direct resize to target dimensions
+//   PAD_CEIL    - aspect-preserving pad (default)
+//   PAD_NEAREST - aspect-preserving pad with nearest-integer rounding (Pillow byte-parity)
+enum pad_style {
+    PAD_NONE,
+    PAD_CEIL,
+    PAD_NEAREST,
+};
+
 struct clip_hparams {
     int32_t image_size = 0;
     int32_t patch_size = 0;
@@ -42,6 +53,7 @@ struct clip_hparams {
     int32_t n_ff = 0;
     int32_t projection_dim = 0;
     int32_t n_head = 0;
+    int32_t n_head_kv = 0;
     int32_t n_layer = 0;
     // idefics3
     int32_t n_merge = 0; // number of patch merges **per-side**
@@ -51,7 +63,7 @@ struct clip_hparams {
     int32_t image_min_pixels = -1;
     int32_t image_max_pixels = -1;
     resize_algo image_resize_algo = RESIZE_ALGO_BICUBIC;
-    bool image_resize_pad = true; // if false, center-crop will be applied when resizing
+    pad_style image_resize_pad = PAD_CEIL; // padding style when resizing
     std::array<uint8_t, 3> image_pad_color = {0, 0, 0};
 
     // (preprocessor) for llava-uhd style models
@@ -60,8 +72,8 @@ struct clip_hparams {
     int32_t preproc_max_tiles = 0;
     resize_algo image_resize_algo_rf = RESIZE_ALGO_BICUBIC;
     resize_algo image_resize_algo_ov = RESIZE_ALGO_BILINEAR;
-    bool image_pad_rf = true;  // if true, refined image will be padded (e.g. llava-1.6)
-    bool image_pad_ov = false; // if true, overview image will be padded (e.g. llava-1.6)
+    pad_style image_pad_rf = PAD_CEIL;  // padding style for the refined image (e.g. llava-1.6)
+    pad_style image_pad_ov = PAD_NONE;  // padding style for the overview image (e.g. llava-1.6)
     std::array<uint8_t, 3> image_pad_color_rf = {0, 0, 0}; // padding color for refined image
     std::array<uint8_t, 3> image_pad_color_ov = {0, 0, 0}; // padding color for overview image
 
@@ -79,19 +91,31 @@ struct clip_hparams {
 
     float eps = 1e-6;
     float rope_theta = 0.0;
-    std::unordered_set<int32_t> vision_feature_layer;
+    std::vector<int32_t> feature_layers;
     int32_t attn_window_size = 0;
     int32_t n_wa_pattern = 0;
     std::unordered_set<int32_t> wa_layer_indexes; // explicit layer indexes that use full attention (for irregular patterns like YoutuVL)
+    std::vector<int32_t> wa_pattern_mode; // mimovl: per-layer window-attention mode
 
     // deepseek-ocr (sam)
     int32_t sam_n_layer = 0;
     int32_t sam_n_head  = 0;
     int32_t sam_n_embd  = 0;
 
+    // Granite4 Vision
+    std::vector<int32_t> proj_spatial_offsets;
+    int32_t downsample_query_side;
+    int32_t downsample_window_side;
+
     // audio
     int32_t n_mel_bins = 0; // whisper preprocessor
     int32_t proj_stack_factor = 0; // ultravox
+    int32_t audio_chunk_size           = 0;
+    int32_t audio_conv_kernel_size     = 0;
+    int32_t audio_max_pos_emb          = 0;
+    int32_t audio_proj_window_size     = 0;
+    int32_t audio_proj_downsample_rate = 0;
+    int32_t audio_proj_head_count      = 0;
 
     // audio-to-mel preprocessor params
     int32_t audio_chunk_len   = -1; // in seconds
@@ -104,6 +128,7 @@ struct clip_hparams {
     bool has_llava_projector = false;
     int minicpmv_version = 0;
     int32_t minicpmv_query_num = 0;         // MiniCPM-V query number
+    int32_t insert_layer_id   = 0;          // MiniCPM-V 4.6 ViT merger insertion layer
 
     // custom value provided by user, can be undefined if not set
     int32_t custom_image_min_tokens = -1;
@@ -139,6 +164,10 @@ struct clip_hparams {
 
         return false;
     }
+
+    bool is_feature_layer(int32_t layer) const {
+        return std::find(feature_layers.begin(), feature_layers.end(), layer) != feature_layers.end();
+    }
 };
 
 struct clip_layer {
@@ -158,6 +187,8 @@ struct clip_layer {
 
     lm_ggml_tensor * o_w = nullptr;
     lm_ggml_tensor * o_b = nullptr;
+
+    lm_ggml_tensor * attn_sinks = nullptr;
 
     lm_ggml_tensor * k_norm = nullptr;
     lm_ggml_tensor * q_norm = nullptr;
@@ -224,6 +255,21 @@ struct clip_layer {
     lm_ggml_tensor * per_dim_k_scale_w = nullptr;
     lm_ggml_tensor * ff_post_norm_1_w  = nullptr;
 
+    // granite_speech conformer per-layer
+    lm_ggml_tensor * attn_rel_pos_emb = nullptr;
+
+    // granite_speech qformer cross-attention
+    lm_ggml_tensor * cross_attn_q_w    = nullptr;
+    lm_ggml_tensor * cross_attn_q_b    = nullptr;
+    lm_ggml_tensor * cross_attn_k_w    = nullptr;
+    lm_ggml_tensor * cross_attn_k_b    = nullptr;
+    lm_ggml_tensor * cross_attn_v_w    = nullptr;
+    lm_ggml_tensor * cross_attn_v_b    = nullptr;
+    lm_ggml_tensor * cross_attn_o_w    = nullptr;
+    lm_ggml_tensor * cross_attn_o_b    = nullptr;
+    lm_ggml_tensor * cross_attn_norm_w = nullptr;
+    lm_ggml_tensor * cross_attn_norm_b = nullptr;
+
     bool has_deepstack() const {
         return deepstack_fc1_w != nullptr;
     }
@@ -268,6 +314,41 @@ struct mobilenetv5_block {
     lm_ggml_tensor * attn_norm_w   = nullptr;
 };
 
+struct yasa2_block {
+    lm_ggml_tensor * dw_w  = nullptr;
+    lm_ggml_tensor * dw_b  = nullptr;
+    lm_ggml_tensor * ln_w  = nullptr;
+    lm_ggml_tensor * ln_b  = nullptr;
+    lm_ggml_tensor * pw1_w = nullptr;
+    lm_ggml_tensor * pw1_b = nullptr;
+    lm_ggml_tensor * grn_w = nullptr;
+    lm_ggml_tensor * grn_b = nullptr;
+    lm_ggml_tensor * pw2_w = nullptr;
+    lm_ggml_tensor * pw2_b = nullptr;
+};
+
+struct yasa2_stage {
+    lm_ggml_tensor * down_ln_w   = nullptr;
+    lm_ggml_tensor * down_ln_b   = nullptr;
+    lm_ggml_tensor * down_conv_w = nullptr;
+    lm_ggml_tensor * down_conv_b = nullptr;
+    std::vector<yasa2_block> blocks;
+};
+
+// QFormer projector block for models with 1 (or more) QFormer projectors
+// Granite Speech, Granite4 Vision
+struct qf_block {
+    lm_ggml_tensor * qf_proj_query       = nullptr;
+    lm_ggml_tensor * qf_proj_norm_w      = nullptr;
+    lm_ggml_tensor * qf_proj_norm_b      = nullptr;
+    lm_ggml_tensor * qf_proj_linear_w    = nullptr;
+    lm_ggml_tensor * qf_proj_linear_b    = nullptr;
+    lm_ggml_tensor * qf_proj_post_norm_w = nullptr;
+    lm_ggml_tensor * qf_proj_post_norm_b = nullptr;
+    lm_ggml_tensor * qf_proj_img_pos     = nullptr; // Vision only
+    std::vector<clip_layer> qf_proj_layers;
+};
+
 struct clip_model {
     clip_modality modality = CLIP_MODALITY_VISION;
     projector_type proj_type = PROJECTOR_TYPE_MLP;
@@ -281,6 +362,14 @@ struct clip_model {
     lm_ggml_tensor * position_embeddings = nullptr;
     lm_ggml_tensor * norm_embd_w = nullptr;
     lm_ggml_tensor * norm_embd_b = nullptr;
+
+    // "indexed" patch embedding norms
+    lm_ggml_tensor * patch_norm_1_w = nullptr;
+    lm_ggml_tensor * patch_norm_1_b = nullptr;
+    lm_ggml_tensor * patch_norm_2_w = nullptr;
+    lm_ggml_tensor * patch_norm_2_b = nullptr;
+    lm_ggml_tensor * patch_norm_3_w = nullptr;
+    lm_ggml_tensor * patch_norm_3_b = nullptr;
 
     lm_ggml_tensor * pre_ln_w = nullptr;
     lm_ggml_tensor * pre_ln_b = nullptr;
@@ -382,6 +471,24 @@ struct clip_model {
     lm_ggml_tensor * mm_model_ln_post_w = nullptr;
     lm_ggml_tensor * mm_model_ln_post_b = nullptr;
 
+    // MiniCPM-V 4.6 ViT merger (window self-attention + ViT MLP downsample)
+    lm_ggml_tensor * vit_merger_ln1_w     = nullptr;
+    lm_ggml_tensor * vit_merger_ln1_b     = nullptr;
+    lm_ggml_tensor * vit_merger_attn_q_w  = nullptr;
+    lm_ggml_tensor * vit_merger_attn_q_b  = nullptr;
+    lm_ggml_tensor * vit_merger_attn_k_w  = nullptr;
+    lm_ggml_tensor * vit_merger_attn_k_b  = nullptr;
+    lm_ggml_tensor * vit_merger_attn_v_w  = nullptr;
+    lm_ggml_tensor * vit_merger_attn_v_b  = nullptr;
+    lm_ggml_tensor * vit_merger_attn_o_w  = nullptr;
+    lm_ggml_tensor * vit_merger_attn_o_b  = nullptr;
+    lm_ggml_tensor * vit_merger_ds_ln_w   = nullptr;
+    lm_ggml_tensor * vit_merger_ds_ln_b   = nullptr;
+    lm_ggml_tensor * vit_merger_ds_up_w   = nullptr;
+    lm_ggml_tensor * vit_merger_ds_up_b   = nullptr;
+    lm_ggml_tensor * vit_merger_ds_down_w = nullptr;
+    lm_ggml_tensor * vit_merger_ds_down_b = nullptr;
+
     // gemma3
     lm_ggml_tensor * mm_input_proj_w = nullptr;
     lm_ggml_tensor * mm_soft_emb_norm_w = nullptr;
@@ -402,6 +509,15 @@ struct clip_model {
     lm_ggml_tensor * msfa_ffn_expand_bn = nullptr;
     lm_ggml_tensor * msfa_ffn_project_bn = nullptr;
 
+    // yasa2
+    lm_ggml_tensor * yasa_patch_w = nullptr;
+    lm_ggml_tensor * yasa_patch_b = nullptr;
+    lm_ggml_tensor * yasa_patch_ln_w = nullptr;
+    lm_ggml_tensor * yasa_patch_ln_b = nullptr;
+    lm_ggml_tensor * yasa_backbone_ln_w = nullptr;
+    lm_ggml_tensor * yasa_backbone_ln_b = nullptr;
+    lm_ggml_tensor * yasa_vision_pos_embed = nullptr;
+    std::vector<yasa2_stage> yasa_stages;
 
     // pixtral, glm4v
     lm_ggml_tensor * token_embd_img_break = nullptr;
@@ -436,7 +552,7 @@ struct clip_model {
     lm_ggml_tensor * mm_boi = nullptr;
     lm_ggml_tensor * mm_eoi = nullptr;
 
-    // hunyuanocr perceiver
+    // hunyuanvl perceiver
     lm_ggml_tensor * mm_pre_norm_w  = nullptr;
     lm_ggml_tensor * mm_img_begin   = nullptr;
     lm_ggml_tensor * mm_img_end     = nullptr;
@@ -458,6 +574,11 @@ struct clip_model {
     int32_t n_sam_layers = 12; // used by deepseek-ocr sam encoder
 
     std::vector<clip_layer> sam_layers;
+
+    // deepseek-ocr-2
+    lm_ggml_tensor * resample_query_768 = nullptr;
+    lm_ggml_tensor * resample_query_1024 = nullptr;
+
     // lfm2 audio
     std::array<lm_ggml_tensor *, 7> pre_encode_conv_X_w = {nullptr};
     std::array<lm_ggml_tensor *, 7> pre_encode_conv_X_b = {nullptr};
@@ -484,6 +605,16 @@ struct clip_model {
     lm_ggml_tensor * sscp_inp_proj_b = nullptr;
     lm_ggml_tensor * audio_out_proj_w = nullptr;
     lm_ggml_tensor * audio_out_proj_b = nullptr;
+
+    // granite_speech encoder
+    lm_ggml_tensor * inp_proj_w    = nullptr;
+    lm_ggml_tensor * inp_proj_b    = nullptr;
+    lm_ggml_tensor * ctc_out_w     = nullptr;
+    lm_ggml_tensor * ctc_out_b     = nullptr;
+    lm_ggml_tensor * ctc_out_mid_w = nullptr;
+    lm_ggml_tensor * ctc_out_mid_b = nullptr;
+    // qformer projector(s)
+    std::vector<qf_block> qf_proj_blocks;
 
     bool audio_has_avgpool() const {
         return proj_type == PROJECTOR_TYPE_QWEN2A

@@ -36,6 +36,7 @@ interface ExampleModelSetupProps {
   defaultModelSectionTitle?: string
   customModelSectionTitle?: string
   addCustomModelLabel?: string
+  defaultModelsFirst?: boolean
   isLoading?: boolean
   initProgress?: number
   progressText?: string
@@ -59,6 +60,7 @@ export function ExampleModelSetup({
   defaultModelSectionTitle = 'Default Models',
   customModelSectionTitle = 'Custom Models',
   addCustomModelLabel = '+ Add Custom Model',
+  defaultModelsFirst = false,
   isLoading = false,
   initProgress = 0,
   progressText = '',
@@ -66,6 +68,99 @@ export function ExampleModelSetup({
 }: ExampleModelSetupProps) {
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
+
+  const customModelSection =
+    customModels.length > 0 && onInitializeCustomModel ? (
+      <>
+        <Text style={themedStyles.modelSectionTitle}>
+          {customModelSectionTitle}
+        </Text>
+        {customModels.map((model) => (
+          <CustomModelCard
+            key={model.id}
+            model={model}
+            onInitialize={(modelPath, mmprojPath) =>
+              onInitializeCustomModel(model, modelPath, mmprojPath)
+            }
+            onModelRemoved={async () => {
+              if (onReloadCustomModels) {
+                await onReloadCustomModels()
+              }
+            }}
+            initializeButtonText={
+              defaultModels[0]?.initializeButtonText || 'Initialize'
+            }
+          />
+        ))}
+      </>
+    ) : null
+
+  const customModelButton =
+    onOpenCustomModelModal && onCloseCustomModelModal ? (
+      <TouchableOpacity
+        style={themedStyles.addCustomModelButton}
+        onPress={onOpenCustomModelModal}
+      >
+        <Text style={themedStyles.addCustomModelButtonText}>
+          {addCustomModelLabel}
+        </Text>
+      </TouchableOpacity>
+    ) : null
+
+  const defaultModelSection = (
+    <>
+      <Text style={themedStyles.modelSectionTitle}>
+        {defaultModelSectionTitle}
+      </Text>
+      {defaultModels.map((model) => {
+        if (model.kind === 'multimodal') {
+          return (
+            <MtmdModelDownloadCard
+              key={model.key}
+              title={model.title}
+              repo={model.repo}
+              filename={model.filename}
+              mmproj={model.mmproj}
+              size={model.size}
+              initializeButtonText={model.initializeButtonText}
+              onInitialize={(modelPath, mmprojPath) =>
+                onInitializeModel(model, modelPath, mmprojPath)
+              }
+            />
+          )
+        }
+
+        if (model.kind === 'tts') {
+          return (
+            <TTSModelDownloadCard
+              key={model.key}
+              title={model.title}
+              repo={model.repo}
+              filename={model.filename}
+              size={model.size}
+              vocoder={model.vocoder}
+              initializeButtonText={model.initializeButtonText}
+              onInitialize={(ttsPath, vocoderPath) =>
+                onInitializeModel(model, ttsPath, vocoderPath)
+              }
+            />
+          )
+        }
+
+        return (
+          <ModelDownloadCard
+            key={model.key}
+            title={model.title}
+            repo={model.repo}
+            filename={model.filename}
+            size={model.size}
+            initializeButtonText={model.initializeButtonText}
+            onInitialize={(modelPath) => onInitializeModel(model, modelPath)}
+          />
+        )
+      })}
+    </>
+  )
 
   return (
     <View style={themedStyles.container}>
@@ -76,92 +171,19 @@ export function ExampleModelSetup({
         <Text style={themedStyles.setupDescription}>{description}</Text>
         {children}
 
-        {customModels.length > 0 && onInitializeCustomModel && (
+        {defaultModelsFirst ? (
           <>
-            <Text style={themedStyles.modelSectionTitle}>
-              {customModelSectionTitle}
-            </Text>
-            {customModels.map((model) => (
-              <CustomModelCard
-                key={model.id}
-                model={model}
-                onInitialize={(modelPath, mmprojPath) =>
-                  onInitializeCustomModel(model, modelPath, mmprojPath)
-                }
-                onModelRemoved={async () => {
-                  if (onReloadCustomModels) {
-                    await onReloadCustomModels()
-                  }
-                }}
-                initializeButtonText={
-                  defaultModels[0]?.initializeButtonText || 'Initialize'
-                }
-              />
-            ))}
+            {defaultModelSection}
+            {customModelSection}
+            {customModelButton}
+          </>
+        ) : (
+          <>
+            {customModelSection}
+            {customModelButton}
+            {defaultModelSection}
           </>
         )}
-
-        {onOpenCustomModelModal && onCloseCustomModelModal && (
-          <TouchableOpacity
-            style={themedStyles.addCustomModelButton}
-            onPress={onOpenCustomModelModal}
-          >
-            <Text style={themedStyles.addCustomModelButtonText}>
-              {addCustomModelLabel}
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        <Text style={themedStyles.modelSectionTitle}>
-          {defaultModelSectionTitle}
-        </Text>
-        {defaultModels.map((model) => {
-          if (model.kind === 'multimodal') {
-            return (
-              <MtmdModelDownloadCard
-                key={model.key}
-                title={model.title}
-                repo={model.repo}
-                filename={model.filename}
-                mmproj={model.mmproj}
-                size={model.size}
-                initializeButtonText={model.initializeButtonText}
-                onInitialize={(modelPath, mmprojPath) =>
-                  onInitializeModel(model, modelPath, mmprojPath)
-                }
-              />
-            )
-          }
-
-          if (model.kind === 'tts') {
-            return (
-              <TTSModelDownloadCard
-                key={model.key}
-                title={model.title}
-                repo={model.repo}
-                filename={model.filename}
-                size={model.size}
-                vocoder={model.vocoder}
-                initializeButtonText={model.initializeButtonText}
-                onInitialize={(ttsPath, vocoderPath) =>
-                  onInitializeModel(model, ttsPath, vocoderPath)
-                }
-              />
-            )
-          }
-
-          return (
-            <ModelDownloadCard
-              key={model.key}
-              title={model.title}
-              repo={model.repo}
-              filename={model.filename}
-              size={model.size}
-              initializeButtonText={model.initializeButtonText}
-              onInitialize={(modelPath) => onInitializeModel(model, modelPath)}
-            />
-          )
-        })}
       </ScrollView>
 
       {onOpenCustomModelModal && onCloseCustomModelModal && (

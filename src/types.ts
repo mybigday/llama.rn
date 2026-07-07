@@ -2,8 +2,58 @@ export type NativeEmbeddingParams = {
   embd_normalize?: number
 }
 
+export type NativeSpeculativeType =
+  | 'none'
+  | 'draft-mtp'
+  /**
+   * Alias for draft-mtp.
+   */
+  | 'mtp'
+
+export type NativeSpeculativeParams = {
+  enabled?: boolean
+  type?: NativeSpeculativeType
+  types?: Array<NativeSpeculativeType>
+  n_max?: number
+  n_min?: number
+  p_min?: number
+  p_split?: number
+  draft?: {
+    /**
+     * Optional separate draft model path for MTP/speculative decoding.
+     * When omitted, MTP uses the loaded target model's embedded draft layers.
+     */
+    model?: string
+    path?: string
+    model_draft?: string
+    draft_model?: string
+    n_max?: number
+    n_min?: number
+    p_min?: number
+    p_split?: number
+    n_gpu_layers?: number
+    cache_type_k?: string
+    cache_type_v?: string
+  }
+}
+
+export type NativeSpeculativeConfig =
+  | NativeSpeculativeParams
+  | NativeSpeculativeType
+  | boolean
+
 export type NativeContextParams = {
   model: string
+  /**
+   * Optional separate draft model path for MTP/speculative decoding.
+   * Leave unset for hybrid/embedded MTP models such as Qwen MTP.
+   */
+  model_draft?: string
+  /**
+   * Alias for model_draft.
+   */
+  draft_model?: string
+  is_model_draft_asset?: boolean
   /**
    * Chat template to override the default one from the model.
    */
@@ -98,6 +148,21 @@ export type NativeContextParams = {
 
   rope_freq_base?: number
   rope_freq_scale?: number
+
+  /**
+   * Enable speculative decoding support at context creation time.
+   * MTP on recurrent/hybrid models must be enabled here so llama.cpp can
+   * allocate recurrent-state rollback slots.
+   */
+  speculative?: NativeSpeculativeConfig
+  spec_type?: NativeSpeculativeType | Array<NativeSpeculativeType>
+  spec_draft_n_max?: number
+  spec_draft_n_min?: number
+  spec_draft_p_min?: number
+  spec_draft_p_split?: number
+  spec_draft_n_gpu_layers?: number
+  spec_draft_cache_type_k?: string
+  spec_draft_cache_type_v?: string
 
   pooling_type?: number
 
@@ -209,6 +274,16 @@ export type NativeCompletionParams = {
    * Default: `0`
    */
   n_probs?: number
+  /**
+   * Per-completion speculative decoding override. For MTP on recurrent/hybrid
+   * models, load the model with matching MTP options first.
+   */
+  speculative?: NativeSpeculativeConfig
+  spec_type?: NativeSpeculativeType | Array<NativeSpeculativeType>
+  spec_draft_n_max?: number
+  spec_draft_n_min?: number
+  spec_draft_p_min?: number
+  spec_draft_p_split?: number
   /**
    * Limit the next token selection to the K most probable tokens.  Default: `40`
    */
@@ -413,6 +488,8 @@ export type NativeCompletionResult = {
 
   tokens_predicted: number
   tokens_evaluated: number
+  draft_tokens: number
+  draft_tokens_accepted: number
   truncated: boolean
   stopped_eos: boolean
   stopped_word: string

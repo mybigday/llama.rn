@@ -8,7 +8,9 @@ lm_ggml_cgraph * clip_graph_internvl::build() {
     lm_ggml_tensor * inp = build_inp();
 
     // add CLS token
-    inp = lm_ggml_concat(ctx0, inp, model.class_embedding, 1);
+    lm_ggml_tensor * cls_repeated = lm_ggml_repeat_4d(ctx0, model.class_embedding,
+            model.class_embedding->ne[0], 1, n_batch, 1);
+    inp = lm_ggml_concat(ctx0, inp, cls_repeated, 1);
 
     // The larger models use a different ViT, which uses RMS norm instead of layer norm
     // ref: https://github.com/ggml-org/llama.cpp/pull/13443#issuecomment-2869786188
@@ -24,14 +26,15 @@ lm_ggml_cgraph * clip_graph_internvl::build() {
                             nullptr);
 
     // remove CLS token
-    cur = lm_ggml_view_2d(ctx0, cur,
-        n_embd, n_patches,
-        lm_ggml_row_size(cur->type, n_embd), 0);
+    cur = lm_ggml_view_3d(ctx0, cur,
+        n_embd, n_patches, n_batch,
+        cur->nb[1], cur->nb[2], 0);
+    cur = lm_ggml_cont(ctx0, cur);
 
     // pixel shuffle
     {
         const int scale_factor = model.hparams.n_merge;
-        const int bsz    = 1; // batch size, always 1 for now since we don't support batching
+        const int bsz    = n_batch;
         const int height = n_patches_y;
         const int width  = n_patches_x;
         LM_GGML_ASSERT(scale_factor > 0);
@@ -44,9 +47,10 @@ lm_ggml_cgraph * clip_graph_internvl::build() {
             bsz);
         cur = lm_ggml_permute(ctx0, cur, 0, 2, 1, 3);
         // flatten to 2D
-        cur = lm_ggml_cont_2d(ctx0, cur,
+        cur = lm_ggml_cont_3d(ctx0, cur,
             n_embd * scale_factor * scale_factor,
-            cur->ne[1] * cur->ne[2]);
+            cur->ne[1] * cur->ne[2],
+            cur->ne[3]);
     }
 
     // projector (always using GELU activation)

@@ -1,28 +1,14 @@
---- common/common.cpp.orig	2026-04-03 08:09:54
-+++ common/common.cpp	2026-04-03 08:10:36
-@@ -52,6 +52,13 @@
- #include <pwd.h>
- #endif
-
-+// build info
-+int LLAMA_BUILD_NUMBER = 0;
-+char const *LLAMA_COMMIT = "unknown";
-+char const *LLAMA_COMPILER = "unknown";
-+char const *LLAMA_BUILD_TARGET = "unknown";
-+
-+
- #if defined(_MSC_VER)
- #pragma warning(disable: 4244 4267) // possible loss of data
- #endif
-@@ -1415,6 +1422,7 @@
+--- common/common.cpp.orig	2026-05-08 17:29:06
++++ common/common.cpp	2026-05-08 17:28:58
+@@ -1453,6 +1453,7 @@
          mparams.devices = params.devices.data();
      }
-
+ 
 +    mparams.vocab_only      = params.vocab_only;
      mparams.n_gpu_layers    = params.n_gpu_layers;
      mparams.main_gpu        = params.main_gpu;
      mparams.split_mode      = params.split_mode;
-@@ -1443,6 +1451,11 @@
+@@ -1481,6 +1482,11 @@
      mparams.progress_callback           = params.load_progress_callback;
      mparams.progress_callback_user_data = params.load_progress_callback_user_data;
      mparams.no_alloc                    = params.no_alloc;
@@ -31,6 +17,6 @@
 +        mparams.progress_callback = params.progress_callback;
 +        mparams.progress_callback_user_data = params.progress_callback_user_data;
 +    }
-
+ 
      return mparams;
  }

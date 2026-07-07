@@ -242,6 +242,52 @@ bool test_completion() {
     }
 }
 
+// Test that partial init failures return false instead of dereferencing a null context.
+bool test_context_init_failure_is_graceful() {
+    try {
+        llama_rn_context ctx;
+
+        common_params params;
+        params.model.path = "../tiny-random-llama.gguf";
+        params.n_ctx = 512;
+        params.n_batch = 0;
+        params.n_ubatch = 0;
+        params.cpuparams.n_threads = 1;
+        params.n_gpu_layers = 0;
+        params.no_kv_offload = true;
+
+        bool load_result = ctx.loadModel(params);
+
+        if (load_result) {
+            std::cout << "Expected loadModel to fail when n_batch and n_ubatch are zero" << std::endl;
+            return false;
+        }
+
+        if (ctx.model == nullptr) {
+            std::cout << "Expected model to load before context creation failed" << std::endl;
+            return false;
+        }
+
+        if (ctx.ctx != nullptr) {
+            std::cout << "Context should remain null after failed initialization" << std::endl;
+            return false;
+        }
+
+        if (ctx.n_ctx != 0) {
+            std::cout << "n_ctx should remain unset after failed initialization" << std::endl;
+            return false;
+        }
+
+        return true;
+    } catch (const std::exception& e) {
+        std::cout << "Exception: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cout << "Unknown exception" << std::endl;
+        return false;
+    }
+}
+
 // Test utility functions
 bool test_utilities() {
     try {
@@ -274,6 +320,7 @@ int main() {
     results.run_test("Context Creation and Model Loading", test_context_creation_and_model_loading());
     results.run_test("Tokenization", test_tokenization());
     results.run_test("Completion", test_completion());
+    results.run_test("Graceful Context Init Failure", test_context_init_failure_is_graceful());
     results.run_test("Utility Functions", test_utilities());
 
     // Print summary

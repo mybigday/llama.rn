@@ -1,117 +1,28 @@
 --- llama-model.cpp.orig
 +++ llama-model.cpp
-@@ -1945,6 +1945,28 @@ void llama_model::load_hparams(llama_model_loader & ml) {
-                     default: type = LLM_TYPE_UNKNOWN;
-                 }
-             } break;
-+        case LLM_ARCH_BARBET:
-+            {
-+                ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
-+
-+                ml.get_key(LLM_KV_SSM_CONV_KERNEL,    hparams.ssm_d_conv);
-+                ml.get_key(LLM_KV_SSM_INNER_SIZE,     hparams.ssm_d_inner);
-+                ml.get_key(LLM_KV_SSM_STATE_SIZE,     hparams.ssm_d_state);
-+                ml.get_key(LLM_KV_SSM_TIME_STEP_RANK, hparams.ssm_dt_rank);
-+                ml.get_key(LLM_KV_SSM_GROUP_COUNT,    hparams.ssm_n_group);
-+
-+                // A layer is recurrent (mamba2) IFF its kv-head count is 0.
-+                // Barbet always carries FFN, so the extra n_ff==0 guard
-+                // nemotron-h uses would flip everything false.
-+                for (uint32_t i = 0; i < hparams.n_layer; ++i) {
-+                    hparams.recurrent_layer_arr[i] = hparams.n_head_kv(i) == 0;
-+                }
-+
-+                switch (hparams.n_layer) {
-+                    case 28: type = LLM_TYPE_1B; break;
-+                    default: type = LLM_TYPE_UNKNOWN;
-+                }
-+            } break;
-         case LLM_ARCH_NEMOTRON_H:
+@@ -207,6 +207,8 @@
+             return new llama_model_nemotron_h(params);
          case LLM_ARCH_NEMOTRON_H_MOE:
-             {
-@@ -5702,6 +5724,57 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
-                         layer.ffn_up_b   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "bias", i), {n_ff}, TENSOR_NOT_REQUIRED);
-                     }
-                 } break;
-+            case LLM_ARCH_BARBET:
-+                {
-+                    const int64_t d_conv     = hparams.ssm_d_conv;
-+                    const int64_t d_inner    = hparams.ssm_d_inner;
-+                    const int64_t d_state    = hparams.ssm_d_state;
-+                    const int64_t n_ssm_head = hparams.ssm_dt_rank;
-+                    const int64_t n_group    = hparams.ssm_n_group;
-+                    const int64_t d_in_proj  = 2*d_inner + 2*n_group*d_state + n_ssm_head;
-+
-+                    tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
-+
-+                    output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
-+                    output      = create_tensor(tn(LLM_TENSOR_OUTPUT, "weight"), {n_embd, n_vocab}, TENSOR_NOT_REQUIRED);
-+                    if (output == NULL) {
-+                        // Tied embeddings: reuse the token embed for the head.
-+                        output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
-+                    }
-+
-+                    for (int i = 0; i < n_layer; ++i) {
-+                        auto & layer = layers[i];
-+
-+                        layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
-+                        layer.ffn_norm  = create_tensor(tn(LLM_TENSOR_FFN_NORM,  "weight", i), {n_embd}, 0);
-+
-+                        if (hparams.is_recurrent(i)) {
-+                            layer.ssm_in       = create_tensor(tn(LLM_TENSOR_SSM_IN,     "weight", i), {n_embd, d_in_proj}, 0);
-+                            layer.ssm_conv1d   = create_tensor(tn(LLM_TENSOR_SSM_CONV1D, "weight", i), {d_conv, d_inner + 2*n_group*d_state}, 0);
-+                            layer.ssm_conv1d_b = create_tensor(tn(LLM_TENSOR_SSM_CONV1D, "bias",   i), {d_inner + 2*n_group*d_state}, 0);
-+                            layer.ssm_dt_b     = create_tensor(tn(LLM_TENSOR_SSM_DT,     "bias",   i), {n_ssm_head}, 0);
-+                            layer.ssm_a        = create_tensor(tn(LLM_TENSOR_SSM_A, i), {1, n_ssm_head}, 0);
-+                            layer.ssm_d        = create_tensor(tn(LLM_TENSOR_SSM_D, i), {1, n_ssm_head}, 0);
-+                            layer.ssm_norm     = create_tensor(tn(LLM_TENSOR_SSM_NORM, "weight", i), {d_inner / n_group, n_group}, 0);
-+                            layer.ssm_out      = create_tensor(tn(LLM_TENSOR_SSM_OUT,  "weight", i), {d_inner, n_embd}, 0);
-+                        } else {
-+                            const int64_t n_head_i       = hparams.n_head(i);
-+                            const int64_t n_embd_k_gqa_i = hparams.n_embd_k_gqa(i);
-+                            const int64_t n_embd_v_gqa_i = hparams.n_embd_v_gqa(i);
-+                            layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd_head_k * n_head_i}, 0);
-+                            layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, n_embd_k_gqa_i}, 0);
-+                            layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_v_gqa_i}, 0);
-+                            layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_k * n_head_i, n_embd}, 0);
-+                            // qk_norm always present; head_dim scalar per Qwen3 convention.
-+                            layer.attn_q_norm = create_tensor(tn(LLM_TENSOR_ATTN_Q_NORM, "weight", i), {n_embd_head_k}, 0);
-+                            layer.attn_k_norm = create_tensor(tn(LLM_TENSOR_ATTN_K_NORM, "weight", i), {n_embd_head_k}, 0);
-+                        }
-+
-+                        layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
-+                        layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
-+                        layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
-+                    }
-+                } break;
-             case LLM_ARCH_NEMOTRON_H:
-             case LLM_ARCH_NEMOTRON_H_MOE:
-                 {
-@@ -7908,7 +7981,8 @@ void llama_model::print_info() const {
-         arch == LLM_ARCH_QWEN35 ||
-         arch == LLM_ARCH_QWEN35MOE ||
-         arch == LLM_ARCH_NEMOTRON_H ||
--        arch == LLM_ARCH_NEMOTRON_H_MOE) {
-+        arch == LLM_ARCH_NEMOTRON_H_MOE ||
-+        arch == LLM_ARCH_BARBET) {
-         LLAMA_LOG_INFO("%s: ssm_d_conv            = %u\n",     __func__, hparams.ssm_d_conv);
-         LLAMA_LOG_INFO("%s: ssm_d_inner           = %u\n",     __func__, hparams.ssm_d_inner);
-         LLAMA_LOG_INFO("%s: ssm_d_state           = %u\n",     __func__, hparams.ssm_d_state);
-@@ -8562,6 +8636,10 @@ lm_ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const
-             {
-                 llm = std::make_unique<llm_build_nemotron_h>(*this, params);
-             } break;
+             return new llama_model_nemotron_h_moe(params);
 +        case LLM_ARCH_BARBET:
-+            {
-+                llm = std::make_unique<llm_build_barbet>(*this, params);
-+            } break;
++            return new llama_model_barbet(params);
          case LLM_ARCH_EXAONE:
-             {
-                 llm = std::make_unique<llm_build_exaone>(*this, params);
-@@ -8976,6 +9054,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
-         case LLM_ARCH_QWEN3NEXT:
-         case LLM_ARCH_MIMO2:
+             return new llama_model_exaone(params);
+         case LLM_ARCH_EXAONE4:
+@@ -1800,7 +1802,8 @@
+                 arch == LLM_ARCH_QWEN35 ||
+                 arch == LLM_ARCH_QWEN35MOE ||
+                 arch == LLM_ARCH_NEMOTRON_H ||
+-                arch == LLM_ARCH_NEMOTRON_H_MOE) {
++                arch == LLM_ARCH_NEMOTRON_H_MOE ||
++                arch == LLM_ARCH_BARBET) {
+             LLAMA_LOG_INFO("%s: ssm_d_conv            = %u\n",     __func__, hparams.ssm_d_conv);
+             LLAMA_LOG_INFO("%s: ssm_d_inner           = %u\n",     __func__, hparams.ssm_d_inner);
+             LLAMA_LOG_INFO("%s: ssm_d_state           = %u\n",     __func__, hparams.ssm_d_state);
+@@ -2493,6 +2496,7 @@
          case LLM_ARCH_STEP35:
+         case LLM_ARCH_TALKIE:
+         case LLM_ARCH_MELLUM:
 +        case LLM_ARCH_BARBET:
              return LLAMA_ROPE_TYPE_NEOX;
  

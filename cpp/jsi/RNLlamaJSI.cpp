@@ -374,6 +374,60 @@ namespace rnllama_jsi {
         return selected;
     }
 
+    static bool isGpuDeviceType(enum lm_ggml_backend_dev_type type) {
+        return type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU;
+    }
+
+    static bool hasGpuBackendDevice() {
+        const size_t devCount = lm_ggml_backend_dev_count();
+        for (size_t i = 0; i < devCount; ++i) {
+            auto dev = lm_ggml_backend_dev_get(i);
+            if (isGpuDeviceType(lm_ggml_backend_dev_type(dev))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void configureBackendDevices(
+        common_params& cparams,
+        const std::vector<std::string>& requestedDevices,
+        bool devicesProvided,
+        bool skipGpuDevices,
+        bool& anyGpuAvailable
+    ) {
+        anyGpuAvailable = false;
+        std::vector<lm_ggml_backend_dev_t> overrideDevices;
+
+        if (devicesProvided) {
+            overrideDevices = buildDeviceOverrides(requestedDevices, skipGpuDevices, anyGpuAvailable);
+            if (!overrideDevices.empty()) {
+                cparams.devices = overrideDevices;
+            }
+        }
+
+        if (overrideDevices.empty() && !skipGpuDevices) {
+#if defined(__ANDROID__)
+            auto defaultDevices = getFilteredDefaultDevices();
+            if (!defaultDevices.empty()) {
+                cparams.devices = defaultDevices;
+                for (auto dev : defaultDevices) {
+                    if (dev == nullptr) continue;
+                    if (isGpuDeviceType(lm_ggml_backend_dev_type(dev))) {
+                        anyGpuAvailable = true;
+                        break;
+                    }
+                }
+            }
+#endif
+        }
+
+        // Track backend availability when no explicit override was applied.
+        if (overrideDevices.empty() && !anyGpuAvailable) {
+            anyGpuAvailable = hasGpuBackendDevice();
+        }
+    }
+
     void addContext(int contextId, long contextPtr) {
         g_llamaContexts.add(contextId, contextPtr);
     }
@@ -402,6 +456,7 @@ namespace rnllama_jsi {
                 int contextId = (int)arguments[0].asNumber();
                 jsi::Object params = arguments[1].asObject(runtime);
                 bool isModelAsset = getPropertyAsBool(runtime, params, "is_model_asset", false);
+                bool isModelDraftAsset = getPropertyAsBool(runtime, params, "is_model_draft_asset", false);
 
                 bool useProgressCallback = getPropertyAsBool(runtime, params, "use_progress_callback", false);
                 int progressCallbackEvery = getPropertyAsInt(runtime, params, "progress_callback_every", 1);
@@ -420,8 +475,6 @@ namespace rnllama_jsi {
                     useProgressCallback = false;
                 }
 
-                ensureBackendInitialized();
-
                 common_params cparams;
                 parseCommonParams(runtime, params, cparams);
 
@@ -429,21 +482,16 @@ namespace rnllama_jsi {
                 if (isModelAsset) {
                     cparams.model.path = resolveIosModelPath(cparams.model.path, true);
                 }
+                if (isModelDraftAsset && !cparams.speculative.draft.mparams.path.empty()) {
+                    cparams.speculative.draft.mparams.path =
+                        resolveIosModelPath(cparams.speculative.draft.mparams.path, true);
+                }
 #endif
 
                 bool skipGpuDevices = getPropertyAsBool(runtime, params, "no_gpu_devices", false);
                 if (skipGpuDevices) {
                     cparams.n_gpu_layers = 0;
                 }
-
-#if defined(__APPLE__)
-                auto metalAvailability = getMetalAvailability(skipGpuDevices);
-                std::string appleGpuReason = metalAvailability.available ? "" : metalAvailability.reason;
-                if (!metalAvailability.available && !skipGpuDevices) {
-                    skipGpuDevices = true;
-                    cparams.n_gpu_layers = 0;
-                }
-#endif
 
                 std::vector<std::string> requestedDevices;
                 bool devicesProvided = false;
@@ -459,52 +507,39 @@ namespace rnllama_jsi {
                         }
                     }
                 }
-                bool anyGpuAvailable = false;
-                std::vector<lm_ggml_backend_dev_t> overrideDevices;
-                if (devicesProvided) {
-                    overrideDevices = buildDeviceOverrides(requestedDevices, skipGpuDevices, anyGpuAvailable);
-                    if (!overrideDevices.empty()) {
-                        cparams.devices = overrideDevices;
-                    }
-                }
-                if (overrideDevices.empty() && !skipGpuDevices) {
-#if defined(__ANDROID__)
-                    auto defaultDevices = getFilteredDefaultDevices();
-                    if (!defaultDevices.empty()) {
-                        cparams.devices = defaultDevices;
-                        for (auto dev : defaultDevices) {
-                            if (dev == nullptr) continue;
-                            auto type = lm_ggml_backend_dev_type(dev);
-                            if (type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
-                                anyGpuAvailable = true;
-                                break;
-                            }
-                        }
-                    }
-#endif
-                }
 
-                // Track backend availability when no explicit override was applied
-                if (overrideDevices.empty() && anyGpuAvailable == false) {
-                    const size_t devCount = lm_ggml_backend_dev_count();
-                    for (size_t i = 0; i < devCount; ++i) {
-                        auto dev = lm_ggml_backend_dev_get(i);
-                        auto type = lm_ggml_backend_dev_type(dev);
-                        if (type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
-                            anyGpuAvailable = true;
-                            break;
-                        }
-                    }
-                }
-
-                return createPromiseTask(runtime, callInvoker, [contextId, cparams, skipGpuDevices, anyGpuAvailable, useProgressCallback, progressData
-#if defined(__APPLE__)
-                    , appleGpuReason
-#endif
+                return createPromiseTask(runtime, callInvoker, [
+                    contextId,
+                    cparams,
+                    skipGpuDevices,
+                    requestedDevices,
+                    devicesProvided,
+                    useProgressCallback,
+                    progressData
                 ]() mutable -> PromiseResultGenerator {
                     if (isContextLimitReached()) {
                         throw std::runtime_error("Context limit reached");
                     }
+
+                    ensureBackendInitialized();
+
+#if defined(__APPLE__)
+                    auto metalAvailability = getMetalAvailability(skipGpuDevices);
+                    std::string appleGpuReason = metalAvailability.available ? "" : metalAvailability.reason;
+                    if (!metalAvailability.available && !skipGpuDevices) {
+                        skipGpuDevices = true;
+                        cparams.n_gpu_layers = 0;
+                    }
+#endif
+
+                    bool anyGpuAvailable = false;
+                    configureBackendDevices(
+                        cparams,
+                        requestedDevices,
+                        devicesProvided,
+                        skipGpuDevices,
+                        anyGpuAvailable
+                    );
 
                     if (useProgressCallback && progressData && progressData->callback) {
                         cparams.progress_callback = [](float progress, void * user_data) {
@@ -558,8 +593,7 @@ namespace rnllama_jsi {
                                  if (used_name != nullptr) {
                                      usedDevices.push_back(used_name);
                                  }
-                                 auto devType = lm_ggml_backend_dev_type(dev);
-                                 if (devType == LM_GGML_BACKEND_DEVICE_TYPE_GPU || devType == LM_GGML_BACKEND_DEVICE_TYPE_IGPU) {
+                                 if (isGpuDeviceType(lm_ggml_backend_dev_type(dev))) {
                                      gpuEnabled = true;
                                  }
                              }
@@ -1021,6 +1055,10 @@ namespace rnllama_jsi {
                         ctx->tts_wrapper->setGuideTokens(guide_tokens);
                     }
 
+                    if (!mediaPaths.empty() && ctx->completion->shouldUseMTP()) {
+                        throw std::runtime_error("MTP speculative decoding currently supports text-only completion");
+                    }
+
                     ctx->completion->rewind();
                     if (!ctx->completion->initSampling()) {
                         throw std::runtime_error("Failed to initialize sampling");
@@ -1308,6 +1346,8 @@ namespace rnllama_jsi {
                             std::string stopping_word = slot->stopping_word;
                             size_t tokens_predicted = slot->num_tokens_predicted;
                             size_t tokens_evaluated = slot->num_prompt_tokens;
+                            size_t draft_tokens = slot->num_draft_tokens;
+                            size_t draft_tokens_accepted = slot->num_draft_tokens_accepted;
                             llama_pos tokens_cached = slot->n_past;
                             int32_t n_decoded = slot->n_decoded;
                             std::string error_message = slot->error_message;
@@ -1330,7 +1370,7 @@ namespace rnllama_jsi {
                             if (!runtime) {
                               return;
                             }
-                            invokeAsyncTracked(callInvoker, contextId, [callbacks, contextId, requestId, text, stopped_eos, stopped_limit, stopped_word, context_full, incomplete, truncated, interrupted, chat_format_val, stopping_word, tokens_predicted, tokens_evaluated, tokens_cached, n_decoded, error_message, timings, token_probs, final_output, has_final_output, runtime](bool shouldProceed) {
+                            invokeAsyncTracked(callInvoker, contextId, [callbacks, contextId, requestId, text, stopped_eos, stopped_limit, stopped_word, context_full, incomplete, truncated, interrupted, chat_format_val, stopping_word, tokens_predicted, tokens_evaluated, draft_tokens, draft_tokens_accepted, tokens_cached, n_decoded, error_message, timings, token_probs, final_output, has_final_output, runtime](bool shouldProceed) {
                                 if (!shouldProceed) return;
                                 long ctxPtr = g_llamaContexts.get(contextId);
                                 if (!ctxPtr) {
@@ -1353,6 +1393,8 @@ namespace rnllama_jsi {
                                 res.setProperty(rt, "stopping_word", jsi::String::createFromUtf8(rt, stopping_word));
                                 res.setProperty(rt, "tokens_predicted", (double)tokens_predicted);
                                 res.setProperty(rt, "tokens_evaluated", (double)tokens_evaluated);
+                                res.setProperty(rt, "draft_tokens", (double)draft_tokens);
+                                res.setProperty(rt, "draft_tokens_accepted", (double)draft_tokens_accepted);
                                 res.setProperty(rt, "tokens_cached", (double)tokens_cached);
                                 res.setProperty(rt, "n_decoded", (double)n_decoded);
 

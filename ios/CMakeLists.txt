@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(rnllama VERSION 1.0.0 LANGUAGES CXX C)
+project(rnllama VERSION 1.0.0 LANGUAGES CXX C ASM)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,7 @@ add_definitions(
     -DLM_GGML_USE_BLAS
     -DLM_GGML_BLAS_USE_ACCELERATE
     -DLM_GGML_USE_METAL
+    -DLM_GGML_METAL_EMBED_LIBRARY=1
 )
 
 if (CMAKE_OSX_ARCHITECTURES STREQUAL "arm64;x86_64")
@@ -26,18 +27,20 @@ endif ()
 set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
 
 # Collect source files using glob patterns
-file(GLOB MODEL_FILES ${SOURCE_DIR}/models/*.cpp)
-file(GLOB GGML_CPU_C_FILES ${SOURCE_DIR}/ggml-cpu/*.c)
-file(GLOB GGML_CPU_CPP_FILES ${SOURCE_DIR}/ggml-cpu/*.cpp)
-file(GLOB GGML_CPU_AMX_FILES ${SOURCE_DIR}/ggml-cpu/amx/*.cpp)
-file(GLOB GGML_METAL_CPP_FILES ${SOURCE_DIR}/ggml-metal/*.cpp)
-file(GLOB GGML_METAL_M_FILES ${SOURCE_DIR}/ggml-metal/*.m)
-file(GLOB GGML_BLAS_FILES ${SOURCE_DIR}/ggml-blas/*.cpp)
-file(GLOB LLAMA_FILES ${SOURCE_DIR}/llama*.cpp)
-file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
-file(GLOB MTMD_MODEL_FILES ${SOURCE_DIR}/tools/mtmd/models/*.cpp)
-file(GLOB COMMON_FILES ${SOURCE_DIR}/common/*.cpp)
-file(GLOB JINJA_FILES ${SOURCE_DIR}/common/jinja/*.cpp)
+file(GLOB MODEL_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/models/*.cpp)
+file(GLOB GGML_CPU_C_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-cpu/*.c)
+file(GLOB GGML_CPU_CPP_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-cpu/*.cpp)
+file(GLOB GGML_CPU_AMX_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-cpu/amx/*.cpp)
+file(GLOB GGML_METAL_CPP_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-metal/*.cpp)
+file(GLOB GGML_METAL_M_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-metal/*.m)
+file(GLOB GGML_METAL_S_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-metal/*.s)
+set_source_files_properties(${GGML_METAL_S_FILES} PROPERTIES LANGUAGE ASM)
+file(GLOB GGML_BLAS_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/ggml-blas/*.cpp)
+file(GLOB LLAMA_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/llama*.cpp)
+file(GLOB MTMD_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/tools/mtmd/*.cpp)
+file(GLOB MTMD_MODEL_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/tools/mtmd/models/*.cpp)
+file(GLOB COMMON_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/common/*.cpp)
+file(GLOB JINJA_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/common/jinja/*.cpp)
 file(GLOB CODEC_FILES CONFIGURE_DEPENDS
     ${SOURCE_DIR}/codec/src/*.cpp
     ${SOURCE_DIR}/codec/src/batch/*.cpp
@@ -64,6 +67,7 @@ set(PUBLIC_HEADERS
     ${SOURCE_DIR}/rn-tts.h
     ${SOURCE_DIR}/llama.h
     ${SOURCE_DIR}/llama-impl.h
+    ${SOURCE_DIR}/common/speculative.h
     ${SOURCE_DIR}/ggml.h
 )
 
@@ -89,6 +93,7 @@ add_library(rnllama SHARED
     # GGML Metal files (globbed)
     ${GGML_METAL_CPP_FILES}
     ${GGML_METAL_M_FILES}
+    ${GGML_METAL_S_FILES}
 
     # GGML BLAS files (globbed)
     ${GGML_BLAS_FILES}
@@ -112,6 +117,7 @@ add_library(rnllama SHARED
     # Headers (needed for build)
     ${SOURCE_DIR}/common/chat.h
     ${SOURCE_DIR}/common/common.h
+    ${SOURCE_DIR}/common/speculative.h
 
     # Multimodal support (globbed)
     ${MTMD_MODEL_FILES}

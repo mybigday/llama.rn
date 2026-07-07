@@ -73,6 +73,7 @@ lib/
 docs/API/.nojekyll
 
 *.metallib
+cpp/ggml-metal/ggml-metal-embed.s
 .xocde.env.local
 
 build-arm64/
@@ -101,3 +102,7 @@ local-plan-done
 
 tests/*.gguf
 tests/status_changes.log
+
+# Local scratch + host build artifacts
+.scratch/
+build-host/

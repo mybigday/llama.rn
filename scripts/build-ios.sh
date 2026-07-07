@@ -34,6 +34,7 @@ copy_headers() {
   cp "$ROOT_DIR"/cpp/common/chat.h "$framework_path/Headers/"
   cp "$ROOT_DIR"/cpp/common/common.h "$framework_path/Headers/"
   cp "$ROOT_DIR"/cpp/common/sampling.h "$framework_path/Headers/"
+  cp "$ROOT_DIR"/cpp/common/speculative.h "$framework_path/Headers/"
   cp "$ROOT_DIR"/cpp/common/json-schema-to-grammar.h "$framework_path/Headers/"
   cp "$ROOT_DIR"/cpp/common/peg-parser.h "$framework_path/Headers/"
 }
@@ -42,8 +43,8 @@ copy_framework_support_files() {
   local framework_path="$1"
 
   copy_headers "$framework_path"
-  cp "$ROOT_DIR/cpp/ggml-metal/ggml-metal.metal" \
-    "$framework_path/ggml-metal.metal"
+  # ggml-metal.metal is no longer shipped: its bytes are embedded into the framework
+  # binary via cpp/ggml-metal/ggml-metal-embed.s (LM_GGML_METAL_EMBED_LIBRARY).
 }
 
 assert_matching_dsym() {

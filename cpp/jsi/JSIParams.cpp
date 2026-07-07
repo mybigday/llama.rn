@@ -1,4 +1,9 @@
 #include "JSIParams.h"
+#if defined(RNLLAMA_USE_FRAMEWORK_HEADERS)
+#include <rnllama/speculative.h>
+#else
+#include "speculative.h"
+#endif
 #include <cmath>
 #include <algorithm>
 #include <list>
@@ -17,7 +22,7 @@ namespace rnllama_jsi {
         return a < b ? a : b;
     }
 
-    static void set_best_cores(cpu_params & params, int n_threads) {
+    static void set_best_cores(common_cpu_params & params, int n_threads) {
         const int max_threads = (int) std::thread::hardware_concurrency();
 
         int default_n_threads = 0;
@@ -54,6 +59,12 @@ namespace rnllama_jsi {
 
         params.strict_cpu = true;
         params.mask_valid = true;
+    }
+#endif
+
+#if defined(__APPLE__)
+    static int default_apple_n_threads() {
+        return std::max(1, common_cpu_get_num_math() / 2);
     }
 #endif
 
@@ -107,6 +118,194 @@ namespace rnllama_jsi {
         return defaultValue;
     }
 
+    static bool isNil(const jsi::Value& value) {
+        return value.isNull() || value.isUndefined();
+    }
+
+    static std::string normalizeSpeculativeTypeName(std::string name) {
+        if (name == "mtp") {
+            return "draft-mtp";
+        }
+        return name;
+    }
+
+    static void addSpeculativeTypeName(std::vector<std::string>& typeNames, std::string name) {
+        name = normalizeSpeculativeTypeName(std::move(name));
+        if (std::find(typeNames.begin(), typeNames.end(), name) == typeNames.end()) {
+            typeNames.push_back(std::move(name));
+        }
+    }
+
+    static void addSpeculativeTypeNamesFromValue(
+        jsi::Runtime& runtime,
+        const jsi::Value& value,
+        std::vector<std::string>& typeNames
+    ) {
+        if (isNil(value)) {
+            return;
+        }
+
+        if (value.isString()) {
+            addSpeculativeTypeName(typeNames, value.asString(runtime).utf8(runtime));
+            return;
+        }
+
+        if (value.isObject()) {
+            auto obj = value.asObject(runtime);
+            if (!obj.isArray(runtime)) {
+                return;
+            }
+
+            auto arr = obj.asArray(runtime);
+            for (size_t i = 0; i < arr.size(runtime); i++) {
+                auto item = arr.getValueAtIndex(runtime, i);
+                if (item.isString()) {
+                    addSpeculativeTypeName(typeNames, item.asString(runtime).utf8(runtime));
+                }
+            }
+        }
+    }
+
+    static void applySpeculativeDraftOptions(
+        jsi::Runtime& runtime,
+        const jsi::Object& obj,
+        common_params_speculative_draft& draft
+    ) {
+        draft.mparams.path = getPropertyAsString(runtime, obj, "model", draft.mparams.path);
+        draft.mparams.path = getPropertyAsString(runtime, obj, "path", draft.mparams.path);
+        draft.mparams.path = getPropertyAsString(runtime, obj, "model_draft", draft.mparams.path);
+        draft.mparams.path = getPropertyAsString(runtime, obj, "draft_model", draft.mparams.path);
+        draft.n_max = getPropertyAsInt(runtime, obj, "n_max", draft.n_max);
+        draft.n_min = getPropertyAsInt(runtime, obj, "n_min", draft.n_min);
+        draft.p_min = getPropertyAsFloat(runtime, obj, "p_min", draft.p_min);
+        draft.p_split = getPropertyAsFloat(runtime, obj, "p_split", draft.p_split);
+        draft.n_gpu_layers = getPropertyAsInt(runtime, obj, "n_gpu_layers", draft.n_gpu_layers);
+
+        std::string cacheTypeK = getPropertyAsString(runtime, obj, "cache_type_k");
+        if (!cacheTypeK.empty()) {
+            draft.cache_type_k = rnllama::kv_cache_type_from_str(cacheTypeK);
+        }
+
+        std::string cacheTypeV = getPropertyAsString(runtime, obj, "cache_type_v");
+        if (!cacheTypeV.empty()) {
+            draft.cache_type_v = rnllama::kv_cache_type_from_str(cacheTypeV);
+        }
+    }
+
+    bool hasSpeculativeType(const common_params_speculative& speculative, common_speculative_type type) {
+        return std::find(speculative.types.begin(), speculative.types.end(), type) != speculative.types.end();
+    }
+
+    static void applySpeculativeTypeNames(
+        common_params_speculative& speculative,
+        const std::vector<std::string>& typeNames
+    ) {
+        if (typeNames.empty()) {
+            return;
+        }
+        speculative.types = common_speculative_types_from_names(typeNames);
+    }
+
+    static void applySpeculativeOptions(jsi::Runtime& runtime, const jsi::Object& params, common_params& cparams) {
+        std::vector<std::string> typeNames;
+
+        if (params.hasProperty(runtime, "spec_type")) {
+            addSpeculativeTypeNamesFromValue(runtime, params.getProperty(runtime, "spec_type"), typeNames);
+        }
+
+        if (params.hasProperty(runtime, "speculative")) {
+            auto value = params.getProperty(runtime, "speculative");
+            if (!isNil(value)) {
+                if (value.isBool()) {
+                    addSpeculativeTypeName(typeNames, value.getBool() ? "draft-mtp" : "none");
+                } else if (value.isString()) {
+                    addSpeculativeTypeName(typeNames, value.asString(runtime).utf8(runtime));
+                } else if (value.isObject()) {
+                    auto speculative = value.asObject(runtime);
+                    bool enabled = false;
+                    bool hasEnabled = false;
+                    bool hasExplicitType = false;
+
+                    if (speculative.hasProperty(runtime, "enabled")) {
+                        auto enabledValue = speculative.getProperty(runtime, "enabled");
+                        if (enabledValue.isBool()) {
+                            enabled = enabledValue.getBool();
+                            hasEnabled = true;
+                        }
+                    }
+
+                    if (speculative.hasProperty(runtime, "type")) {
+                        const size_t oldSize = typeNames.size();
+                        addSpeculativeTypeNamesFromValue(runtime, speculative.getProperty(runtime, "type"), typeNames);
+                        hasExplicitType = hasExplicitType || typeNames.size() != oldSize;
+                    }
+
+                    if (speculative.hasProperty(runtime, "types")) {
+                        const size_t oldSize = typeNames.size();
+                        addSpeculativeTypeNamesFromValue(runtime, speculative.getProperty(runtime, "types"), typeNames);
+                        hasExplicitType = hasExplicitType || typeNames.size() != oldSize;
+                    }
+
+                    if (hasEnabled) {
+                        if (!enabled) {
+                            addSpeculativeTypeName(typeNames, "none");
+                        } else if (!hasExplicitType) {
+                            addSpeculativeTypeName(typeNames, "draft-mtp");
+                        }
+                    }
+
+                    applySpeculativeDraftOptions(runtime, speculative, cparams.speculative.draft);
+                    if (speculative.hasProperty(runtime, "draft")) {
+                        auto draftValue = speculative.getProperty(runtime, "draft");
+                        if (draftValue.isObject()) {
+                            applySpeculativeDraftOptions(runtime, draftValue.asObject(runtime), cparams.speculative.draft);
+                        }
+                    }
+                }
+            }
+        }
+
+        cparams.speculative.draft.n_max = getPropertyAsInt(
+            runtime, params, "spec_draft_n_max", cparams.speculative.draft.n_max);
+        cparams.speculative.draft.n_max = getPropertyAsInt(
+            runtime, params, "speculative.n_max", cparams.speculative.draft.n_max);
+        cparams.speculative.draft.n_min = getPropertyAsInt(
+            runtime, params, "spec_draft_n_min", cparams.speculative.draft.n_min);
+        cparams.speculative.draft.n_min = getPropertyAsInt(
+            runtime, params, "speculative.n_min", cparams.speculative.draft.n_min);
+        cparams.speculative.draft.p_min = getPropertyAsFloat(
+            runtime, params, "spec_draft_p_min", cparams.speculative.draft.p_min);
+        cparams.speculative.draft.p_min = getPropertyAsFloat(
+            runtime, params, "speculative.p_min", cparams.speculative.draft.p_min);
+        cparams.speculative.draft.p_split = getPropertyAsFloat(
+            runtime, params, "spec_draft_p_split", cparams.speculative.draft.p_split);
+        cparams.speculative.draft.p_split = getPropertyAsFloat(
+            runtime, params, "speculative.p_split", cparams.speculative.draft.p_split);
+        cparams.speculative.draft.mparams.path = getPropertyAsString(
+            runtime, params, "model_draft", cparams.speculative.draft.mparams.path);
+        cparams.speculative.draft.mparams.path = getPropertyAsString(
+            runtime, params, "draft_model", cparams.speculative.draft.mparams.path);
+        cparams.speculative.draft.n_gpu_layers = getPropertyAsInt(
+            runtime, params, "spec_draft_n_gpu_layers", cparams.speculative.draft.n_gpu_layers);
+
+        std::string draftCacheTypeK = getPropertyAsString(runtime, params, "spec_draft_cache_type_k");
+        if (!draftCacheTypeK.empty()) {
+            cparams.speculative.draft.cache_type_k = rnllama::kv_cache_type_from_str(draftCacheTypeK);
+        }
+
+        std::string draftCacheTypeV = getPropertyAsString(runtime, params, "spec_draft_cache_type_v");
+        if (!draftCacheTypeV.empty()) {
+            cparams.speculative.draft.cache_type_v = rnllama::kv_cache_type_from_str(draftCacheTypeV);
+        }
+
+        applySpeculativeTypeNames(cparams.speculative, typeNames);
+
+        if (hasSpeculativeType(cparams.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_MTP) &&
+            cparams.speculative.draft.n_max <= 0) {
+            throw std::invalid_argument("MTP requires spec_draft_n_max > 0");
+        }
+    }
+
     void parseCommonParams(jsi::Runtime& runtime, const jsi::Object& params, common_params& cparams) {
         cparams.fit_params = false;
 
@@ -134,6 +333,10 @@ namespace rnllama_jsi {
         std::string cpuMask = getPropertyAsString(runtime, params, "cpu_mask");
 #if defined(__ANDROID__)
         set_best_cores(cparams.cpuparams, cparams.cpuparams.n_threads);
+#elif defined(__APPLE__)
+        if (cparams.cpuparams.n_threads < 0) {
+            cparams.cpuparams.n_threads = default_apple_n_threads();
+        }
 #endif
 
         cparams.n_gpu_layers = getPropertyAsInt(runtime, params, "n_gpu_layers", cparams.n_gpu_layers);
@@ -231,6 +434,8 @@ namespace rnllama_jsi {
                 }
             }
         }
+
+        applySpeculativeOptions(runtime, params, cparams);
     }
 
     void parseCompletionParams(jsi::Runtime& runtime, const jsi::Object& params, rnllama::llama_rn_context* ctx) {
@@ -244,6 +449,7 @@ namespace rnllama_jsi {
         ctx->params.sampling.ignore_eos = getPropertyAsBool(runtime, params, "ignore_eos", ctx->params.sampling.ignore_eos);
         ctx->params.embedding = getPropertyAsBool(runtime, params, "embedding", false);
         llama_set_embeddings(ctx->ctx, ctx->params.embedding);
+        applySpeculativeOptions(runtime, params, ctx->params);
 
         sparams.temp = getPropertyAsDouble(runtime, params, "temperature", sparams.temp);
         sparams.n_probs = getPropertyAsInt(runtime, params, "n_probs", sparams.n_probs);

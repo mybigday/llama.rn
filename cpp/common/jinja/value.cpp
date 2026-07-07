@@ -90,14 +90,14 @@ static T slice(const T & array, int64_t start, int64_t stop, int64_t step = 1) {
             stop_val = std::min(stop_val, len);
         }
     } else {
-        start_val = len - 1;
+        start_val = start;
         if (start_val < 0) {
-            start_val = std::max(len + start_val, (int64_t)-1);
+            start_val = std::max(len + start_val, (int64_t)0);
         } else {
             start_val = std::min(start_val, len - 1);
         }
 
-        stop_val = -1;
+        stop_val = stop;
         if (stop_val < -1) {
             stop_val = std::max(len + stop_val, (int64_t)-1);
         } else {
@@ -590,6 +590,10 @@ static bool string_endswith(const std::string & str, const std::string & suffix)
     return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
 }
 
+[[noreturn]] static value string_join_not_implemented(const func_args &) {
+    throw not_implemented_exception("String join builtin not implemented");
+}
+
 const func_builtins & value_string_t::get_builtins() const {
     static const func_builtins builtins = {
         {"default", default_value},
@@ -669,6 +673,9 @@ const func_builtins & value_string_t::get_builtins() const {
             std::string str = val_input->as_string().str();
             // FIXME: Support non-specified delimiter (split on consecutive (no leading or trailing) whitespace)
             std::string delim = (args.count() > 1) ? args.get_pos(1)->as_string().str() : " ";
+            if (delim.empty()) {
+                throw raised_exception("empty separator");
+            }
             int64_t maxsplit = (args.count() > 2) ? args.get_pos(2)->as_int() : -1;
             auto result = mk_val<value_array>();
             size_t pos = 0;
@@ -693,6 +700,9 @@ const func_builtins & value_string_t::get_builtins() const {
             std::string str = val_input->as_string().str();
             // FIXME: Support non-specified delimiter (split on consecutive (no leading or trailing) whitespace)
             std::string delim = (args.count() > 1) ? args.get_pos(1)->as_string().str() : " ";
+            if (delim.empty()) {
+                throw raised_exception("empty separator");
+            }
             int64_t maxsplit = (args.count() > 2) ? args.get_pos(2)->as_int() : -1;
             auto result = mk_val<value_array>();
             size_t pos = 0;
@@ -718,10 +728,23 @@ const func_builtins & value_string_t::get_builtins() const {
             if (count > 0) {
                 throw not_implemented_exception("String replace with count argument not implemented");
             }
-            size_t pos = 0;
-            while ((pos = str.find(old_str, pos)) != std::string::npos) {
-                str.replace(pos, old_str.length(), new_str);
-                pos += new_str.length();
+            if (old_str != new_str) {
+                size_t pos = 0;
+                if (old_str.empty()) {
+                    std::string new_res;
+                    new_res.reserve(str.length() + new_str.length() * (str.length() + 1));
+                    new_res += new_str;
+                    for (const char c : str) {
+                        new_res.push_back(c);
+                        new_res += new_str;
+                    }
+                    str = new_res;
+                } else {
+                    while ((pos = str.find(old_str, pos)) != std::string::npos) {
+                        str.replace(pos, old_str.length(), new_str);
+                        pos += new_str.length();
+                    }
+                }
             }
             auto res = mk_val<value_string>(str);
             res->val_str.mark_input_based_on(args.get_pos(0)->val_str);
@@ -851,9 +874,7 @@ const func_builtins & value_string_t::get_builtins() const {
             res->val_str.mark_input_based_on(val_input->as_string());
             return res;
         }},
-        {"join", [](const func_args &) -> value {
-            throw not_implemented_exception("String join builtin not implemented");
-        }},
+        {"join", string_join_not_implemented},
     };
     return builtins;
 }
@@ -884,6 +905,9 @@ const func_builtins & value_bool_t::get_builtins() const {
     return builtins;
 }
 
+[[noreturn]] static value array_unique_not_implemented(const func_args &) {
+    throw not_implemented_exception("Array unique builtin not implemented");
+}
 
 const func_builtins & value_array_t::get_builtins() const {
     static const func_builtins builtins = {
@@ -1084,13 +1108,14 @@ const func_builtins & value_array_t::get_builtins() const {
             std::reverse(arr.begin(), arr.end());
             return is_val<value_tuple>(val) ? mk_val<value_tuple>(std::move(arr)) : mk_val<value_array>(std::move(arr));
         }},
-        {"unique", [](const func_args &) -> value {
-            throw not_implemented_exception("Array unique builtin not implemented");
-        }},
+        {"unique", array_unique_not_implemented},
     };
     return builtins;
 }
 
+[[noreturn]] static value object_join_not_implemented(const func_args &) {
+    throw not_implemented_exception("object join not implemented");
+}
 
 const func_builtins & value_object_t::get_builtins() const {
     if (!has_builtins) {
@@ -1183,9 +1208,7 @@ const func_builtins & value_object_t::get_builtins() const {
             });
             return result;
         }},
-        {"join", [](const func_args &) -> value {
-            throw not_implemented_exception("object join not implemented");
-        }},
+        {"join", object_join_not_implemented},
     };
     return builtins;
 }

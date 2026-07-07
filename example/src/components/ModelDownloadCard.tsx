@@ -57,6 +57,22 @@ interface TTSModelDownloadCardProps {
   initializeButtonText?: string
 }
 
+interface DraftModelDownloadCardProps {
+  title: string
+  size: string
+  target: {
+    repo: string
+    filename: string
+  }
+  draft: {
+    repo: string
+    filename: string
+  }
+  onInitialize: (modelPath: string, draftModelPath: string) => void
+  onDownloaded?: (modelPath: string, draftModelPath: string) => void
+  initializeButtonText?: string
+}
+
 interface MtmdModelDownloadCardProps {
   title: string
   repo: string
@@ -544,6 +560,34 @@ export function TTSModelDownloadCard({
       onInitialize={onInitialize}
       onDownloaded={onDownloaded}
       downloadButtonText="Download Both Models"
+      initializeButtonText={initializeButtonText}
+    />
+  )
+}
+
+// MTP-specific download card that handles a target model and separate draft model.
+export function DraftModelDownloadCard({
+  title,
+  size,
+  target,
+  draft,
+  onInitialize,
+  onDownloaded,
+  initializeButtonText,
+}: DraftModelDownloadCardProps) {
+  const files: ModelFile[] = [
+    { repo: target.repo, filename: target.filename, label: 'target model' },
+    { repo: draft.repo, filename: draft.filename, label: 'draft model' },
+  ]
+
+  return (
+    <BaseModelDownloadCard
+      title={title}
+      size={size}
+      files={files}
+      onInitialize={onInitialize}
+      onDownloaded={onDownloaded}
+      downloadButtonText="Download Target & Draft"
       initializeButtonText={initializeButtonText}
     />
   )

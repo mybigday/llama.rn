@@ -16,6 +16,12 @@ struct clip_graph_gemma4v : clip_graph {
     clip_graph_gemma4v(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;
     lm_ggml_tensor * build_mm(lm_ggml_tensor * w, lm_ggml_tensor * x) const override;
+    bool support_batch() const override { return true; }
+};
+
+struct clip_graph_gemma4uv : clip_graph {
+    clip_graph_gemma4uv(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
 };
 
 struct clip_graph_pixtral : clip_graph {
@@ -26,11 +32,21 @@ struct clip_graph_pixtral : clip_graph {
 struct clip_graph_qwen2vl : clip_graph {
     clip_graph_qwen2vl(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;
+    lm_ggml_tensor * build_inp_with_temporal_merge();
 };
 
-struct clip_graph_qwen3vl : clip_graph {
-    clip_graph_qwen3vl(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+struct clip_graph_qwen3vl : clip_graph_qwen2vl {
+    clip_graph_qwen3vl(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph_qwen2vl(ctx, img) {}
     lm_ggml_cgraph * build() override;
+};
+
+struct clip_graph_mimovl : clip_graph {
+    clip_graph_mimovl(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+    // Force F32 mat-mul accumulation to avoid F16 overflow in the FFN down-proj
+    // when the mmproj is stored in F16 (the source weights are BF16; downcasting
+    // to F16 reduces dynamic range below the SwiGLU output magnitude on the last few layers).
+    lm_ggml_tensor * build_mm(lm_ggml_tensor * w, lm_ggml_tensor * x) const override;
 };
 
 struct clip_graph_step3vl : clip_graph {
@@ -43,14 +59,28 @@ struct clip_graph_youtuvl : clip_graph {
     lm_ggml_cgraph * build() override;
 };
 
+struct clip_graph_yasa2 : clip_graph {
+    clip_graph_yasa2(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+
+    lm_ggml_tensor * layer_norm_channels(lm_ggml_tensor * inp, lm_ggml_tensor * w, lm_ggml_tensor * b, float eps = 1e-6f);
+    lm_ggml_tensor * convnext_grn(lm_ggml_tensor * inp, lm_ggml_tensor * w, lm_ggml_tensor * b);
+};
+
 struct clip_graph_minicpmv : clip_graph {
     clip_graph_minicpmv(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+};
+
+struct clip_graph_minicpmv4_6 : clip_graph {
+    clip_graph_minicpmv4_6(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;
 };
 
 struct clip_graph_internvl : clip_graph {
     clip_graph_internvl(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;
+    bool support_batch() const override { return true; }
 };
 
 struct clip_graph_nemotron_v2_vl : clip_graph {
@@ -96,10 +126,21 @@ struct clip_graph_whisper_enc : clip_graph {
 struct clip_graph_deepseekocr : clip_graph {
     clip_graph_deepseekocr(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;
+    lm_ggml_tensor * build_sam(lm_ggml_tensor * inp); // build the SAM model
+};
+
+struct clip_graph_deepseekocr2 : clip_graph_deepseekocr {
+    clip_graph_deepseekocr2(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph_deepseekocr(ctx, img) {}
+    lm_ggml_cgraph * build() override; // reuses build_sam() from base
 };
 
 struct clip_graph_conformer : clip_graph {
     clip_graph_conformer(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+};
+
+struct clip_graph_granite_speech : clip_graph {
+    clip_graph_granite_speech(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;
 };
 
@@ -109,13 +150,18 @@ struct clip_graph_gemma4a : clip_graph {
     lm_ggml_tensor * build_mm(lm_ggml_tensor * w, lm_ggml_tensor * x) const override;
 };
 
+struct clip_graph_gemma4ua : clip_graph {
+    clip_graph_gemma4ua(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+};
+
 struct clip_graph_glm4v : clip_graph {
     clip_graph_glm4v(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;
 };
 
-struct clip_graph_hunyuanocr : clip_graph {
-    clip_graph_hunyuanocr(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+struct clip_graph_hunyuanvl : clip_graph {
+    clip_graph_hunyuanvl(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     lm_ggml_cgraph * build() override;
 };
 
@@ -162,4 +208,32 @@ struct clip_graph_kimik25 : clip_graph {
     lm_ggml_cgraph * build() override;
 
     lm_ggml_tensor * resize_position_embeddings_3d(uint32_t interpolation_mode);
+};
+
+struct clip_graph_exaone4_5 : clip_graph {
+    clip_graph_exaone4_5(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+};
+
+struct clip_graph_granite4_vision : clip_graph {
+    clip_graph_granite4_vision(clip_ctx * ctx, const clip_image_f32 & img)
+        : clip_graph(ctx, img),
+          add_newline(img.add_newline) {}
+
+    lm_ggml_cgraph * build() override;
+
+private:
+    // The graph is per-tile since only batch-size 1 is supported in clip. As
+    // such, this value is set at construct time based on the tile that will be
+    // encoded, then used during build to determine how to handle newlines.
+    const bool add_newline;
+
+    lm_ggml_tensor * gather(lm_ggml_tensor * src, const std::string & name, int idx_len);
+    lm_ggml_tensor * interp_down(lm_ggml_tensor * src, int side, int new_side);
+    lm_ggml_tensor * build_block(const qf_block & blk, lm_ggml_tensor * h, int bid,
+                              int spatial_offset, int image_side, int window_side,
+                              int query_side, float qformer_eps);
+
+    lm_ggml_tensor * build_newline_row(lm_ggml_context * ctx0);
+    lm_ggml_tensor * append_rowwise_newlines(lm_ggml_context * ctx0, lm_ggml_tensor * tile_output);
 };

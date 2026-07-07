@@ -76,10 +76,16 @@ extern "C" {
         struct lm_ggml_context ** ctx;
     };
 
+    // callback to simulate or wrap a FILE pointer - read up to `len` bytes at `offset` into `output` and return the number of bytes read
+    typedef size_t (*lm_gguf_reader_callback_t)(void * userdata, void * output, uint64_t offset, size_t len);
+
     LM_GGML_API struct lm_gguf_context * lm_gguf_init_empty(void);
     LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_file_ptr(FILE * file, struct lm_gguf_init_params params);
     LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_file(const char * fname, struct lm_gguf_init_params params);
-    //LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_buffer(..);
+    LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_buffer(const void * data, size_t size, struct lm_gguf_init_params params);
+
+    // max_chunk_read is the maximum number of bytes that the GGUF code will read at once from the callback, a value of 0 means no limit
+    LM_GGML_API struct lm_gguf_context * lm_gguf_init_from_callback(lm_gguf_reader_callback_t callback, void * userdata, size_t max_chunk_read, uint64_t max_expected_size, struct lm_gguf_init_params params);
 
     LM_GGML_API void lm_gguf_free(struct lm_gguf_context * ctx);
 
@@ -87,7 +93,7 @@ extern "C" {
 
     LM_GGML_API uint32_t lm_gguf_get_version    (const struct lm_gguf_context * ctx);
     LM_GGML_API size_t   lm_gguf_get_alignment  (const struct lm_gguf_context * ctx);
-    LM_GGML_API size_t   lm_gguf_get_data_offset(const struct lm_gguf_context * ctx);
+    LM_GGML_API size_t   lm_gguf_get_data_offset(const struct lm_gguf_context * ctx);  // padded to lm_gguf_get_alignment if and only if the lm_gguf_context contains at least one tensor
 
     LM_GGML_API int64_t      lm_gguf_get_n_kv(const struct lm_gguf_context * ctx);
     LM_GGML_API int64_t      lm_gguf_find_key(const struct lm_gguf_context * ctx, const char * key); // returns -1 if key is not found

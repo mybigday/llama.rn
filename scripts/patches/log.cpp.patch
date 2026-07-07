@@ -1,20 +1,20 @@
---- common/log.cpp.orig	2025-02-14 15:08:37
-+++ common/log.cpp	2025-02-14 15:10:49
-@@ -9,6 +9,10 @@
- #include <thread>
+--- common/log.cpp.orig	2026-06-23 19:58:57
++++ common/log.cpp	2026-06-23 19:59:58
+@@ -13,6 +13,10 @@
  #include <vector>
-
+ #include <algorithm>
+ 
 +#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
 +#include <android/log.h>
 +#endif
 +
- int common_log_verbosity_thold = LOG_DEFAULT_LLAMA;
-
- void common_log_set_verbosity_thold(int verbosity) {
-@@ -56,8 +60,37 @@
-
-     // signals the worker thread to stop
-     bool is_end;
+ #if defined(_WIN32)
+ #    define WIN32_LEAN_AND_MEAN
+ #    ifndef NOMINMAX
+@@ -76,8 +80,37 @@
+     bool prefix       { false };
+ 
+     common_log_entry(size_t size = 256) : msg(size) { }
 +
 +    #if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
 +    void android_print() const {
@@ -41,7 +41,7 @@
 +        __android_log_print(android_log_priority, tag, "%s", msg.data());
 +    }
 +    #endif
-
+ 
      void print(FILE * file = nullptr) const {
 +        #if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
 +        android_print();
@@ -49,10 +49,11 @@
          FILE * fcur = file;
          if (!fcur) {
              // stderr displays DBG messages only when their verbosity level is not higher than the threshold
-@@ -102,6 +135,7 @@
+@@ -122,6 +155,7 @@
          }
-
+ 
          fflush(fcur);
 +        #endif
      }
  };
+ 

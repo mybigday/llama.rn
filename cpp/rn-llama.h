@@ -56,13 +56,14 @@ struct llama_rn_tokenize_result {
 struct llama_rn_context {
     // Model state fields
     llama_model *model = nullptr;
+    llama_model_ptr draft_model;
     float loading_progress = 0;
     bool is_load_interrupted = false;
     common_params params;
     common_init_result_ptr llama_init;
     llama_context *ctx = nullptr;
     common_chat_templates_ptr templates;
-    int n_ctx;
+    int n_ctx = 0;
 
     // Completion context (DEPRECATED: Use slot_manager for parallel decoding)
     llama_rn_context_completion *completion = nullptr;
@@ -77,6 +78,9 @@ struct llama_rn_context {
     ~llama_rn_context();
 
     bool loadModel(common_params &params_);
+    bool hasDraftModel() const;
+    llama_model * getMTPDraftModel() const;
+    llama_context * createMTPDraftContext(const common_params &params_for_context) const;
     void cleanupThreadpools();
     bool attachThreadpoolsIfAvailable();
 

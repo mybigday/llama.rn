@@ -181,6 +181,12 @@ struct lm_ggml_backend_registry {
             return;
         }
 
+        for (auto & entry : backends) {
+            if (entry.reg == reg) {
+                return;
+            }
+        }
+
 #ifndef NDEBUG
         LM_GGML_LOG_DEBUG("%s: registered backend %s (%zu devices)\n",
             __func__, lm_ggml_backend_reg_name(reg), lm_ggml_backend_reg_dev_count(reg));
@@ -192,6 +198,12 @@ struct lm_ggml_backend_registry {
     }
 
     void register_device(lm_ggml_backend_dev_t device) {
+        for (auto & dev : devices) {
+            if (dev == device) {
+                return;
+            }
+        }
+
 #ifndef NDEBUG
         LM_GGML_LOG_DEBUG("%s: registered device %s (%s)\n", __func__, lm_ggml_backend_dev_name(device), lm_ggml_backend_dev_description(device));
 #endif

@@ -11,6 +11,7 @@ llama.rn
 ### Type Aliases
 
 - [BenchResult](README.md#benchresult)
+- [ChatTemplateKwargs](README.md#chattemplatekwargs)
 - [CompletionBaseParams](README.md#completionbaseparams)
 - [CompletionParams](README.md#completionparams)
 - [CompletionResponseFormat](README.md#completionresponseformat)
@@ -33,6 +34,9 @@ llama.rn
 - [NativeRerankParams](README.md#nativererankparams)
 - [NativeRerankResult](README.md#nativererankresult)
 - [NativeSessionLoadResult](README.md#nativesessionloadresult)
+- [NativeSpeculativeConfig](README.md#nativespeculativeconfig)
+- [NativeSpeculativeParams](README.md#nativespeculativeparams)
+- [NativeSpeculativeType](README.md#nativespeculativetype)
 - [NativeTokenizeResult](README.md#nativetokenizeresult)
 - [ParallelCompletionParams](README.md#parallelcompletionparams)
 - [ParallelRequestStatus](README.md#parallelrequeststatus)
@@ -91,7 +95,17 @@ llama.rn
 
 #### Defined in
 
-[index.ts:304](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L304)
+[index.ts:313](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L313)
+
+___
+
+### ChatTemplateKwargs
+
+Ƭ **ChatTemplateKwargs**: `Record`<`string`, `string` \| `number` \| `boolean`\>
+
+#### Defined in
+
+[index.ts:253](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L253)
 
 ___
 
@@ -106,7 +120,7 @@ ___
 | `add_generation_prompt?` | `boolean` | - |
 | `chatTemplate?` | `string` | - |
 | `chat_template?` | `string` | - |
-| `chat_template_kwargs?` | `Record`<`string`, `string`\> | - |
+| `chat_template_kwargs?` | [`ChatTemplateKwargs`](README.md#chattemplatekwargs) | - |
 | `force_pure_content?` | `boolean` | When enabled, forces the chat parser to treat the entire model output as plain content, skipping separate parsing of reasoning tokens and tool calls. Also bypasses jinja template validation so templates that only accept typed content (e.g. TranslateGemma) are not rejected during capability detection. |
 | `jinja?` | `boolean` | - |
 | `media_paths?` | `string` \| `string`[] | - |
@@ -121,7 +135,7 @@ ___
 
 #### Defined in
 
-[index.ts:247](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L247)
+[index.ts:255](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L255)
 
 ___
 
@@ -131,7 +145,7 @@ ___
 
 #### Defined in
 
-[index.ts:277](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L277)
+[index.ts:286](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L286)
 
 ___
 
@@ -151,7 +165,7 @@ ___
 
 #### Defined in
 
-[index.ts:238](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L238)
+[index.ts:244](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L244)
 
 ___
 
@@ -161,7 +175,7 @@ ___
 
 #### Defined in
 
-[index.ts:188](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L188)
+[index.ts:194](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L194)
 
 ___
 
@@ -171,7 +185,7 @@ ___
 
 #### Defined in
 
-[index.ts:226](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L226)
+[index.ts:232](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L232)
 
 ___
 
@@ -190,7 +204,7 @@ ___
 
 #### Defined in
 
-[types.ts:514](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L514)
+[types.ts:591](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L591)
 
 ___
 
@@ -200,7 +214,7 @@ ___
 
 #### Defined in
 
-[types.ts:521](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L521)
+[types.ts:598](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L598)
 
 ___
 
@@ -220,7 +234,7 @@ ___
 
 #### Defined in
 
-[types.ts:558](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L558)
+[types.ts:635](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L635)
 
 ___
 
@@ -266,6 +280,12 @@ ___
 | `prompt` | `string` | - |
 | `reasoning_format?` | ``"none"`` \| ``"auto"`` \| ``"deepseek"`` | - |
 | `seed?` | `number` | Set the random number generator (RNG) seed. Default: `-1`, which is a random seed. |
+| `spec_draft_n_max?` | `number` | - |
+| `spec_draft_n_min?` | `number` | - |
+| `spec_draft_p_min?` | `number` | - |
+| `spec_draft_p_split?` | `number` | - |
+| `spec_type?` | [`NativeSpeculativeType`](README.md#nativespeculativetype) \| [`NativeSpeculativeType`](README.md#nativespeculativetype)[] | - |
+| `speculative?` | [`NativeSpeculativeConfig`](README.md#nativespeculativeconfig) | Per-completion speculative decoding override. For MTP on recurrent/hybrid models, load the model with matching MTP options first. |
 | `stop?` | `string`[] | Specify a JSON array of stopping strings. These words will not be included in the completion, so make sure to add them to the prompt for the next iteration. Default: `[]` |
 | `temperature?` | `number` | Adjust the randomness of the generated text. Default: `0.8` |
 | `thinking_budget_message?` | `string` | Message injected before the thinking end tag when the thinking budget is exhausted. |
@@ -280,7 +300,7 @@ ___
 
 #### Defined in
 
-[types.ts:130](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L130)
+[types.ts:195](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L195)
 
 ___
 
@@ -297,6 +317,8 @@ ___
 | `completion_probabilities?` | [`NativeCompletionTokenProb`](README.md#nativecompletiontokenprob)[] | - |
 | `content` | `string` | Content text (Filtered text by reasoning_content / tool_calls) |
 | `context_full` | `boolean` | - |
+| `draft_tokens` | `number` | - |
+| `draft_tokens_accepted` | `number` | - |
 | `interrupted` | `boolean` | - |
 | `reasoning_content` | `string` | Reasoning content (parsed for reasoning model) |
 | `stopped_eos` | `boolean` | - |
@@ -313,7 +335,7 @@ ___
 
 #### Defined in
 
-[types.ts:387](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L387)
+[types.ts:462](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L462)
 
 ___
 
@@ -337,7 +359,7 @@ ___
 
 #### Defined in
 
-[types.ts:375](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L375)
+[types.ts:450](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L450)
 
 ___
 
@@ -354,7 +376,7 @@ ___
 
 #### Defined in
 
-[types.ts:370](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L370)
+[types.ts:445](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L445)
 
 ___
 
@@ -371,7 +393,7 @@ ___
 
 #### Defined in
 
-[types.ts:365](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L365)
+[types.ts:440](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L440)
 
 ___
 
@@ -390,16 +412,19 @@ ___
 | `cpu_strict?` | `boolean` | Use strict CPU placement. When true, enforces strict CPU core affinity. Default: false |
 | `ctx_shift?` | `boolean` | Enable context shifting to handle prompts larger than context size |
 | `devices?` | `string`[] | Backend devices choice to use. Default equals to result of `getBackendDevicesInfo. |
+| `draft_model?` | `string` | Alias for model_draft. |
 | `embd_normalize?` | `number` | - |
 | `embedding?` | `boolean` | - |
 | `flash_attn?` | `boolean` | Enable flash attention, only recommended in GPU device Deprecated: use flash_attn_type instead |
 | `flash_attn_type?` | `string` | Enable flash attention, only recommended in GPU device. |
 | `is_model_asset?` | `boolean` | - |
+| `is_model_draft_asset?` | `boolean` | - |
 | `kv_unified?` | `boolean` | Use a unified buffer across the input sequences when computing the attention. Try to disable when n_seq_max > 1 for improved performance when the sequences do not share a large prefix. |
 | `lora?` | `string` | Single LoRA adapter path |
 | `lora_list?` | { `path`: `string` ; `scaled?`: `number`  }[] | LoRA adapter list |
 | `lora_scaled?` | `number` | Single LoRA adapter scale |
 | `model` | `string` | - |
+| `model_draft?` | `string` | Optional separate draft model path for MTP/speculative decoding. Leave unset for hybrid/embedded MTP models such as Qwen MTP. |
 | `n_batch?` | `number` | - |
 | `n_cpu_moe?` | `number` | Number of layers to keep MoE weights on CPU |
 | `n_ctx?` | `number` | - |
@@ -412,6 +437,15 @@ ___
 | `pooling_type?` | `number` | - |
 | `rope_freq_base?` | `number` | - |
 | `rope_freq_scale?` | `number` | - |
+| `spec_draft_cache_type_k?` | `string` | - |
+| `spec_draft_cache_type_v?` | `string` | - |
+| `spec_draft_n_gpu_layers?` | `number` | - |
+| `spec_draft_n_max?` | `number` | - |
+| `spec_draft_n_min?` | `number` | - |
+| `spec_draft_p_min?` | `number` | - |
+| `spec_draft_p_split?` | `number` | - |
+| `spec_type?` | [`NativeSpeculativeType`](README.md#nativespeculativetype) \| [`NativeSpeculativeType`](README.md#nativespeculativetype)[] | - |
+| `speculative?` | [`NativeSpeculativeConfig`](README.md#nativespeculativeconfig) | Enable speculative decoding support at context creation time. MTP on recurrent/hybrid models must be enabled here so llama.cpp can allocate recurrent-state rollback slots. |
 | `swa_full?` | `boolean` | Use full-size SWA cache (https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055) |
 | `use_mlock?` | `boolean` | - |
 | `use_mmap?` | `boolean` | - |
@@ -420,7 +454,7 @@ ___
 
 #### Defined in
 
-[types.ts:5](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L5)
+[types.ts:45](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L45)
 
 ___
 
@@ -436,7 +470,7 @@ ___
 
 #### Defined in
 
-[types.ts:1](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L1)
+[types.ts:1](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L1)
 
 ___
 
@@ -452,7 +486,7 @@ ___
 
 #### Defined in
 
-[types.ts:450](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L450)
+[types.ts:527](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L527)
 
 ___
 
@@ -470,7 +504,7 @@ ___
 
 #### Defined in
 
-[types.ts:543](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L543)
+[types.ts:620](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L620)
 
 ___
 
@@ -515,7 +549,7 @@ ___
 
 #### Defined in
 
-[types.ts:454](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L454)
+[types.ts:531](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L531)
 
 ___
 
@@ -528,7 +562,7 @@ Extends NativeCompletionParams with parallel-mode specific options.
 
 #### Defined in
 
-[types.ts:324](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L324)
+[types.ts:399](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L399)
 
 ___
 
@@ -544,7 +578,7 @@ ___
 
 #### Defined in
 
-[types.ts:549](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L549)
+[types.ts:626](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L626)
 
 ___
 
@@ -561,7 +595,7 @@ ___
 
 #### Defined in
 
-[types.ts:553](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L553)
+[types.ts:630](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L630)
 
 ___
 
@@ -578,7 +612,61 @@ ___
 
 #### Defined in
 
-[types.ts:499](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L499)
+[types.ts:576](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L576)
+
+___
+
+### NativeSpeculativeConfig
+
+Ƭ **NativeSpeculativeConfig**: [`NativeSpeculativeParams`](README.md#nativespeculativeparams) \| [`NativeSpeculativeType`](README.md#nativespeculativetype) \| `boolean`
+
+#### Defined in
+
+[types.ts:40](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L40)
+
+___
+
+### NativeSpeculativeParams
+
+Ƭ **NativeSpeculativeParams**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `draft?` | { `cache_type_k?`: `string` ; `cache_type_v?`: `string` ; `draft_model?`: `string` ; `model?`: `string` ; `model_draft?`: `string` ; `n_gpu_layers?`: `number` ; `n_max?`: `number` ; `n_min?`: `number` ; `p_min?`: `number` ; `p_split?`: `number` ; `path?`: `string`  } |
+| `draft.cache_type_k?` | `string` |
+| `draft.cache_type_v?` | `string` |
+| `draft.draft_model?` | `string` |
+| `draft.model?` | `string` |
+| `draft.model_draft?` | `string` |
+| `draft.n_gpu_layers?` | `number` |
+| `draft.n_max?` | `number` |
+| `draft.n_min?` | `number` |
+| `draft.p_min?` | `number` |
+| `draft.p_split?` | `number` |
+| `draft.path?` | `string` |
+| `enabled?` | `boolean` |
+| `n_max?` | `number` |
+| `n_min?` | `number` |
+| `p_min?` | `number` |
+| `p_split?` | `number` |
+| `type?` | [`NativeSpeculativeType`](README.md#nativespeculativetype) |
+| `types?` | [`NativeSpeculativeType`](README.md#nativespeculativetype)[] |
+
+#### Defined in
+
+[types.ts:13](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L13)
+
+___
+
+### NativeSpeculativeType
+
+Ƭ **NativeSpeculativeType**: ``"none"`` \| ``"draft-mtp"`` \| ``"mtp"``
+
+#### Defined in
+
+[types.ts:5](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L5)
 
 ___
 
@@ -598,7 +686,7 @@ ___
 
 #### Defined in
 
-[types.ts:430](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L430)
+[types.ts:507](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L507)
 
 ___
 
@@ -611,7 +699,7 @@ Extends CompletionParams with parallel-mode specific options like state manageme
 
 #### Defined in
 
-[index.ts:287](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L287)
+[index.ts:296](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L296)
 
 ___
 
@@ -634,7 +722,7 @@ ___
 
 #### Defined in
 
-[types.ts:566](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L566)
+[types.ts:643](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L643)
 
 ___
 
@@ -653,7 +741,7 @@ ___
 
 #### Defined in
 
-[types.ts:577](https://github.com/mybigday/llama.rn/blob/37bed35/src/types.ts#L577)
+[types.ts:654](https://github.com/mybigday/llama.rn/blob/6d85189e/src/types.ts#L654)
 
 ___
 
@@ -676,7 +764,7 @@ ___
 
 #### Defined in
 
-[index.ts:29](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L29)
+[index.ts:32](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L32)
 
 ___
 
@@ -694,7 +782,7 @@ ___
 
 #### Defined in
 
-[index.ts:42](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L42)
+[index.ts:45](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L45)
 
 ___
 
@@ -710,7 +798,7 @@ ___
 
 #### Defined in
 
-[index.ts:228](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L228)
+[index.ts:234](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L234)
 
 ___
 
@@ -728,7 +816,7 @@ ___
 
 #### Defined in
 
-[index.ts:232](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L232)
+[index.ts:238](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L238)
 
 ___
 
@@ -750,7 +838,7 @@ ___
 
 #### Defined in
 
-[index.ts:177](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L177)
+[index.ts:183](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L183)
 
 ___
 
@@ -770,7 +858,7 @@ ___
 
 #### Defined in
 
-[index.ts:168](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L168)
+[index.ts:174](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L174)
 
 ## Variables
 
@@ -787,7 +875,7 @@ ___
 
 #### Defined in
 
-[index.ts:1267](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1267)
+[index.ts:1355](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L1355)
 
 ___
 
@@ -797,7 +885,7 @@ ___
 
 #### Defined in
 
-[index.ts:71](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L71)
+[index.ts:77](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L77)
 
 ## Functions
 
@@ -821,7 +909,7 @@ ___
 
 #### Defined in
 
-[index.ts:1086](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1086)
+[index.ts:1092](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L1092)
 
 ___
 
@@ -835,7 +923,7 @@ ___
 
 #### Defined in
 
-[index.ts:1130](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1130)
+[index.ts:1209](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L1209)
 
 ___
 
@@ -856,7 +944,7 @@ ___
 
 #### Defined in
 
-[index.ts:1147](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1147)
+[index.ts:1226](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L1226)
 
 ___
 
@@ -870,7 +958,7 @@ ___
 
 #### Defined in
 
-[index.ts:156](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L156)
+[index.ts:162](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L162)
 
 ___
 
@@ -890,7 +978,7 @@ ___
 
 #### Defined in
 
-[index.ts:1114](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1114)
+[index.ts:1120](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L1120)
 
 ___
 
@@ -904,7 +992,7 @@ ___
 
 #### Defined in
 
-[index.ts:1261](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1261)
+[index.ts:1349](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L1349)
 
 ___
 
@@ -924,7 +1012,7 @@ ___
 
 #### Defined in
 
-[index.ts:1097](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1097)
+[index.ts:1103](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L1103)
 
 ___
 
@@ -944,4 +1032,4 @@ ___
 
 #### Defined in
 
-[index.ts:1080](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1080)
+[index.ts:1086](https://github.com/mybigday/llama.rn/blob/6d85189e/src/index.ts#L1086)

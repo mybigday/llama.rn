@@ -11,6 +11,7 @@
 #include "tools/mtmd/mtmd-helper.h"
 #include "tools/mtmd/clip.h"
 
+#include <algorithm>
 #include <cstdarg>
 
 namespace rnllama {
@@ -29,6 +30,18 @@ void populate_lora_metadata(common_adapter_lora_info &la) {
     la.task_name = buf;
     llama_adapter_meta_val_str(la.ptr, "adapter.lora.prompt_prefix", buf, sizeof(buf));
     la.prompt_prefix = buf;
+}
+
+void clear_init_lora_ownership(common_init_result_ptr &llama_init) {
+    if (llama_init != nullptr) {
+        // common_init_from_params() owns adapters loaded during init. Once runtime
+        // adapter state changes, those original handles should be released too.
+        llama_init->lora().clear();
+    }
+}
+
+bool has_speculative_type(const common_params_speculative &speculative, common_speculative_type type) {
+    return std::find(speculative.types.begin(), speculative.types.end(), type) != speculative.types.end();
 }
 
 } // namespace
@@ -221,6 +234,7 @@ llama_rn_context::~llama_rn_context() {
 bool llama_rn_context::loadModel(common_params &params_)
 {
     removeLoraAdapters();
+    draft_model.reset();
     params = params_;
 
     // Ensure n_parallel is set to a reasonable default for parallel decoding support
@@ -233,13 +247,45 @@ bool llama_rn_context::loadModel(common_params &params_)
     }
 
     llama_init = common_init_from_params(params);
-    model = llama_init->model();
-    ctx = llama_init->context();
-    if (model == nullptr)
-    {
-        LOG_ERROR("unable to load model: %s", params_.model.path.c_str());
+    model = llama_init != nullptr ? llama_init->model() : nullptr;
+    ctx = llama_init != nullptr ? llama_init->context() : nullptr;
+
+    // common_init_from_params() can fail after loading the model but before
+    // constructing the context, so both pointers must be validated here.
+    if (model == nullptr || ctx == nullptr) {
+        if (model == nullptr) {
+            LOG_ERROR("unable to load model: %s", params_.model.path.c_str());
+        } else {
+            LOG_ERROR("unable to initialize context for model: %s", params_.model.path.c_str());
+        }
         return false;
     }
+
+    if (params.speculative.has_dft() &&
+        has_speculative_type(params.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_MTP)) {
+        const auto & draft_params = params.speculative.draft;
+        common_params params_dft = params;
+        params_dft.devices = draft_params.devices;
+        params_dft.model = draft_params.mparams;
+        params_dft.n_gpu_layers = draft_params.n_gpu_layers;
+        params_dft.cache_type_k = draft_params.cache_type_k;
+        params_dft.cache_type_v = draft_params.cache_type_v;
+        params_dft.tensor_buft_overrides = draft_params.tensor_buft_overrides;
+
+        if (draft_params.cpuparams.n_threads > 0) {
+            params_dft.cpuparams.n_threads = draft_params.cpuparams.n_threads;
+            params_dft.cpuparams_batch.n_threads = draft_params.cpuparams_batch.n_threads;
+        }
+
+        auto mparams_dft = common_model_params_to_llama(params_dft);
+        LOG_INFO("Loading MTP draft model: %s", params_dft.model.path.c_str());
+        draft_model.reset(llama_model_load_from_file(params_dft.model.path.c_str(), mparams_dft));
+        if (draft_model == nullptr) {
+            LOG_ERROR("unable to load MTP draft model: %s", params_dft.model.path.c_str());
+            return false;
+        }
+    }
+
     templates = common_chat_templates_init(model, params.chat_template);
     n_ctx = llama_n_ctx(ctx);
 
@@ -269,6 +315,30 @@ bool llama_rn_context::loadModel(common_params &params_)
     // LOG_INFO("%s\n", common_params_get_system_info(params).c_str());
 
     return true;
+}
+
+bool llama_rn_context::hasDraftModel() const {
+    return draft_model != nullptr;
+}
+
+llama_model * llama_rn_context::getMTPDraftModel() const {
+    return draft_model != nullptr ? draft_model.get() : model;
+}
+
+llama_context * llama_rn_context::createMTPDraftContext(const common_params &params_for_context) const {
+    llama_model * model_dft = getMTPDraftModel();
+    if (model_dft == nullptr || ctx == nullptr) {
+        return nullptr;
+    }
+
+    auto cparams = common_context_params_to_llama(params_for_context);
+    cparams.ctx_type = LLAMA_CONTEXT_TYPE_MTP;
+    cparams.n_rs_seq = 0;
+    cparams.type_k = params_for_context.speculative.draft.cache_type_k;
+    cparams.type_v = params_for_context.speculative.draft.cache_type_v;
+    cparams.ctx_other = ctx;
+
+    return llama_init_from_model(model_dft, cparams);
 }
 
 
@@ -402,8 +472,9 @@ void llama_rn_context::applyLoraAdapters(std::vector<common_adapter_lora_info> l
     }
 
     common_set_adapter_lora(ctx, lora);
-    owned_lora = std::move(loaded_adapters);
     this->lora = std::move(lora);
+    clear_init_lora_ownership(llama_init);
+    owned_lora = std::move(loaded_adapters);
 }
 
 void llama_rn_context::removeLoraAdapters() {
@@ -413,6 +484,7 @@ void llama_rn_context::removeLoraAdapters() {
     }
 
     this->lora.clear();
+    clear_init_lora_ownership(llama_init);
     owned_lora.clear();
 }
 

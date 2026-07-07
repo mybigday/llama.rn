@@ -1,27 +1,44 @@
 import { NativeModules } from 'react-native'
 import { initLlama, releaseAllLlama } from '..'
-import type { TokenData } from '..'
+import type { JinjaFormattedChatResult, TokenData } from '..'
 
 jest.mock('..', () => require('../../jest/mock'))
 
 Math.random = () => 0.5
 
-test('LoRA inputs are normalized and deduplicated', async () => {
+test('LoRA and speculative inputs are passed through', async () => {
   await NativeModules.RNLlama.install()
   const mocks = global as typeof globalThis & {
     llamaInitContext: jest.Mock
     llamaApplyLoraAdapters: jest.Mock
+    llamaCompletion: jest.Mock
+    llamaQueueCompletion: jest.Mock
   }
-  const { llamaInitContext, llamaApplyLoraAdapters } = mocks
+  const {
+    llamaInitContext,
+    llamaApplyLoraAdapters,
+    llamaCompletion,
+    llamaQueueCompletion,
+  } = mocks
 
   const context = await initLlama({
     model: 'test.gguf',
+    model_draft: 'file:///draft-top.gguf',
     lora: 'file:///adapter-a.gguf',
     lora_scaled: 0.25,
     lora_list: [
       { path: 'file:///adapter-a.gguf', scaled: 0.75 },
       { path: 'file:///adapter-b.gguf', scaled: 0.5 },
     ],
+    speculative: {
+      enabled: true,
+      draft: {
+        model: 'file:///draft-nested.gguf',
+        n_max: 4,
+        p_min: 0.6,
+      },
+    },
+    spec_draft_n_min: 1,
   })
 
   const initParams = llamaInitContext.mock.calls.at(-1)?.[1]
@@ -31,9 +48,82 @@ test('LoRA inputs are normalized and deduplicated', async () => {
         { path: '/adapter-a.gguf', scaled: 0.75 },
         { path: '/adapter-b.gguf', scaled: 0.5 },
       ],
+      model_draft: '/draft-top.gguf',
+      speculative: {
+        enabled: true,
+        draft: {
+          model: '/draft-nested.gguf',
+          n_max: 4,
+          p_min: 0.6,
+        },
+      },
+      spec_draft_n_min: 1,
     }),
   )
   expect(initParams).not.toHaveProperty('lora')
+
+  await context.completion({
+    prompt: 'Test',
+    speculative: false,
+  })
+
+  expect(llamaCompletion.mock.calls.at(-1)?.[1]).toEqual(
+    expect.objectContaining({
+      speculative: false,
+    }),
+  )
+
+  const queued = await context.parallel.completion({
+    prompt: 'Parallel',
+    speculative: {
+      type: 'draft-mtp',
+      n_max: 4,
+    },
+    spec_draft_n_min: 1,
+  })
+  const queuedResult = await queued.promise
+
+  expect(llamaQueueCompletion.mock.calls.at(-1)?.[1]).toEqual(
+    expect.objectContaining({
+      speculative: {
+        type: 'draft-mtp',
+        n_max: 4,
+      },
+      spec_draft_n_min: 1,
+      emit_partial_completion: true,
+    }),
+  )
+  expect(queuedResult).toEqual(
+    expect.objectContaining({
+      draft_tokens: 0,
+      draft_tokens_accepted: 0,
+    }),
+  )
+
+  const delayedResult = {
+    ...queuedResult,
+    text: 'final',
+    content: 'final',
+    draft_tokens: 2,
+    draft_tokens_accepted: 1,
+  }
+  llamaQueueCompletion.mockImplementationOnce(
+    async (_ctx, _params, onToken, onComplete) => {
+      onToken({ token: 'partial', content: 'partial' }, 4242)
+      setTimeout(() => onComplete(delayedResult), 10)
+      return { requestId: 4242 }
+    },
+  )
+
+  const delayed = await context.parallel.completion({ prompt: 'Delayed' })
+  let resolvedFromToken = false
+  const delayedResolution = delayed.promise.then((value) => {
+    resolvedFromToken = true
+    return value
+  })
+  await Promise.resolve()
+  expect(resolvedFromToken).toBe(false)
+  await expect(delayedResolution).resolves.toEqual(delayedResult)
 
   await context.applyLoraAdapters([
     { path: 'file:///adapter-b.gguf', scaled: 0.5 },
@@ -87,6 +177,111 @@ test('Mock', async () => {
 
   await context.release()
   await releaseAllLlama()
+})
+
+test('message completion passes response_format through chat formatting', async () => {
+  const context = await initLlama({
+    model: 'test.gguf',
+  })
+  const getFormattedChat = jest.spyOn(context, 'getFormattedChat')
+  const formattedResult: JinjaFormattedChatResult = {
+    type: 'jinja',
+    prompt: 'formatted prompt',
+    grammar: 'root ::= "{}"',
+    has_media: false,
+    media_paths: [],
+  }
+  getFormattedChat.mockResolvedValueOnce(formattedResult)
+
+  const schema = {
+    type: 'object',
+    properties: {
+      title: { type: 'string' },
+    },
+    required: ['title'],
+  }
+
+  await context.completion({
+    messages: [{ role: 'user', content: 'Extract a title' }],
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        strict: true,
+        schema,
+      },
+    },
+  })
+
+  expect(getFormattedChat).toHaveBeenLastCalledWith(
+    [{ role: 'user', content: 'Extract a title' }],
+    undefined,
+    expect.objectContaining({
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          strict: true,
+          schema,
+        },
+      },
+    }),
+  )
+
+  await context.release()
+  getFormattedChat.mockRestore()
+})
+
+test('parallel message completion passes response_format through chat formatting', async () => {
+  const context = await initLlama({
+    model: 'test.gguf',
+    n_parallel: 2,
+  })
+  const getFormattedChat = jest.spyOn(context, 'getFormattedChat')
+  const formattedResult: JinjaFormattedChatResult = {
+    type: 'jinja',
+    prompt: 'formatted prompt',
+    grammar: 'root ::= "{}"',
+    has_media: false,
+    media_paths: [],
+  }
+  getFormattedChat.mockResolvedValueOnce(formattedResult)
+
+  const schema = {
+    type: 'object',
+    properties: {
+      title: { type: 'string' },
+    },
+    required: ['title'],
+  }
+
+  const request = await context.parallel.completion({
+    messages: [{ role: 'user', content: 'Extract a title' }],
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        strict: true,
+        schema,
+      },
+    },
+  })
+
+  await request.promise
+
+  expect(getFormattedChat).toHaveBeenLastCalledWith(
+    [{ role: 'user', content: 'Extract a title' }],
+    undefined,
+    expect.objectContaining({
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          strict: true,
+          schema,
+        },
+      },
+    }),
+  )
+
+  await context.release()
+  getFormattedChat.mockRestore()
 })
 
 test('Parallel APIs - completion', async () => {

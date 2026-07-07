@@ -11,6 +11,10 @@
 
 #define DEFAULT_INTERPOLATION_MODE (LM_GGML_SCALE_MODE_BILINEAR | LM_GGML_SCALE_FLAG_ANTIALIAS)
 
+struct build_vit_opts {
+    lm_ggml_tensor * attn_mask = nullptr;
+};
+
 struct clip_graph {
     const clip_model & model;
     const clip_hparams & hparams;
@@ -25,12 +29,16 @@ struct clip_graph {
     const int n_patches;
     const int n_embd;
     const int n_head;
+    const int n_head_kv;
     const int d_head;
     const int n_layer;
     const int n_mmproj_embd;
     const float eps;
     float kq_scale; // TODO: maybe move this to hparams
     const clip_flash_attn_type flash_attn_type;
+
+    // TODO [QWEN_VIDEO]: improve this in the future
+    int n_batch = 1;
 
     lm_ggml_context_ptr ctx0_ptr;
     lm_ggml_context * ctx0;
@@ -45,6 +53,10 @@ struct clip_graph {
     // tensor w should be the weight matrix, and tensor x should be the input
     virtual lm_ggml_tensor * build_mm(lm_ggml_tensor * w, lm_ggml_tensor * x) const;
     // TODO: build_mm(w, b, x) to support bias
+
+    virtual bool support_batch() const {
+        return false;
+    }
 
     //
     // utility functions
@@ -63,7 +75,8 @@ struct clip_graph {
                 norm_type norm_t,
                 ffn_op_type ffn_t,
                 lm_ggml_tensor * learned_pos_embd,
-                std::function<lm_ggml_tensor *(lm_ggml_tensor *, const clip_layer &)> add_pos);
+                std::function<lm_ggml_tensor *(lm_ggml_tensor *, const clip_layer &)> add_pos,
+                const build_vit_opts & opts = {});
 
     // build the input after conv2d (inp_raw --> patches)
     // returns tensor with shape [n_embd, n_patches]
@@ -98,7 +111,8 @@ struct clip_graph {
             lm_ggml_tensor * v_cur,
             lm_ggml_tensor * kq_mask,
             float kq_scale,
-            int il) const;
+            int il,
+            lm_ggml_tensor * sinks = nullptr) const;
 
     // implementation of the 2D RoPE without adding a new op in ggml
     // this is not efficient (use double the memory), but works on all backends

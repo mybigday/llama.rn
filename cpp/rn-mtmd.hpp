@@ -151,6 +151,7 @@ struct llama_rn_context;
 inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrapper, const std::string &prompt, const std::vector<std::string> &media_paths) {
     mtmd_tokenize_result result;
     mtmd::bitmaps bitmaps;
+    std::vector<mtmd_helper::video_ptr> videos;
 
     // Load all media paths
     for (const auto& media_path : media_paths) {
@@ -181,18 +182,26 @@ inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrappe
             LOG_INFO("[DEBUG] Base64 decoded, size: %zu bytes", media_data.size());
 
             // Load bitmap from memory buffer using direct initialization
-            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_buf(mtmd_wrapper->mtmd_ctx, media_data.data(), media_data.size()));
+            auto loaded = mtmd_helper_bitmap_init_from_buf(mtmd_wrapper->mtmd_ctx, media_data.data(), media_data.size(), false);
+            if (loaded.video_ctx) {
+                videos.emplace_back(loaded.video_ctx);
+            }
+            mtmd::bitmap bmp(loaded.bitmap);
             if (!bmp.ptr) {
                 bitmaps.entries.clear();
                 throw std::runtime_error("Failed to load base64 media");
             }
 
             // Calculate bitmap hash (for KV caching)
-            std::string hash = fnv_hash(bmp.data(), bmp.n_bytes());
+            std::string hash = bmp.data() != nullptr ? fnv_hash(bmp.data(), bmp.n_bytes()) : "";
+            if (hash.empty()) {
+                const char * bitmap_id = mtmd_bitmap_get_id(bmp.ptr.get());
+                hash = bitmap_id != nullptr ? bitmap_id : "";
+            }
             bmp.set_id(hash.c_str());
             LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
             bitmaps.entries.push_back(std::move(bmp));
-            result.bitmap_hashes.push_back(hash.c_str());
+            result.bitmap_hashes.push_back(hash);
         } else if (media_path.compare(0, 7, "http://") == 0 || media_path.compare(0, 8, "https://") == 0) {
             // HTTP URLs are not supported yet
             LOG_ERROR("[DEBUG] HTTP/HTTPS URLs are not supported yet: %s", media_path.c_str());
@@ -216,18 +225,26 @@ inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrappe
             fclose(file);
 
             // Create bitmap directly
-            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(mtmd_wrapper->mtmd_ctx, media_path.c_str()));
+            auto loaded = mtmd_helper_bitmap_init_from_file(mtmd_wrapper->mtmd_ctx, media_path.c_str(), false);
+            if (loaded.video_ctx) {
+                videos.emplace_back(loaded.video_ctx);
+            }
+            mtmd::bitmap bmp(loaded.bitmap);
             if (!bmp.ptr) {
                 bitmaps.entries.clear();
                 throw std::runtime_error("Failed to load media");
             }
 
             // Calculate bitmap hash (for KV caching)
-            std::string hash = fnv_hash(bmp.data(), bmp.nx()*bmp.ny()*3);
+            std::string hash = bmp.data() != nullptr ? fnv_hash(bmp.data(), bmp.n_bytes()) : "";
+            if (hash.empty()) {
+                const char * bitmap_id = mtmd_bitmap_get_id(bmp.ptr.get());
+                hash = bitmap_id != nullptr ? bitmap_id : "";
+            }
             bmp.set_id(hash.c_str());
             LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
             bitmaps.entries.push_back(std::move(bmp));
-            result.bitmap_hashes.push_back(hash.c_str());
+            result.bitmap_hashes.push_back(hash);
         }
     }
 
@@ -565,7 +582,8 @@ inline llama_rn_context_mtmd::llama_rn_context_mtmd(
 
     // Check if the model uses M-RoPE or non-causal attention
     bool uses_mrope = mtmd_decode_use_mrope(mtmd_ctx);
-    bool uses_non_causal = mtmd_decode_use_non_causal(mtmd_ctx);
+    // No chunk exists during context init; nullptr uses the default image path.
+    bool uses_non_causal = mtmd_decode_use_non_causal(mtmd_ctx, nullptr);
     LOG_INFO("[DEBUG] Model multimodal properties: uses_mrope=%d, uses_non_causal=%d",
              uses_mrope ? 1 : 0,
              uses_non_causal ? 1 : 0);

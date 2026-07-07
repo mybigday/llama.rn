@@ -81,6 +81,7 @@ int lm_ggml_metal_op_conv_transpose_2d (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_upscale           (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_pad               (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_pad_reflect_1d    (lm_ggml_metal_op_t ctx, int idx);
+int lm_ggml_metal_op_roll              (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_arange            (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_timestep_embedding(lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_argmax            (lm_ggml_metal_op_t ctx, int idx);

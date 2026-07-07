@@ -163,6 +163,8 @@ namespace rnllama_jsi {
         );
         res.setProperty(runtime, "tokens_predicted", (double)ctx->completion->num_tokens_predicted);
         res.setProperty(runtime, "tokens_evaluated", (double)ctx->completion->num_prompt_tokens);
+        res.setProperty(runtime, "draft_tokens", (double)ctx->completion->num_draft_tokens);
+        res.setProperty(runtime, "draft_tokens_accepted", (double)ctx->completion->num_draft_tokens_accepted);
         res.setProperty(runtime, "truncated", ctx->completion->truncated);
         res.setProperty(runtime, "context_full", ctx->completion->context_full);
         res.setProperty(runtime, "interrupted", ctx->completion->is_interrupted);
@@ -239,6 +241,8 @@ namespace rnllama_jsi {
 
         res.setProperty(runtime, "tokens_predicted", (double)slot->num_tokens_predicted);
         res.setProperty(runtime, "tokens_evaluated", (double)slot->num_prompt_tokens);
+        res.setProperty(runtime, "draft_tokens", (double)slot->num_draft_tokens);
+        res.setProperty(runtime, "draft_tokens_accepted", (double)slot->num_draft_tokens_accepted);
         res.setProperty(runtime, "truncated", slot->truncated);
         res.setProperty(runtime, "context_full", slot->context_full);
         res.setProperty(runtime, "interrupted", slot->is_interrupted);
