@@ -2331,14 +2331,6 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
             std::vector<int32_t> codes((size_t) n_cb, 0);
             if (!codec_common::audio_lm_step_finish(audio_lm_ctx, codes.data(), n_cb)) return false;
 
-            if (getenv("RT_DEBUG") && codec_lm_ar_step < 6) {
-                double h0 = hidden ? hidden[0] : 0.0;
-                LOG_INFO("RT step=%d n_cb=%d eos_c0=%d codes[0..4]=%d,%d,%d,%d,%d hidden[0]=%.4f",
-                         codec_lm_ar_step, n_cb, pi.eos_code_c0,
-                         codes[0], n_cb>1?codes[1]:-1, n_cb>2?codes[2]:-1,
-                         n_cb>3?codes[3]:-1, n_cb>4?codes[4]:-1, h0);
-            }
-
             // observe_codes accumulates the frame + detects eos_code_c0.
             auto act = codec_common::audio_lm_observe_codes(
                 audio_lm_ctx, codes.data(), n_cb, hidden, hidden_dim);
@@ -2678,13 +2670,6 @@ int llama_rn_context_tts::tryRealtimePrefill(llama_rn_context * main_ctx, int n_
     if (rc) {
         LOG_ERROR("tryRealtimePrefill: prefill decode failed (n_rows=%d)", n_rows);
         return -1;
-    }
-
-    if (getenv("RT_DEBUG")) {
-        float e0 = block.size() > 0 ? block[0] : 0.0f;
-        LOG_INFO("RT prefill: ctx=%d text=%d prefill_n=%d n_rows=%d n_cb=%d audio_pad=%d bos_c0=%d text_pad=%d hidden=%d block[0]=%.4f",
-                 (int) realtime_ctx_tokens.size(), (int) realtime_text_tokens.size(),
-                 prefill_n, n_rows, n_cb, audio_pad, bos_c0, pi.text_pad_id, hidden, e0);
     }
 
     // Text consumed 1:1 per frame starting from prefill_n.
