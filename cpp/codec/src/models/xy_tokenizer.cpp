@@ -774,6 +774,89 @@ static enum codec_status codec_xy_encode(
     return CODEC_STATUS_SUCCESS;
 }
 
+// Decode a single ≤chunk_code_length window of codes through the decode graph
+// and return the raw iSTFT PCM for that window.  `chunk_codes_tq` is a (T, Q)
+// int32 slice (codec_token_buffer layout) of length `n_codes` frames.
+//
+// The decode pipeline's transformer pos_emb tables are sized for a fixed
+// maximum window (post_rvq_adapter.pos_emb has 375 rows == chunk_code_length),
+// so a window longer than that slices past the table and asserts in
+// lm_ggml_view_2d.  Chunking (mirroring HF `XYTokenizerModel.decode`) is therefore
+// required, not merely an optimisation.
+static enum codec_status codec_xy_decode_chunk(
+    struct codec_context * ctx,
+    const codec_xy_tokenizer & cfg,
+    const int32_t * chunk_codes_tq,
+    int32_t n_codes,
+    std::vector<float> * out_pcm,
+    std::string * err) {
+
+    xy_decode_build build = {};
+    build.n_codes = n_codes;
+    build.cfg = &cfg;
+    build.model = ctx->model;
+
+    codec_graph_cache_entry * entry = nullptr;
+    if (!codec_graph_cache_get_or_build(
+            ctx,
+            { CODEC_GRAPH_XY_TOKENIZER_DECODE, /*n_frames=*/n_codes,
+              /*n_q=*/cfg.n_q, /*hop=*/cfg.decoder_upsample_rate,
+              /*n_in=*/0, /*latent_dim=*/cfg.latent_dim }, xy_build_decode, &build, sizeof(build), &entry, err)) {
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    lm_ggml_tensor * t_codes = codec_graph_get_tensor(ctx, entry, xy_name_dec_codes());
+    lm_ggml_tensor * t_head  = codec_graph_get_tensor(ctx, entry, xy_name_dec_head());
+    if (t_codes == nullptr || t_head == nullptr) {
+        if (err != nullptr) *err = "XY-Tokenizer decode graph invalid";
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    if (!codec_graph_prepare_io(ctx, entry, err)) {
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+
+    // Re-pack tokens (T, Q) → ggml-ne (n_codes, n_q) memory `data[t + q*n_codes]`.
+    std::vector<int32_t> qt((size_t) cfg.n_q * (size_t) n_codes, 0);
+    for (int32_t t = 0; t < n_codes; ++t) {
+        for (int32_t q = 0; q < cfg.n_q; ++q) {
+            qt[(size_t) q * (size_t) n_codes + (size_t) t] =
+                chunk_codes_tq[(size_t) t * (size_t) cfg.n_q + (size_t) q];
+        }
+    }
+    if (!codec_runtime_write_tensor(t_codes, qt.data(),
+                                     qt.size() * sizeof(int32_t), err)) {
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    if (!codec_graph_compute(ctx, entry, ctx->model->n_threads, err)) {
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+
+    // Head is laid out as ne=(out_dim=962, t_audio).  For each frame we have
+    // the first `n_fft/2 + 1` channels = mag (post-exp) and the next
+    // `n_fft/2 + 1` channels = phase.  `codec_runtime_istft_from_head`
+    // expects the same `[out_dim, n_frames]` (column-major) layout we
+    // produce here.
+    const int32_t out_dim  = (int32_t) t_head->ne[0];
+    const int32_t t_audio  = (int32_t) t_head->ne[1];
+    std::vector<float> head((size_t) out_dim * (size_t) t_audio, 0.0f);
+    if (!codec_runtime_read_tensor(t_head, head.data(),
+                                    head.size() * sizeof(float), err)) {
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+
+    // Read the iSTFT window so iSTFT matches exactly (Vocos uses
+    // torch.hann_window which is *symmetric* — `/(N-1)` — matching the
+    // default `codec_runtime_istft_from_head` window if window=nullptr).
+    out_pcm->clear();
+    if (!codec_runtime_istft_from_head(head, out_dim, t_audio,
+                                        cfg.vocos_hop, /*window=*/nullptr,
+                                        /*skip_dc_nyquist=*/false,
+                                        /*trim_pad_override=*/-1,
+                                        out_pcm, err)) {
+        return CODEC_STATUS_INTERNAL_ERROR;
+    }
+    return CODEC_STATUS_SUCCESS;
+}
+
 static enum codec_status codec_xy_decode(
     struct codec_context * ctx,
     const struct codec_token_buffer * tokens,
@@ -789,86 +872,76 @@ static enum codec_status codec_xy_decode(
         return CODEC_STATUS_INVALID_ARG;
     }
 
-    const int32_t n_codes = tokens->n_frames;
+    const int32_t total_codes = tokens->n_frames;
 
-    xy_decode_build build = {};
-    build.n_codes = n_codes;
-    build.cfg = &cfg;
-    build.model = ctx->model;
+    // Chunked decode, mirroring HF `XYTokenizerModel.decode(overlap_seconds=10)`.
+    // The decode transformer pos_emb tables are sized for a fixed window
+    // (chunk_code_length = chunk_length_s * enc_sr / enc_downsample = 375), so
+    // any window longer than that overruns the table.  We decode overlapping
+    // windows of up to `chunk_code_length` codes, advancing by
+    // `duration_code_length` codes each step, and keep only the leading
+    // `duration_wav_length` samples of each window (the trailing overlap codes
+    // are look-ahead context that gets discarded).  A final trim clamps the
+    // stitched waveform to `total_codes * decoder_upsample_rate` samples.
+    const int32_t chunk_len_s  = std::max(1, cfg.mel_chunk_length_s);
+    const int32_t overlap_s    = 10;   // HF default
+    const int32_t duration_s   = std::max(1, chunk_len_s - overlap_s);
+    const int32_t chunk_code_length = std::max<int32_t>(1,
+        (int32_t) (((int64_t) chunk_len_s * cfg.encode_sample_rate) / std::max(1, cfg.encoder_downsample_rate)));
+    // Advance step; clamp to [1, chunk_code_length] so the loop always makes
+    // progress and never advances past the window it just decoded.
+    const int32_t duration_code_length = std::min(chunk_code_length, std::max<int32_t>(1,
+        (int32_t) (((int64_t) duration_s * cfg.encode_sample_rate) / std::max(1, cfg.encoder_downsample_rate))));
+    const int64_t duration_wav_length =
+        (int64_t) duration_code_length * (int64_t) cfg.decoder_upsample_rate;
+    const int64_t total_wav_length =
+        (int64_t) total_codes * (int64_t) cfg.decoder_upsample_rate;
 
     codec_graph_eval_guard guard(ctx);
     std::string err;
-    codec_graph_cache_entry * entry = nullptr;
-    if (!codec_graph_cache_get_or_build(
-            ctx,
-            { CODEC_GRAPH_XY_TOKENIZER_DECODE, /*n_frames=*/n_codes,
-              /*n_q=*/cfg.n_q, /*hop=*/cfg.decoder_upsample_rate,
-              /*n_in=*/0, /*latent_dim=*/cfg.latent_dim }, xy_build_decode, &build, sizeof(build), &entry, &err)) {
-        codec_context_set_error(ctx, err);
-        return CODEC_STATUS_INTERNAL_ERROR;
-    }
-    lm_ggml_tensor * t_codes = codec_graph_get_tensor(ctx, entry, xy_name_dec_codes());
-    lm_ggml_tensor * t_head  = codec_graph_get_tensor(ctx, entry, xy_name_dec_head());
-    if (t_codes == nullptr || t_head == nullptr) {
-        codec_context_set_error(ctx, "XY-Tokenizer decode graph invalid");
-        return CODEC_STATUS_INTERNAL_ERROR;
-    }
-    if (!codec_graph_prepare_io(ctx, entry, &err)) {
-        codec_context_set_error(ctx, err);
-        return CODEC_STATUS_INTERNAL_ERROR;
-    }
 
-    // Re-pack tokens (T, Q) → ggml-ne (n_codes, n_q) memory `data[t + q*n_codes]`.
-    std::vector<int32_t> qt((size_t) cfg.n_q * (size_t) n_codes, 0);
-    for (int32_t t = 0; t < n_codes; ++t) {
-        for (int32_t q = 0; q < cfg.n_q; ++q) {
-            qt[(size_t) q * (size_t) n_codes + (size_t) t] =
-                tokens->data[(size_t) t * (size_t) cfg.n_q + (size_t) q];
+    std::vector<float> stitched;
+    stitched.reserve((size_t) total_wav_length + (size_t) cfg.decoder_upsample_rate);
+
+    std::vector<float> chunk_pcm;
+    for (int32_t start = 0; start < total_codes; start += duration_code_length) {
+        const int32_t end = std::min(start + chunk_code_length, total_codes);
+        const int32_t n_codes = end - start;
+        if (n_codes <= 0) break;
+
+        const int32_t * chunk_ptr =
+            tokens->data + (size_t) start * (size_t) cfg.n_q;
+        enum codec_status st =
+            codec_xy_decode_chunk(ctx, cfg, chunk_ptr, n_codes, &chunk_pcm, &err);
+        if (st != CODEC_STATUS_SUCCESS) {
+            codec_context_set_error(ctx, err);
+            return st;
         }
-    }
-    if (!codec_runtime_write_tensor(t_codes, qt.data(),
-                                     qt.size() * sizeof(int32_t), &err)) {
-        codec_context_set_error(ctx, err);
-        return CODEC_STATUS_INTERNAL_ERROR;
-    }
-    if (!codec_graph_compute(ctx, entry, ctx->model->n_threads, &err)) {
-        codec_context_set_error(ctx, err);
-        return CODEC_STATUS_INTERNAL_ERROR;
+
+        // Keep only the leading `duration_wav_length` samples of this window,
+        // exactly as HF does for *every* chunk (`valid_wav_lengths =
+        // clamp(chunk_wav_lengths, 0, duration_wav_length)`).  The trailing
+        // overlap codes are look-ahead context; the next window re-decodes
+        // them starting at its own position 0.  The final trim below clamps
+        // the stitched result to the exact total sample count.
+        int64_t keep = std::min<int64_t>((int64_t) chunk_pcm.size(), duration_wav_length);
+        stitched.insert(stitched.end(), chunk_pcm.begin(), chunk_pcm.begin() + (size_t) keep);
     }
 
-    // Head is laid out as ne=(out_dim=962, t_audio).  For each frame we have
-    // the first `n_fft/2 + 1` channels = mag (post-exp) and the next
-    // `n_fft/2 + 1` channels = phase.  `codec_runtime_istft_from_head`
-    // expects the same `[out_dim, n_frames]` (column-major) layout we
-    // produce here.
-    const int32_t out_dim  = (int32_t) t_head->ne[0];
-    const int32_t t_audio  = (int32_t) t_head->ne[1];
-std::vector<float> head((size_t) out_dim * (size_t) t_audio, 0.0f);
-    if (!codec_runtime_read_tensor(t_head, head.data(),
-                                    head.size() * sizeof(float), &err)) {
-        codec_context_set_error(ctx, err);
-        return CODEC_STATUS_INTERNAL_ERROR;
+    // Trim to exactly total_codes * upsample_rate samples, mirroring HF's
+    // `wav_tensor[:, :code_lengths * decoder_upsample_rate]`.  Each window
+    // produces at least its share of samples (the per-chunk iSTFT overshoots
+    // n_codes*hop by an edge tail), so the stitched stream is never short.
+    if ((int64_t) stitched.size() > total_wav_length) {
+        stitched.resize((size_t) total_wav_length);
     }
 
-    // Read the iSTFT window so iSTFT matches exactly (Vocos uses
-    // torch.hann_window which is *symmetric* — `/(N-1)` — matching the
-    // default `codec_runtime_istft_from_head` window if window=nullptr).
-    std::vector<float> pcm_v;
-    if (!codec_runtime_istft_from_head(head, out_dim, t_audio,
-                                        cfg.vocos_hop, /*window=*/nullptr,
-                                        /*skip_dc_nyquist=*/false,
-                                        /*trim_pad_override=*/-1,
-                                        &pcm_v, &err)) {
-        codec_context_set_error(ctx, err);
-        return CODEC_STATUS_INTERNAL_ERROR;
-    }
-
-    float * pcm_out = static_cast<float *>(std::malloc(pcm_v.size() * sizeof(float)));
+    float * pcm_out = static_cast<float *>(std::malloc(std::max<size_t>(1, stitched.size()) * sizeof(float)));
     if (pcm_out == nullptr) return CODEC_STATUS_INTERNAL_ERROR;
-    std::memcpy(pcm_out, pcm_v.data(), pcm_v.size() * sizeof(float));
+    std::memcpy(pcm_out, stitched.data(), stitched.size() * sizeof(float));
     codec_pcm_buffer_reset(out_pcm);
     out_pcm->data        = pcm_out;
-    out_pcm->n_samples   = (int32_t) pcm_v.size();
+    out_pcm->n_samples   = (int32_t) stitched.size();
     out_pcm->sample_rate = cfg.sample_rate;
     out_pcm->n_channels  = 1;
     return CODEC_STATUS_SUCCESS;
