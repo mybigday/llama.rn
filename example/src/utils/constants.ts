@@ -161,11 +161,14 @@ export const MODELS = {
     },
   },
   MOSS_TTS_REALTIME: {
-    name: 'MOSS-TTS-Realtime (Q4_K_M) + MOSS-Audio + codec_lm (Q5_K_M)',
+    // Backbone converted with codec.cpp's bundled llama.cpp (Q8_0 — the
+    // Q4_K_M backbone drifts).  Streaming text↔audio interleave with a
+    // per-codebook repetition penalty; stops on eos_code_c0.
+    name: 'MOSS-TTS-Realtime (Q8_0) + MOSS-Audio + codec_lm (Q5_K_M)',
     repo: 'hans00/MOSS-TTS-Realtime-GGUF',
-    filename: 'moss-tts-realtime-q4_k_m.gguf',
+    filename: 'moss-tts-realtime-q8_0.gguf',
     mmproj: undefined,
-    size: '1.1GB (model) + 1.8GB (codec+codec_lm)',
+    size: '1.8GB (model) + 1.8GB (codec+codec_lm)',
     vocoder: {
       repo: 'hans00/MOSS-TTS-Realtime-GGUF',
       filename: 'codec-q5_k_m.gguf',
