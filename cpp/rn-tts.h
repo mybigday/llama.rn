@@ -305,6 +305,32 @@ struct llama_rn_context_tts {
     // and produces incoherent output.  Cleared by reset() (like talker_prefix).
     std::string audio_lm_payload_text;
 
+    // ── MOSS-TTS-Realtime (streaming_interleave) ─────────────────────────
+    // Realtime interleaves ONE payload text token per audio frame:
+    //   next_row = text_embd[text_token] + compose_audio_codes_embd(codes).
+    // The text-embedding table (`token_embd.weight`) lives in the BACKBONE
+    // GGUF, not the codec — llama.cpp exposes no raw-embedding API, so we
+    // mmap the backbone a second time and dequantize rows on demand (see
+    // `rnllama_text_embd_table` in rn-tts.cpp, mirrors codec.cpp's
+    // TextEmbdTable).  These fields survive rewind()/reset() (same design as
+    // talker_*): set in getFormattedAudioCompletion, consumed by the realtime
+    // prefill in rn-completion.cpp + the per-step realtime driver in
+    // tryCodecLmAudioStep.  Cleared at the entry of getFormattedAudioCompletion
+    // for non-realtime models; the text-embd table is freed there and in dtor.
+    bool realtime_active          = false;  // this generation is realtime
+    bool realtime_prefill_pending = false;  // prefill block not yet decoded
+    std::vector<int32_t> realtime_ctx_tokens;   // system+user+assistant context
+    std::vector<int32_t> realtime_text_tokens;  // payload text tokens
+    int  realtime_text_idx = 0;                 // next payload token to consume
+    // Opaque handle to the backbone text-embd table (rnllama_text_embd_table*).
+    void * realtime_text_embd = nullptr;
+    // Per-codebook sampler chains (rnllama_codebook_sampler*), one per codebook,
+    // each carrying its own windowed repetition-penalty state.  Without the
+    // per-codebook rep penalty the realtime codebooks collapse into repeated
+    // codes (silent output).  Allocated on first realtime step, freed in dtor /
+    // getFormattedAudioCompletion.
+    std::vector<void *> realtime_cb_samplers;
+
     // Constructor and destructor
     // `use_gpu` mirrors codec.cpp's `codec_model_params.use_gpu` — set true
     // to offload codec + codec_lm graphs (Mimi / S3G / depth decoder etc.)
@@ -372,6 +398,18 @@ struct llama_rn_context_tts {
     // from the last prefill row).  Returns true on success.
     bool tryTalkerPrefill(llama_rn_context * main_ctx,
                           const float * last_hidden, int hidden_dim);
+
+    // MOSS-TTS-Realtime (streaming_interleave) prefill: called ONCE from the
+    // completion loop when `realtime_prefill_pending` is set.  Composes the
+    // streaming prefill block — one row per context token (audio lanes =
+    // audio_pad_code) followed by the first `prefill_text_len` payload text
+    // tokens (audio lanes = audio_pad_code, the LAST row's cb0 lane =
+    // bos_code_c0), each row = text_embd[token] + compose_audio_codes_embd —
+    // decodes it as a single embd batch, arms embed-override, sets
+    // `realtime_text_idx = prefill_n`, and fires the first realtime step from
+    // the block's last-row hidden so `pending_next_embd` is ready before the
+    // AR loop.  Returns the KV position after the block (or -1 on failure).
+    int tryRealtimePrefill(llama_rn_context * main_ctx, int n_past);
 
     // Chatterbox T3 prefill: tokenize text, build cond+uncond prompts via
     // codec_lm_chatterbox_build_prompt, and decode them via two-sequence

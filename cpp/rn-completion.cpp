@@ -494,6 +494,49 @@ completion_token_output llama_rn_context_completion::nextToken()
         }
     }
 
+    // MOSS-TTS-Realtime (streaming_interleave) prefill: when
+    // getFormattedAudioCompletion returned flow="realtime_embd", compose the
+    // streaming prefill block (context tokens + first prefill_text_len payload
+    // tokens, each row = text_embd[tok] + compose_audio_codes_embd), decode it
+    // as one embd batch, arm embed-override, then fire the first realtime step
+    // so pending_next_embd is ready.  Pad embd to match n_past so the
+    // inject_ar_embd cycle continues from there.  Runs once per generation.
+    if (is_codec_lm_ar_tts &&
+        parent_ctx->tts_wrapper->realtime_active &&
+        parent_ctx->tts_wrapper->realtime_prefill_pending) {
+
+        parent_ctx->tts_wrapper->realtime_prefill_pending = false;
+
+        // Empty prompt → loadPrompt sets n_past = -1.  Normalize here.
+        if (n_past < 0) n_past = 0;
+
+        const int new_past = parent_ctx->tts_wrapper->tryRealtimePrefill(
+            parent_ctx, (int) n_past);
+        if (new_past < 0) {
+            LOG_ERROR("tryRealtimePrefill failed");
+            has_next_token = false;
+            return result;
+        }
+        n_past = new_past;
+
+        const float * last_h = llama_get_embeddings_ith(parent_ctx->ctx, -1);
+        const int dim = llama_model_n_embd(parent_ctx->model);
+        if (!last_h || dim <= 0) {
+            LOG_ERROR("realtime prefill: NULL hidden after decode");
+            has_next_token = false;
+            return result;
+        }
+        if (!parent_ctx->tts_wrapper->tryCodecLmAudioStep(
+                parent_ctx, /*backbone_sampled_tok=*/-1, last_h, dim)) {
+            LOG_ERROR("realtime: first tryCodecLmAudioStep failed");
+            has_next_token = false;
+            return result;
+        }
+        while ((llama_pos) embd.size() < n_past) {
+            embd.push_back(llama_vocab_bos(vocab));
+        }
+    }
+
     bool tg = true;
     while (n_past < embd.size())
     {
