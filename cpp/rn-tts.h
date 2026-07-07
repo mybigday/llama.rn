@@ -297,6 +297,14 @@ struct llama_rn_context_tts {
     // CFG weight for the Chatterbox AR loop (passed to tryChatterboxPrefill).
     float chatterbox_cfg_weight = 0.7f;
 
+    // Payload text stashed at getFormattedAudioCompletion time so
+    // tryCodecLmAudioStep can call codec_common::tts_auto_grammar(pi, text)
+    // with the *actual* text — the metadata-derived GBNF for MOSS-TTSD's
+    // cb0-from-backbone constrains cb0 samples to the speech-token range ∪
+    // {eos_code_c0}, without which cb0 samples from the full 152k Qwen3 vocab
+    // and produces incoherent output.  Cleared by reset() (like talker_prefix).
+    std::string audio_lm_payload_text;
+
     // Constructor and destructor
     // `use_gpu` mirrors codec.cpp's `codec_model_params.use_gpu` — set true
     // to offload codec + codec_lm graphs (Mimi / S3G / depth decoder etc.)

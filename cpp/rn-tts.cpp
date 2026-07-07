@@ -1229,6 +1229,7 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     talker_prefix_hidden         = 0;
     chatterbox_prefill_pending   = false;
     chatterbox_text.clear();
+    audio_lm_payload_text        = text_to_speak;   // grammar needs the text
 
     json speaker = speaker_json_str.empty() ? json::object() : json::parse(speaker_json_str);
     const tts_type tts_type = getTTSType(main_ctx, speaker);
@@ -2041,9 +2042,13 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
         // the full streaming-prefill).  TODO: add streaming prefill to rn-completion.
         if (is_talker || is_cb0_bb || (have_pi && pi.streaming_interleave)) {
             // Build GBNF grammar for cb0-from-backbone sampler if needed.
+            // Pass the actual payload text (stashed by
+            // getFormattedAudioCompletion) so tts_auto_grammar can produce the
+            // real metadata-derived speech-range GBNF; passing "" produces a
+            // trivial grammar that lets cb0 drift into arbitrary text tokens.
             std::string bb_grammar;
             if (is_cb0_bb) {
-                bb_grammar = codec_common::tts_auto_grammar(pi, /*text=*/"");
+                bb_grammar = codec_common::tts_auto_grammar(pi, audio_lm_payload_text);
             }
 
             std::vector<int32_t> codes;
