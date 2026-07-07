@@ -24,6 +24,10 @@ using json = nlohmann::ordered_json;
 
 namespace rnllama {
 
+// Display form of a raw token piece: a lone high-bit byte is hex-escaped,
+// any other ill-formed piece is sanitized (JSI strings require well-formed UTF-8)
+std::string token_piece_to_output_string(const std::string & piece);
+
 std::string tokens_to_output_formatted_string(const llama_context *ctx, const llama_token token);
 
 std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::const_iterator begin, const std::vector<llama_token>::const_iterator end);

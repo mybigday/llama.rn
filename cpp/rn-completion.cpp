@@ -5,7 +5,6 @@
 #include "rn-common.hpp"
 
 #include <algorithm>
-#include <cassert>
 #include <cstring>
 #include <cstdlib>
 #include <limits>
@@ -722,8 +721,6 @@ completion_chat_output llama_rn_context_completion::parseChatOutput(bool is_part
     if (!current_chat_parser.empty()) {
         syntax.parser.load(current_chat_parser);
     }
-
-    assert(utf8_is_well_formed(prefill_text) && utf8_is_well_formed(generated_text));
 
     common_chat_msg parsed_msg = common_chat_parse(prefill_text + generated_text, is_partial, syntax);
 

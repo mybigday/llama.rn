@@ -467,6 +467,33 @@ static bool test_qwen35_s23_device_fixture() {
     return true;
 }
 
+// Token display text (the probs surface): a lone high-bit byte keeps its
+// hex-escape form, any other ill-formed piece is sanitized, valid pieces
+// pass through - the output is always well-formed.
+static bool test_token_piece_display_text() {
+    if (token_piece_to_output_string("") != "") return false;
+    if (token_piece_to_output_string("hello") != "hello") return false;
+    if (token_piece_to_output_string("\xF0\x9F\x8C\x8D") != "\xF0\x9F\x8C\x8D") return false;
+    if (token_piece_to_output_string("\x9F") != "byte: \\x9f") return false;
+    // multi-byte fragment of a split character (byte-BPE half-emoji)
+    if (token_piece_to_output_string("\xF0\x9F") != REPLACEMENT) return false;
+    if (token_piece_to_output_string("a\xF0\x9F") != "a" + REPLACEMENT) return false;
+    return utf8_is_well_formed(token_piece_to_output_string("\xE2\x82"));
+}
+
+// Slot reuse must not leak generation state: a slot abandoned mid-character
+// (e.g. cancelled) is cleared at request assignment.
+static bool test_slot_clear_generation_state() {
+    llama_rn_slot slot;
+    slot.generated_text += slot.utf8_gate.feed("Hi\xF0\x9F"); // tail left pending
+    if (!slot.utf8_gate.has_pending() || slot.generated_text != "Hi") return false;
+    slot.clear_generation_state();
+    if (slot.utf8_gate.has_pending() || !slot.generated_text.empty()) return false;
+    // next request starts clean
+    slot.generated_text += slot.utf8_gate.feed("ok\xC3\xA9");
+    return slot.generated_text == "ok\xC3\xA9";
+}
+
 // The slot (parallel decoding) path: same gate, its own parseChatOutput.
 static bool test_slot_toolcall_invalid_utf8(const std::string & parser) {
     try {
@@ -513,6 +540,8 @@ int main() {
     results.run_test("final parse replaces incomplete trailing sequence", test_final_replaces_incomplete_tail());
     results.run_test("invalid byte in plain content replaced", test_invalid_byte_in_plain_content());
     results.run_test("real S23/qwen35 device fixture (truncated emoji tail)", test_qwen35_s23_device_fixture());
+    results.run_test("token display text is always well-formed", test_token_piece_display_text());
+    results.run_test("slot reuse clears generation state", test_slot_clear_generation_state());
     results.run_test("slot parseChatOutput with invalid UTF-8 byte", test_slot_toolcall_invalid_utf8(parser));
 
     results.print_summary();

@@ -71,6 +71,12 @@ struct llama_rn_slot {
     std::string generated_text;
     utf8_stream_gate utf8_gate;
 
+    // Clear per-request generation text state (gate + accumulated text)
+    void clear_generation_state() {
+        utf8_gate.reset();
+        generated_text.clear();
+    }
+
     // Multimodal state (per-slot)
     std::vector<std::string> bitmap_past_hashes;  // For multimodal KV cache reuse
     std::vector<std::string> media_paths;         // Media paths for deferred processing

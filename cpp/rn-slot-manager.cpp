@@ -545,6 +545,9 @@ void llama_rn_slot_manager::process_pending_queue() {
         }
 
         // Assign request to slot
+        // A cancelled slot can be reassigned before release_slot() has reset
+        // it; generation state must not leak into the new request
+        slot->clear_generation_state();
         slot->request_id = request.request_id;
         slot->task_type = request.task_type;
         slot->is_interrupted = false;

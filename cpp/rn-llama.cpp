@@ -118,10 +118,9 @@ void log(const char *level, const char *function, int line,
     #endif
 }
 
-// format incomplete utf-8 multibyte character for output
-std::string tokens_to_output_formatted_string(const llama_context *ctx, const llama_token token)
+std::string token_piece_to_output_string(const std::string & piece)
 {
-    std::string out = token == -1 ? "" : common_token_to_piece(ctx, token);
+    std::string out = piece;
     // if the size is 1 and first bit is 1, meaning it's a partial character
     //   (size > 1 meaning it's already a known token)
     if (out.size() == 1 && (out[0] & 0x80) == 0x80)
@@ -131,7 +130,17 @@ std::string tokens_to_output_formatted_string(const llama_context *ctx, const ll
         std::string res(ss.str());
         out = "byte: \\x" + res;
     }
+    else if (!utf8_is_well_formed(out))
+    {
+        out = utf8_sanitize(out);
+    }
     return out;
+}
+
+// format incomplete utf-8 multibyte character for output
+std::string tokens_to_output_formatted_string(const llama_context *ctx, const llama_token token)
+{
+    return token_piece_to_output_string(token == -1 ? "" : common_token_to_piece(ctx, token));
 }
 
 std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::const_iterator begin, const std::vector<llama_token>::const_iterator end)
