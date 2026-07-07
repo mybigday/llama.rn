@@ -44,6 +44,7 @@
 #include "rn-completion.h"
 #include "rn-tts.h"
 #include "codec_lm.h"
+#include "codec_common.h"
 #include "common.h"
 #include "utils/wav_io.h"
 #include "nlohmann/json.hpp"
@@ -169,11 +170,15 @@ int main(int argc, char ** argv) {
                 std::chrono::duration<double>(t2 - t1).count());
 
     // Voice-clone models (Qwen3-TTS / MOSS-TTSD / Chatterbox): if the caller
-    // provided --ref-audio, load the WAV, encode a speaker embedding via
-    // ctx.tts_wrapper->encodeSpeaker, and inject the resulting x_vector into
-    // the speaker JSON so getFormattedAudioCompletion picks it up.  Without
-    // this, Qwen3-TTS-0.6B-Base falls into a degenerate short-output mode
-    // (voice-clone-only training).
+    // provided --ref-audio, load the WAV, run it through audio_lm_build_prompt
+    // (the codec_common canonical path — resamples, encodes, and produces the
+    // embed rows that build_talker_prefix expects as x_vector).  The first
+    // `hidden` floats of embeds_prefix ARE the x_vector; this matches
+    // tts_runner.cpp's speaker-conditioning path exactly.
+    //
+    // Note: raw codec_lm_speaker_encode output is NOT what build_talker_prefix
+    // wants — encodeSpeaker's output goes through an additional projection
+    // inside build_prompt before becoming the talker x-vector.
     if (!ref_audio_path.empty()) {
         codec_example_wav_data wav;
         std::string werr;
@@ -182,7 +187,6 @@ int main(int argc, char ** argv) {
                          ref_audio_path.c_str(), werr.c_str());
             return 3;
         }
-        // Downmix + F32 convert.
         const int32_t nch = wav.n_channels > 0 ? wav.n_channels : 1;
         const int32_t nframes = (int32_t) (wav.pcm_i16.size() / (size_t) nch);
         std::vector<float> pcm((size_t) nframes, 0.0f);
@@ -195,20 +199,38 @@ int main(int argc, char ** argv) {
         }
         std::printf("[probe] ref-audio %s: %d frames @ %d Hz\n",
                     ref_audio_path.c_str(), nframes, wav.sample_rate);
-        rnllama::llama_rn_encode_speaker_options sp_opts;
-        sp_opts.pcm = std::move(pcm);
-        sp_opts.input_sample_rate = wav.sample_rate;
-        auto sp = ctx.tts_wrapper->encodeSpeaker(&ctx, sp_opts);
-        if (!sp.speaker_emb.empty()) {
-            std::printf("[probe] speaker_emb: %d rows × %d hidden (%zu floats)\n",
-                        sp.speaker_n_rows, sp.speaker_hidden_dim, sp.speaker_emb.size());
-            // Merge x_vector into the speaker JSON so build_talker_prefix picks it up.
-            json spk_json = speaker_json.empty() ? json::object() : json::parse(speaker_json);
-            spk_json["x_vector"] = sp.speaker_emb;
-            speaker_json = spk_json.dump();
+
+        // Use the codec_common canonical path via ctx.audio_lm_ctx.
+        codec_common::audio_lm_input in;
+        in.text            = text;
+        in.ref_pcm         = pcm.data();
+        in.ref_n_samples   = (int32_t) pcm.size();
+        in.ref_sample_rate = wav.sample_rate;
+        codec_common::audio_lm_prompt sp;
+        if (ctx.tts_wrapper->audio_lm_ctx == nullptr) {
+            std::fprintf(stderr, "[probe] audio_lm_ctx not initialised (codec has no speaker section?)\n");
+        } else if (!codec_common::audio_lm_build_prompt(
+                       ctx.tts_wrapper->audio_lm_ctx, in, &sp)) {
+            std::fprintf(stderr, "[probe] audio_lm_build_prompt failed: %s\n",
+                         codec_common::audio_lm_last_error(ctx.tts_wrapper->audio_lm_ctx));
+        } else if (sp.embeds_prefix.empty() ||
+                   sp.embeds_prefix_hidden !=
+                   codec_common::audio_lm_hidden_dim(ctx.tts_wrapper->audio_lm_ctx)) {
+            std::fprintf(stderr, "[probe] embeds_prefix empty or wrong hidden dim\n");
         } else {
-            std::fprintf(stderr, "[probe] encodeSpeaker produced empty embedding; ignoring\n");
+            const int32_t hidden = sp.embeds_prefix_hidden;
+            std::vector<float> xv(sp.embeds_prefix.begin(),
+                                  sp.embeds_prefix.begin() + hidden);
+            double sumsq = 0.0;
+            for (auto v : xv) sumsq += (double) v * (double) v;
+            std::printf("[probe] speaker prefix: %d rows × %d hidden; x_vector L2=%.4f\n",
+                        sp.embeds_prefix_rows, hidden, std::sqrt(sumsq));
+            json spk_json = speaker_json.empty() ? json::object() : json::parse(speaker_json);
+            spk_json["x_vector"] = xv;
+            speaker_json = spk_json.dump();
         }
+        // Reset audio_lm accumulator so rn-tts's own build_talker_prefix starts clean.
+        codec_common::audio_lm_reset(ctx.tts_wrapper->audio_lm_ctx);
     }
 
     // Build prompt via the exact same entry point the JS layer uses.
