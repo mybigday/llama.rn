@@ -134,6 +134,37 @@ elseif(UNIX AND NOT APPLE)
     )
 endif()
 
+# Create chat parse UTF-8 robustness test executable
+add_executable(chat_parse_utf8_test
+    chat_parse_utf8_test.cpp
+    ${RNLLAMA_COMMON_SOURCES}
+)
+
+# Setup include directories
+target_include_directories(chat_parse_utf8_test
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
+)
+
+# Platform-specific linking
+if(APPLE)
+    target_link_libraries(chat_parse_utf8_test PRIVATE
+        "-framework Accelerate"
+        "-framework Foundation"
+    )
+elseif(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(chat_parse_utf8_test PRIVATE
+        Threads::Threads
+        m
+        dl
+    )
+endif()
+
 # Create parallel decoding test executable
 add_executable(parallel_decoding_test
     parallel_decoding_test.cpp

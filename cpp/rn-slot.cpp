@@ -5,6 +5,7 @@
 #include "rn-common.hpp"
 #include "chat.h"
 #include <algorithm>
+#include <cassert>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -81,6 +82,7 @@ void llama_rn_slot::reset() {
     prompt_tokens.clear();
     generated_tokens.clear();
     generated_text.clear();
+    utf8_gate.reset();
     embd.clear();
 
     // Reset state fields
@@ -613,6 +615,7 @@ completion_chat_output llama_rn_slot::parseChatOutput(bool is_partial) {
     }
 
     std::string full_text = prefill_text + generated_text;
+    assert(utf8_is_well_formed(full_text));
 
     common_chat_msg parsed_msg = common_chat_parse(full_text, is_partial, syntax);
 

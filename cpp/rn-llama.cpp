@@ -144,6 +144,146 @@ std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::co
     return ret;
 }
 
+// Well-formed UTF-8 lead bytes and the range of their first continuation
+// byte (Unicode 15.0, table 3-7). The restricted first-continuation ranges
+// exclude overlong encodings, UTF-16 surrogates and values > U+10FFFF.
+// Returns the sequence length, or 0 for anything that cannot start a
+// multi-byte sequence (ASCII, continuation bytes, invalid leads).
+static size_t utf8_lead_info(unsigned char c, unsigned char & lo, unsigned char & hi)
+{
+    lo = 0x80; hi = 0xBF;
+    if (c >= 0xC2 && c <= 0xDF) { return 2; }
+    if (c == 0xE0)              { lo = 0xA0; return 3; }
+    if (c >= 0xE1 && c <= 0xEC) { return 3; }
+    if (c == 0xED)              { hi = 0x9F; return 3; }
+    if (c >= 0xEE && c <= 0xEF) { return 3; }
+    if (c == 0xF0)              { lo = 0x90; return 4; }
+    if (c >= 0xF1 && c <= 0xF3) { return 4; }
+    if (c == 0xF4)              { hi = 0x8F; return 4; }
+    return 0;
+}
+
+size_t utf8_incomplete_suffix_length(const std::string & text)
+{
+    const size_t n = text.size();
+
+    // the lead of an incomplete sequence can be at most 3 bytes from the end
+    for (size_t back = 1; back <= 3 && back <= n; ++back) {
+        const unsigned char c = text[n - back];
+        if ((c & 0xC0) == 0x80) {
+            continue;
+        }
+        unsigned char lo, hi;
+        const size_t seq_len = utf8_lead_info(c, lo, hi);
+        if (seq_len == 0 || back >= seq_len) {
+            return 0; // not a lead, or the sequence is already complete/dead
+        }
+        // the continuations seen so far must be in range for this lead
+        for (size_t k = 1; k < back; ++k) {
+            const unsigned char cc = text[n - back + k];
+            if (cc < (k == 1 ? lo : 0x80) || cc > (k == 1 ? hi : 0xBF)) {
+                return 0;
+            }
+        }
+        return back;
+    }
+
+    return 0; // lone continuation bytes at the end are dead, not incomplete
+}
+
+bool utf8_is_well_formed(const std::string & text)
+{
+    const size_t n = text.size();
+    size_t i = 0;
+    while (i < n) {
+        const unsigned char c = text[i];
+        if (c < 0x80) {
+            i++;
+            continue;
+        }
+        unsigned char lo, hi;
+        const size_t seq_len = utf8_lead_info(c, lo, hi);
+        if (seq_len == 0 || i + seq_len > n) {
+            return false;
+        }
+        for (size_t k = 1; k < seq_len; ++k) {
+            const unsigned char cc = text[i + k];
+            if (cc < (k == 1 ? lo : 0x80) || cc > (k == 1 ? hi : 0xBF)) {
+                return false;
+            }
+        }
+        i += seq_len;
+    }
+    return true;
+}
+
+std::string utf8_sanitize(const std::string & text)
+{
+    std::string out;
+    out.reserve(text.size());
+
+    const size_t n = text.size();
+    size_t i = 0;
+    while (i < n) {
+        const unsigned char c = text[i];
+        if (c < 0x80) {
+            out += (char) c;
+            i++;
+            continue;
+        }
+
+        unsigned char lo, hi;
+        const size_t seq_len = utf8_lead_info(c, lo, hi);
+        // seq_len == 0: stray continuation byte or invalid lead (0xC0/0xC1/0xF5..0xFF)
+
+        if (seq_len == 0) {
+            out += "\xEF\xBF\xBD"; // U+FFFD replacement character
+            i++;
+            continue;
+        }
+
+        // consume the maximal valid subpart of the sequence
+        size_t k = 1;
+        while (k < seq_len && i + k < n) {
+            const unsigned char cc = text[i + k];
+            if (cc < (k == 1 ? lo : 0x80) || cc > (k == 1 ? hi : 0xBF)) {
+                break;
+            }
+            k++;
+        }
+
+        if (k == seq_len) {
+            out.append(text, i, seq_len);
+        } else {
+            out += "\xEF\xBF\xBD";
+        }
+        i += k;
+    }
+
+    return out;
+}
+
+std::string utf8_stream_gate::feed(const std::string & piece)
+{
+    pending += piece;
+
+    const size_t hold = utf8_incomplete_suffix_length(pending);
+    const size_t ready_len = pending.size() - hold;
+    std::string ready = utf8_sanitize(pending.substr(0, ready_len));
+    pending.erase(0, ready_len);
+    return ready;
+}
+
+std::string utf8_stream_gate::finish()
+{
+    if (pending.empty()) {
+        return {};
+    }
+    std::string tail = utf8_sanitize(pending);
+    pending.clear();
+    return tail;
+}
+
 
 void llama_rn_context::cleanupThreadpools() {
     if (ctx != nullptr && (threadpool != nullptr || threadpool_batch != nullptr)) {

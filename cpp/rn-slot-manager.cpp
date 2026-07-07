@@ -210,7 +210,7 @@ int32_t llama_rn_slot_manager::queue_request(
     request.reasoning_format = reasoning_format;
     request.generation_prompt = generation_prompt;
     request.chat_parser = chat_parser;
-    request.prefill_text = prefill_text;
+    request.prefill_text = utf8_sanitize(prefill_text);
     request.load_state_path = load_state_path;
     request.save_state_path = save_state_path;
     request.save_prompt_state_path = save_prompt_state_path;
@@ -725,10 +725,7 @@ void llama_rn_slot_manager::build_batch() {
                     LOG_ERROR("Slot %d: MTP speculative decoding does not support media inputs", slot.id);
                     slot.incomplete = true;
                     slot.error_message = "MTP speculative decoding currently supports text-only queued completions";
-                    slot.state = SLOT_STATE_DONE;
-                    if (slot.on_complete_callback) {
-                        slot.on_complete_callback(&slot);
-                    }
+                    complete_slot(slot);
                     continue;
                 }
 
@@ -774,10 +771,7 @@ void llama_rn_slot_manager::build_batch() {
                     if (context_full) {
                         LOG_ERROR("Context full after processing media for slot %d", slot.id);
                         slot.context_full = true;
-                        slot.state = SLOT_STATE_DONE;
-                        if (slot.on_complete_callback) {
-                            slot.on_complete_callback(&slot);
-                        }
+                        complete_slot(slot);
                         continue;
                     }
 
@@ -820,11 +814,8 @@ void llama_rn_slot_manager::build_batch() {
 
                 } catch (const std::exception& e) {
                     LOG_ERROR("Failed to process media for slot %d: %s", slot.id, e.what());
-                    slot.state = SLOT_STATE_DONE;
                     slot.incomplete = true;
-                    if (slot.on_complete_callback) {
-                        slot.on_complete_callback(&slot);
-                    }
+                    complete_slot(slot);
                     continue;
                 }
             }
@@ -928,6 +919,14 @@ bool llama_rn_slot_manager::process_batch() {
     return true;
 }
 
+void llama_rn_slot_manager::complete_slot(llama_rn_slot & slot) {
+    slot.generated_text += slot.utf8_gate.finish();
+    slot.state = SLOT_STATE_DONE;
+    if (slot.on_complete_callback) {
+        slot.on_complete_callback(&slot);
+    }
+}
+
 void llama_rn_slot_manager::sample_and_callback() {
     if (parent_ctx == nullptr || parent_ctx->ctx == nullptr) {
         return;
@@ -962,6 +961,7 @@ void llama_rn_slot_manager::sample_and_callback() {
         // Check if interrupted
         if (slot.is_interrupted) {
             LOG_INFO("Slot %d: Generation interrupted", slot.id);
+            slot.generated_text += slot.utf8_gate.finish();
             slot.state = SLOT_STATE_DONE;
             continue;
         }
@@ -974,16 +974,11 @@ void llama_rn_slot_manager::sample_and_callback() {
                 }
 
                 if (slot.should_use_mtp()) {
-                    auto finish_slot = [&slot]() {
-                        slot.state = SLOT_STATE_DONE;
-
+                    auto finish_slot = [&]() {
                         if (!slot.save_state_path.empty()) {
                             slot.save_state();
                         }
-
-                        if (slot.on_complete_callback) {
-                            slot.on_complete_callback(&slot);
-                        }
+                        complete_slot(slot);
                     };
 
                     auto emit_token = [&](completion_token_output token_output) -> bool {
@@ -992,6 +987,7 @@ void llama_rn_slot_manager::sample_and_callback() {
                         }
                         token_output.request_id = slot.request_id;
 
+                        token_output.text = slot.utf8_gate.feed(token_output.text);
                         slot.generated_text += token_output.text;
 
                         const int64_t t_current = lm_ggml_time_us();
@@ -1001,7 +997,8 @@ void llama_rn_slot_manager::sample_and_callback() {
                         slot.n_decoded++;
                         slot.cache_tokens.push_back(token_output.tok);
 
-                        if (slot.on_token_callback) {
+                        // still emit an empty delta when it carries requested probs
+                        if (slot.on_token_callback && (!token_output.text.empty() || !token_output.probs.empty())) {
                             slot.on_token_callback(token_output);
                         }
 
@@ -1087,7 +1084,6 @@ void llama_rn_slot_manager::sample_and_callback() {
 
                 if (llama_vocab_is_eog(vocab, new_token_id)) {
                     slot.stopped_eos = true;
-                    slot.state = SLOT_STATE_DONE;
                     LOG_INFO("Slot %d: Stopped on EOS token", slot.id);
 
                     // Save state if path is provided
@@ -1095,13 +1091,12 @@ void llama_rn_slot_manager::sample_and_callback() {
                         slot.save_state();
                     }
 
-                    if (slot.on_complete_callback) {
-                        slot.on_complete_callback(&slot);
-                    }
+                    complete_slot(slot);
                     continue;
                 }
 
                 std::string token_text = common_token_to_piece(parent_ctx->ctx, new_token_id);
+                token_text = slot.utf8_gate.feed(token_text);
                 slot.generated_text += token_text;
 
                 // Update token generation timing
@@ -1130,7 +1125,8 @@ void llama_rn_slot_manager::sample_and_callback() {
                 // This is needed for state saving
                 slot.cache_tokens.push_back(new_token_id);
 
-                if (slot.on_token_callback) {
+                // still emit an empty delta when it carries requested probs
+                if (slot.on_token_callback && (!token_output.text.empty() || !token_output.probs.empty())) {
                     slot.on_token_callback(token_output);
                 }
 
@@ -1172,16 +1168,12 @@ void llama_rn_slot_manager::sample_and_callback() {
                 }
 
                 if (should_stop) {
-                    slot.state = SLOT_STATE_DONE;
-
                     // Save state if path is provided
                     if (!slot.save_state_path.empty()) {
                         slot.save_state();
                     }
 
-                    if (slot.on_complete_callback) {
-                        slot.on_complete_callback(&slot);
-                    }
+                    complete_slot(slot);
                 }
 
                 LOG_VERBOSE("Slot %d: Generated token %d ('%s'), n_past=%d, n_decoded=%d",
@@ -1315,11 +1307,8 @@ void llama_rn_slot_manager::update_slots() {
             std::lock_guard<std::mutex> lock(slots_mutex);
             for (auto& slot : slots) {
                 if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_GENERATING) {
-                    slot.state = SLOT_STATE_DONE;
                     slot.incomplete = true;
-                    if (slot.on_complete_callback) {
-                        slot.on_complete_callback(&slot);
-                    }
+                    complete_slot(slot);
                 }
             }
             return;
