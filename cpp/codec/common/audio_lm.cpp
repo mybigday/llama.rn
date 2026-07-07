@@ -1,11 +1,35 @@
 #include "codec_common.h"
 
+#include <algorithm>
 #include <cstring>
 #include <new>
 #include <string>
 #include <vector>
 
 namespace codec_common {
+
+// Linear-interpolation resample of mono F32 PCM from `in_sr` to `out_sr`.
+// Shared by every speaker-encoder path: the encoders (ECAPA-TDNN @ 24 kHz,
+// Chatterbox VE @ 16 kHz, …) declare their working rate via
+// `codec_lm_speaker_info::ref_sample_rate`; the runtime is responsible for
+// feeding PCM at that rate (see include/codec_lm.h).  This mirrors the
+// reference pipelines' librosa.resample-to-speaker_encoder_sample_rate step.
+static std::vector<float> resample_linear_mono(const std::vector<float> & in,
+                                               int32_t in_sr, int32_t out_sr) {
+    if (in.empty() || in_sr <= 0 || out_sr <= 0 || in_sr == out_sr) return in;
+    const int64_t n_in  = (int64_t) in.size();
+    const int64_t n_out = n_in * out_sr / in_sr;
+    std::vector<float> out((size_t) std::max<int64_t>(n_out, 1));
+    for (int64_t i = 0; i < (int64_t) out.size(); ++i) {
+        const double src = (double) i * in_sr / out_sr;
+        int64_t i0 = (int64_t) src;
+        const double f = src - (double) i0;
+        const float a0 = in[(size_t) std::min<int64_t>(i0,     n_in - 1)];
+        const float a1 = in[(size_t) std::min<int64_t>(i0 + 1, n_in - 1)];
+        out[(size_t) i] = (float) ((double) a0 * (1.0 - f) + (double) a1 * f);
+    }
+    return out;
+}
 
 // =====================================================================
 // Internal context.  Holds the codec_model + codec_context + codec_lm
@@ -446,12 +470,32 @@ bool audio_lm_build_prompt(audio_lm_context * ctx,
     }
 
     codec_audio audio = {};
+    // Resample the caller's ref PCM to the encoder's declared working rate
+    // (si->ref_sample_rate) when they differ.  The speaker encoders reject a
+    // rate mismatch (see qwen3_tts_speaker_encode's guard), so this MUST run
+    // for arbitrary --ref-audio inputs (24k/44.1k/48k, …), mirroring the
+    // reference pipelines' resample-to-speaker_encoder_sample_rate step.
+    // `resampled` must outlive the codec_lm_speaker_encode call below.
+    std::vector<float> resampled;
     if (has_pcm) {
-        audio.data        = in.ref_pcm;
-        audio.n_samples   = in.ref_n_samples;
-        audio.sample_rate = in.ref_sample_rate > 0
-                            ? in.ref_sample_rate
-                            : si->ref_sample_rate;
+        const int32_t in_sr = in.ref_sample_rate > 0
+                              ? in.ref_sample_rate
+                              : si->ref_sample_rate;
+        const int32_t want_sr = si->ref_sample_rate > 0
+                                ? si->ref_sample_rate
+                                : in_sr;
+        if (in_sr != want_sr && want_sr > 0) {
+            resampled = resample_linear_mono(
+                std::vector<float>(in.ref_pcm, in.ref_pcm + in.ref_n_samples),
+                in_sr, want_sr);
+            audio.data        = resampled.data();
+            audio.n_samples   = (int32_t) resampled.size();
+            audio.sample_rate = want_sr;
+        } else {
+            audio.data        = in.ref_pcm;
+            audio.n_samples   = in.ref_n_samples;
+            audio.sample_rate = in_sr;
+        }
         audio.n_channels  = 1;
         audio.pcm_type    = CODEC_PCM_TYPE_F32;
     }

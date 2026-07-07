@@ -129,11 +129,6 @@ bool codec_lm_check_unfused_audio_tables(
         if (!tied_heads) {
             std::snprintf(buf, sizeof(buf), "lm.heads_%zu.weight", i);
             lm_ggml_tensor * t_h = lm_ggml_get_tensor(lm->codec->weights, buf);
-            // Chatterbox uses `lm.c0_head.weight` for the single speech head
-            // (codebook index 0) instead of the generic `lm.heads_0.weight`.
-            if (t_h == nullptr && i == 0) {
-                t_h = lm_ggml_get_tensor(lm->codec->weights, "lm.c0_head.weight");
-            }
             if (t_h == nullptr) {
                 lm->last_error = std::string("missing tensor: ") + buf;
                 return false;

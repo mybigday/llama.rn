@@ -308,6 +308,10 @@ public:
     lm_ggml_tensor * self_kq_mask     = nullptr; // F32 [n_kv, n_batch/n_stream, 1, n_stream]
     lm_ggml_tensor * self_kq_mask_cnv = nullptr; //     [n_kv, n_batch/n_stream, 1, n_stream]
 
+    // note: assumes v_rot^2 == I
+    lm_ggml_tensor * self_k_rot = nullptr;
+    lm_ggml_tensor * self_v_rot = nullptr;
+
     // note: these have to be copies because in order to be able to reuse a graph, its inputs
     //       need to carry these parameters with them. otherwise, they can point to freed
     //       llm_graph_params from a previous batch, causing stack-use-after-return
@@ -383,6 +387,12 @@ public:
     lm_ggml_tensor * self_kq_mask_cnv     = nullptr; //     [n_kv, n_batch/n_stream, 1, n_stream]
     lm_ggml_tensor * self_kq_mask_swa     = nullptr; // F32 [n_kv, n_batch/n_stream, 1, n_stream]
     lm_ggml_tensor * self_kq_mask_swa_cnv = nullptr; //     [n_kv, n_batch/n_stream, 1, n_stream]
+
+    lm_ggml_tensor * self_k_rot = nullptr;
+    lm_ggml_tensor * self_v_rot = nullptr;
+
+    lm_ggml_tensor * self_k_rot_swa = nullptr;
+    lm_ggml_tensor * self_v_rot_swa = nullptr;
 
     const llama_hparams hparams;
     const llama_cparams cparams;
@@ -764,10 +774,11 @@ struct llm_graph_context {
              lm_ggml_tensor * cur,
                      int   il) const;
 
-    // do mat_mul, while optionally apply lora
+    // do mat_mul, while optionally apply lora and per-tensor scale
     lm_ggml_tensor * build_lora_mm(
               lm_ggml_tensor * w,
-              lm_ggml_tensor * cur) const;
+              lm_ggml_tensor * cur,
+              lm_ggml_tensor * w_s = nullptr) const;
 
     // do mat_mul_id, while optionally apply lora
     lm_ggml_tensor * build_lora_mm_id(
@@ -810,11 +821,14 @@ struct llm_graph_context {
                  int64_t   n_expert_used,
          llm_ffn_op_type   type_op,
                     bool   norm_w,
-                    bool   scale_w,
                    float   w_scale,
             llama_expert_gating_func_type gating_op,
                      int   il,
-             lm_ggml_tensor * probs_in = nullptr) const;
+             lm_ggml_tensor * probs_in = nullptr,
+             lm_ggml_tensor * gate_up_exps = nullptr,
+             lm_ggml_tensor * up_exps_s = nullptr,
+             lm_ggml_tensor * gate_exps_s = nullptr,
+             lm_ggml_tensor * down_exps_s = nullptr) const;
 
     lm_ggml_tensor * build_moe_ffn(
              lm_ggml_tensor * cur,
@@ -831,11 +845,15 @@ struct llm_graph_context {
                  int64_t   n_expert_used,
          llm_ffn_op_type   type_op,
                     bool   norm_w,
-                    bool   scale_w,
                    float   w_scale,
             llama_expert_gating_func_type gating_op,
                      int   il,
-             lm_ggml_tensor * probs_in = nullptr) const;
+             lm_ggml_tensor * probs_in = nullptr,
+             lm_ggml_tensor * gate_up_exps = nullptr,
+             lm_ggml_tensor * gate_up_exps_b = nullptr,
+             lm_ggml_tensor * up_exps_s = nullptr,
+             lm_ggml_tensor * gate_exps_s = nullptr,
+             lm_ggml_tensor * down_exps_s = nullptr) const;
 
     //
     // inputs
@@ -1000,7 +1018,8 @@ struct llm_graph_context {
             lm_ggml_tensor * cls,
             lm_ggml_tensor * cls_b,
             lm_ggml_tensor * cls_out,
-            lm_ggml_tensor * cls_out_b) const;
+            lm_ggml_tensor * cls_out_b,
+            lm_ggml_tensor * cls_norm) const;
 
     //
     // sampling (backend sampling)
@@ -1014,6 +1033,7 @@ struct llm_graph_context {
 
     void build_dense_out(
             lm_ggml_tensor * dense_2,
+            lm_ggml_tensor * dense_2_b,
             lm_ggml_tensor * dense_3) const;
 };
 

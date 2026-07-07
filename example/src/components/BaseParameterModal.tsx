@@ -12,7 +12,6 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { createThemedStyles } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
 
-
 interface BaseParameterModalProps {
   visible: boolean
   onClose: () => void
@@ -40,7 +39,7 @@ export default function BaseParameterModal({
 }: BaseParameterModalProps) {
   const { theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
-  
+
   const styles = StyleSheet.create({
     container: themedStyles.container,
     header: {

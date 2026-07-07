@@ -2,11 +2,11 @@
 
 
 llm_build_falcon::llm_build_falcon(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
-    const int64_t n_embd_head = hparams.n_embd_head_v;
+    const int64_t n_embd_head = hparams.n_embd_head_v();
     const int64_t n_embd_gqa  = hparams.n_embd_v_gqa();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
-    LM_GGML_ASSERT(n_embd_head == hparams.n_rot);
+    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    LM_GGML_ASSERT(n_embd_head == n_rot);
 
     lm_ggml_tensor * cur;
     lm_ggml_tensor * inpL;

@@ -27,6 +27,11 @@ namespace rnllama_jsi {
         std::shared_ptr<react::CallInvoker> callInvoker
     );
 
+    jsi::Value createJsiError(
+        jsi::Runtime& runtime,
+        const std::string& message
+    );
+
     // Schedule an async callback on the JS thread with TaskManager tracking.
     // This ensures releaseContext will wait for all pending callbacks before deletion.
     // The callback receives a bool indicating if it should proceed (false if shutting down).

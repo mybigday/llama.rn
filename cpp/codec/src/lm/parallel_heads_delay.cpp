@@ -211,12 +211,6 @@ bool init(codec_lm * lm) {
         } else {
             std::snprintf(buf, sizeof(buf), "lm.heads_%d.weight", i);
             impl->heads[(size_t) i] = lm_ggml_get_tensor(lm->codec->weights, buf);
-            // Chatterbox uses `lm.c0_head.weight` for codebook 0 instead of
-            // the generic `lm.heads_0.weight` naming.
-            if (impl->heads[(size_t) i] == nullptr && i == 0) {
-                impl->heads[(size_t) i] = lm_ggml_get_tensor(
-                    lm->codec->weights, "lm.c0_head.weight");
-            }
         }
         if (impl->heads[(size_t) i] == nullptr || impl->audio_embds[(size_t) i] == nullptr) {
             // Already validated via codec_lm_check_unfused_audio_tables, but

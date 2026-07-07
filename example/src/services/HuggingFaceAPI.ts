@@ -5,9 +5,27 @@ interface HuggingFaceModel {
   }>
 }
 
+interface HuggingFaceSearchModel {
+  id: string
+  downloads?: number
+  likes?: number
+  pipeline_tag?: string
+  tags?: string[]
+  lastModified?: string
+}
+
 interface ModelFile {
   filename: string
   quantization: string
+}
+
+export interface HuggingFaceSearchResult {
+  id: string
+  downloads: number
+  likes: number
+  pipelineTag?: string
+  tags: string[]
+  lastModified?: string
 }
 
 export interface CustomModelInfo {
@@ -20,6 +38,59 @@ export interface CustomModelInfo {
 
 export class HuggingFaceAPI {
   private static readonly baseUrl = 'https://huggingface.co/api/models'
+
+  private static readonly modelSearchFilter = 'gguf'
+
+  /**
+   * Search HuggingFace Hub models tagged with GGUF.
+   */
+  static async searchModels(
+    query: string,
+    limit = 12,
+  ): Promise<HuggingFaceSearchResult[]> {
+    try {
+      const trimmedQuery = query.trim()
+      const params: Array<[string, string]> = [
+        ['filter', this.modelSearchFilter],
+        ['limit', String(limit)],
+        ['sort', 'downloads'],
+        ['direction', '-1'],
+      ]
+
+      if (trimmedQuery) {
+        params.push(['search', trimmedQuery])
+      }
+
+      const queryString = params
+        .map(
+          ([key, value]) =>
+            `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+        )
+        .join('&')
+
+      const response = await fetch(`${this.baseUrl}?${queryString}`)
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
+      const models: HuggingFaceSearchModel[] = await response.json()
+
+      return models
+        .filter((model) => typeof model.id === 'string' && model.id.length > 0)
+        .map((model) => ({
+          id: model.id,
+          downloads: model.downloads ?? 0,
+          likes: model.likes ?? 0,
+          pipelineTag: model.pipeline_tag,
+          tags: model.tags ?? [],
+          lastModified: model.lastModified,
+        }))
+    } catch (error) {
+      console.error('Error searching HuggingFace models:', error)
+      throw error
+    }
+  }
 
   /**
    * Fetch model information from HuggingFace Hub API

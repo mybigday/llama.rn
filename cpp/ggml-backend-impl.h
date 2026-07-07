@@ -49,6 +49,10 @@ extern "C" {
         void         (*memset_tensor)(lm_ggml_backend_buffer_t buffer,       struct lm_ggml_tensor * tensor,     uint8_t value, size_t offset, size_t size);
         void         (*set_tensor)   (lm_ggml_backend_buffer_t buffer,       struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size);
         void         (*get_tensor)   (lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size);
+        // (optional) 2d data copies
+        void         (*set_tensor_2d)(lm_ggml_backend_buffer_t buffer,       struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data);
+        void         (*get_tensor_2d)(lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data);
+
         // (optional) tensor copy: dst is in the buffer, src may be in any buffer, including buffers from a different backend (return false if not supported)
         bool         (*cpy_tensor)   (lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
         // clear the entire buffer
@@ -81,6 +85,20 @@ extern "C" {
     LM_GGML_API void                  lm_ggml_backend_multi_buffer_set_usage(lm_ggml_backend_buffer_t buffer, enum lm_ggml_backend_buffer_usage usage);
 
     //
+    // Backend (meta)
+    //
+
+    LM_GGML_API bool lm_ggml_backend_is_meta       (lm_ggml_backend_t backend);
+    LM_GGML_API bool lm_ggml_backend_buffer_is_meta(lm_ggml_backend_buffer_t buf);
+    LM_GGML_API bool lm_ggml_backend_buft_is_meta  (lm_ggml_backend_buffer_type_t buft);
+
+    LM_GGML_API size_t         lm_ggml_backend_meta_n_backends    (lm_ggml_backend_t meta_backend);
+    LM_GGML_API lm_ggml_backend_t lm_ggml_backend_meta_simple_backend(lm_ggml_backend_t meta_backend, size_t index);
+
+    // temporary workaround to statically allocate tensors from a context in a deduplicated way:
+    LM_GGML_API struct lm_ggml_backend_buffer * lm_ggml_backend_meta_alloc_ctx_tensors_from_buft(struct lm_ggml_context * ctx, lm_ggml_backend_buffer_type_t buft);
+
+    //
     // Backend (stream)
     //
 
@@ -90,8 +108,10 @@ extern "C" {
         void (*free)(lm_ggml_backend_t backend);
 
         // (optional) asynchronous tensor data access
-        void (*set_tensor_async)(lm_ggml_backend_t backend,       struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size);
-        void (*get_tensor_async)(lm_ggml_backend_t backend, const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size);
+        void (*set_tensor_async)   (lm_ggml_backend_t backend,       struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size);
+        void (*get_tensor_async)   (lm_ggml_backend_t backend, const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size);
+        void (*set_tensor_2d_async)(lm_ggml_backend_t backend,       struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data);
+        void (*get_tensor_2d_async)(lm_ggml_backend_t backend, const struct lm_ggml_tensor * tensor,       void * data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data);
         bool (*cpy_tensor_async)(lm_ggml_backend_t backend_src, lm_ggml_backend_t backend_dst, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
 
         // (optional) complete all pending operations (required if the backend supports async operations)

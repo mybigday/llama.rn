@@ -10,8 +10,8 @@
 
 llm_build_barbet::llm_build_barbet(const llama_model & model, const llm_graph_params & params) :
     llm_build_mamba_base(params) {
-    const int64_t n_embd_head = hparams.n_embd_head_v;
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
+    const int64_t n_embd_head = hparams.n_embd_head_v();
+    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
     lm_ggml_tensor * cur;
     lm_ggml_tensor * inpL;

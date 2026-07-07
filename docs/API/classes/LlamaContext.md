@@ -28,6 +28,7 @@
 - [decodeAudioTokens](LlamaContext.md#decodeaudiotokens)
 - [detokenize](LlamaContext.md#detokenize)
 - [embedding](LlamaContext.md#embedding)
+- [getAudioCompletionGuideTokens](LlamaContext.md#getaudiocompletionguidetokens)
 - [getFormattedAudioCompletion](LlamaContext.md#getformattedaudiocompletion)
 - [getFormattedChat](LlamaContext.md#getformattedchat)
 - [getLoadedLoraAdapters](LlamaContext.md#getloadedloraadapters)
@@ -62,7 +63,7 @@
 
 #### Defined in
 
-[index.ts:589](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L589)
+[index.ts:614](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L614)
 
 ## Properties
 
@@ -72,7 +73,7 @@
 
 #### Defined in
 
-[index.ts:328](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L328)
+[index.ts:346](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L346)
 
 ___
 
@@ -82,7 +83,7 @@ ___
 
 #### Defined in
 
-[index.ts:324](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L324)
+[index.ts:342](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L342)
 
 ___
 
@@ -92,7 +93,7 @@ ___
 
 #### Defined in
 
-[index.ts:320](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L320)
+[index.ts:338](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L338)
 
 ___
 
@@ -102,7 +103,7 @@ ___
 
 #### Defined in
 
-[index.ts:318](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L318)
+[index.ts:336](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L336)
 
 ___
 
@@ -140,7 +141,7 @@ ___
 
 #### Defined in
 
-[index.ts:326](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L326)
+[index.ts:344](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L344)
 
 ___
 
@@ -165,7 +166,7 @@ Parallel processing namespace for non-blocking queue operations
 
 #### Defined in
 
-[index.ts:335](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L335)
+[index.ts:353](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L353)
 
 ___
 
@@ -175,7 +176,7 @@ ___
 
 #### Defined in
 
-[index.ts:322](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L322)
+[index.ts:340](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L340)
 
 ___
 
@@ -185,7 +186,7 @@ ___
 
 #### Defined in
 
-[index.ts:330](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L330)
+[index.ts:348](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L348)
 
 ## Methods
 
@@ -205,7 +206,7 @@ ___
 
 #### Defined in
 
-[index.ts:894](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L894)
+[index.ts:935](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L935)
 
 ___
 
@@ -228,7 +229,7 @@ ___
 
 #### Defined in
 
-[index.ts:863](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L863)
+[index.ts:904](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L904)
 
 ___
 
@@ -259,7 +260,7 @@ use recurrent state that cannot be partially removed - only fully cleared.
 
 #### Defined in
 
-[index.ts:1028](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L1028)
+[index.ts:1069](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1069)
 
 ___
 
@@ -280,7 +281,7 @@ ___
 
 #### Defined in
 
-[index.ts:741](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L741)
+[index.ts:775](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L775)
 
 ___
 
@@ -300,7 +301,7 @@ ___
 
 #### Defined in
 
-[index.ts:1006](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L1006)
+[index.ts:1047](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1047)
 
 ___
 
@@ -320,7 +321,7 @@ ___
 
 #### Defined in
 
-[index.ts:834](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L834)
+[index.ts:875](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L875)
 
 ___
 
@@ -341,13 +342,33 @@ ___
 
 #### Defined in
 
-[index.ts:839](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L839)
+[index.ts:880](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L880)
+
+___
+
+### getAudioCompletionGuideTokens
+
+▸ **getAudioCompletionGuideTokens**(`textToSpeak`): `Promise`<`number`[]\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `textToSpeak` | `string` |
+
+#### Returns
+
+`Promise`<`number`[]\>
+
+#### Defined in
+
+[index.ts:1040](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1040)
 
 ___
 
 ### getFormattedAudioCompletion
 
-▸ **getFormattedAudioCompletion**(`speaker`, `textToSpeak`): `Promise`<{ `embedding`: `boolean` ; `grammar?`: `string` ; `prompt`: `string`  }\>
+▸ **getFormattedAudioCompletion**(`speaker`, `textToSpeak`): `Promise`<{ `grammar?`: `string` ; `prompt`: `string`  }\>
 
 #### Parameters
 
@@ -362,7 +383,7 @@ ___
 
 #### Defined in
 
-[index.ts:984](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L984)
+[index.ts:1025](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1025)
 
 ___
 
@@ -380,6 +401,7 @@ ___
 | `params.add_generation_prompt?` | `boolean` |
 | `params.chat_template_kwargs?` | `Record`<`string`, `string`\> |
 | `params.enable_thinking?` | `boolean` |
+| `params.force_pure_content?` | `boolean` |
 | `params.jinja?` | `boolean` |
 | `params.now?` | `string` \| `number` |
 | `params.parallel_tool_calls?` | `object` |
@@ -394,7 +416,7 @@ ___
 
 #### Defined in
 
-[index.ts:631](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L631)
+[index.ts:656](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L656)
 
 ___
 
@@ -408,7 +430,7 @@ ___
 
 #### Defined in
 
-[index.ts:912](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L912)
+[index.ts:953](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L953)
 
 ___
 
@@ -422,7 +444,7 @@ ___
 
 #### Defined in
 
-[index.ts:954](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L954)
+[index.ts:995](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L995)
 
 ___
 
@@ -448,7 +470,7 @@ Initialize multimodal support (vision/audio) with a projector model.
 
 #### Defined in
 
-[index.ts:928](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L928)
+[index.ts:969](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L969)
 
 ___
 
@@ -470,7 +492,7 @@ ___
 
 #### Defined in
 
-[index.ts:967](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L967)
+[index.ts:1008](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1008)
 
 ___
 
@@ -484,7 +506,7 @@ ___
 
 #### Defined in
 
-[index.ts:626](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L626)
+[index.ts:651](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L651)
 
 ___
 
@@ -498,7 +520,7 @@ ___
 
 #### Defined in
 
-[index.ts:622](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L622)
+[index.ts:647](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L647)
 
 ___
 
@@ -512,7 +534,7 @@ ___
 
 #### Defined in
 
-[index.ts:949](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L949)
+[index.ts:990](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L990)
 
 ___
 
@@ -526,7 +548,7 @@ ___
 
 #### Defined in
 
-[index.ts:979](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L979)
+[index.ts:1020](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1020)
 
 ___
 
@@ -546,7 +568,7 @@ ___
 
 #### Defined in
 
-[index.ts:607](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L607)
+[index.ts:632](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L632)
 
 ___
 
@@ -560,7 +582,7 @@ ___
 
 #### Defined in
 
-[index.ts:1033](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L1033)
+[index.ts:1074](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1074)
 
 ___
 
@@ -574,7 +596,7 @@ ___
 
 #### Defined in
 
-[index.ts:962](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L962)
+[index.ts:1003](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1003)
 
 ___
 
@@ -588,7 +610,7 @@ ___
 
 #### Defined in
 
-[index.ts:1011](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L1011)
+[index.ts:1052](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L1052)
 
 ___
 
@@ -602,7 +624,7 @@ ___
 
 #### Defined in
 
-[index.ts:907](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L907)
+[index.ts:948](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L948)
 
 ___
 
@@ -624,7 +646,7 @@ ___
 
 #### Defined in
 
-[index.ts:847](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L847)
+[index.ts:888](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L888)
 
 ___
 
@@ -646,7 +668,7 @@ ___
 
 #### Defined in
 
-[index.ts:614](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L614)
+[index.ts:639](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L639)
 
 ___
 
@@ -660,7 +682,7 @@ ___
 
 #### Defined in
 
-[index.ts:817](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L817)
+[index.ts:858](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L858)
 
 ___
 
@@ -682,4 +704,4 @@ ___
 
 #### Defined in
 
-[index.ts:822](https://github.com/mybigday/llama.rn/blob/426b246/src/index.ts#L822)
+[index.ts:863](https://github.com/mybigday/llama.rn/blob/37bed35/src/index.ts#L863)

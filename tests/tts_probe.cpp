@@ -252,7 +252,9 @@ int main(int argc, char ** argv) {
     ctx.params.prompt     = formatted.prompt;
     ctx.params.n_predict  = n_predict;
     ctx.params.embedding  = formatted.embedding;
-    ctx.params.sampling.grammar = formatted.grammar;
+    if (!formatted.grammar.empty()) {
+        ctx.params.sampling.grammar = {COMMON_GRAMMAR_TYPE_USER, formatted.grammar};
+    }
     ctx.params.sampling.temp    = temp;
     ctx.params.sampling.top_p   = top_p;
     if (top_k > 0) ctx.params.sampling.top_k = top_k;

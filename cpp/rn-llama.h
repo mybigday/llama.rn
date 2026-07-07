@@ -97,7 +97,8 @@ struct llama_rn_context {
       const std::string& reasoning_format,
       const bool& add_generation_prompt = true,
       const std::string& now_str = "",
-      const std::map<std::string, std::string>& chat_template_kwargs = {}
+      const std::map<std::string, std::string>& chat_template_kwargs = {},
+      const bool& force_pure_content = false
     ) const;
     std::string getFormattedChat(
       const std::string &messages,
@@ -107,7 +108,10 @@ struct llama_rn_context {
 
     // Lora methods
     std::vector<common_adapter_lora_info> lora;
-    int applyLoraAdapters(std::vector<common_adapter_lora_info> lora);
+    // Init-time adapters are owned by common_init_result. Runtime apply/remove
+    // operations load their own adapter handles and release them here.
+    std::vector<llama_adapter_lora_ptr> owned_lora;
+    void applyLoraAdapters(std::vector<common_adapter_lora_info> lora);
     void removeLoraAdapters();
     std::vector<common_adapter_lora_info> getLoadedLoraAdapters();
 

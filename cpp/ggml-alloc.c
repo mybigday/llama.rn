@@ -1236,6 +1236,9 @@ size_t lm_ggml_backend_alloc_ctx_tensors_from_buft_size(struct lm_ggml_context *
 
 lm_ggml_backend_buffer_t lm_ggml_backend_alloc_ctx_tensors_from_buft(struct lm_ggml_context * ctx, lm_ggml_backend_buffer_type_t buft) {
     size_t nbytes_total = 0;
+    if (lm_ggml_backend_buft_is_meta(buft)) {
+        return lm_ggml_backend_meta_alloc_ctx_tensors_from_buft(ctx, buft);
+    }
     return lm_ggml_backend_alloc_ctx_tensors_from_buft_impl(ctx, buft, &nbytes_total, /*no_alloc =*/ false);
 }
 

@@ -403,6 +403,12 @@ llama_rn_context_tts::llama_rn_context_tts(const std::string &vocoder_model_path
       throw std::runtime_error("Failed to load codec model");
   }
 
+  if (!codec_model_has_decoder(codec_model)) {
+      codec_model_free(codec_model);
+      codec_model = nullptr;
+      throw std::runtime_error("Codec model does not have a decoder");
+  }
+
   struct codec_context_params context_params = codec_context_default_params();
   codec_ctx = codec_init_from_model(codec_model, context_params);
   if (codec_ctx == nullptr) {
@@ -2126,7 +2132,7 @@ static bool try_audio_lm_step(
                 COMMON_SAMPLER_TYPE_TEMPERATURE,
             };
             if (!bb_grammar.empty()) {
-                sp.grammar = bb_grammar;
+                sp.grammar = {COMMON_GRAMMAR_TYPE_USER, bb_grammar};
             }
             *bb_sampler_ptr = common_sampler_init(lmodel, sp);
             *bb_sampler_built_ptr = true;

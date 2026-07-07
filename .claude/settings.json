@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/scripts/worktree-setup.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -21,6 +21,8 @@ llm_build_qwen3next::llm_build_qwen3next(const llama_model & model, const llm_gr
         cur = build_norm(inpL, model.layers[il].attn_norm, nullptr, LLM_NORM_RMS, il);
         cb(cur, "attn_norm", il);
 
+        lm_ggml_build_forward_expand(gf, cur);
+
         // Determine layer type and build appropriate attention mechanism
         if (hparams.is_recurrent(il)) {
             // Linear attention layer (gated delta net)
@@ -53,6 +55,9 @@ llm_build_qwen3next::llm_build_qwen3next(const llama_model & model, const llm_gr
         // Residual connection for FFN - add to the tensor from before post_attention_layernorm
         cur = lm_ggml_add(ctx0, cur, ffn_residual);
         cb(cur, "post_moe", il);
+
+        cur = build_cvec(cur, il);
+        cb(cur, "l_out", il);
 
         // Input for next layer
         inpL = cur;
@@ -98,8 +103,8 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn(
         lm_ggml_tensor *             cur,
         lm_ggml_tensor *             inp_pos,
         int                       il) {
-    const int64_t n_embd_head = hparams.n_embd_head_v;
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
+    const int64_t n_embd_head = hparams.n_embd_head_v();
+    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
     // Order: joint QG projection, QG split, Q norm, KV projection, K norm, RoPE, attention
 
@@ -306,8 +311,6 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
 
     lm_ggml_tensor * beta = lm_ggml_sigmoid(ctx0, b);
 
-    beta = lm_ggml_reshape_4d(ctx0, beta, num_v_heads, 1, n_seq_tokens, n_seqs);
-
     // Reshape a to merge head dimensions: [batch, seq_len, num_k_heads, num_v_heads/num_k_heads] -> [batch, seq_len, num_v_heads]
     lm_ggml_tensor * alpha = lm_ggml_cont_3d(ctx0, a, num_v_heads, n_seq_tokens, n_seqs);
 
@@ -317,6 +320,9 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
 
     lm_ggml_tensor * gate = lm_ggml_mul(ctx0, alpha_softplus, model.layers[il].ssm_a);  // -A_log.exp() * softplus
     cb(gate, "gate", il);
+
+    beta = lm_ggml_reshape_4d(ctx0, beta, 1, num_v_heads, n_seq_tokens, n_seqs);
+    gate = lm_ggml_reshape_4d(ctx0, gate, 1, num_v_heads, n_seq_tokens, n_seqs);
 
     // Get convolution states from cache
     lm_ggml_tensor * conv_states_all = mctx_cur->get_r_l(il);
@@ -348,12 +354,11 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     cb(last_conv_states, "last_conv_states", il);
 
     lm_ggml_tensor * state_update_target =
-        lm_ggml_view_1d(ctx0, conv_states_all, (conv_kernel_size - 1) * conv_channels * n_seqs,
+        lm_ggml_view_2d(ctx0, conv_states_all, (conv_kernel_size - 1) * conv_channels, n_seqs, conv_states_all->nb[1],
                      kv_head * (conv_kernel_size - 1) * conv_channels * lm_ggml_element_size(conv_states_all));
     cb(state_update_target, "state_update_target", il);
 
     lm_ggml_build_forward_expand(gf, lm_ggml_cpy(ctx0, last_conv_states, state_update_target));
-    cb(conv_states_all, "conv_states_updated", il);
 
     lm_ggml_tensor * state = build_rs(inp, ssm_states_all, hparams.n_embd_s(), n_seqs);
     state = lm_ggml_reshape_4d(ctx0, state, head_v_dim, head_v_dim, num_v_heads, n_seqs);
@@ -404,23 +409,24 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     //v_conv = lm_ggml_cont_4d(ctx0, v_conv, head_v_dim, num_v_heads, n_seq_tokens, n_seqs);
 
     // if head keys and value keys are different, repeat to force tensors into matching shapes
+    // TODO: avoid repeats for fused GDN, needs broadcast configuration for GDN op [TAG_LM_GGML_GDN_BCAST]
     if (num_k_heads != num_v_heads) {
         LM_GGML_ASSERT(num_v_heads % num_k_heads == 0);
         int64_t repeat_factor = num_v_heads / num_k_heads;
 
-        // repeat interleave: reshape to (repeat part, 1, remaining part), do repeat, then reshape back
-        lm_ggml_tensor * q_reshaped = lm_ggml_reshape_3d(ctx0, q_conv, head_k_dim, 1, num_k_heads * n_seq_tokens * n_seqs);
-        lm_ggml_tensor * k_reshaped = lm_ggml_reshape_3d(ctx0, k_conv, head_k_dim, 1, num_k_heads * n_seq_tokens * n_seqs);
+        // repeat interleave: reshape to (repeat part, 1, remaining part...), do repeat, then reshape back
+        lm_ggml_tensor * q_reshaped = lm_ggml_reshape_4d(ctx0, q_conv, head_k_dim, 1, num_k_heads, n_seq_tokens * n_seqs);
+        lm_ggml_tensor * k_reshaped = lm_ggml_reshape_4d(ctx0, k_conv, head_k_dim, 1, num_k_heads, n_seq_tokens * n_seqs);
 
         // Repeat along the third dimension (the new dimension with size 1)
         lm_ggml_tensor * q_repeated =
-            lm_ggml_repeat_4d(ctx0, q_reshaped, head_k_dim, repeat_factor, num_k_heads * n_seq_tokens * n_seqs, 1);
+            lm_ggml_repeat_4d(ctx0, q_reshaped, head_k_dim, repeat_factor, num_k_heads, n_seq_tokens * n_seqs);
         lm_ggml_tensor * k_repeated =
-            lm_ggml_repeat_4d(ctx0, k_reshaped, head_k_dim, repeat_factor, num_k_heads * n_seq_tokens * n_seqs, 1);
+            lm_ggml_repeat_4d(ctx0, k_reshaped, head_k_dim, repeat_factor, num_k_heads, n_seq_tokens * n_seqs);
 
         // Reshape back to merge the head and repeat dimensions
-        // From [head_dim, num_k_heads, repeat_factor, n_seq_tokens * n_seqs]
-        // Back to [head_dim, num_k_heads * repeat_factor, n_seq_tokens, n_seqs]
+        // From [head_dim, repeat_factor, num_k_heads, n_seq_tokens * n_seqs]
+        // Back to [head_dim, repeat_factor * num_k_heads, n_seq_tokens, n_seqs]
         q_conv = lm_ggml_reshape_4d(ctx0, q_repeated, head_k_dim, num_k_heads * repeat_factor, n_seq_tokens, n_seqs);
         k_conv = lm_ggml_reshape_4d(ctx0, k_repeated, head_k_dim, num_k_heads * repeat_factor, n_seq_tokens, n_seqs);
     }
@@ -429,13 +435,8 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     cb(k_conv, "k_conv_predelta", il);
     cb(v_conv, "v_conv_predelta", il);
 
-    // Choose between build_delta_net_chunking, build_delta_net_recurrent, and build_delta_net_autoregressive based on n_tokens
-    std::pair<lm_ggml_tensor *, lm_ggml_tensor *> attn_out; // pair of (output, new_state)
-    if (n_seq_tokens == 1) {
-        attn_out = build_delta_net_autoregressive(q_conv, k_conv, v_conv, gate, beta, state, il);
-    } else {
-        attn_out = build_delta_net_chunking(q_conv, k_conv, v_conv, gate, beta, state, il);
-    }
+    auto attn_out = build_delta_net(q_conv, k_conv, v_conv, gate, beta, state, il);
+
     lm_ggml_tensor * output    = attn_out.first;
     lm_ggml_tensor * new_state = attn_out.second;
     cb(output, "attn_output", il);
@@ -444,7 +445,7 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     // Update the recurrent states
     lm_ggml_build_forward_expand(gf,
             lm_ggml_cpy(ctx0, new_state,
-                lm_ggml_view_1d(ctx0, ssm_states_all, hparams.n_embd_s() * n_seqs,
+                lm_ggml_view_2d(ctx0, ssm_states_all, hparams.n_embd_s(), n_seqs, ssm_states_all->nb[1],
                     kv_head * hparams.n_embd_s() * lm_ggml_element_size(ssm_states_all))));
 
     // z: [head_dim, n_heads, n_tokens, n_seqs] -> [n_heads * n_tokens * n_seqs, head_dim]
@@ -473,11 +474,16 @@ lm_ggml_tensor * llm_build_qwen3next::build_layer_ffn(lm_ggml_tensor * cur, cons
         // MoE branch
         lm_ggml_tensor * moe_out =
             build_moe_ffn(cur,
-                model.layers[il].ffn_gate_inp, model.layers[il].ffn_up_exps,
-                model.layers[il].ffn_gate_exps, model.layers[il].ffn_down_exps,
+                model.layers[il].ffn_gate_inp,
+                model.layers[il].ffn_up_exps,
+                model.layers[il].ffn_gate_exps,
+                model.layers[il].ffn_down_exps,
                 nullptr,
-                n_expert, n_expert_used, LLM_FFN_SILU,
-                true, false, 0.0, LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX, il);
+                n_expert, n_expert_used,
+                LLM_FFN_SILU, true,
+                hparams.expert_weights_scale,
+                LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX, il,
+                nullptr, model.layers[il].ffn_gate_up_exps);
         cb(moe_out, "ffn_moe_out", il);
 
         // Add shared experts if present - following Qwen3Next reference implementation

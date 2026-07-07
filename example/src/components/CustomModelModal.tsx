@@ -15,6 +15,7 @@ import { pick, keepLocalCopy } from '@react-native-documents/picker'
 import {
   HuggingFaceAPI,
   type CustomModelInfo,
+  type HuggingFaceSearchResult,
 } from '../services/HuggingFaceAPI'
 import { saveCustomModel, type CustomModel } from '../utils/storage'
 import { createThemedStyles } from '../styles/commonStyles'
@@ -268,11 +269,126 @@ export default function CustomModelModal({
       fontWeight: '700',
       color: theme.dark ? '#E2E8F0' : '#0E7490',
     },
+    actionRow: {
+      flexDirection: 'row',
+      gap: 12,
+      marginTop: 16,
+    },
+    actionButton: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 10,
+      minHeight: 48,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+    },
+    primaryActionButton: {
+      backgroundColor: theme.colors.primary,
+      shadowColor: theme.colors.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    secondaryActionButton: {
+      backgroundColor: theme.colors.surface,
+      borderWidth: 1.5,
+      borderColor: theme.colors.border,
+    },
+    disabledActionButton: {
+      opacity: 0.6,
+    },
+    actionButtonText: {
+      color: theme.colors.white,
+      fontSize: 15,
+      fontWeight: '700',
+      textAlign: 'center',
+    },
+    secondaryActionButtonText: {
+      color: theme.colors.text,
+    },
+    searchResultsHeader: {
+      marginTop: 28,
+      marginBottom: 12,
+    },
+    searchResultsTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: theme.colors.text,
+      marginBottom: 4,
+      letterSpacing: -0.2,
+    },
+    searchResultsSubtitle: {
+      fontSize: 13,
+      color: theme.colors.textSecondary,
+      lineHeight: 18,
+    },
+    searchResultCard: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 12,
+      borderWidth: 2,
+      borderColor: theme.colors.border,
+      shadowColor: theme.colors.shadow,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    searchResultCardSelected: {
+      borderColor: theme.colors.primary,
+      backgroundColor: theme.dark ? '#1E293B' : '#EFF6FF',
+    },
+    searchResultId: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: theme.colors.text,
+      marginBottom: 10,
+    },
+    searchResultMetaRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: 10,
+    },
+    searchMetaChip: {
+      backgroundColor: theme.colors.card,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    searchMetaChipText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: theme.colors.textSecondary,
+    },
+    searchTagRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    searchTag: {
+      backgroundColor: theme.dark ? '#1F2937' : '#F3F4F6',
+      borderRadius: 8,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    searchTagText: {
+      fontSize: 12,
+      fontWeight: '500',
+      color: theme.colors.textSecondary,
+    },
   })
 
   const [modelId, setModelId] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isSearching, setIsSearching] = useState(false)
   const [modelInfo, setModelInfo] = useState<CustomModelInfo | null>(null)
+  const [searchResults, setSearchResults] = useState<HuggingFaceSearchResult[]>(
+    [],
+  )
   const [selectedFile, setSelectedFile] = useState<{
     filename: string
     quantization: string
@@ -299,7 +415,9 @@ export default function CustomModelModal({
       // Reset state when modal closes
       setModelId('')
       setIsLoading(false)
+      setIsSearching(false)
       setModelInfo(null)
+      setSearchResults([])
       setSelectedFile(null)
       setSelectedMMProjFile(null)
       setSelectedModelFile(null)
@@ -309,8 +427,8 @@ export default function CustomModelModal({
     }
   }, [visible])
 
-  const handleFetchModel = async () => {
-    if (!modelId.trim()) {
+  const fetchModelDetails = async (nextModelId: string) => {
+    if (!nextModelId) {
       setError('Please enter a model ID')
       return
     }
@@ -322,7 +440,7 @@ export default function CustomModelModal({
     setSelectedMMProjFile(null)
 
     try {
-      const info = await HuggingFaceAPI.fetchModelInfo(modelId.trim())
+      const info = await HuggingFaceAPI.fetchModelInfo(nextModelId)
       setModelInfo(info)
 
       if (!info.exists) {
@@ -357,6 +475,38 @@ export default function CustomModelModal({
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const handleFetchModel = async () => {
+    const trimmedModelId = modelId.trim()
+    await fetchModelDetails(trimmedModelId)
+  }
+
+  const handleSearchModels = async () => {
+    setIsSearching(true)
+    setError(null)
+    setModelInfo(null)
+    setSelectedFile(null)
+    setSelectedMMProjFile(null)
+
+    try {
+      const results = await HuggingFaceAPI.searchModels(modelId)
+      setSearchResults(results)
+
+      if (results.length === 0) {
+        setError('No GGUF models found for this search')
+      }
+    } catch (err) {
+      setSearchResults([])
+      setError(err instanceof Error ? err.message : 'Unknown error occurred')
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleSelectSearchResult = async (result: HuggingFaceSearchResult) => {
+    setModelId(result.id)
+    await fetchModelDetails(result.id)
   }
 
   const handlePickModelFile = async () => {
@@ -531,6 +681,17 @@ export default function CustomModelModal({
     ? selectedModelFile && (!requireMMProj || selectedMmprojFile)
     : modelInfo?.exists && selectedFile && (!requireMMProj || selectedMMProjFile)
 
+  const formatCount = (value: number) => value.toLocaleString()
+  const getSearchTags = (result: HuggingFaceSearchResult) =>
+    result.tags
+      .filter(
+        (tag) =>
+          tag !== 'gguf' &&
+          !tag.startsWith('license:') &&
+          !tag.startsWith('region:'),
+      )
+      .slice(0, 3)
+
   return (
     <Modal
       visible={visible}
@@ -659,20 +820,57 @@ export default function CustomModelModal({
             <>
               {/* HuggingFace Download Mode */}
               <View style={styles.inputContainer}>
-                <Text style={styles.label}>Model ID</Text>
+                <Text style={styles.label}>Search or Model ID</Text>
                 <TextInput
                   style={styles.input}
                   value={modelId}
                   onChangeText={setModelId}
-                  placeholder="e.g., microsoft/DialoGPT-medium"
+                  placeholder="e.g., llama, qwen, or username/model-name"
                   placeholderTextColor={theme.colors.textSecondary}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  onSubmitEditing={handleFetchModel}
+                  onSubmitEditing={handleSearchModels}
                 />
                 <Text style={styles.helpText}>
-                  Enter the HuggingFace model ID (format: username/model-name)
+                  Search HuggingFace GGUF repos or paste an exact model ID
+                  {' '}
+                  (`username/model-name`).
                 </Text>
+
+                <View style={styles.actionRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.actionButton,
+                      styles.primaryActionButton,
+                      (isSearching || isLoading) && styles.disabledActionButton,
+                    ]}
+                    onPress={handleSearchModels}
+                    disabled={isSearching || isLoading}
+                  >
+                    <Text style={styles.actionButtonText}>
+                      {isSearching ? 'Searching...' : 'Search GGUF'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.actionButton,
+                      styles.secondaryActionButton,
+                      (isSearching || isLoading) && styles.disabledActionButton,
+                    ]}
+                    onPress={handleFetchModel}
+                    disabled={isSearching || isLoading}
+                  >
+                    <Text
+                      style={[
+                        styles.actionButtonText,
+                        styles.secondaryActionButtonText,
+                      ]}
+                    >
+                      {isLoading ? 'Loading...' : 'Check Exact ID'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <View style={styles.noteContainer}>
@@ -686,17 +884,16 @@ export default function CustomModelModal({
                   the license.
                 </Text>
               </View>
-
-              <TouchableOpacity
-                style={themedStyles.primaryButton}
-                onPress={handleFetchModel}
-                disabled={isLoading}
-              >
-                <Text style={themedStyles.primaryButtonText}>
-                  {isLoading ? 'Fetching...' : 'Check Model'}
-                </Text>
-              </TouchableOpacity>
             </>
+          )}
+
+          {isSearching && !useFileSelection && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <Text style={styles.loadingText}>
+                Searching GGUF models...
+              </Text>
+            </View>
           )}
 
           {isLoading && !useFileSelection && (
@@ -715,6 +912,68 @@ export default function CustomModelModal({
                 {error}
               </Text>
             </View>
+          )}
+
+          {searchResults.length > 0 && !useFileSelection && (
+            <>
+              <View style={styles.searchResultsHeader}>
+                <Text style={styles.searchResultsTitle}>GGUF Search Results</Text>
+                <Text style={styles.searchResultsSubtitle}>
+                  Tap a repo to load its available GGUF files.
+                </Text>
+              </View>
+
+              {searchResults.map((result) => {
+                const visibleTags = getSearchTags(result)
+                const isSelected = modelId.trim() === result.id
+
+                return (
+                  <TouchableOpacity
+                    key={result.id}
+                    style={[
+                      styles.searchResultCard,
+                      isSelected && styles.searchResultCardSelected,
+                    ]}
+                    onPress={() => handleSelectSearchResult(result)}
+                    disabled={isLoading}
+                  >
+                    <Text style={styles.searchResultId}>{result.id}</Text>
+
+                    <View style={styles.searchResultMetaRow}>
+                      <View style={styles.searchMetaChip}>
+                        <Text style={styles.searchMetaChipText}>
+                          {formatCount(result.downloads)}
+                          {' '}
+                          downloads
+                        </Text>
+                      </View>
+                      <View style={styles.searchMetaChip}>
+                        <Text style={styles.searchMetaChipText}>
+                          {formatCount(result.likes)}
+                          {' '}
+                          likes
+                        </Text>
+                      </View>
+                      <View style={styles.searchMetaChip}>
+                        <Text style={styles.searchMetaChipText}>
+                          {result.pipelineTag || 'unknown pipeline'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {visibleTags.length > 0 && (
+                      <View style={styles.searchTagRow}>
+                        {visibleTags.map((tag) => (
+                          <View key={`${result.id}-${tag}`} style={styles.searchTag}>
+                            <Text style={styles.searchTagText}>{tag}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                )
+              })}
+            </>
           )}
 
           {modelInfo?.exists && !useFileSelection && (

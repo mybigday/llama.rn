@@ -36,8 +36,12 @@ export function Menu({ icon = 'dots-vertical', actions }: MenuProps) {
     }),
   }))
 
-  const handleMenuAction = ({ nativeEvent }: { nativeEvent: { event: string } }) => {
-    const action = actions.find(a => a.id === nativeEvent.event)
+  const handleMenuAction = ({
+    nativeEvent,
+  }: {
+    nativeEvent: { event: string }
+  }) => {
+    const action = actions.find((a) => a.id === nativeEvent.event)
     action?.onPress()
   }
 

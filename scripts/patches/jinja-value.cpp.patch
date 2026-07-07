@@ -1,0 +1,9 @@
+--- common/jinja/value.cpp.orig	2026-04-10 00:00:00
++++ common/jinja/value.cpp	2026-04-10 00:00:00
+@@ -1,5 +1,5 @@
+ #include "runtime.h"
+-#include "unicode.h"
++#include "../unicode.h"
+ #include "value.h"
+ 
+ // for converting from JSON to jinja values

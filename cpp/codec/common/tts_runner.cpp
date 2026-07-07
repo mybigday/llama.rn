@@ -283,6 +283,27 @@ struct SamplerChain {
     }
 };
 
+// Linear-interpolation resample of mono F32 PCM from `in_sr` to `out_sr`.
+// Shared by every speaker-encoder path in the runner (Chatterbox VE @ 16 kHz
+// and, via audio_lm_build_prompt, the ECAPA-TDNN @ 24 kHz path).  Each
+// encoder declares its working rate; the runner feeds PCM at that rate.
+std::vector<float> resample_mono_f32(const std::vector<float> & in,
+                                     int32_t in_sr, int32_t out_sr) {
+    if (in.empty() || in_sr <= 0 || out_sr <= 0 || in_sr == out_sr) return in;
+    const int64_t n_in  = (int64_t) in.size();
+    const int64_t n_out = n_in * out_sr / in_sr;
+    std::vector<float> out((size_t) std::max<int64_t>(n_out, 1));
+    for (int64_t i = 0; i < (int64_t) out.size(); ++i) {
+        const double src = (double) i * in_sr / out_sr;
+        int64_t i0 = (int64_t) src;
+        const double f = src - (double) i0;
+        const float a0 = in[(size_t) std::min<int64_t>(i0,     n_in - 1)];
+        const float a1 = in[(size_t) std::min<int64_t>(i0 + 1, n_in - 1)];
+        out[(size_t) i] = (float) ((double) a0 * (1.0 - f) + (double) a1 * f);
+    }
+    return out;
+}
+
 // Load ref audio (mono F32) from `path` into `ref_pcm`; fills the geometry
 // out-params.  Returns true (and leaves ref_pcm empty) when path is empty.
 bool load_ref_audio(const std::string & path, std::vector<float> & ref_pcm,
@@ -890,18 +911,7 @@ bool run_chatterbox(audio_lm_context * ctx, llama_context * lctx,
             // The Chatterbox VE expects 16 kHz mono; linearly resample.
             const int32_t target_sr = 16000;
             if (lsr != target_sr && lsr > 0) {
-                const int32_t n_in = (int32_t) ref_pcm.size();
-                const int64_t n_out = (int64_t) n_in * target_sr / lsr;
-                std::vector<float> rs((size_t) n_out);
-                for (int64_t i = 0; i < n_out; ++i) {
-                    double src = (double) i * lsr / target_sr;
-                    int64_t i0 = (int64_t) src;
-                    double f = src - i0;
-                    float a0 = ref_pcm[(size_t) std::min<int64_t>(i0, n_in - 1)];
-                    float a1 = ref_pcm[(size_t) std::min<int64_t>(i0 + 1, n_in - 1)];
-                    rs[(size_t) i] = (float) (a0 * (1.0 - f) + a1 * f);
-                }
-                ref_pcm.swap(rs);
+                ref_pcm = resample_mono_f32(ref_pcm, lsr, target_sr);
             }
             ref_pcm_ptr = ref_pcm.data();
             ref_n = (int32_t) ref_pcm.size();
@@ -1206,6 +1216,28 @@ bool tts_runner_synthesize(const tts_runner_params & a, tts_runner_result * out)
             }
         } else if (!a.ref_audio_path.empty() && !audio_lm_has_speaker_enc(ctx)) {
             std::printf("note: --ref-audio given but model has no speaker encoder; ignoring\n");
+        }
+
+        // Faithful no-speaker behavior.  The Qwen3-TTS Base model is a voice-
+        // CLONE model: its reference generate_voice_clone() raises
+        //   ValueError("Either voice_clone_prompt or ref_audio must be provided")
+        // when ref_audio is None — the talker prompt embeds an x-vector row
+        // between the think-tags and pad/bos, and running speaker-free is off-
+        // spec (unreliable / early-truncating output).  So when the model is a
+        // talker (needs the x-vector) and no usable speaker prefix was built,
+        // refuse with a clear message rather than emit garbage.
+        if (audio_lm_talker_has_projection(ctx) &&
+            (speaker_prefix.empty() ||
+             (int32_t) speaker_prefix.size() != hidden)) {
+            out->error =
+                "qwen3-tts is a voice-clone model and requires --ref-audio "
+                "(a reference speaker clip); none was provided or the speaker "
+                "encode produced no x-vector.  Pass --ref-audio <wav> (any "
+                "sample rate / channel count; it is resampled to the encoder's "
+                "rate automatically).";
+            llama_free(lctx); llama_model_free(lmodel);
+            audio_lm_free(ctx); llama_backend_free();
+            return false;
         }
     }
 

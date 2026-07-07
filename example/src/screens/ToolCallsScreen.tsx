@@ -1,66 +1,60 @@
-import React, {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useCallback,
-} from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Alert,
-  TouchableOpacity,
-} from 'react-native'
+import { View, StyleSheet, Alert } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Chat } from '@flyerhq/react-native-chat-ui'
 import type { MessageType } from '@flyerhq/react-native-chat-ui'
-import ModelDownloadCard from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'
 import CompletionParamsModal from '../components/CompletionParamsModal'
-import CustomModelModal from '../components/CustomModelModal'
-import CustomModelCard from '../components/CustomModelCard'
 import { Bubble } from '../components/Bubble'
-import { HeaderButton } from '../components/HeaderButton'
 import { Menu } from '../components/Menu'
 import { MessagesModal } from '../components/MessagesModal'
-import { MaskedProgress } from '../components/MaskedProgress'
 import SessionModal from '../components/SessionModal'
 import { StopButton } from '../components/StopButton'
 import ToolsModal from '../components/ToolsModal'
+import { ExampleModelSetup } from '../components/ExampleModelSetup'
 import {
   createThemedStyles,
   chatDarkTheme,
   chatLightTheme,
 } from '../styles/commonStyles'
 import { useTheme } from '../contexts/ThemeContext'
-import { MODELS } from '../utils/constants'
 import type {
   ContextParams,
   CompletionParams,
-  CustomModel,
   MCPConfig,
 } from '../utils/storage'
-import {
-  loadContextParams,
-  loadCompletionParams,
-  loadCustomModels,
-  loadMCPConfig,
-} from '../utils/storage'
+import { loadContextParams, loadCompletionParams } from '../utils/storage'
 import { mcpClientManager, type MCPTool } from '../utils/mcpClient'
 import type { LLMMessage } from '../utils/llmMessages'
-import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
-
-const user = { id: 'user' }
-const assistant = { id: 'assistant' }
-
-const randId = () => Math.random().toString(36).substr(2, 7)
+import { initLlama } from '../../../src' // import 'llama.rn'
+import {
+  useStoredCompletionParams,
+  useStoredContextParams,
+  useStoredCustomModels,
+  useStoredMCPConfig,
+} from '../hooks/useStoredSetting'
+import { useExampleContext } from '../hooks/useExampleContext'
+import { useExampleScreenHeader } from '../hooks/useExampleScreenHeader'
+import { createExampleModelDefinitions } from '../utils/exampleModels'
+import {
+  CHAT_ASSISTANT,
+  CHAT_USER,
+  createMessageId,
+  createSystemTextMessage,
+} from '../features/chatHelpers'
 
 const DEFAULT_SYSTEM_PROMPT =
   'You are a helpful AI assistant with access to tools. You can call tools to help answer user questions.'
+
+const TOOL_CALL_MODELS = createExampleModelDefinitions([
+  'SMOL_LM_3',
+  'GEMMA_3_4B_QAT',
+  'QWEN_3_4B',
+  'GEMMA_3N_E2B',
+  'GEMMA_3N_E4B',
+])
 
 interface ToolCall {
   id: string
@@ -132,55 +126,11 @@ const AVAILABLE_TOOLS = [
 export default function ToolCallsScreen({ navigation }: { navigation: any }) {
   const { isDark, theme } = useTheme()
   const themedStyles = createThemedStyles(theme.colors)
-
-  const styles = StyleSheet.create({
-    // Using themed styles for common patterns
-    container: themedStyles.container,
-    header: {
-      ...themedStyles.header,
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    },
-    headerTitle: themedStyles.headerTitle,
-    headerSubtitle: {
-      fontSize: 12,
-      color: theme.colors.textSecondary,
-      textAlign: 'center',
-      marginTop: 4,
-    },
-    setupContainer: themedStyles.setupContainer,
-    scrollContent: themedStyles.scrollContent,
-    setupDescription: themedStyles.setupDescription,
-    loadingContainer: themedStyles.loadingContainer,
-    loadingText: themedStyles.loadingText,
-    progressContainer: themedStyles.progressContainer,
-    progressBar: themedStyles.progressBar,
-    progressFill: themedStyles.progressFill,
-    settingsContainer: {
-      alignItems: 'center',
-      marginTop: 20,
-    },
-    settingsButtonStyle: {
-      backgroundColor: theme.colors.primary,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      borderRadius: 6,
-      margin: 4,
-    },
-    settingsButtonTextStyle: {
-      color: theme.colors.white,
-      fontSize: 14,
-      fontWeight: '500',
-    },
-  })
+  const styles = createStyles(theme, themedStyles)
 
   const messagesRef = useRef<MessageType.Any[]>([])
   const [, setMessagesVersion] = useState(0) // For UI updates
   const [isLoading, setIsLoading] = useState(false)
-  const [context, setContext] = useState<LlamaContext | null>(null)
-  const [isModelReady, setIsModelReady] = useState(false)
-  const [initProgress, setInitProgress] = useState(0)
   const [showContextParamsModal, setShowContextParamsModal] = useState(false)
   const [showCompletionParamsModal, setShowCompletionParamsModal] =
     useState(false)
@@ -188,58 +138,36 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
   const [showSessionModal, setShowSessionModal] = useState(false)
   const [showCustomModelModal, setShowCustomModelModal] = useState(false)
   const [showToolsModal, setShowToolsModal] = useState(false)
-  const [contextParams, setContextParams] = useState<ContextParams | null>(null)
-  const [completionParams, setCompletionParams] =
-    useState<CompletionParams | null>(null)
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT)
-  const [customModels, setCustomModels] = useState<CustomModel[]>([])
   const [currentTools, setCurrentTools] = useState(AVAILABLE_TOOLS)
   const [mockResponses, setMockResponses] = useState<Record<string, string>>({
     get_weather: "It's sunny and 72°F in your location with light clouds.",
     calculate: 'The calculation result is 42.',
     get_time: 'The current time is 2:30 PM on Tuesday, January 15, 2025.',
   })
-  const [, setMcpConfig] = useState<MCPConfig>({ mcpServers: {} })
   const [mcpTools, setMcpTools] = useState<MCPTool[]>([])
   const [disabledTools, setDisabledTools] = useState<Set<string>>(new Set())
   const insets = useSafeAreaInsets()
+  const {
+    context,
+    initProgress,
+    isModelReady,
+    replaceContext,
+    setInitProgress,
+  } = useExampleContext()
+  const { value: contextParams, setValue: setContextParams } =
+    useStoredContextParams()
+  const { value: completionParams, setValue: setCompletionParams } =
+    useStoredCompletionParams()
+  const { value: customModels, reload: reloadCustomModels } =
+    useStoredCustomModels()
+  const { value: mcpConfig, setValue: setMcpConfig } = useStoredMCPConfig()
 
-  useEffect(
-    () => () => {
-      if (context) {
-        context.release()
-      }
-    },
-    [context],
-  )
-
-  // Load custom models on mount
   useEffect(() => {
-    const loadCustomModelsData = async () => {
-      try {
-        const models = await loadCustomModels()
-        setCustomModels(models)
-      } catch (error) {
-        console.error('Error loading custom models:', error)
-      }
+    if (mcpConfig) {
+      mcpClientManager.updateConfig(mcpConfig)
     }
-    loadCustomModelsData()
-  }, [])
-
-  // Load MCP configuration on mount
-  useEffect(() => {
-    const loadMCPData = async () => {
-      try {
-        const config = await loadMCPConfig()
-        setMcpConfig(config)
-        mcpClientManager.updateConfig(config)
-        // Don't auto-connect on startup, wait for user action
-      } catch (error) {
-        console.error('Error loading MCP config:', error)
-      }
-    }
-    loadMCPData()
-  }, [])
+  }, [mcpConfig])
 
   const handleSaveContextParams = (params: ContextParams) => {
     setContextParams(params)
@@ -247,18 +175,6 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
 
   const handleSaveCompletionParams = (params: CompletionParams) => {
     setCompletionParams(params)
-  }
-
-  const handleCustomModelAdded = async (_model: CustomModel) => {
-    // Reload custom models to reflect the new addition
-    const models = await loadCustomModels()
-    setCustomModels(models)
-  }
-
-  const handleCustomModelRemoved = async () => {
-    // Reload custom models to reflect the removal
-    const models = await loadCustomModels()
-    setCustomModels(models)
   }
 
   const buildLLMMessages = (): LLMMessage[] => {
@@ -288,7 +204,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           // This contains tool results, add them as individual tool messages
           const { toolMessage } = msg.metadata
           acc.push(toolMessage)
-        } else if (msg.author.id === user.id) {
+        } else if (msg.author.id === CHAT_USER.id) {
           // Regular user message
           acc.push({
             role: 'user',
@@ -332,14 +248,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
 
   const addSystemMessage = useCallback(
     (text: string, metadata = {}) => {
-      const textMessage: MessageType.Text = {
-        author: assistant,
-        createdAt: Date.now(),
-        id: randId(),
-        text,
-        type: 'text',
-        metadata: { system: true, ...metadata },
-      }
+      const textMessage = createSystemTextMessage(text, metadata)
       addMessage(textMessage)
       return textMessage.id
     },
@@ -371,52 +280,52 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         },
       ],
     )
-  }, [addSystemMessage])
+  }, [addSystemMessage, context])
 
-  // Set up navigation header buttons
-  useLayoutEffect(() => {
-    if (isModelReady) {
-      navigation.setOptions({
-        headerRight: () => (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <HeaderButton iconName="refresh" onPress={handleReset} />
-            <HeaderButton
-              iconName="cog-outline"
-              onPress={() => setShowCompletionParamsModal(true)}
-            />
-            <Menu
-              actions={[
-                {
-                  id: 'tools',
-                  title: 'Tools',
-                  onPress: () => setShowToolsModal(true),
-                },
-                {
-                  id: 'messages',
-                  title: 'Messages',
-                  onPress: () => setShowMessagesModal(true),
-                },
-                {
-                  id: 'sessions',
-                  title: 'Sessions',
-                  onPress: () => setShowSessionModal(true),
-                },
-              ]}
-            />
-          </View>
-        ),
-      })
-    } else {
-      navigation.setOptions({
-        headerRight: () => (
-          <HeaderButton
-            iconName="cog-outline"
-            onPress={() => setShowContextParamsModal(true)}
-          />
-        ),
-      })
-    }
-  }, [navigation, isModelReady, handleReset])
+  useExampleScreenHeader({
+    navigation,
+    isModelReady,
+    readyActions: [
+      {
+        key: 'reset',
+        iconName: 'refresh',
+        onPress: handleReset,
+      },
+      {
+        key: 'completion-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowCompletionParamsModal(true),
+      },
+    ],
+    setupActions: [
+      {
+        key: 'context-settings',
+        iconName: 'cog-outline',
+        onPress: () => setShowContextParamsModal(true),
+      },
+    ],
+    renderReadyExtras: () => (
+      <Menu
+        actions={[
+          {
+            id: 'tools',
+            title: 'Tools',
+            onPress: () => setShowToolsModal(true),
+          },
+          {
+            id: 'messages',
+            title: 'Messages',
+            onPress: () => setShowMessagesModal(true),
+          },
+          {
+            id: 'sessions',
+            title: 'Sessions',
+            onPress: () => setShowSessionModal(true),
+          },
+        ]}
+      />
+    ),
+  })
 
   const handleImportMessages = (newMessages: MessageType.Any[]) => {
     // Reset messages and add system message back
@@ -490,8 +399,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         },
       )
 
-      setContext(llamaContext)
-      setIsModelReady(true)
+      await replaceContext(llamaContext)
       setInitProgress(100)
 
       addSystemMessage(
@@ -549,9 +457,9 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
 
     if (userMessageText) {
       const userMessage: MessageType.Text = {
-        author: user,
+        author: CHAT_USER,
         createdAt: Date.now(),
-        id: randId(),
+        id: createMessageId(),
         text: userMessageText,
         type: 'text',
       }
@@ -564,9 +472,9 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
       // Build conversation messages using the reusable function
       const conversationMessages = buildLLMMessages()
 
-      const responseId = randId()
+      const responseId = createMessageId()
       const responseMessage: MessageType.Text = {
-        author: assistant,
+        author: CHAT_ASSISTANT,
         createdAt: Date.now(),
         id: responseId,
         text: '',
@@ -650,7 +558,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
       if (toolCalls && toolCalls.length > 0) {
         // Ensure all tool calls have IDs
         toolCalls.forEach((toolCall) => {
-          if (!toolCall.id) toolCall.id = randId()
+          if (!toolCall.id) toolCall.id = createMessageId()
         })
         // Unique by id (last one wins)
         toolCalls = toolCalls.filter(
@@ -725,9 +633,9 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
             }
           }
           addMessage({
-            author: assistant,
+            author: CHAT_ASSISTANT,
             createdAt: Date.now() + 2,
-            id: randId(),
+            id: createMessageId(),
             text: `📊 Tool Result:\n${toolMessage.content}`,
             type: 'text',
             metadata: { toolMessage },
@@ -761,91 +669,32 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
 
   if (!isModelReady) {
     return (
-      <View style={styles.container}>
-        <ScrollView
-          style={styles.setupContainer}
-          contentContainerStyle={styles.scrollContent}
-        >
-          <Text style={styles.setupDescription}>
-            Download a compatible model to demonstrate tool calling
-            capabilities. The AI can execute functions like weather queries,
-            calculations, and time lookups.
-          </Text>
-
-          {/* Custom Models Section */}
-          {customModels.filter((model) => !model.mmprojFilename).length > 0 && (
-            <>
-              <Text style={themedStyles.modelSectionTitle}>Custom Models</Text>
-              {customModels
-                .filter((model) => !model.mmprojFilename) // Only show non-multimodal models
-                .map((model) => (
-                  <CustomModelCard
-                    key={model.id}
-                    model={model}
-                    onInitialize={(modelPath: string) =>
-                      initializeModel(modelPath)
-                    }
-                    onModelRemoved={handleCustomModelRemoved}
-                    initializeButtonText="Initialize"
-                  />
-                ))}
-            </>
+      <>
+        <ExampleModelSetup
+          description="Download a compatible model to demonstrate tool calling capabilities. The AI can execute functions like weather queries, calculations, and time lookups."
+          defaultModels={TOOL_CALL_MODELS}
+          customModels={(customModels || []).filter(
+            (model) => !model.mmprojFilename,
           )}
-
-          {/* Add Custom Model Button */}
-          <TouchableOpacity
-            style={themedStyles.addCustomModelButton}
-            onPress={() => setShowCustomModelModal(true)}
-          >
-            <Text style={themedStyles.addCustomModelButtonText}>
-              + Add Custom Model
-            </Text>
-          </TouchableOpacity>
-
-          {/* Predefined Models Section */}
-          <Text style={themedStyles.modelSectionTitle}>Default Models</Text>
-          {[
-            'SMOL_LM_3',
-            'GEMMA_3_4B_QAT',
-            'QWEN_3_4B',
-            'GEMMA_3N_E2B',
-            'GEMMA_3N_E4B',
-          ].map((model) => {
-            const modelInfo = MODELS[model as keyof typeof MODELS]
-            return (
-              <ModelDownloadCard
-                key={model}
-                title={modelInfo.name}
-                repo={modelInfo.repo}
-                filename={modelInfo.filename}
-                size={modelInfo.size}
-                onInitialize={initializeModel}
-              />
-            )
-          })}
-        </ScrollView>
+          onInitializeCustomModel={(_model, modelPath) =>
+            initializeModel(modelPath)
+          }
+          onInitializeModel={(_model, modelPath) => initializeModel(modelPath)}
+          onReloadCustomModels={reloadCustomModels}
+          showCustomModelModal={showCustomModelModal}
+          onOpenCustomModelModal={() => setShowCustomModelModal(true)}
+          onCloseCustomModelModal={() => setShowCustomModelModal(false)}
+          isLoading={isLoading}
+          initProgress={initProgress}
+          progressText={`Initializing model... ${initProgress}%`}
+        />
 
         <ContextParamsModal
           visible={showContextParamsModal}
           onClose={() => setShowContextParamsModal(false)}
           onSave={handleSaveContextParams}
         />
-
-        <CustomModelModal
-          visible={showCustomModelModal}
-          onClose={() => setShowCustomModelModal(false)}
-          onModelAdded={handleCustomModelAdded}
-          title="Add Custom Model"
-          enableFileSelection
-        />
-
-        <MaskedProgress
-          visible={isLoading}
-          text={`Initializing model... ${initProgress}%`}
-          progress={initProgress}
-          showProgressBar={initProgress > 0}
-        />
-      </View>
+      </>
     )
   }
 
@@ -857,7 +706,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
         theme={isDark ? chatDarkTheme : chatLightTheme}
         messages={messagesRef.current}
         onSendPress={handleSendPress}
-        user={user}
+        user={CHAT_USER}
         textInputProps={{
           editable: !isLoading,
           placeholder: isLoading ? 'Responding...' : 'Ask me to use tools...',
@@ -884,6 +733,7 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
           ...convertMCPToolsToOpenAI(mcpTools),
         ]}
         context={context}
+        completionParams={completionParams}
         onImportMessages={handleImportMessages}
         onUpdateSystemPrompt={handleUpdateSystemPrompt}
         defaultSystemPrompt={DEFAULT_SYSTEM_PROMPT}
@@ -907,4 +757,50 @@ export default function ToolCallsScreen({ navigation }: { navigation: any }) {
       />
     </View>
   )
+}
+
+function createStyles(
+  theme: ReturnType<typeof useTheme>['theme'],
+  themedStyles: ReturnType<typeof createThemedStyles>,
+) {
+  return StyleSheet.create({
+    container: themedStyles.container,
+    header: {
+      ...themedStyles.header,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    headerTitle: themedStyles.headerTitle,
+    headerSubtitle: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      textAlign: 'center',
+      marginTop: 4,
+    },
+    setupContainer: themedStyles.setupContainer,
+    scrollContent: themedStyles.scrollContent,
+    setupDescription: themedStyles.setupDescription,
+    loadingContainer: themedStyles.loadingContainer,
+    loadingText: themedStyles.loadingText,
+    progressContainer: themedStyles.progressContainer,
+    progressBar: themedStyles.progressBar,
+    progressFill: themedStyles.progressFill,
+    settingsContainer: {
+      alignItems: 'center',
+      marginTop: 20,
+    },
+    settingsButtonStyle: {
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 6,
+      margin: 4,
+    },
+    settingsButtonTextStyle: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: '500',
+    },
+  })
 }
