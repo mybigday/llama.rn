@@ -360,13 +360,15 @@ void llama_rn_context_tts::reset() {
     codec_lm_ar_rng = 0;
     codec_lm_ar_stopped_on_eos = false;
 
-    talker_text_tokens.clear();
-    talker_trailing = 0;
-    // talker_prefix_{embd,rows,hidden} intentionally NOT cleared here.
-    // They are set by getFormattedAudioCompletion (called before rewind/reset)
-    // and consumed once by nextToken.  getFormattedAudioCompletion clears them
-    // at its own entry point for non-talker models, so no stale prefix leaks
-    // across generations.
+    // talker_prefix_{embd,rows,hidden} AND talker_text_tokens/talker_trailing
+    // intentionally NOT cleared here.  They are set by
+    // getFormattedAudioCompletion (called before rewind/reset) and consumed
+    // by nextToken + the per-step trailing-text hook that runs across the
+    // whole AR loop.  Clearing talker_text_tokens here emptied the trailing
+    // text mid-generation: every step then fed text_proj(tts_eos), telling
+    // the model "text is finished" from step 0 → degenerate all-silent
+    // output.  getFormattedAudioCompletion clears these at its own entry
+    // point, so no stale state leaks across generations.
 
     // Reset audio_lm per-sequence state (codes accumulator + step machine),
     // but keep the loaded weights + capabilities.
@@ -1227,6 +1229,8 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     talker_prefix_embd.clear();
     talker_prefix_rows           = 0;
     talker_prefix_hidden         = 0;
+    talker_text_tokens.clear();
+    talker_trailing              = 0;
     chatterbox_prefill_pending   = false;
     chatterbox_text.clear();
     audio_lm_payload_text        = text_to_speak;   // grammar needs the text
@@ -1335,14 +1339,15 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
         prefix.resize((size_t)n_rows * hidden);
 
         // Store the text tokens for per-step trailing text injection.
-        // The talker prefix already baked `consumed` text tokens into its
-        // embedding rows (see audio_lm_build_talker_prefix docs — text[0] is
-        // summed at row 8 → consumed=1).  Trailing text picks up from index
-        // `consumed` so we don't re-emit the tokens the prefix already saw;
-        // stopping trailing at 0 was making the model hit eos_code_c0 after
-        // only rendering the first character or two.
+        // trailing_idx starts at 0 — matching tts_runner.cpp's reference
+        // implementation exactly (it resets talker_trailing = 0 right after
+        // build_talker_prefix, even though the prefix consumed text[0]).
+        // The codec_common side owns the consumed-offset semantics; the host
+        // must NOT skip ahead.  (An earlier attempt to start at `consumed`
+        // produced degenerate all-silent output.)
+        (void) consumed;
         talker_text_tokens.assign(text_toks.begin(), text_toks.end());
-        talker_trailing = consumed;
+        talker_trailing = 0;
 
         // Also stash the prefix on `this` so rn-completion.cpp's nextToken
         // can inject it as an embd batch before starting the AR loop.
@@ -1404,9 +1409,26 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
             // Fallback when audio_lm_ctx has no talker projection (stale GGUF).
             return {build_qwen3_tts_prompt(speaker, text_to_speak), "", embedding, flow};
         case tts_prompt_kind::MOSS_TTS_REALTIME:
-            return {build_moss_tts_realtime_prompt(speaker, text_to_speak), "", embedding, flow};
-        case tts_prompt_kind::MOSS_TTSD:
-            return {build_moss_ttsd_prompt(speaker, text_to_speak), "", embedding, flow};
+        case tts_prompt_kind::MOSS_TTSD: {
+            // MOSS-TTSD / MOSS-TTS-Realtime wrap the text with a metadata-
+            // derived style/text/speech template (e.g.
+            // "<|begin_of_style|>…<|end_of_style|>\n<|begin_of_text|>{text}
+            // <|end_of_text|>\n<|begin_of_speech|>") — the same
+            // prompt_prefix / prompt_suffix codec.cpp's tts_runner tokenizes.
+            // Passing the raw "[S1]…[S2]" text produced coherent-but-wrong
+            // audio because the backbone never saw the speech-mode markers.
+            std::string wrapped = text_to_speak;
+            bool parse_special = true;
+            if (audio_lm_ctx != nullptr) {
+                codec_common::audio_lm_prompt_info pi{};
+                if (codec_common::audio_lm_get_prompt_info(audio_lm_ctx, &pi)) {
+                    wrapped = pi.prompt_prefix + text_to_speak + pi.prompt_suffix;
+                    parse_special = pi.parse_special;
+                }
+            }
+            (void) parse_special;  // getFormattedAudioCompletion tokenizes with parse_special=true downstream
+            return {wrapped, "", embedding, flow};
+        }
         case tts_prompt_kind::CHATTERBOX:
             // Fallback when audio_lm_ctx is unavailable (UNSUPPORTED decode_kind).
             return {build_chatterbox_prompt(speaker, text_to_speak), "", embedding, flow};
@@ -1863,6 +1885,8 @@ static bool try_audio_lm_step(
     const int n_cb = codec_common::audio_lm_n_codebook(alm_ctx);
     if (n_cb <= 0) return false;
 
+    int32_t backbone_cb0 = -1;   // set when cb0_from_backbone
+
     // MOSS-TTSD cb0-from-backbone: sample cb0 from backbone lm_head using
     // a common_sampler with GBNF grammar (constrains to speech range ∪ eos).
     // Build the sampler lazily on first step.
@@ -1892,10 +1916,10 @@ static bool try_audio_lm_step(
             *bb_sampler_built_ptr = true;
         }
         if (*bb_sampler_ptr != nullptr && lctx != nullptr) {
-            const int32_t c0 = common_sampler_sample(*bb_sampler_ptr, lctx, -1,
-                                                      /*grammar_first=*/false);
-            common_sampler_accept(*bb_sampler_ptr, c0, /*is_generated=*/true);
-            if (!codec_common::audio_lm_step_set_text_context(alm_ctx, c0)) {
+            backbone_cb0 = common_sampler_sample(*bb_sampler_ptr, lctx, -1,
+                                                 /*grammar_first=*/false);
+            common_sampler_accept(*bb_sampler_ptr, backbone_cb0, /*is_generated=*/true);
+            if (!codec_common::audio_lm_step_set_text_context(alm_ctx, backbone_cb0)) {
                 return false;
             }
         }
@@ -1912,20 +1936,15 @@ static bool try_audio_lm_step(
         // cb0-from-backbone: the code was already set via set_text_context;
         // we still need to push it through the step machine here.
         int32_t code;
-        if (cb0_from_backbone && cb == 0) {
-            // Re-read from the state — it was stashed by set_text_context.
-            // sample_codec_logits with greedy on the first logit row works
-            // only if nlog > 0; we just pick the cb0 we already sampled.
-            // The step machine expects us to call push_code regardless.
-            code = sample_codec_logits(lg, nlog, 0.0f, 0, 0.0f, rng_state); // greedy fallback
-            // Overwrite: the real cb0 came from bb_sampler; re-derive by
-            // argmax from lg (this is the codec_lm's view of cb0 logits, NOT
-            // the backbone's).  For parallel_heads_delay cb0_from_backbone
-            // the step machine needs us to push the backbone-sampled code.
-            // We stored it in set_text_context; step_logits for cb0 returns
-            // logits from the BACKBONE head (routed internally), so this
-            // sample is consistent.  Use our raw sampler on those logits.
-            code = sample_codec_logits(lg, nlog, samp_temp, samp_topk, samp_topp, rng_state);
+        if (cb0_from_backbone && cb == 0 && backbone_cb0 >= 0) {
+            // cb0 was already sampled from the BACKBONE's lm_head (with the
+            // GBNF grammar).  Push THAT value — do NOT re-sample from the
+            // codec_lm's cb0 logit row.  tts_runner.cpp's run_codebook_ar
+            // does exactly this (codes[0]=c0; for cb==0 it pushes codes[0]).
+            // Re-sampling here was the divergence source: cb1+ then saw a
+            // different cb0 context than the backbone intended → coherent-
+            // but-wrong audio.
+            code = backbone_cb0;
         } else {
             code = sample_codec_logits(lg, nlog, samp_temp, samp_topk, samp_topp, rng_state);
         }
@@ -1934,6 +1953,7 @@ static bool try_audio_lm_step(
 
     codes_out->assign((size_t)n_cb, 0);
     if (!codec_common::audio_lm_step_finish(alm_ctx, codes_out->data(), n_cb)) return false;
+
 
     // Accumulate codes + compose next embed via audio_lm_observe_codes.
     // This handles: EOS detection, delay-unshift accumulation, and
@@ -2016,7 +2036,12 @@ bool llama_rn_context_tts::tryCodecLmAudioStep(
             ? (uint64_t) sp.seed : 0xC0DEC1ABULL;
     }
     const auto & sp = main_ctx->params.sampling;
-    const float   samp_temp = sp.temp > 0 ? sp.temp : 0.9f;
+    // temp <= 0 is a real request (greedy / argmax) — sample_codec_logits and
+    // the bb_sampler both honour it.  MOSS-TTSD's verified configuration is
+    // greedy + auto-grammar (codec.cpp smoke: CER 0.143 greedy); coercing 0 →
+    // 0.9 here silently broke that.  top_p/top_k keep fallbacks since 0 there
+    // means "unset" in common_params.
+    const float   samp_temp = sp.temp;
     const float   samp_topp = sp.top_p > 0 ? sp.top_p : 0.95f;
     const int32_t samp_topk = sp.top_k > 0 ? sp.top_k : 50;
 
