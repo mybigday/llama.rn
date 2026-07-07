@@ -266,7 +266,9 @@ function BaseModelDownloadCard({
   const checkIfDownloaded = React.useCallback(async () => {
     try {
       const downloadStatuses = await Promise.all(
-        files.map((file) => ModelDownloader.isModelDownloaded(file.filename)),
+        files.map((file) =>
+          ModelDownloader.isModelDownloaded(file.filename, file.repo),
+        ),
       )
 
       const allDownloaded = downloadStatuses.every((status) => status)
@@ -274,7 +276,7 @@ function BaseModelDownloadCard({
 
       if (allDownloaded) {
         const pathPromises = files.map((file) =>
-          ModelDownloader.getModelPath(file.filename),
+          ModelDownloader.getModelPath(file.filename, file.repo),
         )
         const paths = await Promise.all(pathPromises)
         // Filter out any null paths
@@ -393,7 +395,9 @@ function BaseModelDownloadCard({
           onPress: async () => {
             try {
               await Promise.all(
-                files.map((file) => ModelDownloader.deleteModel(file.filename)),
+                files.map((file) =>
+                  ModelDownloader.deleteModel(file.filename, file.repo),
+                ),
               )
               setIsDownloaded(false)
               setFilePaths([])

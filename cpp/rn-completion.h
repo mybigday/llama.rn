@@ -61,6 +61,8 @@ struct llama_rn_context_completion {
     bool has_next_token = false;
     std::string prefill_text;
     std::string generated_text;
+    std::vector<float> embeddings;
+    int embedding_dim = 0;
     std::vector<completion_token_output> generated_token_probs;
     size_t num_draft_tokens = 0;
     size_t num_draft_tokens_accepted = 0;

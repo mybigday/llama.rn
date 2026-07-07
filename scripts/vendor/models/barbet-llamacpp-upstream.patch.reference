@@ -1,0 +1,426 @@
+diff --git a/convert_barbet_to_gguf.py b/convert_barbet_to_gguf.py
+new file mode 100644
+index 0000000..c6b718b
+--- /dev/null
++++ b/convert_barbet_to_gguf.py
+@@ -0,0 +1,159 @@
++#!/usr/bin/env python3
++"""Standalone Barbet (Open-Formosa R2 / BlueMagpie TSLM) → llama.cpp GGUF converter.
++
++Barbet is a Mamba2 + attention hybrid (motif: global, sliding, sliding, mamba2).
++It is the text-semantic backbone of BlueMagpie-TTS; the acoustic adaptor + AudioVAE
++run in codec.cpp, this backbone runs in llama.cpp (arch "barbet").
++
++The Megatron-style Mamba2 mixer stores 5 separate in-projections and 3 separate
++depthwise convs; this script fuses them into the single ssm_in / ssm_conv1d
++tensors llama.cpp's build_mamba2_layer expects:
++  ssm_in      = concat([in_proj_z, in_proj_x, in_proj_b, in_proj_c, in_proj_dt])  (order [z,x,B,C,dt])
++  ssm_conv1d  = concat([conv_x, conv_b, conv_c]) as (channels, d_conv)
++  ssm_a       = -exp(A_log)                                                       (per-head)
++  ssm_norm    = norm reshaped (n_group, group_size)
++Attention layers carry per-head q/k RMSNorm (qk_norm). Layer types are written as
++a per-layer schedule; mamba layers are marked with head_count_kv = 0 (nemotron-h
++convention).  Tied embeddings (no separate lm_head); MTP heads dropped.
++
++Usage:
++  python convert_barbet_to_gguf.py --src <pytorch_model.bin> --config <config.json> --out barbet.gguf
++"""
++from __future__ import annotations
++
++import argparse
++import json
++from pathlib import Path
++
++import numpy as np
++import torch
++import gguf
++
++ARCH = "barbet"
++
++
++def main() -> None:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--src", required=True, help="pytorch_model.bin with base_lm.* tensors")
++    ap.add_argument("--config", required=True, help="BlueMagpie config.json")
++    ap.add_argument("--out", required=True)
++    ap.add_argument("--outtype", default="f16", choices=["f16", "f32"])
++    args = ap.parse_args()
++
++    cfg = json.load(open(args.config))["barbet_config"]
++    sd = torch.load(args.src, map_location="cpu", weights_only=True)
++    P = "base_lm.backbone."
++    bb = {k[len(P):]: v for k, v in sd.items() if k.startswith(P)}
++
++    n_layer   = cfg["num_hidden_layers"]
++    n_embd    = cfg["hidden_size"]
++    head_dim  = cfg["head_dim"]
++    n_head    = cfg["num_attention_heads"]
++    n_head_kv = cfg["num_key_value_heads"]
++    n_ff      = cfg["intermediate_size"]
++    eps       = cfg["rms_norm_eps"]
++    rope_theta = cfg["rope_theta"]
++    swa       = cfg["sliding_window_size"]
++    globals_  = set(cfg["global_attention_layers"])
++    mambas    = set(cfg["mamba_layers"])
++    d_state   = cfg["mamba_d_state"]
++    d_conv    = cfg["mamba_d_conv"]
++    d_inner   = n_embd * cfg["mamba_expand"]
++    n_group   = n_head_kv                                   # Megatron Mamba2: groups = kv heads
++    n_ssm_head = d_inner // head_dim                         # 3072/128 = 24
++
++    np_dtype = np.float16 if args.outtype == "f16" else np.float32
++
++    def layer_type(i: int) -> str:
++        if i in globals_: return "global"
++        if i in mambas:   return "mamba"
++        return "sliding"
++
++    w = gguf.GGUFWriter(args.out, ARCH)
++    w.add_name("Barbet")
++    # External tokenization (HF PangolinTokenizer in the TTS driver) → no-op vocab;
++    # token IDs are fed directly.  llama.cpp builds n_vocab dummy tokens.
++    w.add_tokenizer_model("none")
++    w.add_vocab_size(cfg["vocab_size"])
++    w.add_context_length(cfg["max_position_embeddings"])
++    w.add_embedding_length(n_embd)
++    w.add_block_count(n_layer)
++    w.add_feed_forward_length(n_ff)
++    w.add_head_count(n_head)
++    # Per-layer head_count_kv: 0 marks a recurrent (mamba2) layer, so llama.cpp's
++    # `is_recr = n_head_kv(i)==0` detection works automatically (nemotron-h/granite
++    # convention).  Attention layers carry the real kv-head count.
++    w.add_head_count_kv([0 if i in mambas else n_head_kv for i in range(n_layer)])
++    w.add_key_length(head_dim)
++    w.add_value_length(head_dim)
++    w.add_layer_norm_rms_eps(eps)
++    w.add_rope_freq_base(rope_theta)
++    w.add_rope_dimension_count(head_dim)
++    w.add_ssm_conv_kernel(d_conv)
++    w.add_ssm_inner_size(d_inner)
++    w.add_ssm_state_size(d_state)
++    w.add_ssm_time_step_rank(n_ssm_head)
++    w.add_ssm_group_count(n_group)
++    # NOTE: Barbet uses sliding-window attention (window=8192) on non-global
++    # attention layers, but full causal attention is numerically identical for
++    # any sequence <= 8192 tokens — which covers all TTS use.  We therefore run
++    # full causal attention and do not emit a per-layer SWA schedule.  qk_norm is
++    # always present in Barbet, so the q/k norm tensors are loaded unconditionally.
++    w.add_file_type(gguf.LlamaFileType.MOSTLY_F16 if args.outtype == "f16" else gguf.LlamaFileType.ALL_F32)
++
++    def t(name: str) -> np.ndarray:
++        return bb[name].to(torch.float32).numpy()
++
++    def add(name: str, arr: np.ndarray, force_f32: bool = False):
++        a = arr.astype(np.float32 if force_f32 else np_dtype)
++        w.add_tensor(name, a)
++
++    # embeddings + final norm (tied: no separate output.weight)
++    add("token_embd.weight", t("embed_tokens.weight"))
++    add("output_norm.weight", t("norm.weight"), force_f32=True)
++
++    for i in range(n_layer):
++        L = f"layers.{i}."
++        b = f"blk.{i}."
++        lt = layer_type(i)
++        add(b + "attn_norm.weight", t(L + "input_layernorm.weight"), force_f32=True)
++        add(b + "ffn_norm.weight", t(L + "post_attention_layernorm.weight"), force_f32=True)
++        add(b + "ffn_gate.weight", t(L + "mlp.gate_proj.weight"))
++        add(b + "ffn_up.weight",   t(L + "mlp.up_proj.weight"))
++        add(b + "ffn_down.weight", t(L + "mlp.down_proj.weight"))
++
++        if lt == "mamba":
++            M = L + "mixer."
++            ssm_in = np.concatenate([t(M + "in_proj_z.weight"), t(M + "in_proj_x.weight"),
++                                     t(M + "in_proj_b.weight"), t(M + "in_proj_c.weight"),
++                                     t(M + "in_proj_dt.weight")], axis=0)   # (d_in_proj, n_embd)
++            add(b + "ssm_in.weight", ssm_in)
++            conv_w = np.concatenate([t(M + "conv_x.weight"), t(M + "conv_b.weight"),
++                                     t(M + "conv_c.weight")], axis=0).squeeze(1)  # (channels, d_conv)
++            add(b + "ssm_conv1d.weight", conv_w, force_f32=True)  # ggml_ssm_conv requires f32 weight
++            conv_b = np.concatenate([t(M + "conv_x.bias"), t(M + "conv_b.bias"), t(M + "conv_c.bias")], axis=0)
++            add(b + "ssm_conv1d.bias", conv_b, force_f32=True)
++            add(b + "ssm_dt.bias", t(M + "dt_bias"), force_f32=True)
++            A = -np.exp(t(M + "A_log").astype(np.float64)).astype(np.float32).reshape(n_ssm_head, 1)
++            add(b + "ssm_a", A, force_f32=True)
++            add(b + "ssm_d", t(M + "D").reshape(n_ssm_head, 1), force_f32=True)
++            add(b + "ssm_norm.weight", t(M + "norm.weight").reshape(n_group, d_inner // n_group), force_f32=True)
++            add(b + "ssm_out.weight", t(M + "out_proj.weight"))
++        else:
++            M = L + "mixer."
++            add(b + "attn_q.weight", t(M + "q_proj.weight"))
++            add(b + "attn_k.weight", t(M + "k_proj.weight"))
++            add(b + "attn_v.weight", t(M + "v_proj.weight"))
++            add(b + "attn_output.weight", t(M + "o_proj.weight"))
++            add(b + "attn_q_norm.weight", t(M + "q_norm.weight"), force_f32=True)
++            add(b + "attn_k_norm.weight", t(M + "k_norm.weight"), force_f32=True)
++
++    w.write_header_to_file()
++    w.write_kv_data_to_file()
++    w.write_tensors_to_file()
++    w.close()
++    print(f"wrote {args.out}")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/llama-arch.cpp b/src/llama-arch.cpp
+index b890e66..0f4c5ca 100644
+--- a/src/llama-arch.cpp
++++ b/src/llama-arch.cpp
+@@ -140,6 +140,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
+     { LLM_ARCH_KIMI_LINEAR,      "kimi-linear"      },
+     { LLM_ARCH_TALKIE,           "talkie"           },
+     { LLM_ARCH_MELLUM,           "mellum"           },
++    { LLM_ARCH_BARBET,           "barbet"           },
+     { LLM_ARCH_UNKNOWN,          "(unknown)"        },
+ };
+ 
+@@ -945,6 +946,7 @@ bool llm_arch_is_hybrid(const llm_arch & arch) {
+         case LLM_ARCH_KIMI_LINEAR:
+         case LLM_ARCH_QWEN35:
+         case LLM_ARCH_QWEN35MOE:
++        case LLM_ARCH_BARBET:
+             return true;
+         default:
+             return false;
+diff --git a/src/llama-arch.h b/src/llama-arch.h
+index a4f5091..9d478e0 100644
+--- a/src/llama-arch.h
++++ b/src/llama-arch.h
+@@ -145,6 +145,7 @@ enum llm_arch {
+     LLM_ARCH_MELLUM,
+     LLM_ARCH_EAGLE3,
+     LLM_ARCH_DFLASH,
++    LLM_ARCH_BARBET,
+     LLM_ARCH_UNKNOWN,
+ };
+ 
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index d58ebac..322b828 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -232,6 +232,8 @@ static llama_model * llama_model_mapping(llm_arch arch, const llama_model_params
+             return new llama_model_minicpm(params);
+         case LLM_ARCH_GRANITE_HYBRID:
+             return new llama_model_granite_hybrid(params);
++        case LLM_ARCH_BARBET:
++            return new llama_model_barbet(params);
+         case LLM_ARCH_CHAMELEON:
+             return new llama_model_chameleon(params);
+         case LLM_ARCH_WAVTOKENIZER_DEC:
+@@ -1807,7 +1809,8 @@ void llama_model::print_info() const {
+                 arch == LLM_ARCH_QWEN35 ||
+                 arch == LLM_ARCH_QWEN35MOE ||
+                 arch == LLM_ARCH_NEMOTRON_H ||
+-                arch == LLM_ARCH_NEMOTRON_H_MOE) {
++                arch == LLM_ARCH_NEMOTRON_H_MOE ||
++                arch == LLM_ARCH_BARBET) {
+             LLAMA_LOG_INFO("%s: ssm_d_conv            = %u\n",     __func__, hparams.ssm_d_conv);
+             LLAMA_LOG_INFO("%s: ssm_d_inner           = %u\n",     __func__, hparams.ssm_d_inner);
+             LLAMA_LOG_INFO("%s: ssm_d_state           = %u\n",     __func__, hparams.ssm_d_state);
+@@ -2475,6 +2478,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
+         case LLM_ARCH_QWEN2MOE:
+         case LLM_ARCH_QWEN3:
+         case LLM_ARCH_QWEN3MOE:
++        case LLM_ARCH_BARBET:
+         case LLM_ARCH_LLADA_MOE:
+         case LLM_ARCH_RND1:
+         case LLM_ARCH_OLMO2:
+diff --git a/src/models/barbet.cpp b/src/models/barbet.cpp
+new file mode 100644
+index 0000000..37e05a1
+--- /dev/null
++++ b/src/models/barbet.cpp
+@@ -0,0 +1,166 @@
++#include "models.h"
++
++// Barbet — Open-Formosa R2 text-semantic LM (BlueMagpie-TTS backbone).
++// Mamba2 + attention hybrid (per layer: norm -> mixer(mamba2|attn) -> SwiGLU FFN).
++// Attention layers carry per-head q/k RMSNorm (qk_norm). Mamba layers are marked
++// recurrent via head_count_kv == 0.  Sliding-window attention is approximated by
++// full causal attention (identical for sequences <= sliding_window = 8192).
++
++void llama_model_barbet::load_arch_hparams(llama_model_loader & ml) {
++    ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
++
++    ml.get_key(LLM_KV_SSM_CONV_KERNEL,    hparams.ssm_d_conv);
++    ml.get_key(LLM_KV_SSM_INNER_SIZE,     hparams.ssm_d_inner);
++    ml.get_key(LLM_KV_SSM_STATE_SIZE,     hparams.ssm_d_state);
++    ml.get_key(LLM_KV_SSM_TIME_STEP_RANK, hparams.ssm_dt_rank);
++    ml.get_key(LLM_KV_SSM_GROUP_COUNT,    hparams.ssm_n_group);
++
++    // A layer is recurrent (mamba2) IFF its kv-head count is 0.
++    for (uint32_t i = 0; i < hparams.n_layer(); ++i) {
++        hparams.is_recr_impl[i] = hparams.n_head_kv(i) == 0;
++    }
++
++    switch (hparams.n_layer()) {
++        case 28: type = LLM_TYPE_1B; break;
++        default: type = LLM_TYPE_UNKNOWN;
++    }
++}
++
++void llama_model_barbet::load_arch_tensors(llama_model_loader &) {
++    LLAMA_LOAD_LOCALS;
++
++    const int64_t d_conv     = hparams.ssm_d_conv;
++    const int64_t d_inner    = hparams.ssm_d_inner;
++    const int64_t d_state    = hparams.ssm_d_state;
++    const int64_t n_ssm_head = hparams.ssm_dt_rank;
++    const int64_t n_group    = hparams.ssm_n_group;
++    const int64_t d_in_proj  = 2*d_inner + 2*n_group*d_state + n_ssm_head;
++
++    tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
++
++    output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
++    output      = create_tensor(tn(LLM_TENSOR_OUTPUT, "weight"), {n_embd, n_vocab}, TENSOR_NOT_REQUIRED);
++    if (output == NULL) {
++        output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
++    }
++
++    for (int i = 0; i < n_layer; ++i) {
++        auto & layer = layers[i];
++
++        layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
++        layer.ffn_norm  = create_tensor(tn(LLM_TENSOR_FFN_NORM,  "weight", i), {n_embd}, 0);
++
++        if (hparams.is_recr(i)) {
++            layer.ssm_in     = create_tensor(tn(LLM_TENSOR_SSM_IN,     "weight", i), {n_embd, d_in_proj}, 0);
++            layer.ssm_conv1d = create_tensor(tn(LLM_TENSOR_SSM_CONV1D, "weight", i), {d_conv, d_inner + 2*n_group*d_state}, 0);
++            layer.ssm_conv1d_b = create_tensor(tn(LLM_TENSOR_SSM_CONV1D, "bias", i), {d_inner + 2*n_group*d_state}, 0);
++            layer.ssm_dt_b   = create_tensor(tn(LLM_TENSOR_SSM_DT, "bias", i), {n_ssm_head}, 0);
++            layer.ssm_a      = create_tensor(tn(LLM_TENSOR_SSM_A, i), {1, n_ssm_head}, 0);
++            layer.ssm_d      = create_tensor(tn(LLM_TENSOR_SSM_D, i), {1, n_ssm_head}, 0);
++            layer.ssm_norm   = create_tensor(tn(LLM_TENSOR_SSM_NORM, "weight", i), {d_inner / n_group, n_group}, 0);
++            layer.ssm_out    = create_tensor(tn(LLM_TENSOR_SSM_OUT, "weight", i), {d_inner, n_embd}, 0);
++        } else {
++            const int64_t n_head_i = hparams.n_head(i);
++            const int64_t n_embd_k_gqa_i = hparams.n_embd_k_gqa(i);
++            const int64_t n_embd_v_gqa_i = hparams.n_embd_v_gqa(i);
++            create_tensor_qkv(layer, i, n_embd, n_embd_head_k * n_head_i, n_embd_k_gqa_i, n_embd_v_gqa_i, 0);
++            layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_k * n_head_i, n_embd}, 0);
++            layer.attn_q_norm = create_tensor(tn(LLM_TENSOR_ATTN_Q_NORM, "weight", i), {n_embd_head_k}, 0);
++            layer.attn_k_norm = create_tensor(tn(LLM_TENSOR_ATTN_K_NORM, "weight", i), {n_embd_head_k}, 0);
++        }
++
++        layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
++        layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
++        layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
++    }
++}
++
++std::unique_ptr<llm_graph_context> llama_model_barbet::build_arch_graph(const llm_graph_params & params) const {
++    return std::make_unique<graph>(*this, params);
++}
++
++ggml_tensor * llama_model_barbet::graph::build_attention_layer(ggml_tensor *             cur,
++                                                               ggml_tensor *             inp_pos,
++                                                               llm_graph_input_attn_kv * inp_attn,
++                                                               const llama_model &       model,
++                                                               const int64_t             n_embd_head,
++                                                               const int                 il) {
++    auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur, n_embd_head, hparams.n_head(il), hparams.n_head_kv(il), il);
++
++    // per-head q/k RMSNorm (qk_norm), then RoPE (NEOX, theta from hparams).
++    Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
++    Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
++                         ext_factor, attn_factor, beta_fast, beta_slow);
++    Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
++    Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
++                         ext_factor, attn_factor, beta_fast, beta_slow);
++    cb(Qcur, "Qcur", il);
++    cb(Kcur, "Kcur", il);
++    cb(Vcur, "Vcur", il);
++
++    cur = build_attn(inp_attn, model.layers[il].wo, model.layers[il].wo_b, model.layers[il].wo_s,
++                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
++    cb(cur, "attn_out", il);
++    return cur;
++}
++
++llama_model_barbet::graph::graph(const llama_model & model, const llm_graph_params & params) :
++    llm_build_mamba_base(params) {
++    const int64_t n_embd_head = hparams.n_embd_head_v();
++    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
++
++    ggml_tensor * cur;
++    ggml_tensor * inpL;
++
++    inpL = build_inp_embd(model.tok_embd);
++
++    auto * inp = build_inp_mem_hybrid();
++    ggml_tensor * inp_pos = build_inp_pos();
++    ggml_tensor * inp_out_ids = build_inp_out_ids();
++
++    for (int il = 0; il < n_layer; ++il) {
++        ggml_tensor * inpSA = inpL;
++
++        cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
++        cb(cur, "attn_norm", il);
++
++        if (hparams.is_recr(il)) {
++            cur = build_mamba2_layer(inp->get_recr(), cur, model, ubatch, il);
++        } else {
++            cur = build_attention_layer(cur, inp_pos, inp->get_attn(), model, n_embd_head, il);
++        }
++
++        if (il == n_layer - 1 && inp_out_ids) {
++            cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
++            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
++        }
++
++        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
++        cb(ffn_inp, "ffn_inp", il);
++
++        // SwiGLU FFN
++        cur = build_norm(ffn_inp, model.layers[il].ffn_norm, NULL, LLM_NORM_RMS, il);
++        cur = build_ffn(cur,
++                model.layers[il].ffn_up,   NULL, NULL,
++                model.layers[il].ffn_gate, NULL, NULL,
++                model.layers[il].ffn_down, NULL, NULL,
++                NULL, LLM_FFN_SILU, LLM_FFN_PAR, il);
++        cb(cur, "ffn_out", il);
++
++        cur = ggml_add(ctx0, cur, ffn_inp);
++        cur = build_cvec(cur, il);
++        cb(cur, "l_out", il);
++
++        inpL = cur;
++    }
++
++    cur = build_norm(inpL, model.output_norm, NULL, LLM_NORM_RMS, -1);
++    cb(cur, "result_norm", -1);
++    res->t_embd = cur;
++
++    cur = build_lora_mm(model.output, cur);
++    cb(cur, "result_output", -1);
++    res->t_logits = cur;
++
++    ggml_build_forward_expand(gf, cur);
++}
+diff --git a/src/models/models.h b/src/models/models.h
+index 7a52e7b..fc7e567 100644
+--- a/src/models/models.h
++++ b/src/models/models.h
+@@ -1563,6 +1563,21 @@ struct llama_model_granite_hybrid : public llama_model_base {
+ };
+ 
+ 
++struct llama_model_barbet : public llama_model_base {
++    llama_model_barbet(const struct llama_model_params & params) : llama_model_base(params) {}
++    void load_arch_hparams(llama_model_loader & ml) override;
++    void load_arch_tensors(llama_model_loader & ml) override;
++
++    struct graph : public llm_build_mamba_base {
++        graph(const llama_model & model, const llm_graph_params & params);
++        ggml_tensor * build_attention_layer(ggml_tensor * cur, ggml_tensor * inp_pos, llm_graph_input_attn_kv * inp_attn,
++            const llama_model & model, const int64_t n_embd_head, const int il);
++    };
++
++    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
++};
++
++
+ struct llama_model_chameleon : public llama_model_base {
+     llama_model_chameleon(const struct llama_model_params & params) : llama_model_base(params) {}
+     void load_arch_hparams(llama_model_loader & ml) override;

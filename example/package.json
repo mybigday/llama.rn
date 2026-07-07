@@ -25,6 +25,7 @@
     "@react-navigation/native-stack": "^7.3.27",
     "json5": "^2.2.3",
     "mcp-sdk-client-ssejs": "^1.0.4",
+    "phonemize": "^1.2.0",
     "react": "19.1.1",
     "react-native": "0.82.0",
     "react-native-audio-api": "^0.9.0",

@@ -4,11 +4,14 @@ ROOT_DIR=$(pwd)
 OS=$(uname)
 
 LLAMA_DIR=third_party/llama.cpp
+CODEC_DIR=third_party/codec.cpp
 CPP_DIR="$ROOT_DIR/cpp"
 SRC_DIR="$ROOT_DIR/src"
 
 git submodule init "$LLAMA_DIR"
 git submodule update --recursive "$LLAMA_DIR"
+git submodule init "$CODEC_DIR"
+git submodule update --recursive "$CODEC_DIR"
 
 # Hexagon SDK setup for Android builds
 echo ""
@@ -204,6 +207,14 @@ cp ./$LLAMA_DIR/include/llama.h ./cpp/llama.h
 cp ./$LLAMA_DIR/include/llama-cpp.h ./cpp/llama-cpp.h
 rm -rf ./cpp/models
 cp -r ./$LLAMA_DIR/src/models ./cpp/models
+# Ship llama.rn-vendored per-arch model builders that upstream llama.cpp
+# doesn't have yet (Barbet: BlueMagpie-TTS backbone, Mamba2 + attention
+# hybrid). The prefix-rewrite pass below turns ggml_→lm_ggml_ regardless,
+# so the vendor source can use either form — we keep it as lm_ggml_ so
+# clangd is quiet without a compile_commands.json.
+if [ -d ./scripts/vendor/models ]; then
+  cp ./scripts/vendor/models/*.cpp ./cpp/models/
+fi
 cp ./$LLAMA_DIR/src/llama.cpp ./cpp/llama.cpp
 cp ./$LLAMA_DIR/src/llama-chat.h ./cpp/llama-chat.h
 cp ./$LLAMA_DIR/src/llama-chat.cpp ./cpp/llama-chat.cpp
@@ -350,6 +361,23 @@ rm -rf ./cpp/tools/mtmd/stb
 cp -r ./$LLAMA_DIR/vendor/miniaudio ./cpp/tools/mtmd/miniaudio
 cp -r ./$LLAMA_DIR/vendor/stb ./cpp/tools/mtmd/stb
 
+# Copy codec.cpp sources into cpp/codec
+rm -rf ./cpp/codec
+mkdir -p ./cpp/codec
+cp -r ./$CODEC_DIR/include ./cpp/codec/include
+cp -r ./$CODEC_DIR/src ./cpp/codec/src
+# codec_common — generic audio-LM API mirroring llama.cpp's `common/`.
+# See third_party/codec.cpp/docs/codec_common_api.md.  We skip the nested
+# `third-party/` submodule (llama.cpp pinned for codec.cpp's standalone
+# tts-cli) — llama.rn supplies its own llama.cpp headers.
+cp -r ./$CODEC_DIR/common ./cpp/codec/common
+rm -rf ./cpp/codec/common/third-party
+# WAV/NPY host-test helpers live under codec.cpp's examples/ (not common/).
+# The tts_probe / bluemagpie_probe test harnesses include them as
+# `utils/wav_io.h`, so mirror them into cpp/codec/common/utils.
+mkdir -p ./cpp/codec/common/utils
+cp ./$CODEC_DIR/examples/utils/*.h ./$CODEC_DIR/examples/utils/*.cpp ./cpp/codec/common/utils/
+
 # List of files to process
 files_add_lm_prefix=(
   # ggml api
@@ -396,6 +424,23 @@ files_add_lm_prefix=(
 
   ./cpp/common/*.h
   ./cpp/common/*.cpp
+
+  # codec.cpp sources
+  ./cpp/codec/include/*.h
+  ./cpp/codec/src/*.h
+  ./cpp/codec/src/*.cpp
+  ./cpp/codec/src/batch/*.h
+  ./cpp/codec/src/batch/*.cpp
+  ./cpp/codec/src/models/*.h
+  ./cpp/codec/src/models/*.cpp
+  ./cpp/codec/src/ops/*.h
+  ./cpp/codec/src/ops/*.cpp
+  ./cpp/codec/src/runtime/*.h
+  ./cpp/codec/src/runtime/*.cpp
+  ./cpp/codec/src/lm/*.h
+  ./cpp/codec/src/lm/*.cpp
+  ./cpp/codec/common/*.h
+  ./cpp/codec/common/*.cpp
 )
 
 # Loop through each file and run the sed commands
@@ -458,6 +503,10 @@ for file in "${files_iq_add_lm_prefix[@]}"; do
     sed -i 's/iq3xs_free_impl/lm_iq3xs_free_impl/g' $file
   fi
 done
+
+# codec.cpp include aliases for prefixed include names produced by the rewrite pass
+cp ./cpp/codec/src/ops/ggml_ops.h ./cpp/codec/src/ops/lm_ggml_ops.h
+cp ./cpp/codec/src/runtime/gguf_kv.h ./cpp/codec/src/runtime/lm_gguf_kv.h
 
 # Embed ggml-metal.metal into an assembly file so the framework binary carries
 # the merged shader source as a __DATA symbol range. ggml-metal-device.m's

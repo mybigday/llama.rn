@@ -91,15 +91,142 @@ export const MODELS = {
     size: '808MB (model) + 1.37GB (mmproj)',
   },
   OUTE_TTS_0_3: {
-    name: 'OuteTTS 0.3 500M (Q4_K_M) + WavTokenizer (Q5_1)',
+    name: 'OuteTTS 0.3 500M (Q4_K_M) + WavTokenizer (FP16)',
     repo: 'OuteAI/OuteTTS-0.3-500M-GGUF',
     filename: 'OuteTTS-0.3-500M-Q4_K_M.gguf',
     mmproj: undefined,
-    size: '454MB (model) + 70MB (vocoder)',
+    size: '454MB (model) + 170MB (vocoder)',
     vocoder: {
-      repo: 'ggml-org/WavTokenizer',
-      filename: 'WavTokenizer-Large-75-Q5_1.gguf',
-      size: '70MB',
+      repo: 'hans00/codec.cpp-gguf',
+      filename: 'wavtokenizer-large-speech-75tokens.gguf',
+      size: '170MB',
+    },
+  },
+  OUTE_TTS_1_0: {
+    name: 'OuteTTS 1.0 0.6B (Q4_K_M) + DAC (FP16)',
+    repo: 'OuteAI/OuteTTS-1.0-0.6B-GGUF',
+    filename: 'OuteTTS-1.0-0.6B-Q4_K_M.gguf',
+    mmproj: undefined,
+    size: '454MB (model) + 296MB (vocoder)',
+    vocoder: {
+      repo: 'hans00/codec.cpp-gguf',
+      filename: 'ibm-research--DAC.speech.gguf',
+      size: '296MB',
+    },
+  },
+  SOPRANO_1_1: {
+    name: 'Soprano-1.1 80M (F16) + codec (FP32)',
+    repo: 'hans00/Soprano-1.1-80M-GGUF',
+    filename: 'Soprano-1.1-80M.F16.gguf',
+    mmproj: undefined,
+    size: '160MB (model) + 121MB (vocoder)',
+    vocoder: {
+      repo: 'hans00/Soprano-1.1-80M-GGUF',
+      filename: 'codec-F32.gguf',
+      size: '121MB',
+    },
+  },
+  NEUTTS_NANO: {
+    name: 'NeuTTS Nano (Q4_K_M) + NeuCodec (Q8_0)',
+    repo: 'hans00/NeuTTS-Nano-GGUF',
+    filename: 'neutts-nano-q4_k_m.gguf',
+    mmproj: undefined,
+    size: '210MB (model) + 342MB (codec)',
+    vocoder: {
+      repo: 'hans00/NeuTTS-Nano-GGUF',
+      filename: 'codec-q8_0.gguf',
+      size: '342MB',
+    },
+  },
+  NEUTTS_AIR: {
+    name: 'NeuTTS Air (Q4_K_M) + NeuCodec (Q8_0)',
+    repo: 'hans00/NeuTTS-Air-GGUF',
+    filename: 'neutts-air-q4_k_m.gguf',
+    mmproj: undefined,
+    size: '596MB (model) + 342MB (codec)',
+    vocoder: {
+      repo: 'hans00/NeuTTS-Air-GGUF',
+      filename: 'codec-q8_0.gguf',
+      size: '342MB',
+    },
+  },
+  CSM_1B: {
+    name: 'CSM-1B Sesame (Q4_K_M) + Mimi + codec_lm (Q8_0)',
+    repo: 'hans00/CSM-1B-GGUF',
+    filename: 'csm-1b-q4_k_m.gguf',
+    mmproj: undefined,
+    size: '770MB (model) + 803MB (codec+codec_lm)',
+    vocoder: {
+      repo: 'hans00/CSM-1B-GGUF',
+      filename: 'codec-q8_0.gguf',
+      size: '803MB',
+    },
+  },
+  QWEN3_TTS_0_6B: {
+    name: 'Qwen3-TTS 0.6B (Q4_K_M) + 12Hz codec + codec_lm (Q8_0)',
+    repo: 'hans00/Qwen3-TTS-12Hz-0.6B-GGUF',
+    filename: 'qwen3-tts-0.6b-q4_k_m.gguf',
+    mmproj: undefined,
+    size: '257MB (model) + 565MB (codec+codec_lm)',
+    vocoder: {
+      repo: 'hans00/Qwen3-TTS-12Hz-0.6B-GGUF',
+      filename: 'codec-q8_0.gguf',
+      size: '565MB',
+    },
+  },
+  MOSS_TTS_REALTIME: {
+    // Backbone converted with codec.cpp's bundled llama.cpp (Q8_0 — the
+    // Q4_K_M backbone drifts).  Streaming text↔audio interleave with a
+    // per-codebook repetition penalty; stops on eos_code_c0.
+    name: 'MOSS-TTS-Realtime (Q8_0) + MOSS-Audio + codec_lm (Q5_K_M)',
+    repo: 'hans00/MOSS-TTS-Realtime-GGUF',
+    filename: 'moss-tts-realtime-q8_0.gguf',
+    mmproj: undefined,
+    size: '1.8GB (model) + 1.8GB (codec+codec_lm)',
+    vocoder: {
+      repo: 'hans00/MOSS-TTS-Realtime-GGUF',
+      filename: 'codec-q5_k_m.gguf',
+      size: '1.8GB',
+    },
+  },
+  MOSS_TTSD_V05: {
+    // v0.5 is codec.cpp's validated reference; the backbone MUST be converted
+    // with codec.cpp's bundled llama.cpp (not a standalone checkout) or the
+    // Qwen3 numerics drift into babble.  Q8_0 backbone reproduces the input
+    // and stops on eos_code_c0.  Prompt uses the [S1] dialogue format.
+    name: 'MOSS-TTSD v0.5 (Q8_0) + XY-Tokenizer + codec_lm (Q5_K_M)',
+    repo: 'hans00/MOSS-TTSD-v0.5-GGUF',
+    filename: 'moss-ttsd-v0.5-q8_0.gguf',
+    mmproj: undefined,
+    size: '1.8GB (model) + 1.1GB (codec+codec_lm)',
+    vocoder: {
+      repo: 'hans00/MOSS-TTSD-v0.5-GGUF',
+      filename: 'codec-q5_k_m.gguf',
+      size: '1.1GB',
+    },
+  },
+  CHATTERBOX_MULTILINGUAL: {
+    name: 'Chatterbox Multilingual T3 (Q4_K_M) + S3G + codec_lm (Q4_K_M)',
+    repo: 'hans00/Chatterbox-Multilingual-TTS-GGUF',
+    filename: 'chatterbox-mtl-t3-q4_k_m.gguf',
+    mmproj: undefined,
+    size: '289MB (T3) + 178MB (codec+codec_lm)',
+    vocoder: {
+      repo: 'hans00/Chatterbox-Multilingual-TTS-GGUF',
+      filename: 'chatterbox-mtl-codec-q4_k_m.gguf',
+      size: '178MB',
+    },
+  },
+  BLUEMAGPIE_TTS: {
+    name: 'BlueMagpie-TTS Barbet-1B (Q4_K_M) + AudioVAE (Q8_0) + codec_lm',
+    repo: 'hans00/BlueMagpie-TTS-GGUF',
+    filename: 'BlueMagpie-Barbet-1B-q4_k_m.gguf',
+    mmproj: undefined,
+    size: '661MB (backbone) + 1.04GB (codec+codec_lm)',
+    vocoder: {
+      repo: 'hans00/BlueMagpie-TTS-GGUF',
+      filename: 'BlueMagpie-AudioVAE-q8_0.gguf',
+      size: '1.04GB',
     },
   },
   EMBEDDINGGEMMA_300M: {

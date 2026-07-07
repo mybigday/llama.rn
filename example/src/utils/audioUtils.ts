@@ -1,3 +1,26 @@
+import ReactNativeBlobUtil from 'react-native-blob-util'
+import { Platform } from 'react-native'
+
+// Decode a base64-encoded 16-bit little-endian PCM buffer (as bundled in
+// example/src/assets/voices/*.ts) into a Float32Array normalized to [-1, 1].
+// Whitespace inside the base64 string is stripped first so callers can keep
+// the source asset wrapped for readability.
+export const decodeBase64Pcm16 = (b64: string): Float32Array => {
+  const clean = b64.replace(/\s+/g, '')
+  const binStr = global.atob
+    ? global.atob(clean)
+    : Buffer.from(clean, 'base64').toString('binary')
+  const bytes = new Uint8Array(binStr.length)
+  for (let i = 0; i < binStr.length; i += 1) bytes[i] = binStr.charCodeAt(i)
+  const view = new DataView(bytes.buffer)
+  const nSamples = bytes.length >> 1
+  const out = new Float32Array(nSamples)
+  for (let i = 0; i < nSamples; i += 1) {
+    out[i] = view.getInt16(i * 2, true) / 0x8000
+  }
+  return out
+}
+
 // WAV file creation utility
 export const createWavFile = (audioData: Float32Array, sampleRate: number, bitDepth: number = 16): ArrayBuffer => {
   const numChannels = 1 // Mono
@@ -42,4 +65,38 @@ export const createWavFile = (audioData: Float32Array, sampleRate: number, bitDe
   }
 
   return arrayBuffer
+}
+
+// Auto-dump the freshly generated PCM to a stable path so the host adb
+// verification script can pull it off the device without user interaction:
+//   Android: /sdcard/Download/rnllama-tts-verify.wav (accessible via `adb pull`)
+//   iOS:     ${DocumentDir}/rnllama-tts-verify.wav
+// Returns the final on-disk path (or null on failure).  Non-fatal — logs a
+// warning if it can't write instead of surfacing to the UI.
+export const dumpTtsWavToDisk = async (
+  audioData: Float32Array,
+  sampleRate: number,
+  filename: string = 'rnllama-tts-verify.wav',
+): Promise<string | null> => {
+  try {
+    const wavBuffer = createWavFile(audioData, sampleRate, 16)
+    const bytes = new Uint8Array(wavBuffer)
+    let binary = ''
+    for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]!)
+    const base64Data = ReactNativeBlobUtil.base64.encode(binary)
+
+    const dir =
+      Platform.OS === 'android'
+        ? ReactNativeBlobUtil.fs.dirs.DownloadDir
+        : ReactNativeBlobUtil.fs.dirs.DocumentDir
+    const path = `${dir}/${filename}`
+    await ReactNativeBlobUtil.fs.writeFile(path, base64Data, 'base64')
+    // eslint-disable-next-line no-console
+    console.log(`[tts-verify] wrote ${path} (${bytes.length} bytes, ${sampleRate} Hz)`)
+    return path
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[tts-verify] failed to auto-dump WAV:', e)
+    return null
+  }
 }

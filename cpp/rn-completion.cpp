@@ -46,6 +46,8 @@ void llama_rn_context_completion::rewind() {
     prefill_text = "";
     generated_text = "";
     generated_text.reserve(parent_ctx->params.n_ctx);
+    embeddings.clear();
+    embedding_dim = 0;
     truncated = false;
     context_full = false;
     stopped_eos = false;
@@ -57,9 +59,7 @@ void llama_rn_context_completion::rewind() {
     n_past = 0;
     parent_ctx->params.sampling.n_prev = parent_ctx->n_ctx;
     if (parent_ctx->isVocoderEnabled()) {
-        parent_ctx->tts_wrapper->audio_tokens.clear();
-        parent_ctx->tts_wrapper->next_token_uses_guide_token = true;
-        parent_ctx->tts_wrapper->guide_tokens.clear();
+        parent_ctx->tts_wrapper->reset();
     }
 }
 
@@ -103,6 +103,18 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
 
     if (!has_media) {
         std::vector<llama_token> text_tokens;
+
+        // Backbones with no text tokenizer (e.g. Chatterbox T3, tokenizer.ggml.model=none)
+        // must not call llama_tokenize — it asserts.  Leave embd empty; the TTS prefill
+        // block in nextToken() will take over from n_past = -1 (normalized to 0).
+        if (llama_vocab_type(vocab) == LLAMA_VOCAB_TYPE_NONE) {
+            embd.clear();
+            n_past = -1;
+            num_prompt_tokens = 0;
+            has_next_token = true;   // let the completion loop start
+            return;
+        }
+
         // Text-only path - use modified tokenization for encoder-decoder models
         text_tokens = ::common_tokenize(parent_ctx->ctx, parent_ctx->params.prompt, add_bos || is_enc_dec, true);
         num_prompt_tokens = text_tokens.size();
@@ -217,8 +229,8 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
 
     has_next_token = true;
 
-    LOG_INFO("[DEBUG] Input processed: n_past=%d, embd.size=%zu, num_prompt_tokens=%zu, has_media=%d",
-            n_past, embd.size(), num_prompt_tokens, has_media ? 1 : 0);
+    LOG_VERBOSE("loadPrompt: n_past=%d embd.size=%zu num_prompt_tokens=%zu has_media=%d",
+               n_past, (size_t)embd.size(), num_prompt_tokens, has_media ? 1 : 0);
 }
 
 void llama_rn_context_completion::beginCompletion() {
@@ -539,6 +551,265 @@ completion_token_output llama_rn_context_completion::nextToken()
         LOG_VERBOSE("context shifted, new n_past: %d, new size: %d", n_past, embd.size());
     }
 
+    // Continuous-latent TTS flow (BlueMagpie-TTS / VoxCPM): after every
+    // `llama_decode` we hand the just-produced hidden state to
+    // `tryContinuousAudioStep` which runs the codec_lm's step machine
+    // (step_generate + step_feedback_embd) and produces the LocEnc
+    // feedback embedding for the NEXT decode.  Standard token sampling
+    // is skipped — the continuous codec_lm doesn't emit codebook codes.
+    // Terminates when the codec_lm's stop head fires.
+    const bool is_continuous_tts =
+        parent_ctx->isVocoderEnabled() &&
+        parent_ctx->tts_wrapper != nullptr &&
+        parent_ctx->tts_wrapper->isTTSContinuous(parent_ctx);
+
+    // Codebook codec_lm-AR TTS flow (CSM / Qwen3-TTS / MOSS-TTSD /
+    // MOSS-TTS-Realtime / Chatterbox): structurally identical to the
+    // continuous flow above but the codec_lm produces N codebook codes
+    // per step instead of a latent patch.  The hook appends codes to
+    // `tts_wrapper->audio_tokens` (T, N interleaved) and composes the
+    // next backbone embed via `codec_lm_compose_next_embd`.  Stop when
+    // the codec_lm's model-specific EOS heuristic trips.  Standard token
+    // sampling is bypassed: the backbone's own logits are consumed by
+    // the codec_lm hook (for text-modality c0 models like MOSS-TTS-Realtime)
+    // and discarded otherwise.
+    const bool is_codec_lm_ar_tts =
+        !is_continuous_tts &&
+        parent_ctx->isVocoderEnabled() &&
+        parent_ctx->tts_wrapper != nullptr &&
+        parent_ctx->tts_wrapper->isTTSCodecLmAR(parent_ctx);
+    LOG_VERBOSE("nextToken: is_continuous=%d is_codec_lm_ar=%d chatterbox_pending=%d",
+               (int)is_continuous_tts, (int)is_codec_lm_ar_tts,
+               parent_ctx->tts_wrapper ? (int)parent_ctx->tts_wrapper->chatterbox_prefill_pending : -1);
+
+    if ((is_continuous_tts || is_codec_lm_ar_tts) && !parent_ctx->params.embedding) {
+        LOG_ERROR("codec_lm TTS requires context created with embedding=true — please reinitialize the context");
+        has_next_token = false;
+        return result;
+    }
+
+    LOG_VERBOSE("nextToken: is_continuous=%d is_codec_lm_ar=%d talker_rows=%d embd.size=%zu n_past=%d",
+                (int)is_continuous_tts, (int)is_codec_lm_ar_tts,
+                parent_ctx->tts_wrapper ? parent_ctx->tts_wrapper->talker_prefix_rows : -1,
+                embd.size(), (int)n_past);
+
+    // vocab pointer needed in both the talker-prefix block and the
+    // post-while termination logic below.
+    const llama_vocab * vocab = llama_model_get_vocab(parent_ctx->model);
+
+    // Speaker-conditioning prefix (voice-clone codec_lm-AR models: output
+    // of `codec_lm_speaker_encode` stashed on the tts wrapper).  Fed once
+    // via a manual embd-batch AHEAD of the token prompt so the codec_lm's
+    // first hidden read sees the speaker context.  The KV cache position
+    // shifts by `rows`; the token batch below starts from `n_past + rows`.
+    // Only fires on codec_lm-AR flows to keep the standard path unchanged.
+    if (is_codec_lm_ar_tts &&
+        !parent_ctx->tts_wrapper->pending_speaker_emb_prefix.empty() &&
+        parent_ctx->tts_wrapper->pending_speaker_emb_rows > 0 &&
+        parent_ctx->tts_wrapper->pending_speaker_emb_hidden_dim ==
+            llama_model_n_embd(parent_ctx->model)) {
+        const int rows       = parent_ctx->tts_wrapper->pending_speaker_emb_rows;
+        const int hidden_dim = parent_ctx->tts_wrapper->pending_speaker_emb_hidden_dim;
+        llama_batch b = llama_batch_init(rows, hidden_dim, 1);
+        b.n_tokens = rows;
+        std::memcpy(b.embd,
+                    parent_ctx->tts_wrapper->pending_speaker_emb_prefix.data(),
+                    (size_t) rows * (size_t) hidden_dim * sizeof(float));
+        for (int i = 0; i < rows; ++i) {
+            b.pos[i]       = n_past + i;
+            b.n_seq_id[i]  = 1;
+            b.seq_id[i][0] = 0;
+            b.logits[i]    = 0;
+        }
+        b.token = nullptr;
+        const int rc = llama_decode(parent_ctx->ctx, b);
+        llama_batch_free(b);
+        if (rc) {
+            LOG_ERROR("failed to eval speaker prefix, rows=%d", rows);
+            has_next_token = false;
+            return result;
+        }
+        n_past += rows;
+        // Consume so subsequent nextToken calls don't re-inject.
+        parent_ctx->tts_wrapper->pending_speaker_emb_prefix.clear();
+        parent_ctx->tts_wrapper->pending_speaker_emb_rows = 0;
+        parent_ctx->tts_wrapper->pending_speaker_emb_hidden_dim = 0;
+    }
+
+    // Qwen3-TTS talker prefix inject: `getFormattedAudioCompletion` built a
+    // multi-row embedding matrix (role tokens + text tokens + optional
+    // x-vector) via `audio_lm_build_talker_prefix`.  Decode it now as an
+    // embd batch with logits enabled only on the last row (which gives us the
+    // hidden state we pass to `tryCodecLmAudioStep`).  After the batch decode
+    // we arm embed-override mode via `tryTalkerPrefill` and immediately fire
+    // the first codec_lm step so that `pending_next_embd` is populated before
+    // the while loop.  We then grow `embd` to `rows` dummy slots so that
+    // n_past == embd.size() — the while loop is skipped, and the termination
+    // block below queues the placeholder and returns to the outer caller.
+    // Subsequent `nextToken` calls enter the normal inject_ar_embd → step path.
+    if (is_codec_lm_ar_tts &&
+        parent_ctx->tts_wrapper->talker_prefix_rows > 0 &&
+        (int) parent_ctx->tts_wrapper->talker_prefix_embd.size() ==
+            parent_ctx->tts_wrapper->talker_prefix_rows *
+            parent_ctx->tts_wrapper->talker_prefix_hidden) {
+
+        // loadPrompt sets n_past = -1 when embd is empty (its "must decode
+        // at least one token" guard).  For the talker path the KV cache is
+        // fresh and the prefix starts at position 0.
+        if (n_past < 0) n_past = 0;
+
+        const int rows       = parent_ctx->tts_wrapper->talker_prefix_rows;
+        const int hidden_dim = parent_ctx->tts_wrapper->talker_prefix_hidden;
+        llama_batch b = llama_batch_init(rows, hidden_dim, 1);
+        b.n_tokens = rows;
+        std::memcpy(b.embd,
+                    parent_ctx->tts_wrapper->talker_prefix_embd.data(),
+                    (size_t) rows * (size_t) hidden_dim * sizeof(float));
+        for (int i = 0; i < rows; ++i) {
+            b.pos[i]       = n_past + i;
+            b.n_seq_id[i]  = 1;
+            b.seq_id[i][0] = 0;
+            b.logits[i]    = (i == rows - 1) ? 1 : 0;
+        }
+        b.token = nullptr;
+        const int rc = llama_decode(parent_ctx->ctx, b);
+        llama_batch_free(b);
+        if (rc) {
+            LOG_ERROR("failed to eval talker prefix, rows=%d", rows);
+            has_next_token = false;
+            return result;
+        }
+        n_past += rows;
+        parent_ctx->tts_wrapper->talker_prefix_embd.clear();
+        parent_ctx->tts_wrapper->talker_prefix_rows   = 0;
+        parent_ctx->tts_wrapper->talker_prefix_hidden = 0;
+
+        // Arm embed-override so per-step audio_lm_get_next_embed works.
+        const float * last_h = llama_get_embeddings_ith(parent_ctx->ctx, -1);
+        const int dim = llama_model_n_embd(parent_ctx->model);
+        if (!last_h || dim <= 0) {
+            LOG_ERROR("talker prefix: llama_get_embeddings_ith returned NULL after %d rows", rows);
+            has_next_token = false;
+            return result;
+        }
+        if (!parent_ctx->tts_wrapper->tryTalkerPrefill(parent_ctx, last_h, dim)) {
+            LOG_ERROR("tryTalkerPrefill failed");
+            has_next_token = false;
+            return result;
+        }
+
+        // Fire the first codec_lm step using the prefix's last-row hidden.
+        if (!parent_ctx->tts_wrapper->tryCodecLmAudioStep(
+                parent_ctx, /*backbone_sampled_tok=*/-1, last_h, dim)) {
+            LOG_ERROR("tryCodecLmAudioStep failed after talker prefill");
+            has_next_token = false;
+            return result;
+        }
+
+        // Grow embd to match n_past so the while loop below is skipped
+        // (n_past == embd.size()) and subsequent calls drive the normal
+        // inject_ar_embd → step_now_codec_ar cycle at the right KV positions.
+        while ((llama_pos) embd.size() < n_past) {
+            embd.push_back(llama_vocab_bos(vocab));
+        }
+    }
+
+    // Chatterbox T3 prefill: when getFormattedAudioCompletion returned
+    // flow="chatterbox_embd", tokenize the text (via the baked BPE in the
+    // codec GGUF), build the CFG prompt embedding pair, and decode both
+    // cond + uncond sequences into the backbone KV cache (seq_ids 0 and 1).
+    // After prefill, fire the first codec_lm step and pad embd to match
+    // chatterbox_n_past so the inject_ar_embd cycle continues from there.
+    // Only runs once per generation: chatterbox_prefill_pending is cleared
+    // here and chatterbox_n_past > 0 on subsequent nextToken calls.
+    if (is_codec_lm_ar_tts &&
+        parent_ctx->tts_wrapper->chatterbox_prefill_pending) {
+
+        LOG_INFO("Chatterbox prefill: entering block, n_past=%d text='%s'",
+                 n_past,
+                 parent_ctx->tts_wrapper->chatterbox_text.substr(0,40).c_str());
+
+        parent_ctx->tts_wrapper->chatterbox_prefill_pending = false;
+
+        // Empty prompt → loadPrompt sets n_past = -1.  Normalize here.
+        if (n_past < 0) n_past = 0;
+
+        // Text is stored on tts_wrapper (backbone has no text tokenizer).
+        const std::string & text = parent_ctx->tts_wrapper->chatterbox_text;
+        const float cfg_weight   = parent_ctx->tts_wrapper->chatterbox_cfg_weight;
+
+        if (!parent_ctx->tts_wrapper->tryChatterboxPrefill(
+                parent_ctx, text,
+                /*ref_pcm=*/nullptr, /*ref_n_samples=*/0,
+                /*ref_sample_rate=*/0, cfg_weight)) {
+            LOG_ERROR("tryChatterboxPrefill failed");
+            has_next_token = false;
+            return result;
+        }
+
+        n_past = parent_ctx->tts_wrapper->chatterbox_n_past;
+
+        const float * last_h = llama_get_embeddings_ith(parent_ctx->ctx, -1);
+        const int dim = llama_model_n_embd(parent_ctx->model);
+        if (!last_h || dim <= 0) {
+            LOG_ERROR("Chatterbox prefill: NULL hidden after decode");
+            has_next_token = false;
+            return result;
+        }
+        if (!parent_ctx->tts_wrapper->tryCodecLmAudioStep(
+                parent_ctx, /*backbone_sampled_tok=*/-1, last_h, dim)) {
+            LOG_ERROR("Chatterbox: first tryCodecLmAudioStep failed");
+            has_next_token = false;
+            return result;
+        }
+        while ((llama_pos) embd.size() < n_past) {
+            embd.push_back(llama_vocab_bos(vocab));
+        }
+    }
+
+    // MOSS-TTS-Realtime (streaming_interleave) prefill: when
+    // getFormattedAudioCompletion returned flow="realtime_embd", compose the
+    // streaming prefill block (context tokens + first prefill_text_len payload
+    // tokens, each row = text_embd[tok] + compose_audio_codes_embd), decode it
+    // as one embd batch, arm embed-override, then fire the first realtime step
+    // so pending_next_embd is ready.  Pad embd to match n_past so the
+    // inject_ar_embd cycle continues from there.  Runs once per generation.
+    if (is_codec_lm_ar_tts &&
+        parent_ctx->tts_wrapper->realtime_active &&
+        parent_ctx->tts_wrapper->realtime_prefill_pending) {
+
+        parent_ctx->tts_wrapper->realtime_prefill_pending = false;
+
+        // Empty prompt → loadPrompt sets n_past = -1.  Normalize here.
+        if (n_past < 0) n_past = 0;
+
+        const int new_past = parent_ctx->tts_wrapper->tryRealtimePrefill(
+            parent_ctx, (int) n_past);
+        if (new_past < 0) {
+            LOG_ERROR("tryRealtimePrefill failed");
+            has_next_token = false;
+            return result;
+        }
+        n_past = new_past;
+
+        const float * last_h = llama_get_embeddings_ith(parent_ctx->ctx, -1);
+        const int dim = llama_model_n_embd(parent_ctx->model);
+        if (!last_h || dim <= 0) {
+            LOG_ERROR("realtime prefill: NULL hidden after decode");
+            has_next_token = false;
+            return result;
+        }
+        if (!parent_ctx->tts_wrapper->tryCodecLmAudioStep(
+                parent_ctx, /*backbone_sampled_tok=*/-1, last_h, dim)) {
+            LOG_ERROR("realtime: first tryCodecLmAudioStep failed");
+            has_next_token = false;
+            return result;
+        }
+        while ((llama_pos) embd.size() < n_past) {
+            embd.push_back(llama_vocab_bos(vocab));
+        }
+    }
+
     bool tg = true;
     while (n_past < embd.size())
     {
@@ -548,18 +819,202 @@ completion_token_output llama_rn_context_completion::nextToken()
         {
             n_eval = parent_ctx->params.n_batch;
         }
-        if (llama_decode(parent_ctx->ctx, llama_batch_get_one(&embd[n_past], n_eval)))
-        {
-            LOG_ERROR("failed to eval, n_eval: %d, n_past: %d, n_threads: %d, embd: %s",
-                n_eval,
-                n_past,
-                parent_ctx->params.cpuparams.n_threads,
-                tokens_to_str(parent_ctx->ctx, embd.cbegin() + n_past, embd.cend()).c_str()
-            );
-            has_next_token = false;
-            return result;
+        // Standard path: token batch via llama_batch_get_one.  Continuous-
+        // latent TTS injects the LocEnc feedback embedding via `b.embd`
+        // (see below); we detect that by a pending flag on tts_wrapper.
+        // Codec_lm-AR TTS does the same with the composed audio embedding
+        // (`pending_next_embd`) so the codec_lm's compose_next_embd output
+        // becomes the next `llama_decode`'s input.
+        const bool inject_embd =
+            is_continuous_tts &&
+            n_eval == 1 &&
+            parent_ctx->tts_wrapper->audio_embeddings_pending &&
+            (int) parent_ctx->tts_wrapper->pending_feedback_embd.size() ==
+                llama_model_n_embd(parent_ctx->model);
+        const bool inject_ar_embd =
+            is_codec_lm_ar_tts &&
+            n_eval == 1 &&
+            parent_ctx->tts_wrapper->codec_lm_ar_pending_embd &&
+            (int) parent_ctx->tts_wrapper->pending_next_embd.size() ==
+                llama_model_n_embd(parent_ctx->model);
+
+        if (inject_embd || inject_ar_embd) {
+            const int hidden_dim = llama_model_n_embd(parent_ctx->model);
+            const float * src = inject_embd
+                ? parent_ctx->tts_wrapper->pending_feedback_embd.data()
+                : parent_ctx->tts_wrapper->pending_next_embd.data();
+            llama_batch b = llama_batch_init(1, hidden_dim, 1);
+            b.n_tokens = 1;
+            std::memcpy(b.embd, src, (size_t) hidden_dim * sizeof(float));
+            b.pos[0]       = n_past;
+            b.n_seq_id[0]  = 1;
+            b.seq_id[0][0] = 0;
+            b.logits[0]    = 1;
+            b.token        = nullptr;
+            const int rc = llama_decode(parent_ctx->ctx, b);
+            llama_batch_free(b);
+            if (rc) {
+                LOG_ERROR("failed to eval codec_lm TTS embd, n_past: %d", n_past);
+                has_next_token = false;
+                return result;
+            }
+            // Consume the pending embd so subsequent iterations don't
+            // re-inject; the codec_lm step below re-populates it.
+            if (inject_embd) {
+                parent_ctx->tts_wrapper->audio_embeddings_pending = false;
+                parent_ctx->tts_wrapper->pending_feedback_embd.clear();
+            } else {
+                parent_ctx->tts_wrapper->codec_lm_ar_pending_embd = false;
+                parent_ctx->tts_wrapper->pending_next_embd.clear();
+            }
+        } else if (is_continuous_tts) {
+            // Continuous-latent TTS prompt decode: the RALM must see the
+            // WHOLE prompt's per-position backbone hiddens before generation
+            // (codec_lm_text_prefill).  llama_batch_get_one only requests
+            // logits/embeddings on the LAST position, so build a manual token
+            // batch with logits[i]=1 for every token in the chunk and gather
+            // each position's hidden into tts_wrapper->prompt_hiddens (in
+            // order, across n_batch chunks).  tryContinuousPrefill fires once
+            // the full prompt is decoded (below).
+            llama_batch b = llama_batch_init(n_eval, 0, 1);
+            b.n_tokens = n_eval;
+            for (int i = 0; i < n_eval; ++i) {
+                b.token[i]     = embd[n_past + i];
+                b.pos[i]       = n_past + i;
+                b.n_seq_id[i]  = 1;
+                b.seq_id[i][0] = 0;
+                b.logits[i]    = 1;
+            }
+            const int rc = llama_decode(parent_ctx->ctx, b);
+            if (rc) {
+                llama_batch_free(b);
+                LOG_ERROR("failed to eval continuous TTS prompt, n_eval: %d, n_past: %d",
+                          n_eval, (int) n_past);
+                has_next_token = false;
+                return result;
+            }
+            const int dim = llama_model_n_embd(parent_ctx->model);
+            for (int i = 0; i < n_eval; ++i) {
+                const float * h = llama_get_embeddings_ith(parent_ctx->ctx, i);
+                if (h == nullptr || dim <= 0) {
+                    llama_batch_free(b);
+                    LOG_ERROR("continuous TTS: NULL hidden for prompt pos %d (n_past=%d)",
+                              i, (int) n_past);
+                    has_next_token = false;
+                    return result;
+                }
+                parent_ctx->tts_wrapper->prompt_hiddens.insert(
+                    parent_ctx->tts_wrapper->prompt_hiddens.end(), h, h + dim);
+            }
+            llama_batch_free(b);
+        } else {
+            if (llama_decode(parent_ctx->ctx, llama_batch_get_one(&embd[n_past], n_eval)))
+            {
+                LOG_ERROR("failed to eval, n_eval: %d, n_past: %d, n_threads: %d, embd: %s",
+                    n_eval,
+                    n_past,
+                    parent_ctx->params.cpuparams.n_threads,
+                    tokens_to_str(parent_ctx->ctx, embd.cbegin() + n_past, embd.cend()).c_str()
+                );
+                has_next_token = false;
+                return result;
+            }
         }
         n_past += n_eval;
+
+        // For continuous / codec_lm-AR TTS: run one codec_lm step once
+        // we've fully decoded the current pending sequence (prompt or
+        // feedback embd).  The last decoded position's hidden state
+        // seeds the next step; unlike standard capture we do NOT gate
+        // on tg (multi-token prompt batches also produce a valid
+        // last-position hidden via llama_get_embeddings_ith(-1)).
+        const bool step_now_continuous =
+            is_continuous_tts &&
+            (llama_pos) n_past == (llama_pos) embd.size();
+        const bool step_now_codec_ar =
+            is_codec_lm_ar_tts &&
+            (llama_pos) n_past == (llama_pos) embd.size();
+
+        if (step_now_continuous) {
+            const float *embedding = llama_get_embeddings_ith(parent_ctx->ctx, -1);
+            const int dim = llama_model_n_embd(parent_ctx->model);
+            if (embedding == nullptr || dim <= 0) {
+                LOG_ERROR("continuous TTS: llama_get_embeddings_ith returned NULL at n_past=%d", (int) n_past);
+                has_next_token = false;
+                return result;
+            }
+            // Before the FIRST step, run the RALM text-prefill so it has
+            // seen the whole prompt's per-position hiddens (call sequence:
+            // prefill(all positions) → step (primed, patch 0, ignores h_in)
+            // → feedback embd → decode → step → ...).  Guarded to run once
+            // per generation; `reset()` clears the flag + the RALM state.
+            if (!parent_ctx->tts_wrapper->continuous_prefill_done) {
+                const int n_prompt =
+                    (int) (parent_ctx->tts_wrapper->prompt_hiddens.size() / (size_t) dim);
+                if (n_prompt <= 0) {
+                    LOG_ERROR("continuous TTS: no prompt hiddens gathered for prefill (n_past=%d)",
+                              (int) n_past);
+                    has_next_token = false;
+                    return result;
+                }
+                if (!parent_ctx->tts_wrapper->tryContinuousPrefill(
+                        parent_ctx,
+                        parent_ctx->tts_wrapper->prompt_hiddens.data(),
+                        n_prompt, dim)) {
+                    LOG_ERROR("tryContinuousPrefill failed at n_past=%d", (int) n_past);
+                    has_next_token = false;
+                    return result;
+                }
+                parent_ctx->tts_wrapper->continuous_prefill_done = true;
+                // Free the scratch — the K/V is now in the RALM cache.
+                parent_ctx->tts_wrapper->prompt_hiddens.clear();
+                parent_ctx->tts_wrapper->prompt_hiddens.shrink_to_fit();
+            }
+            // Run one codec_lm step on the just-produced hidden state,
+            // accumulating the latent patch into
+            // tts_wrapper->audio_embeddings and preparing the next
+            // b.embd via pending_feedback_embd.  Sets
+            // audio_embeddings_done when the stop head fires.
+            if (!parent_ctx->tts_wrapper->tryContinuousAudioStep(
+                    parent_ctx, embedding, dim)) {
+                LOG_ERROR("tryContinuousAudioStep failed at n_past=%d", (int) n_past);
+                has_next_token = false;
+                return result;
+            }
+            embedding_dim = parent_ctx->tts_wrapper->audio_embedding_dim;
+            // Surface the accumulated latents through the standard
+            // `embeddings` field so JS's `result.embeddings` +
+            // `result.embedding_dim` are populated consistently.
+            embeddings = parent_ctx->tts_wrapper->audio_embeddings;
+        } else if (step_now_codec_ar) {
+            const float *embedding = llama_get_embeddings_ith(parent_ctx->ctx, -1);
+            const int dim = llama_model_n_embd(parent_ctx->model);
+            if (embedding == nullptr || dim <= 0) {
+                LOG_ERROR("codec_lm-AR TTS: llama_get_embeddings_ith returned NULL at n_past=%d", (int) n_past);
+                has_next_token = false;
+                return result;
+            }
+            // Run one codec_lm step: samples N codebook codes, appends
+            // them to tts_wrapper->audio_tokens (T, N interleaved), and
+            // composes the next backbone embed into pending_next_embd.
+            // The backbone-sampled token is unused for text-modality-c0
+            // models here (-1); tryCodecLmAudioStep pulls it from
+            // llama_get_logits_ith internally when needed.
+            if (!parent_ctx->tts_wrapper->tryCodecLmAudioStep(
+                    parent_ctx, /*backbone_sampled_tok=*/-1,
+                    embedding, dim)) {
+                LOG_ERROR("tryCodecLmAudioStep failed at n_past=%d", (int) n_past);
+                has_next_token = false;
+                return result;
+            }
+        } else if (parent_ctx->params.embedding && tg && n_past > (llama_pos)num_prompt_tokens) {
+            const float *embedding = llama_get_embeddings_ith(parent_ctx->ctx, -1);
+            const int dim = llama_model_n_embd(parent_ctx->model);
+            if (embedding != nullptr && dim > 0) {
+                embedding_dim = dim;
+                embeddings.insert(embeddings.end(), embedding, embedding + dim);
+            }
+        }
 
         if(is_interrupted) {
             LOG_INFO("Decoding Interrupted");
@@ -569,12 +1024,67 @@ completion_token_output llama_rn_context_completion::nextToken()
         }
     }
 
-    const llama_vocab* vocab = llama_model_get_vocab(parent_ctx->model);
-
     if (parent_ctx->params.n_predict == 0)
     {
         has_next_token = false;
         result.tok = llama_vocab_eos(vocab);
+        return result;
+    }
+
+    // Continuous-latent TTS: skip token sampling entirely.  If the stop
+    // head fired during the step hook, terminate.  Otherwise queue the
+    // pending feedback embd — the NEXT `nextToken` will consume it via
+    // the inject-embd path above.  We grow `embd` by one dummy slot so
+    // the outer loop's `n_past < embd.size()` becomes true again next
+    // time, driving another decode.
+    if (is_continuous_tts) {
+        if (parent_ctx->tts_wrapper->audio_embeddings_done) {
+            has_next_token = false;
+            stopped_eos = true;
+            return result;
+        }
+        if (!parent_ctx->tts_wrapper->audio_embeddings_pending) {
+            // No pending feedback and no stop — shouldn't happen unless
+            // the codec step returned neither result.  Guard against a
+            // spin loop by bailing.
+            LOG_ERROR("continuous TTS: no feedback embd queued after step; stopping");
+            has_next_token = false;
+            return result;
+        }
+        // Placeholder token — never consumed since we replace the next
+        // decode with our embd batch via `inject_embd`.  Using BOS keeps
+        // any downstream vocab lookups sane if the caller ever peeks at
+        // `embd` (currently: no one does for continuous flow).
+        embd.push_back(llama_vocab_bos(vocab));
+        result.tok = -1;
+        --n_remain;
+        num_tokens_predicted++;
+        has_next_token = parent_ctx->params.n_predict == -1 || n_remain != 0;
+        return result;
+    }
+
+    // Codebook codec_lm-AR TTS: same skip-sampling shape as continuous.
+    // The codec_lm hook already appended this frame's N codes to
+    // `tts_wrapper->audio_tokens` and set up `pending_next_embd` for
+    // the next decode.  On CSM's audio-EOS heuristic (or any future
+    // per-model stop condition wired into `tryCodecLmAudioStep`),
+    // terminate here so the outer completion loop stops.
+    if (is_codec_lm_ar_tts) {
+        if (parent_ctx->tts_wrapper->codec_lm_ar_done) {
+            has_next_token = false;
+            stopped_eos = true;
+            return result;
+        }
+        if (!parent_ctx->tts_wrapper->codec_lm_ar_pending_embd) {
+            LOG_ERROR("codec_lm-AR TTS: no next embd queued after step; stopping");
+            has_next_token = false;
+            return result;
+        }
+        embd.push_back(llama_vocab_bos(vocab));
+        result.tok = -1;
+        --n_remain;
+        num_tokens_predicted++;
+        has_next_token = parent_ctx->params.n_predict == -1 || n_remain != 0;
         return result;
     }
 
@@ -601,13 +1111,6 @@ completion_token_output llama_rn_context_completion::nextToken()
             return result;
         }
 
-        if (parent_ctx->tts_wrapper != nullptr && parent_ctx->tts_wrapper->next_token_uses_guide_token && !parent_ctx->tts_wrapper->guide_tokens.empty() && !llama_vocab_is_control(vocab, new_token_id)) {
-            new_token_id = parent_ctx->tts_wrapper->guide_tokens[0];
-            parent_ctx->tts_wrapper->guide_tokens.erase(parent_ctx->tts_wrapper->guide_tokens.begin());
-        }
-        if (parent_ctx->tts_wrapper != nullptr) {
-            parent_ctx->tts_wrapper->next_token_uses_guide_token = (new_token_id == 198);
-        }
         result.tok = new_token_id;
         result.text = common_token_to_piece(parent_ctx->ctx, new_token_id);
 
@@ -670,9 +1173,7 @@ completion_token_output llama_rn_context_completion::doCompletion()
         if (parent_ctx->tts_wrapper->type == UNKNOWN) {
             parent_ctx->tts_wrapper->type = type;
         }
-        if ((type == OUTETTS_V0_2 || type == OUTETTS_V0_3) && (token_with_probs.tok >= 151672 && token_with_probs.tok <= 155772)) {
-            parent_ctx->tts_wrapper->audio_tokens.push_back(token_with_probs.tok);
-        }
+        parent_ctx->tts_wrapper->tryAddAudioToken(parent_ctx, token_with_probs.tok, token_text);
     }
 
     if (parent_ctx->params.sampling.n_probs > 0)

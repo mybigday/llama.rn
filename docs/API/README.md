@@ -259,7 +259,7 @@ ___
 | `grammar?` | `string` | Set grammar for grammar-based sampling. Default: no grammar |
 | `grammar_lazy?` | `boolean` | Lazy grammar sampling, trigger by grammar_triggers. Default: false |
 | `grammar_triggers?` | { `token`: `number` ; `type`: `number` ; `value`: `string`  }[] | Lazy grammar triggers. Default: [] |
-| `guide_tokens?` | `number`[] | Guide tokens for the completion. Help prevent hallucinations by forcing the TTS to use the correct words. Default: `[]` |
+| `embedding?` | `boolean` | Output token embeddings during generation. When enabled, completion results include generated token embeddings and their dimension. Default: `false` |
 | `ignore_eos?` | `boolean` | Ignore end of stream token and continue generating. Default: `false` |
 | `jinja?` | `boolean` | Enable Jinja. Default: true if supported by the model |
 | `json_schema?` | `string` | JSON schema for convert to grammar for structured JSON output. It will be override by grammar if both are set. |

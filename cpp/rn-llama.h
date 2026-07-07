@@ -131,7 +131,7 @@ struct llama_rn_context {
     // TTS fields and methods (delegated to TTS context)
     llama_rn_context_tts *tts_wrapper = nullptr;
     bool has_vocoder = false;
-    bool initVocoder(const std::string &vocoder_model_path, int batch_size = -1);
+    bool initVocoder(const std::string &vocoder_model_path, int batch_size = -1, bool use_gpu = false);
     bool isVocoderEnabled() const;
     void releaseVocoder();
 
