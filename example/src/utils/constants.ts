@@ -172,14 +172,18 @@ export const MODELS = {
       size: '1.8GB',
     },
   },
-  MOSS_TTSD_V07: {
-    name: 'MOSS-TTSD v0.7 (Q4_K_M) + XY-Tokenizer + codec_lm (Q5_K_M)',
-    repo: 'hans00/MOSS-TTSD-v0.7-GGUF',
-    filename: 'moss-ttsd-v0.7-q4_k_m.gguf',
+  MOSS_TTSD_V05: {
+    // v0.5 is codec.cpp's validated reference; the backbone MUST be converted
+    // with codec.cpp's bundled llama.cpp (not a standalone checkout) or the
+    // Qwen3 numerics drift into babble.  Q8_0 backbone reproduces the input
+    // and stops on eos_code_c0.  Prompt uses the [S1] dialogue format.
+    name: 'MOSS-TTSD v0.5 (Q8_0) + XY-Tokenizer + codec_lm (Q5_K_M)',
+    repo: 'hans00/MOSS-TTSD-v0.5-GGUF',
+    filename: 'moss-ttsd-v0.5-q8_0.gguf',
     mmproj: undefined,
-    size: '1.1GB (model) + 1.1GB (codec+codec_lm)',
+    size: '1.8GB (model) + 1.1GB (codec+codec_lm)',
     vocoder: {
-      repo: 'hans00/MOSS-TTSD-v0.7-GGUF',
+      repo: 'hans00/MOSS-TTSD-v0.5-GGUF',
       filename: 'codec-q5_k_m.gguf',
       size: '1.1GB',
     },
