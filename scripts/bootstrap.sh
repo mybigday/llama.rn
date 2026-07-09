@@ -400,6 +400,24 @@ files_add_lm_prefix=(
 )
 
 # Loop through each file and run the sed commands
+normalize_lm_prefixes() {
+  local file="$1"
+
+  if [ "$OS" = "Darwin" ]; then
+    sed -i '' -E 's/(LM_)+GGML_/LM_GGML_/g' "$file"
+    sed -i '' -E 's/(lm_)+ggml_/lm_ggml_/g' "$file"
+    sed -i '' -E 's/(LM_)+GGUF_/LM_GGUF_/g' "$file"
+    sed -i '' -E 's/(lm_)+gguf_/lm_gguf_/g' "$file"
+    sed -i '' -E 's/(LM)+GGMLMetalClass/LMGGMLMetalClass/g' "$file"
+  else
+    sed -i -E 's/(LM_)+GGML_/LM_GGML_/g' "$file"
+    sed -i -E 's/(lm_)+ggml_/lm_ggml_/g' "$file"
+    sed -i -E 's/(LM_)+GGUF_/LM_GGUF_/g' "$file"
+    sed -i -E 's/(lm_)+gguf_/lm_gguf_/g' "$file"
+    sed -i -E 's/(LM)+GGMLMetalClass/LMGGMLMetalClass/g' "$file"
+  fi
+}
+
 for file in "${files_add_lm_prefix[@]}"; do
   # Skip cpp/rn-* files
   if [[ $file == *"/cpp/rn-"* ]]; then
@@ -437,6 +455,8 @@ for file in "${files_add_lm_prefix[@]}"; do
     # <nlohmann/json_fwd.hpp> -> "nlohmann/json_fwd.hpp"
     sed -i 's/<nlohmann\/json_fwd.hpp>/"nlohmann\/json_fwd.hpp"/g' $file
   fi
+
+  normalize_lm_prefixes "$file"
 done
 
 files_iq_add_lm_prefix=(

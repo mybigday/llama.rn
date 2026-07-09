@@ -14,7 +14,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define LM_LM_LM_LM_LM_LM_LM_GGML_COMMON_DECL_C
+#define LM_GGML_COMMON_DECL_C
 #include "ggml-common.h"
 #include "hex-dma.h"
 #include "hex-fastdiv.h"
@@ -589,7 +589,7 @@ static void fa_o_store_thread(unsigned int n, unsigned int i, void * data) {
         const size_t q_idx = fastdiv(r, &factx->div_G);
         const size_t h_idx = fastmodulo(r, G, &factx->div_G);
 
-        // FIX(dst-indexing): lm_lm_lm_lm_lm_lm_lm_ggml_flash_attn_ext() creates dst as permute(0,2,1,3) ->
+        // FIX(dst-indexing): lm_ggml_flash_attn_ext() creates dst as permute(0,2,1,3) ->
         // [DV, n_heads, n_tokens, n_seq], so head stride is nb[1] and token stride is nb[2].
         uint8_t * dst_row = (uint8_t *) dst->data + (kv_head * G + h_idx) * dst->nb[1] +
                             (q_start + q_idx) * dst->nb[2] + ib3 * dst->nb[3];

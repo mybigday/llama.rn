@@ -49,7 +49,7 @@ int hmx_matmul_f16_f32(struct htp_context *ctx,
                                 int weight_stride);
 
 // Batched F16 wrapper over hmx_mat_mul_f16_f32.
-// Batch semantics match lm_lm_lm_lm_lm_lm_lm_ggml_mul_mat(): src0 broadcasts to src1 in dims 2/3.
+// Batch semantics match lm_ggml_mul_mat(): src0 broadcasts to src1 in dims 2/3.
 int hmx_matmul_f16_f32_batched(struct htp_context *ctx, const hmx_matmul_f16_f32_batched_params_t *params);
 
 // HMX matrix multiplication — all supported weight types (F16/F32/Q4_0/Q4_1/Q8_0/IQ4_NL/MXFP4)
