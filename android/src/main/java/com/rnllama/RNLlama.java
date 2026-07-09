@@ -24,7 +24,6 @@ public class RNLlama {
   private static final int HTP_FILE_MODE = 0755;
   private static final String HTP_DIR_NAME = "rnllama-htp";
   private static final String[] HTP_LIBS = {
-    "libggml-htp-v69.so",
     "libggml-htp-v73.so",
     "libggml-htp-v75.so",
     "libggml-htp-v79.so",

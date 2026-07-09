@@ -8,7 +8,7 @@ PODS:
   - hermes-engine (0.82.0):
     - hermes-engine/Pre-built (= 0.82.0)
   - hermes-engine/Pre-built (0.82.0)
-  - llama-rn (0.12.4):
+  - llama-rn (0.12.5):
     - boost
     - DoubleConversion
     - fast_float
@@ -3026,7 +3026,7 @@ SPEC CHECKSUMS:
   fmt: bf3b0f2427f5c78a3d39ac34a7dbe72faabf986d
   glog: 5683914934d5b6e4240e497e0f4a3b42d1854183
   hermes-engine: 8642d8f14a548ab718ec112e9bebdfdd154138b5
-  llama-rn: fc9e703404bf979876d651bdff98e5cced9d8e40
+  llama-rn: 37c29804f1196f685f0554c0a257e3f8e144e43a
   RCT-Folly: 846fda9475e61ec7bcbf8a3fe81edfcaeb090669
   RCTDeprecation: 22bf66112da540a7d40e536366ddd8557934fca1
   RCTRequired: a0ed4dc41b35f79fbb6d8ba320e06882a8c792cf
@@ -3105,6 +3105,6 @@ SPEC CHECKSUMS:
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: edeb9900b9e5bb5b27b9a6a2d5914e4fe4033c1b
 
-PODFILE CHECKSUM: 9ae6aa21acbbf582851316ed853d11bbc9718098
+PODFILE CHECKSUM: ca77cacfb81e1a9ba47dd6bc26e1198af40f4f0c
 
 COCOAPODS: 1.15.2

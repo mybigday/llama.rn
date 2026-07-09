@@ -255,6 +255,8 @@ function(build_rnllama_library target_name arch cpu_flags)
             mul_mv_q6_k_f32_flat
             mul_mv_q8_0_f32
             mul_mv_q8_0_f32_flat
+            mul_mv_q1_0_f32
+            mul_mv_q1_0_f32_flat
             mul_mv_iq4_nl_f32
             mul_mv_iq4_nl_f32_flat
             mul_mv_mxfp4_f32
@@ -291,6 +293,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             mul_mm_q5_0_f32_l4_lm
             mul_mm_q5_1_f32_l4_lm
             mul_mm_q8_0_f32_l4_lm
+            mul_mm_q1_0_f32_l4_lm
             mul_mm_iq4_nl_f32_l4_lm
             mul_mm_q4_k_f32_l4_lm
             mul_mm_q5_k_f32_l4_lm
@@ -308,6 +311,8 @@ function(build_rnllama_library target_name arch cpu_flags)
             gemm_noshuffle_q5_1_f32
             gemv_noshuffle_q8_0_f32
             gemm_noshuffle_q8_0_f32
+            gemv_noshuffle_q1_0_f32
+            gemm_noshuffle_q1_0_f32
             gemv_noshuffle_q4_k_f32
             gemm_noshuffle_q4_k_f32
             gemv_noshuffle_q6_k_f32
@@ -353,6 +358,9 @@ function(build_rnllama_library target_name arch cpu_flags)
             flash_attn_f32_f16
             flash_attn_f16
             flash_attn_f32
+            flash_attn_pre_f16
+            flash_attn_f32_q8_0
+            flash_attn_f32_q4_0
             gemm_xmem_f16_f32_os8
         )
         set(GGML_OPENCL_KERNEL_DIR ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels)

@@ -1144,6 +1144,11 @@ static enum lm_ggml_status lm_ggml_backend_meta_buffer_init_tensor_impl(lm_ggml_
         lm_ggml_context          * simple_ctx = stc.ctxs[j].get();
         lm_ggml_backend_buffer_t   simple_buf = buf_ctx->bufs[j].get();
 
+        if ((simple_buf != nullptr) && lm_ggml_backend_buffer_is_multi_buffer(simple_buf)) {
+            // see https://github.com/ggml-org/llama.cpp/issues/22197
+            LM_GGML_ABORT("multi buffers are not supported by the meta backend");
+        }
+
         if (split_dim >= 0 && split_dim < LM_GGML_MAX_DIMS) {
             // TODO: the following assert fails for llama-parallel even though the results are correct:
             // LM_GGML_ASSERT(lm_ggml_is_contiguously_allocated(tensor));
@@ -1245,9 +1250,8 @@ static enum lm_ggml_status lm_ggml_backend_meta_buffer_init_tensor(lm_ggml_backe
 
 static void lm_ggml_backend_meta_buffer_set_tensor(lm_ggml_backend_buffer_t buffer, lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
     const size_t n_bufs = lm_ggml_backend_meta_buffer_n_bufs(buffer);
-    LM_GGML_ASSERT(lm_ggml_is_contiguous(tensor));
-
     const lm_ggml_backend_meta_split_state split_state = lm_ggml_backend_meta_get_split_state(tensor, /*assume_sync =*/ false);
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(tensor) || split_state.axis == LM_GGML_BACKEND_SPLIT_AXIS_MIRRORED);
 
     if (split_state.n_segments != 1 || split_state.nr[0] != 1) {
         LM_GGML_ASSERT(split_state.axis >= 0 && split_state.axis < LM_GGML_MAX_DIMS);
@@ -1360,9 +1364,8 @@ static void lm_ggml_backend_meta_buffer_set_tensor(lm_ggml_backend_buffer_t buff
 
 static void lm_ggml_backend_meta_buffer_get_tensor(lm_ggml_backend_buffer_t buffer, const lm_ggml_tensor * tensor, void * data, size_t offset, size_t size) {
     const size_t n_bufs = lm_ggml_backend_meta_buffer_n_bufs(buffer);
-    LM_GGML_ASSERT(lm_ggml_is_contiguous(tensor));
-
     const lm_ggml_backend_meta_split_state split_state = lm_ggml_backend_meta_get_split_state(tensor, /*assume_sync =*/ false);
+    LM_GGML_ASSERT(lm_ggml_is_contiguous(tensor) || split_state.axis == LM_GGML_BACKEND_SPLIT_AXIS_MIRRORED);
 
     if (split_state.n_segments != 1 || split_state.nr[0] != 1) {
         LM_GGML_ASSERT(split_state.axis >= 0 && split_state.axis < LM_GGML_MAX_DIMS);

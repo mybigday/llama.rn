@@ -12,7 +12,7 @@
 #include <HAP_farf.h>
 #include <HAP_compute_res.h>
 
-#define LM_GGML_COMMON_DECL_C
+#define LM_LM_LM_LM_LM_LM_LM_GGML_COMMON_DECL_C
 #include "ggml-common.h"
 
 #include "hex-dma.h"
@@ -56,7 +56,7 @@ static const __fp16 iq4_nl_to_fp16_lut[64] __attribute__((aligned(VLEN))) = {
 #define HMX_X4X2_MXFP4_EBLK_SIZE 8   // 8 * 1 byte  (E8M0 scales for MXFP4)
 
 // Compute the byte stride of one row in x4x2 format.
-// Numerically equals lm_ggml_row_size(type, k) when k is 256-aligned, because
+// Numerically equals lm_lm_lm_lm_lm_lm_lm_ggml_row_size(type, k) when k is 256-aligned, because
 // x4x2 packing has the same density as block_q4_0 / block_q8_0.
 // Layout per row: [quants: nb*128 (Q4) or nb*256 (Q8)][scales: nb*16 bytes]
 // Total per row = nb * (128+16) = 144*nb (Q4) or nb * (256+16) = 272*nb (Q8).

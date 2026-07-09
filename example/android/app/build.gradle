@@ -26,7 +26,6 @@ if (rnllamaBuildFromSource) {
         new File(repoRootDir, "cpp/ggml-hexagon/htp/htp_iface.idl"),
     )
     def htpArtifacts = files(
-        new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v69.so"),
         new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v73.so"),
         new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v75.so"),
         new File(repoRootDir, "bin/arm64-v8a/libggml-htp-v79.so"),

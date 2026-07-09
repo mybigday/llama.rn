@@ -222,6 +222,8 @@ cp ./$LLAMA_DIR/src/llama-kv-cache.h ./cpp/llama-kv-cache.h
 cp ./$LLAMA_DIR/src/llama-kv-cache.cpp ./cpp/llama-kv-cache.cpp
 cp ./$LLAMA_DIR/src/llama-kv-cache-dsa.h ./cpp/llama-kv-cache-dsa.h
 cp ./$LLAMA_DIR/src/llama-kv-cache-dsa.cpp ./cpp/llama-kv-cache-dsa.cpp
+cp ./$LLAMA_DIR/src/llama-kv-cache-dsv4.h ./cpp/llama-kv-cache-dsv4.h
+cp ./$LLAMA_DIR/src/llama-kv-cache-dsv4.cpp ./cpp/llama-kv-cache-dsv4.cpp
 cp ./$LLAMA_DIR/src/llama-kv-cache-iswa.h ./cpp/llama-kv-cache-iswa.h
 cp ./$LLAMA_DIR/src/llama-kv-cache-iswa.cpp ./cpp/llama-kv-cache-iswa.cpp
 cp ./$LLAMA_DIR/src/llama-memory-hybrid.h ./cpp/llama-memory-hybrid.h
@@ -280,10 +282,8 @@ cp ./$LLAMA_DIR/common/ngram-mod.h ./cpp/common/ngram-mod.h
 cp ./$LLAMA_DIR/common/ngram-mod.cpp ./cpp/common/ngram-mod.cpp
 cp ./$LLAMA_DIR/common/json-schema-to-grammar.h ./cpp/common/json-schema-to-grammar.h
 cp ./$LLAMA_DIR/common/json-schema-to-grammar.cpp ./cpp/common/json-schema-to-grammar.cpp
-cp ./$LLAMA_DIR/common/json-partial.h ./cpp/common/json-partial.h
-cp ./$LLAMA_DIR/common/json-partial.cpp ./cpp/common/json-partial.cpp
-cp ./$LLAMA_DIR/common/regex-partial.h ./cpp/common/regex-partial.h
-cp ./$LLAMA_DIR/common/regex-partial.cpp ./cpp/common/regex-partial.cpp
+rm -f ./cpp/common/json-partial.h ./cpp/common/json-partial.cpp
+rm -f ./cpp/common/regex-partial.h ./cpp/common/regex-partial.cpp
 cp ./$LLAMA_DIR/common/chat.h ./cpp/common/chat.h
 cp ./$LLAMA_DIR/common/chat.cpp ./cpp/common/chat.cpp
 cp ./$LLAMA_DIR/common/chat-auto-parser.h ./cpp/common/chat-auto-parser.h
@@ -361,6 +361,7 @@ files_add_lm_prefix=(
   ./cpp/ggml-blas/*.cpp
 
   ./cpp/ggml-opencl/*.cpp
+  ./cpp/ggml-opencl/*.h
 
   ./cpp/ggml-hexagon/*.cpp
   ./cpp/ggml-hexagon/*.h
