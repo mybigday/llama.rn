@@ -80,7 +80,7 @@ void llama_rn_slot::reset() {
     // Clear token vectors
     prompt_tokens.clear();
     generated_tokens.clear();
-    generated_text.clear();
+    clear_generation_state();
     embd.clear();
 
     // Reset state fields

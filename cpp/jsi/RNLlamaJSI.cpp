@@ -1077,7 +1077,7 @@ namespace rnllama_jsi {
                         throw std::runtime_error("Failed to initialize sampling");
                     }
 
-                    ctx->completion->prefill_text = prefill_text;
+                    ctx->completion->prefill_text = rnllama::utf8_sanitize(prefill_text);
                     ctx->completion->beginCompletion(chat_format, reasoning_format, generation_prompt, chat_parser);
 
                     try {

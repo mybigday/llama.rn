@@ -24,9 +24,46 @@ using json = nlohmann::ordered_json;
 
 namespace rnllama {
 
+// Display form of a raw token piece: a lone high-bit byte is hex-escaped,
+// any other ill-formed piece is sanitized (JSI strings require well-formed UTF-8)
+std::string token_piece_to_output_string(const std::string & piece);
+
 std::string tokens_to_output_formatted_string(const llama_context *ctx, const llama_token token);
 
 std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::const_iterator begin, const std::vector<llama_token>::const_iterator end);
+
+// Token pieces are raw bytes (a multi-byte character can split across tokens;
+// malformed generations can emit stray bytes), while consumers of generated
+// text (chat parsers, JSON, JSI strings) require well-formed UTF-8. Text is
+// sanitized where it enters: token decode through a utf8_stream_gate, and
+// JS-supplied prefill at intake - so generated_text is well-formed at all times.
+
+// Number of trailing bytes (0..3) forming a well-formed but incomplete
+// multi-byte sequence - the only kind of tail future bytes can complete.
+size_t utf8_incomplete_suffix_length(const std::string & text);
+
+bool utf8_is_well_formed(const std::string & text);
+
+// Replaces each ill-formed sequence (stray continuations, invalid leads,
+// overlongs, surrogates, > U+10FFFF) with one U+FFFD per maximal subpart.
+std::string utf8_sanitize(const std::string & text);
+
+// Turns a stream of raw token pieces into well-formed UTF-8: an incomplete
+// multi-byte tail is buffered until the next piece completes it, dead bytes
+// become U+FFFD. All token text must reach generated_text through a gate.
+struct utf8_stream_gate {
+    // Returns the bytes ready to append/emit (well-formed, possibly empty).
+    std::string feed(const std::string & piece);
+
+    // End of generation: flushes a still-buffered tail as U+FFFD.
+    std::string finish();
+
+    bool has_pending() const { return !pending.empty(); }
+    void reset() { pending.clear(); }
+
+private:
+    std::string pending;
+};
 
 lm_ggml_type kv_cache_type_from_str(const std::string & s);
 

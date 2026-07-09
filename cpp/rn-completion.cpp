@@ -46,6 +46,7 @@ void llama_rn_context_completion::rewind() {
     prefill_text = "";
     generated_text = "";
     generated_text.reserve(parent_ctx->params.n_ctx);
+    utf8_gate.reset();
     truncated = false;
     context_full = false;
     stopped_eos = false;
@@ -238,6 +239,8 @@ void llama_rn_context_completion::beginCompletion(int chat_format, common_reason
 }
 
 void llama_rn_context_completion::endCompletion() {
+    generated_text += utf8_gate.finish();
+    incomplete = false;
     is_predicting = false;
 }
 
@@ -663,7 +666,7 @@ completion_token_output llama_rn_context_completion::doCompletion()
     completion_token_output token_with_probs = nextToken();
 
     const std::string token_text = token_with_probs.tok == -1 ? "" : common_token_to_piece(parent_ctx->ctx, token_with_probs.tok);
-    generated_text += token_text;
+    generated_text += utf8_gate.feed(token_text);
 
     if (parent_ctx->isVocoderEnabled()) {
         tts_type type = parent_ctx->tts_wrapper->getTTSType(parent_ctx);
@@ -680,26 +683,7 @@ completion_token_output llama_rn_context_completion::doCompletion()
         generated_token_probs.push_back(token_with_probs);
     }
 
-    // check if there is incomplete UTF-8 character at the end
-    for (unsigned i = 1; i < 5 && i <= generated_text.size(); ++i) {
-        unsigned char c = generated_text[generated_text.size() - i];
-        if ((c & 0xC0) == 0x80) {
-            // continuation byte: 10xxxxxx
-            continue;
-        }
-        if ((c & 0xE0) == 0xC0) {
-            // 2-byte character: 110xxxxx ...
-            incomplete = i < 2;
-        } else if ((c & 0xF0) == 0xE0) {
-            // 3-byte character: 1110xxxx ...
-            incomplete = i < 3;
-        } else if ((c & 0xF8) == 0xF0) {
-            // 4-byte character: 11110xxx ...
-            incomplete = i < 4;
-        }
-        // else 1-byte character or invalid byte
-        break;
-    }
+    incomplete = utf8_gate.has_pending();
 
     if (incomplete && !has_next_token)
     {

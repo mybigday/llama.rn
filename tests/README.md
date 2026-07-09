@@ -35,19 +35,22 @@ make
 # Run parallel decoding tests
 ./parallel_decoding_test
 
-# Run both
-./rnllama_tests && ./parallel_decoding_test
+# Run chat parse UTF-8 robustness tests (no model needed)
+./chat_parse_utf8_test
+
+# Run all
+./rnllama_tests && ./parallel_decoding_test && ./chat_parse_utf8_test
 ```
 
 ### Build Scripts
 
 **`build_and_test.sh`**
-- Builds both `rnllama_tests` and `parallel_decoding_test`
+- Builds `rnllama_tests`, `parallel_decoding_test` and `chat_parse_utf8_test`
 - Uses CMake with Release configuration
 - Parallel compilation with `-j4`
 
 **`run_tests.sh`**
-- Runs both test suites
+- Runs all test suites
 - Reports pass/fail for each suite
 - Returns appropriate exit code for CI/CD
 
