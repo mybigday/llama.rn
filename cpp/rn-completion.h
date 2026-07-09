@@ -68,6 +68,8 @@ struct llama_rn_context_completion {
     size_t num_draft_tokens_accepted = 0;
     size_t num_prompt_tokens = 0;
     size_t num_tokens_predicted = 0;
+    int64_t t_start_generation = 0;
+    double t_token_generation = 0.0;
     llama_pos n_past = 0;
     size_t n_remain = 0;
     std::vector<llama_token> embd;
@@ -112,6 +114,9 @@ struct llama_rn_context_completion {
     void beginCompletion();
     void beginCompletion(int chat_format, common_reasoning_format reasoning_format, const std::string &generation_prompt = "", const std::string &chat_parser = "");
     void endCompletion();
+    void resetGenerationTimings();
+    void startGenerationTiming();
+    void updateGenerationTiming();
     completion_token_output nextToken();
     bool shouldUseMTP() const;
     void resetSpeculative();

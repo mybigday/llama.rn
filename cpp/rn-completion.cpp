@@ -43,6 +43,7 @@ void llama_rn_context_completion::rewind() {
     num_tokens_predicted = 0;
     num_draft_tokens = 0;
     num_draft_tokens_accepted = 0;
+    resetGenerationTimings();
     prefill_text = "";
     generated_text = "";
     generated_text.reserve(parent_ctx->params.n_ctx);
@@ -230,6 +231,7 @@ void llama_rn_context_completion::beginCompletion(int chat_format, common_reason
     // number of tokens to keep when resetting context
     n_remain = parent_ctx->params.n_predict;
     llama_perf_context_reset(parent_ctx->ctx);
+    resetGenerationTimings();
     is_predicting = true;
 
     current_chat_format = chat_format;
@@ -242,6 +244,23 @@ void llama_rn_context_completion::endCompletion() {
     generated_text += utf8_gate.finish();
     incomplete = false;
     is_predicting = false;
+}
+
+void llama_rn_context_completion::resetGenerationTimings() {
+    t_start_generation = 0;
+    t_token_generation = 0.0;
+}
+
+void llama_rn_context_completion::startGenerationTiming() {
+    if (t_start_generation == 0) {
+        t_start_generation = lm_ggml_time_us();
+    }
+}
+
+void llama_rn_context_completion::updateGenerationTiming() {
+    if (t_start_generation != 0 && num_tokens_predicted > 0) {
+        t_token_generation = (lm_ggml_time_us() - t_start_generation) / 1e6;
+    }
 }
 
 bool llama_rn_context_completion::shouldUseMTP() const {
@@ -310,6 +329,7 @@ void llama_rn_context_completion::initMTP() {
     n_past = 0;
 
     evalMTPPrompt();
+    startGenerationTiming();
 }
 
 void llama_rn_context_completion::evalMTPPrompt() {
@@ -490,6 +510,7 @@ completion_token_output llama_rn_context_completion::nextTokenMTP() {
     if (spec == nullptr) {
         initMTP();
     }
+    startGenerationTiming();
 
     if (spec_pending_tokens.empty() && !refillMTPTokens()) {
         return result;
@@ -498,6 +519,7 @@ completion_token_output llama_rn_context_completion::nextTokenMTP() {
     result = std::move(spec_pending_tokens.front());
     spec_pending_tokens.pop_front();
     num_tokens_predicted++;
+    updateGenerationTiming();
     has_next_token = !spec_pending_tokens.empty() || (!stopped_eos && !stopped_limit && !context_full);
     return result;
 }
@@ -581,6 +603,8 @@ completion_token_output llama_rn_context_completion::nextToken()
         return result;
     }
 
+    startGenerationTiming();
+
     {
         // out of user input, sample next token
         std::vector<llama_token_data> candidates;
@@ -617,6 +641,7 @@ completion_token_output llama_rn_context_completion::nextToken()
         common_sampler_accept(ctx_sampling, result.tok, true);
         if (tg) {
             num_tokens_predicted++;
+            updateGenerationTiming();
         }
     }
 

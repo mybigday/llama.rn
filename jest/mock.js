@@ -90,9 +90,9 @@ if (!NativeModules.RNLlama) {
       truncated: false,
       timings: {
         predicted_ms: 1330.6290000000001,
-        predicted_n: 5,
-        predicted_per_second: 16.533534140620713,
-        predicted_per_token_ms: 60.48313636363637,
+        predicted_n: 6,
+        predicted_per_second: 4.50914567471474,
+        predicted_per_token_ms: 221.77150000000003,
         prompt_ms: 3805.6730000000002,
         prompt_n: 5,
         prompt_per_second: 8.408499626741445,

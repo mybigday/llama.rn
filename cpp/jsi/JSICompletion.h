@@ -193,10 +193,14 @@ namespace rnllama_jsi {
         timingsObj.setProperty(runtime, "prompt_per_token_ms", prompt_per_token_ms);
         timingsObj.setProperty(runtime, "prompt_per_second", prompt_per_second);
 
-        timingsObj.setProperty(runtime, "predicted_n", (double)timings.n_eval);
-        timingsObj.setProperty(runtime, "predicted_ms", (double)timings.t_eval_ms);
-        const double predicted_per_token_ms = timings.n_eval > 0 ? timings.t_eval_ms / timings.n_eval : 0.0;
-        const double predicted_per_second = timings.t_eval_ms > 0 ? 1e3 / timings.t_eval_ms * timings.n_eval : 0.0;
+        const double predicted_n = (double)ctx->completion->num_tokens_predicted;
+        const double predicted_ms = ctx->completion->t_token_generation * 1e3;
+        timingsObj.setProperty(runtime, "predicted_n", predicted_n);
+        timingsObj.setProperty(runtime, "predicted_ms", predicted_ms);
+        const double predicted_per_token_ms = predicted_n > 0 ? predicted_ms / predicted_n : 0.0;
+        const double predicted_per_second = ctx->completion->t_token_generation > 0.0
+            ? predicted_n / ctx->completion->t_token_generation
+            : 0.0;
         timingsObj.setProperty(runtime, "predicted_per_token_ms", predicted_per_token_ms);
         timingsObj.setProperty(runtime, "predicted_per_second", predicted_per_second);
 
