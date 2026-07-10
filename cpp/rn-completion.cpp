@@ -243,6 +243,11 @@ void llama_rn_context_completion::beginCompletion(int chat_format, common_reason
 void llama_rn_context_completion::endCompletion() {
     generated_text += utf8_gate.finish();
     incomplete = false;
+    // Trim the undecoded final token. On a stop-word / token-budget stop the last
+    // sampled token is already pushed to embd but never decoded.
+    if (n_past > 0 && n_past < (llama_pos) embd.size()) {
+        embd.resize(n_past);
+    }
     is_predicting = false;
 }
 
