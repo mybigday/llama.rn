@@ -7324,11 +7324,12 @@ static void lm_ggml_compute_forward_conv_2d_dw_cwhn(
 
 #ifdef LM_GGML_SIMD
     int64_t c_pkg_end = 0;
+    int64_t pkg_size = LM_GGML_F32_EPR;
     if (knl_type == LM_GGML_TYPE_F32) {
     #if defined(__ARM_FEATURE_SVE)
-        const int64_t pkg_size = svcntw();
+        pkg_size = svcntw();
     #else
-        const int64_t pkg_size = LM_GGML_F32_EPR;
+        pkg_size = LM_GGML_F32_EPR;
     #endif
         c_pkg_end = (c / pkg_size) * pkg_size;
     }
@@ -7345,7 +7346,7 @@ static void lm_ggml_compute_forward_conv_2d_dw_cwhn(
             const int64_t src_x_base = dst_x * p.stride_x - p.pad_x;
 
 #ifdef LM_GGML_SIMD
-            for (int64_t c_i = 0; c_i < c_pkg_end; c_i += LM_GGML_F32_EPR) {
+            for (int64_t c_i = 0; c_i < c_pkg_end; c_i += pkg_size) {
                 LM_GGML_F32_VEC sum = LM_GGML_F32_VEC_ZERO;
                 for (int64_t knl_y = 0; knl_y < p.knl_h; ++knl_y) {
                     const int64_t src_y = src_y_base + knl_y * p.dilation_y;

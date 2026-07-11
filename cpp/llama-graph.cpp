@@ -646,7 +646,7 @@ static void dsv4_set_kq_mask(
         return;
     }
 
-    LM_GGML_ASSERT(dst->type == LM_GGML_TYPE_F32);
+    LM_GGML_ASSERT(dst->type == LM_GGML_TYPE_F32 || dst->type == LM_GGML_TYPE_F16);
     LM_GGML_ASSERT(n_stream > 0);
     LM_GGML_ASSERT(n_tokens%n_stream == 0);
     LM_GGML_ASSERT(dst->ne[0] == plan.n_kv);
@@ -656,13 +656,27 @@ static void dsv4_set_kq_mask(
     LM_GGML_ASSERT((int64_t) plan.n_visible.size() == (int64_t) n_tokens);
     LM_GGML_ASSERT(lm_ggml_backend_buffer_is_host(dst->buffer));
 
-    float * data = (float *) dst->data;
+    if (dst->type == LM_GGML_TYPE_F32) {
+        float * data = (float *) dst->data;
 
-    for (int64_t i = 0; i < (int64_t) n_tokens; ++i) {
-        const int32_t n_visible = plan.n_visible[i];
+        for (int64_t i = 0; i < (int64_t) n_tokens; ++i) {
+            const int32_t n_visible = plan.n_visible[i];
 
-        for (int64_t j = 0; j < dst->ne[0]; ++j) {
-            data[i*dst->ne[0] + j] = j < n_visible ? 0.0f : -INFINITY;
+            for (int64_t j = 0; j < dst->ne[0]; ++j) {
+                data[i*dst->ne[0] + j] = j < n_visible ? 0.0f : -INFINITY;
+            }
+        }
+    } else if (dst->type == LM_GGML_TYPE_F16) {
+        lm_ggml_fp16_t * data = (lm_ggml_fp16_t *) dst->data;
+        const lm_ggml_fp16_t fp16_ninf = llama_cast<lm_ggml_fp16_t>(-INFINITY);
+        const lm_ggml_fp16_t fp16_zero = llama_cast<lm_ggml_fp16_t>(0.0f);
+
+        for (int64_t i = 0; i < (int64_t) n_tokens; ++i) {
+            const int32_t n_visible = plan.n_visible[i];
+
+            for (int64_t j = 0; j < dst->ne[0]; ++j) {
+                data[i*dst->ne[0] + j] = j < n_visible ? fp16_zero : fp16_ninf;
+            }
         }
     }
 }
@@ -679,8 +693,7 @@ static lm_ggml_tensor * dsv4_build_raw_kq_mask(
     LM_GGML_ASSERT(n_stream > 0);
     LM_GGML_ASSERT(n_tokens%n_stream == 0);
 
-    const bool use_fattn = cparams.flash_attn && (!cparams.kv_unified || n_stream == 1);
-    const auto type = use_fattn ? LM_GGML_TYPE_F16 : LM_GGML_TYPE_F32;
+    const auto type = cparams.flash_attn ? LM_GGML_TYPE_F16 : LM_GGML_TYPE_F32;
 
     lm_ggml_tensor * res = lm_ggml_new_tensor_4d(ctx, type, n_kv, n_tokens/n_stream, 1, n_stream);
     lm_ggml_set_input(res);
@@ -814,6 +827,7 @@ static void dsv4_build_comp_inputs(
         llm_graph_input_dsv4::comp_input & inp,
         const llama_kv_cache_dsv4_context::comp_plan & plan,
         const char * name,
+        const llama_cparams & cparams,
         int64_t n_stream) {
     inp.state_pos = dsv4_build_input_1d(ctx, LM_GGML_TYPE_I32, plan.state_pos.size(), std::string("dsv4_") + name + "_state_pos");
     inp.state_persist_src_idxs = dsv4_build_input_1d(ctx, LM_GGML_TYPE_I32, plan.state_persist_src_idxs.size(), std::string("dsv4_") + name + "_state_persist_src_idxs");
@@ -828,7 +842,7 @@ static void dsv4_build_comp_inputs(
         LM_GGML_ASSERT(n_stream > 0);
         LM_GGML_ASSERT(n_tokens%n_stream == 0);
 
-        inp.kq_mask = lm_ggml_new_tensor_4d(ctx, LM_GGML_TYPE_F32, plan.n_kv, n_tokens/n_stream, 1, n_stream);
+        inp.kq_mask = lm_ggml_new_tensor_4d(ctx, cparams.flash_attn && strcmp(name, "lid") != 0 ? LM_GGML_TYPE_F16 : LM_GGML_TYPE_F32, plan.n_kv, n_tokens/n_stream, 1, n_stream);
         lm_ggml_set_input(inp.kq_mask);
         lm_ggml_set_name(inp.kq_mask, (std::string("dsv4_") + name + "_kq_mask").c_str());
     }
@@ -3076,9 +3090,9 @@ llm_graph_input_dsv4 * llm_graph_context::build_inp_dsv4() const {
     inp_raw->self_k_rot = raw_ctx->build_input_k_rot(ctx0);
     auto inp = std::make_unique<llm_graph_input_dsv4>(cparams, std::move(inp_raw), mctx_cur);
 
-    dsv4_build_comp_inputs(ctx0, inp->inp_csa, mctx_cur->get_csa_plan(ubatch), "csa", n_stream);
-    dsv4_build_comp_inputs(ctx0, inp->inp_hca, mctx_cur->get_hca_plan(ubatch), "hca", n_stream);
-    dsv4_build_comp_inputs(ctx0, inp->inp_lid, mctx_cur->get_lid_plan(ubatch), "lid", n_stream);
+    dsv4_build_comp_inputs(ctx0, inp->inp_csa, mctx_cur->get_csa_plan(ubatch), "csa", cparams, n_stream);
+    dsv4_build_comp_inputs(ctx0, inp->inp_hca, mctx_cur->get_hca_plan(ubatch), "hca", cparams, n_stream);
+    dsv4_build_comp_inputs(ctx0, inp->inp_lid, mctx_cur->get_lid_plan(ubatch), "lid", cparams, n_stream);
     inp->inp_csa.k_rot = mctx_cur->get_csa()->build_input_k_rot(ctx0);
     inp->inp_hca.k_rot = mctx_cur->get_hca()->build_input_k_rot(ctx0);
     inp->inp_lid.k_rot = mctx_cur->get_lid()->build_input_k_rot(ctx0);
