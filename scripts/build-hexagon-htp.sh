@@ -129,13 +129,14 @@ build_htp_version() {
     mkdir -p "$build_dir"
     cd "$build_dir"
 
-    # Determine generator based on environment
-    CMAKE_GENERATOR=""
+    # Determine generator based on environment (array: "Unix Makefiles" must
+    # stay one argument — unquoted expansion split it into "-G Unix" "Makefiles")
+    CMAKE_GENERATOR=()
     if command -v ninja &> /dev/null; then
-        CMAKE_GENERATOR="-GNinja"
+        CMAKE_GENERATOR=(-G Ninja)
         echo "Using Ninja build system"
     elif command -v make &> /dev/null; then
-        CMAKE_GENERATOR="-G Unix Makefiles"
+        CMAKE_GENERATOR=(-G "Unix Makefiles")
         echo "Using Make build system"
     else
         echo "Warning: Neither ninja nor make found, using default generator"
@@ -143,7 +144,7 @@ build_htp_version() {
 
     # Configure with Hexagon toolchain
     cmake "${HTP_SOURCE_DIR}" \
-        $CMAKE_GENERATOR \
+        "${CMAKE_GENERATOR[@]}" \
         -DCMAKE_TOOLCHAIN_FILE="${HTP_SOURCE_DIR}/cmake-toolchain.cmake" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_LIBDIR="${HTP_OUTPUT_DIR}" \
