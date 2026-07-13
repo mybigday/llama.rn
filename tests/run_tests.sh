@@ -74,9 +74,29 @@ else
 fi
 
 echo ""
+
+# Run KV-cache-reuse tests (only if the GGUF models have been downloaded)
+TOTAL_SUITES=3
+if [ -f "kv_cache_reuse_test" ] && ls ../models/*.gguf >/dev/null 2>&1; then
+    TOTAL_SUITES=4
+    echo "--- Running KV-cache-reuse Tests ---"
+    if ./kv_cache_reuse_test; then
+        echo "✓ KV-cache-reuse tests passed"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        echo "✗ KV-cache-reuse tests failed"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+    echo ""
+else
+    echo "--- Skipping KV-cache-reuse Tests (no models in tests/models) ---"
+    echo "    Run ./models/download.sh to enable them."
+    echo ""
+fi
+
 echo "=== Test Summary ==="
-echo "Passed: $TESTS_PASSED/3"
-echo "Failed: $TESTS_FAILED/3"
+echo "Passed: $TESTS_PASSED/$TOTAL_SUITES"
+echo "Failed: $TESTS_FAILED/$TOTAL_SUITES"
 
 if [ $TESTS_FAILED -eq 0 ]; then
     echo "✓ All test suites passed!"
