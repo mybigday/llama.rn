@@ -575,6 +575,15 @@ namespace rnllama_jsi {
                     }
 
                     auto ctx = new rnllama::llama_rn_context();
+                    // Prompt state cache tuning (multi-turn KV reuse on
+                    // recurrent/hybrid/SWA models). Budget in MiB; 0 disables it.
+                    {
+                        int budgetMb = getPropertyAsInt(runtime, params, "state_cache_budget_mb", 160);
+                        ctx->state_cache_budget_bytes =
+                            budgetMb > 0 ? (size_t) budgetMb * 1024 * 1024 : 0;
+                        ctx->state_cache_max_checkpoints =
+                            getPropertyAsInt(runtime, params, "state_cache_max_checkpoints", 8);
+                    }
                     if (ctx->loadModel(cparams)) {
                          ctx->attachThreadpoolsIfAvailable();
 

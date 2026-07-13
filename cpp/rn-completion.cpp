@@ -3,6 +3,7 @@
 #include "rn-tts.h"
 #include "rn-mtmd.hpp"
 #include "rn-common.hpp"
+#include "llama-ext.h"  // llama_get_ctx_other (mem-shared MTP draft detection)
 
 #include <algorithm>
 #include <cstring>
@@ -73,6 +74,228 @@ bool llama_rn_context_completion::initSampling() {
     return ctx_sampling != nullptr;
 }
 
+// ----------------------------------------------------------------------------
+// Prompt state cache (recurrent / hybrid / SWA prefix reuse)
+//
+// These memories can't roll back in place, so instead of full-clearing on
+// divergence we snapshot the non-rollbackable part (PARTIAL_ONLY) during prompt
+// ingest and restore the longest snapshot that prefixes the new prompt.
+// Single-sequence completion path only; the slot manager passes no callbacks
+// and keeps the full-clear behaviour.
+// ----------------------------------------------------------------------------
+
+void llama_rn_context_completion::probeStateCache() {
+    if (state_cache_probed) {
+        return;
+    }
+    state_cache_probed = true;
+
+    // Pull the host-configured bounds (set at model init) into effect.
+    state_cache_budget_bytes = parent_ctx->state_cache_budget_bytes;
+    // 0 = no count cap (budget-bound only); <0/unset keeps the default.
+    if (parent_ctx->state_cache_max_checkpoints > 0) {
+        state_cache_max_checkpoints = (size_t) parent_ctx->state_cache_max_checkpoints;
+    } else if (parent_ctx->state_cache_max_checkpoints == 0) {
+        state_cache_max_checkpoints = std::numeric_limits<size_t>::max();
+    }
+
+    const llama_model *model = parent_ctx->model;
+    if (model == nullptr || state_cache_budget_bytes == 0) {
+        // A zero budget is an explicit opt-out (keep the full-reprocess fallback).
+        state_cache_enabled = false;
+        return;
+    }
+    // Recurrent/hybrid only. Pure-SWA never fails seq_rm in this fork, so a
+    // checkpoint could never be restored — capturing would be pure cost.
+    // TODO: SWA reuse past a slid window (deep edit in a chat longer than the
+    // window) is unguarded here; a fix would need a pos_min trigger, not seq_rm.
+    state_cache_enabled =
+        llama_model_is_recurrent(model) ||
+        llama_model_is_hybrid(model);
+    if (state_cache_enabled) {
+        LOG_INFO("prompt state cache enabled (recurrent/hybrid model)");
+    }
+}
+
+void llama_rn_context_completion::evictStateCheckpoints() {
+    // Oldest first, but always keep the smallest-position snapshot: that is the
+    // first message boundary (system-prompt end) a brand-new session shares.
+    auto total_bytes = [&]() {
+        size_t n = 0;
+        for (const auto &c : state_checkpoints) n += c.size_bytes();
+        return n;
+    };
+    auto smallest_pos = [&]() {
+        size_t idx = 0;
+        for (size_t i = 1; i < state_checkpoints.size(); i++) {
+            if (state_checkpoints[i].n_tokens() < state_checkpoints[idx].n_tokens()) idx = i;
+        }
+        return idx;
+    };
+    while (state_checkpoints.size() > 1 &&
+           (state_checkpoints.size() > state_cache_max_checkpoints ||
+            total_bytes() > state_cache_budget_bytes)) {
+        const size_t keep = smallest_pos();
+        // Evict the oldest snapshot that is not the pinned stable-prefix one.
+        size_t victim = (keep == 0 && state_checkpoints.size() > 1) ? 1 : 0;
+        state_checkpoints.erase(state_checkpoints.begin() + victim);
+    }
+}
+
+void llama_rn_context_completion::clearStateCheckpoints() {
+    state_checkpoints.clear();
+    // Boundary positions index into the current prompt; invalidated together.
+    boundary_ckpts.clear();
+    prompt_checkpoint_pending = false;
+}
+
+void llama_rn_context_completion::eraseStateCheckpointAt(size_t n_tokens) {
+    state_checkpoints.erase(
+        std::remove_if(state_checkpoints.begin(), state_checkpoints.end(),
+            [&](const rn_state_checkpoint &c) { return c.n_tokens() == n_tokens; }),
+        state_checkpoints.end());
+}
+
+void llama_rn_context_completion::captureStateCheckpoint() {
+    // The memory holds exactly embd[0, n_past).
+    if (n_past <= 0) {
+        return;
+    }
+    captureStateCheckpoint(embd, (size_t) n_past);
+}
+
+void llama_rn_context_completion::captureStateCheckpoint(
+        const std::vector<llama_token> &seq, size_t n) {
+    if (!state_cache_enabled || !state_cache_capture_allowed || parent_ctx->ctx == nullptr) {
+        return;
+    }
+    if (n == 0 || n > seq.size()) {
+        return;
+    }
+    // Already hold this exact snapshot (e.g. just restored): skip the readback.
+    for (const auto &c : state_checkpoints) {
+        if (c.n_tokens() == n &&
+            std::equal(c.tokens.begin(), c.tokens.end(), seq.begin())) {
+            return;
+        }
+    }
+
+    const size_t size = llama_state_seq_get_size_ext(
+        parent_ctx->ctx, /*seq_id*/ 0, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY);
+    if (size == 0) {
+        return;
+    }
+
+    // A hybrid's SWA cells grow ~linearly until the window fills (unlike its
+    // fixed-size recurrent cells). Extrapolate to saturation and disable if one
+    // snapshot would exceed half the budget. (Pure-SWA is gated off upstream.)
+    if (parent_ctx->model != nullptr && llama_model_n_swa(parent_ctx->model) > 0) {
+        const size_t n_swa = (size_t) llama_model_n_swa(parent_ctx->model);
+        const size_t fill  = std::min(n, n_swa);
+        const size_t saturated = size * n_swa / fill;
+        if (saturated > state_cache_budget_bytes / 2) {
+            LOG_WARNING(
+                "state cache disabled: a saturated snapshot would be ~%.1f MiB "
+                "(measured %.1f MiB at %zu/%zu window fill) vs a %.1f MiB budget",
+                saturated / (1024.0 * 1024.0), size / (1024.0 * 1024.0),
+                fill, n_swa, state_cache_budget_bytes / (1024.0 * 1024.0));
+            state_cache_enabled = false;
+            clearStateCheckpoints();
+            return;
+        }
+    }
+
+    rn_state_checkpoint ckpt;
+    ckpt.tokens.assign(seq.begin(), seq.begin() + n);
+    try {
+        ckpt.data.resize(size);
+    } catch (const std::bad_alloc &) {
+        // Skip the capture rather than aborting the completion.
+        LOG_WARNING("state checkpoint alloc failed (n_tokens=%zu, %.1f MiB)",
+            n, size / (1024.0 * 1024.0));
+        return;
+    }
+    const size_t written = llama_state_seq_get_data_ext(
+        parent_ctx->ctx, ckpt.data.data(), size, /*seq_id*/ 0,
+        LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY);
+    if (written == 0) {
+        // Can fail under memory pressure; the old snapshot at this boundary
+        // is still valid and must survive a failed re-capture.
+        LOG_WARNING("state checkpoint capture failed (n_tokens=%zu)", n);
+        return;
+    }
+    ckpt.data.resize(written);
+
+    // Replace any snapshot at this boundary only after a successful capture
+    // (a stale same-length one would shadow the current tokens).
+    eraseStateCheckpointAt(n);
+    state_checkpoints.push_back(std::move(ckpt));
+    evictStateCheckpoints();
+    LOG_VERBOSE("captured state checkpoint: n_tokens=%zu, size=%.1f KiB, total=%zu",
+        n, written / 1024.0, state_checkpoints.size());
+}
+
+int llama_rn_context_completion::findStateCheckpoint(
+        const std::vector<llama_token> &target, size_t max_len) const {
+    // Pick the longest snapshot whose tokens are a prefix of `target` and whose
+    // length does not exceed `max_len` (the verified shared-prefix length).
+    int best = -1;
+    size_t best_len = 0;
+    for (size_t i = 0; i < state_checkpoints.size(); i++) {
+        const auto &c = state_checkpoints[i];
+        const size_t n = c.n_tokens();
+        if (n == 0 || n > max_len || n > target.size()) {
+            continue;
+        }
+        if (n <= best_len) {
+            continue; // can't beat the current best
+        }
+        if (std::equal(c.tokens.begin(), c.tokens.end(), target.begin())) {
+            best = (int) i;
+            best_len = n;
+        }
+    }
+    return best;
+}
+
+bool llama_rn_context_completion::recoverStateCheckpoint(
+        const std::vector<llama_token> &target, size_t max_reuse,
+        size_t total_tokens, llama_pos &n_past_out) {
+    if (parent_ctx->ctx == nullptr) {
+        return false;
+    }
+    auto * kv = llama_get_memory(parent_ctx->ctx);
+    // Never select a full-prompt snapshot: one token must remain to evaluate,
+    // and freeing it with a post-restore seq_rm(k-1) would roll back onto stale
+    // rollback-ring state. A shorter snapshot leaves room by construction.
+    const size_t search_max = total_tokens > 0 ? std::min(max_reuse, total_tokens - 1) : 0;
+    const int ckpt_idx = findStateCheckpoint(target, search_max);
+    if (ckpt_idx < 0 || !restoreStateCheckpoint((size_t) ckpt_idx)) {
+        return false;
+    }
+    const llama_pos k = (llama_pos) state_checkpoints[ckpt_idx].n_tokens();
+    // Recurrent part is back at k; truncating the live attention prefix to k
+    // succeeds since nothing remains past k.
+    llama_memory_seq_rm(kv, 0, k, -1);
+    n_past_out = k;
+    return true;
+}
+
+bool llama_rn_context_completion::restoreStateCheckpoint(size_t index) {
+    if (index >= state_checkpoints.size() || parent_ctx->ctx == nullptr) {
+        return false;
+    }
+    const auto &c = state_checkpoints[index];
+    const size_t read = llama_state_seq_set_data_ext(
+        parent_ctx->ctx, c.data.data(), c.data.size(), /*dest_seq_id*/ 0,
+        LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY);
+    if (read == 0) {
+        LOG_WARNING("state checkpoint restore failed (n_tokens=%zu)", c.n_tokens());
+        return false;
+    }
+    return true;
+}
+
 void llama_rn_context_completion::truncatePrompt(std::vector<llama_token> &prompt_tokens) {
     const int n_left = parent_ctx->n_ctx - parent_ctx->params.n_keep;
     const int n_block_size = n_left / 2;
@@ -95,8 +318,57 @@ void llama_rn_context_completion::truncatePrompt(std::vector<llama_token> &promp
     prompt_tokens = new_tokens;
 }
 
-void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &media_paths) {
+std::vector<llama_pos> llama_rn_context_completion::computeMessageBoundaries(
+        const std::vector<llama_token> &tokens, llama_pos min_gap) const {
+    std::vector<llama_pos> out;
+    if (parent_ctx->model == nullptr) {
+        return out;
+    }
+    const auto vocab = llama_model_get_vocab(parent_ctx->model);
+    // A boundary is the first content token after a run of chat-template
+    // delimiter tokens (CONTROL/USER_DEFINED, template-agnostic; whitespace
+    // keeps a run open). History up to a boundary is identical in every future
+    // prompt sharing the conversation to that message — an exact restore point.
+    //
+    // min_gap: a snapshot < min_gap tokens past the previous restore point
+    // (position 0 counts as the first) saves less reprocess than the slot is
+    // worth. min_gap == 1 keeps every boundary (used to find the last one).
+    llama_pos last_accepted = 0;
+    bool run_has_delim = false;
+    for (size_t i = 0; i < tokens.size(); i++) {
+        if (tokens[i] < 0) {
+            run_has_delim = false; // media placeholder — not a vocab id
+            continue;
+        }
+        const unsigned attr = (unsigned) llama_vocab_get_attr(vocab, tokens[i]);
+        if ((attr & ((unsigned) LLAMA_TOKEN_ATTR_CONTROL |
+                     (unsigned) LLAMA_TOKEN_ATTR_USER_DEFINED)) != 0) {
+            run_has_delim = true;
+            continue;
+        }
+        if (!run_has_delim) {
+            continue;
+        }
+        // Whitespace between delimiters keeps the run open.
+        const std::string piece = common_token_to_piece(parent_ctx->ctx, tokens[i]);
+        if (!piece.empty() && piece.find_first_not_of(" \t\r\n") == std::string::npos) {
+            continue;
+        }
+        const llama_pos pos = (llama_pos) i;
+        if (pos - last_accepted >= min_gap) {
+            out.push_back(pos);
+            last_accepted = pos;
+        }
+        run_has_delim = false;
+    }
+    return out;
+}
+
+void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &media_paths, bool allow_state_cache) {
     bool has_media = !media_paths.empty();
+    // embedding()/rerank() drive throwaway prompts through this same path; keep their
+    // state out of the chat's checkpoint cache (see state_cache_capture_allowed).
+    state_cache_capture_allowed = allow_state_cache;
 
     // Check if this is an encoder-decoder model (like T5)
     const bool is_enc_dec = llama_model_has_encoder(parent_ctx->model);
@@ -140,8 +412,19 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
         // / frequency_penalty, preventing EOS and producing
         // extremely verbose output on Qwen-family models.
 
-        // compare the evaluated prompt with the new prompt
-        n_past = is_enc_dec ? 0 : find_common_prefix_length(embd, text_tokens);
+        // n_common = shared prefix with the live cache; it bounds how far a
+        // checkpoint may be trusted.
+        size_t n_common = is_enc_dec ? 0 : find_common_prefix_length(embd, text_tokens);
+        // A mem-shared MTP draft leaves stale speculative cells in the target's
+        // SHARED KV window that upstream never cleans (TAG_KV_CACHE_SHARE_CELLS,
+        // see initMTP). Reusing any prefix — even the plain seq_rm fast path —
+        // then inherits that polluted state and shifts the distribution. Force a
+        // full reprocess for these drafts (the pre-reuse MTP behaviour); it is
+        // detected on the first generation turn, so this engages from turn 2 on.
+        if (mtp_draft_mem_shared) {
+            n_common = 0;
+        }
+        n_past = (llama_pos) n_common;
 
         embd = text_tokens;
         if (n_past == num_prompt_tokens) {
@@ -150,19 +433,76 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
         }
 
         // Manage KV cache
+        probeStateCache();
         auto * kv = llama_get_memory(parent_ctx->ctx);
+        if (mtp_draft_mem_shared) {
+            llama_memory_clear(kv, false);  // drop the polluted shared window
+        }
         bool cache_remove_success = llama_memory_seq_rm(kv, 0, n_past, -1);
 
-        // For hybrid models (LFM-2, Granite, Mamba, etc.), partial cache removal may fail
-        // In that case, do a full cache clear to prevent contamination
+        // Recurrent/hybrid/SWA: seq_rm fails beyond the rollback window; restore
+        // the longest matching snapshot and reprocess only the diverged tail.
         if (!cache_remove_success) {
-            LOG_WARNING("Partial cache removal failed (likely hybrid/recurrent model), doing full cache clear");
-            llama_memory_clear(kv, false);
-            embd.clear();
-            n_past = 0;
-            // Re-assign all tokens to embd since we cleared everything
-            embd = text_tokens;
+            if (recoverStateCheckpoint(text_tokens, n_common, num_prompt_tokens, n_past)) {
+                LOG_INFO("restored state checkpoint: reusing %d/%zu prompt tokens",
+                    n_past, num_prompt_tokens);
+            } else {
+                LOG_WARNING("no usable state checkpoint (recurrent/hybrid/SWA model), doing full cache clear");
+                llama_memory_clear(kv, false);
+                clearStateCheckpoints();
+                n_past = 0;
+            }
         }
+
+        // Frontier capture: the reused state already rests at n_past, so snapshot
+        // it here — one readback, no decode split. tokens[0,n_past) is the verified
+        // shared prefix, so it is token-exact. Restore point for a later
+        // regenerate/edit of this turn.
+        if (state_cache_enabled && state_cache_capture_allowed && n_past > 0) {
+            captureStateCheckpoint(text_tokens, (size_t) n_past);
+        }
+
+        // Cold ingest only lays boundary snapshots as it decodes (amortized once
+        // per session; seeds the system-prefix anchor). Warm turns don't split —
+        // the frontier capture above covers them, so the tail decodes in one batch.
+        const bool cold_ingest = n_past == 0;
+        boundary_ckpts.clear();
+        if (state_cache_enabled && state_cache_capture_allowed) {
+            if (cold_ingest) {
+                // Boundaries + the frontier (last boundary, even if min_gap would
+                // drop it) so a fresh session's first turn has a restore point.
+                // Delimiter-less templates find none — the prefill_interval
+                // fallback in nextToken covers long ones.
+                boundary_ckpts = computeMessageBoundaries(text_tokens, state_ckpt_min_gap);
+                const auto all = computeMessageBoundaries(text_tokens, /*min_gap*/ 1);
+                if (!all.empty() &&
+                    (boundary_ckpts.empty() || boundary_ckpts.back() != all.back())) {
+                    boundary_ckpts.push_back(all.back());
+                }
+            } else if (!cache_remove_success && (llama_pos) n_common > n_past &&
+                       (llama_pos) n_common < (llama_pos) num_prompt_tokens) {
+                // Restore path (seq_rm failed): capture the advanced frontier at
+                // n_common as we reprocess, so the checkpoint moves forward each
+                // turn (a rollback-0 model would otherwise freeze at its first
+                // snapshot). One split, only where seq_rm can't reuse in place.
+                boundary_ckpts.push_back((llama_pos) n_common);
+            }
+        }
+        // Eviction only keeps {first} + the newest few; don't serialize (or split
+        // prefill batches for) boundaries that can't survive this ingest.
+        if (boundary_ckpts.size() > state_cache_max_checkpoints) {
+            const size_t keep_tail = state_cache_max_checkpoints - 1;
+            std::vector<llama_pos> filtered;
+            filtered.reserve(state_cache_max_checkpoints);
+            filtered.push_back(boundary_ckpts.front());
+            filtered.insert(filtered.end(),
+                            boundary_ckpts.end() - keep_tail, boundary_ckpts.end());
+            boundary_ckpts = std::move(filtered);
+        }
+        // Cold stays pending even with no boundaries (interval fallback); warm
+        // only when we armed one.
+        prompt_checkpoint_pending = state_cache_enabled && state_cache_capture_allowed &&
+                                    (cold_ingest || !boundary_ckpts.empty());
 
         LOG_VERBOSE("prompt ingested, n_past: %d, cached: %s, to_eval: %s",
             n_past,
@@ -173,6 +513,11 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
         // Multimodal path - process all media paths
         processMedia(parent_ctx->params.prompt, media_paths);
         num_prompt_tokens = embd.size();
+        // Placeholder tokens are not vocab ids; no delimiter scan on media prompts.
+        boundary_ckpts.clear();
+        // Don't arm prompt-region snapshots: processMedia already ingested the
+        // whole prompt and captured via its callback; nothing left for nextToken.
+        prompt_checkpoint_pending = false;
     }
 
     // Handle encoder-decoder models (like T5) with special encoding phase
@@ -329,9 +674,19 @@ void llama_rn_context_completion::initMTP() {
     spec_batch = llama_batch_init(llama_n_batch(parent_ctx->ctx), 0, 1);
     spec_batch_initialized = true;
 
-    llama_memory_clear(llama_get_memory(parent_ctx->ctx), false);
-    llama_memory_clear(llama_get_memory(spec_ctx.get()), false);
-    n_past = 0;
+    // A mem-shared draft (e.g. gemma4/EAGLE3) shares the target's KV cells, where
+    // upstream state save/restore is a no-op — restoring a checkpoint would leave
+    // stale speculative cells and corrupt the output. Disable the cache for it
+    // (full-reprocess each turn) until upstream supports shared-cell restore.
+    if (llama_get_ctx_other(spec_ctx.get()) == parent_ctx->ctx) {
+        if (state_cache_enabled) {
+            LOG_INFO("state cache disabled for this turn: mem-shared MTP draft "
+                     "(shared-cell state restore is unsupported upstream)");
+        }
+        mtp_draft_mem_shared = true;
+        state_cache_enabled = false;
+        clearStateCheckpoints();
+    }
 
     evalMTPPrompt();
     startGenerationTiming();
@@ -351,12 +706,28 @@ void llama_rn_context_completion::evalMTPPrompt() {
     }
 
     const int32_t n_batch = std::max<int32_t>(1, llama_n_batch(parent_ctx->ctx));
-    size_t offset = 0;
+
+    // Reuse whatever prefix loadPrompt already left in the (shared) target
+    // memory: it set n_past to the reused position. Decode only the diverged tail.
+    size_t offset = std::min((size_t) std::max<llama_pos>(0, n_past), spec_prompt.size());
+    const size_t start_offset = offset;
 
     while (offset < spec_prompt.size()) {
+        size_t decode_to = spec_prompt.size();
+        // Cold ingest only: stop at the next message boundary to snapshot there
+        // (boundary_ckpts is empty on warm turns, so the tail decodes whole).
+        {
+            const auto next_boundary = std::upper_bound(
+                boundary_ckpts.begin(), boundary_ckpts.end(), (llama_pos) offset);
+            if (next_boundary != boundary_ckpts.end() &&
+                (size_t) *next_boundary < spec_prompt.size()) {
+                decode_to = std::min(decode_to, (size_t) *next_boundary);
+            }
+        }
+
         common_batch_clear(spec_batch);
 
-        const size_t n_eval = std::min<size_t>(n_batch, spec_prompt.size() - offset);
+        const size_t n_eval = std::min<size_t>(n_batch, decode_to - offset);
         for (size_t i = 0; i < n_eval; ++i) {
             // MTP consumes pre-norm embeddings from every target row, but prompt logits are unused.
             // Keep one output row per decode batch to preserve the usual llama.cpp graph shape.
@@ -367,14 +738,29 @@ void llama_rn_context_completion::evalMTPPrompt() {
 
         const int ret = llama_decode(parent_ctx->ctx, spec_batch);
         if (ret != 0) {
+            // Memory holds only [0, offset); trim embd so a later prefix match
+            // can't claim never-decoded cells (mirrors nextToken).
+            embd.resize(std::min(embd.size(), offset));
+            n_past = (llama_pos) offset;
             throw std::runtime_error("failed to evaluate MTP prompt batch, ret=" + std::to_string(ret));
         }
         if (!common_speculative_process(spec, spec_batch)) {
+            embd.resize(std::min(embd.size(), offset));
+            n_past = (llama_pos) offset;
             throw std::runtime_error("failed to process MTP prompt batch");
         }
 
         offset += n_eval;
+
+        // Cold ingest only: snapshot at boundary positions the moment we reach
+        // them. Warm turns captured their frontier in loadPrompt already.
+        if (std::binary_search(boundary_ckpts.begin(), boundary_ckpts.end(),
+                               (llama_pos) offset)) {
+            captureStateCheckpoint(spec_prompt, offset);
+        }
     }
+
+    mtp_prompt_reprocessed = spec_prompt.size() - start_offset;
 
     spec_n_past = (llama_pos) spec_prompt.size();
     n_past = spec_n_past;
@@ -566,14 +952,41 @@ completion_token_output llama_rn_context_completion::nextToken()
         n_past -= n_discard;
         truncated = true;
 
+        // A context shift remaps positions; old snapshots no longer line up.
+        clearStateCheckpoints();
+
         LOG_VERBOSE("context shifted, new n_past: %d, new size: %d", n_past, embd.size());
     }
+
+    // Interval fallback (0 = off): only for cold prompts with no message
+    // boundaries (prompt_checkpoint_pending is cold-ingest-only, see loadPrompt).
+    const llama_pos prefill_interval =
+        (state_cache_enabled && prompt_checkpoint_pending && boundary_ckpts.empty())
+            ? (llama_pos) state_ckpt_prefill_interval
+            : 0;
 
     bool tg = true;
     while (n_past < embd.size())
     {
-        int n_eval = (int)embd.size() - n_past;
-        tg = n_eval == 1;
+        llama_pos decode_to = (llama_pos) embd.size();
+        // Cold ingest only: split the decode at snapshot positions so we can
+        // capture there (boundary / interval). Warm turns leave boundary_ckpts
+        // empty and prompt_checkpoint_pending false, so the tail decodes whole.
+        if (prompt_checkpoint_pending) {
+            const auto next_boundary = std::upper_bound(
+                boundary_ckpts.begin(), boundary_ckpts.end(), n_past);
+            if (next_boundary != boundary_ckpts.end()) {
+                decode_to = std::min(decode_to, *next_boundary);
+            }
+        }
+        if (prefill_interval > 0) {
+            const llama_pos next_ckpt = (n_past / prefill_interval + 1) * prefill_interval;
+            if (next_ckpt < (llama_pos) num_prompt_tokens) {
+                decode_to = std::min(decode_to, next_ckpt);
+            }
+        }
+        int n_eval = (int)(decode_to - n_past);
+        tg = ((int) embd.size() - n_past) == 1;
         if (n_eval > parent_ctx->params.n_batch)
         {
             n_eval = parent_ctx->params.n_batch;
@@ -586,6 +999,9 @@ completion_token_output llama_rn_context_completion::nextToken()
                 parent_ctx->params.cpuparams.n_threads,
                 tokens_to_str(parent_ctx->ctx, embd.cbegin() + n_past, embd.cend()).c_str()
             );
+            // Trim embd to what the memory actually contains so a later prefix
+            // match can't claim never-written cells.
+            embd.resize(n_past);
             has_next_token = false;
             return result;
         }
@@ -597,7 +1013,27 @@ completion_token_output llama_rn_context_completion::nextToken()
             has_next_token = false;
             return result;
         }
+
+        // Cold ingest only: snapshot at boundary / interval positions as we
+        // reach them. Warm turns captured their frontier in loadPrompt already.
+        if (prompt_checkpoint_pending &&
+            std::binary_search(boundary_ckpts.begin(), boundary_ckpts.end(), n_past)) {
+            captureStateCheckpoint();
+        }
+        else if (prefill_interval > 0 && n_past < (llama_pos) num_prompt_tokens &&
+                 n_past % prefill_interval == 0) {
+            captureStateCheckpoint();
+        }
     }
+
+    // Prompt end not captured: the next turn's frontier capture covers it.
+    if (prompt_checkpoint_pending && n_past >= (llama_pos) num_prompt_tokens) {
+        prompt_checkpoint_pending = false;
+    }
+
+    // No snapshots during generation: a stable append reuses the reply via
+    // seq_rm; otherwise the next ingest reprocesses it once and lays a boundary
+    // snapshot after it.
 
     const llama_vocab* vocab = llama_model_get_vocab(parent_ctx->model);
 
@@ -774,7 +1210,7 @@ std::vector<float> llama_rn_context_completion::embedding(common_params &embd_pa
         throw std::runtime_error("Failed to initialize sampling");
     }
     beginCompletion();
-    loadPrompt({});
+    loadPrompt({}, /*allow_state_cache*/ false);
     doCompletion();
     endCompletion();
 
@@ -836,7 +1272,7 @@ std::vector<float> llama_rn_context_completion::rerank(const std::string &query,
         try {
             parent_ctx->params.prompt = tokens_to_str(parent_ctx->ctx, rerank_tokens.begin(), rerank_tokens.end());
             initSampling();
-            loadPrompt({}); // No media paths for rerank
+            loadPrompt({}, /*allow_state_cache*/ false); // No media paths for rerank
             beginCompletion();
             doCompletion();
 
@@ -1085,6 +1521,16 @@ void llama_rn_context_completion::processMedia(
 
     // Delegate to the mtmd_wrapper method
     // For non-parallel mode, use the global bitmap_past_hashes from mtmd_wrapper
+    probeStateCache();
+    // Wire the state cache into the media path so images aren't re-encoded
+    // every turn.
+    auto recover = [this](const std::vector<llama_token> &target, size_t max_reuse,
+                          size_t total_tokens, llama_pos &n_past_out) {
+        return recoverStateCheckpoint(target, max_reuse, total_tokens, n_past_out);
+    };
+    auto capture = [this](const std::vector<llama_token> &seq, size_t n) {
+        captureStateCheckpoint(seq, n);
+    };
     parent_ctx->mtmd_wrapper->processMedia(
         parent_ctx->ctx,
         prompt,
@@ -1096,7 +1542,9 @@ void llama_rn_context_completion::processMedia(
         context_full,
         ctx_sampling,
         parent_ctx->mtmd_wrapper->bitmap_past_hashes,
-        0  // Use sequence ID 0 for non-parallel mode
+        0,  // Use sequence ID 0 for non-parallel mode
+        recover,
+        capture
     );
 }
 

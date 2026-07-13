@@ -8,8 +8,19 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <functional>
 
 namespace rnllama {
+
+// Optional state-cache callbacks so the single-sequence completion path can
+// reuse the prefix across turns (as on the text path); null on the parallel
+// slot-manager path (full-clear).
+//   recover(target, max_reuse, total_tokens, n_past_out) -> restored?
+//   capture(seq, n) -> snapshot the memory at position n, tagged with seq[0,n)
+using mtmd_state_recover_fn =
+    std::function<bool(const std::vector<llama_token> &, size_t, size_t, llama_pos &)>;
+using mtmd_state_capture_fn =
+    std::function<void(const std::vector<llama_token> &, size_t)>;
 
 // MTMD context structure
 struct llama_rn_context_mtmd {
@@ -17,6 +28,9 @@ struct llama_rn_context_mtmd {
 
     // State fields
     std::vector<std::string> bitmap_past_hashes;
+    // Number of prompt tokens reused from the cache on the last processMedia call
+    // (the position the chunk eval resumed from). Instrumentation for the tests.
+    llama_pos last_reused_n_past = 0;
 
     // Constructor - Initialize multimodal
     llama_rn_context_mtmd(
@@ -46,7 +60,9 @@ struct llama_rn_context_mtmd {
         bool &context_full,
         common_sampler *ctx_sampling,
         std::vector<std::string> &bitmap_past_hashes,  // Per-slot bitmap hashes
-        int32_t seq_id  // Sequence ID for parallel slots
+        int32_t seq_id,  // Sequence ID for parallel slots
+        mtmd_state_recover_fn recover = nullptr,
+        mtmd_state_capture_fn capture = nullptr
     );
 
     // Check if multimodal is enabled
@@ -393,7 +409,9 @@ inline void llama_rn_context_mtmd::processMedia(
     bool &context_full,
     common_sampler *ctx_sampling,
     std::vector<std::string> &bitmap_past_hashes_ref,  // Per-slot bitmap hashes
-    int32_t seq_id  // Sequence ID for parallel slots
+    int32_t seq_id,  // Sequence ID for parallel slots
+    mtmd_state_recover_fn recover,
+    mtmd_state_capture_fn capture
 ) {
     // Multimodal path
     std::string full_prompt = prompt;
@@ -478,14 +496,58 @@ inline void llama_rn_context_mtmd::processMedia(
 
     bool clear_result = llama_memory_seq_rm(kv, seq_id, n_past, -1);
     if (!clear_result) {
-        LOG_ERROR("[DEBUG] llama_memory_seq_rm failed (likely using a non-Transformer model)! Trying full clear...");
-        llama_memory_clear(kv, false);
-        n_past = 0;
-        new_n_past = n_past;
+        // Recurrent/hybrid: restore a checkpoint instead of re-encoding the
+        // images. Must be chunk-aligned — the eval loop below does whole chunks,
+        // so a mid-chunk restore (except a final plain-text tail) shifts chunks.
+        llama_pos recovered_n_past = 0;
+        bool recovered_ok = false;
+        size_t recover_cap = (size_t) n_past;
+        while (recover && recover(all_tokens, recover_cap, all_tokens.size(), recovered_n_past)) {
+            // Locate the chunk containing the recovered position.
+            size_t ci = 0;
+            for (size_t i = 0; i < chunk_pos.size(); i++) {
+                if (chunk_pos[i] <= (size_t) recovered_n_past) ci = i;
+                else break;
+            }
+            const bool aligned = chunk_pos[ci] == (size_t) recovered_n_past;
+            bool text_tail_of_last_chunk = false;
+            if (!aligned && ci + 1 == chunk_pos.size()) {
+                text_tail_of_last_chunk = true;
+                for (size_t j = (size_t) recovered_n_past; j < all_tokens.size(); j++) {
+                    if (all_tokens[j] == LLAMA_TOKEN_NULL) {
+                        text_tail_of_last_chunk = false;
+                        break;
+                    }
+                }
+            }
+            if (aligned || text_tail_of_last_chunk) {
+                recovered_ok = true;
+                break;
+            }
+            if (chunk_pos[ci] == 0) {
+                break; // no shorter aligned candidate can exist
+            }
+            // Mid-interior-chunk: retry capped at the start of the chunk that
+            // contains the recovered position (strictly decreasing -> terminates).
+            recover_cap = chunk_pos[ci];
+        }
+        if (recovered_ok) {
+            n_past = recovered_n_past;
+            new_n_past = n_past;
+            LOG_INFO("[DEBUG] Restored multimodal state checkpoint: reusing %d tokens", n_past);
+        } else {
+            LOG_ERROR("[DEBUG] llama_memory_seq_rm failed (likely using a non-Transformer model)! Trying full clear...");
+            llama_memory_clear(kv, false);
+            n_past = 0;
+            new_n_past = n_past;
+        }
     }
 
 
     LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, n_batch);
+
+    // Record the reused prefix (position the eval resumes from) for the tests.
+    last_reused_n_past = n_past;
 
     size_t num_chunks = mtmd_input_chunks_size(chunks);
 
@@ -516,9 +578,19 @@ inline void llama_rn_context_mtmd::processMedia(
         }
     }
 
+    // Snapshot the fully-ingested prompt (including image chunks) so the next
+    // turn can restore this prefix instead of re-encoding the images.
+    if (capture && n_past > 0 && (size_t) n_past == all_tokens.size()) {
+        capture(all_tokens, (size_t) n_past);
+    }
+
     if (n_past == all_tokens.size() && n_past > 0 && all_tokens[n_past - 1] != LLAMA_TOKEN_NULL) {
         // we have to evaluate at least 1 token to generate logits.
         n_past--;
+        // Trim the cache to n_past: nextToken re-decodes the last token
+        // (llama_batch_get_one, pos=NULL -> seq_pos_max+1), so without this it
+        // would be written twice and shift the tail (mirrors the text path).
+        llama_memory_seq_rm(llama_get_memory(ctx), seq_id, n_past, -1);
     }
 
     // Update embd with all tokens (both text and media)

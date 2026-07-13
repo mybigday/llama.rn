@@ -102,6 +102,11 @@ struct llama_rn_context {
     common_chat_templates_ptr templates;
     int n_ctx = 0;
 
+    // Prompt state cache tuning (see rn-completion.h). Budget 0 disables it;
+    // no-op on pure-attention models.
+    size_t state_cache_budget_bytes = (size_t) 160 * 1024 * 1024; // 0 = disabled
+    int32_t state_cache_max_checkpoints = 8;
+
     // Completion context (DEPRECATED: Use slot_manager for parallel decoding)
     llama_rn_context_completion *completion = nullptr;
 
