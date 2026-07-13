@@ -1085,6 +1085,121 @@ struct llama_model_deepseek32 : public llama_model_base {
 };
 
 
+struct llama_model_deepseek4 : public llama_model_base {
+    llama_model_deepseek4(const struct llama_model_params & params) : llama_model_base(params) {}
+    void load_arch_hparams(llama_model_loader & ml) override;
+    void load_arch_tensors(llama_model_loader & ml) override;
+
+    struct graph : public llm_graph_context {
+        graph(const llama_model & model, const llm_graph_params & params);
+
+        lm_ggml_tensor * build_hc_pre(
+                lm_ggml_tensor * x,
+                lm_ggml_tensor * hc_fn,
+                lm_ggml_tensor * hc_scale,
+                lm_ggml_tensor * hc_base,
+                lm_ggml_tensor ** post,
+                lm_ggml_tensor ** comb,
+                int il) const;
+
+        lm_ggml_tensor * build_hc_post(
+                lm_ggml_tensor * x,
+                lm_ggml_tensor * residual,
+                lm_ggml_tensor * post,
+                lm_ggml_tensor * comb,
+                int il) const;
+
+        lm_ggml_tensor * build_hc_head(
+                lm_ggml_tensor * x,
+                lm_ggml_tensor * hc_fn,
+                lm_ggml_tensor * hc_scale,
+                lm_ggml_tensor * hc_base) const;
+
+        lm_ggml_tensor * build_attention(
+                const llama_model & model,
+                llm_graph_input_dsv4 * inp_dsv4,
+                lm_ggml_tensor * cur,
+                lm_ggml_tensor * inp_pos,
+                int il) const;
+
+        lm_ggml_tensor * build_hca_compressed_kv_from_state(
+                lm_ggml_tensor * kv_state,
+                lm_ggml_tensor * score_state,
+                lm_ggml_tensor * state_read_idxs,
+                lm_ggml_tensor * comp_pos,
+                lm_ggml_tensor * norm,
+                int64_t n_embd_head,
+                const char * name,
+                int il) const;
+
+        lm_ggml_tensor * build_overlap_compressed_kv_from_state(
+                lm_ggml_tensor * kv_state,
+                lm_ggml_tensor * score_state,
+                lm_ggml_tensor * state_read_idxs,
+                lm_ggml_tensor * comp_pos,
+                lm_ggml_tensor * norm,
+                int64_t ratio,
+                int64_t n_embd_head,
+                const char * name,
+                int il) const;
+
+        lm_ggml_tensor * build_lid_top_k(
+                const llama_model & model,
+                llm_graph_input_dsv4 * inp_dsv4,
+                lm_ggml_tensor * qr,
+                lm_ggml_tensor * cur,
+                lm_ggml_tensor * inp_pos,
+                int il) const;
+
+        lm_ggml_tensor * build_top_k_mask(
+                lm_ggml_tensor * kq_mask,
+                lm_ggml_tensor * top_k,
+                const char * name,
+                int il) const;
+
+        lm_ggml_tensor * build_csa_lid_attention(
+                const llama_model & model,
+                llm_graph_input_dsv4 * inp_dsv4,
+                llm_graph_input_dsv4_raw * inp_attn,
+                lm_ggml_tensor * q,
+                lm_ggml_tensor * kv,
+                lm_ggml_tensor * qr,
+                lm_ggml_tensor * cur,
+                lm_ggml_tensor * inp_pos,
+                lm_ggml_tensor * sinks,
+                float kq_scale,
+                int il) const;
+
+        lm_ggml_tensor * build_hca_attention(
+                llm_graph_input_dsv4 * inp_dsv4,
+                llm_graph_input_dsv4_raw * inp_attn,
+                lm_ggml_tensor * q,
+                lm_ggml_tensor * kv,
+                lm_ggml_tensor * sinks,
+                float kq_scale,
+                int il) const;
+
+        lm_ggml_tensor * build_raw_attention(
+                llm_graph_input_dsv4_raw * inp_attn,
+                lm_ggml_tensor * q,
+                lm_ggml_tensor * kv,
+                lm_ggml_tensor * sinks,
+                float kq_scale,
+                int il) const;
+
+        lm_ggml_tensor * build_hc_weighted_sum(
+                lm_ggml_tensor * x,
+                lm_ggml_tensor * weights) const;
+
+        lm_ggml_tensor * build_hc_sinkhorn(
+                lm_ggml_tensor * comb,
+                int il) const;
+    };
+
+    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
+};
+
+
 struct llama_model_deepseek2ocr : public llama_model_base {
     llama_model_deepseek2ocr(const struct llama_model_params & params) : llama_model_base(params) {}
     void load_arch_hparams(llama_model_loader & ml) override;
@@ -1108,6 +1223,22 @@ struct llama_model_glm_dsa : public llama_model_base {
 
 struct llama_model_eagle3 : public llama_model_base {
     llama_model_eagle3(const struct llama_model_params & params) : llama_model_base(params) {}
+    void load_arch_hparams(llama_model_loader & ml) override;
+    void load_arch_tensors(llama_model_loader & ml) override;
+
+    template <bool is_enc>
+    struct graph : public llm_graph_context {
+        graph(const llama_model & model, const llm_graph_params & params);
+
+        lm_ggml_tensor * build_inp_embd_enc() const;
+    };
+
+    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
+};
+
+
+struct llama_model_dflash : public llama_model_base {
+    llama_model_dflash(const struct llama_model_params & params) : llama_model_base(params) {}
     void load_arch_hparams(llama_model_loader & ml) override;
     void load_arch_tensors(llama_model_loader & ml) override;
 

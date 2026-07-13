@@ -112,7 +112,7 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_cpy
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_pool_1d           (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op, enum lm_ggml_op_pool op_pool);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_pool_2d           (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op, enum lm_ggml_op_pool op_pool);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_get_rows          (lm_ggml_metal_library_t lib, enum lm_ggml_type tsrc);
-struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_set_rows          (lm_ggml_metal_library_t lib, enum lm_ggml_type tidx, enum lm_ggml_type tdst);
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_set_rows          (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_diag              (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_repeat            (lm_ggml_metal_library_t lib, enum lm_ggml_type tsrc);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_concat            (lm_ggml_metal_library_t lib, enum lm_ggml_type tsrc);
@@ -150,7 +150,9 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_rop
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_im2col            (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_conv_transpose_1d (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_conv_transpose_2d (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_col2im_1d         (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_conv_2d           (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_conv_2d_dw        (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op, bool tiled);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_conv_3d           (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_upscale           (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_pad               (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);

@@ -1157,6 +1157,11 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                 (op->src[0]->type == LM_GGML_TYPE_F16 || op->src[0]->type == LM_GGML_TYPE_F32) &&
                 op->src[1]->type == LM_GGML_TYPE_F32 &&
                 op->type == LM_GGML_TYPE_F32;
+        case LM_GGML_OP_COL2IM_1D:
+            return (op->src[0]->type == LM_GGML_TYPE_F32 || op->src[0]->type == LM_GGML_TYPE_F16 || op->src[0]->type == LM_GGML_TYPE_BF16) &&
+                op->type == op->src[0]->type &&
+                lm_ggml_is_contiguous(op->src[0]) &&
+                lm_ggml_is_contiguous(op);
         case LM_GGML_OP_CONV_3D:
             return lm_ggml_is_contiguous(op->src[0]) &&
                    lm_ggml_is_contiguous(op->src[1]) &&
@@ -1191,6 +1196,10 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
         case LM_GGML_OP_CONV_2D:
             return lm_ggml_is_contiguous(op->src[0]) &&
                    op->src[1]->type == LM_GGML_TYPE_F32 &&
+                   op->type == LM_GGML_TYPE_F32 &&
+                   (op->src[0]->type == LM_GGML_TYPE_F16 || op->src[0]->type == LM_GGML_TYPE_F32);
+        case LM_GGML_OP_CONV_2D_DW:
+            return op->src[1]->type == LM_GGML_TYPE_F32 &&
                    op->type == LM_GGML_TYPE_F32 &&
                    (op->src[0]->type == LM_GGML_TYPE_F16 || op->src[0]->type == LM_GGML_TYPE_F32);
         case LM_GGML_OP_UPSCALE:
@@ -1329,7 +1338,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
             return op->src[0]->type != LM_GGML_TYPE_NVFP4;
         case LM_GGML_OP_SET_ROWS:
             {
-                if (op->src[0]->type != LM_GGML_TYPE_F32) {
+                if (op->src[0]->type != LM_GGML_TYPE_F32 && op->src[0]->type != LM_GGML_TYPE_F16) {
                     return false;
                 }
 
