@@ -570,6 +570,7 @@ extern "C" {
         LM_GGML_OP_RWKV_WKV7,
         LM_GGML_OP_SOLVE_TRI,
         LM_GGML_OP_GATED_DELTA_NET,
+        LM_GGML_OP_LIGHTNING_INDEXER,
 
         LM_GGML_OP_UNARY,
 
@@ -2574,6 +2575,24 @@ extern "C" {
             struct lm_ggml_tensor  * beta,
             struct lm_ggml_tensor  * state,
             int64_t               K);
+
+    // DSA lightning indexer
+    //
+    // q:       [n_embd_idx, n_head_idx, n_batch, ne3 ]
+    // k:       [n_embd_idx, 1,          n_kv,    ne3 ]
+    // weights: [n_head_idx, n_batch,    1,       ne3 ] !! prescaled !!
+    // mask:    [n_kv,       n_batch,    1,       ne33] !! f16 !!
+    // res:     [n_kv,       n_batch,    1,       ne3 ]
+    //
+    // broadcast:
+    //   ne3 % ne33 == 0
+    //
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_lightning_indexer(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * q,
+        struct lm_ggml_tensor  * k,
+        struct lm_ggml_tensor  * weights,
+        struct lm_ggml_tensor  * mask);
 
     // custom operators
 

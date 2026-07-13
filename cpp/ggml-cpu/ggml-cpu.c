@@ -2060,6 +2060,10 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_gated_delta_net(params, tensor);
             } break;
+        case LM_GGML_OP_LIGHTNING_INDEXER:
+            {
+                lm_ggml_compute_forward_lightning_indexer(params, tensor);
+            } break;
         case LM_GGML_OP_MAP_CUSTOM1:
             {
                 lm_ggml_compute_forward_map_custom1(params, tensor);
@@ -2380,6 +2384,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
         case LM_GGML_OP_FLASH_ATTN_BACK:
         case LM_GGML_OP_SSM_CONV:
         case LM_GGML_OP_SSM_SCAN:
+        case LM_GGML_OP_LIGHTNING_INDEXER:
             {
                 n_tasks = n_threads;
             } break;
@@ -2965,6 +2970,12 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
                     {
                         LM_GGML_ABORT("fatal error");
                     }
+                case LM_GGML_OP_LIGHTNING_INDEXER:
+                    {
+                        // temp buffer for dequantizing lightning indexer keys
+                        const int64_t ne10 = node->src[1]->ne[0];
+                        cur += sizeof(float)*ne10*n_tasks;
+                    } break;
                 default:
                     break;
             }

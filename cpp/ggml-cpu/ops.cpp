@@ -11568,3 +11568,87 @@ void lm_ggml_compute_forward_fwht(const lm_ggml_compute_params * params, lm_ggml
             }
     }
 }
+
+// lm_ggml_compute_forward_lightning_indexer
+
+void lm_ggml_compute_forward_lightning_indexer(
+        const lm_ggml_compute_params * params,
+        lm_ggml_tensor * dst) {
+
+    const lm_ggml_tensor * q = dst->src[0];
+    const lm_ggml_tensor * k = dst->src[1];
+    const lm_ggml_tensor * w = dst->src[2]; // weights
+    const lm_ggml_tensor * m = dst->src[3]; // mask
+
+    LM_GGML_ASSERT(dst->type  == LM_GGML_TYPE_F32);
+    LM_GGML_ASSERT(   q->type == LM_GGML_TYPE_F32);
+    LM_GGML_ASSERT(   w->type == LM_GGML_TYPE_F32);
+    LM_GGML_ASSERT(   m->type == LM_GGML_TYPE_F16);
+
+    LM_GGML_TENSOR_LOCALS(int64_t, neq,  q, ne)
+    LM_GGML_TENSOR_LOCALS(size_t,  nbq,  q, nb)
+    LM_GGML_TENSOR_LOCALS(int64_t, nek,  k, ne)
+    LM_GGML_TENSOR_LOCALS(size_t,  nbk,  k, nb)
+    LM_GGML_TENSOR_LOCALS(int64_t, new,  w, ne)
+    LM_GGML_TENSOR_LOCALS(size_t,  nbw,  w, nb)
+    LM_GGML_TENSOR_LOCALS(int64_t, nem,  m, ne)
+    LM_GGML_TENSOR_LOCALS(size_t,  nbm,  m, nb)
+    LM_GGML_TENSOR_LOCALS(int64_t, ne, dst, ne)
+    LM_GGML_TENSOR_LOCALS(size_t,  nb, dst, nb)
+
+    LM_GGML_ASSERT( nb0 == lm_ggml_type_size(dst->type));
+    LM_GGML_ASSERT(nbq0 == lm_ggml_type_size(  q->type));
+    LM_GGML_ASSERT(nbk0 == lm_ggml_type_size(  k->type));
+    LM_GGML_ASSERT(nbw0 == lm_ggml_type_size(  w->type));
+    LM_GGML_ASSERT(nbm0 == lm_ggml_type_size(  m->type));
+
+    const int n_embd    = q->ne[0];
+    const int n_head    = q->ne[1];
+    const int n_tokens  = q->ne[2];
+    const int n_stream  = q->ne[3];
+    const int n_kv      = k->ne[2];
+
+    lm_ggml_to_float_t const k_to_float = lm_ggml_get_type_traits(k->type)->to_float;
+    LM_GGML_ASSERT((k->type == LM_GGML_TYPE_F32 || k_to_float) && "lightning indexer: unsupported K-type");
+
+    const int nr  = n_kv;
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    // (temporary) buffer for K converted to float
+    float * k_row_f32 = (float *) params->wdata + ith*(1*n_embd + CACHE_LINE_SIZE_F32);
+
+    // rows per thread
+    const int dr = (nr + nth - 1)/nth;
+
+    // row range for this thread
+    const int ir0 = dr*ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    for (int s = 0; s < n_stream; ++s) {
+        for (int t = 0; t < n_tokens; ++t) {
+            const float       *   w_row =       (float *) ((char *)   w->data + t*nbw1 +        s*nbw3);
+            const lm_ggml_fp16_t *   m_row = (lm_ggml_fp16_t *) ((char *)   m->data + t*nbm1 + (s%nem3)*nbm3);
+            float             * dst_row =       (float *) ((char *) dst->data + t*nb1  +        s*nb3 );
+            for (int ik = ir0; ik < ir1; ++ik) {
+                char * k_row = (char *) k->data + ik*nbk2 + s*nbk3;
+                if (k_to_float) {
+                    k_to_float(k_row, k_row_f32, n_embd);
+                } else {
+                    k_row_f32 = (float *) k_row;
+                }
+                float score = 0.0f;
+                for (int h = 0; h < n_head; ++h) {
+                    // dot product of q and k for head h
+                    float qk = 0.0f;
+                    const float * q_row = (float *) ((char *) q->data + h*nbq1 + t*nbq2 + s*nbq3);
+                    lm_ggml_vec_dot_f32(n_embd, &qk, 0, q_row, 0, k_row_f32, 0, 1);
+                    // ReLU and weights (prescaled)
+                    score += MAX(qk, 0.0f) * w_row[h];
+                }
+                // apply mask
+                dst_row[ik] = score + LM_GGML_CPU_FP16_TO_FP32(m_row[ik]);
+            }
+        }
+    }
+}
