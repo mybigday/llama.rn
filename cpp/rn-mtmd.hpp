@@ -256,8 +256,9 @@ inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrappe
         throw std::runtime_error("Failed to initialize input chunks");
     }
 
-    mtmd_input_text input_text;
-    input_text.text = prompt.c_str(); // Use the full prompt with image marker
+    mtmd_input_text input_text{};
+    input_text.text = prompt.data(); // Use the full prompt with media markers
+    input_text.text_len = prompt.size();
     input_text.add_special = true;  // Add BOS token if this is the first message
     input_text.parse_special = true;       // Parse special tokens like <__media__>
 
