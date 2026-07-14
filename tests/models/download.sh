@@ -50,18 +50,23 @@ spec_for() {
     mamba)    echo "mamba|tensorblock/mamba-130m-hf-GGUF|mamba-130m-hf-Q3_K_M.gguf" ;;
     # Qwen3.5 is hybrid AND its chat template strips the empty <think></think>
     # the model emits, forcing a mid-sequence divergence -> full wipe every turn.
-    qwen35)   echo "qwen35|bartowski/Qwen_Qwen3.5-2B-GGUF|Qwen_Qwen3.5-2B-Q4_0.gguf" ;;
+    # Its mmproj ships in the same repo, so it is also the hybrid + M-RoPE vision
+    # model, and the only vision model with a native MTP draft head.
+    qwen35)   echo "qwen35|bartowski/Qwen_Qwen3.5-2B-GGUF|Qwen_Qwen3.5-2B-Q4_0.gguf mmproj-Qwen_Qwen3.5-2B-f16.gguf" ;;
     gemma4)   echo "gemma4|bartowski/google_gemma-4-E2B-it-GGUF|google_gemma-4-E2B-it-Q4_K_M.gguf mmproj-google_gemma-4-E2B-it-f16.gguf" ;;
     # LFM2.5-VL-450M is a hybrid (LFM2 arch) vision model: small, and unlike the
     # SWA gemma4 its seq_rm genuinely fails on divergence, so it exercises the
     # multimodal checkpoint-restore branch end-to-end.
     lfm2vl)   echo "lfm2vl|LiquidAI/LFM2.5-VL-450M-GGUF|LFM2.5-VL-450M-Q8_0.gguf mmproj-LFM2.5-VL-450m-Q8_0.gguf" ;;
+    # SmolVLM-500M: dense-attention (SmolLM2) vision model -- seq_rm reuses the
+    # prefix for free (no state checkpoints), covering the non-recurrent path.
+    smolvlm)  echo "smolvlm|ggml-org/SmolVLM-500M-Instruct-GGUF|SmolVLM-500M-Instruct-Q8_0.gguf mmproj-SmolVLM-500M-Instruct-Q8_0.gguf" ;;
     *) echo "" ;;
   esac
 }
 
 CORE=(smollm2 lfm2 granite4 mamba)
-ALL=(smollm2 lfm2 granite4 mamba qwen35 gemma4)
+ALL=(smollm2 lfm2 granite4 mamba qwen35 gemma4 lfm2vl smolvlm)
 
 if [ "$#" -eq 0 ]; then
   WANT=("${CORE[@]}")
@@ -114,7 +119,7 @@ done
 # than commit them. The vision tests are skipped if these are absent.
 need_images=false
 for key in "${WANT[@]}"; do
-  case "$key" in gemma4|lfm2vl|images) need_images=true ;; esac
+  case "$key" in qwen35|gemma4|lfm2vl|smolvlm|images) need_images=true ;; esac
 done
 if [ "$need_images" = true ]; then
   echo "== vision test images =="
