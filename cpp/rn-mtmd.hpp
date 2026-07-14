@@ -549,6 +549,29 @@ inline void llama_rn_context_mtmd::processMedia(
     // Record the reused prefix (position the eval resumes from) for the tests.
     last_reused_n_past = n_past;
 
+    // Frontier snapshot (like the text path, rn-completion.cpp:461): the reused
+    // state rests at n_past; snapshot it before reprocessing the tail. Advances
+    // the checkpoint chain each turn. Cold turns (n_past==0) skip it -- the
+    // media-boundary anchor below covers those.
+    if (capture && n_past > 0) {
+        capture(all_tokens, (size_t) n_past);
+    }
+
+    // Position right after the last image chunk (== L if the prompt ends in an
+    // image). Anchored below so a later divergence past the image reuses it
+    // rather than re-encoding.
+    size_t media_boundary = all_tokens.size();
+    if (!chunk_pos_media.empty()) {
+        const size_t last_media = chunk_pos_media.back();
+        for (size_t i = 0; i < chunk_pos.size(); i++) {
+            if (chunk_pos[i] == last_media) {
+                media_boundary = (i + 1 < chunk_pos.size()) ? chunk_pos[i + 1]
+                                                            : all_tokens.size();
+                break;
+            }
+        }
+    }
+
     size_t num_chunks = mtmd_input_chunks_size(chunks);
 
     for (size_t i = 0; i < chunk_pos.size(); i++) {
@@ -575,23 +598,19 @@ inline void llama_rn_context_mtmd::processMedia(
                 throw std::runtime_error("Failed to evaluate chunks");
             }
             n_past = new_n_past;
+
+            // Anchor the image before the trailing text is decoded (token-exact,
+            // no rollback needed on any arch).
+            if (capture && n_past > 0 && (size_t) n_past == media_boundary) {
+                capture(all_tokens, (size_t) n_past);
+            }
         }
     }
 
-    // Snapshot the fully-ingested prompt (including image chunks) so the next
-    // turn can restore this prefix instead of re-encoding the images.
-    if (capture && n_past > 0 && (size_t) n_past == all_tokens.size()) {
-        capture(all_tokens, (size_t) n_past);
-    }
-
-    if (n_past == all_tokens.size() && n_past > 0 && all_tokens[n_past - 1] != LLAMA_TOKEN_NULL) {
-        // we have to evaluate at least 1 token to generate logits.
-        n_past--;
-        // Trim the cache to n_past: nextToken re-decodes the last token
-        // (llama_batch_get_one, pos=NULL -> seq_pos_max+1), so without this it
-        // would be written twice and shift the tail (mirrors the text path).
-        llama_memory_seq_rm(llama_get_memory(ctx), seq_id, n_past, -1);
-    }
+    // Leave n_past at L and sample from the chunk eval's last-token logits
+    // (chunk_logits_last requested them) -- decode once, like mtmd-cli/server.
+    // Don't trim to L-1 and re-decode the last token: seq_rm can't roll back a
+    // recurrent/hybrid state (it no-ops), so the token would be consumed twice.
 
     // Update embd with all tokens (both text and media)
     embd = all_tokens;
