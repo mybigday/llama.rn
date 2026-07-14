@@ -32,8 +32,13 @@
 #include <algorithm>
 #include <cctype>
 
+#include <thread>
+#include <chrono>
+
 #include "rn-llama.h"
 #include "rn-completion.h"
+#include "rn-slot.h"
+#include "rn-slot-manager.h"
 #include "rn-mtmd.hpp"
 #include "common.h"
 #include "nlohmann/json.hpp"
@@ -825,8 +830,14 @@ std::vector<Check> run_vision_fidelity(const std::string &key, const std::string
         std::cout << "    [vision-fidelity] " << buf << "\n";
         const bool valid = nll_reuse==nll_reuse && nll_cold1==nll_cold1 && nll_cold2==nll_cold2;
         checks.push_back({key + " [vision-fidelity]: probe scored", valid, buf, false});
-        // Guard against a vacuous pass: the reuse path must actually have restored
-        // the image prefix, not fallen back to a full re-encode.
+        // Acceptance bar for a working image-reuse fix is TWO parts, not "bit-exact":
+        //   (1) reused > 0            -- the restore actually fired (this check), and
+        //   (2) d <= tol             -- the distribution held (the check below).
+        // Note the d>=0 subtlety: a bit-exact d==0 with reused==0 is the CURRENT BUG
+        // (reuse silently fell back to a cold re-encode, so it trivially matches cold).
+        // A correct restore instead diverges from cold by the chunk-layout residual
+        // (~0.05 SWA, ~0.12 hybrid), so post-fix we expect a small NONZERO d <= tol,
+        // not d==0. Guard against the vacuous pass:
         checks.push_back({key + " [vision-fidelity]: image prefix actually restored",
                           reused > 0, "reused_prefix " + std::to_string(reused), /*fix_target*/ true});
         if (valid && reused > 0) {
@@ -1492,6 +1503,148 @@ double score_probe(ChatSim &sim, const std::string &probe_text) {
     return scored > 0 ? nll / scored : std::numeric_limits<double>::quiet_NaN();
 }
 
+// Absolute Tier-A probe (double-decode detector).
+//
+// The mtmd path decodes the whole prompt to L, then removes the last cell
+// (seq_rm(L-1)) and re-decodes that token (nextToken re-evaluates the tail). On a
+// recurrent/hybrid memory that round-trip is faithful ONLY if seq_rm genuinely
+// rolls the recurrent state back one step. The differential fidelity suite is
+// structurally blind to this: it hits reuse and cold identically, so a common-mode
+// double-decode cancels and both sides shift together.
+//
+// This is an ABSOLUTE check: score a fixed probe after (A) a clean single decode of
+// L tokens vs (B) the decode-all -> seq_rm(L-1) -> re-decode round-trip the trim
+// performs. A mismatch means the last prompt token is applied twice to the recurrent
+// state. It needs no mtmd -- the round-trip primitive is medium-agnostic -- and it
+// runs on the recurrent/hybrid text models we already ship, revealing per
+// architecture whether the trim corrupts today (so Tier A is a correctness fix) or
+// is a benign redundancy (Tier A is cleanup). Reported as an invariant, not a
+// fix-target: Tier A stops *using* this primitive rather than changing it, so the
+// measurement is the justification for the deletion, not a gate that flips with it.
+std::vector<Check> run_trim_roundtrip_probe(const std::string &key, const std::string &path) {
+    std::vector<Check> checks;
+    const std::string tag = " [trim-roundtrip]";
+    std::cout << "\n===== " << key << tag
+              << ": decode-all + seq_rm(L-1) + re-decode must equal a clean decode =====\n";
+    ChatSim sim;
+    if (!sim.load(path, /*n_ctx*/ 2048)) {
+        checks.push_back({key + tag + ": model load", false, "loadModel failed", false});
+        return checks;
+    }
+    sim.system_prompt = "You are a helpful assistant.";
+    sim.enable_thinking = false;
+    sim.user("In one sentence, tell me something interesting about lighthouses.");
+    const std::string prompt = sim.render(/*add_generation_prompt*/ true);
+
+    std::vector<llama_token> toks = sim.tokenize_like_loadprompt(prompt);
+    const size_t L = toks.size();
+    if (L < 3) {
+        checks.push_back({key + tag + ": prompt long enough", false,
+                          "tokenized to " + std::to_string(L), false});
+        return checks;
+    }
+
+    auto *lctx = sim.ctx.ctx;
+    auto *kv = llama_get_memory(lctx);
+    const llama_vocab *vocab = llama_model_get_vocab(sim.ctx.model);
+    const int n_vocab = llama_vocab_n_tokens(vocab);
+
+    const std::string probe =
+        "The keeper trimmed the wick and the beam swept slowly across the black water below.";
+    std::vector<llama_token> ptoks = sim.tokenize_like_loadprompt(probe);
+    if (!ptoks.empty() && ptoks.front() == llama_vocab_bos(vocab)) ptoks.erase(ptoks.begin());
+
+    auto decode_all = [&](size_t n) -> bool {
+        for (size_t off = 0; off < n; ) {
+            const int ne = std::min<int>((int) (n - off), 512);
+            if (llama_decode(lctx, llama_batch_get_one(toks.data() + off, ne))) return false;
+            off += (size_t) ne;
+        }
+        return true;
+    };
+    auto score = [&]() -> double {
+        double nll = 0; int scored = 0;
+        for (llama_token tgt : ptoks) {
+            const float *logits = llama_get_logits_ith(lctx, -1);
+            if (logits == nullptr) return std::numeric_limits<double>::quiet_NaN();
+            double mx = -1e30;
+            for (int i = 0; i < n_vocab; i++) mx = std::max(mx, (double) logits[i]);
+            double se = 0;
+            for (int i = 0; i < n_vocab; i++) se += std::exp((double) logits[i] - mx);
+            nll += -(((double) logits[tgt] - mx) - std::log(se));
+            scored++;
+            llama_token t = tgt;
+            if (llama_decode(lctx, llama_batch_get_one(&t, 1)))
+                return std::numeric_limits<double>::quiet_NaN();
+        }
+        return scored > 0 ? nll / scored : std::numeric_limits<double>::quiet_NaN();
+    };
+
+    auto redecode_last = [&]() -> bool {
+        llama_token t = toks[L - 1];
+        return llama_decode(lctx, llama_batch_get_one(&t, 1)) == 0;
+    };
+
+    // (A) clean: decode all L tokens once, then score. The correct reference.
+    llama_memory_clear(kv, false);
+    if (!decode_all(L)) {
+        checks.push_back({key + tag + ": clean decode", false, "llama_decode failed", false});
+        return checks;
+    }
+    const double nll_clean = score();
+
+    // (B) THIS FEATURE's mtmd trim: decode all L, seq_rm(L-1), re-decode the last token.
+    llama_memory_clear(kv, false);
+    if (!decode_all(L)) {
+        checks.push_back({key + tag + ": feature decode", false, "llama_decode failed", false});
+        return checks;
+    }
+    const bool rm_ok = llama_memory_seq_rm(kv, 0, (llama_pos) (L - 1), -1);
+    if (!redecode_last()) {
+        checks.push_back({key + tag + ": feature re-decode", false, "llama_decode failed", false});
+        return checks;
+    }
+    const double nll_feat = score();
+
+    // (C) origin/main's mtmd trim (WITHOUT this feature): decode all L, then re-decode
+    // the last token WITHOUT seq_rm -- the n_past-- only path that ships in main today.
+    // (B) vs (C) is the load-bearing comparison: does ADDING this feature degrade,
+    // improve, or no-op each architecture relative to what an app runs on main now?
+    llama_memory_clear(kv, false);
+    if (!decode_all(L)) {
+        checks.push_back({key + tag + ": main decode", false, "llama_decode failed", false});
+        return checks;
+    }
+    if (!redecode_last()) {
+        checks.push_back({key + tag + ": main re-decode", false, "llama_decode failed", false});
+        return checks;
+    }
+    const double nll_main = score();
+
+    const bool valid = nll_clean == nll_clean && nll_feat == nll_feat && nll_main == nll_main;
+    const double d_feat = std::fabs(nll_feat - nll_clean);  // feature error vs clean
+    const double d_main = std::fabs(nll_main - nll_clean);  // origin/main error vs clean
+    // FP noise floor; a recurrent double-decode shifts the distribution well past this.
+    const double tol = std::max(0.03, 0.01 * std::fabs(nll_clean));
+    char buf[320];
+    snprintf(buf, sizeof(buf),
+             "clean %.4f | main(no-seq_rm) d=%.4f | feature(seq_rm) d=%.4f | seq_rm(L-1)=%s tol=%.3f L=%zu",
+             nll_clean, d_main, d_feat, rm_ok ? "ok" : "FAILED", tol, L);
+    // Informational: is the trim round-trip itself faithful? Fails on recurrent
+    // (seq_rm can't roll back) -- the pre-existing double-decode Tier A removes.
+    // Printed, not asserted: it does not flip with any fix in this branch, so it is
+    // a diagnostic, not a gate.
+    std::cout << "    [trim-roundtrip] " << buf
+              << "  | round-trip faithful: " << ((valid && d_feat <= tol) ? "yes" : "NO (pre-existing, Tier-A)")
+              << "\n";
+    checks.push_back({key + tag + ": probe scored", valid, buf, false});
+    // THE gate: does adding this feature degrade correctness vs origin/main?
+    // Pass = feature is no worse than the old-main path (it improves or no-ops).
+    checks.push_back({key + tag + ": feature no worse than origin/main trim",
+                      valid && d_feat <= d_main + 0.02, buf, /*fix_target*/ false});
+    return checks;
+}
+
 // State fidelity: a corrupted restored state shifts the model's predictive
 // distribution. Score the same probe continuation after (a) a checkpoint-restore
 // reuse and (b) a cold recompute of the SAME prompt; the two must agree within
@@ -1657,6 +1810,98 @@ std::vector<Check> run_coherence_dump(const std::string &key, const std::string 
     return checks;
 }
 
+// Slot-path + media coverage.
+//
+// The mtmd trim (and, later, Tier A/B) lives in the SHARED processMedia, which the
+// parallel slot manager also calls -- but parallel_decoding_test only checks that
+// media_paths are *stored*, never decodes media through a slot. This drives a real
+// image request end-to-end through the slot manager and asserts the model actually
+// sees the image (correct one-word answer). A dropped last prompt token / attention
+// gap on the slot path would corrupt or empty that answer, so a correct recognition
+// is direct evidence the slot media path (including the trim) is intact.
+std::vector<Check> run_slot_media_test(const std::string &key, const std::string &path,
+                                       const std::string &mmproj_path, const std::string &img) {
+    std::vector<Check> checks;
+    const std::string tag = " [slot-vision]";
+    std::cout << "\n===== " << key << tag << ": media request through the slot manager =====\n";
+
+    llama_rn_context ctx;
+    common_params params;
+    params.model.path = path;
+    params.n_ctx = 4096;
+    params.n_batch = 512;
+    params.n_ubatch = 512;
+    params.n_parallel = 2;
+    params.cpuparams.n_threads = std::max(1u, std::thread::hardware_concurrency() / 2);
+    const char *ngl = std::getenv("RNLLAMA_NGL");
+    params.n_gpu_layers = ngl ? std::atoi(ngl) : 0;
+    params.no_kv_offload = params.n_gpu_layers == 0;
+    params.n_predict = 16;
+    params.sampling.temp = 0.0f;
+    params.sampling.top_k = 1;
+
+    if (!ctx.loadModel(params)) {
+        checks.push_back({key + tag + ": model load", false, "loadModel failed", false});
+        return checks;
+    }
+    if (!ctx.initMultimodal(mmproj_path, /*use_gpu*/ false)) {
+        checks.push_back({key + tag + ": mmproj init", false, "initMultimodal failed", false});
+        return checks;
+    }
+    ctx.enableParallelMode(2, 512);
+    if (ctx.slot_manager == nullptr) {
+        checks.push_back({key + tag + ": slot manager created", false, "slot_manager is null", false});
+        return checks;
+    }
+
+    // Build a media prompt with the marker via the chat template (same shape the
+    // host app sends: one user turn with an image placeholder).
+    const std::string marker = mtmd_default_marker();
+    json msgs = json::array();
+    msgs.push_back({{"role", "system"}, {"content", "You are a helpful assistant."}});
+    msgs.push_back({{"role", "user"},
+                    {"content", marker + "\nWhat animal is in this image? Answer with one word."}});
+    common_chat_params cp = ctx.getFormattedChatWithJinja(
+        msgs.dump(-1, ' ', false, json::error_handler_t::replace),
+        /*chat_template*/ "", /*json_schema*/ "", /*tools*/ "",
+        /*parallel_tool_calls*/ false, /*tool_choice*/ "",
+        /*enable_thinking*/ false, /*reasoning_format*/ "none",
+        /*add_generation_prompt*/ true, /*now*/ "", /*kwargs*/ {},
+        /*force_pure_content*/ false);
+    const std::string prompt = cp.prompt;
+    std::vector<llama_token> prompt_tokens = common_tokenize(ctx.ctx, prompt, true, true);
+
+    std::string reply;
+    bool completed = false;
+    int32_t rid = ctx.slot_manager->queue_request(
+        params, prompt_tokens, {img}, prompt,
+        /*chat_format*/ 0, COMMON_REASONING_FORMAT_NONE,
+        /*generation_prompt*/ "", /*chat_parser*/ "", /*prefill_text*/ "",
+        /*load_state_path*/ "", /*save_state_path*/ "", /*save_prompt_state_path*/ "",
+        /*load_state_size*/ -1, /*save_state_size*/ -1,
+        [&](const completion_token_output &out) { reply += out.text; },
+        [&](llama_rn_slot *) { completed = true; });
+    if (rid < 0) {
+        checks.push_back({key + tag + ": queue request", false, "queue_request returned < 0", false});
+        return checks;
+    }
+
+    // Drive the slot manager to completion (update_slots does the work per call).
+    const int64_t t0 = lm_ggml_time_us();
+    while (!completed && (lm_ggml_time_us() - t0) < 180LL * 1000 * 1000) {
+        ctx.slot_manager->update_slots();
+    }
+
+    checks.push_back({key + tag + ": request completed", completed,
+                      "reply: '" + reply + "'", false});
+    // The image must actually reach the model on the slot path -> correct one-word
+    // answer. (dog.jpg is the shared vision fixture used across the suite.)
+    const bool sees = has_word(reply, "dog");
+    checks.push_back({key + tag + ": image recognized on slot path", sees,
+                      "reply: '" + reply + "'", false});
+    return checks;
+}
+
 // ------------------------------------------------------------------ model set
 
 struct ModelEntry { std::string key; std::string file; bool mtp; bool instruct; bool strong; };
@@ -1710,6 +1955,11 @@ int main(int argc, char **argv) {
             }
             continue;
         }
+        if (std::getenv("TRIM_ONLY") != nullptr) {
+            auto tr = run_trim_roundtrip_probe(m.key, p.string());
+            all.insert(all.end(), tr.begin(), tr.end());
+            continue;
+        }
         if (std::getenv("COHERENCE_ONLY") != nullptr) {
             auto c = run_coherence_dump(m.key, p.string(),
                                         /*use_mtp*/ m.mtp && std::getenv("WITH_MTP") != nullptr);
@@ -1721,6 +1971,9 @@ int main(int argc, char **argv) {
             all.insert(all.end(), checks.begin(), checks.end());
             auto f = run_state_fidelity_test(m.key, p.string());
             all.insert(all.end(), f.begin(), f.end());
+            // Absolute double-decode diagnostic (blind spot of the differential suite).
+            auto tr = run_trim_roundtrip_probe(m.key, p.string());
+            all.insert(all.end(), tr.begin(), tr.end());
         }
 
         // Also exercise the MTP prompt-eval path on models that support it.
@@ -1738,11 +1991,19 @@ int main(int argc, char **argv) {
         }
         if (!mmproj.empty() && std::filesystem::exists(img_dog) &&
             std::filesystem::exists(img_cat) && !std::getenv("SKIP_VISION") && !mtp_only) {
-            auto v = run_model_multimodal(m.key, p.string(), mmproj.string(),
-                                          img_dog.string(), img_cat.string());
-            all.insert(all.end(), v.begin(), v.end());
-            auto vf = run_vision_fidelity(m.key, p.string(), mmproj.string(), img_dog.string());
-            all.insert(all.end(), vf.begin(), vf.end());
+            const bool slot_only = std::getenv("SLOT_ONLY") != nullptr;
+            if (!slot_only) {
+                auto v = run_model_multimodal(m.key, p.string(), mmproj.string(),
+                                              img_dog.string(), img_cat.string());
+                all.insert(all.end(), v.begin(), v.end());
+                auto vf = run_vision_fidelity(m.key, p.string(), mmproj.string(), img_dog.string());
+                all.insert(all.end(), vf.begin(), vf.end());
+            }
+            // Slot/parallel path with media (shared processMedia; otherwise untested).
+            if (!std::getenv("SKIP_SLOT")) {
+                auto sv = run_slot_media_test(m.key, p.string(), mmproj.string(), img_dog.string());
+                all.insert(all.end(), sv.begin(), sv.end());
+            }
         }
 
         // Config / lifecycle scenarios: run each on the model it's about, and
