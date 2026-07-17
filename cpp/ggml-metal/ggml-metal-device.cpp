@@ -805,6 +805,11 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul_mv(lm_
                 nsg = N_SG_Q1_0;
                 nr0 = N_R0_Q1_0;
             } break;
+        case LM_GGML_TYPE_Q2_0:
+            {
+                nsg = N_SG_Q2_0;
+                nr0 = N_R0_Q2_0;
+            } break;
         case LM_GGML_TYPE_Q4_0:
             {
                 nsg = N_SG_Q4_0;
@@ -1028,6 +1033,11 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul_mv_id(
             {
                 nsg = N_SG_Q1_0;
                 nr0 = N_R0_Q1_0;
+            } break;
+        case LM_GGML_TYPE_Q2_0:
+            {
+                nsg = N_SG_Q2_0;
+                nr0 = N_R0_Q2_0;
             } break;
         case LM_GGML_TYPE_Q4_0:
             {
@@ -1814,6 +1824,23 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_col2im_1d(
     char name[256];
 
     snprintf(base, 256, "kernel_col2im_1d_%s", lm_ggml_type_name(op->src[0]->type));
+    snprintf(name, 256, "%s", base);
+
+    lm_ggml_metal_pipeline_with_params res = lm_ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    }
+
+    return res;
+}
+
+lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_snake(lm_ggml_metal_library_t lib, enum lm_ggml_type type) {
+    LM_GGML_ASSERT(type == LM_GGML_TYPE_F32 || type == LM_GGML_TYPE_F16 || type == LM_GGML_TYPE_BF16);
+
+    char base[256];
+    char name[256];
+
+    snprintf(base, 256, "kernel_snake_%s", lm_ggml_type_name(type));
     snprintf(name, 256, "%s", base);
 
     lm_ggml_metal_pipeline_with_params res = lm_ggml_metal_library_get_pipeline(lib, name);

@@ -80,6 +80,7 @@ int lm_ggml_metal_op_conv_3d           (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_conv_transpose_1d (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_conv_transpose_2d (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_col2im_1d         (lm_ggml_metal_op_t ctx, int idx);
+int lm_ggml_metal_op_snake_fused       (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_upscale           (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_pad               (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_pad_reflect_1d    (lm_ggml_metal_op_t ctx, int idx);
