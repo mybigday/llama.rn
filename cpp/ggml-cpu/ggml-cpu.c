@@ -2064,6 +2064,18 @@ static void lm_ggml_compute_forward(struct lm_ggml_compute_params * params, stru
             {
                 lm_ggml_compute_forward_lightning_indexer(params, tensor);
             } break;
+        case LM_GGML_OP_DSV4_HC_COMB:
+            {
+                lm_ggml_compute_forward_dsv4_hc_comb(params, tensor);
+            } break;
+        case LM_GGML_OP_DSV4_HC_PRE:
+            {
+                lm_ggml_compute_forward_dsv4_hc_pre(params, tensor);
+            } break;
+        case LM_GGML_OP_DSV4_HC_POST:
+            {
+                lm_ggml_compute_forward_dsv4_hc_post(params, tensor);
+            } break;
         case LM_GGML_OP_MAP_CUSTOM1:
             {
                 lm_ggml_compute_forward_map_custom1(params, tensor);
@@ -2244,6 +2256,9 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
         case LM_GGML_OP_COUNT_EQUAL:
         case LM_GGML_OP_SOLVE_TRI:
         case LM_GGML_OP_GATED_DELTA_NET:
+        case LM_GGML_OP_DSV4_HC_COMB:
+        case LM_GGML_OP_DSV4_HC_PRE:
+        case LM_GGML_OP_DSV4_HC_POST:
             {
                 n_tasks = n_threads;
             } break;
@@ -2859,7 +2874,14 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
                     } break;
                 case LM_GGML_OP_OUT_PROD:
                     {
-                        if (lm_ggml_is_quantized(node->src[0]->type)) {
+                        if (lm_ggml_is_quantized(node->src[0]->type) ||
+                            node->src[0]->type == LM_GGML_TYPE_F16) {
+                            cur = lm_ggml_type_size(LM_GGML_TYPE_F32) * node->src[0]->ne[0] * n_tasks;
+                        }
+                    } break;
+                case LM_GGML_OP_SET_ROWS:
+                    {
+                        if (node->src[0]->type == LM_GGML_TYPE_F16 && node->type != LM_GGML_TYPE_F16) {
                             cur = lm_ggml_type_size(LM_GGML_TYPE_F32) * node->src[0]->ne[0] * n_tasks;
                         }
                     } break;
@@ -3779,6 +3801,14 @@ int lm_ggml_cpu_get_sve_cnt(void) {
 
 int lm_ggml_cpu_has_sme(void) {
 #if defined(__ARM_ARCH) && defined(__ARM_FEATURE_SME)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+int lm_ggml_cpu_has_sme2(void) {
+#if defined(__ARM_ARCH) && defined(__ARM_FEATURE_SME2)
     return 1;
 #else
     return 0;

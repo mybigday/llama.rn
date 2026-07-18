@@ -2077,6 +2077,7 @@ int lm_ggml_metal_op_mul_mat(lm_ggml_metal_op_t ctx, int idx) {
            op->src[0]->type == LM_GGML_TYPE_F16  ||
            op->src[0]->type == LM_GGML_TYPE_BF16 ||
            op->src[0]->type == LM_GGML_TYPE_Q1_0 ||
+           op->src[0]->type == LM_GGML_TYPE_Q2_0 ||
            op->src[0]->type == LM_GGML_TYPE_Q4_0 ||
            op->src[0]->type == LM_GGML_TYPE_Q4_1 ||
            op->src[0]->type == LM_GGML_TYPE_Q5_0 ||
@@ -3083,7 +3084,58 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
     return 1;
 }
 
+// Snake activation autofuse: mul -> sin -> sqr -> mul -> add
+static bool lm_ggml_metal_op_can_fuse_snake(lm_ggml_metal_op_t ctx, int idx) {
+    static constexpr lm_ggml_op snake_ops[5] = { LM_GGML_OP_MUL, LM_GGML_OP_SIN, LM_GGML_OP_SQR, LM_GGML_OP_MUL, LM_GGML_OP_ADD };
+
+    if (ctx->node(idx)->op != LM_GGML_OP_MUL || !ctx->can_fuse(idx, snake_ops, 5)) {
+        return false;
+    }
+
+    const lm_ggml_tensor * mul0     = ctx->node(idx + 0);
+    const lm_ggml_tensor * sin_node = ctx->node(idx + 1);
+    const lm_ggml_tensor * sqr      = ctx->node(idx + 2);
+    const lm_ggml_tensor * mul1     = ctx->node(idx + 3);
+    const lm_ggml_tensor * add      = ctx->node(idx + 4);
+
+    // x carries the full activation shape, a is the broadcast operand
+    const lm_ggml_tensor * x = lm_ggml_are_same_shape(mul0, mul0->src[0]) ? mul0->src[0] : mul0->src[1];
+    const lm_ggml_tensor * a = (x == mul0->src[0]) ? mul0->src[1] : mul0->src[0];
+
+    // mul1 reads sqr and inv_b in either operand order
+    const lm_ggml_tensor * inv_b    = (mul1->src[0] == sqr) ? mul1->src[1] : mul1->src[0];
+
+    // closure check: the trailing add reads the same x as the leading mul
+    const lm_ggml_tensor * x_in_add = (add->src[0] == mul1) ? add->src[1] : add->src[0];
+
+    // x is in the supported whitelist and every chain intermediate shares x's type.
+    // a and inv_b bind as device const float * in the kernel, so they stay F32.
+    const bool types_ok =
+        (x->type == LM_GGML_TYPE_F32 || x->type == LM_GGML_TYPE_F16 || x->type == LM_GGML_TYPE_BF16) &&
+        (a->type    == LM_GGML_TYPE_F32) && (inv_b->type    == LM_GGML_TYPE_F32) &&
+        (mul0->type == x->type)       && (sin_node->type == x->type) &&
+        (sqr->type  == x->type)       && (mul1->type     == x->type) &&
+        (add->type  == x->type);
+    // a / inv_b collapse to [1, C, 1, 1], x and add stay 2D
+    const bool shape_ok = lm_ggml_are_same_shape(a, inv_b) && a->ne[0] == 1 && a->ne[1] == x->ne[1];
+    const bool dim_ok =
+        (x->ne[2]     == 1) && (x->ne[3]     == 1) &&
+        (add->ne[2]   == 1) && (add->ne[3]   == 1) &&
+        (a->ne[2]     == 1) && (a->ne[3]     == 1) &&
+        (inv_b->ne[2] == 1) && (inv_b->ne[3] == 1);
+    // kernel reads x[idx] and a[c] / inv_b[c] linearly, so every operand is contiguous
+    const bool contig_ok =
+        lm_ggml_is_contiguous(x) && lm_ggml_is_contiguous(add) &&
+        lm_ggml_is_contiguous(a) && lm_ggml_is_contiguous(inv_b);
+
+    return types_ok && shape_ok && dim_ok && contig_ok && x_in_add == x;
+}
+
 int lm_ggml_metal_op_bin(lm_ggml_metal_op_t ctx, int idx) {
+    if (ctx->use_fusion && lm_ggml_metal_op_can_fuse_snake(ctx, idx)) {
+        return lm_ggml_metal_op_snake_fused(ctx, idx);
+    }
+
     lm_ggml_tensor * op = ctx->node(idx);
 
     lm_ggml_metal_library_t lib = ctx->lib;
@@ -3988,6 +4040,55 @@ int lm_ggml_metal_op_col2im_1d(lm_ggml_metal_op_t ctx, int idx) {
     lm_ggml_metal_encoder_dispatch_threadgroups(enc, ntg, 1, 1, nth, 1, 1);
 
     return 1;
+}
+
+// Dispatch the fused snake kernel from the matched mul -> sin -> sqr -> mul -> add chain.
+// idx points at the leading mul. The caller has validated the chain.
+int lm_ggml_metal_op_snake_fused(lm_ggml_metal_op_t ctx, int idx) {
+    lm_ggml_metal_library_t lib = ctx->lib;
+    lm_ggml_metal_encoder_t enc = ctx->enc;
+
+    const lm_ggml_tensor * mul0 = ctx->node(idx + 0);
+    const lm_ggml_tensor * sqr  = ctx->node(idx + 2);
+    const lm_ggml_tensor * mul1 = ctx->node(idx + 3);
+    lm_ggml_tensor *       add  = ctx->node(idx + 4);
+
+    const lm_ggml_tensor * x = lm_ggml_are_same_shape(mul0, mul0->src[0]) ? mul0->src[0] : mul0->src[1];
+    const lm_ggml_tensor * a = (x == mul0->src[0]) ? mul0->src[1] : mul0->src[0];
+    const lm_ggml_tensor * inv_b = (mul1->src[0] == sqr) ? mul1->src[1] : mul1->src[0];
+
+    const int T     = (int) x->ne[0];
+    const int C     = (int) x->ne[1];
+    const int total = T * C;
+
+    // the encode loop pre-checked the leading mul only, check the rest of the chain
+    for (int i = 1; i < 5; ++i) {
+        if (!lm_ggml_metal_op_concurrency_check(ctx, ctx->node(idx + i))) {
+            lm_ggml_metal_op_concurrency_reset(ctx);
+
+            break;
+        }
+    }
+
+    auto pipeline = lm_ggml_metal_library_get_pipeline_snake(lib, x->type);
+
+    lm_ggml_metal_kargs_snake args = {
+        /*.T =*/ T,
+        /*.C =*/ C,
+    };
+
+    lm_ggml_metal_encoder_set_pipeline(enc, pipeline);
+    lm_ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(x),     1);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(a),     2);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(inv_b), 3);
+    lm_ggml_metal_encoder_set_buffer  (enc, lm_ggml_metal_get_buffer_id(add),   4);
+
+    const int nth = 256;
+    const int ntg = (total + nth - 1) / nth;
+    lm_ggml_metal_encoder_dispatch_threadgroups(enc, ntg, 1, 1, nth, 1, 1);
+
+    return 5;
 }
 
 int lm_ggml_metal_op_conv_transpose_2d(lm_ggml_metal_op_t ctx, int idx) {
