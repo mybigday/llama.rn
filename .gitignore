@@ -102,3 +102,5 @@ local-plan-done
 
 tests/*.gguf
 tests/status_changes.log
+.claude/settings.local.json
+tests/android/build-hexagon/

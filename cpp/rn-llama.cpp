@@ -782,6 +782,7 @@ void llama_rn_context::clearCache(bool clear_data) {
     if (completion != nullptr) {
         completion->embd.clear();
         completion->n_past = 0;
+        completion->clearStateCheckpoints();
         LOG_INFO("Cache cleared and completion state reset (clear_data=%s)", clear_data ? "true" : "false");
     } else {
         LOG_INFO("Cache cleared (clear_data=%s)", clear_data ? "true" : "false");

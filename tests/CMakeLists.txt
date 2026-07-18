@@ -195,3 +195,63 @@ elseif(UNIX AND NOT APPLE)
         dl
     )
 endif()
+
+# Create KV-cache-reuse harness executable
+add_executable(kv_cache_reuse_test
+    kv_cache_reuse_test.cpp
+    ${RNLLAMA_COMMON_SOURCES}
+)
+
+target_include_directories(kv_cache_reuse_test
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
+)
+
+if(APPLE)
+    target_link_libraries(kv_cache_reuse_test PRIVATE
+        "-framework Accelerate"
+        "-framework Foundation"
+    )
+elseif(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(kv_cache_reuse_test PRIVATE
+        Threads::Threads
+        m
+        dl
+    )
+endif()
+
+# A/B benchmark for the prompt state cache (also builds at the merge-base;
+# KV_BENCH_HAS_STATE_CACHE gates branch-only knobs).
+add_executable(kv_cache_bench
+    kv_cache_bench.cpp
+    ${RNLLAMA_COMMON_SOURCES}
+)
+target_include_directories(kv_cache_bench
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
+)
+if(KV_BENCH_HAS_STATE_CACHE)
+    target_compile_definitions(kv_cache_bench PRIVATE KV_BENCH_HAS_STATE_CACHE)
+endif()
+if(APPLE)
+    target_link_libraries(kv_cache_bench PRIVATE
+        "-framework Accelerate"
+        "-framework Foundation"
+    )
+elseif(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(kv_cache_bench PRIVATE
+        Threads::Threads
+        m
+        dl
+    )
+endif()

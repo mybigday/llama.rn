@@ -5,11 +5,25 @@
 #include "tools/mtmd/mtmd.h"
 #include "tools/mtmd/mtmd-helper.h"
 #include "tools/mtmd/clip.h"
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <functional>
 
 namespace rnllama {
+
+// Optional state-cache callbacks so the single-sequence completion path can
+// reuse the prefix across turns (as on the text path); null on the parallel
+// slot-manager path (full-clear).
+//   recover(target, max_reuse, total_tokens, n_past_out) -> restored?
+//   capture(seq, n) -> snapshot the memory at position n, tagged with seq[0,n)
+//   invalidate(n) -> discard snapshots whose state includes media at/after n
+using mtmd_state_recover_fn =
+    std::function<bool(const std::vector<llama_token> &, size_t, size_t, llama_pos &)>;
+using mtmd_state_capture_fn =
+    std::function<void(const std::vector<llama_token> &, size_t)>;
+using mtmd_state_invalidate_fn = std::function<void(size_t)>;
 
 // MTMD context structure
 struct llama_rn_context_mtmd {
@@ -17,6 +31,9 @@ struct llama_rn_context_mtmd {
 
     // State fields
     std::vector<std::string> bitmap_past_hashes;
+    // Number of prompt tokens reused from the cache on the last processMedia call
+    // (the position the chunk eval resumed from). Instrumentation for the tests.
+    llama_pos last_reused_n_past = 0;
 
     // Constructor - Initialize multimodal
     llama_rn_context_mtmd(
@@ -46,7 +63,10 @@ struct llama_rn_context_mtmd {
         bool &context_full,
         common_sampler *ctx_sampling,
         std::vector<std::string> &bitmap_past_hashes,  // Per-slot bitmap hashes
-        int32_t seq_id  // Sequence ID for parallel slots
+        int32_t seq_id,  // Sequence ID for parallel slots
+        mtmd_state_recover_fn recover = nullptr,
+        mtmd_state_capture_fn capture = nullptr,
+        mtmd_state_invalidate_fn invalidate = nullptr
     );
 
     // Check if multimodal is enabled
@@ -137,6 +157,8 @@ inline raw_buffer base64_decode(const std::string & encoded_string) {
 
 // MTMD tokenization result structure
 struct mtmd_tokenize_result {
+    // Ordered source hashes followed by chunk identities. Empty entries are
+    // deliberately non-reusable when a stable identity is unavailable.
     std::vector<std::string> bitmap_hashes;
     std::vector<llama_token> tokens;
     std::vector<size_t> chunk_pos; // both text and media
@@ -201,7 +223,7 @@ inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrappe
             bmp.set_id(hash.c_str());
             LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
             bitmaps.entries.push_back(std::move(bmp));
-            result.bitmap_hashes.push_back(hash);
+            result.bitmap_hashes.push_back(hash.empty() ? "" : "source:" + hash);
         } else if (media_path.compare(0, 7, "http://") == 0 || media_path.compare(0, 8, "https://") == 0) {
             // HTTP URLs are not supported yet
             LOG_ERROR("[DEBUG] HTTP/HTTPS URLs are not supported yet: %s", media_path.c_str());
@@ -244,7 +266,7 @@ inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrappe
             bmp.set_id(hash.c_str());
             LOG_INFO("[DEBUG] Bitmap hash: %s", hash.c_str());
             bitmaps.entries.push_back(std::move(bmp));
-            result.bitmap_hashes.push_back(hash);
+            result.bitmap_hashes.push_back(hash.empty() ? "" : "source:" + hash);
         }
     }
 
@@ -328,7 +350,9 @@ inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrappe
     size_t num_chunks = mtmd_input_chunks_size(result.chunks);
     LOG_INFO("[DEBUG] Tokenization successful: num_chunks=%zu", num_chunks);
 
-    // Track the total number of tokens (both text and image)
+    // Keep the per-input hashes loaded above: some MTMD preprocessors merge
+    // several inputs into one chunk whose ID only names the first source.
+    // Append chunk type/shape identities to catch layout or modality changes.
     size_t total_token_count = 0;
 
     /**
@@ -367,6 +391,14 @@ inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrappe
 
             size_t n_tokens = mtmd_input_chunk_get_n_tokens(chunk);
             size_t n_pos = mtmd_input_chunk_get_n_pos(chunk);
+            const char *chunk_id = mtmd_input_chunk_get_id(chunk);
+            if (chunk_id != nullptr && chunk_id[0] != '\0') {
+                result.bitmap_hashes.push_back(
+                    "chunk:" + std::to_string((int) chunk_type) + ":" +
+                    std::to_string(n_pos) + ":" + chunk_id);
+            } else {
+                result.bitmap_hashes.emplace_back();
+            }
             LOG_INFO("[DEBUG] Chunk %zu: type=%s, n_tokens=%zu, n_pos=%zu",
                      i, chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE ? "IMAGE" : "AUDIO", n_tokens, n_pos);
 
@@ -393,7 +425,10 @@ inline void llama_rn_context_mtmd::processMedia(
     bool &context_full,
     common_sampler *ctx_sampling,
     std::vector<std::string> &bitmap_past_hashes_ref,  // Per-slot bitmap hashes
-    int32_t seq_id  // Sequence ID for parallel slots
+    int32_t seq_id,  // Sequence ID for parallel slots
+    mtmd_state_recover_fn recover,
+    mtmd_state_capture_fn capture,
+    mtmd_state_invalidate_fn invalidate
 ) {
     // Multimodal path
     std::string full_prompt = prompt;
@@ -451,26 +486,40 @@ inline void llama_rn_context_mtmd::processMedia(
         LOG_INFO("[DEBUG] Adjusted n_past to %d", n_past);
     }
 
-    // Compare bitmap hashes, if they are not the same, backtrack n_past to the position of the first mismatch
-    if (bitmap_past_hashes_ref.size() > 0) {
-        for (size_t i = 0; i < bitmap_hashes.size(); i++) {
-            auto pos = chunk_pos_media[i];
-            if (n_past < pos) {
-                break;
-            }
-            if (i >= bitmap_past_hashes_ref.size()) {
-                break;
-            }
-            if (bitmap_hashes[i] != bitmap_past_hashes_ref[i]) {
-                LOG_INFO(
-                    "[DEBUG] Bitmap hash mismatch at position %zu, %s != %s",
-                    i, bitmap_hashes[i].c_str(), bitmap_past_hashes_ref[i].c_str()
-                );
-                n_past = chunk_pos_media[i];
-                new_n_past = n_past;
-                break;
-            }
+    // Tokens use identical LLAMA_TOKEN_NULL placeholders for different media.
+    // Compare source and chunk identities independently from the token prefix.
+    // On any divergence, conservatively discard state from the first media
+    // boundary; preprocessors may merge multiple sources into one chunk.
+    const bool media_identity_stable =
+        !bitmap_hashes.empty() &&
+        bitmap_hashes.size() == bitmap_past_hashes_ref.size() &&
+        std::none_of(bitmap_hashes.begin(), bitmap_hashes.end(),
+                     [](const std::string &id) { return id.empty(); }) &&
+        bitmap_hashes == bitmap_past_hashes_ref;
+    if (!media_identity_stable) {
+        const size_t mismatch_pos = !chunk_pos_media.empty()
+            ? chunk_pos_media.front()
+            : (size_t) std::max<llama_pos>(0, n_past);
+
+        LOG_INFO("[DEBUG] Media identity diverged at position %zu", mismatch_pos);
+        if (invalidate) {
+            invalidate(mismatch_pos);
         }
+        if ((size_t) std::max<llama_pos>(0, n_past) > mismatch_pos) {
+            n_past = (llama_pos) mismatch_pos;
+            new_n_past = n_past;
+        }
+    }
+
+    // A byte-identical prompt evaluates no chunks, leaving logits from the
+    // previous generation. Replay one text token, or the complete final media
+    // chunk (placeholders cannot be decoded as ordinary tokens), before sampling.
+    if (n_past > 0 && (size_t) n_past == all_tokens.size()) {
+        n_past = all_tokens.back() == LLAMA_TOKEN_NULL && !chunk_pos.empty()
+            ? (llama_pos) chunk_pos.back()
+            : n_past - 1;
+        new_n_past = n_past;
+        LOG_INFO("[DEBUG] Exact media prompt reuse: replaying from %d", n_past);
     }
 
     // Clear all KV cache entries after position n_past for this slot's sequence
@@ -478,14 +527,81 @@ inline void llama_rn_context_mtmd::processMedia(
 
     bool clear_result = llama_memory_seq_rm(kv, seq_id, n_past, -1);
     if (!clear_result) {
-        LOG_ERROR("[DEBUG] llama_memory_seq_rm failed (likely using a non-Transformer model)! Trying full clear...");
-        llama_memory_clear(kv, false);
-        n_past = 0;
-        new_n_past = n_past;
+        // Recurrent/hybrid: restore a checkpoint instead of re-encoding the
+        // images. Must be chunk-aligned — the eval loop below does whole chunks,
+        // so a mid-chunk restore (except a final plain-text tail) shifts chunks.
+        llama_pos recovered_n_past = 0;
+        bool recovered_ok = false;
+        size_t recover_cap = (size_t) n_past;
+        while (recover && recover(all_tokens, recover_cap, all_tokens.size(), recovered_n_past)) {
+            // Locate the chunk containing the recovered position.
+            size_t ci = 0;
+            for (size_t i = 0; i < chunk_pos.size(); i++) {
+                if (chunk_pos[i] <= (size_t) recovered_n_past) ci = i;
+                else break;
+            }
+            const bool aligned = chunk_pos[ci] == (size_t) recovered_n_past;
+            bool text_tail_of_last_chunk = false;
+            if (!aligned && ci + 1 == chunk_pos.size()) {
+                text_tail_of_last_chunk = true;
+                for (size_t j = (size_t) recovered_n_past; j < all_tokens.size(); j++) {
+                    if (all_tokens[j] == LLAMA_TOKEN_NULL) {
+                        text_tail_of_last_chunk = false;
+                        break;
+                    }
+                }
+            }
+            if (aligned || text_tail_of_last_chunk) {
+                recovered_ok = true;
+                break;
+            }
+            if (chunk_pos[ci] == 0) {
+                break; // no shorter aligned candidate can exist
+            }
+            // Mid-interior-chunk: retry capped at the start of the chunk that
+            // contains the recovered position (strictly decreasing -> terminates).
+            recover_cap = chunk_pos[ci];
+        }
+        if (recovered_ok) {
+            n_past = recovered_n_past;
+            new_n_past = n_past;
+            LOG_INFO("[DEBUG] Restored multimodal state checkpoint: reusing %d tokens", n_past);
+        } else {
+            LOG_ERROR("[DEBUG] llama_memory_seq_rm failed (likely using a non-Transformer model)! Trying full clear...");
+            llama_memory_clear(kv, false);
+            n_past = 0;
+            new_n_past = n_past;
+        }
     }
 
 
     LOG_INFO("[DEBUG] Evaluating chunks: n_past=%d, n_batch=%d", n_past, n_batch);
+
+    // Record the reused prefix (position the eval resumes from) for the tests.
+    last_reused_n_past = n_past;
+
+    // Frontier snapshot (like the text path, rn-completion.cpp:461): the reused
+    // state rests at n_past; snapshot it before reprocessing the tail. Advances
+    // the checkpoint chain each turn. Cold turns (n_past==0) skip it -- the
+    // media-boundary anchor below covers those.
+    if (capture && n_past > 0) {
+        capture(all_tokens, (size_t) n_past);
+    }
+
+    // Position right after the last image chunk (== L if the prompt ends in an
+    // image). Anchored below so a later divergence past the image reuses it
+    // rather than re-encoding.
+    size_t media_boundary = all_tokens.size();
+    if (!chunk_pos_media.empty()) {
+        const size_t last_media = chunk_pos_media.back();
+        for (size_t i = 0; i < chunk_pos.size(); i++) {
+            if (chunk_pos[i] == last_media) {
+                media_boundary = (i + 1 < chunk_pos.size()) ? chunk_pos[i + 1]
+                                                            : all_tokens.size();
+                break;
+            }
+        }
+    }
 
     size_t num_chunks = mtmd_input_chunks_size(chunks);
 
@@ -513,13 +629,19 @@ inline void llama_rn_context_mtmd::processMedia(
                 throw std::runtime_error("Failed to evaluate chunks");
             }
             n_past = new_n_past;
+
+            // Anchor the image before the trailing text is decoded (token-exact,
+            // no rollback needed on any arch).
+            if (capture && n_past > 0 && (size_t) n_past == media_boundary) {
+                capture(all_tokens, (size_t) n_past);
+            }
         }
     }
 
-    if (n_past == all_tokens.size() && n_past > 0 && all_tokens[n_past - 1] != LLAMA_TOKEN_NULL) {
-        // we have to evaluate at least 1 token to generate logits.
-        n_past--;
-    }
+    // Leave n_past at L and sample from the chunk eval's last-token logits
+    // (chunk_logits_last requested them) -- decode once, like mtmd-cli/server.
+    // Don't trim to L-1 and re-decode the last token: seq_rm can't roll back a
+    // recurrent/hybrid state (it no-ops), so the token would be consumed twice.
 
     // Update embd with all tokens (both text and media)
     embd = all_tokens;
