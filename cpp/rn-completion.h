@@ -171,6 +171,9 @@ struct llama_rn_context_completion {
     void evictStateCheckpoints();                 // enforce count / byte bounds
     void clearStateCheckpoints();                 // drop all snapshots
     void eraseStateCheckpointAt(size_t n_tokens); // drop the snapshot at a boundary
+    // Drop snapshots whose state includes tokens after this position. A
+    // checkpoint exactly at n_tokens represents [0, n_tokens) and stays valid.
+    void eraseStateCheckpointsAfter(size_t n_tokens);
     void truncatePrompt(std::vector<llama_token> &prompt_tokens);
     void loadPrompt(const std::vector<std::string> &media_paths, bool allow_state_cache = true);
     // Ascending message-boundary positions: the first content token after each

@@ -156,6 +156,18 @@ void llama_rn_context_completion::eraseStateCheckpointAt(size_t n_tokens) {
         state_checkpoints.end());
 }
 
+void llama_rn_context_completion::eraseStateCheckpointsAfter(size_t n_tokens) {
+    const size_t old_size = state_checkpoints.size();
+    state_checkpoints.erase(
+        std::remove_if(state_checkpoints.begin(), state_checkpoints.end(),
+            [&](const rn_state_checkpoint &c) { return c.n_tokens() > n_tokens; }),
+        state_checkpoints.end());
+    if (state_checkpoints.size() != old_size) {
+        LOG_VERBOSE("invalidated %zu state checkpoint(s) after position %zu",
+            old_size - state_checkpoints.size(), n_tokens);
+    }
+}
+
 void llama_rn_context_completion::captureStateCheckpoint() {
     // The memory holds exactly embd[0, n_past).
     if (n_past <= 0) {
@@ -1531,6 +1543,9 @@ void llama_rn_context_completion::processMedia(
     auto capture = [this](const std::vector<llama_token> &seq, size_t n) {
         captureStateCheckpoint(seq, n);
     };
+    auto invalidate = [this](size_t n) {
+        eraseStateCheckpointsAfter(n);
+    };
     parent_ctx->mtmd_wrapper->processMedia(
         parent_ctx->ctx,
         prompt,
@@ -1544,7 +1559,8 @@ void llama_rn_context_completion::processMedia(
         parent_ctx->mtmd_wrapper->bitmap_past_hashes,
         0,  // Use sequence ID 0 for non-parallel mode
         recover,
-        capture
+        capture,
+        invalidate
     );
 }
 

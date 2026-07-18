@@ -911,6 +911,295 @@ std::vector<Check> run_media_trim_probe(const std::string &key, const std::strin
     return checks;
 }
 
+// Re-ingesting a byte-identical media prompt must refresh the prediction at its
+// end. Exercise both prompt shapes: an explicit marker with trailing text and an
+// auto-appended marker. A direct media-chunk probe below covers models whose
+// tokenizer always adds a text wrapper token after the image.
+std::vector<Check> run_media_exact_reuse_probe(const std::string &key,
+                                               const std::string &model_path,
+                                               const std::string &mmproj_path,
+                                               const std::string &img) {
+    std::vector<Check> checks;
+    const std::string tag = " [media-exact]";
+    std::cout << "\n===== " << key << tag
+              << ": identical retries must refresh final logits =====\n";
+    ChatSim sim;
+    if (!sim.load(model_path, /*n_ctx*/ 4096)) {
+        checks.push_back({key + tag + ": model load", false, "loadModel failed", false});
+        return checks;
+    }
+    if (!sim.ctx.initMultimodal(mmproj_path, /*use_gpu*/ false)) {
+        checks.push_back({key + tag + ": mmproj init", false, "initMultimodal failed", false});
+        return checks;
+    }
+    sim.system_prompt = "You are a helpful assistant.";
+    sim.enable_thinking = false;
+    sim.media_paths = { img };
+    const std::string marker = mtmd_default_marker();
+    auto *cmpl = sim.ctx.completion;
+
+    auto run_shape = [&](const std::string &shape, const std::string &user_text,
+                         bool require_text_tail) {
+        sim.ctx.clearCache(false);
+        sim.history.clear();
+        sim.user(user_text);
+        sim.ctx.params.prompt = sim.render(/*add_generation_prompt*/ true);
+        sim.ctx.params.n_predict = 0;
+
+        auto ingest = [&]() -> size_t {
+            cmpl->rewind();
+            cmpl->initSampling();
+            cmpl->loadPrompt(sim.media_paths);
+            return (size_t) sim.ctx.mtmd_wrapper->last_reused_n_past;
+        };
+
+        (void) ingest();
+        const size_t prompt_len = cmpl->embd.size();
+        const bool media_tail = prompt_len > 0 && cmpl->embd.back() == LLAMA_TOKEN_NULL;
+        const bool contains_media = std::find(cmpl->embd.begin(), cmpl->embd.end(),
+                                              LLAMA_TOKEN_NULL) != cmpl->embd.end();
+        checks.push_back({key + tag + " [" + shape + "]: expected tail shape",
+                          prompt_len > 0 && contains_media &&
+                              (!require_text_tail || !media_tail),
+                          "L=" + std::to_string(prompt_len) +
+                              " media_tail=" + std::to_string(media_tail ? 1 : 0),
+                          false});
+
+        // Move both the live state and its logits past the prompt, as generation
+        // or cancellation would, without changing completion->embd.
+        (void) score_probe(sim, "An unrelated continuation about waves and distant mountains.");
+
+        const size_t reused = ingest();
+        const llama_pos n_past_after_retry = cmpl->n_past;
+        const double nll_reuse = score_probe(
+            sim, "The animal in the photograph has fur and four legs.");
+
+        sim.ctx.clearCache(false);
+        (void) ingest();
+        const double nll_cold1 = score_probe(
+            sim, "The animal in the photograph has fur and four legs.");
+        sim.ctx.clearCache(false);
+        (void) ingest();
+        const double nll_cold2 = score_probe(
+            sim, "The animal in the photograph has fur and four legs.");
+
+        const bool valid = nll_reuse == nll_reuse && nll_cold1 == nll_cold1 &&
+                           nll_cold2 == nll_cold2;
+        const double floor = std::fabs(nll_cold1 - nll_cold2);
+        const double tol = std::max({0.15, 5.0 * floor,
+                                     0.02 * std::fabs(nll_cold1)});
+        const double delta = std::fabs(nll_reuse - nll_cold1);
+        char buf[240];
+        snprintf(buf, sizeof(buf),
+                 "L=%zu replay_from=%zu n_past=%d reuse %.4f cold %.4f "
+                 "(d=%.4f floor=%.4f tol=%.4f)",
+                 prompt_len, reused, (int) n_past_after_retry,
+                 nll_reuse, nll_cold1, delta, floor, tol);
+        std::cout << "    [" << shape << "] " << buf << "\n";
+
+        checks.push_back({key + tag + " [" + shape + "]: retry replays prompt tail",
+                          prompt_len > 0 && reused < prompt_len, buf, true});
+        if (media_tail) {
+            checks.push_back({key + tag + " [" + shape + "]: media replay reaches L",
+                              n_past_after_retry == (llama_pos) prompt_len,
+                              buf, true});
+        }
+        checks.push_back({key + tag + " [" + shape + "]: retry logits match cold",
+                          valid && delta <= tol, buf, true});
+    };
+
+    // Evaluate only through the media chunk with logits_last=true. Without the
+    // helper fix, every embedding row is marked false and no logits are exposed.
+    auto run_media_logits_probe = [&]() {
+        auto tokenized = tokenizeWithMedia(sim.ctx.mtmd_wrapper, marker, sim.media_paths);
+        const size_t n_chunks = mtmd_input_chunks_size(tokenized.chunks);
+        size_t media_idx = n_chunks;
+        for (size_t i = 0; i < n_chunks; i++) {
+            const auto type = mtmd_input_chunk_get_type(
+                mtmd_input_chunks_get(tokenized.chunks, i));
+            if (type == MTMD_INPUT_CHUNK_TYPE_IMAGE ||
+                type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+                media_idx = i;
+                break;
+            }
+        }
+
+        sim.ctx.clearCache(false);
+        bool decoded = media_idx < n_chunks;
+        llama_pos n_past = 0;
+        for (size_t i = 0; decoded && i <= media_idx; i++) {
+            const auto *chunk = mtmd_input_chunks_get(tokenized.chunks, i);
+            llama_pos new_n_past = n_past;
+            decoded = mtmd_helper_eval_chunk_single(
+                          sim.ctx.mtmd_wrapper->mtmd_ctx, sim.ctx.ctx, chunk,
+                          n_past, /*seq_id*/ 0, /*n_batch*/ 512,
+                          /*logits_last*/ i == media_idx, &new_n_past) == 0;
+            n_past = new_n_past;
+        }
+        const float *logits = decoded ? llama_get_logits_ith(sim.ctx.ctx, -1) : nullptr;
+        const int n_vocab = llama_vocab_n_tokens(llama_model_get_vocab(sim.ctx.model));
+        bool finite = logits != nullptr;
+        for (int i = 0; finite && i < n_vocab; i++) {
+            finite = std::isfinite(logits[i]);
+        }
+        mtmd_input_chunks_free(tokenized.chunks);
+
+        char buf[120];
+        snprintf(buf, sizeof(buf), "media_chunk=%zu n_past=%d logits=%s finite=%d",
+                 media_idx, (int) n_past, logits != nullptr ? "present" : "missing",
+                 finite ? 1 : 0);
+        std::cout << "    [media-chunk-logits] " << buf << "\n";
+        checks.push_back({key + tag + ": final media chunk returns fresh logits",
+                          decoded && finite,
+                          buf, true});
+    };
+
+    try {
+        run_shape("text-tail",
+                  marker + "\nDescribe the animal in this image briefly.",
+                  /*require_text_tail*/ true);
+        run_shape("auto-marker",
+                  "Describe the animal shown here briefly.",
+                  /*require_text_tail*/ false);
+        run_media_logits_probe();
+    } catch (const std::exception &e) {
+        checks.push_back({key + tag + ": runnable", false,
+                          std::string("threw: ") + e.what(), false});
+    }
+    return checks;
+}
+
+// Media placeholders are token-identical across files, so checkpoint identity
+// must include the media itself. Warm A, replace it with B at the same token
+// layout, then reuse B without putting either animal name in assistant history.
+std::vector<Check> run_media_identity_probe(const std::string &key,
+                                            const std::string &model_path,
+                                            const std::string &mmproj_path,
+                                            const std::string &img_a,
+                                            const std::string &img_b) {
+    std::vector<Check> checks;
+    const std::string tag = " [media-identity]";
+    std::cout << "\n===== " << key << tag
+              << ": A->B->B must not restore A's checkpoint =====\n";
+    ChatSim sim;
+    if (!sim.load(model_path, /*n_ctx*/ 4096)) {
+        checks.push_back({key + tag + ": model load", false, "loadModel failed", false});
+        return checks;
+    }
+    if (!sim.ctx.initMultimodal(mmproj_path, /*use_gpu*/ false)) {
+        checks.push_back({key + tag + ": mmproj init", false, "initMultimodal failed", false});
+        return checks;
+    }
+    sim.system_prompt = "You are a helpful assistant.";
+    sim.enable_thinking = false;
+    const std::string marker = mtmd_default_marker();
+    auto *cmpl = sim.ctx.completion;
+
+    auto set_question = [&](const std::string &question) {
+        sim.history.clear();
+        sim.user(marker + "\n" + question);
+        sim.ctx.params.prompt = sim.render(/*add_generation_prompt*/ true);
+        sim.ctx.params.n_predict = 0;
+    };
+    auto ingest = [&](const std::string &image) -> size_t {
+        sim.media_paths = { image };
+        cmpl->rewind();
+        cmpl->initSampling();
+        cmpl->loadPrompt(sim.media_paths);
+        return (size_t) sim.ctx.mtmd_wrapper->last_reused_n_past;
+    };
+    auto checkpoint_at = [&](size_t pos) -> std::pair<size_t, std::string> {
+        for (const auto &checkpoint : cmpl->state_checkpoints) {
+            if (checkpoint.n_tokens() == pos && !checkpoint.data.empty()) {
+                return {checkpoint.data.size(),
+                        fnv_hash(checkpoint.data.data(), checkpoint.data.size())};
+            }
+        }
+        return {0, ""};
+    };
+
+    try {
+        const std::string q1 = "Describe this animal without naming it.";
+        set_question(q1);
+        auto layout = tokenizeWithMedia(sim.ctx.mtmd_wrapper, sim.ctx.params.prompt,
+                                        std::vector<std::string>{img_a});
+        size_t last_media_start = 0;
+        bool found_media = false;
+        for (size_t i = 0; i < mtmd_input_chunks_size(layout.chunks); i++) {
+            const auto *chunk = mtmd_input_chunks_get(layout.chunks, i);
+            const auto type = mtmd_input_chunk_get_type(chunk);
+            if (type == MTMD_INPUT_CHUNK_TYPE_IMAGE ||
+                type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+                last_media_start = layout.chunk_pos[i];
+                found_media = true;
+            }
+        }
+        size_t media_end = layout.tokens.size();
+        if (found_media) {
+            for (size_t pos : layout.chunk_pos) {
+                if (pos > last_media_start) {
+                    media_end = pos;
+                    break;
+                }
+            }
+        }
+        mtmd_input_chunks_free(layout.chunks);
+
+        (void) ingest(img_a);
+        const auto state_a = checkpoint_at(media_end);
+        (void) ingest(img_b); // same text and placeholder layout, different media
+        const auto state_b = checkpoint_at(media_end);
+
+        if (cmpl->state_cache_enabled) {
+            // Recapture may be unavailable for a particular memory backend;
+            // either a new B snapshot or no snapshot is safe. Keeping A is not.
+            checks.push_back({key + tag + ": B invalidates A checkpoint state",
+                              media_end > 0 && state_a.first > 0 &&
+                                  (state_b.first == 0 || state_a.second != state_b.second),
+                              "boundary=" + std::to_string(media_end) +
+                                  " bytes(A,B)=(" + std::to_string(state_a.first) + "," +
+                                  std::to_string(state_b.first) + ")",
+                              true});
+        }
+
+        // Change only trailing text after B. A valid restore must cross the
+        // media boundary and match a cold B distribution.
+        set_question("Describe this animal, then mention whether it has pointed ears.");
+        const size_t reused = ingest(img_b);
+        const double nll_reuse = score_probe(
+            sim, "The pictured animal is a small cat with pointed ears.");
+        sim.ctx.clearCache(false);
+        (void) ingest(img_b);
+        const double nll_cold1 = score_probe(
+            sim, "The pictured animal is a small cat with pointed ears.");
+        sim.ctx.clearCache(false);
+        (void) ingest(img_b);
+        const double nll_cold2 = score_probe(
+            sim, "The pictured animal is a small cat with pointed ears.");
+
+        const bool valid = nll_reuse == nll_reuse && nll_cold1 == nll_cold1 &&
+                           nll_cold2 == nll_cold2;
+        const double floor = std::fabs(nll_cold1 - nll_cold2);
+        const double tol = std::max({0.15, 5.0 * floor,
+                                     0.02 * std::fabs(nll_cold1)});
+        const double delta = std::fabs(nll_reuse - nll_cold1);
+        char buf[220];
+        snprintf(buf, sizeof(buf),
+                 "boundary=%zu reused=%zu reuse %.4f cold %.4f "
+                 "(d=%.4f floor=%.4f tol=%.4f)",
+                 media_end, reused, nll_reuse, nll_cold1, delta, floor, tol);
+        std::cout << "    " << buf << "\n";
+        checks.push_back({key + tag + ": B->B restores across the image",
+                          media_end > 0 && reused >= media_end, buf, true});
+        checks.push_back({key + tag + ": B checkpoint matches cold B",
+                          valid && delta <= tol, buf, true});
+    } catch (const std::exception &e) {
+        checks.push_back({key + tag + ": runnable", false,
+                          std::string("threw: ") + e.what(), false});
+    }
+    return checks;
+}
+
 // Vision chat carries an image (a few hundred tokens) in the history. Re-encoding
 // it every turn (the full-clear fallback) is costly, so we check the image is
 // reused across turns. And crucially we check the ANSWERS are correct: a dog image
@@ -958,6 +1247,23 @@ std::vector<Check> run_model_multimodal(const std::string &key,
         std::cout << "    [dog img]  A:\"" << a_dog << "\"\n";
         checks.push_back({key + " [vision]: dog recognized", has_any_word(a_dog, DOG) && !has_any_word(a_dog, CAT),
                           "reply: '" + a_dog + "'", /*fix_target*/ false});
+
+        // Remove only the assistant reply and regenerate the byte-identical
+        // image prompt. The tail must be replayed so sampling does not use the
+        // previous generation's final logits.
+        sim.history.pop_back();
+        std::string a_dog_retry = sim.assistant_turn("dog-retry", /*max_new*/ 12).reply;
+        const size_t retry_from = reused_prefix();
+        std::cout << "    [dog retry] A:\"" << a_dog_retry
+                  << "\" replay_from=" << retry_from << "/" << dog_prompt << "\n";
+        checks.push_back({key + " [vision]: exact image retry still sees the dog",
+                          has_any_word(a_dog_retry, DOG) && !has_any_word(a_dog_retry, CAT),
+                          "reply: '" + a_dog_retry + "'", /*fix_target*/ true});
+        checks.push_back({key + " [vision]: exact image retry refreshes logits",
+                          retry_from < dog_prompt,
+                          "replay_from " + std::to_string(retry_from) + "/" +
+                              std::to_string(dog_prompt),
+                          /*fix_target*/ true});
 
         // Follow-up on the SAME image -> the image must be reused, not re-encoded.
         sim.user("What color is it? Answer briefly.");
@@ -1021,6 +1327,22 @@ std::vector<Check> run_model_multimodal(const std::string &key,
         checks.push_back({key + " [vision]: swapped image -> cat, no dog leak",
                           has_any_word(a_cat, CAT) && !has_any_word(a_cat, DOG),
                           "reply: '" + a_cat + "'", /*fix_target*/ false});
+
+        // A second B turn is where a token-only checkpoint cache used to restore
+        // the stale A (dog) media state after the A->B swap.
+        const size_t cat_prompt = sim.ctx.completion->num_prompt_tokens;
+        sim.user("What animal was shown? Answer with one word.");
+        std::string a_cat_follow = sim.assistant_turn("cat-follow", /*max_new*/ 12).reply;
+        const size_t reuse_cat_follow = reused_prefix();
+        std::cout << "    [cat follow] A:\"" << a_cat_follow
+                  << "\" reused_prefix=" << reuse_cat_follow << "/" << cat_prompt << "\n";
+        checks.push_back({key + " [vision]: A->B->B keeps the cat checkpoint",
+                          has_any_word(a_cat_follow, CAT) && !has_any_word(a_cat_follow, DOG) &&
+                              reuse_cat_follow * 2 >= cat_prompt,
+                          "reply: '" + a_cat_follow + "', reused_prefix " +
+                              std::to_string(reuse_cat_follow) + "/" +
+                              std::to_string(cat_prompt),
+                          /*fix_target*/ true});
 
         // --- Session 3: no image at all, no cache clear ----------------------
         sim.media_paths.clear();
@@ -2007,6 +2329,7 @@ int main(int argc, char **argv) {
         models_run++;
         const bool mtp_only = std::getenv("MTP_ONLY") != nullptr;
         const bool vision_only = std::getenv("VISION_ONLY") != nullptr;
+        const bool media_p1_only = std::getenv("MEDIA_P1_ONLY") != nullptr;
         const bool fidelity_only = std::getenv("FIDELITY_ONLY") != nullptr;
         if (fidelity_only) {
             auto f = run_state_fidelity_test(m.key, p.string());
@@ -2055,13 +2378,20 @@ int main(int argc, char **argv) {
             std::filesystem::exists(img_cat) && !std::getenv("SKIP_VISION") && !mtp_only) {
             const bool slot_only = std::getenv("SLOT_ONLY") != nullptr;
             if (!slot_only) {
-                auto v = run_model_multimodal(m.key, p.string(), mmproj.string(),
-                                              img_dog.string(), img_cat.string());
-                all.insert(all.end(), v.begin(), v.end());
-                auto vf = run_vision_fidelity(m.key, p.string(), mmproj.string(), img_dog.string());
-                all.insert(all.end(), vf.begin(), vf.end());
-                auto mp = run_media_trim_probe(m.key, p.string(), mmproj.string(), img_dog.string());
-                all.insert(all.end(), mp.begin(), mp.end());
+                if (!media_p1_only) {
+                    auto v = run_model_multimodal(m.key, p.string(), mmproj.string(),
+                                                  img_dog.string(), img_cat.string());
+                    all.insert(all.end(), v.begin(), v.end());
+                    auto vf = run_vision_fidelity(m.key, p.string(), mmproj.string(), img_dog.string());
+                    all.insert(all.end(), vf.begin(), vf.end());
+                    auto mp = run_media_trim_probe(m.key, p.string(), mmproj.string(), img_dog.string());
+                    all.insert(all.end(), mp.begin(), mp.end());
+                }
+                auto me = run_media_exact_reuse_probe(m.key, p.string(), mmproj.string(), img_dog.string());
+                all.insert(all.end(), me.begin(), me.end());
+                auto mi = run_media_identity_probe(m.key, p.string(), mmproj.string(),
+                                                   img_dog.string(), img_cat.string());
+                all.insert(all.end(), mi.begin(), mi.end());
             }
             // Slot/parallel path with media (shared processMedia; otherwise untested).
             if (!std::getenv("SKIP_SLOT")) {
