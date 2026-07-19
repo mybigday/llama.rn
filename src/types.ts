@@ -421,6 +421,8 @@ export type NativeParallelCompletionParams = NativeCompletionParams & {
    * File path to save state to after completion.
    * The state will be saved to this file path when the completion finishes.
    * You can then pass this path to `load_state_path` in a subsequent request to resume.
+   * For multimodal conversations a `<path>.meta` sidecar file is written next
+   * to the state file (media identity); keep the two files together.
    * Example: `'/path/to/state.bin'` or `'file:///path/to/state.bin'`
    */
   save_state_path?: string

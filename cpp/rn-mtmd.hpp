@@ -526,6 +526,37 @@ inline void llama_rn_context_mtmd::processMedia(
     auto * kv = llama_get_memory(ctx);
 
     bool clear_result = llama_memory_seq_rm(kv, seq_id, n_past, -1);
+
+    // A successful removal is not sufficient on SWA models: the rollback may
+    // land past the retained window (or empty the cache outright), leaving the
+    // resumed tail without its attention prefix. Same threshold as the slot
+    // reconcile path; pos_min == 0 means nothing was pruned. Recurrent/hybrid
+    // models are exempt (their pos_min reflects the recurrent tail, and their
+    // reuse safety is already enforced by seq_rm itself). M-RoPE media
+    // prefixes hold fewer time positions than placeholder tokens, so their
+    // frontier may legitimately sit below n_past.
+    if (clear_result && n_past > 0) {
+        const llama_model * mdl = llama_get_model(ctx);
+        const bool is_recurrent_or_hybrid =
+            llama_model_is_recurrent(mdl) || llama_model_is_hybrid(mdl);
+        const int32_t n_swa = llama_model_n_swa(mdl);
+        const llama_pos frontier = llama_memory_seq_pos_max(kv, seq_id) + 1;
+        const bool frontier_ok = model_uses_mrope(mdl)
+            ? (frontier > 0 && frontier <= n_past)
+            : (frontier == n_past);
+        if (!frontier_ok) {
+            clear_result = false;
+        } else if (n_swa > 0 && !is_recurrent_or_hybrid) {
+            const llama_pos pos_min = llama_memory_seq_pos_min(kv, seq_id);
+            const llama_pos pos_min_thold = std::max<llama_pos>(0, n_past - n_swa);
+            if (pos_min < 0 || (pos_min > 0 && pos_min >= pos_min_thold)) {
+                LOG_WARNING("[DEBUG] SWA cache lost positions below %lld (pos_min=%lld), discarding reuse",
+                            (long long) pos_min_thold, (long long) pos_min);
+                clear_result = false;
+            }
+        }
+    }
+
     if (!clear_result) {
         // Recurrent/hybrid: restore a checkpoint instead of re-encoding the
         // images. Must be chunk-aligned — the eval loop below does whole chunks,
@@ -567,8 +598,9 @@ inline void llama_rn_context_mtmd::processMedia(
             new_n_past = n_past;
             LOG_INFO("[DEBUG] Restored multimodal state checkpoint: reusing %d tokens", n_past);
         } else {
-            LOG_ERROR("[DEBUG] llama_memory_seq_rm failed (likely using a non-Transformer model)! Trying full clear...");
-            llama_memory_clear(kv, false);
+            LOG_ERROR("[DEBUG] llama_memory_seq_rm failed (likely using a non-Transformer model)! Clearing sequence...");
+            // Only this sequence - a global clear would corrupt other slots
+            llama_memory_seq_rm(kv, seq_id, 0, -1);
             n_past = 0;
             new_n_past = n_past;
         }

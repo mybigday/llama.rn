@@ -102,10 +102,12 @@ void llama_rn_slot::reset() {
     reset_speculative();
 
     // Clear multimodal state
-    bitmap_past_hashes.clear();
+    // Note: bitmap_past_hashes is kept alongside cache_tokens - it describes
+    // the media positions still alive in this slot's sequence memory
     media_paths.clear();
     prompt_text.clear();
     media_processed = false;
+    media_pending_token = LLAMA_TOKEN_NULL;
 
     // Reset chat parsing state
     current_chat_format = 0;
@@ -169,9 +171,7 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
     prompt_tokens = tokens;
     num_prompt_tokens = tokens.size();
     state = SLOT_STATE_PROCESSING_PROMPT;
-
-    // Check if we have loaded state
-    bool has_loaded_state = (!load_state_path.empty() && !cache_tokens.empty());
+    n_decoded = 0;
 
     // Check if model is recurrent/hybrid - needs special handling for state reuse
     bool is_recurrent_or_hybrid = false;
@@ -180,7 +180,16 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
         is_recurrent_or_hybrid = llama_model_is_recurrent(model) || llama_model_is_hybrid(model);
     }
 
-    if (has_loaded_state) {
+    // Deferred media prompts: processMedia() owns prefix matching, media
+    // identity checks and memory reconciliation (the slot manager seeds it
+    // with cache_tokens). Touching the sequence memory here would strip media
+    // positions it may still be able to reuse.
+    if (!media_processed && !media_paths.empty()) {
+        n_past = 0;
+        n_prompt_tokens_cache = 0;
+        LOG_VERBOSE("Slot %d (req=%d): Media prompt, deferring memory reuse to processMedia (%zu cached tokens)",
+                   id, request_id, cache_tokens.size());
+    } else if (!load_state_path.empty() && !cache_tokens.empty()) {
         // Find how many tokens match between cached state and new prompt
         size_t n_matching = find_common_prefix_length(cache_tokens, tokens);
 
@@ -198,7 +207,6 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
         }
 
         if (can_reuse_state) {
-            // We can reuse the KV cache for the matching prefix
             LOG_INFO("Slot %d (req=%d): Reusing loaded state (%zu matching tokens from %zu cached, %zu prompt tokens)",
                      id, request_id, n_matching, cache_tokens.size(), tokens.size());
 
@@ -207,58 +215,58 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
             // the last token gets added to the batch.
             if (n_matching == tokens.size() && n_matching > 0) {
                 n_past = n_matching - 1;
-                n_prompt_tokens_cache = n_matching - 1;
                 LOG_INFO("Slot %d: Full prompt cached, will re-eval last token for fresh logits", id);
             } else {
                 // Partial match - set n_past to the matching prefix length
                 // Remaining tokens will be processed through build_batch
                 n_past = n_matching;
-                n_prompt_tokens_cache = n_matching;
-            }
-            n_decoded = 0;
-
-            // Clear KV cache beyond the reusable prefix
-            if (parent_ctx && parent_ctx->ctx) {
-                auto * kv = llama_get_memory(parent_ctx->ctx);
-                llama_memory_seq_rm(kv, id, n_past, -1);
-                LOG_VERBOSE("Slot %d: Cleared KV cache beyond position %d", id, n_past);
             }
 
-            // Update cache_tokens to include the full prompt
+            // Roll the memory back to the reusable prefix; falls back to a
+            // cold start when the memory can't resume there (recurrent/hybrid
+            // rollback limits, SWA pruning)
+            n_past = reconcile_memory_to(n_past);
+            n_prompt_tokens_cache = n_past;
+
+            // Update cache_tokens to include the full prompt. A text prompt
+            // never matches media placeholders, so no media survives in the
+            // retained prefix - drop the now-stale identity hashes
             cache_tokens = tokens;
+            bitmap_past_hashes.clear();
         } else {
             // No matching tokens, start fresh
             LOG_WARNING("Slot %d (req=%d): Loaded state doesn't match prompt (0 matching tokens), clearing cache",
                        id, request_id);
 
             n_past = 0;
-            n_decoded = 0;
             n_prompt_tokens_cache = 0;
 
             // Clear KV cache for this slot's sequence
             if (parent_ctx && parent_ctx->ctx) {
                 auto * kv = llama_get_memory(parent_ctx->ctx);
-                llama_memory_seq_rm(kv, id, 0, parent_ctx->params.n_ctx);
-                LOG_VERBOSE("Slot %d: Cleared KV cache for sequence (0 to %d)", id, parent_ctx->params.n_ctx);
+                llama_memory_seq_rm(kv, id, 0, -1);
+                LOG_VERBOSE("Slot %d: Cleared KV cache for sequence", id);
             }
 
             cache_tokens = tokens;
+            bitmap_past_hashes.clear();
         }
     } else {
         // No loaded state, start fresh
         n_past = 0;
-        n_decoded = 0;
         n_prompt_tokens_cache = 0;
 
         // Clear KV cache for this slot's sequence to ensure clean state
         if (parent_ctx && parent_ctx->ctx) {
             auto * kv = llama_get_memory(parent_ctx->ctx);
-            llama_memory_seq_rm(kv, id, 0, parent_ctx->params.n_ctx);
-            LOG_VERBOSE("Slot %d: Cleared KV cache for sequence (0 to %d)", id, parent_ctx->params.n_ctx);
+            llama_memory_seq_rm(kv, id, 0, -1);
+            LOG_VERBOSE("Slot %d: Cleared KV cache for sequence", id);
         }
 
-        // Initialize cache_tokens with prompt tokens
+        // Initialize cache_tokens with prompt tokens; any previous media in
+        // this slot's memory is gone with the clear
         cache_tokens = tokens;
+        bitmap_past_hashes.clear();
     }
 
     // Configure prompt checkpointing for recurrent/hybrid models when save_state_size is provided
@@ -647,6 +655,86 @@ slot_timings llama_rn_slot::get_timings() const {
     return timings;
 }
 
+llama_pos llama_rn_slot::reconcile_memory_to(llama_pos n_keep) {
+    if (!parent_ctx || !parent_ctx->ctx) {
+        return 0;
+    }
+
+    auto * kv = llama_get_memory(parent_ctx->ctx);
+
+    if (n_keep <= 0) {
+        llama_memory_seq_rm(kv, id, 0, -1);
+        return 0;
+    }
+
+    const llama_model * mdl = llama_get_model(parent_ctx->ctx);
+    // M-RoPE media prefixes hold fewer time positions than placeholder tokens,
+    // so the frontier may legitimately sit below n_keep for these models
+    const bool mrope = model_uses_mrope(mdl);
+    const llama_pos pos_max = llama_memory_seq_pos_max(kv, id);
+
+    if (pos_max + 1 < n_keep) {
+        if (mrope && pos_max >= 0) {
+            return n_keep;
+        }
+        LOG_WARNING("Slot %d: Memory holds %lld positions but %lld tokens are expected, clearing sequence",
+                   id, (long long)(pos_max + 1), (long long)n_keep);
+        llama_memory_seq_rm(kv, id, 0, -1);
+        return 0;
+    }
+
+    if (pos_max + 1 == n_keep) {
+        // Appending at the frontier is always valid
+        return n_keep;
+    }
+
+    // Roll the sequence back to n_keep. Recurrent/hybrid memories may refuse
+    // (only a small rollback ring is available), in which case the state
+    // cannot be reused and the sequence must be reprocessed from scratch.
+    if (!llama_memory_seq_rm(kv, id, n_keep, -1)) {
+        LOG_WARNING("Slot %d: Cannot roll back memory from %lld to %lld positions (recurrent/hybrid), clearing sequence",
+                   id, (long long)(pos_max + 1), (long long)n_keep);
+        llama_memory_seq_rm(kv, id, 0, -1);
+        return 0;
+    }
+
+    // The removal may have emptied the cache entirely (e.g. an SWA window that
+    // sat wholly past n_keep); the frontier must land exactly at n_keep
+    // (below it is fine for M-RoPE media prefixes)
+    {
+        const llama_pos frontier = llama_memory_seq_pos_max(kv, id) + 1;
+        const bool frontier_ok = mrope ? (frontier > 0 && frontier <= n_keep)
+                                       : (frontier == n_keep);
+        if (!frontier_ok) {
+            LOG_WARNING("Slot %d: Memory frontier is %lld after rollback to %lld, clearing sequence",
+                       id, (long long)frontier, (long long)n_keep);
+            llama_memory_seq_rm(kv, id, 0, -1);
+            return 0;
+        }
+    }
+
+    // SWA caches prune cells behind the attention window; resuming at n_keep
+    // needs positions [n_keep - n_swa, n_keep) present. Same threshold as
+    // llama.cpp's server (pos_min_thold); pos_min == 0 means nothing pruned.
+    // Recurrent/hybrid models are exempt (their pos_min reflects the recurrent
+    // tail, and their rollback safety is enforced by seq_rm itself).
+    const bool is_recurrent_or_hybrid =
+        llama_model_is_recurrent(mdl) || llama_model_is_hybrid(mdl);
+    const int32_t n_swa = parent_ctx->params.swa_full ? 0 : llama_model_n_swa(mdl);
+    if (n_swa > 0 && !is_recurrent_or_hybrid) {
+        const llama_pos pos_min = llama_memory_seq_pos_min(kv, id);
+        const llama_pos pos_min_thold = std::max<llama_pos>(0, n_keep - n_swa);
+        if (pos_min < 0 || (pos_min > 0 && pos_min >= pos_min_thold)) {
+            LOG_WARNING("Slot %d: SWA cache lost positions below %lld (pos_min=%lld), clearing sequence for full reprocess",
+                       id, (long long)pos_min_thold, (long long)pos_min);
+            llama_memory_seq_rm(kv, id, 0, -1);
+            return 0;
+        }
+    }
+
+    return n_keep;
+}
+
 // Load state into this slot's sequence
 bool llama_rn_slot::load_state() {
     if (!parent_ctx || !parent_ctx->ctx) {
@@ -721,11 +809,26 @@ bool llama_rn_slot::load_state() {
             LOG_VERBOSE("Slot %d: Limiting loaded state from %zu to %d tokens",
                        id, state_tokens.size(), load_state_size);
             state_tokens.resize(load_state_size);
-
-            auto * kv = llama_get_memory(parent_ctx->ctx);
-            llama_memory_seq_rm(kv, id, load_state_size, -1);
         }
     }
+
+    // The loaded memory may hold more positions than the token list, e.g.
+    // legacy files saved from multimodal sequences (media positions were
+    // stripped from the tokens but not from the memory) or files trimmed via
+    // save_state_size. Reconcile so decoding can resume at the token count;
+    // when the memory can't be rolled back, degrade to a cold start instead
+    // of failing the batch later.
+    const llama_pos usable = reconcile_memory_to((llama_pos) state_tokens.size());
+    if (usable < (llama_pos) state_tokens.size()) {
+        LOG_WARNING("Slot %d: Loaded state is not resumable, prompt will be reprocessed from scratch", id);
+        state_tokens.clear();
+    }
+
+    // Media identity for placeholder positions; absent for text-only or
+    // legacy files (media is then conservatively reprocessed)
+    bitmap_past_hashes = state_tokens.empty()
+        ? std::vector<std::string>{}
+        : read_state_meta(load_state_path);
 
     n_past = state_tokens.size();
     cache_tokens = std::move(state_tokens);
@@ -794,13 +897,10 @@ bool llama_rn_slot::save_prompt_state_checkpoint() {
         tokens_to_save = cache_tokens.size();
     }
 
+    // Keep LLAMA_TOKEN_NULL media placeholders: llama_state_seq_save_file
+    // always serializes the whole sequence memory, so the token list must
+    // cover the same positions or the file cannot be resumed
     std::vector<llama_token> state_tokens(cache_tokens.begin(), cache_tokens.begin() + tokens_to_save);
-
-    // Remove LLAMA_TOKEN_NULL tokens
-    auto null_token_iter = std::find(state_tokens.begin(), state_tokens.end(), LLAMA_TOKEN_NULL);
-    if (null_token_iter != state_tokens.end()) {
-        state_tokens.resize(std::distance(state_tokens.begin(), null_token_iter));
-    }
 
     size_t actual_save_size = state_tokens.size();
     if (actual_save_size == 0) {
@@ -843,6 +943,17 @@ bool llama_rn_slot::save_prompt_state_checkpoint() {
         LOG_ERROR("Slot %d: Failed to save prompt checkpoint to file: %s", id, save_prompt_state_path.c_str());
         return false;
     }
+
+    // Persist media identity only when the saved prefix actually holds media
+    // and no media position was cut off; anything else cannot be verified on
+    // reload (and hashes without placeholders would be stale)
+    const bool media_retained =
+        std::find(state_tokens.begin(), state_tokens.end(),
+                  LLAMA_TOKEN_NULL) != state_tokens.end() &&
+        std::find(cache_tokens.begin() + actual_save_size, cache_tokens.end(),
+                  LLAMA_TOKEN_NULL) == cache_tokens.end();
+    write_state_meta(save_prompt_state_path,
+                     media_retained ? bitmap_past_hashes : std::vector<std::string>{});
 
     LOG_INFO("Slot %d: Saved prompt checkpoint for %zu tokens (full state, %.2f KB)",
              id, actual_save_size, nwrite / 1024.0);
@@ -896,13 +1007,29 @@ bool llama_rn_slot::save_state() {
     const llama_model * model = llama_get_model(parent_ctx->ctx);
     const bool is_recurrent_or_hybrid = llama_model_is_recurrent(model) || llama_model_is_hybrid(model);
 
-    // Get tokens for this state (cache_tokens represents all processed tokens in KV cache)
+    // Get tokens for this state (cache_tokens represents all processed tokens
+    // in the sequence memory). LLAMA_TOKEN_NULL media placeholders are kept:
+    // llama_state_seq_save_file always serializes the whole sequence memory,
+    // so the token list must cover the same positions to stay resumable.
     std::vector<llama_token> state_tokens = cache_tokens;
 
-    // Remove LLAMA_TOKEN_NULL tokens
-    auto null_token_iter = std::find(state_tokens.begin(), state_tokens.end(), LLAMA_TOKEN_NULL);
-    if (null_token_iter != state_tokens.end()) {
-        state_tokens.resize(std::distance(state_tokens.begin(), null_token_iter));
+    // The last sampled token may never have been decoded (stop-word/limit
+    // stops); the memory only holds decoded positions and the token list
+    // must not claim more. M-RoPE media histories are exempt: their frontier
+    // legitimately lags the placeholder token count, so trimming to it would
+    // cut real tokens.
+    const bool mrope_media = model_uses_mrope(model) &&
+        std::find(state_tokens.begin(), state_tokens.end(),
+                  LLAMA_TOKEN_NULL) != state_tokens.end();
+    if (!mrope_media) {
+        auto * kv = llama_get_memory(parent_ctx->ctx);
+        const size_t decoded_count =
+            (size_t) std::max<llama_pos>(0, llama_memory_seq_pos_max(kv, id) + 1);
+        if (state_tokens.size() > decoded_count) {
+            LOG_VERBOSE("Slot %d: Trimming %zu undecoded token(s) from saved state",
+                       id, state_tokens.size() - decoded_count);
+            state_tokens.resize(decoded_count);
+        }
     }
 
     if (state_tokens.empty()) {
@@ -974,6 +1101,17 @@ bool llama_rn_slot::save_state() {
         LOG_ERROR("Slot %d: Failed to save state to file: %s", id, save_state_path.c_str());
         return false;
     }
+
+    // Persist media identity only when the saved prefix actually holds media
+    // and no media position was cut off; anything else cannot be verified on
+    // reload (and hashes without placeholders would be stale)
+    const bool media_retained =
+        std::find(state_tokens.begin(), state_tokens.begin() + actual_save_size,
+                  LLAMA_TOKEN_NULL) != state_tokens.begin() + actual_save_size &&
+        std::find(state_tokens.begin() + actual_save_size, state_tokens.end(),
+                  LLAMA_TOKEN_NULL) == state_tokens.end();
+    write_state_meta(save_state_path,
+                     media_retained ? bitmap_past_hashes : std::vector<std::string>{});
 
     // Calculate elapsed time
     const int64_t t_save_end = lm_ggml_time_us();
