@@ -104,3 +104,6 @@ tests/*.gguf
 tests/status_changes.log
 .claude/settings.local.json
 tests/android/build-hexagon/
+
+# skill-creator eval scaffolding (throwaway)
+.agents/skills/*-workspace/
