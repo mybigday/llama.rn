@@ -38,8 +38,7 @@ QUANT="${QUANT:-Q8_0}"
 
 # model spec = "local_name|repo|file [file2 ...] [repo2|file2 ...]"
 # Bare extra entries download from the primary repo; "repo|file" entries bring
-# their own repo (used for the gemma4 assistant draft, which lives in a
-# different repo than the target weights).
+# their own repo.
 # The local_name is the basename the tests look for (see kv_cache_reuse_test.cpp).
 spec_for() {
   case "$1" in
@@ -56,13 +55,10 @@ spec_for() {
     # Its mmproj ships in the same repo, so it is also the hybrid + M-RoPE vision
     # model, and the only vision model with a native MTP draft head.
     qwen35)   echo "qwen35|bartowski/Qwen_Qwen3.5-2B-GGUF|Qwen_Qwen3.5-2B-Q4_0.gguf mmproj-Qwen_Qwen3.5-2B-f16.gguf" ;;
-    # gemma4 MTP is assistant-type (mem-shared draft): the draft head lives in a
-    # SEPARATE gemma4-assistant gguf, not in the target weights — so a second
-    # repo entry fetches it as gemma4.assistant.gguf (auto-wired by the tests).
-    # Google publishes the assistant weights only as safetensors; ggml-org's
-    # "mtp-*" ggufs are the canonical llama.cpp conversion (arch gemma4-assistant,
-    # nextn_predict_layers=4). Beware third-party conversions: AtomicChat and
-    # Radamanthys11 use stale arch names and fail to load (lym00's works).
+    # gemma4 MTP is assistant-type: the draft head lives in a separate
+    # gemma4-assistant gguf, fetched here as gemma4.assistant.gguf. Pinned to
+    # ggml-org's "mtp-*" conversion — most third-party assistant ggufs on HF
+    # carry stale arch names and fail to load.
     gemma4)   echo "gemma4|bartowski/google_gemma-4-E2B-it-GGUF|google_gemma-4-E2B-it-Q4_K_M.gguf mmproj-google_gemma-4-E2B-it-f16.gguf ggml-org/gemma-4-E2B-it-GGUF|mtp-gemma-4-E2B-it-Q8_0.gguf" ;;
     # LFM2.5-VL-450M is a hybrid (LFM2 arch) vision model: small, and unlike the
     # SWA gemma4 its seq_rm genuinely fails on divergence, so it exercises the
@@ -113,8 +109,7 @@ for key in "${WANT[@]}"; do
   echo "== $key ($repo) =="
   idx=0
   for entry in $files; do
-    # entry is either "file" (fetched from the primary repo) or "repo|file"
-    # (fetched from its own repo, e.g. the gemma4 assistant draft gguf).
+    # entry is either "file" (from the primary repo) or "repo|file"
     case "$entry" in
       *\|*) erepo="${entry%%|*}"; f="${entry#*|}" ;;
       *)    erepo="$repo";        f="$entry" ;;
@@ -124,9 +119,7 @@ for key in "${WANT[@]}"; do
       download_file "$erepo" "$f" "$MODELS_DIR/${local_name}.gguf"
     else
       case "$f" in
-        # assistant-type MTP draft (ggml-org names these "mtp-*") ->
-        # <local_name>.assistant.gguf, the name kv_cache_reuse_test.cpp
-        # auto-wires next to the target weights
+        # MTP draft -> <local_name>.assistant.gguf, the name the tests auto-wire
         mtp-*|*assistant*) download_file "$erepo" "$f" "$MODELS_DIR/${local_name}.assistant.gguf" ;;
         # extra files (e.g. mmproj) -> keep original name prefixed with local_name
         *)                 download_file "$erepo" "$f" "$MODELS_DIR/${local_name}.${f}" ;;

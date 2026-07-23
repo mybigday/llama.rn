@@ -670,13 +670,10 @@ std::vector<Check> run_model_mtp(const std::string &key, const std::string &path
                       << " draft_accept=" << accepted << "/" << drafted << "\n";
         }
     } catch (const std::exception &e) {
-        // This runner is only invoked for models whose fixture entry claims MTP
-        // support (kKnownModels mtp=true), so a draft-init failure is a real
-        // failure, not a skip. Most likely cause: the assistant draft gguf is
-        // missing or stale (gemma4-style mem-shared MTP keeps the draft head in
-        // a separate <model>.assistant.gguf — fetched by models/download.sh).
-        // Masking this as a pass previously let the mem-shared branch go
-        // untested everywhere the assistant fixture wasn't present.
+        // Only models with kKnownModels mtp=true reach this runner, so a
+        // draft-init failure is a real failure, not a skip. Likely cause: the
+        // separate <model>.assistant.gguf draft (mem-shared MTP) is missing —
+        // models/download.sh fetches it.
         checks.push_back({key + " [MTP]: init failed (fixture claims mtp=true; "
                           "re-run models/download.sh " + key + "?)", false,
                           e.what(), /*fix_target*/ false});
