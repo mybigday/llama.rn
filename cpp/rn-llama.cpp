@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <cstdarg>
+#include <cstdio>
+#include <fstream>
 
 namespace rnllama {
 
@@ -151,6 +153,82 @@ std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::co
         ret += common_token_to_piece(ctx, *it);
     }
     return ret;
+}
+
+bool model_uses_mrope(const llama_model *model) {
+    if (model == nullptr) {
+        return false;
+    }
+    const enum llama_rope_type rope = llama_model_rope_type(model);
+    return rope == LLAMA_ROPE_TYPE_MROPE || rope == LLAMA_ROPE_TYPE_IMROPE;
+}
+
+static std::string state_meta_path(const std::string &state_path) {
+    return state_path + ".meta";
+}
+
+void write_state_meta(const std::string &state_path, const std::vector<std::string> &bitmap_hashes) {
+    const std::string meta_path = state_meta_path(state_path);
+    if (bitmap_hashes.empty()) {
+        std::remove(meta_path.c_str());
+        return;
+    }
+    // Write-through-temp + rename so an interrupted write can never leave a
+    // stale sidecar describing a different state file
+    const std::string tmp_path = meta_path + ".tmp";
+    {
+        std::ofstream out(tmp_path, std::ios::trunc);
+        if (!out.is_open()) {
+            LOG_WARNING("Failed to write state metadata: %s", tmp_path.c_str());
+            std::remove(meta_path.c_str()); // fail closed: no metadata beats wrong metadata
+            return;
+        }
+        out << "rnllama-state-meta v1\n" << bitmap_hashes.size() << "\n";
+        for (const auto &hash : bitmap_hashes) {
+            out << hash << "\n";
+        }
+        out.flush();
+        if (!out.good()) {
+            LOG_WARNING("Failed to write state metadata: %s", tmp_path.c_str());
+            out.close();
+            std::remove(tmp_path.c_str());
+            std::remove(meta_path.c_str());
+            return;
+        }
+    }
+    if (std::rename(tmp_path.c_str(), meta_path.c_str()) != 0) {
+        LOG_WARNING("Failed to replace state metadata: %s", meta_path.c_str());
+        std::remove(tmp_path.c_str());
+        std::remove(meta_path.c_str());
+    }
+}
+
+std::vector<std::string> read_state_meta(const std::string &state_path) {
+    std::vector<std::string> hashes;
+    std::ifstream in(state_meta_path(state_path));
+    if (!in.is_open()) {
+        return hashes;
+    }
+    std::string line;
+    if (!std::getline(in, line) || line != "rnllama-state-meta v1") {
+        return hashes;
+    }
+    size_t count = 0;
+    if (!std::getline(in, line)) {
+        return hashes;
+    }
+    try {
+        count = std::stoul(line);
+    } catch (const std::exception &) {
+        return hashes;
+    }
+    for (size_t i = 0; i < count && std::getline(in, line); i++) {
+        hashes.push_back(line);
+    }
+    if (hashes.size() != count) {
+        hashes.clear(); // truncated sidecar - treat as absent
+    }
+    return hashes;
 }
 
 // Well-formed UTF-8 lead bytes and the range of their first continuation
@@ -668,6 +746,19 @@ void llama_rn_context::releaseMultimodal() {
         delete mtmd_wrapper;
         mtmd_wrapper = nullptr;
         has_multimodal = false;
+    }
+}
+
+std::vector<std::string> llama_rn_context::getMediaHashes() const {
+    if (mtmd_wrapper == nullptr) {
+        return {};
+    }
+    return mtmd_wrapper->bitmap_past_hashes;
+}
+
+void llama_rn_context::setMediaHashes(const std::vector<std::string> &hashes) {
+    if (mtmd_wrapper != nullptr) {
+        mtmd_wrapper->bitmap_past_hashes = hashes;
     }
 }
 
