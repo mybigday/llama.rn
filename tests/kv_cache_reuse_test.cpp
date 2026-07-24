@@ -670,10 +670,12 @@ std::vector<Check> run_model_mtp(const std::string &key, const std::string &path
                       << " draft_accept=" << accepted << "/" << drafted << "\n";
         }
     } catch (const std::exception &e) {
-        // No MTP/EAGLE draft head (dense/SWA/plain-recurrent models): draft-context
-        // creation fails -- not applicable, so skip rather than fail. A model that
-        // should support MTP (qwen35) then shows only this line, visible in the summary.
-        checks.push_back({key + " [MTP]: not supported by this model (skipped)", true,
+        // Only models with kKnownModels mtp=true reach this runner, so a
+        // draft-init failure is a real failure, not a skip. Likely cause: the
+        // separate <model>.assistant.gguf draft (mem-shared MTP) is missing —
+        // models/download.sh fetches it.
+        checks.push_back({key + " [MTP]: init failed (fixture claims mtp=true; "
+                          "re-run models/download.sh " + key + "?)", false,
                           e.what(), /*fix_target*/ false});
         return checks;
     }

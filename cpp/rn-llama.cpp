@@ -414,7 +414,12 @@ bool llama_rn_context::loadModel(common_params &params_)
         has_speculative_type(params.speculative, COMMON_SPECULATIVE_TYPE_DRAFT_MTP)) {
         const auto & draft_params = params.speculative.draft;
         common_params params_dft = params;
-        params_dft.devices = draft_params.devices;
+        // Inherit the target's device list unless the draft has its own: an
+        // unconditional overwrite would reset a CPU-only target override to
+        // the default (all devices), putting the draft back on the GPU.
+        if (!draft_params.devices.empty()) {
+            params_dft.devices = draft_params.devices;
+        }
         params_dft.model = draft_params.mparams;
         params_dft.n_gpu_layers = draft_params.n_gpu_layers;
         params_dft.cache_type_k = draft_params.cache_type_k;
