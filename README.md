@@ -175,7 +175,7 @@ console.log('Result:', textResult.text)
 console.log('Timings:', textResult.timings)
 ```
 
-The binding's deisgn inspired by [server.cpp](https://github.com/ggerganov/llama.cpp/tree/master/examples/server) example in llama.cpp:
+The binding's design inspired by [server.cpp](https://github.com/ggerganov/llama.cpp/tree/master/examples/server) example in llama.cpp:
 
 - `/completion` and `/chat/completions`: `context.completion(params, partialCompletionCallback)`
 - `/tokenize`: `context.tokenize(content)`
