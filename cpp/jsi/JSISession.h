@@ -66,13 +66,16 @@ namespace rnllama_jsi {
         // (legacy files saved from multimodal sequences or trimmed saves).
         // Reconcile so the next completion can resume; degrade to an empty
         // cache when the memory cannot be rolled back. M-RoPE media histories
-        // legitimately hold fewer time positions than placeholder tokens.
+        // legitimately hold fewer time positions than placeholder tokens -
+        // but only when placeholders are actually present; for a text-only
+        // token list a lagging frontier can only mean an inconsistent file.
         auto * kv = llama_get_memory(ctx->ctx);
         const llama_pos n_tokens = (llama_pos) embd.size();
         const llama_pos pos_max = llama_memory_seq_pos_max(kv, 0);
+        const bool mrope_media = rnllama::model_uses_mrope(ctx->model) &&
+            std::find(embd.begin(), embd.end(), LLAMA_TOKEN_NULL) != embd.end();
         bool resumable = pos_max + 1 == n_tokens ||
-                         (rnllama::model_uses_mrope(ctx->model) && pos_max >= 0 &&
-                          pos_max + 1 < n_tokens);
+                         (mrope_media && pos_max >= 0 && pos_max + 1 < n_tokens);
         if (!resumable && pos_max + 1 > n_tokens) {
             resumable = llama_memory_seq_rm(kv, 0, n_tokens, -1) &&
                         llama_memory_seq_pos_max(kv, 0) + 1 == n_tokens;
@@ -131,6 +134,10 @@ namespace rnllama_jsi {
 
         int default_size = session_tokens.size();
         int save_size = size > 0 && size <= default_size ? size : default_size;
+
+        // Drop any previous sidecar before overwriting the state file so a
+        // failure in between can never pair stale hashes with the new file
+        rnllama::write_state_meta(path, {});
 
         if (!llama_state_save_file(ctx->ctx, path.c_str(), session_tokens.data(), save_size)) {
              throw std::runtime_error("Failed to save session");

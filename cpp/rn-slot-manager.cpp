@@ -788,6 +788,11 @@ void llama_rn_slot_manager::build_batch() {
                     const llama_model * mdl = llama_get_model(parent_ctx->ctx);
                     if ((llama_model_is_recurrent(mdl) || llama_model_is_hybrid(mdl)) &&
                         slot.save_prompt_state_pending && !slot.save_prompt_state_path.empty()) {
+                        // The capture overwrites the state file mid-eval; drop
+                        // any previous sidecar now so an eval failure (or kill)
+                        // before the new sidecar is written can never pair
+                        // stale hashes with the new file (fail closed)
+                        write_state_meta(slot.save_prompt_state_path, {});
                         auto * slot_ptr = &slot;
                         capture = [this, slot_ptr, &prompt_ckpt_written](
                                       const std::vector<llama_token> &toks, size_t n) {

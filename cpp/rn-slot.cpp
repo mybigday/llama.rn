@@ -224,8 +224,9 @@ void llama_rn_slot::load_prompt(const std::vector<llama_token>& tokens) {
 
             // Roll the memory back to the reusable prefix; falls back to a
             // cold start when the memory can't resume there (recurrent/hybrid
-            // rollback limits, SWA pruning)
-            n_past = reconcile_memory_to(n_past);
+            // rollback limits, SWA pruning). The reused prefix is common with
+            // a text prompt, so it cannot contain media placeholders.
+            n_past = reconcile_memory_to(n_past, /*tokens_have_media*/ false);
             n_prompt_tokens_cache = n_past;
 
             // Update cache_tokens to include the full prompt. A text prompt
@@ -655,7 +656,7 @@ slot_timings llama_rn_slot::get_timings() const {
     return timings;
 }
 
-llama_pos llama_rn_slot::reconcile_memory_to(llama_pos n_keep) {
+llama_pos llama_rn_slot::reconcile_memory_to(llama_pos n_keep, bool tokens_have_media) {
     if (!parent_ctx || !parent_ctx->ctx) {
         return 0;
     }
@@ -669,12 +670,15 @@ llama_pos llama_rn_slot::reconcile_memory_to(llama_pos n_keep) {
 
     const llama_model * mdl = llama_get_model(parent_ctx->ctx);
     // M-RoPE media prefixes hold fewer time positions than placeholder tokens,
-    // so the frontier may legitimately sit below n_keep for these models
-    const bool mrope = model_uses_mrope(mdl);
+    // so the frontier may legitimately sit below n_keep - but only when the
+    // token list actually holds media; for a text-only list a lagging frontier
+    // can only mean an inconsistent state (e.g. a legacy file whose last
+    // sampled token was never decoded)
+    const bool mrope_media = model_uses_mrope(mdl) && tokens_have_media;
     const llama_pos pos_max = llama_memory_seq_pos_max(kv, id);
 
     if (pos_max + 1 < n_keep) {
-        if (mrope && pos_max >= 0) {
+        if (mrope_media && pos_max >= 0) {
             return n_keep;
         }
         LOG_WARNING("Slot %d: Memory holds %lld positions but %lld tokens are expected, clearing sequence",
@@ -703,8 +707,8 @@ llama_pos llama_rn_slot::reconcile_memory_to(llama_pos n_keep) {
     // (below it is fine for M-RoPE media prefixes)
     {
         const llama_pos frontier = llama_memory_seq_pos_max(kv, id) + 1;
-        const bool frontier_ok = mrope ? (frontier > 0 && frontier <= n_keep)
-                                       : (frontier == n_keep);
+        const bool frontier_ok = mrope_media ? (frontier > 0 && frontier <= n_keep)
+                                             : (frontier == n_keep);
         if (!frontier_ok) {
             LOG_WARNING("Slot %d: Memory frontier is %lld after rollback to %lld, clearing sequence",
                        id, (long long)frontier, (long long)n_keep);
@@ -818,7 +822,11 @@ bool llama_rn_slot::load_state() {
     // save_state_size. Reconcile so decoding can resume at the token count;
     // when the memory can't be rolled back, degrade to a cold start instead
     // of failing the batch later.
-    const llama_pos usable = reconcile_memory_to((llama_pos) state_tokens.size());
+    const bool tokens_have_media =
+        std::find(state_tokens.begin(), state_tokens.end(),
+                  LLAMA_TOKEN_NULL) != state_tokens.end();
+    const llama_pos usable =
+        reconcile_memory_to((llama_pos) state_tokens.size(), tokens_have_media);
     if (usable < (llama_pos) state_tokens.size()) {
         LOG_WARNING("Slot %d: Loaded state is not resumable, prompt will be reprocessed from scratch", id);
         state_tokens.clear();
@@ -930,6 +938,10 @@ bool llama_rn_slot::save_prompt_state_checkpoint() {
              (long long)pos_max,
              cache_k,
              cache_v);
+
+    // Drop any previous sidecar before overwriting the state file so a
+    // failure in between can never pair stale hashes with the new file
+    write_state_meta(save_prompt_state_path, {});
 
     size_t nwrite = llama_state_seq_save_file(
         parent_ctx->ctx,
@@ -1064,6 +1076,10 @@ bool llama_rn_slot::save_state() {
                        id, actual_save_size);
         }
     }
+
+    // Drop any previous sidecar before overwriting the state file so a
+    // failure in between can never pair stale hashes with the new file
+    write_state_meta(save_state_path, {});
 
     size_t nwrite = llama_state_seq_save_file(
         parent_ctx->ctx,

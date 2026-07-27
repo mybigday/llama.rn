@@ -201,9 +201,11 @@ struct llama_rn_slot {
     // at position n_keep. Falls back to a full sequence clear when the memory
     // cannot be rolled back (recurrent/hybrid beyond the rollback ring) or
     // when SWA pruning already dropped positions the resumed window needs.
-    // Returns the position decoding must resume from (n_keep, or 0 after a
-    // fallback clear).
-    llama_pos reconcile_memory_to(llama_pos n_keep);
+    // tokens_have_media: whether the token list backing [0, n_keep) holds
+    // LLAMA_TOKEN_NULL placeholders - only then may an M-RoPE frontier
+    // legitimately sit below n_keep. Returns the position decoding must
+    // resume from (n_keep, or 0 after a fallback clear).
+    llama_pos reconcile_memory_to(llama_pos n_keep, bool tokens_have_media);
 };
 
 } // namespace rnllama
