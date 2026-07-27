@@ -1334,14 +1334,23 @@ std::vector<Check> run_model_multimodal(const std::string &key,
         sim.user("What animal was shown? Answer with one word.");
         std::string a_cat_follow = sim.assistant_turn("cat-follow", /*max_new*/ 12).reply;
         const size_t reuse_cat_follow = reused_prefix();
+        // The checkpoint must serve the follow-up: the reused prefix has to
+        // cover the full image. (A half-of-prompt threshold under-counts
+        // M-RoPE images, whose placeholders span few position slots.)
+        size_t media_end = 0;
+        for (size_t i = 0; i < sim.ctx.completion->embd.size(); i++) {
+            if (sim.ctx.completion->embd[i] == LLAMA_TOKEN_NULL) media_end = i + 1;
+        }
         std::cout << "    [cat follow] A:\"" << a_cat_follow
-                  << "\" reused_prefix=" << reuse_cat_follow << "/" << cat_prompt << "\n";
+                  << "\" reused_prefix=" << reuse_cat_follow << "/" << cat_prompt
+                  << " media_end=" << media_end << "\n";
         checks.push_back({key + " [vision]: A->B->B keeps the cat checkpoint",
                           has_any_word(a_cat_follow, CAT) && !has_any_word(a_cat_follow, DOG) &&
-                              reuse_cat_follow * 2 >= cat_prompt,
+                              media_end > 0 && reuse_cat_follow >= media_end,
                           "reply: '" + a_cat_follow + "', reused_prefix " +
                               std::to_string(reuse_cat_follow) + "/" +
-                              std::to_string(cat_prompt),
+                              std::to_string(cat_prompt) + ", media_end " +
+                              std::to_string(media_end),
                           /*fix_target*/ true});
 
         // --- Session 3: no image at all, no cache clear ----------------------
@@ -2285,6 +2294,497 @@ std::vector<Check> run_slot_media_test(const std::string &key, const std::string
     return checks;
 }
 
+// ------------------------------------------------------- slot state files
+
+// Round-trip a slot state file across two separate contexts (simulated app
+// restart). Turn 1 saves after generating; turn 2 extends the exact cached
+// token stream, so every memory architecture (attention / hybrid / recurrent
+// / SWA) must resume from the file — a frontier append needs no rollback.
+// The parallel-path analogue of run_session_saveload_test.
+std::vector<Check> run_slot_state_file_test(const std::string &key, const std::string &path) {
+    std::vector<Check> checks;
+    const std::string tag = " [slot-state]";
+    std::cout << "\n===== " << key << tag << ": state file across contexts =====\n";
+
+    const auto state_path =
+        (std::filesystem::temp_directory_path() / ("kv_reuse_slot_state_" + key + ".bin")).string();
+    std::filesystem::remove(state_path);
+    std::filesystem::remove(state_path + ".meta");
+
+    common_params params;
+    params.model.path = path;
+    params.n_ctx = 1024;
+    params.n_batch = 128;
+    params.n_ubatch = 128;
+    params.n_parallel = 2;
+    params.cpuparams.n_threads = std::max(1u, std::thread::hardware_concurrency() / 2);
+    params.n_gpu_layers = 0;
+    params.no_kv_offload = true;
+    params.n_predict = 8;
+    params.sampling.temp = 0.0f;
+    params.sampling.top_k = 1;
+
+    std::vector<llama_token> turn1_tokens;
+    std::vector<llama_token> generated_ids;
+
+    auto drive = [](llama_rn_context &ctx, bool &completed) {
+        const int64_t t0 = lm_ggml_time_us();
+        while (!completed && (lm_ggml_time_us() - t0) < 120LL * 1000 * 1000) {
+            ctx.slot_manager->update_slots();
+        }
+    };
+
+    { // turn 1: generate and save
+        llama_rn_context ctx;
+        if (!ctx.loadModel(params)) {
+            checks.push_back({key + tag + ": model load (save ctx)", false, "loadModel failed", false});
+            return checks;
+        }
+        ctx.enableParallelMode(2, 128);
+        turn1_tokens = common_tokenize(ctx.ctx,
+            "The quick brown fox jumps over the lazy dog. The", true, true);
+        bool completed = false, incomplete = true;
+        ctx.slot_manager->queue_request(
+            params, turn1_tokens, {}, "", 0, COMMON_REASONING_FORMAT_NONE, "", "", "",
+            /*load_state_path*/ "", /*save_state_path*/ state_path, /*save_prompt_state_path*/ "",
+            /*load_state_size*/ -1, /*save_state_size*/ -1,
+            [&](const completion_token_output &out) { generated_ids.push_back(out.tok); },
+            [&](llama_rn_slot *s) { completed = true; incomplete = s->incomplete; });
+        drive(ctx, completed);
+        checks.push_back({key + tag + ": save turn completed", completed && !incomplete,
+                          "generated " + std::to_string(generated_ids.size()) + " tokens", false});
+        if (!completed) return checks;
+    }
+    checks.push_back({key + tag + ": state file written",
+                      std::filesystem::exists(state_path), state_path, false});
+    if (!std::filesystem::exists(state_path)) return checks;
+
+    { // turn 2 in a FRESH context: extend the exact cached stream
+        llama_rn_context ctx;
+        if (!ctx.loadModel(params)) {
+            checks.push_back({key + tag + ": model load (load ctx)", false, "loadModel failed", false});
+            return checks;
+        }
+        ctx.enableParallelMode(2, 128);
+        std::vector<llama_token> turn2_tokens = turn1_tokens;
+        turn2_tokens.insert(turn2_tokens.end(), generated_ids.begin(), generated_ids.end());
+        const auto suffix = common_tokenize(ctx.ctx, " And then", false, true);
+        turn2_tokens.insert(turn2_tokens.end(), suffix.begin(), suffix.end());
+
+        std::string reply;
+        bool completed = false, incomplete = true;
+        int32_t cache_n = -1;
+        ctx.slot_manager->queue_request(
+            params, turn2_tokens, {}, "", 0, COMMON_REASONING_FORMAT_NONE, "", "", "",
+            /*load_state_path*/ state_path, /*save_state_path*/ "", /*save_prompt_state_path*/ "",
+            /*load_state_size*/ -1, /*save_state_size*/ -1,
+            [&](const completion_token_output &out) { reply += out.text; },
+            [&](llama_rn_slot *s) {
+                completed = true;
+                incomplete = s->incomplete;
+                cache_n = s->n_prompt_tokens_cache;
+            });
+        drive(ctx, completed);
+        checks.push_back({key + tag + ": resumed turn completed", completed && !incomplete,
+                          "reply: '" + reply + "'", false});
+        // The turn-2 prompt extends the saved stream token-for-token, so the
+        // loaded prefix must be reused on every memory architecture.
+        checks.push_back({key + tag + ": loaded state reused", cache_n > 0,
+                          "cache_n=" + std::to_string(cache_n), false});
+    }
+    std::filesystem::remove(state_path);
+    std::filesystem::remove(state_path + ".meta");
+    return checks;
+}
+
+// Media ingest while another slot is mid-generation: the media slot's first
+// token must be sampled from processMedia's logits, not from whatever the
+// shared batch decoded for the other slot in between (that race produced
+// immediate-EOS empty replies).
+std::vector<Check> run_slot_media_concurrent_test(const std::string &key, const std::string &path,
+                                                  const std::string &mmproj_path, const std::string &img) {
+    std::vector<Check> checks;
+    const std::string tag = " [slot-vision-concurrent]";
+    std::cout << "\n===== " << key << tag << ": media ingest during concurrent generation =====\n";
+
+    common_params params;
+    params.model.path = path;
+    params.n_ctx = 4096;
+    params.n_batch = 512;
+    params.n_ubatch = 512;
+    params.n_parallel = 2;
+    params.cpuparams.n_threads = std::max(1u, std::thread::hardware_concurrency() / 2);
+    params.n_gpu_layers = 0;
+    params.no_kv_offload = true;
+    params.n_predict = 16;
+    params.sampling.temp = 0.0f;
+    params.sampling.top_k = 1;
+
+    llama_rn_context ctx;
+    if (!ctx.loadModel(params)) {
+        checks.push_back({key + tag + ": model load", false, "loadModel failed", false});
+        return checks;
+    }
+    if (!ctx.initMultimodal(mmproj_path, /*use_gpu*/ false)) {
+        checks.push_back({key + tag + ": mmproj init", false, "initMultimodal failed", false});
+        return checks;
+    }
+    ctx.enableParallelMode(2, 512);
+
+    // A plain text request that keeps its slot generating while the media
+    // request ingests on the other slot
+    common_params text_params = params;
+    text_params.n_predict = 48;
+    const auto text_tokens = common_tokenize(ctx.ctx,
+        "Write a long story about the sea. Once upon a time", true, true);
+    std::string text_reply;
+    bool text_completed = false;
+    ctx.slot_manager->queue_request(
+        text_params, text_tokens, {}, "", 0, COMMON_REASONING_FORMAT_NONE, "", "", "",
+        "", "", "", -1, -1,
+        [&](const completion_token_output &out) { text_reply += out.text; },
+        [&](llama_rn_slot *) { text_completed = true; });
+
+    const std::string marker = mtmd_default_marker();
+    json msgs = json::array();
+    msgs.push_back({{"role", "system"}, {"content", "You are a helpful assistant."}});
+    msgs.push_back({{"role", "user"},
+                    {"content", marker + "\nWhat animal is in this image? Answer with one word."}});
+    common_chat_params cp = ctx.getFormattedChatWithJinja(
+        msgs.dump(-1, ' ', false, json::error_handler_t::replace),
+        "", "", "", false, "", false, "none", true, "", {}, false);
+    auto tk = ctx.tokenize(cp.prompt, {img});
+    std::string media_reply;
+    bool media_completed = false, media_incomplete = true;
+    ctx.slot_manager->queue_request(
+        params, tk.tokens, {img}, cp.prompt, 0, COMMON_REASONING_FORMAT_NONE, "", "", "",
+        "", "", "", -1, -1,
+        [&](const completion_token_output &out) { media_reply += out.text; },
+        [&](llama_rn_slot *s) { media_completed = true; media_incomplete = s->incomplete; });
+
+    const int64_t t0 = lm_ggml_time_us();
+    while ((!media_completed || !text_completed) &&
+           (lm_ggml_time_us() - t0) < 180LL * 1000 * 1000) {
+        ctx.slot_manager->update_slots();
+    }
+
+    checks.push_back({key + tag + ": both requests completed",
+                      media_completed && !media_incomplete && text_completed,
+                      "media: '" + media_reply + "', text len " + std::to_string(text_reply.size()), false});
+    checks.push_back({key + tag + ": media reply not empty", !media_reply.empty(),
+                      "media reply: '" + media_reply + "'", false});
+    checks.push_back({key + tag + ": image recognized during concurrency",
+                      has_word(media_reply, "dog"), "media reply: '" + media_reply + "'", false});
+    return checks;
+}
+
+// The parallel example's flow for recurrent/hybrid models: turn 1 saves a
+// prompt checkpoint (save_prompt_state_path pauses the prompt at N-1 so the
+// file stays resumable), turn 2 re-sends the byte-identical prompt with
+// load_state_path. The reload must reuse the checkpointed prefix (frontier
+// append + one-token decode), not fall back to a full reprocess.
+std::vector<Check> run_slot_prompt_state_regen_test(const std::string &key, const std::string &path) {
+    std::vector<Check> checks;
+    const std::string tag = " [slot-prompt-state]";
+    std::cout << "\n===== " << key << tag << ": prompt checkpoint + same-prompt reload =====\n";
+
+    const auto state_path = (std::filesystem::temp_directory_path() /
+                             ("kv_reuse_slot_prompt_state_" + key + ".bin")).string();
+    std::filesystem::remove(state_path);
+    std::filesystem::remove(state_path + ".meta");
+
+    common_params params;
+    params.model.path = path;
+    params.n_ctx = 1024;
+    params.n_batch = 128;
+    params.n_ubatch = 128;
+    params.n_parallel = 2;
+    params.cpuparams.n_threads = std::max(1u, std::thread::hardware_concurrency() / 2);
+    params.n_gpu_layers = 0;
+    params.no_kv_offload = true;
+    params.n_predict = 8;
+    params.sampling.temp = 0.0f;
+    params.sampling.top_k = 1;
+
+    auto drive = [](llama_rn_context &ctx, bool &completed) {
+        const int64_t t0 = lm_ggml_time_us();
+        while (!completed && (lm_ggml_time_us() - t0) < 120LL * 1000 * 1000) {
+            ctx.slot_manager->update_slots();
+        }
+    };
+    const std::string prompt_text = "The quick brown fox jumps over the lazy dog. The";
+
+    { // turn 1: checkpoint the prompt
+        llama_rn_context ctx;
+        if (!ctx.loadModel(params)) {
+            checks.push_back({key + tag + ": model load (save ctx)", false, "loadModel failed", false});
+            return checks;
+        }
+        ctx.enableParallelMode(2, 128);
+        const auto tokens = common_tokenize(ctx.ctx, prompt_text, true, true);
+        bool completed = false, incomplete = true;
+        ctx.slot_manager->queue_request(
+            params, tokens, {}, "", 0, COMMON_REASONING_FORMAT_NONE, "", "", "",
+            /*load_state_path*/ "", /*save_state_path*/ "", /*save_prompt_state_path*/ state_path,
+            /*load_state_size*/ -1, /*save_state_size*/ -1,
+            [&](const completion_token_output &) {},
+            [&](llama_rn_slot *s) { completed = true; incomplete = s->incomplete; });
+        drive(ctx, completed);
+        checks.push_back({key + tag + ": checkpoint turn completed", completed && !incomplete, "", false});
+        if (!completed) return checks;
+    }
+    checks.push_back({key + tag + ": prompt state file written",
+                      std::filesystem::exists(state_path), state_path, false});
+    if (!std::filesystem::exists(state_path)) return checks;
+
+    { // turn 2 in a FRESH context: byte-identical prompt
+        llama_rn_context ctx;
+        if (!ctx.loadModel(params)) {
+            checks.push_back({key + tag + ": model load (load ctx)", false, "loadModel failed", false});
+            return checks;
+        }
+        ctx.enableParallelMode(2, 128);
+        const auto tokens = common_tokenize(ctx.ctx, prompt_text, true, true);
+        std::string reply;
+        bool completed = false, incomplete = true;
+        int32_t cache_n = -1;
+        ctx.slot_manager->queue_request(
+            params, tokens, {}, "", 0, COMMON_REASONING_FORMAT_NONE, "", "", "",
+            /*load_state_path*/ state_path, /*save_state_path*/ "", /*save_prompt_state_path*/ "",
+            /*load_state_size*/ -1, /*save_state_size*/ -1,
+            [&](const completion_token_output &out) { reply += out.text; },
+            [&](llama_rn_slot *s) {
+                completed = true;
+                incomplete = s->incomplete;
+                cache_n = s->n_prompt_tokens_cache;
+            });
+        drive(ctx, completed);
+        checks.push_back({key + tag + ": reloaded turn completed", completed && !incomplete,
+                          "reply: '" + reply + "'", false});
+        // The checkpoint holds the prompt minus its last token; the reload
+        // appends at the frontier, so all of it must be reused.
+        checks.push_back({key + tag + ": checkpointed prompt reused", cache_n > 0,
+                          "cache_n=" + std::to_string(cache_n), false});
+    }
+    std::filesystem::remove(state_path);
+    std::filesystem::remove(state_path + ".meta");
+    return checks;
+}
+
+// The reported failure (#372-class): a state file saved from a multimodal slot
+// stripped media positions from the token list but kept them in the memory, so
+// resuming hit "decode: failed to initialize batch" on hybrid models (LFM2,
+// Qwen3.5) and corrupted positions on SWA (Gemma). Save a media turn, reload
+// it in a fresh context, and drive the same media request again through the
+// slot manager: it must complete and still see the image.
+std::vector<Check> run_slot_media_state_file_test(const std::string &key, const std::string &path,
+                                                  const std::string &mmproj_path, const std::string &img) {
+    std::vector<Check> checks;
+    const std::string tag = " [slot-vision-state]";
+    std::cout << "\n===== " << key << tag << ": media state file across contexts =====\n";
+
+    const auto state_path = (std::filesystem::temp_directory_path() /
+                             ("kv_reuse_slot_media_state_" + key + ".bin")).string();
+    const auto legacy_path = (std::filesystem::temp_directory_path() /
+                              ("kv_reuse_slot_media_state_" + key + "_legacy.bin")).string();
+    std::filesystem::remove(state_path);
+    std::filesystem::remove(state_path + ".meta");
+    std::filesystem::remove(legacy_path);
+
+    common_params params;
+    params.model.path = path;
+    params.n_ctx = 4096;
+    params.n_batch = 512;
+    params.n_ubatch = 512;
+    params.n_parallel = 2;
+    params.cpuparams.n_threads = std::max(1u, std::thread::hardware_concurrency() / 2);
+    const char *ngl = std::getenv("RNLLAMA_NGL");
+    params.n_gpu_layers = ngl ? std::atoi(ngl) : 0;
+    params.no_kv_offload = params.n_gpu_layers == 0;
+    params.n_predict = 16;
+    params.sampling.temp = 0.0f;
+    params.sampling.top_k = 1;
+
+    auto make_prompt = [&](llama_rn_context &ctx) {
+        const std::string marker = mtmd_default_marker();
+        json msgs = json::array();
+        msgs.push_back({{"role", "system"}, {"content", "You are a helpful assistant."}});
+        msgs.push_back({{"role", "user"},
+                        {"content", marker + "\nWhat animal is in this image? Answer with one word."}});
+        common_chat_params cp = ctx.getFormattedChatWithJinja(
+            msgs.dump(-1, ' ', false, json::error_handler_t::replace),
+            /*chat_template*/ "", /*json_schema*/ "", /*tools*/ "",
+            /*parallel_tool_calls*/ false, /*tool_choice*/ "",
+            /*enable_thinking*/ false, /*reasoning_format*/ "none",
+            /*add_generation_prompt*/ true, /*now*/ "", /*kwargs*/ {},
+            /*force_pure_content*/ false);
+        return cp.prompt;
+    };
+
+    auto run_turn = [&](llama_rn_context &ctx, const std::string &load_path,
+                        const std::string &save_path, std::string &reply,
+                        bool &completed, bool &incomplete, int32_t &cache_n,
+                        const std::string &save_prompt_path = "") {
+        const std::string prompt = make_prompt(ctx);
+        auto tk = ctx.tokenize(prompt, {img});
+        ctx.slot_manager->queue_request(
+            params, tk.tokens, {img}, prompt, 0, COMMON_REASONING_FORMAT_NONE, "", "", "",
+            load_path, save_path, save_prompt_path,
+            /*load_state_size*/ -1, /*save_state_size*/ -1,
+            [&](const completion_token_output &out) { reply += out.text; },
+            [&](llama_rn_slot *s) {
+                completed = true;
+                incomplete = s->incomplete;
+                cache_n = s->n_prompt_tokens_cache;
+            });
+        const int64_t t0 = lm_ggml_time_us();
+        while (!completed && (lm_ggml_time_us() - t0) < 180LL * 1000 * 1000) {
+            ctx.slot_manager->update_slots();
+        }
+    };
+
+    { // save a media turn
+        llama_rn_context ctx;
+        if (!ctx.loadModel(params)) {
+            checks.push_back({key + tag + ": model load (save ctx)", false, "loadModel failed", false});
+            return checks;
+        }
+        if (!ctx.initMultimodal(mmproj_path, /*use_gpu*/ false)) {
+            checks.push_back({key + tag + ": mmproj init", false, "initMultimodal failed", false});
+            return checks;
+        }
+        ctx.enableParallelMode(2, 512);
+        std::string reply;
+        bool completed = false, incomplete = true;
+        int32_t cache_n = -1;
+        run_turn(ctx, "", state_path, reply, completed, incomplete, cache_n);
+        checks.push_back({key + tag + ": save turn completed", completed && !incomplete,
+                          "reply: '" + reply + "'", false});
+        if (!completed) return checks;
+
+        // Recreate the pre-fix file layout for the legacy-compat leg: token
+        // list truncated at the first media placeholder while the whole
+        // sequence memory is serialized - what save_state() used to write.
+        const auto &cache = ctx.slot_manager->slots[0].cache_tokens;
+        std::vector<llama_token> legacy(cache.begin(),
+            std::find(cache.begin(), cache.end(), LLAMA_TOKEN_NULL));
+        const bool legacy_written = !legacy.empty() &&
+            llama_state_seq_save_file(ctx.ctx, legacy_path.c_str(), 0,
+                                      legacy.data(), legacy.size()) > 0;
+        checks.push_back({key + tag + ": legacy-shaped file written", legacy_written,
+                          std::to_string(legacy.size()) + "/" +
+                              std::to_string(cache.size()) + " tokens", false});
+    }
+    checks.push_back({key + tag + ": media state file written",
+                      std::filesystem::exists(state_path), state_path, false});
+    if (!std::filesystem::exists(state_path)) return checks;
+
+    { // reload in a FRESH context and repeat the same media request
+        llama_rn_context ctx;
+        if (!ctx.loadModel(params)) {
+            checks.push_back({key + tag + ": model load (load ctx)", false, "loadModel failed", false});
+            return checks;
+        }
+        if (!ctx.initMultimodal(mmproj_path, /*use_gpu*/ false)) {
+            checks.push_back({key + tag + ": mmproj init (load ctx)", false, "initMultimodal failed", false});
+            return checks;
+        }
+        ctx.enableParallelMode(2, 512);
+        std::string reply;
+        bool completed = false, incomplete = true;
+        int32_t cache_n = -1;
+        run_turn(ctx, state_path, "", reply, completed, incomplete, cache_n);
+        // Before the fix this request died with "decode: failed to initialize
+        // batch" (hybrid) or lost the image positions entirely (SWA).
+        checks.push_back({key + tag + ": resumed media turn completed", completed && !incomplete,
+                          "reply: '" + reply + "', cache_n=" + std::to_string(cache_n), false});
+        checks.push_back({key + tag + ": image still recognized after resume",
+                          has_word(reply, "dog"), "reply: '" + reply + "'", false});
+    }
+
+    if (std::filesystem::exists(legacy_path)) {
+        // A legacy file (from the old truncating save) must degrade to
+        // reprocessing - the exact case that used to fail the decode.
+        llama_rn_context ctx;
+        if (!ctx.loadModel(params)) {
+            checks.push_back({key + tag + ": model load (legacy ctx)", false, "loadModel failed", false});
+            return checks;
+        }
+        if (!ctx.initMultimodal(mmproj_path, /*use_gpu*/ false)) {
+            checks.push_back({key + tag + ": mmproj init (legacy ctx)", false, "initMultimodal failed", false});
+            return checks;
+        }
+        ctx.enableParallelMode(2, 512);
+        std::string reply;
+        bool completed = false, incomplete = true;
+        int32_t cache_n = -1;
+        run_turn(ctx, legacy_path, "", reply, completed, incomplete, cache_n);
+        checks.push_back({key + tag + ": legacy file resumed without decode failure",
+                          completed && !incomplete,
+                          "reply: '" + reply + "', cache_n=" + std::to_string(cache_n), false});
+        checks.push_back({key + tag + ": image recognized after legacy resume",
+                          has_word(reply, "dog"), "reply: '" + reply + "'", false});
+    }
+
+    // The parallel example's multimodal flow for recurrent/hybrid models:
+    // save_prompt_state_path on turn 1, byte-identical prompt with
+    // load_state_path on turn 2. The media-boundary checkpoint must let the
+    // reload reuse the image encode on every memory architecture.
+    const auto pstate_path = (std::filesystem::temp_directory_path() /
+                              ("kv_reuse_slot_media_pstate_" + key + ".bin")).string();
+    std::filesystem::remove(pstate_path);
+    std::filesystem::remove(pstate_path + ".meta");
+    {
+        llama_rn_context ctx;
+        if (!ctx.loadModel(params)) {
+            checks.push_back({key + tag + ": model load (pstate save)", false, "loadModel failed", false});
+            return checks;
+        }
+        if (!ctx.initMultimodal(mmproj_path, /*use_gpu*/ false)) {
+            checks.push_back({key + tag + ": mmproj init (pstate save)", false, "initMultimodal failed", false});
+            return checks;
+        }
+        ctx.enableParallelMode(2, 512);
+        std::string reply;
+        bool completed = false, incomplete = true;
+        int32_t cache_n = -1;
+        run_turn(ctx, "", "", reply, completed, incomplete, cache_n, pstate_path);
+        checks.push_back({key + tag + ": prompt-checkpoint turn completed", completed && !incomplete,
+                          "reply: '" + reply + "'", false});
+    }
+    checks.push_back({key + tag + ": media prompt state written",
+                      std::filesystem::exists(pstate_path), pstate_path, false});
+    if (std::filesystem::exists(pstate_path)) {
+        llama_rn_context ctx;
+        if (!ctx.loadModel(params)) {
+            checks.push_back({key + tag + ": model load (pstate load)", false, "loadModel failed", false});
+            return checks;
+        }
+        if (!ctx.initMultimodal(mmproj_path, /*use_gpu*/ false)) {
+            checks.push_back({key + tag + ": mmproj init (pstate load)", false, "initMultimodal failed", false});
+            return checks;
+        }
+        ctx.enableParallelMode(2, 512);
+        std::string reply;
+        bool completed = false, incomplete = true;
+        int32_t cache_n = -1;
+        run_turn(ctx, pstate_path, "", reply, completed, incomplete, cache_n);
+        checks.push_back({key + tag + ": prompt-checkpoint reload completed", completed && !incomplete,
+                          "reply: '" + reply + "', cache_n=" + std::to_string(cache_n), false});
+        checks.push_back({key + tag + ": image encode reused after reload", cache_n > 0,
+                          "cache_n=" + std::to_string(cache_n), false});
+        checks.push_back({key + tag + ": image recognized after prompt-state resume",
+                          has_word(reply, "dog"), "reply: '" + reply + "'", false});
+    }
+
+    std::filesystem::remove(state_path);
+    std::filesystem::remove(state_path + ".meta");
+    std::filesystem::remove(legacy_path);
+    std::filesystem::remove(pstate_path);
+    std::filesystem::remove(pstate_path + ".meta");
+    return checks;
+}
+
 // ------------------------------------------------------------------ model set
 
 struct ModelEntry { std::string key; std::string file; bool mtp; bool instruct; bool strong; };
@@ -2359,6 +2859,12 @@ int main(int argc, char **argv) {
             // Absolute double-decode diagnostic (blind spot of the differential suite).
             auto tr = run_trim_roundtrip_probe(m.key, p.string());
             all.insert(all.end(), tr.begin(), tr.end());
+            if (!std::getenv("SKIP_SLOT")) {
+                auto st = run_slot_state_file_test(m.key, p.string());
+                all.insert(all.end(), st.begin(), st.end());
+                auto ps = run_slot_prompt_state_regen_test(m.key, p.string());
+                all.insert(all.end(), ps.begin(), ps.end());
+            }
         }
 
         // Also exercise the MTP prompt-eval path on models that support it.
@@ -2397,6 +2903,12 @@ int main(int argc, char **argv) {
             if (!std::getenv("SKIP_SLOT")) {
                 auto sv = run_slot_media_test(m.key, p.string(), mmproj.string(), img_dog.string());
                 all.insert(all.end(), sv.begin(), sv.end());
+                auto svc = run_slot_media_concurrent_test(m.key, p.string(), mmproj.string(),
+                                                          img_dog.string());
+                all.insert(all.end(), svc.begin(), svc.end());
+                auto svs = run_slot_media_state_file_test(m.key, p.string(), mmproj.string(),
+                                                          img_dog.string());
+                all.insert(all.end(), svs.begin(), svs.end());
             }
         }
 

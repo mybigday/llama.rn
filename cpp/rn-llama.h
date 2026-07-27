@@ -32,6 +32,20 @@ std::string tokens_to_output_formatted_string(const llama_context *ctx, const ll
 
 std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::const_iterator begin, const std::vector<llama_token>::const_iterator end);
 
+// M-RoPE media chunks occupy fewer time positions than placeholder tokens
+// (e.g. an 81-token Qwen-VL image spans 9 positions, all at the chunk start),
+// so the memory frontier legitimately lags the token count for media prefixes.
+bool model_uses_mrope(const llama_model *model);
+
+// State-file sidecar ("<state_path>.meta"): persists the media chunk identity
+// hashes alongside a saved sequence state. The state file's token list only
+// carries LLAMA_TOKEN_NULL placeholders for media positions, which are
+// identical for different media; without the hashes a loaded state cannot
+// prove the cached media matches the new prompt and must be reprocessed.
+// write_state_meta removes a stale sidecar when hashes is empty.
+void write_state_meta(const std::string &state_path, const std::vector<std::string> &bitmap_hashes);
+std::vector<std::string> read_state_meta(const std::string &state_path);
+
 // Token pieces are raw bytes (a multi-byte character can split across tokens;
 // malformed generations can emit stray bytes), while consumers of generated
 // text (chat parsers, JSON, JSI strings) require well-formed UTF-8. Text is
@@ -169,6 +183,10 @@ struct llama_rn_context {
     bool isMultimodalSupportVision() const;
     bool isMultimodalSupportAudio() const;
     void releaseMultimodal();
+    // Media identity hashes tracked by the multimodal wrapper (empty when
+    // multimodal is disabled); persisted alongside session/state files
+    std::vector<std::string> getMediaHashes() const;
+    void setMediaHashes(const std::vector<std::string> &hashes);
 
     // TTS fields and methods (delegated to TTS context)
     llama_rn_context_tts *tts_wrapper = nullptr;
