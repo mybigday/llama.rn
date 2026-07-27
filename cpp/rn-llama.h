@@ -24,9 +24,60 @@ using json = nlohmann::ordered_json;
 
 namespace rnllama {
 
+// Display form of a raw token piece: a lone high-bit byte is hex-escaped,
+// any other ill-formed piece is sanitized (JSI strings require well-formed UTF-8)
+std::string token_piece_to_output_string(const std::string & piece);
+
 std::string tokens_to_output_formatted_string(const llama_context *ctx, const llama_token token);
 
 std::string tokens_to_str(llama_context *ctx, const std::vector<llama_token>::const_iterator begin, const std::vector<llama_token>::const_iterator end);
+
+// M-RoPE media chunks occupy fewer time positions than placeholder tokens
+// (e.g. an 81-token Qwen-VL image spans 9 positions, all at the chunk start),
+// so the memory frontier legitimately lags the token count for media prefixes.
+bool model_uses_mrope(const llama_model *model);
+
+// State-file sidecar ("<state_path>.meta"): persists the media chunk identity
+// hashes alongside a saved sequence state. The state file's token list only
+// carries LLAMA_TOKEN_NULL placeholders for media positions, which are
+// identical for different media; without the hashes a loaded state cannot
+// prove the cached media matches the new prompt and must be reprocessed.
+// write_state_meta removes a stale sidecar when hashes is empty.
+void write_state_meta(const std::string &state_path, const std::vector<std::string> &bitmap_hashes);
+std::vector<std::string> read_state_meta(const std::string &state_path);
+
+// Token pieces are raw bytes (a multi-byte character can split across tokens;
+// malformed generations can emit stray bytes), while consumers of generated
+// text (chat parsers, JSON, JSI strings) require well-formed UTF-8. Text is
+// sanitized where it enters: token decode through a utf8_stream_gate, and
+// JS-supplied prefill at intake - so generated_text is well-formed at all times.
+
+// Number of trailing bytes (0..3) forming a well-formed but incomplete
+// multi-byte sequence - the only kind of tail future bytes can complete.
+size_t utf8_incomplete_suffix_length(const std::string & text);
+
+bool utf8_is_well_formed(const std::string & text);
+
+// Replaces each ill-formed sequence (stray continuations, invalid leads,
+// overlongs, surrogates, > U+10FFFF) with one U+FFFD per maximal subpart.
+std::string utf8_sanitize(const std::string & text);
+
+// Turns a stream of raw token pieces into well-formed UTF-8: an incomplete
+// multi-byte tail is buffered until the next piece completes it, dead bytes
+// become U+FFFD. All token text must reach generated_text through a gate.
+struct utf8_stream_gate {
+    // Returns the bytes ready to append/emit (well-formed, possibly empty).
+    std::string feed(const std::string & piece);
+
+    // End of generation: flushes a still-buffered tail as U+FFFD.
+    std::string finish();
+
+    bool has_pending() const { return !pending.empty(); }
+    void reset() { pending.clear(); }
+
+private:
+    std::string pending;
+};
 
 lm_ggml_type kv_cache_type_from_str(const std::string & s);
 
@@ -64,6 +115,11 @@ struct llama_rn_context {
     llama_context *ctx = nullptr;
     common_chat_templates_ptr templates;
     int n_ctx = 0;
+
+    // Prompt state cache tuning (see rn-completion.h). Budget 0 disables it;
+    // no-op on pure-attention models.
+    size_t state_cache_budget_bytes = (size_t) 160 * 1024 * 1024; // 0 = disabled
+    int32_t state_cache_max_checkpoints = 8;
 
     // Completion context (DEPRECATED: Use slot_manager for parallel decoding)
     llama_rn_context_completion *completion = nullptr;
@@ -127,6 +183,10 @@ struct llama_rn_context {
     bool isMultimodalSupportVision() const;
     bool isMultimodalSupportAudio() const;
     void releaseMultimodal();
+    // Media identity hashes tracked by the multimodal wrapper (empty when
+    // multimodal is disabled); persisted alongside session/state files
+    std::vector<std::string> getMediaHashes() const;
+    void setMediaHashes(const std::vector<std::string> &hashes);
 
     // TTS fields and methods (delegated to TTS context)
     llama_rn_context_tts *tts_wrapper = nullptr;

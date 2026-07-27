@@ -1146,6 +1146,9 @@ export class LlamaContext {
       if (voice) {
         speakerObject = { ...voice }
       } else if (typeof options.speaker === 'string') {
+        // Not a type check — this reports an unknown voice *value*, so Error
+        // (not TypeError) is correct despite the enclosing typeof guard.
+        // eslint-disable-next-line unicorn/prefer-type-error
         throw new Error(
           `Unknown built-in voice '${name}' for ${cap.family || 'this model'} (${language})`,
         )

@@ -195,6 +195,9 @@ struct llama_rn_slot_manager {
     void build_batch();
     bool process_batch();
     void sample_and_callback();
+
+    // Finish a slot's generation: flush the UTF-8 gate, mark done, notify
+    void complete_slot(llama_rn_slot & slot);
     common_speculative* ensure_mtp_speculative(common_params& params);
     llama_context* get_mtp_draft_context() const;
     void reset_mtp_speculative();

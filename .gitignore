@@ -106,3 +106,8 @@ tests/status_changes.log
 # Local scratch + host build artifacts
 .scratch/
 build-host/
+.claude/settings.local.json
+tests/android/build-hexagon/
+
+# skill-creator eval scaffolding (throwaway)
+.agents/skills/*-workspace/

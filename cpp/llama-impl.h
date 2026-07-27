@@ -54,6 +54,26 @@ static inline dst_t llama_cast(src_t v) {
     }
 }
 
+static inline lm_ggml_tensor * llama_mul_mat_hadamard(
+        lm_ggml_context * ctx,
+        lm_ggml_tensor * cur,
+        lm_ggml_tensor * rot) {
+    const auto n = rot->ne[0];
+
+    lm_ggml_tensor * res;
+
+    if (!lm_ggml_is_contiguous(cur)) {
+        res = lm_ggml_cont_2d(ctx, cur, n, lm_ggml_nelements(cur)/n);
+    } else {
+        res = lm_ggml_reshape_2d(ctx, cur, n, lm_ggml_nelements(cur)/n);
+    }
+    res = lm_ggml_mul_mat(ctx, rot, res);
+    lm_ggml_mul_mat_set_hint(res, LM_GGML_HINT_SRC0_IS_HADAMARD);
+    res = lm_ggml_reshape_4d(ctx, res, cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3]);
+
+    return res;
+}
+
 struct time_meas {
     time_meas(int64_t & t_acc, bool disable = false);
     ~time_meas();
@@ -83,7 +103,3 @@ std::string llama_format_tensor_shape(const std::vector<int64_t> & ne);
 std::string llama_format_tensor_shape(const struct lm_ggml_tensor * t);
 
 std::string lm_gguf_kv_to_str(const struct lm_gguf_context * ctx_gguf, int i);
-
-#define LLAMA_TENSOR_NAME_FATTN   "__fattn__"
-#define LLAMA_TENSOR_NAME_FGDN_AR "__fgdn_ar__"
-#define LLAMA_TENSOR_NAME_FGDN_CH "__fgdn_ch__"

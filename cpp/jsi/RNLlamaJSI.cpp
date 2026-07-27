@@ -508,6 +508,11 @@ namespace rnllama_jsi {
                     }
                 }
 
+                int stateCacheBudgetMb =
+                    getPropertyAsInt(runtime, params, "state_cache_budget_mb", 160);
+                int stateCacheMaxCheckpoints =
+                    getPropertyAsInt(runtime, params, "state_cache_max_checkpoints", 8);
+
                 return createPromiseTask(runtime, callInvoker, [
                     contextId,
                     cparams,
@@ -515,7 +520,9 @@ namespace rnllama_jsi {
                     requestedDevices,
                     devicesProvided,
                     useProgressCallback,
-                    progressData
+                    progressData,
+                    stateCacheBudgetMb,
+                    stateCacheMaxCheckpoints
                 ]() mutable -> PromiseResultGenerator {
                     if (isContextLimitReached()) {
                         throw std::runtime_error("Context limit reached");
@@ -575,6 +582,13 @@ namespace rnllama_jsi {
                     }
 
                     auto ctx = new rnllama::llama_rn_context();
+                    // Prompt state cache tuning (multi-turn KV reuse on
+                    // recurrent/hybrid/SWA models). Budget in MiB; 0 disables it.
+                    {
+                        ctx->state_cache_budget_bytes =
+                            stateCacheBudgetMb > 0 ? (size_t) stateCacheBudgetMb * 1024 * 1024 : 0;
+                        ctx->state_cache_max_checkpoints = stateCacheMaxCheckpoints;
+                    }
                     if (ctx->loadModel(cparams)) {
                          ctx->attachThreadpoolsIfAvailable();
 
@@ -1042,18 +1056,13 @@ namespace rnllama_jsi {
                 std::string chat_parser = getPropertyAsString(runtime, params, "chat_parser");
                 std::string prefill_text = getPropertyAsString(runtime, params, "prefill_text");
 
-                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, guide_tokens, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
 
                     if (ctx->completion == nullptr) {
                         throw std::runtime_error("Completion not initialized");
                     }
                     throwIfContextBusy(ctx);
-
-                    if (!guide_tokens.empty() && ctx->tts_wrapper != nullptr) {
-                        ctx->params.vocoder.use_guide_tokens = true;
-                        ctx->tts_wrapper->setGuideTokens(guide_tokens);
-                    }
 
                     if (!mediaPaths.empty() && ctx->completion->shouldUseMTP()) {
                         throw std::runtime_error("MTP speculative decoding currently supports text-only completion");
@@ -1064,7 +1073,7 @@ namespace rnllama_jsi {
                         throw std::runtime_error("Failed to initialize sampling");
                     }
 
-                    ctx->completion->prefill_text = prefill_text;
+                    ctx->completion->prefill_text = rnllama::utf8_sanitize(prefill_text);
                     ctx->completion->beginCompletion(chat_format, reasoning_format, generation_prompt, chat_parser);
 
                     try {

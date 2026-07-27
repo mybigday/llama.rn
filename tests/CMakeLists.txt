@@ -30,8 +30,15 @@ set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
 
 # Collect source files using glob patterns
 file(GLOB MODEL_FILES ${SOURCE_DIR}/models/*.cpp)
-file(GLOB GGML_CPU_C_FILES ${SOURCE_DIR}/ggml-cpu/*.c ${SOURCE_DIR}/ggml-cpu/arch/x86/*.c)
-file(GLOB GGML_CPU_CPP_FILES ${SOURCE_DIR}/ggml-cpu/*.cpp ${SOURCE_DIR}/ggml-cpu/arch/x86/*.cpp)
+# Shared sources build in generic mode (-DLM_GGML_CPU_GENERIC below), so only
+# the portable ggml-cpu kernels are compiled — matching the library/main build.
+# The per-arch SIMD kernels (arch/x86) are added ONLY to the probe targets,
+# which undefine LM_GGML_CPU_GENERIC + build -march=native for accurate perf.
+# Compiling arch/x86 into a generic-mode target double-defines the public
+# kernels and leaves the *_generic fallbacks unresolved.
+file(GLOB GGML_CPU_C_FILES ${SOURCE_DIR}/ggml-cpu/*.c)
+file(GLOB GGML_CPU_CPP_FILES ${SOURCE_DIR}/ggml-cpu/*.cpp)
+file(GLOB GGML_CPU_ARCH_FILES ${SOURCE_DIR}/ggml-cpu/arch/x86/*.c ${SOURCE_DIR}/ggml-cpu/arch/x86/*.cpp)
 file(GLOB GGML_CPU_AMX_FILES ${SOURCE_DIR}/ggml-cpu/amx/*.cpp)
 file(GLOB LLAMA_FILES ${SOURCE_DIR}/llama*.cpp)
 file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
@@ -155,6 +162,40 @@ elseif(UNIX AND NOT APPLE)
     )
 endif()
 
+# Create chat parse UTF-8 robustness test executable
+add_executable(chat_parse_utf8_test
+    chat_parse_utf8_test.cpp
+    ${RNLLAMA_COMMON_SOURCES}
+)
+
+# Setup include directories
+target_include_directories(chat_parse_utf8_test
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common/utils
+)
+
+# Platform-specific linking
+if(APPLE)
+    target_link_libraries(chat_parse_utf8_test PRIVATE
+        "-framework Accelerate"
+        "-framework Foundation"
+    )
+elseif(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(chat_parse_utf8_test PRIVATE
+        Threads::Threads
+        m
+        dl
+    )
+endif()
+
 # Create parallel decoding test executable
 add_executable(parallel_decoding_test
     parallel_decoding_test.cpp
@@ -195,6 +236,7 @@ endif()
 add_executable(bluemagpie_probe
     bluemagpie_probe.cpp
     ${RNLLAMA_COMMON_SOURCES}
+    ${GGML_CPU_ARCH_FILES}
 )
 target_include_directories(bluemagpie_probe
     PRIVATE
@@ -223,6 +265,7 @@ endif()
 add_executable(tts_probe
     tts_probe.cpp
     ${RNLLAMA_COMMON_SOURCES}
+    ${GGML_CPU_ARCH_FILES}
 )
 target_include_directories(tts_probe
     PRIVATE
@@ -249,6 +292,7 @@ endif()
 add_executable(barbet_hidden_dump
     barbet_hidden_dump.cpp
     ${RNLLAMA_COMMON_SOURCES}
+    ${GGML_CPU_ARCH_FILES}
 )
 target_include_directories(barbet_hidden_dump
     PRIVATE
@@ -270,4 +314,68 @@ elseif(UNIX AND NOT APPLE)
     find_package(Threads REQUIRED)
     target_link_libraries(barbet_hidden_dump PRIVATE Threads::Threads m dl)
     target_compile_options(barbet_hidden_dump PRIVATE -march=native -U LM_GGML_CPU_GENERIC)
+endif()
+
+# Create KV-cache-reuse harness executable
+add_executable(kv_cache_reuse_test
+    kv_cache_reuse_test.cpp
+    ${RNLLAMA_COMMON_SOURCES}
+)
+target_include_directories(kv_cache_reuse_test
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common/utils
+)
+if(APPLE)
+    target_link_libraries(kv_cache_reuse_test PRIVATE
+        "-framework Accelerate"
+        "-framework Foundation"
+    )
+elseif(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(kv_cache_reuse_test PRIVATE
+        Threads::Threads
+        m
+        dl
+    )
+endif()
+
+# A/B benchmark for the prompt state cache (also builds at the merge-base;
+# KV_BENCH_HAS_STATE_CACHE gates branch-only knobs).
+add_executable(kv_cache_bench
+    kv_cache_bench.cpp
+    ${RNLLAMA_COMMON_SOURCES}
+)
+target_include_directories(kv_cache_bench
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common/utils
+)
+if(KV_BENCH_HAS_STATE_CACHE)
+    target_compile_definitions(kv_cache_bench PRIVATE KV_BENCH_HAS_STATE_CACHE)
+endif()
+if(APPLE)
+    target_link_libraries(kv_cache_bench PRIVATE
+        "-framework Accelerate"
+        "-framework Foundation"
+    )
+elseif(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(kv_cache_bench PRIVATE
+        Threads::Threads
+        m
+        dl
+    )
 endif()

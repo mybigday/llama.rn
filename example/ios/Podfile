@@ -35,5 +35,15 @@ target 'RNLlamaExample' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    min_ios_target = Gem::Version.new(min_ios_version_supported)
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |build_config|
+        current_target = build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+        if current_target.nil? || Gem::Version.new(current_target) < min_ios_target
+          build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_ios_version_supported
+        end
+      end
+    end
   end
 end

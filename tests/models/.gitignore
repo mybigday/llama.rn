@@ -1,0 +1,6 @@
+# Downloaded GGUF models and vision test images are large / third-party and are
+# fetched on demand by download.sh (not committed).
+*.gguf
+*.jpg
+*.png
+.hf/

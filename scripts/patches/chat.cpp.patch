@@ -1,6 +1,6 @@
---- common/chat.cpp.orig	2026-05-08 17:02:25
-+++ common/chat.cpp	2026-05-08 17:01:31
-@@ -107,10 +107,16 @@
+--- common/chat.cpp.orig
++++ common/chat.cpp
+@@ -218,10 +218,16 @@
          } else {
              auto & parts = jmsg["content"] = json::array();
              for (const auto & part : content_parts) {
@@ -19,7 +19,7 @@
              }
          }
      } else {
-@@ -293,6 +299,11 @@
+@@ -404,6 +410,11 @@
                          common_chat_msg_content_part msg_part;
                          msg_part.type = type;
                          msg_part.text = part.at("text");
@@ -31,16 +31,10 @@
                          msg.content_parts.push_back(msg_part);
                      }
                  } else if (!content.is_null()) {
-@@ -1306,6 +1317,73 @@
-         // (after the initial ">>>" in the generation prompt but recipient other than "all")
-         data.grammar_triggers = {
-             { COMMON_GRAMMAR_TRIGGER_TYPE_PATTERN, ">>>(?!all)" }
-+        };
-+    }
-+
-+    return data;
-+}
-+
+@@ -1532,6 +1543,73 @@
+     return data;
+ }
+ 
 +static common_chat_params common_chat_params_init_function_gemma(
 +    const common_chat_template &          tmpl,
 +    const autoparser::generation_params & inputs) {
@@ -102,27 +96,32 @@
 +
 +        data.grammar_triggers = {
 +            { COMMON_GRAMMAR_TRIGGER_TYPE_WORD, "<start_function_call>" }
-         };
-     }
- 
-@@ -2063,6 +2140,12 @@
-     if (src.find(">>>all") != std::string::npos && src.find(">>>${recipient}") != std::string::npos) {
-         LOG_DBG("Using specialized template: Functionary v3.2\n");
-         return common_chat_params_init_functionary_v3_2(tmpl, params);
++        };
 +    }
 +
++    return data;
++}
++
+ // Kimi K2 Thinking - uses unique tool call ID format: functions.<name>:<index>
+ // The ID contains both the function name and an incrementing counter
+ static common_chat_params common_chat_params_init_kimi_k2(const common_chat_template &    tmpl,
+@@ -2575,6 +2653,12 @@
+         return common_chat_params_init_functionary_v3_2(tmpl, params);
+     }
+ 
 +    // FunctionGemma - uses <start_function_call>call:name{...}<end_function_call>
 +    if (src.find("<start_function_call>") != std::string::npos) {
 +        LOG_DBG("Using specialized template: FunctionGemma\n");
 +        return common_chat_params_init_function_gemma(tmpl, params);
-     }
- 
++    }
++
      // Kimi K2 Thinking - uses unique tool call ID format: functions.<name>:<index>
-@@ -2390,4 +2473,35 @@
-     LM_GGML_ASSERT(chat_templates != nullptr);
-     LM_GGML_ASSERT(chat_templates->template_default != nullptr);
+     // Detection: template has "<|tool_calls_section_begin|>" and "functions." prefix in tool call IDs
+     if (src.find("<|tool_calls_section_begin|>") != std::string::npos &&
+@@ -2945,3 +3029,34 @@
+     }
      return chat_templates->template_default->caps.to_map();
-+}
+ }
 +
 +common_chat_template_caps common_chat_templates_get_caps(const struct common_chat_templates * tmpls, const std::string & variant) {
 +    common_chat_template_caps result;
@@ -143,7 +142,7 @@
 +    }
 +
 +    return result;
- }
++}
 +
 +bool common_chat_templates_has_variant(const struct common_chat_templates * tmpls, const std::string & variant) {
 +    if (variant.empty() || variant == "default") {

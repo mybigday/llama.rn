@@ -187,6 +187,18 @@ export type NativeContextParams = {
    */
   n_cpu_moe?: number
 
+  /**
+   * Memory budget (MiB) for the cross-turn KV prefix cache on recurrent/hybrid
+   * models. 0 disables it; no-op on pure-attention models. Default 160.
+   */
+  state_cache_budget_mb?: number
+
+  /**
+   * Max snapshots to keep (secondary cap; the byte budget is primary).
+   * 0 = no count cap. Default 8.
+   */
+  state_cache_max_checkpoints?: number
+
   // Embedding params
   embedding?: boolean
   embd_normalize?: number
@@ -409,6 +421,8 @@ export type NativeParallelCompletionParams = NativeCompletionParams & {
    * File path to save state to after completion.
    * The state will be saved to this file path when the completion finishes.
    * You can then pass this path to `load_state_path` in a subsequent request to resume.
+   * For multimodal conversations a `<path>.meta` sidecar file is written next
+   * to the state file (media identity); keep the two files together.
    * Example: `'/path/to/state.bin'` or `'file:///path/to/state.bin'`
    */
   save_state_path?: string

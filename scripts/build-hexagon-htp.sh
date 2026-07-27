@@ -107,9 +107,10 @@ echo ""
 # Create output directory
 mkdir -p "$HTP_OUTPUT_DIR"
 
-# DSP versions to build
-DSP_VERSIONS=("v69" "v73" "v75" "v79" "v81")
-PREBUILT_DIRS=("toolv19_v69" "toolv19_v73" "toolv19_v75" "toolv19_v79" "toolv19_v81")
+# DSP versions to build. llama.cpp's current HTP kernels require v73+
+# conversion intrinsics, so do not try to build a v69 skel.
+DSP_VERSIONS=("v73" "v75" "v79" "v81")
+PREBUILT_DIRS=("toolv19_v73" "toolv19_v75" "toolv19_v79" "toolv19_v81")
 
 # Function to build for a specific DSP version
 build_htp_version() {
@@ -128,13 +129,14 @@ build_htp_version() {
     mkdir -p "$build_dir"
     cd "$build_dir"
 
-    # Determine generator based on environment
-    CMAKE_GENERATOR=""
+    # Determine generator based on environment (array: "Unix Makefiles" must
+    # stay one argument — unquoted expansion split it into "-G Unix" "Makefiles")
+    CMAKE_GENERATOR=()
     if command -v ninja &> /dev/null; then
-        CMAKE_GENERATOR="-GNinja"
+        CMAKE_GENERATOR=(-G Ninja)
         echo "Using Ninja build system"
     elif command -v make &> /dev/null; then
-        CMAKE_GENERATOR="-G Unix Makefiles"
+        CMAKE_GENERATOR=(-G "Unix Makefiles")
         echo "Using Make build system"
     else
         echo "Warning: Neither ninja nor make found, using default generator"
@@ -142,7 +144,7 @@ build_htp_version() {
 
     # Configure with Hexagon toolchain
     cmake "${HTP_SOURCE_DIR}" \
-        $CMAKE_GENERATOR \
+        "${CMAKE_GENERATOR[@]}" \
         -DCMAKE_TOOLCHAIN_FILE="${HTP_SOURCE_DIR}/cmake-toolchain.cmake" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_LIBDIR="${HTP_OUTPUT_DIR}" \

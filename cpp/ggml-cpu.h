@@ -100,6 +100,7 @@ extern "C" {
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_sve        (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_get_sve_cnt    (void);  // sve vector length in bytes
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_sme        (void);
+    LM_GGML_BACKEND_API int lm_ggml_cpu_has_sme2       (void);
     // other
     LM_GGML_BACKEND_API int lm_ggml_cpu_has_riscv_v    (void);
     LM_GGML_BACKEND_API int lm_ggml_cpu_get_rvv_vlen   (void);  // risc-v vector length in bytes

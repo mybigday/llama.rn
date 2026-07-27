@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "llama.h"
+#include "rn-llama.h"
 #include "sampling.h"
 #include "speculative.h"
 #include <deque>
@@ -68,12 +69,23 @@ struct llama_rn_slot {
     std::vector<llama_token> cache_tokens;  // For KV cache reuse
     std::vector<llama_token> generated_tokens;
     std::string generated_text;
+    utf8_stream_gate utf8_gate;
+
+    // Clear per-request generation text state (gate + accumulated text)
+    void clear_generation_state() {
+        utf8_gate.reset();
+        generated_text.clear();
+    }
 
     // Multimodal state (per-slot)
     std::vector<std::string> bitmap_past_hashes;  // For multimodal KV cache reuse
     std::vector<std::string> media_paths;         // Media paths for deferred processing
     std::string prompt_text;                      // Original prompt text for media processing
     bool media_processed;                         // Flag indicating if media has been processed
+    // First token, sampled right after media ingest while the context logits
+    // still belong to processMedia's final decode - process_batch() overwrites
+    // them with other slots' tokens before sample_and_callback runs
+    llama_token media_pending_token = LLAMA_TOKEN_NULL;
 
     // Completion state (migrated from llama_rn_context_completion)
     std::string prefill_text;
@@ -184,6 +196,16 @@ struct llama_rn_slot {
     bool load_state();             // Load state into this slot's sequence
     bool save_state();             // Save state from this slot's sequence
     bool save_prompt_state_checkpoint();  // Save prompt checkpoint
+
+    // Trim this slot's sequence memory to [0, n_keep) so decoding can resume
+    // at position n_keep. Falls back to a full sequence clear when the memory
+    // cannot be rolled back (recurrent/hybrid beyond the rollback ring) or
+    // when SWA pruning already dropped positions the resumed window needs.
+    // tokens_have_media: whether the token list backing [0, n_keep) holds
+    // LLAMA_TOKEN_NULL placeholders - only then may an M-RoPE frontier
+    // legitimately sit below n_keep. Returns the position decoding must
+    // resume from (n_keep, or 0 after a fallback clear).
+    llama_pos reconcile_memory_to(llama_pos n_keep, bool tokens_have_media);
 };
 
 } // namespace rnllama

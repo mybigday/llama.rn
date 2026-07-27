@@ -309,6 +309,32 @@ bool test_utilities() {
     }
 }
 
+bool test_completion_generation_timing() {
+    try {
+        llama_rn_context_completion completion(nullptr);
+
+        completion.startGenerationTiming();
+        completion.t_start_generation = lm_ggml_time_us() - 1000;
+        completion.num_tokens_predicted = 3;
+        completion.updateGenerationTiming();
+
+        if (completion.t_token_generation <= 0.0) {
+            std::cout << "Generation timing was not populated" << std::endl;
+            return false;
+        }
+
+        completion.resetGenerationTimings();
+        return completion.t_start_generation == 0 &&
+               completion.t_token_generation == 0.0;
+    } catch (const std::exception& e) {
+        std::cout << "Exception: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cout << "Unknown exception" << std::endl;
+        return false;
+    }
+}
+
 int main() {
     std::cout << "Starting rnllama API tests..." << std::endl;
     std::cout << "Using test model: ../tiny-random-llama.gguf" << std::endl;
@@ -320,6 +346,7 @@ int main() {
     results.run_test("Context Creation and Model Loading", test_context_creation_and_model_loading());
     results.run_test("Tokenization", test_tokenization());
     results.run_test("Completion", test_completion());
+    results.run_test("Completion Generation Timing", test_completion_generation_timing());
     results.run_test("Graceful Context Init Failure", test_context_init_failure_is_graceful());
     results.run_test("Utility Functions", test_utilities());
 

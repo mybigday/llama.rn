@@ -462,11 +462,12 @@ static bool lm_ggml_backend_cpu_device_supports_op(lm_ggml_backend_dev_t dev, co
             return max_bias == 0.0f;
         }
         case LM_GGML_OP_IM2COL_BACK:
-            return src0->type == LM_GGML_TYPE_F32 && src1->type == LM_GGML_TYPE_F32;
+            return src0->type == LM_GGML_TYPE_F32 && (src1->type == LM_GGML_TYPE_F32 || src1->type == LM_GGML_TYPE_F16);
         case LM_GGML_OP_GET_ROWS_BACK:
             return src0->type == LM_GGML_TYPE_F32 || src0->type == LM_GGML_TYPE_F16;
         case LM_GGML_OP_OUT_PROD:
-            return (src0->type == LM_GGML_TYPE_F32 || (lm_ggml_is_quantized(src0->type) && src0->ne[2] == src1->ne[2] && src0->ne[3] == src1->ne[3])) &&
+            return (src0->type == LM_GGML_TYPE_F32 ||
+                    ((src0->type == LM_GGML_TYPE_F16 || lm_ggml_is_quantized(src0->type)) && src0->ne[2] == src1->ne[2] && src0->ne[3] == src1->ne[3])) &&
                 src1->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
         default:
             return true;
@@ -593,6 +594,9 @@ static lm_ggml_backend_feature * lm_ggml_backend_cpu_get_features(lm_ggml_backen
         }
         if (lm_ggml_cpu_has_sme()) {
             features.push_back({ "SME", "1" });
+        }
+        if (lm_ggml_cpu_has_sme2()) {
+            features.push_back({ "SME2", "1" });
         }
         if (lm_ggml_cpu_has_riscv_v()) {
             features.push_back({ "RISCV_V", "1" });

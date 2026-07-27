@@ -11,6 +11,7 @@ import {
 } from 'react-native'
 import { saveDocuments } from '@react-native-documents/picker'
 import ReactNativeBlobUtil from 'react-native-blob-util'
+// eslint-disable-next-line import/no-unresolved -- valid package `exports` subpath the resolver can't follow
 import { toIPA } from 'phonemize/all'
 import { TTSModelDownloadCard } from '../components/ModelDownloadCard'
 import ContextParamsModal from '../components/ContextParamsModal'

@@ -12,13 +12,20 @@ export const buildParallelStatePath = (
   cacheDir: string,
   modelPath: string,
   prompt: string,
+  mediaPaths?: string[],
 ) => {
   const modelFilename =
     modelPath
       .split('/')
       .pop()
       ?.replace(/\.[^./]+$/, '') || 'unknown'
-  const questionHash = hashPrompt(prompt.trim().toLowerCase())
+  // Key by prompt AND media: prompts with identical text but different images
+  // must not share a state file, or each request keeps invalidating the
+  // other's cached media
+  const identity = [prompt.trim().toLowerCase(), ...(mediaPaths ?? [])].join(
+    '\u0000',
+  )
+  const questionHash = hashPrompt(identity)
   return `${cacheDir}/state_${modelFilename}_${questionHash}.bin`
 }
 

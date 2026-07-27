@@ -1,10 +1,23 @@
 --- ggml-metal/ggml-metal-ops.cpp.orig
 +++ ggml-metal/ggml-metal-ops.cpp
-@@ -2826,0 +2827,3 @@
+@@ -2832,6 +2832,10 @@
+         //nsg = ne01 <= nqptg ? MAX(4, MIN(nsgmax, MIN(ne11/ncpsg, (int64_t) pipeline.maxTotalThreadsPerThreadgroup/32))) : 4;
+         int32_t nsg = ne00 >= 512 ? 8 : 4;
+ 
 +        while (nsg > 1 && FATTN_SMEM(nsg) > props_dev->max_theadgroup_memory_size) {
 +            nsg /= 2;
 +        }
-@@ -2965,0 +2969,3 @@
++
+         const size_t smem = FATTN_SMEM(nsg);
+ 
+         lm_ggml_metal_kargs_flash_attn_ext args = {
+@@ -2965,6 +2969,9 @@
+             // however, this does not lead to significant improvement, so disabled
+             nwg = 1;
+             nsg = 4;
 +            while (nsg > 1 && FATTN_SMEM(nsg) > props_dev->max_theadgroup_memory_size) {
 +                nsg /= 2;
 +            }
+         } else {
+             nwg = 32;
+             nsg = 1;

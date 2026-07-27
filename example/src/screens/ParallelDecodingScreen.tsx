@@ -368,6 +368,7 @@ export default function ParallelDecodingScreen({
         ReactNativeBlobUtil.fs.dirs.CacheDir,
         modelPathRef.current,
         prompt,
+        images,
       )
 
       // Check if state file exists on filesystem

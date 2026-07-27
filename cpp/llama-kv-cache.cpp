@@ -57,22 +57,6 @@ static void lm_ggml_gen_hadamard(lm_ggml_tensor * tensor) {
     }
 }
 
-static lm_ggml_tensor * lm_ggml_mul_mat_aux(
-        lm_ggml_context * ctx,
-        lm_ggml_tensor * cur,
-        lm_ggml_tensor * rot) {
-    const auto n = rot->ne[0];
-
-    lm_ggml_tensor * res;
-
-    res = lm_ggml_reshape_2d(ctx, cur, n, lm_ggml_nelements(cur)/n);
-    res = lm_ggml_mul_mat   (ctx, rot, res);
-    lm_ggml_mul_mat_set_hint(res, LM_GGML_HINT_SRC0_IS_HADAMARD);
-    res = lm_ggml_reshape_4d(ctx, res, cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3]);
-
-    return res;
-}
-
 //
 // llama_kv_cache
 //
@@ -211,10 +195,12 @@ llama_kv_cache::llama_kv_cache(
             n_embd_head_k_all = -1;
         }
 
-        if (n_embd_head_v_all == 0) {
-            n_embd_head_v_all = (int32_t) hparams.n_embd_head_v(il);
-        } else if (n_embd_head_v_all > 0 && n_embd_head_v_all != (int32_t) hparams.n_embd_head_v(il)) {
-            n_embd_head_v_all = -1;
+        if (!is_mla) {
+            if (n_embd_head_v_all == 0) {
+                n_embd_head_v_all = (int32_t) hparams.n_embd_head_v(il);
+            } else if (n_embd_head_v_all > 0 && n_embd_head_v_all != (int32_t) hparams.n_embd_head_v(il)) {
+                n_embd_head_v_all = -1;
+            }
         }
 
         // [TAG_V_CACHE_VARIABLE]
@@ -336,8 +322,9 @@ llama_kv_cache::llama_kv_cache(
             lm_ggml_is_quantized(type_k) &&
             hparams.n_embd_head_k() % 64 == 0;
 
-        // always create Hadamard rotation tensors for DeepSeek V3.2 DSA lightning indexer
-        if (model.arch == LLM_ARCH_DEEPSEEK32 && hparams.n_embd_head_k_full == hparams.indexer_head_size) {
+        // always create Hadamard rotation tensors for DeepSeek lightning indexers
+        if ((model.arch == LLM_ARCH_DEEPSEEK32 || model.arch == LLM_ARCH_DEEPSEEK4) &&
+                hparams.n_embd_head_k_full == hparams.indexer_head_size) {
             attn_rot_k = true;
         }
 
@@ -719,7 +706,7 @@ llama_memory_context_ptr llama_kv_cache::init_batch(
 
         std::vector<llama_ubatch> ubatches;
         while (true) {
-            auto ubatch = n_stream == 1 ? balloc.split_simple(n_ubatch) : balloc.split_equal(n_ubatch, true);
+            auto ubatch = n_stream == 1 ? balloc.split_simple(n_ubatch) : balloc.split_equal(n_ubatch, true, 0);
 
             if (ubatch.n_tokens == 0) {
                 break;
@@ -1218,6 +1205,23 @@ lm_ggml_type llama_kv_cache::type_k() const {
 
 lm_ggml_type llama_kv_cache::type_v() const {
     return layers[0].v->type;
+}
+
+std::vector<uint32_t> llama_kv_cache::get_layer_ids() const {
+    std::vector<uint32_t> res;
+    res.reserve(layers.size());
+
+    for (const auto & layer : layers) {
+        res.push_back(layer.il);
+    }
+
+    return res;
+}
+
+lm_ggml_tensor * llama_kv_cache::get_k_storage(int32_t il) const {
+    const int32_t ikv = map_layer_ids.at(il);
+
+    return layers[ikv].k;
 }
 
 uint32_t llama_kv_cache::get_n_kv(const slot_info & sinfo) const {
@@ -1855,14 +1859,14 @@ lm_ggml_tensor * llama_kv_cache::build_rope_shift(
         tmp = lm_ggml_cast(ctx, cur, LM_GGML_TYPE_F32);
 
         // rotate back
-        tmp = lm_ggml_mul_mat_aux(ctx, tmp, rot);
+        tmp = llama_mul_mat_hadamard(ctx, tmp, rot);
 
         tmp = lm_ggml_rope_ext(ctx, tmp,
                 shift, factors, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                 yarn_ext_factor, yarn_attn_factor, yarn_beta_fast, yarn_beta_slow);
 
         // rotate fwd
-        tmp = lm_ggml_mul_mat_aux(ctx, tmp, rot);
+        tmp = llama_mul_mat_hadamard(ctx, tmp, rot);
 
         tmp = lm_ggml_cpy(ctx, tmp, cur);
     } else {
