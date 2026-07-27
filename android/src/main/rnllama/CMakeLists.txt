@@ -39,6 +39,14 @@ file(GLOB CODEC_FILES CONFIGURE_DEPENDS
     ${RNLLAMA_LIB_DIR}/codec/src/lm/*.cpp
     ${RNLLAMA_LIB_DIR}/codec/common/*.cpp
 )
+# tts_runner{,_flow}.cpp are codec.cpp's reference host loop; they pull in
+# codec_example_* helpers from examples/utils (not shipped here) and un-prefixed
+# common_* symbols. rn-tts drives its own AR loop via codec_lm_*, so drop them —
+# matching tests/CMakeLists.txt (keeps only audio_lm.cpp from codec/common).
+list(REMOVE_ITEM CODEC_FILES
+    ${RNLLAMA_LIB_DIR}/codec/common/tts_runner.cpp
+    ${RNLLAMA_LIB_DIR}/codec/common/tts_runner_flow.cpp
+)
 
 # Source files for rnllama library (excluding jni.cpp and jni-utils)
 set(
