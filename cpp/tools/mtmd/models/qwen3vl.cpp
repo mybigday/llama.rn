@@ -37,7 +37,7 @@ lm_ggml_cgraph * clip_graph_qwen3vl::build() {
     }
 
     // calculate absolute position embedding and apply
-    lm_ggml_tensor * learned_pos_embd = resize_position_embeddings();
+    lm_ggml_tensor * learned_pos_embd = resize_position_embeddings(LM_GGML_SCALE_MODE_BILINEAR | LM_GGML_SCALE_FLAG_ALIGN_CORNERS);
     learned_pos_embd = lm_ggml_cont_4d(
         ctx0, learned_pos_embd,
         n_embd * 2, n_patches_x / 2, n_patches_y, batch_size);

@@ -1,3 +1,4 @@
+#include "ggml.h"
 #include "ggml-impl.h"
 #include "ggml-blas.h"
 #include "ggml-backend-impl.h"
@@ -414,6 +415,12 @@ static bool lm_ggml_backend_blas_device_supports_op(lm_ggml_backend_dev_t dev, c
 
             // TODO: find the optimal value
             const int64_t min_batch = 32;
+
+            // default back to CPU fast path
+            // see: https://github.com/ggml-org/llama.cpp/issues/25565
+            if (lm_ggml_get_op_params_i32(op, 1) == LM_GGML_HINT_SRC0_IS_HADAMARD) {
+                return false;
+            }
 
             return lm_ggml_is_contiguous(src0) &&
                    lm_ggml_is_contiguous(src1) &&

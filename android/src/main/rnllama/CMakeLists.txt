@@ -364,6 +364,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             tanh
             exp
             expm1
+            abs
             softplus
             pad
             repeat
@@ -413,6 +414,7 @@ function(build_rnllama_library target_name arch cpu_flags)
         target_include_directories(${target_name} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
         target_sources(${target_name} PRIVATE
             ${RNLLAMA_LIB_DIR}/ggml-opencl/ggml-opencl.cpp
+            ${RNLLAMA_LIB_DIR}/ggml-opencl/cl-program-cache.cpp
             ${GGML_OPENCL_KERNEL_HEADERS}
         )
         target_compile_options(${target_name} PRIVATE
@@ -420,6 +422,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             -DLM_GGML_OPENCL_USE_ADRENO_KERNELS
             -DLM_GGML_OPENCL_EMBED_KERNELS
             -DLM_GGML_OPENCL_SOA_Q
+            -DLM_GGML_OPENCL_TARGET_VERSION=300
         )
     endif ()
 

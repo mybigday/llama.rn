@@ -355,8 +355,21 @@ namespace rnllama_jsi {
             cparams.chat_template = chatTemplate;
         }
 
-        cparams.use_mlock = getPropertyAsBool(runtime, params, "use_mlock", cparams.use_mlock);
-        cparams.use_mmap = getPropertyAsBool(runtime, params, "use_mmap", cparams.use_mmap);
+        bool useMmap = cparams.load_mode == LLAMA_LOAD_MODE_MMAP ||
+            cparams.load_mode == LLAMA_LOAD_MODE_MMAP_MLOCK;
+        bool useMlock = cparams.load_mode == LLAMA_LOAD_MODE_MLOCK ||
+            cparams.load_mode == LLAMA_LOAD_MODE_MMAP_MLOCK;
+        useMlock = getPropertyAsBool(runtime, params, "use_mlock", useMlock);
+        useMmap = getPropertyAsBool(runtime, params, "use_mmap", useMmap);
+        if (useMmap && useMlock) {
+            cparams.load_mode = LLAMA_LOAD_MODE_MMAP_MLOCK;
+        } else if (useMmap) {
+            cparams.load_mode = LLAMA_LOAD_MODE_MMAP;
+        } else if (useMlock) {
+            cparams.load_mode = LLAMA_LOAD_MODE_MLOCK;
+        } else {
+            cparams.load_mode = LLAMA_LOAD_MODE_NONE;
+        }
         cparams.no_extra_bufts = getPropertyAsBool(runtime, params, "no_extra_bufts", cparams.no_extra_bufts);
 
         if (params.hasProperty(runtime, "flash_attn")) {
@@ -523,8 +536,11 @@ namespace rnllama_jsi {
                     sparams.reasoning_budget_start = common_tokenize(
                         ctx->ctx, thinkingStartTag, /* add_special= */ false, /* parse_special= */ true);
                 }
-                sparams.reasoning_budget_end = common_tokenize(
+                auto reasoningBudgetEnd = common_tokenize(
                     ctx->ctx, thinkingEndTag, /* add_special= */ false, /* parse_special= */ true);
+                if (!reasoningBudgetEnd.empty()) {
+                    sparams.reasoning_budget_end.push_back(std::move(reasoningBudgetEnd));
+                }
                 sparams.reasoning_budget_forced = common_tokenize(
                     ctx->ctx, thinkingBudgetMessage + thinkingEndTag, /* add_special= */ false, /* parse_special= */ true);
 

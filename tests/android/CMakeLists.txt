@@ -107,13 +107,15 @@ if(ENABLE_OPENCL)
 
     target_sources(kv_cache_reuse_test PRIVATE
         ${SOURCE_DIR}/ggml-opencl/ggml-opencl.cpp
+        ${SOURCE_DIR}/ggml-opencl/cl-program-cache.cpp
         ${GGML_OPENCL_KERNEL_HEADERS})
     target_include_directories(kv_cache_reuse_test PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
     target_compile_definitions(kv_cache_reuse_test PRIVATE
         LM_GGML_USE_OPENCL
         LM_GGML_OPENCL_USE_ADRENO_KERNELS
         LM_GGML_OPENCL_EMBED_KERNELS
-        LM_GGML_OPENCL_SOA_Q)
+        LM_GGML_OPENCL_SOA_Q
+        LM_GGML_OPENCL_TARGET_VERSION=300)
 
     set(OPENCL_STUB_DIR ${REPO_ROOT}/bin/${ANDROID_ABI})
     if(EXISTS ${OPENCL_STUB_DIR}/libOpenCL.so)
@@ -172,14 +174,17 @@ target_include_directories(kv_cache_bench PRIVATE
 )
 target_compile_definitions(kv_cache_bench PRIVATE KV_BENCH_HAS_STATE_CACHE)
 if(ENABLE_OPENCL)
-    target_sources(kv_cache_bench PRIVATE ${SOURCE_DIR}/ggml-opencl/ggml-opencl.cpp)
+    target_sources(kv_cache_bench PRIVATE
+        ${SOURCE_DIR}/ggml-opencl/ggml-opencl.cpp
+        ${SOURCE_DIR}/ggml-opencl/cl-program-cache.cpp)
     target_include_directories(kv_cache_bench PRIVATE
         ${REPO_ROOT}/third_party/OpenCL-Headers ${CMAKE_CURRENT_BINARY_DIR})
     target_compile_definitions(kv_cache_bench PRIVATE
         LM_GGML_USE_OPENCL
         LM_GGML_OPENCL_USE_ADRENO_KERNELS
         LM_GGML_OPENCL_EMBED_KERNELS
-        LM_GGML_OPENCL_SOA_Q)
+        LM_GGML_OPENCL_SOA_Q
+        LM_GGML_OPENCL_TARGET_VERSION=300)
     target_link_directories(kv_cache_bench PRIVATE ${OPENCL_STUB_DIR})
     target_link_libraries(kv_cache_bench PRIVATE OpenCL)
     add_dependencies(kv_cache_bench kv_cache_reuse_test)
