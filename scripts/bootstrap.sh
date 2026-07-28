@@ -299,6 +299,8 @@ cp ./$LLAMA_DIR/common/unicode.h ./cpp/common/unicode.h
 cp ./$LLAMA_DIR/common/unicode.cpp ./cpp/common/unicode.cpp
 cp ./$LLAMA_DIR/common/reasoning-budget.h ./cpp/common/reasoning-budget.h
 cp ./$LLAMA_DIR/common/reasoning-budget.cpp ./cpp/common/reasoning-budget.cpp
+cp ./$LLAMA_DIR/common/trie.h ./cpp/common/trie.h
+cp ./$LLAMA_DIR/common/trie.cpp ./cpp/common/trie.cpp
 cp ./$LLAMA_DIR/common/fit.h ./cpp/common/fit.h
 cp ./$LLAMA_DIR/common/fit.cpp ./cpp/common/fit.cpp
 cp ./$LLAMA_DIR/common/build-info.h ./cpp/common/build-info.h

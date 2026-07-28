@@ -1709,6 +1709,17 @@ lm_ggml_tensor * llm_graph_context::build_ffn(
                 cur = lm_ggml_swiglu(ctx0, cur);
                 cb(cur, "ffn_swiglu", il);
             } break;
+        case LLM_FFN_SWIGLU_OAI_MOE:
+            if (gate && type_gate == LLM_FFN_PAR) {
+                // same alpha/limit constants as gpt-oss
+                const float alpha = 1.702f;
+                const float limit = 7.0f;
+                cur = lm_ggml_swiglu_oai(ctx0, cur, tmp, alpha, limit);
+                cb(cur, "ffn_swiglu_oai", il);
+                type_gate = LLM_FFN_SEQ;
+            } else {
+                LM_GGML_ABORT("LLM_FFN_SWIGLU_OAI_MOE requires a parallel gate");
+            } break;
         case LLM_FFN_GEGLU:
             {
                 cur = lm_ggml_geglu(ctx0, cur);
@@ -2668,7 +2679,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
         lm_ggml_build_forward_expand(gf, mctx_cur->cpy_v(ctx0, v_cur, v_idxs, il));
     }
 
-    const auto & kq_mask = inp->get_kq_mask();
+    lm_ggml_tensor * kq_mask = inp->get_kq_mask();
 
     lm_ggml_tensor * q = q_cur;
     lm_ggml_tensor * k = mctx_cur->get_k(ctx0, il);

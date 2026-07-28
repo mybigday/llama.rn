@@ -253,12 +253,16 @@ namespace rnllama_jsi {
             return false;
         }
 
-        if (chatParams.thinking_end_tag.empty()) {
-            return true;
+        for (const auto& endTag : chatParams.thinking_end_tags) {
+            if (endTag.empty()) {
+                continue;
+            }
+            const size_t lastEnd = chatParams.generation_prompt.rfind(endTag);
+            if (lastEnd != std::string::npos && lastEnd >= lastStart) {
+                return false;
+            }
         }
-
-        const size_t lastEnd = chatParams.generation_prompt.rfind(chatParams.thinking_end_tag);
-        return lastEnd == std::string::npos || lastEnd < lastStart;
+        return true;
     }
 
     static jsi::Object createModelDetails(jsi::Runtime& runtime, rnllama::llama_rn_context* ctx) {
@@ -868,8 +872,8 @@ namespace rnllama_jsi {
                               if (!chatParams.thinking_start_tag.empty()) {
                                   result.setProperty(rt, "thinking_start_tag", jsi::String::createFromUtf8(rt, chatParams.thinking_start_tag));
                               }
-                              if (!chatParams.thinking_end_tag.empty()) {
-                                  result.setProperty(rt, "thinking_end_tag", jsi::String::createFromUtf8(rt, chatParams.thinking_end_tag));
+                              if (!chatParams.thinking_end_tags.empty()) {
+                                  result.setProperty(rt, "thinking_end_tag", jsi::String::createFromUtf8(rt, chatParams.thinking_end_tags.front()));
                               }
 
                               // Preserve the same shape as legacy native bridge
