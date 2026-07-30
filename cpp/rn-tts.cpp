@@ -3354,46 +3354,177 @@ llama_rn_speaker_artifact llama_rn_context_tts::encodeSpeaker(
         codec_lm = ::codec_lm_create(codec_model);
     }
     if (codec_lm != nullptr) {
-        const ::codec_lm_speaker_info * sp_info = ::codec_lm_speaker_get_info(codec_lm);
-        if (sp_info != nullptr && sp_info->n_rows > 0 && sp_info->hidden_dim > 0) {
-            // Optional resample stub — codec.cpp expects ref_pcm at
-            // sp_info->ref_sample_rate; caller is responsible for resampling.
-            // We just pass the raw PCM through and trust the caller (the JS
-            // wrapper or a downstream resampler) to align rates before calling.
-            struct codec_audio sp_audio = {};
-            sp_audio.data        = opts.pcm.data();
-            sp_audio.n_samples   = (int32_t) opts.pcm.size();
-            sp_audio.sample_rate = opts.input_sample_rate;
-            sp_audio.n_channels  = 1;
-            sp_audio.pcm_type    = CODEC_PCM_TYPE_F32;
-
-            const float emotion_val = opts.emotion;
-            const float * emotion_ptr =
-                (sp_info->needs_emotion_scalar && opts.has_emotion) ? &emotion_val : nullptr;
-
-            out.speaker_emb.assign((size_t) sp_info->n_rows * (size_t) sp_info->hidden_dim, 0.0f);
-            const enum codec_status sp_status = ::codec_lm_speaker_encode(
-                codec_lm,
-                sp_info->needs_ref_pcm ? &sp_audio : nullptr,
-                (sp_info->needs_ref_speech_tokens && !out.ref_codes.empty()) ? out.ref_codes.data() : nullptr,
-                (sp_info->needs_ref_speech_tokens && !out.ref_codes.empty()) ? (int32_t) out.ref_codes.size() : 0,
-                emotion_ptr,
-                out.speaker_emb.data(),
-                (int32_t) out.speaker_emb.size());
-            if (sp_status == CODEC_STATUS_SUCCESS) {
-                out.speaker_n_rows = sp_info->n_rows;
-                out.speaker_hidden_dim = sp_info->hidden_dim;
-            } else {
-                const char * err = ::codec_lm_get_last_error(codec_lm);
-                LOG_WARNING("encodeSpeaker: codec_lm_speaker_encode failed (%d): %s — speaker_emb will be empty",
-                            (int) sp_status, err && *err ? err : "(no error message)");
-                out.speaker_emb.clear();
-            }
+        // Shared encode helper: fills out.speaker_emb / speaker_n_rows /
+        // speaker_hidden_dim using the pre-computed ref_codes from above.
+        rn_speaker spk_tmp;
+        spk_tmp.pcm           = opts.pcm;
+        spk_tmp.sample_rate   = opts.input_sample_rate;
+        spk_tmp.has_emotion   = opts.has_emotion;
+        spk_tmp.emotion       = opts.emotion;
+        if (encodeInto(main_ctx, spk_tmp, out.ref_codes)) {
+            out.speaker_emb     = spk_tmp.emb;
+            out.speaker_n_rows  = spk_tmp.rows;
+            out.speaker_hidden_dim = spk_tmp.hidden_dim;
         }
     }
 
     codec_token_buffer_free(&tokens);
     return out;
+}
+
+// ── encodeInto: shared codec_lm_speaker_encode helper ───────────────────────
+// Fills spk.emb / rows / hidden_dim / baked.  `ref_codes` is the output of
+// a prior codec_encode call and is only forwarded when the speaker section
+// declares needs_ref_speech_tokens.  Returns true on success.
+bool llama_rn_context_tts::encodeInto(
+    llama_rn_context * main_ctx,
+    rn_speaker & spk,
+    const std::vector<int32_t> & ref_codes) {
+
+    if (codec_lm == nullptr && !codec_lm_probed && codec_model != nullptr) {
+        codec_lm_probed = true;
+        codec_lm = ::codec_lm_create(codec_model);
+    }
+    if (codec_lm == nullptr) {
+        return false;
+    }
+
+    const ::codec_lm_speaker_info * sp_info = ::codec_lm_speaker_get_info(codec_lm);
+    if (sp_info == nullptr || sp_info->n_rows <= 0 || sp_info->hidden_dim <= 0) {
+        return false;
+    }
+
+    // Validate hidden_dim against model n_embd — architecture mismatch means
+    // the embedding would be injected into the wrong-sized slot.
+    if (main_ctx != nullptr && main_ctx->model != nullptr) {
+        const int model_n_embd = llama_model_n_embd(main_ctx->model);
+        if (model_n_embd > 0 && sp_info->hidden_dim != model_n_embd) {
+            LOG_WARNING("encodeInto: codec hidden_dim=%d != model n_embd=%d — skipping bake, leaving speaker unbaked",
+                        sp_info->hidden_dim, model_n_embd);
+            spk.baked = false;
+            spk.rows  = 0;
+            return false;
+        }
+    }
+
+    // Build ref_pcm descriptor from the speaker's stored PCM.
+    struct codec_audio sp_audio = {};
+    sp_audio.data        = spk.pcm.data();
+    sp_audio.n_samples   = (int32_t) spk.pcm.size();
+    sp_audio.sample_rate = spk.sample_rate;
+    sp_audio.n_channels  = 1;
+    sp_audio.pcm_type    = CODEC_PCM_TYPE_F32;
+
+    const float emotion_val = spk.emotion;
+    const float * emotion_ptr =
+        (sp_info->needs_emotion_scalar && spk.has_emotion) ? &emotion_val : nullptr;
+
+    spk.emb.assign((size_t) sp_info->n_rows * (size_t) sp_info->hidden_dim, 0.0f);
+    const enum codec_status sp_status = ::codec_lm_speaker_encode(
+        codec_lm,
+        sp_info->needs_ref_pcm ? &sp_audio : nullptr,
+        (sp_info->needs_ref_speech_tokens && !ref_codes.empty()) ? ref_codes.data() : nullptr,
+        (sp_info->needs_ref_speech_tokens && !ref_codes.empty()) ? (int32_t) ref_codes.size() : 0,
+        emotion_ptr,
+        spk.emb.data(),
+        (int32_t) spk.emb.size());
+
+    if (sp_status == CODEC_STATUS_SUCCESS) {
+        spk.rows       = sp_info->n_rows;
+        spk.hidden_dim = sp_info->hidden_dim;
+        spk.baked      = true;
+        return true;
+    }
+
+    const char * err = ::codec_lm_get_last_error(codec_lm);
+    LOG_WARNING("encodeInto: codec_lm_speaker_encode failed (%d): %s — speaker_emb will be empty",
+                (int) sp_status, err && *err ? err : "(no error message)");
+    spk.emb.clear();
+    spk.baked = false;
+    return false;
+}
+
+// ── 64-bit FNV-1a hash over raw PCM samples ─────────────────────────────────
+static uint64_t fnv1a_pcm(const std::vector<float> & pcm) {
+    static constexpr uint64_t FNV_OFFSET = 14695981039346656037ULL;
+    static constexpr uint64_t FNV_PRIME  = 1099511628211ULL;
+    uint64_t h = FNV_OFFSET;
+    const uint8_t * p = reinterpret_cast<const uint8_t *>(pcm.data());
+    const uint8_t * end = p + pcm.size() * sizeof(float);
+    for (; p != end; ++p) {
+        h ^= (uint64_t) *p;
+        h *= FNV_PRIME;
+    }
+    return h;
+}
+
+// ── Per-context speaker registry ─────────────────────────────────────────────
+
+int llama_rn_context_tts::createSpeaker(
+    llama_rn_context * main_ctx,
+    const std::vector<float> & pcm, int sample_rate,
+    const std::string & ref_text, float emotion,
+    bool has_emotion, bool bake) {
+
+    rn_speaker spk;
+    spk.pcm        = pcm;
+    spk.sample_rate = sample_rate;
+    spk.ref_text   = ref_text;
+    spk.emotion    = emotion;
+    spk.has_emotion = has_emotion;
+    spk.audio_hash = fnv1a_pcm(pcm);
+
+    const int id = next_speaker_id++;
+    speakers[id]  = std::move(spk);
+
+    if (bake) {
+        bakeSpeaker(main_ctx, id);
+    }
+
+    return id;
+}
+
+bool llama_rn_context_tts::bakeSpeaker(llama_rn_context * main_ctx, int id) {
+    auto it = speakers.find(id);
+    if (it == speakers.end()) {
+        LOG_WARNING("bakeSpeaker: speaker id=%d not found", id);
+        return false;
+    }
+    rn_speaker & spk = it->second;
+
+    // For models that need pre-encoded codec tokens, run codec_encode first.
+    std::vector<int32_t> ref_codes;
+    if (codec_ctx != nullptr && !spk.pcm.empty() && spk.sample_rate > 0) {
+        struct codec_audio audio = {};
+        audio.data        = spk.pcm.data();
+        audio.n_samples   = (int32_t) spk.pcm.size();
+        audio.sample_rate = spk.sample_rate;
+        audio.n_channels  = 1;
+        audio.pcm_type    = CODEC_PCM_TYPE_F32;
+
+        struct codec_encode_params enc_params = codec_encode_default_params();
+        if (main_ctx != nullptr && main_ctx->params.cpuparams.n_threads > 0) {
+            enc_params.n_threads = main_ctx->params.cpuparams.n_threads;
+        }
+
+        struct codec_token_buffer tokens = {};
+        const enum codec_status enc_status = codec_encode(codec_ctx, &audio, &tokens, enc_params);
+        if (enc_status == CODEC_STATUS_SUCCESS && tokens.data != nullptr && tokens.n_tokens > 0) {
+            ref_codes.assign(tokens.data, tokens.data + tokens.n_tokens);
+        }
+        codec_token_buffer_free(&tokens);
+    }
+
+    return encodeInto(main_ctx, spk, ref_codes);
+}
+
+const rn_speaker * llama_rn_context_tts::getSpeaker(int id) const {
+    auto it = speakers.find(id);
+    return it != speakers.end() ? &it->second : nullptr;
+}
+
+void llama_rn_context_tts::releaseSpeaker(int id) {
+    speakers.erase(id);
 }
 
 llama_rn_speaker_artifact llama_rn_context_tts::encodeSpeaker(

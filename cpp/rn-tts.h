@@ -1,7 +1,9 @@
 #ifndef RNTTS_H
 #define RNTTS_H
 
+#include <cstdint>
 #include <functional>
+#include <unordered_map>
 #include <vector>
 #include <string>
 #include "llama.h"
@@ -141,6 +143,29 @@ struct llama_rn_encode_speaker_options {
     float emotion = 0.5f;                 // [0, 1]; only used when has_emotion
 };
 
+// Native-backed speaker handle.  Stored in per-context registry; the JS
+// side holds only a numeric id.  `baked` is false until bakeSpeaker runs
+// the codec_lm_speaker_encode path and fills emb/rows/hidden_dim.
+// `audio_hash` is a cheap 64-bit FNV-1a hash of the raw PCM samples used
+// for future cache-reuse (Task 5).
+struct rn_speaker {
+    // Raw PCM + metadata (kept until baked so re-bake is cheap)
+    std::vector<float> pcm;
+    int sample_rate      = 0;
+    std::string ref_text;
+    float emotion        = 0.5f;
+    bool has_emotion     = false;
+
+    // Baked embedding (n_rows * hidden_dim, row-major f32)
+    std::vector<float> emb;
+    int rows             = 0;
+    int hidden_dim       = 0;
+    bool baked           = false;
+
+    // Cache key: 64-bit FNV-1a hash of the PCM buffer
+    uint64_t audio_hash  = 0;
+};
+
 // Single source of truth for everything the JS layer needs to drive a TTS
 // session — populated from the native profile so JS doesn't keep its own
 // parallel mapping. Voice resolution lives entirely on the JS side: the
@@ -253,6 +278,11 @@ struct llama_rn_context_tts {
     //   - codec_lm_ar_rng: seed state for the codebook-internal sampler
     //     (`sample_codec_logits`).  Seeded from the completion params on
     //     first call; persists across steps within a completion.
+    // ── Native speaker registry ──────────────────────────────────────────
+    // Keyed by monotonically-increasing integer id.  Freed with the context.
+    std::unordered_map<int, rn_speaker> speakers;
+    int next_speaker_id = 1;
+
     std::vector<float> pending_speaker_emb_prefix;  // [rows * hidden_dim]
     int pending_speaker_emb_rows = 0;
     int pending_speaker_emb_hidden_dim = 0;
@@ -469,6 +499,30 @@ struct llama_rn_context_tts {
     // form.  Existing callers don't need to know about speaker-encoder
     // optional inputs.
     llama_rn_speaker_artifact encodeSpeaker(llama_rn_context* main_ctx, const std::vector<float> &pcm, int input_sample_rate, const std::string &ref_text);
+
+    // ── Per-context speaker registry API ─────────────────────────────────
+    // Shared encode helper used by both the legacy encodeSpeaker path and
+    // the new bakeSpeaker path — fills spk.emb / rows / hidden_dim / baked.
+    // `ref_codes` may be empty; only forwarded when needs_ref_speech_tokens.
+    bool encodeInto(llama_rn_context* main_ctx, rn_speaker & spk,
+                    const std::vector<int32_t> & ref_codes);
+
+    // Allocate a new speaker slot; if bake=true, immediately runs encodeInto.
+    // Returns the new speaker id (always >= 1).
+    int createSpeaker(llama_rn_context* main_ctx,
+                      const std::vector<float> & pcm, int sample_rate,
+                      const std::string & ref_text, float emotion,
+                      bool has_emotion, bool bake);
+
+    // Run encodeInto for an existing (unbaked) speaker.  Returns false if id
+    // not found, vocoder unavailable, or encoding failed.
+    bool bakeSpeaker(llama_rn_context* main_ctx, int id);
+
+    // Look up a speaker by id; returns nullptr if not found.
+    const rn_speaker* getSpeaker(int id) const;
+
+    // Remove a speaker from the registry (no-op if id unknown).
+    void releaseSpeaker(int id);
     std::vector<float> decodeAudioTokens(llama_rn_context* main_ctx, const std::vector<llama_token> &tokens);
     std::vector<float> decodeAudioEmbeddings(llama_rn_context* main_ctx, const std::vector<float> &embeddings, int embedding_dim);
     int getAudioSampleRate() const;
