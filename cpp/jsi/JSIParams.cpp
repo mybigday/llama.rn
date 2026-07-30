@@ -652,5 +652,12 @@ namespace rnllama_jsi {
             ctx->params.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
         }
 #endif
+
+        // TTS speaker id: thread from completion options into tts_wrapper so
+        // rn-completion.cpp can resolve the speaker via getSpeaker(pending_speaker_id).
+        // Default -1 means no speaker override.
+        if (ctx->tts_wrapper != nullptr) {
+            ctx->tts_wrapper->pending_speaker_id = getPropertyAsInt(runtime, params, "speakerId", -1);
+        }
     }
 }

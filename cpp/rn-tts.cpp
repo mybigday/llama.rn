@@ -1359,11 +1359,13 @@ static std::string build_bluemagpie_prompt(json speaker, const std::string &text
     return "<|bm_spk|>" + text_to_speak + "<|bm_audio_start|>";
 }
 
-llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak) {
+llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak, int speakerId) {
     // Always clear per-generation state that survives reset() here so that
     // stale data from a previous generation doesn't pollute a new one.
     // (reset() intentionally skips these fields so they survive the rewind()
     // that fires between getFormattedAudioCompletion and nextToken.)
+    // Thread the speaker id for Task 5 consumption in rn-completion.cpp.
+    pending_speaker_id = speakerId;
     talker_prefix_embd.clear();
     talker_prefix_rows           = 0;
     talker_prefix_hidden         = 0;
@@ -1615,6 +1617,19 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     }
 
     const std::string flow = is_continuous_lm ? "continuous_embd" : "tokens";
+
+    // Helper: prepend RN_SPEAKER_MARKER to `prompt` when speakerId >= 0.
+    // The marker is placed at position 0 — the model's speaker-section start
+    // for all codec_lm-AR voice-clone models (CSM / Qwen3-TTS / MOSS-TTSD /
+    // MOSS-TTS-Realtime / Chatterbox).  Task 5 resolves the marker to the
+    // baked speaker embedding and validates exact position with a live probe.
+    auto maybe_prepend_speaker = [speakerId](std::string prompt) -> std::string {
+        if (speakerId >= 0) {
+            return std::string(RN_SPEAKER_MARKER) + prompt;
+        }
+        return prompt;
+    };
+
     switch (profile.prompt_kind) {
         case tts_prompt_kind::OUTETTS_LEGACY:
         case tts_prompt_kind::OUTETTS_V0_3:
@@ -1626,10 +1641,12 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
         case tts_prompt_kind::NEUTTS:
             return {build_neutts_prompt(speaker, text_to_speak), grammar, embedding, flow};
         case tts_prompt_kind::CSM:
-            return {build_csm_prompt(speaker, text_to_speak), "", embedding, flow};
+            // CSM speaker-section is position 0; marker precedes `[id]text`.
+            return {maybe_prepend_speaker(build_csm_prompt(speaker, text_to_speak)), "", embedding, flow};
         case tts_prompt_kind::QWEN3_TTS:
             // Fallback when audio_lm_ctx has no talker projection (stale GGUF).
-            return {build_qwen3_tts_prompt(speaker, text_to_speak), "", embedding, flow};
+            // Speaker section is position 0 of the ChatML block.
+            return {maybe_prepend_speaker(build_qwen3_tts_prompt(speaker, text_to_speak)), "", embedding, flow};
         case tts_prompt_kind::MOSS_TTS_REALTIME:
         case tts_prompt_kind::MOSS_TTSD: {
             // MOSS-TTSD / MOSS-TTS-Realtime wrap the text with a metadata-
@@ -1649,12 +1666,16 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
                 }
             }
             (void) parse_special;  // getFormattedAudioCompletion tokenizes with parse_special=true downstream
-            return {wrapped, "", embedding, flow};
+            // Speaker section is position 0, before the style/text/speech frame.
+            return {maybe_prepend_speaker(wrapped), "", embedding, flow};
         }
         case tts_prompt_kind::CHATTERBOX:
             // Fallback when audio_lm_ctx is unavailable (UNSUPPORTED decode_kind).
-            return {build_chatterbox_prompt(speaker, text_to_speak), "", embedding, flow};
+            // Speaker section is position 0 of the raw text.
+            return {maybe_prepend_speaker(build_chatterbox_prompt(speaker, text_to_speak)), "", embedding, flow};
         case tts_prompt_kind::BLUEMAGPIE:
+            // BlueMagpie uses a fixed <|bm_spk|> token at position 0; speaker
+            // conditioning is not yet wired through the registry — skip marker.
             return {build_bluemagpie_prompt(speaker, text_to_speak), "", embedding, flow};
     }
     return {"", "", false, ""};

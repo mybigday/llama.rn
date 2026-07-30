@@ -21,6 +21,10 @@ namespace codec_common { struct audio_lm_context; struct audio_lm_prompt_info; }
 
 namespace rnllama {
 
+// Marker injected into TTS prompts at the speaker-section position when a
+// speaker id is active (>= 0).  Must equal the JS constant RNLLAMA_SPEAKER_MARKER.
+static constexpr const char * RN_SPEAKER_MARKER = "<__speaker__>";
+
 // Forward declarations
 struct llama_rn_context;
 
@@ -283,6 +287,13 @@ struct llama_rn_context_tts {
     std::unordered_map<int, rn_speaker> speakers;
     int next_speaker_id = 1;
 
+    // Speaker id threaded from completion params / getFormattedAudioCompletion.
+    // -1 means "no speaker override".  Set by parseCompletionParams (via JSI)
+    // and by getFormattedAudioCompletion's speakerId argument.  Task 5 reads
+    // this in rn-completion.cpp to resolve the speaker and inject its baked
+    // embedding or PCM into the generation pipeline.
+    int pending_speaker_id = -1;
+
     std::vector<float> pending_speaker_emb_prefix;  // [rows * hidden_dim]
     int pending_speaker_emb_rows = 0;
     int pending_speaker_emb_hidden_dim = 0;
@@ -378,7 +389,12 @@ struct llama_rn_context_tts {
     tts_type detectTTSType(llama_rn_context* main_ctx);
     // Full capability snapshot — single source of truth for JS-side wrappers.
     llama_rn_tts_capabilities getTTSCapabilities(llama_rn_context* main_ctx);
-    llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak);
+    // speakerId: registry id (>= 0) for voice-clone injection via the baked
+    // speaker embedding.  -1 (default) disables the marker and leaves the
+    // prompt unchanged.  When >= 0, RN_SPEAKER_MARKER is inserted at the
+    // model's speaker-section position (before the payload text) and
+    // pending_speaker_id is set so rn-completion.cpp can resolve it.
+    llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak, int speakerId = -1);
     // DEPRECATED source-compat shim.  As of the "one completion API"
     // refactor, codec_lm-AR TTS (CSM / Qwen3-TTS / MOSS-TTSD /
     // MOSS-TTS-Realtime / Chatterbox) shares the standard `completion`

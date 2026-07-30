@@ -2024,18 +2024,22 @@ namespace rnllama_jsi {
 
         auto getFormattedAudioCompletion = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaGetFormattedAudioCompletion"),
-            3,
+            4,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
                 std::string speakerJsonStr = arguments[1].asString(runtime).utf8(runtime);
                 std::string textToSpeak = arguments[2].asString(runtime).utf8(runtime);
+                // Optional 4th arg: speakerId (registry id >= 0, or -1 for none).
+                int speakerId = (count >= 4 && arguments[3].isNumber())
+                    ? (int)arguments[3].asNumber()
+                    : -1;
 
-                return createPromiseTask(runtime, callInvoker, [contextId, speakerJsonStr, textToSpeak]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, speakerJsonStr, textToSpeak, speakerId]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
 
                     try {
-                        auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speakerJsonStr, textToSpeak);
+                        auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speakerJsonStr, textToSpeak, speakerId);
                         return [audio_result](jsi::Runtime& rt) {
                             jsi::Object res(rt);
                             res.setProperty(rt, "prompt", jsi::String::createFromUtf8(rt, audio_result.prompt));
