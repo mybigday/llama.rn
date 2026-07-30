@@ -321,6 +321,18 @@ if (!NativeModules.RNLlama) {
       })),
     )
     setGlobal(
+      'llamaCreateSpeaker',
+      jest.fn(async () => ({ id: 1, family: 'chatterbox', rows: 0, baked: false })),
+    )
+    setGlobal(
+      'llamaBakeSpeaker',
+      jest.fn(async () => ({ rows: 34, baked: true })),
+    )
+    setGlobal(
+      'llamaReleaseSpeaker',
+      jest.fn(async () => {}),
+    )
+    setGlobal(
       'llamaDecodeAudioEmbeddings',
       jest.fn(async () => []),
     )

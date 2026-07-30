@@ -75,6 +75,7 @@ export type {
 }
 
 export const RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER = '<__media__>'
+export const RNLLAMA_SPEAKER_MARKER = '<__speaker__>'
 
 export type { TTSCapabilities } from './tts'
 export {
@@ -126,6 +127,9 @@ const jsiBindingKeys = [
   'llamaDecodeAudioTokens',
   'llamaGenerateAudioCodes',
   'llamaEncodeSpeaker',
+  'llamaCreateSpeaker',
+  'llamaBakeSpeaker',
+  'llamaReleaseSpeaker',
   'llamaDecodeAudioEmbeddings',
   'llamaGetAudioSampleRate',
   'llamaReleaseVocoder',
@@ -356,6 +360,38 @@ const getJsonSchema = (responseFormat?: CompletionResponseFormat) => {
     return responseFormat.schema || {}
   }
   return null
+}
+
+export class LlamaSpeaker {
+  id: number
+
+  family: string
+
+  rows: number
+
+  baked: boolean
+
+  private ctxId: number
+
+  constructor(ctxId: number, h: { id: number; family: string; rows: number; baked: boolean }) {
+    this.ctxId = ctxId
+    this.id = h.id
+    this.family = h.family
+    this.rows = h.rows
+    this.baked = h.baked
+  }
+
+  async bake(): Promise<void> {
+    const { llamaBakeSpeaker } = getJsi()
+    const r = await llamaBakeSpeaker(this.ctxId, this.id)
+    this.rows = r.rows
+    this.baked = r.baked
+  }
+
+  async release(): Promise<void> {
+    const { llamaReleaseSpeaker } = getJsi()
+    await llamaReleaseSpeaker(this.ctxId, this.id)
+  }
 }
 
 export class LlamaContext {
@@ -1286,6 +1322,29 @@ export class LlamaContext {
       ...(options.emotion !== undefined ? { emotion: options.emotion } : {}),
     })
     return await llamaEncodeSpeaker(this.id, optsJson)
+  }
+
+  async createSpeaker(config: {
+    refAudio: Float32Array | number[]
+    refAudioSampleRate: number
+    refText?: string
+    emotion?: number
+    bake?: boolean
+  }): Promise<LlamaSpeaker> {
+    const { llamaCreateSpeaker } = getJsi()
+    const pcm =
+      config.refAudio instanceof Float32Array
+        ? Array.from(config.refAudio)
+        : config.refAudio
+    const optsJson = JSON.stringify({
+      pcm,
+      inputSampleRate: config.refAudioSampleRate,
+      refText: config.refText ?? '',
+      bake: config.bake ?? false,
+      ...(config.emotion !== undefined ? { emotion: config.emotion } : {}),
+    })
+    const h = await llamaCreateSpeaker(this.id, optsJson)
+    return new LlamaSpeaker(this.id, h)
   }
 
   async decodeAudioEmbeddings(

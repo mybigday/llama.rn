@@ -184,6 +184,15 @@ declare global {
     speakerNRows: number
     speakerHiddenDim: number
   }>
+  var llamaCreateSpeaker: (
+    contextId: number,
+    optsJson: string,
+  ) => Promise<{ id: number; family: string; rows: number; baked: boolean }>
+  var llamaBakeSpeaker: (
+    contextId: number,
+    speakerId: number,
+  ) => Promise<{ rows: number; baked: boolean }>
+  var llamaReleaseSpeaker: (contextId: number, speakerId: number) => Promise<void>
   var llamaDecodeAudioEmbeddings: (
     contextId: number,
     embeddings: number[],
