@@ -363,9 +363,9 @@ const getJsonSchema = (responseFormat?: CompletionResponseFormat) => {
 }
 
 export class LlamaSpeaker {
-  id: number
+  readonly id: number
 
-  family: string
+  readonly family: string
 
   rows: number
 
