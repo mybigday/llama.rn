@@ -2149,17 +2149,6 @@ namespace rnllama_jsi {
                         opts.top_k       = j.value("topK",        50);
                         opts.seed        = j.value("seed",        0u);
 
-                        // Optional speaker-conditioning prefix.  Caller feeds in the
-                        // (n_rows × hidden_dim) f32 matrix returned by encodeSpeaker.
-                        if (j.contains("speakerEmbPrefix") && j["speakerEmbPrefix"].is_array()) {
-                            const auto &a = j["speakerEmbPrefix"];
-                            opts.speaker_emb_prefix.reserve(a.size());
-                            for (const auto &v : a) {
-                                opts.speaker_emb_prefix.push_back(v.get<float>());
-                            }
-                        }
-                        opts.speaker_emb_rows       = j.value("speakerEmbRows",       0);
-                        opts.speaker_emb_hidden_dim = j.value("speakerEmbHiddenDim",  0);
                     } catch (const std::exception &e) {
                         throw std::runtime_error(std::string("invalid options JSON: ") + e.what());
                     }
@@ -2209,77 +2198,6 @@ namespace rnllama_jsi {
             }
         );
         runtime.global().setProperty(runtime, "llamaGenerateAudioCodes", generateAudioCodes);
-
-        // encodeSpeaker(contextId, optsJson)
-        //   optsJson: { pcm: number[], inputSampleRate, refText?, emotion? }
-        // Returns:
-        //   { refCodes: number[], nQ, nFrames, sampleRate, codebookSize, refText,
-        //     speakerEmb: number[]?, speakerNRows: number, speakerHiddenDim: number }
-        //   speakerEmb is populated when the loaded codec.gguf has a speaker
-        //   section (Chatterbox / Qwen3-TTS / MOSS-TTSD).  refCodes is populated
-        //   when codec_encode produces tokens (Mimi / S3T / XY-Tokenizer / …).
-        auto encodeSpeaker = jsi::Function::createFromHostFunction(runtime,
-            jsi::PropNameID::forAscii(runtime, "llamaEncodeSpeaker"),
-            2,
-            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
-                int contextId = (int)arguments[0].asNumber();
-                std::string optsJson = arguments[1].asString(runtime).utf8(runtime);
-
-                rnllama::llama_rn_encode_speaker_options opts;
-                try {
-                    auto j = nlohmann::ordered_json::parse(optsJson);
-                    if (j.contains("pcm") && j["pcm"].is_array()) {
-                        opts.pcm.reserve(j["pcm"].size());
-                        for (const auto & v : j["pcm"]) {
-                            opts.pcm.push_back((float) v.get<double>());
-                        }
-                    }
-                    opts.input_sample_rate = j.value("inputSampleRate", 0);
-                    opts.ref_text          = j.value("refText", std::string());
-                    if (j.contains("emotion") && j["emotion"].is_number()) {
-                        opts.has_emotion = true;
-                        opts.emotion = (float) j["emotion"].get<double>();
-                    }
-                } catch (const std::exception & e) {
-                    throw std::runtime_error(std::string("encodeSpeaker: invalid options JSON: ") + e.what());
-                }
-
-                return createPromiseTask(runtime, callInvoker, [contextId, opts]() -> PromiseResultGenerator {
-                    auto ctx = getContextOrThrow(contextId);
-                    if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
-
-                    try {
-                        auto art = ctx->tts_wrapper->encodeSpeaker(ctx, opts);
-                        return [art](jsi::Runtime& rt) {
-                            jsi::Object obj(rt);
-                            jsi::Array codes(rt, art.ref_codes.size());
-                            for (size_t i = 0; i < art.ref_codes.size(); ++i) {
-                                codes.setValueAtIndex(rt, i, (double) art.ref_codes[i]);
-                            }
-                            obj.setProperty(rt, "refCodes",     codes);
-                            obj.setProperty(rt, "nQ",           jsi::Value((double) art.n_q));
-                            obj.setProperty(rt, "nFrames",      jsi::Value((double) art.n_frames));
-                            obj.setProperty(rt, "sampleRate",   jsi::Value((double) art.sample_rate));
-                            obj.setProperty(rt, "codebookSize", jsi::Value((double) art.codebook_size));
-                            obj.setProperty(rt, "refText",      jsi::String::createFromUtf8(rt, art.ref_text));
-                            if (!art.speaker_emb.empty()) {
-                                jsi::Array emb(rt, art.speaker_emb.size());
-                                for (size_t i = 0; i < art.speaker_emb.size(); ++i) {
-                                    emb.setValueAtIndex(rt, i, (double) art.speaker_emb[i]);
-                                }
-                                obj.setProperty(rt, "speakerEmb", emb);
-                            }
-                            obj.setProperty(rt, "speakerNRows",     jsi::Value((double) art.speaker_n_rows));
-                            obj.setProperty(rt, "speakerHiddenDim", jsi::Value((double) art.speaker_hidden_dim));
-                            return obj;
-                        };
-                    } catch (const std::exception &e) {
-                        throw std::runtime_error(e.what());
-                    }
-                }, contextId);
-            }
-        );
-        runtime.global().setProperty(runtime, "llamaEncodeSpeaker", encodeSpeaker);
 
         // llamaCreateSpeaker(ctxId, optsJson)
         //   optsJson: { pcm: number[], inputSampleRate: number, refText: string,

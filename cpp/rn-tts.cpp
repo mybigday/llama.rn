@@ -1896,26 +1896,6 @@ llama_rn_audio_codes_result llama_rn_context_tts::generateAudioCodes(
         return result;
     }
 
-    // Stash optional speaker-conditioning prefix (output of
-    // `codec_lm_speaker_encode`) so the completion loop's first
-    // `llama_decode` injects it as an embd-batch before the token prompt.
-    if (!opts.speaker_emb_prefix.empty() && opts.speaker_emb_rows > 0 &&
-        opts.speaker_emb_hidden_dim > 0) {
-        if (opts.speaker_emb_hidden_dim != hidden) {
-            LOG_ERROR("generateAudioCodes: speaker_emb_hidden_dim=%d != backbone n_embd=%d — skipping prefix",
-                      opts.speaker_emb_hidden_dim, hidden);
-        } else if ((int32_t) opts.speaker_emb_prefix.size() !=
-                   opts.speaker_emb_rows * opts.speaker_emb_hidden_dim) {
-            LOG_ERROR("generateAudioCodes: speaker_emb_prefix length %zu != rows(%d) × hidden(%d) — skipping prefix",
-                      opts.speaker_emb_prefix.size(),
-                      opts.speaker_emb_rows, opts.speaker_emb_hidden_dim);
-        } else {
-            pending_speaker_emb_prefix       = opts.speaker_emb_prefix;
-            pending_speaker_emb_rows         = opts.speaker_emb_rows;
-            pending_speaker_emb_hidden_dim   = opts.speaker_emb_hidden_dim;
-        }
-    }
-
     // Configure completion params for a codec_lm-AR run.  We reuse the
     // caller's temperature / top_p / top_k / seed (they get applied to
     // the codec_lm's codebook sampler in `tryCodecLmAudioStep` and to
@@ -3329,80 +3309,6 @@ std::vector<float> llama_rn_context_tts::decodeAudioEmbeddings(llama_rn_context*
     return audio;
 }
 
-llama_rn_speaker_artifact llama_rn_context_tts::encodeSpeaker(
-    llama_rn_context * main_ctx,
-    const llama_rn_encode_speaker_options & opts) {
-
-    llama_rn_speaker_artifact out;
-    out.ref_text = opts.ref_text;
-
-    if (codec_ctx == nullptr || codec_model == nullptr) {
-        LOG_ERROR("encodeSpeaker: codec context not initialized");
-        return out;
-    }
-    if (opts.pcm.empty() || opts.input_sample_rate <= 0) {
-        LOG_ERROR("encodeSpeaker: empty PCM or invalid sample rate %d",
-                  opts.input_sample_rate);
-        return out;
-    }
-
-    struct codec_audio audio = {};
-    audio.data         = opts.pcm.data();
-    audio.n_samples    = (int32_t) opts.pcm.size();
-    audio.sample_rate  = opts.input_sample_rate;
-    audio.n_channels   = 1;
-    audio.pcm_type     = CODEC_PCM_TYPE_F32;
-
-    struct codec_encode_params params = codec_encode_default_params();
-    if (main_ctx != nullptr && main_ctx->params.cpuparams.n_threads > 0) {
-        params.n_threads = main_ctx->params.cpuparams.n_threads;
-    }
-
-    struct codec_token_buffer tokens = {};
-    const enum codec_status status = codec_encode(codec_ctx, &audio, &tokens, params);
-    if (status != CODEC_STATUS_SUCCESS) {
-        const char * err = codec_get_last_error(codec_ctx);
-        LOG_ERROR("encodeSpeaker: codec_encode failed: %s",
-                  err && *err ? err : "(no error message)");
-        return out;
-    }
-
-    if (tokens.data != nullptr && tokens.n_tokens > 0) {
-        out.ref_codes.assign(tokens.data, tokens.data + tokens.n_tokens);
-    }
-    out.n_q           = tokens.n_q;
-    out.n_frames      = tokens.n_frames;
-    out.sample_rate   = tokens.sample_rate;
-    out.codebook_size = tokens.codebook_size;
-
-    // If the loaded codec.gguf exposes a speaker section (Chatterbox / Qwen3-TTS
-    // / MOSS-TTSD), drive it via codec.cpp's generic codec_lm_speaker_encode.
-    // The info struct tells us which inputs the codec wants (some need pcm,
-    // some need the just-computed ref_codes, some need an emotion scalar) and
-    // declares the output shape.  We let codec.cpp validate.
-    if (codec_lm == nullptr && !codec_lm_probed && codec_model != nullptr) {
-        codec_lm_probed = true;
-        codec_lm = ::codec_lm_create(codec_model);
-    }
-    if (codec_lm != nullptr) {
-        // Shared encode helper: fills out.speaker_emb / speaker_n_rows /
-        // speaker_hidden_dim using the pre-computed ref_codes from above.
-        rn_speaker spk_tmp;
-        spk_tmp.pcm           = opts.pcm;
-        spk_tmp.sample_rate   = opts.input_sample_rate;
-        spk_tmp.has_emotion   = opts.has_emotion;
-        spk_tmp.emotion       = opts.emotion;
-        if (encodeInto(main_ctx, spk_tmp, out.ref_codes)) {
-            out.speaker_emb     = spk_tmp.emb;
-            out.speaker_n_rows  = spk_tmp.rows;
-            out.speaker_hidden_dim = spk_tmp.hidden_dim;
-        }
-    }
-
-    codec_token_buffer_free(&tokens);
-    return out;
-}
-
 // ── encodeInto: shared codec_lm_speaker_encode helper ───────────────────────
 // Fills spk.emb / rows / hidden_dim / baked.  `ref_codes` is the output of
 // a prior codec_encode call and is only forwarded when the speaker section
@@ -3571,18 +3477,6 @@ const rn_speaker * llama_rn_context_tts::autoBakeSpeaker(llama_rn_context * main
 
 void llama_rn_context_tts::releaseSpeaker(int id) {
     speakers.erase(id);
-}
-
-llama_rn_speaker_artifact llama_rn_context_tts::encodeSpeaker(
-    llama_rn_context * main_ctx,
-    const std::vector<float> & pcm,
-    int input_sample_rate,
-    const std::string & ref_text) {
-    llama_rn_encode_speaker_options opts;
-    opts.pcm = pcm;
-    opts.input_sample_rate = input_sample_rate;
-    opts.ref_text = ref_text;
-    return encodeSpeaker(main_ctx, opts);
 }
 
 int llama_rn_context_tts::getAudioSampleRate() const {

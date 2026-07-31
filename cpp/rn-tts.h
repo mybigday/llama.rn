@@ -83,18 +83,6 @@ struct llama_rn_audio_codes_options {
     float top_p = 0.95f;
     int   top_k = 50;
     uint32_t seed = 0;
-
-    // Optional speaker-conditioning prefix.  When non-empty, the AR loop
-    // feeds these `n_rows × hidden_dim` rows via `b.embd` before the
-    // tokenized prompt — gives codec_lm-AR models (Chatterbox, Qwen3-TTS,
-    // MOSS-TTSD voice-clone) somewhere to absorb the output of
-    // `codec_lm_speaker_encode`.  Caller supplies the matrix via
-    // `encodeSpeaker(...).speakerEmb` after running the speaker encoder
-    // on the reference audio.  Length must be `speaker_emb_rows *
-    // speaker_emb_hidden_dim`.
-    std::vector<float> speaker_emb_prefix;
-    int speaker_emb_rows = 0;
-    int speaker_emb_hidden_dim = 0;
 };
 
 // Progress callback fires after each AR step with the just-sampled codes
@@ -108,39 +96,6 @@ struct llama_rn_audio_codes_result {
     int n_frames = 0;
     bool stopped_on_eos = false;
     bool aborted = false;
-};
-
-// On-device speaker encoding result.  Caller drops this into a speaker JSON
-// (alongside any model-specific spk_emb / language tags) for voice-clone
-// models (Qwen3-TTS / MOSS-TTSD).  The (T × n_q) interleaved layout matches
-// what `decodeAudioTokens` and the codec_lm AR loop expect for ref_codes.
-struct llama_rn_speaker_artifact {
-    std::vector<int32_t> ref_codes;   // (n_frames * n_q) interleaved
-    int n_q = 0;
-    int n_frames = 0;
-    int sample_rate = 0;
-    int codebook_size = 0;
-    std::string ref_text;             // pass-through from caller
-
-    // Speaker-conditioning embedding produced by codec.cpp's
-    // `codec_lm_speaker_encode`.  Present when the loaded codec.gguf has a
-    // speaker section (Chatterbox / Qwen3-TTS / MOSS-TTSD voice-clone).
-    // How the LM consumes this matrix is the LM arch's decision — codec.cpp
-    // does not bake "prefix" / "vector" / etc. semantics into the output.
-    std::vector<float> speaker_emb;   // (n_rows * hidden_dim) f32, row-major
-    int speaker_n_rows = 0;           // Chatterbox: 34   Qwen3-TTS: 1
-    int speaker_hidden_dim = 0;       // LM hidden size
-};
-
-// Options for encodeSpeaker.  Required inputs are picked up from the
-// loaded codec's `codec_lm_speaker_info`; whatever the caller doesn't
-// provide is left to defaults (e.g. emotion → emotion_default).
-struct llama_rn_encode_speaker_options {
-    std::vector<float> pcm;               // F32 mono samples
-    int input_sample_rate = 0;
-    std::string ref_text;                 // pass-through, not consumed by codec
-    bool has_emotion = false;
-    float emotion = 0.5f;                 // [0, 1]; only used when has_emotion
 };
 
 // Native-backed speaker handle.  Stored in per-context registry; the JS
@@ -508,22 +463,9 @@ struct llama_rn_context_tts {
     bool tryCodecLmAudioStep(llama_rn_context* main_ctx,
                              llama_token backbone_sampled_tok,
                              const float * hidden, int hidden_dim);
-    // Encode a reference audio clip into codec tokens via the loaded
-    // codec.gguf's encoder.  Used by voice-clone TTS models to register
-    // a custom speaker without a Python pre-bake step.  `pcm` is F32 mono
-    // at `input_sample_rate`; the codec will resample / re-channel as
-    // needed (or fail with an empty result if the codec can't).
-    // `ref_text` is passed through verbatim into the returned struct so
-    // callers can persist a single bundle.
-    llama_rn_speaker_artifact encodeSpeaker(llama_rn_context* main_ctx, const llama_rn_encode_speaker_options &opts);
-    // Backwards-compat overload that just forwards into the options-struct
-    // form.  Existing callers don't need to know about speaker-encoder
-    // optional inputs.
-    llama_rn_speaker_artifact encodeSpeaker(llama_rn_context* main_ctx, const std::vector<float> &pcm, int input_sample_rate, const std::string &ref_text);
-
     // ── Per-context speaker registry API ─────────────────────────────────
-    // Shared encode helper used by both the legacy encodeSpeaker path and
-    // the new bakeSpeaker path — fills spk.emb / rows / hidden_dim / baked.
+    // Shared encode helper used by the bakeSpeaker path — fills
+    // spk.emb / rows / hidden_dim / baked.
     // `ref_codes` may be empty; only forwarded when needs_ref_speech_tokens.
     bool encodeInto(llama_rn_context* main_ctx, rn_speaker & spk,
                     const std::vector<int32_t> & ref_codes);
