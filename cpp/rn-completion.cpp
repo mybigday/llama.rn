@@ -1028,6 +1028,23 @@ completion_token_output llama_rn_context_completion::nextToken()
     // post-while termination logic below.
     const llama_vocab * vocab = llama_model_get_vocab(parent_ctx->model);
 
+    // Defense-in-depth against aborting the whole process on a NONE-vocab model.
+    // A backbone with tokenizer.ggml.model=none (e.g. Chatterbox T3 — the codec
+    // owns tokenization) has no text pieces: the normal sampling path below calls
+    // token_to_piece, which asserts on a NONE vocab (llama-vocab.cpp).  loadPrompt()
+    // deliberately starts the loop for such backbones so a TTS route can take over;
+    // if neither the continuous nor the codec_lm-AR TTS route claimed this step
+    // (e.g. no vocoder was attached, or codec_lm creation failed), stop gracefully
+    // instead of letting token_to_piece kill the app.
+    if (llama_vocab_type(vocab) == LLAMA_VOCAB_TYPE_NONE &&
+        !is_continuous_tts && !is_codec_lm_ar_tts) {
+        LOG_ERROR("nextToken: backbone has no text vocab (tokenizer.ggml.model=none) and no "
+                  "active TTS codec route — attach a vocoder (initVocoder) with a compatible "
+                  "codec GGUF for this model");
+        has_next_token = false;
+        return result;
+    }
+
     // Speaker-conditioning prefix (voice-clone codec_lm-AR models).  Fed once
     // via a manual embd-batch AHEAD of the token prompt so the codec_lm's
     // first hidden read sees the speaker context.  The KV cache position
