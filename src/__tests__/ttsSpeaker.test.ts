@@ -1,5 +1,5 @@
 import { NativeModules } from 'react-native'
-import { initLlama, LlamaSpeaker, RNLLAMA_SPEAKER_MARKER } from '..'
+import { initLlama, LlamaSpeaker } from '..'
 
 jest.mock('..', () => require('../../jest/mock'))
 
@@ -25,6 +25,3 @@ it('createSpeaker returns a LlamaSpeaker handle backed by the native id', async 
   expect(llamaReleaseSpeaker).toHaveBeenCalledWith(ctx.id, 1)
 })
 
-it('exports the speaker marker constant', () => {
-  expect(RNLLAMA_SPEAKER_MARKER).toBe('<__speaker__>')
-})

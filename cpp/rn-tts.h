@@ -21,10 +21,6 @@ namespace codec_common { struct audio_lm_context; struct audio_lm_prompt_info; }
 
 namespace rnllama {
 
-// Marker injected into TTS prompts at the speaker-section position when a
-// speaker id is active (>= 0).  Must equal the JS constant RNLLAMA_SPEAKER_MARKER.
-static constexpr const char * RN_SPEAKER_MARKER = "<__speaker__>";
-
 // Forward declarations
 struct llama_rn_context;
 
@@ -337,6 +333,15 @@ struct llama_rn_context_tts {
                                            // can be empty (backbone has no tokenizer)
     // CFG weight for the Chatterbox AR loop (passed to tryChatterboxPrefill).
     float chatterbox_cfg_weight = 0.7f;
+    // When pending_speaker_id >= 0 and the model is Chatterbox, the speaker's
+    // PCM is stashed here so tryChatterboxPrefill (called from rn-completion.cpp)
+    // can pass it as ref_pcm to codec_lm_chatterbox_build_prompt, which runs
+    // the full VE+cond_enc path (same result as the baked emb, but the codec
+    // API only accepts the 256-d intermediate or raw PCM, not the 34-row cond
+    // output that encodeInto produces).  Cleared in getFormattedAudioCompletion.
+    std::vector<float> pending_chatterbox_ref_pcm;
+    int pending_chatterbox_ref_n_samples = 0;
+    int pending_chatterbox_ref_sample_rate = 0;
 
     // Payload text stashed at getFormattedAudioCompletion time so
     // tryCodecLmAudioStep can call codec_common::tts_auto_grammar(pi, text)
@@ -390,10 +395,10 @@ struct llama_rn_context_tts {
     // Full capability snapshot — single source of truth for JS-side wrappers.
     llama_rn_tts_capabilities getTTSCapabilities(llama_rn_context* main_ctx);
     // speakerId: registry id (>= 0) for voice-clone injection via the baked
-    // speaker embedding.  -1 (default) disables the marker and leaves the
-    // prompt unchanged.  When >= 0, RN_SPEAKER_MARKER is inserted at the
-    // model's speaker-section position (before the payload text) and
-    // pending_speaker_id is set so rn-completion.cpp can resolve it.
+    // speaker embedding.  -1 (default) leaves every existing code path
+    // unchanged.  When >= 0, pending_speaker_id is set and each injection
+    // point in rn-completion.cpp / getFormattedAudioCompletion re-sources the
+    // speaker embedding from the native registry (auto-baking on first use).
     llama_rn_audio_completion_result getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak, int speakerId = -1);
     // DEPRECATED source-compat shim.  As of the "one completion API"
     // refactor, codec_lm-AR TTS (CSM / Qwen3-TTS / MOSS-TTSD /
@@ -536,6 +541,10 @@ struct llama_rn_context_tts {
 
     // Look up a speaker by id; returns nullptr if not found.
     const rn_speaker* getSpeaker(int id) const;
+
+    // Auto-bake helper: resolves id → baked rn_speaker (baking on first use).
+    // Returns nullptr when id < 0, not found, or bake fails.
+    const rn_speaker* autoBakeSpeaker(llama_rn_context* main_ctx, int id);
 
     // Remove a speaker from the registry (no-op if id unknown).
     void releaseSpeaker(int id);

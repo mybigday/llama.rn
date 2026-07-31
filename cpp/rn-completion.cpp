@@ -1028,43 +1028,69 @@ completion_token_output llama_rn_context_completion::nextToken()
     // post-while termination logic below.
     const llama_vocab * vocab = llama_model_get_vocab(parent_ctx->model);
 
-    // Speaker-conditioning prefix (voice-clone codec_lm-AR models: output
-    // of `codec_lm_speaker_encode` stashed on the tts wrapper).  Fed once
+    // Speaker-conditioning prefix (voice-clone codec_lm-AR models).  Fed once
     // via a manual embd-batch AHEAD of the token prompt so the codec_lm's
     // first hidden read sees the speaker context.  The KV cache position
     // shifts by `rows`; the token batch below starts from `n_past + rows`.
     // Only fires on codec_lm-AR flows to keep the standard path unchanged.
-    if (is_codec_lm_ar_tts &&
-        !parent_ctx->tts_wrapper->pending_speaker_emb_prefix.empty() &&
-        parent_ctx->tts_wrapper->pending_speaker_emb_rows > 0 &&
-        parent_ctx->tts_wrapper->pending_speaker_emb_hidden_dim ==
-            llama_model_n_embd(parent_ctx->model)) {
-        const int rows       = parent_ctx->tts_wrapper->pending_speaker_emb_rows;
-        const int hidden_dim = parent_ctx->tts_wrapper->pending_speaker_emb_hidden_dim;
-        llama_batch b = llama_batch_init(rows, hidden_dim, 1);
-        b.n_tokens = rows;
-        std::memcpy(b.embd,
-                    parent_ctx->tts_wrapper->pending_speaker_emb_prefix.data(),
-                    (size_t) rows * (size_t) hidden_dim * sizeof(float));
-        for (int i = 0; i < rows; ++i) {
-            b.pos[i]       = n_past + i;
-            b.n_seq_id[i]  = 1;
-            b.seq_id[i][0] = 0;
-            b.logits[i]    = 0;
+    //
+    // Source selection (in priority order):
+    //   1. Native registry (pending_speaker_id >= 0): auto-bake and inject
+    //      getSpeaker(id)->emb directly.  C++ owns the shape (n_embd is
+    //      authoritative); we validate hidden_dim against llama_model_n_embd.
+    //   2. Legacy path (pending_speaker_id < 0): pending_speaker_emb_prefix
+    //      as before — unchanged for back-compat.
+    if (parent_ctx->tts_wrapper != nullptr) {
+        const int speaker_id = parent_ctx->tts_wrapper->pending_speaker_id;
+        const float * emb_data   = nullptr;
+        int           emb_rows   = 0;
+        int           emb_hidden = 0;
+
+        if (is_codec_lm_ar_tts && speaker_id >= 0) {
+            const rn_speaker * spk =
+                parent_ctx->tts_wrapper->autoBakeSpeaker(parent_ctx, speaker_id);
+            const int model_n_embd = llama_model_n_embd(parent_ctx->model);
+            if (spk != nullptr && spk->rows > 0 &&
+                spk->hidden_dim == model_n_embd) {
+                emb_data   = spk->emb.data();
+                emb_rows   = spk->rows;
+                emb_hidden = spk->hidden_dim;
+            }
+        } else if (is_codec_lm_ar_tts &&
+                   !parent_ctx->tts_wrapper->pending_speaker_emb_prefix.empty() &&
+                   parent_ctx->tts_wrapper->pending_speaker_emb_rows > 0 &&
+                   parent_ctx->tts_wrapper->pending_speaker_emb_hidden_dim ==
+                       llama_model_n_embd(parent_ctx->model)) {
+            emb_data   = parent_ctx->tts_wrapper->pending_speaker_emb_prefix.data();
+            emb_rows   = parent_ctx->tts_wrapper->pending_speaker_emb_rows;
+            emb_hidden = parent_ctx->tts_wrapper->pending_speaker_emb_hidden_dim;
         }
-        b.token = nullptr;
-        const int rc = llama_decode(parent_ctx->ctx, b);
-        llama_batch_free(b);
-        if (rc) {
-            LOG_ERROR("failed to eval speaker prefix, rows=%d", rows);
-            has_next_token = false;
-            return result;
+
+        if (emb_data != nullptr && emb_rows > 0) {
+            llama_batch b = llama_batch_init(emb_rows, emb_hidden, 1);
+            b.n_tokens = emb_rows;
+            std::memcpy(b.embd, emb_data,
+                        (size_t) emb_rows * (size_t) emb_hidden * sizeof(float));
+            for (int i = 0; i < emb_rows; ++i) {
+                b.pos[i]       = n_past + i;
+                b.n_seq_id[i]  = 1;
+                b.seq_id[i][0] = 0;
+                b.logits[i]    = 0;
+            }
+            b.token = nullptr;
+            const int rc = llama_decode(parent_ctx->ctx, b);
+            llama_batch_free(b);
+            if (rc) {
+                LOG_ERROR("failed to eval speaker prefix, rows=%d", emb_rows);
+                has_next_token = false;
+                return result;
+            }
+            n_past += emb_rows;
+            // Consume the legacy fields so subsequent nextToken calls don't re-inject.
+            parent_ctx->tts_wrapper->pending_speaker_emb_prefix.clear();
+            parent_ctx->tts_wrapper->pending_speaker_emb_rows = 0;
+            parent_ctx->tts_wrapper->pending_speaker_emb_hidden_dim = 0;
         }
-        n_past += rows;
-        // Consume so subsequent nextToken calls don't re-inject.
-        parent_ctx->tts_wrapper->pending_speaker_emb_prefix.clear();
-        parent_ctx->tts_wrapper->pending_speaker_emb_rows = 0;
-        parent_ctx->tts_wrapper->pending_speaker_emb_hidden_dim = 0;
     }
 
     // Qwen3-TTS talker prefix inject: `getFormattedAudioCompletion` built a
@@ -1169,10 +1195,22 @@ completion_token_output llama_rn_context_completion::nextToken()
         const std::string & text = parent_ctx->tts_wrapper->chatterbox_text;
         const float cfg_weight   = parent_ctx->tts_wrapper->chatterbox_cfg_weight;
 
+        // When a registry speaker is active, forward its PCM as ref_pcm.
+        // (The baked emb is 34×1024 cond_enc output; codec_lm_chatterbox_build_prompt
+        // accepts only the 256-d pre-cond-enc intermediate or raw PCM — so we
+        // use the PCM path, which produces the same cond output.)
+        const float * ref_pcm       = nullptr;
+        int           ref_n_samples = 0;
+        int           ref_sr        = 0;
+        if (!parent_ctx->tts_wrapper->pending_chatterbox_ref_pcm.empty()) {
+            ref_pcm       = parent_ctx->tts_wrapper->pending_chatterbox_ref_pcm.data();
+            ref_n_samples = parent_ctx->tts_wrapper->pending_chatterbox_ref_n_samples;
+            ref_sr        = parent_ctx->tts_wrapper->pending_chatterbox_ref_sample_rate;
+        }
+
         if (!parent_ctx->tts_wrapper->tryChatterboxPrefill(
                 parent_ctx, text,
-                /*ref_pcm=*/nullptr, /*ref_n_samples=*/0,
-                /*ref_sample_rate=*/0, cfg_weight)) {
+                ref_pcm, ref_n_samples, ref_sr, cfg_weight)) {
             LOG_ERROR("tryChatterboxPrefill failed");
             has_next_token = false;
             return result;

@@ -75,7 +75,6 @@ export type {
 }
 
 export const RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER = '<__media__>'
-export const RNLLAMA_SPEAKER_MARKER = '<__speaker__>'
 
 export type { TTSCapabilities } from './tts'
 export {

@@ -1373,6 +1373,9 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     talker_trailing              = 0;
     chatterbox_prefill_pending   = false;
     chatterbox_text.clear();
+    pending_chatterbox_ref_pcm.clear();
+    pending_chatterbox_ref_n_samples  = 0;
+    pending_chatterbox_ref_sample_rate = 0;
     realtime_active              = false;
     realtime_prefill_pending     = false;
     realtime_ctx_tokens.clear();
@@ -1468,9 +1471,17 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
             return {};
         }
 
-        // Extract x-vector from speaker JSON if provided.
+        // Extract x-vector: prefer the native registry when speakerId >= 0
+        // (auto-bakes on first use); fall back to the speaker JSON field.
+        // n_embd is authoritative — only accept emb of exactly `hidden` floats.
         std::vector<float> xvec;
-        if (speaker.contains("x_vector")) {
+        if (speakerId >= 0) {
+            const rn_speaker * spk = autoBakeSpeaker(main_ctx, speakerId);
+            if (spk != nullptr && (int)spk->emb.size() == hidden) {
+                xvec.assign(spk->emb.begin(), spk->emb.end());
+            }
+        }
+        if (xvec.empty() && speaker.contains("x_vector")) {
             for (auto &v : speaker["x_vector"]) xvec.push_back(v.get<float>());
         }
         const float * xvec_ptr = (xvec.size() == (size_t)hidden) ? xvec.data() : nullptr;
@@ -1533,6 +1544,21 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
         chatterbox_text            = text_to_speak;  // stored here; params.prompt stays empty
         // Default CFG weight; the JS layer can override via params if needed.
         chatterbox_cfg_weight      = 0.7f;
+
+        // When a registry speaker is active, stash its PCM so
+        // rn-completion.cpp can forward it as ref_pcm to tryChatterboxPrefill
+        // → codec_lm_chatterbox_build_prompt (which runs VE+cond_enc).
+        // Note: the baked emb is 34×1024 cond_enc output, but build_prompt
+        // only accepts the 256-d pre-cond-enc intermediate or raw PCM.
+        // The PCM path produces byte-identical cond output to the baked emb.
+        if (speakerId >= 0) {
+            const rn_speaker * spk = autoBakeSpeaker(main_ctx, speakerId);
+            if (spk != nullptr && !spk->pcm.empty() && spk->sample_rate > 0) {
+                pending_chatterbox_ref_pcm         = spk->pcm;
+                pending_chatterbox_ref_n_samples   = (int)spk->pcm.size();
+                pending_chatterbox_ref_sample_rate = spk->sample_rate;
+            }
+        }
 
         llama_rn_audio_completion_result res;
         // Empty prompt: the backbone has no text tokenizer (tokenizer.ggml.model=none).
@@ -1618,18 +1644,6 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
 
     const std::string flow = is_continuous_lm ? "continuous_embd" : "tokens";
 
-    // Helper: prepend RN_SPEAKER_MARKER to `prompt` when speakerId >= 0.
-    // The marker is placed at position 0 — the model's speaker-section start
-    // for all codec_lm-AR voice-clone models (CSM / Qwen3-TTS / MOSS-TTSD /
-    // MOSS-TTS-Realtime / Chatterbox).  Task 5 resolves the marker to the
-    // baked speaker embedding and validates exact position with a live probe.
-    auto maybe_prepend_speaker = [speakerId](std::string prompt) -> std::string {
-        if (speakerId >= 0) {
-            return std::string(RN_SPEAKER_MARKER) + prompt;
-        }
-        return prompt;
-    };
-
     switch (profile.prompt_kind) {
         case tts_prompt_kind::OUTETTS_LEGACY:
         case tts_prompt_kind::OUTETTS_V0_3:
@@ -1641,12 +1655,10 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
         case tts_prompt_kind::NEUTTS:
             return {build_neutts_prompt(speaker, text_to_speak), grammar, embedding, flow};
         case tts_prompt_kind::CSM:
-            // CSM speaker-section is position 0; marker precedes `[id]text`.
-            return {maybe_prepend_speaker(build_csm_prompt(speaker, text_to_speak)), "", embedding, flow};
+            return {build_csm_prompt(speaker, text_to_speak), "", embedding, flow};
         case tts_prompt_kind::QWEN3_TTS:
             // Fallback when audio_lm_ctx has no talker projection (stale GGUF).
-            // Speaker section is position 0 of the ChatML block.
-            return {maybe_prepend_speaker(build_qwen3_tts_prompt(speaker, text_to_speak)), "", embedding, flow};
+            return {build_qwen3_tts_prompt(speaker, text_to_speak), "", embedding, flow};
         case tts_prompt_kind::MOSS_TTS_REALTIME:
         case tts_prompt_kind::MOSS_TTSD: {
             // MOSS-TTSD / MOSS-TTS-Realtime wrap the text with a metadata-
@@ -1666,13 +1678,11 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
                 }
             }
             (void) parse_special;  // getFormattedAudioCompletion tokenizes with parse_special=true downstream
-            // Speaker section is position 0, before the style/text/speech frame.
-            return {maybe_prepend_speaker(wrapped), "", embedding, flow};
+            return {wrapped, "", embedding, flow};
         }
         case tts_prompt_kind::CHATTERBOX:
             // Fallback when audio_lm_ctx is unavailable (UNSUPPORTED decode_kind).
-            // Speaker section is position 0 of the raw text.
-            return {maybe_prepend_speaker(build_chatterbox_prompt(speaker, text_to_speak)), "", embedding, flow};
+            return {build_chatterbox_prompt(speaker, text_to_speak), "", embedding, flow};
         case tts_prompt_kind::BLUEMAGPIE:
             // BlueMagpie uses a fixed <|bm_spk|> token at position 0; speaker
             // conditioning is not yet wired through the registry — skip marker.
@@ -3542,6 +3552,21 @@ bool llama_rn_context_tts::bakeSpeaker(llama_rn_context * main_ctx, int id) {
 const rn_speaker * llama_rn_context_tts::getSpeaker(int id) const {
     auto it = speakers.find(id);
     return it != speakers.end() ? &it->second : nullptr;
+}
+
+// ── autoBakeSpeaker: resolve id → baked rn_speaker, baking on first use ────
+// Returns nullptr when id < 0, not found, or bake fails.  The returned
+// pointer is into the speakers map; valid until the next createSpeaker /
+// releaseSpeaker call on this context.
+const rn_speaker * llama_rn_context_tts::autoBakeSpeaker(llama_rn_context * main_ctx, int id) {
+    if (id < 0) return nullptr;
+    const rn_speaker * s = getSpeaker(id);
+    if (s == nullptr) return nullptr;
+    if (!s->baked) {
+        bakeSpeaker(main_ctx, id);
+        s = getSpeaker(id);
+    }
+    return (s != nullptr && s->baked && s->rows > 0) ? s : nullptr;
 }
 
 void llama_rn_context_tts::releaseSpeaker(int id) {
