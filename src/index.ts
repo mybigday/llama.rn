@@ -500,7 +500,9 @@ export class LlamaContext {
         if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
       }
 
-      if (!nativeParams.prompt) throw new Error('Prompt is required')
+      // Empty prompt is valid for embedding-injection flows (see completion()).
+      if (!nativeParams.prompt && !params.embedding && !nativeParams.media_paths)
+        throw new Error('Prompt is required')
 
       return new Promise(async (resolveOuter, rejectOuter) => {
         try {
@@ -916,7 +918,13 @@ export class LlamaContext {
       if (jsonSchema) nativeParams.json_schema = JSON.stringify(jsonSchema)
     }
 
-    if (!nativeParams.prompt) throw new Error('Prompt is required')
+    // An empty prompt is valid for embedding-injection flows — e.g. TTS models
+    // like Chatterbox T3 whose text is tokenized and embedded natively and
+    // injected via the completion loop (getFormattedAudioCompletion returns
+    // embedding:true for these). Only require a text prompt for a normal
+    // token completion with neither embedding mode nor media inputs.
+    if (!nativeParams.prompt && !params.embedding && !nativeParams.media_paths)
+      throw new Error('Prompt is required')
 
     const { llamaCompletion } = getJsi()
     return llamaCompletion(this.id, nativeParams, callback)
