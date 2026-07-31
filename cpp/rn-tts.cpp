@@ -2047,29 +2047,42 @@ bool llama_rn_context_tts::isTTSCodecLmAR(llama_rn_context * main_ctx) {
     if (codec_model == nullptr) {
         return false;
     }
-    if (codec_lm == nullptr && !codec_lm_probed) {
-        codec_lm_probed = true;
-        codec_lm = ::codec_lm_create(codec_model);
-    }
-    if (codec_lm == nullptr) {
+    // Classify by the authoritative model family (the same detection
+    // getFormattedAudioCompletion uses to pick the synthesis flow), NOT by
+    // probing a live codec_lm handle.  Chatterbox has no standalone codec_lm —
+    // its parallel_heads_delay lm lives inside audio_lm_ctx and its S3G codec
+    // GGUF can make codec_lm_create return null — so a pointer-probe gates the
+    // codec-AR path off for it, misrouting Chatterbox into the normal
+    // text-sampling loop (which aborts in token_to_piece: the T3 backbone has
+    // tokenizer.ggml.model=none; the codec owns tokenization).  The family
+    // classification is reliable for all codec_lm-AR members regardless of
+    // where the lm physically lives.
+    //
+    // `decode_kind == CODEC_LM_AR` is the single source of truth for the
+    // codebook-AR families (CSM / Qwen3-TTS / MOSS-*); Chatterbox is the one
+    // exception — it is marked UNSUPPORTED in the profile table (it does not go
+    // through the generateAudioCodes CODEC_CODES path) yet still drives the
+    // codec_lm-AR completion hook via the "chatterbox_embd" flow.
+    const tts_type type = detectTTSType(main_ctx);
+    const tts_model_profile & profile = profile_for_type(type);
+    const bool is_codec_lm_ar_family =
+        profile.decode_kind == tts_decode_kind::CODEC_LM_AR ||
+        profile.prompt_kind == tts_prompt_kind::CHATTERBOX;
+    if (!is_codec_lm_ar_family) {
         return false;
     }
-    const ::codec_lm_info * info = ::codec_lm_get_info(codec_lm);
-    if (info == nullptr || info->is_continuous) {
-        return false;
-    }
-    // Only codebook AR kinds route through this hook.  Continuous-latent
-    // is handled by `tryContinuousAudioStep`; UNKNOWN kinds mean the
-    // codec.gguf carries a partial `lm.*` section we can't drive.
-    if (info->kind != CODEC_LM_KIND_RESIDUAL_DEPTH_AR &&
-        info->kind != CODEC_LM_KIND_PARALLEL_HEADS_DELAY) {
-        return false;
-    }
-    if (main_ctx != nullptr && main_ctx->model != nullptr) {
-        const int model_n_embd = llama_model_n_embd(main_ctx->model);
-        if (model_n_embd != info->hidden_dim) {
-            LOG_WARNING("isTTSCodecLmAR: backbone n_embd=%d != codec_lm hidden=%d",
-                        model_n_embd, info->hidden_dim);
+    // Best-effort sanity check: detectTTSType() above already probed codec_lm
+    // for the standalone codec_lm-AR families (CSM / Qwen3-TTS / MOSS), so warn
+    // on a backbone/codec hidden-dim mismatch when the handle exists.
+    // Chatterbox-S3G has no standalone codec_lm, so this is simply skipped.
+    if (codec_lm != nullptr && main_ctx != nullptr && main_ctx->model != nullptr) {
+        const ::codec_lm_info * info = ::codec_lm_get_info(codec_lm);
+        if (info != nullptr) {
+            const int model_n_embd = llama_model_n_embd(main_ctx->model);
+            if (model_n_embd != info->hidden_dim) {
+                LOG_WARNING("isTTSCodecLmAR: backbone n_embd=%d != codec_lm hidden=%d",
+                            model_n_embd, info->hidden_dim);
+            }
         }
     }
     return true;
@@ -2723,7 +2736,10 @@ bool llama_rn_context_tts::tryChatterboxPrefill(
     // Get the codec_lm handle from audio_lm_ctx.
     ::codec_lm * lm = codec_common::audio_lm_get_lm(audio_lm_ctx);
     if (lm == nullptr) {
-        LOG_ERROR("tryChatterboxPrefill: no codec_lm inside audio_lm_ctx");
+        LOG_ERROR("tryChatterboxPrefill: no codec_lm inside audio_lm_ctx (%s) — the "
+                  "Chatterbox codec GGUF is likely stale/incompatible; re-convert it "
+                  "with the current codec.cpp converter",
+                  ::codec_lm_get_create_error());
         return false;
     }
     const ::codec_lm_chatterbox_info * ci = ::codec_lm_chatterbox_get_info(lm);
