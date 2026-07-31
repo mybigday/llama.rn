@@ -125,7 +125,6 @@ const jsiBindingKeys = [
   'llamaGetTTSCapabilities',
   'llamaDecodeAudioTokens',
   'llamaGenerateAudioCodes',
-  'llamaEncodeSpeaker',
   'llamaCreateSpeaker',
   'llamaBakeSpeaker',
   'llamaReleaseSpeaker',
@@ -835,13 +834,18 @@ export class LlamaContext {
   }
 
   async completion(
-    params: CompletionParams,
+    params: CompletionParams & { speaker?: LlamaSpeaker },
     callback?: (data: TokenData) => void,
   ): Promise<NativeCompletionResult> {
-    const nativeParams: NativeCompletionRequestParams = {
+    const nativeParams: NativeCompletionRequestParams & {
+      speakerId?: number
+    } = {
       ...params,
       prompt: params.prompt || '',
       emit_partial_completion: !!callback,
+      ...(params.speaker !== undefined
+        ? { speakerId: params.speaker.id }
+        : {}),
     }
 
     if (params.messages) {
@@ -1113,7 +1117,7 @@ export class LlamaContext {
    */
   async getFormattedAudioCompletion(options: {
     prompt: string
-    speaker?: string | object
+    speaker?: string | LlamaSpeaker
     phonemizer?: (
       text: string,
       language: string,
@@ -1124,23 +1128,6 @@ export class LlamaContext {
     grammar?: string
     embedding: boolean
     flow: 'tokens' | 'codec_lm_ar' | 'continuous_embd' | ''
-    /**
-     * Pre-computed speaker-conditioning prefix lifted off the caller's
-     * speaker JSON. Present when the caller baked `speakerEmb` (output of
-     * `encodeSpeaker`) into the speaker object — voice-clone models on
-     * the codec_lm_ar flow can spread this straight into
-     * `generateAudioCodes` instead of threading the matrix manually.
-     *
-     * NOTE: new native builds route codec_lm-AR through the standard
-     * `completion` loop (flow = 'tokens' + embedding = true).  The
-     * speaker prefix is stashed on the native tts wrapper and injected
-     * ahead of the token prompt in the completion loop — callers only
-     * need to remember to pass `speakerEmbPrefix` into
-     * `generateAudioCodes` (which now wraps `completion` internally).
-     */
-    speakerEmbPrefix?: number[]
-    speakerEmbRows?: number
-    speakerEmbHiddenDim?: number
   }> {
     const { lookupVoice } = require('./tts-voices')
     const cap = await this.getTTSCapabilities()
@@ -1154,18 +1141,34 @@ export class LlamaContext {
       )
     }
 
-    // 2. resolve speaker into the native-side speaker JSON shape.
-    //    Voice resolution is JS-only — caller passes a name (or omits it,
-    //    in which case we look up `default`) and we hit the per-family /
-    //    per-language voice table in `tts-voices.ts`. Native side never
-    //    sees a default-voice key.
+    const { llamaGetFormattedAudioCompletion } = getJsi()
+
+    // 2. LlamaSpeaker handle path: pass empty speakerStr + the speaker id so
+    //    native arms pending_speaker_id from the registry. Downstream
+    //    completion / generateAudioCodes calls inject the speaker automatically.
+    if (options.speaker instanceof LlamaSpeaker) {
+      return llamaGetFormattedAudioCompletion(
+        this.id,
+        '',
+        inputText,
+        options.speaker.id,
+      )
+    }
+
+    // 3. String / undefined path: resolve against the built-in voice table and
+    //    pass the speaker JSON to native. Native side never sees a default-voice
+    //    key — voice resolution is JS-only.
     let speakerObject: Record<string, any> | null = null
-    if (options.speaker && typeof options.speaker === 'object') {
-      speakerObject = { ...(options.speaker as Record<string, any>) }
+    const name =
+      typeof options.speaker === 'string' ? options.speaker : 'default'
+    const voice = lookupVoice(cap.family, name, language)
+    if (voice) {
+      speakerObject = { ...voice }
       // For NeuTTS shape: turn ref_text into ref_phones via the hook if the
       // caller didn't already pre-phonemize.
       if (
         cap.requiresPhonemes &&
+        speakerObject &&
         !speakerObject.ref_phones &&
         speakerObject.ref_text &&
         options.phonemizer
@@ -1174,46 +1177,17 @@ export class LlamaContext {
           options.phonemizer(speakerObject.ref_text, language),
         )
       }
-    } else {
-      const name =
-        typeof options.speaker === 'string' ? options.speaker : 'default'
-      const voice = lookupVoice(cap.family, name, language)
-      if (voice) {
-        speakerObject = { ...voice }
-      } else if (typeof options.speaker === 'string') {
-        // Not a type check — this reports an unknown voice *value*, so Error
-        // (not TypeError) is correct despite the enclosing typeof guard.
-        // eslint-disable-next-line unicorn/prefer-type-error
-        throw new Error(
-          `Unknown built-in voice '${name}' for ${cap.family || 'this model'} (${language})`,
-        )
-      }
+    } else if (typeof options.speaker === 'string') {
+      // Not a type check — this reports an unknown voice *value*, so Error
+      // (not TypeError) is correct despite the enclosing typeof guard.
+      // eslint-disable-next-line unicorn/prefer-type-error
+      throw new Error(
+        `Unknown built-in voice '${name}' for ${cap.family || 'this model'} (${language})`,
+      )
     }
 
-    // 3. native side picks up `version` from the speaker JSON to confirm the
-    //    model family — but native already detected the type, so we don't
-    //    have to set it. Pass through whatever the speaker payload shape is.
     const speakerStr = speakerObject ? JSON.stringify(speakerObject) : ''
-
-    const { llamaGetFormattedAudioCompletion } = getJsi()
-    const result = await llamaGetFormattedAudioCompletion(
-      this.id,
-      speakerStr,
-      inputText,
-    )
-
-    // Lift the speakerEmb out of the speaker JSON for the AR caller's
-    // convenience. Native doesn't need it — codec_lm_speaker_encode runs
-    // on the encode side, and the AR loop consumes the matrix verbatim.
-    if (speakerObject && Array.isArray(speakerObject.speakerEmb)) {
-      return {
-        ...result,
-        speakerEmbPrefix: speakerObject.speakerEmb as number[],
-        speakerEmbRows: speakerObject.speakerNRows as number,
-        speakerEmbHiddenDim: speakerObject.speakerHiddenDim as number,
-      }
-    }
-    return result
+    return llamaGetFormattedAudioCompletion(this.id, speakerStr, inputText)
   }
 
   async decodeAudioTokens(tokens: number[]): Promise<Array<number>> {
@@ -1248,16 +1222,6 @@ export class LlamaContext {
     topP?: number
     topK?: number
     seed?: number
-    /**
-     * Optional speaker-conditioning prefix.  Pass the
-     * `speakerEmb` matrix returned from `encodeSpeaker` for voice-clone
-     * models whose codec.gguf carries a speaker section (Chatterbox /
-     * Qwen3-TTS / MOSS-TTSD).  Length must equal `rows × hiddenDim`,
-     * and `hiddenDim` must equal the backbone n_embd.
-     */
-    speakerEmbPrefix?: number[]
-    speakerEmbRows?: number
-    speakerEmbHiddenDim?: number
     onFrame?: (step: number, codes: number[]) => void
   }): Promise<{
     codes: number[]
@@ -1270,57 +1234,6 @@ export class LlamaContext {
     const { onFrame, ...rest } = options
     const optsJson = JSON.stringify(rest)
     return await llamaGenerateAudioCodes(this.id, optsJson, onFrame)
-  }
-
-  /**
-   * Encode a reference audio clip for voice-clone TTS.
-   *
-   * Always runs `codec_encode` to produce `refCodes` (the codec's token-ID
-   * representation of the audio — Mimi / S3T / XY-Tokenizer / …). When the
-   * loaded `codec.gguf` carries a speaker section (Chatterbox cond_enc,
-   * Qwen3-TTS speaker_encoder, MOSS-TTSD x-vector, …), also runs
-   * `codec_lm_speaker_encode` to produce `speakerEmb` — an
-   * `(speakerNRows × speakerHiddenDim)` matrix the LM consumes per its
-   * arch's convention (prefix concat, additive overlay, cross-attn KV, …).
-   *
-   * The `emotion` scalar is forwarded only to codecs that declare
-   * `needs_emotion_scalar = true` (Chatterbox today); ignored otherwise.
-   *
-   * The returned artifact slots into the `speaker` JSON of
-   * `getFormattedAudioCompletion` — the resolver picks whichever fields
-   * the target model needs.
-   */
-  async encodeSpeaker(options: {
-    refAudioPCM: Float32Array | number[]
-    refAudioSampleRate: number
-    refText?: string
-    /** Emotion scalar in [0, 1]; only used by codecs that declare it. */
-    emotion?: number
-  }): Promise<{
-    refCodes: number[]
-    nQ: number
-    nFrames: number
-    sampleRate: number
-    codebookSize: number
-    refText: string
-    /** Present iff the loaded codec.gguf has a speaker section. */
-    speakerEmb?: number[]
-    /** Speaker-embedding output shape (matrix is row-major). */
-    speakerNRows: number
-    speakerHiddenDim: number
-  }> {
-    const { llamaEncodeSpeaker } = getJsi()
-    const pcm =
-      options.refAudioPCM instanceof Float32Array
-        ? Array.from(options.refAudioPCM)
-        : options.refAudioPCM
-    const optsJson = JSON.stringify({
-      pcm,
-      inputSampleRate: options.refAudioSampleRate,
-      refText: options.refText ?? '',
-      ...(options.emotion !== undefined ? { emotion: options.emotion } : {}),
-    })
-    return await llamaEncodeSpeaker(this.id, optsJson)
   }
 
   async createSpeaker(config: {

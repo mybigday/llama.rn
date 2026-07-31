@@ -308,19 +308,6 @@ if (!NativeModules.RNLlama) {
       })),
     )
     setGlobal(
-      'llamaEncodeSpeaker',
-      jest.fn(async () => ({
-        refCodes: [],
-        nQ: 0,
-        nFrames: 0,
-        sampleRate: 0,
-        codebookSize: 0,
-        refText: '',
-        speakerNRows: 0,
-        speakerHiddenDim: 0,
-      })),
-    )
-    setGlobal(
       'llamaCreateSpeaker',
       jest.fn(async () => ({ id: 1, family: 'chatterbox', rows: 0, baked: false })),
     )

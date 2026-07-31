@@ -103,6 +103,7 @@ declare global {
     contextId: number,
     speaker: string,
     text: string,
+    speakerId?: number,
   ) => Promise<{
     prompt: string
     grammar?: string
@@ -169,20 +170,6 @@ declare global {
     nFrames: number
     stoppedOnEos: boolean
     aborted: boolean
-  }>
-  var llamaEncodeSpeaker: (
-    contextId: number,
-    optsJson: string,
-  ) => Promise<{
-    refCodes: number[]
-    nQ: number
-    nFrames: number
-    sampleRate: number
-    codebookSize: number
-    refText: string
-    speakerEmb?: number[]
-    speakerNRows: number
-    speakerHiddenDim: number
   }>
   var llamaCreateSpeaker: (
     contextId: number,

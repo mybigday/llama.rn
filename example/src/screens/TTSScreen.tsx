@@ -39,7 +39,7 @@ import { createWavFile, decodeBase64Pcm16, dumpTtsWavToDisk } from '../utils/aud
 // resolver can't see it. Suppress on both — the app regenerates it locally.
 // @ts-ignore -- generated asset, resolved at runtime
 import { DEFAULT_REF_AUDIO } from '../assets/voices/en_f1' // eslint-disable-line import/no-unresolved, import/extensions
-import { initLlama, LlamaContext } from '../../../src' // import 'llama.rn'
+import { initLlama, LlamaContext, LlamaSpeaker } from '../../../src' // import 'llama.rn'
 
 const models: (typeof MODELS.OUTE_TTS_0_3)[] = [
   MODELS.OUTE_TTS_0_3,
@@ -186,46 +186,6 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
 
   const handleSaveTTSParams = (params: TTSParams) => {
     setTtsParams(params)
-  }
-
-  // Encode the bundled ResembleAI Chatterbox demo clip into a speaker JSON
-  // for voice-clone families. Returns null if the loaded codec doesn't
-  // produce a speakerEmb (i.e. the family isn't a voice-clone arch).
-  const encodeDefaultRefVoice = async (): Promise<object | null> => {
-    if (!context || !isVocoderReady) {
-      Alert.alert(
-        'Vocoder not ready',
-        'Load a TTS model + vocoder before encoding a reference voice.',
-      )
-      return null
-    }
-    const pcm = decodeBase64Pcm16(DEFAULT_REF_AUDIO.pcm16Base64)
-    const enc = await context.encodeSpeaker({
-      refAudioPCM: pcm,
-      refAudioSampleRate: DEFAULT_REF_AUDIO.sampleRate,
-      refText: DEFAULT_REF_AUDIO.refText,
-    })
-    if (!enc.speakerEmb || enc.speakerNRows === 0) {
-      Alert.alert(
-        'No speaker section',
-        "The loaded codec.gguf doesn't carry a speaker section — this codec isn't a voice-clone arch (try Chatterbox / Qwen3-TTS / MOSS-TTSD).",
-      )
-      return null
-    }
-    // Shape matches what getFormattedAudioCompletion's resolver lifts out
-    // (speakerEmb / speakerNRows / speakerHiddenDim) plus the codec-token
-    // bundle for any model whose speaker JSON expects ref_codes too.
-    return {
-      ref_text: enc.refText,
-      ref_codes: enc.refCodes,
-      n_q: enc.nQ,
-      n_frames: enc.nFrames,
-      sample_rate: enc.sampleRate,
-      codebook_size: enc.codebookSize,
-      speakerEmb: enc.speakerEmb,
-      speakerNRows: enc.speakerNRows,
-      speakerHiddenDim: enc.speakerHiddenDim,
-    }
   }
 
   const saveAudioAsWav = async () => {
@@ -400,8 +360,26 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
   const generateSpeech = async () => {
     if (!inputText.trim() || !context || isLoading) return
 
+    // Create a LlamaSpeaker from the bundled ref audio when speakerConfig is a
+    // non-null object (voice-clone family). String values are passed as-is
+    // (built-in voice name). null / undefined → no speaker.
+    let spk: LlamaSpeaker | undefined
     try {
       setIsLoading(true)
+
+      const speakerCfg = ttsParams?.speakerConfig
+      if (speakerCfg && typeof speakerCfg === 'object' && isVocoderReady) {
+        const pcm = decodeBase64Pcm16(DEFAULT_REF_AUDIO.pcm16Base64)
+        spk = await context.createSpeaker({
+          refAudio: pcm,
+          refAudioSampleRate: DEFAULT_REF_AUDIO.sampleRate,
+          refText: DEFAULT_REF_AUDIO.refText,
+        })
+      }
+
+      const resolvedSpeaker: string | LlamaSpeaker | undefined =
+        spk ??
+        (typeof speakerCfg === 'string' ? speakerCfg : undefined)
 
       const prompt = inputText.trim()
       const caps = await context.getTTSCapabilities()
@@ -410,12 +388,9 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         grammar,
         embedding,
         flow,
-        speakerEmbPrefix,
-        speakerEmbRows,
-        speakerEmbHiddenDim,
       } = await context.getFormattedAudioCompletion({
         prompt,
-        speaker: ttsParams?.speakerConfig || undefined,
+        speaker: resolvedSpeaker,
         phonemizer: (text: string, language: string) =>
           toIPA(text, { anyAscii: true, language })
             .replace(/ɫ/g, 'l')
@@ -438,6 +413,8 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       // backbone never emits text tokens — codec_lm.generateAudioCodes
       // drives the AR loop and returns the (T × n_codebook) interleaved
       // code matrix straight from the residual depth decoder.
+      // The speaker was armed by getFormattedAudioCompletion above — no
+      // speakerEmb* threading needed here.
       if (flow === 'codec_lm_ar') {
         const audioSampleRate = await context.getAudioSampleRate()
         const arResult = await context.generateAudioCodes({
@@ -457,13 +434,6 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
             ttsSamplingDefaults.top_k ??
             50,
           seed: 0,
-          ...(speakerEmbPrefix
-            ? {
-                speakerEmbPrefix,
-                speakerEmbRows,
-                speakerEmbHiddenDim,
-              }
-            : {}),
         })
 
         if (arResult.codes.length === 0) {
@@ -629,6 +599,7 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
     } catch (error: any) {
       Alert.alert('Error', `Failed to generate speech: ${error.message}`)
     } finally {
+      if (spk) await spk.release()
       setIsLoading(false)
     }
   }
@@ -669,7 +640,6 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
           visible={showTTSParamsModal}
           onClose={() => setShowTTSParamsModal(false)}
           onSave={handleSaveTTSParams}
-          onEncodeDefaultRef={encodeDefaultRefVoice}
         />
 
         <MaskedProgress
