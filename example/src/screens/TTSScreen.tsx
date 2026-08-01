@@ -387,7 +387,6 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
         prompt: formattedPrompt,
         grammar,
         embedding,
-        flow,
       } = await context.getFormattedAudioCompletion({
         prompt,
         speaker: resolvedSpeaker,
@@ -409,78 +408,10 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
           ? { temperature: 1.0, top_k: 50, top_p: 1.0 }
           : { temperature: 0.7, top_p: 0.9 }
 
-      // codec_lm AR flow (CSM and similar multi-codebook RVQ models): the
-      // backbone never emits text tokens — codec_lm.generateAudioCodes
-      // drives the AR loop and returns the (T × n_codebook) interleaved
-      // code matrix straight from the residual depth decoder.
-      // The speaker was armed by getFormattedAudioCompletion above — no
-      // speakerEmb* threading needed here.
-      if (flow === 'codec_lm_ar') {
-        const audioSampleRate = await context.getAudioSampleRate()
-        const arResult = await context.generateAudioCodes({
-          prompt: formattedPrompt,
-          // codec_lm-AR frame rates are 12.5–25 Hz; 200 frames is 8–16 s
-          // of audio.  Capping below the previous 500 default makes CPU
-          // smoke-tests finish in reasonable wall-clock and gives caller a
-          // hard ceiling — JS callers that want longer audio should bump
-          // params.n_predict themselves.
-          maxFrames: params?.n_predict
-            ? Math.min(params.n_predict, 600)
-            : 200,
-          temperature: params.temperature ?? ttsSamplingDefaults.temperature,
-          topP: params.top_p ?? ttsSamplingDefaults.top_p,
-          topK:
-            (params as { top_k?: number }).top_k ??
-            ttsSamplingDefaults.top_k ??
-            50,
-          seed: 0,
-        })
-
-        if (arResult.codes.length === 0) {
-          setGeneratedAudio(
-            `No audio frames produced (codec_lm AR loop returned empty).`,
-          )
-          Alert.alert(
-            'Generation Failed',
-            'codec_lm AR loop produced no frames — check that the codec.gguf carries a `lm.*` section and the backbone matches the codec_lm host arch.',
-          )
-          return
-        }
-
-        setGeneratedAudio(
-          `Generated ${arResult.nFrames} frames × ${arResult.nCodebook} codebooks for: "${inputText.trim()}"`,
-        )
-
-        if (isVocoderReady && context.decodeAudioTokens) {
-          try {
-            const decodedAudio = await context.decodeAudioTokens(
-              arResult.codes,
-            )
-            const audioFloat32 = new Float32Array(decodedAudio)
-            setAudioData(audioFloat32)
-            setSampleRate(audioSampleRate)
-            void dumpTtsWavToDisk(audioFloat32, audioSampleRate)
-            setGeneratedAudio(
-              `Generated audio data (${audioFloat32.length} samples) for: "${inputText.trim()}"`,
-            )
-          } catch (decodeError) {
-            console.log('codec_lm AR audio decoding error:', decodeError)
-          }
-        }
-
-        Alert.alert(
-          'Speech Generated',
-          `Successfully generated ${arResult.nFrames} audio frames${
-            arResult.stoppedOnEos ? ' (stopped on EOS)' : ''
-          }! ${
-            isVocoderReady
-              ? 'Audio data is ready for playback.'
-              : 'Note: Audio playback requires vocoder setup.'
-          }`,
-        )
-        return
-      }
-
+      // All families run through the standard completion loop. For codec-LM
+      // AR models (CSM / Qwen3-TTS / MOSS / Chatterbox) the native loop drives
+      // the codec_lm step machine per `llama_decode` and appends codes to
+      // `result.audio_tokens`; continuous-latent models return `result.embeddings`.
       const collectedTokens: number[] = []
 
       const result = await context.completion(

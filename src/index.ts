@@ -1135,7 +1135,7 @@ export class LlamaContext {
     prompt: string
     grammar?: string
     embedding: boolean
-    flow: 'tokens' | 'codec_lm_ar' | 'continuous_embd' | ''
+    flow: 'tokens' | 'continuous_embd' | ''
   }> {
     const { lookupVoice } = require('./tts-voices')
     const cap = await this.getTTSCapabilities()

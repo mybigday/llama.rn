@@ -52,11 +52,6 @@ enum tts_type {
 //                        `llama_decode` via `tryCodecLmAudioStep`; JS collects
 //                        `audio_tokens` from the completion result the same
 //                        way it does for OuteTTS/Soprano/NeuTTS.
-//   "codec_lm_ar"      — DEPRECATED shim.  Older JS branches on this to call
-//                        `generateAudioCodes`; kept as a source-compat wrapper
-//                        around the standard `completion` loop.  New JS should
-//                        just look at `flow === "tokens"` and use `completion`
-//                        + `decodeAudioTokens` directly.
 //   "continuous_embd"  — standard completion loop but each step drives the
 //                        codec_lm's continuous-latent step machine
 //                        (BlueMagpie-TTS / VoxCPM); collect `audio_embeddings`

@@ -109,22 +109,17 @@ declare global {
     grammar?: string
     embedding: boolean
     // 'tokens'           — feed `prompt` through `completion()` and collect audio tokens.
-    //                      Now covers the codec_lm-AR family too (CSM /
-    //                      Qwen3-TTS / MOSS-TTSD / MOSS-TTS-Realtime /
-    //                      Chatterbox): the native completion loop drives
-    //                      the codec_lm step machine per `llama_decode` and
-    //                      appends codes to the standard audio-token buffer.
-    // 'codec_lm_ar'      — DEPRECATED (kept as a source-compat literal for
-    //                      older native builds).  New native always emits
-    //                      'tokens' for codec_lm-AR models.  If you still
-    //                      see this, `generateAudioCodes()` remains a
-    //                      wrapper that internally runs `completion`.
+    //                      Covers the codec_lm-AR family too (CSM / Qwen3-TTS /
+    //                      MOSS-TTSD / MOSS-TTS-Realtime / Chatterbox): the
+    //                      native completion loop drives the codec_lm step
+    //                      machine per `llama_decode` and appends codes to the
+    //                      standard audio-token buffer (`result.audio_tokens`).
     // 'continuous_embd'  — feed `prompt` through `completion()`; the loop drives the
     //                      codec_lm's continuous-latent step machine per
     //                      `llama_decode` (BlueMagpie-TTS / VoxCPM).  Collect
     //                      `embeddings` + `embedding_dim` from the completion
     //                      result and pass them to `decodeAudioEmbeddings`.
-    flow: 'tokens' | 'codec_lm_ar' | 'continuous_embd' | ''
+    flow: 'tokens' | 'continuous_embd' | ''
   }>
   var llamaGetTTSCapabilities: (contextId: number) => Promise<{
     type: number
