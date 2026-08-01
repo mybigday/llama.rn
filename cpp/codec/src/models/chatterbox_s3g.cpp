@@ -810,9 +810,14 @@ static bool codec_s3g_build_flow(lm_ggml_context * ctx_eval, void * user_data, l
     if (frame_re == nullptr || frame_im == nullptr) return false;
     lm_ggml_tensor * frame = lm_ggml_scale(ctx_eval, lm_ggml_sub(ctx_eval, frame_re, frame_im), 1.0f / (float) kHiftNFft);
 
-    // Window-multiply: broadcast hann [n_fft] over [n_fft, T_head].
-    lm_ggml_tensor * hann_2d = lm_ggml_reshape_2d(ctx_eval, t_hann, kHiftNFft, 1);
-    lm_ggml_tensor * windowed = lm_ggml_mul(ctx_eval, frame, lm_ggml_repeat(ctx_eval, hann_2d, frame));
+    // The synthesis window is ALREADY baked into the iSTFT basis
+    // (codec_runtime_istft_synthesis_basis multiplies every row by hann[n]), so
+    // `frame` is already `irfft · hann` — the correct overlap-add input.
+    // Re-applying the window here squared it, giving OLA(irfft·hann²)/OLA(hann²)
+    // instead of torch.istft's OLA(irfft·hann)/OLA(hann²); on the model's trained
+    // magnitude/phase that mismatch injected a constant Nyquist (sr/2) tone.
+    // Single-window reconstruction matches torch.istft to machine epsilon.
+    lm_ggml_tensor * windowed = frame;
 
     // OLA via ConvTranspose1d with identity weight (kernel n_fft, in=n_fft, out=1).
     // Input layout [t, c]: codec_convtr1d expects ne[0]=t, ne[1]=in_c. Our `windowed`
