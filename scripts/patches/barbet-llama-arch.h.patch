@@ -1,10 +1,10 @@
---- llama-arch.h.orig
-+++ llama-arch.h
-@@ -146,6 +146,7 @@
-     LLM_ARCH_MELLUM,
+--- llama-arch.h.orig	2026-08-01 23:21:01.733591242 +0800
++++ llama-arch.h	2026-08-01 23:21:01.734591245 +0800
+@@ -148,6 +148,7 @@
      LLM_ARCH_EAGLE3,
+     LLM_ARCH_MINIMAX_M3,
      LLM_ARCH_DFLASH,
 +    LLM_ARCH_BARBET,
+     LLM_ARCH_NANBEIGE,
      LLM_ARCH_UNKNOWN,
  };
- 
