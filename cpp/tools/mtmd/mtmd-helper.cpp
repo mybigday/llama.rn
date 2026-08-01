@@ -238,6 +238,29 @@ struct decode_embd_batch {
     }
 };
 
+// Helper class to set non-causal attention via RAII
+class scope_non_causal {
+public:
+    scope_non_causal(llama_context * context, bool enabled) : context_(context), enabled_(enabled) {
+        if (enabled_) {
+            // TODO @ngxson : need to make sure only one image is processed at a time, and n_ubatch must be enough to hold the image
+            llama_set_causal_attn(context_, false);
+        }
+    }
+    ~scope_non_causal() {
+        if (enabled_) {
+            llama_set_causal_attn(context_, true);
+        }
+    }
+
+    scope_non_causal(const scope_non_causal &) = delete;
+    scope_non_causal & operator=(const scope_non_causal &) = delete;
+
+private:
+    llama_context * context_;
+    bool enabled_;
+};
+
 // Internal form of mtmd_helper_decode_image_chunk() that can request logits
 // from the final media embedding when called by the chunk-evaluation helpers.
 static int32_t mtmd_helper_decode_image_chunk_impl(
@@ -293,10 +316,7 @@ static int32_t mtmd_helper_decode_image_chunk_impl(
     }
 
     const bool use_non_causal = mtmd_decode_use_non_causal(ctx, chunk);
-    if (use_non_causal) {
-        llama_set_causal_attn(lctx, false);
-        // TODO @ngxson : need to make sure only one image is processed at a time, and n_ubatch must be enough to hold the image
-    }
+    const scope_non_causal non_causal(lctx, use_non_causal);
 
     while (i_batch < n_img_batches) { // split into batches
         int pos_offset = i_batch*n_batch;
@@ -309,9 +329,6 @@ static int32_t mtmd_helper_decode_image_chunk_impl(
         int32_t ret = llama_decode(lctx, batch_embd_view);
         if (ret != 0) {
             LOG_ERR("failed to decode %s\n", name);
-            if (use_non_causal) {
-                llama_set_causal_attn(lctx, true);
-            }
             return ret;
         }
 
@@ -319,9 +336,6 @@ static int32_t mtmd_helper_decode_image_chunk_impl(
             ret = callback(batch_embd_view, user_data);
             if (ret != 0) {
                 LOG_ERR("post-decode callback failed\n");
-                if (use_non_causal) {
-                    llama_set_causal_attn(lctx, true);
-                }
                 return ret;
             }
         }
@@ -334,9 +348,6 @@ static int32_t mtmd_helper_decode_image_chunk_impl(
     n_past += mtmd_input_chunk_get_n_pos(chunk);
     *new_n_past = n_past;
 
-    if (use_non_causal) {
-        llama_set_causal_attn(lctx, true);
-    }
     return 0;
 }
 
@@ -653,6 +664,7 @@ bool mtmd_helper_support_video(mtmd_context * ctx) {
 #ifdef MTMD_VIDEO
     return mtmd_support_vision(ctx);
 #else
+    LM_GGML_UNUSED(ctx);
     return false;
 #endif
 }
@@ -1020,6 +1032,9 @@ mtmd_helper_video * mtmd_helper_video_init(
 
     return ctx;
 #else
+    LM_GGML_UNUSED(mctx);
+    LM_GGML_UNUSED(path);
+    LM_GGML_UNUSED(params);
     LOG_ERR("%s: video is not supported in this build (MTMD_VIDEO is set to OFF)\n", __func__);
     return nullptr;
 #endif
@@ -1052,6 +1067,10 @@ mtmd_helper_video * mtmd_helper_video_init_from_buf(
 
     return ctx;
 #else
+    LM_GGML_UNUSED(mctx);
+    LM_GGML_UNUSED(buf);
+    LM_GGML_UNUSED(len);
+    LM_GGML_UNUSED(params);
     LOG_ERR("%s: video is not supported in this build (MTMD_VIDEO is set to OFF)\n", __func__);
     return nullptr;
 #endif
@@ -1063,6 +1082,7 @@ void mtmd_helper_video_free(mtmd_helper_video * ctx) {
     ctx->stop_ffmpeg();
     delete ctx;
 #else
+    LM_GGML_UNUSED(ctx);
     LOG_ERR("%s: video is not supported in this build (MTMD_VIDEO is set to OFF)\n", __func__);
 #endif
 }
@@ -1071,6 +1091,7 @@ mtmd_helper_video_info mtmd_helper_video_get_info(const mtmd_helper_video * ctx)
 #ifdef MTMD_VIDEO
     return ctx->info;
 #else
+    LM_GGML_UNUSED(ctx);
     LM_GGML_ASSERT(false && "video is not supported in this build (MTMD_VIDEO is set to OFF)");
 #endif
 }
@@ -1081,6 +1102,9 @@ int32_t mtmd_helper_video_read_next(mtmd_helper_video * ctx,
     if (!ctx) return -2;
     return ctx->read_next(out_bitmap, out_text);
 #else
+    LM_GGML_UNUSED(ctx);
+    LM_GGML_UNUSED(out_bitmap);
+    LM_GGML_UNUSED(out_text);
     LM_GGML_ASSERT(false && "video is not supported in this build (MTMD_VIDEO is set to OFF)");
 #endif
 }
