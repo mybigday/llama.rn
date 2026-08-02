@@ -67,6 +67,23 @@ it('getFormattedAudioCompletion forwards speaker.id when passed a LlamaSpeaker a
   expect(result).toHaveProperty('flow')
 })
 
+it('getFormattedAudioCompletion forwards a structured speaker payload as JSON (not the default voice)', async () => {
+  mockGetFormattedAudioCompletion.mockClear()
+
+  // NeuTTSSpeaker-shaped payload (already phonemized) with custom reference codes.
+  const payload = { ref_phones: 'h ə l oʊ', ref_codes: [11, 22, 33] }
+
+  await ctx.getFormattedAudioCompletion({ prompt: 'hello', speaker: payload })
+
+  // The supplied payload must be serialized and passed as the speakerStr arg —
+  // NOT silently replaced by the built-in default voice.
+  expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
+    ctx.id,
+    JSON.stringify(payload),
+    'hello',
+  )
+})
+
 it('encodeSpeaker does not exist on LlamaContext', () => {
   expect((ctx as any).encodeSpeaker).toBeUndefined()
 })

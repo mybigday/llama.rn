@@ -28,6 +28,7 @@ import type {
   ParallelRequestStatus,
 } from './types'
 import { BUILD_NUMBER, BUILD_COMMIT } from './version'
+import type { SpeakerPayload } from './tts-voices'
 
 export type RNLlamaMessagePart = {
   type: string
@@ -1125,7 +1126,7 @@ export class LlamaContext {
    */
   async getFormattedAudioCompletion(options: {
     prompt: string
-    speaker?: string | LlamaSpeaker
+    speaker?: string | LlamaSpeaker | SpeakerPayload
     phonemizer?: (
       text: string,
       language: string,
@@ -1163,7 +1164,32 @@ export class LlamaContext {
       )
     }
 
-    // 3. String / undefined path: resolve against the built-in voice table and
+    // 3. Structured speaker payload (OuteTTSSpeaker / NeuTTSSpeaker / custom
+    //    JSON reference): forward it to native as-is. A LlamaSpeaker was already
+    //    handled above, so any remaining object is a plain speaker payload —
+    //    without this it would fall through to the default voice below.
+    if (options.speaker && typeof options.speaker === 'object') {
+      const payload: Record<string, any> = { ...options.speaker }
+      // NeuTTS: phonemize ref_text → ref_phones if the caller didn't already
+      // (mirrors the voice-table path below).
+      if (
+        cap.requiresPhonemes &&
+        !payload.ref_phones &&
+        payload.ref_text &&
+        options.phonemizer
+      ) {
+        payload.ref_phones = await Promise.resolve(
+          options.phonemizer(payload.ref_text, language),
+        )
+      }
+      return llamaGetFormattedAudioCompletion(
+        this.id,
+        JSON.stringify(payload),
+        inputText,
+      )
+    }
+
+    // 4. String / undefined path: resolve against the built-in voice table and
     //    pass the speaker JSON to native. Native side never sees a default-voice
     //    key — voice resolution is JS-only.
     let speakerObject: Record<string, any> | null = null
