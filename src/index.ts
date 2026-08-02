@@ -1164,63 +1164,45 @@ export class LlamaContext {
       )
     }
 
-    // 3. Structured speaker payload (OuteTTSSpeaker / NeuTTSSpeaker / custom
-    //    JSON reference): forward it to native as-is. A LlamaSpeaker was already
-    //    handled above, so any remaining object is a plain speaker payload —
-    //    without this it would fall through to the default voice below.
+    // 3. Otherwise resolve to a pre-baked speaker payload (an OuteTTSSpeaker /
+    //    NeuTTSSpeaker config) and forward it to native as speaker JSON. A
+    //    structured object is used directly; a string name — or `undefined`,
+    //    which means 'default' — resolves against the built-in voice table,
+    //    whose entries are themselves pre-baked payloads. Native never sees a
+    //    voice-name key; voice resolution is JS-only.
+    let payload: Record<string, any> | null
     if (options.speaker && typeof options.speaker === 'object') {
-      const payload: Record<string, any> = { ...options.speaker }
-      // NeuTTS: phonemize ref_text → ref_phones if the caller didn't already
-      // (mirrors the voice-table path below).
-      if (
-        cap.requiresPhonemes &&
-        !payload.ref_phones &&
-        payload.ref_text &&
-        options.phonemizer
-      ) {
-        payload.ref_phones = await Promise.resolve(
-          options.phonemizer(payload.ref_text, language),
+      payload = { ...options.speaker }
+    } else {
+      const name =
+        typeof options.speaker === 'string' ? options.speaker : 'default'
+      const voice = lookupVoice(cap.family, name, language)
+      if (!voice && typeof options.speaker === 'string') {
+        // Not a type check — this reports an unknown voice *value*, so Error
+        // (not TypeError) is correct despite the enclosing typeof guard.
+        // eslint-disable-next-line unicorn/prefer-type-error
+        throw new Error(
+          `Unknown built-in voice '${name}' for ${cap.family || 'this model'} (${language})`,
         )
       }
-      return llamaGetFormattedAudioCompletion(
-        this.id,
-        JSON.stringify(payload),
-        inputText,
+      payload = voice ? { ...voice } : null
+    }
+
+    // NeuTTS: phonemize the payload's ref_text → ref_phones if the caller
+    // didn't already pre-phonemize it.
+    if (
+      payload &&
+      cap.requiresPhonemes &&
+      !payload.ref_phones &&
+      payload.ref_text &&
+      options.phonemizer
+    ) {
+      payload.ref_phones = await Promise.resolve(
+        options.phonemizer(payload.ref_text, language),
       )
     }
 
-    // 4. String / undefined path: resolve against the built-in voice table and
-    //    pass the speaker JSON to native. Native side never sees a default-voice
-    //    key — voice resolution is JS-only.
-    let speakerObject: Record<string, any> | null = null
-    const name =
-      typeof options.speaker === 'string' ? options.speaker : 'default'
-    const voice = lookupVoice(cap.family, name, language)
-    if (voice) {
-      speakerObject = { ...voice }
-      // For NeuTTS shape: turn ref_text into ref_phones via the hook if the
-      // caller didn't already pre-phonemize.
-      if (
-        cap.requiresPhonemes &&
-        speakerObject &&
-        !speakerObject.ref_phones &&
-        speakerObject.ref_text &&
-        options.phonemizer
-      ) {
-        speakerObject.ref_phones = await Promise.resolve(
-          options.phonemizer(speakerObject.ref_text, language),
-        )
-      }
-    } else if (typeof options.speaker === 'string') {
-      // Not a type check — this reports an unknown voice *value*, so Error
-      // (not TypeError) is correct despite the enclosing typeof guard.
-      // eslint-disable-next-line unicorn/prefer-type-error
-      throw new Error(
-        `Unknown built-in voice '${name}' for ${cap.family || 'this model'} (${language})`,
-      )
-    }
-
-    const speakerStr = speakerObject ? JSON.stringify(speakerObject) : ''
+    const speakerStr = payload ? JSON.stringify(payload) : ''
     return llamaGetFormattedAudioCompletion(this.id, speakerStr, inputText)
   }
 
