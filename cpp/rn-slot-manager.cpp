@@ -168,6 +168,10 @@ void llama_rn_slot_manager::reset_mtp_speculative() {
     mtp_spec_cache_type_v = LM_GGML_TYPE_F16;
 }
 
+int32_t llama_rn_slot_manager::reserve_request_id() {
+    return next_request_id.fetch_add(1, std::memory_order_relaxed);
+}
+
 // Queue a new request
 int32_t llama_rn_slot_manager::queue_request(
     const common_params& params,
@@ -185,10 +189,12 @@ int32_t llama_rn_slot_manager::queue_request(
     int32_t load_state_size,
     int32_t save_state_size,
     std::function<void(const completion_token_output&)> on_token,
-    std::function<void(llama_rn_slot*)> on_complete
+    std::function<void(llama_rn_slot*)> on_complete,
+    int32_t request_id
 ) {
-    // Generate unique request ID
-    int32_t request_id = next_request_id++;
+    if (request_id == -1) {
+        request_id = reserve_request_id();
+    }
 
     LOG_INFO("Queuing request %d with %zu prompt tokens (load_state=%s, save_state=%s, save_prompt_state=%s, load_size=%d, save_size=%d)",
              request_id, prompt.size(),
@@ -245,14 +251,17 @@ int32_t llama_rn_slot_manager::queue_request(
 int32_t llama_rn_slot_manager::queue_embedding_request(
     const std::vector<llama_token>& tokens,
     int embd_normalize,
-    std::function<void(int32_t, const std::vector<float>&)> on_result
+    std::function<void(int32_t, const std::vector<float>&)> on_result,
+    int32_t request_id
 ) {
     if (parent_ctx == nullptr || parent_ctx->model == nullptr || parent_ctx->ctx == nullptr) {
         LOG_ERROR("Cannot queue embedding: context not initialized");
         return -1;
     }
 
-    int32_t request_id = next_request_id++;
+    if (request_id == -1) {
+        request_id = reserve_request_id();
+    }
 
     if (!parent_ctx->params.embedding) {
         LOG_WARNING("Embedding disabled in model parameters; returning zero vector");
@@ -296,14 +305,17 @@ int32_t llama_rn_slot_manager::queue_rerank_request(
     const std::string& query,
     const std::vector<std::string>& documents,
     int normalize,
-    std::function<void(int32_t, const std::vector<float>&)> on_results
+    std::function<void(int32_t, const std::vector<float>&)> on_results,
+    int32_t request_id
 ) {
     if (parent_ctx == nullptr || parent_ctx->model == nullptr || parent_ctx->ctx == nullptr) {
         LOG_ERROR("Cannot queue rerank: context not initialized");
         return -1;
     }
 
-    int32_t request_id = next_request_id++;
+    if (request_id == -1) {
+        request_id = reserve_request_id();
+    }
 
     const enum llama_pooling_type pooling_type = llama_pooling_type(parent_ctx->ctx);
     if (pooling_type != LLAMA_POOLING_TYPE_RANK) {
@@ -448,39 +460,49 @@ void llama_rn_slot_manager::release_slot(llama_rn_slot* slot) {
 }
 
 // Cancel request
-void llama_rn_slot_manager::cancel_request(int32_t request_id) {
+llama_rn_cancel_result llama_rn_slot_manager::cancel_request(int32_t request_id) {
     LOG_INFO("Cancelling request %d", request_id);
 
-    bool cancelled = false;
+    llama_rn_cancel_result result = llama_rn_cancel_result::NOT_FOUND;
+    {
+        std::lock_guard<std::mutex> lock(slots_mutex);
 
-    // Check if request is active
-    auto it = active_requests.find(request_id);
-    if (it != active_requests.end()) {
-        llama_rn_slot* slot = it->second;
-        // Mark as interrupted and set to DONE state
-        // Don't call release_slot yet - let update_slots handle cleanup
-        slot->is_interrupted = true;
-        slot->state = SLOT_STATE_DONE;
-        active_requests.erase(it);
-        LOG_INFO("Request %d cancelled (was active in slot %d)", request_id, slot->id);
-        cancelled = true;
-    } else {
-        // Remove from pending queue
-        auto pending_it = std::remove_if(queue_requests.begin(), queue_requests.end(),
-            [request_id](const llama_rn_queued_request& req) {
-                return req.request_id == request_id;
-            });
-        if (pending_it != queue_requests.end()) {
-            queue_requests.erase(pending_it, queue_requests.end());
-            LOG_INFO("Request %d cancelled (was in pending queue)", request_id);
-            cancelled = true;
+        auto active_it = active_requests.find(request_id);
+        if (active_it != active_requests.end() &&
+            (active_it->second->state == SLOT_STATE_PROCESSING_PROMPT ||
+             active_it->second->state == SLOT_STATE_GENERATING)) {
+            // The processing thread owns terminalization and slot release.
+            active_it->second->is_interrupted = true;
+            LOG_INFO(
+                "Request %d cancellation requested (active in slot %d)",
+                request_id,
+                active_it->second->id
+            );
+            result = llama_rn_cancel_result::ACTIVE;
+        } else {
+            auto queued_it = std::find_if(
+                queue_requests.begin(),
+                queue_requests.end(),
+                [request_id](const llama_rn_queued_request& request) {
+                    return request.request_id == request_id;
+                }
+            );
+            if (queued_it != queue_requests.end()) {
+                queue_requests.erase(queued_it);
+                LOG_INFO("Request %d cancelled (was in pending queue)", request_id);
+                result = llama_rn_cancel_result::QUEUED;
+            }
         }
     }
 
-    if (!cancelled) {
+    if (result == llama_rn_cancel_result::NOT_FOUND) {
         LOG_WARNING("Request %d not found for cancellation", request_id);
-        return;
+        return result;
     }
+
+    // Wake the processing thread after releasing slots_mutex. Active requests
+    // still need worker-owned completion; queued removals may leave it idle.
+    slots_cv.notify_one();
 
     // Notify subscribers of status change
     bool has_subscribers = false;
@@ -491,6 +513,8 @@ void llama_rn_slot_manager::cancel_request(int32_t request_id) {
     if (has_subscribers) {
         notify_status_change();
     }
+
+    return result;
 }
 
 // Compute similarity between two token sequences (stub for Phase 3)
@@ -1018,8 +1042,10 @@ bool llama_rn_slot_manager::process_batch() {
 void llama_rn_slot_manager::complete_slot(llama_rn_slot & slot) {
     slot.generated_text += slot.utf8_gate.finish();
     slot.state = SLOT_STATE_DONE;
-    if (slot.on_complete_callback) {
-        slot.on_complete_callback(&slot);
+    auto on_complete = std::move(slot.on_complete_callback);
+    slot.on_complete_callback = nullptr;
+    if (on_complete) {
+        on_complete(&slot);
     }
 }
 
@@ -1057,8 +1083,7 @@ void llama_rn_slot_manager::sample_and_callback() {
         // Check if interrupted
         if (slot.is_interrupted) {
             LOG_INFO("Slot %d: Generation interrupted", slot.id);
-            slot.generated_text += slot.utf8_gate.finish();
-            slot.state = SLOT_STATE_DONE;
+            complete_slot(slot);
             continue;
         }
         switch (slot.task_type) {
@@ -1375,9 +1400,26 @@ void llama_rn_slot_manager::release_completed_slots() {
 
 // Main processing loop
 void llama_rn_slot_manager::update_slots() {
-    // Step 1: Process pending queue (with mutex)
+    // Step 1: Terminalize cancellations and process pending queue (with mutex)
+    bool completed_interrupted = false;
     {
         std::lock_guard<std::mutex> lock(slots_mutex);
+        for (auto& slot : slots) {
+            if (slot.is_interrupted &&
+                (slot.state == SLOT_STATE_PROCESSING_PROMPT ||
+                 slot.state == SLOT_STATE_GENERATING)) {
+                LOG_INFO("Slot %d: Request interrupted", slot.id);
+                complete_slot(slot);
+                completed_interrupted = true;
+            }
+        }
+
+        if (completed_interrupted) {
+            release_completed_slots();
+        }
+
+        // Releasing interrupted slots first lets the next queued request claim
+        // the slot in this update rather than waiting for another worker turn.
         process_pending_queue();
     }
 
@@ -1394,7 +1436,18 @@ void llama_rn_slot_manager::update_slots() {
     }
 
     if (!has_active) {
-        // No active slots, return early
+        // No active slots, return early after publishing worker-owned
+        // cancellation cleanup to status subscribers.
+        if (completed_interrupted) {
+            bool has_subscribers = false;
+            {
+                std::lock_guard<std::mutex> lock(subscribers_mutex);
+                has_subscribers = !status_subscribers.empty();
+            }
+            if (has_subscribers) {
+                notify_status_change();
+            }
+        }
         return;
     }
 
@@ -1417,6 +1470,7 @@ void llama_rn_slot_manager::update_slots() {
                     complete_slot(slot);
                 }
             }
+            release_completed_slots();
             return;
         }
 
@@ -1463,9 +1517,18 @@ void llama_rn_slot_manager::update_slots() {
         }
     }
 
-    // Step 5: Sample tokens and invoke callbacks for GENERATING slots (with mutex)
+    // Step 5: Terminalize cancellations, then sample and invoke callbacks for
+    // remaining GENERATING slots (with mutex).
     {
         std::lock_guard<std::mutex> lock(slots_mutex);
+        for (auto& slot : slots) {
+            if (slot.is_interrupted &&
+                (slot.state == SLOT_STATE_PROCESSING_PROMPT ||
+                 slot.state == SLOT_STATE_GENERATING)) {
+                LOG_INFO("Slot %d: Request interrupted", slot.id);
+                complete_slot(slot);
+            }
+        }
         sample_and_callback();
     }
 

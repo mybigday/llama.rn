@@ -38,6 +38,12 @@ struct llama_rn_parallel_status {
     std::vector<llama_rn_request_status> requests;
 };
 
+enum class llama_rn_cancel_result {
+    ACTIVE,
+    QUEUED,
+    NOT_FOUND,
+};
+
 // Queued request structure
 struct llama_rn_queued_request {
     int32_t request_id;
@@ -100,7 +106,7 @@ struct llama_rn_slot_manager {
 
     // Request tracking
     std::map<int32_t, llama_rn_slot*> active_requests;  // request_id -> slot
-    int32_t next_request_id;
+    std::atomic<int32_t> next_request_id;
 
     // Batch processing
     llama_batch batch;
@@ -144,6 +150,8 @@ struct llama_rn_slot_manager {
     bool init(int32_t n_parallel, int32_t n_batch, int32_t n_ctx);
 
     // Request management
+    int32_t reserve_request_id();
+
     int32_t queue_request(
         const common_params& params,
         const std::vector<llama_token>& prompt,
@@ -160,27 +168,30 @@ struct llama_rn_slot_manager {
         int32_t load_state_size,
         int32_t save_state_size,
         std::function<void(const completion_token_output&)> on_token,
-        std::function<void(llama_rn_slot*)> on_complete
+        std::function<void(llama_rn_slot*)> on_complete,
+        int32_t request_id = -1
     );
 
     int32_t queue_embedding_request(
         const std::vector<llama_token>& tokens,
         int embd_normalize,
-        std::function<void(int32_t, const std::vector<float>&)> on_result
+        std::function<void(int32_t, const std::vector<float>&)> on_result,
+        int32_t request_id = -1
     );
 
     int32_t queue_rerank_request(
         const std::string& query,
         const std::vector<std::string>& documents,
         int normalize,
-        std::function<void(int32_t, const std::vector<float>&)> on_results
+        std::function<void(int32_t, const std::vector<float>&)> on_results,
+        int32_t request_id = -1
     );
 
     // Slot management
     llama_rn_slot* get_available_slot(const std::vector<llama_token>& prompt);
     llama_rn_slot* get_slot_by_request_id(int32_t request_id);
     void release_slot(llama_rn_slot* slot);
-    void cancel_request(int32_t request_id);
+    llama_rn_cancel_result cancel_request(int32_t request_id);
 
     // Processing loop management
     void start_processing_loop();
