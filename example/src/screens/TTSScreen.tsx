@@ -34,11 +34,9 @@ import {
 import { HeaderButton } from '../components/HeaderButton'
 import { MaskedProgress } from '../components/MaskedProgress'
 import { createWavFile, decodeBase64Pcm16, dumpTtsWavToDisk } from '../utils/audioUtils'
-// en_f1 is a gitignored generated asset (scripts/dump-tts-voices.ts); it's
-// absent in CI's clean checkout, so both tsc (TS2307) and the eslint import
-// resolver can't see it. Suppress on both — the app regenerates it locally.
-// @ts-ignore -- generated asset, resolved at runtime
-import { DEFAULT_REF_AUDIO } from '../assets/voices/en_f1' // eslint-disable-line import/no-unresolved, import/extensions
+// en_f1: ResembleAI's Chatterbox English demo reference clip (base64 PCM24k),
+// committed so Metro can bundle it — used by the voice-clone demo below.
+import { DEFAULT_REF_AUDIO } from '../assets/voices/en_f1'
 import { initLlama, LlamaContext, LlamaSpeaker } from '../../../src' // import 'llama.rn'
 
 const models: (typeof MODELS.OUTE_TTS_0_3)[] = [
