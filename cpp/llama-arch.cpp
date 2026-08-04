@@ -317,6 +317,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_TARGET_LAYERS,         "%s.target_layers"        },
     { LLM_KV_TARGET_HIDDEN_SIZE,    "%s.target_hidden_size"   },
     { LLM_KV_NORM_BEFORE_RESIDUAL,  "%s.norm_before_residual" },
+    { LLM_KV_NORM_BEFORE_FC,        "%s.norm_before_fc"       },
 
     { LLM_KV_SHORTCONV_L_CACHE, "%s.shortconv.l_cache" },
     // sentence-transformers dense modules feature dims
@@ -615,6 +616,9 @@ static const std::map<llm_tensor, const char *> LLM_TENSOR_NAMES = {
     { LLM_TENSOR_MASKED_EMBD_ORDERING,                   "masked_embd_ordering" },
     { LLM_TENSOR_FC,                                     "fc" },
     { LLM_TENSOR_D2T,                                    "d2t" },
+    { LLM_TENSOR_DSPARK_MARKOV_W1,                       "markov_w1" },
+    { LLM_TENSOR_DSPARK_MARKOV_W2,                       "markov_w2" },
+    { LLM_TENSOR_DSPARK_CONF_PROJ,                       "conf_proj" },
 };
 
 // declare information about the model weight tensors:
@@ -869,6 +873,10 @@ static const std::map<llm_tensor, llm_tensor_info> LLM_TENSOR_INFOS = {
     // eagle3
     {LLM_TENSOR_FC,                         {LLM_TENSOR_LAYER_OUTPUT,    LM_GGML_OP_MUL_MAT}},
     {LLM_TENSOR_D2T,                        {LLM_TENSOR_LAYER_OUTPUT,    LM_GGML_OP_GET_ROWS}},
+    // dspark
+    {LLM_TENSOR_DSPARK_MARKOV_W1,           {LLM_TENSOR_LAYER_OUTPUT,    LM_GGML_OP_GET_ROWS}},
+    {LLM_TENSOR_DSPARK_MARKOV_W2,           {LLM_TENSOR_LAYER_OUTPUT,    LM_GGML_OP_MUL_MAT}},
+    {LLM_TENSOR_DSPARK_CONF_PROJ,           {LLM_TENSOR_LAYER_OUTPUT,    LM_GGML_OP_MUL_MAT}},
 };
 
 LLM_KV::LLM_KV(llm_arch arch, const char * suffix) : arch(arch), suffix(suffix) {}
@@ -960,6 +968,7 @@ bool llm_arch_is_hybrid(const llm_arch & arch) {
         case LLM_ARCH_KIMI_LINEAR:
         case LLM_ARCH_QWEN35:
         case LLM_ARCH_QWEN35MOE:
+        case LLM_ARCH_DEEPSEEK4:
             return true;
         default:
             return false;
@@ -982,6 +991,7 @@ bool llm_arch_supports_rs_rollback(const llm_arch & arch) {
     switch (arch) {
         case LLM_ARCH_QWEN35:
         case LLM_ARCH_QWEN35MOE:
+        case LLM_ARCH_DEEPSEEK4:
             return true;
         default:
             return false;

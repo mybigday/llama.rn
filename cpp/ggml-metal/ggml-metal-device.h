@@ -117,6 +117,7 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_dia
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_repeat            (lm_ggml_metal_library_t lib, enum lm_ggml_type tsrc);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_concat            (lm_ggml_metal_library_t lib, enum lm_ggml_type tsrc);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_unary             (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_silu_back         (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_glu               (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_sum               (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_sum_rows          (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
@@ -124,6 +125,8 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_cum
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_cumsum_add        (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_tri               (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_soft_max          (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_lightning_indexer (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_dsv4_hc           (lm_ggml_metal_library_t lib, enum lm_ggml_op op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_conv          (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_conv_batched  (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op, int ssm_conv_bs);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_scan          (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
@@ -139,6 +142,7 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_mul
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_argmax            (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_argsort           (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_argsort_merge     (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_fwht              (lm_ggml_metal_library_t lib, int n);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_top_k             (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_top_k_merge       (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_bin               (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op, int32_t n_fuse );
@@ -212,7 +216,7 @@ typedef void * lm_ggml_metal_rset_t;
 // a collection of residency sets (non-owning)
 typedef struct lm_ggml_metal_rsets * lm_ggml_metal_rsets_t;
 
-lm_ggml_metal_rsets_t lm_ggml_metal_rsets_init(void);
+lm_ggml_metal_rsets_t lm_ggml_metal_rsets_init(lm_ggml_metal_device_t dev);
 void lm_ggml_metal_rsets_free(lm_ggml_metal_rsets_t rsets);
 
 //
