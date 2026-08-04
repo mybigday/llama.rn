@@ -827,7 +827,9 @@ bool llama_rn_context_completion::refillMTPTokens() {
             spec_draft.resize(n_draft_limit);
         }
 
-        common_context_seq_rm(spec_ctx.get(), seq_id, spec_n_past, -1);
+        common_memory memory;
+        memory.init(spec_ctx.get());
+        memory.seq_rm(seq_id, spec_n_past, -1);
     }
 
     const size_t n_draft = spec_draft.size();
@@ -886,8 +888,9 @@ bool llama_rn_context_completion::refillMTPTokens() {
     spec_n_past += (llama_pos) accepted_count;
     n_past = spec_n_past;
 
-    common_context_seq_rm(parent_ctx->ctx, seq_id, spec_n_past, -1);
-    common_context_seq_rm(spec_ctx.get(), seq_id, spec_n_past, -1);
+    common_memory memory;
+    memory.init(parent_ctx->ctx, spec_ctx.get());
+    memory.seq_rm(seq_id, spec_n_past, -1);
 
     if (saw_eos) {
         stopped_eos = true;

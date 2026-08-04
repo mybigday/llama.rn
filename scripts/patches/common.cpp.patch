@@ -1,6 +1,6 @@
---- common/common.cpp.orig	2026-05-08 17:29:06
-+++ common/common.cpp	2026-05-08 17:28:58
-@@ -1453,6 +1453,7 @@
+--- common/common.cpp.orig	2026-08-04 14:20:19
++++ common/common.cpp	2026-08-04 14:21:32
+@@ -1612,6 +1612,7 @@
          mparams.devices = params.devices.data();
      }
  
@@ -8,10 +8,10 @@
      mparams.n_gpu_layers    = params.n_gpu_layers;
      mparams.main_gpu        = params.main_gpu;
      mparams.split_mode      = params.split_mode;
-@@ -1481,6 +1482,11 @@
-     mparams.progress_callback           = params.load_progress_callback;
+@@ -1639,6 +1640,11 @@
      mparams.progress_callback_user_data = params.load_progress_callback_user_data;
      mparams.no_alloc                    = params.no_alloc;
+     mparams.load_mtp                    = std::find(params.speculative.types.begin(), params.speculative.types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params.speculative.types.end();
 +
 +    if (params.progress_callback != nullptr) {
 +        mparams.progress_callback = params.progress_callback;

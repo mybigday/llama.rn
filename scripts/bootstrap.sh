@@ -222,6 +222,8 @@ cp ./$LLAMA_DIR/src/llama-kv-cache.h ./cpp/llama-kv-cache.h
 cp ./$LLAMA_DIR/src/llama-kv-cache.cpp ./cpp/llama-kv-cache.cpp
 cp ./$LLAMA_DIR/src/llama-kv-cache-dsa.h ./cpp/llama-kv-cache-dsa.h
 cp ./$LLAMA_DIR/src/llama-kv-cache-dsa.cpp ./cpp/llama-kv-cache-dsa.cpp
+cp ./$LLAMA_DIR/src/llama-kv-cache-msa.h ./cpp/llama-kv-cache-msa.h
+cp ./$LLAMA_DIR/src/llama-kv-cache-msa.cpp ./cpp/llama-kv-cache-msa.cpp
 cp ./$LLAMA_DIR/src/llama-kv-cache-dsv4.h ./cpp/llama-kv-cache-dsv4.h
 cp ./$LLAMA_DIR/src/llama-kv-cache-dsv4.cpp ./cpp/llama-kv-cache-dsv4.cpp
 cp ./$LLAMA_DIR/src/llama-kv-cache-iswa.h ./cpp/llama-kv-cache-iswa.h
