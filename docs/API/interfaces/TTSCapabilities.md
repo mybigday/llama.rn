@@ -22,7 +22,7 @@ Suggested language for the phonemizer hook ("en-us" today).
 
 #### Defined in
 
-[tts.ts:37](https://github.com/mybigday/llama.rn/blob/a8c8191/src/tts.ts#L37)
+[tts.ts:37](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/tts.ts#L37)
 
 ___
 
@@ -32,7 +32,7 @@ ___
 
 #### Defined in
 
-[tts.ts:23](https://github.com/mybigday/llama.rn/blob/a8c8191/src/tts.ts#L23)
+[tts.ts:23](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/tts.ts#L23)
 
 ___
 
@@ -44,7 +44,7 @@ Prompt assembly family — drives default-voice selection on the JS side.
 
 #### Defined in
 
-[tts.ts:9](https://github.com/mybigday/llama.rn/blob/a8c8191/src/tts.ts#L9)
+[tts.ts:9](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/tts.ts#L9)
 
 ___
 
@@ -56,7 +56,7 @@ True when the model was trained on phonemes — caller should provide a phonemiz
 
 #### Defined in
 
-[tts.ts:35](https://github.com/mybigday/llama.rn/blob/a8c8191/src/tts.ts#L35)
+[tts.ts:35](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/tts.ts#L35)
 
 ___
 
@@ -68,4 +68,4 @@ Numeric tts_type enum value (matches cpp/rn-tts.h).
 
 #### Defined in
 
-[tts.ts:7](https://github.com/mybigday/llama.rn/blob/a8c8191/src/tts.ts#L7)
+[tts.ts:7](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/tts.ts#L7)

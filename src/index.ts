@@ -1076,6 +1076,13 @@ export class LlamaContext {
     return await llamaReleaseMultimodal(this.id)
   }
 
+  /**
+   * Attach a codec / vocoder GGUF to this context, enabling the TTS API.
+   *
+   * **Experimental:** the TTS API may change without a major version bump, and
+   * output quality varies by model family and backend. See the "Tested models"
+   * table in the README.
+   */
   async initVocoder({
     path,
     n_batch: nBatch,

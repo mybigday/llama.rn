@@ -10,7 +10,7 @@ React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp) - LL
 
 - **GPU/NPU Acceleration**: Metal (iOS), Hexagon NPU (Android, Experimental) for on-device inference
 - **Multimodal Support**: Support vision/audio understanding models through mmproj projector integration
-- **Text-to-Speech**: On-device neural TTS via [codec.cpp](https://github.com/mybigday/codec.cpp) — OuteTTS, Soprano, NeuTTS, CSM, Qwen3-TTS, MOSS, Chatterbox, BlueMagpie — with reference-audio voice cloning
+- **Text-to-Speech (Experimental)**: On-device neural TTS via [codec.cpp](https://github.com/mybigday/codec.cpp) — OuteTTS, Soprano, NeuTTS, CSM, Qwen3-TTS, MOSS, Chatterbox, BlueMagpie — with reference-audio voice cloning
 - **Parallel Decoding**: Slot-based concurrent request processing with automatic queue management
 - **Tool Calling**: Universal function calling support via Jinja templates
 - **Grammar Sampling**: GBNF and JSON schema support for structured, constrained output generation
@@ -693,6 +693,9 @@ results.forEach((result, index) => {
 
 ## Text-to-Speech (TTS)
 
+> [!WARNING]
+> **Experimental.** The TTS / codec integration is not production-ready. The API surface may change without a major version bump, and several model families do not yet produce correct speech on all backends — see [Tested models](#tested-models) before picking one.
+
 `llama.rn` runs on-device neural text-to-speech through [codec.cpp](https://github.com/mybigday/codec.cpp) as the audio-codec / vocoder backend. Load a TTS backbone as usual, attach its codec (vocoder) GGUF, then drive the synthesis flow the library detects for the model.
 
 ### Supported models
@@ -706,10 +709,12 @@ The model family is auto-detected natively; `getTTSCapabilities()` reports it an
 | **NeuTTS** | Nano · Air *(needs a phonemizer)* | `tokens` |
 | **CSM** | 1B | `tokens` |
 | **Qwen3-TTS** | 0.6B | `tokens` |
-| **MOSS-TTSD** | v0.7 | `tokens` |
+| **MOSS-TTSD** | v0.5 | `tokens` |
 | **MOSS-TTS-Realtime** | streaming interleave | `tokens` |
 | **Chatterbox (T3)** | English · 23-language multilingual | `tokens` |
 | **BlueMagpie-TTS** | Barbet backbone + AudioVAE | `continuous_embd` |
+
+"Supported" means the family is detected and wired end-to-end. It does **not** mean every family is verified on every backend — see [Tested models](#tested-models).
 
 There are two synthesis flows:
 
@@ -768,6 +773,34 @@ const { prompt, embedding, flow } = await ctx.getFormattedAudioCompletion({ prom
 // ...drive the flow as above — the speaker is armed automatically...
 await spk.release()         // free the native speaker when done
 ```
+
+### Tested models
+
+Every family in the catalog was run end-to-end (load → synthesize → decode) on an Apple M1 Max (Metal and CPU) and a Galaxy S25 Ultra / Snapdragon 8 Elite (Hexagon HTP and CPU), then the generated audio was transcribed with Whisper large-v3-turbo to check it actually says the requested text.
+
+Legend: ✅ pass · ⚠️ works but output is unreliable · ❌ fails · — not runnable on that backend.
+
+| Family | Metal | macOS CPU | Hexagon HTP | Android CPU | Speech matches input |
+|---|:--:|:--:|:--:|:--:|---|
+| **CSM** 1B | ✅ | ✅ | ✅ | ✅ | ✅ Consistently correct |
+| **Chatterbox** multilingual | ✅ | ✅ | ✅ | ✅ | ✅ Consistently correct |
+| **BlueMagpie-TTS** Barbet-1B | ✅ | ✅ | ❌ cDSP crash on init | ✅ | ✅ Consistently correct |
+| **MOSS-TTS-Realtime** | ✅ | ✅ | ❌ OOM | ❌ OOM | ✅ Correct where it runs |
+| **NeuTTS** Nano · Air | ✅ | ✅ | ✅ | ✅ | ⚠️ Unstable / often garbled |
+| **MOSS-TTSD** v0.5 | ❌ grammar error | ✅ | ❌ grammar error | ✅ | ⚠️ Partial at best |
+| **OuteTTS** v0.3 | ❌ no audio emitted | ✅ | ✅ | ✅ | ❌ Does not match |
+| **OuteTTS** v1.0 | ✅ | ✅ | ✅ | ✅ | ❌ Does not match |
+| **Soprano** 1.1 | ✅ | ✅ | ✅ | ✅ | ❌ Does not match |
+| **Qwen3-TTS** 0.6B | ✅ | ✅ | ✅ | ✅ | ❌ Does not match |
+| **OuteTTS** v0.1 · v0.2 | — | — | — | — | Not covered by this run |
+
+Caveats:
+
+- The last column is a Whisper content check, not an audio-quality (MOSS/MOS) score. Short clips can produce false negatives, so treat ⚠️ as "needs a manual listen", not as a confirmed bug.
+- A ✅ in a backend column only means the pipeline produced structurally valid, finite audio — read it together with the last column.
+- MOSS-TTS-Realtime needs more RAM than a 12 GB Android device can give it; Android's low-memory killer terminates the app during load on both HTP and CPU.
+- On Apple Silicon, CPU-only inference (`n_gpu_layers: 0`) additionally hits a `SIGILL` in the q4_K repack kernel inside the iOS runtime, so the Metal path is the only supported one there for now.
+- One-pass functional runs from Debug builds, not a statistically sampled benchmark.
 
 ### Notes
 
