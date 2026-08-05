@@ -620,7 +620,7 @@ bool test_concurrent_requests_completion() {
     }
 }
 
-// Test 18: Request cancellation during generation
+// Test 18: Active and queued request cancellation
 bool test_request_cancellation() {
     try {
         llama_rn_context ctx;
@@ -629,61 +629,109 @@ bool test_request_cancellation() {
         params.model.path = "../tiny-random-llama.gguf";
         params.n_ctx = 512;
         params.n_batch = 128;
-        params.n_parallel = 2; // Support 2 parallel slots
+        params.n_parallel = 1;
         params.cpuparams.n_threads = 1;
         params.n_gpu_layers = 0;
         params.no_kv_offload = true;
-        params.n_predict = 50; // Longer generation to give time to cancel
+        params.n_predict = 50;
 
         if (!ctx.loadModel(params)) {
             std::cout << "[SKIP: Model not loaded] ";
             return true;
         }
 
-        ctx.enableParallelMode(2, 128);
+        ctx.enableParallelMode(1, 128);
 
-        // Queue multiple requests
-        std::vector<llama_token> prompt1 = common_tokenize(ctx.ctx, "What is the capital of France?", false);
-        std::vector<llama_token> prompt2 = common_tokenize(ctx.ctx, "Explain quantum computing.", false);
+        std::vector<llama_token> active_prompt =
+            common_tokenize(ctx.ctx, "What is the capital of France?", false);
+        std::vector<llama_token> queued_prompt =
+            common_tokenize(ctx.ctx, "Explain quantum computing.", false);
 
-        bool complete1 = false, complete2 = false;
-        int tokens_generated1 = 0, tokens_generated2 = 0;
+        int active_token_count = 0;
+        int queued_token_count = 0;
+        int active_complete_count = 0;
+        int queued_complete_count = 0;
+        bool active_was_interrupted = false;
+        bool active_was_done_in_callback = false;
 
-        int32_t req_id1 = ctx.slot_manager->queue_request(
-            params, prompt1, std::vector<std::string>(), "What is the capital of France?", 0, COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
-            [&](const completion_token_output& token) { tokens_generated1++; },
-            [&](llama_rn_slot* slot) { complete1 = true; }
+        const int32_t reserved_active_id = ctx.slot_manager->reserve_request_id();
+        const int32_t active_request_id = ctx.slot_manager->queue_request(
+            params, active_prompt, std::vector<std::string>(), "What is the capital of France?", 0, COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
+            [&](const completion_token_output&) { active_token_count++; },
+            [&](llama_rn_slot* slot) {
+                active_complete_count++;
+                active_was_interrupted = slot->is_interrupted;
+                active_was_done_in_callback = slot->state == SLOT_STATE_DONE;
+            },
+            reserved_active_id
         );
 
-        int32_t req_id2 = ctx.slot_manager->queue_request(
-            params, prompt2, std::vector<std::string>(), "Explain quantum computing.", 0, COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
-            [&](const completion_token_output& token) { tokens_generated2++; },
-            [&](llama_rn_slot* slot) { complete2 = true; }
+        const int32_t queued_request_id = ctx.slot_manager->queue_request(
+            params, queued_prompt, std::vector<std::string>(), "Explain quantum computing.", 0, COMMON_REASONING_FORMAT_NONE, "", "", "", "", "", "", -1, -1,
+            [&](const completion_token_output&) { queued_token_count++; },
+            [&](llama_rn_slot*) { queued_complete_count++; }
         );
 
-        if (req_id1 < 0 || req_id2 < 0) return false;
-
-        // Let them start processing
-        for (int i = 0; i < 5; i++) {
-            ctx.slot_manager->update_slots();
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (active_request_id != reserved_active_id ||
+            queued_request_id < 0 ||
+            queued_request_id == active_request_id) {
+            return false;
         }
 
-        // Cancel both requests
-        ctx.slot_manager->cancel_request(req_id1);
-        ctx.slot_manager->cancel_request(req_id2);
-
-        // Continue processing to ensure no crash
-        for (int i = 0; i < 10; i++) {
-            ctx.slot_manager->update_slots();
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // Assign only the first request. This deterministically exercises
+        // cancellation during prompt processing and leaves the second queued.
+        {
+            std::lock_guard<std::mutex> lock(ctx.slot_manager->slots_mutex);
+            ctx.slot_manager->process_pending_queue();
         }
 
-        std::cout << "[Tokens before cancel: req1=" << tokens_generated1
-                  << ", req2=" << tokens_generated2 << "] ";
+        if (ctx.slot_manager->active_requests.count(active_request_id) != 1 ||
+            ctx.slot_manager->queue_requests.size() != 1 ||
+            ctx.slot_manager->queue_requests.front().request_id != queued_request_id) {
+            return false;
+        }
 
-        // Verify we didn't crash and slots are cleaned up
-        return true;
+        const auto active_cancel = ctx.slot_manager->cancel_request(active_request_id);
+        const auto duplicate_active_cancel = ctx.slot_manager->cancel_request(active_request_id);
+        const auto queued_cancel = ctx.slot_manager->cancel_request(queued_request_id);
+        const auto duplicate_queued_cancel = ctx.slot_manager->cancel_request(queued_request_id);
+
+        if (active_cancel != llama_rn_cancel_result::ACTIVE ||
+            duplicate_active_cancel != llama_rn_cancel_result::ACTIVE ||
+            queued_cancel != llama_rn_cancel_result::QUEUED ||
+            duplicate_queued_cancel != llama_rn_cancel_result::NOT_FOUND) {
+            return false;
+        }
+
+        // Only the processing owner may terminalize the active slot.
+        if (active_complete_count != 0 || queued_complete_count != 0 ||
+            ctx.slot_manager->active_requests.count(active_request_id) != 1) {
+            return false;
+        }
+
+        ctx.slot_manager->update_slots();
+        ctx.slot_manager->update_slots();
+
+        const auto completed_cancel = ctx.slot_manager->cancel_request(active_request_id);
+        bool slots_clean = ctx.slot_manager->active_requests.empty() &&
+                           ctx.slot_manager->queue_requests.empty();
+        for (const auto& slot : ctx.slot_manager->slots) {
+            slots_clean = slots_clean &&
+                          slot.state == SLOT_STATE_IDLE &&
+                          slot.request_id == -1;
+        }
+
+        std::cout << "[active callbacks=" << active_complete_count
+                  << ", queued callbacks=" << queued_complete_count << "] ";
+
+        return active_complete_count == 1 &&
+               queued_complete_count == 0 &&
+               active_token_count == 0 &&
+               queued_token_count == 0 &&
+               active_was_interrupted &&
+               active_was_done_in_callback &&
+               completed_cancel == llama_rn_cancel_result::NOT_FOUND &&
+               slots_clean;
     } catch (...) {
         return false;
     }

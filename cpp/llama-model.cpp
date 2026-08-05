@@ -11,6 +11,7 @@
 #include "llama-kv-cache.h"
 #include "llama-kv-cache-iswa.h"
 #include "llama-kv-cache-dsa.h"
+#include "llama-kv-cache-msa.h"
 #include "llama-kv-cache-dsv4.h"
 #include "llama-memory-hybrid.h"
 #include "llama-memory-hybrid-iswa.h"
@@ -820,6 +821,7 @@ const char * llm_type_name(llm_type type) {
         case LLM_TYPE_100B_A6B:      return "100B.A6B";
         case LLM_TYPE_102B_A12B:     return "102B.A12B";
         case LLM_TYPE_106B_A12B:     return "106B.A12B";
+        case LLM_TYPE_118B_A8B:      return "118B.A8B";
         case LLM_TYPE_120B_A12B:     return "120B.A12B";
         case LLM_TYPE_122B_A10B:     return "122B.A10B";
         case LLM_TYPE_196B_A11B:     return "196B.A11B";
@@ -2073,10 +2075,13 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
             {
                 res = nullptr;
             } break;
-        case LLM_ARCH_DEEPSEEK32:
-        case LLM_ARCH_GLM_DSA:
+        case LLM_ARCH_MINIMAX_M3:
             {
-                res = new llama_kv_cache_dsa(
+                // sparse (MSA) layers carry an indexer key cache, but leading dense layers do not
+                llama_kv_cache::layer_filter_cb filter_idx =
+                    [&](int32_t il) { return (uint32_t) il >= hparams.n_layer_dense_lead; };
+
+                res = new llama_kv_cache_msa(
                         *this,
                         params.type_k,
                         params.type_v,
@@ -2089,17 +2094,140 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
                         hparams.n_swa,
                         hparams.swa_type,
                         nullptr,
+                        filter_idx,
                         nullptr);
             } break;
+        case LLM_ARCH_GLM_DSA:
+        case LLM_ARCH_DEEPSEEK32:
+            {
+                if (params.ctx_type == LLAMA_CONTEXT_TYPE_MTP && hparams.n_layer_nextn > 0) {
+                    // The NextN/MTP draft head runs dense MLA (no DSA indexer), so the
+                    // MTP context uses a plain attention KV cache holding only the
+                    // nextn layer(s) - same pattern as the hybrid Qwen3.5 MTP context.
+                    llama_kv_cache::layer_filter_cb filter =
+                        [&](uint32_t il) { return il >= hparams.n_layer(); };
+
+                    res = new llama_kv_cache(
+                            *this,
+                            hparams,
+                            params.type_k,
+                            params.type_v,
+                            !cparams.flash_attn,
+                            cparams.offload_kqv,
+                            cparams.kv_unified,
+                            cparams.n_ctx_seq,
+                            cparams.n_seq_max,
+                            1,
+                            hparams.n_swa,
+                            hparams.swa_type,
+                            nullptr,
+                            filter,
+                            nullptr,
+                            nullptr);
+                } else {
+                    // Main context: DSA cache for the trunk layers only - the nextn
+                    // layer(s) are never attended by the trunk graph.
+                    llama_kv_cache::layer_filter_cb filter_mla = nullptr;
+                    if (hparams.n_layer_nextn > 0) {
+                        filter_mla = [&](uint32_t il) { return il < hparams.n_layer(); };
+                    }
+                    llama_kv_cache::layer_filter_cb filter_lid = [&](uint32_t il) { return il < hparams.n_layer() && (arch != LLM_ARCH_GLM_DSA || hparams.is_indexer_full(il)); };
+
+                    res = new llama_kv_cache_dsa(
+                            *this,
+                            params.type_k,
+                            params.type_v,
+                            !cparams.flash_attn,
+                            cparams.offload_kqv,
+                            cparams.kv_unified,
+                            cparams.n_ctx_seq,
+                            cparams.n_seq_max,
+                            1,
+                            hparams.n_swa,
+                            hparams.swa_type,
+                            filter_mla,
+                            filter_lid,
+                            nullptr);
+                }
+            } break;
+        case LLM_ARCH_DEEPSEEK4:
+            {
+                LM_GGML_ASSERT(hparams.swa_type != LLAMA_SWA_TYPE_NONE);
+
+                if (params.ctx_type == LLAMA_CONTEXT_TYPE_MTP) {
+                    const llama_memory_i::layer_filter_cb filter_mtp = [&](int32_t il) {
+                        return il >= (int32_t) hparams.n_layer();
+                    };
+
+                    res = new llama_kv_cache_iswa(
+                            *this,
+                            params.type_k,
+                            params.type_v,
+                            !cparams.flash_attn,
+                            cparams.offload_kqv,
+                            params.swa_full,
+                            cparams.kv_unified,
+                            cparams.n_ctx_seq,
+                            cparams.n_seq_max,
+                            cparams.n_ubatch,
+                            1,
+                            nullptr,
+                            filter_mtp,
+                            nullptr,
+                            nullptr);
+                } else {
+                    res = new llama_kv_cache_dsv4(
+                            *this,
+                            params.type_k,
+                            params.type_v,
+                            !cparams.flash_attn,
+                            cparams.offload_kqv,
+                            params.swa_full,
+                            cparams.kv_unified,
+                            cparams.n_ctx_seq,
+                            cparams.n_seq_max,
+                            cparams.n_ubatch,
+                            1,
+                            cparams.n_rs_seq,
+                            nullptr,
+                            nullptr);
+                }
+            } break;
+        case LLM_ARCH_DFLASH:
+            {
+                // DSV4 DSpark stages store a single MLA-style K per position (window = the draft ring)
+                if (hparams.dsv4_hc_mult > 0) {
+                    LM_GGML_ASSERT(hparams.swa_type != LLAMA_SWA_TYPE_NONE);
+
+                    res = new llama_kv_cache_iswa(
+                            *this,
+                            params.type_k,
+                            params.type_v,
+                            !cparams.flash_attn,
+                            cparams.offload_kqv,
+                            params.swa_full,
+                            cparams.kv_unified,
+                            cparams.n_ctx_seq,
+                            cparams.n_seq_max,
+                            cparams.n_ubatch,
+                            1,
+                            nullptr,
+                            nullptr,
+                            nullptr,
+                            nullptr);
+                    break;
+                }
+            }
+            [[fallthrough]];
         // Models that need standard caching should rely on recurrent/hybrid
         // checks
         default:
             {
-                // The MTP head is dense-attention only on hybrid Qwen3.5/3.6, so use a plain
+                // The MTP head is dense-attention only on hybrid Qwen3-Next/3.5/3.6, so use a plain
                 // attention KV cache for the MTP context instead of the hybrid wrapper.
-                const bool mtp_on_hybrid_qwen35 =
+                const bool mtp_on_hybrid_qwen =
                     params.ctx_type == LLAMA_CONTEXT_TYPE_MTP &&
-                    (arch == LLM_ARCH_QWEN35 || arch == LLM_ARCH_QWEN35MOE);
+                    (arch == LLM_ARCH_QWEN3NEXT || arch == LLM_ARCH_QWEN35 || arch == LLM_ARCH_QWEN35MOE);
 
                 if (llm_arch_is_recurrent(arch)) {
                     res = new llama_memory_recurrent(
@@ -2111,7 +2239,7 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
                             cparams.n_seq_max,
                             cparams.n_rs_seq,
                             nullptr);
-                } else if (llm_arch_is_hybrid(arch) && !mtp_on_hybrid_qwen35) {
+                } else if (llm_arch_is_hybrid(arch) && !mtp_on_hybrid_qwen) {
                     // The main difference between hybrid architectures is the
                     // layer filters, so pick the right one here
                     llama_memory_hybrid::layer_filter_cb filter_attn = nullptr;
@@ -2126,7 +2254,7 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
                         filter_recr = [&](uint32_t il) {
                             return hparams.is_recr(il) && hparams.n_ff(il) == 0;
                         };
-                    } else if (arch == LLM_ARCH_QWEN35 || arch == LLM_ARCH_QWEN35MOE) {
+                    } else if (arch == LLM_ARCH_QWEN3NEXT || arch == LLM_ARCH_QWEN35 || arch == LLM_ARCH_QWEN35MOE) {
                         filter_attn = [&](uint32_t il) {
                             return il < hparams.n_layer() && !hparams.is_recr(il);
                         };
@@ -2192,11 +2320,13 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
                         };
                     }
 
-                    if (mtp_on_hybrid_qwen35) {
+                    if (mtp_on_hybrid_qwen) {
                         filter = [&](uint32_t il) { return il >= hparams.n_layer(); };
                     }
 
-                    if ((arch == LLM_ARCH_STEP35 || arch == LLM_ARCH_HY_V3) && hparams.n_layer_nextn > 0) {
+                    if ((arch == LLM_ARCH_STEP35 || arch == LLM_ARCH_HY_V3 || arch == LLM_ARCH_GLM_DSA ||
+                            arch == LLM_ARCH_MIMO2 || arch == LLM_ARCH_DEEPSEEK32) &&
+                            hparams.n_layer_nextn > 0) {
                         if (params.ctx_type == LLAMA_CONTEXT_TYPE_MTP) {
                             filter = [&](uint32_t il) { return il >= hparams.n_layer(); };
                         } else {
@@ -2204,24 +2334,7 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
                         }
                     }
 
-                    if (arch == LLM_ARCH_DEEPSEEK4) {
-                        LM_GGML_ASSERT(hparams.swa_type != LLAMA_SWA_TYPE_NONE);
-
-                        res = new llama_kv_cache_dsv4(
-                                *this,
-                                params.type_k,
-                                params.type_v,
-                                !cparams.flash_attn,
-                                cparams.offload_kqv,
-                                params.swa_full,
-                                cparams.kv_unified,
-                                cparams.n_ctx_seq,
-                                cparams.n_seq_max,
-                                cparams.n_ubatch,
-                                1,
-                                filter,
-                                reuse);
-                    } else if (hparams.swa_type != LLAMA_SWA_TYPE_NONE) {
+                    if (hparams.swa_type != LLAMA_SWA_TYPE_NONE) {
                         LM_GGML_ASSERT(hparams.is_swa_any());
 
                         if (arch == LLM_ARCH_GEMMA4_ASSISTANT) {
@@ -2341,6 +2454,7 @@ llama_model_params llama_model_default_params() {
         /*.use_extra_bufts             =*/ true,
         /*.no_host                     =*/ false,
         /*.no_alloc                    =*/ false,
+        /*.load_mtp                    =*/ false,
     };
 
     return result;
@@ -2569,9 +2683,12 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_STEP35:
         case LLM_ARCH_TALKIE:
         case LLM_ARCH_MELLUM:
-        case LLM_ARCH_DFLASH:
         case LLM_ARCH_BARBET:
             return LLAMA_ROPE_TYPE_NEOX;
+
+        case LLM_ARCH_DFLASH:
+            // DSV4 DSpark drafters use DeepSeek-V4's normal RoPE; legacy DFlash backbones are NeoX
+            return model->hparams.dsv4_hc_mult > 0 ? LLAMA_ROPE_TYPE_NORM : LLAMA_ROPE_TYPE_NEOX;
 
         case LLM_ARCH_QWEN2VL:
         case LLM_ARCH_PADDLEOCR:

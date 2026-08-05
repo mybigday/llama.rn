@@ -7862,7 +7862,9 @@ void lm_ggml_set_input(struct lm_ggml_tensor * tensor) {
 }
 
 void lm_ggml_set_output(struct lm_ggml_tensor * tensor) {
-    tensor->flags |= LM_GGML_TENSOR_FLAG_OUTPUT;
+    for (struct lm_ggml_tensor * cur = tensor; cur != NULL; cur = cur->view_src) {
+        cur->flags |= LM_GGML_TENSOR_FLAG_OUTPUT;
+    }
 }
 
 void lm_ggml_set_param(struct lm_ggml_tensor * tensor) {

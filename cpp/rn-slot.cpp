@@ -420,8 +420,9 @@ void llama_rn_slot::init_mtp() {
     spec_batch = llama_batch_init(llama_n_batch(parent_ctx->ctx), 0, 1);
     spec_batch_initialized = true;
 
-    common_context_seq_rm(parent_ctx->ctx, id, -1, -1);
-    common_context_seq_rm(spec_ctx, id, -1, -1);
+    common_memory memory;
+    memory.init(parent_ctx->ctx, spec_ctx);
+    memory.seq_rm(id, -1, -1);
     n_past = 0;
 
     eval_mtp_prompt();
@@ -521,7 +522,9 @@ bool llama_rn_slot::refill_mtp_tokens() {
             spec_draft.resize(n_draft_limit);
         }
 
-        common_context_seq_rm(spec_ctx, seq_id, spec_n_past, -1);
+        common_memory memory;
+        memory.init(spec_ctx);
+        memory.seq_rm(seq_id, spec_n_past, -1);
     }
 
     const size_t n_draft = spec_draft.size();
@@ -577,8 +580,9 @@ bool llama_rn_slot::refill_mtp_tokens() {
     spec_n_past += (llama_pos) accepted_count;
     n_past = spec_n_past;
 
-    common_context_seq_rm(parent_ctx->ctx, seq_id, spec_n_past, -1);
-    common_context_seq_rm(spec_ctx, seq_id, spec_n_past, -1);
+    common_memory memory;
+    memory.init(parent_ctx->ctx, spec_ctx);
+    memory.seq_rm(seq_id, spec_n_past, -1);
 
     if (saw_eos) {
         stopped_eos = true;

@@ -7065,7 +7065,7 @@ static inline bool use_flat_gemv_for_large_m_q4_K(const lm_ggml_tensor *tensor) 
     return tensor->ne[1] >= 32768 && tensor->ne[2] == 1 && tensor->ne[3] == 1;
 }
 
-static inline bool use_flat_gemv_for_large_m_q6_K(const lm_ggml_tensor *tensor) {
+static inline bool use_flat_gemv_for_large_m_q6_K(const lm_ggml_backend_opencl_context *backend_ctx, const lm_ggml_tensor *tensor) {
     // gemv_noshuffle variant perf drops for large M, use flat variant for large M.
     // threshold is well above typical hidden/FFN dims, but below typical vocab sizes.
     // q6_K flat gemv is worse for smaller K; 2048 seems to be a reasonable threshold.
@@ -7083,7 +7083,15 @@ static inline bool use_flat_gemv_for_large_m_q6_K(const lm_ggml_tensor *tensor) 
     if ((tensor->ne[1] % 128 != 0) && tensor->ne[2] == 1 && tensor->ne[3] == 1) {
         return true;
     }
-    return tensor->ne[1] >= 32768 && tensor->ne[0] >= 2048 && tensor->ne[2] == 1 && tensor->ne[3] == 1;
+
+    // The gemv_noshuffle slowdown tracks TOTAL weight size, not ne0 alone; ne0 >= 2048 is a
+    // proxy for "large weight" that misses a narrow-hidden vocab-scale lm_head.
+    // Add a direct size escape so such weights also take the flat path, without changing
+    // which weights ne0 >= 2048 already routes there.
+    // The size escape is not taken on the A7X since its compiler miscompiles the flat K-quant GEMV
+    return tensor->ne[1] >= 32768
+        && (tensor->ne[0] >= 2048 || (backend_ctx->adreno_gen != ADRENO_GPU_GEN::A7X && lm_ggml_nbytes(tensor) >= (256ull << 20)))
+        && tensor->ne[2] == 1 && tensor->ne[3] == 1;
 }
 
 static bool lm_ggml_opencl_supports_op(lm_ggml_backend_dev_t dev, const struct lm_ggml_tensor * op) {
@@ -7495,6 +7503,7 @@ static lm_ggml_backend_i lm_ggml_backend_opencl_i = {
 lm_ggml_backend_t lm_ggml_backend_opencl_init(void) {
     lm_ggml_backend_dev_t dev = lm_ggml_backend_reg_dev_get(lm_ggml_backend_opencl_reg(), 0);
     lm_ggml_backend_opencl_context *backend_ctx = lm_ggml_cl_init(dev);
+    backend_ctx->ref_count++;
 
     lm_ggml_backend_t backend = new lm_ggml_backend {
         /* .guid    = */ lm_ggml_backend_opencl_guid(),
@@ -9402,7 +9411,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         cl_kernel kernel;
 #ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
         kernel = backend_ctx->kernel_convert_block_q6_K;
-        if (use_adreno_kernels(backend_ctx, tensor) && !use_flat_gemv_for_large_m_q6_K(tensor)) {
+        if (use_adreno_kernels(backend_ctx, tensor) && !use_flat_gemv_for_large_m_q6_K(backend_ctx, tensor)) {
             kernel = backend_ctx->kernel_convert_block_q6_K_noshuffle;
         }
 #else
@@ -9435,7 +9444,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         tensor->extra  = extra;
 
 #ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-        if (use_adreno_kernels(backend_ctx, tensor) && !use_flat_gemv_for_large_m_q6_K(tensor)) {
+        if (use_adreno_kernels(backend_ctx, tensor) && !use_flat_gemv_for_large_m_q6_K(backend_ctx, tensor)) {
             cl_int M = tensor->ne[1];   // ne01
             cl_int K = tensor->ne[0];   // ne00
 
@@ -10472,7 +10481,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             CL_CHECK(clReleaseMemObject(data_device));
             return;
         }
-        if (use_adreno_kernels(backend_ctx, tensor) && !use_flat_gemv_for_large_m_q6_K(tensor)) {
+        if (use_adreno_kernels(backend_ctx, tensor) && !use_flat_gemv_for_large_m_q6_K(backend_ctx, tensor)) {
             static lm_ggml_cl_buffer buf_trans_ql;
             static lm_ggml_cl_buffer buf_trans_qh;
             static lm_ggml_cl_buffer buf_trans_s;
@@ -15675,7 +15684,7 @@ static void lm_ggml_cl_mul_mat_kq_kqv_adreno(lm_ggml_backend_t backend, const lm
     // <--------------------------------------------> //
     extra0 = src0->view_src ? (lm_ggml_tensor_extra_cl *)src0->view_src->extra : (lm_ggml_tensor_extra_cl *)src0->extra;
 
-    region.origin = (extra0->offset);
+    region.origin = (extra0->offset + src0->view_offs);
     if (nb01 > nb02) {
         // KQ
         region.size = nb01 * ne01;
@@ -15691,7 +15700,7 @@ static void lm_ggml_cl_mul_mat_kq_kqv_adreno(lm_ggml_backend_t backend, const lm
 
     // create sub-buffer for B
     // <--------------------------------------------> //
-    region.origin = (extra1->offset);
+    region.origin = (extra1->offset + src1->view_offs);
     region.size = nb10 * ne10 * ne11 * ne12;
     B_sub_buffer = clCreateSubBuffer((extra1->data_device), 0, CL_BUFFER_CREATE_TYPE_REGION, &region, &status);
     CL_CHECK(status);
@@ -15712,7 +15721,7 @@ static void lm_ggml_cl_mul_mat_kq_kqv_adreno(lm_ggml_backend_t backend, const lm
 
     // create sub-buffer for output C
     // <--------------------------------------------> //
-    region.origin = (extrad->offset);
+    region.origin = (extrad->offset + dst->view_offs);
     region.size = ne0 * ne1 * dst->ne[2] * dst->nb[0]; // size of C in bytes
     D_sub_buffer = clCreateSubBuffer((extrad->data_device), 0, CL_BUFFER_CREATE_TYPE_REGION, &region, &status);
     CL_CHECK(status);
@@ -18591,6 +18600,8 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
 #ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
     if(src0t == LM_GGML_TYPE_F16 && src1t == LM_GGML_TYPE_F32){
         if (ne01 >= 64 && ne1 >= 32 && ne00 >= 16 && (ne12 % ne02) == 0  &&
+            // the KQ/KQV image kernels do not handle dim 3 (multi-stream batches)
+            ne03 == 1 && ne13 == 1 &&
             // dst is wrapped with image1d_buffer, the size limit applies, also src0
             (ne0 * ne1 * dst->ne[2] * dst->nb[0] / 4 <= backend_ctx->image_max_buffer_size)) {
             // For KQ
@@ -18892,7 +18903,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
         }
 
         // q6_K x fp32
-        if (src0t == LM_GGML_TYPE_Q6_K && src1t == LM_GGML_TYPE_F32 && !use_flat_gemv_for_large_m_q6_K(src0)) {
+        if (src0t == LM_GGML_TYPE_Q6_K && src1t == LM_GGML_TYPE_F32 && !use_flat_gemv_for_large_m_q6_K(backend_ctx, src0)) {
             lm_ggml_cl_mul_mat_q6_K_f32_adreno(backend, src0, src1, dst);
             return;
         }
@@ -24257,7 +24268,7 @@ static void lm_ggml_cl_glu(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     }
 
     const size_t nrows = lm_ggml_nrows(src0);
-    size_t nth = 512;
+    size_t nth = backend_ctx->max_workgroup_size < 512 ? backend_ctx->max_workgroup_size : 512;
     size_t global_work_size[] = {nrows*nth, 1, 1};
     size_t local_work_size[] = {nth, 1, 1};
 

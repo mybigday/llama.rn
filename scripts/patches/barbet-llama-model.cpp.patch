@@ -19,10 +19,10 @@
              LLAMA_LOG_INFO("%s: ssm_d_conv            = %u\n",     __func__, hparams.ssm_d_conv);
              LLAMA_LOG_INFO("%s: ssm_d_inner           = %u\n",     __func__, hparams.ssm_d_inner);
              LLAMA_LOG_INFO("%s: ssm_d_state           = %u\n",     __func__, hparams.ssm_d_state);
-@@ -2567,6 +2570,7 @@
+@@ -2682,6 +2685,7 @@
+         case LLM_ARCH_STEP35:
          case LLM_ARCH_TALKIE:
          case LLM_ARCH_MELLUM:
-         case LLM_ARCH_DFLASH:
 +        case LLM_ARCH_BARBET:
              return LLAMA_ROPE_TYPE_NEOX;
  

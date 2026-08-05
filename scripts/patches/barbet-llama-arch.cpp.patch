@@ -8,10 +8,10 @@
      { LLM_ARCH_NANBEIGE,         "nanbeige"         },
      { LLM_ARCH_UNKNOWN,          "(unknown)"        },
  };
-@@ -960,6 +961,7 @@
-         case LLM_ARCH_KIMI_LINEAR:
+@@ -969,6 +971,7 @@
          case LLM_ARCH_QWEN35:
          case LLM_ARCH_QWEN35MOE:
+         case LLM_ARCH_DEEPSEEK4:
 +        case LLM_ARCH_BARBET:
              return true;
          default:

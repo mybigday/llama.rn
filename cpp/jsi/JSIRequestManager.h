@@ -5,6 +5,7 @@
 #include <mutex>
 #include <string>
 #include <memory>
+#include <utility>
 
 using namespace facebook;
 
@@ -60,6 +61,18 @@ namespace rnllama_jsi {
                 return it->second;
             }
             return {nullptr, nullptr, nullptr};
+        }
+
+        JSIRequestCallbacks takeRequest(int contextId, int requestId) {
+            std::lock_guard<std::mutex> lock(mutex);
+            auto it = requests.find(getKey(contextId, requestId));
+            if (it == requests.end()) {
+                return {nullptr, nullptr, nullptr};
+            }
+
+            auto callbacks = std::move(it->second);
+            requests.erase(it);
+            return callbacks;
         }
         
         static RequestManager& getInstance() {

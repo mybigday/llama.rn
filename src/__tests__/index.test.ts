@@ -1,10 +1,23 @@
 import { NativeModules } from 'react-native'
 import { initLlama, releaseAllLlama } from '..'
-import type { JinjaFormattedChatResult, TokenData } from '..'
+import type {
+  JinjaFormattedChatResult,
+  NativeCompletionResult,
+  TokenData,
+} from '..'
 
 jest.mock('..', () => require('../../jest/mock'))
 
 Math.random = () => 0.5
+
+let llamaQueueCompletionMock: jest.Mock
+
+beforeAll(async () => {
+  await NativeModules.RNLlama.install()
+  llamaQueueCompletionMock = (global as typeof globalThis & {
+    llamaQueueCompletion: jest.Mock
+  }).llamaQueueCompletion
+})
 
 test('LoRA and speculative inputs are passed through', async () => {
   await NativeModules.RNLlama.install()
@@ -344,7 +357,26 @@ test('Parallel APIs - multiple completions', async () => {
   await context.release()
 })
 
-test('Parallel APIs - completion with stop', async () => {
+test('Parallel APIs - completion with stop settles the result once', async () => {
+  const queueCompletionImplementation =
+    llamaQueueCompletionMock.getMockImplementation()
+  if (!queueCompletionImplementation) {
+    throw new Error('llamaQueueCompletion mock is not configured')
+  }
+  const completedResults: NativeCompletionResult[] = []
+  llamaQueueCompletionMock.mockImplementationOnce(
+    async (contextId, params, onToken, onComplete) =>
+      queueCompletionImplementation(
+        contextId,
+        params,
+        onToken,
+        (result: NativeCompletionResult) => {
+          completedResults.push(result)
+          onComplete(result)
+        },
+      ),
+  )
+
   const context = await initLlama({
     model: 'test.gguf',
     n_parallel: 2,
@@ -352,14 +384,94 @@ test('Parallel APIs - completion with stop', async () => {
 
   await context.parallel.enable()
 
-  const { requestId, stop } = await context.parallel.completion({
+  const { requestId, promise, stop } = await context.parallel.completion({
     prompt: 'Test',
   })
 
   expect(typeof requestId).toBe('number')
 
-  // Stop the completion
   await stop()
+  const result = await promise
+
+  expect(result).toEqual(
+    expect.objectContaining({
+      chat_format: 0,
+      content: '*giggles*',
+      context_full: false,
+      draft_tokens: 0,
+      draft_tokens_accepted: 0,
+      incomplete: false,
+      interrupted: true,
+      n_decoded: 6,
+      requestId,
+      stopped_eos: false,
+      stopped_limit: false,
+      stopped_word: false,
+      stopping_word: '',
+      text: '*giggles*',
+      tokens_cached: 54,
+      tokens_evaluated: 15,
+      tokens_predicted: 6,
+      truncated: false,
+      timings: expect.objectContaining({
+        cache_n: 54,
+        predicted_n: 6,
+        prompt_n: 5,
+      }),
+    }),
+  )
+  expect(result.completion_probabilities).toHaveLength(5)
+  expect(result.audio_tokens).toHaveLength(11)
+
+  // Repeated cancellation must not invoke the terminal callback again.
+  await stop()
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0)
+  })
+  expect(completedResults).toEqual([result])
+
+  await context.release()
+})
+
+test('Parallel APIs - stopping a completed request does not complete it twice', async () => {
+  const queueCompletionImplementation =
+    llamaQueueCompletionMock.getMockImplementation()
+  if (!queueCompletionImplementation) {
+    throw new Error('llamaQueueCompletion mock is not configured')
+  }
+  const completedResults: NativeCompletionResult[] = []
+  llamaQueueCompletionMock.mockImplementationOnce(
+    async (contextId, params, onToken, onComplete) =>
+      queueCompletionImplementation(
+        contextId,
+        params,
+        onToken,
+        (result: NativeCompletionResult) => {
+          completedResults.push(result)
+          onComplete(result)
+        },
+      ),
+  )
+
+  const context = await initLlama({
+    model: 'test.gguf',
+    n_parallel: 2,
+  })
+  const request = await context.parallel.completion({ prompt: 'Test' })
+  const result = await request.promise
+
+  expect(result).toEqual(
+    expect.objectContaining({
+      stopped_eos: true,
+      text: '*giggles*',
+    }),
+  )
+
+  await request.stop()
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0)
+  })
+  expect(completedResults).toEqual([result])
 
   await context.release()
 })

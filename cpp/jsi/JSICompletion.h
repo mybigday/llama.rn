@@ -271,4 +271,138 @@ namespace rnllama_jsi {
 
         return res;
     }
+
+    struct ParallelCompletionResultSnapshot {
+        int32_t request_id = -1;
+        std::string text;
+        int32_t chat_format = 0;
+        bool stopped_eos = false;
+        bool stopped_limit = false;
+        bool stopped_word = false;
+        bool context_full = false;
+        bool incomplete = false;
+        bool truncated = false;
+        bool interrupted = false;
+        std::string stopping_word;
+        size_t tokens_predicted = 0;
+        size_t tokens_evaluated = 0;
+        size_t draft_tokens = 0;
+        size_t draft_tokens_accepted = 0;
+        llama_pos tokens_cached = 0;
+        int32_t n_decoded = 0;
+        std::string error_message;
+        rnllama::slot_timings timings;
+        std::vector<rnllama::completion_token_output> token_probs;
+        rnllama::completion_chat_output final_output;
+        bool has_final_output = false;
+    };
+
+    inline ParallelCompletionResultSnapshot captureParallelCompletionResult(
+        rnllama::llama_rn_slot* slot
+    ) {
+        if (slot == nullptr) {
+            throw std::runtime_error("RNLLAMA_NULL_SLOT");
+        }
+
+        ParallelCompletionResultSnapshot result;
+        result.request_id = slot->request_id;
+        result.text = slot->generated_text;
+        result.chat_format = slot->current_chat_format;
+        result.stopped_eos = slot->stopped_eos;
+        result.stopped_limit = slot->stopped_limit;
+        result.stopped_word = slot->stopped_word;
+        result.context_full = slot->context_full;
+        result.incomplete = slot->incomplete;
+        result.truncated = slot->truncated;
+        result.interrupted = slot->is_interrupted;
+        result.stopping_word = slot->stopping_word;
+        result.tokens_predicted = slot->num_tokens_predicted;
+        result.tokens_evaluated = slot->num_prompt_tokens;
+        result.draft_tokens = slot->num_draft_tokens;
+        result.draft_tokens_accepted = slot->num_draft_tokens_accepted;
+        result.tokens_cached = slot->n_past;
+        result.n_decoded = slot->n_decoded;
+        result.error_message = slot->error_message;
+        result.timings = slot->get_timings();
+        result.token_probs = slot->generated_token_probs;
+
+        try {
+            result.final_output = slot->parseChatOutput(false);
+            result.has_final_output = true;
+        } catch (...) {
+            result.has_final_output = false;
+        }
+
+        return result;
+    }
+
+    inline ParallelCompletionResultSnapshot createQueuedCancellationSnapshot(int32_t request_id) {
+        ParallelCompletionResultSnapshot result;
+        result.request_id = request_id;
+        result.interrupted = true;
+        result.timings.cache_n = 0;
+        result.timings.prompt_n = 0;
+        result.timings.predicted_n = 0;
+        return result;
+    }
+
+    inline jsi::Object createParallelCompletionResult(
+        jsi::Runtime& runtime,
+        rnllama::llama_rn_context* ctx,
+        const ParallelCompletionResultSnapshot& result
+    ) {
+        jsi::Object res(runtime);
+        res.setProperty(runtime, "requestId", result.request_id);
+        res.setProperty(runtime, "text", jsi::String::createFromUtf8(runtime, result.text));
+        res.setProperty(runtime, "chat_format", result.chat_format);
+        res.setProperty(runtime, "stopped_eos", result.stopped_eos);
+        res.setProperty(runtime, "stopped_limit", result.stopped_limit);
+        res.setProperty(runtime, "stopped_word", result.stopped_word);
+        res.setProperty(runtime, "context_full", result.context_full);
+        res.setProperty(runtime, "incomplete", result.incomplete);
+        res.setProperty(runtime, "truncated", result.truncated);
+        res.setProperty(runtime, "interrupted", result.interrupted);
+        res.setProperty(
+            runtime,
+            "stopping_word",
+            jsi::String::createFromUtf8(runtime, result.stopping_word)
+        );
+        res.setProperty(runtime, "tokens_predicted", (double)result.tokens_predicted);
+        res.setProperty(runtime, "tokens_evaluated", (double)result.tokens_evaluated);
+        res.setProperty(runtime, "draft_tokens", (double)result.draft_tokens);
+        res.setProperty(runtime, "draft_tokens_accepted", (double)result.draft_tokens_accepted);
+        res.setProperty(runtime, "tokens_cached", (double)result.tokens_cached);
+        res.setProperty(runtime, "n_decoded", (double)result.n_decoded);
+        res.setProperty(
+            runtime,
+            "completion_probabilities",
+            createCompletionProbabilities(runtime, ctx, result.token_probs)
+        );
+
+        if (!result.error_message.empty()) {
+            res.setProperty(
+                runtime,
+                "error",
+                jsi::String::createFromUtf8(runtime, result.error_message)
+            );
+        }
+
+        if (result.has_final_output) {
+            setChatOutputFields(runtime, res, result.final_output);
+        }
+
+        jsi::Object timings(runtime);
+        timings.setProperty(runtime, "cache_n", (double)result.timings.cache_n);
+        timings.setProperty(runtime, "prompt_n", (double)result.timings.prompt_n);
+        timings.setProperty(runtime, "prompt_ms", result.timings.prompt_ms);
+        timings.setProperty(runtime, "prompt_per_token_ms", result.timings.prompt_per_token_ms);
+        timings.setProperty(runtime, "prompt_per_second", result.timings.prompt_per_second);
+        timings.setProperty(runtime, "predicted_n", (double)result.timings.predicted_n);
+        timings.setProperty(runtime, "predicted_ms", result.timings.predicted_ms);
+        timings.setProperty(runtime, "predicted_per_token_ms", result.timings.predicted_per_token_ms);
+        timings.setProperty(runtime, "predicted_per_second", result.timings.predicted_per_second);
+        res.setProperty(runtime, "timings", timings);
+
+        return res;
+    }
 }

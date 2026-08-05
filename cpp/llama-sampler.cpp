@@ -589,6 +589,7 @@ static bool llama_sampler_backend_support(
         /*.probs      = */ nullptr,
         /*.sampled    = */ nullptr,
         /*.candidates = */ lm_ggml_new_tensor_1d(ctx, LM_GGML_TYPE_I32, n),
+        /*.n_vocab    = */ n,
     };
 
     lm_ggml_cgraph * gf = lm_ggml_new_graph(ctx);
@@ -993,7 +994,9 @@ static void llama_sampler_greedy_backend_apply(
     LM_GGML_UNUSED(gf);
     LM_GGML_UNUSED(smpl);
 
-    struct lm_ggml_tensor * curl = lm_ggml_argmax(ctx, data->logits);
+    struct lm_ggml_tensor * logits = lm_ggml_reshape_1d(ctx, data->logits, lm_ggml_nelements(data->logits));
+
+    struct lm_ggml_tensor * curl = lm_ggml_argmax(ctx, logits);
     lm_ggml_set_name(curl, "greedy_argmax");
 
     data->sampled = curl;
@@ -1158,7 +1161,10 @@ static void llama_sampler_dist_backend_apply(
     lm_ggml_set_name (sctx->inp_uniform, "uniform");
     lm_ggml_set_input(sctx->inp_uniform);
 
-    struct lm_ggml_tensor * probs = lm_ggml_soft_max(ctx, data->logits);
+    // flatten
+    struct lm_ggml_tensor * logits = lm_ggml_reshape_1d(ctx, data->logits, lm_ggml_nelements(data->logits));
+
+    struct lm_ggml_tensor * probs = lm_ggml_soft_max(ctx, logits);
     lm_ggml_set_name(probs, "dist_probs");
 
     struct lm_ggml_tensor * cumsum = lm_ggml_cumsum(ctx, probs);
@@ -1289,22 +1295,22 @@ static void llama_sampler_top_k_backend_apply(
         struct llama_sampler_data * data) {
     auto * sctx = (llama_sampler_top_k *) smpl->ctx;
 
-    struct lm_ggml_tensor * top_k = lm_ggml_top_k(ctx, data->logits, sctx->k);
+    struct lm_ggml_tensor * logits = lm_ggml_reshape_1d(ctx, data->logits, lm_ggml_nelements(data->logits));
+
+    struct lm_ggml_tensor * top_k = lm_ggml_top_k(ctx, logits, sctx->k);
     lm_ggml_set_name(top_k, "top_k");
 
     if (data->candidates) {
         struct lm_ggml_tensor * candidates_rows = lm_ggml_reshape_2d(ctx, data->candidates, 1, data->candidates->ne[0]);
         data->candidates = lm_ggml_get_rows(ctx, candidates_rows, top_k);
-        data->candidates = lm_ggml_reshape_1d(ctx, data->candidates, sctx->k);
         lm_ggml_set_name(data->candidates, "top_k_candidates");
     } else {
         data->candidates = top_k;
     }
 
-    struct lm_ggml_tensor * logits_rows = lm_ggml_reshape_2d(ctx, data->logits, 1, data->logits->ne[0]);
-    struct lm_ggml_tensor * top_k_rows = lm_ggml_get_rows(ctx, logits_rows, top_k);
-    data->logits = lm_ggml_reshape_1d(ctx, top_k_rows, sctx->k);
-    lm_ggml_set_name(top_k_rows, "top_k_rows");
+    struct lm_ggml_tensor * logits_rows = lm_ggml_reshape_2d(ctx, logits, 1, logits->ne[0]);
+    data->logits = lm_ggml_get_rows(ctx, logits_rows, top_k);
+    lm_ggml_set_name(data->logits, "top_k_rows");
 
     LM_GGML_UNUSED(gf);
 }
@@ -1435,21 +1441,25 @@ static void llama_sampler_top_p_backend_apply(
         struct llama_sampler_data * data) {
     auto * sctx = (llama_sampler_top_p *) smpl->ctx;
 
+    // flatten
+    struct lm_ggml_tensor * logits = lm_ggml_reshape_1d(ctx, data->logits, lm_ggml_nelements(data->logits));
+
     auto lm_ggml_sort = [ctx](struct lm_ggml_tensor * a, struct lm_ggml_tensor * b) {
         LM_GGML_ASSERT(lm_ggml_nrows(a) == 1);
         struct lm_ggml_tensor * a_reshaped = lm_ggml_reshape_2d(ctx, a, 1, a->ne[0]);
         struct lm_ggml_tensor * a_sorted   = lm_ggml_get_rows(ctx, a_reshaped, b);
-        return lm_ggml_reshape_1d(ctx, a_sorted, a->ne[0]);
+        return a_sorted;
     };
 
     // Get the sorted logits in descending order.
-    struct lm_ggml_tensor * sorted_idx = lm_ggml_argsort(ctx, data->logits, LM_GGML_SORT_ORDER_DESC);
+    struct lm_ggml_tensor * sorted_idx = lm_ggml_argsort(ctx, logits, LM_GGML_SORT_ORDER_DESC);
     lm_ggml_set_name(sorted_idx, "top_p_sorted_idx");
 
     // Do the sorting via reshape + get_rows
-    struct lm_ggml_tensor * sorted_logits = lm_ggml_sort(data->logits, sorted_idx);
+    struct lm_ggml_tensor * sorted_logits = lm_ggml_sort(logits, sorted_idx);
     lm_ggml_set_name(sorted_logits, "top_p_sorted_logits");
 
+    sorted_logits = lm_ggml_reshape_1d(ctx, sorted_logits, lm_ggml_nelements(sorted_logits));
     struct lm_ggml_tensor * softmax = lm_ggml_soft_max(ctx, sorted_logits);
     lm_ggml_set_name(softmax, "top_p_softmax");
 
@@ -1626,10 +1636,12 @@ static void llama_sampler_min_p_backend_apply(
         struct llama_sampler_data * data) {
     auto * sctx = (llama_sampler_min_p *) smpl->ctx;
 
-    struct lm_ggml_tensor * max_idx = lm_ggml_argmax(ctx, data->logits);
+    struct lm_ggml_tensor * logits = lm_ggml_reshape_1d(ctx, data->logits, lm_ggml_nelements(data->logits));
+
+    struct lm_ggml_tensor * max_idx = lm_ggml_argmax(ctx, logits);
     lm_ggml_set_name(max_idx, "max_idx");
 
-    struct lm_ggml_tensor * logits_rows = lm_ggml_reshape_2d(ctx, data->logits, 1, data->logits->ne[0]);
+    struct lm_ggml_tensor * logits_rows = lm_ggml_reshape_2d(ctx, logits, 1, logits->ne[0]);
     lm_ggml_set_name(logits_rows, "logits_rows");
 
     struct lm_ggml_tensor * max_logit = lm_ggml_get_rows(ctx, logits_rows, max_idx);
@@ -1640,7 +1652,7 @@ static void llama_sampler_min_p_backend_apply(
     lm_ggml_set_name(threshold, "min_p_threshold");
 
     // Subtract the threshold from logits.
-    struct lm_ggml_tensor * sub = lm_ggml_sub(ctx, data->logits, threshold);
+    struct lm_ggml_tensor * sub = lm_ggml_sub(ctx, logits, threshold);
 
     // Create a mask where logits below the threshold are 0 (discard),
     // and others are 1 (keep).
@@ -1652,7 +1664,7 @@ static void llama_sampler_min_p_backend_apply(
     struct lm_ggml_tensor * min_p_bias = lm_ggml_log(ctx, mask);
     lm_ggml_set_name(min_p_bias, "min_p_bias");
 
-    data->logits = lm_ggml_add(ctx, data->logits, min_p_bias);
+    data->logits = lm_ggml_add(ctx, logits, min_p_bias);
     lm_ggml_set_name(data->logits, "min_p_logits");
 
     LM_GGML_UNUSED(gf);
@@ -1829,18 +1841,20 @@ static void llama_sampler_backend_temp_sampling(
         struct llama_sampler_data * data,
         float                       temp) {
     if (temp <= 0.0f) {
+        struct lm_ggml_tensor * logits = lm_ggml_reshape_1d(ctx, data->logits, lm_ggml_nelements(data->logits));
+
         // Find the most probable token index.
-        struct lm_ggml_tensor * max_idx = lm_ggml_argmax(ctx, data->logits);
+        struct lm_ggml_tensor * max_idx = lm_ggml_argmax(ctx, logits);
         lm_ggml_set_name(max_idx, "temp_max_idx");
 
         if (data->candidates) {
-            struct lm_ggml_tensor * candidates_rows = lm_ggml_reshape_2d(ctx, data->candidates, 1, data->candidates->ne[0]);
+            struct lm_ggml_tensor * candidates_rows = lm_ggml_reshape_2d(ctx, data->candidates, 1, lm_ggml_nelements(data->candidates));
             data->candidates = lm_ggml_get_rows(ctx, candidates_rows, max_idx);
         } else {
             data->candidates = max_idx;
         }
 
-        struct lm_ggml_tensor * logits_rows = lm_ggml_reshape_2d(ctx, data->logits, 1, data->logits->ne[0]);
+        struct lm_ggml_tensor * logits_rows = lm_ggml_reshape_2d(ctx, logits, 1, lm_ggml_nelements(logits));
         data->logits = lm_ggml_get_rows(ctx, logits_rows, max_idx);
 
         return;
@@ -2019,13 +2033,15 @@ static void llama_sampler_temp_ext_backend_apply(
         return;
     }
 
+    struct lm_ggml_tensor * logits = lm_ggml_reshape_1d(ctx, data->logits, lm_ggml_nelements(data->logits));
+
     // Calculate min_temp, max_temp, and max_entropy.
     const float min_temp    = std::max(0.0f, sctx->temp - sctx->delta);
     const float max_temp    = sctx->temp + sctx->delta;
-    const float max_entropy = logf(data->logits->ne[0]);
+    const float max_entropy = logf(logits->ne[0]);
 
     // Calculate the probabilities.
-    struct lm_ggml_tensor * probs = lm_ggml_soft_max(ctx, data->logits);
+    struct lm_ggml_tensor * probs = lm_ggml_soft_max(ctx, logits);
     lm_ggml_set_name(probs, "temp_ext_softmax_probs");
 
     // Clamp probabilities to avoid log(0) which would give -inf
@@ -2063,7 +2079,7 @@ static void llama_sampler_temp_ext_backend_apply(
     lm_ggml_set_name(dyn_temp,         "temp_ext_dyn_temp");
 
     // Scale the logits by the dynamic temperature
-    struct lm_ggml_tensor * scaled_logits = lm_ggml_div(ctx, data->logits, dyn_temp);
+    struct lm_ggml_tensor * scaled_logits = lm_ggml_div(ctx, logits, dyn_temp);
     lm_ggml_set_name(scaled_logits, "temp_ext_scaled_logits");
 
     data->logits = scaled_logits;
@@ -2623,7 +2639,7 @@ struct llama_sampler * llama_sampler_init_grammar_lazy_patterns(
 
 // penalties
 
-struct llama_sampler_penalties {
+struct llama_sampler_penalties : public llama_sampler_backend {
     const int32_t penalty_last_n;
     const float   penalty_repeat;
     const float   penalty_freq;
@@ -2633,10 +2649,49 @@ struct llama_sampler_penalties {
 
     // a frequency map to count token occurrences
     std::unordered_map<llama_token, int> token_count;
+
+    // backend graph inputs
+    lm_ggml_tensor * inp_token_ids = nullptr;
+    lm_ggml_tensor * inp_counts    = nullptr;
+
+    // backend helpers
+    int32_t n_vocab = 0;
+    int32_t n_max   = 0;
+    bool has_candidates = false;
+
+    std::vector<int32_t> host_token_ids;
+    std::vector<int32_t> host_counts;
+
+    static bool is_disabled(
+            int32_t penalty_last_n,
+            float   penalty_repeat,
+            float   penalty_freq,
+            float   penalty_present) {
+        return penalty_last_n == 0 ||
+            (penalty_repeat == 1.0f && penalty_freq == 0.0f && penalty_present == 0.0f);
+    }
+
+    bool is_disabled() const {
+        return is_disabled(penalty_last_n, penalty_repeat, penalty_freq, penalty_present);
+    }
+
+    llama_sampler_penalties(
+            int32_t penalty_last_n,
+            float   penalty_repeat,
+            float   penalty_freq,
+            float   penalty_present)
+        : llama_sampler_backend("penalties")
+        , penalty_last_n  (penalty_last_n)
+        , penalty_repeat  (penalty_repeat)
+        , penalty_freq    (penalty_freq)
+        , penalty_present (penalty_present)
+        , prev            (penalty_last_n) {
+    }
 };
 
-static const char * llama_sampler_penalties_name(const struct llama_sampler * /*smpl*/) {
-    return "penalties";
+static const char * llama_sampler_penalties_name(const struct llama_sampler * smpl) {
+    auto * ctx = (llama_sampler_penalties *) smpl->ctx;
+    return ctx->get_name();
 }
 
 static void llama_sampler_penalties_accept(struct llama_sampler * smpl, llama_token token) {
@@ -2673,8 +2728,7 @@ static void llama_sampler_penalties_accept(struct llama_sampler * smpl, llama_to
 static void llama_sampler_penalties_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
     auto * ctx = (llama_sampler_penalties *) smpl->ctx;
 
-    if ((ctx->penalty_last_n == 0) ||
-        (ctx->penalty_repeat == 1.0f && ctx->penalty_freq == 0.0f && ctx->penalty_present == 0.0f)) {
+    if (ctx->is_disabled()) {
         return;
     }
 
@@ -2721,7 +2775,8 @@ static struct llama_sampler * llama_sampler_penalties_clone(const struct llama_s
     {
         auto * result_ctx = (llama_sampler_penalties *) result->ctx;
 
-        result_ctx->prev = ctx->prev;
+        result_ctx->prev        = ctx->prev;
+        result_ctx->token_count = ctx->token_count;
     }
 
     return result;
@@ -2731,6 +2786,171 @@ static void llama_sampler_penalties_free(struct llama_sampler * smpl) {
     delete (llama_sampler_penalties *) smpl->ctx;
 }
 
+static bool llama_sampler_penalties_backend_init(
+        struct llama_sampler       * smpl,
+        lm_ggml_backend_buffer_type_t   buft) {
+    auto * sctx = (llama_sampler_penalties *) smpl->ctx;
+
+    const bool res = llama_sampler_backend_support(smpl, buft);
+
+    sctx->init(res);
+
+    return res;
+}
+
+static void llama_sampler_penalties_backend_apply(
+        struct llama_sampler      * smpl,
+        struct lm_ggml_context       * ctx,
+        struct lm_ggml_cgraph        * gf,
+        struct llama_sampler_data * data) {
+    LM_GGML_UNUSED(gf);
+
+    auto * sctx = (llama_sampler_penalties *) smpl->ctx;
+
+    if (sctx->is_disabled()) {
+        return;
+    }
+
+    LM_GGML_ASSERT(data->n_vocab > 0 && data->n_vocab <= INT32_MAX);
+
+    sctx->has_candidates = data->candidates != nullptr;
+    sctx->n_vocab = (int32_t) data->n_vocab;
+    sctx->n_max   = std::min(sctx->penalty_last_n, sctx->n_vocab);
+
+    sctx->inp_token_ids = lm_ggml_new_tensor_1d(ctx, LM_GGML_TYPE_I32, sctx->n_max);
+    lm_ggml_set_name(sctx->inp_token_ids, "penalties_token_ids");
+    lm_ggml_set_input(sctx->inp_token_ids);
+
+    sctx->inp_counts = lm_ggml_new_tensor_1d(ctx, LM_GGML_TYPE_I32, sctx->n_max);
+    lm_ggml_set_name(sctx->inp_counts, "penalties_counts");
+    lm_ggml_set_input(sctx->inp_counts);
+
+    if ((int32_t) sctx->host_token_ids.size() != sctx->n_max) {
+        sctx->host_token_ids.assign(sctx->n_max, 0);
+        sctx->host_counts.assign(sctx->n_max, 0);
+    }
+
+    // flatten
+    lm_ggml_tensor * logits = lm_ggml_reshape_1d(ctx, data->logits, lm_ggml_nelements(data->logits));
+    lm_ggml_tensor * gathered = logits;
+    lm_ggml_tensor * counts_f32 = lm_ggml_cast(ctx, sctx->inp_counts, LM_GGML_TYPE_F32);
+
+    if (sctx->has_candidates) {
+        lm_ggml_tensor * candidates = lm_ggml_reshape_1d(
+                ctx, data->candidates, lm_ggml_nelements(data->candidates));
+        const int64_t n_candidates = candidates->ne[0];
+        LM_GGML_ASSERT(n_candidates == lm_ggml_nelements(logits));
+
+        lm_ggml_tensor * counts_rows = lm_ggml_fill(
+                ctx, lm_ggml_new_tensor_2d(ctx, LM_GGML_TYPE_F32, 1, sctx->n_vocab), 0.0f);
+        lm_ggml_tensor * scatter_rows = lm_ggml_reshape_2d(ctx, counts_f32, 1, sctx->n_max);
+        counts_rows = lm_ggml_set_rows(ctx, counts_rows, scatter_rows, sctx->inp_token_ids);
+        counts_f32 = lm_ggml_get_rows(ctx, counts_rows, candidates);
+        counts_f32 = lm_ggml_reshape_1d(ctx, counts_f32, n_candidates);
+    } else {
+        lm_ggml_tensor * logits_rows = lm_ggml_reshape_2d(ctx, logits, 1, lm_ggml_nelements(logits));
+        gathered = lm_ggml_get_rows(ctx, logits_rows, sctx->inp_token_ids);
+        gathered = lm_ggml_reshape_1d(ctx, gathered, sctx->n_max);
+    }
+
+    lm_ggml_tensor * active_mask = lm_ggml_step(ctx, counts_f32);
+    lm_ggml_tensor * inactive_mask = lm_ggml_sub(ctx, lm_ggml_fill(ctx, active_mask, 1.0f), active_mask);
+
+    lm_ggml_tensor * penalized = gathered;
+
+    if (sctx->penalty_repeat != 1.0f) {
+        lm_ggml_tensor * pos_mask = lm_ggml_step(ctx, penalized);
+        lm_ggml_tensor * neg_mask = lm_ggml_sub(ctx, lm_ggml_fill(ctx, pos_mask, 1.0f), pos_mask);
+
+        lm_ggml_tensor * pos_scale = lm_ggml_scale(ctx, pos_mask, 1.0f/sctx->penalty_repeat);
+        lm_ggml_tensor * neg_scale = lm_ggml_scale(ctx, neg_mask, sctx->penalty_repeat);
+        lm_ggml_tensor * repeat_scale = lm_ggml_add(ctx, pos_scale, neg_scale);
+
+        // scale inactive entries with 1 to avoid -INF * 0 = NaN for values masked by top-p
+        repeat_scale = lm_ggml_mul(ctx, repeat_scale, active_mask);
+        repeat_scale = lm_ggml_add(ctx, repeat_scale, inactive_mask);
+        penalized = lm_ggml_mul(ctx, gathered, repeat_scale);
+    }
+
+    if (sctx->penalty_freq != 0.0f) {
+        lm_ggml_tensor * penalty_freq = lm_ggml_scale(ctx, counts_f32, sctx->penalty_freq);
+        penalized = lm_ggml_sub(ctx, penalized, penalty_freq);
+    }
+
+    if (sctx->penalty_present != 0.0f) {
+        lm_ggml_tensor * penalty_present = lm_ggml_scale(ctx, active_mask, sctx->penalty_present);
+        penalized = lm_ggml_sub(ctx, penalized, penalty_present);
+    }
+
+    if (sctx->has_candidates) {
+        data->logits = penalized;
+    } else {
+        lm_ggml_tensor * logits_rows = lm_ggml_reshape_2d(ctx, logits, 1, lm_ggml_nelements(logits));
+        lm_ggml_tensor * scatter_rows = lm_ggml_reshape_2d(ctx, penalized, 1, sctx->n_max);
+        logits_rows = lm_ggml_set_rows(ctx, logits_rows, scatter_rows, sctx->inp_token_ids);
+        data->logits = lm_ggml_reshape_1d(ctx, logits_rows, lm_ggml_nelements(logits));
+    }
+}
+
+static void llama_sampler_penalties_backend_set_input(struct llama_sampler * smpl) {
+    auto * sctx = (llama_sampler_penalties *) smpl->ctx;
+
+    if (!sctx->inp_token_ids || !sctx->inp_counts || sctx->n_max <= 0 || sctx->n_vocab <= 0) {
+        return;
+    }
+
+    if (sctx->is_disabled()) {
+        return;
+    }
+
+    // fill active entries from the map
+    int32_t n_active = 0;
+
+    for (const auto & it : sctx->token_count) {
+        LM_GGML_ASSERT(n_active < sctx->n_max);
+        sctx->host_token_ids[n_active] = it.first;
+        sctx->host_counts   [n_active] = it.second;
+        ++n_active;
+    }
+
+    // Sorting is required because backend_apply uses lm_ggml_set_rows (a scatter-back operation)
+    std::vector<std::pair<int32_t, int32_t>> entries;
+    entries.reserve(n_active);
+    for (int32_t i = 0; i < n_active; ++i) {
+        entries.emplace_back(sctx->host_token_ids[i], sctx->host_counts[i]);
+    }
+    std::sort(entries.begin(), entries.end(), [](const auto & a, const auto & b) {
+        return a.first < b.first;
+    });
+    for (int32_t i = 0; i < n_active; ++i) {
+        sctx->host_token_ids[i] = entries[i].first;
+        sctx->host_counts   [i] = entries[i].second;
+    }
+
+    // Padding: Finds a filler token id that is not present in token_count.
+    // Use it to do padding for the arrays, it avoids resizing every time.
+    // The arrays must always have exactly n_max entries (the GPU tensor is a fixed size).
+    int32_t filler = 0;
+    if (n_active < sctx->n_max) {
+        while (sctx->token_count.find(filler) != sctx->token_count.end()) {
+            ++filler;
+        }
+        LM_GGML_ASSERT(filler < sctx->n_vocab);
+    }
+
+    // Fill the rest of the arrays with the filler token id and count 0.
+    // Inactive slots are padded with a unique dummy token ID (count = 0).
+    // The uniqueness matters because lm_ggml_set_rows with duplicate indices can produce non-deterministic or incorrect results.
+    // Using a filler token with count 0 that isn't in the active set is safe, because the active_mask step in backend_apply filters them out via lm_ggml_step(counts_f32)
+    for (int32_t i = n_active; i < sctx->n_max; ++i) {
+        sctx->host_token_ids[i] = filler;
+        sctx->host_counts   [i] = 0;
+    }
+
+    lm_ggml_backend_tensor_set(sctx->inp_token_ids, sctx->host_token_ids.data(), 0, sctx->n_max * sizeof(int32_t));
+    lm_ggml_backend_tensor_set(sctx->inp_counts,    sctx->host_counts.data(),    0, sctx->n_max * sizeof(int32_t));
+}
+
 static struct llama_sampler_i llama_sampler_penalties_i = {
     /* .name              = */ llama_sampler_penalties_name,
     /* .accept            = */ llama_sampler_penalties_accept,
@@ -2738,10 +2958,10 @@ static struct llama_sampler_i llama_sampler_penalties_i = {
     /* .reset             = */ llama_sampler_penalties_reset,
     /* .clone             = */ llama_sampler_penalties_clone,
     /* .free              = */ llama_sampler_penalties_free,
-    /* .backend_init      = */ nullptr,
+    /* .backend_init      = */ llama_sampler_penalties_backend_init,
     /* .backend_accept    = */ nullptr,
-    /* .backend_apply     = */ nullptr,
-    /* .backend_set_input = */ nullptr,
+    /* .backend_apply     = */ llama_sampler_penalties_backend_apply,
+    /* .backend_set_input = */ llama_sampler_penalties_backend_set_input,
 };
 
 struct llama_sampler * llama_sampler_init_penalties(
@@ -2751,22 +2971,18 @@ struct llama_sampler * llama_sampler_init_penalties(
         float penalty_present) {
     penalty_last_n = std::max(penalty_last_n, 0);
 
-    const bool is_empty = (penalty_last_n == 0 || (penalty_repeat == 1.0f && penalty_freq == 0.0f && penalty_present == 0.0f));
-
-    if (is_empty) {
+    if (llama_sampler_penalties::is_disabled(
+                penalty_last_n, penalty_repeat, penalty_freq, penalty_present)) {
         return llama_sampler_init_empty("?penalties");
     }
 
     return llama_sampler_init(
         /* .iface = */ &llama_sampler_penalties_i,
-        /* .ctx   = */ new llama_sampler_penalties {
-            /* .penalty_last_n  = */ penalty_last_n,
-            /* .penalty_repeat  = */ penalty_repeat,
-            /* .penalty_freq    = */ penalty_freq,
-            /* .penalty_present = */ penalty_present,
-            /* .prev            = */ ring_buffer<llama_token>(penalty_last_n),
-            /* .token_count     = */ {},
-        }
+        /* .ctx   = */ new llama_sampler_penalties(
+            penalty_last_n,
+            penalty_repeat,
+            penalty_freq,
+            penalty_present)
     );
 }
 

@@ -8,6 +8,7 @@ if (!NativeModules.RNLlama) {
   const contextMap = {}
   const vocoderMap = {}
   const multimodalMap = {}
+  const pendingCompletionRequests = new Map()
   let requestIdCounter = 0
   const getNextRequestId = () => {
     requestIdCounter += 1
@@ -98,6 +99,31 @@ if (!NativeModules.RNLlama) {
         prompt_per_second: 8.408499626741445,
         prompt_per_token_ms: 118.92728125000001,
       },
+    }
+
+    const interruptedCompletionResult = {
+      ...completionResult,
+      chat_format: 0,
+      context_full: false,
+      incomplete: false,
+      interrupted: true,
+      n_decoded: completionResult.tokens_predicted,
+      stopped_eos: false,
+      timings: {
+        cache_n: completionResult.tokens_cached,
+        ...completionResult.timings,
+      },
+    }
+
+    const completePendingRequest = (contextId, requestId, result) => {
+      const pendingRequest = pendingCompletionRequests.get(requestId)
+      if (!pendingRequest || pendingRequest.contextId !== contextId) return
+
+      pendingCompletionRequests.delete(requestId)
+      clearTimeout(pendingRequest.timeoutId)
+      if (typeof pendingRequest.onComplete === 'function') {
+        pendingRequest.onComplete(result)
+      }
     }
 
     const setGlobal = (name, fn) => {
@@ -336,19 +362,30 @@ if (!NativeModules.RNLlama) {
     )
     setGlobal(
       'llamaQueueCompletion',
-      jest.fn(async (_ctx, _params, onToken, onComplete) => {
+      jest.fn(async (contextId, _params, onToken, onComplete) => {
         const reqId = getNextRequestId()
         if (typeof onToken === 'function') {
           tokenEvents.forEach((event) => onToken({ ...event }, reqId))
         }
-        if (typeof onComplete === 'function')
-          onComplete({ ...completionResult })
+        const timeoutId = setTimeout(() => {
+          completePendingRequest(contextId, reqId, { ...completionResult })
+        }, 0)
+        pendingCompletionRequests.set(reqId, {
+          contextId,
+          onComplete,
+          timeoutId,
+        })
         return { requestId: reqId }
       }),
     )
     setGlobal(
       'llamaCancelRequest',
-      jest.fn(async () => {}),
+      jest.fn(async (contextId, requestId) => {
+        completePendingRequest(contextId, requestId, {
+          ...interruptedCompletionResult,
+          requestId,
+        })
+      }),
     )
     setGlobal(
       'llamaQueueEmbedding',

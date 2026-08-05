@@ -17,6 +17,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #if defined(__ANDROID__)
@@ -1344,46 +1345,18 @@ namespace rnllama_jsi {
 
                     auto completeCallback = [contextId, callInvoker, runtimePtr](rnllama::llama_rn_slot* slot) {
                         int requestId = slot->request_id;
-                        auto callbacks = RequestManager::getInstance().getRequest(contextId, requestId);
-                        RequestManager::getInstance().removeRequest(contextId, requestId);
+                        auto callbacks = RequestManager::getInstance().takeRequest(contextId, requestId);
                         if (callbacks.onComplete) {
-                            std::string text = slot->generated_text;
-                            bool stopped_eos = slot->stopped_eos;
-                            bool stopped_limit = slot->stopped_limit;
-                            bool stopped_word = slot->stopped_word;
-                            bool context_full = slot->context_full;
-                            bool incomplete = slot->incomplete;
-                            bool truncated = slot->truncated;
-                            bool interrupted = slot->is_interrupted;
-                            int32_t chat_format_val = slot->current_chat_format;
-                            std::string stopping_word = slot->stopping_word;
-                            size_t tokens_predicted = slot->num_tokens_predicted;
-                            size_t tokens_evaluated = slot->num_prompt_tokens;
-                            size_t draft_tokens = slot->num_draft_tokens;
-                            size_t draft_tokens_accepted = slot->num_draft_tokens_accepted;
-                            llama_pos tokens_cached = slot->n_past;
-                            int32_t n_decoded = slot->n_decoded;
-                            std::string error_message = slot->error_message;
-                            auto timings = slot->get_timings();
-                            auto token_probs = slot->generated_token_probs;
                             if (slot->parent_ctx && slot->ctx_sampling) {
                                 common_perf_print(slot->parent_ctx->ctx, slot->ctx_sampling);
                             }
 
-                            rnllama::completion_chat_output final_output;
-                            bool has_final_output = false;
-                            try {
-                                final_output = slot->parseChatOutput(false);
-                                has_final_output = true;
-                            } catch (...) {
-                                has_final_output = false;
-                            }
-
+                            auto result = captureParallelCompletionResult(slot);
                             auto runtime = runtimePtr;
                             if (!runtime) {
                               return;
                             }
-                            invokeAsyncTracked(callInvoker, contextId, [callbacks, contextId, requestId, text, stopped_eos, stopped_limit, stopped_word, context_full, incomplete, truncated, interrupted, chat_format_val, stopping_word, tokens_predicted, tokens_evaluated, draft_tokens, draft_tokens_accepted, tokens_cached, n_decoded, error_message, timings, token_probs, final_output, has_final_output, runtime](bool shouldProceed) {
+                            invokeAsyncTracked(callInvoker, contextId, [callbacks, contextId, result = std::move(result), runtime](bool shouldProceed) {
                                 if (!shouldProceed) return;
                                 long ctxPtr = g_llamaContexts.get(contextId);
                                 if (!ctxPtr) {
@@ -1391,59 +1364,27 @@ namespace rnllama_jsi {
                                 }
                                 auto ctxVal = reinterpret_cast<rnllama::llama_rn_context*>(ctxPtr);
                                 auto& rt = *runtime;
-
-                                jsi::Object res(rt);
-                                res.setProperty(rt, "requestId", requestId);
-                                res.setProperty(rt, "text", jsi::String::createFromUtf8(rt, text));
-                                res.setProperty(rt, "chat_format", chat_format_val);
-                                res.setProperty(rt, "stopped_eos", stopped_eos);
-                                res.setProperty(rt, "stopped_limit", stopped_limit);
-                                res.setProperty(rt, "stopped_word", stopped_word);
-                                res.setProperty(rt, "context_full", context_full);
-                                res.setProperty(rt, "incomplete", incomplete);
-                                res.setProperty(rt, "truncated", truncated);
-                                res.setProperty(rt, "interrupted", interrupted);
-                                res.setProperty(rt, "stopping_word", jsi::String::createFromUtf8(rt, stopping_word));
-                                res.setProperty(rt, "tokens_predicted", (double)tokens_predicted);
-                                res.setProperty(rt, "tokens_evaluated", (double)tokens_evaluated);
-                                res.setProperty(rt, "draft_tokens", (double)draft_tokens);
-                                res.setProperty(rt, "draft_tokens_accepted", (double)draft_tokens_accepted);
-                                res.setProperty(rt, "tokens_cached", (double)tokens_cached);
-                                res.setProperty(rt, "n_decoded", (double)n_decoded);
-
-                                res.setProperty(rt, "completion_probabilities", createCompletionProbabilities(rt, ctxVal, token_probs));
-
-                                if (!error_message.empty()) {
-                                    res.setProperty(rt, "error", jsi::String::createFromUtf8(rt, error_message));
-                                }
-
-                                if (has_final_output) {
-                                    setChatOutputFields(rt, res, final_output);
-                                }
-
-                                jsi::Object timingsObj(rt);
-                                timingsObj.setProperty(rt, "cache_n", (double)timings.cache_n);
-                                timingsObj.setProperty(rt, "prompt_n", (double)timings.prompt_n);
-                                timingsObj.setProperty(rt, "prompt_ms", (double)timings.prompt_ms);
-                                timingsObj.setProperty(rt, "prompt_per_token_ms", (double)timings.prompt_per_token_ms);
-                                timingsObj.setProperty(rt, "prompt_per_second", (double)timings.prompt_per_second);
-                                timingsObj.setProperty(rt, "predicted_n", (double)timings.predicted_n);
-                                timingsObj.setProperty(rt, "predicted_ms", (double)timings.predicted_ms);
-                                timingsObj.setProperty(rt, "predicted_per_token_ms", (double)timings.predicted_per_token_ms);
-                                timingsObj.setProperty(rt, "predicted_per_second", (double)timings.predicted_per_second);
-                                res.setProperty(rt, "timings", timingsObj);
-
+                                auto res = createParallelCompletionResult(rt, ctxVal, result);
                                 callbacks.onComplete->call(rt, res);
                             });
                         }
                     };
 
-                    int requestId = ctx->slot_manager->queue_request(
-                        cparams, tokens, mediaPaths, cparams.prompt, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, load_state_path, save_state_path, save_prompt_state_path, load_state_size, save_state_size,
-                        tokenCallback, completeCallback
-                    );
-
+                    int requestId = ctx->slot_manager->reserve_request_id();
                     RequestManager::getInstance().addRequest(contextId, requestId, {onToken, onComplete, nullptr});
+                    try {
+                        int queuedRequestId = ctx->slot_manager->queue_request(
+                            cparams, tokens, mediaPaths, cparams.prompt, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, load_state_path, save_state_path, save_prompt_state_path, load_state_size, save_state_size,
+                            tokenCallback, completeCallback, requestId
+                        );
+                        if (queuedRequestId != requestId) {
+                            RequestManager::getInstance().takeRequest(contextId, requestId);
+                            throw std::runtime_error("Failed to queue completion request");
+                        }
+                    } catch (...) {
+                        RequestManager::getInstance().takeRequest(contextId, requestId);
+                        throw;
+                    }
 
                     return [requestId](jsi::Runtime& rt) {
                         jsi::Object res(rt);
@@ -1458,15 +1399,22 @@ namespace rnllama_jsi {
         auto cancelRequest = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaCancelRequest"),
             2,
-            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+            [](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
                 int requestId = (int)arguments[1].asNumber();
 
                 auto ctx = getContextOrThrow(contextId);
                 if (ctx->slot_manager) {
-                    ctx->slot_manager->cancel_request(requestId);
+                    auto result = ctx->slot_manager->cancel_request(requestId);
+                    if (result == rnllama::llama_rn_cancel_result::QUEUED) {
+                        auto callbacks = RequestManager::getInstance().takeRequest(contextId, requestId);
+                        if (callbacks.onComplete) {
+                            auto snapshot = createQueuedCancellationSnapshot(requestId);
+                            auto response = createParallelCompletionResult(runtime, ctx, snapshot);
+                            callbacks.onComplete->call(runtime, response);
+                        }
+                    }
                 }
-                RequestManager::getInstance().removeRequest(contextId, requestId);
 
                 return jsi::Value::undefined();
             }
@@ -1501,8 +1449,7 @@ namespace rnllama_jsi {
                     std::vector<llama_token> tokens = common_tokenize(ctx->ctx, text, add_bos || is_enc_dec, true);
 
                     auto resultCallback = [contextId, callInvoker, runtimePtr](int32_t requestId, const std::vector<float>& embedding) {
-                        auto callbacks = RequestManager::getInstance().getRequest(contextId, requestId);
-                        RequestManager::getInstance().removeRequest(contextId, requestId);
+                        auto callbacks = RequestManager::getInstance().takeRequest(contextId, requestId);
                         if (callbacks.onResult) {
                             std::vector<float> embCopy = embedding;
                             auto runtime = runtimePtr;
@@ -1522,9 +1469,20 @@ namespace rnllama_jsi {
                     };
 
                     const int normalize = has_embd_normalize ? embd_normalize : ctx->params.embd_normalize;
-                    int requestId = ctx->slot_manager->queue_embedding_request(tokens, normalize, resultCallback);
-
+                    int requestId = ctx->slot_manager->reserve_request_id();
                     RequestManager::getInstance().addRequest(contextId, requestId, {nullptr, nullptr, onResult});
+                    try {
+                        int queuedRequestId = ctx->slot_manager->queue_embedding_request(
+                            tokens, normalize, resultCallback, requestId
+                        );
+                        if (queuedRequestId != requestId) {
+                            RequestManager::getInstance().takeRequest(contextId, requestId);
+                            throw std::runtime_error("Failed to queue embedding request");
+                        }
+                    } catch (...) {
+                        RequestManager::getInstance().takeRequest(contextId, requestId);
+                        throw;
+                    }
 
                     return [requestId](jsi::Runtime& rt) {
                         jsi::Object res(rt);
@@ -1559,8 +1517,7 @@ namespace rnllama_jsi {
                     }
 
                     auto resultCallback = [contextId, callInvoker, runtimePtr](int32_t requestId, const std::vector<float>& scores) {
-                        auto callbacks = RequestManager::getInstance().getRequest(contextId, requestId);
-                        RequestManager::getInstance().removeRequest(contextId, requestId);
+                        auto callbacks = RequestManager::getInstance().takeRequest(contextId, requestId);
                         if (callbacks.onResult) {
                             std::vector<float> scoresCopy = scores;
                             auto runtime = runtimePtr;
@@ -1582,9 +1539,20 @@ namespace rnllama_jsi {
                         }
                     };
 
-                    int requestId = ctx->slot_manager->queue_rerank_request(query, documents, normalize, resultCallback);
-
+                    int requestId = ctx->slot_manager->reserve_request_id();
                     RequestManager::getInstance().addRequest(contextId, requestId, {nullptr, nullptr, onResult});
+                    try {
+                        int queuedRequestId = ctx->slot_manager->queue_rerank_request(
+                            query, documents, normalize, resultCallback, requestId
+                        );
+                        if (queuedRequestId != requestId) {
+                            RequestManager::getInstance().takeRequest(contextId, requestId);
+                            throw std::runtime_error("Failed to queue rerank request");
+                        }
+                    } catch (...) {
+                        RequestManager::getInstance().takeRequest(contextId, requestId);
+                        throw;
+                    }
 
                     return [requestId](jsi::Runtime& rt) {
                         jsi::Object res(rt);
