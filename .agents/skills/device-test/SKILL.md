@@ -295,7 +295,7 @@ Three log surfaces carry the evidence while driving the app:
 | Tool calling / MCP | ToolCalling | tool_call parsed, arguments well-formed |
 | Embeddings / rerank | Embeddings | similarity ranking is sane across the sample set |
 | Speculative decoding (MTP) | MTPSpeculative | acceptance rate shown, output matches non-speculative quality |
-| TTS (OuteTTS) | TTS | audio plays, no native crash |
+| TTS | TTS | audio plays, no native crash |
 | Performance regressions | Bench | tokens/sec prompt+gen vs the numbers before the change |
 | Context shifting / long runs | StressTest | context-full handling, no position errors in native logs |
 | Model loading / metadata | ModelInfo | GGUF metadata parses, capabilities detected |

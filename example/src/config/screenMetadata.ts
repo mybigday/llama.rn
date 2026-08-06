@@ -54,7 +54,7 @@ export const EXAMPLE_SCREEN_METADATA: Array<
   {
     routeName: 'TTS',
     title: 'Text-to-Speech',
-    homeLabel: 'Text-to-Speech (OuteTTS)',
+    homeLabel: 'Text-to-Speech',
     emoji: '🔊',
   },
   {

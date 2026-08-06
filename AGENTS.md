@@ -36,7 +36,7 @@
 - Multimodal vision/audio via mmproj projector models
 - Tool calling & MCP support
 - Embeddings & reranking (sync + queued)
-- Text-to-speech (OuteTTS)
+- Text-to-speech
 - Grammar sampling (GBNF/JSON schema)
 - Session save/load
 - Benchmarking (tokens/sec, prompt speed)
