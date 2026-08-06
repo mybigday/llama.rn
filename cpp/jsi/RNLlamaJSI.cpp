@@ -1060,22 +1060,8 @@ namespace rnllama_jsi {
                 std::string generation_prompt = getPropertyAsString(runtime, params, "generation_prompt");
                 std::string chat_parser = getPropertyAsString(runtime, params, "chat_parser");
                 std::string prefill_text = getPropertyAsString(runtime, params, "prefill_text");
-                std::vector<llama_token> guide_tokens;
-                if (params.hasProperty(runtime, "guide_tokens")) {
-                    auto guideVal = params.getProperty(runtime, "guide_tokens");
-                    if (guideVal.isObject() && guideVal.asObject(runtime).isArray(runtime)) {
-                        jsi::Array guideArr = guideVal.asObject(runtime).asArray(runtime);
-                        guide_tokens.reserve(guideArr.size(runtime));
-                        for (size_t i = 0; i < guideArr.size(runtime); i++) {
-                            auto tokVal = guideArr.getValueAtIndex(runtime, i);
-                            if (tokVal.isNumber()) {
-                                guide_tokens.push_back((llama_token)tokVal.asNumber());
-                            }
-                        }
-                    }
-                }
 
-                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, guide_tokens, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
 
                     if (ctx->completion == nullptr) {
@@ -1083,15 +1069,11 @@ namespace rnllama_jsi {
                     }
                     throwIfContextBusy(ctx);
 
-                    if (!guide_tokens.empty() && ctx->tts_wrapper != nullptr) {
-                        ctx->params.vocoder.use_guide_tokens = true;
-                        ctx->tts_wrapper->setGuideTokens(guide_tokens);
-                    }
-
                     if (!mediaPaths.empty() && ctx->completion->shouldUseMTP()) {
                         throw std::runtime_error("MTP speculative decoding currently supports text-only completion");
                     }
 
+                    ctx->completion->rewind();
                     if (!ctx->completion->initSampling()) {
                         throw std::runtime_error("Failed to initialize sampling");
                     }
@@ -1318,8 +1300,6 @@ namespace rnllama_jsi {
                     if (!ctx->parallel_mode_enabled || !ctx->slot_manager) {
                         throw std::runtime_error("Parallel mode not enabled");
                     }
-
-                    // TODO: guide_tokens support for queued completions (enable TTS guide tokens per request)
 
                     auto tokenizeResult = ctx->tokenize(cparams.prompt, mediaPaths);
                     std::vector<llama_token> tokens = tokenizeResult.tokens;
@@ -1980,11 +1960,20 @@ namespace rnllama_jsi {
                 jsi::Object params = arguments[1].asObject(runtime);
                 std::string path = getPropertyAsString(runtime, params, "path");
                 int n_batch = getPropertyAsInt(runtime, params, "n_batch", 512);
+                // use_gpu defaults to follow the main context's n_gpu_layers
+                // (any > 0 means the backbone is GPU-offloaded — pair the
+                // codec / codec_lm there too unless the caller overrides).
+                bool use_gpu_default = false;
+                {
+                    auto ctx_for_default = getContextOrThrow(contextId);
+                    use_gpu_default = ctx_for_default->params.n_gpu_layers > 0;
+                }
+                bool use_gpu = getPropertyAsBool(runtime, params, "use_gpu", use_gpu_default);
 
-                return createPromiseTask(runtime, callInvoker, [contextId, path, n_batch]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, path, n_batch, use_gpu]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     throwIfContextBusy(ctx);
-                    bool result = ctx->initVocoder(path, n_batch);
+                    bool result = ctx->initVocoder(path, n_batch, use_gpu);
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
                 }, contextId);
             }
@@ -2007,22 +1996,30 @@ namespace rnllama_jsi {
 
         auto getFormattedAudioCompletion = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaGetFormattedAudioCompletion"),
-            3,
+            4,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
                 std::string speakerJsonStr = arguments[1].asString(runtime).utf8(runtime);
                 std::string textToSpeak = arguments[2].asString(runtime).utf8(runtime);
+                // Optional 4th arg: speakerId (registry id >= 0, or -1 for none).
+                int speakerId = (count >= 4 && arguments[3].isNumber())
+                    ? (int)arguments[3].asNumber()
+                    : -1;
 
-                return createPromiseTask(runtime, callInvoker, [contextId, speakerJsonStr, textToSpeak]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, speakerJsonStr, textToSpeak, speakerId]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
 
                     try {
-                        auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speakerJsonStr, textToSpeak);
+                        auto audio_result = ctx->tts_wrapper->getFormattedAudioCompletion(ctx, speakerJsonStr, textToSpeak, speakerId);
                         return [audio_result](jsi::Runtime& rt) {
                             jsi::Object res(rt);
                             res.setProperty(rt, "prompt", jsi::String::createFromUtf8(rt, audio_result.prompt));
-                            res.setProperty(rt, "grammar", jsi::String::createFromUtf8(rt, audio_result.grammar));
+                            if (!audio_result.grammar.empty()) {
+                                res.setProperty(rt, "grammar", jsi::String::createFromUtf8(rt, audio_result.grammar));
+                            }
+                            res.setProperty(rt, "embedding", audio_result.embedding);
+                            res.setProperty(rt, "flow", jsi::String::createFromUtf8(rt, audio_result.flow));
                             return res;
                         };
                     } catch (const std::exception &e) {
@@ -2033,33 +2030,28 @@ namespace rnllama_jsi {
         );
         runtime.global().setProperty(runtime, "llamaGetFormattedAudioCompletion", getFormattedAudioCompletion);
 
-        auto getAudioCompletionGuideTokens = jsi::Function::createFromHostFunction(runtime,
-            jsi::PropNameID::forAscii(runtime, "llamaGetAudioCompletionGuideTokens"),
-            2,
+        auto getTTSCapabilities = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaGetTTSCapabilities"),
+            1,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                std::string textToSpeak = arguments[1].asString(runtime).utf8(runtime);
-
-                return createPromiseTask(runtime, callInvoker, [contextId, textToSpeak]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
-
-                    try {
-                        auto guide_tokens = ctx->tts_wrapper->getAudioCompletionGuideTokens(ctx, textToSpeak);
-                        return [guide_tokens](jsi::Runtime& rt) {
-                            jsi::Array res(rt, guide_tokens.size());
-                            for (size_t i = 0; i < guide_tokens.size(); i++) {
-                                res.setValueAtIndex(rt, i, (double)guide_tokens[i]);
-                            }
-                            return res;
-                        };
-                    } catch (const std::exception &e) {
-                        throw std::runtime_error(e.what());
-                    }
+                    auto cap = ctx->tts_wrapper->getTTSCapabilities(ctx);
+                    return [cap](jsi::Runtime& rt) {
+                        jsi::Object obj(rt);
+                        obj.setProperty(rt, "type", jsi::Value(cap.type));
+                        obj.setProperty(rt, "promptKind", jsi::String::createFromUtf8(rt, cap.prompt_kind));
+                        obj.setProperty(rt, "family", jsi::String::createFromUtf8(rt, cap.family));
+                        obj.setProperty(rt, "requiresPhonemes", jsi::Value(cap.requires_phonemes));
+                        obj.setProperty(rt, "defaultLanguage", jsi::String::createFromUtf8(rt, cap.default_language));
+                        return obj;
+                    };
                 }, contextId);
             }
         );
-        runtime.global().setProperty(runtime, "llamaGetAudioCompletionGuideTokens", getAudioCompletionGuideTokens);
+        runtime.global().setProperty(runtime, "llamaGetTTSCapabilities", getTTSCapabilities);
 
         auto decodeAudioTokens = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaDecodeAudioTokens"),
@@ -2092,6 +2084,262 @@ namespace rnllama_jsi {
             }
         );
         runtime.global().setProperty(runtime, "llamaDecodeAudioTokens", decodeAudioTokens);
+
+        // generateAudioCodes — drives the backbone + codec_lm AR loop for
+        // codec_lm-flow models (CSM, etc.).  Args:
+        //   (contextId, optsJson, onFrame?)
+        // optsJson: { prompt, maxFrames?, temperature?, topP?, topK?, seed? }
+        // onFrame:  optional (step:number, codes:number[]) => void — fired
+        //           per-frame as audio codes are produced.
+        // Returns { codes:number[], nCodebook, nFrames, stoppedOnEos, aborted }.
+        auto generateAudioCodes = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaGenerateAudioCodes"),
+            3,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                std::string optsJson = arguments[1].asString(runtime).utf8(runtime);
+
+                std::shared_ptr<jsi::Function> onFrame;
+                if (count >= 3 && arguments[2].isObject() &&
+                    arguments[2].asObject(runtime).isFunction(runtime)) {
+                    onFrame = std::make_shared<jsi::Function>(
+                        arguments[2].asObject(runtime).asFunction(runtime));
+                }
+                jsi::Runtime * runtimePtr = &runtime;
+
+                return createPromiseTask(runtime, callInvoker, [contextId, optsJson, onFrame, runtimePtr, callInvoker]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
+
+                    rnllama::llama_rn_audio_codes_options opts;
+                    try {
+                        auto j = nlohmann::ordered_json::parse(optsJson);
+                        opts.prompt      = j.value("prompt", std::string());
+                        opts.max_frames  = j.value("maxFrames",   500);
+                        opts.temperature = j.value("temperature", 0.9f);
+                        opts.top_p       = j.value("topP",        0.95f);
+                        opts.top_k       = j.value("topK",        50);
+                        opts.seed        = j.value("seed",        0u);
+
+                    } catch (const std::exception &e) {
+                        throw std::runtime_error(std::string("invalid options JSON: ") + e.what());
+                    }
+                    if (opts.prompt.empty()) {
+                        throw std::runtime_error("generateAudioCodes: prompt is empty");
+                    }
+
+                    rnllama::llama_rn_audio_codes_progress_cb cb;
+                    if (onFrame) {
+                        // Fire-and-forget per-frame notification.  We never
+                        // block on the JS side, so the return value is
+                        // always "continue"; aborting from JS isn't wired
+                        // through here yet.
+                        cb = [onFrame, runtimePtr, callInvoker](int step, const std::vector<int32_t> &codes) -> bool {
+                            std::vector<int32_t> codes_copy = codes;
+                            callInvoker->invokeAsync([onFrame, runtimePtr, step, codes_copy]() {
+                                auto &rt = *runtimePtr;
+                                jsi::Array arr(rt, codes_copy.size());
+                                for (size_t i = 0; i < codes_copy.size(); ++i) {
+                                    arr.setValueAtIndex(rt, i, (double) codes_copy[i]);
+                                }
+                                onFrame->call(rt, jsi::Value((double) step), arr);
+                            });
+                            return true;
+                        };
+                    }
+
+                    try {
+                        auto r = ctx->tts_wrapper->generateAudioCodes(ctx, opts, cb);
+                        return [r](jsi::Runtime& rt) {
+                            jsi::Object obj(rt);
+                            jsi::Array arr(rt, r.codes.size());
+                            for (size_t i = 0; i < r.codes.size(); ++i) {
+                                arr.setValueAtIndex(rt, i, (double) r.codes[i]);
+                            }
+                            obj.setProperty(rt, "codes", arr);
+                            obj.setProperty(rt, "nCodebook",     jsi::Value((double) r.n_codebook));
+                            obj.setProperty(rt, "nFrames",       jsi::Value((double) r.n_frames));
+                            obj.setProperty(rt, "stoppedOnEos",  jsi::Value(r.stopped_on_eos));
+                            obj.setProperty(rt, "aborted",       jsi::Value(r.aborted));
+                            return obj;
+                        };
+                    } catch (const std::exception &e) {
+                        throw std::runtime_error(e.what());
+                    }
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaGenerateAudioCodes", generateAudioCodes);
+
+        // llamaCreateSpeaker(ctxId, optsJson)
+        //   optsJson: { pcm: number[], inputSampleRate: number, refText: string,
+        //               bake: boolean, emotion?: number }
+        // Resolves: { id: number, family: string, rows: number, baked: boolean }
+        auto createSpeaker = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaCreateSpeaker"),
+            2,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                std::string optsJson = arguments[1].asString(runtime).utf8(runtime);
+
+                std::vector<float> pcm;
+                int inputSampleRate = 0;
+                std::string refText;
+                float emotion = 0.5f;
+                bool has_emotion = false;
+                bool bake = false;
+
+                try {
+                    auto j = nlohmann::ordered_json::parse(optsJson);
+                    if (j.contains("pcm") && j["pcm"].is_array()) {
+                        pcm.reserve(j["pcm"].size());
+                        for (const auto & v : j["pcm"]) {
+                            pcm.push_back((float) v.get<double>());
+                        }
+                    }
+                    inputSampleRate = j.value("inputSampleRate", 0);
+                    refText         = j.value("refText", std::string());
+                    bake            = j.value("bake", false);
+                    if (j.contains("emotion") && j["emotion"].is_number()) {
+                        has_emotion = true;
+                        emotion = (float) j["emotion"].get<double>();
+                    }
+                } catch (const std::exception & e) {
+                    throw std::runtime_error(std::string("createSpeaker: invalid options JSON: ") + e.what());
+                }
+
+                return createPromiseTask(runtime, callInvoker, [contextId, pcm, inputSampleRate, refText, emotion, has_emotion, bake]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
+
+                    auto cap = ctx->tts_wrapper->getTTSCapabilities(ctx);
+                    std::string family = cap.family;
+
+                    const int speakerId = ctx->tts_wrapper->createSpeaker(
+                        ctx, pcm, inputSampleRate, refText, emotion, has_emotion, bake);
+
+                    const rnllama::rn_speaker * spk = ctx->tts_wrapper->getSpeaker(speakerId);
+                    int rows  = spk ? spk->rows  : 0;
+                    bool baked = spk ? spk->baked : false;
+
+                    return [speakerId, family, rows, baked](jsi::Runtime& rt) {
+                        jsi::Object obj(rt);
+                        obj.setProperty(rt, "id",     jsi::Value((double) speakerId));
+                        obj.setProperty(rt, "family", jsi::String::createFromUtf8(rt, family));
+                        obj.setProperty(rt, "rows",   jsi::Value((double) rows));
+                        obj.setProperty(rt, "baked",  jsi::Value(baked));
+                        return obj;
+                    };
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaCreateSpeaker", createSpeaker);
+
+        // llamaBakeSpeaker(ctxId, speakerId)
+        // Resolves: { rows: number, baked: boolean }
+        auto bakeSpeaker = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaBakeSpeaker"),
+            2,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                int speakerId = (int)arguments[1].asNumber();
+
+                return createPromiseTask(runtime, callInvoker, [contextId, speakerId]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
+
+                    ctx->tts_wrapper->bakeSpeaker(ctx, speakerId);
+
+                    const rnllama::rn_speaker * spk = ctx->tts_wrapper->getSpeaker(speakerId);
+                    if (!spk) throw std::runtime_error("bakeSpeaker: speaker id not found");
+
+                    int rows  = spk->rows;
+                    bool baked = spk->baked;
+
+                    return [rows, baked](jsi::Runtime& rt) {
+                        jsi::Object obj(rt);
+                        obj.setProperty(rt, "rows",  jsi::Value((double) rows));
+                        obj.setProperty(rt, "baked", jsi::Value(baked));
+                        return obj;
+                    };
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaBakeSpeaker", bakeSpeaker);
+
+        // llamaReleaseSpeaker(ctxId, speakerId)
+        // Resolves: void
+        auto releaseSpeaker = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaReleaseSpeaker"),
+            2,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                int speakerId = (int)arguments[1].asNumber();
+
+                return createPromiseTask(runtime, callInvoker, [contextId, speakerId]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
+
+                    ctx->tts_wrapper->releaseSpeaker(speakerId);
+
+                    return [](jsi::Runtime& rt) { return jsi::Value::undefined(); };
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaReleaseSpeaker", releaseSpeaker);
+
+        auto decodeAudioEmbeddings = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaDecodeAudioEmbeddings"),
+            3,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+                jsi::Array embeddingsArr = arguments[1].asObject(runtime).asArray(runtime);
+                int embeddingDim = (int)arguments[2].asNumber();
+                std::vector<float> embeddings;
+                embeddings.reserve(embeddingsArr.size(runtime));
+                for (size_t i = 0; i < embeddingsArr.size(runtime); i++) {
+                    embeddings.push_back((float)embeddingsArr.getValueAtIndex(runtime, i).asNumber());
+                }
+
+                return createPromiseTask(runtime, callInvoker, [contextId, embeddings, embeddingDim]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
+
+                    try {
+                        auto audio_data = ctx->tts_wrapper->decodeAudioEmbeddings(ctx, embeddings, embeddingDim);
+                        return [audio_data](jsi::Runtime& rt) {
+                            jsi::Array res(rt, audio_data.size());
+                            for (size_t i = 0; i < audio_data.size(); i++) {
+                                res.setValueAtIndex(rt, i, (double)audio_data[i]);
+                            }
+                            return res;
+                        };
+                    } catch (const std::exception &e) {
+                        throw std::runtime_error(e.what());
+                    }
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaDecodeAudioEmbeddings", decodeAudioEmbeddings);
+
+        auto getAudioSampleRate = jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "llamaGetAudioSampleRate"),
+            1,
+            [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
+                int contextId = (int)arguments[0].asNumber();
+
+                return createPromiseTask(runtime, callInvoker, [contextId]() -> PromiseResultGenerator {
+                    auto ctx = getContextOrThrow(contextId);
+                    if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
+
+                    const int sample_rate = ctx->tts_wrapper->getAudioSampleRate();
+                    return [sample_rate](jsi::Runtime& rt) {
+                        return jsi::Value((double)sample_rate);
+                    };
+                }, contextId);
+            }
+        );
+        runtime.global().setProperty(runtime, "llamaGetAudioSampleRate", getAudioSampleRate);
 
         // Cache management
         auto clearCache = jsi::Function::createFromHostFunction(runtime,

@@ -460,6 +460,8 @@ namespace rnllama_jsi {
         sparams.seed = getPropertyAsInt(runtime, params, "seed", -1);
         ctx->params.n_predict = getPropertyAsInt(runtime, params, "n_predict", ctx->params.n_predict);
         ctx->params.sampling.ignore_eos = getPropertyAsBool(runtime, params, "ignore_eos", ctx->params.sampling.ignore_eos);
+        ctx->params.embedding = getPropertyAsBool(runtime, params, "embedding", false);
+        llama_set_embeddings(ctx->ctx, ctx->params.embedding);
         applySpeculativeOptions(runtime, params, ctx->params);
 
         sparams.temp = getPropertyAsDouble(runtime, params, "temperature", sparams.temp);
@@ -666,5 +668,12 @@ namespace rnllama_jsi {
             ctx->params.cpuparams.n_threads = nThreads > 0 ? nThreads : defaultNThreads;
         }
 #endif
+
+        // TTS speaker id: thread from completion options into tts_wrapper so
+        // rn-completion.cpp can resolve the speaker via getSpeaker(pending_speaker_id).
+        // Default -1 means no speaker override.
+        if (ctx->tts_wrapper != nullptr) {
+            ctx->tts_wrapper->pending_speaker_id = getPropertyAsInt(runtime, params, "speakerId", -1);
+        }
     }
 }

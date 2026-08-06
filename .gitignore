@@ -102,6 +102,10 @@ local-plan-done
 
 tests/*.gguf
 tests/status_changes.log
+
+# Local scratch + host build artifacts
+.scratch/
+build-host/
 .claude/settings.local.json
 tests/android/build-hexagon/
 

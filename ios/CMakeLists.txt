@@ -41,6 +41,23 @@ file(GLOB MTMD_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/tools/mtmd/*.cpp)
 file(GLOB MTMD_MODEL_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/tools/mtmd/models/*.cpp)
 file(GLOB COMMON_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/common/*.cpp)
 file(GLOB JINJA_FILES CONFIGURE_DEPENDS ${SOURCE_DIR}/common/jinja/*.cpp)
+file(GLOB CODEC_FILES CONFIGURE_DEPENDS
+    ${SOURCE_DIR}/codec/src/*.cpp
+    ${SOURCE_DIR}/codec/src/batch/*.cpp
+    ${SOURCE_DIR}/codec/src/models/*.cpp
+    ${SOURCE_DIR}/codec/src/ops/*.cpp
+    ${SOURCE_DIR}/codec/src/runtime/*.cpp
+    ${SOURCE_DIR}/codec/src/lm/*.cpp
+    ${SOURCE_DIR}/codec/common/*.cpp
+)
+# tts_runner{,_flow}.cpp are codec.cpp's reference host loop; they pull in
+# codec_example_* helpers from examples/utils (not shipped here) and un-prefixed
+# common_* symbols. rn-tts drives its own AR loop via codec_lm_*, so drop them —
+# matching tests/CMakeLists.txt (keeps only audio_lm.cpp from codec/common).
+list(REMOVE_ITEM CODEC_FILES
+    ${SOURCE_DIR}/codec/common/tts_runner.cpp
+    ${SOURCE_DIR}/codec/common/tts_runner_flow.cpp
+)
 
 if (CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
     set(SOURCE_FILES_ARCH
@@ -102,6 +119,9 @@ add_library(rnllama SHARED
     # Jinja template engine
     ${JINJA_FILES}
 
+    # codec.cpp sources
+    ${CODEC_FILES}
+
     # Headers (needed for build)
     ${SOURCE_DIR}/common/chat.h
     ${SOURCE_DIR}/common/common.h
@@ -133,6 +153,8 @@ target_include_directories(rnllama
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common>
         $<INSTALL_INTERFACE:include>
 )
 

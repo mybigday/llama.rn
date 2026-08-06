@@ -32,6 +32,10 @@
     "**/node_modules",
     "**/Pods",
     "third_party",
-    "tests"
+    "tests",
+    "build",
+    "build-host",
+    "example/android",
+    "example/ios"
   ]
 }

@@ -16,6 +16,8 @@ include_directories(
     ${RNLLAMA_LIB_DIR}/common/jinja
     ${RNLLAMA_LIB_DIR}/ggml-cpu
     ${RNLLAMA_LIB_DIR}/tools/mtmd
+    ${RNLLAMA_LIB_DIR}/codec/include
+    ${RNLLAMA_LIB_DIR}/codec/common
 )
 
 # Collect source files using glob patterns
@@ -28,6 +30,23 @@ file(GLOB MTMD_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/tools/mtmd/*.cpp)
 file(GLOB MTMD_MODEL_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/tools/mtmd/models/*.cpp)
 file(GLOB COMMON_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/common/*.cpp)
 file(GLOB JINJA_FILES CONFIGURE_DEPENDS ${RNLLAMA_LIB_DIR}/common/jinja/*.cpp)
+file(GLOB CODEC_FILES CONFIGURE_DEPENDS
+    ${RNLLAMA_LIB_DIR}/codec/src/*.cpp
+    ${RNLLAMA_LIB_DIR}/codec/src/batch/*.cpp
+    ${RNLLAMA_LIB_DIR}/codec/src/models/*.cpp
+    ${RNLLAMA_LIB_DIR}/codec/src/ops/*.cpp
+    ${RNLLAMA_LIB_DIR}/codec/src/runtime/*.cpp
+    ${RNLLAMA_LIB_DIR}/codec/src/lm/*.cpp
+    ${RNLLAMA_LIB_DIR}/codec/common/*.cpp
+)
+# tts_runner{,_flow}.cpp are codec.cpp's reference host loop; they pull in
+# codec_example_* helpers from examples/utils (not shipped here) and un-prefixed
+# common_* symbols. rn-tts drives its own AR loop via codec_lm_*, so drop them —
+# matching tests/CMakeLists.txt (keeps only audio_lm.cpp from codec/common).
+list(REMOVE_ITEM CODEC_FILES
+    ${RNLLAMA_LIB_DIR}/codec/common/tts_runner.cpp
+    ${RNLLAMA_LIB_DIR}/codec/common/tts_runner_flow.cpp
+)
 
 # Source files for rnllama library (excluding jni.cpp and jni-utils)
 set(
@@ -61,6 +80,9 @@ set(
 
     # Jinja template engine
     ${JINJA_FILES}
+
+    # codec.cpp sources
+    ${CODEC_FILES}
 
     # Multimodal support (globbed)
     ${MTMD_MODEL_FILES}

@@ -6,3 +6,8 @@ rnllama-release.keystore
 *.app.dSYM.zip
 report.xml
 assets/
+# ...but keep the committed TTS demo reference-audio asset (statically imported
+# by the TTS screen — Metro must resolve it to bundle the example app).
+!/src/assets/
+!/src/assets/voices/
+!/src/assets/voices/en_f1.ts

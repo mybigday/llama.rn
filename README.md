@@ -10,6 +10,7 @@ React Native binding of [llama.cpp](https://github.com/ggerganov/llama.cpp) - LL
 
 - **GPU/NPU Acceleration**: Metal (iOS), Hexagon NPU (Android, Experimental) for on-device inference
 - **Multimodal Support**: Support vision/audio understanding models through mmproj projector integration
+- **Text-to-Speech (Experimental)**: On-device neural TTS via [codec.cpp](https://github.com/mybigday/codec.cpp) — OuteTTS, Soprano, NeuTTS, CSM, Qwen3-TTS, MOSS, Chatterbox, BlueMagpie — with reference-audio voice cloning
 - **Parallel Decoding**: Slot-based concurrent request processing with automatic queue management
 - **Tool Calling**: Universal function calling support via Jinja templates
 - **Grammar Sampling**: GBNF and JSON schema support for structured, constrained output generation
@@ -603,7 +604,6 @@ await context.parallel.disable()
 - Request processing runs in a background loop that manages slot states automatically
 - All standard completion parameters (temperature, top_k, etc.) work per-request
 - The context must be initialized with sufficient `n_parallel` (default: 8) to support desired slot count
-- Currently TTS models are not yet supported
 - State load/save are not fully supported on Android with OpenCL backend, but you can set `kv_unified: true` and `flash_attn_type: 'off'` context parameter to enable it.
 
 ## Session (State)
@@ -690,6 +690,123 @@ results.forEach((result, index) => {
 - [jinaai - jina-reranker-v2-base-multilingual-GGUF](https://huggingface.co/gpustack/jina-reranker-v2-base-multilingual-GGUF)
 - [BAAI - bge-reranker-v2-m3-GGUF](https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF)
 - Other models with "rerank" or "reranker" in their name and GGUF format
+
+## Text-to-Speech (TTS)
+
+> [!WARNING]
+> **Experimental.** The TTS / codec integration is not production-ready. The API surface may change without a major version bump, and several model families do not yet produce correct speech on all backends — see [Tested models](#tested-models) before picking one.
+
+`llama.rn` runs on-device neural text-to-speech through [codec.cpp](https://github.com/mybigday/codec.cpp) as the audio-codec / vocoder backend. Load a TTS backbone as usual, attach its codec (vocoder) GGUF, then drive the synthesis flow the library detects for the model.
+
+### Supported models
+
+The model family is auto-detected natively; `getTTSCapabilities()` reports it and `getFormattedAudioCompletion()` returns the right synthesis `flow`.
+
+| Family | Variants | Flow |
+|---|---|---|
+| **OuteTTS** | v0.1 · v0.2 · v0.3 · v1.0 | `tokens` |
+| **Soprano** | 1.1 (80M) | `tokens` |
+| **NeuTTS** | Nano · Air *(needs a phonemizer)* | `tokens` |
+| **CSM** | 1B | `tokens` |
+| **Qwen3-TTS** | 0.6B | `tokens` |
+| **MOSS-TTSD** | v0.5 | `tokens` |
+| **MOSS-TTS-Realtime** | streaming interleave | `tokens` |
+| **Chatterbox (T3)** | English · 23-language multilingual | `tokens` |
+| **BlueMagpie-TTS** | Barbet backbone + AudioVAE | `continuous_embd` |
+
+"Supported" means the family is detected and wired end-to-end. It does **not** mean every family is verified on every backend — see [Tested models](#tested-models).
+
+There are two synthesis flows:
+
+- **`tokens`** — the standard completion loop drives the model (including the codec-LM AR step machine for CSM / Qwen3-TTS / MOSS / Chatterbox) and appends audio codes to `result.audio_tokens`; decode them with `decodeAudioTokens()`.
+- **`continuous_embd`** — continuous-latent models (BlueMagpie-TTS); the loop collects `result.embeddings` (+ `embedding_dim`), decoded with `decodeAudioEmbeddings()`.
+
+> Codec-LM AR and continuous-latent models must be initialized with `embedding: true`.
+
+### Usage
+
+```ts
+import { initLlama } from 'llama.rn'
+
+const ctx = await initLlama({
+  model: backbonePath,
+  n_gpu_layers: 99,
+  embedding: true, // required for codec-LM AR / continuous models
+})
+
+// Attach the codec / vocoder GGUF
+await ctx.initVocoder({ path: codecGgufPath, n_batch: 4096 }) // + optional use_gpu
+
+const caps = await ctx.getTTSCapabilities()
+// { type, family, promptKind, requiresPhonemes, defaultLanguage }
+
+// Build the model-specific prompt + resolve the flow
+const { prompt, grammar, embedding, flow } = await ctx.getFormattedAudioCompletion({
+  prompt: 'Hello world',
+  speaker: 'default', // built-in voice name, a LlamaSpeaker (voice clone), or omit for the family default
+  // supply a phonemizer only for models that need it (caps.requiresPhonemes)
+  phonemizer: caps.requiresPhonemes ? (text, lang) => toIPA(text, { language: lang }) : undefined,
+})
+
+// Drive the completion loop, then decode to PCM float samples
+const result = await ctx.completion({ prompt, grammar, embedding, temperature: 0.7, top_p: 0.9 })
+const sampleRate = await ctx.getAudioSampleRate()
+
+const pcm = flow === 'continuous_embd'
+  ? new Float32Array(await ctx.decodeAudioEmbeddings(result.embeddings, result.embedding_dim))
+  : new Float32Array(await ctx.decodeAudioTokens(result.audio_tokens ?? []))
+
+await ctx.releaseVocoder() // free the codec graphs when done
+```
+
+### Voice cloning
+
+Create a native speaker handle from a reference clip and pass it as `speaker`. The reference is encoded lazily on first use (or eagerly via `spk.bake()`); the embedding lives natively (no per-call copy, no JSON marshaling) and is injected at the model's speaker position automatically:
+
+```ts
+const spk = await ctx.createSpeaker({
+  refAudio,                 // Float32Array (mono reference audio)
+  refAudioSampleRate: 24000,
+  refText: 'reference transcript',
+})
+const { prompt, embedding, flow } = await ctx.getFormattedAudioCompletion({ prompt: 'Hello world', speaker: spk })
+// ...drive the flow as above — the speaker is armed automatically...
+await spk.release()         // free the native speaker when done
+```
+
+### Tested models
+
+Every family in the catalog was run end-to-end (load → synthesize → decode) on an Apple M1 Max (Metal and CPU) and a Galaxy S25 Ultra / Snapdragon 8 Elite (Hexagon HTP and CPU), then the generated audio was transcribed with Whisper large-v3-turbo to check it actually says the requested text.
+
+Legend: ✅ pass · ⚠️ works but output is unreliable · ❌ fails · — not runnable on that backend.
+
+| Family | Metal | macOS CPU | Hexagon HTP | Android CPU | Speech matches input |
+|---|:--:|:--:|:--:|:--:|---|
+| **CSM** 1B | ✅ | ✅ | ✅ | ✅ | ✅ Consistently correct |
+| **Chatterbox** multilingual | ✅ | ✅ | ✅ | ✅ | ✅ Consistently correct |
+| **BlueMagpie-TTS** Barbet-1B | ✅ | ✅ | ❌ cDSP crash on init | ✅ | ✅ Consistently correct |
+| **MOSS-TTS-Realtime** | ✅ | ✅ | ❌ OOM | ❌ OOM | ✅ Correct where it runs |
+| **NeuTTS** Nano · Air | ✅ | ✅ | ✅ | ✅ | ⚠️ Unstable / often garbled |
+| **MOSS-TTSD** v0.5 | ❌ grammar error | ✅ | ❌ grammar error | ✅ | ⚠️ Partial at best |
+| **OuteTTS** v0.3 | ❌ no audio emitted | ✅ | ✅ | ✅ | ❌ Does not match |
+| **OuteTTS** v1.0 | ✅ | ✅ | ✅ | ✅ | ❌ Does not match |
+| **Soprano** 1.1 | ✅ | ✅ | ✅ | ✅ | ❌ Does not match |
+| **Qwen3-TTS** 0.6B | ✅ | ✅ | ✅ | ✅ | ❌ Does not match |
+| **OuteTTS** v0.1 · v0.2 | — | — | — | — | Not covered by this run |
+
+Caveats:
+
+- The last column is a Whisper content check, not an audio-quality (MOSS/MOS) score. Short clips can produce false negatives, so treat ⚠️ as "needs a manual listen", not as a confirmed bug.
+- A ✅ in a backend column only means the pipeline produced structurally valid, finite audio — read it together with the last column.
+- MOSS-TTS-Realtime needs more RAM than a 12 GB Android device can give it; Android's low-memory killer terminates the app during load on both HTP and CPU.
+- On Apple Silicon, CPU-only inference (`n_gpu_layers: 0`) additionally hits a `SIGILL` in the q4_K repack kernel inside the iOS runtime, so the Metal path is the only supported one there for now.
+- One-pass functional runs from Debug builds, not a statistically sampled benchmark.
+
+### Notes
+
+- `isVocoderEnabled()` reports whether a codec is attached; `releaseVocoder()` frees the codec graphs when you're done.
+- The example app's **Text-to-Speech** screen wires each family end-to-end (download → init → synthesize → play).
+- This is audio *output*. Audio *input* (understanding) is a separate feature — see [Multimodal (Vision & Audio)](#multimodal-vision--audio).
 
 ## Mock `llama.rn`
 
