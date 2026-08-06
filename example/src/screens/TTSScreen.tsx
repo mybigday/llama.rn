@@ -365,6 +365,10 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
     try {
       setIsLoading(true)
 
+      // Each synthesis request starts at position 0. Embedding-driven TTS
+      // prefills cannot safely reuse the previous generation's KV entries.
+      await context.clearCache(false)
+
       const speakerCfg = ttsParams?.speakerConfig
       if (speakerCfg && typeof speakerCfg === 'object' && isVocoderReady) {
         const pcm = decodeBase64Pcm16(DEFAULT_REF_AUDIO.pcm16Base64)
