@@ -31,6 +31,7 @@ project.xcworkspace
 
 # Android/IJ
 #
+.ccache
 .classpath
 .cxx
 .gradle

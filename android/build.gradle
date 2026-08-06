@@ -150,6 +150,14 @@ android {
       "-DREACT_NATIVE_MINOR_VERSION=${REACT_NATIVE_MINOR_VERSION}"
     ]
 
+    // Narrows the CPU-feature variants built for each ABI. Each variant is a full
+    // copy of the source tree, so CI uses this to keep build times sane.
+    def rnllamaVariants = project.findProperty("rnllamaVariants")?.toString()?.trim()
+    if (rnllamaVariants) {
+      println("ℹ️  Building rnllama variants: ${rnllamaVariants}")
+      cmakeArgs += ["-DRNLLAMA_ANDROID_VARIANTS=${rnllamaVariants}"]
+    }
+
     if (hexagonPresent) {
       println("✅ Hexagon SDK detected — enabling DSP build")
       cmakeArgs += [

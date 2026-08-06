@@ -4,6 +4,8 @@ project(llama.rn)
 
 set(CMAKE_ANDROID_STL_TYPE c++_shared)
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rnllama-build-options.cmake)
+
 find_package(ReactAndroid CONFIG REQUIRED)
 # Try to find fbjni separately if not in ReactAndroid
 find_package(fbjni CONFIG REQUIRED)
@@ -41,6 +43,12 @@ set(JNI_SOURCE_FILES
 )
 
 function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
+    rnllama_variant_enabled(${rnllama_name} VARIANT_ENABLED)
+    if (NOT VARIANT_ENABLED)
+        message(STATUS "Skipping ${jni_name} - not in RNLLAMA_ANDROID_VARIANTS")
+        return()
+    endif()
+
     if (NOT RNLLAMA_BUILD_FROM_SOURCE)
         set(PREBUILT_CHECK_PATH ${CMAKE_SOURCE_DIR}/jniLibs/${ANDROID_ABI}/lib${rnllama_name}.so)
         if (NOT EXISTS ${PREBUILT_CHECK_PATH})
@@ -138,7 +146,7 @@ function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
 
     target_link_options(${jni_name} PRIVATE -Wl,--gc-sections)
     target_link_options(${jni_name} PRIVATE -Wl,--exclude-libs,ALL)
-    target_link_options(${jni_name} PRIVATE -flto)
+    target_link_options(${jni_name} PRIVATE -flto=thin)
 endfunction()
 
 # Default target (no specific CPU features)
