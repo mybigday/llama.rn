@@ -123,6 +123,13 @@ jobs:
 
   build-android-from-source:
     runs-on: ubuntu-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      # Debug objects carry DWARF, so they need more room than the release job's.
+      CCACHE_MAXSIZE: 2G
+      # The NDK is reinstalled per run, so hash the compiler rather than stat it.
+      CCACHE_COMPILERCHECK: content
+      CCACHE_SLOPPINESS: time_macros,include_file_mtime,include_file_ctime
     steps:
       - name: Maximize build space
         run: |
@@ -145,18 +152,61 @@ jobs:
         uses: burrunan/gradle-cache-action@v3
         with:
           gradle-version: wrapper
+
+      # libOpenCL.so is built from submodules that checkout does not fetch, so the
+      # pinned commits have to go into the cache key explicitly.
+      - name: Resolve OpenCL submodule pins
+        id: opencl-pin
+        run: |
+          echo "sha=$(git rev-parse HEAD:third_party/OpenCL-ICD-Loader)-$(git rev-parse HEAD:third_party/OpenCL-Headers)" >> "$GITHUB_OUTPUT"
+
+      # Placed after Setup: bootstrap regenerates cpp/ggml-hexagon, so the key has
+      # to be computed from the post-bootstrap sources.
+      - name: Cache Hexagon HTP & OpenCL artifacts
+        id: htp-cache
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: |
+            bin
+            cpp/ggml-hexagon/htp/v73
+          key: ${{ runner.os }}-htp-${{ steps.opencl-pin.outputs.sha }}-${{ hashFiles('scripts/build-hexagon-htp.sh', 'scripts/build-opencl.sh', 'scripts/docker-build-wrapper.sh', 'cpp/ggml-hexagon/htp/**') }}
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-ccache-android-src-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-android-src-
+
+      - name: Setup ccache
+        uses: ./.github/actions/setup-ccache
 
       - name: Build example for Android
         env:
           HEXAGON_SDK_VERSION: 6.4.0.2
           HEXAGON_TOOLS_VERSION: 19.0.04
+          # Each variant recompiles the whole source tree, so build only the ones
+          # that exercise distinct code paths: generic CPU, arm64 with
+          # dotprod+i8mm+hexagon+opencl, and x86_64. The remaining arm64 variants
+          # differ only in -march; build-android-libs still builds all of them.
+          ORG_GRADLE_PROJECT_rnllamaVariants: rnllama,rnllama_v8_2_dotprod_i8mm_hexagon_opencl,rnllama_x86_64
+          ORG_GRADLE_PROJECT_rnllamaHtpArtifactsUpToDate: ${{ steps.htp-cache.outputs.cache-hit == 'true' }}
         run: |
           export HEXAGON_SDK_ROOT="$HOME/.hexagon-sdk/$HEXAGON_SDK_VERSION"
           export HEXAGON_TOOLS_ROOT="$HEXAGON_SDK_ROOT/tools/HEXAGON_Tools/$HEXAGON_TOOLS_VERSION"
           npm run build:android
+          ccache --show-stats
 
   build-android-libs:
     runs-on: ubuntu-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 1G
+      CCACHE_COMPILERCHECK: content
+      CCACHE_SLOPPINESS: time_macros,include_file_mtime,include_file_ctime
     steps:
       - name: Maximize build space
         run: |
@@ -180,13 +230,25 @@ jobs:
         with:
           gradle-version: wrapper
 
+      - name: Cache ccache
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-ccache-android-libs-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-android-libs-
+
+      - name: Setup ccache
+        uses: ./.github/actions/setup-ccache
+
       - name: Build libraries
         run: |
           npm run build:android-libs
+          ccache --show-stats
 
       - name: Build example for Android
         run: |
           sed -i 's/rnllamaBuildFromSource=true/rnllamaBuildFromSource=false/g' example/android/gradle.properties
-          sed -i 's/reactNativeArchitectures=.*/reactNativeArchitectures=arm64-v8a,x86_64/g' example/android/gradle.properties
           cd example/android
           ./gradlew assembleDebug --stacktrace

@@ -1,0 +1,15 @@
+name: Setup ccache
+description: Ensures ccache is installed so the CMake builds can pick it up
+
+runs:
+  using: composite
+  steps:
+    - name: Install ccache
+      run: |
+        if ! command -v ccache > /dev/null; then
+          sudo apt-get update
+          sudo apt-get install -y ccache
+        fi
+        ccache --version
+        ccache --zero-stats
+      shell: bash
