@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.12)
 
 project(rnllama)
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/rnllama-build-options.cmake)
+
 option(HEXAGON_SDK_ROOT "Hexagon SDK root directory" OFF)
 option(HEXAGON_TOOLS_ROOT "Hexagon SDK toolchain directory" OFF)
 
@@ -111,6 +113,12 @@ else()
 endif()
 
 function(build_rnllama_library target_name arch cpu_flags)
+    rnllama_variant_enabled(${target_name} VARIANT_ENABLED)
+    if (NOT VARIANT_ENABLED)
+        message(STATUS "Skipping ${target_name} - not in RNLLAMA_ANDROID_VARIANTS")
+        return()
+    endif()
+
     set(ENABLE_OPENCL OFF)
     if (${target_name} MATCHES ".*_opencl$")
         set(ENABLE_OPENCL ON)
@@ -142,7 +150,10 @@ function(build_rnllama_library target_name arch cpu_flags)
         target_compile_options(${target_name} PRIVATE -DLM_GGML_CPU_GENERIC)
     endif ()
 
-    target_compile_options(${target_name} PRIVATE -DLM_GGML_USE_CPU -DLM_GGML_USE_CPU_REPACK -pthread ${cpu_flags} -fvectorize -ffp-model=fast -fno-finite-math-only -flto -D_GNU_SOURCE)
+    # ThinLTO rather than monolithic LTO: linking is parallel and incremental, and
+    # peak memory stays low enough that several variants can link concurrently
+    # (full LTO here OOM-killed 16 GB CI runners).
+    target_compile_options(${target_name} PRIVATE -DLM_GGML_USE_CPU -DLM_GGML_USE_CPU_REPACK -pthread ${cpu_flags} -fvectorize -ffp-model=fast -fno-finite-math-only -flto=thin -D_GNU_SOURCE)
 
     if (CMAKE_BUILD_TYPE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
         target_compile_options(${target_name} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
@@ -453,7 +464,7 @@ function(build_rnllama_library target_name arch cpu_flags)
     target_compile_options(${target_name} PRIVATE -ffunction-sections -fdata-sections)
 
     target_link_options(${target_name} PRIVATE -Wl,--gc-sections)
-    target_link_options(${target_name} PRIVATE -flto)
+    target_link_options(${target_name} PRIVATE -flto=thin)
 endfunction()
 
 # Default target (no specific CPU features)
