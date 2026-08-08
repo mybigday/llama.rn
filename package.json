@@ -234,6 +234,7 @@
     "tests/build",
     "*.d.ts",
     "tests/build/",
+    "tests/build-metal/",
     "third_party/llama.cpp/",
     "third_party/codec.cpp/",
     "build/",

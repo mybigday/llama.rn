@@ -1183,7 +1183,14 @@ export class LlamaContext {
     } else {
       const name =
         typeof options.speaker === 'string' ? options.speaker : 'default'
-      const voice = lookupVoice(cap.family, name, language)
+      // The built-in OuteTTS voice is a legacy word/codes payload that only
+      // fits the legacy / V0.3 prompt builders. OuteTTS 1.0 expects per-word
+      // c1/c2 codes — resolving the legacy payload for it poisons the prompt
+      // (codeless word blocks), so V1.0 falls back to speaker-less generation.
+      const voice =
+        cap.promptKind === 'outetts_v1_0'
+          ? null
+          : lookupVoice(cap.family, name, language)
       if (!voice && typeof options.speaker === 'string') {
         // Not a type check — this reports an unknown voice *value*, so Error
         // (not TypeError) is correct despite the enclosing typeof guard.

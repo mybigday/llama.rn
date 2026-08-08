@@ -312,14 +312,23 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
       //   - use_mlock=false lets the OS demand-page cold model regions; the
       //     "failed to mlock" warning at init was a symptom of forced
       //     residency + tight RAM.
-      //   - cache_type_k/v='q8_0' further halves attn KV memory at
-      //     negligible TTS quality cost.
+      //   - cache_type_k/v='q8_0' further halves attn KV memory, but ONLY for
+      //     BlueMagpie (the one family whose codec pushes memory limits).
+      //     Small token-flow audio LMs are sensitive to KV quantization —
+      //     OuteTTS 0.3 (Qwen2 500M) produces corrupt audio with q8_0 KV.
+      const isBlueMagpie = ttsPath
+        .toLowerCase()
+        .match(/bluemagpie|barbet/)
       const ttsParams = {
         ...params,
         n_ctx: Math.min(params.n_ctx ?? 8192, 4096),
         use_mlock: false,
-        cache_type_k: 'q8_0' as const,
-        cache_type_v: 'q8_0' as const,
+        ...(isBlueMagpie
+          ? {
+              cache_type_k: 'q8_0' as const,
+              cache_type_v: 'q8_0' as const,
+            }
+          : {}),
       }
       // Initialize the TTS model
       const llamaContext = await initLlama(
@@ -401,14 +410,22 @@ export default function TTSScreen({ navigation }: { navigation: any }) {
 
       const params = completionParams || (await loadCompletionParams())
 
-      const ttsSamplingDefaults: {
+      // top_k=4 for OuteTTS 0.x matches llama.cpp's tts example — wider
+      // sampling makes the 500M model garble audio codes mid-word
+      // (ASR-verified: 4/4 seeds intelligible at top_k 4 vs 1/4 without).
+      const isLegacyOuteTTS =
+        caps.promptKind === 'outetts_legacy' ||
+        caps.promptKind === 'outetts_v0_3'
+      let ttsSamplingDefaults: {
         temperature: number
         top_p: number
         top_k?: number
-      } =
-        caps.family === 'neutts'
-          ? { temperature: 1.0, top_k: 50, top_p: 1.0 }
-          : { temperature: 0.7, top_p: 0.9 }
+      } = { temperature: 0.7, top_p: 0.9 }
+      if (caps.family === 'neutts') {
+        ttsSamplingDefaults = { temperature: 1.0, top_k: 50, top_p: 1.0 }
+      } else if (isLegacyOuteTTS) {
+        ttsSamplingDefaults = { temperature: 0.7, top_p: 0.9, top_k: 4 }
+      }
 
       // All families run through the standard completion loop. For codec-LM
       // AR models (CSM / Qwen3-TTS / MOSS / Chatterbox) the native loop drives

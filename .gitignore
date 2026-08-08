@@ -112,3 +112,4 @@ tests/android/build-hexagon/
 
 # skill-creator eval scaffolding (throwaway)
 .agents/skills/*-workspace/
+tests/build-metal/

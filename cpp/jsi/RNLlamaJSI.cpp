@@ -1073,7 +1073,12 @@ namespace rnllama_jsi {
                         throw std::runtime_error("MTP speculative decoding currently supports text-only completion");
                     }
 
-                    ctx->completion->rewind();
+                    // NOTE: no rewind() here — it already ran on the JS thread
+                    // BEFORE parseCompletionParams. rewind() resets
+                    // sampling.grammar / antiprompt, so calling it again at this
+                    // point would wipe the grammar and stop sequences this
+                    // completion's params just configured (that regression broke
+                    // TTS grammar-forced output).
                     if (!ctx->completion->initSampling()) {
                         throw std::runtime_error("Failed to initialize sampling");
                     }

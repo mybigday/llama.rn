@@ -788,10 +788,10 @@ Legend: ✅ pass · ⚠️ works but output is unreliable · ❌ fails · — no
 | **MOSS-TTS-Realtime** | ✅ | ✅ | ❌ OOM | ❌ OOM | ✅ Correct where it runs |
 | **NeuTTS** Nano · Air | ✅ | ✅ | ✅ | ✅ | ⚠️ Unstable / often garbled |
 | **MOSS-TTSD** v0.5 | ❌ grammar error | ✅ | ❌ grammar error | ✅ | ⚠️ Partial at best |
-| **OuteTTS** v0.3 | ❌ no audio emitted | ✅ | ✅ | ✅ | ❌ Does not match |
-| **OuteTTS** v1.0 | ✅ | ✅ | ✅ | ✅ | ❌ Does not match |
+| **OuteTTS** v0.3 | ✅ | ✅ | ✅ | ✅ | ⚠️ First word occasionally garbled (model-inherent — upstream llama.cpp `llama-tts` shows the same; use top_k 4) |
+| **OuteTTS** v1.0 | ✅ | ✅ | ✅ | ✅ | ✅ Correct (Metal/macOS verified after speaker + grammar fixes) |
 | **Soprano** 1.1 | ✅ | ✅ | ✅ | ✅ | ❌ Does not match |
-| **Qwen3-TTS** 0.6B | ✅ | ✅ | ✅ | ✅ | ❌ Does not match |
+| **Qwen3-TTS** 0.6B | ✅ | ✅ | ✅ | ✅ | ✅ Correct on latest run |
 | **OuteTTS** v0.1 · v0.2 | — | — | — | — | Not covered by this run |
 
 Caveats:

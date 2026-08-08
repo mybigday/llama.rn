@@ -100,6 +100,12 @@ int main(int argc, char ** argv) {
     float top_p = 0.9f;
     int   top_k = 0;
     uint32_t seed = 0;
+    std::string cache_type;  // e.g. "q8_0" to mirror the example app's TTS init
+    bool force_fa = false;   // force flash_attn on (it is forced anyway for quantized V cache)
+    bool force_no_fa = false;  // force flash_attn off (auto resolves per-backend otherwise)
+    int  n_gpu_layers = 0;   // backbone GPU offload (Metal on macOS)
+    float repeat_penalty = 0.0f;  // > 0 overrides the default (1.0 = off)
+    bool codec_gpu = false;  // run the codec on GPU (mirrors the app's use_gpu default when ngl > 0)
 
     for (int i = 1; i < argc; ++i) {
         auto is = [&](const char * k) { return std::strcmp(argv[i], k) == 0; };
@@ -115,6 +121,12 @@ int main(int argc, char ** argv) {
         else if (is("--top-p")        && i + 1 < argc) top_p             = (float) std::atof(argv[++i]);
         else if (is("--top-k")        && i + 1 < argc) top_k             = std::atoi(argv[++i]);
         else if (is("--seed")         && i + 1 < argc) seed              = (uint32_t) std::atoi(argv[++i]);
+        else if (is("--cache-type")   && i + 1 < argc) cache_type        = argv[++i];
+        else if (is("--fa"))                           force_fa          = true;
+        else if (is("--no-fa"))                        force_no_fa       = true;
+        else if (is("--ngl")          && i + 1 < argc) n_gpu_layers      = std::atoi(argv[++i]);
+        else if (is("--repeat-penalty") && i + 1 < argc) repeat_penalty  = (float) std::atof(argv[++i]);
+        else if (is("--codec-gpu"))                    codec_gpu         = true;
         else { std::fprintf(stderr, "unknown arg: %s\n", argv[i]); return 2; }
     }
 
@@ -147,8 +159,22 @@ int main(int argc, char ** argv) {
     params.n_batch = 1024;
     params.embedding = true;  // continuous flow requires; token flow ignores
     params.cpuparams.n_threads = threads;
-    params.n_gpu_layers = 0;
-    params.no_kv_offload = true;
+    params.n_gpu_layers = n_gpu_layers;
+    params.no_kv_offload = (n_gpu_layers == 0);
+    if (n_gpu_layers > 0) std::printf("[probe] n_gpu_layers = %d\n", n_gpu_layers);
+    if (!cache_type.empty()) {
+        params.cache_type_k = kv_cache_type_from_str(cache_type);
+        params.cache_type_v = kv_cache_type_from_str(cache_type);
+        std::printf("[probe] cache_type_k/v = %s\n", cache_type.c_str());
+    }
+    if (force_fa) {
+        params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+        std::printf("[probe] flash_attn forced on\n");
+    }
+    if (force_no_fa) {
+        params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+        std::printf("[probe] flash_attn forced off\n");
+    }
 
     std::printf("[probe] loading backbone %s\n", backbone_path.c_str());
     const auto t0 = std::chrono::steady_clock::now();
@@ -161,7 +187,8 @@ int main(int argc, char ** argv) {
                 std::chrono::duration<double>(t1 - t0).count());
 
     std::printf("[probe] loading codec %s\n", codec_path.c_str());
-    if (!ctx.initVocoder(codec_path, /*batch_size=*/-1, /*use_gpu=*/false)) {
+    if (codec_gpu) std::printf("[probe] codec on GPU\n");
+    if (!ctx.initVocoder(codec_path, /*batch_size=*/-1, /*use_gpu=*/codec_gpu)) {
         std::fprintf(stderr, "initVocoder failed\n");
         return 5;
     }
@@ -249,6 +276,11 @@ int main(int argc, char ** argv) {
     // and codec_lm-AR flows ignore the backbone sampler (their hooks sample
     // per-codebook internally), so these values are only load-bearing for
     // OuteTTS / NeuTTS / Soprano.
+    //
+    // rewind() must run BEFORE the params below are set: it clears
+    // sampling.grammar / antiprompt, so a later rewind would silently wipe
+    // the grammar (the exact ordering bug that broke the app's TTS output).
+    ctx.completion->rewind();
     ctx.params.prompt     = formatted.prompt;
     ctx.params.n_predict  = n_predict;
     ctx.params.embedding  = formatted.embedding;
@@ -257,11 +289,11 @@ int main(int argc, char ** argv) {
     }
     ctx.params.sampling.temp    = temp;
     ctx.params.sampling.top_p   = top_p;
+    if (repeat_penalty > 0.0f) ctx.params.sampling.penalty_repeat = repeat_penalty;
     if (top_k > 0) ctx.params.sampling.top_k = top_k;
     if (seed > 0) ctx.params.sampling.seed   = seed;
     llama_set_embeddings(ctx.ctx, formatted.embedding);
 
-    ctx.completion->rewind();
     if (!ctx.completion->initSampling()) {
         std::fprintf(stderr, "initSampling failed\n");
         return 6;
@@ -317,6 +349,12 @@ int main(int argc, char ** argv) {
                         : "COMPLETION-EOS");
     }
     std::printf("  total generation time : %.2fs\n", gen_s);
+    {
+        // First chunk of the raw generated text — shows whether the grammar
+        // actually constrained the word/marker tokens.
+        std::string head = ctx.completion->generated_text.substr(0, 400);
+        std::printf("  generated_text head   : %s\n", head.c_str());
+    }
 
     if (out_wav.empty()) {
         // Nothing else to do — no WAV requested.
