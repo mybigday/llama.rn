@@ -38,7 +38,15 @@ file(GLOB MODEL_FILES ${SOURCE_DIR}/models/*.cpp)
 # kernels and leaves the *_generic fallbacks unresolved.
 file(GLOB GGML_CPU_C_FILES ${SOURCE_DIR}/ggml-cpu/*.c)
 file(GLOB GGML_CPU_CPP_FILES ${SOURCE_DIR}/ggml-cpu/*.cpp)
-file(GLOB GGML_CPU_ARCH_FILES ${SOURCE_DIR}/ggml-cpu/arch/x86/*.c ${SOURCE_DIR}/ggml-cpu/arch/x86/*.cpp)
+if(APPLE)
+    # Probe targets keep LM_GGML_CPU_GENERIC on Apple (no -U override below),
+    # so the per-arch SIMD sources must be left out — mixing them with the
+    # generic build double-defines the public kernels / drops the *_generic
+    # fallbacks and the link fails.
+    set(GGML_CPU_ARCH_FILES "")
+else()
+    file(GLOB GGML_CPU_ARCH_FILES ${SOURCE_DIR}/ggml-cpu/arch/x86/*.c ${SOURCE_DIR}/ggml-cpu/arch/x86/*.cpp)
+endif()
 file(GLOB GGML_CPU_AMX_FILES ${SOURCE_DIR}/ggml-cpu/amx/*.cpp)
 file(GLOB LLAMA_FILES ${SOURCE_DIR}/llama*.cpp)
 file(GLOB MTMD_FILES ${SOURCE_DIR}/tools/mtmd/*.cpp)
@@ -262,11 +270,29 @@ elseif(UNIX AND NOT APPLE)
     target_compile_options(bluemagpie_probe PRIVATE -march=native -U LM_GGML_CPU_GENERIC)
 endif()
 
+# -DTESTS_METAL=ON (Apple only): compile the Metal backend into tts_probe so
+# host runs exercise the same GPU path the app uses (backbone via --ngl,
+# codec via --codec-gpu). Target-scoped: other test targets stay CPU-only.
+if(APPLE AND TESTS_METAL)
+    enable_language(ASM)
+    file(GLOB TTS_PROBE_METAL_FILES
+        ${SOURCE_DIR}/ggml-metal/*.cpp
+        ${SOURCE_DIR}/ggml-metal/*.m
+        ${SOURCE_DIR}/ggml-metal/*.s)
+    set_source_files_properties(${SOURCE_DIR}/ggml-metal/ggml-metal-embed.s PROPERTIES LANGUAGE ASM)
+else()
+    set(TTS_PROBE_METAL_FILES "")
+endif()
+
 add_executable(tts_probe
     tts_probe.cpp
     ${RNLLAMA_COMMON_SOURCES}
     ${GGML_CPU_ARCH_FILES}
+    ${TTS_PROBE_METAL_FILES}
 )
+if(APPLE AND TESTS_METAL)
+    target_compile_definitions(tts_probe PRIVATE LM_GGML_USE_METAL LM_GGML_METAL_EMBED_LIBRARY=1)
+endif()
 target_include_directories(tts_probe
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
@@ -283,6 +309,12 @@ if(APPLE)
         "-framework Accelerate"
         "-framework Foundation"
     )
+    if(TESTS_METAL)
+        target_link_libraries(tts_probe PRIVATE
+            "-framework Metal"
+            "-framework MetalKit"
+        )
+    endif()
 elseif(UNIX AND NOT APPLE)
     find_package(Threads REQUIRED)
     target_link_libraries(tts_probe PRIVATE Threads::Threads m dl)
