@@ -363,6 +363,23 @@ static std::string outetts_v1_codes_from_speaker(json speaker) {
         return "";
     }
 
+    // A V1.0 speaker carries per-word `c1`/`c2` code arrays. A legacy /
+    // V0.x speaker (word + duration + flat `codes`) also matches the
+    // `words` check above, but emitting its words here would produce
+    // word blocks with no codes — a poisoned prompt that makes the model
+    // stop after a short, near-silent ramble. Treat it as "no speaker".
+    bool has_v1_codes = false;
+    for (const auto &word : speaker["words"]) {
+        if (word.contains("c1") && word.contains("c2")) {
+            has_v1_codes = true;
+            break;
+        }
+    }
+    if (!has_v1_codes) {
+        LOG_WARNING("OuteTTS 1.0 speaker has no c1/c2 word codes (legacy speaker shape?); ignoring speaker prefix");
+        return "";
+    }
+
     std::ostringstream audio;
     if (speaker.contains("global_features") && speaker["global_features"].is_object()) {
         audio << "<|global_features_start|>";
