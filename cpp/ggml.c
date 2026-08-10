@@ -7208,6 +7208,10 @@ void lm_ggml_build_forward_expand(struct lm_ggml_cgraph * cgraph, struct lm_ggml
     lm_ggml_build_forward_impl(cgraph, tensor, true, true);
 }
 
+void lm_ggml_build_forward_order(struct lm_ggml_cgraph * cgraph, struct lm_ggml_tensor * tensor) {
+    lm_ggml_build_forward_impl(cgraph, tensor, true, false);
+}
+
 void lm_ggml_build_backward_expand(
         struct lm_ggml_context *  ctx,
         struct lm_ggml_cgraph  *  cgraph,

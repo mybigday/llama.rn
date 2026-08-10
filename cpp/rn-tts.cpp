@@ -108,15 +108,30 @@ struct rnllama_text_embd_table {
 struct rnllama_codebook_sampler {
     llama_sampler * chain = nullptr;
     std::vector<llama_token_data> buf;
+    uint32_t seed = 0;
+    float temp = 0.0f;
+    int32_t top_k = 0;
+    float top_p = 1.0f;
+    float rep_penalty = 1.0f;
+    int32_t rep_last_n = 0;
 
     rnllama_codebook_sampler() = default;
     rnllama_codebook_sampler(const rnllama_codebook_sampler &) = delete;
     rnllama_codebook_sampler & operator=(const rnllama_codebook_sampler &) = delete;
     ~rnllama_codebook_sampler() { if (chain) llama_sampler_free(chain); }
 
-    void init(uint32_t seed, float temp, int32_t top_k, float top_p,
-              float rep_penalty, int32_t rep_last_n) {
+    void init(uint32_t seed_, float temp_, int32_t top_k_, float top_p_,
+              float rep_penalty_, int32_t rep_last_n_) {
         if (chain) { llama_sampler_free(chain); chain = nullptr; }
+        seed = seed_;
+        temp = temp_;
+        top_k = top_k_;
+        top_p = top_p_;
+        rep_penalty = rep_penalty_;
+        rep_last_n = rep_last_n_;
+    }
+
+    void build(int32_t n_vocab) {
         llama_sampler_chain_params sp = llama_sampler_chain_default_params();
         sp.no_perf = true;
         chain = llama_sampler_chain_init(sp);
@@ -125,9 +140,9 @@ struct rnllama_codebook_sampler {
             return;
         }
         if (rep_penalty != 1.0f) {
-            const int32_t last_n = rep_last_n > 0 ? rep_last_n : -1;
+            const int32_t last_n = rep_last_n > 0 ? rep_last_n : n_vocab;
             llama_sampler_chain_add(chain,
-                llama_sampler_init_penalties(last_n, rep_penalty, 0.0f, 0.0f));
+                llama_sampler_init_penalties(n_vocab, last_n, rep_penalty, 0.0f, 0.0f));
         }
         llama_sampler_chain_add(chain, llama_sampler_init_temp(temp));
         if (top_k > 0) llama_sampler_chain_add(chain, llama_sampler_init_top_k(top_k));
@@ -137,7 +152,8 @@ struct rnllama_codebook_sampler {
     }
 
     int32_t sample(const float * logits, int32_t n) {
-        if (n <= 0 || !chain) return 0;
+        if (n <= 0) return 0;
+        if (!chain) build(n);
         buf.resize((size_t) n);
         for (int32_t i = 0; i < n; ++i) buf[(size_t) i] = { (llama_token) i, logits[i], 0.0f };
         llama_token_data_array cur = { buf.data(), (size_t) n, -1, false };

@@ -331,6 +331,8 @@ cp ./$LLAMA_DIR/tools/mtmd/clip-impl.h ./cpp/tools/mtmd/clip-impl.h
 cp ./$LLAMA_DIR/tools/mtmd/clip-model.h ./cpp/tools/mtmd/clip-model.h
 cp ./$LLAMA_DIR/tools/mtmd/clip-graph.h ./cpp/tools/mtmd/clip-graph.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-helper.cpp ./cpp/tools/mtmd/mtmd-helper.cpp
+cp ./$LLAMA_DIR/tools/mtmd/mtmd-helper-gen.cpp ./cpp/tools/mtmd/mtmd-helper-gen.cpp
+cp ./$LLAMA_DIR/tools/mtmd/mtmd-helper-common.h ./cpp/tools/mtmd/mtmd-helper-common.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-helper.h ./cpp/tools/mtmd/mtmd-helper.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-audio.h ./cpp/tools/mtmd/mtmd-audio.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd-audio.cpp ./cpp/tools/mtmd/mtmd-audio.cpp
@@ -350,12 +352,14 @@ if [ "$OS" = "Darwin" ]; then
   sed -i '' 's|#include "../src/llama-ext.h"|#include "../llama-ext.h"|g' ./cpp/common/fit.h
   sed -i '' 's|#include "../src/llama-ext.h"|#include "../llama-ext.h"|g' ./cpp/common/fit.cpp
   sed -i '' 's|#include "../src/llama-ext.h"|#include "../llama-ext.h"|g' ./cpp/common/speculative.cpp
+  sed -i '' 's|#include "../src/llama-ext.h"|#include "../../llama-ext.h"|g' ./cpp/tools/mtmd/mtmd-helper-gen.cpp
 else
   sed -i 's|#include "string.h"|#include "jinja-string.h"|g' ./cpp/common/jinja/value.h
   sed -i 's|#include "jinja/string.h"|#include "jinja/jinja-string.h"|g' ./cpp/common/jinja/string.cpp
   sed -i 's|#include "../src/llama-ext.h"|#include "../llama-ext.h"|g' ./cpp/common/fit.h
   sed -i 's|#include "../src/llama-ext.h"|#include "../llama-ext.h"|g' ./cpp/common/fit.cpp
   sed -i 's|#include "../src/llama-ext.h"|#include "../llama-ext.h"|g' ./cpp/common/speculative.cpp
+  sed -i 's|#include "../src/llama-ext.h"|#include "../../llama-ext.h"|g' ./cpp/tools/mtmd/mtmd-helper-gen.cpp
 fi
 
 rm -rf ./cpp/nlohmann

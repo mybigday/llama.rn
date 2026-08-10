@@ -3823,7 +3823,7 @@ int lm_ggml_metal_op_norm(lm_ggml_metal_op_t ctx, int idx) {
     }
 
     nth = std::min(nth, lm_ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
-    nth = std::min(nth, args.ne00_t);
+    nth = std::min(nth, (args.ne00_t + 31)/32*32);
 
     const size_t smem = pipeline.smem;
 

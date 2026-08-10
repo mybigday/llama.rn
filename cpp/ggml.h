@@ -2788,6 +2788,12 @@ extern "C" {
             struct lm_ggml_cgraph * cgraph,
             struct lm_ggml_tensor * tensor);
 
+    // add the tensor and its parents to the graph without marking them for compute
+    // the flag is set later, when the tensor is reached from a node that computes
+    LM_GGML_API void lm_ggml_build_forward_order(
+            struct lm_ggml_cgraph * cgraph,
+            struct lm_ggml_tensor * tensor);
+
     LM_GGML_API void lm_ggml_build_backward_expand(
         struct lm_ggml_context *  ctx,        // context for gradient computation
         struct lm_ggml_cgraph  *  cgraph,

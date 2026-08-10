@@ -32,9 +32,9 @@ Pod::Spec.new do |s|
 
   if ENV["RNLLAMA_BUILD_FROM_SOURCE"] == "1"
     s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{h,cpp,hpp,c,m,mm,s}"
-    # Exclude standalone tooling sources copied from llama.cpp. The mtmd debug
-    # CLI depends on common/arg.h and should not be linked into the RN library.
-    s.exclude_files = "cpp/ggml-opencl/*.{c,cpp}", "cpp/ggml-hexagon/**/*.{c,cpp}", "cpp/tools/mtmd/debug/*.cpp"
+    # Exclude standalone tooling sources. The mtmd debug CLI depends on
+    # common/arg.h; codec's reference runners also conflict with rn-tts.
+    s.exclude_files = "cpp/ggml-opencl/*.{c,cpp}", "cpp/ggml-hexagon/**/*.{c,cpp}", "cpp/tools/mtmd/debug/*.cpp", "cpp/codec/common/tts_runner*.cpp"
     base_compiler_flags += " -DRNLLAMA_BUILD_FROM_SOURCE"
     header_search_paths << '"$(PODS_TARGET_SRCROOT)/cpp"'
     header_search_paths << '"${PODS_TARGET_SRCROOT}/cpp/common"'
