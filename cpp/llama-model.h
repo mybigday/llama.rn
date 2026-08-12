@@ -223,6 +223,24 @@ struct llama_layer_nextn {
     struct lm_ggml_tensor * shared_head_norm      = nullptr;
 };
 
+struct llama_layer_switch_lora {
+    struct lm_ggml_tensor * a_q    = nullptr;
+    struct lm_ggml_tensor * b_q    = nullptr;
+    struct lm_ggml_tensor * a_k    = nullptr;
+    struct lm_ggml_tensor * b_k    = nullptr;
+    struct lm_ggml_tensor * a_v    = nullptr;
+    struct lm_ggml_tensor * b_v    = nullptr;
+    struct lm_ggml_tensor * a_o    = nullptr;
+    struct lm_ggml_tensor * b_o    = nullptr;
+
+    struct lm_ggml_tensor * a_gate = nullptr;
+    struct lm_ggml_tensor * b_gate = nullptr;
+    struct lm_ggml_tensor * a_up   = nullptr;
+    struct lm_ggml_tensor * b_up   = nullptr;
+    struct lm_ggml_tensor * a_down = nullptr;
+    struct lm_ggml_tensor * b_down = nullptr;
+};
+
 struct llama_layer {
     // normalization
     struct lm_ggml_tensor * attn_norm       = nullptr;
@@ -533,6 +551,8 @@ struct llama_layer {
     struct llama_layer_shortconv shortconv;
 
     struct llama_layer_nextn nextn;
+
+    struct llama_layer_switch_lora switch_lora;
 };
 
 struct llama_device {

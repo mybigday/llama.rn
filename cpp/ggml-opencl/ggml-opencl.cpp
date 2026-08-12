@@ -73,6 +73,7 @@ typedef const void * (*get_adreno_bin_kernel_func_t)(
 //------------------------------------------------------------------------------
 
 bool lm_ggml_cl_compute_forward(lm_ggml_backend_t backend, struct lm_ggml_tensor * tensor);
+
 static bool lm_ggml_cl_is_q4_0_soa(const lm_ggml_tensor * tensor);
 static bool lm_ggml_cl_is_q8_0_soa(const lm_ggml_tensor * tensor);
 static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst);
@@ -4628,6 +4629,23 @@ static std::string lm_ggml_opencl_fa_compile_opts(lm_ggml_backend_opencl_context
     // routes the fp16-heavy kernel to a slow variant with explicit subgroup size
     if (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X1E) {
         opts += " -D FA_C8_NO_SG_PIN";
+    }
+    // Transposed K tile in local memory: the KV rows the QK loop walks together become
+    // adjacent, so a group of them is ONE 128-bit local read instead of several narrow
+    // ones. The QK loop is LDS-read-issue-bound (a wrong-math probe that kept every FMA/dp4a
+    // but removed the LDS reads ran the kernel ~40% faster), so this is worth up to +26% on
+    // fa=1 prefill. Output is bit-identical -- only the layout moves.
+    //
+    // DK <= 128 only. At DK=256 (gemma-3-4b) it measures 1-2% NEGATIVE and reproduces across
+    // rounds; padding the row stride does not recover it, so the cause is not a simple bank
+    // conflict and the wider tile does not want this layout.
+    //
+    // Default on within that gate; LM_GGML_OPENCL_FA_K_LDS_T=0 restores the row-major tile.
+    {
+        const char * e = getenv("LM_GGML_OPENCL_FA_K_LDS_T");
+        if ((e == nullptr || e[0] != '0') && cfg->dk <= 128) {
+            opts += " -D FA_K_LDS_T";
+        }
     }
     return opts;
 }

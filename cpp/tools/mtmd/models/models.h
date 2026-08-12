@@ -365,3 +365,8 @@ private:
     lm_ggml_tensor * build_newline_row(lm_ggml_context * ctx0);
     lm_ggml_tensor * append_rowwise_newlines(lm_ggml_context * ctx0, lm_ggml_tensor * tile_output);
 };
+
+struct clip_graph_muse_glimmer : clip_graph {
+    clip_graph_muse_glimmer(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    lm_ggml_cgraph * build() override;
+};

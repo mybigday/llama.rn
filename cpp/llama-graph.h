@@ -904,10 +904,10 @@ public:
 
     std::vector<lm_ggml_tensor *> t_layer_inp;
 
-    std::map<llama_seq_id, lm_ggml_tensor *> t_sampled_logits;
-    std::map<llama_seq_id, lm_ggml_tensor *> t_candidates;
-    std::map<llama_seq_id, lm_ggml_tensor *> t_sampled;
-    std::map<llama_seq_id, lm_ggml_tensor *> t_sampled_probs;
+    std::vector<lm_ggml_tensor *> t_sampled;
+    std::vector<lm_ggml_tensor *> t_sampled_probs;
+    std::vector<lm_ggml_tensor *> t_sampled_logits;
+    std::vector<lm_ggml_tensor *> t_candidates;
 
     std::vector<llm_graph_input_ptr> inputs;
     std::vector<llm_graph_fused_node> fused_nodes;
