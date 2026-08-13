@@ -397,6 +397,7 @@ static void lm_ggml_backend_cpu_device_get_props(lm_ggml_backend_dev_t dev, stru
         /* .host_buffer           = */ false,
         /* .buffer_from_host_ptr  = */ true,
         /* .events                = */ false,
+        /* .mmap_support          = */ true,
     };
 }
 

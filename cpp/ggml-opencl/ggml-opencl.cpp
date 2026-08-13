@@ -10795,6 +10795,7 @@ static void lm_ggml_backend_opencl_device_get_props(lm_ggml_backend_dev_t dev, s
         /* .host_buffer           = */ false,
         /* .buffer_from_host_ptr  = */ false,
         /* .events                = */ false,
+        /* .mmap_support          = */ false,
     };
 }
 

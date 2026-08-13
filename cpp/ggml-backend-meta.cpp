@@ -132,6 +132,7 @@ static void lm_ggml_backend_meta_device_get_props(lm_ggml_backend_dev_t dev, lm_
         /* .host_buffer           = */ false, // Not implemented.
         /* .buffer_from_host_ptr  = */ false, // Not implemented.
         /* .events                = */ false, // Not implemented.
+        /* .mmap_support          = */ true,
     };
     for (lm_ggml_backend_dev_t simple_dev : meta_dev_ctx->simple_devs) {
         lm_ggml_backend_dev_props tmp_props;
@@ -140,6 +141,7 @@ static void lm_ggml_backend_meta_device_get_props(lm_ggml_backend_dev_t dev, lm_
         props->caps.host_buffer          = props->caps.host_buffer          && tmp_props.caps.host_buffer;
         props->caps.buffer_from_host_ptr = props->caps.buffer_from_host_ptr && tmp_props.caps.buffer_from_host_ptr;
         props->caps.events               = props->caps.events               && tmp_props.caps.events;
+        props->caps.mmap_support         = props->caps.mmap_support         && tmp_props.caps.mmap_support;
     }
 }
 

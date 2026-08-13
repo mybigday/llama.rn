@@ -681,6 +681,7 @@ static void lm_ggml_backend_metal_device_get_props(lm_ggml_backend_dev_t dev, lm
         /* .host_buffer          = */ false,
         /* .buffer_from_host_ptr = */ true,
         /* .events               = */ true,
+        /* .mmap_support         = */ true,
     };
 }
 

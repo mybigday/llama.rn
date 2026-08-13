@@ -3930,6 +3930,7 @@ static void lm_ggml_backend_hexagon_device_get_props(lm_ggml_backend_dev_t dev, 
         /* .host_buffer           = */ (bool) opt_hostbuf,
         /* .buffer_from_host_ptr  = */ false,
         /* .events                = */ false,
+        /* .mmap_support          = */ false,
     };
 }
 
