@@ -1777,6 +1777,7 @@ std::vector<float> llama_rn_context_completion::embedding(common_params &embd_pa
     llama_memory_clear(llama_get_memory(parent_ctx->ctx), true);
 
     rewind();
+    embd.clear();
     llama_perf_context_reset(parent_ctx->ctx);
     if (!initSampling()) {
         throw std::runtime_error("Failed to initialize sampling");
