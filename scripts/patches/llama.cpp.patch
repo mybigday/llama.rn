@@ -1,0 +1,12 @@
+--- llama.cpp.orig
++++ llama.cpp
+@@ -1,5 +1,9 @@
+ #include "llama.h"
+ 
++#ifndef LLAMA_VERSION
++#include "rn-llama-version.h"
++#endif
++
+ #include "llama-impl.h"
+ 
+ #include "llama-chat.h"

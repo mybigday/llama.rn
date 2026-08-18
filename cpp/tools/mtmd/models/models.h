@@ -402,16 +402,19 @@ struct clip_graph_exaone4_5 : clip_graph {
 struct clip_graph_granite4_vision : clip_graph {
     clip_graph_granite4_vision(clip_ctx * ctx, const clip_image_f32 & img)
         : clip_graph(ctx, img),
-          add_newline(img.add_newline) {}
+          anyres(img.anyres),
+          n_tiles(img.ny() / img.nx()),
+          tile_side(img.nx() / patch_size) {}
 
     lm_ggml_cgraph * build() override;
 
 private:
-    // The graph is per-tile since only batch-size 1 is supported in clip. As
-    // such, this value is set at construct time based on the tile that will be
-    // encoded, then used during build to determine how to handle newlines.
-    const bool add_newline;
+    // the input image is a stack of tiles on the Y axis: [overview, tile(0,0), tile(0,1), ...]
+    const clip_image_f32::anyres_info anyres;
+    const int n_tiles;
+    const int tile_side; // patches per tile side
 
+    lm_ggml_tensor * build_tile_inp();
     lm_ggml_tensor * gather(lm_ggml_tensor * src, const std::string & name, int idx_len);
     lm_ggml_tensor * interp_down(lm_ggml_tensor * src, int side, int new_side);
     lm_ggml_tensor * build_block(const qf_block & blk, lm_ggml_tensor * h, int bid,
@@ -419,7 +422,7 @@ private:
                               int query_side, float qformer_eps);
 
     lm_ggml_tensor * build_newline_row(lm_ggml_context * ctx0);
-    lm_ggml_tensor * append_rowwise_newlines(lm_ggml_context * ctx0, lm_ggml_tensor * tile_output);
+    lm_ggml_tensor * build_anyres_assembly(lm_ggml_tensor * cur, int out_side);
 };
 
 struct clip_graph_muse_glimmer : clip_graph {

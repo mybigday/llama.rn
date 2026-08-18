@@ -364,6 +364,12 @@ fi
 
 rm -rf ./cpp/nlohmann
 cp -r ./$LLAMA_DIR/vendor/nlohmann ./cpp/nlohmann
+# mtmd hashes media inputs with the upstream SHA-256 helper. Copy only the
+# implementation it uses rather than the vendor package's unused hash engines.
+rm -rf ./cpp/hash
+mkdir -p ./cpp/hash
+cp ./$LLAMA_DIR/vendor/hash/hash.cpp ./$LLAMA_DIR/vendor/hash/hash.h ./cpp/hash/
+cp -r ./$LLAMA_DIR/vendor/hash/sha256 ./$LLAMA_DIR/vendor/hash/rotate-bits ./cpp/hash/
 rm -rf ./cpp/tools/mtmd/miniaudio
 rm -rf ./cpp/tools/mtmd/stb
 cp -r ./$LLAMA_DIR/vendor/miniaudio ./cpp/tools/mtmd/miniaudio
@@ -567,6 +573,22 @@ echo "ggml-metal-embed.s generated ($(wc -l < "$EMBED_ASM") lines)"
 echo "Replacement completed successfully!"
 
 cd example && npm install && cd ..
+
+# llama.cpp normally receives LLAMA_VERSION from its own CMake target. Since
+# llama.rn compiles the copied sources directly, generate a fallback header from
+# upstream's version components for builds that do not define it themselves.
+LLAMA_VERSION_MAJOR=$(sed -n 's/^set(LLAMA_VERSION_MAJOR \([0-9][0-9]*\))$/\1/p' "$LLAMA_DIR/CMakeLists.txt")
+LLAMA_VERSION_MINOR=$(sed -n 's/^set(LLAMA_VERSION_MINOR \([0-9][0-9]*\))$/\1/p' "$LLAMA_DIR/CMakeLists.txt")
+LLAMA_VERSION_PATCH=$(sed -n 's/^set(LLAMA_VERSION_PATCH \([0-9][0-9]*\))$/\1/p' "$LLAMA_DIR/CMakeLists.txt")
+if [ -z "$LLAMA_VERSION_MAJOR" ] || [ -z "$LLAMA_VERSION_MINOR" ] || [ -z "$LLAMA_VERSION_PATCH" ]; then
+  echo "Failed to determine llama.cpp version from $LLAMA_DIR/CMakeLists.txt"
+  exit 1
+fi
+cat > ./cpp/rn-llama-version.h <<EOF
+#pragma once
+
+#define LLAMA_VERSION "$LLAMA_VERSION_MAJOR.$LLAMA_VERSION_MINOR.$LLAMA_VERSION_PATCH-dev"
+EOF
 
 # Apply patch
 # List ./scripts/patches/ and patch it

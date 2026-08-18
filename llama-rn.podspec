@@ -38,6 +38,7 @@ Pod::Spec.new do |s|
     base_compiler_flags += " -DRNLLAMA_BUILD_FROM_SOURCE"
     header_search_paths << '"$(PODS_TARGET_SRCROOT)/cpp"'
     header_search_paths << '"${PODS_TARGET_SRCROOT}/cpp/common"'
+    header_search_paths << '"${PODS_TARGET_SRCROOT}/cpp/hash"'
   else
     # JSI bindings always compiled from source (must match RN version)
     s.source_files = "ios/*.{h,m,mm}", "cpp/jsi/**/*.{h,cpp}"

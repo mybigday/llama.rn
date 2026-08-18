@@ -1,17 +1,18 @@
 --- llama-arch.cpp.orig	2026-08-01 23:21:01.731591236 +0800
 +++ llama-arch.cpp	2026-08-01 23:21:01.732591239 +0800
-@@ -143,6 +143,7 @@
+@@ -147,6 +147,7 @@
      { LLM_ARCH_KIMI_LINEAR,      "kimi-linear"      },
+     { LLM_ARCH_KIMI_K3,          "kimi-k3"          },
      { LLM_ARCH_TALKIE,           "talkie"           },
      { LLM_ARCH_MELLUM,           "mellum"           },
 +    { LLM_ARCH_BARBET,           "barbet"           },
      { LLM_ARCH_NANBEIGE,         "nanbeige"         },
-     { LLM_ARCH_UNKNOWN,          "(unknown)"        },
- };
-@@ -969,6 +971,7 @@
+     { LLM_ARCH_QWEN3TTS,         "qwen3tts"         },
+@@ -1003,6 +1004,7 @@
          case LLM_ARCH_QWEN35:
          case LLM_ARCH_QWEN35MOE:
          case LLM_ARCH_DEEPSEEK4:
+         case LLM_ARCH_MINIMAX_01:
 +        case LLM_ARCH_BARBET:
              return true;
          default:

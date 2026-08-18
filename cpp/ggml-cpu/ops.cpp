@@ -8941,7 +8941,7 @@ static void lm_ggml_compute_forward_flash_attn_ext_tiled(
             for (int tk = 0; tk < kv_tile; tk++) {
                 const char * v_data = (const char *)v->data + (ic + tk)*nbv1 + iv2*nbv2 + iv3*nbv3;
                 if (kv_type == LM_GGML_TYPE_F16) {
-                    lm_ggml_fp16_to_fp32_row((const lm_ggml_fp16_t *)v_data, V32 + tk * DV, DV);
+                    lm_ggml_cpu_fp16_to_fp32((const lm_ggml_fp16_t *)v_data, V32 + tk * DV, DV);
                 } else {
                     memcpy(V32 + tk * DV, v_data, DV * sizeof(float));
                 }
@@ -9644,11 +9644,13 @@ static void lm_ggml_compute_forward_ssm_scan_f32(
     const int64_t ng = src4->ne[1];
     const int64_t nt = src1->ne[2]; // number of tokens per sequence
     const int64_t ns = src1->ne[3]; // number of sequences in the batch
+    const int64_t K  = lm_ggml_get_op_params_i32(dst, 0);
 
     // can't use lm_ggml_nbytes because src1 is not necessarily contiguous
     const int64_t s_off = lm_ggml_nelements(src1) * lm_ggml_element_size(src1);
 
-    LM_GGML_ASSERT(lm_ggml_nelements(src1) + nc*nr*nh*ns == lm_ggml_nelements(dst));
+    LM_GGML_ASSERT(K >= 1);
+    LM_GGML_ASSERT(lm_ggml_nelements(src1) + K*nc*nr*nh*ns == lm_ggml_nelements(dst));
     LM_GGML_ASSERT(src0->nb[0] == sizeof(float));
     LM_GGML_ASSERT(src1->nb[0] == sizeof(float));
     LM_GGML_ASSERT(src2->nb[0] == sizeof(float));
@@ -9657,6 +9659,7 @@ static void lm_ggml_compute_forward_ssm_scan_f32(
     LM_GGML_ASSERT(src5->nb[0] == sizeof(float));
     LM_GGML_ASSERT(src6->nb[0] == sizeof(int32_t));
     LM_GGML_ASSERT(nh % ng == 0);
+    LM_GGML_ASSERT(src3->ne[0] == 1 || K == 1);
 
     // heads per thread
     const int dh = (nh + nth - 1)/nth;
@@ -9829,6 +9832,13 @@ static void lm_ggml_compute_forward_ssm_scan_f32(
                         y[ii] = sumf;
 #endif
                     }
+                }
+            }
+            const int64_t slot = nt - 1 - i2;
+            if (K > 1 && slot > 0 && slot < K) {
+                float * s_snapshot = (float *) ((char *) dst->data + s_off + (slot*ns + i3)*(src0->nb[3]));
+                for (int h = ih0; h < ih1; ++h) {
+                    memcpy((char *) s_snapshot + h*src0->nb[2], (char *) s + h*src0->nb[2], src0->nb[2]);
                 }
             }
             // use the output as the source when it's not the first token-wise iteration

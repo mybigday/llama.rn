@@ -2795,6 +2795,11 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
     n_threads = 1;
 #endif
 
+#if defined(__wasi__)
+    // WASI doesn't support parallelism yet
+    n_threads = 1;
+#endif
+
     size_t work_size = 0;
 
     struct lm_ggml_cplan cplan;

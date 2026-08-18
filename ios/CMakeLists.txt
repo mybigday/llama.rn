@@ -115,6 +115,8 @@ add_library(rnllama SHARED
     ${COMMON_FILES}
 
     ${SOURCE_DIR}/anyascii.c
+    ${SOURCE_DIR}/hash/hash.cpp
+    ${SOURCE_DIR}/hash/sha256/sha256.c
 
     # Jinja template engine
     ${JINJA_FILES}
@@ -151,6 +153,7 @@ target_include_directories(rnllama
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/common/jinja>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/hash>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/ggml-cpu>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/tools/mtmd>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/include>

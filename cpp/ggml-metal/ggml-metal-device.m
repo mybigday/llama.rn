@@ -1376,8 +1376,9 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                 lm_ggml_is_contiguous_rows(op->src[1]) &&
                 lm_ggml_is_contiguous_rows(op->src[2]) &&
                 lm_ggml_is_contiguous_rows(op->src[3]);
-        case LM_GGML_OP_SSM_CONV:
         case LM_GGML_OP_SSM_SCAN:
+            return has_simdgroup_reduction;
+        case LM_GGML_OP_SSM_CONV:
             return has_simdgroup_reduction;
         case LM_GGML_OP_RWKV_WKV6:
         case LM_GGML_OP_RWKV_WKV7:
@@ -1407,6 +1408,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                            case LM_GGML_TYPE_Q5_0:
                            case LM_GGML_TYPE_Q5_1:
                            case LM_GGML_TYPE_IQ4_NL:
+                           case LM_GGML_TYPE_TQ2_0:
                            case LM_GGML_TYPE_I32:
                                 return true;
                            default:
@@ -1435,6 +1437,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                     case LM_GGML_TYPE_Q5_0:
                     case LM_GGML_TYPE_Q5_1:
                     case LM_GGML_TYPE_Q8_0:
+                    case LM_GGML_TYPE_TQ2_0:
                         switch (op->type) {
                             case LM_GGML_TYPE_F32:
                             case LM_GGML_TYPE_F16:
@@ -1470,6 +1473,7 @@ bool lm_ggml_metal_device_supports_op(lm_ggml_metal_device_t dev, const struct l
                     case LM_GGML_TYPE_Q5_0:
                     case LM_GGML_TYPE_Q5_1:
                     case LM_GGML_TYPE_IQ4_NL:
+                    case LM_GGML_TYPE_TQ2_0:
                         return true;
                     default:
                         return false;

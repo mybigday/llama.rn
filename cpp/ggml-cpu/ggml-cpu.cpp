@@ -472,6 +472,8 @@ static bool lm_ggml_backend_cpu_device_supports_op(lm_ggml_backend_dev_t dev, co
                 src1->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
         case LM_GGML_OP_CONV_2D:
             return lm_ggml_is_contiguous(op->src[0]);
+        case LM_GGML_OP_SSM_SCAN:
+            return lm_ggml_get_op_params_i32(op, 0) == 1 || op->src[3]->ne[0] == 1;
         default:
             return true;
     }

@@ -14,18 +14,39 @@
  *   Stage 1a: SigLIP vision tower (N layers, post-norm)
  *   Stage 1b: WindowQFormer blocks (deepstack + spatial)
  *   Stage 1c: Concatenate and pack outputs
- *   Stage 1d: Append newline tokens if add_newline is set
+ *   Stage 1d: Assemble the anyres tiles into one token sequence
  */
 
 // ---------------------------------------------------------------------------
 // Member method implementations
 // ---------------------------------------------------------------------------
 
+// split the stacked tiles into the batch axis, then run the usual patch embedding
+lm_ggml_tensor * clip_graph_granite4_vision::build_tile_inp() {
+    lm_ggml_tensor * inp_raw = build_inp_raw();
+
+    if (n_tiles > 1) {
+        const int px = img.nx();
+        inp_raw = lm_ggml_reshape_4d(ctx0, inp_raw, px * px, n_tiles, 3, 1);
+        inp_raw = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, inp_raw, 0, 2, 1, 3));
+        inp_raw = lm_ggml_reshape_4d(ctx0, inp_raw, px, px, 3, n_tiles);
+    }
+
+    lm_ggml_tensor * inp = lm_ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
+    inp = lm_ggml_reshape_3d(ctx0, inp, tile_side * tile_side, n_embd, n_tiles);
+    inp = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, inp));
+    if (model.patch_bias) {
+        inp = lm_ggml_add(ctx0, inp, model.patch_bias);
+    }
+    return inp;
+}
+
 lm_ggml_tensor * clip_graph_granite4_vision::gather(
         lm_ggml_tensor * src,
         const std::string & name,
         int idx_len) {
-    lm_ggml_tensor * idx = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, idx_len);
+    // one index row per tile, all rows hold the same permutation
+    lm_ggml_tensor * idx = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_I32, idx_len, n_tiles);
     lm_ggml_set_name(idx, name.c_str());
     lm_ggml_set_input(idx);
     return lm_ggml_get_rows(ctx0, src, idx);
@@ -36,12 +57,15 @@ lm_ggml_tensor * clip_graph_granite4_vision::interp_down(
         int side,
         int new_side) {
     const int n_embd = src->ne[0];
-    lm_ggml_tensor * t = lm_ggml_reshape_4d(ctx0, src, n_embd, side, side, 1);
+    lm_ggml_tensor * t = lm_ggml_reshape_4d(ctx0, src, n_embd, side, side, n_tiles);
     t = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, t, 2, 0, 1, 3));
+    // fold the tile axis into the channel axis, lm_ggml_pool_2d only pools the first two axes
+    t = lm_ggml_reshape_3d(ctx0, t, side, side, n_embd * n_tiles);
     const int kernel = side / new_side;
     t = lm_ggml_pool_2d(ctx0, t, LM_GGML_OP_POOL_AVG, kernel, kernel, kernel, kernel, 0, 0);
+    t = lm_ggml_reshape_4d(ctx0, t, new_side, new_side, n_embd, n_tiles);
     t = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, t, 1, 2, 0, 3));
-    return lm_ggml_reshape_2d(ctx0, t, n_embd, new_side * new_side);
+    return lm_ggml_reshape_3d(ctx0, t, n_embd, new_side * new_side, n_tiles);
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +87,7 @@ lm_ggml_tensor * clip_graph_granite4_vision::build_block(
     const int n = image_side / window_side;
     const int new_side = n * query_side;
     const int n_windows = n * n;
+    const int n_win_all = n_windows * n_tiles; // windows of every tile, batched together
     const int enc_len = window_side * window_side;
     const int query_len = query_side * query_side;
 
@@ -82,7 +107,7 @@ lm_ggml_tensor * clip_graph_granite4_vision::build_block(
         lm_ggml_tensor * enc_flat = gather(x,
             "g4v_blk" + std::to_string(bid) + "_win_idx",
             image_side * image_side);
-        enc = lm_ggml_reshape_3d(ctx0, enc_flat, n_embd, enc_len, n_windows);
+        enc = lm_ggml_reshape_3d(ctx0, enc_flat, n_embd, enc_len, n_win_all);
     }
     cbx(enc, "enc");
 
@@ -104,7 +129,7 @@ lm_ggml_tensor * clip_graph_granite4_vision::build_block(
         lm_ggml_tensor * dw_flat = gather(d,
             "g4v_blk" + std::to_string(bid) + "_qwin_idx",
             new_side * new_side);
-        lm_ggml_tensor * dw = lm_ggml_reshape_3d(ctx0, dw_flat, n_embd, query_len, n_windows);
+        lm_ggml_tensor * dw = lm_ggml_reshape_3d(ctx0, dw_flat, n_embd, query_len, n_win_all);
         q_in = lm_ggml_add(ctx0, dw, blk.qf_proj_query);
     }
     cbx(q_in, "query_embeds");
@@ -140,12 +165,12 @@ lm_ggml_tensor * clip_graph_granite4_vision::build_block(
         lm_ggml_tensor * K = linear(q, pl.k_w, pl.k_b);
         lm_ggml_tensor * V = linear(q, pl.v_w, pl.v_b);
 
-        Q = lm_ggml_reshape_4d(ctx0, Q, d_h, n_head, nq, n_windows);
-        K = lm_ggml_reshape_4d(ctx0, K, d_h, n_head, nq, n_windows);
-        V = lm_ggml_reshape_4d(ctx0, V, d_h, n_head, nq, n_windows);
+        Q = lm_ggml_reshape_4d(ctx0, Q, d_h, n_head, nq, n_win_all);
+        K = lm_ggml_reshape_4d(ctx0, K, d_h, n_head, nq, n_win_all);
+        V = lm_ggml_reshape_4d(ctx0, V, d_h, n_head, nq, n_win_all);
 
         sa_out = build_attn(pl.o_w, pl.o_b, Q, K, V, nullptr, scale, bid);
-        sa_out = lm_ggml_reshape_3d(ctx0, sa_out, n_embd, nq, n_windows);
+        sa_out = lm_ggml_reshape_3d(ctx0, sa_out, n_embd, nq, n_win_all);
 
         sa_out = lm_ggml_add(ctx0, sa_out, q);
         sa_out = build_norm(sa_out, pl.ln_1_w, pl.ln_1_b,
@@ -166,13 +191,13 @@ lm_ggml_tensor * clip_graph_granite4_vision::build_block(
         lm_ggml_tensor * K = linear(e_in, pl.cross_attn_k_w, pl.cross_attn_k_b);
         lm_ggml_tensor * V = linear(e_in, pl.cross_attn_v_w, pl.cross_attn_v_b);
 
-        Q = lm_ggml_reshape_4d(ctx0, Q, d_h, n_head, nq, n_windows);
-        K = lm_ggml_reshape_4d(ctx0, K, d_h, n_head, nkv, n_windows);
-        V = lm_ggml_reshape_4d(ctx0, V, d_h, n_head, nkv, n_windows);
+        Q = lm_ggml_reshape_4d(ctx0, Q, d_h, n_head, nq, n_win_all);
+        K = lm_ggml_reshape_4d(ctx0, K, d_h, n_head, nkv, n_win_all);
+        V = lm_ggml_reshape_4d(ctx0, V, d_h, n_head, nkv, n_win_all);
 
         ca_out = build_attn(pl.cross_attn_o_w, pl.cross_attn_o_b,
                             Q, K, V, nullptr, scale, bid);
-        ca_out = lm_ggml_reshape_3d(ctx0, ca_out, n_embd, nq, n_windows);
+        ca_out = lm_ggml_reshape_3d(ctx0, ca_out, n_embd, nq, n_win_all);
 
         ca_out = lm_ggml_add(ctx0, ca_out, sa_out);
         ca_out = build_norm(ca_out, pl.cross_attn_norm_w, pl.cross_attn_norm_b,
@@ -183,13 +208,13 @@ lm_ggml_tensor * clip_graph_granite4_vision::build_block(
     // 6c. FFN
     lm_ggml_tensor * ffn;
     {
-        lm_ggml_tensor * t = lm_ggml_reshape_2d(ctx0, ca_out, n_embd, query_len * n_windows);
+        lm_ggml_tensor * t = lm_ggml_reshape_2d(ctx0, ca_out, n_embd, query_len * n_win_all);
         t = build_mm(pl.ff_up_w, t);
         if (pl.ff_up_b) t = lm_ggml_add(ctx0, t, pl.ff_up_b);
         t = lm_ggml_gelu_erf(ctx0, t);
         t = build_mm(pl.ff_down_w, t);
         if (pl.ff_down_b) t = lm_ggml_add(ctx0, t, pl.ff_down_b);
-        t = lm_ggml_reshape_3d(ctx0, t, n_embd, query_len, n_windows);
+        t = lm_ggml_reshape_3d(ctx0, t, n_embd, query_len, n_win_all);
         ffn = lm_ggml_add(ctx0, t, ca_out);
         ffn = build_norm(ffn, pl.ln_2_w, pl.ln_2_b, NORM_TYPE_NORMAL, qformer_eps, bid);
     }
@@ -198,7 +223,7 @@ lm_ggml_tensor * clip_graph_granite4_vision::build_block(
     // 7. _unwin back to raster
     lm_ggml_tensor * unwinned;
     {
-        lm_ggml_tensor * flat = lm_ggml_reshape_2d(ctx0, ffn, n_embd, query_len * n_windows);
+        lm_ggml_tensor * flat = lm_ggml_reshape_3d(ctx0, ffn, n_embd, query_len * n_windows, n_tiles);
         unwinned = gather(flat,
             "g4v_blk" + std::to_string(bid) + "_unwin_idx",
             new_side * new_side);
@@ -244,13 +269,42 @@ lm_ggml_tensor * clip_graph_granite4_vision::build_newline_row(lm_ggml_context *
     return lm_ggml_reshape_2d(ctx0, nl_row_2d, n_mmproj_embd, 1);
 }
 
-// Append a single newline row at the end of the tile output.
-lm_ggml_tensor * clip_graph_granite4_vision::append_rowwise_newlines(lm_ggml_context * ctx0, lm_ggml_tensor * tile_output) {
-    // For the single-tile case, append one newline row at the end.
-    // For the multi-tile rowwise case, this will be called per-tile
-    // (though currently only the single-tile path uses it).
-    lm_ggml_tensor * nl_row = build_newline_row(ctx0);
-    return lm_ggml_concat(ctx0, tile_output, nl_row, 1);
+// Assemble [overview, tile(0,0), tile(0,1), ...] into one token sequence:
+// the overview tokens first, then the tile grid read in raster order with one newline per row.
+// ref: https://github.com/huggingface/transformers/blob/v5.0.0/src/transformers/models/llava_next/modeling_llava_next.py#L266
+lm_ggml_tensor * clip_graph_granite4_vision::build_anyres_assembly(lm_ggml_tensor * cur, int out_side) {
+    const int n_dim  = cur->ne[0];
+    const int grid_x = anyres.grid_x;
+    const int grid_y = anyres.grid_y;
+    const int cur_w  = grid_x * out_side;
+    const int cur_h  = grid_y * out_side;
+    LM_GGML_ASSERT(cur->ne[1] == out_side * out_side);
+    LM_GGML_ASSERT(cur->ne[2] == 1 + grid_x * grid_y);
+
+    lm_ggml_tensor * base = lm_ggml_view_2d(ctx0, cur, n_dim, out_side * out_side, cur->nb[1], 0);
+
+    lm_ggml_tensor * tiles = lm_ggml_view_3d(ctx0, cur, n_dim, out_side * out_side, grid_x * grid_y,
+                                       cur->nb[1], cur->nb[2], cur->nb[2]);
+
+    // (n_dim*out_side, out_side, grid_x, grid_y) -> interleave the tiles of a grid row
+    tiles = lm_ggml_reshape_4d(ctx0, tiles, n_dim * out_side, out_side, grid_x, grid_y);
+    tiles = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, tiles, 0, 2, 1, 3));
+    tiles = lm_ggml_reshape_3d(ctx0, tiles, n_dim, cur_w, cur_h);
+
+    // drop the tokens that only cover the padding added when resizing to the grid
+    int off_x, off_y, w, h;
+    clip_anyres_unpad(cur_w, cur_h, anyres.orig_nx, anyres.orig_ny, off_x, off_y, w, h);
+    if (w != cur_w || h != cur_h) {
+        tiles = lm_ggml_cont(ctx0, lm_ggml_view_3d(ctx0, tiles, n_dim, w, h,
+                                             tiles->nb[1], tiles->nb[2],
+                                             off_x * tiles->nb[1] + off_y * tiles->nb[2]));
+    }
+
+    lm_ggml_tensor * nl = lm_ggml_repeat_4d(ctx0, build_newline_row(ctx0), n_dim, 1, h, 1);
+    tiles = lm_ggml_concat(ctx0, tiles, nl, 1);
+    tiles = lm_ggml_reshape_2d(ctx0, tiles, n_dim, (w + 1) * h);
+
+    return lm_ggml_concat(ctx0, base, tiles, 1);
 }
 
 lm_ggml_cgraph * clip_graph_granite4_vision::build() {
@@ -260,9 +314,11 @@ lm_ggml_cgraph * clip_graph_granite4_vision::build() {
     LM_GGML_ASSERT(!model.qf_proj_blocks.empty());
 
     // --- Stage 1a: SigLIP encoder producing intermediate hidden states ---
-    lm_ggml_tensor * inp = build_inp();
+    lm_ggml_tensor * inp = build_tile_inp();
     inp = lm_ggml_add(ctx0, inp, model.position_embeddings);
     cb(inp, "pos_embed", -1);
+
+    const int tile_n_patches = tile_side * tile_side;
 
     lm_ggml_tensor * inpL = inp;
     std::vector<lm_ggml_tensor *> layer_outs(n_layer, nullptr);
@@ -281,12 +337,13 @@ lm_ggml_cgraph * clip_graph_granite4_vision::build() {
         lm_ggml_tensor * Vcur = build_mm(layer.v_w, cur);
         if (layer.v_b) Vcur = lm_ggml_add(ctx0, Vcur, layer.v_b);
 
-        Qcur = lm_ggml_reshape_3d(ctx0, Qcur, d_head, n_head, n_patches);
-        Kcur = lm_ggml_reshape_3d(ctx0, Kcur, d_head, n_head, n_patches);
-        Vcur = lm_ggml_reshape_3d(ctx0, Vcur, d_head, n_head, n_patches);
+        Qcur = lm_ggml_reshape_4d(ctx0, Qcur, d_head, n_head, tile_n_patches, n_tiles);
+        Kcur = lm_ggml_reshape_4d(ctx0, Kcur, d_head, n_head, tile_n_patches, n_tiles);
+        Vcur = lm_ggml_reshape_4d(ctx0, Vcur, d_head, n_head, tile_n_patches, n_tiles);
 
         cur = build_attn(layer.o_w, layer.o_b,
                          Qcur, Kcur, Vcur, nullptr, kq_scale, il);
+        cur = lm_ggml_reshape_3d(ctx0, cur, n_embd, tile_n_patches, n_tiles);
 
         cur = lm_ggml_add(ctx0, cur, inpL);
         inpL = cur;
@@ -318,7 +375,7 @@ lm_ggml_cgraph * clip_graph_granite4_vision::build() {
         lm_ggml_tensor * stream = build_block(
             blk, h, bid,
             hparams.proj_spatial_offsets[bid],
-            n_patches_x,
+            tile_side,
             hparams.downsample_window_side,
             hparams.downsample_query_side,
             qformer_eps);
@@ -326,10 +383,11 @@ lm_ggml_cgraph * clip_graph_granite4_vision::build() {
         mmproj = mmproj ? lm_ggml_concat(ctx0, mmproj, stream, 0) : stream;
     }
 
-    // --- Stage 1d: Append newline tokens if add_newline is set ---
-    if (add_newline) {
-        mmproj = append_rowwise_newlines(ctx0, mmproj);
-        lm_ggml_set_name(mmproj, "g4v_mmproj_out_nl");
+    // --- Stage 1d: assemble the tiles and weave in the newline tokens ---
+    if (anyres.is_tiled()) {
+        const int out_side = tile_side / hparams.downsample_window_side * hparams.downsample_query_side;
+        mmproj = build_anyres_assembly(mmproj, out_side);
+        lm_ggml_set_name(mmproj, "g4v_mmproj_out_anyres");
     } else {
         lm_ggml_set_name(mmproj, "g4v_mmproj_out");
     }

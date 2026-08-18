@@ -5596,7 +5596,10 @@ struct lm_ggml_tensor * lm_ggml_ssm_scan(
         struct lm_ggml_tensor  * A,
         struct lm_ggml_tensor  * B,
         struct lm_ggml_tensor  * C,
-        struct lm_ggml_tensor  * ids) {
+        struct lm_ggml_tensor  * ids,
+        int64_t               K) {
+    LM_GGML_ASSERT(K >= 1);
+    LM_GGML_ASSERT(K <= INT32_MAX);
     LM_GGML_ASSERT(lm_ggml_is_contiguous(s));
     LM_GGML_ASSERT(lm_ggml_is_contiguous(dt));
     LM_GGML_ASSERT(lm_ggml_is_contiguous(A));
@@ -5633,11 +5636,12 @@ struct lm_ggml_tensor * lm_ggml_ssm_scan(
         if (A->ne[0] != 1) {
             // Mamba-1 has more granular decay factors
             LM_GGML_ASSERT(A->ne[0] == d_state);
+            LM_GGML_ASSERT(K == 1);
         }
     }
 
     // concatenated y + ssm_states
-    struct lm_ggml_tensor * result = lm_ggml_new_tensor_1d(ctx, LM_GGML_TYPE_F32, lm_ggml_nelements(x) + s->ne[0]*s->ne[1]*s->ne[2]*ids->ne[0]);
+    struct lm_ggml_tensor * result = lm_ggml_new_tensor_1d(ctx, LM_GGML_TYPE_F32, lm_ggml_nelements(x) + K*s->ne[0]*s->ne[1]*s->ne[2]*ids->ne[0]);
 
     result->op   = LM_GGML_OP_SSM_SCAN;
     result->src[0] = s;
@@ -5647,6 +5651,8 @@ struct lm_ggml_tensor * lm_ggml_ssm_scan(
     result->src[4] = B;
     result->src[5] = C;
     result->src[6] = ids;
+
+    lm_ggml_set_op_params_i32(result, 0, (int32_t) K);
 
     return result;
 }

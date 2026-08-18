@@ -2459,7 +2459,8 @@ extern "C" {
             struct lm_ggml_tensor  * A,
             struct lm_ggml_tensor  * B,
             struct lm_ggml_tensor  * C,
-            struct lm_ggml_tensor  * ids);
+            struct lm_ggml_tensor  * ids,
+            int64_t               K);
 
     // partition into non-overlapping windows with padding if needed
     // example:

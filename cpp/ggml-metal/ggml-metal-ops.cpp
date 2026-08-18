@@ -1710,6 +1710,10 @@ int lm_ggml_metal_op_ssm_scan(lm_ggml_metal_op_t ctx, int idx) {
     const int64_t n_group      = ne41;
     const int64_t n_seq_tokens = ne12;
     const int64_t n_seqs       = ne13;
+    const int64_t K            = lm_ggml_get_op_params_i32(op, 0);
+
+    LM_GGML_ASSERT(K >= 1);
+    LM_GGML_ASSERT(lm_ggml_nelements(op->src[1]) + K*d_state*d_inner*n_head*n_seqs == lm_ggml_nelements(op));
 
     lm_ggml_metal_kargs_ssm_scan args = {
         /*.d_state      =*/ d_state,
@@ -1718,6 +1722,7 @@ int lm_ggml_metal_op_ssm_scan(lm_ggml_metal_op_t ctx, int idx) {
         /*.n_group      =*/ n_group,
         /*.n_seq_tokens =*/ n_seq_tokens,
         /*.n_seqs       =*/ n_seqs,
+        /*.K            =*/ K,
         /*.s_off        =*/ lm_ggml_nelements(op->src[1]) * sizeof(float),
         /*.nb00         =*/ nb00,
         /*.nb01         =*/ nb01,

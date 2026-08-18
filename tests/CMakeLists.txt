@@ -27,6 +27,7 @@ endif()
 add_definitions(-DLM_GGML_CPU_GENERIC)
 
 set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
+include_directories(${SOURCE_DIR}/hash)
 
 # Collect source files using glob patterns
 file(GLOB MODEL_FILES ${SOURCE_DIR}/models/*.cpp)
@@ -112,6 +113,8 @@ set(RNLLAMA_COMMON_SOURCES
     ${JINJA_FILES}
 
     ${SOURCE_DIR}/anyascii.c
+    ${SOURCE_DIR}/hash/hash.cpp
+    ${SOURCE_DIR}/hash/sha256/sha256.c
 
     # Multimodal support (globbed)
     ${MTMD_MODEL_FILES}

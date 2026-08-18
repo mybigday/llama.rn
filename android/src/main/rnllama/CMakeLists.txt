@@ -16,6 +16,7 @@ include_directories(
     ${RNLLAMA_LIB_DIR}
     ${RNLLAMA_LIB_DIR}/common
     ${RNLLAMA_LIB_DIR}/common/jinja
+    ${RNLLAMA_LIB_DIR}/hash
     ${RNLLAMA_LIB_DIR}/ggml-cpu
     ${RNLLAMA_LIB_DIR}/tools/mtmd
     ${RNLLAMA_LIB_DIR}/codec/include
@@ -79,6 +80,8 @@ set(
     ${COMMON_FILES}
 
     ${RNLLAMA_LIB_DIR}/anyascii.c
+    ${RNLLAMA_LIB_DIR}/hash/hash.cpp
+    ${RNLLAMA_LIB_DIR}/hash/sha256/sha256.c
 
     # Jinja template engine
     ${JINJA_FILES}
