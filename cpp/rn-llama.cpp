@@ -464,6 +464,13 @@ bool llama_rn_context::loadModel(common_params &params_)
     draft_model.reset();
     params = params_;
 
+    // common_init_from_params() now creates its threadpools directly, so CPU
+    // defaults must be resolved just as the upstream CLI parser resolves them.
+    // In particular, n_threads_batch=-1 means "inherit n_threads"; passing -1
+    // to ggml_threadpool_new underflows its worker count.
+    postprocess_cpu_params(params.cpuparams);
+    postprocess_cpu_params(params.cpuparams_batch, &params.cpuparams);
+
     // Ensure n_parallel is set to a reasonable default for parallel decoding support
     // This sets n_seq_max in the context, which cannot be changed later
     if (params.n_parallel < 1) {
