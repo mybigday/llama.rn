@@ -195,6 +195,7 @@ cp ./$LLAMA_DIR/ggml/src/ggml-backend-meta.cpp ./cpp/ggml-backend-meta.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-backend-dl.h ./cpp/ggml-backend-dl.h
 cp ./$LLAMA_DIR/ggml/src/ggml-backend-dl.cpp ./cpp/ggml-backend-dl.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-common.h ./cpp/ggml-common.h
+cp ./$LLAMA_DIR/ggml/src/ggml-feats.h ./cpp/ggml-feats.h
 cp ./$LLAMA_DIR/ggml/src/ggml-opt.cpp ./cpp/ggml-opt.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-quants.h ./cpp/ggml-quants.h
 cp ./$LLAMA_DIR/ggml/src/ggml-quants.c ./cpp/ggml-quants.c
