@@ -13,8 +13,6 @@
 #include <utility>
 #include <stdexcept>
 
-using json = nlohmann::ordered_json;
-
 namespace rnllama_jsi {
 
 #if defined(__ANDROID__)
@@ -522,7 +520,11 @@ namespace rnllama_jsi {
 
         std::string jsonSchema = getPropertyAsString(runtime, params, "json_schema");
         if (!jsonSchema.empty() && sparams.grammar.empty()) {
-            sparams.grammar = {COMMON_GRAMMAR_TYPE_OUTPUT_FORMAT, json_schema_to_grammar(json::parse(jsonSchema))};
+#if defined(RNLLAMA_HAS_COMMON_JSON)
+            sparams.grammar = {COMMON_GRAMMAR_TYPE_OUTPUT_FORMAT, json_schema_to_grammar(common_json::parse(jsonSchema))};
+#else
+            sparams.grammar = {COMMON_GRAMMAR_TYPE_OUTPUT_FORMAT, json_schema_to_grammar(nlohmann::ordered_json::parse(jsonSchema))};
+#endif
         }
 
         sparams.generation_prompt = getPropertyAsString(runtime, params, "generation_prompt");

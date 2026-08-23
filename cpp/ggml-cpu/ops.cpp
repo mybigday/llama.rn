@@ -1896,15 +1896,12 @@ void lm_ggml_compute_forward_repeat_back(
 }
 
 // lm_ggml_compute_forward_concat
-
 static void lm_ggml_compute_forward_concat_any(
     const lm_ggml_compute_params * params,
     lm_ggml_tensor * dst) {
 
     const lm_ggml_tensor * src0 = dst->src[0];
     const lm_ggml_tensor * src1 = dst->src[1];
-
-    const size_t len = lm_ggml_type_size(src0->type);
 
     const int ith = params->ith;
     const int nth = params->nth;
@@ -1914,31 +1911,38 @@ static void lm_ggml_compute_forward_concat_any(
     const int32_t dim = lm_ggml_get_op_params_i32(dst, 0);
 
     LM_GGML_ASSERT(dim >= 0 && dim < 4);
+    LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(src0));
+    LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(src1));
 
     int64_t o[4] = {0, 0, 0, 0};
+
     if (dim == 0) {
+        LM_GGML_ASSERT(src0->ne[0] % lm_ggml_blck_size(src0->type) == 0);
+        LM_GGML_ASSERT(src1->ne[0] % lm_ggml_blck_size(src1->type) == 0);
+
         o[dim] = src0->ne[dim]/lm_ggml_blck_size(src0->type);
     } else {
         o[dim] = src0->ne[dim];
     }
 
-    const char * x;
+    // Region 1: copy rows from src0
+    for (int i3 = 0; i3 < ne03; i3++) {
+        for (int i2 = ith; i2 < ne02; i2 += nth) {
+            for (int i1 = 0; i1 < ne01; i1++) {
+                const char * x = (const char *) src0->data + i1*nb01 + i2*nb02 + i3*nb03;
+                      char * y = (      char *) dst->data  + i1*nb1  + i2*nb2  + i3*nb3;
+                memcpy(y, x, lm_ggml_row_size(src0->type, ne00));
+            }
+        }
+    }
 
-    // TODO: smarter multi-theading
-    for (int i3 = 0; i3 < ne3; i3++) {
-        for (int i2 = ith; i2 < ne2; i2 += nth) {
-            for (int i1 = 0; i1 < ne1; i1++) {
-                for (int i0 = 0; i0 < ne0/lm_ggml_blck_size(dst->type); i0++) {
-                    if (i0 < ne00/lm_ggml_blck_size(src0->type) && i1 < ne01 && i2 < ne02 && i3 < ne03) {
-                        x = (const char *)src0->data + (i0       )*nb00 + (i1       )*nb01 + (i2       )*nb02 + (i3       )*nb03;
-                    } else {
-                        x = (const char *)src1->data + (i0 - o[0])*nb10 + (i1 - o[1])*nb11 + (i2 - o[2])*nb12 + (i3 - o[3])*nb13;
-                    }
-
-                    char * y = (char *)dst->data + i0*nb0 + i1*nb1 + i2*nb2 + i3*nb3;
-
-                    memcpy(y, x, len);
-                }
+    // Region 2: copy rows from src1, offset into dst by o[]
+    for (int i3 = 0; i3 < ne13; i3++) {
+        for (int i2 = ith; i2 < ne12; i2 += nth) {
+            for (int i1 = 0; i1 < ne11; i1++) {
+                const char * x = (const char *) src1->data + i1*nb11         + i2*nb12         + i3*nb13;
+                      char * y = (      char *)  dst->data + (i1 + o[1])*nb1 + (i2 + o[2])*nb2 + (i3 + o[3])*nb3 + o[0]*nb0;
+                memcpy(y, x, lm_ggml_row_size(src1->type, ne10));
             }
         }
     }
@@ -2078,14 +2082,6 @@ void lm_ggml_compute_forward_concat(
     lm_ggml_tensor * dst) {
 
     const lm_ggml_tensor * src0 = dst->src[0];
-    const lm_ggml_tensor * src1 = dst->src[1];
-
-    if (lm_ggml_is_quantized(src0->type)) {
-        LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(src0));
-        LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(src1));
-        LM_GGML_ASSERT(src0->ne[0] % lm_ggml_blck_size(src0->type) == 0);
-        LM_GGML_ASSERT(src1->ne[0] % lm_ggml_blck_size(src1->type) == 0);
-    }
 
     switch (src0->type) {
         case LM_GGML_TYPE_F16:
@@ -5979,6 +5975,8 @@ static void lm_ggml_compute_forward_rope_flt(
     memcpy(&beta_slow,   (int32_t *) dst->op_params + 10, sizeof(float));
     memcpy(&sections,    (int32_t *) dst->op_params + 11, sizeof(int)*4);
 
+    const int n_offs = ((int32_t *) dst->op_params)[15];
+
     LM_GGML_TENSOR_UNARY_OP_LOCALS
 
     //printf("ne0: %d, ne1: %d, ne2: %d, ne3: %d\n", ne0, ne1, ne2, ne3);
@@ -5994,6 +5992,10 @@ static void lm_ggml_compute_forward_rope_flt(
 
     LM_GGML_ASSERT(n_dims <= ne0);
     LM_GGML_ASSERT(n_dims % 2 == 0);
+
+    LM_GGML_ASSERT(n_offs >= 0);
+    LM_GGML_ASSERT(n_offs % 2 == 0);
+    LM_GGML_ASSERT(n_offs + n_dims <= ne0);
 
     // rows per thread
     const int dr = (nr + nth - 1)/nth;
@@ -6020,6 +6022,7 @@ static void lm_ggml_compute_forward_rope_flt(
 
     if (is_vision) {
         LM_GGML_ASSERT(n_dims == ne0/2);
+        LM_GGML_ASSERT(n_offs == 0);
     }
 
     const float * freq_factors = NULL;
@@ -6068,12 +6071,12 @@ static void lm_ggml_compute_forward_rope_flt(
 
                 switch (mode) {
                     case LM_GGML_ROPE_TYPE_NORMAL:
-                        rotate_pairs<T>(n_dims, 1, cache, src, dst_data, 1);
+                        rotate_pairs<T>(n_dims, 1, cache, src + n_offs, dst_data + n_offs, 1);
                         break;
                     case LM_GGML_ROPE_TYPE_NEOX:
                     case LM_GGML_ROPE_TYPE_MROPE:
                     case LM_GGML_ROPE_TYPE_IMROPE:
-                        rotate_pairs<T>(n_dims, n_dims/2, cache, src, dst_data);
+                        rotate_pairs<T>(n_dims, n_dims/2, cache, src + n_offs, dst_data + n_offs);
                         break;
                     case LM_GGML_ROPE_TYPE_VISION:
                         rotate_pairs<T>(ne0, n_dims, cache, src, dst_data);
@@ -6084,7 +6087,11 @@ static void lm_ggml_compute_forward_rope_flt(
 
                 if (!is_vision) {
                     // fill the remain channels with data from src tensor
-                    for (int64_t i0 = n_dims; i0 < ne0; i0 += 2) {
+                    for (int64_t i0 = 0; i0 < ne0; i0 += 2) {
+                        if (i0 == n_offs) {
+                            i0 += n_dims - 2; // skip the rotated channels
+                            continue;
+                        }
                         const T * const src = (T *)((char *) src0->data + i3*nb03 + i2*nb02 + i1*nb01 + i0*nb00);
                         T * dst_data  = (T *)((char *)  dst->data + i3*nb3  + i2*nb2  + i1*nb1  + i0*nb0);
 

@@ -176,6 +176,10 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_fla
         bool    has_mask,
         int32_t ncpsg);
 
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn_ext_kv_f16(
+        lm_ggml_metal_library_t lib,
+        const struct lm_ggml_tensor * op);
+
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn_ext_blk(
         lm_ggml_metal_library_t lib,
         const struct lm_ggml_tensor * op,
@@ -190,7 +194,10 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_fla
         bool    has_bias,
         bool    has_scap,
         bool    has_kvpad,
-        int32_t nsg);
+        int32_t nsg,
+        bool    use_kv_f16,
+        int32_t ns10,
+        int32_t ns20);
 
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn_ext_vec(
         lm_ggml_metal_library_t lib,
@@ -201,7 +208,10 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_fla
         bool    has_scap,
         bool    has_kvpad,
         int32_t nsg,
-        int32_t nwg);
+        int32_t nwg,
+        bool    use_kv_f16,
+        int32_t ns10,
+        int32_t ns20);
 
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn_ext_vec_reduce(
         lm_ggml_metal_library_t lib,

@@ -1409,6 +1409,23 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn
     return res;
 }
 
+lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn_ext_kv_f16(
+        lm_ggml_metal_library_t lib,
+        const lm_ggml_tensor * op) {
+    assert(op->op == LM_GGML_OP_FLASH_ATTN_EXT);
+
+    char base[256];
+
+    snprintf(base, 256, "kernel_flash_attn_ext_kv_%s_f16", lm_ggml_type_name(op->src[1]->type));
+
+    lm_ggml_metal_pipeline_with_params res = lm_ggml_metal_library_get_pipeline(lib, base);
+    if (!res.pipeline) {
+        res = lm_ggml_metal_library_compile_pipeline(lib, base, base, nullptr);
+    }
+
+    return res;
+}
+
 lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn_ext_blk(
         lm_ggml_metal_library_t lib,
         const struct lm_ggml_tensor * op,
@@ -1460,7 +1477,10 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn
         bool    has_bias,
         bool    has_scap,
         bool    has_kvpad,
-        int32_t nsg) {
+        int32_t nsg,
+        bool    use_kv_f16,
+        int32_t ns10,
+        int32_t ns20) {
     assert(op->op == LM_GGML_OP_FLASH_ATTN_EXT);
 
     char base[256];
@@ -1469,15 +1489,14 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn
     const int32_t dk = (int32_t) op->src[1]->ne[0];
     const int32_t dv = (int32_t) op->src[2]->ne[0];
 
-    const int32_t ns10 = op->src[1]->nb[1]/op->src[1]->nb[0];
-    const int32_t ns20 = op->src[2]->nb[1]/op->src[2]->nb[0];
+    const char * type = use_kv_f16 ? "f16" : lm_ggml_type_name(op->src[1]->type);
 
     // do bounds checks for the mask?
     const bool bc_mask = op->src[3] && (op->src[3]->ne[1] % 8 != 0);
 
     snprintf(base, 256, "kernel_%s_%s_dk%d_dv%d",
             "flash_attn_ext",
-            lm_ggml_type_name(op->src[1]->type),
+            type,
             dk,
             dv);
 
@@ -1526,7 +1545,10 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn
         bool    has_scap,
         bool    has_kvpad,
         int32_t nsg,
-        int32_t nwg) {
+        int32_t nwg,
+        bool    use_kv_f16,
+        int32_t ns10,
+        int32_t ns20) {
     assert(op->op == LM_GGML_OP_FLASH_ATTN_EXT);
 
     char base[256];
@@ -1535,12 +1557,11 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn
     const int32_t dk = (int32_t) op->src[1]->ne[0];
     const int32_t dv = (int32_t) op->src[2]->ne[0];
 
-    const int32_t ns10 = op->src[1]->nb[1]/op->src[1]->nb[0];
-    const int32_t ns20 = op->src[2]->nb[1]/op->src[2]->nb[0];
+    const char * type = use_kv_f16 ? "f16" : lm_ggml_type_name(op->src[1]->type);
 
     snprintf(base, 256, "kernel_%s_%s_dk%d_dv%d",
             "flash_attn_ext_vec",
-            lm_ggml_type_name(op->src[1]->type),
+            type,
             dk,
             dv);
 

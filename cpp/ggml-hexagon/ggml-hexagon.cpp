@@ -3180,6 +3180,11 @@ static bool lm_ggml_hexagon_supported_argsort(const struct lm_ggml_hexagon_sessi
 static bool lm_ggml_hexagon_supported_rope(const struct lm_ggml_hexagon_session * sess, const struct lm_ggml_tensor * op) {
     const int32_t * op_params = &op->op_params[0];
 
+    // lm_ggml_rope_set_offset: HVX kernels need a VLEN-aligned window start (32 f32 elems)
+    if (op_params[15] % 32 != 0) {
+        return false;
+    }
+
     int mode = op_params[2];
 
     // n_dims == ne0/2, so the rotation spans the full row

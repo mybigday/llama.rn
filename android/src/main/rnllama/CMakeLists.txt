@@ -250,6 +250,7 @@ function(build_rnllama_library target_name arch cpu_flags)
         set(GGML_OPENCL_KERNELS
             add
             add_id
+            moe_add_id_glu
             argsort
             tri
             fill
@@ -389,6 +390,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             sqr
             sqrt
             ssm_conv
+            ssm_scan
             gated_delta_net
             sub
             sum_rows

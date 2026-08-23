@@ -4208,7 +4208,7 @@ static struct lm_ggml_tensor * lm_ggml_rope_impl(
 
     struct lm_ggml_tensor * result = inplace ? lm_ggml_view_tensor(ctx, a) : lm_ggml_dup_tensor(ctx, a);
 
-    int32_t params[15] = { /*n_past*/ 0, n_dims, mode, /*n_ctx*/ 0, n_ctx_orig };
+    int32_t params[16] = { /*n_past*/ 0, n_dims, mode, /*n_ctx*/ 0, n_ctx_orig };
     memcpy(params +  5, &freq_base,    sizeof(float));
     memcpy(params +  6, &freq_scale,   sizeof(float));
     memcpy(params +  7, &ext_factor,   sizeof(float));
@@ -4220,6 +4220,8 @@ static struct lm_ggml_tensor * lm_ggml_rope_impl(
     } else {
         memset(params + 11, 0,         sizeof(int32_t) * LM_GGML_MROPE_SECTIONS);
     }
+    params[15] = 0; // n_offs, set via lm_ggml_rope_set_offset()
+
     lm_ggml_set_op_params(result, params, sizeof(params));
 
     result->op     = LM_GGML_OP_ROPE;
@@ -4430,6 +4432,20 @@ struct lm_ggml_tensor * lm_ggml_rope_multi_back(
     result->op = LM_GGML_OP_ROPE_BACK;
     return result;
 }
+
+struct lm_ggml_tensor * lm_ggml_rope_set_offset(
+        struct lm_ggml_tensor  * a,
+        int                   n_offs) {
+    LM_GGML_ASSERT(a->op == LM_GGML_OP_ROPE || a->op == LM_GGML_OP_ROPE_BACK);
+    LM_GGML_ASSERT(n_offs >= 0);
+
+    const int32_t mode = lm_ggml_get_op_params_i32(a, 2);
+    LM_GGML_ASSERT(mode != LM_GGML_ROPE_TYPE_VISION);
+
+    lm_ggml_set_op_params_i32(a, 15, n_offs);
+    return a;
+}
+
 // lm_ggml_clamp
 
 struct lm_ggml_tensor * lm_ggml_clamp(

@@ -88,6 +88,22 @@ static lm_ggml_tensor * get_rel_pos(lm_ggml_context * ctx0,
     return cur;  // [C, k_size, q_size]
 }
 
+// lm_ggml_conv_2d with the im2col kept in F32: the F16 im2col it emits since #23660 degrades OCR
+static lm_ggml_tensor * conv_2d_f32(lm_ggml_context * ctx0, lm_ggml_tensor * a, lm_ggml_tensor * b,
+                                 int s0, int s1, int p0, int p1, int d0, int d1) {
+    const lm_ggml_type im2col_type = a->type == LM_GGML_TYPE_F16 ? LM_GGML_TYPE_F16 : LM_GGML_TYPE_F32;
+    lm_ggml_tensor * im2col = lm_ggml_im2col(ctx0, a, b, s0, s1, p0, p1, d0, d1, true, im2col_type); // [N, OH, OW, IC * KH * KW]
+
+    lm_ggml_tensor * result = lm_ggml_mul_mat(ctx0,
+        lm_ggml_reshape_2d(ctx0, im2col, im2col->ne[0], im2col->ne[3] * im2col->ne[2] * im2col->ne[1]),
+        lm_ggml_reshape_2d(ctx0, a, (a->ne[0] * a->ne[1] * a->ne[2]), a->ne[3]));
+
+    result = lm_ggml_reshape_4d(ctx0, result, im2col->ne[1], im2col->ne[2], im2col->ne[3], a->ne[3]); // [OC, N, OH, OW]
+    result = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, result, 0, 1, 3, 2)); // [N, OC, OH, OW]
+
+    return result;
+}
+
 
 lm_ggml_tensor * clip_graph_deepseekocr::build_sam(lm_ggml_tensor * inp_raw) {
     // Building SAM
@@ -101,7 +117,8 @@ lm_ggml_tensor * clip_graph_deepseekocr::build_sam(lm_ggml_tensor * inp_raw) {
 
     lm_ggml_tensor * inpL;
 
-    inpL = lm_ggml_conv_2d_sk_p0(ctx0, model.patch_embed_proj_w, inp_raw);
+    inpL = conv_2d_f32(ctx0, model.patch_embed_proj_w, inp_raw,
+                       (int) model.patch_embed_proj_w->ne[0], (int) model.patch_embed_proj_w->ne[1], 0, 0, 1, 1);
     inpL = lm_ggml_add(ctx0, inpL, lm_ggml_reshape_3d(ctx0, model.patch_embed_proj_b, 1, 1, n_embd));
     inpL = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, inpL, 1, 2, 0, 3));
 
@@ -229,18 +246,18 @@ lm_ggml_tensor * clip_graph_deepseekocr::build_sam(lm_ggml_tensor * inp_raw) {
 
     cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 2, 0, 1, 3));
 
-    cur = lm_ggml_conv_2d(ctx0, model.neck_0_w, cur, 1, 1, 0, 0, 1, 1);
+    cur = conv_2d_f32(ctx0, model.neck_0_w, cur, 1, 1, 0, 0, 1, 1);
     cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 1, 2, 0, 3));
     cur = build_norm(cur, model.neck_1_w, model.neck_1_b, NORM_TYPE_NORMAL, sam_eps, -1);
     cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 2, 0, 1, 3));
 
-    cur = lm_ggml_conv_2d(ctx0, model.neck_2_w, cur, 1, 1, 1, 1, 1, 1);
+    cur = conv_2d_f32(ctx0, model.neck_2_w, cur, 1, 1, 1, 1, 1, 1);
     cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 1, 2, 0, 3));
     cur = build_norm(cur, model.neck_3_w, model.neck_3_b, NORM_TYPE_NORMAL, sam_eps, -1);
     cur = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, cur, 2, 0, 1, 3));
 
-    cur = lm_ggml_conv_2d(ctx0, model.net_2, cur, 2, 2, 1, 1, 1, 1);
-    cur = lm_ggml_conv_2d(ctx0, model.net_3, cur, 2, 2, 1, 1, 1, 1);
+    cur = conv_2d_f32(ctx0, model.net_2, cur, 2, 2, 1, 1, 1, 1);
+    cur = conv_2d_f32(ctx0, model.net_3, cur, 2, 2, 1, 1, 1, 1);
     cb(cur, "sam_output", -1);
 
     lm_ggml_build_forward_expand(gf, cur);

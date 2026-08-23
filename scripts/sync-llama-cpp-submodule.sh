@@ -13,15 +13,24 @@ git branch -D "$STAGING_BRANCH" 2>/dev/null || echo "No local staging branch to 
 
 git checkout -B "$STAGING_BRANCH" origin/main
 
-echo "🔍 Checking latest llama.cpp release..."
+echo "🔍 Checking latest llama.cpp build release..."
+RELEASES_URL="https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=100"
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  LATEST_TAG=$(curl -s -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r .tag_name)
+  RELEASES=$(curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$RELEASES_URL")
 else
-  LATEST_TAG=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r .tag_name)
+  RELEASES=$(curl -fsSL "$RELEASES_URL")
 fi
 
-if [[ -z "$LATEST_TAG" || "$LATEST_TAG" == "null" ]]; then
-  echo "❌ Failed to fetch latest tag"
+# GitHub's /releases/latest endpoint excludes prereleases and may return a
+# stable vX.Y.Z tag older than the rolling bNNNNN builds we vendor.
+LATEST_TAG=$(jq -r '
+  map(select(.tag_name | test("^b[0-9]+$")))
+  | max_by(.tag_name | ltrimstr("b") | tonumber)
+  | .tag_name // empty
+' <<< "$RELEASES")
+
+if [[ -z "$LATEST_TAG" ]]; then
+  echo "❌ Failed to fetch latest build tag"
   exit 1
 fi
 

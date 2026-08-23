@@ -9,6 +9,10 @@
 #include <rnllama/gguf.h>
 #include <rnllama/ggml-backend.h>
 #include <rnllama/common.h>
+#if __has_include(<rnllama/json.h>)
+#include <rnllama/json.h>
+#define RNLLAMA_HAS_COMMON_JSON 1
+#endif
 #include <rnllama/json-schema-to-grammar.h>
 #include <rnllama/nlohmann/json.hpp>
 #else
@@ -20,6 +24,8 @@
 #include "gguf.h"
 #include "ggml-backend.h"
 #include "common.h"
+#include "json.h"
+#define RNLLAMA_HAS_COMMON_JSON 1
 #include "json-schema-to-grammar.h"
 #include "nlohmann/json.hpp"
 

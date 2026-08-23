@@ -234,6 +234,8 @@ cp ./$LLAMA_DIR/src/llama-kv-cache.h ./cpp/llama-kv-cache.h
 cp ./$LLAMA_DIR/src/llama-kv-cache.cpp ./cpp/llama-kv-cache.cpp
 cp ./$LLAMA_DIR/src/llama-kv-cache-dsa.h ./cpp/llama-kv-cache-dsa.h
 cp ./$LLAMA_DIR/src/llama-kv-cache-dsa.cpp ./cpp/llama-kv-cache-dsa.cpp
+cp ./$LLAMA_DIR/src/llama-kv-cache-dsa-iswa.h ./cpp/llama-kv-cache-dsa-iswa.h
+cp ./$LLAMA_DIR/src/llama-kv-cache-dsa-iswa.cpp ./cpp/llama-kv-cache-dsa-iswa.cpp
 cp ./$LLAMA_DIR/src/llama-kv-cache-msa.h ./cpp/llama-kv-cache-msa.h
 cp ./$LLAMA_DIR/src/llama-kv-cache-msa.cpp ./cpp/llama-kv-cache-msa.cpp
 cp ./$LLAMA_DIR/src/llama-kv-cache-dsv4.h ./cpp/llama-kv-cache-dsv4.h
@@ -296,6 +298,8 @@ cp ./$LLAMA_DIR/common/ngram-mod.h ./cpp/common/ngram-mod.h
 cp ./$LLAMA_DIR/common/ngram-mod.cpp ./cpp/common/ngram-mod.cpp
 cp ./$LLAMA_DIR/common/json-schema-to-grammar.h ./cpp/common/json-schema-to-grammar.h
 cp ./$LLAMA_DIR/common/json-schema-to-grammar.cpp ./cpp/common/json-schema-to-grammar.cpp
+cp ./$LLAMA_DIR/common/json.h ./cpp/common/json.h
+cp ./$LLAMA_DIR/common/json.cpp ./cpp/common/json.cpp
 rm -f ./cpp/common/json-partial.h ./cpp/common/json-partial.cpp
 rm -f ./cpp/common/regex-partial.h ./cpp/common/regex-partial.cpp
 cp ./$LLAMA_DIR/common/chat.h ./cpp/common/chat.h
@@ -325,6 +329,7 @@ mkdir -p ./cpp/tools/mtmd
 cp -r ./$LLAMA_DIR/tools/mtmd/models ./cpp/tools/mtmd/models
 cp -r ./$LLAMA_DIR/tools/mtmd/debug ./cpp/tools/mtmd/debug
 cp ./$LLAMA_DIR/tools/mtmd/mtmd.h ./cpp/tools/mtmd/mtmd.h
+cp ./$LLAMA_DIR/tools/mtmd/mtmd-internal.h ./cpp/tools/mtmd/mtmd-internal.h
 cp ./$LLAMA_DIR/tools/mtmd/mtmd.cpp ./cpp/tools/mtmd/mtmd.cpp
 cp ./$LLAMA_DIR/tools/mtmd/clip.h ./cpp/tools/mtmd/clip.h
 cp ./$LLAMA_DIR/tools/mtmd/clip.cpp ./cpp/tools/mtmd/clip.cpp
