@@ -182,6 +182,8 @@ void lm_ggml_backend_buffer_set_usage(lm_ggml_backend_buffer_t buffer, enum lm_g
     // FIXME: add a generic callback to the buffer interface
     if (lm_ggml_backend_buffer_is_multi_buffer(buffer)) {
         lm_ggml_backend_multi_buffer_set_usage(buffer, usage);
+    } else if (lm_ggml_backend_buffer_is_meta(buffer)) {
+        lm_ggml_backend_meta_buffer_set_usage(buffer, usage);
     }
 }
 

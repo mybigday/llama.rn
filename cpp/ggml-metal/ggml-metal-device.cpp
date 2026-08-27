@@ -1,6 +1,7 @@
 #include "ggml-metal-device.h"
 
 #include "ggml-metal-impl.h"
+#include "ggml-metal-tuning.h"
 
 #include "ggml-impl.h"
 
@@ -17,10 +18,10 @@ struct lm_ggml_metal_device_deleter {
 
 typedef std::unique_ptr<lm_ggml_metal_device, lm_ggml_metal_device_deleter> lm_ggml_metal_device_ptr;
 
-lm_ggml_metal_device_t lm_ggml_metal_device_get(int device) {
+lm_ggml_metal_device_t lm_ggml_metal_device_get(int device, int n_devices) {
     static std::vector<lm_ggml_metal_device_ptr> devs;
 
-    devs.emplace_back(lm_ggml_metal_device_init(device));
+    devs.emplace_back(lm_ggml_metal_device_init(device, n_devices));
 
     return devs.back().get();
 }
@@ -571,7 +572,7 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_conv_b
     return res;
 }
 
-lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_scan(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op)  {
+lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_scan(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op, bool tail)  {
     LM_GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
 
     char base[256];
@@ -579,7 +580,7 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_scan(l
 
     const int nsg = (ne00 + 31)/32;
 
-    snprintf(base, 256, "kernel_ssm_scan_%s", lm_ggml_type_name(op->src[0]->type));
+    snprintf(base, 256, "kernel_ssm_scan_%s%s", lm_ggml_type_name(op->src[0]->type), tail ? "_tail" : "");
     snprintf(name, 256, "%s_nsg=%d", base, nsg);
 
     lm_ggml_metal_pipeline_with_params res = lm_ggml_metal_library_get_pipeline(lib, name);
@@ -593,6 +594,27 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_scan(l
     // - sgptg floats for shared_dA (nsg)
     // Total: nsg * (32 + 2) floats
     res.smem = (32 + 2)*sizeof(float)*nsg;
+
+    return res;
+}
+
+lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_ssm_scan_ssd_mma(lm_ggml_metal_library_t lib, const lm_ggml_tensor * op)  {
+    char base[256];
+    char name[256];
+
+    snprintf(base, 256, "kernel_ssm_scan_ssd_mma_%s", lm_ggml_type_name(op->src[0]->type));
+    snprintf(name, 256, "%s", base);
+
+    lm_ggml_metal_pipeline_with_params res = lm_ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        res = lm_ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    }
+
+    // acs/exp(acs)/state-decay vectors + dtX + SAM rows + two 8x8 tiles per simdgroup
+    res.smem = (3*OP_SSM_SCAN_SSD_CS +
+                OP_SSM_SCAN_SSD_CS*OP_SSM_SCAN_SSD_HD +
+                OP_SSM_SCAN_SSD_NSG*8*OP_SSM_SCAN_SSD_CS +
+                OP_SSM_SCAN_SSD_NSG*2*8*8)*sizeof(float);
 
     return res;
 }
@@ -1544,6 +1566,8 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn
         bool    has_bias,
         bool    has_scap,
         bool    has_kvpad,
+        int32_t nqpsg,
+        int32_t ne,
         int32_t nsg,
         int32_t nwg,
         bool    use_kv_f16,
@@ -1559,11 +1583,17 @@ lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn
 
     const char * type = use_kv_f16 ? "f16" : lm_ggml_type_name(op->src[1]->type);
 
-    snprintf(base, 256, "kernel_%s_%s_dk%d_dv%d",
+    char qne_suffix[16] = {0};
+    if (!(nqpsg == 1 && ne == lm_ggml_metal_tuning::fa_vec_baseline_ne(dk, dv))) {
+        snprintf(qne_suffix, sizeof(qne_suffix), "_q%d_ne%d", nqpsg, ne);
+    }
+
+    snprintf(base, 256, "kernel_%s_%s_dk%d_dv%d%s",
             "flash_attn_ext_vec",
             type,
             dk,
-            dv);
+            dv,
+            qne_suffix);
 
     snprintf(name, 256, "%s_mask=%d_sink=%d_bias=%d_scap=%d_kvpad=%d_ns10=%d_ns20=%d_nsg=%d_nwg=%d",
             base,

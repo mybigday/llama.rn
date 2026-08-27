@@ -6,6 +6,7 @@
 #include "ggml-metal-device.h"
 #include "ggml-metal-context.h"
 #include "ggml-metal-ops.h"
+#include "ggml-metal-tuning.h"
 
 #include <mutex>
 #include <string>
@@ -202,6 +203,11 @@ typedef std::unique_ptr<lm_ggml_backend_metal_buffer_type, lm_ggml_backend_metal
 static lm_ggml_backend_buffer_t lm_ggml_backend_metal_buffer_type_alloc_buffer(lm_ggml_backend_buffer_type_t buft, size_t size, bool shared) {
     lm_ggml_metal_device_t ctx_dev = (lm_ggml_metal_device_t)buft->device->context;
     lm_ggml_metal_buffer_t res = lm_ggml_metal_buffer_init(ctx_dev, size, shared);
+
+    if (res == NULL) {
+        LM_GGML_LOG_ERROR("%s: failed to allocate Metal buffer of %zu bytes (out of memory)\n", __func__, size);
+        return NULL;
+    }
 
     lm_ggml_backend_buffer_i buf_i = lm_ggml_metal_buffer_is_shared(res)
         ? lm_ggml_backend_metal_buffer_shared_i
@@ -870,9 +876,54 @@ static lm_ggml_backend_feature * lm_ggml_backend_metal_get_features(lm_ggml_back
     LM_GGML_UNUSED(reg);
 }
 
+// test/tune-only override for the FA vec (Q, NE) selection, reached via proc_address.
+static void lm_ggml_backend_metal_tuning_set_fa_vec_override(int Q, int NE) {
+    lm_ggml_metal_tuning::fa_vec_set_override({ (int8_t) Q, (int8_t) NE });
+}
+
+static void lm_ggml_backend_metal_tuning_clear_fa_vec_override(void) {
+    lm_ggml_metal_tuning::fa_vec_clear_override();
+}
+
+static int lm_ggml_backend_metal_tuning_fa_vec_ne11_bucket(int64_t ne11) {
+    return lm_ggml_metal_tuning::fa_vec_ne11_bucket(ne11);
+}
+
+static int lm_ggml_backend_metal_tuning_fa_vec_ne01_bucket(int64_t ne01) {
+    return lm_ggml_metal_tuning::fa_vec_ne01_bucket(ne01);
+}
+
+static int lm_ggml_backend_metal_tuning_fa_vec_baseline_ne(int dk, int dv) {
+    return lm_ggml_metal_tuning::fa_vec_baseline_ne(dk, dv);
+}
+
+static const char * lm_ggml_backend_metal_tuning_device_token(lm_ggml_backend_dev_t dev) {
+    lm_ggml_metal_device_t ctx_dev = (lm_ggml_metal_device_t)dev->context;
+
+    return lm_ggml_metal_device_id_token(lm_ggml_metal_device_get_props(ctx_dev)->device_id);
+}
+
 static void * lm_ggml_backend_metal_get_proc_address(lm_ggml_backend_reg_t reg, const char * name) {
     if (strcmp(name, "lm_ggml_backend_get_features") == 0) {
         return (void *)lm_ggml_backend_metal_get_features;
+    }
+    if (strcmp(name, "lm_ggml_backend_metal_tuning_set_fa_vec_override") == 0) {
+        return (void *)lm_ggml_backend_metal_tuning_set_fa_vec_override;
+    }
+    if (strcmp(name, "lm_ggml_backend_metal_tuning_clear_fa_vec_override") == 0) {
+        return (void *)lm_ggml_backend_metal_tuning_clear_fa_vec_override;
+    }
+    if (strcmp(name, "lm_ggml_backend_metal_tuning_fa_vec_ne11_bucket") == 0) {
+        return (void *)lm_ggml_backend_metal_tuning_fa_vec_ne11_bucket;
+    }
+    if (strcmp(name, "lm_ggml_backend_metal_tuning_fa_vec_ne01_bucket") == 0) {
+        return (void *)lm_ggml_backend_metal_tuning_fa_vec_ne01_bucket;
+    }
+    if (strcmp(name, "lm_ggml_backend_metal_tuning_fa_vec_baseline_ne") == 0) {
+        return (void *)lm_ggml_backend_metal_tuning_fa_vec_baseline_ne;
+    }
+    if (strcmp(name, "lm_ggml_backend_metal_tuning_device_token") == 0) {
+        return (void *)lm_ggml_backend_metal_tuning_device_token;
     }
 
     return NULL;
@@ -891,7 +942,7 @@ static lm_ggml_backend_dev_t lm_ggml_backend_metal_device_init(lm_ggml_backend_r
     return new lm_ggml_backend_device {
         /* .iface   = */ lm_ggml_backend_metal_device_i,
         /* .reg     = */ reg,
-        /* .context = */ lm_ggml_metal_device_get(device),
+        /* .context = */ lm_ggml_metal_device_get(device, g_devices),
     };
 }
 

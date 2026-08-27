@@ -282,7 +282,8 @@ if(APPLE AND TESTS_METAL)
         ${SOURCE_DIR}/ggml-metal/*.cpp
         ${SOURCE_DIR}/ggml-metal/*.m
         ${SOURCE_DIR}/ggml-metal/*.s)
-    set_source_files_properties(${SOURCE_DIR}/ggml-metal/ggml-metal-embed.s PROPERTIES LANGUAGE ASM)
+    file(GLOB TTS_PROBE_METAL_ASM_FILES ${SOURCE_DIR}/ggml-metal/*.s)
+    set_source_files_properties(${TTS_PROBE_METAL_ASM_FILES} PROPERTIES LANGUAGE ASM)
 else()
     set(TTS_PROBE_METAL_FILES "")
 endif()

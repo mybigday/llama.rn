@@ -4050,6 +4050,41 @@ struct lm_ggml_tensor * lm_ggml_diag_mask_zero_inplace(
     return lm_ggml_diag_mask_zero_impl(ctx, a, n_past, true);
 }
 
+// lm_ggml_clamp
+
+static struct lm_ggml_tensor * lm_ggml_clamp_impl(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        float                 min,
+        float                 max,
+        bool                  inplace) {
+    struct lm_ggml_tensor * result = inplace ? lm_ggml_view_tensor(ctx, a) : lm_ggml_dup_tensor(ctx, a);
+
+    float params[] = { min, max };
+    lm_ggml_set_op_params(result, params, sizeof(params));
+
+    result->op     = LM_GGML_OP_CLAMP;
+    result->src[0] = a;
+
+    return result;
+}
+
+struct lm_ggml_tensor * lm_ggml_clamp(
+    struct lm_ggml_context * ctx,
+    struct lm_ggml_tensor  * a,
+    float                 min,
+    float                 max) {
+    return lm_ggml_clamp_impl(ctx, a, min, max, false);
+}
+
+struct lm_ggml_tensor * lm_ggml_clamp_inplace(
+    struct lm_ggml_context * ctx,
+    struct lm_ggml_tensor  * a,
+    float                 min,
+    float                 max) {
+    return lm_ggml_clamp_impl(ctx, a, min, max, true);
+}
+
 // lm_ggml_soft_max
 
 static struct lm_ggml_tensor * lm_ggml_soft_max_impl(
@@ -4444,25 +4479,6 @@ struct lm_ggml_tensor * lm_ggml_rope_set_offset(
 
     lm_ggml_set_op_params_i32(a, 15, n_offs);
     return a;
-}
-
-// lm_ggml_clamp
-
-struct lm_ggml_tensor * lm_ggml_clamp(
-        struct lm_ggml_context * ctx,
-        struct lm_ggml_tensor  * a,
-        float                 min,
-        float                 max) {
-    // TODO: when implement backward, fix this:
-    struct lm_ggml_tensor * result = lm_ggml_view_tensor(ctx, a);
-
-    float params[] = { min, max };
-    lm_ggml_set_op_params(result, params, sizeof(params));
-
-    result->op     = LM_GGML_OP_CLAMP;
-    result->src[0] = a;
-
-    return result;
 }
 
 static int64_t lm_ggml_calc_conv_output_size(int64_t ins, int64_t ks, int s, int p, int d) {

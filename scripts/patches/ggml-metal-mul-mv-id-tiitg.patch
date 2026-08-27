@@ -1,6 +1,6 @@
---- ggml-metal/ggml-metal.metal.orig
-+++ ggml-metal/ggml-metal.metal
-@@ -13355,7 +13355,7 @@ void mmv_fn(
+--- ggml-metal/kernels/mul_mv.metal.orig
++++ ggml-metal/kernels/mul_mv.metal
+@@ -3096,7 +3096,7 @@
          device       char * dst,
          threadgroup  char * shmem,
          uint3  tgpig,
@@ -9,7 +9,7 @@
          ushort tiisg,
          ushort sgitg) {
      disp_fn(args, src0, src1, dst, tgpig, tiisg);
-@@ -13369,7 +13369,7 @@ void mmv_fn(
+@@ -3110,7 +3110,7 @@
          device       char * dst,
          threadgroup  char * shmem,
          uint3  tgpig,
@@ -18,7 +18,7 @@
          ushort tiisg,
          ushort sgitg) {
      disp_fn(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
-@@ -13385,7 +13385,7 @@ kernel void kernel_mul_mv_id(
+@@ -3127,7 +3127,7 @@
          device const char * ids,
          threadgroup  char * shmem [[threadgroup(0)]],
          uint3  tgpig[[threadgroup_position_in_grid]],

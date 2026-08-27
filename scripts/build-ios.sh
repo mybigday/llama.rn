@@ -44,8 +44,8 @@ copy_framework_support_files() {
   local framework_path="$1"
 
   copy_headers "$framework_path"
-  # ggml-metal.metal is no longer shipped: its bytes are embedded into the framework
-  # binary via cpp/ggml-metal/ggml-metal-embed.s (LM_GGML_METAL_EMBED_LIBRARY).
+  # Metal sources are not shipped as framework resources: each split kernel is
+  # embedded via cpp/ggml-metal/ggml-metal-embed-*.s.
 }
 
 assert_matching_dsym() {

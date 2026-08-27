@@ -40,6 +40,7 @@ bool lm_ggml_op_can_inplace(enum lm_ggml_op op) {
         case LM_GGML_OP_SILU_BACK:
         case LM_GGML_OP_RMS_NORM:
         case LM_GGML_OP_RMS_NORM_BACK:
+        case LM_GGML_OP_CLAMP:
         case LM_GGML_OP_SOFT_MAX:
         case LM_GGML_OP_SOFT_MAX_BACK:
             return true;

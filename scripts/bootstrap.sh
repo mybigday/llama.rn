@@ -114,38 +114,9 @@ cp ./$LLAMA_DIR/ggml/include/ggml-blas.h ./cpp/ggml-blas.h
 cp ./$LLAMA_DIR/ggml/include/ggml-hexagon.h ./cpp/ggml-hexagon.h
 cp ./$LLAMA_DIR/ggml/include/gguf.h ./cpp/gguf.h
 
+rm -rf ./cpp/ggml-metal
 cp -r ./$LLAMA_DIR/ggml/src/ggml-metal ./cpp/
 rm ./cpp/ggml-metal/CMakeLists.txt
-# Keep ggml-metal.metal as build-time input — it is embedded into the framework via ggml-metal-embed.s
-# rm ./cpp/ggml-metal/ggml-metal.metal
-
-# Embed headers into ggml-metal.metal for runtime compilation
-# This allows the .metal file to be compiled at runtime without needing external header files
-echo "Embedding headers into ggml-metal.metal..."
-METAL_SOURCE="./cpp/ggml-metal/ggml-metal.metal"
-METAL_TMP="./cpp/ggml-metal/ggml-metal.metal.tmp1"
-COMMON_HEADER="./$LLAMA_DIR/ggml/src/ggml-common.h"
-IMPL_HEADER="./cpp/ggml-metal/ggml-metal-impl.h"
-
-# Step 1: Replace the entire conditional block with just the embedded header content
-# Find the line with #if defined(GGML_METAL_EMBED_LIBRARY), replace __embed__ placeholder with header,
-# and remove everything from #else to #endif (inclusive)
-awk '
-/^#if defined\(GGML_METAL_EMBED_LIBRARY\)/ { skip=1; next }
-/__embed_ggml-common.h__/ {
-    system("cat '"$COMMON_HEADER"'")
-    next
-}
-/^#else/ && skip { skip_else=1; next }
-/^#endif/ && skip_else { skip=0; skip_else=0; next }
-!skip { print }
-' < "$METAL_SOURCE" > "$METAL_TMP"
-
-# Step 2: Embed ggml-metal-impl.h by replacing the #include with file contents
-sed -e '/#include "ggml-metal-impl.h"/r '"$IMPL_HEADER" -e '/#include "ggml-metal-impl.h"/d' < "$METAL_TMP" > "$METAL_SOURCE"
-
-rm -f "$METAL_TMP"
-echo "Headers embedded successfully"
 
 cp -r ./$LLAMA_DIR/ggml/src/ggml-blas ./cpp/
 rm ./cpp/ggml-blas/CMakeLists.txt
@@ -404,7 +375,8 @@ files_add_lm_prefix=(
   ./cpp/ggml-metal/*.cpp
   ./cpp/ggml-metal/*.h
   ./cpp/ggml-metal/*.m
-  ./cpp/ggml-metal/*.metal
+  ./cpp/ggml-metal/kernels/*.h
+  ./cpp/ggml-metal/kernels/*.metal
 
   ./cpp/ggml-blas/*.cpp
 
@@ -549,33 +521,6 @@ done
 cp ./cpp/codec/src/ops/ggml_ops.h ./cpp/codec/src/ops/lm_ggml_ops.h
 cp ./cpp/codec/src/runtime/gguf_kv.h ./cpp/codec/src/runtime/lm_gguf_kv.h
 
-# Embed ggml-metal.metal into an assembly file so the framework binary carries
-# the merged shader source as a __DATA symbol range. ggml-metal-device.m's
-# LM_GGML_METAL_EMBED_LIBRARY branch then compiles directly from those bytes,
-# avoiding the runtime NSBundle resource load + .metal file path resolution
-# (and the associated MTLCompilerService XPC interruptions on some iOS devices,
-# see llama.rn#348).
-echo "Generating ggml-metal-embed.s..."
-EMBED_ASM="./cpp/ggml-metal/ggml-metal-embed.s"
-METAL_FILE="./cpp/ggml-metal/ggml-metal.metal"
-{
-  # Mach-O section name limit is 16 chars; drop the LM_ prefix here (only the
-  # exported symbols carry it). Matches upstream llama.cpp's __ggml_metallib.
-  echo '.section __DATA,__ggml_metallib'
-  echo '.globl _lm_ggml_metallib_start'
-  echo '_lm_ggml_metallib_start:'
-  # 16 bytes per line, .byte 0xNN,0xNN,...,0xNN
-  # (no -w16: macOS BSD od rejects it; both GNU od and BSD od default to 16 bytes/line)
-  od -An -vtx1 "$METAL_FILE" | awk 'NF>0 {
-    printf ".byte 0x%s", $1
-    for (i=2; i<=NF; i++) printf ",0x%s", $i
-    printf "\n"
-  }'
-  echo '.globl _lm_ggml_metallib_end'
-  echo '_lm_ggml_metallib_end:'
-} > "$EMBED_ASM"
-echo "ggml-metal-embed.s generated ($(wc -l < "$EMBED_ASM") lines)"
-
 echo "Replacement completed successfully!"
 
 cd example && npm install && cd ..
@@ -605,6 +550,69 @@ done
 rm -rf ./cpp/*.orig
 rm -rf ./cpp/**/*.orig
 rm -rf ./cpp/**/*/*.orig
+
+# llama.cpp splits Metal kernels into per-op sources. Flatten each source with
+# the headers it needs, then encode it in an assembly file so Apple frameworks
+# carry every source without distributing runtime .metal resources (see #348).
+# Generate these after patching so local Metal fixes are included in the bytes.
+echo "Generating embedded Metal kernel sources..."
+METAL_DIR="./cpp/ggml-metal"
+METAL_KERNEL_DIR="$METAL_DIR/kernels"
+METAL_COMMON="./cpp/ggml-common.h"
+METAL_IMPL="$METAL_DIR/ggml-metal-impl.h"
+rm -f "$METAL_DIR"/ggml-metal-embed*.s
+
+for METAL_KERNEL in "$METAL_KERNEL_DIR"/*.metal; do
+  METAL_KIND=$(basename "$METAL_KERNEL" .metal)
+  METAL_KIND_SYMBOL=${METAL_KIND//-/_}
+  METAL_TMP1="$METAL_DIR/.ggml-metal-embed-$METAL_KIND.tmp1"
+  METAL_TMP2="$METAL_DIR/.ggml-metal-embed-$METAL_KIND.tmp2"
+  METAL_TMP3="$METAL_DIR/.ggml-metal-embed-$METAL_KIND.tmp3"
+  METAL_FLAT="$METAL_DIR/.ggml-metal-embed-$METAL_KIND.metal"
+  EMBED_ASM="$METAL_DIR/ggml-metal-embed-$METAL_KIND.s"
+
+  {
+    cat "$METAL_KERNEL_DIR/common.h"
+    if grep -qF '#include "dequantize.h"' "$METAL_KERNEL"; then
+      cat "$METAL_KERNEL_DIR/dequantize.h"
+    fi
+    if grep -qF '#include "quantize.h"' "$METAL_KERNEL"; then
+      cat "$METAL_KERNEL_DIR/quantize.h"
+    fi
+    cat "$METAL_KERNEL"
+  } > "$METAL_TMP1"
+
+  sed -e '/#include "common.h"/d' \
+      -e '/#include "dequantize.h"/d' \
+      -e '/#include "quantize.h"/d' \
+      -e '/#pragma once/d' \
+      < "$METAL_TMP1" > "$METAL_TMP2"
+  sed -e "/__embed_ggml-common.h__/r $METAL_COMMON" \
+      -e '/__embed_ggml-common.h__/d' \
+      < "$METAL_TMP2" > "$METAL_TMP3"
+  sed -e "/#include \"ggml-metal-impl.h\"/r $METAL_IMPL" \
+      -e '/#include "ggml-metal-impl.h"/d' \
+      < "$METAL_TMP3" > "$METAL_FLAT"
+
+  {
+    # Mach-O section names are limited to 16 characters. Keep the shared
+    # upstream section name and vary only the exported per-kernel symbols.
+    echo '.section __DATA,__ggml_metallib'
+    echo ".globl _lm_ggml_metallib_${METAL_KIND_SYMBOL}_start"
+    echo "_lm_ggml_metallib_${METAL_KIND_SYMBOL}_start:"
+    # 16 bytes per line; compatible with both BSD and GNU od.
+    od -An -vtx1 "$METAL_FLAT" | awk 'NF>0 {
+      printf ".byte 0x%s", $1
+      for (i=2; i<=NF; i++) printf ",0x%s", $i
+      printf "\n"
+    }'
+    echo ".globl _lm_ggml_metallib_${METAL_KIND_SYMBOL}_end"
+    echo "_lm_ggml_metallib_${METAL_KIND_SYMBOL}_end:"
+  } > "$EMBED_ASM"
+
+  rm -f "$METAL_TMP1" "$METAL_TMP2" "$METAL_TMP3" "$METAL_FLAT"
+  echo "  $METAL_KIND ($(wc -l < "$EMBED_ASM") assembly lines)"
+done
 
 if [ "$OS" = "Darwin" ]; then
   # Refresh Pods after source list changes so the example target picks up

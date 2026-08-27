@@ -83,6 +83,7 @@ extern "C" {
     LM_GGML_API lm_ggml_backend_buffer_t lm_ggml_backend_multi_buffer_alloc_buffer(lm_ggml_backend_buffer_t * buffers, size_t n_buffers);
     LM_GGML_API bool                  lm_ggml_backend_buffer_is_multi_buffer(lm_ggml_backend_buffer_t buffer);
     LM_GGML_API void                  lm_ggml_backend_multi_buffer_set_usage(lm_ggml_backend_buffer_t buffer, enum lm_ggml_backend_buffer_usage usage);
+    LM_GGML_API void                  lm_ggml_backend_meta_buffer_set_usage (lm_ggml_backend_buffer_t buffer, enum lm_ggml_backend_buffer_usage usage);
 
     //
     // Backend (meta)
