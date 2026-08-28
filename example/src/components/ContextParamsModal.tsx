@@ -473,8 +473,9 @@ export default function ContextParamsModal({
           {Platform.OS === 'android' && (
             <Text style={deviceStyles.helperText}>
               Tip: On Android, selecting devices starting with &quot;HTP&quot;
-              enables Hexagon acceleration. Wildcards such as HTP* are
-              supported.
+              enables Hexagon acceleration. Start with HTP0 for single-stream
+              inference; multiple HTP sessions use substantially more memory.
+              Wildcards such as HTP* are supported.
             </Text>
           )}
         </View>

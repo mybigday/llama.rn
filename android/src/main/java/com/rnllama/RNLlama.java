@@ -163,7 +163,7 @@ public class RNLlama {
     try {
       String htpLibPath = htpDir.getAbsolutePath();
       android.system.Os.setenv("ADSP_LIBRARY_PATH", htpLibPath, true);
-      android.system.Os.setenv("LM_GGML_HEXAGON_NDEV", "16", true);
+      android.system.Os.setenv("LM_GGML_HEXAGON_DEVICES", "16", true);
       Log.d(NAME, "Set ADSP_LIBRARY_PATH=" + htpLibPath);
     } catch (Exception e) {
       Log.w(NAME, "Failed to set ADSP_LIBRARY_PATH", e);

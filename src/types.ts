@@ -93,7 +93,9 @@ export type NativeContextParams = {
   n_gpu_layers?: number
 
   /**
-   * Backend devices choice to use. Default equals to result of `getBackendDevicesInfo.
+   * Backend devices to use. If omitted, llama.rn uses the platform default selection.
+   * On Android, Hexagon is opt-in: use `['HTP0']` for one session, select multiple
+   * HTP devices explicitly, or use `['HTP*']` for every available HTP session.
    */
   devices?: Array<string>
 
