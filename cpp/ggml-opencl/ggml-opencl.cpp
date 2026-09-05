@@ -19205,8 +19205,15 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
         static const bool mm_kq_gqa_img_on = (mm_kq_gqa_img_env == nullptr || mm_kq_gqa_img_env[0] != '0');
         static const char * mm_kq_gqa_r4_img_env = getenv("LM_GGML_OPENCL_MM_KQ_GQA_R4_IMG");
         static const bool mm_kq_gqa_r4_img_on = (mm_kq_gqa_r4_img_env == nullptr || mm_kq_gqa_r4_img_env[0] != '0');
+        // Adreno 730 / E031.38.11.14 produces incorrect R4 KQ decode results
+        // (f16 [128,256,8,1] x f32 [128,1,32,1]). Keep the existing OpenCL
+        // fallback on this compiler series; other drivers retain the fast path.
+        const bool r4_img_driver_ok =
+            !(backend_ctx->adreno_gen == ADRENO_GPU_GEN::A7X &&
+              backend_ctx->adreno_cl_compiler_version.type == E031 &&
+              backend_ctx->adreno_cl_compiler_version.major == 38);
         const bool img_r4_gate =
-            mm_kq_gqa_r4_img_on &&
+            mm_kq_gqa_r4_img_on && r4_img_driver_ok &&
             backend_ctx->kernel_mul_mat_f16_f32_l4_x8_gqa_r4_img != nullptr &&
             ne11 == 1 && ne01 >= 64 && (ne01 % 16) == 0 && ne00 == 128 &&
             (ne12 % ne02) == 0 && (ne12 / ne02) == 4 && (ne13 / ne03) == 1;
