@@ -14,7 +14,7 @@ extern "C" {
 #include <dspqueue.h>
 
 #if defined(_WIN32) && !defined(__MINGW32__)
-#    ifdef LM_GGML_BACKEND_BUILD
+#    ifdef GGML_BACKEND_BUILD
 #        define HTPDRV_API __declspec(dllexport) extern
 #    else
 #        define HTPDRV_API __declspec(dllimport) extern

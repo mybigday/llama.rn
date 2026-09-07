@@ -19,8 +19,8 @@
 
 llama_memory_recurrent::llama_memory_recurrent(
         const llama_model & model,
-                lm_ggml_type   type_r,
-                lm_ggml_type   type_s,
+                ggml_type   type_r,
+                ggml_type   type_s,
                      bool   offload,
                  uint32_t   mem_size,
                  uint32_t   n_seq_max,
@@ -39,24 +39,24 @@ llama_memory_recurrent::llama_memory_recurrent(
     cells.resize(mem_size);
 
     // define a comparator for the buft -> ctx map to ensure that the order is well-defined:
-    struct lm_ggml_backend_buft_comparator {
-        bool operator()(const lm_ggml_backend_buffer_type_t & lhs, const lm_ggml_backend_buffer_type_t & rhs) const {
-            return strcmp(lm_ggml_backend_buft_name(lhs), lm_ggml_backend_buft_name(rhs)) < 0;
+    struct ggml_backend_buft_comparator {
+        bool operator()(const ggml_backend_buffer_type_t & lhs, const ggml_backend_buffer_type_t & rhs) const {
+            return strcmp(ggml_backend_buft_name(lhs), ggml_backend_buft_name(rhs)) < 0;
         }
     };
-    std::map<lm_ggml_backend_buffer_type_t, lm_ggml_context_ptr, lm_ggml_backend_buft_comparator> ctx_map;
+    std::map<ggml_backend_buffer_type_t, ggml_context_ptr, ggml_backend_buft_comparator> ctx_map;
 
     // create a context for each buffer type
-    auto ctx_for_buft = [&](lm_ggml_backend_buffer_type_t buft) -> lm_ggml_context * {
+    auto ctx_for_buft = [&](ggml_backend_buffer_type_t buft) -> ggml_context * {
         auto it = ctx_map.find(buft);
         if (it == ctx_map.end()) {
-            lm_ggml_init_params params = {
-                /*.mem_size   =*/ size_t(2u*n_layer*lm_ggml_tensor_overhead()),
+            ggml_init_params params = {
+                /*.mem_size   =*/ size_t(2u*n_layer*ggml_tensor_overhead()),
                 /*.mem_buffer =*/ NULL,
                 /*.no_alloc   =*/ true,
             };
 
-            lm_ggml_context * ctx = lm_ggml_init(params);
+            ggml_context * ctx = ggml_init(params);
             if (!ctx) {
                 return nullptr;
             }
@@ -80,39 +80,39 @@ llama_memory_recurrent::llama_memory_recurrent(
 
         const char * dev_name = "CPU";
 
-        lm_ggml_backend_buffer_type_t buft = lm_ggml_backend_cpu_buffer_type();
+        ggml_backend_buffer_type_t buft = ggml_backend_cpu_buffer_type();
 
         if (offload) {
             auto * dev = model.dev_layer(i);
-            buft = lm_ggml_backend_dev_buffer_type(dev);
+            buft = ggml_backend_dev_buffer_type(dev);
 
-            dev_name = lm_ggml_backend_dev_name(dev);
+            dev_name = ggml_backend_dev_name(dev);
         }
 
         LLAMA_LOG_DEBUG("%s, layer %3d: dev = %s\n", __func__, i, dev_name);
 
-        lm_ggml_context * ctx = ctx_for_buft(buft);
+        ggml_context * ctx = ctx_for_buft(buft);
         if (!ctx) {
             throw std::runtime_error("failed to create ggml context for rs cache");
         }
 
         const uint32_t n_rows = mem_size * (1 + n_rs_seq);
-        lm_ggml_tensor * r = lm_ggml_new_tensor_2d(ctx, type_r, hparams.n_embd_r(), n_rows);
-        lm_ggml_tensor * s = lm_ggml_new_tensor_2d(ctx, type_s, hparams.n_embd_s(), n_rows);
-        lm_ggml_format_name(r, "cache_r_l%d", i);
-        lm_ggml_format_name(s, "cache_s_l%d", i);
+        ggml_tensor * r = ggml_new_tensor_2d(ctx, type_r, hparams.n_embd_r(), n_rows);
+        ggml_tensor * s = ggml_new_tensor_2d(ctx, type_s, hparams.n_embd_s(), n_rows);
+        ggml_format_name(r, "cache_r_l%d", i);
+        ggml_format_name(s, "cache_s_l%d", i);
         r_l[i] = r;
         s_l[i] = s;
     }
 
     // allocate tensors and initialize the buffers to avoid NaNs in the padding
     for (auto & [buft, ctx] : ctx_map) {
-        lm_ggml_backend_buffer_t buf = lm_ggml_backend_alloc_ctx_tensors_from_buft(ctx.get(), buft);
+        ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx.get(), buft);
         if (!buf) {
             throw std::runtime_error("failed to allocate buffer for rs cache");
         }
-        lm_ggml_backend_buffer_clear(buf, 0);
-        LLAMA_LOG_INFO("%s: %10s RS buffer size = %8.2f MiB\n", __func__, lm_ggml_backend_buffer_name(buf), lm_ggml_backend_buffer_get_size(buf)/1024.0/1024.0);
+        ggml_backend_buffer_clear(buf, 0);
+        LLAMA_LOG_INFO("%s: %10s RS buffer size = %8.2f MiB\n", __func__, ggml_backend_buffer_name(buf), ggml_backend_buffer_get_size(buf)/1024.0/1024.0);
         ctxs_bufs.emplace_back(std::move(ctx), buf);
     }
 
@@ -122,8 +122,8 @@ llama_memory_recurrent::llama_memory_recurrent(
 
         LLAMA_LOG_INFO("%s: size = %7.2f MiB (%6u cells, %3d layers, %2u seqs %2u rs_seq), R (%s): %7.2f MiB, S (%s): %7.2f MiB\n", __func__,
                 (float)(memory_size_r + memory_size_s) / (1024.0f * 1024.0f), mem_size, n_layer, n_seq_max, n_rs_seq,
-                lm_ggml_type_name(type_r), (float)memory_size_r / (1024.0f * 1024.0f),
-                lm_ggml_type_name(type_s), (float)memory_size_s / (1024.0f * 1024.0f));
+                ggml_type_name(type_r), (float)memory_size_r / (1024.0f * 1024.0f),
+                ggml_type_name(type_s), (float)memory_size_s / (1024.0f * 1024.0f));
     }
 }
 
@@ -140,7 +140,7 @@ void llama_memory_recurrent::clear(bool data) {
 
     if (data) {
         for (auto & [_, buf] : ctxs_bufs) {
-            lm_ggml_backend_buffer_clear(buf.get(), 0);
+            ggml_backend_buffer_clear(buf.get(), 0);
         }
     }
 
@@ -400,16 +400,16 @@ void llama_memory_recurrent::set_rs_idx(llama_seq_id seq_id, uint32_t idx) {
 
     assert(n_seq_max == rs_idx.size());
 
-    LM_GGML_ASSERT((uint32_t) seq_id < n_seq_max);
-    LM_GGML_ASSERT(idx <= n_rs_seq);
+    GGML_ASSERT((uint32_t) seq_id < n_seq_max);
+    GGML_ASSERT(idx <= n_rs_seq);
 
     rs_idx[seq_id] = idx;
 }
 
-std::map<lm_ggml_backend_buffer_type_t, size_t> llama_memory_recurrent::memory_breakdown() const {
-    std::map<lm_ggml_backend_buffer_type_t, size_t> ret;
+std::map<ggml_backend_buffer_type_t, size_t> llama_memory_recurrent::memory_breakdown() const {
+    std::map<ggml_backend_buffer_type_t, size_t> ret;
     for (const auto & [_, buf] : ctxs_bufs) {
-        ret[lm_ggml_backend_buffer_get_type(buf.get())] += lm_ggml_backend_buffer_get_size(buf.get());
+        ret[ggml_backend_buffer_get_type(buf.get())] += ggml_backend_buffer_get_size(buf.get());
     }
     return ret;
 }
@@ -461,8 +461,8 @@ llama_memory_context_ptr llama_memory_recurrent::init_full() {
 }
 
 llama_memory_context_ptr llama_memory_recurrent::init_update(llama_context * lctx, bool optimize) {
-    LM_GGML_UNUSED(lctx);
-    LM_GGML_UNUSED(optimize);
+    GGML_UNUSED(lctx);
+    GGML_UNUSED(optimize);
 
     return std::make_unique<llama_memory_recurrent_context>(LLAMA_MEMORY_STATUS_NO_UPDATE);
 }
@@ -506,7 +506,7 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
     // A slot should be always be contiguous.
 
     // can only process batches with an equal number of new tokens in each sequence
-    LM_GGML_ASSERT(ubatch.equal_seqs());
+    GGML_ASSERT(ubatch.equal_seqs());
 
     int32_t min = size - 1;
     int32_t max = 0;
@@ -582,13 +582,13 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
         bool has_cell = false;
         if (seq_meta.tail >= 0) {
             auto & cell = cells[seq_meta.tail];
-            LM_GGML_ASSERT(cell.has_seq_id(seq_id));
+            GGML_ASSERT(cell.has_seq_id(seq_id));
             // does this seq_id "own" the cell?
             if (cell.seq_id.size() == 1) { has_cell = true; }
         }
         if (!has_cell) {
             auto & empty_cell = cells[next_empty_cell];
-            LM_GGML_ASSERT(empty_cell.is_empty());
+            GGML_ASSERT(empty_cell.is_empty());
             // copy old tail into the empty cell
             if (seq_meta.tail >= 0) {
                 auto & orig_cell = cells[seq_meta.tail];
@@ -596,7 +596,7 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
                 empty_cell.src = orig_cell.src;
                 orig_cell.seq_id.erase(seq_id);
                 empty_cell.seq_id.insert(seq_id); // will be overwritten
-                LM_GGML_ASSERT(!orig_cell.is_empty()); // has at least one remaining seq_id
+                GGML_ASSERT(!orig_cell.is_empty()); // has at least one remaining seq_id
             }
             seq_meta.tail = next_empty_cell;
             // find next empty cell
@@ -681,7 +681,7 @@ bool llama_memory_recurrent::find_slot(const llama_ubatch & ubatch) {
 
         for (int i = min; i <= max; ++i) {
             if (cells[i].src < 0) {
-                LM_GGML_ASSERT(rs_z >= 0);
+                GGML_ASSERT(rs_z >= 0);
                 cells[i].src0 = rs_z;
             } else {
                 // Stage the source ids for all used cells to allow correct seq_* behavior
@@ -710,7 +710,7 @@ bool llama_memory_recurrent::get_can_shift() const {
 size_t llama_memory_recurrent::total_size() const {
     size_t size = 0;
     for (const auto & [_, buf] : ctxs_bufs) {
-        size += lm_ggml_backend_buffer_get_size(buf.get());
+        size += ggml_backend_buffer_get_size(buf.get());
     }
 
     return size;
@@ -721,7 +721,7 @@ size_t llama_memory_recurrent::size_r_bytes() const {
 
     for (const auto & r : r_l) {
         if (r != nullptr) {
-            size_r_bytes += lm_ggml_nbytes(r);
+            size_r_bytes += ggml_nbytes(r);
         }
     }
 
@@ -733,7 +733,7 @@ size_t llama_memory_recurrent::size_s_bytes() const {
 
     for (const auto & s : s_l) {
         if (s != nullptr) {
-            size_s_bytes += lm_ggml_nbytes(s);
+            size_s_bytes += ggml_nbytes(s);
         }
     }
 
@@ -741,7 +741,7 @@ size_t llama_memory_recurrent::size_s_bytes() const {
 }
 
 void llama_memory_recurrent::state_write(llama_io_write_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) const {
-    LM_GGML_UNUSED(flags);
+    GGML_UNUSED(flags);
 
     std::vector<std::pair<uint32_t, uint32_t>> cell_ranges; // ranges, from inclusive, to exclusive
     std::vector<std::pair<uint32_t, uint32_t>> cell_ranges_data; // logical source row ranges
@@ -759,19 +759,19 @@ void llama_memory_recurrent::state_write(llama_io_write_i & io, llama_seq_id seq
 
             if (n_rs_seq != 0) {
                 if (seq_id != -1) {
-                    LM_GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < rs_idx.size());
+                    GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < rs_idx.size());
                     rs_idx_cur = rs_idx[seq_id];
                 } else {
                     bool has_rs_idx = false;
                     for (const llama_seq_id cell_seq_id : cell.seq_id) {
-                        LM_GGML_ASSERT(cell_seq_id >= 0 && (size_t) cell_seq_id < rs_idx.size());
+                        GGML_ASSERT(cell_seq_id >= 0 && (size_t) cell_seq_id < rs_idx.size());
 
                         const uint32_t seq_rs_idx = rs_idx[cell_seq_id];
                         if (!has_rs_idx) {
                             rs_idx_cur = seq_rs_idx;
                             has_rs_idx = true;
                         } else if (rs_idx_cur != seq_rs_idx) {
-                            LM_GGML_ABORT("cannot write shared recurrent state with different rollback indices");
+                            GGML_ABORT("cannot write shared recurrent state with different rollback indices");
                         }
                     }
                 }
@@ -799,7 +799,7 @@ void llama_memory_recurrent::state_write(llama_io_write_i & io, llama_seq_id seq
     }
 
     if ((flags & LLAMA_STATE_SEQ_FLAGS_ON_DEVICE) && cell_ranges.size() > 1) {
-        LM_GGML_ABORT("cannot save/load multiple ranges of cells to/from device memory\n");
+        GGML_ABORT("cannot save/load multiple ranges of cells to/from device memory\n");
     }
 
     // DEBUG CHECK: Sum of cell counts in ranges should equal the total cell count
@@ -807,13 +807,13 @@ void llama_memory_recurrent::state_write(llama_io_write_i & io, llama_seq_id seq
     for (const auto & range : cell_ranges) {
         cell_count_check += range.second - range.first;
     }
-    LM_GGML_ASSERT(cell_count == cell_count_check);
+    GGML_ASSERT(cell_count == cell_count_check);
 
     cell_count_check = 0;
     for (const auto & range : cell_ranges_data) {
         cell_count_check += range.second - range.first;
     }
-    LM_GGML_ASSERT(cell_count == cell_count_check);
+    GGML_ASSERT(cell_count == cell_count_check);
 
     io.write(&cell_count, sizeof(cell_count));
 
@@ -822,7 +822,7 @@ void llama_memory_recurrent::state_write(llama_io_write_i & io, llama_seq_id seq
 }
 
 void llama_memory_recurrent::state_read(llama_io_read_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) {
-    LM_GGML_UNUSED(flags);
+    GGML_UNUSED(flags);
 
     uint32_t cell_count;
     io.read(&cell_count, sizeof(cell_count));
@@ -889,7 +889,7 @@ void llama_memory_recurrent::state_write_data(llama_io_write_i & io, const std::
         io.write(&r_type_i, sizeof(r_type_i));
 
         // Write row size of R tensor
-        const uint64_t r_size_row = lm_ggml_row_size(r_l[il]->type, hparams.n_embd_r());
+        const uint64_t r_size_row = ggml_row_size(r_l[il]->type, hparams.n_embd_r());
         io.write(&r_size_row, sizeof(r_size_row));
 
         // Write each logical cell row range. With pending recurrent rollback,
@@ -911,7 +911,7 @@ void llama_memory_recurrent::state_write_data(llama_io_write_i & io, const std::
             io.write(&s_type_i, sizeof(s_type_i));
 
             // Write row size of S tensor
-            const uint64_t s_size_row = lm_ggml_row_size(s_l[il]->type, hparams.n_embd_s());
+            const uint64_t s_size_row = ggml_row_size(s_l[il]->type, hparams.n_embd_s());
             io.write(&s_size_row, sizeof(s_size_row));
 
             // Write each logical cell row range. With pending recurrent rollback,
@@ -936,7 +936,7 @@ void llama_memory_recurrent::state_write_data(llama_io_write_i & io, const std::
             io.write(&s_type_i, sizeof(s_type_i));
 
             // Write element size
-            const uint32_t s_size_el = lm_ggml_type_size(s_l[il]->type);
+            const uint32_t s_size_el = ggml_type_size(s_l[il]->type);
             io.write(&s_size_el, sizeof(s_size_el));
 
             // Write GQA embedding size
@@ -992,11 +992,11 @@ bool llama_memory_recurrent::state_read_meta(llama_io_read_i & io, uint32_t cell
 
         // DEBUG CHECK: kv.head should be our first cell, kv.head + cell_count - 1 should be our last cell (verify seq_id and pos values)
         // Assume that this is one contiguous block of cells
-        LM_GGML_ASSERT(head + cell_count <= size);
-        LM_GGML_ASSERT(cells[head].pos == ubatch.pos[0]);
-        LM_GGML_ASSERT(cells[head + cell_count - 1].pos == ubatch.pos[cell_count - 1]);
-        LM_GGML_ASSERT(cells[head].has_seq_id(dest_seq_id));
-        LM_GGML_ASSERT(cells[head + cell_count - 1].has_seq_id(dest_seq_id));
+        GGML_ASSERT(head + cell_count <= size);
+        GGML_ASSERT(cells[head].pos == ubatch.pos[0]);
+        GGML_ASSERT(cells[head + cell_count - 1].pos == ubatch.pos[cell_count - 1]);
+        GGML_ASSERT(cells[head].has_seq_id(dest_seq_id));
+        GGML_ASSERT(cells[head + cell_count - 1].has_seq_id(dest_seq_id));
     } else {
         // whole KV cache restore
 
@@ -1087,7 +1087,7 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
         // Read row size of key
         uint64_t r_size_row_ref;
         io.read(&r_size_row_ref, sizeof(r_size_row_ref));
-        const size_t r_size_row = lm_ggml_row_size(r_l[il]->type, hparams.n_embd_r());
+        const size_t r_size_row = ggml_row_size(r_l[il]->type, hparams.n_embd_r());
         if (r_size_row != r_size_row_ref) {
             LLAMA_LOG_ERROR("%s: mismatched r row size (%zu != %zu, layer %d)\n", __func__, r_size_row, (size_t) r_size_row_ref, il);
             return false;
@@ -1117,7 +1117,7 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
             // Read row size of value
             uint64_t s_size_row_ref;
             io.read(&s_size_row_ref, sizeof(s_size_row_ref));
-            const size_t s_size_row = lm_ggml_row_size(s_l[il]->type, hparams.n_embd_s());
+            const size_t s_size_row = ggml_row_size(s_l[il]->type, hparams.n_embd_s());
             if (s_size_row != s_size_row_ref) {
                 LLAMA_LOG_ERROR("%s: mismatched s row size (%zu != %zu, layer %d)\n", __func__, s_size_row, (size_t) s_size_row_ref, il);
                 return false;
@@ -1148,7 +1148,7 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
             // Read element size of value
             uint32_t s_size_el_ref;
             io.read(&s_size_el_ref, sizeof(s_size_el_ref));
-            const size_t s_size_el = lm_ggml_type_size(s_l[il]->type);
+            const size_t s_size_el = ggml_type_size(s_l[il]->type);
             if (s_size_el != s_size_el_ref) {
                 LLAMA_LOG_ERROR("%s: mismatched s element size (%zu != %zu, layer %d)\n", __func__, s_size_el, (size_t) s_size_el_ref, il);
                 return false;
@@ -1243,11 +1243,11 @@ uint32_t llama_memory_recurrent_context::get_size() const {
     return mem->size;
 }
 
-lm_ggml_tensor * llama_memory_recurrent_context::get_r_l(int32_t il) const {
+ggml_tensor * llama_memory_recurrent_context::get_r_l(int32_t il) const {
     return mem->r_l[il];
 }
 
-lm_ggml_tensor * llama_memory_recurrent_context::get_s_l(int32_t il) const {
+ggml_tensor * llama_memory_recurrent_context::get_s_l(int32_t il) const {
     return mem->s_l[il];
 }
 

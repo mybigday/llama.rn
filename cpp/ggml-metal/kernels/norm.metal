@@ -5,7 +5,7 @@
 // F == 3 : norm + mul + add
 template <typename T, short F>
 kernel void kernel_norm_fuse_impl(
-        constant lm_ggml_metal_kargs_norm & args,
+        constant ggml_metal_kargs_norm & args,
         device const char * src0,
         device const char * src1_0,
         device const char * src1_1,
@@ -103,7 +103,7 @@ template [[host_name("kernel_norm_mul_add_f32_4")]] kernel kernel_norm_fuse_t ke
 // F == 3 : rms_norm + mul + add
 template <typename T, short F>
 kernel void kernel_rms_norm_fuse_impl(
-        constant lm_ggml_metal_kargs_norm & args,
+        constant ggml_metal_kargs_norm & args,
         device const char * src0,
         device const char * src1_0,
         device const char * src1_1,
@@ -175,7 +175,7 @@ template [[host_name("kernel_rms_norm_mul_add_f32_4")]] kernel kernel_rms_norm_f
 
 template <typename T0, typename T>
 kernel void kernel_l2_norm_impl(
-        constant lm_ggml_metal_kargs_l2_norm & args,
+        constant ggml_metal_kargs_l2_norm & args,
         device const char * src0,
         device       char * dst,
         threadgroup float * shmem_f32 [[threadgroup(0)]],
@@ -227,7 +227,7 @@ template [[host_name("kernel_l2_norm_f32_f32")]]   kernel kernel_l2_norm_t kerne
 template [[host_name("kernel_l2_norm_f32_f32_4")]] kernel kernel_l2_norm_t kernel_l2_norm_impl<float4, float4>;
 
 kernel void kernel_group_norm_f32(
-        constant lm_ggml_metal_kargs_group_norm & args,
+        constant ggml_metal_kargs_group_norm & args,
         device const float * src0,
         device       float * dst,
         threadgroup float  * buf [[threadgroup(0)]],

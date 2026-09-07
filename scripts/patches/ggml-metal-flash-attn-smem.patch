@@ -10,7 +10,7 @@
 +
          const size_t smem = FATTN_SMEM(nsg);
  
-         lm_ggml_metal_kargs_flash_attn_ext args = {
+         ggml_metal_kargs_flash_attn_ext args = {
 @@ -2965,6 +2969,9 @@
              // however, this does not lead to significant improvement, so disabled
              nwg = 1;

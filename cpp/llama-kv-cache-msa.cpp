@@ -12,8 +12,8 @@
 
 llama_kv_cache_msa::llama_kv_cache_msa(
         const llama_model & model,
-                lm_ggml_type   type_k,
-                lm_ggml_type   type_v,
+                ggml_type   type_k,
+                ggml_type   type_v,
                      bool   v_trans,
                      bool   offload,
                      bool   unified,
@@ -91,8 +91,8 @@ llama_pos llama_kv_cache_msa::seq_pos_max(llama_seq_id seq_id) const {
     return kv_base->seq_pos_max(seq_id);
 }
 
-std::map<lm_ggml_backend_buffer_type_t, size_t> llama_kv_cache_msa::memory_breakdown() const {
-    std::map<lm_ggml_backend_buffer_type_t, size_t> mb = kv_base->memory_breakdown();
+std::map<ggml_backend_buffer_type_t, size_t> llama_kv_cache_msa::memory_breakdown() const {
+    std::map<ggml_backend_buffer_type_t, size_t> mb = kv_base->memory_breakdown();
     for (const auto & buft_size : kv_idx->memory_breakdown()) {
         mb[buft_size.first] += buft_size.second;
     }
@@ -103,7 +103,7 @@ llama_memory_context_ptr llama_kv_cache_msa::init_batch(
             llama_batch_allocr & balloc,
             uint32_t n_ubatch,
             bool embd_all) {
-    LM_GGML_UNUSED(embd_all);
+    GGML_UNUSED(embd_all);
 
     do {
         balloc.split_reset();
@@ -269,19 +269,19 @@ uint32_t llama_kv_cache_msa_context::get_n_pos() const {
         pos_max = std::max(pos_max, kv->seq_pos_max(seq_id));
     }
 
-    return std::max(n_pad_cur, LM_GGML_PAD((uint32_t) (pos_max + 1), n_pad_cur));
+    return std::max(n_pad_cur, GGML_PAD((uint32_t) (pos_max + 1), n_pad_cur));
 }
 
-void llama_kv_cache_msa_context::set_input_cell_pos(lm_ggml_tensor * dst, const llama_ubatch * ubatch, int32_t div) const {
-    LM_GGML_ASSERT(lm_ggml_backend_buffer_is_host(dst->buffer));
-    LM_GGML_ASSERT(dst->type == LM_GGML_TYPE_I32);
-    LM_GGML_ASSERT(div > 0);
+void llama_kv_cache_msa_context::set_input_cell_pos(ggml_tensor * dst, const llama_ubatch * ubatch, int32_t div) const {
+    GGML_ASSERT(ggml_backend_buffer_is_host(dst->buffer));
+    GGML_ASSERT(dst->type == GGML_TYPE_I32);
+    GGML_ASSERT(div > 0);
 
     const int64_t n_tokens    = ubatch->n_tokens;
     const int64_t n_kv        = dst->ne[0];
     const int64_t n_stream_ub = dst->ne[1];
 
-    LM_GGML_ASSERT(n_tokens % n_stream_ub == 0);
+    GGML_ASSERT(n_tokens % n_stream_ub == 0);
     const int64_t n_tps = n_tokens/n_stream_ub;
 
     int32_t * data = (int32_t *) dst->data;
@@ -301,15 +301,15 @@ void llama_kv_cache_msa_context::set_input_cell_pos(lm_ggml_tensor * dst, const 
     }
 }
 
-void llama_kv_cache_msa_context::set_input_pos_slot(lm_ggml_tensor * dst, const llama_ubatch * ubatch) const {
-    LM_GGML_ASSERT(lm_ggml_backend_buffer_is_host(dst->buffer));
-    LM_GGML_ASSERT(dst->type == LM_GGML_TYPE_I32 || dst->type == LM_GGML_TYPE_F32);
+void llama_kv_cache_msa_context::set_input_pos_slot(ggml_tensor * dst, const llama_ubatch * ubatch) const {
+    GGML_ASSERT(ggml_backend_buffer_is_host(dst->buffer));
+    GGML_ASSERT(dst->type == GGML_TYPE_I32 || dst->type == GGML_TYPE_F32);
 
     const int64_t n_tokens    = ubatch->n_tokens;
     const int64_t n_pos       = dst->ne[0];
     const int64_t n_stream_ub = dst->ne[1];
 
-    LM_GGML_ASSERT(n_tokens % n_stream_ub == 0);
+    GGML_ASSERT(n_tokens % n_stream_ub == 0);
     const int64_t n_tps = n_tokens/n_stream_ub;
 
     for (int64_t s = 0; s < n_stream_ub; ++s) {
@@ -333,7 +333,7 @@ void llama_kv_cache_msa_context::set_input_pos_slot(lm_ggml_tensor * dst, const 
             map[p0] = (int32_t) j;
         }
 
-        if (dst->type == LM_GGML_TYPE_I32) {
+        if (dst->type == GGML_TYPE_I32) {
             int32_t * data = (int32_t *) dst->data + s*n_pos;
             std::copy(map.begin(), map.end(), data);
         } else {
@@ -345,14 +345,14 @@ void llama_kv_cache_msa_context::set_input_pos_slot(lm_ggml_tensor * dst, const 
     }
 }
 
-void llama_kv_cache_msa_context::set_input_pos_mask(lm_ggml_tensor * dst, const llama_ubatch * ubatch) const {
-    LM_GGML_ASSERT(lm_ggml_backend_buffer_is_host(dst->buffer));
-    LM_GGML_ASSERT(dst->type == LM_GGML_TYPE_F32);
+void llama_kv_cache_msa_context::set_input_pos_mask(ggml_tensor * dst, const llama_ubatch * ubatch) const {
+    GGML_ASSERT(ggml_backend_buffer_is_host(dst->buffer));
+    GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
     const int64_t n_tokens = ubatch->n_tokens;
     const int64_t n_pos    = dst->ne[0];
 
-    LM_GGML_ASSERT(dst->ne[1] == n_tokens);
+    GGML_ASSERT(dst->ne[1] == n_tokens);
 
     const uint32_t       n_swa    = kv->get_n_swa();
     const llama_swa_type swa_type = kv->get_swa_type();

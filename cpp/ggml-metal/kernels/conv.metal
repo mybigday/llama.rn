@@ -1,7 +1,7 @@
 #include "common.h"
 
 typedef void (im2col_t)(
-        constant lm_ggml_metal_kargs_im2col & args,
+        constant ggml_metal_kargs_im2col & args,
         device const float * x,
         device        char * dst,
         uint3 tgpig[[threadgroup_position_in_grid]],
@@ -11,7 +11,7 @@ typedef void (im2col_t)(
 
 template <typename T>
 kernel void kernel_im2col(
-        constant lm_ggml_metal_kargs_im2col & args,
+        constant ggml_metal_kargs_im2col & args,
         device const float * x,
         device        char * dst,
         uint3 tgpig[[threadgroup_position_in_grid]],
@@ -66,7 +66,7 @@ template [[host_name("kernel_im2col_f16")]] kernel im2col_t kernel_im2col<half>;
 
 // TODO: optimize
 typedef void (im2col_ext_t)(
-        constant lm_ggml_metal_kargs_im2col & args,
+        constant ggml_metal_kargs_im2col & args,
         device const float * x,
         device        char * dst,
         uint3 tgpig[[threadgroup_position_in_grid]],
@@ -76,7 +76,7 @@ typedef void (im2col_ext_t)(
 
 template <typename T>
 kernel void kernel_im2col_ext(
-        constant lm_ggml_metal_kargs_im2col & args,
+        constant ggml_metal_kargs_im2col & args,
         device const float * x,
         device        char * dst,
         uint3 tgpig[[threadgroup_position_in_grid]],
@@ -120,7 +120,7 @@ template [[host_name("kernel_im2col_ext_f16")]] kernel im2col_ext_t kernel_im2co
 
 template <typename T>
 kernel void kernel_col2im_1d(
-        constant lm_ggml_metal_kargs_col2im_1d & args,
+        constant ggml_metal_kargs_col2im_1d & args,
         device const T * col,
         device       T * dst,
         uint         tgpig [[threadgroup_position_in_grid]],
@@ -154,15 +154,15 @@ kernel void kernel_col2im_1d(
     dst[t_out + oc * args.T_out] = T(sum);
 }
 
-template [[host_name("kernel_col2im_1d_f32")]]  kernel void kernel_col2im_1d<float>(constant lm_ggml_metal_kargs_col2im_1d &, device const float *, device float *, uint, uint, uint);
-template [[host_name("kernel_col2im_1d_f16")]]  kernel void kernel_col2im_1d<half>(constant lm_ggml_metal_kargs_col2im_1d &, device const half *, device half *, uint, uint, uint);
-#if defined(LM_GGML_METAL_HAS_BF16)
-template [[host_name("kernel_col2im_1d_bf16")]] kernel void kernel_col2im_1d<bfloat>(constant lm_ggml_metal_kargs_col2im_1d &, device const bfloat *, device bfloat *, uint, uint, uint);
+template [[host_name("kernel_col2im_1d_f32")]]  kernel void kernel_col2im_1d<float>(constant ggml_metal_kargs_col2im_1d &, device const float *, device float *, uint, uint, uint);
+template [[host_name("kernel_col2im_1d_f16")]]  kernel void kernel_col2im_1d<half>(constant ggml_metal_kargs_col2im_1d &, device const half *, device half *, uint, uint, uint);
+#if defined(GGML_METAL_HAS_BF16)
+template [[host_name("kernel_col2im_1d_bf16")]] kernel void kernel_col2im_1d<bfloat>(constant ggml_metal_kargs_col2im_1d &, device const bfloat *, device bfloat *, uint, uint, uint);
 #endif
 
 template <typename TK>
 kernel void kernel_conv_2d(
-        constant lm_ggml_metal_kargs_conv_2d & args,
+        constant ggml_metal_kargs_conv_2d & args,
         device const char * weights,
         device const char * src,
         device       char * dst,
@@ -254,7 +254,7 @@ kernel void kernel_conv_2d(
 
 template [[host_name("kernel_conv_2d_f32_f32")]]
 kernel void kernel_conv_2d<float>(
-        constant lm_ggml_metal_kargs_conv_2d & args,
+        constant ggml_metal_kargs_conv_2d & args,
         device const char * weights,
         device const char * src,
         device       char * dst,
@@ -265,7 +265,7 @@ kernel void kernel_conv_2d<float>(
 
 template [[host_name("kernel_conv_2d_f16_f32")]]
 kernel void kernel_conv_2d<half>(
-        constant lm_ggml_metal_kargs_conv_2d & args,
+        constant ggml_metal_kargs_conv_2d & args,
         device const char * weights,
         device const char * src,
         device       char * dst,
@@ -275,7 +275,7 @@ kernel void kernel_conv_2d<half>(
         uint3     ntg[[threads_per_threadgroup]]);
 
 typedef void (conv_transpose_1d_t)(
-        constant lm_ggml_metal_kargs_conv_transpose_1d & args,
+        constant ggml_metal_kargs_conv_transpose_1d & args,
         device const float * src0,
         device const float * src1,
         device        char * dst,
@@ -284,7 +284,7 @@ typedef void (conv_transpose_1d_t)(
 
 template <typename T>
 kernel void kernel_conv_transpose_1d(
-        constant lm_ggml_metal_kargs_conv_transpose_1d & args,
+        constant ggml_metal_kargs_conv_transpose_1d & args,
         device const     T * src0,
         device const float * src1,
         device        char * dst,
@@ -328,7 +328,7 @@ kernel void kernel_conv_transpose_1d(
 
 template [[host_name("kernel_conv_transpose_1d_f32_f32")]]
 kernel void kernel_conv_transpose_1d<float>(
-    constant lm_ggml_metal_kargs_conv_transpose_1d & args,
+    constant ggml_metal_kargs_conv_transpose_1d & args,
     device const float * src0,
     device const float * src1,
     device        char * dst,
@@ -337,7 +337,7 @@ kernel void kernel_conv_transpose_1d<float>(
 
 template [[host_name("kernel_conv_transpose_1d_f16_f32")]]
 kernel void kernel_conv_transpose_1d<half>(
-    constant lm_ggml_metal_kargs_conv_transpose_1d & args,
+    constant ggml_metal_kargs_conv_transpose_1d & args,
     device const half  * src0,
     device const float * src1,
     device        char * dst,
@@ -346,7 +346,7 @@ kernel void kernel_conv_transpose_1d<half>(
 
 
 typedef void (conv_transpose_2d_t)(
-        constant lm_ggml_metal_kargs_conv_transpose_2d & args,
+        constant ggml_metal_kargs_conv_transpose_2d & args,
         device const float * src0,
         device const float * src1,
         device        char * dst,
@@ -355,7 +355,7 @@ typedef void (conv_transpose_2d_t)(
 
 template <typename T>
 kernel void kernel_conv_transpose_2d(
-        constant lm_ggml_metal_kargs_conv_transpose_2d & args,
+        constant ggml_metal_kargs_conv_transpose_2d & args,
         device const T * src0,
         device const float * src1,
         device        char * dst,
@@ -415,7 +415,7 @@ kernel void kernel_conv_transpose_2d(
 
 template [[host_name("kernel_conv_transpose_2d_f32_f32")]]
 kernel void kernel_conv_transpose_2d<float>(
-    constant lm_ggml_metal_kargs_conv_transpose_2d & args,
+    constant ggml_metal_kargs_conv_transpose_2d & args,
     device const float * src0,
     device const float * src1,
     device        char * dst,
@@ -426,7 +426,7 @@ kernel void kernel_conv_transpose_2d<float>(
 
 template [[host_name("kernel_conv_transpose_2d_f16_f32")]]
 kernel void kernel_conv_transpose_2d<half>(
-    constant lm_ggml_metal_kargs_conv_transpose_2d & args,
+    constant ggml_metal_kargs_conv_transpose_2d & args,
     device const half  * src0,
     device const float * src1,
     device        char * dst,
@@ -438,7 +438,7 @@ kernel void kernel_conv_transpose_2d<half>(
 // grid: x = C tile, y = OH, z = OW * N (for channel-contiguous layouts)
 template <typename TK>
 kernel void kernel_conv_2d_dw_tiled(
-        constant lm_ggml_metal_kargs_conv_2d_dw & args,
+        constant ggml_metal_kargs_conv_2d_dw & args,
         device const char * weights,
         device const char * src,
         device       char * dst,
@@ -516,7 +516,7 @@ kernel void kernel_conv_2d_dw_tiled(
 // grid: x = OW tile, y = OH, z = C * N (for spatially-contiguous layouts)
 template <typename TK>
 kernel void kernel_conv_2d_dw(
-        constant lm_ggml_metal_kargs_conv_2d_dw & args,
+        constant ggml_metal_kargs_conv_2d_dw & args,
         device const char * weights,
         device const char * src,
         device       char * dst,
@@ -593,7 +593,7 @@ kernel void kernel_conv_2d_dw(
 
 template [[host_name("kernel_conv_2d_dw_f32_f32")]]
 kernel void kernel_conv_2d_dw<float>(
-        constant lm_ggml_metal_kargs_conv_2d_dw & args,
+        constant ggml_metal_kargs_conv_2d_dw & args,
         device const char * weights,
         device const char * src,
         device       char * dst,
@@ -603,7 +603,7 @@ kernel void kernel_conv_2d_dw<float>(
 
 template [[host_name("kernel_conv_2d_dw_f16_f32")]]
 kernel void kernel_conv_2d_dw<half>(
-        constant lm_ggml_metal_kargs_conv_2d_dw & args,
+        constant ggml_metal_kargs_conv_2d_dw & args,
         device const char * weights,
         device const char * src,
         device       char * dst,
@@ -613,7 +613,7 @@ kernel void kernel_conv_2d_dw<half>(
 
 template [[host_name("kernel_conv_2d_dw_tiled_f32_f32")]]
 kernel void kernel_conv_2d_dw_tiled<float>(
-        constant lm_ggml_metal_kargs_conv_2d_dw & args,
+        constant ggml_metal_kargs_conv_2d_dw & args,
         device const char * weights,
         device const char * src,
         device       char * dst,
@@ -623,7 +623,7 @@ kernel void kernel_conv_2d_dw_tiled<float>(
 
 template [[host_name("kernel_conv_2d_dw_tiled_f16_f32")]]
 kernel void kernel_conv_2d_dw_tiled<half>(
-        constant lm_ggml_metal_kargs_conv_2d_dw & args,
+        constant ggml_metal_kargs_conv_2d_dw & args,
         device const char * weights,
         device const char * src,
         device       char * dst,
@@ -633,7 +633,7 @@ kernel void kernel_conv_2d_dw_tiled<half>(
 
 template <typename T>
 kernel void kernel_conv_3d(
-        constant lm_ggml_metal_kargs_conv_3d & args,
+        constant ggml_metal_kargs_conv_3d & args,
         device const  char * src0, // Weights [IC * OC, KD, KH, KW]
         device const  char * src1, // Inputs  [IC * N,  ID, IH, IW]
         device       char  * dst,  // Outputs [OC * N,  OD, OH, OW]
@@ -705,7 +705,7 @@ kernel void kernel_conv_3d(
 // Explicit instantiations so the JIT compiler can find them by name
 template [[host_name("kernel_conv_3d_f32_f32")]]
 kernel void kernel_conv_3d<float>(
-    constant lm_ggml_metal_kargs_conv_3d & args,
+    constant ggml_metal_kargs_conv_3d & args,
     device const char * src0,
     device const char * src1,
     device       char  * dst,
@@ -715,7 +715,7 @@ kernel void kernel_conv_3d<float>(
 // Explicit instantiation for f16 weights
 template [[host_name("kernel_conv_3d_f16_f32")]]
 kernel void kernel_conv_3d<half>(
-    constant lm_ggml_metal_kargs_conv_3d & args,
+    constant ggml_metal_kargs_conv_3d & args,
     device const char  * src0,
     device const char * src1,
     device       char  * dst,

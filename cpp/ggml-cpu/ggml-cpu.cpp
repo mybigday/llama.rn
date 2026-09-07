@@ -10,15 +10,15 @@
 #include <string>
 #include <vector>
 
-#ifdef LM_GGML_USE_CPU_HBM
+#ifdef GGML_USE_CPU_HBM
 #    include "hbm.h"
 #endif
 
-#ifdef LM_GGML_USE_CPU_KLEIDIAI
+#ifdef GGML_USE_CPU_KLEIDIAI
 #    include "kleidiai/kleidiai.h"
 #endif
 
-#ifdef LM_GGML_USE_CPU_RISCV64_SPACEMIT
+#ifdef GGML_USE_CPU_RISCV64_SPACEMIT
 #    include "spacemit/ime.h"
 #endif
 
@@ -39,31 +39,31 @@
 
 // ggml-backend interface
 
-std::vector<lm_ggml_backend_buffer_type_t> & lm_ggml_backend_cpu_get_extra_buffer_types() {
-    static std::vector<lm_ggml_backend_buffer_type_t> bufts = []() {
-        std::vector<lm_ggml_backend_buffer_type_t> bufts;
+std::vector<ggml_backend_buffer_type_t> & ggml_backend_cpu_get_extra_buffer_types() {
+    static std::vector<ggml_backend_buffer_type_t> bufts = []() {
+        std::vector<ggml_backend_buffer_type_t> bufts;
 
 #if defined(__AMX_INT8__) && defined(__AVX512VNNI__)
-        if (lm_ggml_backend_amx_buffer_type()) {
-            bufts.push_back(lm_ggml_backend_amx_buffer_type());
+        if (ggml_backend_amx_buffer_type()) {
+            bufts.push_back(ggml_backend_amx_buffer_type());
         }
 #endif
 
-#ifdef LM_GGML_USE_CPU_RISCV64_SPACEMIT
-        if (lm_ggml_backend_cpu_riscv64_spacemit_buffer_type()) {
-            bufts.push_back(lm_ggml_backend_cpu_riscv64_spacemit_buffer_type());
+#ifdef GGML_USE_CPU_RISCV64_SPACEMIT
+        if (ggml_backend_cpu_riscv64_spacemit_buffer_type()) {
+            bufts.push_back(ggml_backend_cpu_riscv64_spacemit_buffer_type());
         }
 #endif
 
-#ifdef LM_GGML_USE_CPU_KLEIDIAI
-        if (lm_ggml_backend_cpu_kleidiai_buffer_type()) {
-            bufts.push_back(lm_ggml_backend_cpu_kleidiai_buffer_type());
+#ifdef GGML_USE_CPU_KLEIDIAI
+        if (ggml_backend_cpu_kleidiai_buffer_type()) {
+            bufts.push_back(ggml_backend_cpu_kleidiai_buffer_type());
         }
 #endif
 
-#ifdef LM_GGML_USE_CPU_REPACK
-        if (lm_ggml_backend_cpu_repack_buffer_type()) {
-            bufts.push_back(lm_ggml_backend_cpu_repack_buffer_type());
+#ifdef GGML_USE_CPU_REPACK
+        if (ggml_backend_cpu_repack_buffer_type()) {
+            bufts.push_back(ggml_backend_cpu_repack_buffer_type());
         }
 #endif
 
@@ -73,20 +73,20 @@ std::vector<lm_ggml_backend_buffer_type_t> & lm_ggml_backend_cpu_get_extra_buffe
     return bufts;
 }
 
-static lm_ggml_backend_buffer_type_t * lm_ggml_backend_cpu_device_get_extra_buffers_type(lm_ggml_backend_dev_t device) {
-    static std::vector<lm_ggml_backend_buffer_type_t> extra_bufts = [] {
-        std::vector<lm_ggml_backend_buffer_type_t> bufts = lm_ggml_backend_cpu_get_extra_buffer_types();
+static ggml_backend_buffer_type_t * ggml_backend_cpu_device_get_extra_buffers_type(ggml_backend_dev_t device) {
+    static std::vector<ggml_backend_buffer_type_t> extra_bufts = [] {
+        std::vector<ggml_backend_buffer_type_t> bufts = ggml_backend_cpu_get_extra_buffer_types();
         bufts.push_back(nullptr);
         return bufts;
     }();
 
     return extra_bufts.data();
 
-    LM_GGML_UNUSED(device);
+    GGML_UNUSED(device);
 }
 
-static bool lm_ggml_backend_cpu_is_extra_buffer_type(lm_ggml_backend_buffer_type_t buft) {
-    for (auto * extra : lm_ggml_backend_cpu_get_extra_buffer_types()) {
+static bool ggml_backend_cpu_is_extra_buffer_type(ggml_backend_buffer_type_t buft) {
+    for (auto * extra : ggml_backend_cpu_get_extra_buffer_types()) {
         if (extra == buft) {
             return true;
         }
@@ -96,43 +96,43 @@ static bool lm_ggml_backend_cpu_is_extra_buffer_type(lm_ggml_backend_buffer_type
 
 // CPU backend - backend (stream)
 
-struct lm_ggml_backend_cpu_context {
+struct ggml_backend_cpu_context {
     int                 n_threads;
-    lm_ggml_threadpool_t   threadpool;
+    ggml_threadpool_t   threadpool;
 
     uint8_t *           work_data;
     size_t              work_size;
 
-    lm_ggml_abort_callback abort_callback;
+    ggml_abort_callback abort_callback;
     void *              abort_callback_data;
 
     bool                use_ref;  // use reference implementation
 };
 
-static const char * lm_ggml_backend_cpu_get_name(lm_ggml_backend_t backend) {
+static const char * ggml_backend_cpu_get_name(ggml_backend_t backend) {
     return "CPU";
 
-    LM_GGML_UNUSED(backend);
+    GGML_UNUSED(backend);
 }
 
-static void lm_ggml_backend_cpu_free(lm_ggml_backend_t backend) {
-    struct lm_ggml_backend_cpu_context * cpu_ctx = (struct lm_ggml_backend_cpu_context *)backend->context;
+static void ggml_backend_cpu_free(ggml_backend_t backend) {
+    struct ggml_backend_cpu_context * cpu_ctx = (struct ggml_backend_cpu_context *)backend->context;
     delete[] cpu_ctx->work_data;
     delete cpu_ctx;
     delete backend;
 }
 
-struct lm_ggml_backend_plan_cpu {
-    struct lm_ggml_cplan cplan;
-    struct lm_ggml_cgraph cgraph;
+struct ggml_backend_plan_cpu {
+    struct ggml_cplan cplan;
+    struct ggml_cgraph cgraph;
 };
 
-static lm_ggml_backend_graph_plan_t lm_ggml_backend_cpu_graph_plan_create(lm_ggml_backend_t backend, const struct lm_ggml_cgraph * cgraph) {
-    struct lm_ggml_backend_cpu_context * cpu_ctx = (struct lm_ggml_backend_cpu_context *)backend->context;
+static ggml_backend_graph_plan_t ggml_backend_cpu_graph_plan_create(ggml_backend_t backend, const struct ggml_cgraph * cgraph) {
+    struct ggml_backend_cpu_context * cpu_ctx = (struct ggml_backend_cpu_context *)backend->context;
 
-    struct lm_ggml_backend_plan_cpu * cpu_plan = new lm_ggml_backend_plan_cpu;
+    struct ggml_backend_plan_cpu * cpu_plan = new ggml_backend_plan_cpu;
 
-    cpu_plan->cplan = lm_ggml_graph_plan(cgraph, cpu_ctx->n_threads, cpu_ctx->threadpool);
+    cpu_plan->cplan = ggml_graph_plan(cgraph, cpu_ctx->n_threads, cpu_ctx->threadpool);
     cpu_plan->cgraph = *cgraph; // FIXME: deep copy
 
     if (cpu_plan->cplan.work_size > 0) {
@@ -150,34 +150,34 @@ static lm_ggml_backend_graph_plan_t lm_ggml_backend_cpu_graph_plan_create(lm_ggm
     return cpu_plan;
 }
 
-static void lm_ggml_backend_cpu_graph_plan_free(lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan) {
-    struct lm_ggml_backend_plan_cpu * cpu_plan = (struct lm_ggml_backend_plan_cpu *)plan;
+static void ggml_backend_cpu_graph_plan_free(ggml_backend_t backend, ggml_backend_graph_plan_t plan) {
+    struct ggml_backend_plan_cpu * cpu_plan = (struct ggml_backend_plan_cpu *)plan;
 
     delete[] cpu_plan->cplan.work_data;
     delete cpu_plan;
 
-    LM_GGML_UNUSED(backend);
+    GGML_UNUSED(backend);
 }
 
-static enum lm_ggml_status lm_ggml_backend_cpu_graph_plan_compute(lm_ggml_backend_t backend, lm_ggml_backend_graph_plan_t plan) {
-    struct lm_ggml_backend_plan_cpu * cpu_plan = (struct lm_ggml_backend_plan_cpu *)plan;
+static enum ggml_status ggml_backend_cpu_graph_plan_compute(ggml_backend_t backend, ggml_backend_graph_plan_t plan) {
+    struct ggml_backend_plan_cpu * cpu_plan = (struct ggml_backend_plan_cpu *)plan;
 
-    return lm_ggml_graph_compute(&cpu_plan->cgraph, &cpu_plan->cplan);
+    return ggml_graph_compute(&cpu_plan->cgraph, &cpu_plan->cplan);
 
-    LM_GGML_UNUSED(backend);
+    GGML_UNUSED(backend);
 }
 
-static enum lm_ggml_status lm_ggml_backend_cpu_graph_compute(lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph) {
-    struct lm_ggml_backend_cpu_context * cpu_ctx = (struct lm_ggml_backend_cpu_context *)backend->context;
+static enum ggml_status ggml_backend_cpu_graph_compute(ggml_backend_t backend, struct ggml_cgraph * cgraph) {
+    struct ggml_backend_cpu_context * cpu_ctx = (struct ggml_backend_cpu_context *)backend->context;
 
-    struct lm_ggml_cplan cplan = lm_ggml_graph_plan(cgraph, cpu_ctx->n_threads, cpu_ctx->threadpool);
+    struct ggml_cplan cplan = ggml_graph_plan(cgraph, cpu_ctx->n_threads, cpu_ctx->threadpool);
 
     if (cpu_ctx->work_size < cplan.work_size) {
         delete[] cpu_ctx->work_data;
         cpu_ctx->work_data = new uint8_t[cplan.work_size];
         if (cpu_ctx->work_data == NULL) {
             cpu_ctx->work_size = 0;
-            return LM_GGML_STATUS_ALLOC_FAILED;
+            return GGML_STATUS_ALLOC_FAILED;
         }
         cpu_ctx->work_size = cplan.work_size;
     }
@@ -187,43 +187,43 @@ static enum lm_ggml_status lm_ggml_backend_cpu_graph_compute(lm_ggml_backend_t b
     cplan.abort_callback_data = cpu_ctx->abort_callback_data;
     cplan.use_ref             = cpu_ctx->use_ref;
 
-    return lm_ggml_graph_compute(cgraph, &cplan);
+    return ggml_graph_compute(cgraph, &cplan);
 }
 
-static const struct lm_ggml_backend_i lm_ggml_backend_cpu_i = {
-    /* .get_name                = */ lm_ggml_backend_cpu_get_name,
-    /* .free                    = */ lm_ggml_backend_cpu_free,
+static const struct ggml_backend_i ggml_backend_cpu_i = {
+    /* .get_name                = */ ggml_backend_cpu_get_name,
+    /* .free                    = */ ggml_backend_cpu_free,
     /* .set_tensor_async        = */ NULL,
     /* .get_tensor_async        = */ NULL,
     /* .set_tensor_2d_async     = */ NULL,
     /* .get_tensor_2d_async     = */ NULL,
     /* .cpy_tensor_async        = */ NULL,
     /* .synchronize             = */ NULL,
-    /* .graph_plan_create       = */ lm_ggml_backend_cpu_graph_plan_create,
-    /* .graph_plan_free         = */ lm_ggml_backend_cpu_graph_plan_free,
+    /* .graph_plan_create       = */ ggml_backend_cpu_graph_plan_create,
+    /* .graph_plan_free         = */ ggml_backend_cpu_graph_plan_free,
     /* .graph_plan_update       = */ NULL,
-    /* .graph_plan_compute      = */ lm_ggml_backend_cpu_graph_plan_compute,
-    /* .graph_compute           = */ lm_ggml_backend_cpu_graph_compute,
+    /* .graph_plan_compute      = */ ggml_backend_cpu_graph_plan_compute,
+    /* .graph_compute           = */ ggml_backend_cpu_graph_compute,
     /* .event_record            = */ NULL,
     /* .event_wait              = */ NULL,
     /* .graph_optimize          = */ NULL,
 };
 
-static lm_ggml_guid_t lm_ggml_backend_cpu_guid(void) {
-    static lm_ggml_guid guid = { 0xaa, 0x67, 0xc7, 0x43, 0x96, 0xe6, 0xa3, 0x8a, 0xe3, 0xaf, 0xea, 0x92, 0x36, 0xbc, 0xfc, 0x89 };
+static ggml_guid_t ggml_backend_cpu_guid(void) {
+    static ggml_guid guid = { 0xaa, 0x67, 0xc7, 0x43, 0x96, 0xe6, 0xa3, 0x8a, 0xe3, 0xaf, 0xea, 0x92, 0x36, 0xbc, 0xfc, 0x89 };
     return &guid;
 }
 
-lm_ggml_backend_t lm_ggml_backend_cpu_init(void) {
+ggml_backend_t ggml_backend_cpu_init(void) {
     // initialize CPU backend now to avoid slowing the first graph computation
-    lm_ggml_cpu_init();
+    ggml_cpu_init();
 
-    struct lm_ggml_backend_cpu_context * ctx = new lm_ggml_backend_cpu_context;
+    struct ggml_backend_cpu_context * ctx = new ggml_backend_cpu_context;
     if (ctx == NULL) {
         return NULL;
     }
 
-    ctx->n_threads           = LM_GGML_DEFAULT_N_THREADS;
+    ctx->n_threads           = GGML_DEFAULT_N_THREADS;
     ctx->threadpool          = NULL;
     ctx->work_data           = NULL;
     ctx->work_size           = 0;
@@ -231,10 +231,10 @@ lm_ggml_backend_t lm_ggml_backend_cpu_init(void) {
     ctx->abort_callback_data = NULL;
     ctx->use_ref             = false;
 
-    lm_ggml_backend_t cpu_backend = new lm_ggml_backend {
-        /* .guid    = */ lm_ggml_backend_cpu_guid(),
-        /* .iface   = */ lm_ggml_backend_cpu_i,
-        /* .device  = */ lm_ggml_backend_reg_dev_get(lm_ggml_backend_cpu_reg(), 0),
+    ggml_backend_t cpu_backend = new ggml_backend {
+        /* .guid    = */ ggml_backend_cpu_guid(),
+        /* .iface   = */ ggml_backend_cpu_i,
+        /* .device  = */ ggml_backend_reg_dev_get(ggml_backend_cpu_reg(), 0),
         /* .context = */ ctx,
     };
 
@@ -246,50 +246,50 @@ lm_ggml_backend_t lm_ggml_backend_cpu_init(void) {
     return cpu_backend;
 }
 
-bool lm_ggml_backend_is_cpu(lm_ggml_backend_t backend) {
-    return backend != NULL && lm_ggml_guid_matches(backend->guid, lm_ggml_backend_cpu_guid());
+bool ggml_backend_is_cpu(ggml_backend_t backend) {
+    return backend != NULL && ggml_guid_matches(backend->guid, ggml_backend_cpu_guid());
 }
 
-void lm_ggml_backend_cpu_set_n_threads(lm_ggml_backend_t backend_cpu, int n_threads) {
-    LM_GGML_ASSERT(lm_ggml_backend_is_cpu(backend_cpu));
+void ggml_backend_cpu_set_n_threads(ggml_backend_t backend_cpu, int n_threads) {
+    GGML_ASSERT(ggml_backend_is_cpu(backend_cpu));
 
-    struct lm_ggml_backend_cpu_context * ctx = (struct lm_ggml_backend_cpu_context *)backend_cpu->context;
+    struct ggml_backend_cpu_context * ctx = (struct ggml_backend_cpu_context *)backend_cpu->context;
     ctx->n_threads = n_threads;
 }
 
-void lm_ggml_backend_cpu_set_threadpool(lm_ggml_backend_t backend_cpu, lm_ggml_threadpool_t threadpool) {
-    LM_GGML_ASSERT(lm_ggml_backend_is_cpu(backend_cpu));
+void ggml_backend_cpu_set_threadpool(ggml_backend_t backend_cpu, ggml_threadpool_t threadpool) {
+    GGML_ASSERT(ggml_backend_is_cpu(backend_cpu));
 
-    struct lm_ggml_backend_cpu_context * ctx = (struct lm_ggml_backend_cpu_context *)backend_cpu->context;
+    struct ggml_backend_cpu_context * ctx = (struct ggml_backend_cpu_context *)backend_cpu->context;
 
     if (ctx->threadpool && ctx->threadpool != threadpool) {
         // already had a different threadpool, pause/suspend it before switching
-        lm_ggml_threadpool_pause(ctx->threadpool);
+        ggml_threadpool_pause(ctx->threadpool);
     }
     ctx->threadpool = threadpool;
 }
 
-void lm_ggml_backend_cpu_set_abort_callback(lm_ggml_backend_t backend_cpu, lm_ggml_abort_callback abort_callback, void * abort_callback_data) {
-    LM_GGML_ASSERT(lm_ggml_backend_is_cpu(backend_cpu));
+void ggml_backend_cpu_set_abort_callback(ggml_backend_t backend_cpu, ggml_abort_callback abort_callback, void * abort_callback_data) {
+    GGML_ASSERT(ggml_backend_is_cpu(backend_cpu));
 
-    struct lm_ggml_backend_cpu_context * ctx = (struct lm_ggml_backend_cpu_context *)backend_cpu->context;
+    struct ggml_backend_cpu_context * ctx = (struct ggml_backend_cpu_context *)backend_cpu->context;
     ctx->abort_callback = abort_callback;
     ctx->abort_callback_data = abort_callback_data;
 }
 
-void lm_ggml_backend_cpu_set_use_ref(lm_ggml_backend_t backend_cpu, bool use_ref) {
-    LM_GGML_ASSERT(lm_ggml_backend_is_cpu(backend_cpu));
+void ggml_backend_cpu_set_use_ref(ggml_backend_t backend_cpu, bool use_ref) {
+    GGML_ASSERT(ggml_backend_is_cpu(backend_cpu));
 
-    struct lm_ggml_backend_cpu_context * ctx = (struct lm_ggml_backend_cpu_context *)backend_cpu->context;
+    struct ggml_backend_cpu_context * ctx = (struct ggml_backend_cpu_context *)backend_cpu->context;
     ctx->use_ref = use_ref;
 }
 
 // CPU backend - device
 
-struct lm_ggml_backend_cpu_device_context {
+struct ggml_backend_cpu_device_context {
     std::string description = "CPU";
 
-    lm_ggml_backend_cpu_device_context() {
+    ggml_backend_cpu_device_context() {
 #ifdef __APPLE__
         size_t len = 0;
         if (!sysctlbyname("machdep.cpu.brand_string", NULL, &len, NULL, 0)) {
@@ -350,19 +350,19 @@ struct lm_ggml_backend_cpu_device_context {
     }
 };
 
-static const char * lm_ggml_backend_cpu_device_get_name(lm_ggml_backend_dev_t dev) {
+static const char * ggml_backend_cpu_device_get_name(ggml_backend_dev_t dev) {
     return "CPU";
 
-    LM_GGML_UNUSED(dev);
+    GGML_UNUSED(dev);
 }
 
-static const char * lm_ggml_backend_cpu_device_get_description(lm_ggml_backend_dev_t dev) {
-    struct lm_ggml_backend_cpu_device_context * ctx = (struct lm_ggml_backend_cpu_device_context *)dev->context;
+static const char * ggml_backend_cpu_device_get_description(ggml_backend_dev_t dev) {
+    struct ggml_backend_cpu_device_context * ctx = (struct ggml_backend_cpu_device_context *)dev->context;
 
     return ctx->description.c_str();
 }
 
-static void lm_ggml_backend_cpu_device_get_memory(lm_ggml_backend_dev_t dev, size_t * free, size_t * total) {
+static void ggml_backend_cpu_device_get_memory(ggml_backend_dev_t dev, size_t * free, size_t * total) {
 #ifdef _WIN32
     MEMORYSTATUSEX status;
     status.dwLength = sizeof(status);
@@ -378,20 +378,20 @@ static void lm_ggml_backend_cpu_device_get_memory(lm_ggml_backend_dev_t dev, siz
     *free = *total;
 #endif // _WIN32
 
-    LM_GGML_UNUSED(dev);
+    GGML_UNUSED(dev);
 }
 
-static enum lm_ggml_backend_dev_type lm_ggml_backend_cpu_device_get_type(lm_ggml_backend_dev_t dev) {
-    return LM_GGML_BACKEND_DEVICE_TYPE_CPU;
+static enum ggml_backend_dev_type ggml_backend_cpu_device_get_type(ggml_backend_dev_t dev) {
+    return GGML_BACKEND_DEVICE_TYPE_CPU;
 
-    LM_GGML_UNUSED(dev);
+    GGML_UNUSED(dev);
 }
 
-static void lm_ggml_backend_cpu_device_get_props(lm_ggml_backend_dev_t dev, struct lm_ggml_backend_dev_props * props) {
-    props->name        = lm_ggml_backend_cpu_device_get_name(dev);
-    props->description = lm_ggml_backend_cpu_device_get_description(dev);
-    props->type        = lm_ggml_backend_cpu_device_get_type(dev);
-    lm_ggml_backend_cpu_device_get_memory(dev, &props->memory_free, &props->memory_total);
+static void ggml_backend_cpu_device_get_props(ggml_backend_dev_t dev, struct ggml_backend_dev_props * props) {
+    props->name        = ggml_backend_cpu_device_get_name(dev);
+    props->description = ggml_backend_cpu_device_get_description(dev);
+    props->type        = ggml_backend_cpu_device_get_type(dev);
+    ggml_backend_cpu_device_get_memory(dev, &props->memory_free, &props->memory_total);
     props->caps = {
         /* .async                 = */ false,
         /* .host_buffer           = */ false,
@@ -401,31 +401,31 @@ static void lm_ggml_backend_cpu_device_get_props(lm_ggml_backend_dev_t dev, stru
     };
 }
 
-static lm_ggml_backend_t lm_ggml_backend_cpu_device_init_backend(lm_ggml_backend_dev_t dev, const char * params) {
-    return lm_ggml_backend_cpu_init();
+static ggml_backend_t ggml_backend_cpu_device_init_backend(ggml_backend_dev_t dev, const char * params) {
+    return ggml_backend_cpu_init();
 
-    LM_GGML_UNUSED(dev);
-    LM_GGML_UNUSED(params);
+    GGML_UNUSED(dev);
+    GGML_UNUSED(params);
 }
 
-static lm_ggml_backend_buffer_type_t lm_ggml_backend_cpu_device_get_buffer_type(lm_ggml_backend_dev_t dev) {
-    return lm_ggml_backend_cpu_buffer_type();
+static ggml_backend_buffer_type_t ggml_backend_cpu_device_get_buffer_type(ggml_backend_dev_t dev) {
+    return ggml_backend_cpu_buffer_type();
 
-    LM_GGML_UNUSED(dev);
+    GGML_UNUSED(dev);
 }
 
-static lm_ggml_backend_buffer_t lm_ggml_backend_cpu_device_buffer_from_host_ptr(lm_ggml_backend_dev_t dev, void * ptr, size_t size, size_t max_tensor_size) {
-    return lm_ggml_backend_cpu_buffer_from_ptr(ptr, size);
+static ggml_backend_buffer_t ggml_backend_cpu_device_buffer_from_host_ptr(ggml_backend_dev_t dev, void * ptr, size_t size, size_t max_tensor_size) {
+    return ggml_backend_cpu_buffer_from_ptr(ptr, size);
 
-    LM_GGML_UNUSED(dev);
-    LM_GGML_UNUSED(max_tensor_size);
+    GGML_UNUSED(dev);
+    GGML_UNUSED(max_tensor_size);
 }
 
-static bool lm_ggml_backend_cpu_device_supports_op(lm_ggml_backend_dev_t dev, const struct lm_ggml_tensor * op) {
-    const struct lm_ggml_tensor * src0 = op->src[0];
-    const struct lm_ggml_tensor * src1 = op->src[1];
+static bool ggml_backend_cpu_device_supports_op(ggml_backend_dev_t dev, const struct ggml_tensor * op) {
+    const struct ggml_tensor * src0 = op->src[0];
+    const struct ggml_tensor * src1 = op->src[1];
 
-    if (op->op == LM_GGML_OP_NONE || op->op == LM_GGML_OP_RESHAPE || op->op == LM_GGML_OP_VIEW || op->op == LM_GGML_OP_PERMUTE || op->op == LM_GGML_OP_TRANSPOSE) {
+    if (op->op == GGML_OP_NONE || op->op == GGML_OP_RESHAPE || op->op == GGML_OP_VIEW || op->op == GGML_OP_PERMUTE || op->op == GGML_OP_TRANSPOSE) {
         return true;
     }
 
@@ -433,27 +433,27 @@ static bool lm_ggml_backend_cpu_device_supports_op(lm_ggml_backend_dev_t dev, co
     // note: only the first sources are checked for extra buffer types to reduce overhead, increase if necessary
     for (int i = 0; i < 4; i++) {
         if (op->src[i] && op->src[i]->buffer &&
-            lm_ggml_backend_cpu_is_extra_buffer_type(op->src[i]->buffer->buft)) {
+            ggml_backend_cpu_is_extra_buffer_type(op->src[i]->buffer->buft)) {
             auto * buf_extra = (ggml::cpu::extra_buffer_type *) op->src[i]->buffer->buft->context;
             return buf_extra->supports_op(dev, op);
         }
     }
 
     switch (op->op) {
-        case LM_GGML_OP_CPY:
-        case LM_GGML_OP_SET_ROWS:
+        case GGML_OP_CPY:
+        case GGML_OP_SET_ROWS:
             return
-                op->type != LM_GGML_TYPE_IQ3_XXS &&
-                op->type != LM_GGML_TYPE_IQ3_S   &&
-                op->type != LM_GGML_TYPE_IQ2_XXS &&
-                op->type != LM_GGML_TYPE_IQ2_XS  &&
-                op->type != LM_GGML_TYPE_IQ2_S   &&
-                op->type != LM_GGML_TYPE_IQ1_S   &&
-                op->type != LM_GGML_TYPE_IQ1_M; // missing type_traits.from_float
-        case LM_GGML_OP_MUL_MAT:
-            return src1->type == LM_GGML_TYPE_F32 || src1->type == lm_ggml_get_type_traits_cpu(src0->type)->vec_dot_type;
-        case LM_GGML_OP_SOFT_MAX_BACK: {
-            if (op->src[0]->type != LM_GGML_TYPE_F32 || op->src[1]->type != LM_GGML_TYPE_F32) {
+                op->type != GGML_TYPE_IQ3_XXS &&
+                op->type != GGML_TYPE_IQ3_S   &&
+                op->type != GGML_TYPE_IQ2_XXS &&
+                op->type != GGML_TYPE_IQ2_XS  &&
+                op->type != GGML_TYPE_IQ2_S   &&
+                op->type != GGML_TYPE_IQ1_S   &&
+                op->type != GGML_TYPE_IQ1_M; // missing type_traits.from_float
+        case GGML_OP_MUL_MAT:
+            return src1->type == GGML_TYPE_F32 || src1->type == ggml_get_type_traits_cpu(src0->type)->vec_dot_type;
+        case GGML_OP_SOFT_MAX_BACK: {
+            if (op->src[0]->type != GGML_TYPE_F32 || op->src[1]->type != GGML_TYPE_F32) {
                 return false;
             }
             float max_bias = 0.0f;
@@ -462,40 +462,40 @@ static bool lm_ggml_backend_cpu_device_supports_op(lm_ggml_backend_dev_t dev, co
 
             return max_bias == 0.0f;
         }
-        case LM_GGML_OP_IM2COL_BACK:
-            return src0->type == LM_GGML_TYPE_F32 && (src1->type == LM_GGML_TYPE_F32 || src1->type == LM_GGML_TYPE_F16);
-        case LM_GGML_OP_GET_ROWS_BACK:
-            return src0->type == LM_GGML_TYPE_F32 || src0->type == LM_GGML_TYPE_F16;
-        case LM_GGML_OP_OUT_PROD:
-            return (src0->type == LM_GGML_TYPE_F32 ||
-                    ((src0->type == LM_GGML_TYPE_F16 || lm_ggml_is_quantized(src0->type)) && src0->ne[2] == src1->ne[2] && src0->ne[3] == src1->ne[3])) &&
-                src1->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
-        case LM_GGML_OP_CONV_2D:
-            return lm_ggml_is_contiguous(op->src[0]);
-        case LM_GGML_OP_SSM_SCAN:
-            return lm_ggml_get_op_params_i32(op, 0) == 1 || op->src[3]->ne[0] == 1;
+        case GGML_OP_IM2COL_BACK:
+            return src0->type == GGML_TYPE_F32 && (src1->type == GGML_TYPE_F32 || src1->type == GGML_TYPE_F16);
+        case GGML_OP_GET_ROWS_BACK:
+            return src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16;
+        case GGML_OP_OUT_PROD:
+            return (src0->type == GGML_TYPE_F32 ||
+                    ((src0->type == GGML_TYPE_F16 || ggml_is_quantized(src0->type)) && src0->ne[2] == src1->ne[2] && src0->ne[3] == src1->ne[3])) &&
+                src1->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
+        case GGML_OP_CONV_2D:
+            return ggml_is_contiguous(op->src[0]);
+        case GGML_OP_SSM_SCAN:
+            return ggml_get_op_params_i32(op, 0) == 1 || op->src[3]->ne[0] == 1;
         default:
             return true;
     }
 }
 
-static bool lm_ggml_backend_cpu_device_supports_buft(lm_ggml_backend_dev_t dev, lm_ggml_backend_buffer_type_t buft) {
-    return lm_ggml_backend_buft_is_host(buft) || lm_ggml_backend_cpu_is_extra_buffer_type(buft);
-    LM_GGML_UNUSED(dev);
+static bool ggml_backend_cpu_device_supports_buft(ggml_backend_dev_t dev, ggml_backend_buffer_type_t buft) {
+    return ggml_backend_buft_is_host(buft) || ggml_backend_cpu_is_extra_buffer_type(buft);
+    GGML_UNUSED(dev);
 }
 
-static const struct lm_ggml_backend_device_i lm_ggml_backend_cpu_device_i = {
-    /* .get_name             = */ lm_ggml_backend_cpu_device_get_name,
-    /* .get_description      = */ lm_ggml_backend_cpu_device_get_description,
-    /* .get_memory           = */ lm_ggml_backend_cpu_device_get_memory,
-    /* .get_type             = */ lm_ggml_backend_cpu_device_get_type,
-    /* .get_props            = */ lm_ggml_backend_cpu_device_get_props,
-    /* .init_backend         = */ lm_ggml_backend_cpu_device_init_backend,
-    /* .get_buffer_type      = */ lm_ggml_backend_cpu_device_get_buffer_type,
+static const struct ggml_backend_device_i ggml_backend_cpu_device_i = {
+    /* .get_name             = */ ggml_backend_cpu_device_get_name,
+    /* .get_description      = */ ggml_backend_cpu_device_get_description,
+    /* .get_memory           = */ ggml_backend_cpu_device_get_memory,
+    /* .get_type             = */ ggml_backend_cpu_device_get_type,
+    /* .get_props            = */ ggml_backend_cpu_device_get_props,
+    /* .init_backend         = */ ggml_backend_cpu_device_init_backend,
+    /* .get_buffer_type      = */ ggml_backend_cpu_device_get_buffer_type,
     /* .get_host_buffer_type = */ NULL,
-    /* .buffer_from_host_ptr = */ lm_ggml_backend_cpu_device_buffer_from_host_ptr,
-    /* .supports_op          = */ lm_ggml_backend_cpu_device_supports_op,
-    /* .supports_buft        = */ lm_ggml_backend_cpu_device_supports_buft,
+    /* .buffer_from_host_ptr = */ ggml_backend_cpu_device_buffer_from_host_ptr,
+    /* .supports_op          = */ ggml_backend_cpu_device_supports_op,
+    /* .supports_buft        = */ ggml_backend_cpu_device_supports_buft,
     /* .offload_op           = */ NULL,
     /* .event_new            = */ NULL,
     /* .event_free           = */ NULL,
@@ -504,137 +504,137 @@ static const struct lm_ggml_backend_device_i lm_ggml_backend_cpu_device_i = {
 
 // CPU backend - backend (reg)
 
-static const char * lm_ggml_backend_cpu_reg_get_name(lm_ggml_backend_reg_t reg) {
+static const char * ggml_backend_cpu_reg_get_name(ggml_backend_reg_t reg) {
     return "CPU";
 
-    LM_GGML_UNUSED(reg);
+    GGML_UNUSED(reg);
 }
 
-static size_t lm_ggml_backend_cpu_reg_get_device_count(lm_ggml_backend_reg_t reg) {
+static size_t ggml_backend_cpu_reg_get_device_count(ggml_backend_reg_t reg) {
     return 1;
 
-    LM_GGML_UNUSED(reg);
+    GGML_UNUSED(reg);
 }
 
-static lm_ggml_backend_dev_t lm_ggml_backend_cpu_reg_get_device(lm_ggml_backend_reg_t reg, size_t index) {
-    LM_GGML_ASSERT(index == 0);
+static ggml_backend_dev_t ggml_backend_cpu_reg_get_device(ggml_backend_reg_t reg, size_t index) {
+    GGML_ASSERT(index == 0);
 
-    static lm_ggml_backend_cpu_device_context ctx;
-    static lm_ggml_backend_device lm_ggml_backend_cpu_device = {
-        /* .iface   = */ lm_ggml_backend_cpu_device_i,
+    static ggml_backend_cpu_device_context ctx;
+    static ggml_backend_device ggml_backend_cpu_device = {
+        /* .iface   = */ ggml_backend_cpu_device_i,
         /* .reg     = */ reg,
         /* .context = */ &ctx,
     };
 
-    return &lm_ggml_backend_cpu_device;
+    return &ggml_backend_cpu_device;
 }
 
-// This is intended to replace the the lm_ggml_cpu_has_* functions when loading the CPU backend dynamically,
+// This is intended to replace the the ggml_cpu_has_* functions when loading the CPU backend dynamically,
 // and additionally to allow other backends to expose their own list of features that applications can query using the same API
-static lm_ggml_backend_feature * lm_ggml_backend_cpu_get_features(lm_ggml_backend_reg_t reg) {
-    static std::vector<lm_ggml_backend_feature> features = []() {
-        lm_ggml_cpu_init();
+static ggml_backend_feature * ggml_backend_cpu_get_features(ggml_backend_reg_t reg) {
+    static std::vector<ggml_backend_feature> features = []() {
+        ggml_cpu_init();
 
-        std::vector<lm_ggml_backend_feature> features;
-        if (lm_ggml_cpu_has_sse3()) {
+        std::vector<ggml_backend_feature> features;
+        if (ggml_cpu_has_sse3()) {
             features.push_back({ "SSE3", "1" });
         }
-        if (lm_ggml_cpu_has_ssse3()) {
+        if (ggml_cpu_has_ssse3()) {
             features.push_back({ "SSSE3", "1" });
         }
-        if (lm_ggml_cpu_has_avx()) {
+        if (ggml_cpu_has_avx()) {
             features.push_back({ "AVX", "1" });
         }
-        if (lm_ggml_cpu_has_avx_vnni()) {
+        if (ggml_cpu_has_avx_vnni()) {
             features.push_back({ "AVX_VNNI", "1" });
         }
-        if (lm_ggml_cpu_has_avx2()) {
+        if (ggml_cpu_has_avx2()) {
             features.push_back({ "AVX2", "1" });
         }
-        if (lm_ggml_cpu_has_f16c()) {
+        if (ggml_cpu_has_f16c()) {
             features.push_back({ "F16C", "1" });
         }
-        if (lm_ggml_cpu_has_fma()) {
+        if (ggml_cpu_has_fma()) {
             features.push_back({ "FMA", "1" });
         }
-        if (lm_ggml_cpu_has_bmi2()) {
+        if (ggml_cpu_has_bmi2()) {
             features.push_back({ "BMI2", "1" });
         }
-        if (lm_ggml_cpu_has_avx512()) {
+        if (ggml_cpu_has_avx512()) {
             features.push_back({ "AVX512", "1" });
         }
-        if (lm_ggml_cpu_has_avx512_vbmi()) {
+        if (ggml_cpu_has_avx512_vbmi()) {
             features.push_back({ "AVX512_VBMI", "1" });
         }
-        if (lm_ggml_cpu_has_avx512_vnni()) {
+        if (ggml_cpu_has_avx512_vnni()) {
             features.push_back({ "AVX512_VNNI", "1" });
         }
-        if (lm_ggml_cpu_has_avx512_bf16()) {
+        if (ggml_cpu_has_avx512_bf16()) {
             features.push_back({ "AVX512_BF16", "1" });
         }
-        if (lm_ggml_cpu_has_amx_int8()) {
+        if (ggml_cpu_has_amx_int8()) {
             features.push_back({ "AMX_INT8", "1" });
         }
-        if (lm_ggml_cpu_has_neon()) {
+        if (ggml_cpu_has_neon()) {
             features.push_back({ "NEON", "1" });
         }
-        if (lm_ggml_cpu_has_arm_fma()) {
+        if (ggml_cpu_has_arm_fma()) {
             features.push_back({ "ARM_FMA", "1" });
         }
-        if (lm_ggml_cpu_has_fp16_va()) {
+        if (ggml_cpu_has_fp16_va()) {
             features.push_back({ "FP16_VA", "1" });
         }
-        if (lm_ggml_cpu_has_matmul_int8()) {
+        if (ggml_cpu_has_matmul_int8()) {
             features.push_back({ "MATMUL_INT8", "1" });
         }
-        if (lm_ggml_cpu_has_sve()) {
+        if (ggml_cpu_has_sve()) {
             features.push_back({ "SVE", "1" });
         }
-        if (lm_ggml_cpu_has_dotprod()) {
+        if (ggml_cpu_has_dotprod()) {
             features.push_back({ "DOTPROD", "1" });
         }
-        if (lm_ggml_cpu_get_sve_cnt() > 0) {
-            static std::string sve_cnt = std::to_string(lm_ggml_cpu_get_sve_cnt());
+        if (ggml_cpu_get_sve_cnt() > 0) {
+            static std::string sve_cnt = std::to_string(ggml_cpu_get_sve_cnt());
             features.push_back({ "SVE_CNT", sve_cnt.c_str() });
         }
-        if (lm_ggml_cpu_has_sme()) {
+        if (ggml_cpu_has_sme()) {
             features.push_back({ "SME", "1" });
         }
-        if (lm_ggml_cpu_has_sme2()) {
+        if (ggml_cpu_has_sme2()) {
             features.push_back({ "SME2", "1" });
         }
-        if (lm_ggml_cpu_has_riscv_v()) {
+        if (ggml_cpu_has_riscv_v()) {
             features.push_back({ "RISCV_V", "1" });
         }
-        if (lm_ggml_cpu_get_rvv_vlen() > 0) {
-            static std::string rvv_vlen = std::to_string(lm_ggml_cpu_get_rvv_vlen());
+        if (ggml_cpu_get_rvv_vlen() > 0) {
+            static std::string rvv_vlen = std::to_string(ggml_cpu_get_rvv_vlen());
             features.push_back({ "RVV_VLEN", rvv_vlen.c_str() });
         }
-        if (lm_ggml_cpu_has_vsx()) {
+        if (ggml_cpu_has_vsx()) {
             features.push_back({ "VSX", "1" });
         }
-        if (lm_ggml_cpu_has_vxe()) {
+        if (ggml_cpu_has_vxe()) {
             features.push_back({ "VXE", "1" });
         }
-        if (lm_ggml_cpu_has_wasm_simd()) {
+        if (ggml_cpu_has_wasm_simd()) {
             features.push_back({ "WASM_SIMD", "1" });
         }
-        if (lm_ggml_cpu_has_llamafile()) {
+        if (ggml_cpu_has_llamafile()) {
             features.push_back({ "LLAMAFILE", "1" });
         }
-    #ifdef LM_GGML_USE_ACCELERATE
+    #ifdef GGML_USE_ACCELERATE
         features.push_back({ "ACCELERATE", "1" });
     #endif
-    #ifdef LM_GGML_USE_CPU_HBM
+    #ifdef GGML_USE_CPU_HBM
         features.push_back({ "CPU_HBM", "1" });
     #endif
-    #ifdef LM_GGML_USE_OPENMP
+    #ifdef GGML_USE_OPENMP
         features.push_back({ "OPENMP", "1" });
     #endif
-    #ifdef LM_GGML_USE_CPU_KLEIDIAI
+    #ifdef GGML_USE_CPU_KLEIDIAI
         features.push_back({ "KLEIDIAI", "1" });
     #endif
-    #ifdef LM_GGML_USE_CPU_REPACK
+    #ifdef GGML_USE_CPU_REPACK
         features.push_back({ "REPACK", "1" });
     #endif
 
@@ -645,68 +645,68 @@ static lm_ggml_backend_feature * lm_ggml_backend_cpu_get_features(lm_ggml_backen
 
     return features.data();
 
-    LM_GGML_UNUSED(reg);
+    GGML_UNUSED(reg);
 }
 
-static void * lm_ggml_backend_cpu_get_proc_address(lm_ggml_backend_reg_t reg, const char * name) {
-    if (strcmp(name, "lm_ggml_backend_set_n_threads") == 0) {
-        lm_ggml_backend_set_n_threads_t fct = lm_ggml_backend_cpu_set_n_threads;
+static void * ggml_backend_cpu_get_proc_address(ggml_backend_reg_t reg, const char * name) {
+    if (strcmp(name, "ggml_backend_set_n_threads") == 0) {
+        ggml_backend_set_n_threads_t fct = ggml_backend_cpu_set_n_threads;
         return (void *)fct;
     }
-    if (strcmp(name, "lm_ggml_backend_dev_get_extra_bufts") == 0) {
-        lm_ggml_backend_dev_get_extra_bufts_t fct = lm_ggml_backend_cpu_device_get_extra_buffers_type;
+    if (strcmp(name, "ggml_backend_dev_get_extra_bufts") == 0) {
+        ggml_backend_dev_get_extra_bufts_t fct = ggml_backend_cpu_device_get_extra_buffers_type;
         return (void *)fct;
     }
-    if (strcmp(name, "lm_ggml_backend_get_features") == 0) {
-        return (void *)lm_ggml_backend_cpu_get_features;
+    if (strcmp(name, "ggml_backend_get_features") == 0) {
+        return (void *)ggml_backend_cpu_get_features;
     }
-    if (strcmp(name, "lm_ggml_backend_set_abort_callback") == 0) {
-        return (void *)lm_ggml_backend_cpu_set_abort_callback;
+    if (strcmp(name, "ggml_backend_set_abort_callback") == 0) {
+        return (void *)ggml_backend_cpu_set_abort_callback;
     }
-    if (strcmp(name, "lm_ggml_backend_cpu_numa_init") == 0) {
-        return (void *)lm_ggml_numa_init;
+    if (strcmp(name, "ggml_backend_cpu_numa_init") == 0) {
+        return (void *)ggml_numa_init;
     }
-    if (strcmp(name, "lm_ggml_backend_cpu_is_numa") == 0) {
-        return (void *)lm_ggml_is_numa;
+    if (strcmp(name, "ggml_backend_cpu_is_numa") == 0) {
+        return (void *)ggml_is_numa;
     }
-    if (strcmp(name, "lm_ggml_backend_cpu_set_use_ref") == 0) {
-        return (void *)lm_ggml_backend_cpu_set_use_ref;
+    if (strcmp(name, "ggml_backend_cpu_set_use_ref") == 0) {
+        return (void *)ggml_backend_cpu_set_use_ref;
     }
 
     // threadpool - TODO:  move to ggml-base
-    if (strcmp(name, "lm_ggml_threadpool_new") == 0) {
-        return (void *)lm_ggml_threadpool_new;
+    if (strcmp(name, "ggml_threadpool_new") == 0) {
+        return (void *)ggml_threadpool_new;
     }
-    if (strcmp(name, "lm_ggml_threadpool_free") == 0) {
-        return (void *)lm_ggml_threadpool_free;
+    if (strcmp(name, "ggml_threadpool_free") == 0) {
+        return (void *)ggml_threadpool_free;
     }
-    if (strcmp(name, "lm_ggml_backend_cpu_set_threadpool") == 0) {
-        return (void *)lm_ggml_backend_cpu_set_threadpool;
+    if (strcmp(name, "ggml_backend_cpu_set_threadpool") == 0) {
+        return (void *)ggml_backend_cpu_set_threadpool;
     }
 
     return NULL;
 
-    LM_GGML_UNUSED(reg);
+    GGML_UNUSED(reg);
 }
 
-static const struct lm_ggml_backend_reg_i lm_ggml_backend_cpu_reg_i = {
-    /* .get_name         = */ lm_ggml_backend_cpu_reg_get_name,
-    /* .get_device_count = */ lm_ggml_backend_cpu_reg_get_device_count,
-    /* .get_device       = */ lm_ggml_backend_cpu_reg_get_device,
-    /* .get_proc_address = */ lm_ggml_backend_cpu_get_proc_address,
+static const struct ggml_backend_reg_i ggml_backend_cpu_reg_i = {
+    /* .get_name         = */ ggml_backend_cpu_reg_get_name,
+    /* .get_device_count = */ ggml_backend_cpu_reg_get_device_count,
+    /* .get_device       = */ ggml_backend_cpu_reg_get_device,
+    /* .get_proc_address = */ ggml_backend_cpu_get_proc_address,
 };
 
-lm_ggml_backend_reg_t lm_ggml_backend_cpu_reg(void) {
+ggml_backend_reg_t ggml_backend_cpu_reg(void) {
     // init CPU feature detection
-    lm_ggml_cpu_init();
+    ggml_cpu_init();
 
-    static struct lm_ggml_backend_reg lm_ggml_backend_cpu_reg = {
-        /* .api_version = */ LM_GGML_BACKEND_API_VERSION,
-        /* .iface       = */ lm_ggml_backend_cpu_reg_i,
+    static struct ggml_backend_reg ggml_backend_cpu_reg = {
+        /* .api_version = */ GGML_BACKEND_API_VERSION,
+        /* .iface       = */ ggml_backend_cpu_reg_i,
         /* .context     = */ NULL,
     };
 
-    return &lm_ggml_backend_cpu_reg;
+    return &ggml_backend_cpu_reg;
 }
 
-LM_GGML_BACKEND_DL_IMPL(lm_ggml_backend_cpu_reg)
+GGML_BACKEND_DL_IMPL(ggml_backend_cpu_reg)

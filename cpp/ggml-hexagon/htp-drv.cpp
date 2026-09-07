@@ -112,7 +112,7 @@ void * rpcmem_alloc2(int heapid, uint32_t flags, size_t size) {
     if (rpcmem_alloc2_pfn) {
         return rpcmem_alloc2_pfn(heapid, flags, size);
     } else {
-        LM_GGML_LOG_INFO("ggml-hex: rpcmem_alloc2 not found, falling back to rpcmem_alloc\n");
+        GGML_LOG_INFO("ggml-hex: rpcmem_alloc2 not found, falling back to rpcmem_alloc\n");
         return rpcmem_alloc_pfn(heapid, flags, size);
     }
 }
@@ -217,7 +217,7 @@ static std::string wstr_to_str(std::wstring_view wstr) {
                                             wstr.data(), (int) wstr.size(),
                                             nullptr, 0, nullptr, nullptr);
     if (bytes_needed == 0) {
-        LM_GGML_LOG_ERROR("ggml-hex: WideCharToMultiByte failed. Error %lu\n", GetLastError());
+        GGML_LOG_ERROR("ggml-hex: WideCharToMultiByte failed. Error %lu\n", GetLastError());
         throw std::runtime_error("Invalid wstring input");
     }
 
@@ -227,7 +227,7 @@ static std::string wstr_to_str(std::wstring_view wstr) {
                                             result.data(), bytes_needed,
                                             nullptr, nullptr);
     if (bytes_written == 0) {
-        LM_GGML_LOG_ERROR("ggml-hex: WideCharToMultiByte failed. Error %lu\n", GetLastError());
+        GGML_LOG_ERROR("ggml-hex: WideCharToMultiByte failed. Error %lu\n", GetLastError());
         throw std::runtime_error("Wstring conversion failed");
     }
     return result;
@@ -240,7 +240,7 @@ static std::string get_driver_path() {
     // Get a handle to the SCM database.
     SC_HANDLE schSCManager = OpenSCManagerW(NULL, NULL, STANDARD_RIGHTS_READ);
     if (nullptr == schSCManager) {
-        LM_GGML_LOG_ERROR("ggml-hex: Failed to open SCManager. Error: %lu\n", GetLastError());
+        GGML_LOG_ERROR("ggml-hex: Failed to open SCManager. Error: %lu\n", GetLastError());
         return result;
     }
 
@@ -250,7 +250,7 @@ static std::string get_driver_path() {
                                         SERVICE_QUERY_CONFIG);  // need query config access
 
     if (nullptr == schService) {
-        LM_GGML_LOG_ERROR("ggml-hex: Failed to open qcnspmcdm service. Error: %lu\n", GetLastError());
+        GGML_LOG_ERROR("ggml-hex: Failed to open qcnspmcdm service. Error: %lu\n", GetLastError());
         CloseServiceHandle(schSCManager);
         return result;
     }
@@ -259,7 +259,7 @@ static std::string get_driver_path() {
     DWORD bufferSize;
     if (!QueryServiceConfigW(schService, NULL, 0, &bufferSize) &&
         (GetLastError() != ERROR_INSUFFICIENT_BUFFER)) {
-        LM_GGML_LOG_ERROR("ggml-hex: Failed to query service config. Error: %lu\n", GetLastError());
+        GGML_LOG_ERROR("ggml-hex: Failed to query service config. Error: %lu\n", GetLastError());
         CloseServiceHandle(schService);
         CloseServiceHandle(schSCManager);
         return result;
@@ -289,7 +289,7 @@ static std::string get_driver_path() {
     // "\SystemRoot" should be replace with a correct one (e.g. C:\Windows)
     const std::wstring systemRootPlaceholder = L"\\SystemRoot";
     if (0 != driverPath.compare(0, systemRootPlaceholder.length(), systemRootPlaceholder)) {
-        LM_GGML_LOG_ERROR("ggml-hex: String pattern not found in driver path.\n");
+        GGML_LOG_ERROR("ggml-hex: String pattern not found in driver path.\n");
         return result;
     }
 
@@ -299,7 +299,7 @@ static std::string get_driver_path() {
     // Query the number of wide characters this variable requires
     DWORD numWords = GetEnvironmentVariableW(systemRootEnv.c_str(), NULL, 0);
     if (numWords == 0) {
-        LM_GGML_LOG_ERROR("ggml-hex: Failed get systemRoot environment variable\n");
+        GGML_LOG_ERROR("ggml-hex: Failed get systemRoot environment variable\n");
         return result;
     }
 
@@ -307,7 +307,7 @@ static std::string get_driver_path() {
     std::vector<wchar_t> systemRoot(numWords + 1);
     numWords = GetEnvironmentVariableW(systemRootEnv.c_str(), systemRoot.data(), numWords + 1);
     if (numWords == 0) {
-        LM_GGML_LOG_ERROR("ggml-hex: Failed to read windir environment variable\n");
+        GGML_LOG_ERROR("ggml-hex: Failed to read windir environment variable\n");
         return result;
     }
     driverPath.replace(0, systemRootPlaceholder.length(), std::wstring(systemRoot.data()));
@@ -328,15 +328,15 @@ int htpdrv_init() {
     std::string drv_path = "libcdsprpc.so";
 #endif
     if (initialized) {
-        LM_GGML_LOG_INFO("ggml-hex: Driver already loaded\n");
+        GGML_LOG_INFO("ggml-hex: Driver already loaded\n");
         return AEE_SUCCESS;
     }
-    LM_GGML_LOG_INFO("ggml-hex: Loading driver %s\n", drv_path.c_str());
+    GGML_LOG_INFO("ggml-hex: Loading driver %s\n", drv_path.c_str());
 
     fs::path path{ drv_path.c_str() };
     dl_handle_ptr handle { dl_load_library(path) };
     if (!handle) {
-        LM_GGML_LOG_ERROR("ggml-hex: failed to load %s: %s\n", path.u8string().c_str(), dl_error());
+        GGML_LOG_ERROR("ggml-hex: failed to load %s: %s\n", path.u8string().c_str(), dl_error());
         return AEE_EUNABLETOLOAD;
     }
 
@@ -344,7 +344,7 @@ int htpdrv_init() {
     do {                                                                    \
         pfn = (type) dl_get_sym(drv, #symbol);                              \
         if (!ignore && nullptr == pfn) {                                    \
-            LM_GGML_LOG_ERROR("ggml-hex: failed to dlsym %s\n", #symbol);      \
+            GGML_LOG_ERROR("ggml-hex: failed to dlsym %s\n", #symbol);      \
             return AEE_EUNABLETOLOAD;                                       \
         }                                                                   \
     } while (0)
@@ -389,7 +389,7 @@ domain * htpdrv_get_domain(int domain_id) {
 
 int htpdrv_get_arch(int domain, int * arch) {
     if (!remote_handle_control_pfn) {
-        LM_GGML_LOG_ERROR("ggml-hex: remote_handle_control is not supported on this device\n");
+        GGML_LOG_ERROR("ggml-hex: remote_handle_control is not supported on this device\n");
         return AEE_EUNSUPPORTEDAPI;
     }
 
@@ -400,12 +400,12 @@ int htpdrv_get_arch(int domain, int * arch) {
 
     int err = remote_handle_control(DSPRPC_GET_DSP_INFO, &arch_ver, sizeof(arch_ver));
     if ((err & 0xff) == (AEE_EUNSUPPORTEDAPI & 0xff)) {
-        LM_GGML_LOG_ERROR("ggml-hex: FastRPC capability API is not supported on this device\n");
+        GGML_LOG_ERROR("ggml-hex: FastRPC capability API is not supported on this device\n");
         return AEE_EUNSUPPORTEDAPI;
     }
 
     if (err != AEE_SUCCESS) {
-        LM_GGML_LOG_ERROR("ggml-hex: FastRPC capability query failed (err %d)\n", err);
+        GGML_LOG_ERROR("ggml-hex: FastRPC capability query failed (err %d)\n", err);
         return err;
     }
 

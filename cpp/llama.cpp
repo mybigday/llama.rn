@@ -47,7 +47,7 @@ const char * llama_flash_attn_type_name(enum llama_flash_attn_type flash_attn_ty
         case LLAMA_FLASH_ATTN_TYPE_ENABLED:
             return "enabled";
     }
-    LM_GGML_ABORT("fatal error");
+    GGML_ABORT("fatal error");
 }
 
 const char * llama_load_mode_name(enum llama_load_mode load_mode) {
@@ -65,7 +65,7 @@ const char * llama_load_mode_name(enum llama_load_mode load_mode) {
         case LLAMA_LOAD_MODE_DIRECT_IO:
             return "dio";
     }
-    LM_GGML_ABORT("fatal error");
+    GGML_ABORT("fatal error");
 }
 
 enum llama_load_mode llama_load_mode_from_str(const char * str) {
@@ -103,19 +103,19 @@ bool llama_supports_mlock(void) {
 }
 
 bool llama_supports_gpu_offload(void) {
-    if (!lm_ggml_backend_reg_count()) {
-        lm_ggml_backend_load_all();
+    if (!ggml_backend_reg_count()) {
+        ggml_backend_load_all();
     }
-    return lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_GPU) != nullptr ||
-           lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_IGPU) != nullptr ||
+    return ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU) != nullptr ||
+           ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_IGPU) != nullptr ||
            llama_supports_rpc();
 }
 
 bool llama_supports_rpc(void) {
-    if (!lm_ggml_backend_reg_count()) {
-        lm_ggml_backend_load_all();
+    if (!ggml_backend_reg_count()) {
+        ggml_backend_load_all();
     }
-    return lm_ggml_backend_reg_by_name("RPC") != nullptr;
+    return ggml_backend_reg_by_name("RPC") != nullptr;
 }
 
 const char * llama_version(void) {
@@ -123,26 +123,26 @@ const char * llama_version(void) {
 }
 
 void llama_backend_init(void) {
-    lm_ggml_time_init();
+    ggml_time_init();
 
     // needed to initialize f16 tables
     {
-        struct lm_ggml_init_params params = { 0, NULL, false };
-        struct lm_ggml_context * ctx = lm_ggml_init(params);
-        lm_ggml_free(ctx);
+        struct ggml_init_params params = { 0, NULL, false };
+        struct ggml_context * ctx = ggml_init(params);
+        ggml_free(ctx);
     }
 
-    if (!lm_ggml_backend_reg_count()) {
-        lm_ggml_backend_load_all();
+    if (!ggml_backend_reg_count()) {
+        ggml_backend_load_all();
     }
 }
 
-void llama_numa_init(enum lm_ggml_numa_strategy numa) {
-    if (numa != LM_GGML_NUMA_STRATEGY_DISABLED) {
-        auto * dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
-        LM_GGML_ASSERT(dev && "CPU backend is not loaded");
-        auto * reg = lm_ggml_backend_dev_backend_reg(dev);
-        auto * numa_init_fn = (decltype(lm_ggml_numa_init) *) lm_ggml_backend_reg_get_proc_address(reg, "lm_ggml_backend_cpu_numa_init");
+void llama_numa_init(enum ggml_numa_strategy numa) {
+    if (numa != GGML_NUMA_STRATEGY_DISABLED) {
+        auto * dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+        GGML_ASSERT(dev && "CPU backend is not loaded");
+        auto * reg = ggml_backend_dev_backend_reg(dev);
+        auto * numa_init_fn = (decltype(ggml_numa_init) *) ggml_backend_reg_get_proc_address(reg, "ggml_backend_cpu_numa_init");
         if (numa_init_fn) {
             numa_init_fn(numa);
         }
@@ -150,11 +150,11 @@ void llama_numa_init(enum lm_ggml_numa_strategy numa) {
 }
 
 void llama_backend_free(void) {
-    lm_ggml_quantize_free();
+    ggml_quantize_free();
 }
 
 int64_t llama_time_us(void) {
-    return lm_ggml_time_us();
+    return ggml_time_us();
 }
 
 // returns true on success
@@ -172,16 +172,16 @@ static bool llama_prepare_model_devices(const llama_model_params & params, llama
             }
             LLAMA_LOG_INFO("%s: creating a Meta device with %zu devices\n", __func__, n_devs);
             for (size_t i = 0; i < n_devs; ++i) {
-                LLAMA_LOG_INFO("%s: - device %zu: %s\n", __func__, i, lm_ggml_backend_dev_name(params.devices[i]));
+                LLAMA_LOG_INFO("%s: - device %zu: %s\n", __func__, i, ggml_backend_dev_name(params.devices[i]));
             }
             model->get_split_state_ud.n_devices = n_devs;
             model->get_split_state_ud.model = model;
             model->devices.push_back({
-                true, lm_ggml_backend_meta_device(
+                true, ggml_backend_meta_device(
                 params.devices, n_devs, llama_meta_device_get_split_state, &model->get_split_state_ud)
             });
         } else {
-            for (lm_ggml_backend_dev_t * dev = params.devices; *dev; ++dev) {
+            for (ggml_backend_dev_t * dev = params.devices; *dev; ++dev) {
                 model->devices.push_back({false, *dev});
             }
         }
@@ -194,12 +194,12 @@ static bool llama_prepare_model_devices(const llama_model_params & params, llama
         std::vector<llama_device> rpc_servers;
 
         if (params.split_mode == LLAMA_SPLIT_MODE_TENSOR) {
-            std::vector<lm_ggml_backend_dev_t> devs;
-            devs.reserve(lm_ggml_backend_dev_count());
-            for (size_t i = 0; i < lm_ggml_backend_dev_count(); ++i) {
-                auto * dev = lm_ggml_backend_dev_get(i);
-                if (lm_ggml_backend_dev_buffer_type(dev) == lm_ggml_backend_cpu_buffer_type()) {
-                    LLAMA_LOG_INFO("%s: skipping %s (%s) for tensor parallelism\n", __func__, lm_ggml_backend_dev_name(dev), lm_ggml_backend_dev_description(dev));
+            std::vector<ggml_backend_dev_t> devs;
+            devs.reserve(ggml_backend_dev_count());
+            for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+                auto * dev = ggml_backend_dev_get(i);
+                if (ggml_backend_dev_buffer_type(dev) == ggml_backend_cpu_buffer_type()) {
+                    LLAMA_LOG_INFO("%s: skipping %s (%s) for tensor parallelism\n", __func__, ggml_backend_dev_name(dev), ggml_backend_dev_description(dev));
                     continue;
                 }
                 devs.push_back(dev);
@@ -211,36 +211,36 @@ static bool llama_prepare_model_devices(const llama_model_params & params, llama
 
             LLAMA_LOG_INFO("%s: creating a Meta device for tensor parallelism from %zu devices:\n", __func__, devs.size());
             for (size_t i = 0; i < devs.size(); ++i) {
-                LLAMA_LOG_INFO("%s: - device %zu: %s (%s)\n", __func__, i, lm_ggml_backend_dev_name(devs[i]), lm_ggml_backend_dev_description(devs[i]));
+                LLAMA_LOG_INFO("%s: - device %zu: %s (%s)\n", __func__, i, ggml_backend_dev_name(devs[i]), ggml_backend_dev_description(devs[i]));
             }
 
-            LM_GGML_ASSERT(!devs.empty());
+            GGML_ASSERT(!devs.empty());
             model->get_split_state_ud.n_devices = devs.size();
             model->get_split_state_ud.model     = model;
             gpus.push_back({
-                true, lm_ggml_backend_meta_device(
+                true, ggml_backend_meta_device(
                 devs.data(), devs.size(), llama_meta_device_get_split_state, &model->get_split_state_ud)
             });
         } else {
-            for (size_t i = 0; i < lm_ggml_backend_dev_count(); ++i) {
-                lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
-                switch (lm_ggml_backend_dev_type(dev)) {
-                    case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
-                    case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
+            for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+                ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+                switch (ggml_backend_dev_type(dev)) {
+                    case GGML_BACKEND_DEVICE_TYPE_CPU:
+                    case GGML_BACKEND_DEVICE_TYPE_ACCEL:
                         // skip CPU backends since they are handled separately
                         break;
 
-                    case LM_GGML_BACKEND_DEVICE_TYPE_GPU: {
-                        lm_ggml_backend_reg_t reg = lm_ggml_backend_dev_backend_reg(dev);
-                        if (lm_ggml_backend_reg_name(reg) == std::string("RPC")) {
+                    case GGML_BACKEND_DEVICE_TYPE_GPU: {
+                        ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+                        if (ggml_backend_reg_name(reg) == std::string("RPC")) {
                             rpc_servers.push_back({false, dev});
                         } else {
                             // check if there is already a GPU with the same device id
-                            lm_ggml_backend_dev_props props;
-                            lm_ggml_backend_dev_get_props(dev, &props);
+                            ggml_backend_dev_props props;
+                            ggml_backend_dev_get_props(dev, &props);
                             auto it = std::find_if(gpus.begin(), gpus.end(), [&props](const llama_device & d) {
-                                lm_ggml_backend_dev_props d_props;
-                                lm_ggml_backend_dev_get_props(d.dev, &d_props);
+                                ggml_backend_dev_props d_props;
+                                ggml_backend_dev_get_props(d.dev, &d_props);
                                 if (props.device_id && d_props.device_id) {
                                     return strcmp(props.device_id, d_props.device_id) == 0;
                                 }
@@ -250,9 +250,9 @@ static bool llama_prepare_model_devices(const llama_model_params & params, llama
                             if (it != gpus.end()) {
                                 LLAMA_LOG_INFO("%s: skipping device %s (%s) with id %s - already using device %s (%s) with the same id\n",
                                         __func__,
-                                        lm_ggml_backend_dev_name(dev), lm_ggml_backend_dev_description(dev),
+                                        ggml_backend_dev_name(dev), ggml_backend_dev_description(dev),
                                         props.device_id ? props.device_id : "unknown id",
-                                        lm_ggml_backend_dev_name(it->dev), lm_ggml_backend_dev_description(it->dev));
+                                        ggml_backend_dev_name(it->dev), ggml_backend_dev_description(it->dev));
                             } else {
                                 gpus.push_back({false, dev});
                             }
@@ -260,17 +260,17 @@ static bool llama_prepare_model_devices(const llama_model_params & params, llama
                         break;
                     }
 
-                    case LM_GGML_BACKEND_DEVICE_TYPE_IGPU:
+                    case GGML_BACKEND_DEVICE_TYPE_IGPU:
                         // igpus.empty() - workaround for integrated devices seen by multiple backends
                         // ref: https://github.com/ggml-org/llama.cpp/pull/23897
-                        // lm_ggml_backend_dev_backend_reg - allow devices of the same backend regardless if integrated
+                        // ggml_backend_dev_backend_reg - allow devices of the same backend regardless if integrated
                         // ref: https://github.com/ggml-org/llama.cpp/pull/23897#issuecomment-5264222997
-                        if (igpus.empty() || lm_ggml_backend_dev_backend_reg(dev) == lm_ggml_backend_dev_backend_reg(igpus.back().dev)) {
+                        if (igpus.empty() || ggml_backend_dev_backend_reg(dev) == ggml_backend_dev_backend_reg(igpus.back().dev)) {
                             igpus.push_back({false, dev});
                         }
                         break;
-                    case LM_GGML_BACKEND_DEVICE_TYPE_META:
-                        LM_GGML_ABORT("fatal error");
+                    case GGML_BACKEND_DEVICE_TYPE_META:
+                        GGML_ABORT("fatal error");
                 }
             }
         }
@@ -304,10 +304,10 @@ static bool llama_prepare_model_devices(const llama_model_params & params, llama
     }
 
     for (const auto & dev : model->devices) {
-        lm_ggml_backend_dev_props props;
-        lm_ggml_backend_dev_get_props(dev.dev, &props);
+        ggml_backend_dev_props props;
+        ggml_backend_dev_get_props(dev.dev, &props);
         LLAMA_LOG_INFO("%s: using device %s (%s) (%s) - %zu MiB free\n", __func__,
-                lm_ggml_backend_dev_name(dev.dev), lm_ggml_backend_dev_description(dev.dev),
+                ggml_backend_dev_name(dev.dev), ggml_backend_dev_description(dev.dev),
                 props.device_id ? props.device_id : "unknown id",
                 props.memory_free/1024/1024);
     }
@@ -316,7 +316,7 @@ static bool llama_prepare_model_devices(const llama_model_params & params, llama
 }
 
 // Returns 0 on success, -1 on error, and -2 on cancellation via llama_progress_callback
-static std::pair<int, llama_model *> llama_model_load(struct lm_gguf_context * metadata, llama_model_set_tensor_data_t set_tensor_data, void * set_tensor_data_ud,
+static std::pair<int, llama_model *> llama_model_load(struct gguf_context * metadata, llama_model_set_tensor_data_t set_tensor_data, void * set_tensor_data_ud,
         const std::string & fname, std::vector<std::string> & splits, FILE * file, llama_model_params & params) {
     try {
         llama_model_loader ml(metadata, set_tensor_data, set_tensor_data_ud, fname, splits, file, params.load_mode,
@@ -332,7 +332,7 @@ static std::pair<int, llama_model *> llama_model_load(struct lm_gguf_context * m
 
         auto * model = dynamic_cast<llama_model_base *>(model_ptr.get());
         if (model == nullptr) {
-            LM_GGML_ABORT("fatal error: model does not implement llama_model_base");
+            GGML_ABORT("fatal error: model does not implement llama_model_base");
         }
 
         // loading time will be recalculated after the first eval, so
@@ -379,7 +379,7 @@ static std::pair<int, llama_model *> llama_model_load(struct lm_gguf_context * m
 }
 
 static struct llama_model * llama_model_load_from_file_impl(
-        struct lm_gguf_context * metadata,
+        struct gguf_context * metadata,
         llama_model_set_tensor_data_t set_tensor_data,
         void * set_tensor_data_ud,
         const std::string & path_model,
@@ -402,10 +402,10 @@ static struct llama_model * llama_model_load_from_file_impl(
             return nullptr;
         }
     }
-    lm_ggml_time_init();
+    ggml_time_init();
 
-    if (!params.vocab_only && lm_ggml_backend_reg_count() == 0) {
-        LLAMA_LOG_ERROR("%s: no backends are loaded. hint: use lm_ggml_backend_load() or lm_ggml_backend_load_all() to load a backend before calling this function\n", __func__);
+    if (!params.vocab_only && ggml_backend_reg_count() == 0) {
+        LLAMA_LOG_ERROR("%s: no backends are loaded. hint: use ggml_backend_load() or ggml_backend_load_all() to load a backend before calling this function\n", __func__);
         return nullptr;
     }
 
@@ -427,7 +427,7 @@ static struct llama_model * llama_model_load_from_file_impl(
     }
 
     const auto [status, model] = llama_model_load(metadata, set_tensor_data, set_tensor_data_ud, path_model, splits, file, params);
-    LM_GGML_ASSERT(status <= 0);
+    GGML_ASSERT(status <= 0);
     if (status < 0) {
         if (status == -1) {
             LLAMA_LOG_ERROR("%s: failed to load model\n", __func__);
@@ -445,11 +445,11 @@ static struct llama_model * llama_model_load_from_file_impl(
 }
 
 struct llama_model * llama_model_init_from_user(
-        struct lm_gguf_context * metadata,
+        struct gguf_context * metadata,
         llama_model_set_tensor_data_t set_tensor_data,
         void * set_tensor_data_ud,
         struct llama_model_params params) {
-    LM_GGML_ASSERT(metadata != nullptr);
+    GGML_ASSERT(metadata != nullptr);
     std::string path_model;
     std::vector<std::string> splits = {};
     params.load_mode = LLAMA_LOAD_MODE_NONE;
@@ -600,12 +600,12 @@ const char * llama_print_system_info(void) {
     static std::string s;
     s.clear(); // Clear the string, since it's static, otherwise it will accumulate data from previous calls.
 
-    for (size_t i = 0; i < lm_ggml_backend_reg_count(); i++) {
-        auto * reg = lm_ggml_backend_reg_get(i);
-        auto * get_features_fn = (lm_ggml_backend_get_features_t) lm_ggml_backend_reg_get_proc_address(reg, "lm_ggml_backend_get_features");
+    for (size_t i = 0; i < ggml_backend_reg_count(); i++) {
+        auto * reg = ggml_backend_reg_get(i);
+        auto * get_features_fn = (ggml_backend_get_features_t) ggml_backend_reg_get_proc_address(reg, "ggml_backend_get_features");
         if (get_features_fn) {
-            lm_ggml_backend_feature * features = get_features_fn(reg);
-            s += lm_ggml_backend_reg_name(reg);
+            ggml_backend_feature * features = get_features_fn(reg);
+            s += ggml_backend_reg_name(reg);
             s += " : ";
             for (; features->name; features++) {
                 s += features->name;

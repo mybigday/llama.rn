@@ -70,12 +70,12 @@ void llama_model_wavtokenizer_dec::load_arch_tensors(llama_model_loader &) {
                         layer.norm   = create_tensor(tn(LLM_TENSOR_POS_NET_ATTN_NORM, "weight", i), {1, n_embd}, 0);
                         layer.norm_b = create_tensor(tn(LLM_TENSOR_POS_NET_ATTN_NORM, "bias",   i), {1, n_embd}, 0);
                     } break;
-                default: LM_GGML_ABORT("unknown posnet layer");
+                default: GGML_ABORT("unknown posnet layer");
             };
         }
     }
 
-    LM_GGML_ASSERT(hparams.posnet.n_embd == hparams.convnext.n_embd);
+    GGML_ASSERT(hparams.posnet.n_embd == hparams.convnext.n_embd);
 
     tok_norm   = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD_NORM, "weight", 0), {hparams.posnet.n_embd}, 0);
     tok_norm_b = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD_NORM, "bias",   0), {hparams.posnet.n_embd}, 0);
@@ -116,15 +116,15 @@ std::unique_ptr<llm_graph_context> llama_model_wavtokenizer_dec::build_arch_grap
 }
 
 llama_model_wavtokenizer_dec::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
-    cur = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, inpL));
+    cur = ggml_cont(ctx0, ggml_transpose(ctx0, inpL));
 
-    cur = lm_ggml_conv_1d_ph(ctx0, model.conv1d, cur, 1, 1);
-    cur = lm_ggml_add(ctx0, cur, model.conv1d_b);
+    cur = ggml_conv_1d_ph(ctx0, model.conv1d, cur, 1, 1);
+    cur = ggml_add(ctx0, cur, model.conv1d_b);
 
     // posnet
     for (uint32_t il = 0; il < hparams.posnet.n_layer; ++il) {
@@ -143,22 +143,22 @@ llama_model_wavtokenizer_dec::graph::graph(const llama_model & model, const llm_
                             layer.norm1_b,
                             LLM_NORM_GROUP, 0);
 
-                    cur = lm_ggml_mul(ctx0, lm_ggml_sigmoid(ctx0, cur), cur);
+                    cur = ggml_mul(ctx0, ggml_sigmoid(ctx0, cur), cur);
 
-                    cur = lm_ggml_conv_1d_ph(ctx0, layer.conv1, cur, 1, 1);
-                    cur = lm_ggml_add(ctx0, cur, layer.conv1_b);
+                    cur = ggml_conv_1d_ph(ctx0, layer.conv1, cur, 1, 1);
+                    cur = ggml_add(ctx0, cur, layer.conv1_b);
 
                     cur = build_norm(cur,
                             layer.norm2,
                             layer.norm2_b,
                             LLM_NORM_GROUP, 0);
 
-                    cur = lm_ggml_mul(ctx0, lm_ggml_sigmoid(ctx0, cur), cur);
+                    cur = ggml_mul(ctx0, ggml_sigmoid(ctx0, cur), cur);
 
-                    cur = lm_ggml_conv_1d_ph(ctx0, layer.conv2, cur, 1, 1);
-                    cur = lm_ggml_add(ctx0, cur, layer.conv2_b);
+                    cur = ggml_conv_1d_ph(ctx0, layer.conv2, cur, 1, 1);
+                    cur = ggml_add(ctx0, cur, layer.conv2_b);
 
-                    cur = lm_ggml_add(ctx0, cur, inpL);
+                    cur = ggml_add(ctx0, cur, inpL);
                 } break;
             case 2:
                 {
@@ -167,31 +167,31 @@ llama_model_wavtokenizer_dec::graph::graph(const llama_model & model, const llm_
                             layer.attn_norm_b,
                             LLM_NORM_GROUP, 0);
 
-                    lm_ggml_tensor * q;
-                    lm_ggml_tensor * k;
-                    lm_ggml_tensor * v;
+                    ggml_tensor * q;
+                    ggml_tensor * k;
+                    ggml_tensor * v;
 
-                    q = lm_ggml_conv_1d_ph(ctx0, layer.attn_q, cur, 1, 1);
-                    k = lm_ggml_conv_1d_ph(ctx0, layer.attn_k, cur, 1, 1);
-                    v = lm_ggml_conv_1d_ph(ctx0, layer.attn_v, cur, 1, 1);
+                    q = ggml_conv_1d_ph(ctx0, layer.attn_q, cur, 1, 1);
+                    k = ggml_conv_1d_ph(ctx0, layer.attn_k, cur, 1, 1);
+                    v = ggml_conv_1d_ph(ctx0, layer.attn_v, cur, 1, 1);
 
-                    q = lm_ggml_add(ctx0, q, layer.attn_q_b);
-                    k = lm_ggml_add(ctx0, k, layer.attn_k_b);
-                    v = lm_ggml_add(ctx0, v, layer.attn_v_b);
+                    q = ggml_add(ctx0, q, layer.attn_q_b);
+                    k = ggml_add(ctx0, k, layer.attn_k_b);
+                    v = ggml_add(ctx0, v, layer.attn_v_b);
 
-                    q = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, q));
-                    k = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, k));
+                    q = ggml_cont(ctx0, ggml_transpose(ctx0, q));
+                    k = ggml_cont(ctx0, ggml_transpose(ctx0, k));
 
-                    lm_ggml_tensor * kq = lm_ggml_mul_mat(ctx0, k, q);
+                    ggml_tensor * kq = ggml_mul_mat(ctx0, k, q);
 
-                    kq = lm_ggml_soft_max_ext(ctx0, kq, nullptr, 1.0f/sqrtf(float(hparams.posnet.n_embd)), 0.0f);
+                    kq = ggml_soft_max_ext(ctx0, kq, nullptr, 1.0f/sqrtf(float(hparams.posnet.n_embd)), 0.0f);
 
-                    cur = lm_ggml_mul_mat(ctx0, kq, v);
+                    cur = ggml_mul_mat(ctx0, kq, v);
 
-                    cur = lm_ggml_conv_1d_ph(ctx0, layer.attn_o, cur, 1, 1);
-                    cur = lm_ggml_add(ctx0, cur, layer.attn_o_b);
+                    cur = ggml_conv_1d_ph(ctx0, layer.attn_o, cur, 1, 1);
+                    cur = ggml_add(ctx0, cur, layer.attn_o_b);
 
-                    cur = lm_ggml_add(ctx0, cur, inpL);
+                    cur = ggml_add(ctx0, cur, inpL);
                 } break;
             case 5:
                 {
@@ -200,17 +200,17 @@ llama_model_wavtokenizer_dec::graph::graph(const llama_model & model, const llm_
                             layer.norm_b,
                             LLM_NORM_GROUP, 0);
                 } break;
-            default: LM_GGML_ABORT("unknown posnet layer");
+            default: GGML_ABORT("unknown posnet layer");
         };
     }
-    cur = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, cur));
+    cur = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
 
     cur = build_norm(cur,
             model.tok_norm,
             model.tok_norm_b,
             LLM_NORM, 0);
 
-    cur = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, cur));
+    cur = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
 
     inpL = cur;
 
@@ -220,10 +220,10 @@ llama_model_wavtokenizer_dec::graph::graph(const llama_model & model, const llm_
 
         cur = inpL;
 
-        cur = lm_ggml_conv_1d_dw_ph(ctx0, layer.dw, cur, 1, 1);
-        cur = lm_ggml_add(ctx0, cur, layer.dw_b);
+        cur = ggml_conv_1d_dw_ph(ctx0, layer.dw, cur, 1, 1);
+        cur = ggml_add(ctx0, cur, layer.dw_b);
 
-        cur = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, cur));
+        cur = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
 
         cur = build_norm(cur,
                 layer.norm,
@@ -237,15 +237,15 @@ llama_model_wavtokenizer_dec::graph::graph(const llama_model & model, const llm_
                 NULL,
                 LLM_FFN_GELU, LLM_FFN_SEQ, il);
 
-        cur = lm_ggml_mul(ctx0, cur, layer.gamma);
+        cur = ggml_mul(ctx0, cur, layer.gamma);
 
-        cur = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, cur));
+        cur = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
 
-        inpL = lm_ggml_add(ctx0, cur, inpL);
+        inpL = ggml_add(ctx0, cur, inpL);
     }
     cur = inpL;
 
-    cur = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, cur));
+    cur = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
 
     cur = build_norm(cur,
             model.output_norm,
@@ -255,10 +255,10 @@ llama_model_wavtokenizer_dec::graph::graph(const llama_model & model, const llm_
     // lm_head
     cur = build_lora_mm(model.output, cur, model.output_s);
 
-    cur = lm_ggml_add(ctx0, cur, model.output_b);
+    cur = ggml_add(ctx0, cur, model.output_b);
 
     cb(cur, "result_embd", -1);
     res->t_embd = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

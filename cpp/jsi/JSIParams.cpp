@@ -15,6 +15,17 @@
 
 namespace rnllama_jsi {
 
+// common_grammar's two-argument constructor is an inline header function that
+// expands GGML_ASSERT, which would make this glue reference ggml_abort. The glue
+// must not reference any ggml symbol (see rn-llama.h), so build the struct
+// field by field instead.
+static common_grammar makeGrammar(common_grammar_type type, std::string grammar) {
+    common_grammar result;
+    result.type = type;
+    result.grammar = std::move(grammar);
+    return result;
+}
+
 #if defined(__ANDROID__)
     static inline int int_min(int a, int b) {
         return a < b ? a : b;
@@ -24,7 +35,7 @@ namespace rnllama_jsi {
         const int max_threads = (int) std::thread::hardware_concurrency();
 
         int default_n_threads = 0;
-#if defined(LM_GGML_USE_HEXAGON)
+#if defined(GGML_USE_HEXAGON)
         default_n_threads = 6;
         if (max_threads > 0) {
             default_n_threads = int_min(default_n_threads, max_threads);
@@ -339,7 +350,7 @@ namespace rnllama_jsi {
 
         cparams.n_gpu_layers = getPropertyAsInt(runtime, params, "n_gpu_layers", cparams.n_gpu_layers);
         if (!cpuMask.empty()) {
-            bool cpumask[LM_GGML_MAX_N_THREADS] = {false};
+            bool cpumask[GGML_MAX_N_THREADS] = {false};
             if (parse_cpu_mask(cpuMask, cpumask)) {
                 std::copy(std::begin(cpumask), std::end(cpumask), std::begin(cparams.cpuparams.cpumask));
                 cparams.cpuparams.mask_valid = true;
@@ -409,7 +420,7 @@ namespace rnllama_jsi {
             for (int i = 0; i < n_cpu_moe; ++i) {
                 std::string pattern = "blk\\." + std::to_string(i) + "\\.ffn_(up|down|gate)_exps";
                 buft_overrides.push_back(pattern);
-                cparams.tensor_buft_overrides.push_back({buft_overrides.back().c_str(), lm_ggml_backend_cpu_buffer_type()});
+                cparams.tensor_buft_overrides.push_back({buft_overrides.back().c_str(), rnllama::backend_cpu_buffer_type()});
             }
             cparams.tensor_buft_overrides.push_back({nullptr, nullptr});
         }
@@ -515,15 +526,15 @@ namespace rnllama_jsi {
 
         std::string grammar = getPropertyAsString(runtime, params, "grammar");
         if (!grammar.empty()) {
-            sparams.grammar = {COMMON_GRAMMAR_TYPE_USER, std::move(grammar)};
+            sparams.grammar = makeGrammar(COMMON_GRAMMAR_TYPE_USER, std::move(grammar));
         }
 
         std::string jsonSchema = getPropertyAsString(runtime, params, "json_schema");
         if (!jsonSchema.empty() && sparams.grammar.empty()) {
 #if defined(RNLLAMA_HAS_COMMON_JSON)
-            sparams.grammar = {COMMON_GRAMMAR_TYPE_OUTPUT_FORMAT, json_schema_to_grammar(common_json::parse(jsonSchema))};
+            sparams.grammar = makeGrammar(COMMON_GRAMMAR_TYPE_OUTPUT_FORMAT, json_schema_to_grammar(common_json::parse(jsonSchema)));
 #else
-            sparams.grammar = {COMMON_GRAMMAR_TYPE_OUTPUT_FORMAT, json_schema_to_grammar(nlohmann::ordered_json::parse(jsonSchema))};
+            sparams.grammar = makeGrammar(COMMON_GRAMMAR_TYPE_OUTPUT_FORMAT, json_schema_to_grammar(nlohmann::ordered_json::parse(jsonSchema)));
 #endif
         }
 

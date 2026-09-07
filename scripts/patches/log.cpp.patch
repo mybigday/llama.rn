@@ -20,16 +20,16 @@
 +    void android_print() const {
 +        int android_log_priority;
 +        switch (level) {
-+            case LM_GGML_LOG_LEVEL_INFO:
++            case GGML_LOG_LEVEL_INFO:
 +                android_log_priority = ANDROID_LOG_INFO;
 +                break;
-+            case LM_GGML_LOG_LEVEL_WARN:
++            case GGML_LOG_LEVEL_WARN:
 +                android_log_priority = ANDROID_LOG_WARN;
 +                break;
-+            case LM_GGML_LOG_LEVEL_ERROR:
++            case GGML_LOG_LEVEL_ERROR:
 +                android_log_priority = ANDROID_LOG_ERROR;
 +                break;
-+            case LM_GGML_LOG_LEVEL_DEBUG:
++            case GGML_LOG_LEVEL_DEBUG:
 +                android_log_priority = ANDROID_LOG_DEBUG;
 +                break;
 +            default:

@@ -40,7 +40,7 @@ void llama_model_lfm2moe::load_arch_tensors(llama_model_loader &) {
         // ffn/moe is same for transformer and conv layers
         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
         if (is_moe_layer) {
-            LM_GGML_ASSERT(n_expert && n_expert_used);
+            GGML_ASSERT(n_expert && n_expert_used);
             layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i),  {n_embd, n_expert}, 0);
             layer.ffn_gate_exps   = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, hparams.n_ff_exp, n_expert}, 0);
             layer.ffn_down_exps   = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {hparams.n_ff_exp,   n_embd, n_expert}, 0);
@@ -58,7 +58,7 @@ void llama_model_lfm2moe::load_arch_tensors(llama_model_loader &) {
         if (!hparams.is_recr(i)) {
             layer.attn_q_norm = create_tensor(tn(LLM_TENSOR_ATTN_Q_NORM, "weight", i), {n_embd_head_k}, 0);
             layer.attn_k_norm = create_tensor(tn(LLM_TENSOR_ATTN_K_NORM, "weight", i), {n_embd_head_k}, 0);
-            LM_GGML_ASSERT(n_embd_v_gqa == n_embd_k_gqa);
+            GGML_ASSERT(n_embd_v_gqa == n_embd_k_gqa);
 
             create_tensor_qkv(layer, i, n_embd, n_embd, hparams.n_embd_k_gqa(i), hparams.n_embd_v_gqa(i), 0);
 

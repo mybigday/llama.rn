@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-struct lm_ggml_compute_params {
+struct ggml_compute_params {
     // ith = thread index, nth = number of threads
     int ith, nth;
 
@@ -23,7 +23,7 @@ struct lm_ggml_compute_params {
     size_t wsize;
     void * wdata;
 
-    struct lm_ggml_threadpool * threadpool;
+    struct ggml_threadpool * threadpool;
 
     // use reference implementation
     bool use_ref;
@@ -79,9 +79,9 @@ struct lm_ggml_compute_params {
 
 // ref: https://github.com/ggml-org/llama.cpp/pull/5404
 #ifdef _MSC_VER
-#define lm_ggml_vld1q_u32(w,x,y,z) { ((w) + ((uint64_t)(x) << 32)), ((y) + ((uint64_t)(z) << 32)) }
+#define ggml_vld1q_u32(w,x,y,z) { ((w) + ((uint64_t)(x) << 32)), ((y) + ((uint64_t)(z) << 32)) }
 #else
-#define lm_ggml_vld1q_u32(w,x,y,z) { (w), (x), (y), (z) }
+#define ggml_vld1q_u32(w,x,y,z) { (w), (x), (y), (z) }
 #endif // _MSC_VER
 
 #if !defined(__aarch64__)
@@ -169,12 +169,12 @@ inline static uint8x8_t vzip2_u8(uint8x8_t a, uint8x8_t b) {
 // vld1q_s8_x4
 // TODO: double-check these work correctly
 
-typedef struct lm_ggml_int16x8x2_t {
+typedef struct ggml_int16x8x2_t {
     int16x8_t val[2];
-} lm_ggml_int16x8x2_t;
+} ggml_int16x8x2_t;
 
-inline static lm_ggml_int16x8x2_t lm_ggml_vld1q_s16_x2(const int16_t * ptr) {
-    lm_ggml_int16x8x2_t res;
+inline static ggml_int16x8x2_t ggml_vld1q_s16_x2(const int16_t * ptr) {
+    ggml_int16x8x2_t res;
 
     res.val[0] = vld1q_s16(ptr + 0);
     res.val[1] = vld1q_s16(ptr + 8);
@@ -182,12 +182,12 @@ inline static lm_ggml_int16x8x2_t lm_ggml_vld1q_s16_x2(const int16_t * ptr) {
     return res;
 }
 
-typedef struct lm_ggml_uint8x16x2_t {
+typedef struct ggml_uint8x16x2_t {
     uint8x16_t val[2];
-} lm_ggml_uint8x16x2_t;
+} ggml_uint8x16x2_t;
 
-inline static lm_ggml_uint8x16x2_t lm_ggml_vld1q_u8_x2(const uint8_t * ptr) {
-    lm_ggml_uint8x16x2_t res;
+inline static ggml_uint8x16x2_t ggml_vld1q_u8_x2(const uint8_t * ptr) {
+    ggml_uint8x16x2_t res;
 
     res.val[0] = vld1q_u8(ptr + 0);
     res.val[1] = vld1q_u8(ptr + 16);
@@ -195,12 +195,12 @@ inline static lm_ggml_uint8x16x2_t lm_ggml_vld1q_u8_x2(const uint8_t * ptr) {
     return res;
 }
 
-typedef struct lm_ggml_uint8x16x4_t {
+typedef struct ggml_uint8x16x4_t {
     uint8x16_t val[4];
-} lm_ggml_uint8x16x4_t;
+} ggml_uint8x16x4_t;
 
-inline static lm_ggml_uint8x16x4_t lm_ggml_vld1q_u8_x4(const uint8_t * ptr) {
-    lm_ggml_uint8x16x4_t res;
+inline static ggml_uint8x16x4_t ggml_vld1q_u8_x4(const uint8_t * ptr) {
+    ggml_uint8x16x4_t res;
 
     res.val[0] = vld1q_u8(ptr + 0);
     res.val[1] = vld1q_u8(ptr + 16);
@@ -210,12 +210,12 @@ inline static lm_ggml_uint8x16x4_t lm_ggml_vld1q_u8_x4(const uint8_t * ptr) {
     return res;
 }
 
-typedef struct lm_ggml_int8x16x2_t {
+typedef struct ggml_int8x16x2_t {
     int8x16_t val[2];
-} lm_ggml_int8x16x2_t;
+} ggml_int8x16x2_t;
 
-inline static lm_ggml_int8x16x2_t lm_ggml_vld1q_s8_x2(const int8_t * ptr) {
-    lm_ggml_int8x16x2_t res;
+inline static ggml_int8x16x2_t ggml_vld1q_s8_x2(const int8_t * ptr) {
+    ggml_int8x16x2_t res;
 
     res.val[0] = vld1q_s8(ptr + 0);
     res.val[1] = vld1q_s8(ptr + 16);
@@ -223,12 +223,12 @@ inline static lm_ggml_int8x16x2_t lm_ggml_vld1q_s8_x2(const int8_t * ptr) {
     return res;
 }
 
-typedef struct lm_ggml_int8x16x4_t {
+typedef struct ggml_int8x16x4_t {
     int8x16_t val[4];
-} lm_ggml_int8x16x4_t;
+} ggml_int8x16x4_t;
 
-inline static lm_ggml_int8x16x4_t lm_ggml_vld1q_s8_x4(const int8_t * ptr) {
-    lm_ggml_int8x16x4_t res;
+inline static ggml_int8x16x4_t ggml_vld1q_s8_x4(const int8_t * ptr) {
+    ggml_int8x16x4_t res;
 
     res.val[0] = vld1q_s8(ptr + 0);
     res.val[1] = vld1q_s8(ptr + 16);
@@ -239,7 +239,7 @@ inline static lm_ggml_int8x16x4_t lm_ggml_vld1q_s8_x4(const int8_t * ptr) {
 }
 
 // NOTE: not tested
-inline static int8x16_t lm_ggml_vqtbl1q_s8(int8x16_t a, uint8x16_t b) {
+inline static int8x16_t ggml_vqtbl1q_s8(int8x16_t a, uint8x16_t b) {
     int8x16_t res;
 
     res[ 0] = a[b[ 0]];
@@ -263,7 +263,7 @@ inline static int8x16_t lm_ggml_vqtbl1q_s8(int8x16_t a, uint8x16_t b) {
 }
 
 // NOTE: not tested
-inline static uint8x16_t lm_ggml_vqtbl1q_u8(uint8x16_t a, uint8x16_t b) {
+inline static uint8x16_t ggml_vqtbl1q_u8(uint8x16_t a, uint8x16_t b) {
     uint8x16_t res;
 
     res[ 0] = a[b[ 0]];
@@ -288,26 +288,26 @@ inline static uint8x16_t lm_ggml_vqtbl1q_u8(uint8x16_t a, uint8x16_t b) {
 
 #else
 
-#define lm_ggml_int16x8x2_t  int16x8x2_t
-#define lm_ggml_uint8x16x2_t uint8x16x2_t
-#define lm_ggml_uint8x16x4_t uint8x16x4_t
-#define lm_ggml_int8x16x2_t  int8x16x2_t
-#define lm_ggml_int8x16x4_t  int8x16x4_t
+#define ggml_int16x8x2_t  int16x8x2_t
+#define ggml_uint8x16x2_t uint8x16x2_t
+#define ggml_uint8x16x4_t uint8x16x4_t
+#define ggml_int8x16x2_t  int8x16x2_t
+#define ggml_int8x16x4_t  int8x16x4_t
 
-#define lm_ggml_vld1q_s16_x2 vld1q_s16_x2
-#define lm_ggml_vld1q_u8_x2  vld1q_u8_x2
-#define lm_ggml_vld1q_u8_x4  vld1q_u8_x4
-#define lm_ggml_vld1q_s8_x2  vld1q_s8_x2
-#define lm_ggml_vld1q_s8_x4  vld1q_s8_x4
-#define lm_ggml_vqtbl1q_s8   vqtbl1q_s8
-#define lm_ggml_vqtbl1q_u8   vqtbl1q_u8
+#define ggml_vld1q_s16_x2 vld1q_s16_x2
+#define ggml_vld1q_u8_x2  vld1q_u8_x2
+#define ggml_vld1q_u8_x4  vld1q_u8_x4
+#define ggml_vld1q_s8_x2  vld1q_s8_x2
+#define ggml_vld1q_s8_x4  vld1q_s8_x4
+#define ggml_vqtbl1q_s8   vqtbl1q_s8
+#define ggml_vqtbl1q_u8   vqtbl1q_u8
 
 #endif // !defined(__aarch64__)
 
 #if !defined(__ARM_FEATURE_DOTPROD)
 
 // NOTE: this fallback produces the same total sum as native vdotq_s32 but with different per-lane grouping — do not use when individual lane values matter.
-inline static int32x4_t lm_ggml_vdotq_s32(int32x4_t acc, int8x16_t a, int8x16_t b) {
+inline static int32x4_t ggml_vdotq_s32(int32x4_t acc, int8x16_t a, int8x16_t b) {
     const int16x8_t p0 = vmull_s8(vget_low_s8 (a), vget_low_s8 (b));
     const int16x8_t p1 = vmull_s8(vget_high_s8(a), vget_high_s8(b));
 
@@ -316,11 +316,11 @@ inline static int32x4_t lm_ggml_vdotq_s32(int32x4_t acc, int8x16_t a, int8x16_t 
 
 #else
 
-#define lm_ggml_vdotq_s32(a, b, c) vdotq_s32(a, b, c)
+#define ggml_vdotq_s32(a, b, c) vdotq_s32(a, b, c)
 
 #endif // !defined(__ARM_FEATURE_DOTPROD)
 
-static inline int32x4_t lm_ggml_nvfp4_dot8(const int8x8_t q4_lo, const int8x8_t q8_lo,
+static inline int32x4_t ggml_nvfp4_dot8(const int8x8_t q4_lo, const int8x8_t q8_lo,
                                          const int8x8_t q4_hi, const int8x8_t q8_hi) {
     const int16x8_t p_lo = vmull_s8(q4_lo, q8_lo);
     const int16x8_t p_hi = vmull_s8(q4_hi, q8_hi);
@@ -401,12 +401,12 @@ typedef double double64x2_t __attribute__((vector_size(16)));
 typedef signed   long long long64x2_t  __attribute__((vector_size(16)));
 typedef unsigned long long ulong64x2_t __attribute__((vector_size(16)));
 
-typedef struct lm_ggml_uint8x16x2_t {
+typedef struct ggml_uint8x16x2_t {
     uint8x16_t val[2];
-} lm_ggml_uint8x16x2_t;
+} ggml_uint8x16x2_t;
 
-inline static lm_ggml_uint8x16x2_t lm_ggml_vec_xl_u8x2(const uint8_t * ptr) {
-    lm_ggml_uint8x16x2_t res;
+inline static ggml_uint8x16x2_t ggml_vec_xl_u8x2(const uint8_t * ptr) {
+    ggml_uint8x16x2_t res;
 
     res.val[0] = vec_xl( 0, ptr);
     res.val[1] = vec_xl(16, ptr);
@@ -414,12 +414,12 @@ inline static lm_ggml_uint8x16x2_t lm_ggml_vec_xl_u8x2(const uint8_t * ptr) {
     return res;
 }
 
-typedef struct lm_ggml_uint8x16x4_t {
+typedef struct ggml_uint8x16x4_t {
     uint8x16_t val[4];
-} lm_ggml_uint8x16x4_t;
+} ggml_uint8x16x4_t;
 
-inline static lm_ggml_uint8x16x4_t lm_ggml_vec_xl_u8x4(const uint8_t * ptr) {
-    lm_ggml_uint8x16x4_t res;
+inline static ggml_uint8x16x4_t ggml_vec_xl_u8x4(const uint8_t * ptr) {
+    ggml_uint8x16x4_t res;
 
     res.val[0] = vec_xl( 0, ptr);
     res.val[1] = vec_xl(16, ptr);
@@ -429,12 +429,12 @@ inline static lm_ggml_uint8x16x4_t lm_ggml_vec_xl_u8x4(const uint8_t * ptr) {
     return res;
 }
 
-typedef struct lm_ggml_int8x16x4_t {
+typedef struct ggml_int8x16x4_t {
     int8x16_t val[4];
-} lm_ggml_int8x16x4_t;
+} ggml_int8x16x4_t;
 
-inline static lm_ggml_int8x16x4_t lm_ggml_vec_xl_s8x4(const int8_t * ptr) {
-    lm_ggml_int8x16x4_t res;
+inline static ggml_int8x16x4_t ggml_vec_xl_s8x4(const int8_t * ptr) {
+    ggml_int8x16x4_t res;
 
     res.val[0] = vec_xl( 0, ptr);
     res.val[1] = vec_xl(16, ptr);
@@ -444,12 +444,12 @@ inline static lm_ggml_int8x16x4_t lm_ggml_vec_xl_s8x4(const int8_t * ptr) {
     return res;
 }
 
-typedef struct lm_ggml_int16x8x2_t {
+typedef struct ggml_int16x8x2_t {
     int16x8_t val[2];
-} lm_ggml_int16x8x2_t;
+} ggml_int16x8x2_t;
 
-inline static lm_ggml_int16x8x2_t lm_ggml_vec_xl_s16x2(const int16_t * ptr) {
-    lm_ggml_int16x8x2_t res;
+inline static ggml_int16x8x2_t ggml_vec_xl_s16x2(const int16_t * ptr) {
+    ggml_int16x8x2_t res;
 
     res.val[0] = vec_xl( 0, ptr);
     res.val[1] = vec_xl(16, ptr);
@@ -461,7 +461,7 @@ inline static lm_ggml_int16x8x2_t lm_ggml_vec_xl_s16x2(const int16_t * ptr) {
     ! WARNING: Very slow. Use vec_perm if possible. Refer to iq4_xs
     !          or iq4_nl for example implementation.
 */
-inline static int8x16_t lm_ggml_vec_tbl(int8x16_t a, uint8x16_t b) {
+inline static int8x16_t ggml_vec_tbl(int8x16_t a, uint8x16_t b) {
     int8x16_t res;
 
     res[ 0] = a[b[ 0]];
@@ -506,7 +506,7 @@ inline static int32_t vec_hsum_i32x4(int32x4_t v) {
     return v_temp[0] + v_temp[1];
 }
 
-inline static int32x4_t lm_ggml_vec_dot(int32x4_t acc, int8x16_t a, int8x16_t b) {
+inline static int32x4_t ggml_vec_dot(int32x4_t acc, int8x16_t a, int8x16_t b) {
     const int16x8_t p = vec_mule(a, b) + vec_mulo(a, b);
     return acc + (vec_unpackh(p) + vec_unpackl(p));
 }
@@ -529,10 +529,10 @@ static __m256 __lasx_xvreplfr2vr_s(const float val) {
 #endif
 
 // TODO: move to ggml-threading
-void lm_ggml_barrier(struct lm_ggml_threadpool * tp);
+void ggml_barrier(struct ggml_threadpool * tp);
 
-void lm_ggml_threadpool_chunk_set(struct lm_ggml_threadpool * tp, int value);
-int  lm_ggml_threadpool_chunk_add(struct lm_ggml_threadpool * tp, int value);
+void ggml_threadpool_chunk_set(struct ggml_threadpool * tp, int value);
+int  ggml_threadpool_chunk_add(struct ggml_threadpool * tp, int value);
 
 #ifdef __cplusplus
 }

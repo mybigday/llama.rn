@@ -85,15 +85,15 @@ std::unique_ptr<llm_graph_context> llama_model_mamba::build_arch_graph(const llm
 }
 
 llama_model_mamba::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_build_mamba_base(params) {
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     // {n_embd, n_tokens}
     inpL = build_inp_embd(model.tok_embd);
 
     auto * rs_inp = build_rs_inp();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         // norm
@@ -107,12 +107,12 @@ llama_model_mamba::graph::graph(const llama_model & model, const llm_graph_param
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur  = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpL = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
+            cur  = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }
 
         // residual
-        cur = lm_ggml_add(ctx0, cur, inpL);
+        cur = ggml_add(ctx0, cur, inpL);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -133,5 +133,5 @@ llama_model_mamba::graph::graph(const llama_model & model, const llm_graph_param
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

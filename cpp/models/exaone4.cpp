@@ -2,7 +2,7 @@
 
 void llama_model_exaone4::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.n_layer_nextn, false);
-    LM_GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer");
+    GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer");
 
     if (hparams.n_layer() == 64) {    // 32B
         hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
@@ -88,16 +88,16 @@ llama_model_exaone4::graph<iswa>::graph(const llama_model & model, const llm_gra
     llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_k();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_v());
-    LM_GGML_ASSERT(n_embd_head == n_rot);
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_v());
+    GGML_ASSERT(n_embd_head == n_rot);
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     using inp_attn_type      = std::conditional_t<iswa, llm_graph_input_attn_kv_iswa, llm_graph_input_attn_kv>;
     inp_attn_type * inp_attn = nullptr;
@@ -107,10 +107,10 @@ llama_model_exaone4::graph<iswa>::graph(const llama_model & model, const llm_gra
     } else {
         inp_attn = build_attn_inp_kv();
     }
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
 
         // use RoPE for SWA layers or non-SWA models
         const bool use_rope = hparams.is_swa(il) || hparams.swa_type == LLAMA_SWA_TYPE_NONE;
@@ -119,7 +119,7 @@ llama_model_exaone4::graph<iswa>::graph(const llama_model & model, const llm_gra
 
         // self-attention
         {
-            lm_ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+            ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
             auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
                     n_embd_head, n_head, n_head_kv, il);
@@ -130,10 +130,10 @@ llama_model_exaone4::graph<iswa>::graph(const llama_model & model, const llm_gra
             cb(Kcur, "Kcur_normed", il);
 
             if (use_rope) {
-                Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, rope_factors, n_rot, rope_type, n_ctx_orig, freq_base,
+                Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, rope_factors, n_rot, rope_type, n_ctx_orig, freq_base,
                                      freq_scale, ext_factor, attn_factor, beta_fast, beta_slow);
 
-                Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, rope_factors, n_rot, rope_type, n_ctx_orig, freq_base,
+                Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, rope_factors, n_rot, rope_type, n_ctx_orig, freq_base,
                                      freq_scale, ext_factor, attn_factor, beta_fast, beta_slow);
             }
             cb(Qcur, "Qcur", il);
@@ -146,13 +146,13 @@ llama_model_exaone4::graph<iswa>::graph(const llama_model & model, const llm_gra
             cb(cur, "attn_out", il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
-            cur   = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
         cur = build_norm(cur, model.layers[il].attn_post_norm, NULL, LLM_NORM_RMS, il);
         cb(cur, "attn_post_norm", il);
 
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         // feed-forward network
@@ -166,7 +166,7 @@ llama_model_exaone4::graph<iswa>::graph(const llama_model & model, const llm_gra
         cur = build_norm(cur, model.layers[il].ffn_post_norm, NULL, LLM_NORM_RMS, -1);
         cb(cur, "ffn_post_norm", -1);
 
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -187,7 +187,7 @@ llama_model_exaone4::graph<iswa>::graph(const llama_model & model, const llm_gra
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
 // Explicit template instantiations

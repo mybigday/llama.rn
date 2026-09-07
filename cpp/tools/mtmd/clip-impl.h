@@ -775,7 +775,7 @@ static inline void clip_anyres_unpad(int cur_w, int cur_h, int orig_w, int orig_
 // logging
 //
 
-static void clip_log_callback_default(enum lm_ggml_log_level level, const char * text, void * user_data) {
+static void clip_log_callback_default(enum ggml_log_level level, const char * text, void * user_data) {
     (void) level;
     (void) user_data;
     fputs(text, stderr);
@@ -783,13 +783,13 @@ static void clip_log_callback_default(enum lm_ggml_log_level level, const char *
 }
 
 struct clip_logger_state {
-    lm_ggml_log_callback log_callback;
+    ggml_log_callback log_callback;
     void * log_callback_user_data;
 };
 
 extern struct clip_logger_state g_logger_state;
 
-static void clip_log_internal_v(enum lm_ggml_log_level level, const char * format, va_list args) {
+static void clip_log_internal_v(enum ggml_log_level level, const char * format, va_list args) {
     if (format == NULL) {
         return;
     }
@@ -809,19 +809,19 @@ static void clip_log_internal_v(enum lm_ggml_log_level level, const char * forma
     va_end(args_copy);
 }
 
-static void clip_log_internal(enum lm_ggml_log_level level, const char * format, ...) {
+static void clip_log_internal(enum ggml_log_level level, const char * format, ...) {
     va_list args;
     va_start(args, format);
     clip_log_internal_v(level, format, args);
     va_end(args);
 }
 
-#define LOG_TRC(...) clip_log_internal(LM_GGML_LOG_LEVEL_DEBUG, __VA_ARGS__)
-#define LOG_DBG(...) clip_log_internal(LM_GGML_LOG_LEVEL_DEBUG, __VA_ARGS__)
-#define LOG_INF(...) clip_log_internal(LM_GGML_LOG_LEVEL_INFO,  __VA_ARGS__)
-#define LOG_WRN(...) clip_log_internal(LM_GGML_LOG_LEVEL_WARN,  __VA_ARGS__)
-#define LOG_ERR(...) clip_log_internal(LM_GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
-#define LOG_CNT(...) clip_log_internal(LM_GGML_LOG_LEVEL_CONT,  __VA_ARGS__)
+#define LOG_TRC(...) clip_log_internal(GGML_LOG_LEVEL_DEBUG, __VA_ARGS__)
+#define LOG_DBG(...) clip_log_internal(GGML_LOG_LEVEL_DEBUG, __VA_ARGS__)
+#define LOG_INF(...) clip_log_internal(GGML_LOG_LEVEL_INFO,  __VA_ARGS__)
+#define LOG_WRN(...) clip_log_internal(GGML_LOG_LEVEL_WARN,  __VA_ARGS__)
+#define LOG_ERR(...) clip_log_internal(GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
+#define LOG_CNT(...) clip_log_internal(GGML_LOG_LEVEL_CONT,  __VA_ARGS__)
 
 //
 // cpp wrappers
@@ -876,10 +876,10 @@ static std::string string_format(const char * fmt, ...) {
     va_start(ap, fmt);
     va_copy(ap2, ap);
     int size = vsnprintf(NULL, 0, fmt, ap);
-    LM_GGML_ASSERT(size >= 0 && size < INT_MAX); // NOLINT
+    GGML_ASSERT(size >= 0 && size < INT_MAX); // NOLINT
     std::vector<char> buf(size + 1);
     int size2 = vsnprintf(buf.data(), size + 1, fmt, ap2);
-    LM_GGML_ASSERT(size2 == size);
+    GGML_ASSERT(size2 == size);
     va_end(ap2);
     va_end(ap);
     return std::string(buf.data(), buf.size());
@@ -933,47 +933,47 @@ inline bool string_ends_with(std::string_view str, std::string_view suffix) {
 // gguf utils
 //
 
-static std::string lm_gguf_data_to_str(enum lm_gguf_type type, const void * data, int i) {
+static std::string gguf_data_to_str(enum gguf_type type, const void * data, int i) {
     switch (type) {
-        case LM_GGUF_TYPE_UINT8:   return std::to_string(((const uint8_t  *)data)[i]);
-        case LM_GGUF_TYPE_INT8:    return std::to_string(((const int8_t   *)data)[i]);
-        case LM_GGUF_TYPE_UINT16:  return std::to_string(((const uint16_t *)data)[i]);
-        case LM_GGUF_TYPE_INT16:   return std::to_string(((const int16_t  *)data)[i]);
-        case LM_GGUF_TYPE_UINT32:  return std::to_string(((const uint32_t *)data)[i]);
-        case LM_GGUF_TYPE_INT32:   return std::to_string(((const int32_t  *)data)[i]);
-        case LM_GGUF_TYPE_UINT64:  return std::to_string(((const uint64_t *)data)[i]);
-        case LM_GGUF_TYPE_INT64:   return std::to_string(((const int64_t  *)data)[i]);
-        case LM_GGUF_TYPE_FLOAT32: return std::to_string(((const float    *)data)[i]);
-        case LM_GGUF_TYPE_FLOAT64: return std::to_string(((const double   *)data)[i]);
-        case LM_GGUF_TYPE_BOOL:    return ((const int8_t *)data)[i] != 0 ? "true" : "false";
+        case GGUF_TYPE_UINT8:   return std::to_string(((const uint8_t  *)data)[i]);
+        case GGUF_TYPE_INT8:    return std::to_string(((const int8_t   *)data)[i]);
+        case GGUF_TYPE_UINT16:  return std::to_string(((const uint16_t *)data)[i]);
+        case GGUF_TYPE_INT16:   return std::to_string(((const int16_t  *)data)[i]);
+        case GGUF_TYPE_UINT32:  return std::to_string(((const uint32_t *)data)[i]);
+        case GGUF_TYPE_INT32:   return std::to_string(((const int32_t  *)data)[i]);
+        case GGUF_TYPE_UINT64:  return std::to_string(((const uint64_t *)data)[i]);
+        case GGUF_TYPE_INT64:   return std::to_string(((const int64_t  *)data)[i]);
+        case GGUF_TYPE_FLOAT32: return std::to_string(((const float    *)data)[i]);
+        case GGUF_TYPE_FLOAT64: return std::to_string(((const double   *)data)[i]);
+        case GGUF_TYPE_BOOL:    return ((const int8_t *)data)[i] != 0 ? "true" : "false";
         default:                return string_format("unknown type %d", type);
     }
 }
 
-static std::string lm_gguf_kv_to_str(const struct lm_gguf_context * ctx_gguf, int i) {
-    const enum lm_gguf_type type = lm_gguf_get_kv_type(ctx_gguf, i);
+static std::string gguf_kv_to_str(const struct gguf_context * ctx_gguf, int i) {
+    const enum gguf_type type = gguf_get_kv_type(ctx_gguf, i);
 
     switch (type) {
-        case LM_GGUF_TYPE_STRING:
-            return lm_gguf_get_val_str(ctx_gguf, i);
-        case LM_GGUF_TYPE_ARRAY:
+        case GGUF_TYPE_STRING:
+            return gguf_get_val_str(ctx_gguf, i);
+        case GGUF_TYPE_ARRAY:
             {
-                const enum lm_gguf_type arr_type = lm_gguf_get_arr_type(ctx_gguf, i);
-                int arr_n = lm_gguf_get_arr_n(ctx_gguf, i);
-                const void * data = arr_type == LM_GGUF_TYPE_STRING ? nullptr : lm_gguf_get_arr_data(ctx_gguf, i);
+                const enum gguf_type arr_type = gguf_get_arr_type(ctx_gguf, i);
+                int arr_n = gguf_get_arr_n(ctx_gguf, i);
+                const void * data = arr_type == GGUF_TYPE_STRING ? nullptr : gguf_get_arr_data(ctx_gguf, i);
                 std::stringstream ss;
                 ss << "[";
                 for (int j = 0; j < arr_n; j++) {
-                    if (arr_type == LM_GGUF_TYPE_STRING) {
-                        std::string val = lm_gguf_get_arr_str(ctx_gguf, i, j);
+                    if (arr_type == GGUF_TYPE_STRING) {
+                        std::string val = gguf_get_arr_str(ctx_gguf, i, j);
                         // escape quotes
                         string_replace_all(val, "\\", "\\\\");
                         string_replace_all(val, "\"", "\\\"");
                         ss << '"' << val << '"';
-                    } else if (arr_type == LM_GGUF_TYPE_ARRAY) {
+                    } else if (arr_type == GGUF_TYPE_ARRAY) {
                         ss << "???";
                     } else {
-                        ss << lm_gguf_data_to_str(arr_type, data, j);
+                        ss << gguf_data_to_str(arr_type, data, j);
                     }
                     if (j < arr_n - 1) {
                         ss << ", ";
@@ -983,7 +983,7 @@ static std::string lm_gguf_kv_to_str(const struct lm_gguf_context * ctx_gguf, in
                 return ss.str();
             }
         default:
-            return lm_gguf_data_to_str(type, lm_gguf_get_val_data(ctx_gguf, i), 0);
+            return gguf_data_to_str(type, gguf_get_val_data(ctx_gguf, i), 0);
     }
 }
 
@@ -991,19 +991,19 @@ static std::string lm_gguf_kv_to_str(const struct lm_gguf_context * ctx_gguf, in
 // debugging
 //
 
-static void print_tensor_shape(lm_ggml_tensor * t) {
+static void print_tensor_shape(ggml_tensor * t) {
     printf("%s.shape = [", t->name);
-    for (int i = 0; i < lm_ggml_n_dims(t); ++i) {
+    for (int i = 0; i < ggml_n_dims(t); ++i) {
         printf("%" PRId64, t->ne[i]);
-        if (i < lm_ggml_n_dims(t) - 1) {
+        if (i < ggml_n_dims(t) - 1) {
             printf(", ");
         }
     }
     printf("]\n");
 }
 
-static void print_tensor_data(lm_ggml_tensor * t, uint8_t * data, int64_t n) {
-    lm_ggml_type type = t->type;
+static void print_tensor_data(ggml_tensor * t, uint8_t * data, int64_t n) {
+    ggml_type type = t->type;
     int64_t * ne = t->ne;
     size_t * nb = t->nb;
     for (int64_t i3 = 0; i3 < ne[3]; i3++) {
@@ -1027,18 +1027,18 @@ static void print_tensor_data(lm_ggml_tensor * t, uint8_t * data, int64_t n) {
                     }
                     size_t i = i3 * nb[3] + i2 * nb[2] + i1 * nb[1] + i0 * nb[0];
                     float v;
-                    if (type == LM_GGML_TYPE_F16) {
-                        v = lm_ggml_fp16_to_fp32(*(lm_ggml_fp16_t *) &data[i]);
-                    } else if (type == LM_GGML_TYPE_F32) {
+                    if (type == GGML_TYPE_F16) {
+                        v = ggml_fp16_to_fp32(*(ggml_fp16_t *) &data[i]);
+                    } else if (type == GGML_TYPE_F32) {
                         v = *(float *) &data[i];
-                    } else if (type == LM_GGML_TYPE_I32) {
+                    } else if (type == GGML_TYPE_I32) {
                         v = (float) *(int32_t *) &data[i];
-                    } else if (type == LM_GGML_TYPE_I16) {
+                    } else if (type == GGML_TYPE_I16) {
                         v = (float) *(int16_t *) &data[i];
-                    } else if (type == LM_GGML_TYPE_I8) {
+                    } else if (type == GGML_TYPE_I8) {
                         v = (float) *(int8_t *) &data[i];
                     } else {
-                        LM_GGML_ABORT("fatal error");
+                        GGML_ABORT("fatal error");
                     }
                     printf("%8.4f", v);
                     if (i0 < ne[0] - 1) printf(", ");

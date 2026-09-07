@@ -63,11 +63,11 @@
 #pragma warning(disable: 4244 4267) // possible loss of data
 #endif
 
-common_time_meas::common_time_meas(int64_t & t_acc, bool disable) : t_start_us(disable ? -1 : lm_ggml_time_us()), t_acc(t_acc) {}
+common_time_meas::common_time_meas(int64_t & t_acc, bool disable) : t_start_us(disable ? -1 : ggml_time_us()), t_acc(t_acc) {}
 
 common_time_meas::~common_time_meas() {
     if (t_start_us >= 0) {
-        t_acc += lm_ggml_time_us() - t_start_us;
+        t_acc += ggml_time_us() - t_start_us;
     }
 }
 
@@ -231,18 +231,18 @@ int32_t common_cpu_get_num_math() {
 
 #if defined(_WIN32)
 
-bool set_process_priority(enum lm_ggml_sched_priority prio) {
-    if (prio == LM_GGML_SCHED_PRIO_NORMAL) {
+bool set_process_priority(enum ggml_sched_priority prio) {
+    if (prio == GGML_SCHED_PRIO_NORMAL) {
         return true;
     }
 
     DWORD p = NORMAL_PRIORITY_CLASS;
     switch (prio) {
-        case LM_GGML_SCHED_PRIO_LOW:      p = BELOW_NORMAL_PRIORITY_CLASS; break;
-        case LM_GGML_SCHED_PRIO_NORMAL:   p = NORMAL_PRIORITY_CLASS;       break;
-        case LM_GGML_SCHED_PRIO_MEDIUM:   p = ABOVE_NORMAL_PRIORITY_CLASS; break;
-        case LM_GGML_SCHED_PRIO_HIGH:     p = HIGH_PRIORITY_CLASS;         break;
-        case LM_GGML_SCHED_PRIO_REALTIME: p = REALTIME_PRIORITY_CLASS;     break;
+        case GGML_SCHED_PRIO_LOW:      p = BELOW_NORMAL_PRIORITY_CLASS; break;
+        case GGML_SCHED_PRIO_NORMAL:   p = NORMAL_PRIORITY_CLASS;       break;
+        case GGML_SCHED_PRIO_MEDIUM:   p = ABOVE_NORMAL_PRIORITY_CLASS; break;
+        case GGML_SCHED_PRIO_HIGH:     p = HIGH_PRIORITY_CLASS;         break;
+        case GGML_SCHED_PRIO_REALTIME: p = REALTIME_PRIORITY_CLASS;     break;
     }
 
     if (!SetPriorityClass(GetCurrentProcess(), p)) {
@@ -257,18 +257,18 @@ bool set_process_priority(enum lm_ggml_sched_priority prio) {
 #include <sys/types.h>
 #include <sys/resource.h>
 
-bool set_process_priority(enum lm_ggml_sched_priority prio) {
-    if (prio == LM_GGML_SCHED_PRIO_NORMAL) {
+bool set_process_priority(enum ggml_sched_priority prio) {
+    if (prio == GGML_SCHED_PRIO_NORMAL) {
         return true;
     }
 
     int p = 0;
     switch (prio) {
-        case LM_GGML_SCHED_PRIO_LOW:      p =  5;  break;
-        case LM_GGML_SCHED_PRIO_NORMAL:   p =  0;  break;
-        case LM_GGML_SCHED_PRIO_MEDIUM:   p = -5;  break;
-        case LM_GGML_SCHED_PRIO_HIGH:     p = -10; break;
-        case LM_GGML_SCHED_PRIO_REALTIME: p = -20; break;
+        case GGML_SCHED_PRIO_LOW:      p =  5;  break;
+        case GGML_SCHED_PRIO_NORMAL:   p =  0;  break;
+        case GGML_SCHED_PRIO_MEDIUM:   p = -5;  break;
+        case GGML_SCHED_PRIO_HIGH:     p = -10; break;
+        case GGML_SCHED_PRIO_REALTIME: p = -20; break;
     }
 
     if (setpriority(PRIO_PROCESS, 0, p) != 0) {
@@ -297,7 +297,7 @@ void postprocess_cpu_params(common_cpu_params & cpuparams, const common_cpu_para
         }
     }
 
-    for (int32_t i = 0; i < LM_GGML_MAX_N_THREADS; i++) {
+    for (int32_t i = 0; i < GGML_MAX_N_THREADS; i++) {
         if (cpuparams.cpumask[i]) {
             n_set++;
         }
@@ -309,7 +309,7 @@ void postprocess_cpu_params(common_cpu_params & cpuparams, const common_cpu_para
     }
 }
 
-bool parse_cpu_range(const std::string & range, bool (&boolmask)[LM_GGML_MAX_N_THREADS]) {
+bool parse_cpu_range(const std::string & range, bool (&boolmask)[GGML_MAX_N_THREADS]) {
     size_t dash_loc = range.find('-');
     if (dash_loc == std::string::npos) {
         COM_ERR("%s", "Format of CPU range is invalid! Expected [<start>]-[<end>].\n");
@@ -323,17 +323,17 @@ bool parse_cpu_range(const std::string & range, bool (&boolmask)[LM_GGML_MAX_N_T
         start_i = 0;
     } else {
         start_i = std::stoull(range.substr(0, dash_loc));
-        if (start_i >= LM_GGML_MAX_N_THREADS) {
+        if (start_i >= GGML_MAX_N_THREADS) {
             COM_ERR("%s", "Start index out of bounds!\n");
             return false;
         }
     }
 
     if (dash_loc == range.length() - 1) {
-        end_i = LM_GGML_MAX_N_THREADS - 1;
+        end_i = GGML_MAX_N_THREADS - 1;
     } else {
         end_i = std::stoull(range.substr(dash_loc + 1));
-        if (end_i >= LM_GGML_MAX_N_THREADS) {
+        if (end_i >= GGML_MAX_N_THREADS) {
             COM_ERR("%s", "End index out of bounds!\n");
             return false;
         }
@@ -346,7 +346,7 @@ bool parse_cpu_range(const std::string & range, bool (&boolmask)[LM_GGML_MAX_N_T
     return true;
 }
 
-bool parse_cpu_mask(const std::string & mask, bool (&boolmask)[LM_GGML_MAX_N_THREADS]) {
+bool parse_cpu_mask(const std::string & mask, bool (&boolmask)[GGML_MAX_N_THREADS]) {
     // Discard potential 0x prefix
     size_t start_i = 0;
     if (mask.length() >= 2 && mask.substr(0, 2) == "0x") {
@@ -408,11 +408,11 @@ void common_params_print_info(const common_params & params, bool print_devices) 
     // device enumeration creates a primary context on CUDA backends, skip it when the caller does not own any device
     if (print_devices && verbosity >= LOG_LEVEL_TRACE) {
         COM_TRC("%s", "device_info:\n");
-        for (size_t i = 0; i < lm_ggml_backend_dev_count(); ++i) {
-            auto * dev = lm_ggml_backend_dev_get(i);
+        for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+            auto * dev = ggml_backend_dev_get(i);
             size_t free, total;
-            lm_ggml_backend_dev_memory(dev, &free, &total);
-            COM_TRC("  - %-8s: %s (%zu MiB, %zu MiB free)\n", lm_ggml_backend_dev_name(dev), lm_ggml_backend_dev_description(dev), total / 1024 / 1024, free / 1024 / 1024);
+            ggml_backend_dev_memory(dev, &free, &total);
+            COM_TRC("  - %-8s: %s (%zu MiB, %zu MiB free)\n", ggml_backend_dev_name(dev), ggml_backend_dev_description(dev), total / 1024 / 1024, free / 1024 / 1024);
         }
     }
     COM_TRC("%s\n", common_params_get_system_info(params).c_str());
@@ -446,10 +446,10 @@ std::string string_format(const char * fmt, ...) {
     va_start(ap, fmt);
     va_copy(ap2, ap);
     int size = vsnprintf(NULL, 0, fmt, ap);
-    LM_GGML_ASSERT(size >= 0 && size < INT_MAX); // NOLINT
+    GGML_ASSERT(size >= 0 && size < INT_MAX); // NOLINT
     std::vector<char> buf(size + 1);
     int size2 = vsnprintf(buf.data(), size + 1, fmt, ap2);
-    LM_GGML_ASSERT(size2 == size);
+    GGML_ASSERT(size2 == size);
     va_end(ap2);
     va_end(ap);
     return std::string(buf.data(), size);
@@ -1060,7 +1060,7 @@ std::string fs_get_cache_directory() {
             throw std::runtime_error("Failed to find %LOCALAPPDATA% directory");
         }
 #elif defined(__EMSCRIPTEN__)
-        LM_GGML_ABORT("not implemented on this platform");
+        GGML_ABORT("not implemented on this platform");
 #else
 #  error Unknown architecture
 #endif
@@ -1116,7 +1116,7 @@ std::string fs_get_config_directory() {
 }
 
 std::string fs_get_cache_file(const std::string & filename) {
-    LM_GGML_ASSERT(filename.find(DIRECTORY_SEPARATOR) == std::string::npos);
+    GGML_ASSERT(filename.find(DIRECTORY_SEPARATOR) == std::string::npos);
     std::string cache_directory = fs_get_cache_directory();
     const bool success = fs_create_directory_with_parents(cache_directory);
     if (!success) {
@@ -1323,7 +1323,7 @@ common_init_result::common_init_result(common_params & params, bool model_only) 
             params.fit_params_target.data(),
             params.fit_params_min_ctx,
             has_draft || spec_mtp ? &extra : nullptr,
-            params.verbosity >= LOG_LEVEL_DEBUG ? LM_GGML_LOG_LEVEL_DEBUG : LM_GGML_LOG_LEVEL_ERROR);
+            params.verbosity >= LOG_LEVEL_DEBUG ? GGML_LOG_LEVEL_DEBUG : GGML_LOG_LEVEL_ERROR);
     }
 
     llama_model * model = llama_model_load_from_file(params.model.path.c_str(), mparams);
@@ -1573,7 +1573,7 @@ char * common_get_model_or_exit(int argc, char * argv[]) {
 
     char * path = getenv("LLAMACPP_TEST_MODELFILE");
     if (!path || strlen(path) == 0) {
-        fprintf(stderr, "\033[33mWARNING: No model file provided. Skipping this test. Set LLAMACPP_TEST_MODELFILE=<lm_gguf_model_path> to silence this warning and run this test.\n\033[0m");
+        fprintf(stderr, "\033[33mWARNING: No model file provided. Skipping this test. Set LLAMACPP_TEST_MODELFILE=<gguf_model_path> to silence this warning and run this test.\n\033[0m");
         exit(EXIT_SUCCESS);
     }
 
@@ -1625,7 +1625,7 @@ done:
 static void common_context_seq_rm(llama_context * ctx, llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
     auto * mem = llama_get_memory(ctx);
     if (!llama_memory_seq_rm(mem, seq_id, p0, p1)) {
-        LM_GGML_ABORT("%s", string_format("failed to remove sequence %d with p0=%d, p1=%d\n", seq_id, p0, p1).c_str());
+        GGML_ABORT("%s", string_format("failed to remove sequence %d with p0=%d, p1=%d\n", seq_id, p0, p1).c_str());
     }
 }
 
@@ -1697,14 +1697,14 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
     if (params.kv_overrides.empty()) {
         mparams.kv_overrides = NULL;
     } else {
-        LM_GGML_ASSERT(params.kv_overrides.back().key[0] == 0 && "KV overrides not terminated with empty key");
+        GGML_ASSERT(params.kv_overrides.back().key[0] == 0 && "KV overrides not terminated with empty key");
         mparams.kv_overrides = params.kv_overrides.data();
     }
 
     if (params.tensor_buft_overrides.empty()) {
         mparams.tensor_buft_overrides = NULL;
     } else {
-        LM_GGML_ASSERT(params.tensor_buft_overrides.back().pattern == nullptr && "Tensor buffer overrides not terminated with empty pattern");
+        GGML_ASSERT(params.tensor_buft_overrides.back().pattern == nullptr && "Tensor buffer overrides not terminated with empty pattern");
         mparams.tensor_buft_overrides = params.tensor_buft_overrides.data();
     }
 
@@ -1764,13 +1764,13 @@ struct llama_context_params common_context_params_to_llama(const common_params &
 // Threadpool utils
 //
 
-struct lm_ggml_threadpool_params lm_ggml_threadpool_params_from_cpu_params(const common_cpu_params & params) {
-    struct lm_ggml_threadpool_params tpp;
+struct ggml_threadpool_params ggml_threadpool_params_from_cpu_params(const common_cpu_params & params) {
+    struct ggml_threadpool_params tpp;
 
-    lm_ggml_threadpool_params_init(&tpp, params.n_threads); // setup the defaults
+    ggml_threadpool_params_init(&tpp, params.n_threads); // setup the defaults
 
     if (params.mask_valid) {
-        std::memcpy(&tpp.cpumask, &params.cpumask, LM_GGML_MAX_N_THREADS);
+        std::memcpy(&tpp.cpumask, &params.cpumask, GGML_MAX_N_THREADS);
     }
 
     tpp.prio       = params.priority;
@@ -1789,29 +1789,29 @@ common_threadpools::~common_threadpools() {
 }
 
 void common_threadpools::init(llama_context * ctx, const common_params & params) {
-    LM_GGML_ASSERT(!threadpool);
-    LM_GGML_ASSERT(!threadpool_batch);
+    GGML_ASSERT(!threadpool);
+    GGML_ASSERT(!threadpool_batch);
 
     COM_INF("llama threadpool init, n_threads = %d\n", (int) params.cpuparams.n_threads);
 
-    auto * cpu_dev = lm_ggml_backend_dev_by_type(LM_GGML_BACKEND_DEVICE_TYPE_CPU);
+    auto * cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
     if (!cpu_dev) {
         COM_WRN("%s", "no CPU backend found\n");
         return;
     }
-    auto * reg = lm_ggml_backend_dev_backend_reg(cpu_dev);
-    auto * lm_ggml_threadpool_new_fn = (decltype(lm_ggml_threadpool_new) *) lm_ggml_backend_reg_get_proc_address(reg, "lm_ggml_threadpool_new");
-    free_fn = (decltype(lm_ggml_threadpool_free) *) lm_ggml_backend_reg_get_proc_address(reg, "lm_ggml_threadpool_free");
+    auto * reg = ggml_backend_dev_backend_reg(cpu_dev);
+    auto * ggml_threadpool_new_fn = (decltype(ggml_threadpool_new) *) ggml_backend_reg_get_proc_address(reg, "ggml_threadpool_new");
+    free_fn = (decltype(ggml_threadpool_free) *) ggml_backend_reg_get_proc_address(reg, "ggml_threadpool_free");
 
-    struct lm_ggml_threadpool_params tpp_batch =
-            lm_ggml_threadpool_params_from_cpu_params(params.cpuparams_batch);
-    struct lm_ggml_threadpool_params tpp =
-            lm_ggml_threadpool_params_from_cpu_params(params.cpuparams);
+    struct ggml_threadpool_params tpp_batch =
+            ggml_threadpool_params_from_cpu_params(params.cpuparams_batch);
+    struct ggml_threadpool_params tpp =
+            ggml_threadpool_params_from_cpu_params(params.cpuparams);
 
     // each pool needs to match the respective n_threads exactly
     // see: https://github.com/ggml-org/llama.cpp/pull/27138#issuecomment-5332307332
-    if (!lm_ggml_threadpool_params_match(&tpp, &tpp_batch)) {
-        threadpool_batch = lm_ggml_threadpool_new_fn(&tpp_batch);
+    if (!ggml_threadpool_params_match(&tpp, &tpp_batch)) {
+        threadpool_batch = ggml_threadpool_new_fn(&tpp_batch);
         if (!threadpool_batch) {
             COM_WRN("batch threadpool create failed : n_threads %d\n", tpp_batch.n_threads);
             return;
@@ -1821,7 +1821,7 @@ void common_threadpools::init(llama_context * ctx, const common_params & params)
         tpp.paused = true;
     }
 
-    threadpool = lm_ggml_threadpool_new_fn(&tpp);
+    threadpool = ggml_threadpool_new_fn(&tpp);
     if (!threadpool) {
         COM_WRN("threadpool create failed : n_threads %d\n", tpp.n_threads);
         free_fn(threadpool_batch);
@@ -1846,7 +1846,7 @@ void common_batch_add(
                           llama_pos   pos,
     const std::vector<llama_seq_id> & seq_ids,
                                bool   logits) {
-    LM_GGML_ASSERT(batch.seq_id[batch.n_tokens] && "llama_batch size exceeded");
+    GGML_ASSERT(batch.seq_id[batch.n_tokens] && "llama_batch size exceeded");
 
     batch.token   [batch.n_tokens] = id;
     batch.pos     [batch.n_tokens] = pos;
@@ -1888,7 +1888,7 @@ std::vector<llama_token> common_tokenize(
     if (n_tokens < 0) {
         result.resize(-n_tokens);
         int check = llama_tokenize(vocab, text.data(), text.length(), result.data(), result.size(), add_special, parse_special);
-        LM_GGML_ASSERT(check == -n_tokens);
+        GGML_ASSERT(check == -n_tokens);
     } else {
         result.resize(n_tokens);
     }
@@ -1908,7 +1908,7 @@ std::string common_token_to_piece(const struct llama_vocab * vocab, llama_token 
     if (n_chars < 0) {
         piece.resize(-n_chars);
         int check = llama_token_to_piece(vocab, token, &piece[0], piece.size(), 0, special);
-        LM_GGML_ASSERT(check == -n_chars);
+        GGML_ASSERT(check == -n_chars);
     }
     else {
         piece.resize(n_chars);
@@ -1930,7 +1930,7 @@ std::string common_detokenize(const struct llama_vocab * vocab, const std::vecto
     if (n_chars < 0) {
         text.resize(-n_chars);
         n_chars = llama_detokenize(vocab, tokens.data(), (int32_t)tokens.size(), &text[0], (int32_t)text.size(), false, special);
-        LM_GGML_ASSERT(n_chars <= (int32_t)text.size());  // whitespace trimming is performed after per-token detokenization
+        GGML_ASSERT(n_chars <= (int32_t)text.size());  // whitespace trimming is performed after per-token detokenization
     }
 
     text.resize(n_chars);
@@ -2008,24 +2008,24 @@ float common_embd_similarity_cos(const float * embd1, const float * embd2, int n
 static common_control_vector_data common_control_vector_load_one(const common_control_vector_load_info & load_info) {
     common_control_vector_data result = { -1, {} };
 
-    lm_ggml_context * ctx = nullptr;
-    struct lm_gguf_init_params meta_lm_gguf_params = {
+    ggml_context * ctx = nullptr;
+    struct gguf_init_params meta_gguf_params = {
         /* .no_alloc = */ false,
         /* .ctx      = */ &ctx,
     };
-    struct lm_gguf_context * ctx_gguf = lm_gguf_init_from_file(load_info.fname.c_str(), meta_lm_gguf_params);
+    struct gguf_context * ctx_gguf = gguf_init_from_file(load_info.fname.c_str(), meta_gguf_params);
     if (!ctx_gguf) {
         COM_ERR("failed to load control vector file from %s\n", load_info.fname.c_str());
         return result;
     }
 
-    int32_t n_tensors = lm_gguf_get_n_tensors(ctx_gguf);
+    int32_t n_tensors = gguf_get_n_tensors(ctx_gguf);
     if (n_tensors == 0) {
         COM_WRN("no direction tensors found in %s\n", load_info.fname.c_str());
     }
 
     for (int i = 0; i < n_tensors; i++) {
-        std::string name = lm_gguf_get_tensor_name(ctx_gguf, i);
+        std::string name = gguf_get_tensor_name(ctx_gguf, i);
 
         int layer_idx = -1;
 
@@ -2048,21 +2048,21 @@ static common_control_vector_data common_control_vector_load_one(const common_co
             break;
         }
 
-        struct lm_ggml_tensor * tensor = lm_ggml_get_tensor(ctx, name.c_str());
-        if (tensor->type != LM_GGML_TYPE_F32) {
+        struct ggml_tensor * tensor = ggml_get_tensor(ctx, name.c_str());
+        if (tensor->type != GGML_TYPE_F32) {
             COM_ERR("invalid (non-F32) direction tensor type in %s\n", load_info.fname.c_str());
             result.n_embd = -1;
             break;
         }
-        if (lm_ggml_n_dims(tensor) != 1) {
+        if (ggml_n_dims(tensor) != 1) {
             COM_ERR("invalid (non-1D) direction tensor shape in %s\n", load_info.fname.c_str());
             result.n_embd = -1;
             break;
         }
 
         if (result.n_embd == -1) {
-            result.n_embd = lm_ggml_nelements(tensor);
-        } else if (lm_ggml_nelements(tensor) != result.n_embd) {
+            result.n_embd = ggml_nelements(tensor);
+        } else if (ggml_nelements(tensor) != result.n_embd) {
             COM_ERR("direction tensor in %s does not match previous dimensions\n", load_info.fname.c_str());
             result.n_embd = -1;
             break;
@@ -2084,8 +2084,8 @@ static common_control_vector_data common_control_vector_load_one(const common_co
         result.data.clear();
     }
 
-    lm_gguf_free(ctx_gguf);
-    lm_ggml_free(ctx);
+    gguf_free(ctx_gguf);
+    ggml_free(ctx);
 
     return result;
 }
@@ -2124,14 +2124,14 @@ common_control_vector_data common_control_vector_load(const std::vector<common_c
     return result;
 }
 
-lm_ggml_opt_dataset_t common_opt_dataset_init(struct llama_context * ctx, const std::vector<llama_token> & tokens, int64_t stride) {
+ggml_opt_dataset_t common_opt_dataset_init(struct llama_context * ctx, const std::vector<llama_token> & tokens, int64_t stride) {
     const int64_t ne_datapoint = llama_n_ctx(ctx);
     const int64_t ndata        = (tokens.size() - ne_datapoint - 1) / stride;
-    lm_ggml_opt_dataset_t result = lm_ggml_opt_dataset_init(
-        LM_GGML_TYPE_I32, LM_GGML_TYPE_I32, ne_datapoint, ne_datapoint, ndata, /*ndata_shard =*/ 1);
+    ggml_opt_dataset_t result = ggml_opt_dataset_init(
+        GGML_TYPE_I32, GGML_TYPE_I32, ne_datapoint, ne_datapoint, ndata, /*ndata_shard =*/ 1);
 
-    llama_token * data   = (llama_token *) lm_ggml_opt_dataset_data(result)->data;
-    llama_token * labels = (llama_token *) lm_ggml_opt_dataset_labels(result)->data;
+    llama_token * data   = (llama_token *) ggml_opt_dataset_data(result)->data;
+    llama_token * labels = (llama_token *) ggml_opt_dataset_labels(result)->data;
 
     for (int64_t idata = 0; idata < ndata; ++idata) {
         memcpy(data   + idata*ne_datapoint, tokens.data() + idata*stride + 0, ne_datapoint*sizeof(llama_token));
@@ -2141,8 +2141,8 @@ lm_ggml_opt_dataset_t common_opt_dataset_init(struct llama_context * ctx, const 
     return result;
 }
 
-lm_ggml_opt_optimizer_params common_opt_lr_pars(void * userdata) {
-    lm_ggml_opt_optimizer_params result = lm_ggml_opt_get_default_optimizer_params(nullptr);
+ggml_opt_optimizer_params common_opt_lr_pars(void * userdata) {
+    ggml_opt_optimizer_params result = ggml_opt_get_default_optimizer_params(nullptr);
     const lr_opt &            d      = *(lr_opt *) userdata;
     result.adamw.alpha = result.sgd.alpha = d.get_lr(d.epoch);
     result.sgd.wd = result.adamw.wd = d.wd;
@@ -2160,14 +2160,14 @@ static inline bool eq_case_insensitive(char const* a, char const* b) {
         (a, b);
 }
 
-enum lm_ggml_opt_optimizer_type common_opt_get_optimizer(const char * n) {
+enum ggml_opt_optimizer_type common_opt_get_optimizer(const char * n) {
     if (eq_case_insensitive("adamw", n)) {
-        return LM_GGML_OPT_OPTIMIZER_TYPE_ADAMW;
+        return GGML_OPT_OPTIMIZER_TYPE_ADAMW;
     }
     if (eq_case_insensitive("sgd", n)) {
-        return LM_GGML_OPT_OPTIMIZER_TYPE_SGD;
+        return GGML_OPT_OPTIMIZER_TYPE_SGD;
     }
-    return LM_GGML_OPT_OPTIMIZER_TYPE_COUNT;
+    return GGML_OPT_OPTIMIZER_TYPE_COUNT;
 }
 
 // TODO simplify to use just log and exp
@@ -2220,7 +2220,7 @@ bool common_prompt_batch_decode(
     if (save_state && n_new > 1) {
         const int n_tokens_before_last = n_new - 1;
 
-        LM_GGML_ASSERT(n_new <= n_batch);
+        GGML_ASSERT(n_new <= n_batch);
 
         // Decode all but the last token so we can save the memory state before decoding the last token.
         // This is done so we can restore the session state later and replay the last token.
@@ -2299,7 +2299,7 @@ void common_prompt_checkpoint::update_tgt(
 
     const size_t n = llama_state_seq_get_data_ext(ctx, data_tgt.data(), ckpt_size, seq_id, flags);
     if (n != ckpt_size) {
-        LM_GGML_ABORT("checkpoint size mismatch: expected %zu, got %zu\n", ckpt_size, n);
+        GGML_ABORT("checkpoint size mismatch: expected %zu, got %zu\n", ckpt_size, n);
     }
 }
 
@@ -2317,7 +2317,7 @@ void common_prompt_checkpoint::update_dft(
 
     const size_t n = llama_state_seq_get_data_ext(ctx, data_dft.data(), ckpt_size, seq_id, flags);
     if (n != ckpt_size) {
-        LM_GGML_ABORT("checkpoint size mismatch: expected %zu, got %zu\n", ckpt_size, n);
+        GGML_ABORT("checkpoint size mismatch: expected %zu, got %zu\n", ckpt_size, n);
     }
 }
 
@@ -2335,7 +2335,7 @@ void common_prompt_checkpoint::load_tgt(
 
     const size_t n = llama_state_seq_set_data_ext(ctx, data_tgt.data(), data_tgt.size(), seq_id, flags);
     if (n != data_tgt.size()) {
-        LM_GGML_ABORT("checkpoint size mismatch: expected %zu, got %zu\n", data_tgt.size(), n);
+        GGML_ABORT("checkpoint size mismatch: expected %zu, got %zu\n", data_tgt.size(), n);
     }
 }
 
@@ -2353,7 +2353,7 @@ void common_prompt_checkpoint::load_dft(
 
     const size_t n = llama_state_seq_set_data_ext(ctx, data_dft.data(), data_dft.size(), seq_id, flags);
     if (n != data_dft.size()) {
-        LM_GGML_ABORT("checkpoint size mismatch: expected %zu, got %zu\n", data_dft.size(), n);
+        GGML_ABORT("checkpoint size mismatch: expected %zu, got %zu\n", data_dft.size(), n);
     }
 }
 

@@ -217,7 +217,7 @@ public:
     }
 
     int32_t step_prompt(int32_t n_batch) override {
-        LM_GGML_ASSERT(n_batch > 0);
+        GGML_ASSERT(n_batch > 0);
         if (prompt_pos >= n_prompt) {
             return 0;
         }
@@ -554,7 +554,7 @@ public:
 
         // sequence order is voice, then text, then the audio BOS that starts generation
         if (!voice.empty()) {
-            LM_GGML_ASSERT(voice.size() % (size_t) n_e == 0);
+            GGML_ASSERT(voice.size() % (size_t) n_e == 0);
             if (bos_before_voice != LLAMA_TOKEN_NULL) {
                 push_embd_row(prompt_embd_buf, bos_before_voice);
             }
@@ -581,7 +581,7 @@ public:
     }
 
     int32_t step_prompt(int32_t n_batch) override {
-        LM_GGML_ASSERT(n_batch > 0);
+        GGML_ASSERT(n_batch > 0);
         if (prompt_pos >= n_prompt) {
             return 0;
         }
@@ -711,7 +711,7 @@ private:
             LOG_ERR("mtmd_helper_gen_audio: token embedding copy failed\n");
             return false;
         }
-        LM_GGML_ASSERT(n_embd > 0 && n_tok_embd % (uint32_t) n_embd == 0);
+        GGML_ASSERT(n_embd > 0 && n_tok_embd % (uint32_t) n_embd == 0);
         specials_ok = true;
         return true;
     }
@@ -719,7 +719,7 @@ private:
     // the table can be shorter than the vocab, so bound the row lookup
     void push_embd_row(std::vector<float> & dst, llama_token t) const {
         const size_t n_rows = tok_embd.size() / (size_t) n_embd;
-        LM_GGML_ASSERT(t >= 0 && (size_t) t < n_rows);
+        GGML_ASSERT(t >= 0 && (size_t) t < n_rows);
         dst.insert(dst.end(),
                    tok_embd.begin() + (size_t) t * n_embd,
                    tok_embd.begin() + (size_t) (t + 1) * n_embd);
@@ -839,7 +839,7 @@ private:
         arm_chunk_budget(chunk_idx);
 
         const int n_rows = (int) (prompt_embd_buf.size() / (size_t) n_e);
-        LM_GGML_ASSERT(n_rows > 0);
+        GGML_ASSERT(n_rows > 0);
         decode_embd_batch batch(prompt_embd_buf.data(), n_rows, 1, n_e);
         batch.set_position_normal(pos, seq_id);
         batch.batch.logits[n_rows - 1] = 1;

@@ -118,22 +118,22 @@ llama_model_granite::graph::graph(
 
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
-    LM_GGML_ASSERT(n_embd_head == n_rot);
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == n_rot);
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // inp_pos - built only if rope enabled
-    lm_ggml_tensor * inp_pos = nullptr;
+    ggml_tensor * inp_pos = nullptr;
     if (hparams.has_rope(0)) {
         inp_pos = build_inp_pos();
     }
     auto * inp_attn = build_attn_inp_kv();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
 
@@ -142,15 +142,15 @@ llama_model_granite::graph::graph(
         // NOTE: skip the first deepstack layer since that's inpL
         const auto & deepstack_emb_idx = hparams.deepstack_mapping_arr[il];
         if (il > 0 && deepstack_emb_idx >= 0) {
-            lm_ggml_tensor * ds = lm_ggml_view_2d(ctx0,
+            ggml_tensor * ds = ggml_view_2d(ctx0,
                 res->t_inp_embd, n_embd, n_tokens,
                 res->t_inp_embd->nb[1],
                 deepstack_emb_idx * n_embd * sizeof(float));
-            inpL = lm_ggml_add(ctx0, inpL, ds);
+            inpL = ggml_add(ctx0, inpL, ds);
             cb(inpL, "deepstack_in", il);
         }
 
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
 
         // norm
         cur = build_norm(inpL,
@@ -164,8 +164,8 @@ llama_model_granite::graph::graph(
             model, n_embd_head, il);
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur   = lm_ggml_get_rows(ctx0,   cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
         // ffn
         cur = build_layer_ffn(cur, inpSA, model, il);
@@ -186,16 +186,16 @@ llama_model_granite::graph::graph(
     cur = build_lora_mm(model.output, cur, model.output_s);
 
     // For Granite architectures - scale logits
-    cur = lm_ggml_scale(ctx0, cur, 1.0f / hparams.f_logit_scale);
+    cur = ggml_scale(ctx0, cur, 1.0f / hparams.f_logit_scale);
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
-lm_ggml_tensor * llama_model_granite::graph::build_attention_layer(
-          lm_ggml_tensor             * cur,
-          lm_ggml_tensor             * inp_pos,
+ggml_tensor * llama_model_granite::graph::build_attention_layer(
+          ggml_tensor             * cur,
+          ggml_tensor             * inp_pos,
           llm_graph_input_attn_kv * inp_attn,
     const llama_model             & model,
     const int64_t                 n_embd_head,
@@ -205,14 +205,14 @@ lm_ggml_tensor * llama_model_granite::graph::build_attention_layer(
             n_embd_head, hparams.n_head(il), hparams.n_head_kv(il), il);
 
     if (hparams.has_rope(il)) {
-        lm_ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
-        Qcur = lm_ggml_rope_ext(
+        ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+        Qcur = ggml_rope_ext(
                 ctx0, Qcur, inp_pos, rope_factors,
                 n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                 ext_factor, attn_factor, beta_fast, beta_slow
                 );
 
-        Kcur = lm_ggml_rope_ext(
+        Kcur = ggml_rope_ext(
                 ctx0, Kcur, inp_pos, rope_factors,
                 n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                 ext_factor, attn_factor, beta_fast, beta_slow
@@ -231,17 +231,17 @@ lm_ggml_tensor * llama_model_granite::graph::build_attention_layer(
     return cur;
 }
 
-lm_ggml_tensor * llama_model_granite::graph::build_layer_ffn(
-          lm_ggml_tensor       * cur,
-          lm_ggml_tensor       * inpSA,
+ggml_tensor * llama_model_granite::graph::build_layer_ffn(
+          ggml_tensor       * cur,
+          ggml_tensor       * inpSA,
     const llama_model       & model,
     const int                 il) {
 
     // For Granite architectures - scale residual
     if (hparams.f_residual_scale) {
-        cur = lm_ggml_scale(ctx0, cur, hparams.f_residual_scale);
+        cur = ggml_scale(ctx0, cur, hparams.f_residual_scale);
     }
-    lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+    ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
     cb(ffn_inp, "ffn_inp", il);
 
     // feed-forward network (non-MoE)
@@ -267,7 +267,7 @@ lm_ggml_tensor * llama_model_granite::graph::build_layer_ffn(
                 LLM_NORM_RMS, il);
                 cb(cur, "ffn_norm", il);
 
-        lm_ggml_tensor * moe_out = build_moe_ffn(cur,
+        ggml_tensor * moe_out = build_moe_ffn(cur,
                 model.layers[il].ffn_gate_inp,
                 model.layers[il].ffn_up_exps,
                 model.layers[il].ffn_gate_exps,
@@ -282,7 +282,7 @@ lm_ggml_tensor * llama_model_granite::graph::build_layer_ffn(
 
         // For Granite MoE Shared
         if (hparams.n_ff_shexp > 0) {
-            lm_ggml_tensor * ffn_shexp = build_ffn(cur,
+            ggml_tensor * ffn_shexp = build_ffn(cur,
                 model.layers[il].ffn_up_shexp,   NULL, NULL,
                 model.layers[il].ffn_gate_shexp, NULL, NULL,
                 model.layers[il].ffn_down_shexp, NULL, NULL,
@@ -290,7 +290,7 @@ lm_ggml_tensor * llama_model_granite::graph::build_layer_ffn(
                 LLM_FFN_SILU, LLM_FFN_PAR, il);
             cb(ffn_shexp, "ffn_shexp", il);
 
-            cur = lm_ggml_add(ctx0, moe_out, ffn_shexp);
+            cur = ggml_add(ctx0, moe_out, ffn_shexp);
             cb(cur, "ffn_out", il);
         } else {
             cur = moe_out;
@@ -299,9 +299,9 @@ lm_ggml_tensor * llama_model_granite::graph::build_layer_ffn(
 
     // For Granite architectures - scale residual
     if (hparams.f_residual_scale) {
-        cur = lm_ggml_scale(ctx0, cur, hparams.f_residual_scale);
+        cur = ggml_scale(ctx0, cur, hparams.f_residual_scale);
     }
-    cur = lm_ggml_add(ctx0, cur, ffn_inp);
+    cur = ggml_add(ctx0, cur, ffn_inp);
     cb(cur, "ffn_out", il);
 
     cur = build_cvec(cur, il);

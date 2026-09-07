@@ -14,8 +14,8 @@ class llama_kv_cache_dsa_iswa : public llama_memory_i {
 public:
     llama_kv_cache_dsa_iswa(
             const llama_model & model,
-                    lm_ggml_type   type_k,
-                    lm_ggml_type   type_v,
+                    ggml_type   type_k,
+                    ggml_type   type_v,
                          bool   v_trans,
                          bool   offload,
                          bool   swa_full,
@@ -56,7 +56,7 @@ public:
     llama_pos seq_pos_min(llama_seq_id seq_id) const override;
     llama_pos seq_pos_max(llama_seq_id seq_id) const override;
 
-    std::map<lm_ggml_backend_buffer_type_t, size_t> memory_breakdown() const override;
+    std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const override;
 
     // state write/load
 

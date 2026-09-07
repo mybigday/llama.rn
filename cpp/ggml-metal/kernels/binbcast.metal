@@ -8,7 +8,7 @@ constant bool  FC_bin_cb [[function_constant(FC_BIN + 3)]];
 
 template <typename T0, typename T1, typename T>
 kernel void kernel_bin_fuse_impl(
-        constant lm_ggml_metal_kargs_bin & args,
+        constant ggml_metal_kargs_bin & args,
         device const char * src0,
         device const char * src1,
         device       char * dst,
@@ -167,7 +167,7 @@ template [[host_name("kernel_bin_fuse_f16_f16_f16")]]   kernel kernel_bin_fuse_t
 template [[host_name("kernel_bin_fuse_f16_f16_f16_4")]] kernel kernel_bin_fuse_t kernel_bin_fuse_impl<half4,  half4,  half4>;
 
 kernel void kernel_add_id(
-        constant lm_ggml_metal_kargs_add_id & args,
+        constant ggml_metal_kargs_add_id & args,
         device const char * src0,
         device const char * src1,
         device const char * src2,
@@ -194,7 +194,7 @@ kernel void kernel_add_id(
 
 template<typename T>
 kernel void kernel_repeat(
-        constant lm_ggml_metal_kargs_repeat & args,
+        constant ggml_metal_kargs_repeat & args,
         device const char * src0,
         device       char * dst,
         uint3   tgpig[[threadgroup_position_in_grid]],
@@ -221,7 +221,7 @@ typedef decltype(kernel_repeat<float>) kernel_repeat_t;
 
 template [[host_name("kernel_repeat_f32")]] kernel kernel_repeat_t kernel_repeat<float>;
 template [[host_name("kernel_repeat_f16")]] kernel kernel_repeat_t kernel_repeat<half>;
-#if defined(LM_GGML_METAL_HAS_BF16)
+#if defined(GGML_METAL_HAS_BF16)
 template [[host_name("kernel_repeat_bf16")]] kernel kernel_repeat_t kernel_repeat<bfloat>;
 #endif
 template [[host_name("kernel_repeat_i32")]] kernel kernel_repeat_t kernel_repeat<int>;

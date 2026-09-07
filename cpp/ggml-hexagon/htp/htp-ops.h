@@ -13,7 +13,7 @@ enum htp_status {
     HTP_STATUS_VTCM_TOO_SMALL = 5,
 };
 
-// First set of values must match the lm_ggml_type.
+// First set of values must match the ggml_type.
 // Duplicated here because we can't include full ggml.h in the htp build.
 // We have some static_asserts in the cpp code to ensure things are in sync.
 enum htp_data_type {
@@ -98,10 +98,10 @@ enum htp_op_code {
     HTP_OP_INVALID
 };
 
-#define HTP_OP_MAX_DIMS    4    // aka LM_GGML_MAX_DIMS
-#define HTP_OP_MAX_INPUTS  10   // aka LM_GGML_MAX_SRCS
+#define HTP_OP_MAX_DIMS    4    // aka GGML_MAX_DIMS
+#define HTP_OP_MAX_INPUTS  10   // aka GGML_MAX_SRCS
 #define HTP_OP_MAX_OUTPUTS 4
-#define HTP_OP_MAX_PARAMS  16   // aka LM_GGML_MAX_OP_PARAMS
+#define HTP_OP_MAX_PARAMS  16   // aka GGML_MAX_OP_PARAMS
 #define HTP_OP_MAX_KERN_PARAMS 32
 
 #define HTP_OP_MAX_BUFS    16
@@ -129,7 +129,7 @@ struct htp_tensor {
     uint16_t bi;                   // Buffer index
     uint16_t ti;                   // Tensor index
     uint32_t ne[HTP_OP_MAX_DIMS];  // Number of elements
-    uint32_t nb[HTP_OP_MAX_DIMS];  // Stride in bytes (see ggml.h lm_ggml_tensor)
+    uint32_t nb[HTP_OP_MAX_DIMS];  // Stride in bytes (see ggml.h ggml_tensor)
 };
 
 // Buffer descriptor

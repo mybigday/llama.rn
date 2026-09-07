@@ -21,7 +21,7 @@ void llama_model_cohere2moe::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_EXPERT_GATING_FUNC,          hparams.expert_gating_func, false);
 
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS,        hparams.n_layer_nextn, false);
-    LM_GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer");
+    GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer");
 
     if (hparams.expert_gating_func == LLAMA_EXPERT_GATING_FUNC_TYPE_NONE) {
         hparams.expert_gating_func = LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID;
@@ -160,17 +160,17 @@ std::unique_ptr<llm_graph_context> llama_model_cohere2moe::build_arch_graph(cons
 llama_model_cohere2moe::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
-    LM_GGML_ASSERT(n_embd_head == n_rot);
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == n_rot);
 
     const llm_norm_type cohere2moe_norm_type = hparams.f_norm_rms_eps == 0.0f ? LLM_NORM : LLM_NORM_RMS;
     const float f_logit_scale = hparams.f_logit_scale;
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL = build_inp_embd(model.tok_embd);
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * cur;
+    ggml_tensor * inpL = build_inp_embd(model.tok_embd);
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv_iswa();
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     // MTP/NextN layers are loaded as extra decoder blocks but not executed in the main pass.
     for (int il = 0; il < n_layer; ++il) {
@@ -181,7 +181,7 @@ llama_model_cohere2moe::graph::graph(const llama_model & model, const llm_graph_
         cur = build_norm(inpL, model.layers[il].attn_norm, nullptr, cohere2moe_norm_type, il);
         cb(cur, "attn_norm", il);
 
-        lm_ggml_tensor * ffn_inp = cur;
+        ggml_tensor * ffn_inp = cur;
 
         {
             const auto & layer = model.layers[il];
@@ -190,14 +190,14 @@ llama_model_cohere2moe::graph::graph(const llama_model & model, const llm_graph_
                     n_embd_head, n_head, n_head_kv, il);
 
             if (is_swa || force_rope) {
-                lm_ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+                ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
-                Qcur = lm_ggml_rope_ext(
+                Qcur = ggml_rope_ext(
                         ctx0, Qcur, inp_pos, rope_factors,
                         n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                         ext_factor, attn_factor, beta_fast, beta_slow);
 
-                Kcur = lm_ggml_rope_ext(
+                Kcur = ggml_rope_ext(
                         ctx0, Kcur, inp_pos, rope_factors,
                         n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                         ext_factor, attn_factor, beta_fast, beta_slow);
@@ -214,12 +214,12 @@ llama_model_cohere2moe::graph::graph(const llama_model & model, const llm_graph_
         }
 
         if (il == n_layer - 1 && inp_out_ids && cparams.embeddings_nextn_masked) {
-            cur     = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpL    = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
-            ffn_inp = lm_ggml_get_rows(ctx0, ffn_inp, inp_out_ids);
+            cur     = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpL    = ggml_get_rows(ctx0, inpL, inp_out_ids);
+            ffn_inp = ggml_get_rows(ctx0, ffn_inp, inp_out_ids);
         }
 
-        lm_ggml_tensor * attn_out = cur;
+        ggml_tensor * attn_out = cur;
 
         const auto & layer = model.layers[il];
 
@@ -249,21 +249,21 @@ llama_model_cohere2moe::graph::graph(const llama_model & model, const llm_graph_
             cb(cur, "ffn_moe_out", il);
 
             if (layer.ffn_up_shexp) {
-                lm_ggml_tensor * ffn_shexp = build_ffn(ffn_inp,
+                ggml_tensor * ffn_shexp = build_ffn(ffn_inp,
                         layer.ffn_up_shexp,   nullptr, layer.ffn_up_shexp_s,
                         layer.ffn_gate_shexp, nullptr, layer.ffn_gate_shexp_s,
                         layer.ffn_down_shexp, nullptr, layer.ffn_down_shexp_s,
                         nullptr, LLM_FFN_SILU, LLM_FFN_PAR, il);
                 cb(ffn_shexp, "ffn_shexp", il);
 
-                cur = lm_ggml_add(ctx0, cur, ffn_shexp);
-                cur = lm_ggml_scale(ctx0, cur, 0.5f);
+                cur = ggml_add(ctx0, cur, ffn_shexp);
+                cur = ggml_scale(ctx0, cur, 0.5f);
                 cb(cur, "ffn_out", il);
             }
         }
 
-        cur = lm_ggml_add(ctx0, cur, inpL);
-        cur = lm_ggml_add(ctx0, cur, attn_out);
+        cur = ggml_add(ctx0, cur, inpL);
+        cur = ggml_add(ctx0, cur, attn_out);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -278,7 +278,7 @@ llama_model_cohere2moe::graph::graph(const llama_model & model, const llm_graph_
     res->t_h_nextn = cur;
 
     if (!cparams.embeddings_nextn_masked && inp_out_ids) {
-        cur = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
+        cur = ggml_get_rows(ctx0, cur, inp_out_ids);
     }
 
     cb(cur, "result_norm", -1);
@@ -287,89 +287,89 @@ llama_model_cohere2moe::graph::graph(const llama_model & model, const llm_graph_
     cur = build_lora_mm(model.output, cur);
 
     if (f_logit_scale) {
-        cur = lm_ggml_scale(ctx0, cur, f_logit_scale);
+        cur = ggml_scale(ctx0, cur, f_logit_scale);
     }
 
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
 llama_model_cohere2moe::graph_mtp::graph_mtp(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
-    LM_GGML_ASSERT(hparams.n_layer_nextn > 0 && "COHERE2MOE MTP requires n_layer_nextn > 0");
-    LM_GGML_ASSERT(hparams.n_layer_nextn == 1 && "COHERE2MOE MTP currently only supports a single MTP block");
+    GGML_ASSERT(hparams.n_layer_nextn > 0 && "COHERE2MOE MTP requires n_layer_nextn > 0");
+    GGML_ASSERT(hparams.n_layer_nextn == 1 && "COHERE2MOE MTP currently only supports a single MTP block");
 
     const int64_t n_embd_head = hparams.n_embd_head_v();
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
-    LM_GGML_ASSERT(n_embd_head == n_rot);
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == n_rot);
 
     const int il = hparams.n_layer();
     const auto & layer = model.layers[il];
-    LM_GGML_ASSERT(layer.nextn.eh_proj && "MTP block missing nextn.eh_proj");
-    LM_GGML_ASSERT(layer.nextn.enorm   && "MTP block missing nextn.enorm");
-    LM_GGML_ASSERT(layer.nextn.hnorm   && "MTP block missing nextn.hnorm");
-    LM_GGML_ASSERT(layer.ffn_gate_inp  && "MTP block missing ffn_gate_inp");
+    GGML_ASSERT(layer.nextn.eh_proj && "MTP block missing nextn.eh_proj");
+    GGML_ASSERT(layer.nextn.enorm   && "MTP block missing nextn.enorm");
+    GGML_ASSERT(layer.nextn.hnorm   && "MTP block missing nextn.hnorm");
+    GGML_ASSERT(layer.ffn_gate_inp  && "MTP block missing ffn_gate_inp");
 
     const llm_norm_type cohere2moe_norm_type = hparams.f_norm_rms_eps == 0.0f ? LLM_NORM : LLM_NORM_RMS;
 
     // TODO: extract in a common llm_graph_context::build_inp_embd_h()
     auto inp = std::make_unique<llm_graph_input_embd_h>(hparams.n_embd);
 
-    inp->tokens = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, n_tokens);
-    lm_ggml_set_input(inp->tokens);
+    inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_tokens);
+    ggml_set_input(inp->tokens);
 
-    inp->embd = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_F32, hparams.n_embd_inp(), n_tokens);
-    lm_ggml_set_input(inp->embd);
+    inp->embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, hparams.n_embd_inp(), n_tokens);
+    ggml_set_input(inp->embd);
 
-    // TODO: make static using `lm_ggml_build_forward_select()`
+    // TODO: make static using `ggml_build_forward_select()`
     //       see llm_graph_context::build_inp_embd() for reference
-    lm_ggml_tensor * tok_embd;
+    ggml_tensor * tok_embd;
     if (ubatch.token) {
-        lm_ggml_tensor * tok_embd_w = layer.nextn.embed_tokens ? layer.nextn.embed_tokens : model.tok_embd;
-        tok_embd = lm_ggml_get_rows(ctx0, tok_embd_w, inp->tokens);
+        ggml_tensor * tok_embd_w = layer.nextn.embed_tokens ? layer.nextn.embed_tokens : model.tok_embd;
+        tok_embd = ggml_get_rows(ctx0, tok_embd_w, inp->tokens);
     } else {
         tok_embd = inp->embd;
     }
     cb(tok_embd, "mtp_tok_embd", il);
 
-    inp->h = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_F32, hparams.n_embd, n_tokens);
-    lm_ggml_set_input(inp->h);
-    lm_ggml_set_name(inp->h, "mtp_h_input");
+    inp->h = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, hparams.n_embd, n_tokens);
+    ggml_set_input(inp->h);
+    ggml_set_name(inp->h, "mtp_h_input");
 
-    lm_ggml_tensor * h_embd = inp->h;
+    ggml_tensor * h_embd = inp->h;
 
     res->add_input(std::move(inp));
 
-    lm_ggml_tensor * inp_pos     = build_inp_pos();
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_pos     = build_inp_pos();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
     auto * inp_attn = build_attn_inp_kv_iswa();
 
-    lm_ggml_tensor * h_norm = build_norm(h_embd, layer.nextn.hnorm, nullptr, cohere2moe_norm_type, il);
+    ggml_tensor * h_norm = build_norm(h_embd, layer.nextn.hnorm, nullptr, cohere2moe_norm_type, il);
     cb(h_norm, "mtp_hnorm", il);
 
-    lm_ggml_tensor * e_norm = build_norm(tok_embd, layer.nextn.enorm, nullptr, cohere2moe_norm_type, il);
+    ggml_tensor * e_norm = build_norm(tok_embd, layer.nextn.enorm, nullptr, cohere2moe_norm_type, il);
     cb(e_norm, "mtp_enorm", il);
 
-    lm_ggml_tensor * concat = lm_ggml_concat(ctx0, e_norm, h_norm, /*dim=*/ 0);
+    ggml_tensor * concat = ggml_concat(ctx0, e_norm, h_norm, /*dim=*/ 0);
     cb(concat, "mtp_concat", il);
 
-    lm_ggml_tensor * cur = build_lora_mm(layer.nextn.eh_proj, concat, layer.nextn.eh_proj_s);
+    ggml_tensor * cur = build_lora_mm(layer.nextn.eh_proj, concat, layer.nextn.eh_proj_s);
     cb(cur, "mtp_eh_proj", il);
 
-    lm_ggml_tensor * inpL = cur;
+    ggml_tensor * inpL = cur;
 
     cur = build_norm(cur, layer.attn_norm, nullptr, cohere2moe_norm_type, il);
     cb(cur, "mtp_attn_norm", il);
-    lm_ggml_tensor * ffn_inp = cur;
+    ggml_tensor * ffn_inp = cur;
 
     auto [Qcur, Kcur, Vcur] = build_qkv(layer, cur, n_embd_head, n_head, n_head_kv, il);
-    lm_ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
-    Qcur = lm_ggml_rope_ext(
+    ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+    Qcur = ggml_rope_ext(
             ctx0, Qcur, inp_pos, rope_factors,
             n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
             ext_factor, attn_factor, beta_fast, beta_slow);
-    Kcur = lm_ggml_rope_ext(
+    Kcur = ggml_rope_ext(
             ctx0, Kcur, inp_pos, rope_factors,
             n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
             ext_factor, attn_factor, beta_fast, beta_slow);
@@ -384,7 +384,7 @@ llama_model_cohere2moe::graph_mtp::graph_mtp(const llama_model & model, const ll
             1.0f / sqrtf(float(n_embd_head)), il);
     cb(cur, "mtp_attn_out", il);
 
-    lm_ggml_tensor * attn_out = cur;
+    ggml_tensor * attn_out = cur;
 
     cur = build_moe_ffn(ffn_inp,
             layer.ffn_gate_inp,
@@ -404,44 +404,44 @@ llama_model_cohere2moe::graph_mtp::graph_mtp(const llama_model & model, const ll
     cb(cur, "mtp_ffn_moe_out", il);
 
     if (layer.ffn_up_shexp) {
-        lm_ggml_tensor * ffn_shexp = build_ffn(ffn_inp,
+        ggml_tensor * ffn_shexp = build_ffn(ffn_inp,
                 layer.ffn_up_shexp,   nullptr, layer.ffn_up_shexp_s,
                 layer.ffn_gate_shexp, nullptr, layer.ffn_gate_shexp_s,
                 layer.ffn_down_shexp, nullptr, layer.ffn_down_shexp_s,
                 nullptr, LLM_FFN_SILU, LLM_FFN_PAR, il);
         cb(ffn_shexp, "mtp_ffn_shexp", il);
 
-        cur = lm_ggml_add(ctx0, cur, ffn_shexp);
-        cur = lm_ggml_scale(ctx0, cur, 0.5f);
+        cur = ggml_add(ctx0, cur, ffn_shexp);
+        cur = ggml_scale(ctx0, cur, 0.5f);
         cb(cur, "mtp_ffn_out", il);
     }
 
-    cur = lm_ggml_add(ctx0, cur, inpL);
-    cur = lm_ggml_add(ctx0, cur, attn_out);
+    cur = ggml_add(ctx0, cur, inpL);
+    cur = ggml_add(ctx0, cur, attn_out);
     cb(cur, "mtp_post_ffn", il);
 
-    lm_ggml_tensor * head_norm_w = layer.nextn.shared_head_norm
+    ggml_tensor * head_norm_w = layer.nextn.shared_head_norm
             ? layer.nextn.shared_head_norm
             : model.output_norm;
-    LM_GGML_ASSERT(head_norm_w && "COHERE2MOE MTP: missing both nextn.shared_head_norm and output_norm");
+    GGML_ASSERT(head_norm_w && "COHERE2MOE MTP: missing both nextn.shared_head_norm and output_norm");
     cur = build_norm(cur, head_norm_w, nullptr, cohere2moe_norm_type, -1);
 
     cb(cur, "h_nextn", -1);
     res->t_h_nextn = cur;
 
-    cur = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
+    cur = ggml_get_rows(ctx0, cur, inp_out_ids);
     cb(cur, "mtp_shared_head_norm", -1);
 
-    lm_ggml_tensor * head_w = layer.nextn.shared_head_head ? layer.nextn.shared_head_head : model.output;
-    LM_GGML_ASSERT(head_w && "COHERE2MOE MTP: missing LM head (nextn.shared_head_head or model.output)");
+    ggml_tensor * head_w = layer.nextn.shared_head_head ? layer.nextn.shared_head_head : model.output;
+    GGML_ASSERT(head_w && "COHERE2MOE MTP: missing LM head (nextn.shared_head_head or model.output)");
     cur = build_lora_mm(head_w, cur, layer.nextn.shared_head_head ? layer.nextn.shared_head_head_s : nullptr);
 
     if (hparams.f_logit_scale) {
-        cur = lm_ggml_scale(ctx0, cur, hparams.f_logit_scale);
+        cur = ggml_scale(ctx0, cur, hparams.f_logit_scale);
     }
 
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

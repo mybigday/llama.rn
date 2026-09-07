@@ -1,4 +1,4 @@
-#define CL_TARGET_OPENCL_VERSION LM_GGML_OPENCL_TARGET_VERSION
+#define CL_TARGET_OPENCL_VERSION GGML_OPENCL_TARGET_VERSION
 #define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 
 // suppress warnings in CL headers for GCC and Clang
@@ -15,14 +15,14 @@
 
 #include "cl-program-cache.h"
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_BIN_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_BIN_KERNELS
 #include "libdl.h"
 #ifdef _WIN32
 #define KERNEL_LIB_NAME "adreno-opencl-kernels.dll"
 #else
 #define KERNEL_LIB_NAME "libadreno-opencl-kernels.so"
 #endif // _WIN32
-#endif // LM_GGML_OPENCL_USE_ADRENO_BIN_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_BIN_KERNELS
 
 typedef const void * (*get_adreno_bin_kernel_func_t)(
     const char * name,
@@ -62,9 +62,9 @@ typedef const void * (*get_adreno_bin_kernel_func_t)(
     do {                                                            \
         cl_int err_ = (err);                                        \
         if (err_ != CL_SUCCESS) {                                   \
-            LM_GGML_LOG_ERROR("lm_ggml_opencl: %s error %d at %s:%d\n",  \
+            GGML_LOG_ERROR("ggml_opencl: %s error %d at %s:%d\n",  \
                 #err, err_, __FILE__, __LINE__);                    \
-            LM_GGML_ASSERT(0);                                         \
+            GGML_ASSERT(0);                                         \
         }                                                           \
     } while (0)
 
@@ -72,11 +72,11 @@ typedef const void * (*get_adreno_bin_kernel_func_t)(
 // OpenCL
 //------------------------------------------------------------------------------
 
-bool lm_ggml_cl_compute_forward(lm_ggml_backend_t backend, struct lm_ggml_tensor * tensor);
+bool ggml_cl_compute_forward(ggml_backend_t backend, struct ggml_tensor * tensor);
 
-static bool lm_ggml_cl_is_q4_0_soa(const lm_ggml_tensor * tensor);
-static bool lm_ggml_cl_is_q8_0_soa(const lm_ggml_tensor * tensor);
-static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst);
+static bool ggml_cl_is_q4_0_soa(const ggml_tensor * tensor);
+static bool ggml_cl_is_q8_0_soa(const ggml_tensor * tensor);
+static void ggml_cl_mul_mat(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst);
 
 // See https://gmplib.org/~tege/divcnst-pldi94.pdf figure 4.1.
 // Precompute mp (m' in the paper) and L such that division
@@ -93,8 +93,8 @@ struct fastdiv_vals {
 static_assert(sizeof(fastdiv_vals) == 16, "fastdiv_vals size incorrect");
 
 static fastdiv_vals init_fastdiv_values(uint64_t d_64) {
-    LM_GGML_ASSERT(d_64 != 0);
-    LM_GGML_ASSERT(d_64 <= std::numeric_limits<uint32_t>::max());
+    GGML_ASSERT(d_64 != 0);
+    GGML_ASSERT(d_64 <= std::numeric_limits<uint32_t>::max());
 
     uint32_t d = (uint32_t)d_64;
 
@@ -130,13 +130,13 @@ enum ADRENO_CL_COMPILER_TYPE {
     DX,
 };
 
-struct lm_ggml_cl_version {
+struct ggml_cl_version {
     cl_uint major = 0;
     cl_uint minor = 0;
 };
 
 
-struct lm_ggml_cl_compiler_version {
+struct ggml_cl_compiler_version {
     ADRENO_CL_COMPILER_TYPE type;
     int major = -1;
     int minor = -1;
@@ -154,15 +154,15 @@ struct lm_ggml_cl_compiler_version {
 };
 
 static size_t align_to(size_t value, size_t to_alignment) {
-    LM_GGML_ASSERT(to_alignment && "Invalid alignment (must be non-zero)");
-    LM_GGML_ASSERT((to_alignment & (to_alignment - 1)) == 0 && "to_alignment must be power-of-two");
+    GGML_ASSERT(to_alignment && "Invalid alignment (must be non-zero)");
+    GGML_ASSERT((to_alignment & (to_alignment - 1)) == 0 && "to_alignment must be power-of-two");
 
     return ((value + to_alignment - 1) / to_alignment) * to_alignment;
 }
 
 
-// Parses a version string of form "XX.YY ". On an error returns lm_ggml_cl_version with all zeroes.
-static lm_ggml_cl_version parse_cl_version(std::string_view str) {
+// Parses a version string of form "XX.YY ". On an error returns ggml_cl_version with all zeroes.
+static ggml_cl_version parse_cl_version(std::string_view str) {
     size_t major_str_begin = 0;
     size_t major_str_end   = str.find(".", major_str_begin);
     if (major_str_end == std::string::npos) {
@@ -187,8 +187,8 @@ static lm_ggml_cl_version parse_cl_version(std::string_view str) {
     return { version_major, version_minor };
 }
 
-// Returns OpenCL platform's version. On an error returns lm_ggml_cl_version with all zeroes.
-static lm_ggml_cl_version get_opencl_platform_version(cl_platform_id platform) {
+// Returns OpenCL platform's version. On an error returns ggml_cl_version with all zeroes.
+static ggml_cl_version get_opencl_platform_version(cl_platform_id platform) {
     size_t param_size;
     CL_CHECK(clGetPlatformInfo(platform, CL_PLATFORM_VERSION, 0, nullptr, &param_size));
     std::unique_ptr<char[]> param_storage(new char[param_size]);
@@ -203,8 +203,8 @@ static lm_ggml_cl_version get_opencl_platform_version(cl_platform_id platform) {
     return parse_cl_version(param_value);
 }
 
-// Return a version to use in OpenCL C compilation. On an error returns lm_ggml_cl_version with all zeroes.
-static lm_ggml_cl_version get_opencl_c_version(lm_ggml_cl_version platform_version, cl_device_id device) {
+// Return a version to use in OpenCL C compilation. On an error returns ggml_cl_version with all zeroes.
+static ggml_cl_version get_opencl_c_version(ggml_cl_version platform_version, cl_device_id device) {
     size_t param_size;
 
 #if CL_TARGET_OPENCL_VERSION >= 300
@@ -226,7 +226,7 @@ static lm_ggml_cl_version get_opencl_c_version(lm_ggml_cl_version platform_versi
         return { CL_VERSION_MAJOR(version_max), CL_VERSION_MINOR(version_max) };
     }
 #else
-    LM_GGML_UNUSED(platform_version);
+    GGML_UNUSED(platform_version);
 #endif  // CL_TARGET_OPENCL_VERSION >= 300
 
     CL_CHECK(clGetDeviceInfo(device, CL_DEVICE_OPENCL_C_VERSION, 0, nullptr, &param_size));
@@ -285,7 +285,7 @@ static ADRENO_GPU_GEN get_adreno_gpu_gen(const char *device_name) {
     return ADRENO_GPU_GEN::ADRENO_UNKNOWN;
 }
 
-static lm_ggml_cl_compiler_version get_adreno_cl_compiler_version(const char *driver_version) {
+static ggml_cl_compiler_version get_adreno_cl_compiler_version(const char *driver_version) {
     std::string driver_ver_str(driver_version);
     ADRENO_CL_COMPILER_TYPE type = ADRENO_CL_COMPILER_TYPE::E031;
     size_t compiler_ver_pos = driver_ver_str.find("E031");
@@ -325,14 +325,14 @@ static lm_ggml_cl_compiler_version get_adreno_cl_compiler_version(const char *dr
 }
 
 // cl buffer wrapper
-struct lm_ggml_cl_buffer {
+struct ggml_cl_buffer {
     cl_mem buffer;
     size_t size;
 
-    lm_ggml_cl_buffer()
+    ggml_cl_buffer()
         : buffer(nullptr), size(0) {}
 
-    ~lm_ggml_cl_buffer() {
+    ~ggml_cl_buffer() {
         if (buffer) {
             CL_CHECK(clReleaseMemObject(buffer));
         }
@@ -385,7 +385,7 @@ struct ProfilingInfo {
 static void populateProfilingInfo(
         ProfilingInfo& info, cl_event evt, cl_kernel kernel, cl_uint work_dim,
         size_t global_size[3], size_t local_size[3],
-        const lm_ggml_tensor * tensor) {
+        const ggml_tensor * tensor) {
     info.op_name     = tensor->name;
     info.kernel      = kernel;
     info.evt         = evt;
@@ -415,10 +415,10 @@ static void populateProfilingInfo(
     info.output_size[3] = tensor->ne[3];
 }
 
-struct lm_ggml_backend_opencl_context;
+struct ggml_backend_opencl_context;
 
 // backend device context
-struct lm_ggml_backend_opencl_device_context {
+struct ggml_backend_opencl_device_context {
     cl_platform_id platform;
     std::string platform_name;
 
@@ -427,11 +427,11 @@ struct lm_ggml_backend_opencl_device_context {
     cl_device_type device_type;
     std::string    device_version;
 
-    // Initialized by lm_ggml_cl_init().
-    lm_ggml_backend_opencl_context * backend_ctx = nullptr;
+    // Initialized by ggml_cl_init().
+    ggml_backend_opencl_context * backend_ctx = nullptr;
 
-    // Initialized by lm_ggml_backend_opencl_device_get_buffer_type()
-    lm_ggml_backend_buffer_type buffer_type;
+    // Initialized by ggml_backend_opencl_device_get_buffer_type()
+    ggml_backend_buffer_type buffer_type;
 
     cl_context context = nullptr;
 
@@ -446,7 +446,7 @@ struct lm_ggml_backend_opencl_device_context {
 // Lazily-compiled flash-attention kernels and their per-(dk,dv) tile metadata.
 // One map per (Q/KV dtype, decode/prefill, split) combination; the int maps
 // hold tile dims (bm/bn), workgroup sizes and the n_kv split thresholds.
-struct lm_ggml_opencl_fa_kernels {
+struct ggml_opencl_fa_kernels {
     // f16 Q / f16 KV
     std::map<std::pair<int, int>, cl_kernel> f16;
     std::map<std::pair<int, int>, cl_kernel> f16_q1;
@@ -538,14 +538,14 @@ struct lm_ggml_opencl_fa_kernels {
 };
 
 // backend context
-struct lm_ggml_backend_opencl_context {
+struct ggml_backend_opencl_context {
     int ref_count;
 
     cl_device_id device;
     std::string device_name;
 
-    lm_ggml_cl_version platform_version;
-    lm_ggml_cl_version opencl_c_version;
+    ggml_cl_version platform_version;
+    ggml_cl_version opencl_c_version;
 
     // argsort is loaded in supports_op because its availability depends on how
     // many workgroups are allowed, which requires kernel compilation.
@@ -587,7 +587,7 @@ struct lm_ggml_backend_opencl_context {
     bool adreno_use_large_buffer;
     bool adreno_use_bin_kernels;
     get_adreno_bin_kernel_func_t get_adreno_bin_kernel_func = nullptr;
-    lm_ggml_cl_compiler_version adreno_cl_compiler_version;
+    ggml_cl_compiler_version adreno_cl_compiler_version;
     // The q6_K flat mul_mat codegen workarounds are needed by old E031 compilers only.
     bool q6_k_flat_old_compiler;
 
@@ -605,20 +605,20 @@ struct lm_ggml_backend_opencl_context {
     cl_context context;
     cl_command_queue queue;
 
-    // On-disk compiled-program cache (see LM_GGML_OPENCL_KERNEL_CACHE_DIR).
+    // On-disk compiled-program cache (see GGML_OPENCL_KERNEL_CACHE_DIR).
     cl_program_cache_state program_cache;
     bool program_cache_initialized = false;
 
     // prealloc buffers for transposing weights and activations
-    lm_ggml_cl_buffer prealloc_quant_trans;
-    lm_ggml_cl_buffer prealloc_scales_trans;
-    lm_ggml_cl_buffer prealloc_act_trans;
+    ggml_cl_buffer prealloc_quant_trans;
+    ggml_cl_buffer prealloc_scales_trans;
+    ggml_cl_buffer prealloc_act_trans;
     // q8_1-quantized reordered MoE activations for the dp4a prefill GEMM.
-    lm_ggml_cl_buffer prealloc_moe_qa;   // int8 quants  [tok_slots * ne00]
-    lm_ggml_cl_buffer prealloc_moe_da;   // per-block d  [tok_slots * ne00/32] (half)
-    lm_ggml_cl_buffer prealloc_moe_sa;   // per-block s  [tok_slots * ne00/32] (half)
+    ggml_cl_buffer prealloc_moe_qa;   // int8 quants  [tok_slots * ne00]
+    ggml_cl_buffer prealloc_moe_da;   // per-block d  [tok_slots * ne00/32] (half)
+    ggml_cl_buffer prealloc_moe_sa;   // per-block s  [tok_slots * ne00/32] (half)
     // scratch copy of the router weights to avoid dst aliasing
-    lm_ggml_cl_buffer prealloc_moe_combine_w;
+    ggml_cl_buffer prealloc_moe_combine_w;
 
     // pool of persistent image1d_buffer views over kv-cache layers, keyed by
     // (parent buffer, offset within parent)
@@ -645,22 +645,22 @@ struct lm_ggml_backend_opencl_context {
     std::map<ImagePoolKey, ImagePoolEntry> dequant_f16_pool;
 
     // prealloc buffers for src0 and src1
-    lm_ggml_cl_buffer prealloc_src0;
-    lm_ggml_cl_buffer prealloc_src1;
+    ggml_cl_buffer prealloc_src0;
+    ggml_cl_buffer prealloc_src1;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    lm_ggml_cl_buffer prealloc_adreno_xmem_const;
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    ggml_cl_buffer prealloc_adreno_xmem_const;
     bool adreno_xmem_gemm_enabled = false;
 #endif
 
     // prealloc buffers for MoE router table preprocess
     bool toggle_reorder = false;
-    lm_ggml_cl_buffer prealloc_post_router;
-    lm_ggml_cl_buffer prealloc_emap;
-    lm_ggml_cl_buffer prealloc_hist;
-    lm_ggml_cl_buffer prealloc_tile_offset;
-    lm_ggml_cl_buffer prealloc_total_tiles;
-    lm_ggml_cl_buffer prealloc_slot_counter;
+    ggml_cl_buffer prealloc_post_router;
+    ggml_cl_buffer prealloc_emap;
+    ggml_cl_buffer prealloc_hist;
+    ggml_cl_buffer prealloc_tile_offset;
+    ggml_cl_buffer prealloc_total_tiles;
+    ggml_cl_buffer prealloc_slot_counter;
 
     cl_program program_add;
     cl_program program_add_id;
@@ -754,7 +754,7 @@ struct lm_ggml_backend_opencl_context {
     cl_kernel kernel_diag_f32;
     cl_kernel kernel_soft_max, kernel_soft_max_4;
     cl_kernel kernel_soft_max_f16, kernel_soft_max_4_f16;
-    lm_ggml_opencl_fa_kernels fa;
+    ggml_opencl_fa_kernels fa;
     cl_kernel kernel_get_rows_f32, kernel_get_rows_f16, kernel_get_rows_q4_0;
     cl_kernel kernel_set_rows_f32_i64, kernel_set_rows_f32_i32, kernel_set_rows_f16_i64, kernel_set_rows_f16_i32;
     cl_kernel kernel_set_rows_q8_0_i64, kernel_set_rows_q8_0_i32;
@@ -985,7 +985,7 @@ struct lm_ggml_backend_opencl_context {
         // Dump a csv
         FILE * fperf = fopen("cl_profiling.csv", "w");
         if (!fperf) {
-            LM_GGML_LOG_ERROR("Failed to open cl_profiling.csv\n");
+            GGML_LOG_ERROR("Failed to open cl_profiling.csv\n");
             return;
         }
 
@@ -1003,7 +1003,7 @@ struct lm_ggml_backend_opencl_context {
         // Dump a simple chrome trace
         FILE * ftrace = fopen("cl_trace.json", "w");
         if (!ftrace) {
-            LM_GGML_LOG_ERROR("Failed to open cl_trace.json\n");
+            GGML_LOG_ERROR("Failed to open cl_trace.json\n");
             return;
         }
 
@@ -1029,12 +1029,12 @@ struct lm_ggml_backend_opencl_context {
         CL_CHECK(
             clGetKernelWorkGroupInfo(kernel, device, CL_KERNEL_WORK_GROUP_SIZE,
                 sizeof(size_t), &workgroup_size, &ret_size));
-        LM_GGML_ASSERT(sizeof(size_t) == ret_size);
+        GGML_ASSERT(sizeof(size_t) == ret_size);
         return workgroup_size;
     }
 
-    void enqueue_ndrange_kernel(cl_kernel kernel, cl_uint work_dim, size_t *global_work_size, size_t *local_work_size, const lm_ggml_tensor * tensor) {
-#ifdef LM_GGML_OPENCL_PROFILING
+    void enqueue_ndrange_kernel(cl_kernel kernel, cl_uint work_dim, size_t *global_work_size, size_t *local_work_size, const ggml_tensor * tensor) {
+#ifdef GGML_OPENCL_PROFILING
         cl_event evt;
         CL_CHECK(clEnqueueNDRangeKernel(queue, kernel, work_dim, NULL, global_work_size, local_work_size, 0, NULL, &evt));
 
@@ -1044,7 +1044,7 @@ struct lm_ggml_backend_opencl_context {
             flush_profiling_batch();
         }
 #else
-        LM_GGML_UNUSED(tensor);
+        GGML_UNUSED(tensor);
         CL_CHECK(clEnqueueNDRangeKernel(queue, kernel, work_dim, NULL, global_work_size, local_work_size, 0, NULL, NULL));
 #endif
     }
@@ -1063,7 +1063,7 @@ struct lm_ggml_backend_opencl_context {
         return kernel_bin;
     }
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
     // Transpose kernels
     cl_program program_transpose;
 
@@ -1111,14 +1111,14 @@ struct lm_ggml_backend_opencl_context {
     cl_kernel kernel_gemm_noshuffle_iq4_nl_f32;
     cl_kernel kernel_gemm_noshuffle_iq4_nl_q8_1_dp4a = nullptr;  // dp4a (int8) dense IQ4_NL prefill GEMM
     cl_kernel kernel_gemm_noshuffle_q4_0_q8_1_dp4a = nullptr;  // dp4a (int8) dense q4_0 prefill GEMM
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
     void free() {
         clFinish(queue);
 
         ref_count--;
         if (ref_count == 0) {
-#ifdef LM_GGML_OPENCL_PROFILING
+#ifdef GGML_OPENCL_PROFILING
             flush_profiling_batch();
             write_profiling_info();
             profiling_results.clear();
@@ -1143,10 +1143,10 @@ struct lm_ggml_backend_opencl_context {
 };
 
 // All registered devices with a default device in the front.
-static std::vector<lm_ggml_backend_device> g_lm_ggml_backend_opencl_devices;
+static std::vector<ggml_backend_device> g_ggml_backend_opencl_devices;
 // All device contexts associated with the devices above.
 // The devices live as long as the process, so do the contexts.
-static std::vector<std::unique_ptr<lm_ggml_backend_opencl_device_context>> g_lm_ggml_backend_opencl_dev_ctxs;
+static std::vector<std::unique_ptr<ggml_backend_opencl_device_context>> g_ggml_backend_opencl_dev_ctxs;
 
 inline std::string read_file(const std::string &path) {
     std::ifstream ifs(path);
@@ -1167,7 +1167,7 @@ inline std::string read_file(const std::string &path) {
 // for FA programs, do clFinish the queue to free up resources, then rebuild (up to 3x)
 // if retry_queue is provided
 static cl_program build_program_from_source_ex(cl_context ctx, cl_device_id dev, const char* program_buffer, const std::string &compile_opts, bool fatal, const char *tag = nullptr, cl_command_queue retry_queue = nullptr) {
-    if (tag) { LM_GGML_LOG_INFO("lm_ggml_opencl: compiling %s\n", tag); }
+    if (tag) { GGML_LOG_INFO("ggml_opencl: compiling %s\n", tag); }
     cl_program p;
     char *program_log;
     size_t program_size;
@@ -1180,7 +1180,7 @@ static cl_program build_program_from_source_ex(cl_context ctx, cl_device_id dev,
     for (int attempt = 0; attempt < max_attempts; ++attempt) {
         p = clCreateProgramWithSource(ctx, 1, (const char**)&program_buffer, &program_size, &err);
         if(err < 0) {
-            LM_GGML_LOG_ERROR("OpenCL error creating program");
+            GGML_LOG_ERROR("OpenCL error creating program");
             if (fatal) exit(1);
             return NULL;
         }
@@ -1193,7 +1193,7 @@ static cl_program build_program_from_source_ex(cl_context ctx, cl_device_id dev,
         const bool transient = (err == CL_OUT_OF_HOST_MEMORY || err == CL_OUT_OF_RESOURCES);
         if (retry_queue && transient && attempt + 1 < max_attempts) {
             clReleaseProgram(p);
-            LM_GGML_LOG_WARN("lm_ggml_opencl: transient compile failure (err=%d)%s%s — clFinish + retry (%d/%d)\n",
+            GGML_LOG_WARN("ggml_opencl: transient compile failure (err=%d)%s%s — clFinish + retry (%d/%d)\n",
                 err, tag ? " building " : "", tag ? tag : "", attempt + 2, max_attempts);
             clFinish(retry_queue);  // drain in-flight ops holding driver host-heap
             continue;
@@ -1203,7 +1203,7 @@ static cl_program build_program_from_source_ex(cl_context ctx, cl_device_id dev,
         program_log = (char*) malloc(log_size + 1);
         program_log[log_size] = '\0';
         clGetProgramBuildInfo(p, dev, CL_PROGRAM_BUILD_LOG, log_size + 1, program_log, NULL);
-        LM_GGML_LOG_ERROR("lm_ggml_opencl: kernel compile error (err=%d)%s%s:\n\n%s\n", err, tag ? " building " : "", tag ? tag : "", program_log);
+        GGML_LOG_ERROR("ggml_opencl: kernel compile error (err=%d)%s%s:\n\n%s\n", err, tag ? " building " : "", tag ? tag : "", program_log);
         free(program_log);
         clReleaseProgram(p);
         if (fatal) {
@@ -1214,7 +1214,7 @@ static cl_program build_program_from_source_ex(cl_context ctx, cl_device_id dev,
     return NULL;
 }
 
-static cl_program build_program_from_source(lm_ggml_backend_opencl_context * backend_ctx, const char* program_buffer, const std::string &compile_opts) {
+static cl_program build_program_from_source(ggml_backend_opencl_context * backend_ctx, const char* program_buffer, const std::string &compile_opts) {
     cl_context   ctx = backend_ctx->context;
     cl_device_id dev = backend_ctx->device;
 
@@ -1243,7 +1243,7 @@ static cl_program build_program_from_binary(cl_context ctx, cl_device_id dev, co
 
     p = clCreateProgramWithBinary(ctx, 1, &dev, &bin_size, (const unsigned char**)&program_buffer, NULL, &err);
     if(err < 0) {
-        LM_GGML_LOG_ERROR("OpenCL error creating program from binary");
+        GGML_LOG_ERROR("OpenCL error creating program from binary");
         exit(1);
     }
 
@@ -1253,7 +1253,7 @@ static cl_program build_program_from_binary(cl_context ctx, cl_device_id dev, co
         program_log = (char*) malloc(log_size + 1);
         program_log[log_size] = '\0';
         clGetProgramBuildInfo(p, dev, CL_PROGRAM_BUILD_LOG, log_size + 1, program_log, NULL);
-        LM_GGML_LOG_ERROR("lm_ggml_opencl: kernel compile error:\n\n%s\n", program_log);
+        GGML_LOG_ERROR("ggml_opencl: kernel compile error:\n\n%s\n", program_log);
         free(program_log);
         exit(1);
     }
@@ -1261,7 +1261,7 @@ static cl_program build_program_from_binary(cl_context ctx, cl_device_id dev, co
     return p;
 }
 
-static void load_cl_kernels_argsort(lm_ggml_backend_opencl_context *backend_ctx) {
+static void load_cl_kernels_argsort(ggml_backend_opencl_context *backend_ctx) {
     // compiler options for general kernels
     auto opencl_c_std =
         std::string("CL") + std::to_string(backend_ctx->opencl_c_version.major) + "." + std::to_string(backend_ctx->opencl_c_version.minor);
@@ -1272,7 +1272,7 @@ static void load_cl_kernels_argsort(lm_ggml_backend_opencl_context *backend_ctx)
     // argsort
     if (!backend_ctx->kernels_loaded_argsort) {
         cl_int err;
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "argsort.cl.h"
         };
@@ -1287,18 +1287,18 @@ static void load_cl_kernels_argsort(lm_ggml_backend_opencl_context *backend_ctx)
     }
 }
 
-static bool use_adreno_bin_kernels(lm_ggml_backend_opencl_context * backend_ctx) {
-#ifndef LM_GGML_OPENCL_USE_ADRENO_BIN_KERNELS
+static bool use_adreno_bin_kernels(ggml_backend_opencl_context * backend_ctx) {
+#ifndef GGML_OPENCL_USE_ADRENO_BIN_KERNELS
     return false;
 #else
     if (backend_ctx->gpu_family != GPU_FAMILY::ADRENO) {
         return false;
     }
     return backend_ctx->adreno_use_bin_kernels;
-#endif // LM_GGML_OPENCL_USE_ADRENO_BIN_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_BIN_KERNELS
 }
 
-static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
+static void load_cl_kernels(ggml_backend_opencl_context *backend_ctx) {
     if (backend_ctx->kernels_loaded) {
         return;
     }
@@ -1318,11 +1318,11 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
     backend_ctx->kernel_compile_opts = compile_opts;
 
-    LM_GGML_LOG_INFO("lm_ggml_opencl: loading OpenCL kernels");
+    GGML_LOG_INFO("ggml_opencl: loading OpenCL kernels");
 
     // add
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "add.cl.h"
         };
@@ -1336,12 +1336,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_add_row     = clCreateKernel(backend_ctx->program_add, "kernel_add_row", &err), err));
         CL_CHECK((backend_ctx->kernel_add_f16     = clCreateKernel(backend_ctx->program_add, "kernel_add_f16", &err), err));
         CL_CHECK((backend_ctx->kernel_add_row_f16 = clCreateKernel(backend_ctx->program_add, "kernel_add_row_f16", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // add_id
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "add_id.cl.h"
         };
@@ -1352,12 +1352,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_add_id = clCreateKernel(backend_ctx->program_add_id, "kernel_add_id", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // moe_add_id_glu
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "moe_add_id_glu.cl.h"
         };
@@ -1369,12 +1369,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_add_id_add_id_swiglu_oai =
             clCreateKernel(backend_ctx->program_moe_add_id_glu, "kernel_add_id_add_id_swiglu_oai", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // tri
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "tri.cl.h"
         };
@@ -1385,14 +1385,14 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_tri = clCreateKernel(prog, "kernel_tri_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
 
         CL_CHECK(clReleaseProgram(prog));
     }
 
     // fill
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "fill.cl.h"
         };
@@ -1403,14 +1403,14 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_fill = clCreateKernel(prog, "kernel_fill_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
 
         CL_CHECK(clReleaseProgram(prog));
     }
 
     // clamp
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "clamp.cl.h"
         };
@@ -1421,12 +1421,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_clamp = clCreateKernel(backend_ctx->program_clamp, "kernel_clamp", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // cpy
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "cpy.cl.h"
         };
@@ -1442,12 +1442,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_cpy_f32_f32 = clCreateKernel(prog, "kernel_cpy_f32_f32", &err), err));
         CL_CHECK((backend_ctx->kernel_cpy_f32_f32_pack = clCreateKernel(prog, "kernel_cpy_f32_f32_pack", &err), err));
         CL_CHECK((backend_ctx->kernel_cpy_i32_i32 = clCreateKernel(prog, "kernel_cpy_i32_i32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // cvt
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "cvt.cl.h"
         };
@@ -1520,17 +1520,17 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_restore_block_iq4_nl_noshuffle = clCreateKernel(backend_ctx->program_cvt, "kernel_restore_block_iq4_nl_noshuffle", &err), err));
         CL_CHECK((backend_ctx->kernel_convert_bf16_to_f16 = clCreateKernel(backend_ctx->program_cvt, "kernel_convert_bf16_to_f16", &err), err));
         CL_CHECK((backend_ctx->kernel_convert_f16_to_bf16 = clCreateKernel(backend_ctx->program_cvt, "kernel_convert_f16_to_bf16", &err), err));
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         CL_CHECK((backend_ctx->kernel_moe_expand_scale_q8_0 = clCreateKernel(backend_ctx->program_cvt, "kernel_moe_expand_scale_q8_0", &err), err));
         CL_CHECK((backend_ctx->kernel_moe_expand_scale_q5_0 = clCreateKernel(backend_ctx->program_cvt, "kernel_moe_expand_scale_q5_0", &err), err));
         CL_CHECK((backend_ctx->kernel_moe_expand_scale_q5_K = clCreateKernel(backend_ctx->program_cvt, "kernel_moe_expand_scale_q5_K", &err), err));
 #endif
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // diag_mask_inf
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "diag_mask_inf.cl.h"
         };
@@ -1542,12 +1542,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_diag_mask_inf_8 = clCreateKernel(backend_ctx->program_diag_mask_inf, "kernel_diag_mask_inf_8", &err), err));
         CL_CHECK((backend_ctx->kernel_diag_mask_inf   = clCreateKernel(backend_ctx->program_diag_mask_inf, "kernel_diag_mask_inf", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // diag
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "diag.cl.h"
         };
@@ -1559,12 +1559,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_diag_f32 = clCreateKernel(prog, "kernel_diag_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gelu
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gelu.cl.h"
         };
@@ -1580,12 +1580,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_gelu_erf_4   = clCreateKernel(backend_ctx->program_gelu, "kernel_gelu_erf_4", &err), err));
         CL_CHECK((backend_ctx->kernel_gelu_quick   = clCreateKernel(backend_ctx->program_gelu, "kernel_gelu_quick", &err), err));
         CL_CHECK((backend_ctx->kernel_gelu_quick_4 = clCreateKernel(backend_ctx->program_gelu, "kernel_gelu_quick_4", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // glu
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "glu.cl.h"
         };
@@ -1606,12 +1606,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_swiglu_f16      = clCreateKernel(backend_ctx->program_glu, "kernel_swiglu_f16", &err), err));
         CL_CHECK((backend_ctx->kernel_geglu_erf_f16   = clCreateKernel(backend_ctx->program_glu, "kernel_geglu_erf_f16", &err), err));
         CL_CHECK((backend_ctx->kernel_geglu_quick_f16 = clCreateKernel(backend_ctx->program_glu, "kernel_geglu_quick_f16", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // get_rows
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "get_rows.cl.h"
         };
@@ -1624,12 +1624,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_get_rows_f32  = clCreateKernel(backend_ctx->program_get_rows, "kernel_get_rows_f32", &err), err));
         CL_CHECK((backend_ctx->kernel_get_rows_f16  = clCreateKernel(backend_ctx->program_get_rows, "kernel_get_rows_f16", &err), err));
         CL_CHECK((backend_ctx->kernel_get_rows_q4_0 = clCreateKernel(backend_ctx->program_get_rows, "kernel_get_rows_q4_0", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // solve_tri_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "solve_tri.cl.h"
         };
@@ -1640,13 +1640,13 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_solve_tri_f32 = clCreateKernel(prog, "kernel_solve_tri_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
         CL_CHECK(clReleaseProgram(prog));
     }
 
     // im2col_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "im2col_f32.cl.h"
         };
@@ -1657,12 +1657,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_im2col_f32 = clCreateKernel(backend_ctx->program_im2col_f32, "kernel_im2col_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // im2col_f16
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "im2col_f16.cl.h"
         };
@@ -1673,12 +1673,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_im2col_f16 = clCreateKernel(backend_ctx->program_im2col_f16, "kernel_im2col_f16", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q4_0_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q4_0_f32.cl.h"
         };
@@ -1689,12 +1689,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mat_q4_0_f32 = clCreateKernel(backend_ctx->program_mul_mv_q4_0_f32, "kernel_mul_mat_q4_0_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q4_0_f32_v
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q4_0_f32_v.cl.h"
         };
@@ -1705,12 +1705,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mat_q4_0_f32_v = clCreateKernel(backend_ctx->program_mul_mv_q4_0_f32_v, "kernel_mul_mat_q4_0_f32_v", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q4_0_f32_8x_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q4_0_f32_8x_flat.cl.h"
         };
@@ -1721,7 +1721,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mat_q4_0_f32_8x_flat = clCreateKernel(backend_ctx->program_mul_mv_q4_0_f32_8x_flat, "kernel_mul_mat_q4_0_f32_8x_flat", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q4_0_f32_1d_8x_flat
@@ -1731,7 +1731,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         backend_ctx->adreno_cl_compiler_version.newer_than_or_same(E031, 38, 11, 0) ||
         backend_ctx->adreno_cl_compiler_version.type == E17 ||
         backend_ctx->adreno_cl_compiler_version.type == DX) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q4_0_f32_1d_8x_flat.cl.h"
         };
@@ -1742,7 +1742,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mat_q4_0_f32_1d_8x_flat = clCreateKernel(backend_ctx->program_mul_mv_q4_0_f32_1d_8x_flat, "kernel_mul_mat_q4_0_f32_1d_8x_flat", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q4_0_f32_1d_16x_flat
@@ -1751,7 +1751,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
     if (backend_ctx->gpu_family != ADRENO ||
         backend_ctx->adreno_cl_compiler_version.newer_than_or_same(E031, 38, 11, 0) ||
     backend_ctx->adreno_cl_compiler_version.type == DX) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q4_0_f32_1d_16x_flat.cl.h"
         };
@@ -1762,12 +1762,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mat_q4_0_f32_1d_16x_flat = clCreateKernel(backend_ctx->program_mul_mv_q4_0_f32_1d_16x_flat, "kernel_mul_mat_q4_0_f32_1d_16x_flat", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q4_1_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q4_1_f32.cl.h"
         };
@@ -1779,12 +1779,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q4_1_f32 = clCreateKernel(prog, "kernel_mul_mv_q4_1_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q4_1_f32_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q4_1_f32_flat.cl.h"
         };
@@ -1796,12 +1796,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q4_1_f32_flat = clCreateKernel(prog, "kernel_mul_mv_q4_1_f32_flat", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q4_k_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q4_k_f32.cl.h"
         };
@@ -1813,12 +1813,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q4_K_f32 = clCreateKernel(prog, "kernel_mul_mv_q4_K_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q4_k_f32_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q4_k_f32_flat.cl.h"
         };
@@ -1830,12 +1830,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q4_K_f32_flat = clCreateKernel(prog, "kernel_mul_mv_q4_K_f32_flat", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q5_0_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q5_0_f32.cl.h"
         };
@@ -1847,12 +1847,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q5_0_f32 = clCreateKernel(prog, "kernel_mul_mv_q5_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q5_0_f32_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q5_0_f32_flat.cl.h"
         };
@@ -1864,12 +1864,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q5_0_f32_flat = clCreateKernel(prog, "kernel_mul_mv_q5_0_f32_flat", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q5_1_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q5_1_f32.cl.h"
         };
@@ -1881,12 +1881,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q5_1_f32 = clCreateKernel(prog, "kernel_mul_mv_q5_1_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q5_1_f32_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q5_1_f32_flat.cl.h"
         };
@@ -1898,12 +1898,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q5_1_f32_flat = clCreateKernel(prog, "kernel_mul_mv_q5_1_f32_flat", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q5_k_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q5_k_f32.cl.h"
         };
@@ -1915,12 +1915,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q5_K_f32 = clCreateKernel(prog, "kernel_mul_mv_q5_K_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q5_k_f32_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q5_k_f32_flat.cl.h"
         };
@@ -1936,7 +1936,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
     // mul_mv_q6_k_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q6_k_f32.cl.h"
         };
@@ -1947,12 +1947,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q6_K_f32 = clCreateKernel(backend_ctx->program_mul_mv_q6_K, "kernel_mul_mv_q6_K_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q6_k_f32_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q6_k_f32_flat.cl.h"
         };
@@ -1970,12 +1970,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q6_K_f32_flat = clCreateKernel(prog, "kernel_mul_mv_q6_K_f32_flat", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q8_0_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q8_0_f32.cl.h"
         };
@@ -1986,12 +1986,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q8_0_f32 = clCreateKernel(backend_ctx->program_mul_mv_q8_0_f32, "kernel_mul_mv_q8_0_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q8_0_f32_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q8_0_f32_flat.cl.h"
         };
@@ -2002,12 +2002,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q8_0_f32_flat = clCreateKernel(backend_ctx->program_mul_mv_q8_0_f32_flat, "kernel_mul_mv_q8_0_f32_flat", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q1_0_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q1_0_f32.cl.h"
         };
@@ -2019,12 +2019,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q1_0_f32 = clCreateKernel(prog, "kernel_mul_mv_q1_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_q1_0_f32_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_q1_0_f32_flat.cl.h"
         };
@@ -2036,12 +2036,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_q1_0_f32_flat = clCreateKernel(prog, "kernel_mul_mv_q1_0_f32_flat", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_iq4_nl_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_iq4_nl_f32.cl.h"
         };
@@ -2053,12 +2053,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_iq4_nl_f32 = clCreateKernel(prog, "kernel_mul_mv_iq4_nl_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_iq4_nl_f32_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_iq4_nl_f32_flat.cl.h"
         };
@@ -2070,12 +2070,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mv_iq4_nl_f32_flat = clCreateKernel(prog, "kernel_mul_mv_iq4_nl_f32_flat", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_mxfp4_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_mxfp4_f32.cl.h"
         };
@@ -2086,12 +2086,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mv_mxfp4_f32 = clCreateKernel(backend_ctx->program_mul_mv_mxfp4_f32, "kernel_mul_mv_mxfp4_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_mxfp4_f32_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_mxfp4_f32_flat.cl.h"
         };
@@ -2102,12 +2102,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mv_mxfp4_f32_flat = clCreateKernel(backend_ctx->program_mul_mv_mxfp4_f32_flat, "kernel_mul_mv_mxfp4_f32_flat", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_f16_f16
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_f16_f16.cl.h"
         };
@@ -2118,12 +2118,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mat_f16_f16 = clCreateKernel(backend_ctx->program_mul_mv_f16_f16, "kernel_mul_mat_f16_f16", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_f16_f32_1row
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_f16_f32_1row.cl.h"
         };
@@ -2134,12 +2134,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mat_f16_f32_1row = clCreateKernel(backend_ctx->program_mul_mv_f16_f32_1row, "kernel_mul_mat_f16_f32_1row", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_f16_f32_l4
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_f16_f32_l4.cl.h"
         };
@@ -2200,12 +2200,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         backend_ctx->kernel_mul_mat_f16_f32_l4_y8_gqa_img =
             clCreateKernel(backend_ctx->program_mul_mv_f16_f32_l4, "kernel_mul_mat_f16_f32_l4_y8_gqa_img", &err_y8gi);
         if (err_y8gi != CL_SUCCESS) { backend_ctx->kernel_mul_mat_f16_f32_l4_y8_gqa_img = nullptr; }
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_f16_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_f16_f32.cl.h"
         };
@@ -2216,12 +2216,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mat_f16_f32 = clCreateKernel(backend_ctx->program_mul_mv_f16_f32, "kernel_mul_mat_f16_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_f32_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_f32_f32.cl.h"
         };
@@ -2232,12 +2232,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mat_f32_f32 = clCreateKernel(backend_ctx->program_mul_mv_f32_f32, "kernel_mul_mat_f32_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mat_f16_f32_tiled
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mat_f16_f32.cl.h"
         };
@@ -2248,13 +2248,13 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mat_f16_f32_tiled = clCreateKernel(backend_ctx->program_mul_mat_f16_f32_tiled, "mul_mat_f16_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
     // gemm_xmem_f16_f32_os8
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_xmem_f16_f32_os8.cl.h"
         };
@@ -2273,13 +2273,13 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_adreno_xmem_store_dst_f32 =
             clCreateKernel(prog, "adreno_xmem_store_dst_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
     // mul_mm_f32_f32_l4_lm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_f32_f32_l4_lm.cl.h"
         };
@@ -2290,12 +2290,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mm_f32_f32_l4_lm = clCreateKernel(backend_ctx->program_mul_mm_f32_f32_l4_lm, "kernel_mul_mm_f32_f32_l4_lm", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_f16_f32_l4_lm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_f16_f32_l4_lm.cl.h"
         };
@@ -2306,12 +2306,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mm_f16_f32_l4_lm = clCreateKernel(backend_ctx->program_mul_mm_f16_f32_l4_lm, "kernel_mul_mm_f16_f32_l4_lm", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_q4_0_f32_l4_lm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_q4_0_f32_l4_lm.cl.h"
         };
@@ -2322,12 +2322,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mm_q4_0_f32_l4_lm = clCreateKernel(prog, "kernel_mul_mm_q4_0_f32_l4_lm", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_q4_1_f32_l4_lm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_q4_1_f32_l4_lm.cl.h"
         };
@@ -2338,12 +2338,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mm_q4_1_f32_l4_lm = clCreateKernel(prog, "kernel_mul_mm_q4_1_f32_l4_lm", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_q5_0_f32_l4_lm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_q5_0_f32_l4_lm.cl.h"
         };
@@ -2354,12 +2354,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mm_q5_0_f32_l4_lm = clCreateKernel(prog, "kernel_mul_mm_q5_0_f32_l4_lm", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_q5_1_f32_l4_lm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_q5_1_f32_l4_lm.cl.h"
         };
@@ -2370,12 +2370,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mm_q5_1_f32_l4_lm = clCreateKernel(prog, "kernel_mul_mm_q5_1_f32_l4_lm", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_q8_0_f32_l4_lm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_q8_0_f32_l4_lm.cl.h"
         };
@@ -2386,12 +2386,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mm_q8_0_f32_l4_lm = clCreateKernel(backend_ctx->program_mul_mm_q8_0_f32_l4_lm, "kernel_mul_mm_q8_0_f32_l4_lm", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_q1_0_f32_l4_lm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_q1_0_f32_l4_lm.cl.h"
         };
@@ -2403,12 +2403,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mm_q1_0_f32_l4_lm = clCreateKernel(prog, "kernel_mul_mm_q1_0_f32_l4_lm", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_iq4_nl_f32_l4_lm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_iq4_nl_f32_l4_lm.cl.h"
         };
@@ -2420,12 +2420,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mm_iq4_nl_f32_l4_lm = clCreateKernel(prog, "kernel_mul_mm_iq4_nl_f32_l4_lm", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_q4_k_f32_l4_lm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_q4_k_f32_l4_lm.cl.h"
         };
@@ -2437,12 +2437,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mm_q4_k_f32_l4_lm = clCreateKernel(prog, "kernel_mul_mm_q4_k_f32_l4_lm", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_q6_k_f32_l4_lm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_q6_k_f32_l4_lm.cl.h"
         };
@@ -2454,12 +2454,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mm_q6_k_f32_l4_lm = clCreateKernel(prog, "kernel_mul_mm_q6_k_f32_l4_lm", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_q5_k_f32_l4_lm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_q5_k_f32_l4_lm.cl.h"
         };
@@ -2471,12 +2471,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mm_q5_k_f32_l4_lm = clCreateKernel(prog, "kernel_mul_mm_q5_k_f32_l4_lm", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_f16_f32_kq_kqv
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mm_f16_f32_kq_kqv.cl.h"
         };
@@ -2490,12 +2490,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_mul_mm_f16_f32_kqv = clCreateKernel(backend_ctx->program_mul_mm_f16_f32_kqv, "mul_mm_f16_f32_kqv", &err), err));
         CL_CHECK((backend_ctx->kernel_mul_mm_f16_f32_kq = clCreateKernel(backend_ctx->program_mul_mm_f16_f32_kq, "mul_mm_f16_f32_kq", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul.cl.h"
         };
@@ -2509,12 +2509,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_mul_row     = clCreateKernel(backend_ctx->program_mul, "kernel_mul_row", &err), err));
         CL_CHECK((backend_ctx->kernel_mul_f16     = clCreateKernel(backend_ctx->program_mul, "kernel_mul_f16", &err), err));
         CL_CHECK((backend_ctx->kernel_mul_row_f16 = clCreateKernel(backend_ctx->program_mul, "kernel_mul_row_f16", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // norm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "norm.cl.h"
         };
@@ -2526,12 +2526,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_norm         = clCreateKernel(backend_ctx->program_norm, "kernel_norm", &err), err));
         CL_CHECK((backend_ctx->kernel_norm_mul_add = clCreateKernel(backend_ctx->program_norm, "kernel_norm_mul_add", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // relu
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "relu.cl.h"
         };
@@ -2542,12 +2542,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_relu = clCreateKernel(backend_ctx->program_relu, "kernel_relu", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // rms_norm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "rms_norm.cl.h"
         };
@@ -2559,12 +2559,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_rms_norm     = clCreateKernel(backend_ctx->program_rms_norm, "kernel_rms_norm", &err), err));
         CL_CHECK((backend_ctx->kernel_rms_norm_mul = clCreateKernel(backend_ctx->program_rms_norm, "kernel_rms_norm_mul", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // l2_norm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "l2_norm.cl.h"
         };
@@ -2576,12 +2576,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_l2_norm_f32     = clCreateKernel(prog, "kernel_l2_norm_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // rope
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "rope.cl.h"
         };
@@ -2599,12 +2599,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_rope_multi_f16  = clCreateKernel(backend_ctx->program_rope, "kernel_rope_multi_f16", &err), err));
         CL_CHECK((backend_ctx->kernel_rope_vision_f32 = clCreateKernel(backend_ctx->program_rope, "kernel_rope_vision_f32", &err), err));
         CL_CHECK((backend_ctx->kernel_rope_vision_f16 = clCreateKernel(backend_ctx->program_rope, "kernel_rope_vision_f16", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // scale
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "scale.cl.h"
         };
@@ -2617,12 +2617,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_scale_f32   = clCreateKernel(prog, "kernel_scale_f32", &err), err));
         CL_CHECK((backend_ctx->kernel_scale_f32_4 = clCreateKernel(prog, "kernel_scale_f32_4", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // silu
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "silu.cl.h"
         };
@@ -2634,12 +2634,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_silu   = clCreateKernel(backend_ctx->program_silu, "kernel_silu", &err), err));
         CL_CHECK((backend_ctx->kernel_silu_4 = clCreateKernel(backend_ctx->program_silu, "kernel_silu_4", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // softmax_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "softmax_f32.cl.h"
         };
@@ -2650,12 +2650,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_soft_max = clCreateKernel(backend_ctx->program_softmax_f32, "kernel_soft_max", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // softmax_f16
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "softmax_f16.cl.h"
         };
@@ -2666,12 +2666,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_soft_max_f16 = clCreateKernel(backend_ctx->program_softmax_f16, "kernel_soft_max_f16", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // softmax_4_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "softmax_4_f32.cl.h"
         };
@@ -2682,12 +2682,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_soft_max_4 = clCreateKernel(backend_ctx->program_softmax_4_f32, "kernel_soft_max_4", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // softmax_4_f16
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "softmax_4_f16.cl.h"
         };
@@ -2698,12 +2698,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_soft_max_4_f16 = clCreateKernel(backend_ctx->program_softmax_4_f16, "kernel_soft_max_4_f16", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // div
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "div.cl.h"
         };
@@ -2720,12 +2720,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_div_row     = clCreateKernel(backend_ctx->program_div, "kernel_div_row", &err), err));
         CL_CHECK((backend_ctx->kernel_div_f16     = clCreateKernel(backend_ctx->program_div, "kernel_div_f16", &err), err));
         CL_CHECK((backend_ctx->kernel_div_row_f16 = clCreateKernel(backend_ctx->program_div, "kernel_div_row_f16", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // sqr
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "sqr.cl.h"
         };
@@ -2741,12 +2741,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_sqr_cont_f16_4   = clCreateKernel(prog, "kernel_sqr_cont_f16_4", &err), err));
 
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // sqrt
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "sqrt.cl.h"
         };
@@ -2762,12 +2762,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_sqrt_cont_f16_4   = clCreateKernel(prog, "kernel_sqrt_cont_f16_4", &err), err));
 
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mean
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mean.cl.h"
         };
@@ -2781,12 +2781,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_mean_f32_4 = clCreateKernel(prog, "kernel_mean_f32_4", &err), err));
 
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // sub
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "sub.cl.h"
         };
@@ -2800,12 +2800,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_sub_row     = clCreateKernel(backend_ctx->program_sub, "kernel_sub_row", &err), err));
         CL_CHECK((backend_ctx->kernel_sub_f16     = clCreateKernel(backend_ctx->program_sub, "kernel_sub_f16", &err), err));
         CL_CHECK((backend_ctx->kernel_sub_row_f16 = clCreateKernel(backend_ctx->program_sub, "kernel_sub_row_f16", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // sum_rows
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "sum_rows.cl.h"
         };
@@ -2817,12 +2817,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_sum_rows_f32 = clCreateKernel(backend_ctx->program_sum_rows_f32, "kernel_sum_rows_f32", &err), err));
         CL_CHECK((backend_ctx->kernel_sum_rows_f32_4 = clCreateKernel(backend_ctx->program_sum_rows_f32, "kernel_sum_rows_f32_4", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // cumsum
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "cumsum.cl.h"
         };
@@ -2834,13 +2834,13 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_cumsum_blk = clCreateKernel(prog, "kernel_cumsum_blk", &err), err));
         CL_CHECK((backend_ctx->kernel_cumsum_add = clCreateKernel(prog, "kernel_cumsum_add", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
         CL_CHECK(clReleaseProgram(prog));
     }
 
     // sigmoid
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "sigmoid.cl.h"
         };
@@ -2852,12 +2852,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_sigmoid_f32 = clCreateKernel(backend_ctx->program_sigmoid, "kernel_sigmoid_f32", &err), err));
         CL_CHECK((backend_ctx->kernel_sigmoid_f16 = clCreateKernel(backend_ctx->program_sigmoid, "kernel_sigmoid_f16", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // group_norm
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "group_norm.cl.h"
         };
@@ -2869,12 +2869,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_group_norm         = clCreateKernel(backend_ctx->program_group_norm, "kernel_group_norm", &err), err));
         CL_CHECK((backend_ctx->kernel_group_norm_mul_add = clCreateKernel(backend_ctx->program_group_norm, "kernel_group_norm_mul_add", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // repeat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "repeat.cl.h"
         };
@@ -2885,12 +2885,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_repeat_f32 = clCreateKernel(prog, "kernel_repeat_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // pad
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "pad.cl.h"
         };
@@ -2901,9 +2901,9 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             backend_ctx->program_pad =
                 build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
             CL_CHECK((backend_ctx->kernel_pad = clCreateKernel(backend_ctx->program_pad, "kernel_pad", &err), err));
-            LM_GGML_LOG_CONT(".");
+            GGML_LOG_CONT(".");
         } else {
-            LM_GGML_LOG_WARN("lm_ggml_opencl: pad kernel source not found or empty. Pad operations will not be available.\n");
+            GGML_LOG_WARN("ggml_opencl: pad kernel source not found or empty. Pad operations will not be available.\n");
             backend_ctx->program_pad = nullptr;
             backend_ctx->kernel_pad = nullptr;
         }
@@ -2911,7 +2911,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
     // tanh
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "tanh.cl.h"
         };
@@ -2927,12 +2927,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_tanh_f16_4  = clCreateKernel(prog, "kernel_tanh_f16_4", &err), err));
         CL_CHECK((backend_ctx->kernel_tanh_f16_nc = clCreateKernel(prog, "kernel_tanh_f16_nc", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // neg
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "neg.cl.h"
         };
@@ -2948,12 +2948,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_neg_f16_4  = clCreateKernel(prog, "kernel_neg_f16_4", &err), err));
         CL_CHECK((backend_ctx->kernel_neg_f16_nc = clCreateKernel(prog, "kernel_neg_f16_nc", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // exp
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "exp.cl.h"
         };
@@ -2969,12 +2969,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_exp_f16_4  = clCreateKernel(prog, "kernel_exp_f16_4", &err), err));
         CL_CHECK((backend_ctx->kernel_exp_f16_nc = clCreateKernel(prog, "kernel_exp_f16_nc", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // expm1
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "expm1.cl.h"
         };
@@ -2990,12 +2990,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_expm1_f16_4  = clCreateKernel(prog, "kernel_expm1_f16_4", &err), err));
         CL_CHECK((backend_ctx->kernel_expm1_f16_nc = clCreateKernel(prog, "kernel_expm1_f16_nc", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // abs
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "abs.cl.h"
         };
@@ -3011,12 +3011,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_abs_f16_4  = clCreateKernel(prog, "kernel_abs_f16_4", &err), err));
         CL_CHECK((backend_ctx->kernel_abs_f16_nc = clCreateKernel(prog, "kernel_abs_f16_nc", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // softplus
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "softplus.cl.h"
         };
@@ -3032,12 +3032,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_softplus_f16_4  = clCreateKernel(prog, "kernel_softplus_f16_4", &err), err));
         CL_CHECK((backend_ctx->kernel_softplus_f16_nc = clCreateKernel(prog, "kernel_softplus_f16_nc", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // upscale
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "upscale.cl.h"
         };
@@ -3052,15 +3052,15 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
                 cl_int err_bilinear;
                 backend_ctx->kernel_upscale_bilinear = clCreateKernel(backend_ctx->program_upscale, "kernel_upscale_bilinear", &err_bilinear);
                 if (err_bilinear != CL_SUCCESS) {
-                    LM_GGML_LOG_WARN("lm_ggml_opencl: kernel_upscale_bilinear not found in upscale.cl. Bilinear upscale will not be available. Error: %d\n", err_bilinear);
+                    GGML_LOG_WARN("ggml_opencl: kernel_upscale_bilinear not found in upscale.cl. Bilinear upscale will not be available. Error: %d\n", err_bilinear);
                     backend_ctx->kernel_upscale_bilinear = nullptr;
                 }
             } else {
                 backend_ctx->kernel_upscale_bilinear = nullptr;
             }
-            LM_GGML_LOG_CONT(".");
+            GGML_LOG_CONT(".");
         } else {
-            LM_GGML_LOG_WARN("lm_ggml_opencl: upscale kernel source not found or empty. Upscale operations will not be available.\n");
+            GGML_LOG_WARN("ggml_opencl: upscale kernel source not found or empty. Upscale operations will not be available.\n");
             backend_ctx->program_upscale = nullptr;
             backend_ctx->kernel_upscale = nullptr;
             backend_ctx->kernel_upscale_bilinear = nullptr;
@@ -3069,7 +3069,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
     // concat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "concat.cl.h"
         };
@@ -3081,12 +3081,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_concat_f32 = clCreateKernel(prog, "kernel_concat_f32", &err), err));
         CL_CHECK((backend_ctx->kernel_concat_f32_pack = clCreateKernel(prog, "kernel_concat_f32_pack", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // timestep_embedding
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "tsembd.cl.h"
         };
@@ -3098,9 +3098,9 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             backend_ctx->program_tsembd =
                 build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
             CL_CHECK((backend_ctx->kernel_timestep_embedding = clCreateKernel(backend_ctx->program_tsembd, "kernel_timestep_embedding", &err), err));
-            LM_GGML_LOG_CONT(".");
+            GGML_LOG_CONT(".");
         } else {
-            LM_GGML_LOG_WARN("lm_ggml_opencl: timestep_embedding kernel source not found or empty. This op will not be available.\n");
+            GGML_LOG_WARN("ggml_opencl: timestep_embedding kernel source not found or empty. This op will not be available.\n");
             backend_ctx->program_tsembd = nullptr;
             backend_ctx->kernel_timestep_embedding = nullptr;
         }
@@ -3108,7 +3108,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
     // set_rows
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "set_rows.cl.h"
         };
@@ -3130,12 +3130,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_set_rows_q4_0_i32     = clCreateKernel(backend_ctx->program_set_rows, "kernel_set_rows_q4_0_i32",     &err), err));
         CL_CHECK((backend_ctx->kernel_set_rows_q4_0_soa_i64 = clCreateKernel(backend_ctx->program_set_rows, "kernel_set_rows_q4_0_soa_i64", &err), err));
         CL_CHECK((backend_ctx->kernel_set_rows_q4_0_soa_i32 = clCreateKernel(backend_ctx->program_set_rows, "kernel_set_rows_q4_0_soa_i32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // conv2d
     {
-        #ifdef LM_GGML_OPENCL_EMBED_KERNELS
+        #ifdef GGML_OPENCL_EMBED_KERNELS
                 const std::string kernel_src {
                     #include "conv2d.cl.h"
                 };
@@ -3150,13 +3150,13 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
                     backend_ctx->program_conv_2d_f16 =
                         build_program_from_source(backend_ctx, kernel_src.c_str(), (std::string(compile_opts) + " -DUSE_FP16=1").c_str());
                     CL_CHECK((backend_ctx->kernel_conv_2d_f16 = clCreateKernel(backend_ctx->program_conv_2d_f16, "kernel_conv_2d", &err), err));
-                    LM_GGML_LOG_CONT(".");
+                    GGML_LOG_CONT(".");
                     backend_ctx->program_conv_2d_f32 =
                         build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
                     CL_CHECK((backend_ctx->kernel_conv_2d_f32 = clCreateKernel(backend_ctx->program_conv_2d_f32, "kernel_conv_2d", &err), err));
-                    LM_GGML_LOG_CONT(".");
+                    GGML_LOG_CONT(".");
                 } else {
-                    LM_GGML_LOG_WARN("lm_ggml_opencl: conv2d kernel source not found or empty. This op will not be available.\n");
+                    GGML_LOG_WARN("ggml_opencl: conv2d kernel source not found or empty. This op will not be available.\n");
                     backend_ctx->program_conv_2d_f16 = nullptr;
                     backend_ctx->kernel_conv_2d_f16 = nullptr;
                     backend_ctx->program_conv_2d_f32 = nullptr;
@@ -3166,9 +3166,9 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
                     backend_ctx->program_conv_2d_f16_f32 =
                         build_program_from_source(backend_ctx, kernel_src_f16_f32.c_str(), compile_opts);
                     CL_CHECK((backend_ctx->kernel_conv_2d_f16_f32 = clCreateKernel(backend_ctx->program_conv_2d_f16_f32, "kernel_conv_2d", &err), err));
-                    LM_GGML_LOG_CONT(".");
+                    GGML_LOG_CONT(".");
                 } else {
-                    LM_GGML_LOG_WARN("lm_ggml_opencl: conv2d_f16_f32 kernel source not found or empty. This op will not be available.\n");
+                    GGML_LOG_WARN("ggml_opencl: conv2d_f16_f32 kernel source not found or empty. This op will not be available.\n");
                     backend_ctx->program_conv_2d_f16_f32 = nullptr;
                     backend_ctx->kernel_conv_2d_f16_f32 = nullptr;
                 }
@@ -3176,7 +3176,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
     // ssm_conv
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "ssm_conv.cl.h"
         };
@@ -3189,12 +3189,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_ssm_conv_f32_f32   = clCreateKernel(prog, "kernel_ssm_conv_f32_f32", &err), err));
         CL_CHECK((backend_ctx->kernel_ssm_conv_f32_f32_4 = clCreateKernel(prog, "kernel_ssm_conv_f32_f32_4", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // ssm_scan (Mamba-2 fused per-token recurrent step; d_state in {128, 256})
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "ssm_scan.cl.h"
         };
@@ -3207,12 +3207,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_ssm_scan_f32_mamba2_d128 = clCreateKernel(prog, "kernel_ssm_scan_f32_mamba2_d128", &err), err));
         CL_CHECK((backend_ctx->kernel_ssm_scan_f32_mamba2_d256 = clCreateKernel(prog, "kernel_ssm_scan_f32_mamba2_d256", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gated_delta_net: one kernel per (S_V, KDA, tgpp) triple.
     {
-    #ifdef LM_GGML_OPENCL_EMBED_KERNELS
+    #ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gated_delta_net.cl.h"
         };
@@ -3223,14 +3223,14 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         const int gdn_sizes[4] = { 16, 32, 64, 128 };
         const int sg_size = backend_ctx->gpu_family == GPU_FAMILY::ADRENO ? 64 : backend_ctx->gpu_family == GPU_FAMILY::INTEL ? 32 : -1;
         if (sg_size < 0) {
-            LM_GGML_LOG_ERROR("Unsupported GPU Family: only Adreno and Intel are supported.\n");
+            GGML_LOG_ERROR("Unsupported GPU Family: only Adreno and Intel are supported.\n");
             exit(1);
         }
 
         for (int si = 0; si < 4; si++) {
             const int S_V = gdn_sizes[si];
 
-            // MUST match the dispatcher heuristic in lm_ggml_cl_gated_delta_net exactly.
+            // MUST match the dispatcher heuristic in ggml_cl_gated_delta_net exactly.
             int lanes_per_column;
             if (S_V >= 128) {
                 lanes_per_column = 8;
@@ -3248,10 +3248,10 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
                 lanes_per_column >>= 1;
             }
 
-            LM_GGML_ASSERT(lanes_per_column >= 1);
-            LM_GGML_ASSERT(((lanes_per_column & (lanes_per_column - 1)) == 0));
-            LM_GGML_ASSERT((S_V % lanes_per_column) == 0);
-            LM_GGML_ASSERT((sg_size % lanes_per_column) == 0);
+            GGML_ASSERT(lanes_per_column >= 1);
+            GGML_ASSERT(((lanes_per_column & (lanes_per_column - 1)) == 0));
+            GGML_ASSERT((S_V % lanes_per_column) == 0);
+            GGML_ASSERT((sg_size % lanes_per_column) == 0);
 
             const bool is_partial_reduce = (lanes_per_column != 1) && (lanes_per_column < sg_size);
             int use_qcom_shuffle = 0;
@@ -3286,12 +3286,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
                 }
             }
         }
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // moe_combine (fused router-weight mul + cross-expert sum)
     {
-    #ifdef LM_GGML_OPENCL_EMBED_KERNELS
+    #ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "moe_combine.cl.h"
         };
@@ -3305,12 +3305,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_moe_combine_bias_f32 =
                     clCreateKernel(prog, "kernel_moe_combine_bias_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_id_q4_0_f32_8x_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_id_q4_0_f32_8x_flat.cl.h"
         };
@@ -3321,12 +3321,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mv_id_q4_0_f32_8x_flat = clCreateKernel(backend_ctx->program_mul_mv_id_q4_0_f32_8x_flat, "kernel_mul_mv_id_q4_0_f32_8x_flat", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_id_q8_0_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_id_q8_0_f32.cl.h"
         };
@@ -3337,12 +3337,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mv_id_q8_0_f32 = clCreateKernel(backend_ctx->program_mul_mv_id_q8_0_f32, "kernel_mul_mv_id_q8_0_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_id_q8_0_f32_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_id_q8_0_f32_flat.cl.h"
         };
@@ -3353,12 +3353,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mv_id_q8_0_f32_flat = clCreateKernel(backend_ctx->program_mul_mv_id_q8_0_f32_flat, "kernel_mul_mv_id_q8_0_f32_flat", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_id_mxfp4_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_id_mxfp4_f32.cl.h"
         };
@@ -3369,12 +3369,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mv_id_mxfp4_f32 = clCreateKernel(backend_ctx->program_mul_mv_id_mxfp4_f32, "kernel_mul_mv_id_mxfp4_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mv_id_mxfp4_f32_flat
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "mul_mv_id_mxfp4_f32_flat.cl.h"
         };
@@ -3385,14 +3385,14 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
 
         CL_CHECK((backend_ctx->kernel_mul_mv_id_mxfp4_f32_flat = clCreateKernel(backend_ctx->program_mul_mv_id_mxfp4_f32_flat, "kernel_mul_mv_id_mxfp4_f32_flat", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // Adreno kernels
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
     // transpose
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "transpose.cl.h"
         };
@@ -3409,12 +3409,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_transpose_16_buf = clCreateKernel(backend_ctx->program_transpose, "kernel_transpose_16_buf", &err), err));
         CL_CHECK((backend_ctx->kernel_transpose_32_buf = clCreateKernel(backend_ctx->program_transpose, "kernel_transpose_32_buf", &err), err));
         CL_CHECK((backend_ctx->kernel_transpose_16_4x1 = clCreateKernel(backend_ctx->program_transpose, "kernel_transpose_16_4x1", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q1_0_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q1_0_f32.cl.h"
         };
@@ -3424,7 +3424,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q1_0_f32 = clCreateKernel(prog, "kernel_gemm_noshuffle_q1_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_noshuffle_q1_0_f32
@@ -3434,7 +3434,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
                                        " -DSIMDGROUP_WIDTH=" +
                                        std::to_string(backend_ctx->adreno_wave_size);
 
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src_CL_gemv_general {
             #include "gemv_noshuffle_q1_0_f32.cl.h"
         };
@@ -3446,7 +3446,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q1_0_f32 = clCreateKernel(prog, "kernel_gemv_noshuffle_q1_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_noshuffle_general
@@ -3459,7 +3459,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             CL_gemv_compile_opts += " -DVECTOR_SUB_GROUP_BROADCAST ";
         }
 
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src_CL_gemv_general {
             #include "gemv_noshuffle_q4_0_f32.cl.h"
         };
@@ -3471,7 +3471,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q4_0_f32 = clCreateKernel(prog, "kernel_gemv_noshuffle_q4_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_noshuffle
@@ -3487,7 +3487,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             CL_gemv_compile_opts += " -DVECTOR_SUB_GROUP_BROADCAST ";
         }
 
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src_CL_gemv {
             #include "gemv_noshuffle_q4_0_f32_spec.cl.h"
         };
@@ -3498,7 +3498,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src_CL_gemv.c_str(), CL_gemv_compile_opts);
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q4_0_f32_4096_1_4096 = clCreateKernel(prog, "kernel_gemv_noshuffle_q4_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
 
         // Gemv 2048, 16384
         CL_gemv_compile_opts = std::string("-cl-std=") + opencl_c_std +
@@ -3514,7 +3514,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         prog = build_program_from_source(backend_ctx, kernel_src_CL_gemv.c_str(), CL_gemv_compile_opts);
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q4_0_f32_4096_1_11008 = clCreateKernel(prog, "kernel_gemv_noshuffle_q4_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
 
         // Gemv 5504, 44032
         CL_gemv_compile_opts = std::string("-cl-std=") + opencl_c_std +
@@ -3530,7 +3530,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         prog = build_program_from_source(backend_ctx, kernel_src_CL_gemv.c_str(), CL_gemv_compile_opts);
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q4_0_f32_11008_1_4096 = clCreateKernel(prog, "kernel_gemv_noshuffle_q4_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
 
         // Gemv 16000, 128000
         CL_gemv_compile_opts = std::string("-cl-std=") + opencl_c_std +
@@ -3547,12 +3547,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         prog = build_program_from_source(backend_ctx, kernel_src_CL_gemv.c_str(), CL_gemv_compile_opts);
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q4_0_f32_32000_1_4096 = clCreateKernel(prog, "kernel_gemv_noshuffle_q4_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mat_Ab_Bi_8x4
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src_CL_gemm {
             #include "gemm_noshuffle_q4_0_f32.cl.h"
         };
@@ -3562,12 +3562,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src_CL_gemm.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q4_0_f32 = clCreateKernel(prog, "kernel_gemm_noshuffle_q4_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q4_1_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q4_1_f32.cl.h"
         };
@@ -3577,7 +3577,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q4_1_f32 = clCreateKernel(prog, "kernel_gemm_noshuffle_q4_1_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_noshuffle_q4_1_f32
@@ -3588,7 +3588,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             CL_gemv_compile_opts += " -DVECTOR_SUB_GROUP_BROADCAT ";
         }
 
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_noshuffle_q4_1_f32.cl.h"
         };
@@ -3600,12 +3600,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q4_1_f32 = clCreateKernel(prog, "kernel_gemv_noshuffle_q4_1_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q5_0_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q5_0_f32.cl.h"
         };
@@ -3615,12 +3615,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q5_0_f32 = clCreateKernel(prog, "kernel_gemm_noshuffle_q5_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q5_0_q8_1_dp4a (dp4a dense q5_0 prefill GEMM)
     if (backend_ctx->has_integer_dot) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q5_0_q8_1_dp4a.cl.h"
         };
@@ -3631,7 +3631,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q5_0_q8_1_dp4a = clCreateKernel(prog, "kernel_gemm_noshuffle_q5_0_q8_1_dp4a", &err), err));
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q5_0_q8_1_dp4a_wimg = clCreateKernel(prog, "kernel_gemm_noshuffle_q5_0_q8_1_dp4a_wimg", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_noshuffle_q5_0_f32
@@ -3642,7 +3642,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             CL_gemv_compile_opts += " -DVECTOR_SUB_GROUP_BROADCAST ";
         }
 
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_noshuffle_q5_0_f32.cl.h"
         };
@@ -3652,12 +3652,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), CL_gemv_compile_opts);
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q5_0_f32 = clCreateKernel(prog, "kernel_gemv_noshuffle_q5_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q5_1_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q5_1_f32.cl.h"
         };
@@ -3667,7 +3667,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q5_1_f32 = clCreateKernel(prog, "kernel_gemm_noshuffle_q5_1_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_noshuffle_q5_1_f32
@@ -3678,7 +3678,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             CL_gemv_compile_opts += " -DVECTOR_SUB_GROUP_BROADCAST ";
         }
 
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_noshuffle_q5_1_f32.cl.h"
         };
@@ -3688,12 +3688,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), CL_gemv_compile_opts);
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q5_1_f32 = clCreateKernel(prog, "kernel_gemv_noshuffle_q5_1_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_iq4_nl_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_iq4_nl_f32.cl.h"
         };
@@ -3703,12 +3703,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_iq4_nl_f32 = clCreateKernel(prog, "kernel_gemm_noshuffle_iq4_nl_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_iq4_nl_q8_1_dp4a (dp4a dense IQ4_NL prefill GEMM)
     if (backend_ctx->has_integer_dot) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_iq4_nl_q8_1_dp4a.cl.h"
         };
@@ -3718,12 +3718,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_iq4_nl_q8_1_dp4a = clCreateKernel(prog, "kernel_gemm_noshuffle_iq4_nl_q8_1_dp4a", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q4_0_q8_1_dp4a (dp4a dense q4_0 prefill GEMM)
     if (backend_ctx->has_integer_dot) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q4_0_q8_1_dp4a.cl.h"
         };
@@ -3733,7 +3733,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q4_0_q8_1_dp4a = clCreateKernel(prog, "kernel_gemm_noshuffle_q4_0_q8_1_dp4a", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_noshuffle_iq4_nl_f32
@@ -3744,7 +3744,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             CL_gemv_compile_opts += " -DVECTOR_SUB_GROUP_BROADCAST ";
         }
 
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_noshuffle_iq4_nl_f32.cl.h"
         };
@@ -3756,12 +3756,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_iq4_nl_f32 = clCreateKernel(prog, "kernel_gemv_noshuffle_iq4_nl_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // mul_mm_q8_0_f32_8x4
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q8_0_f32.cl.h"
         };
@@ -3771,7 +3771,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q8_0_f32 = clCreateKernel(prog, "kernel_gemm_noshuffle_q8_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q8_0_f32_bin
@@ -3787,7 +3787,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
                 CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q8_0_f32_bin = clCreateKernel(prog, "kernel_gemm_noshuffle_q8_0_f32_ila", &err), err));
                 CL_CHECK(clReleaseProgram(prog));
-                LM_GGML_LOG_CONT(".");
+                GGML_LOG_CONT(".");
             }
         }
     }
@@ -3802,7 +3802,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             CL_gemv_compile_opts += " -DVECTOR_SUB_GROUP_BROADCAT ";
         }
 
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src_CL_gemv_general {
             #include "gemv_noshuffle_q8_0_f32.cl.h"
         };
@@ -3814,12 +3814,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q8_0_f32 = clCreateKernel(prog, "kernel_gemv_noshuffle_q8_0_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q4_k_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q4_k_f32.cl.h"
         };
@@ -3829,12 +3829,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q4_k_f32 = clCreateKernel(prog, "kernel_gemm_noshuffle_q4_k_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q4_k_q8_1_dp4a (dp4a dense prefill GEMM)
     if (backend_ctx->has_integer_dot) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q4_k_q8_1_dp4a.cl.h"
         };
@@ -3845,18 +3845,18 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         // X1 (1152 B/WG -> few resident WGs); TILESIZE_N=8 (288 B) lifts occupancy on
         // X1, byte-identical. X2E keeps 32. Env override wins.
         int q4k_dp4a_ts = (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X1E) ? 8 : 32;
-        if (const char * e = getenv("LM_GGML_OPENCL_Q4K_DP4A_TS")) { q4k_dp4a_ts = atoi(e); }
+        if (const char * e = getenv("GGML_OPENCL_Q4K_DP4A_TS")) { q4k_dp4a_ts = atoi(e); }
         std::string dp4a_opts = compile_opts + " -DTILESIZE_N=" + std::to_string(q4k_dp4a_ts);
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), dp4a_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q4_k_q8_1_dp4a = clCreateKernel(prog, "kernel_gemm_noshuffle_q4_k_q8_1_dp4a", &err), err));
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q4_k_q8_1_dp4a_wimg = clCreateKernel(prog, "kernel_gemm_noshuffle_q4_k_q8_1_dp4a_wimg", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q8_0_q8_1_dp4a (dp4a dense q8_0 prefill GEMM)
     if (backend_ctx->has_integer_dot) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q8_0_q8_1_dp4a.cl.h"
         };
@@ -3867,12 +3867,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q8_0_q8_1_dp4a = clCreateKernel(prog, "kernel_gemm_noshuffle_q8_0_q8_1_dp4a", &err), err));
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q8_0_q8_1_dp4a_wimg = clCreateKernel(prog, "kernel_gemm_noshuffle_q8_0_q8_1_dp4a_wimg", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q5_k_q8_1_dp4a (dp4a dense prefill GEMM for q5_K)
     if (backend_ctx->has_integer_dot) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q5_k_q8_1_dp4a.cl.h"
         };
@@ -3882,12 +3882,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q5_k_q8_1_dp4a = clCreateKernel(prog, "kernel_gemm_noshuffle_q5_k_q8_1_dp4a", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q6_k_q8_1_dp4a (dp4a dense prefill GEMM for q6_K ffn_down/output)
     if (backend_ctx->has_integer_dot) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q6_k_q8_1_dp4a.cl.h"
         };
@@ -3897,12 +3897,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q6_k_q8_1_dp4a = clCreateKernel(prog, "kernel_gemm_noshuffle_q6_k_q8_1_dp4a", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // quant_a_q8_1 (plain activation q8_1 pre-pass for the dense dp4a GEMM)
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "quant_a_q8_1.cl.h"
         };
@@ -3912,7 +3912,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_quant_a_q8_1 = clCreateKernel(prog, "kernel_quant_a_q8_1", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_noshuffle_q4_k_f32
@@ -3923,7 +3923,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             CL_gemv_compile_opts += " -DVECTOR_SUB_GROUP_BROADCAST ";
         }
 
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_noshuffle_q4_k_f32.cl.h"
         };
@@ -3935,7 +3935,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q4_k_f32 = clCreateKernel(prog, "kernel_gemv_noshuffle_q4_k_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     std::string CL_moe_compile_opts = std::string("-cl-std=") + opencl_c_std +
@@ -3944,7 +3944,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
     // gemv_moe_q4_1_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_moe_q4_1_f32_ns.cl.h"
         };
@@ -3955,12 +3955,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_moe_q4_1_f32_ns = clCreateKernel(prog, "kernel_gemv_moe_q4_1_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q4_1_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_q4_1_f32_ns.cl.h"
         };
@@ -3971,7 +3971,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_q4_1_f32_ns = clCreateKernel(prog, "kernel_gemm_moe_q4_1_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q4_1_f32_ns_bin
@@ -3987,14 +3987,14 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
                 CL_CHECK((backend_ctx->kernel_gemm_moe_q4_1_f32_ns_bin = clCreateKernel(prog, "kernel_gemm_moe_q4_1_f32_ns_ila", &err), err));
                 CL_CHECK(clReleaseProgram(prog));
-                LM_GGML_LOG_CONT(".");
+                GGML_LOG_CONT(".");
             }
         }
     }
 
     // gemv_moe_mxfp4_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_moe_mxfp4_f32.cl.h"
         };
@@ -4005,12 +4005,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), CL_moe_compile_opts);
 
         CL_CHECK((backend_ctx->kernel_gemv_moe_mxfp4_f32 = clCreateKernel(backend_ctx->program_gemv_moe_mxfp4_f32, "kernel_gemv_moe_mxfp4_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_mxfp4_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_mxfp4_f32.cl.h"
         };
@@ -4021,12 +4021,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), CL_moe_compile_opts);
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_mxfp4_f32 = clCreateKernel(backend_ctx->program_gemm_moe_mxfp4_f32, "kernel_gemm_moe_mxfp4_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_moe_q4_0_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_moe_q4_0_f32_ns.cl.h"
         };
@@ -4038,12 +4038,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_moe_q4_0_f32_ns = clCreateKernel(prog, "kernel_gemv_moe_q4_0_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q4_0_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_q4_0_f32_ns.cl.h"
         };
@@ -4055,7 +4055,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_q4_0_f32_ns = clCreateKernel(prog, "kernel_gemm_moe_q4_0_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q4_0_f32_ns_bin
@@ -4071,14 +4071,14 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
                 CL_CHECK((backend_ctx->kernel_gemm_moe_q4_0_f32_ns_bin = clCreateKernel(prog, "kernel_gemm_moe_q4_0_f32_ns_ila", &err), err));
                 CL_CHECK(clReleaseProgram(prog));
-                LM_GGML_LOG_CONT(".");
+                GGML_LOG_CONT(".");
             }
         }
     }
 
     // gemm_moe_q8_0_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_q8_0_f32_ns.cl.h"
         };
@@ -4090,12 +4090,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_q8_0_f32_ns = clCreateKernel(prog, "kernel_gemm_moe_q8_0_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_moe_q5_0_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_moe_q5_0_f32_ns.cl.h"
         };
@@ -4107,12 +4107,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_moe_q5_0_f32_ns = clCreateKernel(prog, "kernel_gemv_moe_q5_0_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q5_0_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_q5_0_f32_ns.cl.h"
         };
@@ -4124,12 +4124,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_q5_0_f32_ns = clCreateKernel(prog, "kernel_gemm_moe_q5_0_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_moe_q5_1_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_moe_q5_1_f32_ns.cl.h"
         };
@@ -4141,12 +4141,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_moe_q5_1_f32_ns = clCreateKernel(prog, "kernel_gemv_moe_q5_1_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q5_1_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_q5_1_f32_ns.cl.h"
         };
@@ -4158,12 +4158,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_q5_1_f32_ns = clCreateKernel(prog, "kernel_gemm_moe_q5_1_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_moe_q4_k_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_moe_q4_k_f32_ns.cl.h"
         };
@@ -4176,12 +4176,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_gemv_moe_q4_k_f32_ns = clCreateKernel(prog, "kernel_gemv_moe_q4_k_f32_ns", &err), err));
         CL_CHECK((backend_ctx->kernel_gemv_moe_q4_k_f32_ns_wimg = clCreateKernel(prog, "kernel_gemv_moe_q4_k_f32_ns_wimg", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q4_k_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_q4_k_f32_ns.cl.h"
         };
@@ -4193,7 +4193,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_q4_k_f32_ns = clCreateKernel(prog, "kernel_gemm_moe_q4_k_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q4_k_f32_ns_bin
@@ -4209,14 +4209,14 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
                 CL_CHECK((backend_ctx->kernel_gemm_moe_q4_k_f32_ns_bin = clCreateKernel(prog, "kernel_gemm_moe_q4_k_f32_ns_ila", &err), err));
                 CL_CHECK(clReleaseProgram(prog));
-                LM_GGML_LOG_CONT(".");
+                GGML_LOG_CONT(".");
             }
         }
     }
 
     // gemm_moe_q4_k_q8_1_dp4a (dp4a prefill GEMM)
     if (backend_ctx->has_integer_dot) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_q4_k_q8_1_dp4a.cl.h"
         };
@@ -4228,12 +4228,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_q4_k_q8_1_dp4a = clCreateKernel(prog, "kernel_gemm_moe_q4_k_q8_1_dp4a", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_mxfp4_q8_1_dp4a (dp4a prefill GEMM)
     if (backend_ctx->has_integer_dot) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_mxfp4_q8_1_dp4a.cl.h"
         };
@@ -4245,12 +4245,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_mxfp4_q8_1_dp4a = clCreateKernel(prog, "kernel_gemm_moe_mxfp4_q8_1_dp4a", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q4_0_q8_1_dp4a (dp4a prefill GEMM)
     if (backend_ctx->has_integer_dot) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_q4_0_q8_1_dp4a.cl.h"
         };
@@ -4262,12 +4262,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_q4_0_q8_1_dp4a = clCreateKernel(prog, "kernel_gemm_moe_q4_0_q8_1_dp4a", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q8_1_dp4a (generic dp4a MoE GEMM; MOE_QT=80 -> q8_0 expert variant)
     if (backend_ctx->has_integer_dot) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_q8_1_dp4a.cl.h"
         };
@@ -4291,12 +4291,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), opts5.c_str());
         CL_CHECK((backend_ctx->kernel_gemm_moe_q8_1_dp4a_q5k = clCreateKernel(prog5, "kernel_gemm_moe_q8_1_dp4a", &err), err));
         CL_CHECK(clReleaseProgram(prog5));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // moe_reorder_quant_a_q8_1 (fused reorder + q8_1 quant)
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "moe_reorder_quant_a_q8_1.cl.h"
         };
@@ -4308,12 +4308,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_moe_reorder_quant_a_q8_1 = clCreateKernel(prog, "kernel_moe_reorder_quant_a_q8_1", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_moe_q5_k_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_moe_q5_k_f32_ns.cl.h"
         };
@@ -4325,12 +4325,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_moe_q5_k_f32_ns = clCreateKernel(prog, "kernel_gemv_moe_q5_k_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q5_k_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_q5_k_f32_ns.cl.h"
         };
@@ -4342,12 +4342,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_q5_k_f32_ns = clCreateKernel(prog, "kernel_gemm_moe_q5_k_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_moe_q6_k_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_moe_q6_k_f32_ns.cl.h"
         };
@@ -4359,12 +4359,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_moe_q6_k_f32_ns = clCreateKernel(prog, "kernel_gemv_moe_q6_k_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q6_k_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_q6_k_f32_ns.cl.h"
         };
@@ -4376,7 +4376,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_q6_k_f32_ns = clCreateKernel(prog, "kernel_gemm_moe_q6_k_f32_ns", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_q6_k_f32_ns_bin
@@ -4392,14 +4392,14 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
                 CL_CHECK((backend_ctx->kernel_gemm_moe_q6_k_f32_ns_bin = clCreateKernel(prog, "kernel_gemm_moe_q6_k_f32_ns_ila", &err), err));
                 CL_CHECK(clReleaseProgram(prog));
-                LM_GGML_LOG_CONT(".");
+                GGML_LOG_CONT(".");
             }
         }
     }
 
     // gemm_moe_q6_k_q8_1_dp4a (dp4a q6_K MoE prefill GEMM)
     if (backend_ctx->has_integer_dot) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_q6_k_q8_1_dp4a.cl.h"
         };
@@ -4411,12 +4411,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemm_moe_q6_k_q8_1_dp4a = clCreateKernel(prog, "kernel_gemm_moe_q6_k_q8_1_dp4a", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_moe_mxfp4_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_moe_mxfp4_f32_ns.cl.h"
         };
@@ -4429,12 +4429,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_gemv_moe_mxfp4_f32_ns = clCreateKernel(prog, "kernel_gemv_moe_mxfp4_f32_ns", &err), err));
         CL_CHECK((backend_ctx->kernel_gemv_moe_mxfp4_f32_ns_wimg = clCreateKernel(prog, "kernel_gemv_moe_mxfp4_f32_ns_wimg", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_moe_mxfp4_f32_ns
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_moe_mxfp4_f32_ns.cl.h"
         };
@@ -4446,7 +4446,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
             CL_CHECK((backend_ctx->kernel_gemm_moe_mxfp4_f32_ns = clCreateKernel(prog, "kernel_gemm_moe_mxfp4_f32_ns", &err), err));
             CL_CHECK(clReleaseProgram(prog));
-            LM_GGML_LOG_CONT(".");
+            GGML_LOG_CONT(".");
     }
 
     // gemm_moe_mxfp4_f32_ns_bin
@@ -4462,14 +4462,14 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
                 CL_CHECK((backend_ctx->kernel_gemm_moe_mxfp4_f32_ns_bin = clCreateKernel(prog, "kernel_gemm_moe_mxfp4_f32_ns_ila", &err), err));
                 CL_CHECK(clReleaseProgram(prog));
-                LM_GGML_LOG_CONT(".");
+                GGML_LOG_CONT(".");
             }
         }
     }
 
     // moe_reorder_b
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "moe_reorder_b.cl.h"
         };
@@ -4481,12 +4481,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_moe_reorder_b = clCreateKernel(prog, "kernel_moe_reorder_b", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // moe_sort_by_expert
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "moe_sort_by_expert.cl.h"
         };
@@ -4502,12 +4502,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         CL_CHECK((backend_ctx->kernel_moe_scatter = clCreateKernel(prog, "kernel_moe_scatter", &err), err));
         CL_CHECK((backend_ctx->kernel_moe_scatter_stable = clCreateKernel(prog, "kernel_moe_scatter_stable", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_noshuffle_q6_k_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_noshuffle_q6_k_f32.cl.h"
         };
@@ -4525,12 +4525,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), CL_gemv_compile_opts);
 
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q6_K_f32 = clCreateKernel(prog, "kernel_gemv_noshuffle_q6_K_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q6_k_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q6_k_f32.cl.h"
         };
@@ -4541,7 +4541,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             build_program_from_source(backend_ctx, kernel_src.c_str(), CL_moe_compile_opts);
 
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q6_K_f32 = clCreateKernel(prog, "kernel_gemm_noshuffle_q6_K_f32", &err), err));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemv_noshuffle_q5_k_f32
@@ -4552,7 +4552,7 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
             CL_gemv_compile_opts += " -DVECTOR_SUB_GROUP_BROADCAST ";
         }
 
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemv_noshuffle_q5_k_f32.cl.h"
         };
@@ -4564,12 +4564,12 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
 
         CL_CHECK((backend_ctx->kernel_gemv_noshuffle_q5_k_f32 = clCreateKernel(prog, "kernel_gemv_noshuffle_q5_k_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
 
     // gemm_noshuffle_q5_k_f32
     {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+#ifdef GGML_OPENCL_EMBED_KERNELS
         const std::string kernel_src {
             #include "gemm_noshuffle_q5_k_f32.cl.h"
         };
@@ -4579,24 +4579,24 @@ static void load_cl_kernels(lm_ggml_backend_opencl_context *backend_ctx) {
         cl_program prog = build_program_from_source(backend_ctx, kernel_src.c_str(), compile_opts);
         CL_CHECK((backend_ctx->kernel_gemm_noshuffle_q5_k_f32 = clCreateKernel(prog, "kernel_gemm_noshuffle_q5_k_f32", &err), err));
         CL_CHECK(clReleaseProgram(prog));
-        LM_GGML_LOG_CONT(".");
+        GGML_LOG_CONT(".");
     }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    LM_GGML_LOG_CONT("\n");
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
+    GGML_LOG_CONT("\n");
     backend_ctx->kernels_loaded = true;
 }
 
-static lm_ggml_backend_opencl_context * lm_ggml_cl_init(lm_ggml_backend_dev_t dev);
-static bool lm_ggml_opencl_is_device_supported(lm_ggml_backend_dev_t dev);
+static ggml_backend_opencl_context * ggml_cl_init(ggml_backend_dev_t dev);
+static bool ggml_opencl_is_device_supported(ggml_backend_dev_t dev);
 
-// FA per-(dk,dv) tile tuning table + LM_GGML_OPENCL_FA_TUNE override parsing.
+// FA per-(dk,dv) tile tuning table + GGML_OPENCL_FA_TUNE override parsing.
 #include "fa_tune.h"
 
 // FA variant key for the per-(dk,dv,variant) lazy compile cache.
 // Kernel built on first dispatch to reduce kernel loading time.
 // NB - a warmup run is recommended to get all necessary FA variants compiled
 // before actual runs.
-enum lm_ggml_opencl_fa_variant {
+enum ggml_opencl_fa_variant {
     FA_VARIANT_PRE      = 0,  // prepass kernels (kv_pad, mask_pad, blk)
     FA_VARIANT_F16      = 1,
     FA_VARIANT_F32      = 2,
@@ -4608,8 +4608,8 @@ enum lm_ggml_opencl_fa_variant {
     FA_VARIANT_Q4_0_SPLIT    = 8,
 };
 
-static std::string lm_ggml_opencl_fa_kernel_src(lm_ggml_opencl_fa_variant v) {
-#ifdef LM_GGML_OPENCL_EMBED_KERNELS
+static std::string ggml_opencl_fa_kernel_src(ggml_opencl_fa_variant v) {
+#ifdef GGML_OPENCL_EMBED_KERNELS
     switch (v) {
         case FA_VARIANT_F16:
             return std::string{
@@ -4656,9 +4656,9 @@ static std::string lm_ggml_opencl_fa_kernel_src(lm_ggml_opencl_fa_variant v) {
 #endif
 }
 
-static std::string lm_ggml_opencl_fa_compile_opts(lm_ggml_backend_opencl_context * backend_ctx,
-                                                const lm_ggml_opencl_fa_dim * cfg,
-                                                lm_ggml_opencl_fa_variant variant) {
+static std::string ggml_opencl_fa_compile_opts(ggml_backend_opencl_context * backend_ctx,
+                                                const ggml_opencl_fa_dim * cfg,
+                                                ggml_opencl_fa_variant variant) {
     std::string opts = backend_ctx->kernel_compile_opts +
         " -D DK=" + std::to_string(cfg->dk) +
         " -D DV=" + std::to_string(cfg->dv) +
@@ -4699,9 +4699,9 @@ static std::string lm_ggml_opencl_fa_compile_opts(lm_ggml_backend_opencl_context
     // rounds; padding the row stride does not recover it, so the cause is not a simple bank
     // conflict and the wider tile does not want this layout.
     //
-    // Default on within that gate; LM_GGML_OPENCL_FA_K_LDS_T=0 restores the row-major tile.
+    // Default on within that gate; GGML_OPENCL_FA_K_LDS_T=0 restores the row-major tile.
     {
-        const char * e = getenv("LM_GGML_OPENCL_FA_K_LDS_T");
+        const char * e = getenv("GGML_OPENCL_FA_K_LDS_T");
         if ((e == nullptr || e[0] != '0') && cfg->dk <= 128) {
             opts += " -D FA_K_LDS_T";
         }
@@ -4711,13 +4711,13 @@ static std::string lm_ggml_opencl_fa_compile_opts(lm_ggml_backend_opencl_context
 
 // only register when the kernel's required dispatch workgroup size is within
 // the limit of the device's maximum workgroup size
-static bool lm_ggml_opencl_fa_kernel_fits_wg(lm_ggml_backend_opencl_context * backend_ctx,
+static bool ggml_opencl_fa_kernel_fits_wg(ggml_backend_opencl_context * backend_ctx,
                                           cl_kernel kernel, size_t required_wg,
                                           const char * name, int dk, int dv) {
     if (kernel == NULL) { return false; }
     const size_t dev_max = backend_ctx->max_workgroup_size;
     if (dev_max < required_wg) {
-        LM_GGML_LOG_INFO("lm_ggml_opencl: %s DK=%d DV=%d requires WG %zu > device max %zu; skipping registration (will fall back)\n",
+        GGML_LOG_INFO("ggml_opencl: %s DK=%d DV=%d requires WG %zu > device max %zu; skipping registration (will fall back)\n",
                       name, dk, dv, required_wg, dev_max);
         return false;
     }
@@ -4726,27 +4726,27 @@ static bool lm_ggml_opencl_fa_kernel_fits_wg(lm_ggml_backend_opencl_context * ba
                                           CL_KERNEL_WORK_GROUP_SIZE,
                                           sizeof(kwg), &kwg, NULL);
     if (err != CL_SUCCESS) {
-        LM_GGML_LOG_INFO("lm_ggml_opencl: clGetKernelWorkGroupInfo failed for %s DK=%d DV=%d (err=%d); skipping registration\n",
+        GGML_LOG_INFO("ggml_opencl: clGetKernelWorkGroupInfo failed for %s DK=%d DV=%d (err=%d); skipping registration\n",
                       name, dk, dv, err);
         return false;
     }
     if (kwg < required_wg) {
-        LM_GGML_LOG_INFO("lm_ggml_opencl: %s DK=%d DV=%d per-kernel max %zu < required %zu; skipping registration (will fall back)\n",
+        GGML_LOG_INFO("ggml_opencl: %s DK=%d DV=%d per-kernel max %zu < required %zu; skipping registration (will fall back)\n",
                       name, dk, dv, kwg, required_wg);
         return false;
     }
     return true;
 }
 
-// Log private memory for an FA kernel. Enable via `LM_GGML_OPENCL_FA_LOG_SPILL=1`.
+// Log private memory for an FA kernel. Enable via `GGML_OPENCL_FA_LOG_SPILL=1`.
 // On Adreno non-zero private_mem means spilling to global memory due to resource
 // constraint and usually causes performance degradation.
 // (per-work-item, no cache locality) — a strong signal to pick a config
 // with smaller per-thread state (e.g. larger N_SPLIT).
-static void lm_ggml_opencl_log_fa_kernel_spill(lm_ggml_backend_opencl_context * backend_ctx,
+static void ggml_opencl_log_fa_kernel_spill(ggml_backend_opencl_context * backend_ctx,
                                             cl_kernel kernel, const char * name, int dk, int dv) {
     static const bool enabled = []{
-        const char * e = std::getenv("LM_GGML_OPENCL_FA_LOG_SPILL");
+        const char * e = std::getenv("GGML_OPENCL_FA_LOG_SPILL");
         return e && e[0] && e[0] != '0';
     }();
 
@@ -4758,15 +4758,15 @@ static void lm_ggml_opencl_log_fa_kernel_spill(lm_ggml_backend_opencl_context * 
     if (clGetKernelWorkGroupInfo(kernel, backend_ctx->device, CL_KERNEL_PRIVATE_MEM_SIZE,
                                  sizeof(priv_mem), &priv_mem, NULL) == CL_SUCCESS) {
         const char * tag = priv_mem > 0 ? "SPILL" : "ok";
-        LM_GGML_LOG_INFO("lm_ggml_opencl: [%s] %s DK=%d DV=%d private_mem=%llu bytes\n",
+        GGML_LOG_INFO("ggml_opencl: [%s] %s DK=%d DV=%d private_mem=%llu bytes\n",
                 tag, name, dk, dv, (unsigned long long) priv_mem);
     }
 }
 
-static void lm_ggml_opencl_ensure_fa_pre_kernels(lm_ggml_backend_opencl_context * backend_ctx, int dk, int dv) {
+static void ggml_opencl_ensure_fa_pre_kernels(ggml_backend_opencl_context * backend_ctx, int dk, int dv) {
     const std::pair<int, int> dk_dv = {dk, dv};
 
-    const lm_ggml_opencl_fa_dim * cfg = nullptr;
+    const ggml_opencl_fa_dim * cfg = nullptr;
     for (const auto & d : g_opencl_fa_dims) {
         if (d.dk == dk && d.dv == dv) {
             cfg = &d; break;
@@ -4774,7 +4774,7 @@ static void lm_ggml_opencl_ensure_fa_pre_kernels(lm_ggml_backend_opencl_context 
     }
 
     if (cfg == nullptr) {
-        LM_GGML_ABORT("lm_ggml_opencl: no flash_attn config for DK=%d DV=%d", dk, dv);
+        GGML_ABORT("ggml_opencl: no flash_attn config for DK=%d DV=%d", dk, dv);
     }
 
     // BM-tile metadata is consumed by the prefill dispatch (n_q_blocks / wg
@@ -4788,10 +4788,10 @@ static void lm_ggml_opencl_ensure_fa_pre_kernels(lm_ggml_backend_opencl_context 
 
     if (backend_ctx->fa.kv_pad_f16.count(dk_dv) > 0) { return; }
 
-    LM_GGML_LOG_INFO("lm_ggml_opencl: lazy-compiling flash_attn prepass for DK=%d DV=%d\n", dk, dv);
+    GGML_LOG_INFO("ggml_opencl: lazy-compiling flash_attn prepass for DK=%d DV=%d\n", dk, dv);
     cl_int err;
-    const std::string src  = lm_ggml_opencl_fa_kernel_src(FA_VARIANT_PRE);
-    const std::string opts = lm_ggml_opencl_fa_compile_opts(backend_ctx, cfg, FA_VARIANT_PRE);
+    const std::string src  = ggml_opencl_fa_kernel_src(FA_VARIANT_PRE);
+    const std::string opts = ggml_opencl_fa_compile_opts(backend_ctx, cfg, FA_VARIANT_PRE);
     // retry when kernel compile fails
     cl_program prog_pre_f16 = build_program_from_source_ex(
         backend_ctx->context, backend_ctx->device, src.c_str(), opts,
@@ -4810,7 +4810,7 @@ static void lm_ggml_opencl_ensure_fa_pre_kernels(lm_ggml_backend_opencl_context 
 }
 
 // DK=512 prefill BM-tile
-static bool lm_ggml_opencl_ensure_fa_f32_f16_prefill_512(lm_ggml_backend_opencl_context * backend_ctx, bool split) {
+static bool ggml_opencl_ensure_fa_f32_f16_prefill_512(ggml_backend_opencl_context * backend_ctx, bool split) {
     const int dk = 512, dv = 512;
     const std::pair<int, int> dk_dv = {dk, dv};
     auto & target = split ? backend_ctx->fa.f32_f16_split : backend_ctx->fa.f32_f16;
@@ -4819,18 +4819,18 @@ static bool lm_ggml_opencl_ensure_fa_f32_f16_prefill_512(lm_ggml_backend_opencl_
     static bool failed[2] = { false, false };
     if (failed[split ? 1 : 0]) { return false; }
 
-    const lm_ggml_opencl_fa_dim * cfg = nullptr;
+    const ggml_opencl_fa_dim * cfg = nullptr;
     for (const auto & d : g_opencl_fa_dims) {
         if (d.dk == dk && d.dv == dv) { cfg = &d; break; }
     }
     if (cfg == nullptr) { failed[split ? 1 : 0] = true; return false; }
     if (split && cfg->n_split <= 1) { failed[1] = true; return false; }
 
-    const lm_ggml_opencl_fa_variant variant = split ? FA_VARIANT_F32_F16_SPLIT : FA_VARIANT_F32_F16;
-    std::string opts = lm_ggml_opencl_fa_compile_opts(backend_ctx, cfg, variant) + " -D FA_PREFILL_ONLY";
+    const ggml_opencl_fa_variant variant = split ? FA_VARIANT_F32_F16_SPLIT : FA_VARIANT_F32_F16;
+    std::string opts = ggml_opencl_fa_compile_opts(backend_ctx, cfg, variant) + " -D FA_PREFILL_ONLY";
     cl_program prog = build_program_from_source_ex(
         backend_ctx->context, backend_ctx->device,
-        lm_ggml_opencl_fa_kernel_src(FA_VARIANT_F32_F16).c_str(), opts,
+        ggml_opencl_fa_kernel_src(FA_VARIANT_F32_F16).c_str(), opts,
         /*fatal=*/false, split ? "fa f32_f16 prefill512 split" : "fa f32_f16 prefill512",
         backend_ctx->queue);
     if (!prog) { failed[split ? 1 : 0] = true; return false; }
@@ -4843,26 +4843,26 @@ static bool lm_ggml_opencl_ensure_fa_f32_f16_prefill_512(lm_ggml_backend_opencl_
         backend_ctx->fa.f32_f16_split_wg_size[dk_dv]       = cfg->bm * cfg->n_split;
         backend_ctx->fa.f32_f16_split_nkv_threshold[dk_dv] = cfg->nkv_split_threshold;
     }
-    lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k,
+    ggml_opencl_log_fa_kernel_spill(backend_ctx, k,
         split ? "flash_attn_f32_f16 (prefill512 split)" : "flash_attn_f32_f16 (prefill512)", dk, dv);
     clReleaseProgram(prog);
 
     // determine whether to use the K-image variant of the split tile
-    static const char * pkimg_build_env = getenv("LM_GGML_OPENCL_FA_PREFILL_K_IMG");
+    static const char * pkimg_build_env = getenv("GGML_OPENCL_FA_PREFILL_K_IMG");
     const bool pkimg_build = (pkimg_build_env != NULL) && (pkimg_build_env[0] != '0');
     if (split && pkimg_build && backend_ctx->fa.f32_f16_split_k_img.count(dk_dv) == 0) {
-        std::string opts_img = lm_ggml_opencl_fa_compile_opts(backend_ctx, cfg, variant) +
+        std::string opts_img = ggml_opencl_fa_compile_opts(backend_ctx, cfg, variant) +
             " -D FA_PREFILL_ONLY -D FA_K_IMG -D FA_TILE_NAME=flash_attn_f32_f16_k_img";
         cl_program prog_img = build_program_from_source_ex(
             backend_ctx->context, backend_ctx->device,
-            lm_ggml_opencl_fa_kernel_src(FA_VARIANT_F32_F16).c_str(), opts_img,
+            ggml_opencl_fa_kernel_src(FA_VARIANT_F32_F16).c_str(), opts_img,
             /*fatal=*/false, "fa f32_f16 prefill512 split k_img", backend_ctx->queue);
         if (prog_img) {
             cl_int err_img;
             cl_kernel k_img = clCreateKernel(prog_img, "flash_attn_f32_f16_k_img", &err_img);
             if (err_img == CL_SUCCESS) {
                 backend_ctx->fa.f32_f16_split_k_img[dk_dv] = k_img;
-                lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_img,
+                ggml_opencl_log_fa_kernel_spill(backend_ctx, k_img,
                     "flash_attn_f32_f16 (prefill512 split k_img)", dk, dv);
             }
             clReleaseProgram(prog_img);
@@ -4872,10 +4872,10 @@ static bool lm_ggml_opencl_ensure_fa_f32_f16_prefill_512(lm_ggml_backend_opencl_
 }
 
 // Compile one (variant, dk, dv); memoised. false = compiler rejected.
-static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * backend_ctx, int dk, int dv, lm_ggml_opencl_fa_variant variant) {
+static bool ggml_opencl_ensure_fa_variant(ggml_backend_opencl_context * backend_ctx, int dk, int dv, ggml_opencl_fa_variant variant) {
     const std::pair<int, int> dk_dv = {dk, dv};
 
-    const lm_ggml_opencl_fa_dim * cfg = nullptr;
+    const ggml_opencl_fa_dim * cfg = nullptr;
     for (const auto & d : g_opencl_fa_dims) {
         if (d.dk == dk && d.dv == dv) {
             cfg = &d; break;
@@ -4941,7 +4941,7 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
             break;
         }
         case FA_VARIANT_PRE: {
-            lm_ggml_opencl_ensure_fa_pre_kernels(backend_ctx, dk, dv);
+            ggml_opencl_ensure_fa_pre_kernels(backend_ctx, dk, dv);
             return true;
         }
     }
@@ -4969,9 +4969,9 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
         return false;
     }
 
-    const std::string src = lm_ggml_opencl_fa_kernel_src(variant);
+    const std::string src = ggml_opencl_fa_kernel_src(variant);
     if (src.empty()) { return false; }
-    std::string opts = lm_ggml_opencl_fa_compile_opts(backend_ctx, cfg, variant);
+    std::string opts = ggml_opencl_fa_compile_opts(backend_ctx, cfg, variant);
 
     // bypass kernels for DK=512
     const bool fa_decode_only = (variant == FA_VARIANT_F32_F16 && dk == 512);
@@ -4979,12 +4979,12 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
         opts += " -D FA_DECODE_ONLY -D FA_DECODE_MINIMAL";
     }
 
-    // c8 cluster width (LM_GGML_OPENCL_FA_CL_C overrides): value = GQA4 cluster
+    // c8 cluster width (GGML_OPENCL_FA_CL_C overrides): value = GQA4 cluster
     // width (kernel default 8); the g8 programs use 2x the value (default 16).
     // Wider clusters halve per-lane o_acc at the cost of position streams per
     // subgroup
     static const int fa_cl_c_env = []{
-        const char * e = std::getenv("LM_GGML_OPENCL_FA_CL_C");
+        const char * e = std::getenv("GGML_OPENCL_FA_CL_C");
         const int x = (e && e[0]) ? atoi(e) : 0;
         return (x == 8 || x == 16 || x == 32) ? x : 0;   // 0 = per-gen default
     }();
@@ -5041,23 +5041,23 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
                 cl_kernel k;
                 CL_CHECK((k = clCreateKernel(prog, "flash_attn_f32_f16", &err), err));
                 backend_ctx->fa.f32_f16[{dk, dv}] = k;
-                lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k, "flash_attn_f32_f16", dk, dv);
+                ggml_opencl_log_fa_kernel_spill(backend_ctx, k, "flash_attn_f32_f16", dk, dv);
             }
             CL_CHECK((kq1 = clCreateKernel(prog, "flash_attn_f32_f16_q1", &err), err));
             backend_ctx->fa.f32_f16_q1[{dk, dv}] = kq1;
-            lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, kq1, "flash_attn_f32_f16_q1", dk, dv);
+            ggml_opencl_log_fa_kernel_spill(backend_ctx, kq1, "flash_attn_f32_f16_q1", dk, dv);
             cl_kernel k_split = clCreateKernel(prog, "flash_attn_f32_f16_q1_split", &err);
             if (err == CL_SUCCESS) {
                 backend_ctx->fa.f32_f16_q1_split[{dk, dv}] = k_split;
-                lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_split, "flash_attn_f32_f16_q1_split", dk, dv);
+                ggml_opencl_log_fa_kernel_spill(backend_ctx, k_split, "flash_attn_f32_f16_q1_split", dk, dv);
             }
             // q1_vec decode kernel (DV-split + subgroup reduce)
             cl_kernel k_q1_vec = clCreateKernel(prog, "flash_attn_f32_f16_q1_vec", &err);
             if (err == CL_SUCCESS) {
-                if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec, 256,
+                if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec, 256,
                                                   "flash_attn_f32_f16_q1_vec", dk, dv)) {
                     backend_ctx->fa.f32_f16_q1_vec[{dk, dv}] = k_q1_vec;
-                    lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec, "flash_attn_f32_f16_q1_vec", dk, dv);
+                    ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec, "flash_attn_f32_f16_q1_vec", dk, dv);
                 } else {
                     clReleaseKernel(k_q1_vec);
                 }
@@ -5065,10 +5065,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
             // KV-head-coalesced vec for high-GQA small models
             cl_kernel k_q1_vec_mq = clCreateKernel(prog, "flash_attn_f32_f16_q1_vec_mq", &err);
             if (err == CL_SUCCESS) {
-                if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq, 256,
+                if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq, 256,
                                                   "flash_attn_f32_f16_q1_vec_mq", dk, dv)) {
                     backend_ctx->fa.f32_f16_q1_vec_mq[{dk, dv}] = k_q1_vec_mq;
-                    lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq, "flash_attn_f32_f16_q1_vec_mq", dk, dv);
+                    ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq, "flash_attn_f32_f16_q1_vec_mq", dk, dv);
                 } else {
                     clReleaseKernel(k_q1_vec_mq);
                 }
@@ -5076,10 +5076,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
             // KV-head-coalesced + flash-decoding split, reuses merge kernel
             cl_kernel k_q1_vec_mq_split = clCreateKernel(prog, "flash_attn_f32_f16_q1_vec_mq_split", &err);
             if (err == CL_SUCCESS) {
-                if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split, 256,
+                if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split, 256,
                                                   "flash_attn_f32_f16_q1_vec_mq_split", dk, dv)) {
                     backend_ctx->fa.f32_f16_q1_vec_mq_split[{dk, dv}] = k_q1_vec_mq_split;
-                    lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split, "flash_attn_f32_f16_q1_vec_mq_split", dk, dv);
+                    ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split, "flash_attn_f32_f16_q1_vec_mq_split", dk, dv);
                 } else {
                     clReleaseKernel(k_q1_vec_mq_split);
                 }
@@ -5087,10 +5087,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
             // K-image variant of MQ_GQA=4 split
             cl_kernel k_q1_vec_mq_split_k_img = clCreateKernel(prog, "flash_attn_f32_f16_q1_vec_mq_split_k_img", &err);
             if (err == CL_SUCCESS) {
-                if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split_k_img, 256,
+                if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split_k_img, 256,
                                                   "flash_attn_f32_f16_q1_vec_mq_split_k_img", dk, dv)) {
                     backend_ctx->fa.f32_f16_q1_vec_mq_split_k_img[{dk, dv}] = k_q1_vec_mq_split_k_img;
-                    lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split_k_img, "flash_attn_f32_f16_q1_vec_mq_split_k_img", dk, dv);
+                    ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split_k_img, "flash_attn_f32_f16_q1_vec_mq_split_k_img", dk, dv);
                 } else {
                     clReleaseKernel(k_q1_vec_mq_split_k_img);
                 }
@@ -5098,10 +5098,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
             // Cluster-parallel decode variant
             cl_kernel k_q1_vec_mq_split_c8 = clCreateKernel(prog, "flash_attn_f32_f16_q1_vec_mq_split_c8", &err);
             if (err == CL_SUCCESS) {
-                if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split_c8, 256,
+                if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split_c8, 256,
                                                   "flash_attn_f32_f16_q1_vec_mq_split_c8", dk, dv)) {
                     backend_ctx->fa.f32_f16_q1_vec_mq_split_c8[{dk, dv}] = k_q1_vec_mq_split_c8;
-                    lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split_c8, "flash_attn_f32_f16_q1_vec_mq_split_c8", dk, dv);
+                    ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split_c8, "flash_attn_f32_f16_q1_vec_mq_split_c8", dk, dv);
                 } else {
                     clReleaseKernel(k_q1_vec_mq_split_c8);
                 }
@@ -5114,10 +5114,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
             if (dk == 128 && dv == 128) {
                 cl_kernel k_lt = clCreateKernel(prog, "flash_attn_f32_f16_q1_local_tile", &err);
                 if (err == CL_SUCCESS) {
-                    if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_lt, 128,
+                    if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_lt, 128,
                                                       "flash_attn_f32_f16_q1_local_tile", dk, dv)) {
                         backend_ctx->fa.f32_f16_q1_local_tile[{dk, dv}] = k_lt;
-                        lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_lt, "flash_attn_f32_f16_q1_local_tile", dk, dv);
+                        ggml_opencl_log_fa_kernel_spill(backend_ctx, k_lt, "flash_attn_f32_f16_q1_local_tile", dk, dv);
                     } else {
                         clReleaseKernel(k_lt);
                     }
@@ -5125,10 +5125,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
                 // hybrid local-tile + MQ + FD-split
                 cl_kernel k_lmq = clCreateKernel(prog, "flash_attn_f32_f16_q1_local_mq_split", &err);
                 if (err == CL_SUCCESS) {
-                    if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_lmq, 64,
+                    if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_lmq, 64,
                                                       "flash_attn_f32_f16_q1_local_mq_split", dk, dv)) {
                         backend_ctx->fa.f32_f16_q1_local_mq_split[{dk, dv}] = k_lmq;
-                        lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_lmq, "flash_attn_f32_f16_q1_local_mq_split", dk, dv);
+                        ggml_opencl_log_fa_kernel_spill(backend_ctx, k_lmq, "flash_attn_f32_f16_q1_local_mq_split", dk, dv);
                     } else {
                         clReleaseKernel(k_lmq);
                     }
@@ -5150,20 +5150,20 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
                 const size_t mq_g8_required_wg = 192;  // Q1_WG_SIZE(64) * MQ_NSG_SPLIT(3)
                 cl_kernel k_q1_vec_mq_g8 = clCreateKernel(prog_g8, "flash_attn_f32_f16_q1_vec_mq", &err);
                 if (err == CL_SUCCESS) {
-                    if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_g8, mq_g8_required_wg,
+                    if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_g8, mq_g8_required_wg,
                                                       "flash_attn_f32_f16_q1_vec_mq (g8)", dk, dv)) {
                         backend_ctx->fa.f32_f16_q1_vec_mq_g8[{dk, dv}] = k_q1_vec_mq_g8;
-                        lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_g8, "flash_attn_f32_f16_q1_vec_mq_g8", dk, dv);
+                        ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_g8, "flash_attn_f32_f16_q1_vec_mq_g8", dk, dv);
                     } else {
                         clReleaseKernel(k_q1_vec_mq_g8);
                     }
                 }
                 cl_kernel k_q1_vec_mq_split_g8 = clCreateKernel(prog_g8, "flash_attn_f32_f16_q1_vec_mq_split", &err);
                 if (err == CL_SUCCESS) {
-                    if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split_g8, mq_g8_required_wg,
+                    if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split_g8, mq_g8_required_wg,
                                                       "flash_attn_f32_f16_q1_vec_mq_split (g8)", dk, dv)) {
                         backend_ctx->fa.f32_f16_q1_vec_mq_split_g8[{dk, dv}] = k_q1_vec_mq_split_g8;
-                        lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split_g8, "flash_attn_f32_f16_q1_vec_mq_split_g8", dk, dv);
+                        ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split_g8, "flash_attn_f32_f16_q1_vec_mq_split_g8", dk, dv);
                     } else {
                         clReleaseKernel(k_q1_vec_mq_split_g8);
                     }
@@ -5171,10 +5171,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
                 // K-image variant
                 cl_kernel k_q1_vec_mq_split_g8_k_img = clCreateKernel(prog_g8, "flash_attn_f32_f16_q1_vec_mq_split_k_img", &err);
                 if (err == CL_SUCCESS) {
-                    if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split_g8_k_img, mq_g8_required_wg,
+                    if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split_g8_k_img, mq_g8_required_wg,
                                                       "flash_attn_f32_f16_q1_vec_mq_split_k_img (g8)", dk, dv)) {
                         backend_ctx->fa.f32_f16_q1_vec_mq_split_g8_k_img[{dk, dv}] = k_q1_vec_mq_split_g8_k_img;
-                        lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split_g8_k_img, "flash_attn_f32_f16_q1_vec_mq_split_g8_k_img", dk, dv);
+                        ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split_g8_k_img, "flash_attn_f32_f16_q1_vec_mq_split_g8_k_img", dk, dv);
                     } else {
                         clReleaseKernel(k_q1_vec_mq_split_g8_k_img);
                     }
@@ -5182,10 +5182,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
                 // Cluster-parallel decode, MQ_GQA=8 / FA_CL_C=16 specialization
                 cl_kernel k_q1_vec_mq_split_g8_c8 = clCreateKernel(prog_g8, "flash_attn_f32_f16_q1_vec_mq_split_c8", &err);
                 if (err == CL_SUCCESS) {
-                    if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split_g8_c8, mq_g8_required_wg,
+                    if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split_g8_c8, mq_g8_required_wg,
                                                       "flash_attn_f32_f16_q1_vec_mq_split_c8 (g8)", dk, dv)) {
                         backend_ctx->fa.f32_f16_q1_vec_mq_split_g8_c8[{dk, dv}] = k_q1_vec_mq_split_g8_c8;
-                        lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split_g8_c8, "flash_attn_f32_f16_q1_vec_mq_split_g8_c8", dk, dv);
+                        ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split_g8_c8, "flash_attn_f32_f16_q1_vec_mq_split_g8_c8", dk, dv);
                     } else {
                         clReleaseKernel(k_q1_vec_mq_split_g8_c8);
                     }
@@ -5194,10 +5194,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
                 if (dk == 128 && dv == 128) {
                     cl_kernel k_lmq_g8 = clCreateKernel(prog_g8, "flash_attn_f32_f16_q1_local_mq_split", &err);
                     if (err == CL_SUCCESS) {
-                        if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_lmq_g8, 64,
+                        if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_lmq_g8, 64,
                                                           "flash_attn_f32_f16_q1_local_mq_split (g8)", dk, dv)) {
                             backend_ctx->fa.f32_f16_q1_local_mq_split_g8[{dk, dv}] = k_lmq_g8;
-                            lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_lmq_g8, "flash_attn_f32_f16_q1_local_mq_split_g8", dk, dv);
+                            ggml_opencl_log_fa_kernel_spill(backend_ctx, k_lmq_g8, "flash_attn_f32_f16_q1_local_mq_split_g8", dk, dv);
                         } else {
                             clReleaseKernel(k_lmq_g8);
                         }
@@ -5223,10 +5223,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
                     if (err == CL_SUCCESS) {
                         // WG = MQ_NSG(2) × Q1_WG_SIZE(=FA_SG): 128 Adreno (64), 64 Intel (32).
                         const size_t c8_ns2_wg = backend_ctx->gpu_family == INTEL ? 64 : 128;
-                        if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_c8, c8_ns2_wg,
+                        if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_c8, c8_ns2_wg,
                                                           "flash_attn_f32_f16_q1_vec_mq_split_c8 (ns2)", dk, dv)) {
                             backend_ctx->fa.f32_f16_q1_vec_mq_split_c8_ns2[{dk, dv}] = k_c8;
-                            lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_c8, "flash_attn_f32_f16_q1_vec_mq_split_c8_ns2", dk, dv);
+                            ggml_opencl_log_fa_kernel_spill(backend_ctx, k_c8, "flash_attn_f32_f16_q1_vec_mq_split_c8_ns2", dk, dv);
                         } else {
                             clReleaseKernel(k_c8);
                         }
@@ -5244,10 +5244,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
                 if (prog_g8_c32) {
                     cl_kernel k_g8_c32 = clCreateKernel(prog_g8_c32, "flash_attn_f32_f16_q1_vec_mq_split_c8", &err);
                     if (err == CL_SUCCESS) {
-                        if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_g8_c32, 128,
+                        if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_g8_c32, 128,
                                                           "flash_attn_f32_f16_q1_vec_mq_split_c8 (g8 c32 d256)", dk, dv)) {
                             backend_ctx->fa.f32_f16_q1_vec_mq_split_g8_c32[{dk, dv}] = k_g8_c32;
-                            lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_g8_c32, "flash_attn_f32_f16_q1_vec_mq_split_g8_c32", dk, dv);
+                            ggml_opencl_log_fa_kernel_spill(backend_ctx, k_g8_c32, "flash_attn_f32_f16_q1_vec_mq_split_g8_c32", dk, dv);
                         } else {
                             clReleaseKernel(k_g8_c32);
                         }
@@ -5264,10 +5264,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
                 if (prog_g8_c8) {
                     cl_kernel k_g8_c8 = clCreateKernel(prog_g8_c8, "flash_attn_f32_f16_q1_vec_mq_split_c8", &err);
                     if (err == CL_SUCCESS) {
-                        if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_g8_c8, 128,
+                        if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_g8_c8, 128,
                                                           "flash_attn_f32_f16_q1_vec_mq_split_c8 (g8 ns2)", dk, dv)) {
                             backend_ctx->fa.f32_f16_q1_vec_mq_split_g8_c8_ns2[{dk, dv}] = k_g8_c8;
-                            lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_g8_c8, "flash_attn_f32_f16_q1_vec_mq_split_g8_c8_ns2", dk, dv);
+                            ggml_opencl_log_fa_kernel_spill(backend_ctx, k_g8_c8, "flash_attn_f32_f16_q1_vec_mq_split_g8_c8_ns2", dk, dv);
                         } else {
                             clReleaseKernel(k_g8_c8);
                         }
@@ -5292,12 +5292,12 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
             CL_CHECK((k   = clCreateKernel(prog, base.c_str(),    &err), err));
             m_q1[{dk, dv}]      = kq1;
             m_prefill[{dk, dv}] = k;
-            lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, kq1, name_q1.c_str(), dk, dv);
-            lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k,   base.c_str(),    dk, dv);
+            ggml_opencl_log_fa_kernel_spill(backend_ctx, kq1, name_q1.c_str(), dk, dv);
+            ggml_opencl_log_fa_kernel_spill(backend_ctx, k,   base.c_str(),    dk, dv);
             cl_kernel k_split = clCreateKernel(prog, name_q1_split.c_str(), &err);
             if (err == CL_SUCCESS) {
                 m_q1_split[{dk, dv}] = k_split;
-                lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_split, name_q1_split.c_str(), dk, dv);
+                ggml_opencl_log_fa_kernel_spill(backend_ctx, k_split, name_q1_split.c_str(), dk, dv);
             }
 
             // DV-split decode variant (q1_vec)
@@ -5305,10 +5305,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
             const std::string name_q1_vec = name_q1 + "_vec";
             cl_kernel k_q1_vec = clCreateKernel(prog, name_q1_vec.c_str(), &err);
             if (err == CL_SUCCESS) {
-                if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec, 256,
+                if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec, 256,
                                                   name_q1_vec.c_str(), dk, dv)) {
                     m_q1_vec[{dk, dv}] = k_q1_vec;
-                    lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec, name_q1_vec.c_str(), dk, dv);
+                    ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec, name_q1_vec.c_str(), dk, dv);
                 } else {
                     clReleaseKernel(k_q1_vec);
                 }
@@ -5320,10 +5320,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
             const std::string name_mq_split = name_q1 + "_vec_mq_split";
             cl_kernel k_q1_vec_mq_split = clCreateKernel(prog, name_mq_split.c_str(), &err);
             if (err == CL_SUCCESS) {
-                if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split, 256,
+                if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_q1_vec_mq_split, 256,
                                                   name_mq_split.c_str(), dk, dv)) {
                     m_mq_split[{dk, dv}] = k_q1_vec_mq_split;
-                    lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split, name_mq_split.c_str(), dk, dv);
+                    ggml_opencl_log_fa_kernel_spill(backend_ctx, k_q1_vec_mq_split, name_mq_split.c_str(), dk, dv);
                 } else {
                     clReleaseKernel(k_q1_vec_mq_split);
                 }
@@ -5346,10 +5346,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
                 const size_t mq_g8_required_wg = 192;
                 cl_kernel k_g8 = clCreateKernel(prog_mq_g8, name_mq_split.c_str(), &err);
                 if (err == CL_SUCCESS) {
-                    if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_g8, mq_g8_required_wg,
+                    if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_g8, mq_g8_required_wg,
                                                       name_mq_split.c_str(), dk, dv)) {
                         m_mq_split_g8[{dk, dv}] = k_g8;
-                        lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_g8, name_mq_split.c_str(), dk, dv);
+                        ggml_opencl_log_fa_kernel_spill(backend_ctx, k_g8, name_mq_split.c_str(), dk, dv);
                     } else {
                         clReleaseKernel(k_g8);
                     }
@@ -5369,10 +5369,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
                 if (prog_c8_gqa4) {
                     cl_kernel k_c8_gqa4 = clCreateKernel(prog_c8_gqa4, name_c8_gqa4.c_str(), &err);
                     if (err == CL_SUCCESS) {
-                        if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_c8_gqa4, 128,
+                        if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_c8_gqa4, 128,
                                                           name_c8_gqa4.c_str(), dk, dv)) {
                             m_c8_gqa4[{dk, dv}] = k_c8_gqa4;
-                            lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_c8_gqa4, name_c8_gqa4.c_str(), dk, dv);
+                            ggml_opencl_log_fa_kernel_spill(backend_ctx, k_c8_gqa4, name_c8_gqa4.c_str(), dk, dv);
                         } else {
                             clReleaseKernel(k_c8_gqa4);
                         }
@@ -5389,10 +5389,10 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
                 if (prog_c8) {
                     cl_kernel k_c8 = clCreateKernel(prog_c8, "flash_attn_f32_q4_0_q1_vec_mq_split_c8", &err);
                     if (err == CL_SUCCESS) {
-                        if (lm_ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_c8, 128,
+                        if (ggml_opencl_fa_kernel_fits_wg(backend_ctx, k_c8, 128,
                                                           "flash_attn_f32_q4_0_q1_vec_mq_split_c8 (g8 ns2)", dk, dv)) {
                             backend_ctx->fa.f32_q4_0_q1_vec_mq_split_g8_c8[{dk, dv}] = k_c8;
-                            lm_ggml_opencl_log_fa_kernel_spill(backend_ctx, k_c8, "flash_attn_f32_q4_0_q1_vec_mq_split_g8_c8", dk, dv);
+                            ggml_opencl_log_fa_kernel_spill(backend_ctx, k_c8, "flash_attn_f32_q4_0_q1_vec_mq_split_g8_c8", dk, dv);
                         } else {
                             clReleaseKernel(k_c8);
                         }
@@ -5442,8 +5442,8 @@ static bool lm_ggml_opencl_ensure_fa_variant(lm_ggml_backend_opencl_context * ba
 //           QK-partial reduction uses sub_group_shuffle, so all 3 split
 //           threads of a query must land in one subgroup — WG_SIZE =
 //           BLOCK_M*N_SPLIT must be <= the 64-lane Adreno subgroup (16*3=48).
-static bool lm_ggml_opencl_ensure_fa_quant_split_override(
-        lm_ggml_backend_opencl_context * backend_ctx,
+static bool ggml_opencl_ensure_fa_quant_split_override(
+        ggml_backend_opencl_context * backend_ctx,
         int dk, int dv, int quant_bm, int quant_n_split, bool is_q8_0
 ) {
     const std::pair<int, int> dk_dv = {dk, dv};
@@ -5454,7 +5454,7 @@ static bool lm_ggml_opencl_ensure_fa_quant_split_override(
         return true;
     }
 
-    const lm_ggml_opencl_fa_variant variant = is_q8_0 ? FA_VARIANT_Q8_0_SPLIT : FA_VARIANT_Q4_0_SPLIT;
+    const ggml_opencl_fa_variant variant = is_q8_0 ? FA_VARIANT_Q8_0_SPLIT : FA_VARIANT_Q4_0_SPLIT;
     const auto attempt_key = std::make_pair(variant, dk_dv);
     if (backend_ctx->fa.variant_attempted.count(attempt_key)) {
         return false;
@@ -5468,7 +5468,7 @@ static bool lm_ggml_opencl_ensure_fa_quant_split_override(
             ? " -D cl_qcom_subgroup_shuffle=1"
             : " -D cl_khr_subgroup_shuffle=1";
     }
-    const lm_ggml_opencl_fa_dim * cfg = nullptr;
+    const ggml_opencl_fa_dim * cfg = nullptr;
     for (const auto & d : g_opencl_fa_dims) {
         if (d.dk == dk && d.dv == dv) {
             cfg = &d; break;
@@ -5488,7 +5488,7 @@ static bool lm_ggml_opencl_ensure_fa_quant_split_override(
         " -D N_SPLIT=" + std::to_string(quant_n_split) +
         " -D BLK_PREPASS_BM=" + std::to_string(cfg->bm);
 
-    const std::string src = lm_ggml_opencl_fa_kernel_src(variant);
+    const std::string src = ggml_opencl_fa_kernel_src(variant);
     if (src.empty()) {
         return false;
     }
@@ -5519,15 +5519,15 @@ static bool lm_ggml_opencl_ensure_fa_quant_split_override(
 }
 
 namespace /* anonymous */ {
-extern struct lm_ggml_backend_device_i lm_ggml_backend_opencl_device_i;
+extern struct ggml_backend_device_i ggml_backend_opencl_device_i;
 }
 
 // Look for available and suitable devices.
-static std::vector<lm_ggml_backend_device> lm_ggml_opencl_probe_devices(lm_ggml_backend_reg * reg) {
-    std::vector<lm_ggml_backend_device> found_devices;
+static std::vector<ggml_backend_device> ggml_opencl_probe_devices(ggml_backend_reg * reg) {
+    std::vector<ggml_backend_device> found_devices;
 
-#ifdef LM_GGML_OPENCL_PROFILING
-    LM_GGML_LOG_INFO("lm_ggml_opencl: OpenCL profiling enabled\n");
+#ifdef GGML_OPENCL_PROFILING
+    GGML_LOG_INFO("ggml_opencl: OpenCL profiling enabled\n");
 #endif
 
     struct cl_device;
@@ -5561,7 +5561,7 @@ static std::vector<lm_ggml_backend_device> lm_ggml_opencl_probe_devices(lm_ggml_
 
     cl_platform_id platform_ids[NPLAT];
     if (clGetPlatformIDs(NPLAT, platform_ids, &n_platforms) != CL_SUCCESS) {
-        LM_GGML_LOG_ERROR("lm_ggml_opencl: platform IDs not available.\n");
+        GGML_LOG_ERROR("ggml_opencl: platform IDs not available.\n");
         return found_devices;
     }
 
@@ -5603,12 +5603,12 @@ static std::vector<lm_ggml_backend_device> lm_ggml_opencl_probe_devices(lm_ggml_
     }
 
     if (n_devices == 0) {
-        LM_GGML_LOG_ERROR("lm_ggml_opencl: could find any OpenCL devices.\n");
+        GGML_LOG_ERROR("ggml_opencl: could find any OpenCL devices.\n");
         return found_devices;
     }
 
-    char *      user_platform_string = getenv("LM_GGML_OPENCL_PLATFORM");
-    char *      user_device_string   = getenv("LM_GGML_OPENCL_DEVICE");
+    char *      user_platform_string = getenv("GGML_OPENCL_PLATFORM");
+    char *      user_device_string   = getenv("GGML_OPENCL_DEVICE");
     int         user_platform_number = -1;
     int         user_device_number   = -1;
     cl_device * candidate_devices    = nullptr;
@@ -5624,7 +5624,7 @@ static std::vector<lm_ggml_backend_device> lm_ggml_opencl_probe_devices(lm_ggml_
     if (user_platform_number != -1 && user_device_number != -1) {
         cl_platform* platform = &platforms[user_platform_number];
         if ((unsigned)user_device_number >= platform->n_devices) {
-            LM_GGML_LOG_ERROR("lm_ggml_opencl: invalid device number %d\n", user_device_number);
+            GGML_LOG_ERROR("ggml_opencl: invalid device number %d\n", user_device_number);
             exit(1);
         }
         default_device      = &platform->devices[user_device_number];
@@ -5642,7 +5642,7 @@ static std::vector<lm_ggml_backend_device> lm_ggml_opencl_probe_devices(lm_ggml_
                 }
             }
             if (user_platform_number == -1) {
-                LM_GGML_LOG_ERROR("lm_ggml_opencl: no platform matching '%s' was found.\n", user_platform_string);
+                GGML_LOG_ERROR("ggml_opencl: no platform matching '%s' was found.\n", user_platform_string);
                 exit(1);
             }
         }
@@ -5653,7 +5653,7 @@ static std::vector<lm_ggml_backend_device> lm_ggml_opencl_probe_devices(lm_ggml_
         n_candidate_devices               = p->n_devices;
         default_device                    = p->default_device;
         if (n_candidate_devices == 0) {
-            LM_GGML_LOG_ERROR("lm_ggml_opencl: selected platform '%s' does not have any devices.\n", p->name);
+            GGML_LOG_ERROR("ggml_opencl: selected platform '%s' does not have any devices.\n", p->name);
             exit(1);
         }
 
@@ -5666,7 +5666,7 @@ static std::vector<lm_ggml_backend_device> lm_ggml_opencl_probe_devices(lm_ggml_
                 }
             }
             if (user_device_number == -1) {
-                LM_GGML_LOG_ERROR("lm_ggml_opencl: no device matching '%s' was found.\n", user_device_string);
+                GGML_LOG_ERROR("ggml_opencl: no device matching '%s' was found.\n", user_device_string);
                 exit(1);
             }
         }
@@ -5676,14 +5676,14 @@ static std::vector<lm_ggml_backend_device> lm_ggml_opencl_probe_devices(lm_ggml_
             default_device      = &candidate_devices[0];
         }
 
-        LM_GGML_ASSERT(n_candidate_devices > 0);
+        GGML_ASSERT(n_candidate_devices > 0);
 
         if (default_device == NULL) {
             default_device = &candidate_devices[0];
         }
     }
 
-    LM_GGML_ASSERT(n_candidate_devices != 0 && candidate_devices);
+    GGML_ASSERT(n_candidate_devices != 0 && candidate_devices);
 
     // Put the default device in front.
     for (unsigned i = 1; i < n_candidate_devices; i++) {
@@ -5694,7 +5694,7 @@ static std::vector<lm_ggml_backend_device> lm_ggml_opencl_probe_devices(lm_ggml_
         }
     }
 
-    LM_GGML_LOG_INFO("lm_ggml_opencl: selected platform: '%s'\n", default_device->platform->name);
+    GGML_LOG_INFO("ggml_opencl: selected platform: '%s'\n", default_device->platform->name);
 
     std::vector<cl_device_id> device_ids;
     for (auto dev = candidate_devices, dev_end = candidate_devices + n_candidate_devices; dev != dev_end; dev++) {
@@ -5709,9 +5709,9 @@ static std::vector<lm_ggml_backend_device> lm_ggml_opencl_probe_devices(lm_ggml_
         (shared_context = clCreateContext(properties, device_ids.size(), device_ids.data(), NULL, NULL, &err), err));
 
     for (auto dev = candidate_devices, dev_end = candidate_devices + n_candidate_devices; dev != dev_end; dev++) {
-        LM_GGML_LOG_INFO("\nlm_ggml_opencl: device: '%s (%s)'\n", dev->name, dev->version);
+        GGML_LOG_INFO("\nggml_opencl: device: '%s (%s)'\n", dev->name, dev->version);
 
-        auto dev_ctx = std::unique_ptr<lm_ggml_backend_opencl_device_context>(new lm_ggml_backend_opencl_device_context{
+        auto dev_ctx = std::unique_ptr<ggml_backend_opencl_device_context>(new ggml_backend_opencl_device_context{
             /*.platform         =*/dev->platform->id,
             /*.platform_nane    =*/dev->platform->name,
             /*.device           =*/dev->id,
@@ -5723,28 +5723,28 @@ static std::vector<lm_ggml_backend_device> lm_ggml_opencl_probe_devices(lm_ggml_
             /*.context          =*/shared_context,
         });
 
-        found_devices.push_back(lm_ggml_backend_device{
-            /* .iface   = */ lm_ggml_backend_opencl_device_i,
+        found_devices.push_back(ggml_backend_device{
+            /* .iface   = */ ggml_backend_opencl_device_i,
             /* .reg     = */ reg,
             /* .context = */ dev_ctx.get(),
         });
 
-        if (!lm_ggml_opencl_is_device_supported(&found_devices.back())) {
+        if (!ggml_opencl_is_device_supported(&found_devices.back())) {
             found_devices.pop_back();
-            LM_GGML_LOG_WARN("lm_ggml_opencl: drop unsupported device '%s'.\n", dev->name);
+            GGML_LOG_WARN("ggml_opencl: drop unsupported device '%s'.\n", dev->name);
             continue;
         }
 
-        g_lm_ggml_backend_opencl_dev_ctxs.push_back(std::move(dev_ctx));
+        g_ggml_backend_opencl_dev_ctxs.push_back(std::move(dev_ctx));
     }
 
     if (found_devices.size()) {
-        auto * dev_ctx = static_cast<lm_ggml_backend_opencl_device_context *>(found_devices.front().context);
-        LM_GGML_LOG_INFO("lm_ggml_opencl: default device: '%s (%s)'\n", dev_ctx->device_name.c_str(),
+        auto * dev_ctx = static_cast<ggml_backend_opencl_device_context *>(found_devices.front().context);
+        GGML_LOG_INFO("ggml_opencl: default device: '%s (%s)'\n", dev_ctx->device_name.c_str(),
                       dev_ctx->device_version.c_str());
 
         if (dev_ctx->device_type != CL_DEVICE_TYPE_GPU) {
-            LM_GGML_LOG_WARN("lm_ggml_opencl: warning, the default device is not a GPU: '%s'.\n",
+            GGML_LOG_WARN("ggml_opencl: warning, the default device is not a GPU: '%s'.\n",
                           dev_ctx->device_name.c_str());
         }
     }
@@ -5752,80 +5752,80 @@ static std::vector<lm_ggml_backend_device> lm_ggml_opencl_probe_devices(lm_ggml_
     return found_devices;
 }
 
-static void lm_ggml_opencl_print_backend_info(lm_ggml_backend_opencl_device_context * dev_ctx) {
-    LM_GGML_ASSERT(dev_ctx);
-    LM_GGML_ASSERT(dev_ctx->backend_ctx);
+static void ggml_opencl_print_backend_info(ggml_backend_opencl_device_context * dev_ctx) {
+    GGML_ASSERT(dev_ctx);
+    GGML_ASSERT(dev_ctx->backend_ctx);
 
     auto * backend_ctx = dev_ctx->backend_ctx;
 
-    LM_GGML_LOG_INFO("lm_ggml_opencl: OpenCL driver: %s\n",
+    GGML_LOG_INFO("ggml_opencl: OpenCL driver: %s\n",
         backend_ctx->driver_version.c_str());
-    LM_GGML_LOG_INFO("lm_ggml_opencl: vector subgroup broadcast support: %s\n",
+    GGML_LOG_INFO("ggml_opencl: vector subgroup broadcast support: %s\n",
         backend_ctx->has_vector_subgroup_broadcast ? "true" : "false");
-    LM_GGML_LOG_INFO("lm_ggml_opencl: subgroup shuffle support: %s\n",
+    GGML_LOG_INFO("ggml_opencl: subgroup shuffle support: %s\n",
         backend_ctx->has_subgroup_shuffle ? "true" : "false");
-    LM_GGML_LOG_INFO("lm_ggml_opencl: device FP16 support: %s\n",
+    GGML_LOG_INFO("ggml_opencl: device FP16 support: %s\n",
         backend_ctx->fp16_support ? "true" : "false");
-    LM_GGML_LOG_INFO("lm_ggml_opencl: khr dot product support: %s\n",
+    GGML_LOG_INFO("ggml_opencl: khr dot product support: %s\n",
         backend_ctx->has_integer_dot ? "true" : "false");
-    LM_GGML_LOG_INFO("lm_ggml_opencl: mem base addr align: %u\n",
+    GGML_LOG_INFO("ggml_opencl: mem base addr align: %u\n",
         backend_ctx->alignment);
-    LM_GGML_LOG_INFO("lm_ggml_opencl: global mem size: %zu MB\n",
+    GGML_LOG_INFO("ggml_opencl: global mem size: %zu MB\n",
         backend_ctx->global_mem_size/1024/1024);
-    LM_GGML_LOG_INFO("lm_ggml_opencl: max mem alloc size: %zu MB\n",
+    GGML_LOG_INFO("ggml_opencl: max mem alloc size: %zu MB\n",
         backend_ctx->max_alloc_size/1024/1024);
-    LM_GGML_LOG_INFO("lm_ggml_opencl: device max image buffer size (pixels): %lu\n",
+    GGML_LOG_INFO("ggml_opencl: device max image buffer size (pixels): %lu\n",
         backend_ctx->image_max_buffer_size);
-    LM_GGML_LOG_INFO("lm_ggml_opencl: device max image2d size: %lu x %lu\n",
+    GGML_LOG_INFO("ggml_opencl: device max image2d size: %lu x %lu\n",
         backend_ctx->image2d_max_width, backend_ctx->image2d_max_height);
-    LM_GGML_LOG_INFO("lm_ggml_opencl: device max workgroup size: %lu\n",
+    GGML_LOG_INFO("ggml_opencl: device max workgroup size: %lu\n",
         backend_ctx->max_workgroup_size);
-    LM_GGML_LOG_INFO("lm_ggml_opencl: SVM coarse grain buffer support: %s\n",
+    GGML_LOG_INFO("ggml_opencl: SVM coarse grain buffer support: %s\n",
         backend_ctx->svm_caps & CL_DEVICE_SVM_COARSE_GRAIN_BUFFER ? "true" : "false");
-    LM_GGML_LOG_INFO("lm_ggml_opencl: SVM fine grain buffer support: %s\n",
+    GGML_LOG_INFO("ggml_opencl: SVM fine grain buffer support: %s\n",
         backend_ctx->svm_caps & CL_DEVICE_SVM_FINE_GRAIN_BUFFER ? "true" : "false");
-    LM_GGML_LOG_INFO("lm_ggml_opencl: SVM fine grain system support: %s\n",
+    GGML_LOG_INFO("ggml_opencl: SVM fine grain system support: %s\n",
         backend_ctx->svm_caps & CL_DEVICE_SVM_FINE_GRAIN_SYSTEM ? "true" : "false");
-    LM_GGML_LOG_INFO("lm_ggml_opencl: SVM atomics support: %s\n",
+    GGML_LOG_INFO("ggml_opencl: SVM atomics support: %s\n",
         backend_ctx->svm_caps & CL_DEVICE_SVM_ATOMICS ? "true" : "false");
-    LM_GGML_LOG_INFO("lm_ggml_opencl: cl_qcom_subgroup_shuffle support: %s\n",
+    GGML_LOG_INFO("ggml_opencl: cl_qcom_subgroup_shuffle support: %s\n",
         backend_ctx->has_qcom_subgroup_shuffle ? "true" : "false");
 
     // Print out configurations
-#ifdef LM_GGML_OPENCL_SOA_Q
-    LM_GGML_LOG_INFO("lm_ggml_opencl: flattening quantized weights representation as struct of arrays (LM_GGML_OPENCL_SOA_Q)\n");
-#endif // LM_GGML_OPENCL_SOA_Q
+#ifdef GGML_OPENCL_SOA_Q
+    GGML_LOG_INFO("ggml_opencl: flattening quantized weights representation as struct of arrays (GGML_OPENCL_SOA_Q)\n");
+#endif // GGML_OPENCL_SOA_Q
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    LM_GGML_LOG_INFO("lm_ggml_opencl: using kernels optimized for Adreno (LM_GGML_OPENCL_USE_ADRENO_KERNELS)\n");
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    GGML_LOG_INFO("ggml_opencl: using kernels optimized for Adreno (GGML_OPENCL_USE_ADRENO_KERNELS)\n");
     if (backend_ctx->adreno_xmem_gemm_enabled) {
-        LM_GGML_LOG_INFO("lm_ggml_opencl: Adreno xmem F16xF32 GEMM enabled (temporary weight prepack)\n");
+        GGML_LOG_INFO("ggml_opencl: Adreno xmem F16xF32 GEMM enabled (temporary weight prepack)\n");
     }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
     if (backend_ctx->adreno_use_large_buffer) {
         if (!backend_ctx->adreno_has_large_buffer) {
-            LM_GGML_LOG_INFO("lm_ggml_opencl: Adreno large buffer requested but not supported by driver, will use regular buffer\n");
+            GGML_LOG_INFO("ggml_opencl: Adreno large buffer requested but not supported by driver, will use regular buffer\n");
             backend_ctx->adreno_use_large_buffer = false;
         } else {
-            LM_GGML_LOG_INFO("lm_ggml_opencl: Adreno large buffer enabled\n");
+            GGML_LOG_INFO("ggml_opencl: Adreno large buffer enabled\n");
         }
     }
 
     if (dev_ctx->opfilter) {
-        // for information only, the actual regex object is created in lm_ggml_opencl_is_device_supported
-        LM_GGML_LOG_INFO("lm_ggml_opencl: opfilter regex = \"%s\"\n", dev_ctx->opfilter_str.c_str());
+        // for information only, the actual regex object is created in ggml_opencl_is_device_supported
+        GGML_LOG_INFO("ggml_opencl: opfilter regex = \"%s\"\n", dev_ctx->opfilter_str.c_str());
     }
 }
 
 // check if device should be accepted
-static bool lm_ggml_opencl_is_device_supported(lm_ggml_backend_dev_t dev) {
-    LM_GGML_ASSERT(dev);
-    LM_GGML_ASSERT(dev->context);
+static bool ggml_opencl_is_device_supported(ggml_backend_dev_t dev) {
+    GGML_ASSERT(dev);
+    GGML_ASSERT(dev->context);
 
-    lm_ggml_backend_opencl_device_context * dev_ctx = (lm_ggml_backend_opencl_device_context *) dev->context;
-    LM_GGML_ASSERT(dev_ctx->platform);
-    LM_GGML_ASSERT(dev_ctx->device);
+    ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) dev->context;
+    GGML_ASSERT(dev_ctx->platform);
+    GGML_ASSERT(dev_ctx->device);
 
     if (strstr(dev_ctx->device_name.c_str(), "Adreno") ||
         strstr(dev_ctx->device_name.c_str(), "Qualcomm") ||
@@ -5840,24 +5840,24 @@ static bool lm_ggml_opencl_is_device_supported(lm_ggml_backend_dev_t dev) {
     } else if (strstr(dev_ctx->device_name.c_str(), "Intel")) {
         dev_ctx->gpu_family = GPU_FAMILY::INTEL;
     } else {
-        LM_GGML_LOG_WARN("lm_ggml_opencl: unsupported GPU '%s'.\n", dev_ctx->device_name.c_str());
+        GGML_LOG_WARN("ggml_opencl: unsupported GPU '%s'.\n", dev_ctx->device_name.c_str());
         dev_ctx->gpu_family = GPU_FAMILY::UNKNOWN;
         return false;
     }
 
-    lm_ggml_cl_version platform_version = get_opencl_platform_version(dev_ctx->platform);
+    ggml_cl_version platform_version = get_opencl_platform_version(dev_ctx->platform);
 
     // Check device OpenCL version, OpenCL 2.0 or above is required
-    lm_ggml_cl_version opencl_c_version = get_opencl_c_version(platform_version, dev_ctx->device);
+    ggml_cl_version opencl_c_version = get_opencl_c_version(platform_version, dev_ctx->device);
     if (opencl_c_version.major < 2) {
-        LM_GGML_LOG_WARN("lm_ggml_opencl: OpenCL 2.0 or above is required\n");
+        GGML_LOG_WARN("ggml_opencl: OpenCL 2.0 or above is required\n");
         return false;
     }
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
     if (dev_ctx->gpu_family != GPU_FAMILY::ADRENO) {
-        LM_GGML_LOG_WARN("lm_ggml_opencl: Adreno-specific kernels should not be enabled for non-Adreno GPUs; "
-            "run on an Adreno GPU or recompile with CMake option `-DLM_GGML_OPENCL_USE_ADRENO_KERNELS=OFF`\n");
+        GGML_LOG_WARN("ggml_opencl: Adreno-specific kernels should not be enabled for non-Adreno GPUs; "
+            "run on an Adreno GPU or recompile with CMake option `-DGGML_OPENCL_USE_ADRENO_KERNELS=OFF`\n");
         return false;
     }
 #endif
@@ -5872,7 +5872,7 @@ static bool lm_ggml_opencl_is_device_supported(lm_ggml_backend_dev_t dev) {
     // Check if ext_buffer contains cl_khr_fp16
     bool fp16_support = strstr(ext_buffer, "cl_khr_fp16") != NULL;
     if (!fp16_support) {
-        LM_GGML_LOG_WARN("lm_ggml_opencl: device does not support FP16\n");
+        GGML_LOG_WARN("ggml_opencl: device does not support FP16\n");
         return false;
     }
 
@@ -5880,14 +5880,14 @@ static bool lm_ggml_opencl_is_device_supported(lm_ggml_backend_dev_t dev) {
     // optional in OpenCL 3.0 (cl_khr_subgroup is mandatory in OpenCL 2.x)
     if (opencl_c_version.major == 3 && strstr(ext_buffer, "cl_khr_subgroups") == NULL &&
         strstr(ext_buffer, "cl_intel_subgroups") == NULL) {
-        LM_GGML_LOG_WARN("lm_ggml_opencl: device does not support subgroups (cl_khr_subgroups or cl_intel_subgroups) "
+        GGML_LOG_WARN("ggml_opencl: device does not support subgroups (cl_khr_subgroups or cl_intel_subgroups) "
             "(note that subgroups is an optional feature in OpenCL 3.0)\n");
         return false;
     }
 
     clGetDeviceInfo(dev_ctx->device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(size_t), &dev_ctx->global_mem_size, NULL);
 
-    const char * str_opfilter = getenv("LM_GGML_OPENCL_OPFILTER");
+    const char * str_opfilter = getenv("GGML_OPENCL_OPFILTER");
     if (str_opfilter) {
         dev_ctx->opfilter_str = str_opfilter;
         dev_ctx->opfilter = new std::regex(str_opfilter, std::regex_constants::icase);
@@ -5897,23 +5897,23 @@ static bool lm_ggml_opencl_is_device_supported(lm_ggml_backend_dev_t dev) {
 }
 
 // Initialize device if it is supported (returns nullptr if it is not).
-static lm_ggml_backend_opencl_context * lm_ggml_cl_init(lm_ggml_backend_dev_t dev) {
-    LM_GGML_ASSERT(dev);
-    LM_GGML_ASSERT(dev->context);
+static ggml_backend_opencl_context * ggml_cl_init(ggml_backend_dev_t dev) {
+    GGML_ASSERT(dev);
+    GGML_ASSERT(dev->context);
 
-    lm_ggml_backend_opencl_device_context * dev_ctx = (lm_ggml_backend_opencl_device_context *) dev->context;
-    LM_GGML_ASSERT(dev_ctx->platform);
-    LM_GGML_ASSERT(dev_ctx->device);
+    ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) dev->context;
+    GGML_ASSERT(dev_ctx->platform);
+    GGML_ASSERT(dev_ctx->device);
 
     if (dev_ctx->backend_ctx) {
         return dev_ctx->backend_ctx;
     }
 
-    auto backend_ctx        = std::make_unique<lm_ggml_backend_opencl_context>();
+    auto backend_ctx        = std::make_unique<ggml_backend_opencl_context>();
     backend_ctx->device     = dev_ctx->device;
     backend_ctx->gpu_family = GPU_FAMILY::UNKNOWN;
 
-    // ref_count get increased in lm_ggml_backend_opencl_device_init
+    // ref_count get increased in ggml_backend_opencl_device_init
     // This function is also used to retrieve backend context, so we don't want
     // to increase ref_count for each call. We only want to increase ref_count
     // when the associated device is initialized
@@ -5922,7 +5922,7 @@ static lm_ggml_backend_opencl_context * lm_ggml_cl_init(lm_ggml_backend_dev_t de
     backend_ctx->gpu_family = dev_ctx->gpu_family;
     backend_ctx->adreno_gen = dev_ctx->adreno_gen;
     if (backend_ctx->gpu_family == GPU_FAMILY::ADRENO) {
-        lm_ggml_cl_init_fa_dims_table();
+        ggml_cl_init_fa_dims_table();
 
         // Use wave size of 64 for all Adreno GPUs.
         backend_ctx->adreno_wave_size = 64;
@@ -5934,8 +5934,8 @@ static lm_ggml_backend_opencl_context * lm_ggml_cl_init(lm_ggml_backend_dev_t de
     // A local ref of cl_device_id for convenience
     cl_device_id device = backend_ctx->device;
 
-    lm_ggml_cl_version platform_version = get_opencl_platform_version(dev_ctx->platform);
-    lm_ggml_cl_version opencl_c_version = get_opencl_c_version(platform_version, device);
+    ggml_cl_version platform_version = get_opencl_platform_version(dev_ctx->platform);
+    ggml_cl_version opencl_c_version = get_opencl_c_version(platform_version, device);
 
     backend_ctx->platform_version = platform_version;
     backend_ctx->opencl_c_version = opencl_c_version;
@@ -5994,7 +5994,7 @@ static lm_ggml_backend_opencl_context * lm_ggml_cl_init(lm_ggml_backend_dev_t de
 
     cl_uint base_align_in_bits;
     CL_CHECK(clGetDeviceInfo(device, CL_DEVICE_MEM_BASE_ADDR_ALIGN, sizeof(cl_uint), &base_align_in_bits, NULL));
-    LM_GGML_ASSERT(base_align_in_bits % 8u == 0);
+    GGML_ASSERT(base_align_in_bits % 8u == 0);
     backend_ctx->alignment = base_align_in_bits / 8u;
 
     backend_ctx->global_mem_size = dev_ctx->global_mem_size;
@@ -6015,45 +6015,45 @@ static lm_ggml_backend_opencl_context * lm_ggml_cl_init(lm_ggml_backend_dev_t de
                                  &backend_ctx->non_uniform_workgroups, 0));
 #endif
     } else {
-        LM_GGML_ASSERT(opencl_c_version.major == 2);
+        GGML_ASSERT(opencl_c_version.major == 2);
         // Non-uniform workgroup sizes is mandatory feature in v2.x.
         backend_ctx->non_uniform_workgroups = true;
     }
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
     // determine whether to use Adreno xmem GEMM
-    backend_ctx->adreno_xmem_gemm_enabled = getenv("LM_GGML_OPENCL_ADRENO_XMEM_GEMM") != nullptr &&
+    backend_ctx->adreno_xmem_gemm_enabled = getenv("GGML_OPENCL_ADRENO_XMEM_GEMM") != nullptr &&
                                              backend_ctx->gpu_family == GPU_FAMILY::ADRENO;
 #endif
 
     // determine whether to use large buffer for Adreno
-    backend_ctx->adreno_use_large_buffer = getenv("LM_GGML_OPENCL_ADRENO_USE_LARGE_BUFFER") != nullptr &&
+    backend_ctx->adreno_use_large_buffer = getenv("GGML_OPENCL_ADRENO_USE_LARGE_BUFFER") != nullptr &&
                                            backend_ctx->gpu_family == GPU_FAMILY::ADRENO;
 
     // ragged moe, unspecified or non-zero means enabled, set to 0 to disable
-    static const char * ragged_fp16_env = getenv("LM_GGML_OPENCL_MOE_RAGGED_FP16");
+    static const char * ragged_fp16_env = getenv("GGML_OPENCL_MOE_RAGGED_FP16");
     backend_ctx->adreno_use_moe_ragged = (ragged_fp16_env == NULL) ? 1 : (atoi(ragged_fp16_env) != 0);
 
     // ragged moe, tile-skip granularity (columns per skip-group): 8 = quarter (default),
-    // 16 = half (legacy), 32 = disabled. Override with LM_GGML_OPENCL_MOE_RAGGED_GRAN={8,16,32}
-    static const char * ragged_gran_env = getenv("LM_GGML_OPENCL_MOE_RAGGED_GRAN");
+    // 16 = half (legacy), 32 = disabled. Override with GGML_OPENCL_MOE_RAGGED_GRAN={8,16,32}
+    static const char * ragged_gran_env = getenv("GGML_OPENCL_MOE_RAGGED_GRAN");
     backend_ctx->adreno_moe_ragged_skip_gran = (ragged_gran_env != NULL) ? atoi(ragged_gran_env) : 8;
 
     // whether fuse moe combine
-    static const char * fuse_moe_bias_glu_env = getenv("LM_GGML_OPENCL_FUSE_MOE_BIAS_GLU");
+    static const char * fuse_moe_bias_glu_env = getenv("GGML_OPENCL_FUSE_MOE_BIAS_GLU");
     backend_ctx->fuse_moe_bias_glu = fuse_moe_bias_glu_env == NULL ? 1 : (atoi(fuse_moe_bias_glu_env) != 0);
 
-    static const char * fuse_moe_bias_combine_env = getenv("LM_GGML_OPENCL_FUSE_MOE_BIAS_COMBINE");
+    static const char * fuse_moe_bias_combine_env = getenv("GGML_OPENCL_FUSE_MOE_BIAS_COMBINE");
     backend_ctx->fuse_moe_bias_combine = fuse_moe_bias_combine_env == NULL ? 1 : (atoi(fuse_moe_bias_combine_env) != 0);
 
-    static const char * fuse_moe_combine_env = getenv("LM_GGML_OPENCL_FUSE_MOE_COMBINE");
+    static const char * fuse_moe_combine_env = getenv("GGML_OPENCL_FUSE_MOE_COMBINE");
     backend_ctx->fuse_moe_combine = fuse_moe_combine_env == NULL ? 1 : (atoi(fuse_moe_combine_env) != 0);
 
     // ragged moe dp4 variant
-    static const char * ragged_dp4_env = getenv("LM_GGML_OPENCL_MOE_RAGGED");
+    static const char * ragged_dp4_env = getenv("GGML_OPENCL_MOE_RAGGED");
     backend_ctx->adreno_use_moe_ragged_dp4 = ragged_dp4_env == NULL ? 1 : (atoi(ragged_dp4_env) != 0);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_BIN_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_BIN_KERNELS
     // try loading adreno binary kernels if enabled
     // if fails to load, builtin kernels will be used
     {
@@ -6063,16 +6063,16 @@ static lm_ggml_backend_opencl_context * lm_ggml_cl_init(lm_ggml_backend_dev_t de
         if (kernel_lib_handle) {
             backend_ctx->get_adreno_bin_kernel_func = (get_adreno_bin_kernel_func_t)dl_get_sym(kernel_lib_handle, "get_adreno_kernels");
             if (backend_ctx->get_adreno_bin_kernel_func) {
-                LM_GGML_LOG_INFO("lm_ggml_opencl: loaded bin kernel library %s\n", KERNEL_LIB_NAME);
+                GGML_LOG_INFO("ggml_opencl: loaded bin kernel library %s\n", KERNEL_LIB_NAME);
                 backend_ctx->adreno_use_bin_kernels = true;
             } else {
-                LM_GGML_LOG_INFO("lm_ggml_opencl: bin kernel library %s is invalid, will use builtin kernels\n", KERNEL_LIB_NAME);
+                GGML_LOG_INFO("ggml_opencl: bin kernel library %s is invalid, will use builtin kernels\n", KERNEL_LIB_NAME);
             }
         } else {
-            LM_GGML_LOG_INFO("lm_ggml_opencl: failed to load %s, will use builtin kernels\n", KERNEL_LIB_NAME);
+            GGML_LOG_INFO("ggml_opencl: failed to load %s, will use builtin kernels\n", KERNEL_LIB_NAME);
         }
     }
-#endif // LM_GGML_OPENCL_USE_ADRENO_BIN_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_BIN_KERNELS
 
     cl_int err;
 
@@ -6084,7 +6084,7 @@ static lm_ggml_backend_opencl_context * lm_ggml_cl_init(lm_ggml_backend_dev_t de
     //    (queue = clCreateCommandQueue(context, device, 0, &err), err)
     //)));
     cl_command_queue_properties command_queue_props = 0;
-#ifdef LM_GGML_OPENCL_PROFILING
+#ifdef GGML_OPENCL_PROFILING
     command_queue_props |= CL_QUEUE_PROFILING_ENABLE;
 #endif
     CL_CHECK((backend_ctx->queue = clCreateCommandQueue(context, device, command_queue_props, &err), err));
@@ -6092,7 +6092,7 @@ static lm_ggml_backend_opencl_context * lm_ggml_cl_init(lm_ggml_backend_dev_t de
     // delay kernel loading until the first buffer is created
     // load_cl_kernels(backend_ctx.get());
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
     // Allocate intermediate buffers and images
     size_t required_A_q_d_bytes = 311164928;
     size_t required_A_s_d_bytes = 38895616;
@@ -6103,44 +6103,44 @@ static lm_ggml_backend_opencl_context * lm_ggml_cl_init(lm_ggml_backend_dev_t de
     size_t max_A_s_d_bytes = MIN(required_A_s_d_bytes, backend_ctx->max_alloc_size);
     size_t max_B_d_bytes   = MIN(required_B_d_bytes, backend_ctx->max_alloc_size);
     if (required_A_q_d_bytes > backend_ctx->max_alloc_size) {
-        LM_GGML_LOG_WARN("lm_ggml_opencl: A_q_d buffer size reduced from %zu to %zu due to device limitations.\n",
+        GGML_LOG_WARN("ggml_opencl: A_q_d buffer size reduced from %zu to %zu due to device limitations.\n",
                       required_A_q_d_bytes, max_A_q_d_bytes);
     }
     if (required_A_s_d_bytes > backend_ctx->max_alloc_size) {
-        LM_GGML_LOG_WARN("lm_ggml_opencl: A_s_d buffer size reduced from %zu to %zu due to device limitations.\n",
+        GGML_LOG_WARN("ggml_opencl: A_s_d buffer size reduced from %zu to %zu due to device limitations.\n",
                       required_A_s_d_bytes, max_A_s_d_bytes);
     }
     if (required_B_d_bytes > backend_ctx->max_alloc_size) {
-        LM_GGML_LOG_WARN("lm_ggml_opencl: B_d buffer size reduced from %zu to %zu due to device limitations.\n",
+        GGML_LOG_WARN("ggml_opencl: B_d buffer size reduced from %zu to %zu due to device limitations.\n",
                       required_B_d_bytes, max_B_d_bytes);
     }
 
     backend_ctx->prealloc_quant_trans.allocate(context, max_A_q_d_bytes);
     backend_ctx->prealloc_scales_trans.allocate(context, max_A_s_d_bytes);
     backend_ctx->prealloc_act_trans.allocate(context, max_B_d_bytes);
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
-    backend_ctx->disable_fusion = getenv("LM_GGML_OPENCL_DISABLE_FUSION") != nullptr;
+    backend_ctx->disable_fusion = getenv("GGML_OPENCL_DISABLE_FUSION") != nullptr;
 
     dev_ctx->backend_ctx = backend_ctx.release();
     return dev_ctx->backend_ctx;
 }
 
-static void lm_ggml_cl_free(lm_ggml_backend_t backend) {
-    lm_ggml_backend_opencl_context * ctx = (lm_ggml_backend_opencl_context *) backend->context;
+static void ggml_cl_free(ggml_backend_t backend) {
+    ggml_backend_opencl_context * ctx = (ggml_backend_opencl_context *) backend->context;
     ctx->free();
 }
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
 static void transpose_2d(
-    lm_ggml_backend_opencl_context * backend_ctx,
+    ggml_backend_opencl_context * backend_ctx,
     cl_kernel kernel,
     cl_mem src, cl_mem dst, size_t size,
     cl_int stride, cl_int rows,
     bool blocking = true,
     bool auto_local = false // let driver pick local size for non-uniform workgroups
 ) {
-    static lm_ggml_cl_buffer buf;
+    static ggml_cl_buffer buf;
 
     cl_event evt;
     cl_int err;
@@ -6178,7 +6178,7 @@ static void transpose_2d(
 }
 
 static void transpose_2d_as_8b(
-    lm_ggml_backend_opencl_context * backend_ctx,
+    ggml_backend_opencl_context * backend_ctx,
     cl_mem src, cl_mem dst, size_t size,
     cl_int stride, cl_int rows,
     bool blocking = true,
@@ -6189,7 +6189,7 @@ static void transpose_2d_as_8b(
 }
 
 static void transpose_2d_as_16b(
-    lm_ggml_backend_opencl_context * backend_ctx,
+    ggml_backend_opencl_context * backend_ctx,
     cl_mem src, cl_mem dst, size_t size,
     cl_int stride, cl_int rows,
     bool blocking = true
@@ -6199,7 +6199,7 @@ static void transpose_2d_as_16b(
 }
 
 static void transpose_2d_as_32b(
-    lm_ggml_backend_opencl_context * backend_ctx,
+    ggml_backend_opencl_context * backend_ctx,
     cl_mem src, cl_mem dst, size_t size,
     cl_int stride, cl_int rows,
     bool blocking = true
@@ -6207,12 +6207,12 @@ static void transpose_2d_as_32b(
     transpose_2d(backend_ctx, backend_ctx->kernel_transpose_32_buf,
         src, dst, size, stride, rows, blocking);
 }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
 //------------------------------------------------------------------------------
 // Tensor extra management
 //------------------------------------------------------------------------------
-struct lm_ggml_tensor_extra_cl {
+struct ggml_tensor_extra_cl {
     // The buffer object that holds the data.
     cl_mem data_device;
     // The offset into the buffer object. This is primarily for scratch buffer
@@ -6231,7 +6231,7 @@ struct lm_ggml_tensor_extra_cl {
     }
 };
 
-struct lm_ggml_tensor_extra_cl_q1_0 {
+struct ggml_tensor_extra_cl_q1_0 {
     cl_mem q = nullptr;
     cl_mem q_img = nullptr;
 
@@ -6241,12 +6241,12 @@ struct lm_ggml_tensor_extra_cl_q1_0 {
     size_t size_q = 0;
     size_t size_d = 0;
 
-    ~lm_ggml_tensor_extra_cl_q1_0() {
+    ~ggml_tensor_extra_cl_q1_0() {
         reset();
     }
 
     void reset() {
-        // q and d are subbuffers into the bigger buffer allocated in lm_ggml_backend_buffer.
+        // q and d are subbuffers into the bigger buffer allocated in ggml_backend_buffer.
         // They must be properly released so that the original buffer can be
         // properly released to avoid memory leak.
         if (q != nullptr) {
@@ -6268,7 +6268,7 @@ struct lm_ggml_tensor_extra_cl_q1_0 {
 // These tensors are loaded from files and should not be allocated in scratch --
 // they should always be allocated from the pool. Hence, they do not have an
 // `offset`, which indicate their locations in the scratch buffer.
-struct lm_ggml_tensor_extra_cl_q4_0 {
+struct ggml_tensor_extra_cl_q4_0 {
     // Quantized values.
     cl_mem q = nullptr;
     // Quantized values in image1d_buffer_t.
@@ -6282,12 +6282,12 @@ struct lm_ggml_tensor_extra_cl_q4_0 {
     // Size of scales.
     size_t size_d = 0;
 
-    ~lm_ggml_tensor_extra_cl_q4_0() {
+    ~ggml_tensor_extra_cl_q4_0() {
         reset();
     }
 
     void reset() {
-        // q and d are subbuffers into the bigger buffer allocated in lm_ggml_backend_buffer.
+        // q and d are subbuffers into the bigger buffer allocated in ggml_backend_buffer.
         // They must be properly released so that the original buffer can be
         // properly released to avoid memory leak.
         if (q != nullptr) {
@@ -6303,7 +6303,7 @@ struct lm_ggml_tensor_extra_cl_q4_0 {
             q_img = nullptr;
         }
         // Currently, q_img and d_img are only initialized when SMALL_ALLOC is
-        // enabled. They point to the images in lm_ggml_backend_opencl_buffer_context.
+        // enabled. They point to the images in ggml_backend_opencl_buffer_context.
         // So, there is no need to release them here.
         // TODO: initialize them for non SMALL_PATH path, or remove them.
         d_img = nullptr;
@@ -6312,7 +6312,7 @@ struct lm_ggml_tensor_extra_cl_q4_0 {
     }
 };
 
-struct lm_ggml_tensor_extra_cl_q4_1 {
+struct ggml_tensor_extra_cl_q4_1 {
     // Quantized values.
     cl_mem q = nullptr;
     // Quantized values in image1d_buffer_t.
@@ -6332,12 +6332,12 @@ struct lm_ggml_tensor_extra_cl_q4_1 {
     // Size of min values.
     size_t size_m = 0;
 
-    ~lm_ggml_tensor_extra_cl_q4_1() {
+    ~ggml_tensor_extra_cl_q4_1() {
         reset();
     }
 
     void reset() {
-        // q and d are subbuffers into the bigger buffer allocated in lm_ggml_backend_buffer.
+        // q and d are subbuffers into the bigger buffer allocated in ggml_backend_buffer.
         // They must be properly released so that the original buffer can be
         // properly released to avoid memory leak.
         if (q != nullptr) {
@@ -6357,7 +6357,7 @@ struct lm_ggml_tensor_extra_cl_q4_1 {
             q_img = nullptr;
         }
         // Currently, q_img and d_img are only initialized when SMALL_ALLOC is
-        // enabled. They point to the images in lm_ggml_backend_opencl_buffer_context.
+        // enabled. They point to the images in ggml_backend_opencl_buffer_context.
         // So, there is no need to release them here.
         // TODO: initialize them for non SMALL_PATH path, or remove them.
         d_img = nullptr;
@@ -6368,7 +6368,7 @@ struct lm_ggml_tensor_extra_cl_q4_1 {
     }
 };
 
-struct lm_ggml_tensor_extra_cl_q5_0 {
+struct ggml_tensor_extra_cl_q5_0 {
     // Quantized values.
     cl_mem qs = nullptr;
     // Quantized values in image1d_buffer_t.
@@ -6392,7 +6392,7 @@ struct lm_ggml_tensor_extra_cl_q5_0 {
     // Size of scales.
     size_t size_d = 0;
 
-    ~lm_ggml_tensor_extra_cl_q5_0() {
+    ~ggml_tensor_extra_cl_q5_0() {
         reset();
     }
 
@@ -6430,7 +6430,7 @@ struct lm_ggml_tensor_extra_cl_q5_0 {
     }
 };
 
-struct lm_ggml_tensor_extra_cl_q5_1 {
+struct ggml_tensor_extra_cl_q5_1 {
     // Quantized values.
     cl_mem qs = nullptr;
     // Quantized values in image1d_buffer_t.
@@ -6456,12 +6456,12 @@ struct lm_ggml_tensor_extra_cl_q5_1 {
     // Size of min values.
     size_t size_m = 0;
 
-    ~lm_ggml_tensor_extra_cl_q5_1() {
+    ~ggml_tensor_extra_cl_q5_1() {
         reset();
     }
 
     void reset() {
-        // q and d are subbuffers into the bigger buffer allocated in lm_ggml_backend_buffer.
+        // q and d are subbuffers into the bigger buffer allocated in ggml_backend_buffer.
         // They must be properly released so that the original buffer can be
         // properly released to avoid memory leak.
         if (qs != nullptr) {
@@ -6496,7 +6496,7 @@ struct lm_ggml_tensor_extra_cl_q5_1 {
     }
 };
 
-struct lm_ggml_tensor_extra_cl_mxfp4 {
+struct ggml_tensor_extra_cl_mxfp4 {
     // Quantized values.
     cl_mem q = nullptr;
     // Quantized values in image1d_buffer_t.
@@ -6510,12 +6510,12 @@ struct lm_ggml_tensor_extra_cl_mxfp4 {
     // Size of scales.
     size_t size_e = 0;
 
-    ~lm_ggml_tensor_extra_cl_mxfp4() {
+    ~ggml_tensor_extra_cl_mxfp4() {
         reset();
     }
 
     void reset() {
-        // q and d are subbuffers into the bigger buffer allocated in lm_ggml_backend_buffer.
+        // q and d are subbuffers into the bigger buffer allocated in ggml_backend_buffer.
         // They must be properly released so that the original buffer can be
         // properly released to avoid memory leak.
         if (q != nullptr) {
@@ -6538,7 +6538,7 @@ struct lm_ggml_tensor_extra_cl_mxfp4 {
     }
 };
 
-struct lm_ggml_tensor_extra_cl_q8_0 {
+struct ggml_tensor_extra_cl_q8_0 {
     cl_mem q = nullptr;
     cl_mem q_img = nullptr;
 
@@ -6553,12 +6553,12 @@ struct lm_ggml_tensor_extra_cl_q8_0 {
     size_t size_q = 0;
     size_t size_d = 0;
 
-    ~lm_ggml_tensor_extra_cl_q8_0() {
+    ~ggml_tensor_extra_cl_q8_0() {
         reset();
     }
 
     void reset() {
-        // q and d are subbuffers into the bigger buffer allocated in lm_ggml_backend_buffer.
+        // q and d are subbuffers into the bigger buffer allocated in ggml_backend_buffer.
         // They must be properly released so that the original buffer can be
         // properly released to avoid memory leak.
         if (q != nullptr) {
@@ -6582,7 +6582,7 @@ struct lm_ggml_tensor_extra_cl_q8_0 {
     }
 };
 
-struct lm_ggml_tensor_extra_cl_iq4_nl {
+struct ggml_tensor_extra_cl_iq4_nl {
     cl_mem q = nullptr;
     cl_mem q_img = nullptr;
 
@@ -6592,7 +6592,7 @@ struct lm_ggml_tensor_extra_cl_iq4_nl {
     size_t size_q = 0;
     size_t size_d = 0;
 
-    ~lm_ggml_tensor_extra_cl_iq4_nl() {
+    ~ggml_tensor_extra_cl_iq4_nl() {
         reset();
     }
 
@@ -6606,7 +6606,7 @@ struct lm_ggml_tensor_extra_cl_iq4_nl {
     }
 };
 
-struct lm_ggml_tensor_extra_cl_q4_K {
+struct ggml_tensor_extra_cl_q4_K {
     // Quantized values
     cl_mem q = nullptr;
     // Quantized values in image1d_buffer_t.
@@ -6618,7 +6618,7 @@ struct lm_ggml_tensor_extra_cl_q4_K {
     // Min
     cl_mem dm  = nullptr;
 
-    ~lm_ggml_tensor_extra_cl_q4_K() {
+    ~ggml_tensor_extra_cl_q4_K() {
         reset();
     }
 
@@ -6646,7 +6646,7 @@ struct lm_ggml_tensor_extra_cl_q4_K {
     }
 };
 
-struct lm_ggml_tensor_extra_cl_q5_K {
+struct ggml_tensor_extra_cl_q5_K {
     // Lower 4 bits of quantized weights.
     cl_mem q  = nullptr;
     // Quantized values in image1d_buffer_t.
@@ -6671,7 +6671,7 @@ struct lm_ggml_tensor_extra_cl_q5_K {
     size_t size_d  = 0;
     size_t size_dm = 0;
 
-    ~lm_ggml_tensor_extra_cl_q5_K() {
+    ~ggml_tensor_extra_cl_q5_K() {
         reset();
     }
 
@@ -6717,7 +6717,7 @@ struct lm_ggml_tensor_extra_cl_q5_K {
     }
 };
 
-struct lm_ggml_tensor_extra_cl_q6_K {
+struct ggml_tensor_extra_cl_q6_K {
     // Lower 4 bits of quantized weights.
     cl_mem ql = nullptr;
     // Lower 4 bits as image1d_buffer_t
@@ -6734,7 +6734,7 @@ struct lm_ggml_tensor_extra_cl_q6_K {
     size_t size_s  = 0;
     size_t size_d  = 0;
 
-    ~lm_ggml_tensor_extra_cl_q6_K() {
+    ~ggml_tensor_extra_cl_q6_K() {
         reset();
     }
 
@@ -6774,41 +6774,41 @@ struct lm_ggml_tensor_extra_cl_q6_K {
 //
 // backend
 //
-static const char * lm_ggml_backend_opencl_name(lm_ggml_backend_t backend) {
+static const char * ggml_backend_opencl_name(ggml_backend_t backend) {
     return "OpenCL";
 
     UNUSED(backend);
 }
 
-static void lm_ggml_backend_opencl_free(lm_ggml_backend_t backend) {
-    lm_ggml_cl_free(backend);
+static void ggml_backend_opencl_free(ggml_backend_t backend) {
+    ggml_cl_free(backend);
 }
 
-static void lm_ggml_backend_opencl_set_tensor_async(lm_ggml_backend_t backend, lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(tensor);
-    LM_GGML_UNUSED(data);
-    LM_GGML_UNUSED(offset);
-    LM_GGML_UNUSED(size);
+static void ggml_backend_opencl_set_tensor_async(ggml_backend_t backend, ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
+    GGML_UNUSED(backend);
+    GGML_UNUSED(tensor);
+    GGML_UNUSED(data);
+    GGML_UNUSED(offset);
+    GGML_UNUSED(size);
 }
 
-static void lm_ggml_backend_opencl_get_tensor_async(lm_ggml_backend_t backend, const lm_ggml_tensor * tensor, void * data, size_t offset, size_t size) {
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(tensor);
-    LM_GGML_UNUSED(data);
-    LM_GGML_UNUSED(offset);
-    LM_GGML_UNUSED(size);
+static void ggml_backend_opencl_get_tensor_async(ggml_backend_t backend, const ggml_tensor * tensor, void * data, size_t offset, size_t size) {
+    GGML_UNUSED(backend);
+    GGML_UNUSED(tensor);
+    GGML_UNUSED(data);
+    GGML_UNUSED(offset);
+    GGML_UNUSED(size);
 }
 
-static bool lm_ggml_backend_opencl_cpy_tensor_async(lm_ggml_backend_t backend, const lm_ggml_tensor * src, lm_ggml_tensor * dst) {
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(src);
-    LM_GGML_UNUSED(dst);
+static bool ggml_backend_opencl_cpy_tensor_async(ggml_backend_t backend, const ggml_tensor * src, ggml_tensor * dst) {
+    GGML_UNUSED(backend);
+    GGML_UNUSED(src);
+    GGML_UNUSED(dst);
     return false;
 }
 
-static void lm_ggml_backend_opencl_synchronize(lm_ggml_backend_t backend) {
-    auto * backend_ctx = static_cast<lm_ggml_backend_opencl_context *>(backend->context);
+static void ggml_backend_opencl_synchronize(ggml_backend_t backend) {
+    auto * backend_ctx = static_cast<ggml_backend_opencl_context *>(backend->context);
 
     cl_event evt;
     CL_CHECK(clEnqueueBarrierWithWaitList(backend_ctx->queue, 0, nullptr, &evt));
@@ -6819,16 +6819,16 @@ static void lm_ggml_backend_opencl_synchronize(lm_ggml_backend_t backend) {
 // Synchronizes the 'backend_ctx's device with others so that commands
 // enqueued to it won't start until commands in the other devices have
 // completed.
-static void sync_with_other_backends(lm_ggml_backend_opencl_context * backend_ctx) {
-    if (g_lm_ggml_backend_opencl_devices.size() < 2) {
+static void sync_with_other_backends(ggml_backend_opencl_context * backend_ctx) {
+    if (g_ggml_backend_opencl_devices.size() < 2) {
         return; // No other devices to synchronize with.
     }
 
     std::vector<cl_event> events;
-    events.reserve(g_lm_ggml_backend_opencl_devices.size());
+    events.reserve(g_ggml_backend_opencl_devices.size());
 
-    for (lm_ggml_backend_device & backend_dev : g_lm_ggml_backend_opencl_devices) {
-        lm_ggml_backend_opencl_device_context * dev_ctx = (lm_ggml_backend_opencl_device_context *) backend_dev.context;
+    for (ggml_backend_device & backend_dev : g_ggml_backend_opencl_devices) {
+        ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) backend_dev.context;
         auto * other_backend_ctx = dev_ctx->backend_ctx;
 
         if (backend_ctx != other_backend_ctx) {
@@ -6845,20 +6845,20 @@ static void sync_with_other_backends(lm_ggml_backend_opencl_context * backend_ct
     }
 }
 
-static void sync_with_other_backends(lm_ggml_backend_t backend) {
-    auto * backend_ctx = static_cast<lm_ggml_backend_opencl_context *>(backend->context);
+static void sync_with_other_backends(ggml_backend_t backend) {
+    auto * backend_ctx = static_cast<ggml_backend_opencl_context *>(backend->context);
     sync_with_other_backends(backend_ctx);
 }
 
 // True if two tensors share a device buffer with overlapping byte ranges. The pool
 // allocator may place a fused op's output over a sequentially-dead input (safe for the
 // original separate kernels, but a read/write race inside one fused kernel).
-static bool lm_ggml_cl_tensors_overlap(const lm_ggml_tensor * x, const lm_ggml_tensor * y) {
-    lm_ggml_tensor_extra_cl * ex = (lm_ggml_tensor_extra_cl *)x->extra;
-    lm_ggml_tensor_extra_cl * ey = (lm_ggml_tensor_extra_cl *)y->extra;
+static bool ggml_cl_tensors_overlap(const ggml_tensor * x, const ggml_tensor * y) {
+    ggml_tensor_extra_cl * ex = (ggml_tensor_extra_cl *)x->extra;
+    ggml_tensor_extra_cl * ey = (ggml_tensor_extra_cl *)y->extra;
     if (!ex || !ey || ex->data_device != ey->data_device) { return false; }
-    const cl_ulong xo = ex->offset + x->view_offs, xe = xo + lm_ggml_nbytes(x);
-    const cl_ulong yo = ey->offset + y->view_offs, ye = yo + lm_ggml_nbytes(y);
+    const cl_ulong xo = ex->offset + x->view_offs, xe = xo + ggml_nbytes(x);
+    const cl_ulong yo = ey->offset + y->view_offs, ye = yo + ggml_nbytes(y);
     return xo < ye && yo < xe;
 }
 
@@ -6866,14 +6866,14 @@ static bool lm_ggml_cl_tensors_overlap(const lm_ggml_tensor * x, const lm_ggml_t
 // by k VIEWs of it and a (k-1)-long ADD reduction chain producing [n_embd, nt]. When it
 // matches (and the output does not alias the inputs), the whole subgraph collapses to one
 // weighted-sum-across-experts kernel.
-static bool lm_ggml_opencl_can_fuse_moe_combine(const struct lm_ggml_cgraph * cgraph, int node_idx,
-                                             const lm_ggml_tensor ** out_final_add) {
-    const lm_ggml_tensor * mul = cgraph->nodes[node_idx];
-    if (mul->op != LM_GGML_OP_MUL) { return false; }
-    const lm_ggml_tensor * experts = mul->src[0];
-    const lm_ggml_tensor * weights = mul->src[1];
+static bool ggml_opencl_can_fuse_moe_combine(const struct ggml_cgraph * cgraph, int node_idx,
+                                             const ggml_tensor ** out_final_add) {
+    const ggml_tensor * mul = cgraph->nodes[node_idx];
+    if (mul->op != GGML_OP_MUL) { return false; }
+    const ggml_tensor * experts = mul->src[0];
+    const ggml_tensor * weights = mul->src[1];
     if (!experts || !weights) { return false; }
-    if (experts->type != LM_GGML_TYPE_F32 || weights->type != LM_GGML_TYPE_F32 || mul->type != LM_GGML_TYPE_F32) { return false; }
+    if (experts->type != GGML_TYPE_F32 || weights->type != GGML_TYPE_F32 || mul->type != GGML_TYPE_F32) { return false; }
 
     const int64_t n_embd = experts->ne[0];
     const int64_t k      = experts->ne[1];
@@ -6882,33 +6882,33 @@ static bool lm_ggml_opencl_can_fuse_moe_combine(const struct lm_ggml_cgraph * cg
     if (weights->ne[0] != 1 || weights->ne[1] != k || weights->ne[2] != nt || weights->ne[3] != 1) { return false; }
     if (mul->ne[0] != n_embd || mul->ne[1] != k || mul->ne[2] != nt) { return false; }
     // the fused kernel needs contiguous experts/weights and a contiguous 2D dst
-    if (!lm_ggml_is_contiguous(experts) || !lm_ggml_is_contiguous(weights)) { return false; }
+    if (!ggml_is_contiguous(experts) || !ggml_is_contiguous(weights)) { return false; }
 
     const int n_nodes = 1 + (int)k + (int)(k - 1);  // MUL + k*VIEW + (k-1)*ADD
     if (n_nodes >= 32) { return false; }
     if (node_idx + n_nodes > cgraph->n_nodes) { return false; }
 
-    enum lm_ggml_op ops[1 + 64 + 63];
+    enum ggml_op ops[1 + 64 + 63];
     int n = 0;
-    ops[n++] = LM_GGML_OP_MUL;
-    for (int j = 0; j < (int)k;     ++j) { ops[n++] = LM_GGML_OP_VIEW; }
-    for (int j = 0; j < (int)k - 1; ++j) { ops[n++] = LM_GGML_OP_ADD;  }
+    ops[n++] = GGML_OP_MUL;
+    for (int j = 0; j < (int)k;     ++j) { ops[n++] = GGML_OP_VIEW; }
+    for (int j = 0; j < (int)k - 1; ++j) { ops[n++] = GGML_OP_ADD;  }
     const int outs[] = { node_idx + n_nodes - 1 };
-    if (!lm_ggml_can_fuse_subgraph(cgraph, node_idx, n_nodes, ops, outs, 1)) { return false; }
+    if (!ggml_can_fuse_subgraph(cgraph, node_idx, n_nodes, ops, outs, 1)) { return false; }
 
     for (int j = 0; j < (int)k; ++j) {
-        const lm_ggml_tensor * vw = cgraph->nodes[node_idx + 1 + j];
-        if (vw->op != LM_GGML_OP_VIEW || vw->src[0] != mul || vw->ne[0] != n_embd || vw->ne[1] != nt) { return false; }
+        const ggml_tensor * vw = cgraph->nodes[node_idx + 1 + j];
+        if (vw->op != GGML_OP_VIEW || vw->src[0] != mul || vw->ne[0] != n_embd || vw->ne[1] != nt) { return false; }
     }
-    const lm_ggml_tensor * final_add = cgraph->nodes[node_idx + n_nodes - 1];
-    if (final_add->op != LM_GGML_OP_ADD || final_add->type != LM_GGML_TYPE_F32 ||
+    const ggml_tensor * final_add = cgraph->nodes[node_idx + n_nodes - 1];
+    if (final_add->op != GGML_OP_ADD || final_add->type != GGML_TYPE_F32 ||
         final_add->ne[0] != n_embd || final_add->ne[1] != nt || final_add->ne[2] != 1) { return false; }
-    if (!lm_ggml_is_contiguous(final_add)) { return false; }
+    if (!ggml_is_contiguous(final_add)) { return false; }
     // the fused kernel reads experts + writes final_add in one pass; bail if the
     // pool allocator overlapped the output with the (large) experts input -- would race.
     // The small weights input is copied to a private scratch in the dispatch, so its own
     // aliasing with the output is handled there and does not block the fusion.
-    if (lm_ggml_cl_tensors_overlap(experts, final_add)) { return false; }
+    if (ggml_cl_tensors_overlap(experts, final_add)) { return false; }
 
     *out_final_add = final_add;
     return true;
@@ -6921,26 +6921,26 @@ static bool lm_ggml_opencl_can_fuse_moe_combine(const struct lm_ggml_cgraph * cg
 // tensor the GLU immediately reads again, so they are three full passes over the same
 // [n_ff, n_expert_used, n_tokens] f32 tensor where one suffices.
 //
-// The decode counterpart is handled by the mxfp4 fused GEMV arm in lm_ggml_opencl_can_fuse,
+// The decode counterpart is handled by the mxfp4 fused GEMV arm in ggml_opencl_can_fuse,
 // which folds the matmul too; this one deliberately fires only when that cannot (ne[2] > 1).
-static bool lm_ggml_opencl_can_fuse_moe_bias_glu(const struct lm_ggml_cgraph * cgraph, int node_idx) {
+static bool ggml_opencl_can_fuse_moe_bias_glu(const struct ggml_cgraph * cgraph, int node_idx) {
     if (node_idx + 4 >= cgraph->n_nodes) {
         return false;
     }
 
-    const enum lm_ggml_op mg_ops[] = { LM_GGML_OP_MUL_MAT_ID, LM_GGML_OP_ADD_ID, LM_GGML_OP_MUL_MAT_ID, LM_GGML_OP_ADD_ID, LM_GGML_OP_GLU };
+    const enum ggml_op mg_ops[] = { GGML_OP_MUL_MAT_ID, GGML_OP_ADD_ID, GGML_OP_MUL_MAT_ID, GGML_OP_ADD_ID, GGML_OP_GLU };
     const int          mg_out[] = { node_idx + 4 };
-    if (!lm_ggml_can_fuse_subgraph(cgraph, node_idx, 5, mg_ops, mg_out, 1)) {
+    if (!ggml_can_fuse_subgraph(cgraph, node_idx, 5, mg_ops, mg_out, 1)) {
         return false;
     }
 
-    const lm_ggml_tensor * gmm = cgraph->nodes[node_idx];
-    const lm_ggml_tensor * gad = cgraph->nodes[node_idx+1];
-    const lm_ggml_tensor * umm = cgraph->nodes[node_idx+2];
-    const lm_ggml_tensor * uad = cgraph->nodes[node_idx+3];
-    const lm_ggml_tensor * glu = cgraph->nodes[node_idx+4];
+    const ggml_tensor * gmm = cgraph->nodes[node_idx];
+    const ggml_tensor * gad = cgraph->nodes[node_idx+1];
+    const ggml_tensor * umm = cgraph->nodes[node_idx+2];
+    const ggml_tensor * uad = cgraph->nodes[node_idx+3];
+    const ggml_tensor * glu = cgraph->nodes[node_idx+4];
 
-    if (lm_ggml_get_glu_op(glu) != LM_GGML_GLU_OP_SWIGLU_OAI) {
+    if (ggml_get_glu_op(glu) != GGML_GLU_OP_SWIGLU_OAI) {
         return false;
     }
     // Prefill only — at one token the mxfp4 arm above folds the matmul as well.
@@ -6956,21 +6956,21 @@ static bool lm_ggml_opencl_can_fuse_moe_bias_glu(const struct lm_ggml_cgraph * c
         return false;
     }
     // A swapped GLU would exchange the gate/up roles the fused kernel hard-codes.
-    if (lm_ggml_get_op_params_i32(glu, 1)) {
+    if (ggml_get_op_params_i32(glu, 1)) {
         return false;
     }
-    if (gad->type != LM_GGML_TYPE_F32 || uad->type != LM_GGML_TYPE_F32 || glu->type != LM_GGML_TYPE_F32) {
+    if (gad->type != GGML_TYPE_F32 || uad->type != GGML_TYPE_F32 || glu->type != GGML_TYPE_F32) {
         return false;
     }
-    if (!gad->src[1] || gad->src[1]->type != LM_GGML_TYPE_F32 ||
-        !uad->src[1] || uad->src[1]->type != LM_GGML_TYPE_F32) {
+    if (!gad->src[1] || gad->src[1]->type != GGML_TYPE_F32 ||
+        !uad->src[1] || uad->src[1]->type != GGML_TYPE_F32) {
         return false;
     }
-    if (!gad->src[2] || gad->src[2]->type != LM_GGML_TYPE_I32 || uad->src[2] != gad->src[2]) {
+    if (!gad->src[2] || gad->src[2]->type != GGML_TYPE_I32 || uad->src[2] != gad->src[2]) {
         return false;
     }
     // Full width on both operands: the kernel writes one output element per input pair.
-    if (!lm_ggml_are_same_shape(gad, uad) || glu->ne[0] != gad->ne[0] ||
+    if (!ggml_are_same_shape(gad, uad) || glu->ne[0] != gad->ne[0] ||
         glu->ne[1] != gad->ne[1] || glu->ne[2] != gad->ne[2] || glu->ne[3] != gad->ne[3]) {
         return false;
     }
@@ -6979,33 +6979,33 @@ static bool lm_ggml_opencl_can_fuse_moe_bias_glu(const struct lm_ggml_cgraph * c
     }
     // The destination is addressed by (expert slot, token) rather than the GLU's flat row
     // walk; those agree only for a contiguous destination.
-    if (!lm_ggml_is_contiguous(glu) || !lm_ggml_is_contiguous(gmm) || !lm_ggml_is_contiguous(umm)) {
+    if (!ggml_is_contiguous(glu) || !ggml_is_contiguous(gmm) || !ggml_is_contiguous(umm)) {
         return false;
     }
     return true;
 }
 
-static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst);
+static void ggml_cl_mul_mat_id(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst);
 
 // Runs the gate and up matmuls unchanged, then one kernel in place of
-// add_id(gate) + add_id(up) + swiglu_oai. See lm_ggml_opencl_can_fuse_moe_bias_glu.
-static void lm_ggml_cl_moe_bias_glu_fused(lm_ggml_backend_t backend, lm_ggml_tensor * gate_mm, const lm_ggml_tensor * gate_add,
-                                       lm_ggml_tensor * up_mm, const lm_ggml_tensor * up_add, const lm_ggml_tensor * glu) {
-    lm_ggml_backend_opencl_context * backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+// add_id(gate) + add_id(up) + swiglu_oai. See ggml_opencl_can_fuse_moe_bias_glu.
+static void ggml_cl_moe_bias_glu_fused(ggml_backend_t backend, ggml_tensor * gate_mm, const ggml_tensor * gate_add,
+                                       ggml_tensor * up_mm, const ggml_tensor * up_add, const ggml_tensor * glu) {
+    ggml_backend_opencl_context * backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_cl_mul_mat_id(backend, gate_mm->src[0], gate_mm->src[1], gate_mm);
-    lm_ggml_cl_mul_mat_id(backend, up_mm->src[0], up_mm->src[1], up_mm);
+    ggml_cl_mul_mat_id(backend, gate_mm->src[0], gate_mm->src[1], gate_mm);
+    ggml_cl_mul_mat_id(backend, up_mm->src[0], up_mm->src[1], up_mm);
 
-    const lm_ggml_tensor * gbias = gate_add->src[1];
-    const lm_ggml_tensor * ubias = up_add->src[1];
-    const lm_ggml_tensor * ids   = gate_add->src[2];
+    const ggml_tensor * gbias = gate_add->src[1];
+    const ggml_tensor * ubias = up_add->src[1];
+    const ggml_tensor * ids   = gate_add->src[2];
 
-    lm_ggml_tensor_extra_cl * eg  = (lm_ggml_tensor_extra_cl *)gate_mm->extra;
-    lm_ggml_tensor_extra_cl * egb = (lm_ggml_tensor_extra_cl *)gbias->extra;
-    lm_ggml_tensor_extra_cl * eu  = (lm_ggml_tensor_extra_cl *)up_mm->extra;
-    lm_ggml_tensor_extra_cl * eub = (lm_ggml_tensor_extra_cl *)ubias->extra;
-    lm_ggml_tensor_extra_cl * ei  = (lm_ggml_tensor_extra_cl *)ids->extra;
-    lm_ggml_tensor_extra_cl * ed  = (lm_ggml_tensor_extra_cl *)glu->extra;
+    ggml_tensor_extra_cl * eg  = (ggml_tensor_extra_cl *)gate_mm->extra;
+    ggml_tensor_extra_cl * egb = (ggml_tensor_extra_cl *)gbias->extra;
+    ggml_tensor_extra_cl * eu  = (ggml_tensor_extra_cl *)up_mm->extra;
+    ggml_tensor_extra_cl * eub = (ggml_tensor_extra_cl *)ubias->extra;
+    ggml_tensor_extra_cl * ei  = (ggml_tensor_extra_cl *)ids->extra;
+    ggml_tensor_extra_cl * ed  = (ggml_tensor_extra_cl *)glu->extra;
 
     cl_ulong off_g  = eg->offset  + gate_mm->view_offs;
     cl_ulong off_gb = egb->offset + gbias->view_offs;
@@ -7025,8 +7025,8 @@ static void lm_ggml_cl_moe_bias_glu_fused(lm_ggml_backend_t backend, lm_ggml_ten
     const cl_ulong nbd2   = glu->nb[2];
 
     const int   ne0   = (int)glu->ne[0];
-    const float alpha = lm_ggml_get_op_params_f32(glu, 2);
-    const float limit = lm_ggml_get_op_params_f32(glu, 3);
+    const float alpha = ggml_get_op_params_f32(glu, 2);
+    const float limit = ggml_get_op_params_f32(glu, 3);
 
     cl_kernel kernel = backend_ctx->kernel_add_id_add_id_swiglu_oai;
 
@@ -7060,7 +7060,7 @@ static void lm_ggml_cl_moe_bias_glu_fused(lm_ggml_backend_t backend, lm_ggml_ten
     size_t global_work_size[] = { (size_t)glu->ne[1]*nth, (size_t)glu->ne[2], 1 };
     size_t local_work_size[]  = { (size_t)nth, 1, 1 };
 
-    backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, (lm_ggml_tensor *)glu);
+    backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, (ggml_tensor *)glu);
 }
 
 // Fusion B: the MoE down-projection bias add feeding the combine.
@@ -7071,42 +7071,42 @@ static void lm_ggml_cl_moe_bias_glu_fused(lm_ggml_backend_t backend, lm_ggml_ten
 // reads once more, the bias can be added inside the combine instead, dropping a
 // full pass over [n_embd, k, n_tokens].
 //
-// Shape checks for the combine tail are delegated to lm_ggml_opencl_can_fuse_moe_combine
+// Shape checks for the combine tail are delegated to ggml_opencl_can_fuse_moe_combine
 // (which also owns the n_nodes >= 32 bail and the experts/dst aliasing bail); what is
 // added here is the ADD_ID wiring plus a subgraph check over the WHOLE run, so that
 // the intermediate bias result is confirmed not to escape.
-static bool lm_ggml_opencl_can_fuse_moe_bias_combine(const struct lm_ggml_cgraph * cgraph, int node_idx,
-                                                  const lm_ggml_tensor ** out_final_add) {
+static bool ggml_opencl_can_fuse_moe_bias_combine(const struct ggml_cgraph * cgraph, int node_idx,
+                                                  const ggml_tensor ** out_final_add) {
     if (node_idx + 1 >= cgraph->n_nodes) {
         return false;
     }
-    const lm_ggml_tensor * add = cgraph->nodes[node_idx];
-    if (add->op != LM_GGML_OP_ADD_ID) {
+    const ggml_tensor * add = cgraph->nodes[node_idx];
+    if (add->op != GGML_OP_ADD_ID) {
         return false;
     }
-    const lm_ggml_tensor * mul = cgraph->nodes[node_idx+1];
-    if (mul->op != LM_GGML_OP_MUL || mul->src[0] != add) {
-        return false;
-    }
-
-    const lm_ggml_tensor * final_add = NULL;
-    if (!lm_ggml_opencl_can_fuse_moe_combine(cgraph, node_idx+1, &final_add)) {
+    const ggml_tensor * mul = cgraph->nodes[node_idx+1];
+    if (mul->op != GGML_OP_MUL || mul->src[0] != add) {
         return false;
     }
 
-    const lm_ggml_tensor * raw  = add->src[0];
-    const lm_ggml_tensor * bias = add->src[1];
-    const lm_ggml_tensor * ids  = add->src[2];
+    const ggml_tensor * final_add = NULL;
+    if (!ggml_opencl_can_fuse_moe_combine(cgraph, node_idx+1, &final_add)) {
+        return false;
+    }
+
+    const ggml_tensor * raw  = add->src[0];
+    const ggml_tensor * bias = add->src[1];
+    const ggml_tensor * ids  = add->src[2];
     if (!raw || !bias || !ids) {
         return false;
     }
-    if (raw->type != LM_GGML_TYPE_F32 || bias->type != LM_GGML_TYPE_F32 ||
-        ids->type != LM_GGML_TYPE_I32 || add->type != LM_GGML_TYPE_F32) {
+    if (raw->type != GGML_TYPE_F32 || bias->type != GGML_TYPE_F32 ||
+        ids->type != GGML_TYPE_I32 || add->type != GGML_TYPE_F32) {
         return false;
     }
     // The combine reads the raw matmul output with the strides it computed from the
     // add_id result, so the two must have the same layout.
-    if (!lm_ggml_are_same_shape(raw, add) || !lm_ggml_is_contiguous(raw)) {
+    if (!ggml_are_same_shape(raw, add) || !ggml_is_contiguous(raw)) {
         return false;
     }
     if (raw->nb[1] != add->nb[1] || raw->nb[2] != add->nb[2]) {
@@ -7123,14 +7123,14 @@ static bool lm_ggml_opencl_can_fuse_moe_bias_combine(const struct lm_ggml_cgraph
     if (n_nodes >= 32 || node_idx + n_nodes > cgraph->n_nodes) {
         return false;
     }
-    enum lm_ggml_op ops[32];
+    enum ggml_op ops[32];
     int n = 0;
-    ops[n++] = LM_GGML_OP_ADD_ID;
-    ops[n++] = LM_GGML_OP_MUL;
-    for (int j = 0; j < k;     ++j) ops[n++] = LM_GGML_OP_VIEW;
-    for (int j = 0; j < k - 1; ++j) ops[n++] = LM_GGML_OP_ADD;
+    ops[n++] = GGML_OP_ADD_ID;
+    ops[n++] = GGML_OP_MUL;
+    for (int j = 0; j < k;     ++j) ops[n++] = GGML_OP_VIEW;
+    for (int j = 0; j < k - 1; ++j) ops[n++] = GGML_OP_ADD;
     const int outs[] = { node_idx + n_nodes - 1 };
-    if (!lm_ggml_can_fuse_subgraph(cgraph, node_idx, n_nodes, ops, outs, 1)) {
+    if (!ggml_can_fuse_subgraph(cgraph, node_idx, n_nodes, ops, outs, 1)) {
         return false;
     }
 
@@ -7140,21 +7140,21 @@ static bool lm_ggml_opencl_can_fuse_moe_bias_combine(const struct lm_ggml_cgraph
 
 
 // Fusion B dispatch: the combine, reading the RAW matmul output and adding the
-// per-expert bias row inline. See lm_ggml_opencl_can_fuse_moe_bias_combine.
-static void lm_ggml_cl_moe_bias_combine_fused(lm_ggml_backend_t backend, const lm_ggml_tensor * add,
-                                           const lm_ggml_tensor * mul, const lm_ggml_tensor * dst) {
-    lm_ggml_backend_opencl_context * backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+// per-expert bias row inline. See ggml_opencl_can_fuse_moe_bias_combine.
+static void ggml_cl_moe_bias_combine_fused(ggml_backend_t backend, const ggml_tensor * add,
+                                           const ggml_tensor * mul, const ggml_tensor * dst) {
+    ggml_backend_opencl_context * backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    const lm_ggml_tensor * experts = add->src[0];   // raw matmul output, bias not yet applied
-    const lm_ggml_tensor * bias    = add->src[1];
-    const lm_ggml_tensor * ids     = add->src[2];
-    const lm_ggml_tensor * weights = mul->src[1];
+    const ggml_tensor * experts = add->src[0];   // raw matmul output, bias not yet applied
+    const ggml_tensor * bias    = add->src[1];
+    const ggml_tensor * ids     = add->src[2];
+    const ggml_tensor * weights = mul->src[1];
 
-    lm_ggml_tensor_extra_cl * ee = (lm_ggml_tensor_extra_cl *)experts->extra;
-    lm_ggml_tensor_extra_cl * eb = (lm_ggml_tensor_extra_cl *)bias->extra;
-    lm_ggml_tensor_extra_cl * ei = (lm_ggml_tensor_extra_cl *)ids->extra;
-    lm_ggml_tensor_extra_cl * ew = (lm_ggml_tensor_extra_cl *)weights->extra;
-    lm_ggml_tensor_extra_cl * ed = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * ee = (ggml_tensor_extra_cl *)experts->extra;
+    ggml_tensor_extra_cl * eb = (ggml_tensor_extra_cl *)bias->extra;
+    ggml_tensor_extra_cl * ei = (ggml_tensor_extra_cl *)ids->extra;
+    ggml_tensor_extra_cl * ew = (ggml_tensor_extra_cl *)weights->extra;
+    ggml_tensor_extra_cl * ed = (ggml_tensor_extra_cl *)dst->extra;
     cl_ulong off_e = ee->offset + experts->view_offs;
     cl_ulong off_b = eb->offset + bias->view_offs;
     cl_ulong off_i = ei->offset + ids->view_offs;
@@ -7172,7 +7172,7 @@ static void lm_ggml_cl_moe_bias_combine_fused(lm_ggml_backend_t backend, const l
     const cl_ulong nb_b1 = bias->nb[1];
     const cl_ulong nb_i1 = ids->nb[1];
 
-    const size_t w_bytes = lm_ggml_nbytes(weights);
+    const size_t w_bytes = ggml_nbytes(weights);
     backend_ctx->prealloc_moe_combine_w.allocate(backend_ctx->context, w_bytes);
     CL_CHECK(clEnqueueCopyBuffer(backend_ctx->queue, ew->data_device, backend_ctx->prealloc_moe_combine_w.buffer,
                                  off_w, 0, w_bytes, 0, NULL, NULL));
@@ -7204,18 +7204,18 @@ static void lm_ggml_cl_moe_bias_combine_fused(lm_ggml_backend_t backend, const l
 
     size_t lws[2] = { 64, 1 };
     size_t gws[2] = { (size_t)(((n_embd4 + 63) / 64) * 64), (size_t)nt };
-    backend_ctx->enqueue_ndrange_kernel(kernel, 2, gws, lws, (lm_ggml_tensor *)dst);
+    backend_ctx->enqueue_ndrange_kernel(kernel, 2, gws, lws, (ggml_tensor *)dst);
 }
 
 
-static void lm_ggml_cl_moe_combine_fused(lm_ggml_backend_t backend, const lm_ggml_tensor * mul, const lm_ggml_tensor * dst) {
-    lm_ggml_backend_opencl_context * backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
-    const lm_ggml_tensor * experts = mul->src[0];
-    const lm_ggml_tensor * weights = mul->src[1];
+static void ggml_cl_moe_combine_fused(ggml_backend_t backend, const ggml_tensor * mul, const ggml_tensor * dst) {
+    ggml_backend_opencl_context * backend_ctx = (ggml_backend_opencl_context *)backend->context;
+    const ggml_tensor * experts = mul->src[0];
+    const ggml_tensor * weights = mul->src[1];
 
-    lm_ggml_tensor_extra_cl * ee = (lm_ggml_tensor_extra_cl *)experts->extra;
-    lm_ggml_tensor_extra_cl * ew = (lm_ggml_tensor_extra_cl *)weights->extra;
-    lm_ggml_tensor_extra_cl * ed = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * ee = (ggml_tensor_extra_cl *)experts->extra;
+    ggml_tensor_extra_cl * ew = (ggml_tensor_extra_cl *)weights->extra;
+    ggml_tensor_extra_cl * ed = (ggml_tensor_extra_cl *)dst->extra;
     cl_ulong off_e = ee->offset + experts->view_offs;
     cl_ulong off_w = ew->offset + weights->view_offs;
     cl_ulong off_d = ed->offset + dst->view_offs;
@@ -7231,7 +7231,7 @@ static void lm_ggml_cl_moe_combine_fused(lm_ggml_backend_t backend, const lm_ggm
 
     // The router weights are tiny ([1,k,nt]) and may share a pool buffer with the output;
     // copy them into a private scratch so the fused kernel never reads aliased memory.
-    const size_t w_bytes = lm_ggml_nbytes(weights);
+    const size_t w_bytes = ggml_nbytes(weights);
     backend_ctx->prealloc_moe_combine_w.allocate(backend_ctx->context, w_bytes);
     CL_CHECK(clEnqueueCopyBuffer(backend_ctx->queue, ew->data_device, backend_ctx->prealloc_moe_combine_w.buffer,
                                  off_w, 0, w_bytes, 0, NULL, NULL));
@@ -7260,44 +7260,44 @@ static void lm_ggml_cl_moe_combine_fused(lm_ggml_backend_t backend, const lm_ggm
     backend_ctx->enqueue_ndrange_kernel(kernel, 2, gws, lws, dst);
 }
 
-static bool lm_ggml_opencl_can_fuse(const struct lm_ggml_cgraph * cgraph, int node_idx, std::initializer_list<enum lm_ggml_op> ops) {
-    if (!lm_ggml_can_fuse(cgraph, node_idx, ops)) {
+static bool ggml_opencl_can_fuse(const struct ggml_cgraph * cgraph, int node_idx, std::initializer_list<enum ggml_op> ops) {
+    if (!ggml_can_fuse(cgraph, node_idx, ops)) {
         return false;
     }
 
-    if (ops.size() == 2 && ops.begin()[0] == LM_GGML_OP_RMS_NORM && ops.begin()[1] == LM_GGML_OP_MUL) {
-        const lm_ggml_tensor *rms_norm = cgraph->nodes[node_idx];
-        const lm_ggml_tensor *mul      = cgraph->nodes[node_idx+1];
+    if (ops.size() == 2 && ops.begin()[0] == GGML_OP_RMS_NORM && ops.begin()[1] == GGML_OP_MUL) {
+        const ggml_tensor *rms_norm = cgraph->nodes[node_idx];
+        const ggml_tensor *mul      = cgraph->nodes[node_idx+1];
 
-        LM_GGML_ASSERT(rms_norm->src[0]->type == LM_GGML_TYPE_F32);
-        LM_GGML_ASSERT(rms_norm->type == LM_GGML_TYPE_F32);
+        GGML_ASSERT(rms_norm->src[0]->type == GGML_TYPE_F32);
+        GGML_ASSERT(rms_norm->type == GGML_TYPE_F32);
 
         // rms_norm only supports f32
-        if (mul->src[0]->type != LM_GGML_TYPE_F32 ||
-            mul->src[1]->type != LM_GGML_TYPE_F32 ||
-            mul->type != LM_GGML_TYPE_F32) {
+        if (mul->src[0]->type != GGML_TYPE_F32 ||
+            mul->src[1]->type != GGML_TYPE_F32 ||
+            mul->type != GGML_TYPE_F32) {
             return false;
         }
 
         // if rms_norm is the B operand, then we don't handle broadcast
         if (rms_norm == mul->src[1] &&
-            !lm_ggml_are_same_shape(mul->src[0], rms_norm)) {
+            !ggml_are_same_shape(mul->src[0], rms_norm)) {
             return false;
         }
 
         // rms_norm assumes contiguous rows
-        if (!lm_ggml_is_contiguous_rows(mul->src[0]) || !lm_ggml_is_contiguous_rows(mul->src[1])) {
+        if (!ggml_is_contiguous_rows(mul->src[0]) || !ggml_is_contiguous_rows(mul->src[1])) {
             return false;
         }
-    } else if (ops.size() == 3 && ops.begin()[0] == LM_GGML_OP_NORM && ops.begin()[1] == LM_GGML_OP_MUL && ops.begin()[2] == LM_GGML_OP_ADD) {
-        const lm_ggml_tensor *norm = cgraph->nodes[node_idx];
-        const lm_ggml_tensor *mul  = cgraph->nodes[node_idx+1];
-        const lm_ggml_tensor *add  = cgraph->nodes[node_idx+2];
-        const lm_ggml_tensor *w    = mul->src[0] == norm ? mul->src[1] : mul->src[0];
-        const lm_ggml_tensor *b    = add->src[0] == mul  ? add->src[1] : add->src[0];
+    } else if (ops.size() == 3 && ops.begin()[0] == GGML_OP_NORM && ops.begin()[1] == GGML_OP_MUL && ops.begin()[2] == GGML_OP_ADD) {
+        const ggml_tensor *norm = cgraph->nodes[node_idx];
+        const ggml_tensor *mul  = cgraph->nodes[node_idx+1];
+        const ggml_tensor *add  = cgraph->nodes[node_idx+2];
+        const ggml_tensor *w    = mul->src[0] == norm ? mul->src[1] : mul->src[0];
+        const ggml_tensor *b    = add->src[0] == mul  ? add->src[1] : add->src[0];
 
         // norm fusion only supports F32
-        if (norm->src[0]->type != LM_GGML_TYPE_F32 || w->type != LM_GGML_TYPE_F32 || b->type != LM_GGML_TYPE_F32) {
+        if (norm->src[0]->type != GGML_TYPE_F32 || w->type != GGML_TYPE_F32 || b->type != GGML_TYPE_F32) {
             return false;
         }
 
@@ -7305,21 +7305,21 @@ static bool lm_ggml_opencl_can_fuse(const struct lm_ggml_cgraph * cgraph, int no
             return false;
         }
 
-        if (!lm_ggml_is_contiguous(norm->src[0]) || !lm_ggml_is_contiguous(w) || !lm_ggml_is_contiguous(b)) {
+        if (!ggml_is_contiguous(norm->src[0]) || !ggml_is_contiguous(w) || !ggml_is_contiguous(b)) {
             return false;
         }
-    } else if (ops.size() == 3 && ops.begin()[0] == LM_GGML_OP_GROUP_NORM && ops.begin()[1] == LM_GGML_OP_MUL && ops.begin()[2] == LM_GGML_OP_ADD) {
-        const lm_ggml_tensor *gn = cgraph->nodes[node_idx];
-        const lm_ggml_tensor *mul = cgraph->nodes[node_idx+1];
-        const lm_ggml_tensor *add = cgraph->nodes[node_idx+2];
-        const lm_ggml_tensor *w   = mul->src[0] == gn ? mul->src[1] : mul->src[0];
-        const lm_ggml_tensor *b   = add->src[0] == mul ? add->src[1] : add->src[0];
+    } else if (ops.size() == 3 && ops.begin()[0] == GGML_OP_GROUP_NORM && ops.begin()[1] == GGML_OP_MUL && ops.begin()[2] == GGML_OP_ADD) {
+        const ggml_tensor *gn = cgraph->nodes[node_idx];
+        const ggml_tensor *mul = cgraph->nodes[node_idx+1];
+        const ggml_tensor *add = cgraph->nodes[node_idx+2];
+        const ggml_tensor *w   = mul->src[0] == gn ? mul->src[1] : mul->src[0];
+        const ggml_tensor *b   = add->src[0] == mul ? add->src[1] : add->src[0];
 
-        if (gn->src[0]->type != LM_GGML_TYPE_F32 || w->type != LM_GGML_TYPE_F32 || b->type != LM_GGML_TYPE_F32) {
+        if (gn->src[0]->type != GGML_TYPE_F32 || w->type != GGML_TYPE_F32 || b->type != GGML_TYPE_F32) {
             return false;
         }
 
-        if (!lm_ggml_is_contiguous(gn->src[0]) || !lm_ggml_is_contiguous(w) || !lm_ggml_is_contiguous(b)) {
+        if (!ggml_is_contiguous(gn->src[0]) || !ggml_is_contiguous(w) || !ggml_is_contiguous(b)) {
             return false;
         }
     }
@@ -7327,36 +7327,36 @@ static bool lm_ggml_opencl_can_fuse(const struct lm_ggml_cgraph * cgraph, int no
     return true;
 }
 
-static void lm_ggml_opencl_op_rms_norm_fused(lm_ggml_backend_t backend, lm_ggml_tensor * rms_norm_tensor, lm_ggml_tensor * mul_tensor);
-static void lm_ggml_opencl_op_norm_fused(lm_ggml_backend_t backend, lm_ggml_tensor * norm_tensor, lm_ggml_tensor * mul_tensor, lm_ggml_tensor * add_tensor);
-static void lm_ggml_opencl_op_group_norm_fused(lm_ggml_backend_t backend, lm_ggml_tensor * gn_tensor, lm_ggml_tensor * mul_tensor, lm_ggml_tensor * add_tensor);
+static void ggml_opencl_op_rms_norm_fused(ggml_backend_t backend, ggml_tensor * rms_norm_tensor, ggml_tensor * mul_tensor);
+static void ggml_opencl_op_norm_fused(ggml_backend_t backend, ggml_tensor * norm_tensor, ggml_tensor * mul_tensor, ggml_tensor * add_tensor);
+static void ggml_opencl_op_group_norm_fused(ggml_backend_t backend, ggml_tensor * gn_tensor, ggml_tensor * mul_tensor, ggml_tensor * add_tensor);
 
-static lm_ggml_status lm_ggml_backend_opencl_graph_compute(lm_ggml_backend_t backend, lm_ggml_cgraph * cgraph) {
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+static ggml_status ggml_backend_opencl_graph_compute(ggml_backend_t backend, ggml_cgraph * cgraph) {
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
     for (int i = 0; i < cgraph->n_nodes; i++) {
-        lm_ggml_tensor * node = cgraph->nodes[i];
+        ggml_tensor * node = cgraph->nodes[i];
 
         // NOTE: this may oversynchronize by synchronizing with
         //       backends/devices which don't compute 'cgraph's
         //       dependencies.
         sync_with_other_backends(backend);
 
-        if (lm_ggml_is_empty(node) || node->op == LM_GGML_OP_RESHAPE || node->op == LM_GGML_OP_TRANSPOSE || node->op == LM_GGML_OP_VIEW || node->op == LM_GGML_OP_PERMUTE || node->op == LM_GGML_OP_NONE) {
+        if (ggml_is_empty(node) || node->op == GGML_OP_RESHAPE || node->op == GGML_OP_TRANSPOSE || node->op == GGML_OP_VIEW || node->op == GGML_OP_PERMUTE || node->op == GGML_OP_NONE) {
             continue;
         }
 
-        if ((node->flags & LM_GGML_TENSOR_FLAG_COMPUTE) == 0) {
+        if ((node->flags & GGML_TENSOR_FLAG_COMPUTE) == 0) {
             continue;
         }
 
-        if (!backend_ctx->disable_fusion && lm_ggml_opencl_can_fuse(cgraph, i, { LM_GGML_OP_NORM, LM_GGML_OP_MUL, LM_GGML_OP_ADD })) {
-            lm_ggml_opencl_op_norm_fused(backend, node, cgraph->nodes[i+1], cgraph->nodes[i+2]);
+        if (!backend_ctx->disable_fusion && ggml_opencl_can_fuse(cgraph, i, { GGML_OP_NORM, GGML_OP_MUL, GGML_OP_ADD })) {
+            ggml_opencl_op_norm_fused(backend, node, cgraph->nodes[i+1], cgraph->nodes[i+2]);
             i += 2;
             continue;
         }
-        if (!backend_ctx->disable_fusion && lm_ggml_opencl_can_fuse(cgraph, i, { LM_GGML_OP_GROUP_NORM, LM_GGML_OP_MUL, LM_GGML_OP_ADD })) {
-            lm_ggml_opencl_op_group_norm_fused(backend, node, cgraph->nodes[i+1], cgraph->nodes[i+2]);
+        if (!backend_ctx->disable_fusion && ggml_opencl_can_fuse(cgraph, i, { GGML_OP_GROUP_NORM, GGML_OP_MUL, GGML_OP_ADD })) {
+            ggml_opencl_op_group_norm_fused(backend, node, cgraph->nodes[i+1], cgraph->nodes[i+2]);
             i += 2;
             continue;
         }
@@ -7365,10 +7365,10 @@ static lm_ggml_status lm_ggml_backend_opencl_graph_compute(lm_ggml_backend_t bac
         // Fold the gpt-oss MoE bias epilogue: add_id(gate_bias) + add_id(up_bias) +
         // glu(swiglu_oai) -> one kernel, leaving the two matmuls as their own dispatches.
         // Both add_ids are in-place passes over a tensor the GLU reads again, so this
-        // drops two full read+write passes per layer. Opt out LM_GGML_OPENCL_FUSE_MOE_BIAS_GLU=0.
+        // drops two full read+write passes per layer. Opt out GGML_OPENCL_FUSE_MOE_BIAS_GLU=0.
         if (backend_ctx->fuse_moe_bias_glu && !backend_ctx->disable_fusion &&
-            lm_ggml_opencl_can_fuse_moe_bias_glu(cgraph, i)) {
-            lm_ggml_cl_moe_bias_glu_fused(backend, node, cgraph->nodes[i+1], cgraph->nodes[i+2],
+            ggml_opencl_can_fuse_moe_bias_glu(cgraph, i)) {
+            ggml_cl_moe_bias_glu_fused(backend, node, cgraph->nodes[i+1], cgraph->nodes[i+2],
                                        cgraph->nodes[i+3], cgraph->nodes[i+4]);
             i += 4;
             continue;
@@ -7376,45 +7376,45 @@ static lm_ggml_status lm_ggml_backend_opencl_graph_compute(lm_ggml_backend_t bac
 
         // Fold the MoE down-projection bias into the combine: add_id(down_bias) + the whole
         // combine subgraph -> one kernel. Checked before the plain combine arm so the longer
-        // pattern wins. Opt out LM_GGML_OPENCL_FUSE_MOE_BIAS_COMBINE=0.
+        // pattern wins. Opt out GGML_OPENCL_FUSE_MOE_BIAS_COMBINE=0.
         if (backend_ctx->fuse_moe_bias_combine && backend_ctx->fuse_moe_combine &&
             !backend_ctx->disable_fusion) {
-            const lm_ggml_tensor * bias_combine_out = nullptr;
-            if (lm_ggml_opencl_can_fuse_moe_bias_combine(cgraph, i, &bias_combine_out)) {
-                lm_ggml_cl_moe_bias_combine_fused(backend, node, cgraph->nodes[i+1], bias_combine_out);
+            const ggml_tensor * bias_combine_out = nullptr;
+            if (ggml_opencl_can_fuse_moe_bias_combine(cgraph, i, &bias_combine_out)) {
+                ggml_cl_moe_bias_combine_fused(backend, node, cgraph->nodes[i+1], bias_combine_out);
                 i += 2 * (int)node->ne[1];   // ADD_ID + MUL + k VIEWs + (k-1) ADDs
                 continue;
             }
         }
 
         if (backend_ctx->fuse_moe_combine && !backend_ctx->disable_fusion) {
-            const lm_ggml_tensor * combine_out = nullptr;
-            if (lm_ggml_opencl_can_fuse_moe_combine(cgraph, i, &combine_out)) {
-                lm_ggml_cl_moe_combine_fused(backend, node, combine_out);
+            const ggml_tensor * combine_out = nullptr;
+            if (ggml_opencl_can_fuse_moe_combine(cgraph, i, &combine_out)) {
+                ggml_cl_moe_combine_fused(backend, node, combine_out);
                 i += 2 * (int)node->ne[1] - 1;   // skip the k VIEWs + (k-1) ADDs
                 continue;
             }
         }
 
-        if (!backend_ctx->disable_fusion && lm_ggml_opencl_can_fuse(cgraph, i, { LM_GGML_OP_RMS_NORM, LM_GGML_OP_MUL })) {
-            lm_ggml_opencl_op_rms_norm_fused(backend, node, cgraph->nodes[i+1]);
+        if (!backend_ctx->disable_fusion && ggml_opencl_can_fuse(cgraph, i, { GGML_OP_RMS_NORM, GGML_OP_MUL })) {
+            ggml_opencl_op_rms_norm_fused(backend, node, cgraph->nodes[i+1]);
             i++;
             continue;
         }
 
-        bool ok = lm_ggml_cl_compute_forward(backend, node);
+        bool ok = ggml_cl_compute_forward(backend, node);
         if (!ok) {
-            LM_GGML_LOG_ERROR("%s: error: op not supported %s (%s)\n", __func__, node->name, lm_ggml_op_name(node->op));
+            GGML_LOG_ERROR("%s: error: op not supported %s (%s)\n", __func__, node->name, ggml_op_name(node->op));
         }
-        LM_GGML_ASSERT(ok);
+        GGML_ASSERT(ok);
     }
 
-    return LM_GGML_STATUS_SUCCESS;
+    return GGML_STATUS_SUCCESS;
 }
 
 // The optimized gemm and gemv kernels are used for large matrices without batch.
 // tensor is the quantized weights matrix.
-inline bool use_adreno_kernels(const lm_ggml_backend_opencl_context *backend_ctx, const lm_ggml_tensor *tensor) {
+inline bool use_adreno_kernels(const ggml_backend_opencl_context *backend_ctx, const ggml_tensor *tensor) {
     int64_t threshold_ne0 = 512;
     int64_t threshold_ne1 = 512;
     if (!backend_ctx->adreno_cl_compiler_version.newer_than_or_same(E031, 38, 11, 0) &&
@@ -7426,22 +7426,22 @@ inline bool use_adreno_kernels(const lm_ggml_backend_opencl_context *backend_ctx
             tensor->ne[2] == 1 && tensor->ne[3] == 1;
 
     // q6_K adreno kernels requires ne1 is multiple of 128
-    if (tensor->type == LM_GGML_TYPE_Q6_K) {
+    if (tensor->type == GGML_TYPE_Q6_K) {
         return threashold_ok && tensor->ne[1] % 128 == 0;
     }
     return threashold_ok;
 }
 
-static bool adreno_e17_compiler_quirks(const lm_ggml_backend_opencl_context *backend_ctx) {
+static bool adreno_e17_compiler_quirks(const ggml_backend_opencl_context *backend_ctx) {
     if (!backend_ctx || backend_ctx->gpu_family != GPU_FAMILY::ADRENO ||
         backend_ctx->adreno_cl_compiler_version.type != ADRENO_CL_COMPILER_TYPE::E17) {
         return false;
     }
-    const char * env = getenv("LM_GGML_OPENCL_ADRENO_E17_QUIRKS");
+    const char * env = getenv("GGML_OPENCL_ADRENO_E17_QUIRKS");
     return !(env && env[0] == '0');
 }
 
-inline bool use_adreno_moe_kernels(const lm_ggml_backend_opencl_context *backend_ctx, const lm_ggml_tensor *tensor) {
+inline bool use_adreno_moe_kernels(const ggml_backend_opencl_context *backend_ctx, const ggml_tensor *tensor) {
     // The moe weight repack kernels *_trans4_ns alias a private ushort8 through a uchar*.
     // Certain compilers (found with some A7x and A6x) miscompiles this, corrupting the weights.
     // So, exclude A6x and A7x from using Adreno MoE kernels for now.
@@ -7461,7 +7461,7 @@ inline bool use_adreno_moe_kernels(const lm_ggml_backend_opencl_context *backend
     return (((strstr(tensor->name, "ffn") != NULL) && (strstr(tensor->name, "exps") != NULL)) || (strstr(tensor->name, "as") != NULL)) && (ne01 % 32 == 0);
 }
 
-inline bool enable_adreno_trans_weight(const lm_ggml_backend_opencl_context *backend_ctx, const lm_ggml_tensor *tensor) {
+inline bool enable_adreno_trans_weight(const ggml_backend_opencl_context *backend_ctx, const ggml_tensor *tensor) {
 
     bool adreno_kernel = use_adreno_kernels(backend_ctx, tensor);
 
@@ -7475,12 +7475,12 @@ inline bool enable_adreno_trans_weight(const lm_ggml_backend_opencl_context *bac
     return ((elem_num < 128 * 1024 * 1024) && adreno_kernel && shape_ok);  // max element num: 2**27
 }
 
-inline bool enable_adreno_trans_weight_q5_K(const lm_ggml_backend_opencl_context *backend_ctx, const lm_ggml_tensor *tensor) {
+inline bool enable_adreno_trans_weight_q5_K(const ggml_backend_opencl_context *backend_ctx, const ggml_tensor *tensor) {
     if (!use_adreno_kernels(backend_ctx, tensor)) {
         return false;
     }
 
-    const size_t elem_num = lm_ggml_nelements(tensor);
+    const size_t elem_num = ggml_nelements(tensor);
     const size_t q_img_width = elem_num / 8;
     const size_t qh_img_width = elem_num / 16;
 
@@ -7488,14 +7488,14 @@ inline bool enable_adreno_trans_weight_q5_K(const lm_ggml_backend_opencl_context
            qh_img_width <= backend_ctx->image_max_buffer_size;
 }
 
-static inline bool use_flat_gemv_for_large_m_q4_K(const lm_ggml_tensor *tensor) {
+static inline bool use_flat_gemv_for_large_m_q4_K(const ggml_tensor *tensor) {
     // gemv_noshuffle variant perf drops for large M, use flat variant for large M.
     // threshold is well above typical hidden/FFN dims, but below typical vocab sizes.
     // note that this forces large M weights to use LM GEMM.
     return tensor->ne[1] >= 32768 && tensor->ne[2] == 1 && tensor->ne[3] == 1;
 }
 
-static inline bool use_flat_gemv_for_large_m_q6_K(const lm_ggml_backend_opencl_context *backend_ctx, const lm_ggml_tensor *tensor) {
+static inline bool use_flat_gemv_for_large_m_q6_K(const ggml_backend_opencl_context *backend_ctx, const ggml_tensor *tensor) {
     // gemv_noshuffle variant perf drops for large M, use flat variant for large M.
     // threshold is well above typical hidden/FFN dims, but below typical vocab sizes.
     // q6_K flat gemv is worse for smaller K; 2048 seems to be a reasonable threshold.
@@ -7520,78 +7520,78 @@ static inline bool use_flat_gemv_for_large_m_q6_K(const lm_ggml_backend_opencl_c
     // which weights ne0 >= 2048 already routes there.
     // The size escape is not taken on the A7X since its compiler miscompiles the flat K-quant GEMV
     return tensor->ne[1] >= 32768
-        && (tensor->ne[0] >= 2048 || (backend_ctx->adreno_gen != ADRENO_GPU_GEN::A7X && lm_ggml_nbytes(tensor) >= (256ull << 20)))
+        && (tensor->ne[0] >= 2048 || (backend_ctx->adreno_gen != ADRENO_GPU_GEN::A7X && ggml_nbytes(tensor) >= (256ull << 20)))
         && tensor->ne[2] == 1 && tensor->ne[3] == 1;
 }
 
-static bool lm_ggml_opencl_supports_op(lm_ggml_backend_dev_t dev, const struct lm_ggml_tensor * op) {
-    lm_ggml_backend_opencl_device_context * dev_ctx     = (lm_ggml_backend_opencl_device_context *)dev->context;
-    lm_ggml_backend_opencl_context *        backend_ctx = dev_ctx->backend_ctx;
+static bool ggml_opencl_supports_op(ggml_backend_dev_t dev, const struct ggml_tensor * op) {
+    ggml_backend_opencl_device_context * dev_ctx     = (ggml_backend_opencl_device_context *)dev->context;
+    ggml_backend_opencl_context *        backend_ctx = dev_ctx->backend_ctx;
 
     // reject ops that match the opfilter regex
-    if (dev_ctx->opfilter && std::regex_match(std::string(lm_ggml_op_desc(op)), *dev_ctx->opfilter)) {
+    if (dev_ctx->opfilter && std::regex_match(std::string(ggml_op_desc(op)), *dev_ctx->opfilter)) {
         return false;
     }
 
     switch (op->op) {
-        case LM_GGML_OP_NONE:
+        case GGML_OP_NONE:
             return true;
-        case LM_GGML_OP_GET_ROWS:
+        case GGML_OP_GET_ROWS:
             switch (op->src[0]->type) {
-                case LM_GGML_TYPE_F32:
-                case LM_GGML_TYPE_F16:
+                case GGML_TYPE_F32:
+                case GGML_TYPE_F16:
                     return true;
-                case LM_GGML_TYPE_Q4_0:
-#ifdef LM_GGML_OPENCL_SOA_Q
+                case GGML_TYPE_Q4_0:
+#ifdef GGML_OPENCL_SOA_Q
                     // We do not support flattened Q4_0 (and possibly other Q's)
                     return false;
-#else // LM_GGML_OPENCL_SOA_Q
+#else // GGML_OPENCL_SOA_Q
                     return true;
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
                 default:
                     return false;
             }
-        case LM_GGML_OP_SET_ROWS:
+        case GGML_OP_SET_ROWS:
             {
                 // TODO: add support
                 // ref: https://github.com/ggml-org/llama.cpp/pull/14274
 #pragma message("TODO: implement BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, IQ4_NL support (https://github.com/ggml-org/llama.cpp/pull/14661)")
-                if (op->src[0]->type != LM_GGML_TYPE_F32) {
+                if (op->src[0]->type != GGML_TYPE_F32) {
                     return false;
                 }
                 switch (op->type) {
-                    case LM_GGML_TYPE_F16:
-                    case LM_GGML_TYPE_F32:
-                    case LM_GGML_TYPE_Q8_0:
-                    case LM_GGML_TYPE_Q4_0:
-                        return (op->src[1]->type == LM_GGML_TYPE_I64 || op->src[1]->type == LM_GGML_TYPE_I32);
+                    case GGML_TYPE_F16:
+                    case GGML_TYPE_F32:
+                    case GGML_TYPE_Q8_0:
+                    case GGML_TYPE_Q4_0:
+                        return (op->src[1]->type == GGML_TYPE_I64 || op->src[1]->type == GGML_TYPE_I32);
                     default:
                         return false;
                 }
             }
-        case LM_GGML_OP_CPY:
-        case LM_GGML_OP_DUP:
-        case LM_GGML_OP_CONT:
+        case GGML_OP_CPY:
+        case GGML_OP_DUP:
+        case GGML_OP_CONT:
             switch (op->src[0]->type) {
-                case LM_GGML_TYPE_F32:
+                case GGML_TYPE_F32:
                     switch (op->type) {
-                        case LM_GGML_TYPE_F16:
-                        case LM_GGML_TYPE_F32:
+                        case GGML_TYPE_F16:
+                        case GGML_TYPE_F32:
                             return true;
                         default:
                             return false;
                     }
-                case LM_GGML_TYPE_F16:
+                case GGML_TYPE_F16:
                     switch (op->type) {
-                        case LM_GGML_TYPE_F16:
-                        case LM_GGML_TYPE_F32:
+                        case GGML_TYPE_F16:
+                        case GGML_TYPE_F32:
                             return true;
                         default:
                             return false;
                     }
-                case LM_GGML_TYPE_I32:
+                case GGML_TYPE_I32:
                     switch (op->type) {
-                        case LM_GGML_TYPE_I32:
+                        case GGML_TYPE_I32:
                             return true;
                         default:
                             return false;
@@ -7599,231 +7599,231 @@ static bool lm_ggml_opencl_supports_op(lm_ggml_backend_dev_t dev, const struct l
                 default:
                     return false;
             }
-        case LM_GGML_OP_SET: {
-            return (op->type == LM_GGML_TYPE_F32 || op->type == LM_GGML_TYPE_I32) &&
+        case GGML_OP_SET: {
+            return (op->type == GGML_TYPE_F32 || op->type == GGML_TYPE_I32) &&
                     op->type == op->src[0]->type &&
                     op->type == op->src[1]->type;
         }
-        case LM_GGML_OP_SCALE:
-            return op->src[0]->type == LM_GGML_TYPE_F32 && lm_ggml_is_contiguous(op->src[0]);
-        case LM_GGML_OP_ADD:
-            if (op->type == LM_GGML_TYPE_F16) {
-                const bool src0_ok = op->src[0]->type == LM_GGML_TYPE_F16 || op->src[0]->type == LM_GGML_TYPE_F32;
-                const bool src1_ok = op->src[1]->type == LM_GGML_TYPE_F16 || op->src[1]->type == LM_GGML_TYPE_F32;
+        case GGML_OP_SCALE:
+            return op->src[0]->type == GGML_TYPE_F32 && ggml_is_contiguous(op->src[0]);
+        case GGML_OP_ADD:
+            if (op->type == GGML_TYPE_F16) {
+                const bool src0_ok = op->src[0]->type == GGML_TYPE_F16 || op->src[0]->type == GGML_TYPE_F32;
+                const bool src1_ok = op->src[1]->type == GGML_TYPE_F16 || op->src[1]->type == GGML_TYPE_F32;
                 if (src0_ok && src1_ok) {
                     return true;
                 }
             }
-        case LM_GGML_OP_MUL:
-        case LM_GGML_OP_DIV:
-        case LM_GGML_OP_SUB:
+        case GGML_OP_MUL:
+        case GGML_OP_DIV:
+        case GGML_OP_SUB:
             return (op->src[0]->type == op->src[1]->type) &&
                    (op->src[0]->type == op->type) &&
-                   (op->src[0]->type == LM_GGML_TYPE_F32 || op->src[0]->type == LM_GGML_TYPE_F16);
-        case LM_GGML_OP_ADD_ID:
-            return op->src[0]->type == LM_GGML_TYPE_F32;
-        case LM_GGML_OP_SQR:
-        case LM_GGML_OP_SQRT:
-            return (op->src[0]->type == LM_GGML_TYPE_F32 || op->src[0]->type == LM_GGML_TYPE_F16) &&
-                    lm_ggml_is_contiguous(op->src[0]);
-        case LM_GGML_OP_UNARY:
-            switch (lm_ggml_get_unary_op(op)) {
-                case LM_GGML_UNARY_OP_GELU:
-                case LM_GGML_UNARY_OP_SILU:
-                case LM_GGML_UNARY_OP_RELU:
-                case LM_GGML_UNARY_OP_GELU_ERF:
-                case LM_GGML_UNARY_OP_GELU_QUICK:
-                    return lm_ggml_is_contiguous(op->src[0]) && op->src[0]->type == LM_GGML_TYPE_F32;
-                case LM_GGML_UNARY_OP_SIGMOID:
-                    return lm_ggml_is_contiguous(op->src[0]);
-                case LM_GGML_UNARY_OP_TANH:
-                case LM_GGML_UNARY_OP_NEG:
-                case LM_GGML_UNARY_OP_EXP:
+                   (op->src[0]->type == GGML_TYPE_F32 || op->src[0]->type == GGML_TYPE_F16);
+        case GGML_OP_ADD_ID:
+            return op->src[0]->type == GGML_TYPE_F32;
+        case GGML_OP_SQR:
+        case GGML_OP_SQRT:
+            return (op->src[0]->type == GGML_TYPE_F32 || op->src[0]->type == GGML_TYPE_F16) &&
+                    ggml_is_contiguous(op->src[0]);
+        case GGML_OP_UNARY:
+            switch (ggml_get_unary_op(op)) {
+                case GGML_UNARY_OP_GELU:
+                case GGML_UNARY_OP_SILU:
+                case GGML_UNARY_OP_RELU:
+                case GGML_UNARY_OP_GELU_ERF:
+                case GGML_UNARY_OP_GELU_QUICK:
+                    return ggml_is_contiguous(op->src[0]) && op->src[0]->type == GGML_TYPE_F32;
+                case GGML_UNARY_OP_SIGMOID:
+                    return ggml_is_contiguous(op->src[0]);
+                case GGML_UNARY_OP_TANH:
+                case GGML_UNARY_OP_NEG:
+                case GGML_UNARY_OP_EXP:
                     // Adreno F16 exp/expm1 overflow even post-half->float convert.
-                    return op->src[0]->type == LM_GGML_TYPE_F32;
-                case LM_GGML_UNARY_OP_EXPM1:
-                    return op->src[0]->type == LM_GGML_TYPE_F32;
-                case LM_GGML_UNARY_OP_ABS:
-                    return op->src[0]->type == LM_GGML_TYPE_F32 || op->src[0]->type == LM_GGML_TYPE_F16;
-                case LM_GGML_UNARY_OP_SOFTPLUS:
-                    return op->src[0]->type == LM_GGML_TYPE_F32 || op->src[0]->type == LM_GGML_TYPE_F16;
+                    return op->src[0]->type == GGML_TYPE_F32;
+                case GGML_UNARY_OP_EXPM1:
+                    return op->src[0]->type == GGML_TYPE_F32;
+                case GGML_UNARY_OP_ABS:
+                    return op->src[0]->type == GGML_TYPE_F32 || op->src[0]->type == GGML_TYPE_F16;
+                case GGML_UNARY_OP_SOFTPLUS:
+                    return op->src[0]->type == GGML_TYPE_F32 || op->src[0]->type == GGML_TYPE_F16;
                 default:
                     return false;
             }
-        case LM_GGML_OP_GLU:
-            switch (lm_ggml_get_glu_op(op)) {
-                case LM_GGML_GLU_OP_GEGLU:
-                case LM_GGML_GLU_OP_REGLU:
-                case LM_GGML_GLU_OP_SWIGLU:
-                case LM_GGML_GLU_OP_SWIGLU_OAI:
-                case LM_GGML_GLU_OP_GEGLU_ERF:
-                case LM_GGML_GLU_OP_GEGLU_QUICK:
-                    return lm_ggml_is_contiguous_1(op->src[0]) && (op->type == LM_GGML_TYPE_F32 || op->type == LM_GGML_TYPE_F16);
+        case GGML_OP_GLU:
+            switch (ggml_get_glu_op(op)) {
+                case GGML_GLU_OP_GEGLU:
+                case GGML_GLU_OP_REGLU:
+                case GGML_GLU_OP_SWIGLU:
+                case GGML_GLU_OP_SWIGLU_OAI:
+                case GGML_GLU_OP_GEGLU_ERF:
+                case GGML_GLU_OP_GEGLU_QUICK:
+                    return ggml_is_contiguous_1(op->src[0]) && (op->type == GGML_TYPE_F32 || op->type == GGML_TYPE_F16);
                 default:
                     return false;
             }
-        case LM_GGML_OP_TRI:
-            return op->type == LM_GGML_TYPE_F32 && lm_ggml_is_contiguous(op);
-        case LM_GGML_OP_FILL:
-            return op->type == LM_GGML_TYPE_F32 && lm_ggml_is_contiguous(op);
-        case LM_GGML_OP_CLAMP:
-            return op->src[0]->type == LM_GGML_TYPE_F32;
-        case LM_GGML_OP_SOFT_MAX:
-        case LM_GGML_OP_NORM:
+        case GGML_OP_TRI:
+            return op->type == GGML_TYPE_F32 && ggml_is_contiguous(op);
+        case GGML_OP_FILL:
+            return op->type == GGML_TYPE_F32 && ggml_is_contiguous(op);
+        case GGML_OP_CLAMP:
+            return op->src[0]->type == GGML_TYPE_F32;
+        case GGML_OP_SOFT_MAX:
+        case GGML_OP_NORM:
             return true;
-        case LM_GGML_OP_RMS_NORM:
-            return op->ne[0] % 4 == 0 && lm_ggml_is_contiguous_rows(op->src[0]);
-        case LM_GGML_OP_L2_NORM:
-            return lm_ggml_is_contiguous_rows(op->src[0]);
-        case LM_GGML_OP_REPEAT:
-            return op->src[0]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32; // Assuming F32 for now, can be expanded
-        case LM_GGML_OP_PAD:
+        case GGML_OP_RMS_NORM:
+            return op->ne[0] % 4 == 0 && ggml_is_contiguous_rows(op->src[0]);
+        case GGML_OP_L2_NORM:
+            return ggml_is_contiguous_rows(op->src[0]);
+        case GGML_OP_REPEAT:
+            return op->src[0]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32; // Assuming F32 for now, can be expanded
+        case GGML_OP_PAD:
             // TODO: add circular padding support for opencl, see https://github.com/ggml-org/llama.cpp/pull/16985
-            if (lm_ggml_get_op_params_i32(op, 8) != 0) {
+            if (ggml_get_op_params_i32(op, 8) != 0) {
                 return false;
             }
-            return op->src[0]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
-        case LM_GGML_OP_UPSCALE: {
-            lm_ggml_scale_mode mode = (lm_ggml_scale_mode)(lm_ggml_get_op_params_i32(op, 0) & 0xFF);
-            const bool antialias = (lm_ggml_scale_mode)(lm_ggml_get_op_params_i32(op, 0) & LM_GGML_SCALE_FLAG_ANTIALIAS);
-            return op->src[0]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32 &&
-                   (mode == LM_GGML_SCALE_MODE_NEAREST || mode == LM_GGML_SCALE_MODE_BILINEAR) && !antialias;
+            return op->src[0]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
+        case GGML_OP_UPSCALE: {
+            ggml_scale_mode mode = (ggml_scale_mode)(ggml_get_op_params_i32(op, 0) & 0xFF);
+            const bool antialias = (ggml_scale_mode)(ggml_get_op_params_i32(op, 0) & GGML_SCALE_FLAG_ANTIALIAS);
+            return op->src[0]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32 &&
+                   (mode == GGML_SCALE_MODE_NEAREST || mode == GGML_SCALE_MODE_BILINEAR) && !antialias;
         }
-        case LM_GGML_OP_CONV_2D:
-            return (op->src[0]->type == LM_GGML_TYPE_F16 && op->src[1]->type == LM_GGML_TYPE_F16 && op->type == LM_GGML_TYPE_F16) ||
-                   (op->src[0]->type == LM_GGML_TYPE_F32 && op->src[1]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32) ||
-                   (op->src[0]->type == LM_GGML_TYPE_F16 && op->src[1]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32);
-        case LM_GGML_OP_SSM_CONV:
-            return (op->src[0]->type == LM_GGML_TYPE_F32 && op->src[1]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32);
-        case LM_GGML_OP_SSM_SCAN: {
+        case GGML_OP_CONV_2D:
+            return (op->src[0]->type == GGML_TYPE_F16 && op->src[1]->type == GGML_TYPE_F16 && op->type == GGML_TYPE_F16) ||
+                   (op->src[0]->type == GGML_TYPE_F32 && op->src[1]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32) ||
+                   (op->src[0]->type == GGML_TYPE_F16 && op->src[1]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32);
+        case GGML_OP_SSM_CONV:
+            return (op->src[0]->type == GGML_TYPE_F32 && op->src[1]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32);
+        case GGML_OP_SSM_SCAN: {
             // Mamba-2 fused per-token scan. Requires src3->ne[0] == 1 (scalar
             // A per head); d_state in {128, 256}; all sources f32. Falls back
             // to CPU otherwise (incl. Mamba-1 element-wise A).
             for (int i = 0; i < 6; ++i) {
-                if (op->src[i]->type != LM_GGML_TYPE_F32) {
+                if (op->src[i]->type != GGML_TYPE_F32) {
                     return false;
                 }
             }
-            if (op->type != LM_GGML_TYPE_F32) {
+            if (op->type != GGML_TYPE_F32) {
                 return false;
             }
-            const int K = lm_ggml_get_op_params_i32(op, 0);
+            const int K = ggml_get_op_params_i32(op, 0);
             const int d_state = (int) op->src[0]->ne[0];
             const bool is_mamba2 = (op->src[3]->ne[0] == 1);
             return is_mamba2 && (d_state == 128 || d_state == 256) && (K == 1);
         }
-        case LM_GGML_OP_GATED_DELTA_NET:
+        case GGML_OP_GATED_DELTA_NET:
             {
                 // Match the Vulkan backend: only F32 -> F32, S_v in {16, 32, 64, 128}.
-                if (op->src[0]->type != LM_GGML_TYPE_F32 || op->type != LM_GGML_TYPE_F32) {
+                if (op->src[0]->type != GGML_TYPE_F32 || op->type != GGML_TYPE_F32) {
                     return false;
                 }
                 const int64_t S_v = op->src[2]->ne[0];
                 return S_v == 16 || S_v == 32 || S_v == 64 || S_v == 128;
             }
-        case LM_GGML_OP_CONCAT:
-            return op->src[0]->type == LM_GGML_TYPE_F32 && op->src[1]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
-        case LM_GGML_OP_TIMESTEP_EMBEDDING:
-            return op->src[0]->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
-        case LM_GGML_OP_GROUP_NORM:
-            return lm_ggml_is_contiguous(op->src[0]);
-        case LM_GGML_OP_MUL_MAT:
-            if (op->src[0]->type == LM_GGML_TYPE_F16) {
+        case GGML_OP_CONCAT:
+            return op->src[0]->type == GGML_TYPE_F32 && op->src[1]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
+        case GGML_OP_TIMESTEP_EMBEDDING:
+            return op->src[0]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
+        case GGML_OP_GROUP_NORM:
+            return ggml_is_contiguous(op->src[0]);
+        case GGML_OP_MUL_MAT:
+            if (op->src[0]->type == GGML_TYPE_F16) {
                 return true;
-            } else if (op->src[0]->type == LM_GGML_TYPE_BF16) {
+            } else if (op->src[0]->type == GGML_TYPE_BF16) {
                 return true;
-            } else if (op->src[0]->type == LM_GGML_TYPE_F32) {
-                return op->src[1]->type == LM_GGML_TYPE_F32;
-            } else if (op->src[0]->type == LM_GGML_TYPE_Q1_0) {
-                return op->src[1]->type == LM_GGML_TYPE_F32;
-            } else if (op->src[0]->type == LM_GGML_TYPE_Q4_0) {
+            } else if (op->src[0]->type == GGML_TYPE_F32) {
+                return op->src[1]->type == GGML_TYPE_F32;
+            } else if (op->src[0]->type == GGML_TYPE_Q1_0) {
+                return op->src[1]->type == GGML_TYPE_F32;
+            } else if (op->src[0]->type == GGML_TYPE_Q4_0) {
                 // Non-contig src0 routes through on-device dequant-to-f16.
-                return op->src[1]->type == LM_GGML_TYPE_F32;
-            } else if (op->src[0]->type == LM_GGML_TYPE_Q4_1 ||
-                       op->src[0]->type == LM_GGML_TYPE_Q5_0  || op->src[0]->type == LM_GGML_TYPE_Q5_1 ||
-                       op->src[0]->type == LM_GGML_TYPE_MXFP4 ||
-                       op->src[0]->type == LM_GGML_TYPE_IQ4_NL ||
-                       op->src[0]->type == LM_GGML_TYPE_Q4_K  ||
-                       op->src[0]->type == LM_GGML_TYPE_Q5_K  ||
-                       op->src[0]->type == LM_GGML_TYPE_Q6_K) {
+                return op->src[1]->type == GGML_TYPE_F32;
+            } else if (op->src[0]->type == GGML_TYPE_Q4_1 ||
+                       op->src[0]->type == GGML_TYPE_Q5_0  || op->src[0]->type == GGML_TYPE_Q5_1 ||
+                       op->src[0]->type == GGML_TYPE_MXFP4 ||
+                       op->src[0]->type == GGML_TYPE_IQ4_NL ||
+                       op->src[0]->type == GGML_TYPE_Q4_K  ||
+                       op->src[0]->type == GGML_TYPE_Q5_K  ||
+                       op->src[0]->type == GGML_TYPE_Q6_K) {
                 // The E031.41 compiler (usually with A7x) miscompiles the flat K-quant
                 // GEMV kernels (kernel_mul_mv_q*_K_f32_flat) and makes lm_head run much
                 // slower than it should. So, make it fallback to CPU to preserve performance
                 // for this compiler series.
-                static const char * a7x_lmhead_env = getenv("LM_GGML_OPENCL_A7X_LMHEAD_CPU");
+                static const char * a7x_lmhead_env = getenv("GGML_OPENCL_A7X_LMHEAD_CPU");
                 static const bool   a7x_lmhead_cpu = (a7x_lmhead_env == nullptr || a7x_lmhead_env[0] != '0');
                 if (a7x_lmhead_cpu &&
                     backend_ctx->adreno_gen == ADRENO_GPU_GEN::A7X &&
-                    (op->src[0]->type == LM_GGML_TYPE_Q4_K || op->src[0]->type == LM_GGML_TYPE_Q5_K ||
-                     op->src[0]->type == LM_GGML_TYPE_Q6_K) &&
+                    (op->src[0]->type == GGML_TYPE_Q4_K || op->src[0]->type == GGML_TYPE_Q5_K ||
+                     op->src[0]->type == GGML_TYPE_Q6_K) &&
                     op->src[0]->ne[1] >= 32768) {   // vocab-scale weight; no FFN/attn weight is this tall
                     return false;
                 }
-                return op->src[1]->type == LM_GGML_TYPE_F32 && lm_ggml_is_contiguous(op->src[0]) && lm_ggml_is_contiguous(op->src[1]);
-            } else if (op->src[0]->type == LM_GGML_TYPE_Q8_0) {
-                return op->src[1]->type == LM_GGML_TYPE_F32;
+                return op->src[1]->type == GGML_TYPE_F32 && ggml_is_contiguous(op->src[0]) && ggml_is_contiguous(op->src[1]);
+            } else if (op->src[0]->type == GGML_TYPE_Q8_0) {
+                return op->src[1]->type == GGML_TYPE_F32;
             }
             return false;
-        case LM_GGML_OP_MUL_MAT_ID:
-            if (op->src[0]->type == LM_GGML_TYPE_Q4_0 ||
-                op->src[0]->type == LM_GGML_TYPE_Q8_0 ||
-                op->src[0]->type == LM_GGML_TYPE_MXFP4) {
-                if (op->src[1]->type == LM_GGML_TYPE_F32) {
-                    return lm_ggml_is_contiguous(op->src[0]) && lm_ggml_is_contiguous(op->src[1]);
+        case GGML_OP_MUL_MAT_ID:
+            if (op->src[0]->type == GGML_TYPE_Q4_0 ||
+                op->src[0]->type == GGML_TYPE_Q8_0 ||
+                op->src[0]->type == GGML_TYPE_MXFP4) {
+                if (op->src[1]->type == GGML_TYPE_F32) {
+                    return ggml_is_contiguous(op->src[0]) && ggml_is_contiguous(op->src[1]);
                 }
             }
             // q4_0, q8_0 and mxfp4 have general MUL_MAT_ID support,
             // the quantizations here currently do not - they are only supported by Adreno with certain shapes
-            if (op->src[0]->type == LM_GGML_TYPE_Q4_1 ||
-                op->src[0]->type == LM_GGML_TYPE_Q5_0 ||
-                op->src[0]->type == LM_GGML_TYPE_Q5_1 ||
-                op->src[0]->type == LM_GGML_TYPE_Q4_K ||
-                op->src[0]->type == LM_GGML_TYPE_Q5_K ||
-                op->src[0]->type == LM_GGML_TYPE_Q6_K) {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-                if (op->src[1]->type == LM_GGML_TYPE_F32) {
+            if (op->src[0]->type == GGML_TYPE_Q4_1 ||
+                op->src[0]->type == GGML_TYPE_Q5_0 ||
+                op->src[0]->type == GGML_TYPE_Q5_1 ||
+                op->src[0]->type == GGML_TYPE_Q4_K ||
+                op->src[0]->type == GGML_TYPE_Q5_K ||
+                op->src[0]->type == GGML_TYPE_Q6_K) {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+                if (op->src[1]->type == GGML_TYPE_F32) {
                     return use_adreno_moe_kernels(backend_ctx, op->src[0])
-                        && lm_ggml_is_contiguous(op->src[0])
-                        && lm_ggml_is_contiguous(op->src[1]);
+                        && ggml_is_contiguous(op->src[0])
+                        && ggml_is_contiguous(op->src[1]);
                 }
 #endif
                 return false;
             }
             return false;
-        case LM_GGML_OP_RESHAPE:
-        case LM_GGML_OP_VIEW:
-        case LM_GGML_OP_PERMUTE:
-        case LM_GGML_OP_TRANSPOSE:
+        case GGML_OP_RESHAPE:
+        case GGML_OP_VIEW:
+        case GGML_OP_PERMUTE:
+        case GGML_OP_TRANSPOSE:
             return true;
-        case LM_GGML_OP_DIAG:
+        case GGML_OP_DIAG:
             return true;
-        case LM_GGML_OP_DIAG_MASK_INF:
+        case GGML_OP_DIAG_MASK_INF:
             return op->ne[3] == 1;
-        case LM_GGML_OP_ROPE: {
+        case GGML_OP_ROPE: {
             const int mode = ((const int32_t *) op->op_params)[2];
-            const bool is_mrope = mode & LM_GGML_ROPE_TYPE_MROPE;
-            const bool is_vision = mode == LM_GGML_ROPE_TYPE_VISION;
+            const bool is_mrope = mode & GGML_ROPE_TYPE_MROPE;
+            const bool is_vision = mode == GGML_ROPE_TYPE_VISION;
             if (is_mrope && !is_vision) {
-                if (op->src[0]->type == LM_GGML_TYPE_F32 ||
-                    op->src[0]->type == LM_GGML_TYPE_F16) {
+                if (op->src[0]->type == GGML_TYPE_F32 ||
+                    op->src[0]->type == GGML_TYPE_F16) {
                     return true;
                 }
                 return false;
             }
             if (is_vision) {
-                if (op->src[0]->type == LM_GGML_TYPE_F32 ||
-                    op->src[0]->type == LM_GGML_TYPE_F16) {
+                if (op->src[0]->type == GGML_TYPE_F32 ||
+                    op->src[0]->type == GGML_TYPE_F16) {
                     return true;
                 }
                 return false;
             }
             return true;
         }
-        case LM_GGML_OP_SOLVE_TRI:
-            return op->src[0]->type == LM_GGML_TYPE_F32 && lm_ggml_is_contiguous(op->src[0]);
-        case LM_GGML_OP_IM2COL:
+        case GGML_OP_SOLVE_TRI:
+            return op->src[0]->type == GGML_TYPE_F32 && ggml_is_contiguous(op->src[0]);
+        case GGML_OP_IM2COL:
             return true;
-        case LM_GGML_OP_ARGSORT: {
+        case GGML_OP_ARGSORT: {
             load_cl_kernels_argsort(backend_ctx);
 
             cl_kernel kernel = backend_ctx->kernel_argsort_f32_i32;
@@ -7834,21 +7834,21 @@ static bool lm_ggml_opencl_supports_op(lm_ggml_backend_dev_t dev, const struct l
                 cols *= 2;
             }
 
-            return cols <= max_workgroup_size && op->src[0]->type == LM_GGML_TYPE_F32;
+            return cols <= max_workgroup_size && op->src[0]->type == GGML_TYPE_F32;
         }
-        case LM_GGML_OP_SUM_ROWS:
-        case LM_GGML_OP_CUMSUM:
-            return op->src[0]->type == LM_GGML_TYPE_F32 && lm_ggml_is_contiguous(op->src[0]);
-        case LM_GGML_OP_MEAN:
-            return op->src[0]->type == LM_GGML_TYPE_F32;
-        case LM_GGML_OP_FLASH_ATTN_EXT: {
+        case GGML_OP_SUM_ROWS:
+        case GGML_OP_CUMSUM:
+            return op->src[0]->type == GGML_TYPE_F32 && ggml_is_contiguous(op->src[0]);
+        case GGML_OP_MEAN:
+            return op->src[0]->type == GGML_TYPE_F32;
+        case GGML_OP_FLASH_ATTN_EXT: {
             // The E17 compilers segfault while building FA kernels, skip E17 for now
             if (adreno_e17_compiler_quirks(backend_ctx)) {
                 return false;
             }
-            const lm_ggml_tensor * q = op->src[0];
-            const lm_ggml_tensor * k = op->src[1];
-            const lm_ggml_tensor * v = op->src[2];
+            const ggml_tensor * q = op->src[0];
+            const ggml_tensor * k = op->src[1];
+            const ggml_tensor * v = op->src[2];
 
             const int dk = q->ne[0];
             const int dv = v->ne[0];
@@ -7871,18 +7871,18 @@ static bool lm_ggml_opencl_supports_op(lm_ggml_backend_dev_t dev, const struct l
                 return false;
             }
 
-            const bool is_f32_f32  = q->type == LM_GGML_TYPE_F32 && k->type == LM_GGML_TYPE_F32 &&
-                                     v->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32;
-            const bool is_f16_f16  = q->type == LM_GGML_TYPE_F16 && k->type == LM_GGML_TYPE_F16 &&
-                                     v->type == LM_GGML_TYPE_F16 && op->type == LM_GGML_TYPE_F16;
-            const bool is_f32_f16  = q->type == LM_GGML_TYPE_F32 && k->type == LM_GGML_TYPE_F16 &&
-                                     v->type == LM_GGML_TYPE_F16 && op->type == LM_GGML_TYPE_F32;
+            const bool is_f32_f32  = q->type == GGML_TYPE_F32 && k->type == GGML_TYPE_F32 &&
+                                     v->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
+            const bool is_f16_f16  = q->type == GGML_TYPE_F16 && k->type == GGML_TYPE_F16 &&
+                                     v->type == GGML_TYPE_F16 && op->type == GGML_TYPE_F16;
+            const bool is_f32_f16  = q->type == GGML_TYPE_F32 && k->type == GGML_TYPE_F16 &&
+                                     v->type == GGML_TYPE_F16 && op->type == GGML_TYPE_F32;
 
-            const bool is_f32_q8_0 = q->type == LM_GGML_TYPE_F32 && k->type == LM_GGML_TYPE_Q8_0 &&
-                                     v->type == LM_GGML_TYPE_Q8_0 && op->type == LM_GGML_TYPE_F32 &&
+            const bool is_f32_q8_0 = q->type == GGML_TYPE_F32 && k->type == GGML_TYPE_Q8_0 &&
+                                     v->type == GGML_TYPE_Q8_0 && op->type == GGML_TYPE_F32 &&
                                      dk % 32 == 0 && dv % 32 == 0;
-            const bool is_f32_q4_0 = q->type == LM_GGML_TYPE_F32 && k->type == LM_GGML_TYPE_Q4_0 &&
-                                     v->type == LM_GGML_TYPE_Q4_0 && op->type == LM_GGML_TYPE_F32 &&
+            const bool is_f32_q4_0 = q->type == GGML_TYPE_F32 && k->type == GGML_TYPE_Q4_0 &&
+                                     v->type == GGML_TYPE_Q4_0 && op->type == GGML_TYPE_F32 &&
                                      dk % 32 == 0 && dv % 32 == 0;
 
             // A7X (Adreno 740, compiler E031.41) SIGSEGVs inside clBuildProgram
@@ -7901,11 +7901,11 @@ static bool lm_ggml_opencl_supports_op(lm_ggml_backend_dev_t dev, const struct l
             }
 
             // Asymmetric KV: host-dequants both sides to F32, uses f32 kernel.
-            auto is_kv_type_ok = [](lm_ggml_type t) {
-                return t == LM_GGML_TYPE_F16 || t == LM_GGML_TYPE_F32 ||
-                       t == LM_GGML_TYPE_Q4_0 || t == LM_GGML_TYPE_Q8_0;
+            auto is_kv_type_ok = [](ggml_type t) {
+                return t == GGML_TYPE_F16 || t == GGML_TYPE_F32 ||
+                       t == GGML_TYPE_Q4_0 || t == GGML_TYPE_Q8_0;
             };
-            const bool is_f32_asym = q->type == LM_GGML_TYPE_F32 && op->type == LM_GGML_TYPE_F32 &&
+            const bool is_f32_asym = q->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32 &&
                                      k->type != v->type &&
                                      is_kv_type_ok(k->type) && is_kv_type_ok(v->type);
 
@@ -7937,7 +7937,7 @@ static bool lm_ggml_opencl_supports_op(lm_ggml_backend_dev_t dev, const struct l
                     return false;
                 } else {
                     // prefill, BM-tile in its own FA_PREFILL_ONLY program
-                    if (!lm_ggml_opencl_ensure_fa_f32_f16_prefill_512(backend_ctx, /*split=*/false)) {
+                    if (!ggml_opencl_ensure_fa_f32_f16_prefill_512(backend_ctx, /*split=*/false)) {
                         return false;
                     }
                 }
@@ -7950,40 +7950,40 @@ static bool lm_ggml_opencl_supports_op(lm_ggml_backend_dev_t dev, const struct l
 }
 
 // Forward declaration - implementation appears later in the file.
-static const char * lm_ggml_backend_opencl_buffer_type_get_name(lm_ggml_backend_buffer_type_t buffer_type);
+static const char * ggml_backend_opencl_buffer_type_get_name(ggml_backend_buffer_type_t buffer_type);
 
-static lm_ggml_guid_t lm_ggml_backend_opencl_guid() {
-    static lm_ggml_guid guid = { 0xde, 0xe0, 0x70, 0xa2, 0x73, 0x4e, 0x4d, 0xbc, 0xb0, 0xc7, 0x4f, 0xd4, 0x6d, 0x4e, 0x90, 0xfe };
+static ggml_guid_t ggml_backend_opencl_guid() {
+    static ggml_guid guid = { 0xde, 0xe0, 0x70, 0xa2, 0x73, 0x4e, 0x4d, 0xbc, 0xb0, 0xc7, 0x4f, 0xd4, 0x6d, 0x4e, 0x90, 0xfe };
     return &guid;
 }
 
-static lm_ggml_backend_i lm_ggml_backend_opencl_i = {
-    /* .get_name                = */ lm_ggml_backend_opencl_name,
-    /* .free                    = */ lm_ggml_backend_opencl_free,
-    /* .set_tensor_async        = */ NULL,  /* lm_ggml_backend_opencl_set_tensor_async */
-    /* .get_tensor_async        = */ NULL,  /* lm_ggml_backend_opencl_get_tensor_async */
+static ggml_backend_i ggml_backend_opencl_i = {
+    /* .get_name                = */ ggml_backend_opencl_name,
+    /* .free                    = */ ggml_backend_opencl_free,
+    /* .set_tensor_async        = */ NULL,  /* ggml_backend_opencl_set_tensor_async */
+    /* .get_tensor_async        = */ NULL,  /* ggml_backend_opencl_get_tensor_async */
     /* .set_tensor_2d_async     = */ NULL,
     /* .get_tensor_2d_async     = */ NULL,
-    /* .cpy_tensor_async        = */ NULL,  /* lm_ggml_backend_opencl_cpy_tensor_async */
-    /* .synchronize             = */ lm_ggml_backend_opencl_synchronize,
+    /* .cpy_tensor_async        = */ NULL,  /* ggml_backend_opencl_cpy_tensor_async */
+    /* .synchronize             = */ ggml_backend_opencl_synchronize,
     /* .graph_plan_create       = */ NULL,
     /* .graph_plan_free         = */ NULL,
     /* .graph_plan_update       = */ NULL,
     /* .graph_plan_compute      = */ NULL,
-    /* .graph_compute           = */ lm_ggml_backend_opencl_graph_compute,
+    /* .graph_compute           = */ ggml_backend_opencl_graph_compute,
     /* .event_record            = */ NULL,
     /* .event_wait              = */ NULL,
     /* .graph_optimize          = */ NULL,
 };
 
-lm_ggml_backend_t lm_ggml_backend_opencl_init(void) {
-    lm_ggml_backend_dev_t dev = lm_ggml_backend_reg_dev_get(lm_ggml_backend_opencl_reg(), 0);
-    lm_ggml_backend_opencl_context *backend_ctx = lm_ggml_cl_init(dev);
+ggml_backend_t ggml_backend_opencl_init(void) {
+    ggml_backend_dev_t dev = ggml_backend_reg_dev_get(ggml_backend_opencl_reg(), 0);
+    ggml_backend_opencl_context *backend_ctx = ggml_cl_init(dev);
     backend_ctx->ref_count++;
 
-    lm_ggml_backend_t backend = new lm_ggml_backend {
-        /* .guid    = */ lm_ggml_backend_opencl_guid(),
-        /* .iface   = */ lm_ggml_backend_opencl_i,
+    ggml_backend_t backend = new ggml_backend {
+        /* .guid    = */ ggml_backend_opencl_guid(),
+        /* .iface   = */ ggml_backend_opencl_i,
         /* .device  = */ dev,
         /* .context = */ backend_ctx
     };
@@ -7991,25 +7991,25 @@ lm_ggml_backend_t lm_ggml_backend_opencl_init(void) {
     return backend;
 }
 
-bool lm_ggml_backend_is_opencl(lm_ggml_backend_t backend) {
-    return backend && backend->iface.get_name == lm_ggml_backend_opencl_name;
+bool ggml_backend_is_opencl(ggml_backend_t backend) {
+    return backend && backend->iface.get_name == ggml_backend_opencl_name;
 }
 
 //
 // buffer
 //
-struct lm_ggml_backend_opencl_buffer_context {
+struct ggml_backend_opencl_buffer_context {
     // A buffer context can hold multiple cl_mem objects. This is for flattening
-    // quantized weights and should be used with LM_GGML_OPENCL_SMALL_ALLOC where
+    // quantized weights and should be used with GGML_OPENCL_SMALL_ALLOC where
     // each tensor is allocated a separate buffer. When flattening is enabled
     // with small allocation, each tensor is backed by two cl_mem objects (for
     // quants and scales) packed into a backend_opencl_buffer.
-    lm_ggml_backend_opencl_buffer_context(cl_mem buf)
+    ggml_backend_opencl_buffer_context(cl_mem buf)
         : name("OpenCL") {
         buffer.push_back(buf);
     }
 
-    ~lm_ggml_backend_opencl_buffer_context() {
+    ~ggml_backend_opencl_buffer_context() {
         for (cl_mem buf : buffer) {
             CL_CHECK(clReleaseMemObject(buf));
         }
@@ -8018,84 +8018,84 @@ struct lm_ggml_backend_opencl_buffer_context {
         }
 
         // Delete all extras to trigger their destructors
-        for (lm_ggml_tensor_extra_cl * e : temp_tensor_extras) {
+        for (ggml_tensor_extra_cl * e : temp_tensor_extras) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl * e : temp_tensor_extras_in_use) {
+        for (ggml_tensor_extra_cl * e : temp_tensor_extras_in_use) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q4_0 * e : temp_tensor_extras_q4_0) {
+        for (ggml_tensor_extra_cl_q4_0 * e : temp_tensor_extras_q4_0) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q4_0 * e : temp_tensor_extras_q4_0_in_use) {
+        for (ggml_tensor_extra_cl_q4_0 * e : temp_tensor_extras_q4_0_in_use) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q4_1 * e : temp_tensor_extras_q4_1) {
+        for (ggml_tensor_extra_cl_q4_1 * e : temp_tensor_extras_q4_1) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q4_1 * e : temp_tensor_extras_q4_1_in_use) {
+        for (ggml_tensor_extra_cl_q4_1 * e : temp_tensor_extras_q4_1_in_use) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q5_0 * e : temp_tensor_extras_q5_0) {
+        for (ggml_tensor_extra_cl_q5_0 * e : temp_tensor_extras_q5_0) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q5_0 * e : temp_tensor_extras_q5_0_in_use) {
+        for (ggml_tensor_extra_cl_q5_0 * e : temp_tensor_extras_q5_0_in_use) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q5_1 * e : temp_tensor_extras_q5_1) {
+        for (ggml_tensor_extra_cl_q5_1 * e : temp_tensor_extras_q5_1) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q5_1 * e : temp_tensor_extras_q5_1_in_use) {
+        for (ggml_tensor_extra_cl_q5_1 * e : temp_tensor_extras_q5_1_in_use) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_mxfp4 * e : temp_tensor_extras_mxfp4) {
+        for (ggml_tensor_extra_cl_mxfp4 * e : temp_tensor_extras_mxfp4) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_mxfp4 * e : temp_tensor_extras_mxfp4_in_use) {
+        for (ggml_tensor_extra_cl_mxfp4 * e : temp_tensor_extras_mxfp4_in_use) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q8_0 * e : temp_tensor_extras_q8_0) {
+        for (ggml_tensor_extra_cl_q8_0 * e : temp_tensor_extras_q8_0) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q8_0 * e : temp_tensor_extras_q8_0_in_use) {
+        for (ggml_tensor_extra_cl_q8_0 * e : temp_tensor_extras_q8_0_in_use) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q1_0 * e : temp_tensor_extras_q1_0) {
+        for (ggml_tensor_extra_cl_q1_0 * e : temp_tensor_extras_q1_0) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q1_0 * e : temp_tensor_extras_q1_0_in_use) {
+        for (ggml_tensor_extra_cl_q1_0 * e : temp_tensor_extras_q1_0_in_use) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_iq4_nl * e : temp_tensor_extras_iq4_nl) {
+        for (ggml_tensor_extra_cl_iq4_nl * e : temp_tensor_extras_iq4_nl) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_iq4_nl * e : temp_tensor_extras_iq4_nl_in_use) {
+        for (ggml_tensor_extra_cl_iq4_nl * e : temp_tensor_extras_iq4_nl_in_use) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q4_K * e : temp_tensor_extras_q4_K) {
+        for (ggml_tensor_extra_cl_q4_K * e : temp_tensor_extras_q4_K) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q4_K * e : temp_tensor_extras_q4_K_in_use) {
+        for (ggml_tensor_extra_cl_q4_K * e : temp_tensor_extras_q4_K_in_use) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q6_K * e : temp_tensor_extras_q6_K) {
+        for (ggml_tensor_extra_cl_q6_K * e : temp_tensor_extras_q6_K) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q6_K * e : temp_tensor_extras_q6_K_in_use) {
+        for (ggml_tensor_extra_cl_q6_K * e : temp_tensor_extras_q6_K_in_use) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q5_K * e : temp_tensor_extras_q5_K) {
+        for (ggml_tensor_extra_cl_q5_K * e : temp_tensor_extras_q5_K) {
             delete e;
         }
-        for (lm_ggml_tensor_extra_cl_q5_K * e : temp_tensor_extras_q5_K_in_use) {
+        for (ggml_tensor_extra_cl_q5_K * e : temp_tensor_extras_q5_K_in_use) {
             delete e;
         }
     }
 
-    lm_ggml_tensor_extra_cl * lm_ggml_opencl_alloc_temp_tensor_extra() {
-        lm_ggml_tensor_extra_cl * extra;
+    ggml_tensor_extra_cl * ggml_opencl_alloc_temp_tensor_extra() {
+        ggml_tensor_extra_cl * extra;
         if (temp_tensor_extras.empty()) {
-            extra = new lm_ggml_tensor_extra_cl();
+            extra = new ggml_tensor_extra_cl();
         } else {
             extra = temp_tensor_extras.back();
             temp_tensor_extras.pop_back();
@@ -8107,10 +8107,10 @@ struct lm_ggml_backend_opencl_buffer_context {
         return extra;
     }
 
-    lm_ggml_tensor_extra_cl_q1_0 * lm_ggml_opencl_alloc_temp_tensor_extra_q1_0() {
-        lm_ggml_tensor_extra_cl_q1_0 * extra;
+    ggml_tensor_extra_cl_q1_0 * ggml_opencl_alloc_temp_tensor_extra_q1_0() {
+        ggml_tensor_extra_cl_q1_0 * extra;
         if (temp_tensor_extras_q1_0.empty()) {
-            extra = new lm_ggml_tensor_extra_cl_q1_0();
+            extra = new ggml_tensor_extra_cl_q1_0();
         } else {
             extra = temp_tensor_extras_q1_0.back();
             temp_tensor_extras_q1_0.pop_back();
@@ -8122,10 +8122,10 @@ struct lm_ggml_backend_opencl_buffer_context {
         return extra;
     }
 
-    lm_ggml_tensor_extra_cl_q4_0 * lm_ggml_opencl_alloc_temp_tensor_extra_q4_0() {
-        lm_ggml_tensor_extra_cl_q4_0 * extra;
+    ggml_tensor_extra_cl_q4_0 * ggml_opencl_alloc_temp_tensor_extra_q4_0() {
+        ggml_tensor_extra_cl_q4_0 * extra;
         if (temp_tensor_extras_q4_0.empty()) {
-            extra = new lm_ggml_tensor_extra_cl_q4_0();
+            extra = new ggml_tensor_extra_cl_q4_0();
         } else {
             extra = temp_tensor_extras_q4_0.back();
             temp_tensor_extras_q4_0.pop_back();
@@ -8137,10 +8137,10 @@ struct lm_ggml_backend_opencl_buffer_context {
         return extra;
     }
 
-    lm_ggml_tensor_extra_cl_q4_1 * lm_ggml_opencl_alloc_temp_tensor_extra_q4_1() {
-        lm_ggml_tensor_extra_cl_q4_1 * extra;
+    ggml_tensor_extra_cl_q4_1 * ggml_opencl_alloc_temp_tensor_extra_q4_1() {
+        ggml_tensor_extra_cl_q4_1 * extra;
         if (temp_tensor_extras_q4_1.empty()) {
-            extra = new lm_ggml_tensor_extra_cl_q4_1();
+            extra = new ggml_tensor_extra_cl_q4_1();
         } else {
             extra = temp_tensor_extras_q4_1.back();
             temp_tensor_extras_q4_1.pop_back();
@@ -8152,10 +8152,10 @@ struct lm_ggml_backend_opencl_buffer_context {
         return extra;
     }
 
-    lm_ggml_tensor_extra_cl_q5_0 * lm_ggml_opencl_alloc_temp_tensor_extra_q5_0() {
-        lm_ggml_tensor_extra_cl_q5_0 * extra;
+    ggml_tensor_extra_cl_q5_0 * ggml_opencl_alloc_temp_tensor_extra_q5_0() {
+        ggml_tensor_extra_cl_q5_0 * extra;
         if (temp_tensor_extras_q5_0.empty()) {
-            extra = new lm_ggml_tensor_extra_cl_q5_0();
+            extra = new ggml_tensor_extra_cl_q5_0();
         } else {
             extra = temp_tensor_extras_q5_0.back();
             temp_tensor_extras_q5_0.pop_back();
@@ -8167,10 +8167,10 @@ struct lm_ggml_backend_opencl_buffer_context {
         return extra;
     }
 
-    lm_ggml_tensor_extra_cl_q5_1 * lm_ggml_opencl_alloc_temp_tensor_extra_q5_1() {
-        lm_ggml_tensor_extra_cl_q5_1 * extra;
+    ggml_tensor_extra_cl_q5_1 * ggml_opencl_alloc_temp_tensor_extra_q5_1() {
+        ggml_tensor_extra_cl_q5_1 * extra;
         if (temp_tensor_extras_q5_1.empty()) {
-            extra = new lm_ggml_tensor_extra_cl_q5_1();
+            extra = new ggml_tensor_extra_cl_q5_1();
         } else {
             extra = temp_tensor_extras_q5_1.back();
             temp_tensor_extras_q5_1.pop_back();
@@ -8182,10 +8182,10 @@ struct lm_ggml_backend_opencl_buffer_context {
         return extra;
     }
 
-    lm_ggml_tensor_extra_cl_mxfp4 * lm_ggml_opencl_alloc_temp_tensor_extra_mxfp4() {
-        lm_ggml_tensor_extra_cl_mxfp4 * extra;
+    ggml_tensor_extra_cl_mxfp4 * ggml_opencl_alloc_temp_tensor_extra_mxfp4() {
+        ggml_tensor_extra_cl_mxfp4 * extra;
         if (temp_tensor_extras_mxfp4.empty()) {
-            extra = new lm_ggml_tensor_extra_cl_mxfp4();
+            extra = new ggml_tensor_extra_cl_mxfp4();
         } else {
             extra = temp_tensor_extras_mxfp4.back();
             temp_tensor_extras_mxfp4.pop_back();
@@ -8197,10 +8197,10 @@ struct lm_ggml_backend_opencl_buffer_context {
         return extra;
     }
 
-    lm_ggml_tensor_extra_cl_q8_0 * lm_ggml_opencl_alloc_temp_tensor_extra_q8_0() {
-        lm_ggml_tensor_extra_cl_q8_0 * extra;
+    ggml_tensor_extra_cl_q8_0 * ggml_opencl_alloc_temp_tensor_extra_q8_0() {
+        ggml_tensor_extra_cl_q8_0 * extra;
         if (temp_tensor_extras_q8_0.empty()) {
-            extra = new lm_ggml_tensor_extra_cl_q8_0();
+            extra = new ggml_tensor_extra_cl_q8_0();
         } else {
             extra = temp_tensor_extras_q8_0.back();
             temp_tensor_extras_q8_0.pop_back();
@@ -8212,10 +8212,10 @@ struct lm_ggml_backend_opencl_buffer_context {
         return extra;
     }
 
-    lm_ggml_tensor_extra_cl_iq4_nl * lm_ggml_opencl_alloc_temp_tensor_extra_iq4_nl() {
-        lm_ggml_tensor_extra_cl_iq4_nl * extra;
+    ggml_tensor_extra_cl_iq4_nl * ggml_opencl_alloc_temp_tensor_extra_iq4_nl() {
+        ggml_tensor_extra_cl_iq4_nl * extra;
         if (temp_tensor_extras_iq4_nl.empty()) {
-            extra = new lm_ggml_tensor_extra_cl_iq4_nl();
+            extra = new ggml_tensor_extra_cl_iq4_nl();
         } else {
             extra = temp_tensor_extras_iq4_nl.back();
             temp_tensor_extras_iq4_nl.pop_back();
@@ -8227,10 +8227,10 @@ struct lm_ggml_backend_opencl_buffer_context {
         return extra;
     }
 
-    lm_ggml_tensor_extra_cl_q4_K * lm_ggml_opencl_alloc_temp_tensor_extra_q4_K() {
-        lm_ggml_tensor_extra_cl_q4_K * extra;
+    ggml_tensor_extra_cl_q4_K * ggml_opencl_alloc_temp_tensor_extra_q4_K() {
+        ggml_tensor_extra_cl_q4_K * extra;
         if (temp_tensor_extras_q4_K.empty()) {
-            extra = new lm_ggml_tensor_extra_cl_q4_K();
+            extra = new ggml_tensor_extra_cl_q4_K();
         } else {
             extra = temp_tensor_extras_q4_K.back();
             temp_tensor_extras_q4_K.pop_back();
@@ -8242,10 +8242,10 @@ struct lm_ggml_backend_opencl_buffer_context {
         return extra;
     }
 
-    lm_ggml_tensor_extra_cl_q5_K * lm_ggml_opencl_alloc_temp_tensor_extra_q5_K() {
-        lm_ggml_tensor_extra_cl_q5_K * extra;
+    ggml_tensor_extra_cl_q5_K * ggml_opencl_alloc_temp_tensor_extra_q5_K() {
+        ggml_tensor_extra_cl_q5_K * extra;
         if (temp_tensor_extras_q5_K.empty()) {
-            extra = new lm_ggml_tensor_extra_cl_q5_K();
+            extra = new ggml_tensor_extra_cl_q5_K();
         } else {
             extra = temp_tensor_extras_q5_K.back();
             temp_tensor_extras_q5_K.pop_back();
@@ -8257,10 +8257,10 @@ struct lm_ggml_backend_opencl_buffer_context {
         return extra;
     }
 
-    lm_ggml_tensor_extra_cl_q6_K * lm_ggml_opencl_alloc_temp_tensor_extra_q6_K() {
-        lm_ggml_tensor_extra_cl_q6_K * extra;
+    ggml_tensor_extra_cl_q6_K * ggml_opencl_alloc_temp_tensor_extra_q6_K() {
+        ggml_tensor_extra_cl_q6_K * extra;
         if (temp_tensor_extras_q6_K.empty()) {
-            extra = new lm_ggml_tensor_extra_cl_q6_K();
+            extra = new ggml_tensor_extra_cl_q6_K();
         } else {
             extra = temp_tensor_extras_q6_K.back();
             temp_tensor_extras_q6_K.pop_back();
@@ -8273,62 +8273,62 @@ struct lm_ggml_backend_opencl_buffer_context {
     }
 
     void reset() {
-        for (lm_ggml_tensor_extra_cl * e : temp_tensor_extras_in_use) {
+        for (ggml_tensor_extra_cl * e : temp_tensor_extras_in_use) {
             temp_tensor_extras.push_back(e);
         }
         temp_tensor_extras_in_use.clear();
 
-        for (lm_ggml_tensor_extra_cl_q1_0 * e : temp_tensor_extras_q1_0_in_use) {
+        for (ggml_tensor_extra_cl_q1_0 * e : temp_tensor_extras_q1_0_in_use) {
             temp_tensor_extras_q1_0.push_back(e);
         }
         temp_tensor_extras_q1_0_in_use.clear();
 
-        for (lm_ggml_tensor_extra_cl_q4_0 * e : temp_tensor_extras_q4_0_in_use) {
+        for (ggml_tensor_extra_cl_q4_0 * e : temp_tensor_extras_q4_0_in_use) {
             temp_tensor_extras_q4_0.push_back(e);
         }
         temp_tensor_extras_q4_0_in_use.clear();
 
-        for (lm_ggml_tensor_extra_cl_q4_1 * e : temp_tensor_extras_q4_1_in_use) {
+        for (ggml_tensor_extra_cl_q4_1 * e : temp_tensor_extras_q4_1_in_use) {
             temp_tensor_extras_q4_1.push_back(e);
         }
         temp_tensor_extras_q4_1_in_use.clear();
 
-        for (lm_ggml_tensor_extra_cl_q5_0 * e : temp_tensor_extras_q5_0_in_use) {
+        for (ggml_tensor_extra_cl_q5_0 * e : temp_tensor_extras_q5_0_in_use) {
             temp_tensor_extras_q5_0.push_back(e);
         }
         temp_tensor_extras_q5_0_in_use.clear();
 
-        for (lm_ggml_tensor_extra_cl_q5_1 * e : temp_tensor_extras_q5_1_in_use) {
+        for (ggml_tensor_extra_cl_q5_1 * e : temp_tensor_extras_q5_1_in_use) {
             temp_tensor_extras_q5_1.push_back(e);
         }
         temp_tensor_extras_q5_1_in_use.clear();
 
-        for (lm_ggml_tensor_extra_cl_mxfp4 * e : temp_tensor_extras_mxfp4_in_use) {
+        for (ggml_tensor_extra_cl_mxfp4 * e : temp_tensor_extras_mxfp4_in_use) {
             temp_tensor_extras_mxfp4.push_back(e);
         }
         temp_tensor_extras_mxfp4_in_use.clear();
 
-        for (lm_ggml_tensor_extra_cl_q8_0 * e : temp_tensor_extras_q8_0_in_use) {
+        for (ggml_tensor_extra_cl_q8_0 * e : temp_tensor_extras_q8_0_in_use) {
             temp_tensor_extras_q8_0.push_back(e);
         }
         temp_tensor_extras_q8_0_in_use.clear();
 
-        for (lm_ggml_tensor_extra_cl_iq4_nl * e : temp_tensor_extras_iq4_nl_in_use) {
+        for (ggml_tensor_extra_cl_iq4_nl * e : temp_tensor_extras_iq4_nl_in_use) {
             temp_tensor_extras_iq4_nl.push_back(e);
         }
         temp_tensor_extras_iq4_nl_in_use.clear();
 
-        for (lm_ggml_tensor_extra_cl_q4_K * e : temp_tensor_extras_q4_K_in_use) {
+        for (ggml_tensor_extra_cl_q4_K * e : temp_tensor_extras_q4_K_in_use) {
             temp_tensor_extras_q4_K.push_back(e);
         }
         temp_tensor_extras_q4_K_in_use.clear();
 
-        for (lm_ggml_tensor_extra_cl_q5_K * e : temp_tensor_extras_q5_K_in_use) {
+        for (ggml_tensor_extra_cl_q5_K * e : temp_tensor_extras_q5_K_in_use) {
             temp_tensor_extras_q5_K.push_back(e);
         }
         temp_tensor_extras_q5_K_in_use.clear();
 
-        for (lm_ggml_tensor_extra_cl_q6_K * e : temp_tensor_extras_q6_K_in_use) {
+        for (ggml_tensor_extra_cl_q6_K * e : temp_tensor_extras_q6_K_in_use) {
             temp_tensor_extras_q6_K.push_back(e);
         }
         temp_tensor_extras_q6_K_in_use.clear();
@@ -8342,43 +8342,43 @@ struct lm_ggml_backend_opencl_buffer_context {
     // extras get created and put in `in_use`. When the buffer is reset via
     // the `reset` callback, all extras in `in_use` get moved to available extras
     // for reuse.
-    std::vector<lm_ggml_tensor_extra_cl *> temp_tensor_extras;
-    std::vector<lm_ggml_tensor_extra_cl *> temp_tensor_extras_in_use;
-    std::vector<lm_ggml_tensor_extra_cl_q1_0 *> temp_tensor_extras_q1_0;
-    std::vector<lm_ggml_tensor_extra_cl_q1_0 *> temp_tensor_extras_q1_0_in_use;
-    std::vector<lm_ggml_tensor_extra_cl_q4_0 *> temp_tensor_extras_q4_0;
-    std::vector<lm_ggml_tensor_extra_cl_q4_0 *> temp_tensor_extras_q4_0_in_use;
-    std::vector<lm_ggml_tensor_extra_cl_q4_1 *> temp_tensor_extras_q4_1;
-    std::vector<lm_ggml_tensor_extra_cl_q4_1 *> temp_tensor_extras_q4_1_in_use;
-    std::vector<lm_ggml_tensor_extra_cl_q5_0 *> temp_tensor_extras_q5_0;
-    std::vector<lm_ggml_tensor_extra_cl_q5_0 *> temp_tensor_extras_q5_0_in_use;
-    std::vector<lm_ggml_tensor_extra_cl_q5_1 *> temp_tensor_extras_q5_1;
-    std::vector<lm_ggml_tensor_extra_cl_q5_1 *> temp_tensor_extras_q5_1_in_use;
-    std::vector<lm_ggml_tensor_extra_cl_mxfp4 *> temp_tensor_extras_mxfp4;
-    std::vector<lm_ggml_tensor_extra_cl_mxfp4 *> temp_tensor_extras_mxfp4_in_use;
-    std::vector<lm_ggml_tensor_extra_cl_q8_0 *> temp_tensor_extras_q8_0;
-    std::vector<lm_ggml_tensor_extra_cl_q8_0 *> temp_tensor_extras_q8_0_in_use;
-    std::vector<lm_ggml_tensor_extra_cl_iq4_nl *> temp_tensor_extras_iq4_nl;
-    std::vector<lm_ggml_tensor_extra_cl_iq4_nl *> temp_tensor_extras_iq4_nl_in_use;
-    std::vector<lm_ggml_tensor_extra_cl_q4_K *> temp_tensor_extras_q4_K;
-    std::vector<lm_ggml_tensor_extra_cl_q4_K *> temp_tensor_extras_q4_K_in_use;
-    std::vector<lm_ggml_tensor_extra_cl_q5_K *> temp_tensor_extras_q5_K;
-    std::vector<lm_ggml_tensor_extra_cl_q5_K *> temp_tensor_extras_q5_K_in_use;
-    std::vector<lm_ggml_tensor_extra_cl_q6_K *> temp_tensor_extras_q6_K;
-    std::vector<lm_ggml_tensor_extra_cl_q6_K *> temp_tensor_extras_q6_K_in_use;
+    std::vector<ggml_tensor_extra_cl *> temp_tensor_extras;
+    std::vector<ggml_tensor_extra_cl *> temp_tensor_extras_in_use;
+    std::vector<ggml_tensor_extra_cl_q1_0 *> temp_tensor_extras_q1_0;
+    std::vector<ggml_tensor_extra_cl_q1_0 *> temp_tensor_extras_q1_0_in_use;
+    std::vector<ggml_tensor_extra_cl_q4_0 *> temp_tensor_extras_q4_0;
+    std::vector<ggml_tensor_extra_cl_q4_0 *> temp_tensor_extras_q4_0_in_use;
+    std::vector<ggml_tensor_extra_cl_q4_1 *> temp_tensor_extras_q4_1;
+    std::vector<ggml_tensor_extra_cl_q4_1 *> temp_tensor_extras_q4_1_in_use;
+    std::vector<ggml_tensor_extra_cl_q5_0 *> temp_tensor_extras_q5_0;
+    std::vector<ggml_tensor_extra_cl_q5_0 *> temp_tensor_extras_q5_0_in_use;
+    std::vector<ggml_tensor_extra_cl_q5_1 *> temp_tensor_extras_q5_1;
+    std::vector<ggml_tensor_extra_cl_q5_1 *> temp_tensor_extras_q5_1_in_use;
+    std::vector<ggml_tensor_extra_cl_mxfp4 *> temp_tensor_extras_mxfp4;
+    std::vector<ggml_tensor_extra_cl_mxfp4 *> temp_tensor_extras_mxfp4_in_use;
+    std::vector<ggml_tensor_extra_cl_q8_0 *> temp_tensor_extras_q8_0;
+    std::vector<ggml_tensor_extra_cl_q8_0 *> temp_tensor_extras_q8_0_in_use;
+    std::vector<ggml_tensor_extra_cl_iq4_nl *> temp_tensor_extras_iq4_nl;
+    std::vector<ggml_tensor_extra_cl_iq4_nl *> temp_tensor_extras_iq4_nl_in_use;
+    std::vector<ggml_tensor_extra_cl_q4_K *> temp_tensor_extras_q4_K;
+    std::vector<ggml_tensor_extra_cl_q4_K *> temp_tensor_extras_q4_K_in_use;
+    std::vector<ggml_tensor_extra_cl_q5_K *> temp_tensor_extras_q5_K;
+    std::vector<ggml_tensor_extra_cl_q5_K *> temp_tensor_extras_q5_K_in_use;
+    std::vector<ggml_tensor_extra_cl_q6_K *> temp_tensor_extras_q6_K;
+    std::vector<ggml_tensor_extra_cl_q6_K *> temp_tensor_extras_q6_K_in_use;
 
     // q8_0 tensors with AoS->SoA layout conversion installed by set_tensor.
     // Two types of tensors get SOA'ed - normal weights and MoE weights.
     // In Q8_0's case, we only have normal weights. If we ever have Q8_0 as MoE
     // weights, they need to be added to this set in `set_tensors`.
-    std::unordered_set<const lm_ggml_tensor *> q8_0_soa_tensors;
+    std::unordered_set<const ggml_tensor *> q8_0_soa_tensors;
 
     // Same for q4_0. KV-cache q4_0 tensors are allocated but never pass
     // through set_tensor, so they stay AoS and aren't in this set.
     // In Q4_0's case, in addition to normal weights, we have MoE weights.
-    std::unordered_set<const lm_ggml_tensor *> q4_0_soa_tensors;
+    std::unordered_set<const ggml_tensor *> q4_0_soa_tensors;
 
-    // The buffer_context is initially created by lm_ggml_backend_buft_alloc_buffer
+    // The buffer_context is initially created by ggml_backend_buft_alloc_buffer
     // before any tensor is initialized (at the beginning of alloc_tensor_range).
     // Hence, there is always a buffer object in this vector. When each tensor is
     // being initialized, this original buffer object will be released if both
@@ -8394,29 +8394,29 @@ struct lm_ggml_backend_opencl_buffer_context {
     std::string name;
 };
 
-static void lm_ggml_backend_opencl_buffer_free_buffer(lm_ggml_backend_buffer_t buffer) {
-    lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
+static void ggml_backend_opencl_buffer_free_buffer(ggml_backend_buffer_t buffer) {
+    ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
     delete ctx;
 }
 
-static void * lm_ggml_backend_opencl_buffer_get_base(lm_ggml_backend_buffer_t buffer) {
-    lm_ggml_backend_opencl_device_context * dev_ctx = (lm_ggml_backend_opencl_device_context *) buffer->buft->device->context;
+static void * ggml_backend_opencl_buffer_get_base(ggml_backend_buffer_t buffer) {
+    ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) buffer->buft->device->context;
     return (void *) (uintptr_t) dev_ctx->backend_ctx->alignment;
 }
 
-static enum lm_ggml_status lm_ggml_backend_opencl_buffer_init_tensor(lm_ggml_backend_buffer_t buffer, lm_ggml_tensor * tensor) {
-    lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
+static enum ggml_status ggml_backend_opencl_buffer_init_tensor(ggml_backend_buffer_t buffer, ggml_tensor * tensor) {
+    ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
 
     if (tensor->view_src != nullptr) {
-        LM_GGML_ASSERT(tensor->view_src->buffer->buft == buffer->buft);
+        GGML_ASSERT(tensor->view_src->buffer->buft == buffer->buft);
 
-        lm_ggml_tensor_extra_cl * view_extra = (lm_ggml_tensor_extra_cl *) tensor->view_src->extra;
-        LM_GGML_ASSERT(view_extra && "view_extra is nullptr?");
+        ggml_tensor_extra_cl * view_extra = (ggml_tensor_extra_cl *) tensor->view_src->extra;
+        GGML_ASSERT(view_extra && "view_extra is nullptr?");
 
         // Reuse extra of the parent tensor. The offset of this view tensor
         // becomes `extra->offset + view_offs` and needs to be calculated when
         // it is used. This changes is needed because of the change to
-        // lm_ggml_alloc.c in https://github.com/ggml-org/llama.cpp/pull/7640.
+        // ggml_alloc.c in https://github.com/ggml-org/llama.cpp/pull/7640.
         // `buffer` passed in here will always be `tensor->buffer`. It is OK
         // to allocate extras from the same buffer context for ordinary
         // intermediate tensors. But for views into kv cache tensors, doing so
@@ -8432,47 +8432,47 @@ static enum lm_ggml_status lm_ggml_backend_opencl_buffer_init_tensor(lm_ggml_bac
         tensor->extra = view_extra;
     } else {
         {
-            size_t offset = (char *) tensor->data - (char *) lm_ggml_backend_opencl_buffer_get_base(buffer);
+            size_t offset = (char *) tensor->data - (char *) ggml_backend_opencl_buffer_get_base(buffer);
 
-            lm_ggml_tensor_extra_cl * extra = ctx->lm_ggml_opencl_alloc_temp_tensor_extra();
+            ggml_tensor_extra_cl * extra = ctx->ggml_opencl_alloc_temp_tensor_extra();
             extra->offset = offset;
             extra->data_device = ctx->buffer[0];
-            extra->actual_size = lm_ggml_nbytes(tensor);
+            extra->actual_size = ggml_nbytes(tensor);
 
             tensor->extra = extra;
         }
     }
-    return LM_GGML_STATUS_SUCCESS;
+    return GGML_STATUS_SUCCESS;
 }
 
-static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t buffer, lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
-    lm_ggml_backend_opencl_device_context * dev_ctx = (lm_ggml_backend_opencl_device_context *) buffer->buft->device->context;
-    lm_ggml_backend_opencl_context * backend_ctx = dev_ctx->backend_ctx;
+static void ggml_backend_opencl_buffer_set_tensor(ggml_backend_buffer_t buffer, ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
+    ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) buffer->buft->device->context;
+    ggml_backend_opencl_context * backend_ctx = dev_ctx->backend_ctx;
 
     cl_context context = backend_ctx->context;
     cl_command_queue queue = backend_ctx->queue;
 
-#ifdef LM_GGML_OPENCL_SOA_Q
-    if (tensor->type == LM_GGML_TYPE_Q1_0) {
-        lm_ggml_tensor_extra_cl * extra_orig = (lm_ggml_tensor_extra_cl *)tensor->extra;
-        LM_GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
+#ifdef GGML_OPENCL_SOA_Q
+    if (tensor->type == GGML_TYPE_Q1_0) {
+        ggml_tensor_extra_cl * extra_orig = (ggml_tensor_extra_cl *)tensor->extra;
+        GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
 
         // Allocate the new extra and create aliases from the original.
-        lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
-        lm_ggml_tensor_extra_cl_q1_0 * extra = ctx->lm_ggml_opencl_alloc_temp_tensor_extra_q1_0();
+        ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
+        ggml_tensor_extra_cl_q1_0 * extra = ctx->ggml_opencl_alloc_temp_tensor_extra_q1_0();
 
-        // q1_0 block = lm_ggml_half d + (QK1_0/8) quant bytes = 2 + 16 = 18 bytes
-        size_t size_d = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        size_t size_q = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*(lm_ggml_blck_size(tensor->type)/8);
-        LM_GGML_ASSERT(size_d + size_q == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+        // q1_0 block = ggml_half d + (QK1_0/8) quant bytes = 2 + 16 = 18 bytes
+        size_t size_d = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        size_t size_q = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*(ggml_blck_size(tensor->type)/8);
+        GGML_ASSERT(size_d + size_q == ggml_nbytes(tensor) && "Incorrect tensor size");
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
         CL_CHECK(clEnqueueWriteBuffer(
             queue, data_device, CL_TRUE, 0,
-            lm_ggml_nbytes(tensor), data, 0, NULL, NULL));
+            ggml_nbytes(tensor), data, 0, NULL, NULL));
 
         // The original tensor memory is divided into scales and quants, i.e.,
         // we first store scales, then quants.
@@ -8501,7 +8501,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->q));
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &extra->d));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {64, 1, 1};
 
         cl_event evt;
@@ -8512,20 +8512,20 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         tensor->extra = extra;
 
         // q is uint32 (32 sign bits each); d is one half per 128-block.
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (enable_adreno_trans_weight(backend_ctx, tensor)) {
             int M = tensor->ne[1];   // ne01
             int K = tensor->ne[0];   // ne00
 
-            LM_GGML_ASSERT(K % 128 == 0);
-            LM_GGML_ASSERT(M % 4 == 0);
-            LM_GGML_ASSERT(tensor->ne[2] == 1);
-            LM_GGML_ASSERT(tensor->ne[3] == 1);
+            GGML_ASSERT(K % 128 == 0);
+            GGML_ASSERT(M % 4 == 0);
+            GGML_ASSERT(tensor->ne[2] == 1);
+            GGML_ASSERT(tensor->ne[3] == 1);
 
             transpose_2d_as_32b(backend_ctx, extra->q, extra->q, size_q, K/32,  M);
             transpose_2d_as_16b(backend_ctx, extra->d, extra->d, size_d, K/128, M);
         } // end transpose
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
         return;
     }
@@ -8534,35 +8534,35 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
     // original weights into a temporary buffer, then create two separate
     // buffers for quantized bits and scales, which are then populated by the
     // conversion kernel.
-    if (tensor->type == LM_GGML_TYPE_Q4_0) {
+    if (tensor->type == GGML_TYPE_Q4_0) {
         // Views can't SoA-ify here — parent owns the layout (see q8_0 guard).
-        if (tensor->view_src != nullptr || !lm_ggml_is_contiguous(tensor)) {
+        if (tensor->view_src != nullptr || !ggml_is_contiguous(tensor)) {
             return;
         }
         // Tensors should have been preallocated, therefore they should
-        // already have lm_ggml_tensor_extra_cl as extra.
-        lm_ggml_tensor_extra_cl * extra_orig = (lm_ggml_tensor_extra_cl *)tensor->extra;
-        LM_GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
+        // already have ggml_tensor_extra_cl as extra.
+        ggml_tensor_extra_cl * extra_orig = (ggml_tensor_extra_cl *)tensor->extra;
+        GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
 
         // Allocate the new extra and create aliases from the original.
-        lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
-        lm_ggml_tensor_extra_cl_q4_0 * extra = ctx->lm_ggml_opencl_alloc_temp_tensor_extra_q4_0();
+        ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
+        ggml_tensor_extra_cl_q4_0 * extra = ctx->ggml_opencl_alloc_temp_tensor_extra_q4_0();
 
-        size_t size_d = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        size_t size_q = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/2;
-        LM_GGML_ASSERT(size_d + size_q == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+        size_t size_d = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        size_t size_q = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/2;
+        GGML_ASSERT(size_d + size_q == ggml_nbytes(tensor) && "Incorrect tensor size");
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
         CL_CHECK(clEnqueueWriteBuffer(
             queue, data_device, CL_TRUE, 0,
-            lm_ggml_nbytes(tensor), data, 0, NULL, NULL));
+            ggml_nbytes(tensor), data, 0, NULL, NULL));
 
         // We consider the specified offset arg as always, although For weights
         // the offset arg should be 0 (we do not assert this).
-        //LM_GGML_ASSERT(offset == 0);
+        //GGML_ASSERT(offset == 0);
 
         // We create subbuffers from the original tensor buffer for scales and
         // quants - i.e., scales and quants are aliases into the buffer object
@@ -8596,7 +8596,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             CL_BUFFER_CREATE_TYPE_REGION, &region, &err);
         CL_CHECK(err);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         // Adreno moe q4_0 kernel needs special transpose and unshuffling
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_kernel kernel = backend_ctx->kernel_convert_block_q4_0_trans4_ns;
@@ -8622,7 +8622,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             cl_image_format img_format_q = {CL_R, CL_UNSIGNED_INT32};
             cl_image_desc img_desc_q = {
                 CL_MEM_OBJECT_IMAGE1D_BUFFER,
-                static_cast<size_t>(lm_ggml_nelements(tensor) / 8),
+                static_cast<size_t>(ggml_nelements(tensor) / 8),
                 0, 0, 0, 0, 0, 0, 0,
                 { extra->q }
             };
@@ -8633,9 +8633,9 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         cl_kernel kernel = backend_ctx->kernel_convert_block_q4_0;
 
         // The optimized kernels need weights in natural order, so unshuffle.
@@ -8644,12 +8644,12 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         }
 #else
         cl_kernel kernel = backend_ctx->kernel_convert_block_q4_0;
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
         CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &data_device));
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->q));
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &extra->d));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {64, 1, 1};
 
         cl_event evt;
@@ -8661,43 +8661,43 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         ctx->q4_0_soa_tensors.insert(tensor);
 
         // transpose the weights and scales
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         // Only do transpose for large, non batched matrix
         // TODO: use preallocated images instead of sub-buffer then image
         if (use_adreno_kernels(backend_ctx, tensor)) {
         int M = tensor->ne[1];
             int K = tensor->ne[0];
 
-            LM_GGML_ASSERT(K % 32 == 0);
+            GGML_ASSERT(K % 32 == 0);
 
             // Transpose q as ushort
             transpose_2d_as_16b(backend_ctx, extra->q, extra->q, size_q, K/4, M);
             // Transpose d as ushort
             transpose_2d_as_16b(backend_ctx, extra->d, extra->d, size_d, K/32, M);
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q4_1) {
-        lm_ggml_tensor_extra_cl * extra_orig = (lm_ggml_tensor_extra_cl *)tensor->extra;
-        LM_GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
+    if (tensor->type == GGML_TYPE_Q4_1) {
+        ggml_tensor_extra_cl * extra_orig = (ggml_tensor_extra_cl *)tensor->extra;
+        GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
 
         // Allocate the new extra and create aliases from the original.
-        lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
-        lm_ggml_tensor_extra_cl_q4_1 * extra = ctx->lm_ggml_opencl_alloc_temp_tensor_extra_q4_1();
+        ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
+        ggml_tensor_extra_cl_q4_1 * extra = ctx->ggml_opencl_alloc_temp_tensor_extra_q4_1();
 
-        size_t size_d = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        size_t size_m = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        size_t size_q = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/2;
-        LM_GGML_ASSERT(size_d + size_m + size_q == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+        size_t size_d = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        size_t size_m = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        size_t size_q = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/2;
+        GGML_ASSERT(size_d + size_m + size_q == ggml_nbytes(tensor) && "Incorrect tensor size");
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
         CL_CHECK(clEnqueueWriteBuffer(
             queue, data_device, CL_TRUE, 0,
-            lm_ggml_nbytes(tensor), data, 0, NULL, NULL));
+            ggml_nbytes(tensor), data, 0, NULL, NULL));
 
         cl_buffer_region region;
 
@@ -8729,7 +8729,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             CL_BUFFER_CREATE_TYPE_REGION, &region, &err);
         CL_CHECK(err);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         // Adreno moe q4_1 kernel needs special transpose and unshuffling
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_kernel kernel = backend_ctx->kernel_convert_block_q4_1_trans4_ns;
@@ -8756,7 +8756,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             cl_image_format img_format_q = {CL_R, CL_UNSIGNED_INT32};
             cl_image_desc img_desc_q = {
                 CL_MEM_OBJECT_IMAGE1D_BUFFER,
-                static_cast<size_t>(lm_ggml_nelements(tensor) / 8),
+                static_cast<size_t>(ggml_nelements(tensor) / 8),
                 0, 0, 0, 0, 0, 0, 0,
                 { extra->q }
             };
@@ -8765,10 +8765,10 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
         // normal q4_1 repack
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         cl_kernel kernel = backend_ctx->kernel_convert_block_q4_1;
 
         if (use_adreno_kernels(backend_ctx, tensor)) {
@@ -8776,13 +8776,13 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         }
 #else
         cl_kernel kernel = backend_ctx->kernel_convert_block_q4_1;
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
         CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &data_device));
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->q));
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &extra->d));
         CL_CHECK(clSetKernelArg(kernel, 3, sizeof(cl_mem), &extra->m));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {64, 1, 1};
 
         cl_event evt;
@@ -8792,13 +8792,13 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
         tensor->extra = extra;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_kernels(backend_ctx, tensor)) {
 
             int M = tensor->ne[1];
             int K = tensor->ne[0];
 
-            LM_GGML_ASSERT(K % 32 == 0);
+            GGML_ASSERT(K % 32 == 0);
 
             // Transpose q as ushort
             transpose_2d_as_16b(backend_ctx, extra->q, extra->q, size_q, K/4, M);
@@ -8807,29 +8807,29 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             // Transpose m as ushort
             transpose_2d_as_16b(backend_ctx, extra->m, extra->m, size_m, K/32, M);
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q5_0) {
-        lm_ggml_tensor_extra_cl * extra_orig = (lm_ggml_tensor_extra_cl *)tensor->extra;
-        LM_GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
+    if (tensor->type == GGML_TYPE_Q5_0) {
+        ggml_tensor_extra_cl * extra_orig = (ggml_tensor_extra_cl *)tensor->extra;
+        GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
 
         // Allocate the new extra and create aliases from the original.
-        lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
-        lm_ggml_tensor_extra_cl_q5_0 * extra = ctx->lm_ggml_opencl_alloc_temp_tensor_extra_q5_0();
+        ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
+        ggml_tensor_extra_cl_q5_0 * extra = ctx->ggml_opencl_alloc_temp_tensor_extra_q5_0();
 
-        size_t size_d = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        size_t size_qs = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/2;
-        size_t size_qh = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(int32_t);
-        LM_GGML_ASSERT(size_d + size_qs + size_qh == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+        size_t size_d = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        size_t size_qs = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/2;
+        size_t size_qh = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(int32_t);
+        GGML_ASSERT(size_d + size_qs + size_qh == ggml_nbytes(tensor) && "Incorrect tensor size");
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
         CL_CHECK(clEnqueueWriteBuffer(
             queue, data_device, CL_TRUE, 0,
-            lm_ggml_nbytes(tensor), data, 0, NULL, NULL));
+            ggml_nbytes(tensor), data, 0, NULL, NULL));
 
         cl_buffer_region region;
 
@@ -8859,7 +8859,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             CL_BUFFER_CREATE_TYPE_REGION, &region, &err);
         CL_CHECK(err);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         // Adreno moe q5_0 kernel needs special transpose and unshuffling
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_kernel kernel = backend_ctx->kernel_convert_block_q5_0_trans4_ns;
@@ -8886,7 +8886,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             cl_image_format img_format_qs = {CL_R, CL_UNSIGNED_INT32};
             cl_image_desc img_desc_qs = {
                 CL_MEM_OBJECT_IMAGE1D_BUFFER,
-                static_cast<size_t>(lm_ggml_nelements(tensor) / 8),
+                static_cast<size_t>(ggml_nelements(tensor) / 8),
                 0, 0, 0, 0, 0, 0, 0,
                 { extra->qs }
             };
@@ -8895,7 +8895,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             // Generic dp4a MoE path
             {
-                static const char * q5dp4a_env = getenv("LM_GGML_OPENCL_Q5_MOE_DP4A");
+                static const char * q5dp4a_env = getenv("GGML_OPENCL_Q5_MOE_DP4A");
                 const bool q5dp4a = q5dp4a_env ? (atoi(q5dp4a_env) != 0)
                                                : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E);
                 if (q5dp4a && ne02 > 1 && (ne00 % 32 == 0)) {
@@ -8920,9 +8920,9 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_kernels(backend_ctx, tensor)) {
             cl_kernel kernel = backend_ctx->kernel_convert_block_q5_0_noshuffle;
             CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &data_device));
@@ -8930,7 +8930,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &extra->qh));
             CL_CHECK(clSetKernelArg(kernel, 3, sizeof(cl_mem), &extra->d));
 
-            size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+            size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
             size_t local_work_size[] = {64, 1, 1};
 
             cl_event evt;
@@ -8942,7 +8942,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             int M = tensor->ne[1];
             int K = tensor->ne[0];
-            LM_GGML_ASSERT(K % 32 == 0);
+            GGML_ASSERT(K % 32 == 0);
 
             // Transpose qs as ushort
             transpose_2d_as_16b(backend_ctx, extra->qs, extra->qs, size_qs, K/4, M);
@@ -8953,9 +8953,9 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
         cl_kernel kernel = backend_ctx->kernel_convert_block_q5_0;
-        cl_ulong n_blk = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type);
+        cl_ulong n_blk = ggml_nelements(tensor)/ggml_blck_size(tensor->type);
         CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &data_device));
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->qs));
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &extra->qh));
@@ -8973,27 +8973,27 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         tensor->extra = extra;
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q5_1) {
-        lm_ggml_tensor_extra_cl * extra_orig = (lm_ggml_tensor_extra_cl *)tensor->extra;
-        LM_GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
+    if (tensor->type == GGML_TYPE_Q5_1) {
+        ggml_tensor_extra_cl * extra_orig = (ggml_tensor_extra_cl *)tensor->extra;
+        GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
 
         // Allocate the new extra and create aliases from the original.
-        lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
-        lm_ggml_tensor_extra_cl_q5_1 * extra = ctx->lm_ggml_opencl_alloc_temp_tensor_extra_q5_1();
+        ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
+        ggml_tensor_extra_cl_q5_1 * extra = ctx->ggml_opencl_alloc_temp_tensor_extra_q5_1();
 
-        size_t size_d = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        size_t size_m = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        size_t size_qs = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/2;
-        size_t size_qh = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(int32_t);
-        LM_GGML_ASSERT(size_d + size_m + size_qs + size_qh == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+        size_t size_d = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        size_t size_m = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        size_t size_qs = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/2;
+        size_t size_qh = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(int32_t);
+        GGML_ASSERT(size_d + size_m + size_qs + size_qh == ggml_nbytes(tensor) && "Incorrect tensor size");
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
         CL_CHECK(clEnqueueWriteBuffer(
             queue, data_device, CL_TRUE, 0,
-            lm_ggml_nbytes(tensor), data, 0, NULL, NULL));
+            ggml_nbytes(tensor), data, 0, NULL, NULL));
 
         cl_buffer_region region;
 
@@ -9034,7 +9034,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             CL_BUFFER_CREATE_TYPE_REGION, &region, &err);
         CL_CHECK(err);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         // Adreno moe q5_1 kernel needs special transpose and unshuffling
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_kernel kernel = backend_ctx->kernel_convert_block_q5_1_trans4_ns;
@@ -9062,7 +9062,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             cl_image_format img_format_qs = {CL_R, CL_UNSIGNED_INT32};
             cl_image_desc img_desc_qs = {
                 CL_MEM_OBJECT_IMAGE1D_BUFFER,
-                static_cast<size_t>(lm_ggml_nelements(tensor) / 8),
+                static_cast<size_t>(ggml_nelements(tensor) / 8),
                 0, 0, 0, 0, 0, 0, 0,
                 { extra->qs }
             };
@@ -9071,9 +9071,9 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_kernels(backend_ctx, tensor)) {
             cl_kernel kernel = backend_ctx->kernel_convert_block_q5_1_noshuffle;
             CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &data_device));
@@ -9082,7 +9082,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             CL_CHECK(clSetKernelArg(kernel, 3, sizeof(cl_mem), &extra->d));
             CL_CHECK(clSetKernelArg(kernel, 4, sizeof(cl_mem), &extra->m));
 
-            size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+            size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
             size_t local_work_size[] = {64, 1, 1};
 
             cl_event evt;
@@ -9094,7 +9094,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             int M = tensor->ne[1];
             int K = tensor->ne[0];
-            LM_GGML_ASSERT(K % 32 == 0);
+            GGML_ASSERT(K % 32 == 0);
 
             // Transpose qs as ushort
             transpose_2d_as_16b(backend_ctx, extra->qs, extra->qs, size_qs, K/4, M);
@@ -9107,9 +9107,9 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
         cl_kernel kernel = backend_ctx->kernel_convert_block_q5_1;
-        cl_ulong n_blk = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type);
+        cl_ulong n_blk = ggml_nelements(tensor)/ggml_blck_size(tensor->type);
         CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &data_device));
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->qs));
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &extra->qh));
@@ -9128,25 +9128,25 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         tensor->extra = extra;
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_MXFP4) {
-        lm_ggml_tensor_extra_cl * extra_orig = (lm_ggml_tensor_extra_cl *)tensor->extra;
-        LM_GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
+    if (tensor->type == GGML_TYPE_MXFP4) {
+        ggml_tensor_extra_cl * extra_orig = (ggml_tensor_extra_cl *)tensor->extra;
+        GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
 
         // Allocate the new extra and create aliases from the original.
-        lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
-        lm_ggml_tensor_extra_cl_mxfp4 * extra = ctx->lm_ggml_opencl_alloc_temp_tensor_extra_mxfp4();
+        ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
+        ggml_tensor_extra_cl_mxfp4 * extra = ctx->ggml_opencl_alloc_temp_tensor_extra_mxfp4();
 
-        size_t size_e = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(char);
-        size_t size_q = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/2;
-        LM_GGML_ASSERT(size_e + size_q == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+        size_t size_e = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(char);
+        size_t size_q = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/2;
+        GGML_ASSERT(size_e + size_q == ggml_nbytes(tensor) && "Incorrect tensor size");
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
         CL_CHECK(clEnqueueWriteBuffer(
             queue, data_device, CL_TRUE, 0,
-            lm_ggml_nbytes(tensor), data, 0, NULL, NULL));
+            ggml_nbytes(tensor), data, 0, NULL, NULL));
 
         // The original tensor memory is divided into scales and quants, i.e.,
         // we first store scales, then quants.
@@ -9169,7 +9169,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             CL_BUFFER_CREATE_TYPE_REGION, &region, &err);
         CL_CHECK(err);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         // Adreno moe mxfp4 kernel needs special transpose and unshuffling
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_kernel kernel = backend_ctx->kernel_convert_block_mxfp4_trans4_ns;
@@ -9196,7 +9196,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             cl_image_format img_format_q = {CL_R, CL_UNSIGNED_INT32};
             cl_image_desc img_desc_q = {
                 CL_MEM_OBJECT_IMAGE1D_BUFFER,
-                static_cast<size_t>(lm_ggml_nelements(tensor) / 8),
+                static_cast<size_t>(ggml_nelements(tensor) / 8),
                 0, 0, 0, 0, 0, 0, 0,
                 { extra->q }
             };
@@ -9206,14 +9206,14 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             return;
         }
 
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
         cl_kernel kernel = backend_ctx->kernel_convert_block_mxfp4;
 
         CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &data_device));
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->q));
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &extra->e));
 
-        size_t global_work_size[3] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[3] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[3] = {64, 1, 1};
 
         cl_event evt;
@@ -9225,7 +9225,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         cl_image_format img_format_q = {CL_RG, CL_UNSIGNED_INT32};
         cl_image_desc img_desc_q = {
             CL_MEM_OBJECT_IMAGE1D_BUFFER,
-            static_cast<size_t>(lm_ggml_nelements(tensor)/32*2),
+            static_cast<size_t>(ggml_nelements(tensor)/32*2),
             0, 0, 0, 0, 0, 0, 0,
             { extra->q }
         };
@@ -9234,30 +9234,30 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q8_0) {
+    if (tensor->type == GGML_TYPE_Q8_0) {
         // Views share the parent's buffer; parent owns SoA conversion.
-        if (tensor->view_src != nullptr || !lm_ggml_is_contiguous(tensor)) {
+        if (tensor->view_src != nullptr || !ggml_is_contiguous(tensor)) {
             return;
         }
 
-        lm_ggml_tensor_extra_cl * extra_orig = (lm_ggml_tensor_extra_cl *)tensor->extra;
-        LM_GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
+        ggml_tensor_extra_cl * extra_orig = (ggml_tensor_extra_cl *)tensor->extra;
+        GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
 
         // Allocate the new extra and create aliases from the original.
-        lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
-        lm_ggml_tensor_extra_cl_q8_0 * extra = ctx->lm_ggml_opencl_alloc_temp_tensor_extra_q8_0();
+        ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
+        ggml_tensor_extra_cl_q8_0 * extra = ctx->ggml_opencl_alloc_temp_tensor_extra_q8_0();
 
-        size_t size_d = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        size_t size_q = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*(lm_ggml_blck_size(tensor->type)*sizeof(char));
-        LM_GGML_ASSERT(size_d + size_q == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+        size_t size_d = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        size_t size_q = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*(ggml_blck_size(tensor->type)*sizeof(char));
+        GGML_ASSERT(size_d + size_q == ggml_nbytes(tensor) && "Incorrect tensor size");
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
         CL_CHECK(clEnqueueWriteBuffer(
             queue, data_device, CL_TRUE, 0,
-            lm_ggml_nbytes(tensor), data, 0, NULL, NULL));
+            ggml_nbytes(tensor), data, 0, NULL, NULL));
 
         // The original tensor memory is divided into scales and quants, i.e.,
         // we first store scales, then quants.
@@ -9286,7 +9286,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->q));
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &extra->d));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {64, 1, 1};
 
         cl_event evt;
@@ -9297,10 +9297,10 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         tensor->extra = extra;
         ctx->q8_0_soa_tensors.insert(tensor);
 
-        // Generic dp4a MoE path (opt-in LM_GGML_OPENCL_Q8_MOE_DP4A)
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+        // Generic dp4a MoE path (opt-in GGML_OPENCL_Q8_MOE_DP4A)
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         {
-            static const char * q8dp4a_env = getenv("LM_GGML_OPENCL_Q8_MOE_DP4A");
+            static const char * q8dp4a_env = getenv("GGML_OPENCL_Q8_MOE_DP4A");
             const bool q8dp4a = q8dp4a_env ? (atoi(q8dp4a_env) != 0)
                                            : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E);
             if (q8dp4a && tensor->ne[2] > 1 && (tensor->ne[0] % 32 == 0)) {
@@ -9326,42 +9326,42 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 #endif
 
         // Transpose the weights and scales
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (enable_adreno_trans_weight(backend_ctx, tensor)) {
 
             int M = tensor->ne[1];   // ne01
             int K = tensor->ne[0];   // ne00
 
-            LM_GGML_ASSERT(K % 32 == 0);
-            LM_GGML_ASSERT(M % 4 == 0);
-            LM_GGML_ASSERT(tensor->ne[2] == 1);
-            LM_GGML_ASSERT(tensor->ne[3] == 1);
+            GGML_ASSERT(K % 32 == 0);
+            GGML_ASSERT(M % 4 == 0);
+            GGML_ASSERT(tensor->ne[2] == 1);
+            GGML_ASSERT(tensor->ne[3] == 1);
 
             transpose_2d_as_32b(backend_ctx, extra->q, extra->q, size_q, K/4,  M);
             transpose_2d_as_16b(backend_ctx, extra->d, extra->d, size_d, K/32, M);
         } // end transpose
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_IQ4_NL) {
-        lm_ggml_tensor_extra_cl * extra_orig = (lm_ggml_tensor_extra_cl *)tensor->extra;
-        LM_GGML_ASSERT(extra_orig && "Tensors in OpenCL backend should have been allocated and initialized");
+    if (tensor->type == GGML_TYPE_IQ4_NL) {
+        ggml_tensor_extra_cl * extra_orig = (ggml_tensor_extra_cl *)tensor->extra;
+        GGML_ASSERT(extra_orig && "Tensors in OpenCL backend should have been allocated and initialized");
 
-        lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
-        lm_ggml_tensor_extra_cl_iq4_nl * extra = ctx->lm_ggml_opencl_alloc_temp_tensor_extra_iq4_nl();
+        ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
+        ggml_tensor_extra_cl_iq4_nl * extra = ctx->ggml_opencl_alloc_temp_tensor_extra_iq4_nl();
 
-        size_t size_d = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        size_t size_q = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*(lm_ggml_blck_size(tensor->type)/2);
-        LM_GGML_ASSERT(size_d + size_q == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+        size_t size_d = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        size_t size_q = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*(ggml_blck_size(tensor->type)/2);
+        GGML_ASSERT(size_d + size_q == ggml_nbytes(tensor) && "Incorrect tensor size");
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
         CL_CHECK(clEnqueueWriteBuffer(
             queue, data_device, CL_TRUE, 0,
-            lm_ggml_nbytes(tensor), data, 0, NULL, NULL));
+            ggml_nbytes(tensor), data, 0, NULL, NULL));
 
         cl_buffer_region region;
 
@@ -9382,7 +9382,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             CL_BUFFER_CREATE_TYPE_REGION, &region, &err);
         CL_CHECK(err);
 
-    #ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+    #ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         cl_kernel kernel = backend_ctx->kernel_convert_block_iq4_nl;
         if (use_adreno_kernels(backend_ctx, tensor)) {
             kernel = backend_ctx->kernel_convert_block_iq4_nl_noshuffle;
@@ -9390,7 +9390,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
     #else
         cl_kernel kernel = backend_ctx->kernel_convert_block_iq4_nl;
     #endif
-        cl_ulong n_blk = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type);
+        cl_ulong n_blk = ggml_nelements(tensor)/ggml_blck_size(tensor->type);
         cl_uchar mask_0F = 0x0F;
         cl_uchar mask_F0 = 0xF0;
 
@@ -9411,11 +9411,11 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
         tensor->extra = extra;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_kernels(backend_ctx, tensor)) {
             int M = tensor->ne[1];
             int K = tensor->ne[0];
-            LM_GGML_ASSERT(K % 32 == 0);
+            GGML_ASSERT(K % 32 == 0);
 
             // Transpose q as ushort
             transpose_2d_as_16b(backend_ctx, extra->q, extra->q, size_q, K/4, M);
@@ -9425,27 +9425,27 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 #endif
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q4_K) {
-        lm_ggml_tensor_extra_cl * extra_orig = (lm_ggml_tensor_extra_cl *)tensor->extra;
-        LM_GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
+    if (tensor->type == GGML_TYPE_Q4_K) {
+        ggml_tensor_extra_cl * extra_orig = (ggml_tensor_extra_cl *)tensor->extra;
+        GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
 
         // Allocate the new extra and create aliases from the original.
-        lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
-        lm_ggml_tensor_extra_cl_q4_K * extra = ctx->lm_ggml_opencl_alloc_temp_tensor_extra_q4_K();
+        ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
+        ggml_tensor_extra_cl_q4_K * extra = ctx->ggml_opencl_alloc_temp_tensor_extra_q4_K();
 
-        size_t size_d = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        size_t size_dm = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        size_t size_s = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*(3 * lm_ggml_blck_size(tensor->type) / 64);
-        size_t size_q = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/2;
-        LM_GGML_ASSERT(size_d + size_dm + size_s + size_q == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+        size_t size_d = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        size_t size_dm = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        size_t size_s = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*(3 * ggml_blck_size(tensor->type) / 64);
+        size_t size_q = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/2;
+        GGML_ASSERT(size_d + size_dm + size_s + size_q == ggml_nbytes(tensor) && "Incorrect tensor size");
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
         CL_CHECK(clEnqueueWriteBuffer(
             queue, data_device, CL_TRUE, 0,
-            lm_ggml_nbytes(tensor), data, 0, NULL, NULL));
+            ggml_nbytes(tensor), data, 0, NULL, NULL));
 
         cl_buffer_region region;
 
@@ -9484,7 +9484,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             CL_BUFFER_CREATE_TYPE_REGION, &region, &err);
         CL_CHECK(err);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_kernel kernel = backend_ctx->kernel_convert_block_q4_k_trans4_ns;
 
@@ -9515,7 +9515,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             cl_image_format img_format_q = {CL_R, CL_UNSIGNED_INT32};
             cl_image_desc img_desc_q = {
                 CL_MEM_OBJECT_IMAGE1D_BUFFER,
-                static_cast<size_t>(lm_ggml_nelements(tensor) / 8),
+                static_cast<size_t>(ggml_nelements(tensor) / 8),
                 0, 0, 0, 0, 0, 0, 0,
                 { extra->q }
             };
@@ -9525,16 +9525,16 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         cl_kernel kernel = backend_ctx->kernel_convert_block_q4_K;
         if (use_adreno_kernels(backend_ctx, tensor) && !use_flat_gemv_for_large_m_q4_K(tensor)) {
             kernel = backend_ctx->kernel_convert_block_q4_K_noshuffle;
         }
 #else
         cl_kernel kernel = backend_ctx->kernel_convert_block_q4_K;
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
         cl_uchar mask_0F = 0x0F;
         cl_uchar mask_F0 = 0xF0;
@@ -9547,7 +9547,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clSetKernelArg(kernel, 5, sizeof(cl_uchar), &mask_0F));
         CL_CHECK(clSetKernelArg(kernel, 6, sizeof(cl_uchar), &mask_F0));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {64, 1, 1};
 
         cl_event evt;
@@ -9556,13 +9556,13 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clReleaseMemObject(data_device));
 
         tensor->extra  = extra;
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_kernels(backend_ctx, tensor) && !use_flat_gemv_for_large_m_q4_K(tensor)) {
 
             int M = tensor->ne[1];
             int K = tensor->ne[0];
 
-            LM_GGML_ASSERT(K % 32 == 0);
+            GGML_ASSERT(K % 32 == 0);
 
             // Transpose q, d, dm as ushort
             transpose_2d_as_16b(backend_ctx, extra->q, extra->q, size_q, K/4, M);
@@ -9572,29 +9572,29 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             // Transpose s as uchar
             transpose_2d_as_8b(backend_ctx, extra->s, extra->s, size_s, K/256*12, M, true, true);
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q5_K) {
-        lm_ggml_tensor_extra_cl * extra_orig = (lm_ggml_tensor_extra_cl *)tensor->extra;
-        LM_GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
+    if (tensor->type == GGML_TYPE_Q5_K) {
+        ggml_tensor_extra_cl * extra_orig = (ggml_tensor_extra_cl *)tensor->extra;
+        GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
 
         // Allocate the new extra and create aliases from the original.
-        lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
-        lm_ggml_tensor_extra_cl_q5_K * extra = ctx->lm_ggml_opencl_alloc_temp_tensor_extra_q5_K();
+        ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
+        ggml_tensor_extra_cl_q5_K * extra = ctx->ggml_opencl_alloc_temp_tensor_extra_q5_K();
 
-        size_t size_q  = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/2;
-        size_t size_qh = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/8;
-        size_t size_s  = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*(3*lm_ggml_blck_size(tensor->type)/64);
-        size_t size_d  = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        size_t size_dm = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        LM_GGML_ASSERT(size_q + size_qh + size_s + size_d + size_dm == lm_ggml_nbytes(tensor) &&
+        size_t size_q  = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/2;
+        size_t size_qh = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/8;
+        size_t size_s  = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*(3*ggml_blck_size(tensor->type)/64);
+        size_t size_d  = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        size_t size_dm = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        GGML_ASSERT(size_q + size_qh + size_s + size_d + size_dm == ggml_nbytes(tensor) &&
             "Incorrect tensor size");
 
         cl_int err;
         cl_mem data_device;
-        CL_CHECK((data_device = clCreateBuffer(context, CL_MEM_READ_WRITE, lm_ggml_nbytes(tensor), NULL, &err), err));
-        CL_CHECK(clEnqueueWriteBuffer(queue, data_device, CL_TRUE, 0, lm_ggml_nbytes(tensor), data, 0, NULL, NULL));
+        CL_CHECK((data_device = clCreateBuffer(context, CL_MEM_READ_WRITE, ggml_nbytes(tensor), NULL, &err), err));
+        CL_CHECK(clEnqueueWriteBuffer(queue, data_device, CL_TRUE, 0, ggml_nbytes(tensor), data, 0, NULL, NULL));
 
         cl_buffer_region region;
 
@@ -9640,7 +9640,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK((extra->qh = clCreateSubBuffer(extra_orig->data_device, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION, &region, &err), err));
         CL_CHECK(err);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_kernel kernel = backend_ctx->kernel_convert_block_q5_k_trans4_ns;
 
@@ -9672,7 +9672,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             cl_image_format img_format_q = {CL_R, CL_UNSIGNED_INT32};
             cl_image_desc img_desc_q = {
                 CL_MEM_OBJECT_IMAGE1D_BUFFER,
-                static_cast<size_t>(lm_ggml_nelements(tensor) / 8),
+                static_cast<size_t>(ggml_nelements(tensor) / 8),
                 0, 0, 0, 0, 0, 0, 0,
                 { extra->q }
             };
@@ -9682,7 +9682,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             // Generic dp4a MoE path
             {
-                static const char * q5kdp4a_env = getenv("LM_GGML_OPENCL_Q5K_MOE_DP4A");
+                static const char * q5kdp4a_env = getenv("GGML_OPENCL_Q5K_MOE_DP4A");
                 const bool q5kdp4a = q5kdp4a_env ? (atoi(q5kdp4a_env) != 0)
                                                  : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E);
                 if (q5kdp4a && ne02 > 1 && (ne00 % 256 == 0)) {
@@ -9709,9 +9709,9 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         cl_kernel kernel = backend_ctx->kernel_convert_block_q5_K;
         if (enable_adreno_trans_weight_q5_K(backend_ctx, tensor)) {
             kernel = backend_ctx->kernel_convert_block_q5_K_noshuffle;
@@ -9732,7 +9732,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clSetKernelArg(kernel, 6, sizeof(cl_uchar), &mask_0F));
         CL_CHECK(clSetKernelArg(kernel, 7, sizeof(cl_uchar), &mask_F0));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {64, 1, 1};
 
         cl_event evt;
@@ -9747,13 +9747,13 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         extra->size_dm = size_dm;
 
         tensor->extra = extra;
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (enable_adreno_trans_weight_q5_K(backend_ctx, tensor)) {
 
             int M = tensor->ne[1];
             int K = tensor->ne[0];
 
-            LM_GGML_ASSERT(K % 32 == 0);
+            GGML_ASSERT(K % 32 == 0);
 
             // Transpose q, d, dm as ushort, qh as uchar
             transpose_2d_as_16b(backend_ctx, extra->q,  extra->q,  size_q,  K/4,   M);
@@ -9761,36 +9761,36 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             transpose_2d_as_16b(backend_ctx, extra->d,  extra->d,  size_d,  K/256, M);
             transpose_2d_as_16b(backend_ctx, extra->dm, extra->dm, size_dm, K/256, M);
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q6_K) {
-        lm_ggml_tensor_extra_cl * extra_orig = (lm_ggml_tensor_extra_cl *)tensor->extra;
-        LM_GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
+    if (tensor->type == GGML_TYPE_Q6_K) {
+        ggml_tensor_extra_cl * extra_orig = (ggml_tensor_extra_cl *)tensor->extra;
+        GGML_ASSERT(extra_orig && "Tesnors in OpenCL backend should have been allocated and initialized");
 
         // Allocate the new extra and create aliases from the original.
-        lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
-        lm_ggml_tensor_extra_cl_q6_K * extra = ctx->lm_ggml_opencl_alloc_temp_tensor_extra_q6_K();
+        ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
+        ggml_tensor_extra_cl_q6_K * extra = ctx->ggml_opencl_alloc_temp_tensor_extra_q6_K();
 
-        size_t size_ql = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/2;
-        size_t size_qh = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/4;
-        size_t size_s  = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/16;
-        size_t size_d  = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-        LM_GGML_ASSERT(size_ql + size_qh + size_s + size_d == lm_ggml_nbytes(tensor) &&
+        size_t size_ql = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/2;
+        size_t size_qh = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/4;
+        size_t size_s  = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/16;
+        size_t size_d  = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+        GGML_ASSERT(size_ql + size_qh + size_s + size_d == ggml_nbytes(tensor) &&
             "Incorrect tensor size");
 
         cl_int err;
         cl_mem data_device;
-        CL_CHECK((data_device = clCreateBuffer(context, CL_MEM_READ_WRITE, lm_ggml_nbytes(tensor), NULL, &err), err));
-        CL_CHECK(clEnqueueWriteBuffer(queue, data_device, CL_TRUE, 0, lm_ggml_nbytes(tensor), data, 0, NULL, NULL));
+        CL_CHECK((data_device = clCreateBuffer(context, CL_MEM_READ_WRITE, ggml_nbytes(tensor), NULL, &err), err));
+        CL_CHECK(clEnqueueWriteBuffer(queue, data_device, CL_TRUE, 0, ggml_nbytes(tensor), data, 0, NULL, NULL));
 
         cl_buffer_region region;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         // Adreno MoE Q6_K kernel needs special transposed layout
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
-            size_t moe_size_ql = (size_t)(lm_ggml_nelements(tensor) / 8) * sizeof(uint32_t);  // 4 bits per element
-            size_t moe_size_qh = (size_t)(lm_ggml_nelements(tensor) / 16) * sizeof(uint32_t); // 2 bits per element
+            size_t moe_size_ql = (size_t)(ggml_nelements(tensor) / 8) * sizeof(uint32_t);  // 4 bits per element
+            size_t moe_size_qh = (size_t)(ggml_nelements(tensor) / 16) * sizeof(uint32_t); // 2 bits per element
             size_t moe_size_s  = size_s;
             size_t moe_size_d  = size_d;
 
@@ -9848,7 +9848,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             cl_image_format img_format_ql = {CL_R, CL_UNSIGNED_INT32};
             cl_image_desc img_desc_ql = {
                 CL_MEM_OBJECT_IMAGE1D_BUFFER,
-                static_cast<size_t>(lm_ggml_nelements(tensor) / 8),
+                static_cast<size_t>(ggml_nelements(tensor) / 8),
                 0, 0, 0, 0, 0, 0, 0,
                 { extra->ql }
             };
@@ -9857,7 +9857,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
         // Subbuffer for ql
         region.origin = align_to(extra_orig->offset + tensor->view_offs + offset, backend_ctx->alignment);
@@ -9885,17 +9885,17 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
         // Flatten the weights
         cl_kernel kernel;
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         kernel = backend_ctx->kernel_convert_block_q6_K;
         if (use_adreno_kernels(backend_ctx, tensor) && !use_flat_gemv_for_large_m_q6_K(backend_ctx, tensor)) {
             kernel = backend_ctx->kernel_convert_block_q6_K_noshuffle;
         }
 #else
         kernel = backend_ctx->kernel_convert_block_q6_K;
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
         cl_uchar mask = 0xff;
-        cl_ulong n_blk = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type);
+        cl_ulong n_blk = ggml_nelements(tensor)/ggml_blck_size(tensor->type);
         CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem),   &data_device));
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem),   &extra->ql));
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem),   &extra->qh));
@@ -9919,7 +9919,7 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
 
         tensor->extra  = extra;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_kernels(backend_ctx, tensor) && !use_flat_gemv_for_large_m_q6_K(backend_ctx, tensor)) {
             cl_int M = tensor->ne[1];   // ne01
             cl_int K = tensor->ne[0];   // ne00
@@ -9940,21 +9940,21 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
             transpose_2d_as_16b(backend_ctx,
                 extra->d, extra->d, size_d, K/256, M);
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
         return;
     }
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
 
     // convert bf16 to f16 and store as f16 in device buffer
-    if (tensor->type == LM_GGML_TYPE_BF16) {
-        LM_GGML_ASSERT(offset % sizeof(lm_ggml_fp16_t) == 0 && size % sizeof(lm_ggml_fp16_t) == 0
+    if (tensor->type == GGML_TYPE_BF16) {
+        GGML_ASSERT(offset % sizeof(ggml_fp16_t) == 0 && size % sizeof(ggml_fp16_t) == 0
             && "Offset and size must be multiples of 2 for bf16 tensors");
 
-        lm_ggml_tensor_extra_cl * extra = (lm_ggml_tensor_extra_cl *) tensor->extra;
-        LM_GGML_ASSERT(extra);
+        ggml_tensor_extra_cl * extra = (ggml_tensor_extra_cl *) tensor->extra;
+        GGML_ASSERT(extra);
 
-        cl_ulong n_elements = size / sizeof(lm_ggml_fp16_t);
-        cl_ulong off_dst = (extra->offset + offset) / sizeof(lm_ggml_fp16_t);
+        cl_ulong n_elements = size / sizeof(ggml_fp16_t);
+        cl_ulong off_dst = (extra->offset + offset) / sizeof(ggml_fp16_t);
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
@@ -9979,21 +9979,21 @@ static void lm_ggml_backend_opencl_buffer_set_tensor(lm_ggml_backend_buffer_t bu
         return;
     }
 
-    lm_ggml_tensor_extra_cl * extra = (lm_ggml_tensor_extra_cl *) tensor->extra;
-    LM_GGML_ASSERT(extra);
+    ggml_tensor_extra_cl * extra = (ggml_tensor_extra_cl *) tensor->extra;
+    GGML_ASSERT(extra);
 
     CL_CHECK(clEnqueueWriteBuffer(
         queue, extra->data_device, CL_TRUE, extra->offset + offset,
         size, data, 0, NULL, NULL));
 
-    LM_GGML_UNUSED(buffer);
+    GGML_UNUSED(buffer);
 }
 
-static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t buffer, const lm_ggml_tensor * tensor, void * data, size_t offset, size_t size) {
-    LM_GGML_ASSERT(tensor->extra);
+static void ggml_backend_opencl_buffer_get_tensor(ggml_backend_buffer_t buffer, const ggml_tensor * tensor, void * data, size_t offset, size_t size) {
+    GGML_ASSERT(tensor->extra);
 
-    lm_ggml_backend_opencl_device_context * dev_ctx = (lm_ggml_backend_opencl_device_context *) buffer->buft->device->context;
-    lm_ggml_backend_opencl_context *backend_ctx = dev_ctx->backend_ctx;
+    ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) buffer->buft->device->context;
+    ggml_backend_opencl_context *backend_ctx = dev_ctx->backend_ctx;
 
     cl_context context = backend_ctx->context;
     cl_command_queue queue = backend_ctx->queue;
@@ -10001,25 +10001,25 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
     // Make sure all previously submitted commands in other devices are finished.
     sync_with_other_backends(backend_ctx);
 
-#ifdef LM_GGML_OPENCL_SOA_Q
-    if (tensor->type == LM_GGML_TYPE_Q1_0) {
-        lm_ggml_tensor_extra_cl_q1_0 * extra = (lm_ggml_tensor_extra_cl_q1_0 *)tensor->extra;
+#ifdef GGML_OPENCL_SOA_Q
+    if (tensor->type == GGML_TYPE_Q1_0) {
+        ggml_tensor_extra_cl_q1_0 * extra = (ggml_tensor_extra_cl_q1_0 *)tensor->extra;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (enable_adreno_trans_weight(backend_ctx, tensor)) {
-            lm_ggml_cl_buffer buf_trans_q;
-            lm_ggml_cl_buffer buf_trans_d;
-            lm_ggml_cl_buffer buf_unpacked;
+            ggml_cl_buffer buf_trans_q;
+            ggml_cl_buffer buf_trans_d;
+            ggml_cl_buffer buf_unpacked;
 
             int M = tensor->ne[1];
             int K = tensor->ne[0];
 
-            size_t size_d = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-            size_t size_q = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*(lm_ggml_blck_size(tensor->type)/8);
+            size_t size_d = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+            size_t size_q = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*(ggml_blck_size(tensor->type)/8);
 
             buf_trans_q.allocate(backend_ctx->context, size_q);
             buf_trans_d.allocate(backend_ctx->context, size_d);
-            buf_unpacked.allocate(backend_ctx->context, lm_ggml_nbytes(tensor));
+            buf_unpacked.allocate(backend_ctx->context, ggml_nbytes(tensor));
 
             transpose_2d_as_32b(backend_ctx, extra->q, buf_trans_q.buffer, size_q, M, K/32);
             transpose_2d_as_16b(backend_ctx, extra->d, buf_trans_d.buffer, size_d, M, K/128);
@@ -10029,7 +10029,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &buf_trans_d.buffer));
             CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &buf_unpacked.buffer));
 
-            size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+            size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
             size_t local_work_size[] = {1, 1, 1};
 
             cl_event evt;
@@ -10041,7 +10041,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
 #endif
 
         cl_int err;
-        cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE, lm_ggml_nbytes(tensor), NULL, &err);
+        cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE, ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
 
         cl_kernel kernel = backend_ctx->kernel_restore_block_q1_0;
@@ -10049,7 +10049,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->d));
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &data_device));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {1, 1, 1};
 
         cl_event evt;
@@ -10065,10 +10065,10 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
     // which requires reading back quantized weight tensors.
     // To properly support this, we need to restore block_q4_0 struct arrays
     // from the flattened buffers.
-    if (tensor->type == LM_GGML_TYPE_Q4_0) {
+    if (tensor->type == GGML_TYPE_Q4_0) {
         // KV-cache q4_0 stays AoS — direct readback, no SoA restore.
-        if (!lm_ggml_cl_is_q4_0_soa(tensor)) {
-            lm_ggml_tensor_extra_cl * extra_aos = (lm_ggml_tensor_extra_cl *) tensor->extra;
+        if (!ggml_cl_is_q4_0_soa(tensor)) {
+            ggml_tensor_extra_cl * extra_aos = (ggml_tensor_extra_cl *) tensor->extra;
             CL_CHECK(clEnqueueReadBuffer(
                 queue, extra_aos->data_device, CL_TRUE,
                 extra_aos->offset + tensor->view_offs + offset,
@@ -10076,16 +10076,16 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             return;
         }
         // SoA extra lives on the parent tensor — follow view_src.
-        const lm_ggml_tensor * extra_src = tensor->view_src != nullptr ? tensor->view_src : tensor;
-        lm_ggml_tensor_extra_cl_q4_0 * extra = (lm_ggml_tensor_extra_cl_q4_0 *)extra_src->extra;
+        const ggml_tensor * extra_src = tensor->view_src != nullptr ? tensor->view_src : tensor;
+        ggml_tensor_extra_cl_q4_0 * extra = (ggml_tensor_extra_cl_q4_0 *)extra_src->extra;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_int err;
             cl_kernel kernel = backend_ctx->kernel_restore_block_q4_0_trans4_ns;
 
             cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                lm_ggml_nbytes(tensor), NULL, &err);
+                ggml_nbytes(tensor), NULL, &err);
             CL_CHECK(err);
 
             int ne00 = tensor->ne[0];
@@ -10111,23 +10111,23 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             return;
         }
         if (use_adreno_kernels(backend_ctx, tensor)) {
-            lm_ggml_cl_buffer buf_trans_q;
-            lm_ggml_cl_buffer buf_trans_d;
-            lm_ggml_cl_buffer buf_unpacked;
+            ggml_cl_buffer buf_trans_q;
+            ggml_cl_buffer buf_trans_d;
+            ggml_cl_buffer buf_unpacked;
 
             cl_int M = tensor->ne[1];   // ne01
             cl_int K = tensor->ne[0];   // ne00
 
-            LM_GGML_ASSERT(K % 32 == 0);
-            LM_GGML_ASSERT(M % 4 == 0);
+            GGML_ASSERT(K % 32 == 0);
+            GGML_ASSERT(M % 4 == 0);
 
-            size_t size_q = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*lm_ggml_blck_size(tensor->type)/2;
-            size_t size_d = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*sizeof(lm_ggml_fp16_t);
-            LM_GGML_ASSERT(size_d + size_q == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+            size_t size_q = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*ggml_blck_size(tensor->type)/2;
+            size_t size_d = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*sizeof(ggml_fp16_t);
+            GGML_ASSERT(size_d + size_q == ggml_nbytes(tensor) && "Incorrect tensor size");
 
             buf_trans_q.allocate(backend_ctx->context, size_q);
             buf_trans_d.allocate(backend_ctx->context, size_d);
-            buf_unpacked.allocate(backend_ctx->context, lm_ggml_nbytes(tensor));
+            buf_unpacked.allocate(backend_ctx->context, ggml_nbytes(tensor));
 
             transpose_2d_as_16b(backend_ctx, extra->q, buf_trans_q.buffer, size_q, M, K/4);
             transpose_2d_as_16b(backend_ctx, extra->d, buf_trans_d.buffer, size_d, M, K/32);
@@ -10135,7 +10135,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             cl_uchar mask_0F = 0x0F;
             cl_uchar mask_F0 = 0xF0;
 
-            size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+            size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
             size_t local_work_size[] = {1, 1, 1};
 
             cl_kernel kernel = backend_ctx->kernel_restore_block_q4_0_noshuffle;
@@ -10153,7 +10153,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
 
         cl_kernel kernel = backend_ctx->kernel_restore_block_q4_0;
@@ -10161,7 +10161,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->d));
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &data_device));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {1, 1, 1};
 
         cl_event evt;
@@ -10174,14 +10174,14 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clReleaseMemObject(data_device));
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q4_1) {
-        lm_ggml_tensor_extra_cl_q4_1 * extra = (lm_ggml_tensor_extra_cl_q4_1 *)tensor->extra;
+    if (tensor->type == GGML_TYPE_Q4_1) {
+        ggml_tensor_extra_cl_q4_1 * extra = (ggml_tensor_extra_cl_q4_1 *)tensor->extra;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_int err;
             cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                lm_ggml_nbytes(tensor), NULL, &err);
+                ggml_nbytes(tensor), NULL, &err);
             CL_CHECK(err);
             cl_kernel kernel = backend_ctx->kernel_restore_block_q4_1_trans4_ns;
 
@@ -10209,25 +10209,25 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             return;
         }
         if (use_adreno_kernels(backend_ctx, tensor)) {
-            static lm_ggml_cl_buffer buf_trans_q;
-            static lm_ggml_cl_buffer buf_trans_m;
-            static lm_ggml_cl_buffer buf_trans_d;
-            static lm_ggml_cl_buffer buf_unpacked;
+            static ggml_cl_buffer buf_trans_q;
+            static ggml_cl_buffer buf_trans_m;
+            static ggml_cl_buffer buf_trans_d;
+            static ggml_cl_buffer buf_unpacked;
 
             cl_int M = tensor->ne[1];
             cl_int K = tensor->ne[0];
 
-            LM_GGML_ASSERT(K % lm_ggml_blck_size(tensor->type) == 0);
+            GGML_ASSERT(K % ggml_blck_size(tensor->type) == 0);
 
-            size_t size_q = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*lm_ggml_blck_size(tensor->type)/2;
-            size_t size_d = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*sizeof(lm_ggml_fp16_t);
-            size_t size_m = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*sizeof(lm_ggml_fp16_t);
-            LM_GGML_ASSERT(size_d + size_q + size_m == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+            size_t size_q = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*ggml_blck_size(tensor->type)/2;
+            size_t size_d = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*sizeof(ggml_fp16_t);
+            size_t size_m = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*sizeof(ggml_fp16_t);
+            GGML_ASSERT(size_d + size_q + size_m == ggml_nbytes(tensor) && "Incorrect tensor size");
 
             buf_trans_q.allocate(backend_ctx->context, size_q);
             buf_trans_m.allocate(backend_ctx->context, size_m);
             buf_trans_d.allocate(backend_ctx->context, size_d);
-            buf_unpacked.allocate(backend_ctx->context, lm_ggml_nbytes(tensor));
+            buf_unpacked.allocate(backend_ctx->context, ggml_nbytes(tensor));
 
             // transpose q, d, m back
             transpose_2d_as_16b(backend_ctx, extra->q, buf_trans_q.buffer, size_q, M, K/4);
@@ -10237,7 +10237,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             cl_uchar mask_0F = 0x0F;
             cl_uchar mask_F0 = 0xF0;
 
-            size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+            size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
             size_t local_work_size[] = {1, 1, 1};
 
             cl_kernel kernel = backend_ctx->kernel_restore_block_q4_1_noshuffle;
@@ -10256,7 +10256,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
 
         cl_kernel kernel = backend_ctx->kernel_restore_block_q4_1;
@@ -10265,7 +10265,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &extra->m));
         CL_CHECK(clSetKernelArg(kernel, 3, sizeof(cl_mem), &data_device));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {1, 1, 1};
 
         cl_event evt;
@@ -10278,15 +10278,15 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clReleaseMemObject(data_device));
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q5_0) {
-        lm_ggml_tensor_extra_cl_q5_0 * extra = (lm_ggml_tensor_extra_cl_q5_0 *)tensor->extra;
+    if (tensor->type == GGML_TYPE_Q5_0) {
+        ggml_tensor_extra_cl_q5_0 * extra = (ggml_tensor_extra_cl_q5_0 *)tensor->extra;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_int err;
-            // TODO: use lm_ggml_cl_buffer to manage this temporary buffer
+            // TODO: use ggml_cl_buffer to manage this temporary buffer
             cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                lm_ggml_nbytes(tensor), NULL, &err);
+                ggml_nbytes(tensor), NULL, &err);
             CL_CHECK(err);
 
             cl_kernel kernel = backend_ctx->kernel_restore_block_q5_0_trans4_ns;
@@ -10315,24 +10315,24 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             return;
         }
         if (use_adreno_kernels(backend_ctx, tensor)) {
-            lm_ggml_cl_buffer buf_trans_qs;
-            lm_ggml_cl_buffer buf_trans_qh;
-            lm_ggml_cl_buffer buf_trans_d;
-            lm_ggml_cl_buffer buf_unpacked;
+            ggml_cl_buffer buf_trans_qs;
+            ggml_cl_buffer buf_trans_qh;
+            ggml_cl_buffer buf_trans_d;
+            ggml_cl_buffer buf_unpacked;
 
             cl_int M = tensor->ne[1];
             cl_int K = tensor->ne[0];
 
-            LM_GGML_ASSERT(K % 32 == 0);
+            GGML_ASSERT(K % 32 == 0);
 
-            size_t size_qs = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*lm_ggml_blck_size(tensor->type)/2;
-            size_t size_qh = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*sizeof(int32_t);
-            size_t size_d = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*sizeof(lm_ggml_fp16_t);
+            size_t size_qs = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*ggml_blck_size(tensor->type)/2;
+            size_t size_qh = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*sizeof(int32_t);
+            size_t size_d = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*sizeof(ggml_fp16_t);
 
             buf_trans_qs.allocate(backend_ctx->context, size_qs);
             buf_trans_qh.allocate(backend_ctx->context, size_qh);
             buf_trans_d.allocate(backend_ctx->context, size_d);
-            buf_unpacked.allocate(backend_ctx->context, lm_ggml_nbytes(tensor));
+            buf_unpacked.allocate(backend_ctx->context, ggml_nbytes(tensor));
 
             transpose_2d_as_16b(backend_ctx, extra->qs, buf_trans_qs.buffer, size_qs, M, K/4);
             transpose_2d_as_8b(backend_ctx, extra->qh, buf_trans_qh.buffer, size_qh, M, K/8);
@@ -10341,7 +10341,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             cl_uchar mask_0F = 0x0F;
             cl_uchar mask_F0 = 0xF0;
 
-            size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+            size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
             size_t local_work_size[] = {1, 1, 1};
 
             cl_kernel kernel = backend_ctx->kernel_restore_block_q5_0_noshuffle;
@@ -10356,11 +10356,11 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             CL_CHECK(clEnqueueReadBuffer(queue, buf_unpacked.buffer, CL_TRUE, offset, size, data, 0, NULL, NULL));
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
 
         cl_kernel kernel = backend_ctx->kernel_restore_block_q5_0;
@@ -10369,7 +10369,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &extra->d));
         CL_CHECK(clSetKernelArg(kernel, 3, sizeof(cl_mem), &data_device));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {1, 1, 1};
 
         cl_event evt;
@@ -10382,15 +10382,15 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clReleaseMemObject(data_device));
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q5_1) {
-        lm_ggml_tensor_extra_cl_q5_1 * extra = (lm_ggml_tensor_extra_cl_q5_1 *)tensor->extra;
+    if (tensor->type == GGML_TYPE_Q5_1) {
+        ggml_tensor_extra_cl_q5_1 * extra = (ggml_tensor_extra_cl_q5_1 *)tensor->extra;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_int err;
-            // TODO: use lm_ggml_cl_buffer to manage this temporary buffer
+            // TODO: use ggml_cl_buffer to manage this temporary buffer
             cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                lm_ggml_nbytes(tensor), NULL, &err);
+                ggml_nbytes(tensor), NULL, &err);
             CL_CHECK(err);
 
             cl_kernel kernel = backend_ctx->kernel_restore_block_q5_1_trans4_ns;
@@ -10421,26 +10421,26 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         }
 
         if (use_adreno_kernels(backend_ctx, tensor)) {
-            lm_ggml_cl_buffer buf_trans_qs;
-            lm_ggml_cl_buffer buf_trans_qh;
-            lm_ggml_cl_buffer buf_trans_d;
-            lm_ggml_cl_buffer buf_trans_m;
-            lm_ggml_cl_buffer buf_unpacked;
+            ggml_cl_buffer buf_trans_qs;
+            ggml_cl_buffer buf_trans_qh;
+            ggml_cl_buffer buf_trans_d;
+            ggml_cl_buffer buf_trans_m;
+            ggml_cl_buffer buf_unpacked;
 
             cl_int M = tensor->ne[1];
             cl_int K = tensor->ne[0];
-            LM_GGML_ASSERT(K % 32 == 0);
+            GGML_ASSERT(K % 32 == 0);
 
-            size_t size_qs = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*lm_ggml_blck_size(tensor->type)/2;
-            size_t size_qh = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*sizeof(int32_t);
-            size_t size_d  = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*sizeof(lm_ggml_fp16_t);
-            size_t size_m  = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*sizeof(lm_ggml_fp16_t);
+            size_t size_qs = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*ggml_blck_size(tensor->type)/2;
+            size_t size_qh = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*sizeof(int32_t);
+            size_t size_d  = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*sizeof(ggml_fp16_t);
+            size_t size_m  = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*sizeof(ggml_fp16_t);
 
             buf_trans_qs.allocate(backend_ctx->context, size_qs);
             buf_trans_qh.allocate(backend_ctx->context, size_qh);
             buf_trans_d.allocate(backend_ctx->context, size_d);
             buf_trans_m.allocate(backend_ctx->context, size_m);
-            buf_unpacked.allocate(backend_ctx->context, lm_ggml_nbytes(tensor));
+            buf_unpacked.allocate(backend_ctx->context, ggml_nbytes(tensor));
 
             // Transpose back: from col-major to row-major
             transpose_2d_as_16b(backend_ctx, extra->qs, buf_trans_qs.buffer, size_qs, M, K/4);
@@ -10451,7 +10451,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             cl_uchar mask_0F = 0x0F;
             cl_uchar mask_F0 = 0xF0;
 
-            size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+            size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
             size_t local_work_size[] = {1, 1, 1};
 
             cl_kernel kernel = backend_ctx->kernel_restore_block_q5_1_noshuffle;
@@ -10467,10 +10467,10 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             CL_CHECK(clEnqueueReadBuffer(queue, buf_unpacked.buffer, CL_TRUE, offset, size, data, 0, NULL, NULL));
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
 
         cl_kernel kernel = backend_ctx->kernel_restore_block_q5_1;
@@ -10480,7 +10480,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clSetKernelArg(kernel, 3, sizeof(cl_mem), &extra->m));
         CL_CHECK(clSetKernelArg(kernel, 4, sizeof(cl_mem), &data_device));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {1, 1, 1};
 
         cl_event evt;
@@ -10493,15 +10493,15 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clReleaseMemObject(data_device));
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_MXFP4) {
-        lm_ggml_tensor_extra_cl_mxfp4 * extra = (lm_ggml_tensor_extra_cl_mxfp4 *)tensor->extra;
+    if (tensor->type == GGML_TYPE_MXFP4) {
+        ggml_tensor_extra_cl_mxfp4 * extra = (ggml_tensor_extra_cl_mxfp4 *)tensor->extra;
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_kernel kernel = backend_ctx->kernel_restore_block_mxfp4_trans4_ns;
 
@@ -10528,13 +10528,13 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             return;
         }
 
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
         cl_kernel kernel = backend_ctx->kernel_restore_block_mxfp4;
         CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &extra->q));
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->e));
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &data_device));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {1, 1, 1};
 
         cl_event evt;
@@ -10547,10 +10547,10 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clReleaseMemObject(data_device));
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q8_0) {
+    if (tensor->type == GGML_TYPE_Q8_0) {
         // KV-cache q8_0 stays AoS (see Q4_0 branch).
-        if (!lm_ggml_cl_is_q8_0_soa(tensor)) {
-            lm_ggml_tensor_extra_cl * extra_aos = (lm_ggml_tensor_extra_cl *) tensor->extra;
+        if (!ggml_cl_is_q8_0_soa(tensor)) {
+            ggml_tensor_extra_cl * extra_aos = (ggml_tensor_extra_cl *) tensor->extra;
             CL_CHECK(clEnqueueReadBuffer(
                 queue, extra_aos->data_device, CL_TRUE,
                 extra_aos->offset + tensor->view_offs + offset,
@@ -10558,22 +10558,22 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             return;
         }
         // SoA extra lives on the parent — follow view_src.
-        const lm_ggml_tensor * extra_src = tensor->view_src != nullptr ? tensor->view_src : tensor;
-        lm_ggml_tensor_extra_cl_q8_0 * extra = (lm_ggml_tensor_extra_cl_q8_0 *)extra_src->extra;
+        const ggml_tensor * extra_src = tensor->view_src != nullptr ? tensor->view_src : tensor;
+        ggml_tensor_extra_cl_q8_0 * extra = (ggml_tensor_extra_cl_q8_0 *)extra_src->extra;
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (enable_adreno_trans_weight(backend_ctx, tensor)) {
             cl_kernel kernel = backend_ctx->kernel_restore_block_q8_0_trans;
 
             int ne00 = tensor->ne[0];
             int ne01 = tensor->ne[1];
-            LM_GGML_ASSERT(tensor->ne[2] == 1);
-            LM_GGML_ASSERT(tensor->ne[3] == 1);
+            GGML_ASSERT(tensor->ne[2] == 1);
+            GGML_ASSERT(tensor->ne[3] == 1);
 
             CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &extra->q));
             CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->d));
@@ -10601,7 +10601,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->d));
         CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &data_device));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {1, 1, 1};
 
         cl_event evt;
@@ -10614,31 +10614,31 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clReleaseMemObject(data_device));
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_IQ4_NL) {
-        lm_ggml_tensor_extra_cl_iq4_nl * extra = (lm_ggml_tensor_extra_cl_iq4_nl *)tensor->extra;
+    if (tensor->type == GGML_TYPE_IQ4_NL) {
+        ggml_tensor_extra_cl_iq4_nl * extra = (ggml_tensor_extra_cl_iq4_nl *)tensor->extra;
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_kernels(backend_ctx, tensor)) {
-            static lm_ggml_cl_buffer buf_trans_q;
-            static lm_ggml_cl_buffer buf_trans_d;
-            static lm_ggml_cl_buffer buf_unpacked;
+            static ggml_cl_buffer buf_trans_q;
+            static ggml_cl_buffer buf_trans_d;
+            static ggml_cl_buffer buf_unpacked;
 
             cl_int M = tensor->ne[1];
             cl_int K = tensor->ne[0];
-            LM_GGML_ASSERT(K % 32 == 0);
+            GGML_ASSERT(K % 32 == 0);
 
-            size_t size_q = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*(lm_ggml_blck_size(tensor->type)/2);
-            size_t size_d = (lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type))*sizeof(lm_ggml_fp16_t);
-            LM_GGML_ASSERT(size_d + size_q == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+            size_t size_q = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*(ggml_blck_size(tensor->type)/2);
+            size_t size_d = (ggml_nelements(tensor)/ggml_blck_size(tensor->type))*sizeof(ggml_fp16_t);
+            GGML_ASSERT(size_d + size_q == ggml_nbytes(tensor) && "Incorrect tensor size");
 
             buf_trans_q.allocate(backend_ctx->context, size_q);
             buf_trans_d.allocate(backend_ctx->context, size_d);
-            buf_unpacked.allocate(backend_ctx->context, lm_ggml_nbytes(tensor));
+            buf_unpacked.allocate(backend_ctx->context, ggml_nbytes(tensor));
 
             // transpose q, d back
             transpose_2d_as_16b(backend_ctx, extra->q, buf_trans_q.buffer, size_q, M, K/4);
@@ -10648,7 +10648,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             cl_uchar mask_F0 = 0xF0;
 
             cl_kernel kernel = backend_ctx->kernel_restore_block_iq4_nl_noshuffle;
-            cl_ulong n_blk = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type);
+            cl_ulong n_blk = ggml_nelements(tensor)/ggml_blck_size(tensor->type);
 
             CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem),   &buf_trans_q.buffer));
             CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem),   &buf_trans_d.buffer));
@@ -10666,7 +10666,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         }
 #endif
         cl_kernel kernel = backend_ctx->kernel_restore_block_iq4_nl;
-        cl_ulong n_blk = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type);
+        cl_ulong n_blk = ggml_nelements(tensor)/ggml_blck_size(tensor->type);
 
         CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &extra->q));
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->d));
@@ -10686,22 +10686,22 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clReleaseMemObject(data_device));
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q4_K) {
-        lm_ggml_tensor_extra_cl_q4_K * extra = (lm_ggml_tensor_extra_cl_q4_K *)tensor->extra;
+    if (tensor->type == GGML_TYPE_Q4_K) {
+        ggml_tensor_extra_cl_q4_K * extra = (ggml_tensor_extra_cl_q4_K *)tensor->extra;
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
 
         cl_uchar mask_0F = 0x0F;
         cl_uchar mask_F0 = 0xF0;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_int err;
             cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                lm_ggml_nbytes(tensor), NULL, &err);
+                ggml_nbytes(tensor), NULL, &err);
             CL_CHECK(err);
 
             cl_kernel kernel = backend_ctx->kernel_restore_block_q4_k_trans4_ns;
@@ -10736,15 +10736,15 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             int M = tensor->ne[1];
             int K = tensor->ne[0];
 
-            size_t size_q  = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/2;
-            size_t size_d  = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-            size_t size_dm = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-            size_t size_s  = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*12;
+            size_t size_q  = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/2;
+            size_t size_d  = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+            size_t size_dm = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+            size_t size_s  = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*12;
 
-            static lm_ggml_cl_buffer buf_trans_q;
-            static lm_ggml_cl_buffer buf_trans_d;
-            static lm_ggml_cl_buffer buf_trans_dm;
-            static lm_ggml_cl_buffer buf_trans_s;
+            static ggml_cl_buffer buf_trans_q;
+            static ggml_cl_buffer buf_trans_d;
+            static ggml_cl_buffer buf_trans_dm;
+            static ggml_cl_buffer buf_trans_s;
 
             buf_trans_q.allocate(backend_ctx->context, size_q);
             buf_trans_d.allocate(backend_ctx->context, size_d);
@@ -10766,7 +10766,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             CL_CHECK(clSetKernelArg(kernel, 5, sizeof(cl_uchar), &mask_0F));
             CL_CHECK(clSetKernelArg(kernel, 6, sizeof(cl_uchar), &mask_F0));
 
-            size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+            size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
             size_t local_work_size[] = {1, 1, 1};
 
             CL_CHECK(clEnqueueNDRangeKernel(queue, kernel, 3, NULL,
@@ -10776,7 +10776,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             CL_CHECK(clReleaseMemObject(data_device));
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
         cl_kernel kernel = backend_ctx->kernel_restore_block_q4_K;
         CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &extra->q));
@@ -10787,7 +10787,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clSetKernelArg(kernel, 5, sizeof(cl_uchar), &mask_0F));
         CL_CHECK(clSetKernelArg(kernel, 6, sizeof(cl_uchar), &mask_F0));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {1, 1, 1};
 
         cl_event evt;
@@ -10800,22 +10800,22 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clReleaseMemObject(data_device));
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q5_K) {
-        lm_ggml_tensor_extra_cl_q5_K * extra = (lm_ggml_tensor_extra_cl_q5_K *)tensor->extra;
+    if (tensor->type == GGML_TYPE_Q5_K) {
+        ggml_tensor_extra_cl_q5_K * extra = (ggml_tensor_extra_cl_q5_K *)tensor->extra;
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
 
         cl_uchar mask_0F = 0x0F;
         cl_uchar mask_F0 = 0xF0;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_int err;
             cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                lm_ggml_nbytes(tensor), NULL, &err);
+                ggml_nbytes(tensor), NULL, &err);
             CL_CHECK(err);
             cl_kernel kernel = backend_ctx->kernel_restore_block_q5_k_trans4_ns;
 
@@ -10855,10 +10855,10 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             size_t size_d  = extra->size_d;
             size_t size_dm = extra->size_dm;
 
-            static lm_ggml_cl_buffer buf_trans_q;
-            static lm_ggml_cl_buffer buf_trans_qh;
-            static lm_ggml_cl_buffer buf_trans_d;
-            static lm_ggml_cl_buffer buf_trans_dm;
+            static ggml_cl_buffer buf_trans_q;
+            static ggml_cl_buffer buf_trans_qh;
+            static ggml_cl_buffer buf_trans_d;
+            static ggml_cl_buffer buf_trans_dm;
 
             buf_trans_q.allocate(backend_ctx->context, size_q);
             buf_trans_qh.allocate(backend_ctx->context, size_qh);
@@ -10881,7 +10881,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             CL_CHECK(clSetKernelArg(kernel, 6, sizeof(cl_uchar), &mask_0F));
             CL_CHECK(clSetKernelArg(kernel, 7, sizeof(cl_uchar), &mask_F0));
 
-            size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+            size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
             size_t local_work_size[] = {1, 1, 1};
 
             CL_CHECK(clEnqueueNDRangeKernel(queue, kernel, 3, NULL,
@@ -10891,7 +10891,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             CL_CHECK(clReleaseMemObject(data_device));
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
         cl_kernel kernel = backend_ctx->kernel_restore_block_q5_K;
         CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem),   &extra->q));
@@ -10903,7 +10903,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clSetKernelArg(kernel, 6, sizeof(cl_uchar), &mask_0F));
         CL_CHECK(clSetKernelArg(kernel, 7, sizeof(cl_uchar), &mask_F0));
 
-        size_t global_work_size[] = {(size_t)lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type), 1, 1};
+        size_t global_work_size[] = {(size_t)ggml_nelements(tensor)/ggml_blck_size(tensor->type), 1, 1};
         size_t local_work_size[] = {1, 1, 1};
 
         cl_event evt;
@@ -10916,14 +10916,14 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clReleaseMemObject(data_device));
         return;
     }
-    if (tensor->type == LM_GGML_TYPE_Q6_K) {
-        lm_ggml_tensor_extra_cl_q6_K * extra = (lm_ggml_tensor_extra_cl_q6_K *)tensor->extra;
+    if (tensor->type == GGML_TYPE_Q6_K) {
+        ggml_tensor_extra_cl_q6_K * extra = (ggml_tensor_extra_cl_q6_K *)tensor->extra;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         if (use_adreno_moe_kernels(backend_ctx, tensor)) {
             cl_int err;
             cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                lm_ggml_nbytes(tensor), NULL, &err);
+                ggml_nbytes(tensor), NULL, &err);
             CL_CHECK(err);
 
             cl_kernel kernel = backend_ctx->kernel_restore_block_q6_k_trans4_ns;
@@ -10958,28 +10958,28 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
             return;
         }
         if (use_adreno_kernels(backend_ctx, tensor) && !use_flat_gemv_for_large_m_q6_K(backend_ctx, tensor)) {
-            static lm_ggml_cl_buffer buf_trans_ql;
-            static lm_ggml_cl_buffer buf_trans_qh;
-            static lm_ggml_cl_buffer buf_trans_s;
-            static lm_ggml_cl_buffer buf_trans_d;
-            static lm_ggml_cl_buffer buf_unpacked;
+            static ggml_cl_buffer buf_trans_ql;
+            static ggml_cl_buffer buf_trans_qh;
+            static ggml_cl_buffer buf_trans_s;
+            static ggml_cl_buffer buf_trans_d;
+            static ggml_cl_buffer buf_unpacked;
 
             cl_int M = tensor->ne[1];   // ne01
             cl_int K = tensor->ne[0];   // ne00
 
-            LM_GGML_ASSERT(K % lm_ggml_blck_size(tensor->type) == 0);
+            GGML_ASSERT(K % ggml_blck_size(tensor->type) == 0);
 
-            size_t size_ql = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/2;
-            size_t size_qh = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/4;
-            size_t size_s  = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*lm_ggml_blck_size(tensor->type)/16;
-            size_t size_d  = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type)*sizeof(lm_ggml_fp16_t);
-            LM_GGML_ASSERT(size_ql + size_qh + size_s + size_d == lm_ggml_nbytes(tensor) && "Incorrect tensor size");
+            size_t size_ql = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/2;
+            size_t size_qh = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/4;
+            size_t size_s  = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*ggml_blck_size(tensor->type)/16;
+            size_t size_d  = ggml_nelements(tensor)/ggml_blck_size(tensor->type)*sizeof(ggml_fp16_t);
+            GGML_ASSERT(size_ql + size_qh + size_s + size_d == ggml_nbytes(tensor) && "Incorrect tensor size");
 
             buf_trans_ql.allocate(backend_ctx->context, size_ql);
             buf_trans_qh.allocate(backend_ctx->context, size_qh);
             buf_trans_s.allocate(backend_ctx->context, size_s);
             buf_trans_d.allocate(backend_ctx->context, size_d);
-            buf_unpacked.allocate(backend_ctx->context, lm_ggml_nbytes(tensor));
+            buf_unpacked.allocate(backend_ctx->context, ggml_nbytes(tensor));
 
             // transpose ql, qh, s and d back
             transpose_2d_as_16b(backend_ctx, extra->ql, buf_trans_ql.buffer, size_ql, M, K/4);
@@ -10989,7 +10989,7 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
 
             // unpack
             cl_uchar mask = 0xFF;
-            cl_ulong n_blk = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type);
+            cl_ulong n_blk = ggml_nelements(tensor)/ggml_blck_size(tensor->type);
             cl_kernel kernel = backend_ctx->kernel_restore_block_q6_K_noshuffle;
             CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem),   &buf_trans_ql.buffer));
             CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem),   &buf_trans_qh.buffer));
@@ -11009,15 +11009,15 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
 
             return;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE,
-            lm_ggml_nbytes(tensor), NULL, &err);
+            ggml_nbytes(tensor), NULL, &err);
         CL_CHECK(err);
 
         cl_uchar mask = 0xFF;
-        cl_ulong n_blk = lm_ggml_nelements(tensor)/lm_ggml_blck_size(tensor->type);
+        cl_ulong n_blk = ggml_nelements(tensor)/ggml_blck_size(tensor->type);
         cl_kernel kernel = backend_ctx->kernel_restore_block_q6_K;
         CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem),   &extra->ql));
         CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem),   &extra->qh));
@@ -11040,17 +11040,17 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         CL_CHECK(clReleaseMemObject(data_device));
         return;
     }
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
 
-    if (tensor->type == LM_GGML_TYPE_BF16) {
-        LM_GGML_ASSERT(offset % sizeof(lm_ggml_fp16_t) == 0 && size % sizeof(lm_ggml_fp16_t) == 0
+    if (tensor->type == GGML_TYPE_BF16) {
+        GGML_ASSERT(offset % sizeof(ggml_fp16_t) == 0 && size % sizeof(ggml_fp16_t) == 0
             && "Offset and size must be multiples of 2 for bf16 tensors");
 
-        lm_ggml_tensor_extra_cl * extra = (lm_ggml_tensor_extra_cl *) tensor->extra;
-        LM_GGML_ASSERT(extra);
+        ggml_tensor_extra_cl * extra = (ggml_tensor_extra_cl *) tensor->extra;
+        GGML_ASSERT(extra);
 
-        cl_ulong n_elements = size / sizeof(lm_ggml_fp16_t);
-        cl_ulong off_src = (extra->offset + tensor->view_offs + offset) / sizeof(lm_ggml_fp16_t);
+        cl_ulong n_elements = size / sizeof(ggml_fp16_t);
+        cl_ulong off_src = (extra->offset + tensor->view_offs + offset) / sizeof(ggml_fp16_t);
 
         cl_int err;
         cl_mem data_device = clCreateBuffer(context, CL_MEM_READ_WRITE, size, NULL, &err);
@@ -11077,59 +11077,59 @@ static void lm_ggml_backend_opencl_buffer_get_tensor(lm_ggml_backend_buffer_t bu
         return;
     }
 
-    lm_ggml_tensor_extra_cl * extra = (lm_ggml_tensor_extra_cl *) tensor->extra;
+    ggml_tensor_extra_cl * extra = (ggml_tensor_extra_cl *) tensor->extra;
 
     CL_CHECK(clEnqueueReadBuffer(
         queue, extra->data_device, CL_TRUE, extra->offset + tensor->view_offs + offset,
         size, data, 0, NULL, NULL));
 
-    LM_GGML_UNUSED(buffer);
+    GGML_UNUSED(buffer);
 }
 
-static void lm_ggml_backend_opencl_buffer_clear(lm_ggml_backend_buffer_t buffer, uint8_t value) {
-    lm_ggml_backend_opencl_device_context * dev_ctx = (lm_ggml_backend_opencl_device_context *) buffer->buft->device->context;
-    lm_ggml_backend_opencl_context * backend_ctx = dev_ctx->backend_ctx;
+static void ggml_backend_opencl_buffer_clear(ggml_backend_buffer_t buffer, uint8_t value) {
+    ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) buffer->buft->device->context;
+    ggml_backend_opencl_context * backend_ctx = dev_ctx->backend_ctx;
 
     cl_command_queue queue = backend_ctx->queue;
 
-    lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
+    ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
     for (cl_mem buf : ctx->buffer) {
         CL_CHECK(clEnqueueFillBuffer(queue, buf, &value, sizeof(value), 0, buffer->size, 0, NULL, NULL));
     }
     CL_CHECK(clFinish(queue));
 }
 
-static void lm_ggml_backend_opencl_buffer_reset(lm_ggml_backend_buffer_t buffer) {
-    lm_ggml_backend_opencl_buffer_context * ctx = (lm_ggml_backend_opencl_buffer_context *) buffer->context;
+static void ggml_backend_opencl_buffer_reset(ggml_backend_buffer_t buffer) {
+    ggml_backend_opencl_buffer_context * ctx = (ggml_backend_opencl_buffer_context *) buffer->context;
     ctx->reset();
 }
 
-static lm_ggml_backend_buffer_i lm_ggml_backend_opencl_buffer_interface = {
-    /* .free_buffer     = */ lm_ggml_backend_opencl_buffer_free_buffer,
-    /* .get_base        = */ lm_ggml_backend_opencl_buffer_get_base,
-    /* .init_tensor     = */ lm_ggml_backend_opencl_buffer_init_tensor,
+static ggml_backend_buffer_i ggml_backend_opencl_buffer_interface = {
+    /* .free_buffer     = */ ggml_backend_opencl_buffer_free_buffer,
+    /* .get_base        = */ ggml_backend_opencl_buffer_get_base,
+    /* .init_tensor     = */ ggml_backend_opencl_buffer_init_tensor,
     /* .memset_tensor   = */ NULL,
-    /* .set_tensor      = */ lm_ggml_backend_opencl_buffer_set_tensor,
-    /* .get_tensor      = */ lm_ggml_backend_opencl_buffer_get_tensor,
+    /* .set_tensor      = */ ggml_backend_opencl_buffer_set_tensor,
+    /* .get_tensor      = */ ggml_backend_opencl_buffer_get_tensor,
     /* .set_tensor_2d   = */ NULL,
     /* .get_tensor_2d   = */ NULL,
     /* .cpy_tensor      = */ NULL,
-    /* .clear           = */ lm_ggml_backend_opencl_buffer_clear,
-    /* .reset           = */ lm_ggml_backend_opencl_buffer_reset,
+    /* .clear           = */ ggml_backend_opencl_buffer_clear,
+    /* .reset           = */ ggml_backend_opencl_buffer_reset,
 };
 
 //
 // buffer type
 //
 
-static const char * lm_ggml_backend_opencl_buffer_type_get_name(lm_ggml_backend_buffer_type_t buffer_type) {
+static const char * ggml_backend_opencl_buffer_type_get_name(ggml_backend_buffer_type_t buffer_type) {
     return "OpenCL";
 
-    LM_GGML_UNUSED(buffer_type);
+    GGML_UNUSED(buffer_type);
 }
 
-static lm_ggml_backend_buffer_t lm_ggml_backend_opencl_buffer_type_alloc_buffer(lm_ggml_backend_buffer_type_t buffer_type, size_t size) {
-    lm_ggml_backend_opencl_context *backend_ctx = lm_ggml_cl_init(buffer_type->device);
+static ggml_backend_buffer_t ggml_backend_opencl_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buffer_type, size_t size) {
+    ggml_backend_opencl_context *backend_ctx = ggml_cl_init(buffer_type->device);
 
     if (!backend_ctx->program_cache_initialized) {
         backend_ctx->program_cache = cl_program_cache_init(backend_ctx->device);
@@ -11142,7 +11142,7 @@ static lm_ggml_backend_buffer_t lm_ggml_backend_opencl_buffer_type_alloc_buffer(
 
     cl_int err;
     cl_mem mem = clCreateBuffer(backend_ctx->context, CL_MEM_READ_WRITE, size, NULL, &err);
-#if LM_GGML_OPENCL_TARGET_VERSION >= 300
+#if GGML_OPENCL_TARGET_VERSION >= 300
     // clCreateBufferWithProperties and cl_mem_properties are OpenCL 3.0. Drivers older than
     // that do not export the symbol, so a build targeting them fails to link. The large
     // buffer extension is only ever enabled on drivers that are well past 3.0, so this path
@@ -11154,59 +11154,59 @@ static lm_ggml_backend_buffer_t lm_ggml_backend_opencl_buffer_type_alloc_buffer(
 #endif
 
     if (err != CL_SUCCESS) {
-        LM_GGML_LOG_INFO("%s: failed to allocate %.2f MiB\n", __func__, size / 1024.0 / 1024.0);
+        GGML_LOG_INFO("%s: failed to allocate %.2f MiB\n", __func__, size / 1024.0 / 1024.0);
         return nullptr;
     }
 
-    lm_ggml_backend_opencl_buffer_context * ctx = new lm_ggml_backend_opencl_buffer_context(mem);
+    ggml_backend_opencl_buffer_context * ctx = new ggml_backend_opencl_buffer_context(mem);
 
-    return lm_ggml_backend_buffer_init(buffer_type, lm_ggml_backend_opencl_buffer_interface, ctx, size);
+    return ggml_backend_buffer_init(buffer_type, ggml_backend_opencl_buffer_interface, ctx, size);
 }
 
-static size_t lm_ggml_backend_opencl_buffer_type_get_alignment(lm_ggml_backend_buffer_type_t buffer_type) {
-    lm_ggml_backend_opencl_device_context * dev_ctx = (lm_ggml_backend_opencl_device_context *) buffer_type->device->context;
+static size_t ggml_backend_opencl_buffer_type_get_alignment(ggml_backend_buffer_type_t buffer_type) {
+    ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) buffer_type->device->context;
     return dev_ctx->backend_ctx->alignment;
 }
 
-static size_t lm_ggml_backend_opencl_buffer_type_get_max_size(lm_ggml_backend_buffer_type_t buffer_type) {
+static size_t ggml_backend_opencl_buffer_type_get_max_size(ggml_backend_buffer_type_t buffer_type) {
     static size_t max_size = -1;
     if (max_size == (size_t)-1) {
-        lm_ggml_backend_opencl_device_context * dev_ctx = (lm_ggml_backend_opencl_device_context *) buffer_type->device->context;
+        ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) buffer_type->device->context;
         max_size = dev_ctx->backend_ctx->max_alloc_size;
     }
     return max_size;
 }
 
-static bool lm_ggml_backend_opencl_buffer_type_supports_backend(lm_ggml_backend_buffer_type_t buft, lm_ggml_backend_t backend) {
-    return lm_ggml_backend_is_opencl(backend);
+static bool ggml_backend_opencl_buffer_type_supports_backend(ggml_backend_buffer_type_t buft, ggml_backend_t backend) {
+    return ggml_backend_is_opencl(backend);
 
     UNUSED(buft);
 }
 
-static size_t lm_ggml_backend_opencl_buffer_type_get_alloc_size(lm_ggml_backend_buffer_type_t buft, const lm_ggml_tensor * tensor) {
-    size_t size = lm_ggml_nbytes(tensor);
-#ifdef LM_GGML_OPENCL_SOA_Q
+static size_t ggml_backend_opencl_buffer_type_get_alloc_size(ggml_backend_buffer_type_t buft, const ggml_tensor * tensor) {
+    size_t size = ggml_nbytes(tensor);
+#ifdef GGML_OPENCL_SOA_Q
     // set_tensor carves quantized weights into per-component subbuffers (d/q,
     // ql/qh/s/d, ...) whose origins are each rounded up to the device base
     // alignment. When a component's size is not a multiple of the alignment
     // (e.g. q6_K [1536,49155]: size_s = 49155*96 leaves a 96-byte gap at 128-byte
-    // alignment), the aligned carve extends past lm_ggml_nbytes and the last
+    // alignment), the aligned carve extends past ggml_nbytes and the last
     // subbuffer would overlap the next tensor in the pool. Reserve the worst-case
     // carve slack: at most 5 components (q5_K), i.e. 4 aligned gaps.
-    if (lm_ggml_is_quantized(tensor->type)) {
-        lm_ggml_backend_opencl_device_context * dev_ctx = (lm_ggml_backend_opencl_device_context *) buft->device->context;
+    if (ggml_is_quantized(tensor->type)) {
+        ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) buft->device->context;
         size += 4 * dev_ctx->backend_ctx->alignment;
     }
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
     return size;
 }
 
-static lm_ggml_backend_buffer_type_i lm_ggml_backend_opencl_buffer_type_interface = {
-    /* .get_name         = */ lm_ggml_backend_opencl_buffer_type_get_name,
-    /* .alloc_buffer     = */ lm_ggml_backend_opencl_buffer_type_alloc_buffer,
-    /* .get_alignment    = */ lm_ggml_backend_opencl_buffer_type_get_alignment,
-    /* .get_max_size     = */ lm_ggml_backend_opencl_buffer_type_get_max_size,
-    /* .get_alloc_size   = */ lm_ggml_backend_opencl_buffer_type_get_alloc_size,
+static ggml_backend_buffer_type_i ggml_backend_opencl_buffer_type_interface = {
+    /* .get_name         = */ ggml_backend_opencl_buffer_type_get_name,
+    /* .alloc_buffer     = */ ggml_backend_opencl_buffer_type_alloc_buffer,
+    /* .get_alignment    = */ ggml_backend_opencl_buffer_type_get_alignment,
+    /* .get_max_size     = */ ggml_backend_opencl_buffer_type_get_max_size,
+    /* .get_alloc_size   = */ ggml_backend_opencl_buffer_type_get_alloc_size,
     /* .is_host          = */ NULL,
 };
 
@@ -11214,19 +11214,19 @@ static lm_ggml_backend_buffer_type_i lm_ggml_backend_opencl_buffer_type_interfac
 // backend device
 //
 
-static const char * lm_ggml_backend_opencl_device_get_name(lm_ggml_backend_dev_t dev) {
+static const char * ggml_backend_opencl_device_get_name(ggml_backend_dev_t dev) {
     return "GPUOpenCL";
 
-    LM_GGML_UNUSED(dev);
+    GGML_UNUSED(dev);
 }
 
-static const char * lm_ggml_backend_opencl_device_get_description(lm_ggml_backend_dev_t dev) {
-    lm_ggml_backend_opencl_device_context *dev_ctx = (lm_ggml_backend_opencl_device_context *) dev->context;
+static const char * ggml_backend_opencl_device_get_description(ggml_backend_dev_t dev) {
+    ggml_backend_opencl_device_context *dev_ctx = (ggml_backend_opencl_device_context *) dev->context;
     return dev_ctx->device_name.c_str();
 }
 
-static void lm_ggml_backend_opencl_device_get_memory(lm_ggml_backend_dev_t dev, size_t * free, size_t * total) {
-    lm_ggml_backend_opencl_device_context * dev_ctx = (lm_ggml_backend_opencl_device_context *) dev->context;
+static void ggml_backend_opencl_device_get_memory(ggml_backend_dev_t dev, size_t * free, size_t * total) {
+    ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) dev->context;
 
     static const size_t opencl_extra_margin = 1024ull*1024ull*1024ull;
 
@@ -11237,18 +11237,18 @@ static void lm_ggml_backend_opencl_device_get_memory(lm_ggml_backend_dev_t dev, 
     *free  = *total > opencl_extra_margin ? *total - opencl_extra_margin : 0;
 }
 
-static enum lm_ggml_backend_dev_type lm_ggml_backend_opencl_device_get_type(lm_ggml_backend_dev_t dev) {
-    return LM_GGML_BACKEND_DEVICE_TYPE_GPU;
+static enum ggml_backend_dev_type ggml_backend_opencl_device_get_type(ggml_backend_dev_t dev) {
+    return GGML_BACKEND_DEVICE_TYPE_GPU;
 
-    LM_GGML_UNUSED(dev);
+    GGML_UNUSED(dev);
 }
 
-static void lm_ggml_backend_opencl_device_get_props(lm_ggml_backend_dev_t dev, struct lm_ggml_backend_dev_props * props) {
-    props->name        = lm_ggml_backend_opencl_device_get_name(dev);
-    props->description = lm_ggml_backend_opencl_device_get_description(dev);
-    props->type        = lm_ggml_backend_opencl_device_get_type(dev);
-    lm_ggml_backend_opencl_device_get_memory(dev, &props->memory_free, &props->memory_total);
-    props->caps = lm_ggml_backend_dev_caps {
+static void ggml_backend_opencl_device_get_props(ggml_backend_dev_t dev, struct ggml_backend_dev_props * props) {
+    props->name        = ggml_backend_opencl_device_get_name(dev);
+    props->description = ggml_backend_opencl_device_get_description(dev);
+    props->type        = ggml_backend_opencl_device_get_type(dev);
+    ggml_backend_opencl_device_get_memory(dev, &props->memory_free, &props->memory_total);
+    props->caps = ggml_backend_dev_caps {
         /* .async                 = */ false,
         /* .host_buffer           = */ false,
         /* .buffer_from_host_ptr  = */ false,
@@ -11257,30 +11257,30 @@ static void lm_ggml_backend_opencl_device_get_props(lm_ggml_backend_dev_t dev, s
     };
 }
 
-static lm_ggml_backend_t lm_ggml_backend_opencl_device_init(lm_ggml_backend_dev_t dev, const char * params) {
-    lm_ggml_backend_opencl_context * backend_ctx = lm_ggml_cl_init(dev);
+static ggml_backend_t ggml_backend_opencl_device_init(ggml_backend_dev_t dev, const char * params) {
+    ggml_backend_opencl_context * backend_ctx = ggml_cl_init(dev);
     // Getting a new reference to the backend, increase ref_count
     backend_ctx->ref_count++;
 
-    lm_ggml_backend_t backend = new lm_ggml_backend {
-        /* .guid      = */ lm_ggml_backend_opencl_guid(),
-        /* .interface = */ lm_ggml_backend_opencl_i,
+    ggml_backend_t backend = new ggml_backend {
+        /* .guid      = */ ggml_backend_opencl_guid(),
+        /* .interface = */ ggml_backend_opencl_i,
         /* .device    = */ dev,
         /* .context   = */ backend_ctx,
     };
 
-    lm_ggml_backend_opencl_device_context * dev_ctx = (lm_ggml_backend_opencl_device_context *) dev->context;
-    lm_ggml_opencl_print_backend_info(dev_ctx);
+    ggml_backend_opencl_device_context * dev_ctx = (ggml_backend_opencl_device_context *) dev->context;
+    ggml_opencl_print_backend_info(dev_ctx);
     return backend;
 
-    LM_GGML_UNUSED(params);
+    GGML_UNUSED(params);
 }
 
-static lm_ggml_backend_buffer_type_t lm_ggml_backend_opencl_device_get_buffer_type(lm_ggml_backend_dev_t dev) {
-    auto * dev_ctx = static_cast<lm_ggml_backend_opencl_device_context *>(dev->context);
+static ggml_backend_buffer_type_t ggml_backend_opencl_device_get_buffer_type(ggml_backend_dev_t dev) {
+    auto * dev_ctx = static_cast<ggml_backend_opencl_device_context *>(dev->context);
 
-    dev_ctx->buffer_type = lm_ggml_backend_buffer_type{
-        /* .iface   = */ lm_ggml_backend_opencl_buffer_type_interface,
+    dev_ctx->buffer_type = ggml_backend_buffer_type{
+        /* .iface   = */ ggml_backend_opencl_buffer_type_interface,
         /* .device  = */ dev,
         /* .context = */ nullptr,
     };
@@ -11288,46 +11288,46 @@ static lm_ggml_backend_buffer_type_t lm_ggml_backend_opencl_device_get_buffer_ty
     return &dev_ctx->buffer_type;
 }
 
-static lm_ggml_backend_buffer_t lm_ggml_backend_opencl_device_buffer_from_ptr(lm_ggml_backend_dev_t dev, void * ptr, size_t size, size_t max_tensor_size) {
-    LM_GGML_UNUSED(dev);
-    LM_GGML_UNUSED(ptr);
-    LM_GGML_UNUSED(size);
-    LM_GGML_UNUSED(max_tensor_size);
+static ggml_backend_buffer_t ggml_backend_opencl_device_buffer_from_ptr(ggml_backend_dev_t dev, void * ptr, size_t size, size_t max_tensor_size) {
+    GGML_UNUSED(dev);
+    GGML_UNUSED(ptr);
+    GGML_UNUSED(size);
+    GGML_UNUSED(max_tensor_size);
     return nullptr;
 }
 
-static bool lm_ggml_backend_opencl_device_supports_op(lm_ggml_backend_dev_t dev, const struct lm_ggml_tensor * op) {
-    lm_ggml_cl_init(dev);
-    return lm_ggml_opencl_supports_op(dev, op);
+static bool ggml_backend_opencl_device_supports_op(ggml_backend_dev_t dev, const struct ggml_tensor * op) {
+    ggml_cl_init(dev);
+    return ggml_opencl_supports_op(dev, op);
 }
 
-static bool lm_ggml_backend_opencl_device_supports_buft(lm_ggml_backend_dev_t dev, lm_ggml_backend_buffer_type_t buft) {
+static bool ggml_backend_opencl_device_supports_buft(ggml_backend_dev_t dev, ggml_backend_buffer_type_t buft) {
     // Check 'dev' and 'buffer_type' are not objects belonging to this backend.
-    if (dev->iface.get_name != lm_ggml_backend_opencl_device_get_name ||
-        buft->iface.get_name != lm_ggml_backend_opencl_buffer_type_get_name) {
+    if (dev->iface.get_name != ggml_backend_opencl_device_get_name ||
+        buft->iface.get_name != ggml_backend_opencl_buffer_type_get_name) {
         return false;
     }
 
     // Check cl_context is the same. clEnqueue* commands may not use
     // buffers from another cl_context.
-    lm_ggml_backend_opencl_context * backend_ctx0 = lm_ggml_cl_init(dev);
-    lm_ggml_backend_opencl_context * backend_ctx1 = lm_ggml_cl_init(buft->device);
+    ggml_backend_opencl_context * backend_ctx0 = ggml_cl_init(dev);
+    ggml_backend_opencl_context * backend_ctx1 = ggml_cl_init(buft->device);
     return backend_ctx0->context == backend_ctx1->context;
 }
 
 namespace /* anonymous */ {
-struct lm_ggml_backend_device_i lm_ggml_backend_opencl_device_i = {
-    /* .get_name             = */ lm_ggml_backend_opencl_device_get_name,
-    /* .get_description      = */ lm_ggml_backend_opencl_device_get_description,
-    /* .get_memory           = */ lm_ggml_backend_opencl_device_get_memory,
-    /* .get_type             = */ lm_ggml_backend_opencl_device_get_type,
-    /* .get_props            = */ lm_ggml_backend_opencl_device_get_props,
-    /* .init_backend         = */ lm_ggml_backend_opencl_device_init,
-    /* .get_buffer_type      = */ lm_ggml_backend_opencl_device_get_buffer_type,
+struct ggml_backend_device_i ggml_backend_opencl_device_i = {
+    /* .get_name             = */ ggml_backend_opencl_device_get_name,
+    /* .get_description      = */ ggml_backend_opencl_device_get_description,
+    /* .get_memory           = */ ggml_backend_opencl_device_get_memory,
+    /* .get_type             = */ ggml_backend_opencl_device_get_type,
+    /* .get_props            = */ ggml_backend_opencl_device_get_props,
+    /* .init_backend         = */ ggml_backend_opencl_device_init,
+    /* .get_buffer_type      = */ ggml_backend_opencl_device_get_buffer_type,
     /* .get_host_buffer_type = */ NULL,
-    /* .buffer_from_host_ptr = */ lm_ggml_backend_opencl_device_buffer_from_ptr,
-    /* .supports_op          = */ lm_ggml_backend_opencl_device_supports_op,
-    /* .supports_buft        = */ lm_ggml_backend_opencl_device_supports_buft,
+    /* .buffer_from_host_ptr = */ ggml_backend_opencl_device_buffer_from_ptr,
+    /* .supports_op          = */ ggml_backend_opencl_device_supports_op,
+    /* .supports_buft        = */ ggml_backend_opencl_device_supports_buft,
     /* .offload_op           = */ NULL,
     /* .event_new            = */ NULL,
     /* .event_free           = */ NULL,
@@ -11337,37 +11337,37 @@ struct lm_ggml_backend_device_i lm_ggml_backend_opencl_device_i = {
 
 // Backend registry
 
-static const char * lm_ggml_backend_opencl_reg_get_name(lm_ggml_backend_reg_t reg) {
+static const char * ggml_backend_opencl_reg_get_name(ggml_backend_reg_t reg) {
     return "OpenCL";
 
-    LM_GGML_UNUSED(reg);
+    GGML_UNUSED(reg);
 }
 
-static size_t lm_ggml_backend_opencl_reg_device_count(lm_ggml_backend_reg_t reg) {
-    return g_lm_ggml_backend_opencl_devices.size();
+static size_t ggml_backend_opencl_reg_device_count(ggml_backend_reg_t reg) {
+    return g_ggml_backend_opencl_devices.size();
 
-    LM_GGML_UNUSED(reg);
+    GGML_UNUSED(reg);
 }
 
-static lm_ggml_backend_dev_t lm_ggml_backend_opencl_reg_device_get(lm_ggml_backend_reg_t reg, size_t index) {
-    LM_GGML_ASSERT(index < lm_ggml_backend_opencl_reg_device_count(reg));
+static ggml_backend_dev_t ggml_backend_opencl_reg_device_get(ggml_backend_reg_t reg, size_t index) {
+    GGML_ASSERT(index < ggml_backend_opencl_reg_device_count(reg));
 
-    return &g_lm_ggml_backend_opencl_devices[index];
+    return &g_ggml_backend_opencl_devices[index];
 
-    LM_GGML_UNUSED(reg);
-    LM_GGML_UNUSED(index);
+    GGML_UNUSED(reg);
+    GGML_UNUSED(index);
 }
 
-static struct lm_ggml_backend_reg_i lm_ggml_backend_opencl_reg_i = {
-    /* .get_name         = */ lm_ggml_backend_opencl_reg_get_name,
-    /* .device_count     = */ lm_ggml_backend_opencl_reg_device_count,
-    /* .device_get       = */ lm_ggml_backend_opencl_reg_device_get,
+static struct ggml_backend_reg_i ggml_backend_opencl_reg_i = {
+    /* .get_name         = */ ggml_backend_opencl_reg_get_name,
+    /* .device_count     = */ ggml_backend_opencl_reg_device_count,
+    /* .device_get       = */ ggml_backend_opencl_reg_device_get,
     /* .get_proc_address = */ NULL,
 };
 
-lm_ggml_backend_reg_t lm_ggml_backend_opencl_reg(void) {
+ggml_backend_reg_t ggml_backend_opencl_reg(void) {
     static std::mutex mutex;
-    static lm_ggml_backend_reg reg;
+    static ggml_backend_reg reg;
     static bool initialized = false;
     std::lock_guard<std::mutex> lock(mutex);
 
@@ -11376,18 +11376,18 @@ lm_ggml_backend_reg_t lm_ggml_backend_opencl_reg(void) {
     }
     initialized = true;
 
-    g_lm_ggml_backend_opencl_devices = lm_ggml_opencl_probe_devices(&reg);
+    g_ggml_backend_opencl_devices = ggml_opencl_probe_devices(&reg);
 
-    reg = lm_ggml_backend_reg{
-        /* .api_version = */ LM_GGML_BACKEND_API_VERSION,
-        /* .iface       = */ lm_ggml_backend_opencl_reg_i,
+    reg = ggml_backend_reg{
+        /* .api_version = */ GGML_BACKEND_API_VERSION,
+        /* .iface       = */ ggml_backend_opencl_reg_i,
         /* .context     = */ NULL,
     };
 
     return &reg;
 }
 
-LM_GGML_BACKEND_DL_IMPL(lm_ggml_backend_opencl_reg)
+GGML_BACKEND_DL_IMPL(ggml_backend_opencl_reg)
 
 //------------------------------------------------------------------------------
 // Debugging utils
@@ -11395,10 +11395,10 @@ LM_GGML_BACKEND_DL_IMPL(lm_ggml_backend_opencl_reg)
 #if 0
 #define QK4_0 32
 typedef struct {
-    lm_ggml_fp16_t d;          // delta
+    ggml_fp16_t d;          // delta
     uint8_t qs[QK4_0 / 2];  // nibbles / quants
 } block_q4_0;
-static_assert(sizeof(block_q4_0) == sizeof(lm_ggml_fp16_t) + QK4_0 / 2,
+static_assert(sizeof(block_q4_0) == sizeof(ggml_fp16_t) + QK4_0 / 2,
     "wrong q4_0 block size/padding");
 
 #define QK_MXFP4 32
@@ -11408,12 +11408,12 @@ static_assert(sizeof(block_q4_0) == sizeof(lm_ggml_fp16_t) + QK4_0 / 2,
 #include "half.hpp"
 #endif
 
-static void dump_tensor(lm_ggml_backend_t backend, const struct lm_ggml_tensor * tensor) {
-    void * buf = malloc(lm_ggml_nbytes(tensor));
+static void dump_tensor(ggml_backend_t backend, const struct ggml_tensor * tensor) {
+    void * buf = malloc(ggml_nbytes(tensor));
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
     cl_command_queue queue = backend_ctx->queue;
-#ifdef LM_GGML_OPENCL_SOA_Q
+#ifdef GGML_OPENCL_SOA_Q
     void * buf_q;
     void * buf_d;
 #endif
@@ -11421,27 +11421,27 @@ static void dump_tensor(lm_ggml_backend_t backend, const struct lm_ggml_tensor *
     // Make sure everything is done.
     CL_CHECK(clFinish(queue));
 
-#ifdef LM_GGML_OPENCL_SOA_Q
-    if (tensor->type == LM_GGML_TYPE_Q4_0) {
-        lm_ggml_tensor_extra_cl_q4_0 * extra = (lm_ggml_tensor_extra_cl_q4_0 *) tensor->extra;
-        LM_GGML_ASSERT(extra);
+#ifdef GGML_OPENCL_SOA_Q
+    if (tensor->type == GGML_TYPE_Q4_0) {
+        ggml_tensor_extra_cl_q4_0 * extra = (ggml_tensor_extra_cl_q4_0 *) tensor->extra;
+        GGML_ASSERT(extra);
 
-        size_t size_q = lm_ggml_nelements(tensor)/QK4_0 * QK4_0/2;
-        size_t size_d = lm_ggml_nelements(tensor)/QK4_0 * sizeof(lm_ggml_fp16_t);
-        LM_GGML_ASSERT(size_q + size_d == lm_ggml_nbytes(tensor));
+        size_t size_q = ggml_nelements(tensor)/QK4_0 * QK4_0/2;
+        size_t size_d = ggml_nelements(tensor)/QK4_0 * sizeof(ggml_fp16_t);
+        GGML_ASSERT(size_q + size_d == ggml_nbytes(tensor));
         buf_q = malloc(size_q);
         buf_d = malloc(size_d);
 
         CL_CHECK(clEnqueueReadBuffer(queue, extra->q, CL_TRUE, 0, size_q, buf_q, 0, NULL, NULL));
         CL_CHECK(clEnqueueReadBuffer(queue, extra->d, CL_TRUE, 0, size_d, buf_d, 0, NULL, NULL));
         CL_CHECK(clFinish(queue));
-    } else if (tensor->type == LM_GGML_TYPE_MXFP4) {
-        lm_ggml_tensor_extra_cl_mxfp4 * extra = (lm_ggml_tensor_extra_cl_mxfp4 *) tensor->extra;
-        LM_GGML_ASSERT(extra);
+    } else if (tensor->type == GGML_TYPE_MXFP4) {
+        ggml_tensor_extra_cl_mxfp4 * extra = (ggml_tensor_extra_cl_mxfp4 *) tensor->extra;
+        GGML_ASSERT(extra);
 
-        size_t size_q = lm_ggml_nelements(tensor)/QK_MXFP4 * QK_MXFP4/2;
-        size_t size_e = lm_ggml_nelements(tensor)/QK_MXFP4 * sizeof(char);
-        LM_GGML_ASSERT(size_q + size_e == lm_ggml_nbytes(tensor));
+        size_t size_q = ggml_nelements(tensor)/QK_MXFP4 * QK_MXFP4/2;
+        size_t size_e = ggml_nelements(tensor)/QK_MXFP4 * sizeof(char);
+        GGML_ASSERT(size_q + size_e == ggml_nbytes(tensor));
         buf_q = malloc(size_q);
         buf_d = malloc(size_e);
 
@@ -11450,22 +11450,22 @@ static void dump_tensor(lm_ggml_backend_t backend, const struct lm_ggml_tensor *
         CL_CHECK(clFinish(queue));
     } else {
         // Read out the tensor from GPU memory.
-        lm_ggml_tensor_extra_cl * extra = (lm_ggml_tensor_extra_cl *) tensor->extra;
-        LM_GGML_ASSERT(extra);
+        ggml_tensor_extra_cl * extra = (ggml_tensor_extra_cl *) tensor->extra;
+        GGML_ASSERT(extra);
 
         CL_CHECK(clEnqueueReadBuffer(queue, extra->data_device, CL_TRUE,
-        extra->offset, lm_ggml_nbytes(tensor), buf, 0, NULL, NULL));
+        extra->offset, ggml_nbytes(tensor), buf, 0, NULL, NULL));
         CL_CHECK(clFinish(queue));
     }
 #else
     // Read out the tensor from GPU memory.
-    lm_ggml_tensor_extra_cl * extra = (lm_ggml_tensor_extra_cl *) tensor->extra;
-    LM_GGML_ASSERT(extra);
+    ggml_tensor_extra_cl * extra = (ggml_tensor_extra_cl *) tensor->extra;
+    GGML_ASSERT(extra);
 
     CL_CHECK(clEnqueueReadBuffer(queue, extra->data_device, CL_TRUE,
-        extra->offset, lm_ggml_nbytes(tensor), buf, 0, NULL, NULL));
+        extra->offset, ggml_nbytes(tensor), buf, 0, NULL, NULL));
     CL_CHECK(clFinish(queue));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
 
     // Open file and dump.
     char fname[512];
@@ -11476,28 +11476,28 @@ static void dump_tensor(lm_ggml_backend_t backend, const struct lm_ggml_tensor *
         return;
     }
 
-    if (tensor->type == LM_GGML_TYPE_F32) {
+    if (tensor->type == GGML_TYPE_F32) {
         float * data = (float *) buf;
-        for (int i = 0; i < lm_ggml_nelements(tensor); ++i) {
+        for (int i = 0; i < ggml_nelements(tensor); ++i) {
             if (isnan(data[i])) {
                 printf("NaN found: %s\n", tensor->name);
                 break;
             }
             fprintf(f, "%f\n", data[i]);
         }
-    } else if (tensor->type == LM_GGML_TYPE_I32) {
+    } else if (tensor->type == GGML_TYPE_I32) {
         int * data = (int *) buf;
-        for (int i = 0; i < lm_ggml_nelements(tensor); ++i) {
+        for (int i = 0; i < ggml_nelements(tensor); ++i) {
             if (isnan(data[i])) {
                 printf("NaN found: %s\n", tensor->name);
                 break;
             }
             fprintf(f, "%d\n", data[i]);
         }
-    } else if (tensor->type == LM_GGML_TYPE_F16) {
+    } else if (tensor->type == GGML_TYPE_F16) {
 #ifdef __cplusplus
         half_float::half * data = (half_float::half *) buf;
-        for (int i = 0; i < lm_ggml_nelements(tensor); ++i) {
+        for (int i = 0; i < ggml_nelements(tensor); ++i) {
             if (std::isnan(data[i])) {
                 printf("NaN found: %s\n", tensor->name);
                 break;
@@ -11505,12 +11505,12 @@ static void dump_tensor(lm_ggml_backend_t backend, const struct lm_ggml_tensor *
             fprintf(f, "%f\n", float(data[i]));
         }
 #endif
-    } else if (tensor->type == LM_GGML_TYPE_Q4_0) {
-#ifdef LM_GGML_OPENCL_SOA_Q
-        lm_ggml_fp16_t * data_d = (lm_ggml_fp16_t *)buf_d;
+    } else if (tensor->type == GGML_TYPE_Q4_0) {
+#ifdef GGML_OPENCL_SOA_Q
+        ggml_fp16_t * data_d = (ggml_fp16_t *)buf_d;
         unsigned char * data_q = (unsigned char *)buf_q;
 
-        for (int i = 0; i < lm_ggml_nelements(tensor)/QK4_0; ++i) {
+        for (int i = 0; i < ggml_nelements(tensor)/QK4_0; ++i) {
             fprintf(f, "%04x, ", data_d[i]);
             for (int k = 0; k < QK4_0/2; ++k) {
                 fprintf(f, "%02x, ", data_q[k]);
@@ -11522,14 +11522,14 @@ static void dump_tensor(lm_ggml_backend_t backend, const struct lm_ggml_tensor *
         free(buf_q);
 #else
         block_q4_0 * data = (block_q4_0 *) buf;
-        for (int i = 0; i < lm_ggml_nelements(tensor)/QK4_0; ++i) {
+        for (int i = 0; i < ggml_nelements(tensor)/QK4_0; ++i) {
             fprintf(f, "%04x, ", data[i].d);
             for (int k = 0; k < QK4_0/2; ++k) {
                 fprintf(f, "%02x, ", data[i].qs[k]);
             }
             fprintf(f, "\n");
         }
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
     }
     free(buf);
     fflush(f);
@@ -11543,26 +11543,26 @@ static void dump_tensor(lm_ggml_backend_t backend, const struct lm_ggml_tensor *
 // Ops
 //------------------------------------------------------------------------------
 
-static bool lm_ggml_cl_can_mul_mat(const struct lm_ggml_tensor * src0, const struct lm_ggml_tensor * src1, struct lm_ggml_tensor * dst) {
+static bool ggml_cl_can_mul_mat(const struct ggml_tensor * src0, const struct ggml_tensor * src1, struct ggml_tensor * dst) {
     const int64_t ne10 = src1->ne[0];
 
     const int64_t ne0 = dst->ne[0];
     const int64_t ne1 = dst->ne[1];
 
     // TODO: find the optimal values for these
-    return (src0->type == LM_GGML_TYPE_F32 || src0->type == LM_GGML_TYPE_F16 || lm_ggml_is_quantized(src0->type)) &&
-            src1->type == LM_GGML_TYPE_F32 &&
-             dst->type == LM_GGML_TYPE_F32 &&
+    return (src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16 || ggml_is_quantized(src0->type)) &&
+            src1->type == GGML_TYPE_F32 &&
+             dst->type == GGML_TYPE_F32 &&
             (ne0 >= 32 && ne1 >= 32 && ne10 >= 32);
 }
 
 // Copy a noncontiguous tensor to contiguous tensor. ne[] remains the same but
 // nb[] is recalculated such that tensor is contiguous.
-static void lm_ggml_cl_copy_to_contiguous(lm_ggml_backend_t backend, const lm_ggml_tensor * src, cl_mem dst,
+static void ggml_cl_copy_to_contiguous(ggml_backend_t backend, const ggml_tensor * src, cl_mem dst,
                                        cl_ulong &nb0, cl_ulong &nb1, cl_ulong &nb2, cl_ulong &nb3) {
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    const int tensor_type_size = lm_ggml_type_size(src->type);
+    const int tensor_type_size = ggml_type_size(src->type);
 
     const int ne00 = src->ne[0];
     const int ne01 = src->ne[1];
@@ -11584,7 +11584,7 @@ static void lm_ggml_cl_copy_to_contiguous(lm_ggml_backend_t backend, const lm_gg
     nb2 = tensor_type_size*ne00*ne01;
     nb3 = tensor_type_size*ne00*ne01*ne02;
 
-    lm_ggml_tensor_extra_cl * extra = (lm_ggml_tensor_extra_cl *)src->extra;
+    ggml_tensor_extra_cl * extra = (ggml_tensor_extra_cl *)src->extra;
 
     cl_ulong offset0 = extra->offset + src->view_offs;
     cl_ulong offsetd = 0;
@@ -11592,15 +11592,15 @@ static void lm_ggml_cl_copy_to_contiguous(lm_ggml_backend_t backend, const lm_gg
     cl_kernel kernel;
 
     switch (src->type) {
-        case LM_GGML_TYPE_F32:
+        case GGML_TYPE_F32:
             kernel = backend_ctx->kernel_cpy_f32_f32;
             break;
-        case LM_GGML_TYPE_F16:
-        case LM_GGML_TYPE_BF16: // stored as f16 on device
+        case GGML_TYPE_F16:
+        case GGML_TYPE_BF16: // stored as f16 on device
             kernel = backend_ctx->kernel_cpy_f16_f16;
             break;
         default:
-            LM_GGML_ASSERT(false && "not implemented");
+            GGML_ASSERT(false && "not implemented");
     }
 
     CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra->data_device));
@@ -11632,33 +11632,33 @@ static void lm_ggml_cl_copy_to_contiguous(lm_ggml_backend_t backend, const lm_gg
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, src);
 }
 
-static void lm_ggml_cl_nop(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
+static void ggml_cl_nop(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
     UNUSED(backend);
     UNUSED(src0);
     UNUSED(src1);
     UNUSED(dst);
 }
 
-static void lm_ggml_cl_get_rows(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_get_rows(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
-    LM_GGML_TENSOR_LOCALS(int,      ne1, src1, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb1, src1, nb);
-    LM_GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
+    GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+    GGML_TENSOR_LOCALS(int,      ne1, src1, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb1, src1, nb);
+    GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
@@ -11667,17 +11667,17 @@ static void lm_ggml_cl_get_rows(lm_ggml_backend_t backend, const lm_ggml_tensor 
     cl_kernel kernel;
 
     switch (src0->type) {
-        case LM_GGML_TYPE_F32:
+        case GGML_TYPE_F32:
             kernel = backend_ctx->kernel_get_rows_f32;
             break;
-        case LM_GGML_TYPE_F16:
+        case GGML_TYPE_F16:
             kernel = backend_ctx->kernel_get_rows_f16;
             break;
-        case LM_GGML_TYPE_Q4_0:
+        case GGML_TYPE_Q4_0:
             kernel = backend_ctx->kernel_get_rows_q4_0;
             break;
         default:
-            LM_GGML_ASSERT(false && "not implemented");
+            GGML_ASSERT(false && "not implemented");
     }
 
     CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0->data_device));
@@ -11705,7 +11705,7 @@ static void lm_ggml_cl_get_rows(lm_ggml_backend_t backend, const lm_ggml_tensor 
     }
 
     int nchunks = 1;
-    if (src0->type == LM_GGML_TYPE_F32) {
+    if (src0->type == GGML_TYPE_F32) {
         const int chunk_target = nth * 4;
         nchunks = (ne00 + chunk_target - 1) / chunk_target;
         nchunks = MAX(1, MIN(nchunks, 64));
@@ -11719,102 +11719,102 @@ static void lm_ggml_cl_get_rows(lm_ggml_backend_t backend, const lm_ggml_tensor 
 
 // check if a Q8_0 tensor has been SOA'ed in set_tensor
 // we store SOA'ed tensors in a map in set_tensor, check against that map
-static bool lm_ggml_cl_is_q8_0_soa(const lm_ggml_tensor * tensor) {
-    if (tensor == nullptr || tensor->type != LM_GGML_TYPE_Q8_0 || tensor->buffer == nullptr) {
+static bool ggml_cl_is_q8_0_soa(const ggml_tensor * tensor) {
+    if (tensor == nullptr || tensor->type != GGML_TYPE_Q8_0 || tensor->buffer == nullptr) {
         return false;
     }
-    auto * ctx = (lm_ggml_backend_opencl_buffer_context *) tensor->buffer->context;
+    auto * ctx = (ggml_backend_opencl_buffer_context *) tensor->buffer->context;
     if (ctx == nullptr) {
         return false;
     }
-    const lm_ggml_tensor * key = tensor->view_src != nullptr ? tensor->view_src : tensor;
+    const ggml_tensor * key = tensor->view_src != nullptr ? tensor->view_src : tensor;
     return ctx->q8_0_soa_tensors.count(key) > 0;
 }
 
 // check if a Q4_0 tensor has been SOA'ed in set_tensor
 // we store SOA'ed tensors in a map in set_tensor, check against that map
-static bool lm_ggml_cl_is_q4_0_soa(const lm_ggml_tensor * tensor) {
-    if (tensor == nullptr || tensor->type != LM_GGML_TYPE_Q4_0 || tensor->buffer == nullptr) {
+static bool ggml_cl_is_q4_0_soa(const ggml_tensor * tensor) {
+    if (tensor == nullptr || tensor->type != GGML_TYPE_Q4_0 || tensor->buffer == nullptr) {
         return false;
     }
-    auto * ctx = (lm_ggml_backend_opencl_buffer_context *) tensor->buffer->context;
+    auto * ctx = (ggml_backend_opencl_buffer_context *) tensor->buffer->context;
     if (ctx == nullptr) {
         return false;
     }
-    const lm_ggml_tensor * key = tensor->view_src != nullptr ? tensor->view_src : tensor;
+    const ggml_tensor * key = tensor->view_src != nullptr ? tensor->view_src : tensor;
     return ctx->q4_0_soa_tensors.count(key) > 0;
 }
 
-static void lm_ggml_cl_set_rows(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
-    LM_GGML_ASSERT(src1->type == LM_GGML_TYPE_I64 || src1->type == LM_GGML_TYPE_I32);
+static void ggml_cl_set_rows(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
+    GGML_ASSERT(src1->type == GGML_TYPE_I64 || src1->type == GGML_TYPE_I32);
 
     // ne0 = ne00
     // ne2 = ne02
     // ne3 = ne03
 
-    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+    GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
 
-    LM_GGML_TENSOR_LOCALS(int,      ne1, src1, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb1, src1, nb);
+    GGML_TENSOR_LOCALS(int,      ne1, src1, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb1, src1, nb);
 
-    LM_GGML_TENSOR_LOCALS(int,      ne, dst, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb, dst, nb);
+    GGML_TENSOR_LOCALS(int,      ne, dst, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb, dst, nb);
 
-    const int nblk0 = ne0/lm_ggml_blck_size(dst->type);
+    const int nblk0 = ne0/ggml_blck_size(dst->type);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
 
-    const bool q8_0_soa = dst->type == LM_GGML_TYPE_Q8_0 && lm_ggml_cl_is_q8_0_soa(dst);
-    const bool q4_0_soa = dst->type == LM_GGML_TYPE_Q4_0 && lm_ggml_cl_is_q4_0_soa(dst);
+    const bool q8_0_soa = dst->type == GGML_TYPE_Q8_0 && ggml_cl_is_q8_0_soa(dst);
+    const bool q4_0_soa = dst->type == GGML_TYPE_Q4_0 && ggml_cl_is_q4_0_soa(dst);
     const bool is_soa   = q8_0_soa || q4_0_soa;
 
     cl_kernel kernel;
 
     if (q8_0_soa) {
-        kernel = (src1->type == LM_GGML_TYPE_I64)
+        kernel = (src1->type == GGML_TYPE_I64)
                     ? backend_ctx->kernel_set_rows_q8_0_soa_i64
                     : backend_ctx->kernel_set_rows_q8_0_soa_i32;
     } else if (q4_0_soa) {
-        kernel = (src1->type == LM_GGML_TYPE_I64)
+        kernel = (src1->type == GGML_TYPE_I64)
                     ? backend_ctx->kernel_set_rows_q4_0_soa_i64
                     : backend_ctx->kernel_set_rows_q4_0_soa_i32;
     } else {
         switch (dst->type) {
-            case LM_GGML_TYPE_F32:
-                kernel = (src1->type == LM_GGML_TYPE_I64)
+            case GGML_TYPE_F32:
+                kernel = (src1->type == GGML_TYPE_I64)
                             ? backend_ctx->kernel_set_rows_f32_i64
                             : backend_ctx->kernel_set_rows_f32_i32;
                 break;
-            case LM_GGML_TYPE_F16:
-                kernel = (src1->type == LM_GGML_TYPE_I64)
+            case GGML_TYPE_F16:
+                kernel = (src1->type == GGML_TYPE_I64)
                             ? backend_ctx->kernel_set_rows_f16_i64
                             : backend_ctx->kernel_set_rows_f16_i32;
                 break;
-            case LM_GGML_TYPE_Q8_0:
-                kernel = (src1->type == LM_GGML_TYPE_I64)
+            case GGML_TYPE_Q8_0:
+                kernel = (src1->type == GGML_TYPE_I64)
                             ? backend_ctx->kernel_set_rows_q8_0_i64
                             : backend_ctx->kernel_set_rows_q8_0_i32;
                 break;
-            case LM_GGML_TYPE_Q4_0:
-                kernel = (src1->type == LM_GGML_TYPE_I64)
+            case GGML_TYPE_Q4_0:
+                kernel = (src1->type == GGML_TYPE_I64)
                             ? backend_ctx->kernel_set_rows_q4_0_i64
                             : backend_ctx->kernel_set_rows_q4_0_i32;
                 break;
             default:
-                LM_GGML_ABORT("not implemented");
+                GGML_ABORT("not implemented");
         }
     }
 
@@ -11828,16 +11828,16 @@ static void lm_ggml_cl_set_rows(lm_ggml_backend_t backend, const lm_ggml_tensor 
 
     if (is_soa) {
         // The q/d subbuffers in q8_0/q4_0 extras are interchangeable here.
-        // For views (e.g. lm_ggml_set_rows' `out`), follow view_src for the SoA extra.
-        const lm_ggml_tensor * soa_src = dst->view_src != nullptr ? dst->view_src : dst;
+        // For views (e.g. ggml_set_rows' `out`), follow view_src for the SoA extra.
+        const ggml_tensor * soa_src = dst->view_src != nullptr ? dst->view_src : dst;
         cl_mem q_mem = nullptr;
         cl_mem d_mem = nullptr;
         if (q8_0_soa) {
-            lm_ggml_tensor_extra_cl_q8_0 * e = (lm_ggml_tensor_extra_cl_q8_0 *)soa_src->extra;
+            ggml_tensor_extra_cl_q8_0 * e = (ggml_tensor_extra_cl_q8_0 *)soa_src->extra;
             q_mem = e->q;
             d_mem = e->d;
         } else {
-            lm_ggml_tensor_extra_cl_q4_0 * e = (lm_ggml_tensor_extra_cl_q4_0 *)soa_src->extra;
+            ggml_tensor_extra_cl_q4_0 * e = (ggml_tensor_extra_cl_q4_0 *)soa_src->extra;
             q_mem = e->q;
             d_mem = e->d;
         }
@@ -11865,7 +11865,7 @@ static void lm_ggml_cl_set_rows(lm_ggml_backend_t backend, const lm_ggml_tensor 
         CL_CHECK(clSetKernelArg(kernel, 19, sizeof(int),      &ne2_dst));
         CL_CHECK(clSetKernelArg(kernel, 20, sizeof(int),      &ne3_dst));
     } else {
-        lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+        ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
         cl_ulong offsetd = extrad->offset + dst->view_offs;
 
         CL_CHECK(clSetKernelArg(kernel,  4, sizeof(cl_mem),   &extrad->data_device));
@@ -11912,13 +11912,13 @@ static void lm_ggml_cl_set_rows(lm_ggml_backend_t backend, const lm_ggml_tensor 
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_add(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_add(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     const int ne00 = src0->ne[0];
     const int ne01 = src0->ne[1];
@@ -11950,11 +11950,11 @@ static void lm_ggml_cl_add(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     const cl_ulong nb2  = dst->nb[2];
     const cl_ulong nb3  = dst->nb[3];
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
@@ -11962,15 +11962,15 @@ static void lm_ggml_cl_add(lm_ggml_backend_t backend, const lm_ggml_tensor * src
 
     cl_kernel kernel;
 
-    const bool bcast_row = lm_ggml_nelements(src1) == ne10 && lm_ggml_is_contiguous(src1) && ne00 % 4 == 0 && ne10 % 4 == 0;
+    const bool bcast_row = ggml_nelements(src1) == ne10 && ggml_is_contiguous(src1) && ne00 % 4 == 0 && ne10 % 4 == 0;
 
     if (bcast_row) {
-        LM_GGML_ASSERT(lm_ggml_is_contiguous(src0));
-        LM_GGML_ASSERT(ne11 == 1);
+        GGML_ASSERT(ggml_is_contiguous(src0));
+        GGML_ASSERT(ne11 == 1);
     }
 
-    if (dst->type == LM_GGML_TYPE_F32) {
-        LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_F32 && src1->type == LM_GGML_TYPE_F32);
+    if (dst->type == GGML_TYPE_F32) {
+        GGML_ASSERT(src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32);
         if (bcast_row) {
             kernel = backend_ctx->kernel_add_row;
             const int ne = ne00 / 4;
@@ -12014,11 +12014,11 @@ static void lm_ggml_cl_add(lm_ggml_backend_t backend, const lm_ggml_tensor * src
             CL_CHECK(clSetKernelArg(kernel, 28, sizeof(cl_ulong), &nb2));
             CL_CHECK(clSetKernelArg(kernel, 29, sizeof(cl_ulong), &nb3));
         }
-    } else if (dst->type == LM_GGML_TYPE_F16) {
-        LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_F16 || src0->type == LM_GGML_TYPE_F32);
-        LM_GGML_ASSERT(src1->type == LM_GGML_TYPE_F16 || src1->type == LM_GGML_TYPE_F32);
-        const int type_src0 = (src0->type == LM_GGML_TYPE_F32);
-        const int type_src1 = (src1->type == LM_GGML_TYPE_F32);
+    } else if (dst->type == GGML_TYPE_F16) {
+        GGML_ASSERT(src0->type == GGML_TYPE_F16 || src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(src1->type == GGML_TYPE_F16 || src1->type == GGML_TYPE_F32);
+        const int type_src0 = (src0->type == GGML_TYPE_F32);
+        const int type_src1 = (src1->type == GGML_TYPE_F32);
         if (bcast_row) {
             kernel = backend_ctx->kernel_add_row_f16;
             const int ne = ne00 / 4;
@@ -12067,11 +12067,11 @@ static void lm_ggml_cl_add(lm_ggml_backend_t backend, const lm_ggml_tensor * src
             CL_CHECK(clSetKernelArg(kernel, 31, sizeof(int),      &type_src1));
         }
     } else {
-        LM_GGML_ASSERT(false && "unsupported data types for add");
+        GGML_ASSERT(false && "unsupported data types for add");
     }
 
     if (bcast_row) {
-        int n = lm_ggml_nelements(dst)/4;
+        int n = ggml_nelements(dst)/4;
         size_t global_work_size[] = {(size_t)n, 1, 1};
         size_t local_work_size[] = {64, 1, 1};
 
@@ -12090,24 +12090,24 @@ static void lm_ggml_cl_add(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     }
 }
 
-static void lm_ggml_cl_add_id(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_add_id(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    const lm_ggml_tensor * src2 = dst->src[2];
-    LM_GGML_ASSERT(src2);
-    LM_GGML_ASSERT(src2->extra);
+    const ggml_tensor * src2 = dst->src[2];
+    GGML_ASSERT(src2);
+    GGML_ASSERT(src2->extra);
 
-    LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_F32);
-    LM_GGML_ASSERT(src1->type == LM_GGML_TYPE_F32);
-    LM_GGML_ASSERT(src2->type == LM_GGML_TYPE_I32);
-    LM_GGML_ASSERT(dst->type  == LM_GGML_TYPE_F32);
+    GGML_ASSERT(src0->type == GGML_TYPE_F32);
+    GGML_ASSERT(src1->type == GGML_TYPE_F32);
+    GGML_ASSERT(src2->type == GGML_TYPE_I32);
+    GGML_ASSERT(dst->type  == GGML_TYPE_F32);
 
-    LM_GGML_ASSERT(lm_ggml_is_contiguous_rows(src0));
+    GGML_ASSERT(ggml_is_contiguous_rows(src0));
 
     const int ne00 = src0->ne[0];
     const int ne01 = src0->ne[1];
@@ -12123,12 +12123,12 @@ static void lm_ggml_cl_add_id(lm_ggml_backend_t backend, const lm_ggml_tensor * 
     const int ne0 = dst->ne[0];
     const int ne1 = dst->ne[1];
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extra2 = (lm_ggml_tensor_extra_cl *)src2->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extra2 = (ggml_tensor_extra_cl *)src2->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
@@ -12159,17 +12159,17 @@ static void lm_ggml_cl_add_id(lm_ggml_backend_t backend, const lm_ggml_tensor * 
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_mul(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    LM_GGML_ASSERT(src0->type == src1->type);
-    LM_GGML_ASSERT(src0->type == dst->type);
-    LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_F32 || src0->type == LM_GGML_TYPE_F16);
+    GGML_ASSERT(src0->type == src1->type);
+    GGML_ASSERT(src0->type == dst->type);
+    GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
 
     const int ne00 = src0->ne[0];
     const int ne01 = src0->ne[1];
@@ -12201,11 +12201,11 @@ static void lm_ggml_cl_mul(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     const cl_ulong nb2  = dst->nb[2];
     const cl_ulong nb3  = dst->nb[3];
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
@@ -12214,16 +12214,16 @@ static void lm_ggml_cl_mul(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     bool bcast_row = false;
     cl_kernel kernel;
 
-    if (lm_ggml_nelements(src1) == ne10 && lm_ggml_is_contiguous(src1) && ne00 % 4 == 0 && ne10 % 4 == 0) {
-        LM_GGML_ASSERT(lm_ggml_is_contiguous(src0));
+    if (ggml_nelements(src1) == ne10 && ggml_is_contiguous(src1) && ne00 % 4 == 0 && ne10 % 4 == 0) {
+        GGML_ASSERT(ggml_is_contiguous(src0));
 
         // src1 is a row
-        LM_GGML_ASSERT(ne11 == 1);
+        GGML_ASSERT(ne11 == 1);
 
         bcast_row = true;
         int ne = ne00 / 4;
 
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_mul_row;
         } else {
             kernel = backend_ctx->kernel_mul_row_f16;
@@ -12237,7 +12237,7 @@ static void lm_ggml_cl_mul(lm_ggml_backend_t backend, const lm_ggml_tensor * src
         CL_CHECK(clSetKernelArg(kernel, 5, sizeof(cl_ulong), &offsetd));
         CL_CHECK(clSetKernelArg(kernel, 6, sizeof(int),      &ne));
     } else {
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_mul;
         } else {
             kernel = backend_ctx->kernel_mul_f16;
@@ -12276,7 +12276,7 @@ static void lm_ggml_cl_mul(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     }
 
     if (bcast_row) {
-        int n = lm_ggml_nelements(dst)/4;
+        int n = ggml_nelements(dst)/4;
         size_t global_work_size[] = {(size_t)n, 1, 1};
         size_t local_work_size[] = {64, 1, 1};
 
@@ -12295,17 +12295,17 @@ static void lm_ggml_cl_mul(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     }
 }
 
-static void lm_ggml_cl_div(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_div(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    LM_GGML_ASSERT(src0->type == src1->type);
-    LM_GGML_ASSERT(src0->type == dst->type);
-    LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_F32 || src0->type == LM_GGML_TYPE_F16);
+    GGML_ASSERT(src0->type == src1->type);
+    GGML_ASSERT(src0->type == dst->type);
+    GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
 
     const int ne00 = src0->ne[0];
     const int ne01 = src0->ne[1];
@@ -12334,11 +12334,11 @@ static void lm_ggml_cl_div(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     const cl_ulong nb2  = dst->nb[2];
     const cl_ulong nb3  = dst->nb[3];
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
@@ -12347,16 +12347,16 @@ static void lm_ggml_cl_div(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     bool bcast_row = false;
     cl_kernel kernel;
 
-    if (lm_ggml_nelements(src1) == ne10 && lm_ggml_is_contiguous(src1) && ne00 % 4 == 0 && ne10 % 4 == 0) {
-        LM_GGML_ASSERT(lm_ggml_is_contiguous(src0));
+    if (ggml_nelements(src1) == ne10 && ggml_is_contiguous(src1) && ne00 % 4 == 0 && ne10 % 4 == 0) {
+        GGML_ASSERT(ggml_is_contiguous(src0));
 
         // src1 is a row
-        LM_GGML_ASSERT(ne11 == 1);
+        GGML_ASSERT(ne11 == 1);
 
         bcast_row = true;
         int ne = ne00 / 4;
 
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_div_row;
         } else {
             kernel = backend_ctx->kernel_div_row_f16;
@@ -12370,7 +12370,7 @@ static void lm_ggml_cl_div(lm_ggml_backend_t backend, const lm_ggml_tensor * src
         CL_CHECK(clSetKernelArg(kernel, 5, sizeof(cl_ulong), &offsetd));
         CL_CHECK(clSetKernelArg(kernel, 6, sizeof(int),      &ne));
     } else {
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_div;
         } else {
             kernel = backend_ctx->kernel_div_f16;
@@ -12402,7 +12402,7 @@ static void lm_ggml_cl_div(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     }
 
     if (bcast_row) {
-        int n = lm_ggml_nelements(dst)/4;
+        int n = ggml_nelements(dst)/4;
         size_t global_work_size[] = {(size_t)n, 1, 1};
         size_t local_work_size[] = {64, 1, 1};
 
@@ -12416,17 +12416,17 @@ static void lm_ggml_cl_div(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     }
 }
 
-static void lm_ggml_cl_sub(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_sub(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    LM_GGML_ASSERT(src0->type == src1->type);
-    LM_GGML_ASSERT(src0->type == dst->type);
-    LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_F32 || src0->type == LM_GGML_TYPE_F16);
+    GGML_ASSERT(src0->type == src1->type);
+    GGML_ASSERT(src0->type == dst->type);
+    GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
 
     const int ne00 = src0->ne[0];
     const int ne01 = src0->ne[1];
@@ -12455,11 +12455,11 @@ static void lm_ggml_cl_sub(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     const cl_ulong nb2  = dst->nb[2];
     const cl_ulong nb3  = dst->nb[3];
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
@@ -12468,16 +12468,16 @@ static void lm_ggml_cl_sub(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     bool bcast_row = false;
     cl_kernel kernel;
 
-    if (lm_ggml_nelements(src1) == ne10 && lm_ggml_is_contiguous(src1) && ne00 % 4 == 0 && ne10 % 4 == 0) {
-        LM_GGML_ASSERT(lm_ggml_is_contiguous(src0));
+    if (ggml_nelements(src1) == ne10 && ggml_is_contiguous(src1) && ne00 % 4 == 0 && ne10 % 4 == 0) {
+        GGML_ASSERT(ggml_is_contiguous(src0));
 
         // src1 is a row
-        LM_GGML_ASSERT(ne11 == 1);
+        GGML_ASSERT(ne11 == 1);
 
         bcast_row = true;
         int ne = ne00 / 4;
 
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_sub_row;
         } else {
             kernel = backend_ctx->kernel_sub_row_f16;
@@ -12491,7 +12491,7 @@ static void lm_ggml_cl_sub(lm_ggml_backend_t backend, const lm_ggml_tensor * src
         CL_CHECK(clSetKernelArg(kernel, 5, sizeof(cl_ulong), &offsetd));
         CL_CHECK(clSetKernelArg(kernel, 6, sizeof(int),      &ne));
     } else {
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_sub;
         } else {
             kernel = backend_ctx->kernel_sub_f16;
@@ -12523,7 +12523,7 @@ static void lm_ggml_cl_sub(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     }
 
     if (bcast_row) {
-        int n = lm_ggml_nelements(dst)/4;
+        int n = ggml_nelements(dst)/4;
         size_t global_work_size[] = {(size_t)n, 1, 1};
         size_t local_work_size[] = {64, 1, 1};
 
@@ -12537,17 +12537,17 @@ static void lm_ggml_cl_sub(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     }
 }
 
-static void lm_ggml_cl_sqr(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_sqr(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -12555,16 +12555,16 @@ static void lm_ggml_cl_sqr(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     cl_kernel kernel;
 
     // Currently assumes src0 is contiguous
-    int n = lm_ggml_nelements(dst);
+    int n = ggml_nelements(dst);
     if (n % 4 == 0) {
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_sqr_cont_f32_4;
         } else {
             kernel = backend_ctx->kernel_sqr_cont_f16_4;
         }
         n /= 4;
     } else {
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_sqr_cont_f32;
         } else {
             kernel = backend_ctx->kernel_sqr_cont_f16;
@@ -12587,17 +12587,17 @@ static void lm_ggml_cl_sqr(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
 }
 
-static void lm_ggml_cl_sqrt(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_sqrt(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -12605,16 +12605,16 @@ static void lm_ggml_cl_sqrt(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     cl_kernel kernel;
 
     // Currently assumes src0 is contiguous
-    int n = lm_ggml_nelements(dst);
+    int n = ggml_nelements(dst);
     if (n % 4 == 0) {
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_sqrt_cont_f32_4;
         } else {
             kernel = backend_ctx->kernel_sqrt_cont_f16_4;
         }
         n /= 4;
     } else {
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_sqrt_cont_f32;
         } else {
             kernel = backend_ctx->kernel_sqrt_cont_f16;
@@ -12637,19 +12637,19 @@ static void lm_ggml_cl_sqrt(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
 }
 
-static void lm_ggml_cl_mean(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
-    LM_GGML_UNUSED(src1);
+static void ggml_cl_mean(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
+    GGML_UNUSED(src1);
 
-    LM_GGML_ASSERT(src0->nb[0] == lm_ggml_type_size(src0->type));
+    GGML_ASSERT(src0->nb[0] == ggml_type_size(src0->type));
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -12697,27 +12697,27 @@ static void lm_ggml_cl_mean(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_ssm_scan(lm_ggml_backend_t backend, lm_ggml_tensor * dst) {
-    const lm_ggml_tensor * src0 = dst->src[0]; // s
-    const lm_ggml_tensor * src1 = dst->src[1]; // x
-    const lm_ggml_tensor * src2 = dst->src[2]; // dt
-    const lm_ggml_tensor * src3 = dst->src[3]; // A
-    const lm_ggml_tensor * src4 = dst->src[4]; // B
-    const lm_ggml_tensor * src5 = dst->src[5]; // C
-    const lm_ggml_tensor * src6 = dst->src[6]; // ids
+static void ggml_cl_ssm_scan(ggml_backend_t backend, ggml_tensor * dst) {
+    const ggml_tensor * src0 = dst->src[0]; // s
+    const ggml_tensor * src1 = dst->src[1]; // x
+    const ggml_tensor * src2 = dst->src[2]; // dt
+    const ggml_tensor * src3 = dst->src[3]; // A
+    const ggml_tensor * src4 = dst->src[4]; // B
+    const ggml_tensor * src5 = dst->src[5]; // C
+    const ggml_tensor * src6 = dst->src[6]; // ids
 
-    LM_GGML_ASSERT(src0 && src1 && src2 && src3 && src4 && src5 && src6 && dst);
+    GGML_ASSERT(src0 && src1 && src2 && src3 && src4 && src5 && src6 && dst);
 
-    lm_ggml_backend_opencl_context * backend_ctx = (lm_ggml_backend_opencl_context *) backend->context;
+    ggml_backend_opencl_context * backend_ctx = (ggml_backend_opencl_context *) backend->context;
 
-    lm_ggml_tensor_extra_cl * e0 = (lm_ggml_tensor_extra_cl *) src0->extra;
-    lm_ggml_tensor_extra_cl * e1 = (lm_ggml_tensor_extra_cl *) src1->extra;
-    lm_ggml_tensor_extra_cl * e2 = (lm_ggml_tensor_extra_cl *) src2->extra;
-    lm_ggml_tensor_extra_cl * e3 = (lm_ggml_tensor_extra_cl *) src3->extra;
-    lm_ggml_tensor_extra_cl * e4 = (lm_ggml_tensor_extra_cl *) src4->extra;
-    lm_ggml_tensor_extra_cl * e5 = (lm_ggml_tensor_extra_cl *) src5->extra;
-    lm_ggml_tensor_extra_cl * e6 = (lm_ggml_tensor_extra_cl *) src6->extra;
-    lm_ggml_tensor_extra_cl * ed = (lm_ggml_tensor_extra_cl *) dst->extra;
+    ggml_tensor_extra_cl * e0 = (ggml_tensor_extra_cl *) src0->extra;
+    ggml_tensor_extra_cl * e1 = (ggml_tensor_extra_cl *) src1->extra;
+    ggml_tensor_extra_cl * e2 = (ggml_tensor_extra_cl *) src2->extra;
+    ggml_tensor_extra_cl * e3 = (ggml_tensor_extra_cl *) src3->extra;
+    ggml_tensor_extra_cl * e4 = (ggml_tensor_extra_cl *) src4->extra;
+    ggml_tensor_extra_cl * e5 = (ggml_tensor_extra_cl *) src5->extra;
+    ggml_tensor_extra_cl * e6 = (ggml_tensor_extra_cl *) src6->extra;
+    ggml_tensor_extra_cl * ed = (ggml_tensor_extra_cl *) dst->extra;
 
     cl_ulong o0 = e0->offset + src0->view_offs;
     cl_ulong o1 = e1->offset + src1->view_offs;
@@ -12735,13 +12735,13 @@ static void lm_ggml_cl_ssm_scan(lm_ggml_backend_t backend, lm_ggml_tensor * dst)
     const int n_tokens = (int) src1->ne[2];
     const int n_seqs   = (int) src1->ne[3];
 
-    // Mirror CPU ref: s_off = lm_ggml_nelements(src1) * sizeof(float)
-    const cl_ulong s_off_bytes = (cl_ulong) lm_ggml_nelements(src1) * sizeof(float);
+    // Mirror CPU ref: s_off = ggml_nelements(src1) * sizeof(float)
+    const cl_ulong s_off_bytes = (cl_ulong) ggml_nelements(src1) * sizeof(float);
 
     cl_kernel kernel = (d_state == 128)
         ? backend_ctx->kernel_ssm_scan_f32_mamba2_d128
         : backend_ctx->kernel_ssm_scan_f32_mamba2_d256;
-    LM_GGML_ASSERT(kernel != nullptr);
+    GGML_ASSERT(kernel != nullptr);
 
     cl_ulong s0_nb2 = src0->nb[2];
     cl_ulong s0_nb3 = src0->nb[3];
@@ -12794,19 +12794,19 @@ static void lm_ggml_cl_ssm_scan(lm_ggml_backend_t backend, lm_ggml_tensor * dst)
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_ssm_conv(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_ssm_conv(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
@@ -12858,25 +12858,25 @@ static void lm_ggml_cl_ssm_conv(lm_ggml_backend_t backend, const lm_ggml_tensor 
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
 }
 
-static void lm_ggml_cl_gelu(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_gelu(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
     cl_kernel kernel;
 
-    int n = lm_ggml_nelements(dst);
+    int n = ggml_nelements(dst);
 
     if (n % 4 == 0) {
         kernel = backend_ctx->kernel_gelu_4;
@@ -12896,25 +12896,25 @@ static void lm_ggml_cl_gelu(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_gelu_erf(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_gelu_erf(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
     cl_kernel kernel;
 
-    int n = lm_ggml_nelements(dst);
+    int n = ggml_nelements(dst);
 
     if (n % 4 == 0) {
         kernel = backend_ctx->kernel_gelu_erf_4;
@@ -12934,25 +12934,25 @@ static void lm_ggml_cl_gelu_erf(lm_ggml_backend_t backend, const lm_ggml_tensor 
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_gelu_quick(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_gelu_quick(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
     cl_kernel kernel;
 
-    int n = lm_ggml_nelements(dst);
+    int n = ggml_nelements(dst);
 
     if (n % 4 == 0) {
         kernel = backend_ctx->kernel_gelu_quick_4;
@@ -12972,25 +12972,25 @@ static void lm_ggml_cl_gelu_quick(lm_ggml_backend_t backend, const lm_ggml_tenso
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_silu(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_silu(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
     cl_kernel kernel;
 
-    int n = lm_ggml_nelements(dst);
+    int n = ggml_nelements(dst);
 
     if (n % 4 == 0) {
         kernel = backend_ctx->kernel_silu_4;
@@ -13015,18 +13015,18 @@ static void lm_ggml_cl_silu(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
 }
 
-static void lm_ggml_cl_relu(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_relu(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -13038,7 +13038,7 @@ static void lm_ggml_cl_relu(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem),   &extrad->data_device));
     CL_CHECK(clSetKernelArg(kernel, 3, sizeof(cl_ulong), &offsetd));
 
-    const int64_t n = lm_ggml_nelements(dst);
+    const int64_t n = ggml_nelements(dst);
 
     size_t global_work_size[] = {(size_t)n, 1, 1};
     size_t local_work_size[] = {64, 1, 1};
@@ -13051,29 +13051,29 @@ static void lm_ggml_cl_relu(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
 }
 
-static void lm_ggml_cl_sigmoid(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_sigmoid(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
     cl_kernel kernel;
-    if (src0->type == LM_GGML_TYPE_F32 && dst->type == LM_GGML_TYPE_F32) {
+    if (src0->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
         kernel = backend_ctx->kernel_sigmoid_f32;
-    } else if (src0->type == LM_GGML_TYPE_F16 && dst->type == LM_GGML_TYPE_F16) {
+    } else if (src0->type == GGML_TYPE_F16 && dst->type == GGML_TYPE_F16) {
         kernel = backend_ctx->kernel_sigmoid_f16;
     } else {
-        LM_GGML_ASSERT(false && "Unsupported data types for sigmoid (input and output must be both f32 or f16)");
+        GGML_ASSERT(false && "Unsupported data types for sigmoid (input and output must be both f32 or f16)");
     }
 
     CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem),   &extra0->data_device));
@@ -13081,7 +13081,7 @@ static void lm_ggml_cl_sigmoid(lm_ggml_backend_t backend, const lm_ggml_tensor *
     CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem),   &extrad->data_device));
     CL_CHECK(clSetKernelArg(kernel, 3, sizeof(cl_ulong), &offsetd));
 
-    const int64_t n = lm_ggml_nelements(dst);
+    const int64_t n = ggml_nelements(dst);
 
     size_t global_work_size[] = {(size_t)n, 1, 1};
     size_t local_work_size[] = {64, 1, 1};
@@ -13094,24 +13094,24 @@ static void lm_ggml_cl_sigmoid(lm_ggml_backend_t backend, const lm_ggml_tensor *
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
 }
 
-static void lm_ggml_cl_tri(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_tri(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
-    const int tri_type = lm_ggml_get_op_params_i32(dst, 0);
-    const int64_t n = lm_ggml_nelements(dst);
+    const int tri_type = ggml_get_op_params_i32(dst, 0);
+    const int64_t n = ggml_nelements(dst);
     const int     ne0  = dst->ne[0];
     const int     ne1  = dst->ne[1];
 
@@ -13132,22 +13132,22 @@ static void lm_ggml_cl_tri(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     backend_ctx->enqueue_ndrange_kernel(kernel, 1, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_fill(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_fill(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src0);
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
     float v = 0.0f;
     memcpy(&v, ((int32_t *) dst->op_params), sizeof(float));
 
-    const int64_t n = lm_ggml_nelements(dst);
+    const int64_t n = ggml_nelements(dst);
 
     cl_kernel kernel = backend_ctx->kernel_fill;
 
@@ -13162,18 +13162,18 @@ static void lm_ggml_cl_fill(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     backend_ctx->enqueue_ndrange_kernel(kernel, 1, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_clamp(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_clamp(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -13192,7 +13192,7 @@ static void lm_ggml_cl_clamp(lm_ggml_backend_t backend, const lm_ggml_tensor * s
     CL_CHECK(clSetKernelArg(kernel, 4, sizeof(float),    &min));
     CL_CHECK(clSetKernelArg(kernel, 5, sizeof(float),    &max));
 
-    const int64_t n = lm_ggml_nelements(dst);
+    const int64_t n = ggml_nelements(dst);
 
     size_t global_work_size[] = {(size_t)n, 1, 1};
     size_t local_work_size[] = {64, 1, 1};
@@ -13205,18 +13205,18 @@ static void lm_ggml_cl_clamp(lm_ggml_backend_t backend, const lm_ggml_tensor * s
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
 }
 
-static void lm_ggml_cl_norm(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_norm(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -13224,8 +13224,8 @@ static void lm_ggml_cl_norm(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     float eps;
     memcpy(&eps, dst->op_params, sizeof(float));
 
-    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+    GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
 
     int nth = 1;
     while (nth < ne00 && nth < 64) {
@@ -13255,21 +13255,21 @@ static void lm_ggml_cl_norm(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_rms_norm(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_rms_norm(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    //lm_ggml_backend_opencl_device_context * dev_ctx =
-    //    (lm_ggml_backend_opencl_device_context *)backend->device->context;
+    //ggml_backend_opencl_device_context * dev_ctx =
+    //    (ggml_backend_opencl_device_context *)backend->device->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -13286,7 +13286,7 @@ static void lm_ggml_cl_rms_norm(lm_ggml_backend_t backend, const lm_ggml_tensor 
     const cl_ulong nb02 = src0 ? src0->nb[2] : 0;
     const cl_ulong nb03 = src0 ? src0->nb[3] : 0;
 
-    LM_GGML_ASSERT(ne00 % 4 == 0);
+    GGML_ASSERT(ne00 % 4 == 0);
 
     const int nth = MIN(64, ne00);
 
@@ -13309,7 +13309,7 @@ static void lm_ggml_cl_rms_norm(lm_ggml_backend_t backend, const lm_ggml_tensor 
     } else if (backend_ctx->gpu_family == INTEL) {
         sgs = 32;
     } else {
-        LM_GGML_ASSERT(false && "Unsupported GPU");
+        GGML_ASSERT(false && "Unsupported GPU");
     }
 
     CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),    &extra0->data_device));
@@ -13330,38 +13330,38 @@ static void lm_ggml_cl_rms_norm(lm_ggml_backend_t backend, const lm_ggml_tensor 
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_opencl_op_rms_norm_fused(lm_ggml_backend_t backend, lm_ggml_tensor * rms_norm_tensor, lm_ggml_tensor * mul_tensor) {
-    LM_GGML_ASSERT(mul_tensor);
-    LM_GGML_ASSERT(rms_norm_tensor);
+static void ggml_opencl_op_rms_norm_fused(ggml_backend_t backend, ggml_tensor * rms_norm_tensor, ggml_tensor * mul_tensor) {
+    GGML_ASSERT(mul_tensor);
+    GGML_ASSERT(rms_norm_tensor);
 
     // src0 is the src of rms_norm, src1 is the other src of mul (one being rms_norm)
-    const lm_ggml_tensor * src0 = rms_norm_tensor->src[0];
-    const lm_ggml_tensor * src1;
+    const ggml_tensor * src0 = rms_norm_tensor->src[0];
+    const ggml_tensor * src1;
     if (mul_tensor->src[0] == rms_norm_tensor) {
         src1 = mul_tensor->src[1];
     } else if (mul_tensor->src[1] == rms_norm_tensor) {
         src1 = mul_tensor->src[0];
     } else {
-        LM_GGML_ASSERT(false && "Invalid args for rms_norm and mul");
+        GGML_ASSERT(false && "Invalid args for rms_norm and mul");
     }
-    const lm_ggml_tensor * dst = mul_tensor;
+    const ggml_tensor * dst = mul_tensor;
 
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
     float eps;
     memcpy(&eps, rms_norm_tensor->op_params, sizeof(float));
@@ -13388,7 +13388,7 @@ static void lm_ggml_opencl_op_rms_norm_fused(lm_ggml_backend_t backend, lm_ggml_
     const cl_ulong nb2 = dst->nb[2];
     const cl_ulong nb3 = dst->nb[3];
 
-    LM_GGML_ASSERT(ne00 % 4 == 0);
+    GGML_ASSERT(ne00 % 4 == 0);
 
     size_t sgs;
     if (backend_ctx->gpu_family == ADRENO) {
@@ -13396,7 +13396,7 @@ static void lm_ggml_opencl_op_rms_norm_fused(lm_ggml_backend_t backend, lm_ggml_
     } else if (backend_ctx->gpu_family == INTEL) {
         sgs = 32;
     } else {
-        LM_GGML_ASSERT(false && "Unsupported GPU");
+        GGML_ASSERT(false && "Unsupported GPU");
     }
 
     cl_kernel kernel = backend_ctx->kernel_rms_norm_mul;
@@ -13441,25 +13441,25 @@ static void lm_ggml_opencl_op_rms_norm_fused(lm_ggml_backend_t backend, lm_ggml_
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_opencl_op_norm_fused(lm_ggml_backend_t backend, lm_ggml_tensor * norm_tensor, lm_ggml_tensor * mul_tensor, lm_ggml_tensor * add_tensor) {
-    LM_GGML_ASSERT(norm_tensor && mul_tensor && add_tensor);
+static void ggml_opencl_op_norm_fused(ggml_backend_t backend, ggml_tensor * norm_tensor, ggml_tensor * mul_tensor, ggml_tensor * add_tensor) {
+    GGML_ASSERT(norm_tensor && mul_tensor && add_tensor);
 
-    const lm_ggml_tensor * src0 = norm_tensor->src[0];
-    const lm_ggml_tensor * src1 = mul_tensor->src[0] == norm_tensor ? mul_tensor->src[1] : mul_tensor->src[0];
-    const lm_ggml_tensor * src2 = add_tensor->src[0] == mul_tensor ? add_tensor->src[1] : add_tensor->src[0];
-    const lm_ggml_tensor * dst = add_tensor;
+    const ggml_tensor * src0 = norm_tensor->src[0];
+    const ggml_tensor * src1 = mul_tensor->src[0] == norm_tensor ? mul_tensor->src[1] : mul_tensor->src[0];
+    const ggml_tensor * src2 = add_tensor->src[0] == mul_tensor ? add_tensor->src[1] : add_tensor->src[0];
+    const ggml_tensor * dst = add_tensor;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extra2 = (lm_ggml_tensor_extra_cl *)src2->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extra2 = (ggml_tensor_extra_cl *)src2->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offset2 = extra2->offset + src2->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
     float eps;
     memcpy(&eps, norm_tensor->op_params, sizeof(float));
@@ -13475,7 +13475,7 @@ static void lm_ggml_opencl_op_norm_fused(lm_ggml_backend_t backend, lm_ggml_tens
     size_t sgs;
     if (backend_ctx->gpu_family == ADRENO) sgs = 64;
     else if (backend_ctx->gpu_family == INTEL) sgs = 32;
-    else LM_GGML_ASSERT(false && "Unsupported GPU");
+    else GGML_ASSERT(false && "Unsupported GPU");
 
     cl_kernel kernel = backend_ctx->kernel_norm_mul_add;
 
@@ -13527,25 +13527,25 @@ static void lm_ggml_opencl_op_norm_fused(lm_ggml_backend_t backend, lm_ggml_tens
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, gws, lws, dst);
 }
 
-static void lm_ggml_opencl_op_group_norm_fused(lm_ggml_backend_t backend, lm_ggml_tensor * gn_tensor, lm_ggml_tensor * mul_tensor, lm_ggml_tensor * add_tensor) {
-    LM_GGML_ASSERT(gn_tensor && mul_tensor && add_tensor);
+static void ggml_opencl_op_group_norm_fused(ggml_backend_t backend, ggml_tensor * gn_tensor, ggml_tensor * mul_tensor, ggml_tensor * add_tensor) {
+    GGML_ASSERT(gn_tensor && mul_tensor && add_tensor);
 
-    const lm_ggml_tensor * src0 = gn_tensor->src[0];
-    const lm_ggml_tensor * src1 = mul_tensor->src[0] == gn_tensor ? mul_tensor->src[1] : mul_tensor->src[0];
-    const lm_ggml_tensor * src2 = add_tensor->src[0] == mul_tensor ? add_tensor->src[1] : add_tensor->src[0];
-    const lm_ggml_tensor * dst = add_tensor;
+    const ggml_tensor * src0 = gn_tensor->src[0];
+    const ggml_tensor * src1 = mul_tensor->src[0] == gn_tensor ? mul_tensor->src[1] : mul_tensor->src[0];
+    const ggml_tensor * src2 = add_tensor->src[0] == mul_tensor ? add_tensor->src[1] : add_tensor->src[0];
+    const ggml_tensor * dst = add_tensor;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extra2 = (lm_ggml_tensor_extra_cl *)src2->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extra2 = (ggml_tensor_extra_cl *)src2->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offset2 = extra2->offset + src2->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
     int groups;
     float eps;
@@ -13554,7 +13554,7 @@ static void lm_ggml_opencl_op_group_norm_fused(lm_ggml_backend_t backend, lm_ggm
 
     cl_kernel kernel = backend_ctx->kernel_group_norm_mul_add;
     int max_workgroup_size = backend_ctx->get_kernel_workgroup_size(kernel);
-    int ne = lm_ggml_nelements(src0);
+    int ne = ggml_nelements(src0);
     int group_size = ne / groups;
 
     size_t lws[] = { (size_t)MIN(max_workgroup_size, group_size) };
@@ -13575,18 +13575,18 @@ static void lm_ggml_opencl_op_group_norm_fused(lm_ggml_backend_t backend, lm_ggm
     backend_ctx->enqueue_ndrange_kernel(kernel, 1, gws, lws, dst);
 }
 
-static void lm_ggml_cl_group_norm(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_group_norm(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -13608,7 +13608,7 @@ static void lm_ggml_cl_group_norm(lm_ggml_backend_t backend, const lm_ggml_tenso
     } else if (backend_ctx->gpu_family == INTEL) {
         sgs = 32;
     } else {
-        LM_GGML_ASSERT(false && "Unsupported GPU");
+        GGML_ASSERT(false && "Unsupported GPU");
     }
 
     CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem),   &extra0->data_device));
@@ -13625,18 +13625,18 @@ static void lm_ggml_cl_group_norm(lm_ggml_backend_t backend, const lm_ggml_tenso
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_l2_norm(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_l2_norm(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -13644,8 +13644,8 @@ static void lm_ggml_cl_l2_norm(lm_ggml_backend_t backend, const lm_ggml_tensor *
     float eps;
     memcpy(&eps, dst->op_params, sizeof(float));
 
-    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+    GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
 
     size_t sgs;
     if (backend_ctx->gpu_family == ADRENO) {
@@ -13653,7 +13653,7 @@ static void lm_ggml_cl_l2_norm(lm_ggml_backend_t backend, const lm_ggml_tensor *
     } else if (backend_ctx->gpu_family == INTEL) {
         sgs = 32;
     } else {
-        LM_GGML_ASSERT(false && "Unsupported GPU");
+        GGML_ASSERT(false && "Unsupported GPU");
     }
 
     cl_kernel kernel = backend_ctx->kernel_l2_norm_f32;
@@ -13683,18 +13683,18 @@ static void lm_ggml_cl_l2_norm(lm_ggml_backend_t backend, const lm_ggml_tensor *
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_tanh(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_tanh(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -13716,18 +13716,18 @@ static void lm_ggml_cl_tanh(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
 
     cl_kernel kernel;
 
-    if (lm_ggml_is_contiguous(src0)) {
+    if (ggml_is_contiguous(src0)) {
         // Handle contiguous input
-        int n = lm_ggml_nelements(dst);
+        int n = ggml_nelements(dst);
         if (n % 4 == 0) {
-            if (src0->type == LM_GGML_TYPE_F32) {
+            if (src0->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_tanh_f32_4;
             } else {
                 kernel = backend_ctx->kernel_tanh_f16_4;
             }
             n /= 4;
         } else {
-            if (src0->type == LM_GGML_TYPE_F32) {
+            if (src0->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_tanh_f32;
             } else {
                 kernel = backend_ctx->kernel_tanh_f16;
@@ -13750,7 +13750,7 @@ static void lm_ggml_cl_tanh(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
         backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
     } else {
         // Handle non-contiguous input
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_tanh_f32_nc;
         } else {
             kernel = backend_ctx->kernel_tanh_f16_nc;
@@ -13779,41 +13779,41 @@ static void lm_ggml_cl_tanh(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     }
 }
 
-static void lm_ggml_cl_neg(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_neg(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
-    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
-    LM_GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
+    GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+    GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
 
     cl_kernel kernel;
 
-    if (lm_ggml_is_contiguous(src0)) {
+    if (ggml_is_contiguous(src0)) {
         // Handle contiguous input
-        int n = lm_ggml_nelements(dst);
+        int n = ggml_nelements(dst);
         if (n % 4 == 0) {
-            if (src0->type == LM_GGML_TYPE_F32) {
+            if (src0->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_neg_f32_4;
             } else {
                 kernel = backend_ctx->kernel_neg_f16_4;
             }
             n /= 4;
         } else {
-            if (src0->type == LM_GGML_TYPE_F32) {
+            if (src0->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_neg_f32;
             } else {
                 kernel = backend_ctx->kernel_neg_f16;
@@ -13832,7 +13832,7 @@ static void lm_ggml_cl_neg(lm_ggml_backend_t backend, const lm_ggml_tensor * src
         backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
     } else {
         // Handle non-contiguous input
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_neg_f32_nc;
         } else {
             kernel = backend_ctx->kernel_neg_f16_nc;
@@ -13861,41 +13861,41 @@ static void lm_ggml_cl_neg(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     }
 }
 
-static void lm_ggml_cl_exp(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_exp(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
-    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
-    LM_GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
+    GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+    GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
 
     cl_kernel kernel;
 
-    if (lm_ggml_is_contiguous(src0)) {
+    if (ggml_is_contiguous(src0)) {
         // Handle contiguous input
-        int n = lm_ggml_nelements(dst);
+        int n = ggml_nelements(dst);
         if (n % 4 == 0) {
-            if (src0->type == LM_GGML_TYPE_F32) {
+            if (src0->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_exp_f32_4;
             } else {
                 kernel = backend_ctx->kernel_exp_f16_4;
             }
             n /= 4;
         } else {
-            if (src0->type == LM_GGML_TYPE_F32) {
+            if (src0->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_exp_f32;
             } else {
                 kernel = backend_ctx->kernel_exp_f16;
@@ -13914,7 +13914,7 @@ static void lm_ggml_cl_exp(lm_ggml_backend_t backend, const lm_ggml_tensor * src
         backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
     } else {
         // Handle non-contiguous input
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_exp_f32_nc;
         } else {
             kernel = backend_ctx->kernel_exp_f16_nc;
@@ -13943,18 +13943,18 @@ static void lm_ggml_cl_exp(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     }
 }
 
-static void lm_ggml_cl_expm1(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_expm1(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -13976,18 +13976,18 @@ static void lm_ggml_cl_expm1(lm_ggml_backend_t backend, const lm_ggml_tensor * s
 
     cl_kernel kernel;
 
-    if (lm_ggml_is_contiguous(src0)) {
+    if (ggml_is_contiguous(src0)) {
         // Handle contiguous input
-        int n = lm_ggml_nelements(dst);
+        int n = ggml_nelements(dst);
         if (n % 4 == 0) {
-            if (src0->type == LM_GGML_TYPE_F32) {
+            if (src0->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_expm1_f32_4;
             } else {
                 kernel = backend_ctx->kernel_expm1_f16_4;
             }
             n /= 4;
         } else {
-            if (src0->type == LM_GGML_TYPE_F32) {
+            if (src0->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_expm1_f32;
             } else {
                 kernel = backend_ctx->kernel_expm1_f16;
@@ -14010,7 +14010,7 @@ static void lm_ggml_cl_expm1(lm_ggml_backend_t backend, const lm_ggml_tensor * s
         backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
     } else {
         // Handle non-contiguous input
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_expm1_f32_nc;
         } else {
             kernel = backend_ctx->kernel_expm1_f16_nc;
@@ -14039,18 +14039,18 @@ static void lm_ggml_cl_expm1(lm_ggml_backend_t backend, const lm_ggml_tensor * s
     }
 }
 
-static void lm_ggml_cl_abs(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_abs(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -14072,18 +14072,18 @@ static void lm_ggml_cl_abs(lm_ggml_backend_t backend, const lm_ggml_tensor * src
 
     cl_kernel kernel;
 
-    if (lm_ggml_is_contiguous(src0)) {
+    if (ggml_is_contiguous(src0)) {
         // Handle contiguous input
-        int n = lm_ggml_nelements(dst);
+        int n = ggml_nelements(dst);
         if (n % 4 == 0) {
-            if (src0->type == LM_GGML_TYPE_F32) {
+            if (src0->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_abs_f32_4;
             } else {
                 kernel = backend_ctx->kernel_abs_f16_4;
             }
             n /= 4;
         } else {
-            if (src0->type == LM_GGML_TYPE_F32) {
+            if (src0->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_abs_f32;
             } else {
                 kernel = backend_ctx->kernel_abs_f16;
@@ -14106,7 +14106,7 @@ static void lm_ggml_cl_abs(lm_ggml_backend_t backend, const lm_ggml_tensor * src
         backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
     } else {
         // Handle non-contiguous input
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_abs_f32_nc;
         } else {
             kernel = backend_ctx->kernel_abs_f16_nc;
@@ -14135,18 +14135,18 @@ static void lm_ggml_cl_abs(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     }
 }
 
-static void lm_ggml_cl_softplus(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_softplus(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -14168,18 +14168,18 @@ static void lm_ggml_cl_softplus(lm_ggml_backend_t backend, const lm_ggml_tensor 
 
     cl_kernel kernel;
 
-    if (lm_ggml_is_contiguous(src0)) {
+    if (ggml_is_contiguous(src0)) {
         // Handle contiguous input
-        int n = lm_ggml_nelements(dst);
+        int n = ggml_nelements(dst);
         if (n % 4 == 0) {
-            if (src0->type == LM_GGML_TYPE_F32) {
+            if (src0->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_softplus_f32_4;
             } else {
                 kernel = backend_ctx->kernel_softplus_f16_4;
             }
             n /= 4;
         } else {
-            if (src0->type == LM_GGML_TYPE_F32) {
+            if (src0->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_softplus_f32;
             } else {
                 kernel = backend_ctx->kernel_softplus_f16;
@@ -14202,7 +14202,7 @@ static void lm_ggml_cl_softplus(lm_ggml_backend_t backend, const lm_ggml_tensor 
         backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
     } else {
         // Handle non-contiguous input
-        if (src0->type == LM_GGML_TYPE_F32) {
+        if (src0->type == GGML_TYPE_F32) {
             kernel = backend_ctx->kernel_softplus_f32_nc;
         } else {
             kernel = backend_ctx->kernel_softplus_f16_nc;
@@ -14231,19 +14231,19 @@ static void lm_ggml_cl_softplus(lm_ggml_backend_t backend, const lm_ggml_tensor 
     }
 }
 
-static void lm_ggml_cl_repeat(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1_shape_def, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
-    LM_GGML_ASSERT(dst->type == src0->type);
+static void ggml_cl_repeat(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1_shape_def, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
+    GGML_ASSERT(dst->type == src0->type);
 
     UNUSED(src1_shape_def);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad  = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad  = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd  = extrad->offset + dst->view_offs;
@@ -14296,23 +14296,23 @@ static void lm_ggml_cl_repeat(lm_ggml_backend_t backend, const lm_ggml_tensor * 
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_pad(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
-    LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_F32);
-    LM_GGML_ASSERT(dst->type == LM_GGML_TYPE_F32);
+static void ggml_cl_pad(ggml_backend_t backend, const ggml_tensor * src0, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
+    GGML_ASSERT(src0->type == GGML_TYPE_F32);
+    GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
     if (backend_ctx->kernel_pad == nullptr) {
-        LM_GGML_LOG_WARN("%s: pad kernel not available, skipping OpenCL execution.\n", __func__);
+        GGML_LOG_WARN("%s: pad kernel not available, skipping OpenCL execution.\n", __func__);
         return;
     }
 
-    lm_ggml_tensor_extra_cl * extra_src0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra_dst  = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra_src0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra_dst  = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong off_src0 = extra_src0->offset + src0->view_offs;
     cl_ulong off_dst  = extra_dst->offset  + dst->view_offs;
@@ -14391,39 +14391,39 @@ static void lm_ggml_cl_pad(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
 }
 
-static void lm_ggml_cl_upscale(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
-    LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_F32);
-    LM_GGML_ASSERT(dst->type == LM_GGML_TYPE_F32);
+static void ggml_cl_upscale(ggml_backend_t backend, const ggml_tensor * src0, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
+    GGML_ASSERT(src0->type == GGML_TYPE_F32);
+    GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    const int mode_flags        = (lm_ggml_scale_mode) lm_ggml_get_op_params_i32(dst, 0);
-    const lm_ggml_scale_mode mode  = (lm_ggml_scale_mode) (mode_flags & 0xFF);
+    const int mode_flags        = (ggml_scale_mode) ggml_get_op_params_i32(dst, 0);
+    const ggml_scale_mode mode  = (ggml_scale_mode) (mode_flags & 0xFF);
     cl_kernel kernel = nullptr;
 
-    if (mode == LM_GGML_SCALE_MODE_NEAREST) {
+    if (mode == GGML_SCALE_MODE_NEAREST) {
         kernel = backend_ctx->kernel_upscale;
         if (kernel == nullptr) {
-            LM_GGML_LOG_WARN("%s: nearest upscale kernel not available, skipping OpenCL execution.\n", __func__);
+            GGML_LOG_WARN("%s: nearest upscale kernel not available, skipping OpenCL execution.\n", __func__);
             return;
         }
-    } else if (mode == LM_GGML_SCALE_MODE_BILINEAR) {
+    } else if (mode == GGML_SCALE_MODE_BILINEAR) {
         kernel = backend_ctx->kernel_upscale_bilinear;
         if (kernel == nullptr) {
-            LM_GGML_LOG_WARN("%s: bilinear upscale kernel not available, skipping OpenCL execution.\n", __func__);
+            GGML_LOG_WARN("%s: bilinear upscale kernel not available, skipping OpenCL execution.\n", __func__);
             return;
         }
     } else {
-        LM_GGML_LOG_WARN("%s: unsupported upscale mode %d, skipping OpenCL execution.\n", __func__, mode);
+        GGML_LOG_WARN("%s: unsupported upscale mode %d, skipping OpenCL execution.\n", __func__, mode);
         return;
     }
 
-    lm_ggml_tensor_extra_cl * extra_src0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra_dst  = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra_src0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra_dst  = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong off_src0 = extra_src0->offset + src0->view_offs;
     cl_ulong off_dst  = extra_dst->offset  + dst->view_offs;
@@ -14459,7 +14459,7 @@ static void lm_ggml_cl_upscale(lm_ggml_backend_t backend, const lm_ggml_tensor *
     CL_CHECK(clSetKernelArg(kernel, 6, sizeof(cl_ulong),  &nb02));
     CL_CHECK(clSetKernelArg(kernel, 7, sizeof(cl_ulong),  &nb03));
 
-    if (mode == LM_GGML_SCALE_MODE_NEAREST) {
+    if (mode == GGML_SCALE_MODE_NEAREST) {
         CL_CHECK(clSetKernelArg(kernel, 8, sizeof(int),       &ne0));
         CL_CHECK(clSetKernelArg(kernel, 9, sizeof(int),       &ne1));
         CL_CHECK(clSetKernelArg(kernel, 10, sizeof(int),      &ne2));
@@ -14468,8 +14468,8 @@ static void lm_ggml_cl_upscale(lm_ggml_backend_t backend, const lm_ggml_tensor *
         CL_CHECK(clSetKernelArg(kernel, 13, sizeof(float),    &sf1));
         CL_CHECK(clSetKernelArg(kernel, 14, sizeof(float),    &sf2));
         CL_CHECK(clSetKernelArg(kernel, 15, sizeof(float),    &sf3));
-    } else if (mode == LM_GGML_SCALE_MODE_BILINEAR) {
-        if (mode_flags & LM_GGML_SCALE_FLAG_ALIGN_CORNERS) {
+    } else if (mode == GGML_SCALE_MODE_BILINEAR) {
+        if (mode_flags & GGML_SCALE_FLAG_ALIGN_CORNERS) {
             sf0 = ne0 > 1 && ne00 > 1 ? (float)(ne0 - 1) / (ne00 - 1) : sf0;
             sf1 = ne1 > 1 && ne01 > 1 ? (float)(ne1 - 1) / (ne01 - 1) : sf1;
             pixel_offset = 0.0f;
@@ -14505,22 +14505,22 @@ static void lm_ggml_cl_upscale(lm_ggml_backend_t backend, const lm_ggml_tensor *
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
 }
 
-static void lm_ggml_cl_concat(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
-    LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_F32);
-    LM_GGML_ASSERT(src1->type == LM_GGML_TYPE_F32);
-    LM_GGML_ASSERT(dst->type == LM_GGML_TYPE_F32);
+static void ggml_cl_concat(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
+    GGML_ASSERT(src0->type == GGML_TYPE_F32);
+    GGML_ASSERT(src1->type == GGML_TYPE_F32);
+    GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
@@ -14552,7 +14552,7 @@ static void lm_ggml_cl_concat(lm_ggml_backend_t backend, const lm_ggml_tensor * 
     const cl_ulong nb3 = dst->nb[3];
 
     const cl_int dim = ((const int32_t *) dst->op_params)[0];
-    LM_GGML_ASSERT(dim >= 0 && dim <= 3);
+    GGML_ASSERT(dim >= 0 && dim <= 3);
 
     int nth = MIN(64, ne0);
 
@@ -14609,23 +14609,23 @@ static void lm_ggml_cl_concat(lm_ggml_backend_t backend, const lm_ggml_tensor * 
     }
 }
 
-static void lm_ggml_cl_timestep_embedding(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
-    LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_F32);
-    LM_GGML_ASSERT(dst->type == LM_GGML_TYPE_F32);
+static void ggml_cl_timestep_embedding(ggml_backend_t backend, const ggml_tensor * src0, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
+    GGML_ASSERT(src0->type == GGML_TYPE_F32);
+    GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
     if (backend_ctx->kernel_timestep_embedding == nullptr) {
-        LM_GGML_LOG_WARN("%s: timestep_embedding kernel not available, skipping OpenCL execution.\n", __func__);
+        GGML_LOG_WARN("%s: timestep_embedding kernel not available, skipping OpenCL execution.\n", __func__);
         return;
     }
 
-    lm_ggml_tensor_extra_cl * extra_src0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra_dst  = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra_src0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra_dst  = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong off_src0 = extra_src0->offset + src0->view_offs;
     cl_ulong off_dst  = extra_dst->offset  + dst->view_offs;
@@ -14653,10 +14653,10 @@ static void lm_ggml_cl_timestep_embedding(lm_ggml_backend_t backend, const lm_gg
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, NULL, dst);
 }
 
-struct lm_ggml_cl_flash_attn_temp_buffer {
+struct ggml_cl_flash_attn_temp_buffer {
     cl_mem data = nullptr;
 
-    ~lm_ggml_cl_flash_attn_temp_buffer() {
+    ~ggml_cl_flash_attn_temp_buffer() {
         if (data != nullptr) {
             CL_CHECK(clReleaseMemObject(data));
             data = nullptr;
@@ -14666,8 +14666,8 @@ struct lm_ggml_cl_flash_attn_temp_buffer {
 
 // Resolve the source buffer + strides for an FA KV tensor: keep the
 // caller-supplied AoS buffer if non-NULL, else fall back to tensor->extra.
-static void lm_ggml_cl_flash_attn_resolve_src(
-        const lm_ggml_tensor * tensor,
+static void ggml_cl_flash_attn_resolve_src(
+        const ggml_tensor * tensor,
         cl_mem &   buf,
         cl_ulong & offset,
         cl_ulong & nb1,
@@ -14676,8 +14676,8 @@ static void lm_ggml_cl_flash_attn_resolve_src(
     if (buf != NULL) {
         return;
     }
-    lm_ggml_tensor_extra_cl * extra = (lm_ggml_tensor_extra_cl *) tensor->extra;
-    LM_GGML_ASSERT(extra && extra->data_device);
+    ggml_tensor_extra_cl * extra = (ggml_tensor_extra_cl *) tensor->extra;
+    GGML_ASSERT(extra && extra->data_device);
     buf    = extra->data_device;
     offset = extra->offset + tensor->view_offs;
     nb1    = tensor->nb[1];
@@ -14687,9 +14687,9 @@ static void lm_ggml_cl_flash_attn_resolve_src(
 
 // Read a (possibly strided-view) tensor from device into a tight host buffer.
 // dim 0 is always tight; a strided view is gathered row-by-row.
-static void lm_ggml_cl_flash_attn_read_tensor_host(
-        lm_ggml_backend_opencl_context * backend_ctx,
-        const lm_ggml_tensor *           tensor,
+static void ggml_cl_flash_attn_read_tensor_host(
+        ggml_backend_opencl_context * backend_ctx,
+        const ggml_tensor *           tensor,
         cl_mem src_buffer, cl_ulong src_offset,
         cl_ulong src_nb1, cl_ulong src_nb2, cl_ulong src_nb3,
         size_t row_bytes, void * dst, size_t total_bytes
@@ -14720,14 +14720,14 @@ static void lm_ggml_cl_flash_attn_read_tensor_host(
             }
         }
     }
-    LM_GGML_ASSERT(dst_off == total_bytes);
+    GGML_ASSERT(dst_off == total_bytes);
 }
 
 // forward decl: used by the FA decode dispatch (K-image variant) below.
-static cl_mem lm_ggml_cl_img_pool_get_or_create(
-    lm_ggml_backend_opencl_context * backend_ctx,
-    std::map<lm_ggml_backend_opencl_context::ImagePoolKey,
-             lm_ggml_backend_opencl_context::ImagePoolEntry> & pool,
+static cl_mem ggml_cl_img_pool_get_or_create(
+    ggml_backend_opencl_context * backend_ctx,
+    std::map<ggml_backend_opencl_context::ImagePoolKey,
+             ggml_backend_opencl_context::ImagePoolEntry> & pool,
     cl_mem data_device,
     cl_ulong offset0,
     size_t required_bytes,
@@ -14735,10 +14735,10 @@ static cl_mem lm_ggml_cl_img_pool_get_or_create(
 
 // Rebuild AoS q8_0/q4_0 bytes from a SoA tensor into a temp buffer.
 // Returns false if the tensor is not SoA-quantised (already AoS).
-static bool lm_ggml_cl_flash_attn_reconstruct_aos(
-        lm_ggml_backend_opencl_context *         backend_ctx,
-        const lm_ggml_tensor *                   tensor,
-        lm_ggml_cl_flash_attn_temp_buffer &      temp,
+static bool ggml_cl_flash_attn_reconstruct_aos(
+        ggml_backend_opencl_context *         backend_ctx,
+        const ggml_tensor *                   tensor,
+        ggml_cl_flash_attn_temp_buffer &      temp,
         cl_mem &                              out_buf,
         cl_ulong &                            out_offset,
         cl_ulong &                            out_nb1,
@@ -14748,8 +14748,8 @@ static bool lm_ggml_cl_flash_attn_reconstruct_aos(
     if (tensor == nullptr) {
         return false;
     }
-    const bool is_q8_0 = tensor->type == LM_GGML_TYPE_Q8_0 && lm_ggml_cl_is_q8_0_soa(tensor);
-    const bool is_q4_0 = tensor->type == LM_GGML_TYPE_Q4_0 && lm_ggml_cl_is_q4_0_soa(tensor);
+    const bool is_q8_0 = tensor->type == GGML_TYPE_Q8_0 && ggml_cl_is_q8_0_soa(tensor);
+    const bool is_q4_0 = tensor->type == GGML_TYPE_Q4_0 && ggml_cl_is_q4_0_soa(tensor);
     if (!is_q8_0 && !is_q4_0) {
         return false;
     }
@@ -14758,23 +14758,23 @@ static bool lm_ggml_cl_flash_attn_reconstruct_aos(
     // Noshuffle layout only applies to 2D weights, as determined by `use_adreno_kernels`,
     // where ne2 == 1 and ne3 == 1 -- these are never FA inputs.
     // Therefore, we use `restore_block_qk_0` kernels, not `restore_block_qk_0_noshuffle`.
-    const lm_ggml_tensor * soa_src = tensor->view_src ? tensor->view_src : tensor;
+    const ggml_tensor * soa_src = tensor->view_src ? tensor->view_src : tensor;
     cl_mem extra_q = NULL;
     cl_mem extra_d = NULL;
     if (is_q8_0) {
-        auto * e = (lm_ggml_tensor_extra_cl_q8_0 *) soa_src->extra;
-        LM_GGML_ASSERT(e && e->q && e->d);
+        auto * e = (ggml_tensor_extra_cl_q8_0 *) soa_src->extra;
+        GGML_ASSERT(e && e->q && e->d);
         extra_q = e->q;
         extra_d = e->d;
     } else {
-        auto * e = (lm_ggml_tensor_extra_cl_q4_0 *) soa_src->extra;
-        LM_GGML_ASSERT(e && e->q && e->d);
+        auto * e = (ggml_tensor_extra_cl_q4_0 *) soa_src->extra;
+        GGML_ASSERT(e && e->q && e->d);
         extra_q = e->q;
         extra_d = e->d;
     }
 
     // Reconstruct the whole parent; view offsets then work naturally.
-    const size_t parent_nbytes = lm_ggml_nbytes(soa_src);
+    const size_t parent_nbytes = ggml_nbytes(soa_src);
     cl_int err;
     temp.data = clCreateBuffer(backend_ctx->context, CL_MEM_READ_WRITE, parent_nbytes, NULL, &err);
     CL_CHECK(err);
@@ -14785,7 +14785,7 @@ static bool lm_ggml_cl_flash_attn_reconstruct_aos(
     CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra_d));
     CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &temp.data));
 
-    const size_t n_blocks = (size_t) lm_ggml_nelements(soa_src) / lm_ggml_blck_size(soa_src->type);
+    const size_t n_blocks = (size_t) ggml_nelements(soa_src) / ggml_blck_size(soa_src->type);
     size_t global_work_size[] = { n_blocks, 1, 1 };
     size_t local_work_size[]  = { 1, 1, 1 };
     CL_CHECK(clEnqueueNDRangeKernel(backend_ctx->queue, kernel, 3, NULL,
@@ -14803,40 +14803,40 @@ static bool lm_ggml_cl_flash_attn_reconstruct_aos(
 // src_buf when reconstructing from SoA. Returns false for non-contig layouts
 // (the kernel indexes blocks tightly within ne[0]) so the caller can fall back
 // to the host path.
-static bool lm_ggml_cl_flash_attn_dequant_kv_gpu(
-        lm_ggml_backend_opencl_context *    backend_ctx,
-        const lm_ggml_tensor *              tensor,
-        lm_ggml_type                        target_type,
+static bool ggml_cl_flash_attn_dequant_kv_gpu(
+        ggml_backend_opencl_context *    backend_ctx,
+        const ggml_tensor *              tensor,
+        ggml_type                        target_type,
         cl_mem                           in_src_buf,
         cl_ulong                         in_src_offset,
         cl_ulong                         in_src_nb1,
         cl_ulong                         in_src_nb2,
         cl_ulong                         in_src_nb3,
-        lm_ggml_cl_flash_attn_temp_buffer & temp,
+        ggml_cl_flash_attn_temp_buffer & temp,
         cl_mem &                         out_buf,
         cl_ulong &                       out_offset,
         cl_ulong &                       out_nb1,
         cl_ulong &                       out_nb2,
         cl_ulong &                       out_nb3
 ) {
-    LM_GGML_ASSERT(tensor->type == LM_GGML_TYPE_Q8_0 || tensor->type == LM_GGML_TYPE_Q4_0);
-    LM_GGML_ASSERT(target_type == LM_GGML_TYPE_F16 || target_type == LM_GGML_TYPE_F32);
+    GGML_ASSERT(tensor->type == GGML_TYPE_Q8_0 || tensor->type == GGML_TYPE_Q4_0);
+    GGML_ASSERT(target_type == GGML_TYPE_F16 || target_type == GGML_TYPE_F32);
 
-    const bool is_q8_0 = tensor->type == LM_GGML_TYPE_Q8_0;
+    const bool is_q8_0 = tensor->type == GGML_TYPE_Q8_0;
 
     cl_mem   src_buf    = in_src_buf;
     cl_ulong src_offset = in_src_offset;
     cl_ulong src_nb1    = in_src_nb1;
     cl_ulong src_nb2    = in_src_nb2;
     cl_ulong src_nb3    = in_src_nb3;
-    lm_ggml_cl_flash_attn_resolve_src(tensor, src_buf, src_offset, src_nb1, src_nb2, src_nb3);
+    ggml_cl_flash_attn_resolve_src(tensor, src_buf, src_offset, src_nb1, src_nb2, src_nb3);
 
-    if (tensor->nb[0] != (cl_ulong) lm_ggml_type_size(tensor->type)) {
+    if (tensor->nb[0] != (cl_ulong) ggml_type_size(tensor->type)) {
         return false;
     }
 
-    const size_t n_blocks = (size_t) lm_ggml_nelements(tensor) / 32; // block size is 32
-    const size_t elem_size = lm_ggml_type_size(target_type);
+    const size_t n_blocks = (size_t) ggml_nelements(tensor) / 32; // block size is 32
+    const size_t elem_size = ggml_type_size(target_type);
     const size_t out_bytes = n_blocks * 32 * elem_size;
     const cl_int nblk0_arg = (cl_int) (tensor->ne[0] / 32);
     const cl_int ne1_arg   = (cl_int) tensor->ne[1];
@@ -14848,7 +14848,7 @@ static bool lm_ggml_cl_flash_attn_dequant_kv_gpu(
     CL_CHECK(err);
 
     cl_kernel kernel;
-    if (target_type == LM_GGML_TYPE_F16) {
+    if (target_type == GGML_TYPE_F16) {
         kernel = is_q8_0 ? backend_ctx->kernel_dequant_q8_0_f16_view_aos
                          : backend_ctx->kernel_dequant_q4_0_f16_view_aos;
     } else {
@@ -14879,18 +14879,18 @@ static bool lm_ggml_cl_flash_attn_dequant_kv_gpu(
     return true;
 }
 
-static bool lm_ggml_cl_flash_attn_prepare_quantized_tensor(
-        lm_ggml_backend_opencl_context *         backend_ctx,
-        const lm_ggml_tensor *                   tensor,
-        lm_ggml_type                             target_type,
-        lm_ggml_cl_flash_attn_temp_buffer &      temp,
+static bool ggml_cl_flash_attn_prepare_quantized_tensor(
+        ggml_backend_opencl_context *         backend_ctx,
+        const ggml_tensor *                   tensor,
+        ggml_type                             target_type,
+        ggml_cl_flash_attn_temp_buffer &      temp,
         cl_mem &                              data_device,
         cl_ulong &                            offset,
         cl_ulong &                            nb1,
         cl_ulong &                            nb2,
         cl_ulong &                            nb3
 ) {
-    if (!lm_ggml_is_quantized(tensor->type)) {
+    if (!ggml_is_quantized(tensor->type)) {
         return false;
     }
 
@@ -14900,31 +14900,31 @@ static bool lm_ggml_cl_flash_attn_prepare_quantized_tensor(
     cl_ulong src_nb1    = nb1;
     cl_ulong src_nb2    = nb2;
     cl_ulong src_nb3    = nb3;
-    lm_ggml_cl_flash_attn_resolve_src(tensor, src_buffer, src_offset, src_nb1, src_nb2, src_nb3);
+    ggml_cl_flash_attn_resolve_src(tensor, src_buffer, src_offset, src_nb1, src_nb2, src_nb3);
 
-    const int64_t n = lm_ggml_nelements(tensor);
-    const size_t  row_bytes = (size_t) (tensor->ne[0] / lm_ggml_blck_size(tensor->type)) * lm_ggml_type_size(tensor->type);
-    // tight-packed byte count (lm_ggml_nbytes includes stride gaps).
-    const size_t  total_bytes = (size_t) (n / lm_ggml_blck_size(tensor->type)) * lm_ggml_type_size(tensor->type);
+    const int64_t n = ggml_nelements(tensor);
+    const size_t  row_bytes = (size_t) (tensor->ne[0] / ggml_blck_size(tensor->type)) * ggml_type_size(tensor->type);
+    // tight-packed byte count (ggml_nbytes includes stride gaps).
+    const size_t  total_bytes = (size_t) (n / ggml_blck_size(tensor->type)) * ggml_type_size(tensor->type);
     std::vector<uint8_t> host_quant(total_bytes);
 
     sync_with_other_backends(backend_ctx);
-    lm_ggml_cl_flash_attn_read_tensor_host(backend_ctx, tensor, src_buffer, src_offset,
+    ggml_cl_flash_attn_read_tensor_host(backend_ctx, tensor, src_buffer, src_offset,
                                         src_nb1, src_nb2, src_nb3,
                                         row_bytes, host_quant.data(), total_bytes);
 
     std::vector<float> host_f32(n);
-    lm_ggml_get_type_traits(tensor->type)->to_float(host_quant.data(), host_f32.data(), n);
+    ggml_get_type_traits(tensor->type)->to_float(host_quant.data(), host_f32.data(), n);
 
-    const size_t bytes_per_elem = lm_ggml_type_size(target_type);
+    const size_t bytes_per_elem = ggml_type_size(target_type);
     const size_t buffer_size = (size_t) n * bytes_per_elem;
 
     std::vector<uint8_t> host_linear(buffer_size);
-    if (target_type == LM_GGML_TYPE_F32) {
+    if (target_type == GGML_TYPE_F32) {
         memcpy(host_linear.data(), host_f32.data(), buffer_size);
     } else {
-        LM_GGML_ASSERT(target_type == LM_GGML_TYPE_F16);
-        lm_ggml_fp32_to_fp16_row(host_f32.data(), (lm_ggml_fp16_t *) host_linear.data(), n);
+        GGML_ASSERT(target_type == GGML_TYPE_F16);
+        ggml_fp32_to_fp16_row(host_f32.data(), (ggml_fp16_t *) host_linear.data(), n);
     }
 
     cl_int err;
@@ -14940,7 +14940,7 @@ static bool lm_ggml_cl_flash_attn_prepare_quantized_tensor(
 
     static bool warned = false;
     if (!warned) {
-        LM_GGML_LOG_WARN("lm_ggml_opencl: OpenCL flash attention dequantizes GPU-resident quantized KV cache into temporary linear buffers; performance may be poor\n");
+        GGML_LOG_WARN("ggml_opencl: OpenCL flash attention dequantizes GPU-resident quantized KV cache into temporary linear buffers; performance may be poor\n");
         warned = true;
     }
 
@@ -14948,17 +14948,17 @@ static bool lm_ggml_cl_flash_attn_prepare_quantized_tensor(
 }
 
 // Host-side F16 -> F32 for the asymmetric-KV F32 fallback path.
-static bool lm_ggml_cl_flash_attn_convert_f16_to_f32(
-        lm_ggml_backend_opencl_context *         backend_ctx,
-        const lm_ggml_tensor *                   tensor,
-        lm_ggml_cl_flash_attn_temp_buffer &      temp,
+static bool ggml_cl_flash_attn_convert_f16_to_f32(
+        ggml_backend_opencl_context *         backend_ctx,
+        const ggml_tensor *                   tensor,
+        ggml_cl_flash_attn_temp_buffer &      temp,
         cl_mem &                              data_device,
         cl_ulong &                            offset,
         cl_ulong &                            nb1,
         cl_ulong &                            nb2,
         cl_ulong &                            nb3
 ) {
-    if (tensor->type != LM_GGML_TYPE_F16) {
+    if (tensor->type != GGML_TYPE_F16) {
         return false;
     }
 
@@ -14967,20 +14967,20 @@ static bool lm_ggml_cl_flash_attn_convert_f16_to_f32(
     cl_ulong src_nb1    = nb1;
     cl_ulong src_nb2    = nb2;
     cl_ulong src_nb3    = nb3;
-    lm_ggml_cl_flash_attn_resolve_src(tensor, src_buffer, src_offset, src_nb1, src_nb2, src_nb3);
+    ggml_cl_flash_attn_resolve_src(tensor, src_buffer, src_offset, src_nb1, src_nb2, src_nb3);
 
-    const int64_t n = lm_ggml_nelements(tensor);
-    const size_t  row_bytes = (size_t) tensor->ne[0] * sizeof(lm_ggml_fp16_t);
-    const size_t  total_bytes = (size_t) n * sizeof(lm_ggml_fp16_t);
+    const int64_t n = ggml_nelements(tensor);
+    const size_t  row_bytes = (size_t) tensor->ne[0] * sizeof(ggml_fp16_t);
+    const size_t  total_bytes = (size_t) n * sizeof(ggml_fp16_t);
     std::vector<uint8_t> host_f16(total_bytes);
 
     sync_with_other_backends(backend_ctx);
-    lm_ggml_cl_flash_attn_read_tensor_host(backend_ctx, tensor, src_buffer, src_offset,
+    ggml_cl_flash_attn_read_tensor_host(backend_ctx, tensor, src_buffer, src_offset,
                                         src_nb1, src_nb2, src_nb3,
                                         row_bytes, host_f16.data(), total_bytes);
 
     std::vector<float> host_f32(n);
-    lm_ggml_fp16_to_fp32_row((const lm_ggml_fp16_t *) host_f16.data(), host_f32.data(), n);
+    ggml_fp16_to_fp32_row((const ggml_fp16_t *) host_f16.data(), host_f32.data(), n);
 
     const size_t f32_bytes = (size_t) n * sizeof(float);
     cl_int err;
@@ -14997,7 +14997,7 @@ static bool lm_ggml_cl_flash_attn_convert_f16_to_f32(
 
     static bool warned = false;
     if (!warned) {
-        LM_GGML_LOG_WARN("lm_ggml_opencl: OpenCL flash attention asymmetric KV converts an F16 cache to F32 host-side; performance may be poor\n");
+        GGML_LOG_WARN("ggml_opencl: OpenCL flash attention asymmetric KV converts an F16 cache to F32 host-side; performance may be poor\n");
         warned = true;
     }
 
@@ -15023,24 +15023,24 @@ static constexpr int FD_MAX_N_Q_MULTI = 8;
 static constexpr int FD_MQ_KV_PER_SPLIT = 256;
 static constexpr int FD_MQ_MAX_SPLITS   = 128;
 
-static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tensor * q, const lm_ggml_tensor * k, lm_ggml_tensor * dst) {
-    const lm_ggml_tensor * v = dst->src[2];
-    const lm_ggml_tensor * mask = dst->src[3];
-    const lm_ggml_tensor * sinks = dst->src[4];
+static void ggml_cl_flash_attn(ggml_backend_t backend, const ggml_tensor * q, const ggml_tensor * k, ggml_tensor * dst) {
+    const ggml_tensor * v = dst->src[2];
+    const ggml_tensor * mask = dst->src[3];
+    const ggml_tensor * sinks = dst->src[4];
 
-    LM_GGML_ASSERT(q->extra);
-    LM_GGML_ASSERT(k->extra);
-    LM_GGML_ASSERT(v->extra);
-    LM_GGML_ASSERT(dst->extra);
+    GGML_ASSERT(q->extra);
+    GGML_ASSERT(k->extra);
+    GGML_ASSERT(v->extra);
+    GGML_ASSERT(dst->extra);
 
     if (mask) {
-        LM_GGML_ASSERT(mask->extra);
+        GGML_ASSERT(mask->extra);
     }
     if (sinks) {
-        LM_GGML_ASSERT(sinks->extra);
+        GGML_ASSERT(sinks->extra);
     }
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
     const int n_q = q->ne[1];
     const int n_kv = k->ne[1];
@@ -15060,51 +15060,51 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
     // DK=512 decode (n_q==1) needs no prepass
     // DK=512 prefill (n_q>1) does, so compile it only when needed
     if (!fa_decode_only_512 || n_q > 1) {
-        lm_ggml_opencl_ensure_fa_pre_kernels(backend_ctx, d_head_q, d_head_v);
+        ggml_opencl_ensure_fa_pre_kernels(backend_ctx, d_head_q, d_head_v);
     }
 
     cl_kernel kernel = NULL;
     bool use_prefill_k_img = false;  //  K is image1d_buffer_t for DK=512 prefill
 
-    const bool is_f16 = q->type == LM_GGML_TYPE_F16;
-    const bool is_mixed = q->type == LM_GGML_TYPE_F32 && k->type == LM_GGML_TYPE_F16 && v->type == LM_GGML_TYPE_F16;
-    const bool is_q8_0 = q->type == LM_GGML_TYPE_F32 && k->type == LM_GGML_TYPE_Q8_0 && v->type == LM_GGML_TYPE_Q8_0;
-    const bool is_q4_0 = q->type == LM_GGML_TYPE_F32 && k->type == LM_GGML_TYPE_Q4_0 && v->type == LM_GGML_TYPE_Q4_0;
+    const bool is_f16 = q->type == GGML_TYPE_F16;
+    const bool is_mixed = q->type == GGML_TYPE_F32 && k->type == GGML_TYPE_F16 && v->type == GGML_TYPE_F16;
+    const bool is_q8_0 = q->type == GGML_TYPE_F32 && k->type == GGML_TYPE_Q8_0 && v->type == GGML_TYPE_Q8_0;
+    const bool is_q4_0 = q->type == GGML_TYPE_F32 && k->type == GGML_TYPE_Q4_0 && v->type == GGML_TYPE_Q4_0;
 
     if (is_f16) {
-        lm_ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_F16);
+        ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_F16);
     } else if (is_mixed) {
-        lm_ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_F32_F16);
+        ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_F32_F16);
         if (fa_decode_only_512) {
             // DK=512: the BM-tile prefill kernels are specifically compiled from
             // FA_PREFILL_ONLY
             if (n_q > 1) {
-                lm_ggml_opencl_ensure_fa_f32_f16_prefill_512(backend_ctx, /*split=*/false);
-                lm_ggml_opencl_ensure_fa_f32_f16_prefill_512(backend_ctx, /*split=*/true);
+                ggml_opencl_ensure_fa_f32_f16_prefill_512(backend_ctx, /*split=*/false);
+                ggml_opencl_ensure_fa_f32_f16_prefill_512(backend_ctx, /*split=*/true);
             }
         } else {
-            lm_ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_F32_F16_SPLIT);
+            ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_F32_F16_SPLIT);
         }
     } else if (is_q8_0) {
-        lm_ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_Q8_0);
+        ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_Q8_0);
         if (d_head_q == 96 && d_head_v == 96) {
-            lm_ggml_opencl_ensure_fa_quant_split_override(backend_ctx, 96, 96, /*quant_bm=*/16, /*quant_n_split=*/3, /*is_q8_0=*/true);
+            ggml_opencl_ensure_fa_quant_split_override(backend_ctx, 96, 96, /*quant_bm=*/16, /*quant_n_split=*/3, /*is_q8_0=*/true);
         } else if (d_head_q == 256 && d_head_v == 256) {
-            lm_ggml_opencl_ensure_fa_quant_split_override(backend_ctx, 256, 256, /*quant_bm=*/16, /*quant_n_split=*/8, /*is_q8_0=*/true);
+            ggml_opencl_ensure_fa_quant_split_override(backend_ctx, 256, 256, /*quant_bm=*/16, /*quant_n_split=*/8, /*is_q8_0=*/true);
         } else {
-            lm_ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_Q8_0_SPLIT);
+            ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_Q8_0_SPLIT);
         }
     } else if (is_q4_0) {
-        lm_ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_Q4_0);
+        ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_Q4_0);
         if (d_head_q == 96 && d_head_v == 96) {
-            lm_ggml_opencl_ensure_fa_quant_split_override(backend_ctx, 96, 96, /*quant_bm=*/16, /*quant_n_split=*/3, /*is_q8_0=*/false);
+            ggml_opencl_ensure_fa_quant_split_override(backend_ctx, 96, 96, /*quant_bm=*/16, /*quant_n_split=*/3, /*is_q8_0=*/false);
         } else if (d_head_q == 256 && d_head_v == 256) {
-            lm_ggml_opencl_ensure_fa_quant_split_override(backend_ctx, 256, 256, /*quant_bm=*/16, /*quant_n_split=*/8, /*is_q8_0=*/false);
+            ggml_opencl_ensure_fa_quant_split_override(backend_ctx, 256, 256, /*quant_bm=*/16, /*quant_n_split=*/8, /*is_q8_0=*/false);
         } else {
-            lm_ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_Q4_0_SPLIT);
+            ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_Q4_0_SPLIT);
         }
     } else {
-        lm_ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_F32);
+        ggml_opencl_ensure_fa_variant(backend_ctx, d_head_q, d_head_v, FA_VARIANT_F32);
     }
 
     const std::pair<int, int> dk_dv = {d_head_q, d_head_v};
@@ -15145,17 +15145,17 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
             : backend_ctx->fa.f32_f16_wg_size.at(dk_dv))
         : block_m;
 
-    lm_ggml_tensor_extra_cl * extra_q = (lm_ggml_tensor_extra_cl *)q->extra;
-    lm_ggml_tensor_extra_cl * extra_o = (lm_ggml_tensor_extra_cl *)dst->extra;
-    lm_ggml_tensor_extra_cl * extra_mask = mask ? (lm_ggml_tensor_extra_cl *)mask->extra : NULL;
-    lm_ggml_tensor_extra_cl * extra_sinks = sinks ? (lm_ggml_tensor_extra_cl *)sinks->extra : NULL;
+    ggml_tensor_extra_cl * extra_q = (ggml_tensor_extra_cl *)q->extra;
+    ggml_tensor_extra_cl * extra_o = (ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra_mask = mask ? (ggml_tensor_extra_cl *)mask->extra : NULL;
+    ggml_tensor_extra_cl * extra_sinks = sinks ? (ggml_tensor_extra_cl *)sinks->extra : NULL;
 
     // SoA q8_0/q4_0 K/V: data_device aliases the `q` subbuffer; reconstruct
     // AoS into a temp buffer below. AoS tensors use extra_k/v->data_device.
-    const bool k_soa = lm_ggml_cl_is_q8_0_soa(k) || lm_ggml_cl_is_q4_0_soa(k);
-    const bool v_soa = lm_ggml_cl_is_q8_0_soa(v) || lm_ggml_cl_is_q4_0_soa(v);
-    lm_ggml_tensor_extra_cl * extra_k = k_soa ? nullptr : (lm_ggml_tensor_extra_cl *)k->extra;
-    lm_ggml_tensor_extra_cl * extra_v = v_soa ? nullptr : (lm_ggml_tensor_extra_cl *)v->extra;
+    const bool k_soa = ggml_cl_is_q8_0_soa(k) || ggml_cl_is_q4_0_soa(k);
+    const bool v_soa = ggml_cl_is_q8_0_soa(v) || ggml_cl_is_q4_0_soa(v);
+    ggml_tensor_extra_cl * extra_k = k_soa ? nullptr : (ggml_tensor_extra_cl *)k->extra;
+    ggml_tensor_extra_cl * extra_v = v_soa ? nullptr : (ggml_tensor_extra_cl *)v->extra;
 
     cl_ulong offset_q = extra_q->offset + q->view_offs;
     cl_ulong offset_k = k_soa ? 0 : extra_k->offset + k->view_offs;
@@ -15214,7 +15214,7 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
             }
         } else if (use_native_q4_0_q1) {
             // q4_0 vec kernel uses per-lane dp4a (cl_khr_integer_dot_product)
-            const char * q4vec_env = getenv("LM_GGML_OPENCL_FA_Q4_VEC");
+            const char * q4vec_env = getenv("GGML_OPENCL_FA_Q4_VEC");
             const bool   q4vec_off = (q4vec_env != NULL) && (q4vec_env[0] == '0');
             if (!q4vec_off && d_head_v >= 256 &&
                 backend_ctx->fa.f32_q4_0_q1_vec.count(dk_dv) > 0) {
@@ -15224,14 +15224,14 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
                 kernel = backend_ctx->fa.f32_q4_0_q1.at(dk_dv);
             }
         } else if (is_mixed) {
-            static const char * lt_env = getenv("LM_GGML_OPENCL_FA_LOCAL_TILE");
+            static const char * lt_env = getenv("GGML_OPENCL_FA_LOCAL_TILE");
             static const bool   lt_on  = (lt_env != NULL) && (lt_env[0] != '0');
             if (lt_on && d_head_q == 128 && d_head_v == 128 &&
                 backend_ctx->fa.f32_f16_q1_local_tile.count(dk_dv) > 0) {
                 kernel = backend_ctx->fa.f32_f16_q1_local_tile.at(dk_dv);
                 use_local_tile = true;
             } else {
-                static const char * f16_vec_dk128_env = getenv("LM_GGML_OPENCL_FA_F16_VEC_DK128");
+                static const char * f16_vec_dk128_env = getenv("GGML_OPENCL_FA_F16_VEC_DK128");
                 static const bool   f16_vec_dk128_off = (f16_vec_dk128_env != NULL) && (f16_vec_dk128_env[0] == '0');
                 const int dv_gate = f16_vec_dk128_off ? 256 : 128;
                 if (d_head_v >= dv_gate &&
@@ -15259,7 +15259,7 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
         } else if (is_mixed) {
             if (use_split_kernel) {
                 // DK=512 prefill: opt-in texture-cache K reads (image1d_buffer_t).
-                static const char * pkimg_env = getenv("LM_GGML_OPENCL_FA_PREFILL_K_IMG");
+                static const char * pkimg_env = getenv("GGML_OPENCL_FA_PREFILL_K_IMG");
                 const bool pkimg_on = (pkimg_env != NULL) && (pkimg_env[0] != '0');
                 if (d_head_q == 512 && pkimg_on &&
                     backend_ctx->fa.f32_f16_split_k_img.count(dk_dv) > 0) {
@@ -15287,26 +15287,26 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
         else if (is_q4_0 && backend_ctx->fa.f32_q4_0_q1.count(dk_dv)) { kernel = backend_ctx->fa.f32_q4_0_q1.at(dk_dv); }
         else if (backend_ctx->fa.f32_q1.count(dk_dv))                 { kernel = backend_ctx->fa.f32_q1.at(dk_dv); }
     }
-    LM_GGML_ASSERT(kernel != NULL);
+    GGML_ASSERT(kernel != NULL);
 
-    lm_ggml_cl_flash_attn_temp_buffer temp_k;
-    lm_ggml_cl_flash_attn_temp_buffer temp_v;
-    lm_ggml_cl_flash_attn_temp_buffer temp_k_pad;
-    lm_ggml_cl_flash_attn_temp_buffer temp_v_pad;
-    lm_ggml_cl_flash_attn_temp_buffer temp_mask_pad;
-    lm_ggml_cl_flash_attn_temp_buffer temp_blk;
-    const lm_ggml_type kv_target_type = is_f16 ? LM_GGML_TYPE_F16 : LM_GGML_TYPE_F32;
+    ggml_cl_flash_attn_temp_buffer temp_k;
+    ggml_cl_flash_attn_temp_buffer temp_v;
+    ggml_cl_flash_attn_temp_buffer temp_k_pad;
+    ggml_cl_flash_attn_temp_buffer temp_v_pad;
+    ggml_cl_flash_attn_temp_buffer temp_mask_pad;
+    ggml_cl_flash_attn_temp_buffer temp_blk;
+    const ggml_type kv_target_type = is_f16 ? GGML_TYPE_F16 : GGML_TYPE_F32;
 
     cl_mem k_data_device = k_soa ? NULL : extra_k->data_device;
     cl_mem v_data_device = v_soa ? NULL : extra_v->data_device;
 
     // SoA q8_0/q4_0 -> reconstruct AoS for downstream kernels that expect
     // tight records (no-op when k/v is already AoS).
-    lm_ggml_cl_flash_attn_temp_buffer temp_k_aos;
-    lm_ggml_cl_flash_attn_temp_buffer temp_v_aos;
-    lm_ggml_cl_flash_attn_reconstruct_aos(backend_ctx, k, temp_k_aos,
+    ggml_cl_flash_attn_temp_buffer temp_k_aos;
+    ggml_cl_flash_attn_temp_buffer temp_v_aos;
+    ggml_cl_flash_attn_reconstruct_aos(backend_ctx, k, temp_k_aos,
                                        k_data_device, offset_k, k_nb1, k_nb2, k_nb3);
-    lm_ggml_cl_flash_attn_reconstruct_aos(backend_ctx, v, temp_v_aos,
+    ggml_cl_flash_attn_reconstruct_aos(backend_ctx, v, temp_v_aos,
                                        v_data_device, offset_v, v_nb1, v_nb2, v_nb3);
 
     // currently FA kernels support KV cache with f16, f32, q4_0 and q8_0.
@@ -15322,29 +15322,29 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
         // for q4_0, q8_0 FA kernels that fail to compile
         bool k_done = false;
         bool v_done = false;
-        if (k->type == LM_GGML_TYPE_Q8_0 || k->type == LM_GGML_TYPE_Q4_0) {
-            k_done = lm_ggml_cl_flash_attn_dequant_kv_gpu(
+        if (k->type == GGML_TYPE_Q8_0 || k->type == GGML_TYPE_Q4_0) {
+            k_done = ggml_cl_flash_attn_dequant_kv_gpu(
                 backend_ctx, k, kv_target_type, k_data_device, offset_k, k_nb1, k_nb2, k_nb3,
                 temp_k, k_data_device, offset_k, k_nb1, k_nb2, k_nb3);
         }
-        if (v->type == LM_GGML_TYPE_Q8_0 || v->type == LM_GGML_TYPE_Q4_0) {
-            v_done = lm_ggml_cl_flash_attn_dequant_kv_gpu(
+        if (v->type == GGML_TYPE_Q8_0 || v->type == GGML_TYPE_Q4_0) {
+            v_done = ggml_cl_flash_attn_dequant_kv_gpu(
                 backend_ctx, v, kv_target_type, v_data_device, offset_v, v_nb1, v_nb2, v_nb3,
                 temp_v, v_data_device, offset_v, v_nb1, v_nb2, v_nb3);
         }
         if (!k_done) {
-            lm_ggml_cl_flash_attn_prepare_quantized_tensor(
+            ggml_cl_flash_attn_prepare_quantized_tensor(
                 backend_ctx, k, kv_target_type, temp_k, k_data_device, offset_k, k_nb1, k_nb2, k_nb3);
         }
         if (!v_done) {
-            lm_ggml_cl_flash_attn_prepare_quantized_tensor(
+            ggml_cl_flash_attn_prepare_quantized_tensor(
                 backend_ctx, v, kv_target_type, temp_v, v_data_device, offset_v, v_nb1, v_nb2, v_nb3);
         }
         // Asymmetric KV on the F32 fallback path: convert the F16 side to F32
         // too. (Symmetric F16 / mixed paths handle F16 directly.)
-        if (kv_target_type == LM_GGML_TYPE_F32 && !is_mixed && !is_f16) {
-            lm_ggml_cl_flash_attn_convert_f16_to_f32(backend_ctx, k, temp_k, k_data_device, offset_k, k_nb1, k_nb2, k_nb3);
-            lm_ggml_cl_flash_attn_convert_f16_to_f32(backend_ctx, v, temp_v, v_data_device, offset_v, v_nb1, v_nb2, v_nb3);
+        if (kv_target_type == GGML_TYPE_F32 && !is_mixed && !is_f16) {
+            ggml_cl_flash_attn_convert_f16_to_f32(backend_ctx, k, temp_k, k_data_device, offset_k, k_nb1, k_nb2, k_nb3);
+            ggml_cl_flash_attn_convert_f16_to_f32(backend_ctx, v, temp_v, v_data_device, offset_v, v_nb1, v_nb2, v_nb3);
         }
     }
 
@@ -15370,14 +15370,14 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
     bool use_fa_k_img = false;  // K bound as image1d_buffer_t instead of (buf, offset)
 
     {
-        const char * mq_env = getenv("LM_GGML_OPENCL_FA_MQ");
+        const char * mq_env = getenv("GGML_OPENCL_FA_MQ");
         const bool mq_enabled = (mq_env == NULL) ? true : (mq_env[0] != '0');
         const bool mq_kv_ok   = is_mixed || is_q8_0 || is_q4_0;
 
-        const char * lmq_env = getenv("LM_GGML_OPENCL_FA_LOCAL_MQ_SPLIT");
+        const char * lmq_env = getenv("GGML_OPENCL_FA_LOCAL_MQ_SPLIT");
         const bool   lmq_on  = (lmq_env != NULL) && (lmq_env[0] != '0');
 
-        static const char * vec_nq_env = getenv("LM_GGML_OPENCL_FA_VEC_NQ");
+        static const char * vec_nq_env = getenv("GGML_OPENCL_FA_VEC_NQ");
         static const int N_MAX_VEC_NQ  = (vec_nq_env != NULL && vec_nq_env[0] != '\0')
                                            ? atoi(vec_nq_env) : 1;
 
@@ -15386,7 +15386,7 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
 
         // Cluster-parallel decode default on for Adreno X2E/X1E
         static const int c8_env_state = []{
-            const char * e = getenv("LM_GGML_OPENCL_FA_C8");
+            const char * e = getenv("GGML_OPENCL_FA_C8");
             if (e == NULL || e[0] == '\0') { return -1; }
             return (e[0] != '0') ? 1 : 0;
         }();
@@ -15417,8 +15417,8 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
                  (d_head_q == 128 && d_head_v == 128)) &&
                 backend_ctx->fa.f32_f16_q1_vec_mq_split.count(dk_dv) > 0) {
                 const bool k_img_on = d_head_q == 128 && d_head_v == 128 &&
-                                      getenv("LM_GGML_OPENCL_FA_K_IMG") != NULL &&
-                                      getenv("LM_GGML_OPENCL_FA_K_IMG")[0] != '0' &&
+                                      getenv("GGML_OPENCL_FA_K_IMG") != NULL &&
+                                      getenv("GGML_OPENCL_FA_K_IMG")[0] != '0' &&
                                       backend_ctx->fa.f32_f16_q1_vec_mq_split_k_img.count(dk_dv) > 0;
                 // Cluster-parallel decode
                 const bool c8_env = d_head_q == 128 && d_head_v == 128 && c8_f16_on;
@@ -15461,8 +15461,8 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
                 use_fd_mq  = true;
             } else if (is_mixed && gqa_ratio_dispatch == 8 &&
                 d_head_q == 128 && d_head_v == 128 &&
-                getenv("LM_GGML_OPENCL_FA_K_IMG") != NULL &&
-                getenv("LM_GGML_OPENCL_FA_K_IMG")[0] != '0' &&
+                getenv("GGML_OPENCL_FA_K_IMG") != NULL &&
+                getenv("GGML_OPENCL_FA_K_IMG")[0] != '0' &&
                 backend_ctx->fa.f32_f16_q1_vec_mq_split_g8_k_img.count(dk_dv) > 0) {
                 fd_k_split   = backend_ctx->fa.f32_f16_q1_vec_mq_split_g8_k_img.at(dk_dv);
                 use_fd_mq    = true;
@@ -15493,7 +15493,7 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
                 }
                 use_fd_mq  = true;
             } else if (nq1_only && is_q4_0) {
-                const char * q4_mq_env = getenv("LM_GGML_OPENCL_FA_Q4_MQ");
+                const char * q4_mq_env = getenv("GGML_OPENCL_FA_Q4_MQ");
                 const bool   q4_mq_on  = (q4_mq_env != NULL) && (q4_mq_env[0] != '0');
                 // Cluster-parallel q4_0
                 const bool q4_c8_on = c8_env_state == 1 &&
@@ -15529,7 +15529,7 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
     if (fd_k_split == NULL && backend_ctx->gpu_family == INTEL && n_q == 1 && !is_causal &&
         is_mixed && gqa_ratio_dispatch == 4 && d_head_q == 128 && d_head_v == 128 &&
         n_kv >= FD_MIN_N_KV &&
-        getenv("LM_GGML_OPENCL_FA_C8") != NULL && getenv("LM_GGML_OPENCL_FA_C8")[0] != '0' &&
+        getenv("GGML_OPENCL_FA_C8") != NULL && getenv("GGML_OPENCL_FA_C8")[0] != '0' &&
         backend_ctx->fa.f32_merge.count(dk_dv) > 0) {
         if (backend_ctx->fa.f32_f16_q1_vec_mq_split_c8.count(dk_dv) > 0) {
             fd_k_split = backend_ctx->fa.f32_f16_q1_vec_mq_split_c8.at(dk_dv);
@@ -15602,7 +15602,7 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
         backend_ctx->enqueue_ndrange_kernel(kernel_kv_pad, 3, global_work_size, NULL, dst);
 
         if (mask_buffer != NULL) {
-            mask_pad_nb1 = (cl_ulong) block_n * (cl_ulong) sizeof(lm_ggml_fp16_t);
+            mask_pad_nb1 = (cl_ulong) block_n * (cl_ulong) sizeof(ggml_fp16_t);
             mask_pad_nb2 = (cl_ulong) n_q * mask_pad_nb1;
             mask_pad_nb3 = (cl_ulong) mask_ne2 * mask_pad_nb2;
 
@@ -15663,11 +15663,11 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
 
     if (use_fd) {
         static const int fd_env_kv_per_split = []{
-            const char * e = getenv("LM_GGML_OPENCL_FD_KV_PER_SPLIT");
+            const char * e = getenv("GGML_OPENCL_FD_KV_PER_SPLIT");
             return (e && e[0]) ? atoi(e) : 0;
         }();
         static const int fd_env_max_splits = []{
-            const char * e = getenv("LM_GGML_OPENCL_FD_MAX_SPLITS");
+            const char * e = getenv("GGML_OPENCL_FD_MAX_SPLITS");
             return (e && e[0]) ? atoi(e) : 0;
         }();
 
@@ -15685,7 +15685,7 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
         const size_t partial_size_bytes =
             (size_t) n_batch * n_head * n_q * n_splits * fa_partial_floats * sizeof(float);
 
-        lm_ggml_cl_flash_attn_temp_buffer temp_partial;
+        ggml_cl_flash_attn_temp_buffer temp_partial;
         cl_int err;
         temp_partial.data = clCreateBuffer(backend_ctx->context, CL_MEM_READ_WRITE,
                                            partial_size_bytes, NULL, &err);
@@ -15711,7 +15711,7 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
             const size_t k_pixels = k_bytes >> 3;
             cl_mem k_img = nullptr;
             if (k_pixels > 0 && k_pixels <= backend_ctx->image_max_buffer_size) {
-                k_img = lm_ggml_cl_img_pool_get_or_create(
+                k_img = ggml_cl_img_pool_get_or_create(
                     backend_ctx, backend_ctx->kq_img_pool,
                     k_data_device, offset_k, k_bytes, CL_HALF_FLOAT);
             }
@@ -15809,7 +15809,7 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
         const size_t k_bytes  = (k_bytes_span + 7) & ~(size_t)7;
         const size_t k_pixels = k_bytes >> 3;
         if (k_pixels > 0 && k_pixels <= backend_ctx->image_max_buffer_size) {
-            prefill_k_img = lm_ggml_cl_img_pool_get_or_create(
+            prefill_k_img = ggml_cl_img_pool_get_or_create(
                 backend_ctx, backend_ctx->kq_img_pool,
                 k_data_device, offset_k, k_bytes, CL_HALF_FLOAT);
         }
@@ -15916,12 +15916,12 @@ static void lm_ggml_cl_flash_attn(lm_ggml_backend_t backend, const lm_ggml_tenso
     }
 }
 
-static void lm_ggml_cl_mul_mat_f16_f32_tiled(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+static void ggml_cl_mul_mat_f16_f32_tiled(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
@@ -15968,23 +15968,23 @@ static void lm_ggml_cl_mul_mat_f16_f32_tiled(lm_ggml_backend_t backend, const lm
     backend_ctx->enqueue_ndrange_kernel(kernel, 2, global_work_size, local_work_size, dst);
 }
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-static bool lm_ggml_cl_can_use_adreno_xmem_gemm_f16_f32(
-        const lm_ggml_backend_opencl_context * backend_ctx,
-        const lm_ggml_tensor * src0,
-        const lm_ggml_tensor * src1,
-        const lm_ggml_tensor * dst) {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+static bool ggml_cl_can_use_adreno_xmem_gemm_f16_f32(
+        const ggml_backend_opencl_context * backend_ctx,
+        const ggml_tensor * src0,
+        const ggml_tensor * src1,
+        const ggml_tensor * dst) {
     if (!backend_ctx->adreno_xmem_gemm_enabled) {
         return false;
     }
     if (backend_ctx->gpu_family != GPU_FAMILY::ADRENO) {
         return false;
     }
-    if ((src0->type != LM_GGML_TYPE_F16 && src0->type != LM_GGML_TYPE_BF16) ||
-        src1->type != LM_GGML_TYPE_F32 || dst->type != LM_GGML_TYPE_F32) {
+    if ((src0->type != GGML_TYPE_F16 && src0->type != GGML_TYPE_BF16) ||
+        src1->type != GGML_TYPE_F32 || dst->type != GGML_TYPE_F32) {
         return false;
     }
-    if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1) || !lm_ggml_is_contiguous(dst)) {
+    if (!ggml_is_contiguous(src0) || !ggml_is_contiguous(src1) || !ggml_is_contiguous(dst)) {
         return false;
     }
     if (src0->ne[2] != 1 || src0->ne[3] != 1 ||
@@ -16017,16 +16017,16 @@ static bool lm_ggml_cl_can_use_adreno_xmem_gemm_f16_f32(
     return true;
 }
 
-static void lm_ggml_cl_mul_mat_f16_f32_adreno_xmem(
-        lm_ggml_backend_t backend,
-        const lm_ggml_tensor * src0,
-        const lm_ggml_tensor * src1,
-        lm_ggml_tensor * dst) {
-    lm_ggml_backend_opencl_context * backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+static void ggml_cl_mul_mat_f16_f32_adreno_xmem(
+        ggml_backend_t backend,
+        const ggml_tensor * src0,
+        const ggml_tensor * src1,
+        ggml_tensor * dst) {
+    ggml_backend_opencl_context * backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     const cl_ulong offset0 = extra0->offset + src0->view_offs;
     const cl_ulong offset1 = extra1->offset + src1->view_offs;
@@ -16130,15 +16130,15 @@ static void lm_ggml_cl_mul_mat_f16_f32_adreno_xmem(
     CL_CHECK(clReleaseMemObject(dst_img));
     CL_CHECK(clReleaseMemObject(src_img));
 }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
-static void lm_ggml_cl_conv_2d(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_TENSOR_BINARY_OP_LOCALS;
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+static void ggml_cl_conv_2d(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_TENSOR_BINARY_OP_LOCALS;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
@@ -16151,9 +16151,9 @@ static void lm_ggml_cl_conv_2d(lm_ggml_backend_t backend, const lm_ggml_tensor *
     const cl_uint p0 = dst->op_params[2]; const cl_uint p1 = dst->op_params[3];
     const cl_uint d0 = dst->op_params[4]; const cl_uint d1 = dst->op_params[5];
 
-    const cl_uint cl_nb01 = nb01/lm_ggml_type_size(src0->type); const cl_uint cl_nb02 = nb02/lm_ggml_type_size(src0->type); const cl_uint cl_nb03 = nb03/lm_ggml_type_size(src0->type);
-    const cl_uint cl_nb11 = nb11/lm_ggml_type_size(src1->type); const cl_uint cl_nb12 = nb12/lm_ggml_type_size(src1->type); const cl_uint cl_nb13 = nb13/lm_ggml_type_size(src1->type);
-    const cl_uint cl_nb1 = nb1/lm_ggml_type_size(dst->type); const cl_uint cl_nb2 = nb2/lm_ggml_type_size(dst->type); const cl_uint cl_nb3 = nb3/lm_ggml_type_size(dst->type);
+    const cl_uint cl_nb01 = nb01/ggml_type_size(src0->type); const cl_uint cl_nb02 = nb02/ggml_type_size(src0->type); const cl_uint cl_nb03 = nb03/ggml_type_size(src0->type);
+    const cl_uint cl_nb11 = nb11/ggml_type_size(src1->type); const cl_uint cl_nb12 = nb12/ggml_type_size(src1->type); const cl_uint cl_nb13 = nb13/ggml_type_size(src1->type);
+    const cl_uint cl_nb1 = nb1/ggml_type_size(dst->type); const cl_uint cl_nb2 = nb2/ggml_type_size(dst->type); const cl_uint cl_nb3 = nb3/ggml_type_size(dst->type);
 
     const int64_t NPQ = (int64_t)N * OW * OH;
 
@@ -16175,17 +16175,17 @@ static void lm_ggml_cl_conv_2d(lm_ggml_backend_t backend, const lm_ggml_tensor *
     cl_kernel kernel;
     size_t shmem_size;
 
-    if (src0->type == LM_GGML_TYPE_F16 && src1->type == LM_GGML_TYPE_F16) {
+    if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_F16) {
         kernel = backend_ctx->kernel_conv_2d_f16;
         shmem_size = (size_t)(BS_K * BS_CRS * sizeof(cl_half) + BS_CRS * (BS_NPQ / VEC_SIZE) * sizeof(cl_half4));
-    } else if (src0->type == LM_GGML_TYPE_F32 && src1->type == LM_GGML_TYPE_F32) {
+    } else if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32) {
         kernel = backend_ctx->kernel_conv_2d_f32;
         shmem_size = (size_t)(BS_K * BS_CRS * sizeof(cl_float) + BS_CRS * (BS_NPQ / VEC_SIZE) * sizeof(cl_float4));
-    } else if (src0->type == LM_GGML_TYPE_F16 && src1->type == LM_GGML_TYPE_F32) {
+    } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_F32) {
         kernel = backend_ctx->kernel_conv_2d_f16_f32;
         shmem_size = (size_t)(BS_K * BS_CRS * sizeof(cl_half) + BS_CRS * (BS_NPQ / VEC_SIZE) * sizeof(cl_float4));
     } else {
-        LM_GGML_ASSERT(false && "Unsupported data type combination for conv2d");
+        GGML_ASSERT(false && "Unsupported data type combination for conv2d");
     }
 
     cl_uint idx = 0;
@@ -16208,12 +16208,12 @@ static void lm_ggml_cl_conv_2d(lm_ggml_backend_t backend, const lm_ggml_tensor *
     backend_ctx->enqueue_ndrange_kernel(kernel, 2, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_mul_mat_kq_kqv_adreno(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+static void ggml_cl_mul_mat_kq_kqv_adreno(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     const int  ne00 = src0->ne[0];
     const int  ne01 = src0->ne[1];
@@ -16231,7 +16231,7 @@ static void lm_ggml_cl_mul_mat_kq_kqv_adreno(lm_ggml_backend_t backend, const lm
     const int  ne0 = dst->ne[0];
     const int  ne1 = dst->ne[1];
 
-    LM_GGML_ASSERT(ne00 == ne10);
+    GGML_ASSERT(ne00 == ne10);
 
     cl_kernel kernel;
     cl_context context = backend_ctx->context;
@@ -16259,7 +16259,7 @@ static void lm_ggml_cl_mul_mat_kq_kqv_adreno(lm_ggml_backend_t backend, const lm
     }
     // create sub-buffer for A
     // <--------------------------------------------> //
-    extra0 = src0->view_src ? (lm_ggml_tensor_extra_cl *)src0->view_src->extra : (lm_ggml_tensor_extra_cl *)src0->extra;
+    extra0 = src0->view_src ? (ggml_tensor_extra_cl *)src0->view_src->extra : (ggml_tensor_extra_cl *)src0->extra;
 
     region.origin = (extra0->offset + src0->view_offs);
     if (nb01 > nb02) {
@@ -16348,29 +16348,29 @@ static void lm_ggml_cl_mul_mat_kq_kqv_adreno(lm_ggml_backend_t backend, const lm
     CL_CHECK(clReleaseMemObject(D_sub_buffer));
 }
 
-static void lm_ggml_cl_mul_mat_q1_0_f32_adreno(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul_mat_q1_0_f32_adreno(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_Q1_0);
-    LM_GGML_ASSERT(src1->type == LM_GGML_TYPE_F32);
+    GGML_ASSERT(src0->type == GGML_TYPE_Q1_0);
+    GGML_ASSERT(src1->type == GGML_TYPE_F32);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
-    lm_ggml_tensor_extra_cl_q1_0 * extra0_q1_0 = (lm_ggml_tensor_extra_cl_q1_0 *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl_q1_0 * extra0_q1_0 = (ggml_tensor_extra_cl_q1_0 *)src0->extra;
 
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
-    LM_GGML_ASSERT(src1->view_offs == 0);
-    LM_GGML_ASSERT(dst->view_offs == 0);
+    GGML_ASSERT(src1->view_offs == 0);
+    GGML_ASSERT(dst->view_offs == 0);
 
     const int  ne00 = src0->ne[0];
     const int  ne01 = src0->ne[1];
@@ -16382,9 +16382,9 @@ static void lm_ggml_cl_mul_mat_q1_0_f32_adreno(lm_ggml_backend_t backend, const 
     const int  ne0 = dst->ne[0];
     const int  ne1 = dst->ne[1];
 
-    LM_GGML_ASSERT(ne00 == ne10);
-    LM_GGML_ASSERT((ne00 % 128) == 0);
-    LM_GGML_ASSERT(ne0 == ne01);
+    GGML_ASSERT(ne00 == ne10);
+    GGML_ASSERT((ne00 % 128) == 0);
+    GGML_ASSERT(ne0 == ne01);
 
     cl_context context = backend_ctx->context;
     cl_kernel kernel;
@@ -16538,27 +16538,27 @@ static void lm_ggml_cl_mul_mat_q1_0_f32_adreno(lm_ggml_backend_t backend, const 
         CL_CHECK(clReleaseMemObject(b_sub_buf));
     }
 #else
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(src0);
-    LM_GGML_UNUSED(src1);
-    LM_GGML_UNUSED(dst);
+    GGML_UNUSED(backend);
+    GGML_UNUSED(src0);
+    GGML_UNUSED(src1);
+    GGML_UNUSED(dst);
 #endif
 }
 
-static void lm_ggml_cl_mul_mat_q4_0_f32_adreno(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul_mat_q4_0_f32_adreno(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
-    lm_ggml_tensor_extra_cl_q4_0 * extra0_q4_0 = (lm_ggml_tensor_extra_cl_q4_0 *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl_q4_0 * extra0_q4_0 = (ggml_tensor_extra_cl_q4_0 *)src0->extra;
 
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -16573,7 +16573,7 @@ static void lm_ggml_cl_mul_mat_q4_0_f32_adreno(lm_ggml_backend_t backend, const 
     const int ne0 = dst->ne[0];
     const int ne1 = dst->ne[1];
 
-    LM_GGML_ASSERT(ne00 % lm_ggml_blck_size(src0->type) == 0);
+    GGML_ASSERT(ne00 % ggml_blck_size(src0->type) == 0);
 
     cl_context context = backend_ctx->context;
     cl_kernel kernel;
@@ -16653,7 +16653,7 @@ static void lm_ggml_cl_mul_mat_q4_0_f32_adreno(lm_ggml_backend_t backend, const 
         CL_CHECK(clReleaseMemObject(b_img));
     } else {
         // dp4a (int8) dense prefill GEMM, default off
-        static const char * q4_0_dense_dp4a_env = getenv("LM_GGML_OPENCL_Q4_0_DENSE_DP4A");
+        static const char * q4_0_dense_dp4a_env = getenv("GGML_OPENCL_Q4_0_DENSE_DP4A");
         bool q4_0_dense_dp4a_on = q4_0_dense_dp4a_env
             ? (atoi(q4_0_dense_dp4a_env) != 0)
             : false;
@@ -16818,27 +16818,27 @@ static void lm_ggml_cl_mul_mat_q4_0_f32_adreno(lm_ggml_backend_t backend, const 
         CL_CHECK(clReleaseMemObject(d_sub_buf));
     }
 #else
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(src0);
-    LM_GGML_UNUSED(src1);
-    LM_GGML_UNUSED(dst);
+    GGML_UNUSED(backend);
+    GGML_UNUSED(src0);
+    GGML_UNUSED(src1);
+    GGML_UNUSED(dst);
 #endif
 }
 
-static void lm_ggml_cl_mul_mat_q4_1_f32_adreno(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul_mat_q4_1_f32_adreno(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
-    lm_ggml_tensor_extra_cl_q4_1 * extra0_q4_1 = (lm_ggml_tensor_extra_cl_q4_1 *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl_q4_1 * extra0_q4_1 = (ggml_tensor_extra_cl_q4_1 *)src0->extra;
 
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -16848,7 +16848,7 @@ static void lm_ggml_cl_mul_mat_q4_1_f32_adreno(lm_ggml_backend_t backend, const 
 
     const int  ne1 = dst->ne[1];
 
-    LM_GGML_ASSERT(ne00 % lm_ggml_blck_size(src0->type) == 0);
+    GGML_ASSERT(ne00 % ggml_blck_size(src0->type) == 0);
 
     cl_context context = backend_ctx->context;
     cl_kernel kernel;
@@ -16992,27 +16992,27 @@ static void lm_ggml_cl_mul_mat_q4_1_f32_adreno(lm_ggml_backend_t backend, const 
         CL_CHECK(clReleaseMemObject(b_img_trans));
     }
 #else
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(src0);
-    LM_GGML_UNUSED(src1);
-    LM_GGML_UNUSED(dst);
+    GGML_UNUSED(backend);
+    GGML_UNUSED(src0);
+    GGML_UNUSED(src1);
+    GGML_UNUSED(dst);
 #endif
 }
 
-static void lm_ggml_cl_mul_mat_q5_0_f32_adreno(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul_mat_q5_0_f32_adreno(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
-    lm_ggml_tensor_extra_cl_q5_0 * extra0_q5_0 = (lm_ggml_tensor_extra_cl_q5_0 *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl_q5_0 * extra0_q5_0 = (ggml_tensor_extra_cl_q5_0 *)src0->extra;
 
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -17022,7 +17022,7 @@ static void lm_ggml_cl_mul_mat_q5_0_f32_adreno(lm_ggml_backend_t backend, const 
 
     const int ne1 = dst->ne[1];
 
-    LM_GGML_ASSERT(ne00 % lm_ggml_blck_size(src0->type) == 0);
+    GGML_ASSERT(ne00 % ggml_blck_size(src0->type) == 0);
 
     cl_context context = backend_ctx->context;
     cl_kernel kernel;
@@ -17083,8 +17083,8 @@ static void lm_ggml_cl_mul_mat_q5_0_f32_adreno(lm_ggml_backend_t backend, const 
         CL_CHECK(clReleaseMemObject(b_img));
     } else {
         // dp4a (int8) dense q5_0 prefill GEMM, default off
-        static const char * q5_dense_dp4a_env = getenv("LM_GGML_OPENCL_Q5_DENSE_DP4A");
-        static const char * q5_dense_wimg_env = getenv("LM_GGML_OPENCL_Q5_DENSE_DP4A_WIMG");
+        static const char * q5_dense_dp4a_env = getenv("GGML_OPENCL_Q5_DENSE_DP4A");
+        static const char * q5_dense_wimg_env = getenv("GGML_OPENCL_Q5_DENSE_DP4A_WIMG");
         const bool q5_dense_wimg_on = q5_dense_wimg_env && (atoi(q5_dense_wimg_env) != 0);
               bool q5_dense_dp4a_on = q5_dense_wimg_on
             ? true
@@ -17253,27 +17253,27 @@ static void lm_ggml_cl_mul_mat_q5_0_f32_adreno(lm_ggml_backend_t backend, const 
         CL_CHECK(clReleaseMemObject(d_sub_buf));
     }
 #else
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(src0);
-    LM_GGML_UNUSED(src1);
-    LM_GGML_UNUSED(dst);
+    GGML_UNUSED(backend);
+    GGML_UNUSED(src0);
+    GGML_UNUSED(src1);
+    GGML_UNUSED(dst);
 #endif
 }
 
-static void lm_ggml_cl_mul_mat_q5_1_f32_adreno(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul_mat_q5_1_f32_adreno(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
-    lm_ggml_tensor_extra_cl_q5_1 * extra0_q5_1 = (lm_ggml_tensor_extra_cl_q5_1 *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl_q5_1 * extra0_q5_1 = (ggml_tensor_extra_cl_q5_1 *)src0->extra;
 
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -17283,7 +17283,7 @@ static void lm_ggml_cl_mul_mat_q5_1_f32_adreno(lm_ggml_backend_t backend, const 
 
     const int ne1 = dst->ne[1];
 
-    LM_GGML_ASSERT(ne00 % lm_ggml_blck_size(src0->type) == 0);
+    GGML_ASSERT(ne00 % ggml_blck_size(src0->type) == 0);
 
     cl_context context = backend_ctx->context;
     cl_kernel kernel;
@@ -17435,27 +17435,27 @@ static void lm_ggml_cl_mul_mat_q5_1_f32_adreno(lm_ggml_backend_t backend, const 
         CL_CHECK(clReleaseMemObject(d_sub_buf));
     }
 #else
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(src0);
-    LM_GGML_UNUSED(src1);
-    LM_GGML_UNUSED(dst);
+    GGML_UNUSED(backend);
+    GGML_UNUSED(src0);
+    GGML_UNUSED(src1);
+    GGML_UNUSED(dst);
 #endif
 }
 
-static void lm_ggml_cl_mul_mat_iq4_nl_f32_adreno(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul_mat_iq4_nl_f32_adreno(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
-    lm_ggml_tensor_extra_cl_iq4_nl * extra0_iq4_nl = (lm_ggml_tensor_extra_cl_iq4_nl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl_iq4_nl * extra0_iq4_nl = (ggml_tensor_extra_cl_iq4_nl *)src0->extra;
 
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -17465,7 +17465,7 @@ static void lm_ggml_cl_mul_mat_iq4_nl_f32_adreno(lm_ggml_backend_t backend, cons
 
     const int  ne1 = dst->ne[1];
 
-    LM_GGML_ASSERT(ne00 % 32 == 0);
+    GGML_ASSERT(ne00 % 32 == 0);
 
     cl_context context = backend_ctx->context;
     cl_kernel kernel;
@@ -17527,7 +17527,7 @@ static void lm_ggml_cl_mul_mat_iq4_nl_f32_adreno(lm_ggml_backend_t backend, cons
         // dp4a (int8) dense IQ4_NL prefill GEMM. Quantizes the [N,K] activations to
         // q8_1 and runs the int8 dot instead of the f16 half-dot. Large-batch
         // (ne1>8) only
-        static const char * iq4nl_dense_dp4a_env = getenv("LM_GGML_OPENCL_IQ4NL_DENSE_DP4A");
+        static const char * iq4nl_dense_dp4a_env = getenv("GGML_OPENCL_IQ4NL_DENSE_DP4A");
         bool iq4nl_dense_dp4a_on = iq4nl_dense_dp4a_env
             ? (atoi(iq4nl_dense_dp4a_env) != 0)
             : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E);
@@ -17659,32 +17659,32 @@ static void lm_ggml_cl_mul_mat_iq4_nl_f32_adreno(lm_ggml_backend_t backend, cons
         CL_CHECK(clReleaseMemObject(b_img_trans));
     }
 #else
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(src0);
-    LM_GGML_UNUSED(src1);
-    LM_GGML_UNUSED(dst);
+    GGML_UNUSED(backend);
+    GGML_UNUSED(src0);
+    GGML_UNUSED(src1);
+    GGML_UNUSED(dst);
 #endif
 }
 
-static void lm_ggml_cl_mul_mat_q8_0_f32_adreno(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul_mat_q8_0_f32_adreno(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_Q8_0);
-    LM_GGML_ASSERT(src1->type == LM_GGML_TYPE_F32);
+    GGML_ASSERT(src0->type == GGML_TYPE_Q8_0);
+    GGML_ASSERT(src1->type == GGML_TYPE_F32);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
     // SoA extra lives on view_src (view->extra is pre-SoA).
-    const lm_ggml_tensor * soa0_src = src0->view_src != nullptr ? src0->view_src : src0;
-    lm_ggml_tensor_extra_cl_q8_0 * extra0_q8_0 = (lm_ggml_tensor_extra_cl_q8_0 *)soa0_src->extra;
+    const ggml_tensor * soa0_src = src0->view_src != nullptr ? src0->view_src : src0;
+    ggml_tensor_extra_cl_q8_0 * extra0_q8_0 = (ggml_tensor_extra_cl_q8_0 *)soa0_src->extra;
 
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -17699,9 +17699,9 @@ static void lm_ggml_cl_mul_mat_q8_0_f32_adreno(lm_ggml_backend_t backend, const 
     const int  ne0 = dst->ne[0];
     const int  ne1 = dst->ne[1];
 
-    LM_GGML_ASSERT(ne00 == ne10);
-    LM_GGML_ASSERT((ne00 % 32) == 0);
-    LM_GGML_ASSERT(ne0 == ne01);
+    GGML_ASSERT(ne00 == ne10);
+    GGML_ASSERT((ne00 % 32) == 0);
+    GGML_ASSERT(ne0 == ne01);
 
     cl_context context = backend_ctx->context;
     cl_kernel kernel;
@@ -17776,8 +17776,8 @@ static void lm_ggml_cl_mul_mat_q8_0_f32_adreno(lm_ggml_backend_t backend, const 
         // q8_1 and runs the int8 dot instead of the f16 half-dot. Large-batch
         // (ne1>8) only; q8_0 weights are already int8 (no requant) and symmetric
         // (no min term)
-        static const char * q8_dense_dp4a_env = getenv("LM_GGML_OPENCL_Q8_DENSE_DP4A");
-        static const char * q8_dense_wimg_env = getenv("LM_GGML_OPENCL_Q8_DENSE_DP4A_WIMG");
+        static const char * q8_dense_dp4a_env = getenv("GGML_OPENCL_Q8_DENSE_DP4A");
+        static const char * q8_dense_wimg_env = getenv("GGML_OPENCL_Q8_DENSE_DP4A_WIMG");
         const bool q8_dense_wimg_on = q8_dense_wimg_env && (atoi(q8_dense_wimg_env) != 0);
 
         const bool q8_bin_loaded = (backend_ctx->kernel_gemm_noshuffle_q8_0_f32_bin != nullptr);
@@ -18034,27 +18034,27 @@ static void lm_ggml_cl_mul_mat_q8_0_f32_adreno(lm_ggml_backend_t backend, const 
         CL_CHECK(clReleaseMemObject(b_sub_buf));
     }
 #else
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(src0);
-    LM_GGML_UNUSED(src1);
-    LM_GGML_UNUSED(dst);
+    GGML_UNUSED(backend);
+    GGML_UNUSED(src0);
+    GGML_UNUSED(src1);
+    GGML_UNUSED(dst);
 #endif
 }
 
-static void lm_ggml_cl_mul_mat_q4_k_f32_adreno(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul_mat_q4_k_f32_adreno(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
-    lm_ggml_tensor_extra_cl_q4_K * extra0_q4_k = (lm_ggml_tensor_extra_cl_q4_K *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl_q4_K * extra0_q4_k = (ggml_tensor_extra_cl_q4_K *)src0->extra;
 
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -18064,7 +18064,7 @@ static void lm_ggml_cl_mul_mat_q4_k_f32_adreno(lm_ggml_backend_t backend, const 
 
     const int  ne1 = dst->ne[1];
 
-    LM_GGML_ASSERT(ne00 % lm_ggml_blck_size(src0->type) == 0);
+    GGML_ASSERT(ne00 % ggml_blck_size(src0->type) == 0);
 
     cl_context context = backend_ctx->context;
     cl_kernel kernel;
@@ -18192,8 +18192,8 @@ static void lm_ggml_cl_mul_mat_q4_k_f32_adreno(lm_ggml_backend_t backend, const 
         backend_ctx->enqueue_ndrange_kernel(kernel, 2, global_work_size_t, local_work_size_t, dst);
 
         // dp4a (int8) dense prefill GEMM and weight via texture
-        static const char * q4k_dense_dp4a_env = getenv("LM_GGML_OPENCL_Q4K_DENSE_DP4A");
-        static const char * q4k_dense_wimg_env = getenv("LM_GGML_OPENCL_Q4K_DENSE_DP4A_WIMG");
+        static const char * q4k_dense_dp4a_env = getenv("GGML_OPENCL_Q4K_DENSE_DP4A");
+        static const char * q4k_dense_wimg_env = getenv("GGML_OPENCL_Q4K_DENSE_DP4A_WIMG");
 
         const bool q4k_dense_wimg_on = q4k_dense_wimg_env && (atoi(q4k_dense_wimg_env) != 0);
               bool q4k_dense_dp4a_on = q4k_dense_wimg_on
@@ -18206,7 +18206,7 @@ static void lm_ggml_cl_mul_mat_q4_k_f32_adreno(lm_ggml_backend_t backend, const 
         q4k_dense_dp4a_on = backend_ctx->has_integer_dot && q4k_dense_dp4a_on;
 
         // Min N for the dp4a prefill GEMM, default 9, i.e., ne1 > 8
-        static const char * q4k_dp4a_minn_env = getenv("LM_GGML_OPENCL_Q4K_DP4A_MINN");
+        static const char * q4k_dp4a_minn_env = getenv("GGML_OPENCL_Q4K_DP4A_MINN");
         const int           q4k_dp4a_minn     = q4k_dp4a_minn_env ? atoi(q4k_dp4a_minn_env) : 9;
 
         if (q4k_dense_dp4a_on && N >= q4k_dp4a_minn && (K % 32 == 0) && (M % 64 == 0)) {
@@ -18272,7 +18272,7 @@ static void lm_ggml_cl_mul_mat_q4_k_f32_adreno(lm_ggml_backend_t backend, const 
             // Must match the compile-time TILESIZE_N chosen at program build (per-device,
             // X1E=8 else 32; env override). Same inputs -> same value.
             int q4k_dp4a_ts = (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X1E) ? 8 : 32;
-            if (const char * e = getenv("LM_GGML_OPENCL_Q4K_DP4A_TS")) q4k_dp4a_ts = atoi(e);
+            if (const char * e = getenv("GGML_OPENCL_Q4K_DP4A_TS")) q4k_dp4a_ts = atoi(e);
             size_t d_local[3]  = { 64, 1, 1 };
             size_t d_global[3] = { 64, (size_t)(M / 64), (size_t)CEIL_DIV(N, q4k_dp4a_ts) };
             backend_ctx->enqueue_ndrange_kernel(dk, 3, d_global, d_local, dst);
@@ -18316,27 +18316,27 @@ static void lm_ggml_cl_mul_mat_q4_k_f32_adreno(lm_ggml_backend_t backend, const 
         CL_CHECK(clReleaseMemObject(b_img_trans));
     }
 #else
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(src0);
-    LM_GGML_UNUSED(src1);
-    LM_GGML_UNUSED(dst);
+    GGML_UNUSED(backend);
+    GGML_UNUSED(src0);
+    GGML_UNUSED(src1);
+    GGML_UNUSED(dst);
 #endif
 }
 
-static void lm_ggml_cl_mul_mat_q6_K_f32_adreno(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul_mat_q6_K_f32_adreno(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl_q6_K * extra0_q6_K = (lm_ggml_tensor_extra_cl_q6_K *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl_q6_K * extra0_q6_K = (ggml_tensor_extra_cl_q6_K *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -18346,7 +18346,7 @@ static void lm_ggml_cl_mul_mat_q6_K_f32_adreno(lm_ggml_backend_t backend, const 
 
     const int ne1 = dst->ne[1];
 
-    LM_GGML_ASSERT(ne00 % lm_ggml_blck_size(src0->type) == 0);
+    GGML_ASSERT(ne00 % ggml_blck_size(src0->type) == 0);
 
     cl_context context = backend_ctx->context;
     cl_kernel kernel;
@@ -18426,7 +18426,7 @@ static void lm_ggml_cl_mul_mat_q6_K_f32_adreno(lm_ggml_backend_t backend, const 
         CL_CHECK((b_sub_buf = clCreateSubBuffer(extra1->data_device, 0, CL_BUFFER_CREATE_TYPE_REGION, &region, &err), err));
 
         // dp4a (int8) dense q6_K prefill GEMM
-        static const char * q6k_dense_dp4a_env = getenv("LM_GGML_OPENCL_Q6K_DENSE_DP4A");
+        static const char * q6k_dense_dp4a_env = getenv("GGML_OPENCL_Q6K_DENSE_DP4A");
                      bool   q6k_dense_dp4a_on  = (q6k_dense_dp4a_env != nullptr)
                                                    ? (atoi(q6k_dense_dp4a_env) != 0)
                                                    : (backend_ctx->adreno_gen != ADRENO_GPU_GEN::X1E);
@@ -18556,27 +18556,27 @@ static void lm_ggml_cl_mul_mat_q6_K_f32_adreno(lm_ggml_backend_t backend, const 
         CL_CHECK(clReleaseMemObject(b_img_trans));
     }
 #else
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(src0);
-    LM_GGML_UNUSED(src1);
-    LM_GGML_UNUSED(dst);
+    GGML_UNUSED(backend);
+    GGML_UNUSED(src0);
+    GGML_UNUSED(src1);
+    GGML_UNUSED(dst);
 #endif
 }
 
-static void lm_ggml_cl_mul_mat_q5_K_f32_adreno(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul_mat_q5_K_f32_adreno(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
-    lm_ggml_tensor_extra_cl_q5_K * extra0_q5_k = (lm_ggml_tensor_extra_cl_q5_K *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl_q5_K * extra0_q5_k = (ggml_tensor_extra_cl_q5_K *)src0->extra;
 
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -18585,7 +18585,7 @@ static void lm_ggml_cl_mul_mat_q5_K_f32_adreno(lm_ggml_backend_t backend, const 
     const int ne01 = src0->ne[1];
     const int ne1  = dst->ne[1];
 
-    LM_GGML_ASSERT(ne00 % lm_ggml_blck_size(src0->type) == 0);
+    GGML_ASSERT(ne00 % ggml_blck_size(src0->type) == 0);
 
     cl_context context = backend_ctx->context;
     cl_kernel kernel;
@@ -18721,7 +18721,7 @@ static void lm_ggml_cl_mul_mat_q5_K_f32_adreno(lm_ggml_backend_t backend, const 
         backend_ctx->enqueue_ndrange_kernel(kernel, 2, global_work_size_t, local_work_size_t, dst);
 
         // dp4a (int8) dense q5_K prefill GEMM
-        static const char * q5k_dense_dp4a_env = getenv("LM_GGML_OPENCL_Q5K_DENSE_DP4A");
+        static const char * q5k_dense_dp4a_env = getenv("GGML_OPENCL_Q5K_DENSE_DP4A");
                      bool   q5k_dense_dp4a_on  = q5k_dense_dp4a_env
             ? (atoi(q5k_dense_dp4a_env) != 0)
             : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E);
@@ -18806,10 +18806,10 @@ static void lm_ggml_cl_mul_mat_q5_K_f32_adreno(lm_ggml_backend_t backend, const 
         CL_CHECK(clReleaseMemObject(b_img_trans));
     }
 #else
-    LM_GGML_UNUSED(backend);
-    LM_GGML_UNUSED(src0);
-    LM_GGML_UNUSED(src1);
-    LM_GGML_UNUSED(dst);
+    GGML_UNUSED(backend);
+    GGML_UNUSED(src0);
+    GGML_UNUSED(src1);
+    GGML_UNUSED(dst);
 #endif
 }
 
@@ -18817,12 +18817,12 @@ static void lm_ggml_cl_mul_mat_q5_K_f32_adreno(lm_ggml_backend_t backend, const 
 // temp cl_mem the caller must release. SoA inputs are reconstructed into a
 // temp AoS buffer reported via *extra_reconstruct (also caller-released).
 // this is for quantized K cache without FA.
-static cl_mem lm_ggml_cl_mul_mat_dequant_quant_to_f16(
-        lm_ggml_backend_opencl_context * backend_ctx,
-        const lm_ggml_tensor *           tensor,
+static cl_mem ggml_cl_mul_mat_dequant_quant_to_f16(
+        ggml_backend_opencl_context * backend_ctx,
+        const ggml_tensor *           tensor,
         cl_mem *                      extra_reconstruct /* out, may be NULL */
 ) {
-    LM_GGML_ASSERT(tensor->type == LM_GGML_TYPE_Q4_0 || tensor->type == LM_GGML_TYPE_Q8_0);
+    GGML_ASSERT(tensor->type == GGML_TYPE_Q4_0 || tensor->type == GGML_TYPE_Q8_0);
 
     if (extra_reconstruct) {
         *extra_reconstruct = NULL;
@@ -18837,20 +18837,20 @@ static cl_mem lm_ggml_cl_mul_mat_dequant_quant_to_f16(
     uintptr_t pool_key_buf = 0;
     cl_ulong  pool_key_off = (cl_ulong) tensor->view_offs;
 
-    const bool is_soa = tensor->type == LM_GGML_TYPE_Q4_0
-        ? lm_ggml_cl_is_q4_0_soa(tensor)
-        : lm_ggml_cl_is_q8_0_soa(tensor);
+    const bool is_soa = tensor->type == GGML_TYPE_Q4_0
+        ? ggml_cl_is_q4_0_soa(tensor)
+        : ggml_cl_is_q8_0_soa(tensor);
 
     cl_mem aos = nullptr;
     if (is_soa) {
         // Reconstruct full parent AoS; view's own nb[] then index it correctly.
-        const lm_ggml_tensor * parent = tensor->view_src ? tensor->view_src : tensor;
-        const lm_ggml_tensor * soa_src = parent;
-        const size_t block_bytes = (size_t) lm_ggml_type_size(tensor->type);
-        const size_t blck_size   = (size_t) lm_ggml_blck_size(tensor->type);
+        const ggml_tensor * parent = tensor->view_src ? tensor->view_src : tensor;
+        const ggml_tensor * soa_src = parent;
+        const size_t block_bytes = (size_t) ggml_type_size(tensor->type);
+        const size_t blck_size   = (size_t) ggml_blck_size(tensor->type);
         const size_t parent_row_blocks = (size_t) parent->ne[0] / blck_size;
         const size_t parent_row_bytes  = parent_row_blocks * block_bytes;
-        const size_t parent_nbytes = (size_t) lm_ggml_nelements(parent) / blck_size * block_bytes;
+        const size_t parent_nbytes = (size_t) ggml_nelements(parent) / blck_size * block_bytes;
 
         cl_int err;
         aos = clCreateBuffer(backend_ctx->context, CL_MEM_READ_WRITE, parent_nbytes, NULL, &err);
@@ -18860,11 +18860,11 @@ static cl_mem lm_ggml_cl_mul_mat_dequant_quant_to_f16(
         // (and the AoS KV-cache, handled in the else branch above) are not.
         // choose a proper restore kernel based on this.
         bool restored = false;
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
         const int p_ne00 = (int) parent->ne[0];
         const int p_ne01 = (int) parent->ne[1];
-        if (tensor->type == LM_GGML_TYPE_Q8_0 && enable_adreno_trans_weight(backend_ctx, parent)) {
-            auto * extra = (lm_ggml_tensor_extra_cl_q8_0 *) soa_src->extra;
+        if (tensor->type == GGML_TYPE_Q8_0 && enable_adreno_trans_weight(backend_ctx, parent)) {
+            auto * extra = (ggml_tensor_extra_cl_q8_0 *) soa_src->extra;
             pool_key_buf = (uintptr_t) extra->q;
             cl_kernel kernel = backend_ctx->kernel_restore_block_q8_0_trans;
             CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &extra->q));
@@ -18876,13 +18876,13 @@ static cl_mem lm_ggml_cl_mul_mat_dequant_quant_to_f16(
             size_t lws[] = { 64, 1, 1 };
             CL_CHECK(clEnqueueNDRangeKernel(backend_ctx->queue, kernel, 3, NULL, gws, lws, 0, NULL, NULL));
             restored = true;
-        } else if (tensor->type == LM_GGML_TYPE_Q4_0 &&
+        } else if (tensor->type == GGML_TYPE_Q4_0 &&
                    use_adreno_kernels(backend_ctx, parent) &&
                    !use_adreno_moe_kernels(backend_ctx, parent)) {
-            auto * extra = (lm_ggml_tensor_extra_cl_q4_0 *) soa_src->extra;
+            auto * extra = (ggml_tensor_extra_cl_q4_0 *) soa_src->extra;
             pool_key_buf = (uintptr_t) extra->q;
-            const size_t size_q = (size_t) lm_ggml_nelements(parent) / blck_size * (blck_size / 2);
-            const size_t size_d = (size_t) lm_ggml_nelements(parent) / blck_size * sizeof(lm_ggml_fp16_t);
+            const size_t size_q = (size_t) ggml_nelements(parent) / blck_size * (blck_size / 2);
+            const size_t size_d = (size_t) ggml_nelements(parent) / blck_size * sizeof(ggml_fp16_t);
             cl_int err2 = CL_SUCCESS;
             cl_mem buf_tq = clCreateBuffer(backend_ctx->context, CL_MEM_READ_WRITE, size_q, NULL, &err2); CL_CHECK(err2);
             cl_mem buf_td = clCreateBuffer(backend_ctx->context, CL_MEM_READ_WRITE, size_d, NULL, &err2); CL_CHECK(err2);
@@ -18904,19 +18904,19 @@ static cl_mem lm_ggml_cl_mul_mat_dequant_quant_to_f16(
             CL_CHECK(clReleaseMemObject(buf_td));
             restored = true;
         }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
         if (!restored) {
             cl_kernel kernel;
-            if (tensor->type == LM_GGML_TYPE_Q8_0) {
-                auto * extra = (lm_ggml_tensor_extra_cl_q8_0 *) soa_src->extra;
+            if (tensor->type == GGML_TYPE_Q8_0) {
+                auto * extra = (ggml_tensor_extra_cl_q8_0 *) soa_src->extra;
                 kernel = backend_ctx->kernel_restore_block_q8_0;
                 CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &extra->q));
                 CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->d));
                 CL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &aos));
                 pool_key_buf = (uintptr_t) extra->q;
             } else {
-                auto * extra = (lm_ggml_tensor_extra_cl_q4_0 *) soa_src->extra;
+                auto * extra = (ggml_tensor_extra_cl_q4_0 *) soa_src->extra;
                 kernel = backend_ctx->kernel_restore_block_q4_0;
                 CL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &extra->q));
                 CL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &extra->d));
@@ -18942,8 +18942,8 @@ static cl_mem lm_ggml_cl_mul_mat_dequant_quant_to_f16(
             *extra_reconstruct = aos;
         }
     } else {
-        auto * extra = (lm_ggml_tensor_extra_cl *) tensor->extra;
-        LM_GGML_ASSERT(extra && extra->data_device);
+        auto * extra = (ggml_tensor_extra_cl *) tensor->extra;
+        GGML_ASSERT(extra && extra->data_device);
         src_buf    = extra->data_device;
         src_offset = extra->offset + tensor->view_offs;
         src_nb1    = tensor->nb[1];
@@ -18953,19 +18953,19 @@ static cl_mem lm_ggml_cl_mul_mat_dequant_quant_to_f16(
         pool_key_off = (cl_ulong) src_offset;
     }
 
-    const cl_int nblk0 = (cl_int) (tensor->ne[0] / lm_ggml_blck_size(tensor->type));
+    const cl_int nblk0 = (cl_int) (tensor->ne[0] / ggml_blck_size(tensor->type));
     const cl_int ne1_  = (cl_int) tensor->ne[1];
     const cl_int ne2_  = (cl_int) tensor->ne[2];
     const cl_int ne3_  = (cl_int) tensor->ne[3];
 
-    const size_t out_bytes = (size_t) lm_ggml_nelements(tensor) * sizeof(lm_ggml_fp16_t);
+    const size_t out_bytes = (size_t) ggml_nelements(tensor) * sizeof(ggml_fp16_t);
 
     // reuse a pooled f16 buffer for this KV-cache view across decode steps instead of
     // allocating new one per attention op
     cl_mem out = nullptr;
     {
         auto & pool = backend_ctx->dequant_f16_pool;
-        lm_ggml_backend_opencl_context::ImagePoolKey key{pool_key_buf, (uint64_t) pool_key_off};
+        ggml_backend_opencl_context::ImagePoolKey key{pool_key_buf, (uint64_t) pool_key_off};
         auto it = pool.find(key);
         if (it != pool.end() && it->second.k_bytes >= out_bytes && it->second.image) {
             out = it->second.image;
@@ -18977,14 +18977,14 @@ static cl_mem lm_ggml_cl_mul_mat_dequant_quant_to_f16(
             cl_int err = CL_SUCCESS;
             out = clCreateBuffer(backend_ctx->context, CL_MEM_READ_WRITE, out_bytes, NULL, &err);
             CL_CHECK(err);
-            lm_ggml_backend_opencl_context::ImagePoolEntry entry;
+            ggml_backend_opencl_context::ImagePoolEntry entry;
             entry.image   = out;
             entry.k_bytes = out_bytes;
             pool[key]     = entry;
         }
     }
 
-    cl_kernel dq_kernel = tensor->type == LM_GGML_TYPE_Q8_0
+    cl_kernel dq_kernel = tensor->type == GGML_TYPE_Q8_0
         ? backend_ctx->kernel_dequant_q8_0_f16_view_aos
         : backend_ctx->kernel_dequant_q4_0_f16_view_aos;
 
@@ -19014,16 +19014,16 @@ static cl_mem lm_ggml_cl_mul_mat_dequant_quant_to_f16(
 }
 
 // look up or create a pooled image1d_buffer over a KV-cache view.
-static cl_mem lm_ggml_cl_img_pool_get_or_create(
-    lm_ggml_backend_opencl_context * backend_ctx,
-    std::map<lm_ggml_backend_opencl_context::ImagePoolKey,
-             lm_ggml_backend_opencl_context::ImagePoolEntry> & pool,
+static cl_mem ggml_cl_img_pool_get_or_create(
+    ggml_backend_opencl_context * backend_ctx,
+    std::map<ggml_backend_opencl_context::ImagePoolKey,
+             ggml_backend_opencl_context::ImagePoolEntry> & pool,
     cl_mem data_device,
     cl_ulong offset0,
     size_t required_bytes,
     cl_channel_type channel_data_type
 ) {
-    lm_ggml_backend_opencl_context::ImagePoolKey key{(uintptr_t)data_device, (uint64_t)offset0};
+    ggml_backend_opencl_context::ImagePoolKey key{(uintptr_t)data_device, (uint64_t)offset0};
     auto it = pool.find(key);
     if (it != pool.end()
         && it->second.k_bytes >= required_bytes
@@ -19062,7 +19062,7 @@ static cl_mem lm_ggml_cl_img_pool_get_or_create(
         return nullptr;
     }
 
-    lm_ggml_backend_opencl_context::ImagePoolEntry entry;
+    ggml_backend_opencl_context::ImagePoolEntry entry;
     entry.sub_buffer = sub;
     entry.image      = img;
     entry.k_bytes    = required_bytes;
@@ -19071,95 +19071,95 @@ static cl_mem lm_ggml_cl_img_pool_get_or_create(
     return img;
 }
 
-static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul_mat(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     // bf16 is stored as f16 on device
-    const enum lm_ggml_type src0t = (src0->type == LM_GGML_TYPE_BF16) ? LM_GGML_TYPE_F16 : src0->type;
-    const enum lm_ggml_type src1t = src1->type;
+    const enum ggml_type src0t = (src0->type == GGML_TYPE_BF16) ? GGML_TYPE_F16 : src0->type;
+    const enum ggml_type src1t = src1->type;
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
     // quant kv without FA
     // used for non-contiguous src0 (the usual head-major permuted K view when n_head_kv>1)
     // AND for the contiguous case that occurs when n_head_kv==1 (e.g. Gemma-4 E2B)
-    if ((src0t == LM_GGML_TYPE_Q4_0 || src0t == LM_GGML_TYPE_Q8_0) &&
-        (!lm_ggml_is_contiguous(src0) || src1->ne[2] > src0->ne[2])) {
-        cl_mem f16_buf = lm_ggml_cl_mul_mat_dequant_quant_to_f16(backend_ctx, src0, nullptr);
+    if ((src0t == GGML_TYPE_Q4_0 || src0t == GGML_TYPE_Q8_0) &&
+        (!ggml_is_contiguous(src0) || src1->ne[2] > src0->ne[2])) {
+        cl_mem f16_buf = ggml_cl_mul_mat_dequant_quant_to_f16(backend_ctx, src0, nullptr);
 
-        lm_ggml_tensor         fake_src0 = *src0;
-        lm_ggml_tensor_extra_cl fake_extra = {};
+        ggml_tensor         fake_src0 = *src0;
+        ggml_tensor_extra_cl fake_extra = {};
         fake_extra.data_device = f16_buf;
         fake_extra.offset      = 0;
-        fake_src0.type     = LM_GGML_TYPE_F16;
+        fake_src0.type     = GGML_TYPE_F16;
         fake_src0.extra    = &fake_extra;
         fake_src0.view_src = nullptr;
         fake_src0.view_offs = 0;
-        fake_src0.nb[0] = sizeof(lm_ggml_fp16_t);
+        fake_src0.nb[0] = sizeof(ggml_fp16_t);
         fake_src0.nb[1] = fake_src0.nb[0] * src0->ne[0];
         fake_src0.nb[2] = fake_src0.nb[1] * src0->ne[1];
         fake_src0.nb[3] = fake_src0.nb[2] * src0->ne[2];
 
-        lm_ggml_cl_mul_mat(backend, &fake_src0, src1, dst);
+        ggml_cl_mul_mat(backend, &fake_src0, src1, dst);
         return;
     }
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
-#ifdef LM_GGML_OPENCL_SOA_Q
+#ifdef GGML_OPENCL_SOA_Q
     // view->extra stays pre-SoA; cast to the SoA struct would SIGSEGV.
     // Follow view_src to reach the real SoA extra.
-    const lm_ggml_tensor * soa0_src = src0->view_src != nullptr ? src0->view_src : src0;
-    lm_ggml_tensor_extra_cl_q1_0 * extra0_q1_0 = (lm_ggml_tensor_extra_cl_q1_0 *)src0->extra;
-    lm_ggml_tensor_extra_cl_q4_0 * extra0_q4_0 = (lm_ggml_tensor_extra_cl_q4_0 *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q4_1 * extra0_q4_1 = (lm_ggml_tensor_extra_cl_q4_1 *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q5_0 * extra0_q5_0 = (lm_ggml_tensor_extra_cl_q5_0 *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q5_1 * extra0_q5_1 = (lm_ggml_tensor_extra_cl_q5_1 *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_mxfp4 * extra0_mxfp4 = (lm_ggml_tensor_extra_cl_mxfp4 *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q8_0 * extra0_q8_0 = (lm_ggml_tensor_extra_cl_q8_0 *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_iq4_nl * extra0_iq4_nl = (lm_ggml_tensor_extra_cl_iq4_nl *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q4_K * extra0_q4_K = (lm_ggml_tensor_extra_cl_q4_K *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q5_K * extra0_q5_K = (lm_ggml_tensor_extra_cl_q5_K *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q6_K * extra0_q6_K = (lm_ggml_tensor_extra_cl_q6_K *)soa0_src->extra;
+    const ggml_tensor * soa0_src = src0->view_src != nullptr ? src0->view_src : src0;
+    ggml_tensor_extra_cl_q1_0 * extra0_q1_0 = (ggml_tensor_extra_cl_q1_0 *)src0->extra;
+    ggml_tensor_extra_cl_q4_0 * extra0_q4_0 = (ggml_tensor_extra_cl_q4_0 *)soa0_src->extra;
+    ggml_tensor_extra_cl_q4_1 * extra0_q4_1 = (ggml_tensor_extra_cl_q4_1 *)soa0_src->extra;
+    ggml_tensor_extra_cl_q5_0 * extra0_q5_0 = (ggml_tensor_extra_cl_q5_0 *)soa0_src->extra;
+    ggml_tensor_extra_cl_q5_1 * extra0_q5_1 = (ggml_tensor_extra_cl_q5_1 *)soa0_src->extra;
+    ggml_tensor_extra_cl_mxfp4 * extra0_mxfp4 = (ggml_tensor_extra_cl_mxfp4 *)soa0_src->extra;
+    ggml_tensor_extra_cl_q8_0 * extra0_q8_0 = (ggml_tensor_extra_cl_q8_0 *)soa0_src->extra;
+    ggml_tensor_extra_cl_iq4_nl * extra0_iq4_nl = (ggml_tensor_extra_cl_iq4_nl *)soa0_src->extra;
+    ggml_tensor_extra_cl_q4_K * extra0_q4_K = (ggml_tensor_extra_cl_q4_K *)soa0_src->extra;
+    ggml_tensor_extra_cl_q5_K * extra0_q5_K = (ggml_tensor_extra_cl_q5_K *)soa0_src->extra;
+    ggml_tensor_extra_cl_q6_K * extra0_q6_K = (ggml_tensor_extra_cl_q6_K *)soa0_src->extra;
 #endif
 
-    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
-    LM_GGML_TENSOR_LOCALS(int,      ne1, src1, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb1, src1, nb);
-    LM_GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
+    GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+    GGML_TENSOR_LOCALS(int,      ne1, src1, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb1, src1, nb);
+    GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
 
     int r2 = ne12/ne02;
     int r3 = ne13/ne03;
 
-    LM_GGML_ASSERT(ne00 == ne10);
+    GGML_ASSERT(ne00 == ne10);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
     // adreno GEMM/GEMV kernels do not support broadcast, assuming ne2 and ne3 are 1 for src1
     // so we handle broadcast here
     if ((ne12 > 1 || ne13 > 1) && ne02 == 1 && ne03 == 1 &&
-        src0t != LM_GGML_TYPE_F16 && src0t != LM_GGML_TYPE_F32) {
+        src0t != GGML_TYPE_F16 && src0t != GGML_TYPE_F32) {
         for (int i13 = 0; i13 < ne13; ++i13) {
             for (int i12 = 0; i12 < ne12; ++i12) {
-                lm_ggml_tensor s1 = *src1;
+                ggml_tensor s1 = *src1;
                 s1.ne[2] = 1; s1.ne[3] = 1;
                 s1.view_offs = src1->view_offs + (size_t)i12*nb12 + (size_t)i13*nb13;
-                lm_ggml_tensor d = *dst;
+                ggml_tensor d = *dst;
                 d.ne[2] = 1; d.ne[3] = 1;
                 d.view_offs = dst->view_offs + (size_t)i12*nb2 + (size_t)i13*nb3;
-                lm_ggml_cl_mul_mat(backend, src0, &s1, &d);
+                ggml_cl_mul_mat(backend, src0, &s1, &d);
             }
         }
         return;
@@ -19174,15 +19174,15 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
 
     cl_kernel kernel;
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-    if(src0t == LM_GGML_TYPE_F16 && src1t == LM_GGML_TYPE_F32){
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+    if(src0t == GGML_TYPE_F16 && src1t == GGML_TYPE_F32){
         if (ne01 >= 64 && ne1 >= 32 && ne00 >= 16 && (ne12 % ne02) == 0  &&
             // the KQ/KQV image kernels do not handle dim 3 (multi-stream batches)
             ne03 == 1 && ne13 == 1 &&
             // dst is wrapped with image1d_buffer, the size limit applies, also src0
             (ne0 * ne1 * dst->ne[2] * dst->nb[0] / 4 <= backend_ctx->image_max_buffer_size)) {
             // For KQ
-            if (lm_ggml_is_permuted(src0) && lm_ggml_is_permuted(src1) &&
+            if (ggml_is_permuted(src0) && ggml_is_permuted(src1) &&
                 ((nb01 * ne01 / 4)/4 <= backend_ctx->image_max_buffer_size) &&
                 nb00 <= nb02 &&
                 nb02 <= nb01 &&
@@ -19190,20 +19190,20 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nb10 <= nb12 &&
                 nb12 <= nb11 &&
                 nb11 <= nb13) {
-                lm_ggml_cl_mul_mat_kq_kqv_adreno(backend, src0, src1, dst);
+                ggml_cl_mul_mat_kq_kqv_adreno(backend, src0, src1, dst);
                 return;
             }
             // For KQV
-            if (!lm_ggml_is_contiguous(src0) && lm_ggml_is_contiguous(src1) &&
+            if (!ggml_is_contiguous(src0) && ggml_is_contiguous(src1) &&
                 ((nb02 * ne02 / 4)/4 <= backend_ctx->image_max_buffer_size)) {
-                lm_ggml_cl_mul_mat_kq_kqv_adreno(backend, src0, src1, dst);
+                ggml_cl_mul_mat_kq_kqv_adreno(backend, src0, src1, dst);
                 return;
             }
         }
 
-        static const char * mm_kq_gqa_img_env = getenv("LM_GGML_OPENCL_MM_KQ_GQA_IMG");
+        static const char * mm_kq_gqa_img_env = getenv("GGML_OPENCL_MM_KQ_GQA_IMG");
         static const bool mm_kq_gqa_img_on = (mm_kq_gqa_img_env == nullptr || mm_kq_gqa_img_env[0] != '0');
-        static const char * mm_kq_gqa_r4_img_env = getenv("LM_GGML_OPENCL_MM_KQ_GQA_R4_IMG");
+        static const char * mm_kq_gqa_r4_img_env = getenv("GGML_OPENCL_MM_KQ_GQA_R4_IMG");
         static const bool mm_kq_gqa_r4_img_on = (mm_kq_gqa_r4_img_env == nullptr || mm_kq_gqa_r4_img_env[0] != '0');
         const bool img_r4_gate =
             mm_kq_gqa_r4_img_on &&
@@ -19225,7 +19225,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             const size_t k_pixels = k_bytes >> 4;
             if (k_pixels > 0 && k_pixels <= backend_ctx->image_max_buffer_size) {
                 cl_kernel kernel = backend_ctx->kernel_mul_mat_f16_f32_l4_x8_gqa4_img;
-                cl_mem K_img = lm_ggml_cl_img_pool_get_or_create(
+                cl_mem K_img = ggml_cl_img_pool_get_or_create(
                     backend_ctx, backend_ctx->kq_img_pool,
                     extra0->data_device, offset0, k_bytes, CL_FLOAT);
                 if (K_img != nullptr) {
@@ -19275,7 +19275,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             const size_t k_pixels = k_bytes >> 4;
             if (k_pixels > 0 && k_pixels <= backend_ctx->image_max_buffer_size) {
                 cl_kernel kernel = backend_ctx->kernel_mul_mat_f16_f32_l4_x8_gqa_r4_img;
-                cl_mem K_img = lm_ggml_cl_img_pool_get_or_create(
+                cl_mem K_img = ggml_cl_img_pool_get_or_create(
                     backend_ctx, backend_ctx->kq_img_pool,
                     extra0->data_device, offset0, k_bytes, CL_FLOAT);
                 if (K_img != nullptr) {
@@ -19314,7 +19314,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
         }
 
         // DK=256, r2=2 specialization
-        static const char * mm_kq_r2_dk256_env = getenv("LM_GGML_OPENCL_MM_KQ_GQA_R2_DK256_IMG");
+        static const char * mm_kq_r2_dk256_env = getenv("GGML_OPENCL_MM_KQ_GQA_R2_DK256_IMG");
         static const bool mm_kq_r2_dk256_on = (mm_kq_r2_dk256_env != nullptr && mm_kq_r2_dk256_env[0] != '0');
         if (mm_kq_r2_dk256_on &&
             backend_ctx->kernel_mul_mat_f16_f32_l4_x8_gqa_r2_dk256_img != nullptr &&
@@ -19330,7 +19330,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             const size_t k_pixels = k_bytes >> 4;
             if (k_pixels > 0 && k_pixels <= backend_ctx->image_max_buffer_size) {
                 cl_kernel kernel = backend_ctx->kernel_mul_mat_f16_f32_l4_x8_gqa_r2_dk256_img;
-                cl_mem K_img = lm_ggml_cl_img_pool_get_or_create(
+                cl_mem K_img = ggml_cl_img_pool_get_or_create(
                     backend_ctx, backend_ctx->kq_img_pool,
                     extra0->data_device, offset0, k_bytes, CL_FLOAT);
                 if (K_img != nullptr) {
@@ -19369,7 +19369,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
         }
 
         // GQA-coalesced KQV for decode using image1d_buffer_t
-        static const char * mm_kqv_gqa_img_env = getenv("LM_GGML_OPENCL_MM_KQV_GQA_IMG");
+        static const char * mm_kqv_gqa_img_env = getenv("GGML_OPENCL_MM_KQV_GQA_IMG");
         static const bool mm_kqv_gqa_img_on = (mm_kqv_gqa_img_env != nullptr && mm_kqv_gqa_img_env[0] != '0');
         if (mm_kqv_gqa_img_on &&
             backend_ctx->kernel_mul_mat_f16_f32_l4_y8_gqa_img != nullptr &&
@@ -19385,7 +19385,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             const size_t v_pixels = v_bytes >> 3;
             if (v_pixels > 0 && v_pixels <= backend_ctx->image_max_buffer_size) {
                 cl_kernel kernel = backend_ctx->kernel_mul_mat_f16_f32_l4_y8_gqa_img;
-                cl_mem V_img = lm_ggml_cl_img_pool_get_or_create(
+                cl_mem V_img = ggml_cl_img_pool_get_or_create(
                     backend_ctx, backend_ctx->kqv_img_pool,
                     extra0->data_device, offset0, v_bytes, CL_HALF_FLOAT);
                 if (V_img != nullptr) {
@@ -19430,77 +19430,77 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
         // limit, so the check is omitted.
 
         // q1_0 x fp32
-        if (src0t == LM_GGML_TYPE_Q1_0 && src1t == LM_GGML_TYPE_F32 &&
+        if (src0t == GGML_TYPE_Q1_0 && src1t == GGML_TYPE_F32 &&
             enable_adreno_trans_weight(backend_ctx, src0)) {
-                lm_ggml_cl_mul_mat_q1_0_f32_adreno(backend, src0, src1, dst);
+                ggml_cl_mul_mat_q1_0_f32_adreno(backend, src0, src1, dst);
                 return;
         }
 
         // q4_0 x fp32
-        if(src0t == LM_GGML_TYPE_Q4_0 && src1t == LM_GGML_TYPE_F32) {
-            lm_ggml_cl_mul_mat_q4_0_f32_adreno(backend, src0, src1, dst);
+        if(src0t == GGML_TYPE_Q4_0 && src1t == GGML_TYPE_F32) {
+            ggml_cl_mul_mat_q4_0_f32_adreno(backend, src0, src1, dst);
             return;
         }
 
         // q4_1 x fp32
-        if (src0t == LM_GGML_TYPE_Q4_1 && src1t == LM_GGML_TYPE_F32) {
-            lm_ggml_cl_mul_mat_q4_1_f32_adreno(backend, src0, src1, dst);
+        if (src0t == GGML_TYPE_Q4_1 && src1t == GGML_TYPE_F32) {
+            ggml_cl_mul_mat_q4_1_f32_adreno(backend, src0, src1, dst);
             return;
         }
 
         // q5_0 x fp32
-        if (src0t == LM_GGML_TYPE_Q5_0 && src1t == LM_GGML_TYPE_F32) {
-            lm_ggml_cl_mul_mat_q5_0_f32_adreno(backend, src0, src1, dst);
+        if (src0t == GGML_TYPE_Q5_0 && src1t == GGML_TYPE_F32) {
+            ggml_cl_mul_mat_q5_0_f32_adreno(backend, src0, src1, dst);
             return;
         }
 
         // q5_1 x fp32
-        if (src0t == LM_GGML_TYPE_Q5_1 && src1t == LM_GGML_TYPE_F32) {
-            lm_ggml_cl_mul_mat_q5_1_f32_adreno(backend, src0, src1, dst);
+        if (src0t == GGML_TYPE_Q5_1 && src1t == GGML_TYPE_F32) {
+            ggml_cl_mul_mat_q5_1_f32_adreno(backend, src0, src1, dst);
             return;
         }
 
         // iq4_nl x fp32
-        if (src0t == LM_GGML_TYPE_IQ4_NL && src1t == LM_GGML_TYPE_F32) {
-            lm_ggml_cl_mul_mat_iq4_nl_f32_adreno(backend, src0, src1, dst);
+        if (src0t == GGML_TYPE_IQ4_NL && src1t == GGML_TYPE_F32) {
+            ggml_cl_mul_mat_iq4_nl_f32_adreno(backend, src0, src1, dst);
             return;
         }
 
         // q8_0 x fp32
-        if (src0t == LM_GGML_TYPE_Q8_0 && src1t == LM_GGML_TYPE_F32 &&
+        if (src0t == GGML_TYPE_Q8_0 && src1t == GGML_TYPE_F32 &&
             enable_adreno_trans_weight(backend_ctx, src0)) {
-                lm_ggml_cl_mul_mat_q8_0_f32_adreno(backend, src0, src1, dst);
+                ggml_cl_mul_mat_q8_0_f32_adreno(backend, src0, src1, dst);
                 return;
         }
 
         // q4_k x fp32
-        if (src0t == LM_GGML_TYPE_Q4_K && src1t == LM_GGML_TYPE_F32 && !use_flat_gemv_for_large_m_q4_K(src0)) {
-            lm_ggml_cl_mul_mat_q4_k_f32_adreno(backend, src0, src1, dst);
+        if (src0t == GGML_TYPE_Q4_K && src1t == GGML_TYPE_F32 && !use_flat_gemv_for_large_m_q4_K(src0)) {
+            ggml_cl_mul_mat_q4_k_f32_adreno(backend, src0, src1, dst);
             return;
         }
 
         // q6_K x fp32
-        if (src0t == LM_GGML_TYPE_Q6_K && src1t == LM_GGML_TYPE_F32 && !use_flat_gemv_for_large_m_q6_K(backend_ctx, src0)) {
-            lm_ggml_cl_mul_mat_q6_K_f32_adreno(backend, src0, src1, dst);
+        if (src0t == GGML_TYPE_Q6_K && src1t == GGML_TYPE_F32 && !use_flat_gemv_for_large_m_q6_K(backend_ctx, src0)) {
+            ggml_cl_mul_mat_q6_K_f32_adreno(backend, src0, src1, dst);
             return;
         }
 
         // q5_K x fp32
-        if (src0t == LM_GGML_TYPE_Q5_K && src1t == LM_GGML_TYPE_F32 &&
+        if (src0t == GGML_TYPE_Q5_K && src1t == GGML_TYPE_F32 &&
             enable_adreno_trans_weight_q5_K(backend_ctx, src0)) {
-            lm_ggml_cl_mul_mat_q5_K_f32_adreno(backend, src0, src1, dst);
+            ggml_cl_mul_mat_q5_K_f32_adreno(backend, src0, src1, dst);
             return;
         }
     } // if (ne01 && ne1)
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
     // GEMM using local memory
     // Current BK = 16, so ne00 % 16 == 0
-    if (src1t == LM_GGML_TYPE_F32 &&
+    if (src1t == GGML_TYPE_F32 &&
         ne00 % 16 == 0 &&
         ne11 > 1) {
         switch(src0t) {
-            case LM_GGML_TYPE_F32: {
+            case GGML_TYPE_F32: {
                 kernel = backend_ctx->kernel_mul_mm_f32_f32_l4_lm;
                 nth0 = 128; // calculated as (BM*BN)/(TM*TN)
 
@@ -19524,17 +19524,17 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 cl_ulong offset0_cont = offset0;
                 cl_ulong offset1_cont = offset1;
 
-                if (!lm_ggml_is_contiguous(src0)) {
-                    backend_ctx->prealloc_src0.allocate(backend_ctx->context, lm_ggml_nbytes(src0));
-                    lm_ggml_cl_copy_to_contiguous(backend, src0, backend_ctx->prealloc_src0.buffer,
+                if (!ggml_is_contiguous(src0)) {
+                    backend_ctx->prealloc_src0.allocate(backend_ctx->context, ggml_nbytes(src0));
+                    ggml_cl_copy_to_contiguous(backend, src0, backend_ctx->prealloc_src0.buffer,
                         nb00_cont, nb01_cont, nb02_cont, nb03_cont);
                     mem_src0 = backend_ctx->prealloc_src0.buffer;
                     offset0_cont = 0;
                 }
 
-                if (!lm_ggml_is_contiguous(src1)) {
-                    backend_ctx->prealloc_src1.allocate(backend_ctx->context, lm_ggml_nbytes(src1));
-                    lm_ggml_cl_copy_to_contiguous(backend, src1, backend_ctx->prealloc_src1.buffer,
+                if (!ggml_is_contiguous(src1)) {
+                    backend_ctx->prealloc_src1.allocate(backend_ctx->context, ggml_nbytes(src1));
+                    ggml_cl_copy_to_contiguous(backend, src1, backend_ctx->prealloc_src1.buffer,
                         nb10_cont, nb11_cont, nb12_cont, nb13_cont);
                     mem_src1 = backend_ctx->prealloc_src1.buffer;
                     offset1_cont = 0;
@@ -19567,10 +19567,10 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
                 return;
             }
-            case LM_GGML_TYPE_F16: {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
-                if (lm_ggml_cl_can_use_adreno_xmem_gemm_f16_f32(backend_ctx, src0, src1, dst)) {
-                    lm_ggml_cl_mul_mat_f16_f32_adreno_xmem(backend, src0, src1, dst);
+            case GGML_TYPE_F16: {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
+                if (ggml_cl_can_use_adreno_xmem_gemm_f16_f32(backend_ctx, src0, src1, dst)) {
+                    ggml_cl_mul_mat_f16_f32_adreno_xmem(backend, src0, src1, dst);
                     return;
                 }
 #endif
@@ -19597,17 +19597,17 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 cl_ulong offset0_cont = offset0;
                 cl_ulong offset1_cont = offset1;
 
-                if (!lm_ggml_is_contiguous(src0)) {
-                    backend_ctx->prealloc_src0.allocate(backend_ctx->context, lm_ggml_nbytes(src0));
-                    lm_ggml_cl_copy_to_contiguous(backend, src0, backend_ctx->prealloc_src0.buffer,
+                if (!ggml_is_contiguous(src0)) {
+                    backend_ctx->prealloc_src0.allocate(backend_ctx->context, ggml_nbytes(src0));
+                    ggml_cl_copy_to_contiguous(backend, src0, backend_ctx->prealloc_src0.buffer,
                         nb00_cont, nb01_cont, nb02_cont, nb03_cont);
                     mem_src0 = backend_ctx->prealloc_src0.buffer;
                     offset0_cont = 0;
                 }
 
-                if (!lm_ggml_is_contiguous(src1)) {
-                    backend_ctx->prealloc_src1.allocate(backend_ctx->context, lm_ggml_nbytes(src1));
-                    lm_ggml_cl_copy_to_contiguous(backend, src1, backend_ctx->prealloc_src1.buffer,
+                if (!ggml_is_contiguous(src1)) {
+                    backend_ctx->prealloc_src1.allocate(backend_ctx->context, ggml_nbytes(src1));
+                    ggml_cl_copy_to_contiguous(backend, src1, backend_ctx->prealloc_src1.buffer,
                             nb10_cont, nb11_cont, nb12_cont, nb13_cont);
                     mem_src1 = backend_ctx->prealloc_src1.buffer;
                     offset1_cont = 0;
@@ -19640,11 +19640,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
                 return;
             }
-            case LM_GGML_TYPE_Q1_0: {
+            case GGML_TYPE_Q1_0: {
                 if (ne11 < 32) {
                     break;
                 }
-                if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1)) {
+                if (!ggml_is_contiguous(src0) || !ggml_is_contiguous(src1)) {
                     break;
                 }
 
@@ -19682,11 +19682,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
                 return;
             }
-            case LM_GGML_TYPE_Q4_0: {
+            case GGML_TYPE_Q4_0: {
                 if (ne11 < 32) {
                     break;
                 }
-                if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1)) {
+                if (!ggml_is_contiguous(src0) || !ggml_is_contiguous(src1)) {
                     break;
                 }
 
@@ -19724,11 +19724,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
                 return;
             }
-            case LM_GGML_TYPE_Q4_1: {
+            case GGML_TYPE_Q4_1: {
                 if (ne11 < 32) {
                     break;
                 }
-                if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1)) {
+                if (!ggml_is_contiguous(src0) || !ggml_is_contiguous(src1)) {
                     break;
                 }
 
@@ -19767,11 +19767,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
                 return;
             }
-            case LM_GGML_TYPE_Q5_0: {
+            case GGML_TYPE_Q5_0: {
                 if (ne11 < 32) {
                     break;
                 }
-                if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1)) {
+                if (!ggml_is_contiguous(src0) || !ggml_is_contiguous(src1)) {
                     break;
                 }
 
@@ -19810,11 +19810,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
                 return;
             }
-            case LM_GGML_TYPE_Q5_1: {
+            case GGML_TYPE_Q5_1: {
                 if (ne11 < 32) {
                     break;
                 }
-                if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1)) {
+                if (!ggml_is_contiguous(src0) || !ggml_is_contiguous(src1)) {
                     break;
                 }
 
@@ -19854,11 +19854,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
                 return;
             }
-            case LM_GGML_TYPE_Q8_0: {
+            case GGML_TYPE_Q8_0: {
                 if (ne11 < 32) {
                     break;
                 }
-                if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1)) {
+                if (!ggml_is_contiguous(src0) || !ggml_is_contiguous(src1)) {
                     break;
                 }
 
@@ -19896,11 +19896,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
                 return;
             }
-            case LM_GGML_TYPE_IQ4_NL: {
+            case GGML_TYPE_IQ4_NL: {
                 if (ne11 < 32) {
                     break;
                 }
-                if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1)) {
+                if (!ggml_is_contiguous(src0) || !ggml_is_contiguous(src1)) {
                     break;
                 }
 
@@ -19938,11 +19938,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
                 return;
             }
-            case LM_GGML_TYPE_Q4_K: {
+            case GGML_TYPE_Q4_K: {
                 if (ne11 < 32) {
                     break;
                 }
-                if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1)) {
+                if (!ggml_is_contiguous(src0) || !ggml_is_contiguous(src1)) {
                     break;
                 }
 
@@ -19982,11 +19982,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
                 return;
             }
-            case LM_GGML_TYPE_Q5_K: {
+            case GGML_TYPE_Q5_K: {
                 if (ne11 < 32) {
                     break;
                 }
-                if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1)) {
+                if (!ggml_is_contiguous(src0) || !ggml_is_contiguous(src1)) {
                     break;
                 }
 
@@ -20027,11 +20027,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
                 return;
             }
-            case LM_GGML_TYPE_Q6_K: {
+            case GGML_TYPE_Q6_K: {
                 if (ne11 < 32) {
                     break;
                 }
-                if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1)) {
+                if (!ggml_is_contiguous(src0) || !ggml_is_contiguous(src1)) {
                     break;
                 }
 
@@ -20076,30 +20076,30 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
         }
     }
 
-    if (src0t == LM_GGML_TYPE_F16 && src1t == LM_GGML_TYPE_F32 &&
+    if (src0t == GGML_TYPE_F16 && src1t == GGML_TYPE_F32 &&
         src0->ne[1] > 32 &&   // M > 32
         src1->ne[1] > 32 &&   // N > 32
         src0->ne[0] > 32 &&   // K > 32
         src0->ne[2] == 1 && src0->ne[3] == 1 &&
         src1->ne[2] == 1 && src1->ne[3] == 1 &&
-        lm_ggml_is_contiguous(src0) && lm_ggml_is_contiguous(src1) &&
+        ggml_is_contiguous(src0) && ggml_is_contiguous(src1) &&
         backend_ctx->kernel_mul_mat_f16_f32_tiled != NULL) {
-        lm_ggml_cl_mul_mat_f16_f32_tiled(backend, src0, src1, dst);
+        ggml_cl_mul_mat_f16_f32_tiled(backend, src0, src1, dst);
         return;
     }
 
-    if (!lm_ggml_is_transposed(src0) &&
-        !lm_ggml_is_transposed(src1) &&
-        src1t == LM_GGML_TYPE_F32 &&
+    if (!ggml_is_transposed(src0) &&
+        !ggml_is_transposed(src1) &&
+        src1t == GGML_TYPE_F32 &&
         ne00%32 == 0 &&
         ne11 > 2) {
-#ifdef LM_GGML_OPENCL_SOA_Q
+#ifdef GGML_OPENCL_SOA_Q
         // Set up kernel.
         switch(src0t) {
-            case LM_GGML_TYPE_Q4_0:
+            case GGML_TYPE_Q4_0:
                 // This should have been satisfied.
-                LM_GGML_ASSERT(ne11 == ne1);
-                LM_GGML_ASSERT(ne01 == ne0);
+                GGML_ASSERT(ne11 == ne1);
+                GGML_ASSERT(ne01 == ne0);
 
                 if (backend_ctx->gpu_family == INTEL) {
                     nth0 = 16;
@@ -20112,7 +20112,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
 
                     kernel = backend_ctx->kernel_mul_mat_q4_0_f32_1d_8x_flat;
                 } else {
-                    LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                    GGML_ASSERT(false && "TODO: Unknown GPU");
                 }
 
                 CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0_q4_0->q));
@@ -20136,7 +20136,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
         }
 
         // Launch kernel.
-        if (src0t == LM_GGML_TYPE_Q4_0) {
+        if (src0t == GGML_TYPE_Q4_0) {
             size_t global_work_size[] = {(size_t)(ne01 + 7)/8*nth0, (size_t)ne11*nth1, (size_t)ne12*ne13};
             size_t local_work_size[] = {(size_t)nth0, (size_t)nth1, 1};
 
@@ -20150,16 +20150,16 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
             return;
         }
-#else // LM_GGML_OPENCL_SOA_Q
+#else // GGML_OPENCL_SOA_Q
         // TODO: add block_q4_0 variant.
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
     }
 
     // use custom matrix x vector kernel
     switch (src0t) {
-        case LM_GGML_TYPE_F32:
-            //LM_GGML_ASSERT(ne02 == ne12);
-            LM_GGML_ASSERT(src1t == LM_GGML_TYPE_F32);
+        case GGML_TYPE_F32:
+            //GGML_ASSERT(ne02 == ne12);
+            GGML_ASSERT(src1t == GGML_TYPE_F32);
             kernel = backend_ctx->kernel_mul_mat_f32_f32;
             nrows = 4;
 
@@ -20170,7 +20170,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth0 = 64;
                 nth1 = 1;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0->data_device));
@@ -20198,8 +20198,8 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 22, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 23, sizeof(int),      &r3));
             break;
-        case LM_GGML_TYPE_F16:
-            //LM_GGML_ASSERT(ne02 == ne12);
+        case GGML_TYPE_F16:
+            //GGML_ASSERT(ne02 == ne12);
             if (backend_ctx->gpu_family == INTEL) {
                 nth0 = 32;
                 nth1 = 1;
@@ -20207,10 +20207,10 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth0 = 64;
                 nth1 = 1;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
-            if (src1t == LM_GGML_TYPE_F32) {
+            if (src1t == GGML_TYPE_F32) {
                 // heuristic for packing more work for Adreno
                 const bool adreno_use_lane_split =
                     backend_ctx->gpu_family == ADRENO &&
@@ -20230,19 +20230,19 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                     nrows  = 1;
                 } else if (ne00 >= 128 && ne01 >= 8 && ne00%4 == 0) {
                     // multi-output decode variants when Q is a single row
-                    static const char * mm_force_l4_env = getenv("LM_GGML_OPENCL_MM_F16_FORCE_L4");
+                    static const char * mm_force_l4_env = getenv("GGML_OPENCL_MM_F16_FORCE_L4");
                     static const bool mm_force_l4_on = (mm_force_l4_env != nullptr && mm_force_l4_env[0] != '0');
                     const bool can_multi_out = !mm_force_l4_on && ne11 == 1 && ne01 >= 64 && ne01 % 8 == 0;
                     // paired-K-row variant that doubles per-wave-cycle
-                    static const char * mm_kq_pair_env = getenv("LM_GGML_OPENCL_MM_KQ_PAIR");
+                    static const char * mm_kq_pair_env = getenv("GGML_OPENCL_MM_KQ_PAIR");
                     static const bool mm_kq_pair_on = (mm_kq_pair_env != nullptr && mm_kq_pair_env[0] != '0');
                     // GQA-coalesced variant that reads each K-row once and
                     // emits gqa_ratio outputs
-                    static const char * mm_kq_gqa_env = getenv("LM_GGML_OPENCL_MM_KQ_GQA");
+                    static const char * mm_kq_gqa_env = getenv("GGML_OPENCL_MM_KQ_GQA");
                     static const bool mm_kq_gqa_on = (mm_kq_gqa_env != nullptr && mm_kq_gqa_env[0] != '0');
                     // GQA-coalesced KQV variant (DK=128/r2=8/r3=1) that reads
                     // each V slab once per K-head and emits all r2 Q-heads
-                    static const char * mm_kqv_gqa_env = getenv("LM_GGML_OPENCL_MM_KQV_GQA");
+                    static const char * mm_kqv_gqa_env = getenv("GGML_OPENCL_MM_KQV_GQA");
                     static const bool mm_kqv_gqa_on = (mm_kqv_gqa_env != nullptr && mm_kqv_gqa_env[0] != '0');
                     if (can_multi_out && (ne01 % 16) == 0 && ne00 == 128 && r2 == 8 && r3 == 1 && mm_kq_gqa_on &&
                         backend_ctx->kernel_mul_mat_f16_f32_l4_x8_gqa4 != nullptr) {
@@ -20308,8 +20308,8 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 22, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 23, sizeof(int),      &r3));
             break;
-        case LM_GGML_TYPE_Q1_0: {
-#ifdef LM_GGML_OPENCL_SOA_Q
+        case GGML_TYPE_Q1_0: {
+#ifdef GGML_OPENCL_SOA_Q
             kernel = backend_ctx->kernel_mul_mv_q1_0_f32_flat;
 
             // nth0 - subgroup size
@@ -20324,7 +20324,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 2;
                 ndst = nth1*4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0_q1_0->q));
@@ -20358,7 +20358,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 2;
                 ndst = nth1*4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0->data_device));
@@ -20380,15 +20380,15 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 16, sizeof(int),      &ne1));
             CL_CHECK(clSetKernelArg(kernel, 17, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 18, sizeof(int),      &r3));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
             break;
         }
-        case LM_GGML_TYPE_Q4_0:
+        case GGML_TYPE_Q4_0:
             // This should have been satisfied.
-            LM_GGML_ASSERT(ne11 == ne1);
-            LM_GGML_ASSERT(ne01 == ne0);
+            GGML_ASSERT(ne11 == ne1);
+            GGML_ASSERT(ne01 == ne0);
 
-#ifdef LM_GGML_OPENCL_SOA_Q
+#ifdef GGML_OPENCL_SOA_Q
             if (backend_ctx->gpu_family == INTEL) {
                 nth0 = 16;
                 nth1 = 1;
@@ -20402,7 +20402,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 kernel = backend_ctx->kernel_mul_mat_q4_0_f32_8x_flat;
                 ndst =8;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0_q4_0->q));
@@ -20420,7 +20420,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 12, sizeof(int),      &ne1));
             CL_CHECK(clSetKernelArg(kernel, 13, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 14, sizeof(int),      &r3));
-#else // LM_GGML_OPENCL_SOA_Q
+#else // GGML_OPENCL_SOA_Q
             if (backend_ctx->gpu_family == INTEL) {
                 // Use 1D local size. Each workgroup is a SIMD group. Each SIMD
                 // group produces N_DST (4 for Q4_0 kernel) values in the result.
@@ -20438,7 +20438,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 kernel = backend_ctx->kernel_mul_mat_q4_0_f32_v;
                 ndst = 4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0->data_device));
@@ -20456,10 +20456,10 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 12, sizeof(int),      &ne1));
             CL_CHECK(clSetKernelArg(kernel, 13, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 14, sizeof(int),      &r3));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
             break;
-        case LM_GGML_TYPE_Q4_1: {
-#ifdef LM_GGML_OPENCL_SOA_Q
+        case GGML_TYPE_Q4_1: {
+#ifdef GGML_OPENCL_SOA_Q
             if (backend_ctx->gpu_family == INTEL) {
                 nth0 = 16;
                 nth1 = 1;
@@ -20469,7 +20469,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 1;
                 ndst = 4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             kernel = backend_ctx->kernel_mul_mv_q4_1_f32_flat;
@@ -20500,7 +20500,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 1;
                 ndst = 4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             kernel = backend_ctx->kernel_mul_mv_q4_1_f32;
@@ -20520,11 +20520,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 12, sizeof(int),      &ne1));
             CL_CHECK(clSetKernelArg(kernel, 13, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 14, sizeof(int),      &r3));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
             break;
         }
-        case LM_GGML_TYPE_Q5_0: {
-#ifdef LM_GGML_OPENCL_SOA_Q
+        case GGML_TYPE_Q5_0: {
+#ifdef GGML_OPENCL_SOA_Q
             if (backend_ctx->gpu_family == INTEL) {
                 nth0 = 16;
                 nth1 = 1;
@@ -20534,7 +20534,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 1;
                 ndst = 4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             kernel = backend_ctx->kernel_mul_mv_q5_0_f32_flat;
@@ -20565,7 +20565,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 1;
                 ndst = 4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             kernel = backend_ctx->kernel_mul_mv_q5_0_f32;
@@ -20585,11 +20585,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 12, sizeof(int),      &ne1));
             CL_CHECK(clSetKernelArg(kernel, 13, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 14, sizeof(int),      &r3));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
             break;
         }
-        case LM_GGML_TYPE_Q5_1: {
-#ifdef LM_GGML_OPENCL_SOA_Q
+        case GGML_TYPE_Q5_1: {
+#ifdef GGML_OPENCL_SOA_Q
             if (backend_ctx->gpu_family == INTEL) {
                 nth0 = 16;
                 nth1 = 1;
@@ -20599,7 +20599,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 1;
                 ndst = 4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             kernel = backend_ctx->kernel_mul_mv_q5_1_f32_flat;
@@ -20631,7 +20631,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 1;
                 ndst = 4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             kernel = backend_ctx->kernel_mul_mv_q5_1_f32;
@@ -20651,11 +20651,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 12, sizeof(int),      &ne1));
             CL_CHECK(clSetKernelArg(kernel, 13, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 14, sizeof(int),      &r3));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
             break;
         }
-        case LM_GGML_TYPE_Q8_0: {
-#ifdef LM_GGML_OPENCL_SOA_Q
+        case GGML_TYPE_Q8_0: {
+#ifdef GGML_OPENCL_SOA_Q
             kernel = backend_ctx->kernel_mul_mv_q8_0_f32_flat;
 
             // nth0 - subgroup size
@@ -20670,7 +20670,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 2;
                 ndst = nth1*4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0_q8_0->q));
@@ -20707,7 +20707,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 2;
                 ndst = nth1*4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0->data_device));
@@ -20729,11 +20729,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 16, sizeof(int),      &ne1));
             CL_CHECK(clSetKernelArg(kernel, 17, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 18, sizeof(int),      &r3));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
             break;
         }
-        case LM_GGML_TYPE_IQ4_NL: {
-#ifdef LM_GGML_OPENCL_SOA_Q
+        case GGML_TYPE_IQ4_NL: {
+#ifdef GGML_OPENCL_SOA_Q
             kernel = backend_ctx->kernel_mul_mv_iq4_nl_f32_flat;
 
             if (backend_ctx->gpu_family == INTEL) {
@@ -20745,7 +20745,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 1;
                 ndst = 8;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0_iq4_nl->q));
@@ -20775,7 +20775,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 1;
                 ndst = 4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0->data_device));
@@ -20793,13 +20793,13 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 12, sizeof(int),      &ne1));
             CL_CHECK(clSetKernelArg(kernel, 13, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 14, sizeof(int),      &r3));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
             break;
         }
-        case LM_GGML_TYPE_Q2_K:
-        case LM_GGML_TYPE_Q3_K:
-        case LM_GGML_TYPE_Q4_K: {
-#ifdef LM_GGML_OPENCL_SOA_Q
+        case GGML_TYPE_Q2_K:
+        case GGML_TYPE_Q3_K:
+        case GGML_TYPE_Q4_K: {
+#ifdef GGML_OPENCL_SOA_Q
             kernel = backend_ctx->kernel_mul_mv_q4_K_f32_flat;
 
             if (backend_ctx->gpu_family == INTEL) {
@@ -20811,7 +20811,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 2;
                 ndst = 16;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0_q4_K->q));
@@ -20847,7 +20847,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 1;
                 ndst = 4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),     &extra0->data_device));
@@ -20869,11 +20869,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 16, sizeof(int),        &ne1));
             CL_CHECK(clSetKernelArg(kernel, 17, sizeof(int),        &r2));
             CL_CHECK(clSetKernelArg(kernel, 18, sizeof(int),        &r3));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
             break;
         }
-        case LM_GGML_TYPE_Q5_K: {
-#ifdef LM_GGML_OPENCL_SOA_Q
+        case GGML_TYPE_Q5_K: {
+#ifdef GGML_OPENCL_SOA_Q
                 kernel = backend_ctx->kernel_mul_mv_q5_K_f32_flat;
 
             if (backend_ctx->gpu_family == INTEL) {
@@ -20885,7 +20885,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 2;
                 ndst = 16;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0_q5_K->q));
@@ -20922,7 +20922,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 1;
                 ndst = 4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0->data_device));
@@ -20944,11 +20944,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 16, sizeof(int),      &ne1));
             CL_CHECK(clSetKernelArg(kernel, 17, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 18, sizeof(int),      &r3));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
             break;
         }
-        case LM_GGML_TYPE_Q6_K:
-#ifdef LM_GGML_OPENCL_SOA_Q
+        case GGML_TYPE_Q6_K:
+#ifdef GGML_OPENCL_SOA_Q
             kernel = backend_ctx->kernel_mul_mv_q6_K_f32_flat;
 
             if (backend_ctx->gpu_family == INTEL) {
@@ -20960,7 +20960,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 2;
                 ndst = 16;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0_q6_K->ql));
@@ -20998,7 +20998,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 2;
                 ndst = 1;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0->data_device));
@@ -21016,10 +21016,10 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             CL_CHECK(clSetKernelArg(kernel, 12, sizeof(int),      &ne1));
             CL_CHECK(clSetKernelArg(kernel, 13, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 14, sizeof(int),      &r3));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
             break;
-        case LM_GGML_TYPE_MXFP4: {
-#ifdef LM_GGML_OPENCL_SOA_Q
+        case GGML_TYPE_MXFP4: {
+#ifdef GGML_OPENCL_SOA_Q
             kernel = backend_ctx->kernel_mul_mv_mxfp4_f32_flat;
 
             cl_mem q;
@@ -21036,7 +21036,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
 
                 q = extra0_mxfp4->q_img;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &q));
@@ -21069,7 +21069,7 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
                 nth1 = 2;
                 ndst = nth1*2;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0->data_device));
@@ -21095,17 +21095,17 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
             break;
         }
         default:
-            LM_GGML_ASSERT(false && "not implemented");
+            GGML_ASSERT(false && "not implemented");
     }
 
-    if (src0t == LM_GGML_TYPE_Q4_0 || src0t == LM_GGML_TYPE_MXFP4 ||
-        src0t == LM_GGML_TYPE_Q4_1 ||
-        src0t == LM_GGML_TYPE_Q5_0 ||
-        src0t == LM_GGML_TYPE_Q5_1 ||
-        src0t == LM_GGML_TYPE_Q8_0 ||
-        src0t == LM_GGML_TYPE_Q1_0 ||
-        src0t == LM_GGML_TYPE_IQ4_NL ||
-        src0t == LM_GGML_TYPE_Q2_K) {
+    if (src0t == GGML_TYPE_Q4_0 || src0t == GGML_TYPE_MXFP4 ||
+        src0t == GGML_TYPE_Q4_1 ||
+        src0t == GGML_TYPE_Q5_0 ||
+        src0t == GGML_TYPE_Q5_1 ||
+        src0t == GGML_TYPE_Q8_0 ||
+        src0t == GGML_TYPE_Q1_0 ||
+        src0t == GGML_TYPE_IQ4_NL ||
+        src0t == GGML_TYPE_Q2_K) {
         // Each SIMD group produces N_DST values in the result. Assuming each
         // workgroup has N_SIMDGROUP SIMD groups, then each workgroup will
         // produce N_DST*N_SIMDGROUP values in the result. Hence, the grid size
@@ -21116,19 +21116,19 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
         size_t local_work_size[] = {(size_t)nth0, (size_t)nth1, 1};
 
         backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
-    } else if (src0t == LM_GGML_TYPE_Q4_K) {
+    } else if (src0t == GGML_TYPE_Q4_K) {
         size_t global_work_size[] = {(size_t)(ne01+ndst*nth1-1)/(ndst*nth1)*nth0, (size_t)ne11*nth1, (size_t)ne12*ne13};
         size_t local_work_size[] = {(size_t)nth0, (size_t)nth1, 1};
 
         backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
-    } else if (src0t == LM_GGML_TYPE_Q3_K) {
-        LM_GGML_ASSERT(false && "not implemented");
-    } else if (src0t == LM_GGML_TYPE_Q5_K) {
+    } else if (src0t == GGML_TYPE_Q3_K) {
+        GGML_ASSERT(false && "not implemented");
+    } else if (src0t == GGML_TYPE_Q5_K) {
         size_t global_work_size[] = {(size_t)(ne01+ndst*nth1-1)/(ndst*nth1)*nth0, (size_t)ne11*nth1, (size_t)ne12*ne13};
         size_t local_work_size[] = {(size_t)nth0, (size_t)nth1, 1};
 
         backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
-    } else if (src0t == LM_GGML_TYPE_Q6_K) {
+    } else if (src0t == GGML_TYPE_Q6_K) {
         size_t global_work_size[] = {(size_t)(ne01+ndst*nth1-1)/(ndst*nth1)*nth0, (size_t)ne11*nth1, (size_t)ne12*ne13};
         size_t local_work_size[] = {(size_t)nth0, (size_t)nth1, 1};
 
@@ -21181,11 +21181,11 @@ static void lm_ggml_cl_mul_mat(lm_ggml_backend_t backend, const lm_ggml_tensor *
     }
 }
 
-static void moe_router_reoerder(lm_ggml_backend_t backend, const lm_ggml_tensor * src, int ne20) {
+static void moe_router_reoerder(ggml_backend_t backend, const ggml_tensor * src, int ne20) {
     cl_int err;
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra = (lm_ggml_tensor_extra_cl *)src->extra;
+    ggml_tensor_extra_cl * extra = (ggml_tensor_extra_cl *)src->extra;
     cl_ulong offset = extra->offset + src->view_offs;
 
     const int ne21 = src->ne[1];
@@ -21274,9 +21274,9 @@ static void moe_router_reoerder(lm_ggml_backend_t backend, const lm_ggml_tensor 
     // Scatter. The deterministic variant is the default: kernel_moe_scatter derives
     // each token's slot from an atomic counter, so the packing inside an expert - and
     // with it the output of the ragged prefill GEMM - changes from run to run. Set
-    // LM_GGML_OPENCL_MOE_STABLE_SCATTER=0 to restore the atomic version.
+    // GGML_OPENCL_MOE_STABLE_SCATTER=0 to restore the atomic version.
     static const bool stable_scatter = []{
-        const char * e = getenv("LM_GGML_OPENCL_MOE_STABLE_SCATTER");
+        const char * e = getenv("GGML_OPENCL_MOE_STABLE_SCATTER");
         return !e || e[0] == '\0' || e[0] != '0';
     }();
 
@@ -21312,7 +21312,7 @@ static void moe_router_reoerder(lm_ggml_backend_t backend, const lm_ggml_tensor 
     // ceil(k_e/n_tile_size)) and compare to the ideal tile count for the real
     // routing count. Quantifies the per-expert tile-padding waste. Blocking
     // readback perturbs timing -> diagnostic only.
-    if (getenv("LM_GGML_OPENCL_MOE_TILES_DEBUG")) {
+    if (getenv("GGML_OPENCL_MOE_TILES_DEBUG")) {
         int h_total = 0;
         clFinish(backend_ctx->queue);
         CL_CHECK(clEnqueueReadBuffer(backend_ctx->queue, total_tiles_buf, CL_TRUE, 0, sizeof(int), &h_total, 0, NULL, NULL));
@@ -21334,44 +21334,44 @@ static void moe_router_reoerder(lm_ggml_backend_t backend, const lm_ggml_tensor 
     CL_CHECK(clReleaseMemObject(emap_buf));
 }
 
-static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_mul_mat_id(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    const lm_ggml_tensor * src2 = dst->src[2];
-    LM_GGML_ASSERT(src2);
-    LM_GGML_ASSERT(src2->extra);
+    const ggml_tensor * src2 = dst->src[2];
+    GGML_ASSERT(src2);
+    GGML_ASSERT(src2->extra);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extra2 = (lm_ggml_tensor_extra_cl *)src2->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extra2 = (ggml_tensor_extra_cl *)src2->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offset2 = extra2->offset + src2->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
-    LM_GGML_UNUSED(offset0);
+    GGML_UNUSED(offset0);
 
-#ifdef LM_GGML_OPENCL_SOA_Q
+#ifdef GGML_OPENCL_SOA_Q
     // SoA extra lives on view_src (view->extra is pre-SoA).
-    const lm_ggml_tensor * soa0_src = src0->view_src != nullptr ? src0->view_src : src0;
-    lm_ggml_tensor_extra_cl_q4_0 * extra0_q4_0 = (lm_ggml_tensor_extra_cl_q4_0 *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q4_1 * extra0_q4_1 = (lm_ggml_tensor_extra_cl_q4_1 *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q5_0 * extra0_q5_0 = (lm_ggml_tensor_extra_cl_q5_0 *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q5_1 * extra0_q5_1 = (lm_ggml_tensor_extra_cl_q5_1 *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q4_K * extra0_q4_K = (lm_ggml_tensor_extra_cl_q4_K *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q5_K * extra0_q5_K = (lm_ggml_tensor_extra_cl_q5_K *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q6_K * extra0_q6_K = (lm_ggml_tensor_extra_cl_q6_K *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_mxfp4 * extra0_mxfp4 = (lm_ggml_tensor_extra_cl_mxfp4 *)soa0_src->extra;
-    lm_ggml_tensor_extra_cl_q8_0 * extra0_q8_0 = (lm_ggml_tensor_extra_cl_q8_0 *)soa0_src->extra;
+    const ggml_tensor * soa0_src = src0->view_src != nullptr ? src0->view_src : src0;
+    ggml_tensor_extra_cl_q4_0 * extra0_q4_0 = (ggml_tensor_extra_cl_q4_0 *)soa0_src->extra;
+    ggml_tensor_extra_cl_q4_1 * extra0_q4_1 = (ggml_tensor_extra_cl_q4_1 *)soa0_src->extra;
+    ggml_tensor_extra_cl_q5_0 * extra0_q5_0 = (ggml_tensor_extra_cl_q5_0 *)soa0_src->extra;
+    ggml_tensor_extra_cl_q5_1 * extra0_q5_1 = (ggml_tensor_extra_cl_q5_1 *)soa0_src->extra;
+    ggml_tensor_extra_cl_q4_K * extra0_q4_K = (ggml_tensor_extra_cl_q4_K *)soa0_src->extra;
+    ggml_tensor_extra_cl_q5_K * extra0_q5_K = (ggml_tensor_extra_cl_q5_K *)soa0_src->extra;
+    ggml_tensor_extra_cl_q6_K * extra0_q6_K = (ggml_tensor_extra_cl_q6_K *)soa0_src->extra;
+    ggml_tensor_extra_cl_mxfp4 * extra0_mxfp4 = (ggml_tensor_extra_cl_mxfp4 *)soa0_src->extra;
+    ggml_tensor_extra_cl_q8_0 * extra0_q8_0 = (ggml_tensor_extra_cl_q8_0 *)soa0_src->extra;
 
 #endif
 
@@ -21414,13 +21414,13 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
     const int ne1 = dst->ne[1];
     const int ne2 = dst->ne[2];
 
-    LM_GGML_UNUSED(ne2);
+    GGML_UNUSED(ne2);
 
     const int r2 = ne12/ne02;
     const int r3 = ne13/ne03;
     const int dst_rows = ne20*ne21; // ne20 = n_used_experts, ne21 = n_rows
 
-    LM_GGML_ASSERT(ne00 == ne10);
+    GGML_ASSERT(ne00 == ne10);
 
     int sgs   = 32; // subgroup size
     int nsg   = 1;  // number of subgroups
@@ -21430,14 +21430,14 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
     const int n_tile_size = 32;
     const int max_post_router_tile = (ne20 * ne21 / n_tile_size) + ne02;
 
-    LM_GGML_UNUSED(max_post_router_tile);
+    GGML_UNUSED(max_post_router_tile);
 
     cl_kernel kernel;
 
     // subgroup mat vec
     switch (src0->type) {
-        case LM_GGML_TYPE_Q4_0: {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+        case GGML_TYPE_Q4_0: {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
             if (use_adreno_moe_kernels(backend_ctx, src0)) {
                 cl_int status;
 
@@ -21512,7 +21512,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     cl_mem buf_src2, buf_src2_emap;
 
                     // dp4a (int8) prefill GEMM variant
-                    static const char * q4_0_moe_dp4a_env = getenv("LM_GGML_OPENCL_Q4_0_MOE_DP4A");
+                    static const char * q4_0_moe_dp4a_env = getenv("GGML_OPENCL_Q4_0_MOE_DP4A");
                     bool use_moe_dp4a = q4_0_moe_dp4a_env
                         ? (atoi(q4_0_moe_dp4a_env) != 0)
                         : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E);
@@ -21540,7 +21540,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     CL_CHECK(status);
 
                     unsigned short map_ratio = ne20 / ne11;
-                    LM_GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
+                    GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
 
                     if (!use_moe_dp4a) {
                         // Create image for reordered src1
@@ -21685,7 +21685,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 return;
             } // fallback to generic Q4_0 MoE kernel
 
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
             kernel = backend_ctx->kernel_mul_mv_id_q4_0_f32_8x_flat;
 
             if (backend_ctx->gpu_family == INTEL) {
@@ -21697,7 +21697,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 nsg  = 1;
                 ndst = 8;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0_q4_0->q));
@@ -21728,8 +21728,8 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
 
             break;
         }
-        case LM_GGML_TYPE_Q4_1: {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+        case GGML_TYPE_Q4_1: {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
             if (use_adreno_moe_kernels(backend_ctx, src0)) {
                 cl_int status;
 
@@ -21846,7 +21846,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     CL_CHECK(status);
 
                     unsigned short map_ratio = ne20 / ne11;
-                    LM_GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
+                    GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
                     CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 0, sizeof(cl_mem),        &sub_buf_src1_pre));
                     CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 1, sizeof(cl_mem),        &buf_src2));
                     CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 2, sizeof(cl_mem),        &buf_src1_reordered));
@@ -21912,10 +21912,10 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 }
                 return;
             }
-#endif //LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif //GGML_OPENCL_USE_ADRENO_KERNELS
         }
-        case LM_GGML_TYPE_Q5_0: {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+        case GGML_TYPE_Q5_0: {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
             if (use_adreno_moe_kernels(backend_ctx, src0)) {
                 cl_int status;
 
@@ -22006,7 +22006,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
 
                     // Generic dp4a MoE GEMM
                     {
-                        static const char * q5mdp4a_env = getenv("LM_GGML_OPENCL_Q5_MOE_DP4A");
+                        static const char * q5mdp4a_env = getenv("GGML_OPENCL_Q5_MOE_DP4A");
                         const bool q5mdp4a_on = q5mdp4a_env ? (atoi(q5mdp4a_env) != 0)
                                                             : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E);
                         const bool use_q5_moe_dp4a = q5mdp4a_on
@@ -22099,7 +22099,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     CL_CHECK(status);
 
                     unsigned short map_ratio = ne20 / ne11;
-                    LM_GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
+                    GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
                     CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 0, sizeof(cl_mem),        &sub_buf_src1_pre));
                     CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 1, sizeof(cl_mem),        &buf_src2));
                     CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 2, sizeof(cl_mem),        &buf_src1_reordered));
@@ -22165,10 +22165,10 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 }
                 return;
             }
-#endif //LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif //GGML_OPENCL_USE_ADRENO_KERNELS
         }
-        case LM_GGML_TYPE_Q5_1: {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+        case GGML_TYPE_Q5_1: {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
             if (use_adreno_moe_kernels(backend_ctx, src0)) {
                 cl_int status;
 
@@ -22277,7 +22277,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     CL_CHECK(status);
 
                     unsigned short map_ratio = ne20 / ne11;
-                    LM_GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
+                    GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
                     CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 0, sizeof(cl_mem),        &sub_buf_src1_pre));
                     CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 1, sizeof(cl_mem),        &buf_src2));
                     CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 2, sizeof(cl_mem),        &buf_src1_reordered));
@@ -22344,13 +22344,13 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 }
                 return;
             }
-#endif //LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif //GGML_OPENCL_USE_ADRENO_KERNELS
         }
-        case LM_GGML_TYPE_Q8_0: {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+        case GGML_TYPE_Q8_0: {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
             // MoE GEMM for q8_0 at prefill (ne12>1)
             // There is no corresponding gemv_moe, so the code path is different here
-            static const char * moe_gemm_q8_env = getenv("LM_GGML_OPENCL_MOE_GEMM_Q8");
+            static const char * moe_gemm_q8_env = getenv("GGML_OPENCL_MOE_GEMM_Q8");
             const bool          moe_gemm_q8     = moe_gemm_q8_env
                 ? (atoi(moe_gemm_q8_env) != 0)
                 : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E);
@@ -22389,7 +22389,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
 
                 // Generic dp4a MoE GEMM
                 {
-                    static const char * q8mdp4a_env = getenv("LM_GGML_OPENCL_Q8_MOE_DP4A");
+                    static const char * q8mdp4a_env = getenv("GGML_OPENCL_Q8_MOE_DP4A");
                     const bool q8mdp4a_on = q8mdp4a_env ? (atoi(q8mdp4a_env) != 0)
                                                         : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E);
                     const bool use_q8_moe_dp4a = q8mdp4a_on
@@ -22473,7 +22473,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 CL_CHECK(status);
 
                 unsigned short map_ratio = ne20 / ne11;
-                LM_GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
+                GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
                 CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 0, sizeof(cl_mem),         &sub_buf_src1_pre));
                 CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 1, sizeof(cl_mem),         &buf_src2));
                 CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 2, sizeof(cl_mem),         &buf_src1_reordered));
@@ -22523,8 +22523,8 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 clReleaseMemObject(buf_dst_image);
                 return;
             }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
-#ifdef LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_SOA_Q
             kernel = backend_ctx->kernel_mul_mv_id_q8_0_f32_flat;
 
             if (backend_ctx->gpu_family == INTEL) {
@@ -22536,7 +22536,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 nsg  = 2;
                 ndst = 4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0_q8_0->q));
@@ -22572,7 +22572,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 nsg  = 2;
                 ndst = 4;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0->data_device));
@@ -22596,11 +22596,11 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
             CL_CHECK(clSetKernelArg(kernel, 18, sizeof(cl_ulong), &nb21));
             CL_CHECK(clSetKernelArg(kernel, 19, sizeof(int),      &ne0));
             CL_CHECK(clSetKernelArg(kernel, 20, sizeof(int),      &ne1));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
             break;
         }
-        case LM_GGML_TYPE_Q4_K: {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+        case GGML_TYPE_Q4_K: {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
             if (use_adreno_moe_kernels(backend_ctx, src0)) {
                 cl_int status;
 
@@ -22611,7 +22611,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     kernel = backend_ctx->kernel_gemv_moe_q4_k_f32_ns;
 
                     // Weight-as-texture MoE decode GEMV
-                    static const char * moe_decode_wimg_env = getenv("LM_GGML_OPENCL_MOE_DECODE_WIMG");
+                    static const char * moe_decode_wimg_env = getenv("GGML_OPENCL_MOE_DECODE_WIMG");
                     const bool moe_decode_wimg_on = moe_decode_wimg_env
                         ? (atoi(moe_decode_wimg_env) != 0)
                         : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E);
@@ -22689,7 +22689,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     cl_mem buf_src2, buf_src2_emap;
 
                     // dp4a (int8) prefill GEMM variant
-                    static const char * q4k_moe_dp4a_env = getenv("LM_GGML_OPENCL_Q4K_MOE_DP4A");
+                    static const char * q4k_moe_dp4a_env = getenv("GGML_OPENCL_Q4K_MOE_DP4A");
                     bool  use_moe_dp4a = (q4k_moe_dp4a_env != nullptr)
                                          ? (atoi(q4k_moe_dp4a_env) != 0)
                                          : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E || backend_ctx->adreno_gen == ADRENO_GPU_GEN::X1E);
@@ -22716,7 +22716,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     CL_CHECK(status);
 
                     unsigned short map_ratio = ne20 / ne11;
-                    LM_GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
+                    GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
 
                     if (!use_moe_dp4a) {
                         // Create image for reordered src1
@@ -22861,10 +22861,10 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 }
                 return;
             }
-#endif //LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif //GGML_OPENCL_USE_ADRENO_KERNELS
         }
-        case LM_GGML_TYPE_Q5_K: {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+        case GGML_TYPE_Q5_K: {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
             if (use_adreno_moe_kernels(backend_ctx, src0)) {
                 cl_int status;
 
@@ -22957,7 +22957,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
 
                     // Generic dp4a MoE GEMM
                     {
-                        static const char * q5kmdp4a_env = getenv("LM_GGML_OPENCL_Q5K_MOE_DP4A");
+                        static const char * q5kmdp4a_env = getenv("GGML_OPENCL_Q5K_MOE_DP4A");
                         const bool q5kmdp4a_on = q5kmdp4a_env ? (atoi(q5kmdp4a_env) != 0)
                                                               : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E);
                         bool use_moe_dp4a = q5kmdp4a_on
@@ -23050,7 +23050,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     CL_CHECK(status);
 
                     unsigned short map_ratio = ne20 / ne11;
-                    LM_GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
+                    GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
                     CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 0, sizeof(cl_mem),        &sub_buf_src1_pre));
                     CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 1, sizeof(cl_mem),        &buf_src2));
                     CL_CHECK(clSetKernelArg(backend_ctx->kernel_moe_reorder_b, 2, sizeof(cl_mem),        &buf_src1_reordered));
@@ -23118,10 +23118,10 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 }
                 return;
             }
-#endif //LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif //GGML_OPENCL_USE_ADRENO_KERNELS
         }
-        case LM_GGML_TYPE_Q6_K: {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+        case GGML_TYPE_Q6_K: {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
             if (use_adreno_moe_kernels(backend_ctx, src0)) {
                 cl_int status;
 
@@ -23198,7 +23198,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     cl_mem buf_src2, buf_src2_emap;
 
                     // dp4a (int8) q6_K MoE prefill GEMM
-                    static const char * q6k_moe_dp4a_env = getenv("LM_GGML_OPENCL_Q6K_MOE_DP4A");
+                    static const char * q6k_moe_dp4a_env = getenv("GGML_OPENCL_Q6K_MOE_DP4A");
                                  bool   use_moe_dp4a = (q6k_moe_dp4a_env != nullptr)
                                                          ? (atoi(q6k_moe_dp4a_env) != 0)
                                                          : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E
@@ -23227,7 +23227,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     CL_CHECK(status);
 
                     unsigned short map_ratio = ne20 / ne11;
-                    LM_GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
+                    GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
 
                     if (!use_moe_dp4a) {
                         // Create image for reordered src1
@@ -23370,10 +23370,10 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 }
                 return;
             }
-#endif //LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif //GGML_OPENCL_USE_ADRENO_KERNELS
         }
-        case LM_GGML_TYPE_MXFP4: {
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+        case GGML_TYPE_MXFP4: {
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
             if (use_adreno_moe_kernels(backend_ctx, src0)) {
                 cl_int status;
 
@@ -23384,7 +23384,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     kernel = backend_ctx->kernel_gemv_moe_mxfp4_f32_ns;
 
                     // Weight-as-texture MoE decode GEMV (see q4_K _wimg)
-                    static const char * moe_decode_wimg_env = getenv("LM_GGML_OPENCL_MOE_DECODE_WIMG");
+                    static const char * moe_decode_wimg_env = getenv("GGML_OPENCL_MOE_DECODE_WIMG");
                     const bool use_moe_decode_wimg = (moe_decode_wimg_env && (atoi(moe_decode_wimg_env) != 0))
                         && backend_ctx->kernel_gemv_moe_mxfp4_f32_ns_wimg != nullptr
                         && extra0_mxfp4->q_img != nullptr;
@@ -23457,7 +23457,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     cl_mem buf_src2, buf_src2_emap;
 
                     // dp4a (int8) prefill GEMM variant
-                    static const char * mxfp4_moe_dp4a_env = getenv("LM_GGML_OPENCL_MXFP4_MOE_DP4A");
+                    static const char * mxfp4_moe_dp4a_env = getenv("GGML_OPENCL_MXFP4_MOE_DP4A");
                     bool use_moe_dp4a = mxfp4_moe_dp4a_env
                         ? (atoi(mxfp4_moe_dp4a_env) != 0)
                         : (backend_ctx->adreno_gen == ADRENO_GPU_GEN::X2E);
@@ -23469,7 +23469,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     cl_buffer_region region;
                     region.origin = 0;
                     region.size = sizeof(int) * max_post_router_tile * n_tile_size;
-                    LM_GGML_ASSERT(backend_ctx->prealloc_post_router.buffer);
+                    GGML_ASSERT(backend_ctx->prealloc_post_router.buffer);
                     buf_src2 = clCreateSubBuffer(backend_ctx->prealloc_post_router.buffer, 0, CL_BUFFER_CREATE_TYPE_REGION, &region, &status);
                     CL_CHECK(status);
 
@@ -23486,7 +23486,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                     CL_CHECK(status);
 
                     unsigned short map_ratio = ne20 / ne11;
-                    LM_GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
+                    GGML_ASSERT(((map_ratio == 1) || (map_ratio == ne20)) && "Map ratio not supported\n");
 
                     if (!use_moe_dp4a) {
                         // Create image for reordered src1
@@ -23631,9 +23631,9 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 }
                 return;
             } // fallback to generic MoE mxfp4 kernel
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 
-#ifdef LM_GGML_OPENCL_SOA_Q
+#ifdef GGML_OPENCL_SOA_Q
             kernel = backend_ctx->kernel_mul_mv_id_mxfp4_f32_flat;
 
             cl_mem q;
@@ -23650,7 +23650,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
 
                 q = extra0_mxfp4->q_img;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &q));
@@ -23677,7 +23677,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
             CL_CHECK(clSetKernelArg(kernel, 21, sizeof(int),      &ne1));
             CL_CHECK(clSetKernelArg(kernel, 22, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 23, sizeof(int),      &r3));
-#else // LM_GGML_OPENCL_SOA_Q
+#else // GGML_OPENCL_SOA_Q
             kernel = backend_ctx->kernel_mul_mv_id_mxfp4_f32;
 
             if (backend_ctx->gpu_family == INTEL) {
@@ -23689,7 +23689,7 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
                 nsg  = 2;
                 ndst = 2;
             } else {
-                LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+                GGML_ASSERT(false && "TODO: Unknown GPU");
             }
 
             CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0->data_device));
@@ -23717,11 +23717,11 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
             CL_CHECK(clSetKernelArg(kernel, 22, sizeof(int),      &r2));
             CL_CHECK(clSetKernelArg(kernel, 23, sizeof(int),      &r3));
             CL_CHECK(clSetKernelArg(kernel, 24, sizeof(float)*sgs,nullptr));
-#endif // LM_GGML_OPENCL_SOA_Q
+#endif // GGML_OPENCL_SOA_Q
             break;
         }
         default:
-            LM_GGML_ASSERT(false && "not implemented");;
+            GGML_ASSERT(false && "not implemented");;
     }
 
     int _ne1 = 1;
@@ -23733,31 +23733,31 @@ static void lm_ggml_cl_mul_mat_id(lm_ggml_backend_t backend, const lm_ggml_tenso
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_scale(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
-    LM_GGML_UNUSED(src1);
+static void ggml_cl_scale(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
+    GGML_UNUSED(src1);
 
-    LM_GGML_ASSERT(lm_ggml_is_contiguous(src0));
+    GGML_ASSERT(ggml_is_contiguous(src0));
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
     float scale;
     float bias;
     memcpy(&scale, ((int32_t *) dst->op_params) + 0, sizeof(float));
     memcpy(&bias,  ((int32_t *) dst->op_params) + 1, sizeof(float));
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
     cl_kernel kernel;
 
-    int n = lm_ggml_nelements(dst);
+    int n = ggml_nelements(dst);
 
     if (n % 4 == 0) {
         kernel = backend_ctx->kernel_scale_f32_4;
@@ -23784,28 +23784,28 @@ static void lm_ggml_cl_scale(lm_ggml_backend_t backend, const lm_ggml_tensor * s
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size_ptr, dst);
 }
 
-static void lm_ggml_cl_cpy(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
+static void ggml_cl_cpy(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
 
-    // LM_GGML_OP_CPY happens between src0 and src1.
-    // LM_GGML_OP_DUP and LM_GGML_OP_CONT happen between src0 and dst.
+    // GGML_OP_CPY happens between src0 and src1.
+    // GGML_OP_DUP and GGML_OP_CONT happen between src0 and dst.
     UNUSED(dst);
 
-    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
-    LM_GGML_TENSOR_LOCALS(int,      ne1, src1, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb1, src1, nb);
+    GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+    GGML_TENSOR_LOCALS(int,      ne1, src1, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb1, src1, nb);
 
-    const enum lm_ggml_type src0t = src0->type;
-    const enum lm_ggml_type src1t = src1->type;
+    const enum ggml_type src0t = src0->type;
+    const enum ggml_type src1t = src1->type;
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
@@ -23813,42 +23813,42 @@ static void lm_ggml_cl_cpy(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     cl_kernel kernel;
 
     switch (src0t) {
-        case LM_GGML_TYPE_F32:
+        case GGML_TYPE_F32:
             switch (src1t) {
-                case LM_GGML_TYPE_F16:
+                case GGML_TYPE_F16:
                     kernel = backend_ctx->kernel_cpy_f32_f16;
                     break;
-                case LM_GGML_TYPE_F32:
+                case GGML_TYPE_F32:
                     kernel = ne00 < 32 ? backend_ctx->kernel_cpy_f32_f32_pack
                                        : backend_ctx->kernel_cpy_f32_f32;
                     break;
                 default:
-                    LM_GGML_ASSERT(false && "not implemented");
+                    GGML_ASSERT(false && "not implemented");
             }
             break;
-        case LM_GGML_TYPE_F16:
+        case GGML_TYPE_F16:
             switch (src1t) {
-                case LM_GGML_TYPE_F16:
+                case GGML_TYPE_F16:
                     kernel = backend_ctx->kernel_cpy_f16_f16;
                     break;
-                case LM_GGML_TYPE_F32:
+                case GGML_TYPE_F32:
                     kernel = backend_ctx->kernel_cpy_f16_f32;
                     break;
                 default:
-                    LM_GGML_ASSERT(false && "not implemented");
+                    GGML_ASSERT(false && "not implemented");
             }
             break;
-        case LM_GGML_TYPE_I32:
+        case GGML_TYPE_I32:
             switch (src1t) {
-                case LM_GGML_TYPE_I32:
+                case GGML_TYPE_I32:
                     kernel = backend_ctx->kernel_cpy_i32_i32;
                     break;
                 default:
-                    LM_GGML_ASSERT(false && "not implemented");
+                    GGML_ASSERT(false && "not implemented");
             }
             break;
         default:
-            LM_GGML_ASSERT(false && "not implemented");
+            GGML_ASSERT(false && "not implemented");
     }
 
     CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra0->data_device));
@@ -23895,33 +23895,33 @@ static void lm_ggml_cl_cpy(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     }
 }
 
-static void lm_ggml_cl_dup(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    lm_ggml_cl_cpy(backend, src0, dst, nullptr);
+static void ggml_cl_dup(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    ggml_cl_cpy(backend, src0, dst, nullptr);
     UNUSED(src1);
 }
 
-static void lm_ggml_cl_set(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_set(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    LM_GGML_ASSERT((src0->type == LM_GGML_TYPE_F32 || src0->type == LM_GGML_TYPE_I32) &&
+    GGML_ASSERT((src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_I32) &&
         src1->type == src0->type && dst->type == src0->type);
 
-    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
-    LM_GGML_TENSOR_LOCALS(int,      ne1, src1, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb1, src1, nb);
-    LM_GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
+    GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+    GGML_TENSOR_LOCALS(int,      ne1, src1, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb1, src1, nb);
+    GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -23937,20 +23937,20 @@ static void lm_ggml_cl_set(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     // for inplace case, dst is a view of src0 and is updated on top of it
     // so for non-inplace case, copy src0 to dst first
     if (!inplace) {
-        lm_ggml_cl_cpy(backend, src0, dst, nullptr);
+        ggml_cl_cpy(backend, src0, dst, nullptr);
     }
 
     // then copy src1 to dst with specified offset
-    if (src1->type == LM_GGML_TYPE_F32 && dst->type == LM_GGML_TYPE_F32) {
+    if (src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
         kernel = backend_ctx->kernel_cpy_f32_f32;
-    } else if (src1->type == LM_GGML_TYPE_I32 && dst->type == LM_GGML_TYPE_I32) {
+    } else if (src1->type == GGML_TYPE_I32 && dst->type == GGML_TYPE_I32) {
         kernel = backend_ctx->kernel_cpy_i32_i32;
     } else {
-        LM_GGML_ASSERT(false && "not implemented");
+        GGML_ASSERT(false && "not implemented");
     }
 
     offsetd += offs;
-    cl_ulong nb = lm_ggml_element_size(dst);
+    cl_ulong nb = ggml_element_size(dst);
 
     CL_CHECK(clSetKernelArg(kernel,  0, sizeof(cl_mem),   &extra1->data_device));
     CL_CHECK(clSetKernelArg(kernel,  1, sizeof(cl_ulong), &offset1));
@@ -23983,11 +23983,11 @@ static void lm_ggml_cl_set(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_diag_mask_inf(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_diag_mask_inf(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
@@ -23997,10 +23997,10 @@ static void lm_ggml_cl_diag_mask_inf(lm_ggml_backend_t backend, const lm_ggml_te
     const int  ne01 = src0 ? src0->ne[1] : 0;
     const int  ne02 = src0 ? src0->ne[2] : 0;
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -24045,26 +24045,26 @@ static void lm_ggml_cl_diag_mask_inf(lm_ggml_backend_t backend, const lm_ggml_te
     }
 }
 
-static void lm_ggml_cl_diag(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_diag(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     UNUSED(src1);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
-    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
-    LM_GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
+    GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+    GGML_TENSOR_LOCALS(int,      ne,  dst,  ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb,  dst,  nb);
 
     cl_kernel kernel = backend_ctx->kernel_diag_f32;
 
@@ -24088,33 +24088,33 @@ static void lm_ggml_cl_diag(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_soft_max(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_soft_max(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     // Softmax can now fuse KQ mask and KQ scale, which used to be two additional
     // ops before softmax. It now also fuses alibi if `max_bias > 0`. For llama,
     // alibi is not used; however, for some other models, it is used.
     // KQ_mask
     if (src1) {
-        LM_GGML_ASSERT(src1);
-        LM_GGML_ASSERT(src1->extra);
+        GGML_ASSERT(src1);
+        GGML_ASSERT(src1->extra);
     }
 
-    const lm_ggml_tensor * src2 = dst->src[2];
+    const ggml_tensor * src2 = dst->src[2];
     if (src2) {
-        LM_GGML_ASSERT(src2->extra);
+        GGML_ASSERT(src2->extra);
     }
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
-    lm_ggml_tensor_extra_cl * extra1 = src1 ? (lm_ggml_tensor_extra_cl *)src1->extra : nullptr;
-    lm_ggml_tensor_extra_cl * extra2 = src2 ? (lm_ggml_tensor_extra_cl *)src2->extra : nullptr;
+    ggml_tensor_extra_cl * extra1 = src1 ? (ggml_tensor_extra_cl *)src1->extra : nullptr;
+    ggml_tensor_extra_cl * extra2 = src2 ? (ggml_tensor_extra_cl *)src2->extra : nullptr;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -24152,7 +24152,7 @@ static void lm_ggml_cl_soft_max(lm_ggml_backend_t backend, const lm_ggml_tensor 
     const float m0 = powf(2.0f, -(max_bias       ) / n_head_log2);
     const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
 
-    const bool use_f16 = (src1 && src1->type == LM_GGML_TYPE_F16);
+    const bool use_f16 = (src1 && src1->type == GGML_TYPE_F16);
 
     // Local size must be wave size. Each workgroup is a wave, working on a row,
     // where a row corresponds to leading dimension.
@@ -24165,7 +24165,7 @@ static void lm_ggml_cl_soft_max(lm_ggml_backend_t backend, const lm_ggml_tensor 
     else if (backend_ctx->gpu_family == ADRENO) {
         nth = 64;
     } else {
-        LM_GGML_ASSERT(false && "TODO: Unknown GPU");
+        GGML_ASSERT(false && "TODO: Unknown GPU");
     }
 
     cl_kernel kernel;
@@ -24216,26 +24216,26 @@ static void lm_ggml_cl_soft_max(lm_ggml_backend_t backend, const lm_ggml_tensor 
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_rope(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_rope(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
-    lm_ggml_tensor * src2 = dst->src[2];
-    lm_ggml_tensor_extra_cl * extra2 = src2 ? (lm_ggml_tensor_extra_cl *)src2->extra : nullptr;
+    ggml_tensor * src2 = dst->src[2];
+    ggml_tensor_extra_cl * extra2 = src2 ? (ggml_tensor_extra_cl *)src2->extra : nullptr;
 
     cl_ulong offset2 = extra2 ? extra2->offset + src2->view_offs : offset0;
 
@@ -24264,8 +24264,8 @@ static void lm_ggml_cl_rope(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     const cl_ulong  nb2 = dst ? dst->nb[2] : 0;
     const cl_ulong  nb3 = dst ? dst->nb[3] : 0;
 
-    LM_GGML_ASSERT(ne10 % ne02 == 0);
-    LM_GGML_ASSERT(ne10 >= ne02);
+    GGML_ASSERT(ne10 % ne02 == 0);
+    GGML_ASSERT(ne10 >= ne02);
 
     int nth = MIN(64, ne00);
 
@@ -24292,64 +24292,64 @@ static void lm_ggml_cl_rope(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     memcpy(&sections,    (int32_t *) dst->op_params + 11, sizeof(int32_t)*4);
 
     const bool is_neox = mode & 2;
-    const bool is_mrope = mode & LM_GGML_ROPE_TYPE_MROPE;
-    const bool is_vision = mode == LM_GGML_ROPE_TYPE_VISION;
-    const int  is_imrope = mode == LM_GGML_ROPE_TYPE_IMROPE;
+    const bool is_mrope = mode & GGML_ROPE_TYPE_MROPE;
+    const bool is_vision = mode == GGML_ROPE_TYPE_VISION;
+    const int  is_imrope = mode == GGML_ROPE_TYPE_IMROPE;
 
     if (is_mrope) {
-        LM_GGML_ASSERT(sections[0] > 0 || sections[1] > 0 || sections[2] > 0);
+        GGML_ASSERT(sections[0] > 0 || sections[1] > 0 || sections[2] > 0);
     }
 
     if (is_vision) {
-        LM_GGML_ASSERT(n_dims == ne00/2);
-        LM_GGML_ASSERT(n_offs == 0); // offset not supported for vision, as the rotated pairs span the whole row
+        GGML_ASSERT(n_dims == ne00/2);
+        GGML_ASSERT(n_offs == 0); // offset not supported for vision, as the rotated pairs span the whole row
     }
 
     cl_kernel kernel;
 
     if (is_neox) {
         switch (src0->type) {
-            case LM_GGML_TYPE_F32:
+            case GGML_TYPE_F32:
                 kernel = backend_ctx->kernel_rope_neox_f32;
                 break;
-            case LM_GGML_TYPE_F16:
+            case GGML_TYPE_F16:
                 kernel = backend_ctx->kernel_rope_neox_f16;
                 break;
             default:
-                LM_GGML_ASSERT(false);
+                GGML_ASSERT(false);
         };
     } else if (is_mrope && !is_vision) {
         switch (src0->type) {
-            case LM_GGML_TYPE_F32:
+            case GGML_TYPE_F32:
                 kernel = backend_ctx->kernel_rope_multi_f32;
                 break;
-            case LM_GGML_TYPE_F16:
+            case GGML_TYPE_F16:
                 kernel = backend_ctx->kernel_rope_multi_f16;
                 break;
             default:
-                LM_GGML_ASSERT(false);
+                GGML_ASSERT(false);
         };
     } else if (is_vision) {
         switch (src0->type) {
-            case LM_GGML_TYPE_F32:
+            case GGML_TYPE_F32:
                 kernel = backend_ctx->kernel_rope_vision_f32;
                 break;
-            case LM_GGML_TYPE_F16:
+            case GGML_TYPE_F16:
                 kernel = backend_ctx->kernel_rope_vision_f16;
                 break;
             default:
-                LM_GGML_ASSERT(false);
+                GGML_ASSERT(false);
         }
     } else {
         switch (src0->type) {
-            case LM_GGML_TYPE_F32:
+            case GGML_TYPE_F32:
                 kernel = backend_ctx->kernel_rope_norm_f32;
                 break;
-            case LM_GGML_TYPE_F16:
+            case GGML_TYPE_F16:
                 kernel = backend_ctx->kernel_rope_norm_f16;
                 break;
             default:
-                LM_GGML_ASSERT(false);
+                GGML_ASSERT(false);
         };
     }
 
@@ -24407,26 +24407,26 @@ static void lm_ggml_cl_rope(lm_ggml_backend_t backend, const lm_ggml_tensor * sr
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_solve_tri(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_solve_tri(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
     cl_kernel kernel = backend_ctx->kernel_solve_tri_f32;
-    LM_GGML_ASSERT(kernel != nullptr);
+    GGML_ASSERT(kernel != nullptr);
 
     const int n = src0->ne[0];
     const int k = src1->ne[0];
@@ -24473,21 +24473,21 @@ static void lm_ggml_cl_solve_tri(lm_ggml_backend_t backend, const lm_ggml_tensor
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_im2col(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src1);
-    LM_GGML_ASSERT(src1->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_im2col(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src1);
+    GGML_ASSERT(src1->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
     // src0 - filter, src1 - input
-    LM_GGML_ASSERT(src1->type == LM_GGML_TYPE_F32);
-    LM_GGML_ASSERT(dst->type == LM_GGML_TYPE_F16 || dst->type == LM_GGML_TYPE_F32);
+    GGML_ASSERT(src1->type == GGML_TYPE_F32);
+    GGML_ASSERT(dst->type == GGML_TYPE_F16 || dst->type == GGML_TYPE_F32);
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra1 = (lm_ggml_tensor_extra_cl *)src1->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra1 = (ggml_tensor_extra_cl *)src1->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset1 = extra1->offset + src1->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -24521,7 +24521,7 @@ static void lm_ggml_cl_im2col(lm_ggml_backend_t backend, const lm_ggml_tensor * 
 
     cl_kernel kernel;
 
-    if(dst->type == LM_GGML_TYPE_F16) {
+    if(dst->type == GGML_TYPE_F16) {
         kernel = backend_ctx->kernel_im2col_f16;
     } else {
         kernel = backend_ctx->kernel_im2col_f32;
@@ -24556,34 +24556,34 @@ static void lm_ggml_cl_im2col(lm_ggml_backend_t backend, const lm_ggml_tensor * 
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_argsort(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
-    LM_GGML_UNUSED(src1);
+static void ggml_cl_argsort(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
+    GGML_UNUSED(src1);
 
-    LM_GGML_ASSERT(src0->type == LM_GGML_TYPE_F32);
-    LM_GGML_ASSERT( dst->type == LM_GGML_TYPE_I32);
-    LM_GGML_ASSERT(lm_ggml_is_contiguous(src0));
+    GGML_ASSERT(src0->type == GGML_TYPE_F32);
+    GGML_ASSERT( dst->type == GGML_TYPE_I32);
+    GGML_ASSERT(ggml_is_contiguous(src0));
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
     const int ne00  = src0->ne[0];
-    const int nrows = lm_ggml_nrows(src0);
+    const int nrows = ggml_nrows(src0);
 
     int ne00_padded = 1;
     while (ne00_padded < ne00) {
         ne00_padded *= 2;
     }
 
-    int order = (enum lm_ggml_sort_order) dst->op_params[0];
+    int order = (enum ggml_sort_order) dst->op_params[0];
 
     cl_kernel kernel = backend_ctx->kernel_argsort_f32_i32;
 
@@ -24601,27 +24601,27 @@ static void lm_ggml_cl_argsort(lm_ggml_backend_t backend, const lm_ggml_tensor *
 
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 
-#ifdef LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#ifdef GGML_OPENCL_USE_ADRENO_KERNELS
     const int ne21 = dst->ne[1];
     if ((strstr(src0->name, "_moe") != NULL) && (ne21 != 1)) {
         backend_ctx->toggle_reorder = true;
     }
-#endif // LM_GGML_OPENCL_USE_ADRENO_KERNELS
+#endif // GGML_OPENCL_USE_ADRENO_KERNELS
 }
 
-static void lm_ggml_cl_sum_rows(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
-    LM_GGML_UNUSED(src1);
+static void ggml_cl_sum_rows(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
+    GGML_UNUSED(src1);
 
-    LM_GGML_ASSERT(src0->nb[0] == lm_ggml_type_size(src0->type));
+    GGML_ASSERT(src0->nb[0] == ggml_type_size(src0->type));
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -24669,26 +24669,26 @@ static void lm_ggml_cl_sum_rows(lm_ggml_backend_t backend, const lm_ggml_tensor 
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_cumsum(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
-    LM_GGML_UNUSED(src1);
+static void ggml_cl_cumsum(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
+    GGML_UNUSED(src1);
 
-    LM_GGML_ASSERT(src0->nb[0] == lm_ggml_type_size(src0->type));
-    LM_GGML_ASSERT(lm_ggml_is_contiguous(src0));
+    GGML_ASSERT(src0->nb[0] == ggml_type_size(src0->type));
+    GGML_ASSERT(ggml_is_contiguous(src0));
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
 
-    LM_GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
-    LM_GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
+    GGML_TENSOR_LOCALS(int,      ne0, src0, ne);
+    GGML_TENSOR_LOCALS(cl_ulong, nb0, src0, nb);
 
     cl_kernel kernel = backend_ctx->kernel_cumsum_blk;
 
@@ -24698,7 +24698,7 @@ static void lm_ggml_cl_cumsum(lm_ggml_backend_t backend, const lm_ggml_tensor * 
         nth *= 2;
     }
 
-    LM_GGML_ASSERT(ne00 <= nth*nth);
+    GGML_ASSERT(ne00 <= nth*nth);
 
     const int net0 = CEIL_DIV(ne00, nth);
     const int net1 = ne01;
@@ -24710,7 +24710,7 @@ static void lm_ggml_cl_cumsum(lm_ggml_backend_t backend, const lm_ggml_tensor * 
     const cl_ulong nbt2 = net1*nbt1;
     const cl_ulong nbt3 = net2*nbt2;
 
-    static lm_ggml_cl_buffer tmp_buffer;
+    static ggml_cl_buffer tmp_buffer;
     tmp_buffer.allocate(backend_ctx->context, net0*ne01*ne02*ne03*sizeof(float));
 
     CL_CHECK(clSetKernelArg(kernel,   0, sizeof(cl_mem),   &extra0->data_device));
@@ -24781,70 +24781,70 @@ static void lm_ggml_cl_cumsum(lm_ggml_backend_t backend, const lm_ggml_tensor * 
     }
 }
 
-static void lm_ggml_cl_glu(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(src0);
-    LM_GGML_ASSERT(src0->extra);
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_glu(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(src0);
+    GGML_ASSERT(src0->extra);
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    LM_GGML_ASSERT(lm_ggml_is_contiguous_1(src0));
+    GGML_ASSERT(ggml_is_contiguous_1(src0));
 
     if (src1) {
-        LM_GGML_ASSERT(src1);
-        LM_GGML_ASSERT(src1->extra);
-        LM_GGML_ASSERT(lm_ggml_are_same_shape(src0, src1));
+        GGML_ASSERT(src1);
+        GGML_ASSERT(src1->extra);
+        GGML_ASSERT(ggml_are_same_shape(src0, src1));
     }
 
-    lm_ggml_backend_opencl_context *backend_ctx = (lm_ggml_backend_opencl_context *)backend->context;
+    ggml_backend_opencl_context *backend_ctx = (ggml_backend_opencl_context *)backend->context;
 
     cl_kernel kernel;
-    switch (lm_ggml_get_glu_op(dst)) {
-        case LM_GGML_GLU_OP_GEGLU:
-            if (dst->type == LM_GGML_TYPE_F32) {
+    switch (ggml_get_glu_op(dst)) {
+        case GGML_GLU_OP_GEGLU:
+            if (dst->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_geglu;
             } else {
                 kernel = backend_ctx->kernel_geglu_f16;
             }
             break;
-        case LM_GGML_GLU_OP_REGLU:
-            if (dst->type == LM_GGML_TYPE_F32) {
+        case GGML_GLU_OP_REGLU:
+            if (dst->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_reglu;
             } else {
                 kernel = backend_ctx->kernel_reglu_f16;
             }
             break;
-        case LM_GGML_GLU_OP_SWIGLU:
-            if (dst->type == LM_GGML_TYPE_F32) {
+        case GGML_GLU_OP_SWIGLU:
+            if (dst->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_swiglu;
             } else {
                 kernel = backend_ctx->kernel_swiglu_f16;
             }
             break;
-        case LM_GGML_GLU_OP_SWIGLU_OAI:
+        case GGML_GLU_OP_SWIGLU_OAI:
             kernel = backend_ctx->kernel_swiglu_oai;
             break;
-        case LM_GGML_GLU_OP_GEGLU_ERF:
-            if (dst->type == LM_GGML_TYPE_F32) {
+        case GGML_GLU_OP_GEGLU_ERF:
+            if (dst->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_geglu_erf;
             } else {
                 kernel = backend_ctx->kernel_geglu_erf_f16;
             }
             break;
-        case LM_GGML_GLU_OP_GEGLU_QUICK:
-            if (dst->type == LM_GGML_TYPE_F32) {
+        case GGML_GLU_OP_GEGLU_QUICK:
+            if (dst->type == GGML_TYPE_F32) {
                 kernel = backend_ctx->kernel_geglu_quick;
             } else {
                 kernel = backend_ctx->kernel_geglu_quick_f16;
             }
             break;
         default:
-            LM_GGML_ABORT("Unsupported glu op");
+            GGML_ABORT("Unsupported glu op");
     }
 
-    lm_ggml_tensor_extra_cl * extra0 = (lm_ggml_tensor_extra_cl *)src0->extra;
-    lm_ggml_tensor_extra_cl * extrad = (lm_ggml_tensor_extra_cl *)dst->extra;
+    ggml_tensor_extra_cl * extra0 = (ggml_tensor_extra_cl *)src0->extra;
+    ggml_tensor_extra_cl * extrad = (ggml_tensor_extra_cl *)dst->extra;
 
-    lm_ggml_tensor_extra_cl * extra1 = src1 ? (lm_ggml_tensor_extra_cl *)src1->extra : nullptr;
+    ggml_tensor_extra_cl * extra1 = src1 ? (ggml_tensor_extra_cl *)src1->extra : nullptr;
 
     cl_ulong offset0 = extra0->offset + src0->view_offs;
     cl_ulong offsetd = extrad->offset + dst->view_offs;
@@ -24858,9 +24858,9 @@ static void lm_ggml_cl_glu(lm_ggml_backend_t backend, const lm_ggml_tensor * src
 
     const cl_ulong nb1  = dst->nb[1];
 
-    const int   swp   = lm_ggml_get_op_params_i32(dst, 1);
-    const float alpha = lm_ggml_get_op_params_f32(dst, 2);
-    const float limit = lm_ggml_get_op_params_f32(dst, 3);
+    const int   swp   = ggml_get_op_params_i32(dst, 1);
+    const float alpha = ggml_get_op_params_f32(dst, 2);
+    const float limit = ggml_get_op_params_f32(dst, 3);
 
     const int ne00_off = src1 ? 0 : (swp ? ne0 : 0);
     const int ne10_off = src1 ? 0 : (swp ? 0 : ne0);
@@ -24878,12 +24878,12 @@ static void lm_ggml_cl_glu(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     CL_CHECK(clSetKernelArg(kernel, 10, sizeof(int),      &ne00_off));
     CL_CHECK(clSetKernelArg(kernel, 11, sizeof(int),      &ne10_off));
 
-    if (lm_ggml_get_glu_op(dst) == LM_GGML_GLU_OP_SWIGLU_OAI) {
+    if (ggml_get_glu_op(dst) == GGML_GLU_OP_SWIGLU_OAI) {
         CL_CHECK(clSetKernelArg(kernel, 12, sizeof(float), &limit));
         CL_CHECK(clSetKernelArg(kernel, 13, sizeof(float), &alpha));
     }
 
-    const size_t nrows = lm_ggml_nrows(src0);
+    const size_t nrows = ggml_nrows(src0);
     size_t nth = backend_ctx->max_workgroup_size < 512 ? backend_ctx->max_workgroup_size : 512;
     size_t global_work_size[] = {nrows*nth, 1, 1};
     size_t local_work_size[] = {nth, 1, 1};
@@ -24891,31 +24891,31 @@ static void lm_ggml_cl_glu(lm_ggml_backend_t backend, const lm_ggml_tensor * src
     backend_ctx->enqueue_ndrange_kernel(kernel, 3, global_work_size, local_work_size, dst);
 }
 
-static void lm_ggml_cl_gated_delta_net(lm_ggml_backend_t backend, lm_ggml_tensor * dst) {
-    LM_GGML_ASSERT(dst);
-    LM_GGML_ASSERT(dst->extra);
+static void ggml_cl_gated_delta_net(ggml_backend_t backend, ggml_tensor * dst) {
+    GGML_ASSERT(dst);
+    GGML_ASSERT(dst->extra);
 
-    const lm_ggml_tensor * src_q     = dst->src[0];
-    const lm_ggml_tensor * src_k     = dst->src[1];
-    const lm_ggml_tensor * src_v     = dst->src[2];
-    const lm_ggml_tensor * src_g     = dst->src[3];
-    const lm_ggml_tensor * src_beta  = dst->src[4];
-    const lm_ggml_tensor * src_state = dst->src[5];
+    const ggml_tensor * src_q     = dst->src[0];
+    const ggml_tensor * src_k     = dst->src[1];
+    const ggml_tensor * src_v     = dst->src[2];
+    const ggml_tensor * src_g     = dst->src[3];
+    const ggml_tensor * src_beta  = dst->src[4];
+    const ggml_tensor * src_state = dst->src[5];
 
-    LM_GGML_ASSERT(src_q && src_q->extra);
-    LM_GGML_ASSERT(src_k && src_k->extra);
-    LM_GGML_ASSERT(src_v && src_v->extra);
-    LM_GGML_ASSERT(src_g && src_g->extra);
-    LM_GGML_ASSERT(src_beta && src_beta->extra);
-    LM_GGML_ASSERT(src_state && src_state->extra);
+    GGML_ASSERT(src_q && src_q->extra);
+    GGML_ASSERT(src_k && src_k->extra);
+    GGML_ASSERT(src_v && src_v->extra);
+    GGML_ASSERT(src_g && src_g->extra);
+    GGML_ASSERT(src_beta && src_beta->extra);
+    GGML_ASSERT(src_state && src_state->extra);
 
-    lm_ggml_backend_opencl_context * backend_ctx = (lm_ggml_backend_opencl_context *) backend->context;
+    ggml_backend_opencl_context * backend_ctx = (ggml_backend_opencl_context *) backend->context;
 
     const cl_uint S_v      = (cl_uint) src_v->ne[0];
     const cl_uint H_v      = (cl_uint) src_v->ne[1];
     const cl_uint n_tokens = (cl_uint) src_v->ne[2];
     const cl_uint n_seqs   = (cl_uint) src_v->ne[3];
-    const cl_uint K        = (cl_uint) lm_ggml_get_op_params_i32(dst, 0);
+    const cl_uint K        = (cl_uint) ggml_get_op_params_i32(dst, 0);
 
     int si;
     switch (S_v) {
@@ -24924,7 +24924,7 @@ static void lm_ggml_cl_gated_delta_net(lm_ggml_backend_t backend, lm_ggml_tensor
         case 64:  si = 2; break;
         case 128: si = 3; break;
         default:
-            LM_GGML_ASSERT(false && "lm_ggml_cl_gated_delta_net: unsupported S_v");
+            GGML_ASSERT(false && "ggml_cl_gated_delta_net: unsupported S_v");
     }
 
     const int kda = (src_g->ne[0] == (int64_t) S_v) ? 1 : 0;
@@ -24950,7 +24950,7 @@ static void lm_ggml_cl_gated_delta_net(lm_ggml_backend_t backend, lm_ggml_tensor
     const int spw  = (tgpp == 0) ? 1 : 1;
 
     cl_kernel kernel = backend_ctx->kernel_gated_delta_net_f32[si][kda][tgpp];
-    LM_GGML_ASSERT(kernel != nullptr);
+    GGML_ASSERT(kernel != nullptr);
 
     const cl_uint s_off = S_v * H_v * n_tokens * n_seqs;
 
@@ -24969,13 +24969,13 @@ static void lm_ggml_cl_gated_delta_net(lm_ggml_backend_t backend, lm_ggml_tensor
 
     const float scale = 1.0f / sqrtf((float) S_v);
 
-    lm_ggml_tensor_extra_cl * extra_q     = (lm_ggml_tensor_extra_cl *) src_q->extra;
-    lm_ggml_tensor_extra_cl * extra_k     = (lm_ggml_tensor_extra_cl *) src_k->extra;
-    lm_ggml_tensor_extra_cl * extra_v     = (lm_ggml_tensor_extra_cl *) src_v->extra;
-    lm_ggml_tensor_extra_cl * extra_g     = (lm_ggml_tensor_extra_cl *) src_g->extra;
-    lm_ggml_tensor_extra_cl * extra_beta  = (lm_ggml_tensor_extra_cl *) src_beta->extra;
-    lm_ggml_tensor_extra_cl * extra_state = (lm_ggml_tensor_extra_cl *) src_state->extra;
-    lm_ggml_tensor_extra_cl * extra_dst   = (lm_ggml_tensor_extra_cl *) dst->extra;
+    ggml_tensor_extra_cl * extra_q     = (ggml_tensor_extra_cl *) src_q->extra;
+    ggml_tensor_extra_cl * extra_k     = (ggml_tensor_extra_cl *) src_k->extra;
+    ggml_tensor_extra_cl * extra_v     = (ggml_tensor_extra_cl *) src_v->extra;
+    ggml_tensor_extra_cl * extra_g     = (ggml_tensor_extra_cl *) src_g->extra;
+    ggml_tensor_extra_cl * extra_beta  = (ggml_tensor_extra_cl *) src_beta->extra;
+    ggml_tensor_extra_cl * extra_state = (ggml_tensor_extra_cl *) src_state->extra;
+    ggml_tensor_extra_cl * extra_dst   = (ggml_tensor_extra_cl *) dst->extra;
 
     const cl_ulong off_q     = extra_q->offset     + src_q->view_offs;
     const cl_ulong off_k     = extra_k->offset     + src_k->view_offs;
@@ -25021,7 +25021,7 @@ static void lm_ggml_cl_gated_delta_net(lm_ggml_backend_t backend, lm_ggml_tensor
     // Subgroup size is 64 for Adreno and 32 for Intel
     const int sg_size = backend_ctx->gpu_family == GPU_FAMILY::ADRENO ? 64 : backend_ctx->gpu_family == GPU_FAMILY::INTEL ? 32 : -1;
     if (sg_size < 0) {
-        LM_GGML_LOG_ERROR("Unsupported GPU Family: only Adreno and Intel are supported.\n");
+        GGML_LOG_ERROR("Unsupported GPU Family: only Adreno and Intel are supported.\n");
         exit(1);
     }
 
@@ -25047,14 +25047,14 @@ static void lm_ggml_cl_gated_delta_net(lm_ggml_backend_t backend, lm_ggml_tensor
             (sg_size % lanes_per_column) != 0)) {
         lanes_per_column >>= 1;
     }
-    LM_GGML_ASSERT(lanes_per_column >= 1);
-    LM_GGML_ASSERT(((lanes_per_column & (lanes_per_column - 1)) == 0));
-    LM_GGML_ASSERT(((int)S_v % lanes_per_column) == 0);
-    LM_GGML_ASSERT((sg_size % lanes_per_column) == 0);
+    GGML_ASSERT(lanes_per_column >= 1);
+    GGML_ASSERT(((lanes_per_column & (lanes_per_column - 1)) == 0));
+    GGML_ASSERT(((int)S_v % lanes_per_column) == 0);
+    GGML_ASSERT((sg_size % lanes_per_column) == 0);
 
     const int cols_per_wg = spw * (sg_size / lanes_per_column) * cpl;
-    LM_GGML_ASSERT(cols_per_wg > 0);
-    LM_GGML_ASSERT(((int)S_v % cols_per_wg) == 0);
+    GGML_ASSERT(cols_per_wg > 0);
+    GGML_ASSERT(((int)S_v % cols_per_wg) == 0);
 
     size_t global_work_size[3];
     size_t local_work_size[3];
@@ -25074,367 +25074,367 @@ static void lm_ggml_cl_gated_delta_net(lm_ggml_backend_t backend, lm_ggml_tensor
 // Op offloading
 //------------------------------------------------------------------------------
 
-typedef void (*lm_ggml_cl_func_t)(lm_ggml_backend_t backend, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst);
+typedef void (*ggml_cl_func_t)(ggml_backend_t backend, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst);
 
-bool lm_ggml_cl_compute_forward(lm_ggml_backend_t backend, struct lm_ggml_tensor * tensor) {
-    lm_ggml_cl_func_t func = nullptr;
+bool ggml_cl_compute_forward(ggml_backend_t backend, struct ggml_tensor * tensor) {
+    ggml_cl_func_t func = nullptr;
 
-    lm_ggml_tensor * src0 = tensor->src[0];
-    lm_ggml_tensor * src1 = tensor->src[1];
+    ggml_tensor * src0 = tensor->src[0];
+    ggml_tensor * src1 = tensor->src[1];
 
     const bool any_on_device = tensor->extra
         || (src0 != nullptr && src0->extra)
         || (src1 != nullptr && src1->extra);
 
     switch (tensor->op) {
-        case LM_GGML_OP_GET_ROWS:
+        case GGML_OP_GET_ROWS:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_get_rows;
+            func = ggml_cl_get_rows;
             break;
-        case LM_GGML_OP_SET_ROWS:
+        case GGML_OP_SET_ROWS:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_set_rows;
+            func = ggml_cl_set_rows;
             break;
-        case LM_GGML_OP_CPY:
+        case GGML_OP_CPY:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_cpy;
+            func = ggml_cl_cpy;
             break;
-        case LM_GGML_OP_SET:
+        case GGML_OP_SET:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_set;
+            func = ggml_cl_set;
             break;
-        case LM_GGML_OP_DUP:
-        case LM_GGML_OP_CONT:
+        case GGML_OP_DUP:
+        case GGML_OP_CONT:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_dup;
+            func = ggml_cl_dup;
             break;
-        case LM_GGML_OP_ADD:
+        case GGML_OP_ADD:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_add;
+            func = ggml_cl_add;
             break;
-        case LM_GGML_OP_ADD_ID:
+        case GGML_OP_ADD_ID:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_add_id;
+            func = ggml_cl_add_id;
             break;
-        case LM_GGML_OP_MUL:
+        case GGML_OP_MUL:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_mul;
+            func = ggml_cl_mul;
             break;
-        case LM_GGML_OP_DIV:
+        case GGML_OP_DIV:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_div;
+            func = ggml_cl_div;
             break;
-        case LM_GGML_OP_SUB:
+        case GGML_OP_SUB:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_sub;
+            func = ggml_cl_sub;
             break;
-        case LM_GGML_OP_SQR:
+        case GGML_OP_SQR:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_sqr;
+            func = ggml_cl_sqr;
             break;
-        case LM_GGML_OP_SQRT:
+        case GGML_OP_SQRT:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_sqrt;
+            func = ggml_cl_sqrt;
             break;
-        case LM_GGML_OP_MEAN:
+        case GGML_OP_MEAN:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_mean;
+            func = ggml_cl_mean;
             break;
-        case LM_GGML_OP_UNARY:
-            switch (lm_ggml_get_unary_op(tensor)) {
-                case LM_GGML_UNARY_OP_GELU:
+        case GGML_OP_UNARY:
+            switch (ggml_get_unary_op(tensor)) {
+                case GGML_UNARY_OP_GELU:
                     if (!any_on_device) {
                         return false;
                     }
-                    func = lm_ggml_cl_gelu;
+                    func = ggml_cl_gelu;
                     break;
-                case LM_GGML_UNARY_OP_GELU_ERF:
+                case GGML_UNARY_OP_GELU_ERF:
                     if (!any_on_device) {
                         return false;
                     }
-                    func = lm_ggml_cl_gelu_erf;
+                    func = ggml_cl_gelu_erf;
                     break;
-                case LM_GGML_UNARY_OP_GELU_QUICK:
+                case GGML_UNARY_OP_GELU_QUICK:
                     if (!any_on_device) {
                         return false;
                     }
-                    func = lm_ggml_cl_gelu_quick;
+                    func = ggml_cl_gelu_quick;
                     break;
-                case LM_GGML_UNARY_OP_SILU:
+                case GGML_UNARY_OP_SILU:
                     if (!any_on_device) {
                         return false;
                     }
-                    func = lm_ggml_cl_silu;
+                    func = ggml_cl_silu;
                     break;
-                case LM_GGML_UNARY_OP_RELU:
+                case GGML_UNARY_OP_RELU:
                     if (!any_on_device) {
                         return false;
                     }
-                    func = lm_ggml_cl_relu;
+                    func = ggml_cl_relu;
                     break;
-                case LM_GGML_UNARY_OP_SIGMOID:
+                case GGML_UNARY_OP_SIGMOID:
                     if (!any_on_device) {
                         return false;
                     }
-                    func = lm_ggml_cl_sigmoid;
+                    func = ggml_cl_sigmoid;
                     break;
-                case LM_GGML_UNARY_OP_TANH:
+                case GGML_UNARY_OP_TANH:
                     if (!any_on_device) {
                         return false;
                     }
-                    func = lm_ggml_cl_tanh;
+                    func = ggml_cl_tanh;
                     break;
-                case LM_GGML_UNARY_OP_NEG:
+                case GGML_UNARY_OP_NEG:
                     if (!any_on_device) {
                         return false;
                     }
-                    func = lm_ggml_cl_neg;
+                    func = ggml_cl_neg;
                     break;
-                case LM_GGML_UNARY_OP_EXP:
+                case GGML_UNARY_OP_EXP:
                     if (!any_on_device) {
                         return false;
                     }
-                    func = lm_ggml_cl_exp;
+                    func = ggml_cl_exp;
                     break;
-                case LM_GGML_UNARY_OP_EXPM1:
+                case GGML_UNARY_OP_EXPM1:
                     if (!any_on_device) {
                         return false;
                     }
-                    func = lm_ggml_cl_expm1;
+                    func = ggml_cl_expm1;
                     break;
-                case LM_GGML_UNARY_OP_ABS:
+                case GGML_UNARY_OP_ABS:
                     if (!any_on_device) {
                         return false;
                     }
-                    func = lm_ggml_cl_abs;
+                    func = ggml_cl_abs;
                     break;
-                case LM_GGML_UNARY_OP_SOFTPLUS:
+                case GGML_UNARY_OP_SOFTPLUS:
                     if (!any_on_device) {
                         return false;
                     }
-                    func = lm_ggml_cl_softplus;
+                    func = ggml_cl_softplus;
                     break;
                 default:
                     return false;
             } break;
-        case LM_GGML_OP_GLU:
+        case GGML_OP_GLU:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_glu;
+            func = ggml_cl_glu;
             break;
-        case LM_GGML_OP_TRI:
+        case GGML_OP_TRI:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_tri;
+            func = ggml_cl_tri;
             break;
-        case LM_GGML_OP_FILL:
+        case GGML_OP_FILL:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_fill;
+            func = ggml_cl_fill;
             break;
-        case LM_GGML_OP_CLAMP:
+        case GGML_OP_CLAMP:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_clamp;
+            func = ggml_cl_clamp;
             break;
-        case LM_GGML_OP_NORM:
+        case GGML_OP_NORM:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_norm;
+            func = ggml_cl_norm;
             break;
-        case LM_GGML_OP_RMS_NORM:
+        case GGML_OP_RMS_NORM:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_rms_norm;
+            func = ggml_cl_rms_norm;
             break;
-        case LM_GGML_OP_L2_NORM:
+        case GGML_OP_L2_NORM:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_l2_norm;
+            func = ggml_cl_l2_norm;
             break;
-        case LM_GGML_OP_GROUP_NORM:
+        case GGML_OP_GROUP_NORM:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_group_norm;
+            func = ggml_cl_group_norm;
             break;
-        case LM_GGML_OP_REPEAT:
+        case GGML_OP_REPEAT:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_repeat;
+            func = ggml_cl_repeat;
             break;
-        case LM_GGML_OP_PAD:
+        case GGML_OP_PAD:
             if (!any_on_device) {
                 return false;
             }
-            lm_ggml_cl_pad(backend, tensor->src[0], tensor);
+            ggml_cl_pad(backend, tensor->src[0], tensor);
             return true;
-        case LM_GGML_OP_UPSCALE:
+        case GGML_OP_UPSCALE:
             if (!any_on_device) {
                 return false;
             }
-            lm_ggml_cl_upscale(backend, tensor->src[0], tensor);
+            ggml_cl_upscale(backend, tensor->src[0], tensor);
             return true;
-        case LM_GGML_OP_CONV_2D:
+        case GGML_OP_CONV_2D:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_conv_2d;
+            func = ggml_cl_conv_2d;
             break;
-        case LM_GGML_OP_SSM_CONV:
+        case GGML_OP_SSM_CONV:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_ssm_conv;
+            func = ggml_cl_ssm_conv;
             break;
-        case LM_GGML_OP_SSM_SCAN:
+        case GGML_OP_SSM_SCAN:
             if (!any_on_device) {
                 return false;
             }
             // SSM_SCAN has 7 source tensors, so it cannot use the standard
             // (src0, src1, dst) func signature. Dispatch directly and return.
-            lm_ggml_cl_ssm_scan(backend, tensor);
+            ggml_cl_ssm_scan(backend, tensor);
             return true;
-        case LM_GGML_OP_GATED_DELTA_NET:
+        case GGML_OP_GATED_DELTA_NET:
             if (!any_on_device) {
                 return false;
             }
             // GDN has 6 source tensors, so it cannot use the standard
             // (src0, src1, dst) func signature. Dispatch directly and return.
-            lm_ggml_cl_gated_delta_net(backend, tensor);
+            ggml_cl_gated_delta_net(backend, tensor);
             return true;
-        case LM_GGML_OP_CONCAT:
+        case GGML_OP_CONCAT:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_concat;
+            func = ggml_cl_concat;
             break;
-        case LM_GGML_OP_TIMESTEP_EMBEDDING:
+        case GGML_OP_TIMESTEP_EMBEDDING:
             if (!any_on_device) {
                 return false;
             }
-            lm_ggml_cl_timestep_embedding(backend, tensor->src[0], tensor);
+            ggml_cl_timestep_embedding(backend, tensor->src[0], tensor);
             return true;
-        case LM_GGML_OP_MUL_MAT:
-            if (!any_on_device && !lm_ggml_cl_can_mul_mat(tensor->src[0], tensor->src[1], tensor)) {
+        case GGML_OP_MUL_MAT:
+            if (!any_on_device && !ggml_cl_can_mul_mat(tensor->src[0], tensor->src[1], tensor)) {
                 return false;
             }
-            func = lm_ggml_cl_mul_mat;
+            func = ggml_cl_mul_mat;
             break;
-        case LM_GGML_OP_MUL_MAT_ID:
+        case GGML_OP_MUL_MAT_ID:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_mul_mat_id;
+            func = ggml_cl_mul_mat_id;
             break;
-        case LM_GGML_OP_SCALE:
+        case GGML_OP_SCALE:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_scale;
+            func = ggml_cl_scale;
             break;
-        case LM_GGML_OP_RESHAPE:
-        case LM_GGML_OP_VIEW:
-        case LM_GGML_OP_PERMUTE:
-        case LM_GGML_OP_TRANSPOSE:
+        case GGML_OP_RESHAPE:
+        case GGML_OP_VIEW:
+        case GGML_OP_PERMUTE:
+        case GGML_OP_TRANSPOSE:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_nop;
+            func = ggml_cl_nop;
             break;
-        case LM_GGML_OP_DIAG:
+        case GGML_OP_DIAG:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_diag;
+            func = ggml_cl_diag;
             break;
-        case LM_GGML_OP_DIAG_MASK_INF:
+        case GGML_OP_DIAG_MASK_INF:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_diag_mask_inf;
+            func = ggml_cl_diag_mask_inf;
             break;
-        case LM_GGML_OP_SOFT_MAX:
+        case GGML_OP_SOFT_MAX:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_soft_max;
+            func = ggml_cl_soft_max;
             break;
-        case LM_GGML_OP_ROPE:
+        case GGML_OP_ROPE:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_rope;
+            func = ggml_cl_rope;
             break;
-        case LM_GGML_OP_SOLVE_TRI:
+        case GGML_OP_SOLVE_TRI:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_solve_tri;
+            func = ggml_cl_solve_tri;
             break;
-        case LM_GGML_OP_IM2COL:
+        case GGML_OP_IM2COL:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_im2col;
+            func = ggml_cl_im2col;
             break;
-        case LM_GGML_OP_ARGSORT:
+        case GGML_OP_ARGSORT:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_argsort;
+            func = ggml_cl_argsort;
             break;
-        case LM_GGML_OP_SUM_ROWS:
+        case GGML_OP_SUM_ROWS:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_sum_rows;
+            func = ggml_cl_sum_rows;
             break;
-        case LM_GGML_OP_CUMSUM:
+        case GGML_OP_CUMSUM:
             if (!any_on_device) {
                 return false;
             }
-            func = lm_ggml_cl_cumsum;
+            func = ggml_cl_cumsum;
             break;
-        case LM_GGML_OP_FLASH_ATTN_EXT:
+        case GGML_OP_FLASH_ATTN_EXT:
             if (!any_on_device) {
                 return false;
             }
-            lm_ggml_cl_flash_attn(backend, tensor->src[0], tensor->src[1], tensor);
+            ggml_cl_flash_attn(backend, tensor->src[0], tensor->src[1], tensor);
             return true;
         default:
             return false;

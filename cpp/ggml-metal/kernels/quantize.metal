@@ -4,7 +4,7 @@
 
 template<typename T0, typename T1>
 kernel void kernel_cpy_t_t(
-        constant lm_ggml_metal_kargs_cpy & args,
+        constant ggml_metal_kargs_cpy & args,
         device  const char * src0,
         device        char * dst,
         uint3   tgpig[[threadgroup_position_in_grid]],
@@ -42,12 +42,12 @@ template [[host_name("kernel_cpy_f32_f16")]]   kernel kernel_cpy_t kernel_cpy_t_
 template [[host_name("kernel_cpy_f32_i32")]]   kernel kernel_cpy_t kernel_cpy_t_t<float,   int32_t>;
 template [[host_name("kernel_cpy_i32_f32")]]   kernel kernel_cpy_t kernel_cpy_t_t<int32_t, float>;
 template [[host_name("kernel_cpy_i32_i32")]]   kernel kernel_cpy_t kernel_cpy_t_t<int32_t, int32_t>;
-#if defined(LM_GGML_METAL_HAS_BF16)
+#if defined(GGML_METAL_HAS_BF16)
 template [[host_name("kernel_cpy_f32_bf16")]]  kernel kernel_cpy_t kernel_cpy_t_t<float,   bfloat>;
 #endif
 template [[host_name("kernel_cpy_f16_f32")]]   kernel kernel_cpy_t kernel_cpy_t_t<half,    float>;
 template [[host_name("kernel_cpy_f16_f16")]]   kernel kernel_cpy_t kernel_cpy_t_t<half,    half>;
-#if defined(LM_GGML_METAL_HAS_BF16)
+#if defined(GGML_METAL_HAS_BF16)
 template [[host_name("kernel_cpy_bf16_f32")]]  kernel kernel_cpy_t kernel_cpy_t_t<bfloat,  float>;
 template [[host_name("kernel_cpy_bf16_bf16")]] kernel kernel_cpy_t kernel_cpy_t_t<bfloat,  bfloat>;
 #endif
@@ -56,7 +56,7 @@ template<short QK,
          typename block_q,
          void (*quantize_func)(device const float *, device block_q &)>
 kernel void kernel_cpy_f32_q(
-        constant lm_ggml_metal_kargs_cpy & args,
+        constant ggml_metal_kargs_cpy & args,
         device const char * src0,
         device char * dst,
         uint3   tgpig[[threadgroup_position_in_grid]],
@@ -103,7 +103,7 @@ template [[host_name("kernel_cpy_f32_tq2_0")]]  kernel cpy_f_q_t kernel_cpy_f32_
 
 template<typename T4x4, typename block_q, short nl, void (*dequantize_func)(device const block_q *, short, thread T4x4 &)>
 kernel void kernel_cpy_q_f32(
-        constant lm_ggml_metal_kargs_cpy & args,
+        constant ggml_metal_kargs_cpy & args,
         device  const char * src0,
         device        char * dst,
         uint3   tgpig[[threadgroup_position_in_grid]],
@@ -161,7 +161,7 @@ template [[host_name("kernel_cpy_tq2_0_f16")]] kernel cpy_q_f_t kernel_cpy_q_f32
 
 template<typename T>
 kernel void kernel_concat(
-        constant lm_ggml_metal_kargs_concat & args,
+        constant ggml_metal_kargs_concat & args,
         device  const char * src0,
         device  const char * src1,
         device        char * dst,
@@ -199,7 +199,7 @@ typedef decltype(kernel_concat<float>) kernel_concat_t;
 
 template [[host_name("kernel_concat_f32")]]  kernel kernel_concat_t kernel_concat<float>;
 template [[host_name("kernel_concat_f16")]]  kernel kernel_concat_t kernel_concat<half>;
-#if defined(LM_GGML_METAL_HAS_BF16)
+#if defined(GGML_METAL_HAS_BF16)
 template [[host_name("kernel_concat_bf16")]] kernel kernel_concat_t kernel_concat<bfloat>;
 #endif
 template [[host_name("kernel_concat_i8")]]   kernel kernel_concat_t kernel_concat<char>;
@@ -209,7 +209,7 @@ template [[host_name("kernel_concat_i64")]]  kernel kernel_concat_t kernel_conca
 
 template<typename block_q, short nl, void (*dequantize_func)(device const block_q *, short, thread float4x4 &)>
 kernel void kernel_get_rows_q(
-        constant lm_ggml_metal_kargs_get_rows & args,
+        constant ggml_metal_kargs_get_rows & args,
         device const void * src0,
         device const void * src1,
         device       void * dst,
@@ -240,7 +240,7 @@ kernel void kernel_get_rows_q(
 
 template<typename T0, typename T>
 kernel void kernel_get_rows_f(
-        constant lm_ggml_metal_kargs_get_rows & args,
+        constant ggml_metal_kargs_get_rows & args,
         device const void * src0,
         device const void * src1,
         device       void * dst,
@@ -272,7 +272,7 @@ typedef decltype(kernel_get_rows_f<float, float>) get_rows_f_t;
 template [[host_name("kernel_get_rows_f32")]]  kernel get_rows_f_t kernel_get_rows_f<float, float>;
 template [[host_name("kernel_get_rows_f16")]]  kernel get_rows_f_t kernel_get_rows_f<half,  float>;
 template [[host_name("kernel_get_rows_i32")]]  kernel get_rows_f_t kernel_get_rows_f<int32_t, int32_t>;
-#if defined(LM_GGML_METAL_HAS_BF16)
+#if defined(GGML_METAL_HAS_BF16)
 template [[host_name("kernel_get_rows_bf16")]] kernel get_rows_f_t kernel_get_rows_f<bfloat, float>;
 #endif
 
@@ -304,7 +304,7 @@ template [[host_name("kernel_get_rows_tq2_0")]]   kernel get_rows_q_t kernel_get
 
 template<typename TS, typename TI, short QK, typename block_q, void (*quantize_func)(device const float *, device block_q &)>
 kernel void kernel_set_rows_q(
-        constant lm_ggml_metal_kargs_set_rows & args,
+        constant ggml_metal_kargs_set_rows & args,
         device const  void * src0,
         device const  void * src1,
         device       float * dst,
@@ -335,7 +335,7 @@ kernel void kernel_set_rows_q(
 
 template<typename TS, typename TI, typename block_q, void (*quantize_func)(device const float *, device block_q &)>
 kernel void kernel_set_rows_q32(
-        constant lm_ggml_metal_kargs_set_rows & args,
+        constant ggml_metal_kargs_set_rows & args,
         device const  void * src0,
         device const  void * src1,
         device       float * dst,
@@ -366,7 +366,7 @@ kernel void kernel_set_rows_q32(
 
 template<typename TS, typename TI, typename TD>
 kernel void kernel_set_rows_f(
-        constant lm_ggml_metal_kargs_set_rows & args,
+        constant ggml_metal_kargs_set_rows & args,
         device const  void * src0,
         device const  void * src1,
         device       float * dst,
@@ -401,14 +401,14 @@ template [[host_name("kernel_set_rows_f32_i64_f32")]]   kernel set_rows_f_t kern
 template [[host_name("kernel_set_rows_f32_i32_f32")]]   kernel set_rows_f_t kernel_set_rows_f<float, int32_t, float>;
 template [[host_name("kernel_set_rows_f32_i64_f16")]]   kernel set_rows_f_t kernel_set_rows_f<float, int64_t, half>;
 template [[host_name("kernel_set_rows_f32_i32_f16")]]   kernel set_rows_f_t kernel_set_rows_f<float, int32_t, half>;
-#if defined(LM_GGML_METAL_HAS_BF16)
+#if defined(GGML_METAL_HAS_BF16)
 template [[host_name("kernel_set_rows_f32_i64_bf16")]]  kernel set_rows_f_t kernel_set_rows_f<float, int64_t, bfloat>;
 template [[host_name("kernel_set_rows_f32_i32_bf16")]]  kernel set_rows_f_t kernel_set_rows_f<float, int32_t, bfloat>;
 #endif
 
 template [[host_name("kernel_set_rows_f16_i64_f16")]]   kernel set_rows_f_t kernel_set_rows_f<half, int64_t, half>;
 template [[host_name("kernel_set_rows_f16_i32_f16")]]   kernel set_rows_f_t kernel_set_rows_f<half, int32_t, half>;
-#if defined(LM_GGML_METAL_HAS_BF16)
+#if defined(GGML_METAL_HAS_BF16)
 template [[host_name("kernel_set_rows_bf16_i64_bf16")]] kernel set_rows_f_t kernel_set_rows_f<bfloat, int64_t, bfloat>;
 template [[host_name("kernel_set_rows_bf16_i32_bf16")]] kernel set_rows_f_t kernel_set_rows_f<bfloat, int32_t, bfloat>;
 #endif

@@ -67,9 +67,9 @@ struct common_control_vector_load_info;
 
 struct common_cpu_params {
     int      n_threads                   = -1;
-    bool     cpumask[LM_GGML_MAX_N_THREADS] = {false}; // CPU affinity mask.
+    bool     cpumask[GGML_MAX_N_THREADS] = {false}; // CPU affinity mask.
     bool     mask_valid                  = false;   // Default: any CPU
-    enum lm_ggml_sched_priority  priority   = LM_GGML_SCHED_PRIO_NORMAL;  // Scheduling prio : (0 - normal, 1 - medium, 2 - high, 3 - realtime)
+    enum ggml_sched_priority  priority   = GGML_SCHED_PRIO_NORMAL;  // Scheduling prio : (0 - normal, 1 - medium, 2 - high, 3 - realtime)
     bool     strict_cpu                  = false;   // Use strict CPU placement
     uint32_t poll                        = 50;      // Polling (busywait) level (0 - no polling, 100 - mostly polling)
 };
@@ -201,7 +201,7 @@ struct common_grammar {
 
     // Constructor with type and grammar string
     common_grammar(common_grammar_type t, std::string g) : type(t), grammar(std::move(g)) {
-        LM_GGML_ASSERT(type != COMMON_GRAMMAR_TYPE_NONE || !grammar.empty());
+        GGML_ASSERT(type != COMMON_GRAMMAR_TYPE_NONE || !grammar.empty());
     }
 
     // Check if a grammar is set
@@ -339,13 +339,13 @@ struct common_params_speculative_draft {
 
     int32_t n_gpu_layers = -1; // number of layers to store in VRAM for the draft model (-1 - use default)
 
-    lm_ggml_type cache_type_k = LM_GGML_TYPE_F16; // KV cache data type for the K
-    lm_ggml_type cache_type_v = LM_GGML_TYPE_F16; // KV cache data type for the V
+    ggml_type cache_type_k = GGML_TYPE_F16; // KV cache data type for the K
+    ggml_type cache_type_v = GGML_TYPE_F16; // KV cache data type for the V
 
     common_cpu_params cpuparams;
     common_cpu_params cpuparams_batch;
 
-    std::vector<lm_ggml_backend_dev_t> devices; // devices to use for offloading
+    std::vector<ggml_backend_dev_t> devices; // devices to use for offloading
 
     std::vector<llama_model_tensor_buft_override> tensor_buft_overrides;
 };
@@ -437,7 +437,7 @@ struct lr_opt {
     void init();
 };
 
-struct lm_ggml_opt_optimizer_params common_opt_lr_pars(void * userdata);
+struct ggml_opt_optimizer_params common_opt_lr_pars(void * userdata);
 
 struct common_params {
     bool vocab_only               = false;
@@ -463,7 +463,7 @@ struct common_params {
     int32_t yarn_orig_ctx         =     0; // YaRN original context length
 
     // offload params
-    std::vector<lm_ggml_backend_dev_t> devices; // devices to use for offloading
+    std::vector<ggml_backend_dev_t> devices; // devices to use for offloading
 
     int32_t n_gpu_layers       = -1;    // number of layers to store in VRAM, -1 is auto, <= -2 is all
     int32_t main_gpu           = 0;     // the GPU that is used for scratch and small tensors
@@ -481,10 +481,10 @@ struct common_params {
     common_cpu_params cpuparams;
     common_cpu_params cpuparams_batch;
 
-    lm_ggml_backend_sched_eval_callback cb_eval = nullptr;
+    ggml_backend_sched_eval_callback cb_eval = nullptr;
     void * cb_eval_user_data                 = nullptr;
 
-    lm_ggml_numa_strategy numa = LM_GGML_NUMA_STRATEGY_DISABLED;
+    ggml_numa_strategy numa = GGML_NUMA_STRATEGY_DISABLED;
 
     enum llama_rope_scaling_type rope_scaling_type = LLAMA_ROPE_SCALING_TYPE_UNSPECIFIED;
     enum llama_pooling_type      pooling_type      = LLAMA_POOLING_TYPE_UNSPECIFIED; // pooling type for embeddings
@@ -580,15 +580,15 @@ struct common_params {
     llama_progress_callback progress_callback = nullptr;
     void * progress_callback_user_data = nullptr;
 
-    lm_ggml_type cache_type_k = LM_GGML_TYPE_F16; // KV cache data type for the K
-    lm_ggml_type cache_type_v = LM_GGML_TYPE_F16; // KV cache data type for the V
+    ggml_type cache_type_k = GGML_TYPE_F16; // KV cache data type for the K
+    ggml_type cache_type_v = GGML_TYPE_F16; // KV cache data type for the V
 
     common_conversation_mode conversation_mode = COMMON_CONVERSATION_MODE_AUTO;
 
     // multimodal models (see tools/mtmd)
     struct common_params_model mmproj;
     bool mmproj_use_gpu = true;                 // use GPU for multimodal model
-    lm_ggml_backend_dev_t mmproj_device = nullptr; // GPU device to use for multimodal model
+    ggml_backend_dev_t mmproj_device = nullptr; // GPU device to use for multimodal model
     bool no_mmproj = false;                     // explicitly disable multimodal model
     std::vector<std::string> image;             // path to image file(s) ; TODO: change the name to "media"
     int image_min_tokens = -1;
@@ -597,7 +597,7 @@ struct common_params {
 
     // finetune
     struct lr_opt lr;
-    enum lm_ggml_opt_optimizer_type optimizer = LM_GGML_OPT_OPTIMIZER_TYPE_ADAMW;
+    enum ggml_opt_optimizer_type optimizer = GGML_OPT_OPTIMIZER_TYPE_ADAMW;
     float val_split = 0.05f; // fraction of the data used for the validation set
 
     // embedding
@@ -754,10 +754,10 @@ void common_init();
 void common_params_print_info(const common_params & params, bool print_devices = true);
 std::string common_params_get_system_info(const common_params & params);
 
-bool parse_cpu_range(const std::string & range, bool(&boolmask)[LM_GGML_MAX_N_THREADS]);
-bool parse_cpu_mask(const std::string & mask, bool(&boolmask)[LM_GGML_MAX_N_THREADS]);
+bool parse_cpu_range(const std::string & range, bool(&boolmask)[GGML_MAX_N_THREADS]);
+bool parse_cpu_mask(const std::string & mask, bool(&boolmask)[GGML_MAX_N_THREADS]);
 void postprocess_cpu_params(common_cpu_params & cpuparams, const common_cpu_params * role_model = nullptr);
-bool set_process_priority(enum lm_ggml_sched_priority prio);
+bool set_process_priority(enum ggml_sched_priority prio);
 
 //
 // String utils
@@ -952,7 +952,7 @@ char * common_get_model_or_exit(int, char*[]);
 // Threadpool utils
 //
 
-struct lm_ggml_threadpool_params lm_ggml_threadpool_params_from_cpu_params(const common_cpu_params & params);
+struct ggml_threadpool_params ggml_threadpool_params_from_cpu_params(const common_cpu_params & params);
 
 struct common_threadpools {
     common_threadpools() = default;
@@ -964,10 +964,10 @@ struct common_threadpools {
     void init(llama_context * ctx, const common_params & params);
 
 private:
-    lm_ggml_threadpool * threadpool       = nullptr;
-    lm_ggml_threadpool * threadpool_batch = nullptr;
+    ggml_threadpool * threadpool       = nullptr;
+    ggml_threadpool * threadpool_batch = nullptr;
 
-    decltype(lm_ggml_threadpool_free) * free_fn = nullptr;
+    decltype(ggml_threadpool_free) * free_fn = nullptr;
 };
 
 //
@@ -1126,7 +1126,7 @@ inline std::string llm_ffn_block_regex(int idx, const char * ffn_regex) {
 }
 
 inline llama_model_tensor_buft_override llm_ffn_exps_cpu_override() {
-    return { LLM_FFN_EXPS_REGEX, lm_ggml_backend_cpu_buffer_type() };
+    return { LLM_FFN_EXPS_REGEX, ggml_backend_cpu_buffer_type() };
 }
 
 inline void llm_add_n_cpu_ffn_overrides(int n, const char * ffn_regex, std::vector<llama_model_tensor_buft_override> & overrides) {
@@ -1134,7 +1134,7 @@ inline void llm_add_n_cpu_ffn_overrides(int n, const char * ffn_regex, std::vect
     static std::list<std::string> buft_override_strings;
     for (int i = 0; i < n; ++i) {
         buft_override_strings.push_back(llm_ffn_block_regex(i, ffn_regex));
-        overrides.push_back({buft_override_strings.back().c_str(), lm_ggml_backend_cpu_buffer_type()});
+        overrides.push_back({buft_override_strings.back().c_str(), ggml_backend_cpu_buffer_type()});
     }
 }
 
@@ -1142,10 +1142,10 @@ inline void llm_add_n_cpu_ffn_overrides(int n, const char * ffn_regex, std::vect
 // training utils
 //
 
-lm_ggml_opt_dataset_t common_opt_dataset_init(struct llama_context * ctx, const std::vector<llama_token> & tokens, int64_t stride);
+ggml_opt_dataset_t common_opt_dataset_init(struct llama_context * ctx, const std::vector<llama_token> & tokens, int64_t stride);
 
 // "adamw" or "sgd" (case insensitive)
-enum lm_ggml_opt_optimizer_type common_opt_get_optimizer(const char *);
+enum ggml_opt_optimizer_type common_opt_get_optimizer(const char *);
 
 //
 // prompt utils

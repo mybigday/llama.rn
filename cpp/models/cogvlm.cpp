@@ -55,15 +55,15 @@ llama_model_cogvlm::graph::graph(const llama_model & model, const llm_graph_para
     const int64_t n_embd_head = hparams.n_embd_head_v();
     const float   kq_scale    = 1.0f / sqrtf(float(n_embd_head));
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
-    LM_GGML_ASSERT(n_embd_head == n_rot);
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == n_rot);
 
-    lm_ggml_tensor * inpL;
-    lm_ggml_tensor * cur;
+    ggml_tensor * inpL;
+    ggml_tensor * cur;
 
     inpL = build_inp_embd(model.tok_embd);
 
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
 
@@ -78,8 +78,8 @@ llama_model_cogvlm::graph::graph(const llama_model & model, const llm_graph_para
 
     for (int il = 0; il < n_layer; ++il) {
         // get either the text or image weight tensors
-        lm_ggml_tensor *wqkv, *wo, *wo_s;
-        lm_ggml_tensor *ffn_gate, *ffn_down, *ffn_up;
+        ggml_tensor *wqkv, *wo, *wo_s;
+        ggml_tensor *ffn_gate, *ffn_down, *ffn_up;
 
         if (is_text) {
             wqkv     = model.layers[il].wqkv;
@@ -97,23 +97,23 @@ llama_model_cogvlm::graph::graph(const llama_model & model, const llm_graph_para
             ffn_up   = model.layers[il].visexp_ffn_up;
         }
 
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
         cur = build_norm(inpSA, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
 
         // build self attention
         {
-            lm_ggml_tensor * qkv = build_lora_mm(wqkv, cur);
+            ggml_tensor * qkv = build_lora_mm(wqkv, cur);
 
             // split qkv into Q, K, V along the first dimension
-            lm_ggml_tensor * Qcur =
-                lm_ggml_view_3d(ctx0, qkv, n_embd_head, n_head, n_tokens, n_embd_head * sizeof(float), qkv->nb[1], 0);
-            lm_ggml_tensor * Kcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head, n_head_kv, n_tokens, n_embd_head * sizeof(float),
-                                              qkv->nb[1], n_embd * lm_ggml_element_size(qkv));
-            lm_ggml_tensor * Vcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head, n_head_kv, n_tokens, n_embd_head * sizeof(float),
-                                              qkv->nb[1], 2 * n_embd * lm_ggml_element_size(qkv));
+            ggml_tensor * Qcur =
+                ggml_view_3d(ctx0, qkv, n_embd_head, n_head, n_tokens, n_embd_head * sizeof(float), qkv->nb[1], 0);
+            ggml_tensor * Kcur = ggml_view_3d(ctx0, qkv, n_embd_head, n_head_kv, n_tokens, n_embd_head * sizeof(float),
+                                              qkv->nb[1], n_embd * ggml_element_size(qkv));
+            ggml_tensor * Vcur = ggml_view_3d(ctx0, qkv, n_embd_head, n_head_kv, n_tokens, n_embd_head * sizeof(float),
+                                              qkv->nb[1], 2 * n_embd * ggml_element_size(qkv));
 
-            Qcur = lm_ggml_rope(ctx0, Qcur, inp_pos, n_embd_head, rope_type);
-            Kcur = lm_ggml_rope(ctx0, Kcur, inp_pos, n_embd_head, rope_type);
+            Qcur = ggml_rope(ctx0, Qcur, inp_pos, n_embd_head, rope_type);
+            Kcur = ggml_rope(ctx0, Kcur, inp_pos, n_embd_head, rope_type);
 
             cur = build_attn(inp_attn,
                 wo, nullptr, wo_s,
@@ -123,7 +123,7 @@ llama_model_cogvlm::graph::graph(const llama_model & model, const llm_graph_para
             cb(cur, "attn_out", il);
         }
 
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         cur = build_norm(ffn_inp, model.layers[il].ffn_norm, NULL, LLM_NORM_RMS, il);
@@ -135,7 +135,7 @@ llama_model_cogvlm::graph::graph(const llama_model & model, const llm_graph_para
                 ffn_down, NULL, NULL,
                 NULL, LLM_FFN_SILU, LLM_FFN_PAR, il);
 
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
         cb(cur, "ffn_out", il);
 
         cur = build_cvec(cur, il);
@@ -154,5 +154,5 @@ llama_model_cogvlm::graph::graph(const llama_model & model, const llm_graph_para
     cur = build_lora_mm(model.output, cur, model.output_s);
     cb(cur, "result_output", -1);
     res->t_logits = cur;
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

@@ -47,28 +47,28 @@ llama_model_command_r::graph::graph(const llama_model & model, const llm_graph_p
     llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
     const float f_logit_scale = hparams.f_logit_scale;
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         // norm
         cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM, il);
         cb(cur, "attn_norm", il);
 
-        lm_ggml_tensor * ffn_inp = cur;
+        ggml_tensor * ffn_inp = cur;
 
         // self-attention
         {
@@ -80,14 +80,14 @@ llama_model_command_r::graph::graph(const llama_model & model, const llm_graph_p
                 Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM, il);
                 cb(Qcur, "Qcur", il);
             }
-            Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+            Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                                  ext_factor, attn_factor, beta_fast, beta_slow);
 
             if (model.layers[il].attn_k_norm) {
                 Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM, il);
                 cb(Kcur, "Kcur", il);
             }
-            Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+            Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                                  ext_factor, attn_factor, beta_fast, beta_slow);
 
             cb(Qcur, "Qcur", il);
@@ -99,11 +99,11 @@ llama_model_command_r::graph::graph(const llama_model & model, const llm_graph_p
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f / sqrtf(float(n_embd_head)), il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
-            cur     = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpL    = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
-            ffn_inp = lm_ggml_get_rows(ctx0, ffn_inp, inp_out_ids);
+            cur     = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpL    = ggml_get_rows(ctx0, inpL, inp_out_ids);
+            ffn_inp = ggml_get_rows(ctx0, ffn_inp, inp_out_ids);
         }
-        lm_ggml_tensor * attn_out = cur;
+        ggml_tensor * attn_out = cur;
 
         // feed-forward network
         {
@@ -115,8 +115,8 @@ llama_model_command_r::graph::graph(const llama_model & model, const llm_graph_p
             cb(cur, "ffn_out", il);
         }
         // add together residual + FFN + self-attention
-        cur = lm_ggml_add(ctx0, cur, inpL);
-        cur = lm_ggml_add(ctx0, cur, attn_out);
+        cur = ggml_add(ctx0, cur, inpL);
+        cur = ggml_add(ctx0, cur, attn_out);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -135,10 +135,10 @@ llama_model_command_r::graph::graph(const llama_model & model, const llm_graph_p
     cur = build_lora_mm(model.output, cur, model.output_s);
 
     if (f_logit_scale) {
-        cur = lm_ggml_scale(ctx0, cur, f_logit_scale);
+        cur = ggml_scale(ctx0, cur, f_logit_scale);
     }
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

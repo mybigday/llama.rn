@@ -15,9 +15,9 @@
 //
 
 struct llama_adapter_cvec {
-    lm_ggml_tensor * tensor_for(int il) const;
+    ggml_tensor * tensor_for(int il) const;
 
-    lm_ggml_tensor * apply_to(lm_ggml_context * ctx, lm_ggml_tensor * cur, int  il) const;
+    ggml_tensor * apply_to(ggml_context * ctx, ggml_tensor * cur, int  il) const;
 
     bool apply(
             const llama_model & model,
@@ -33,10 +33,10 @@ private:
     int32_t layer_start = -1;
     int32_t layer_end   = -1;
 
-    std::vector<lm_ggml_context_ptr> ctxs;
-    std::vector<lm_ggml_backend_buffer_ptr> bufs;
+    std::vector<ggml_context_ptr> ctxs;
+    std::vector<ggml_backend_buffer_ptr> bufs;
 
-    std::vector<lm_ggml_tensor *> tensors; // per layer
+    std::vector<ggml_tensor *> tensors; // per layer
 };
 
 using llama_adapter_cvec_ptr = std::shared_ptr<llama_adapter_cvec>;
@@ -46,8 +46,8 @@ using llama_adapter_cvec_ptr = std::shared_ptr<llama_adapter_cvec>;
 //
 
 struct llama_adapter_lora_weight {
-    lm_ggml_tensor * a = nullptr;
-    lm_ggml_tensor * b = nullptr;
+    ggml_tensor * a = nullptr;
+    ggml_tensor * b = nullptr;
 
     // get actual scale based on rank and alpha
     float get_scale(float alpha, float adapter_scale) const {
@@ -57,7 +57,7 @@ struct llama_adapter_lora_weight {
     }
 
     llama_adapter_lora_weight() = default;
-    llama_adapter_lora_weight(lm_ggml_tensor * a, lm_ggml_tensor * b) : a(a), b(b) {}
+    llama_adapter_lora_weight(ggml_tensor * a, ggml_tensor * b) : a(a), b(b) {}
 };
 
 struct llama_adapter_lora {
@@ -66,13 +66,13 @@ struct llama_adapter_lora {
     // map tensor name to lora_a_b
     std::unordered_map<std::string, llama_adapter_lora_weight> ab_map;
 
-    std::vector<lm_ggml_context_ptr> ctxs;
-    std::vector<lm_ggml_backend_buffer_ptr> bufs;
+    std::vector<ggml_context_ptr> ctxs;
+    std::vector<ggml_backend_buffer_ptr> bufs;
 
     float alpha;
 
     // gguf metadata
-    std::unordered_map<std::string, std::string> lm_gguf_kv;
+    std::unordered_map<std::string, std::string> gguf_kv;
 
     // activated lora (aLoRA)
     std::vector<llama_token> alora_invocation_tokens;
@@ -80,7 +80,7 @@ struct llama_adapter_lora {
     explicit llama_adapter_lora(llama_model * model) : model(model) {}
     ~llama_adapter_lora() = default;
 
-    llama_adapter_lora_weight * get_weight(lm_ggml_tensor * w);
+    llama_adapter_lora_weight * get_weight(ggml_tensor * w);
 
     uint32_t get_n_nodes() const {
         return ab_map.size() * 6u; // a, b, scale, add, 2 x mul_mat

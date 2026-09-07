@@ -21,7 +21,7 @@ void llama_model_exaone_moe::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT,         hparams.n_layer_dense_lead, false);
 
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.n_layer_nextn, false);
-    LM_GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer_impl");
+    GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer_impl");
 
     switch (hparams.n_layer()) {
         case 32: type = LLM_TYPE_30B_A3B; break;
@@ -114,23 +114,23 @@ llama_model_exaone_moe::graph::graph(const llama_model & model, const llm_graph_
     llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_k();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_v());
-    LM_GGML_ASSERT(n_embd_head == n_rot);
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_v());
+    GGML_ASSERT(n_embd_head == n_rot);
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn_iswa = build_attn_inp_kv_iswa();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
 
         // use RoPE for SWA layers
         const bool is_local_layer = hparams.is_swa(il);
@@ -141,7 +141,7 @@ llama_model_exaone_moe::graph::graph(const llama_model & model, const llm_graph_
 
         // self-attention
         {
-            lm_ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+            ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
             // compute Q and K and RoPE them
             auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
@@ -153,10 +153,10 @@ llama_model_exaone_moe::graph::graph(const llama_model & model, const llm_graph_
             cb(Kcur, "Kcur_normed", il);
 
             if (is_local_layer) {
-                Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, rope_factors, n_rot, rope_type, n_ctx_orig, freq_base,
+                Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, rope_factors, n_rot, rope_type, n_ctx_orig, freq_base,
                                      freq_scale, ext_factor, attn_factor, beta_fast, beta_slow);
 
-                Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, rope_factors, n_rot, rope_type, n_ctx_orig, freq_base,
+                Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, rope_factors, n_rot, rope_type, n_ctx_orig, freq_base,
                                      freq_scale, ext_factor, attn_factor, beta_fast, beta_slow);
             }
             cb(Qcur, "Qcur", il);
@@ -169,10 +169,10 @@ llama_model_exaone_moe::graph::graph(const llama_model & model, const llm_graph_
             cb(cur, "attn_out", il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
-            cur   = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         // norm
@@ -190,7 +190,7 @@ llama_model_exaone_moe::graph::graph(const llama_model & model, const llm_graph_
             cb(cur, "ffn_out", il);
         } else {
             // MoE branch
-            lm_ggml_tensor * moe_out = build_moe_ffn(cur,
+            ggml_tensor * moe_out = build_moe_ffn(cur,
                 model.layers[il].ffn_gate_inp,
                 model.layers[il].ffn_up_exps,
                 model.layers[il].ffn_gate_exps,
@@ -205,7 +205,7 @@ llama_model_exaone_moe::graph::graph(const llama_model & model, const llm_graph_
 
             // FFN shared expert
             {
-                lm_ggml_tensor * ffn_shexp =
+                ggml_tensor * ffn_shexp =
                     build_ffn(cur,
                         model.layers[il].ffn_up_shexp, NULL, NULL,
                         model.layers[il].ffn_gate_shexp, NULL, NULL,
@@ -213,12 +213,12 @@ llama_model_exaone_moe::graph::graph(const llama_model & model, const llm_graph_
                         NULL, LLM_FFN_SILU, LLM_FFN_PAR, il);
                 cb(ffn_shexp, "ffn_shexp", il);
 
-                cur = lm_ggml_add(ctx0, moe_out, ffn_shexp);
+                cur = ggml_add(ctx0, moe_out, ffn_shexp);
                 cb(cur, "ffn_out", il);
             }
         }
 
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -240,5 +240,5 @@ llama_model_exaone_moe::graph::graph(const llama_model & model, const llm_graph_
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

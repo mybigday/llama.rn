@@ -73,9 +73,9 @@ llama_model_plamo3::graph<iswa>::graph(const llama_model & model, const llm_grap
     const int64_t head_dim_q = hparams.n_embd_head_k();
     const int64_t head_dim_v = hparams.n_embd_head_v();
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL = build_inp_embd(model.tok_embd);
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * cur;
+    ggml_tensor * inpL = build_inp_embd(model.tok_embd);
+    ggml_tensor * inp_pos = build_inp_pos();
 
     using inp_attn_type = std::conditional_t<iswa, llm_graph_input_attn_kv_iswa, llm_graph_input_attn_kv>;
     inp_attn_type * inp_attn = nullptr;
@@ -86,10 +86,10 @@ llama_model_plamo3::graph<iswa>::graph(const llama_model & model, const llm_grap
         inp_attn = build_attn_inp_kv();
     }
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * residual = inpL;
+        ggml_tensor * residual = inpL;
 
         float freq_base_l  = 0.0f;
         float freq_scale_l = 0.0f;
@@ -104,7 +104,7 @@ llama_model_plamo3::graph<iswa>::graph(const llama_model & model, const llm_grap
         cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
         cb(cur, "attn_norm", il);
 
-        lm_ggml_tensor * qkv = build_lora_mm(model.layers[il].wqkv, cur);
+        ggml_tensor * qkv = build_lora_mm(model.layers[il].wqkv, cur);
         cb(cur, "wqkv", il);
 
         const int32_t n_head    = hparams.n_head(il);
@@ -114,12 +114,12 @@ llama_model_plamo3::graph<iswa>::graph(const llama_model & model, const llm_grap
         const int64_t k_offset = head_dim_q * n_head;
         const int64_t v_offset = k_offset + head_dim_q * n_head_kv;
 
-        lm_ggml_tensor * Qcur = lm_ggml_view_3d(ctx0, qkv, head_dim_q, n_head, n_tokens,
-                head_dim_q * sizeof(float), qkv->nb[1], q_offset * lm_ggml_element_size(qkv));
-        lm_ggml_tensor * Kcur = lm_ggml_view_3d(ctx0, qkv, head_dim_q, n_head_kv, n_tokens,
-                head_dim_q * sizeof(float), qkv->nb[1], k_offset * lm_ggml_element_size(qkv));
-        lm_ggml_tensor * Vcur = lm_ggml_view_3d(ctx0, qkv, head_dim_v, n_head_kv, n_tokens,
-                head_dim_v * sizeof(float), qkv->nb[1], v_offset * lm_ggml_element_size(qkv));
+        ggml_tensor * Qcur = ggml_view_3d(ctx0, qkv, head_dim_q, n_head, n_tokens,
+                head_dim_q * sizeof(float), qkv->nb[1], q_offset * ggml_element_size(qkv));
+        ggml_tensor * Kcur = ggml_view_3d(ctx0, qkv, head_dim_q, n_head_kv, n_tokens,
+                head_dim_q * sizeof(float), qkv->nb[1], k_offset * ggml_element_size(qkv));
+        ggml_tensor * Vcur = ggml_view_3d(ctx0, qkv, head_dim_v, n_head_kv, n_tokens,
+                head_dim_v * sizeof(float), qkv->nb[1], v_offset * ggml_element_size(qkv));
 
         cb(Qcur, "Qcur", il);
         cb(Kcur, "Kcur", il);
@@ -130,10 +130,10 @@ llama_model_plamo3::graph<iswa>::graph(const llama_model & model, const llm_grap
         Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
         cb(Kcur, "attn_k_norm", il);
 
-        Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr,
+        Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr,
                 n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                 ext_factor, attn_factor, beta_fast, beta_slow);
-        Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr,
+        Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr,
                 n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                 ext_factor, attn_factor, beta_fast, beta_slow);
 
@@ -145,14 +145,14 @@ llama_model_plamo3::graph<iswa>::graph(const llama_model & model, const llm_grap
         cb(cur, "attn_out", il);
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur      = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            residual = lm_ggml_get_rows(ctx0, residual, inp_out_ids);
+            cur      = ggml_get_rows(ctx0, cur, inp_out_ids);
+            residual = ggml_get_rows(ctx0, residual, inp_out_ids);
         }
 
         cur = build_norm(cur, model.layers[il].attn_post_norm, NULL, LLM_NORM_RMS, il);
         cb(cur, "attn_post_norm", il);
 
-        cur = lm_ggml_add(ctx0, cur, residual);
+        cur = ggml_add(ctx0, cur, residual);
         cb(cur, "attn_residual", il);
 
         residual = cur;
@@ -171,7 +171,7 @@ llama_model_plamo3::graph<iswa>::graph(const llama_model & model, const llm_grap
         cur = build_norm(cur, model.layers[il].ffn_post_norm, NULL, LLM_NORM_RMS, il);
         cb(cur, "ffn_post_norm", il);
 
-        cur = lm_ggml_add(ctx0, cur, residual);
+        cur = ggml_add(ctx0, cur, residual);
         cb(cur, "ffn_residual", il);
 
         cur = build_cvec(cur, il);
@@ -189,7 +189,7 @@ llama_model_plamo3::graph<iswa>::graph(const llama_model & model, const llm_grap
     cur = build_lora_mm(model.output, cur, model.output_s);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
 // Explicit template instantiations

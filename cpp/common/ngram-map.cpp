@@ -234,12 +234,12 @@ void common_ngram_map_draft(common_ngram_map & map,
     }
     if (cur_len >= static_cast<size_t>(UINT32_MAX)) {
         // key_map uses uint32_t instead of size_t.
-        LM_GGML_ABORT("%s: cur_len exceeds UINT32_MAX: %zu", __func__, cur_len);
+        GGML_ABORT("%s: cur_len exceeds UINT32_MAX: %zu", __func__, cur_len);
     }
 
     if (map.idx_last_check > cur_len) {
         // Should not happen because of common_ngram_map_begin().
-        LM_GGML_ABORT("%s: map.idx_last_check > cur_len: %zu > %zu", __func__, map.idx_last_check, cur_len);
+        GGML_ABORT("%s: map.idx_last_check > cur_len: %zu > %zu", __func__, map.idx_last_check, cur_len);
     }
     map.idx_last_check = cur_len;
 
@@ -254,7 +254,7 @@ void common_ngram_map_draft(common_ngram_map & map,
     // search for the key in the map
     size_t match_pos = 0;
     if (map.size_last_begin > cur_len) {
-        LM_GGML_ABORT("%s: map.size_last_begin > cur_len: %zu > %zu", __func__, map.size_last_begin, cur_len);
+        GGML_ABORT("%s: map.size_last_begin > cur_len: %zu > %zu", __func__, map.size_last_begin, cur_len);
     }
     if (!map.key_map.empty()) {
         // Search for the key in the map key_map from hash of ngrams to index of ngram.

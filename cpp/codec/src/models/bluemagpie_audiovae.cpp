@@ -2,9 +2,9 @@
 
 #include "../ops/conv1d.h"
 #include "../ops/convtr1d.h"
-#include "../ops/lm_ggml_ops.h"
+#include "../ops/ggml_ops.h"
 #include "../runtime/graph.h"
-#include "../runtime/lm_gguf_kv.h"
+#include "../runtime/gguf_kv.h"
 #include "../runtime/tensor_utils.h"
 
 #include <cmath>
@@ -40,41 +40,41 @@ const char * codec_bm_name_lat()   { return "bluemagpie.audiovae.lat"; }
 const char * codec_bm_name_audio() { return "bluemagpie.audiovae.audio"; }
 
 // Sign-preserving Snake:  y = x + (1 / (alpha + 1e-9)) * sin(alpha * x)^2.
-lm_ggml_tensor * codec_bm_snake_tc(lm_ggml_context * ctx, lm_ggml_tensor * x_tc, lm_ggml_tensor * alpha) {
+ggml_tensor * codec_bm_snake_tc(ggml_context * ctx, ggml_tensor * x_tc, ggml_tensor * alpha) {
     if (ctx == nullptr || x_tc == nullptr || alpha == nullptr) return nullptr;
     alpha = codec_graph_cast_f32(ctx, alpha);
-    lm_ggml_tensor * a_2d = lm_ggml_reshape_2d(ctx, alpha, 1, x_tc->ne[1]);
-    lm_ggml_tensor * a_rep = lm_ggml_repeat(ctx, a_2d, x_tc);              // [t, c]
-    lm_ggml_tensor * a_eps = lm_ggml_scale_bias(ctx, a_rep, 1.0f, 1e-9f);  // alpha + 1e-9
-    lm_ggml_tensor * ax = lm_ggml_mul(ctx, a_rep, x_tc);
-    lm_ggml_tensor * s = lm_ggml_sin(ctx, ax);
-    lm_ggml_tensor * s2 = lm_ggml_mul(ctx, s, s);
-    lm_ggml_tensor * frac = lm_ggml_div(ctx, s2, a_eps);
-    return lm_ggml_add(ctx, x_tc, frac);
+    ggml_tensor * a_2d = ggml_reshape_2d(ctx, alpha, 1, x_tc->ne[1]);
+    ggml_tensor * a_rep = ggml_repeat(ctx, a_2d, x_tc);              // [t, c]
+    ggml_tensor * a_eps = ggml_scale_bias(ctx, a_rep, 1.0f, 1e-9f);  // alpha + 1e-9
+    ggml_tensor * ax = ggml_mul(ctx, a_rep, x_tc);
+    ggml_tensor * s = ggml_sin(ctx, ax);
+    ggml_tensor * s2 = ggml_mul(ctx, s, s);
+    ggml_tensor * frac = ggml_div(ctx, s2, a_eps);
+    return ggml_add(ctx, x_tc, frac);
 }
 
 // Per-channel affine:  x = x * scale[c] + bias[c]  (x_tc: ne=(t, c)).
-lm_ggml_tensor * codec_bm_affine_tc(lm_ggml_context * ctx, lm_ggml_tensor * x_tc,
-                                 lm_ggml_tensor * scale, lm_ggml_tensor * bias) {
+ggml_tensor * codec_bm_affine_tc(ggml_context * ctx, ggml_tensor * x_tc,
+                                 ggml_tensor * scale, ggml_tensor * bias) {
     if (ctx == nullptr || x_tc == nullptr || scale == nullptr || bias == nullptr) return nullptr;
     scale = codec_graph_cast_f32(ctx, scale);
     bias = codec_graph_cast_f32(ctx, bias);
-    lm_ggml_tensor * s_2d = lm_ggml_reshape_2d(ctx, scale, 1, x_tc->ne[1]);  // [1, c] — broadcasts over t
-    lm_ggml_tensor * b_2d = lm_ggml_reshape_2d(ctx, bias, 1, x_tc->ne[1]);
-    x_tc = lm_ggml_mul(ctx, x_tc, s_2d);
-    return lm_ggml_add(ctx, x_tc, b_2d);
+    ggml_tensor * s_2d = ggml_reshape_2d(ctx, scale, 1, x_tc->ne[1]);  // [1, c] — broadcasts over t
+    ggml_tensor * b_2d = ggml_reshape_2d(ctx, bias, 1, x_tc->ne[1]);
+    x_tc = ggml_mul(ctx, x_tc, s_2d);
+    return ggml_add(ctx, x_tc, b_2d);
 }
 
 // CausalResidualUnit: y = x + Conv1×1(Snake(Conv7-dilated-depthwise-causal(Snake(x)))).
 // Causal convs preserve length, so the residual add needs no crop.
-lm_ggml_tensor * codec_bm_residual_unit_tc(
-    lm_ggml_context * ctx, lm_ggml_tensor * x_tc,
-    lm_ggml_tensor * a1, lm_ggml_tensor * c1_w, lm_ggml_tensor * c1_b,
-    lm_ggml_tensor * a2, lm_ggml_tensor * c2_w, lm_ggml_tensor * c2_b,
+ggml_tensor * codec_bm_residual_unit_tc(
+    ggml_context * ctx, ggml_tensor * x_tc,
+    ggml_tensor * a1, ggml_tensor * c1_w, ggml_tensor * c1_b,
+    ggml_tensor * a2, ggml_tensor * c2_w, ggml_tensor * c2_b,
     int32_t dilation) {
 
     if (ctx == nullptr || x_tc == nullptr) return nullptr;
-    lm_ggml_tensor * h = codec_bm_snake_tc(ctx, x_tc, a1);
+    ggml_tensor * h = codec_bm_snake_tc(ctx, x_tc, a1);
     if (h == nullptr) return nullptr;
     h = codec_conv1d_depthwise_causal(ctx, h, c1_w, c1_b, /*stride=*/1, dilation);  // k=7
     if (h == nullptr) return nullptr;
@@ -82,14 +82,14 @@ lm_ggml_tensor * codec_bm_residual_unit_tc(
     if (h == nullptr) return nullptr;
     h = codec_conv1d(ctx, h, c2_w, c2_b, /*stride=*/1, /*dilation=*/1, /*padding=*/0);  // k=1
     if (h == nullptr) return nullptr;
-    return lm_ggml_add(ctx, x_tc, h);
+    return ggml_add(ctx, x_tc, h);
 }
 
-lm_ggml_tensor * codec_bm_decoder_block(
-    lm_ggml_context * ctx_eval, lm_ggml_tensor * x_tc, int32_t bi, int32_t stride,
+ggml_tensor * codec_bm_decoder_block(
+    ggml_context * ctx_eval, ggml_tensor * x_tc, int32_t bi, int32_t stride,
     const codec_model * model) {
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, model, name);
     };
     const std::string base = "bluemagpie.dec.b" + std::to_string(bi);
@@ -103,7 +103,7 @@ lm_ggml_tensor * codec_bm_decoder_block(
 
     // CausalTransposeConv1d: raw convtr (padding=0) then right-trim by
     // 2*ceil(stride/2) - (stride%2)  (= stride here), upsampling by `stride`.
-    lm_ggml_tensor * y = codec_convtr1d(ctx_eval, x_tc, W(base + ".convtr.w"), W(base + ".convtr.b"),
+    ggml_tensor * y = codec_convtr1d(ctx_eval, x_tc, W(base + ".convtr.w"), W(base + ".convtr.b"),
                                      /*stride=*/stride, /*padding=*/0, /*dilation=*/1);
     if (y == nullptr) return nullptr;
     const int32_t crop_right = 2 * ((stride + 1) / 2) - (stride % 2);
@@ -134,22 +134,22 @@ struct bm_decode_build {
     const codec_model * model = nullptr;
 };
 
-bool codec_bm_build_decode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out) {
+bool codec_bm_build_decode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out) {
     bm_decode_build * p = static_cast<bm_decode_build *>(user_data);
     if (ctx_eval == nullptr || p == nullptr || out == nullptr || p->model == nullptr) return false;
     if (p->n_frames <= 0 || p->latent_dim <= 0) return false;
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, p->model, name);
     };
 
     // Latent input: ne=(t, latent_dim); buffer is [latent_dim, n_frames]
     // row-major (= PyTorch z[D, T]) — matches codec_decode_quantized_representation.
-    lm_ggml_tensor * t_lat = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_F32, p->n_frames, p->latent_dim);
-    lm_ggml_set_name(t_lat, codec_bm_name_lat());
+    ggml_tensor * t_lat = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->n_frames, p->latent_dim);
+    ggml_set_name(t_lat, codec_bm_name_lat());
 
     // Input convs: depthwise causal (k=7) → pointwise (k=1).
-    lm_ggml_tensor * x_tc = codec_conv1d_depthwise_causal(ctx_eval, t_lat,
+    ggml_tensor * x_tc = codec_conv1d_depthwise_causal(ctx_eval, t_lat,
                                                        W("bluemagpie.dec.conv_in_dw.w"),
                                                        W("bluemagpie.dec.conv_in_dw.b"),
                                                        /*stride=*/1, /*dilation=*/1);
@@ -171,19 +171,19 @@ bool codec_bm_build_decode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml
                                W("bluemagpie.dec.conv_out.w"), W("bluemagpie.dec.conv_out.b"),
                                /*stride=*/1, /*dilation=*/1);
     if (x_tc == nullptr) return false;
-    x_tc = lm_ggml_tanh(ctx_eval, x_tc);
-    lm_ggml_set_name(x_tc, codec_bm_name_audio());
+    x_tc = ggml_tanh(ctx_eval, x_tc);
+    ggml_set_name(x_tc, codec_bm_name_audio());
     *out = x_tc;
     return true;
 }
 
 // CausalEncoderBlock: 3 residual units (dilation 1/3/9) → Snake → strided
 // causal downsample conv (full, not depthwise).
-lm_ggml_tensor * codec_bm_encoder_block(
-    lm_ggml_context * ctx_eval, lm_ggml_tensor * x_tc, int32_t bi, int32_t stride,
+ggml_tensor * codec_bm_encoder_block(
+    ggml_context * ctx_eval, ggml_tensor * x_tc, int32_t bi, int32_t stride,
     const codec_model * model) {
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, model, name);
     };
     const std::string base = "bluemagpie.enc.b" + std::to_string(bi);
@@ -212,16 +212,16 @@ struct bm_encode_build {
     const codec_model * model;
 };
 
-bool codec_bm_build_encode(lm_ggml_context * ctx, void * ud, lm_ggml_tensor ** out) {
+bool codec_bm_build_encode(ggml_context * ctx, void * ud, ggml_tensor ** out) {
     bm_encode_build * p = static_cast<bm_encode_build *>(ud);
     if (ctx == nullptr || p == nullptr || out == nullptr || p->model == nullptr || p->n_pcm <= 0) return false;
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * { return codec_graph_weight(ctx, p->model, name); };
+    auto W = [&](const std::string & name) -> ggml_tensor * { return codec_graph_weight(ctx, p->model, name); };
 
-    lm_ggml_tensor * t_pcm = lm_ggml_new_tensor_2d(ctx, LM_GGML_TYPE_F32, p->n_pcm, 1);   // (n_pcm, 1)
-    lm_ggml_set_name(t_pcm, "bluemagpie.audiovae.pcm");
+    ggml_tensor * t_pcm = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, p->n_pcm, 1);   // (n_pcm, 1)
+    ggml_set_name(t_pcm, "bluemagpie.audiovae.pcm");
 
     // conv0: full causal conv 1 → encoder_dim (k=7).
-    lm_ggml_tensor * x = codec_conv1d_causal(ctx, t_pcm, W("bluemagpie.enc.conv0.w"), W("bluemagpie.enc.conv0.b"),
+    ggml_tensor * x = codec_conv1d_causal(ctx, t_pcm, W("bluemagpie.enc.conv0.w"), W("bluemagpie.enc.conv0.b"),
                                           /*stride=*/1, /*dilation=*/1);
     if (x == nullptr) return false;
     for (int32_t bi = 0; bi < p->n_blocks; ++bi) {
@@ -232,7 +232,7 @@ bool codec_bm_build_encode(lm_ggml_context * ctx, void * ud, lm_ggml_tensor ** o
     x = codec_conv1d_causal(ctx, x, W("bluemagpie.enc.fc_mu.w"), W("bluemagpie.enc.fc_mu.b"),
                             /*stride=*/1, /*dilation=*/1);
     if (x == nullptr) return false;
-    lm_ggml_set_name(x, "bluemagpie.audiovae.mu");   // ne=(t_lat, latent_dim) → channel-major buffer
+    ggml_set_name(x, "bluemagpie.audiovae.mu");   // ne=(t_lat, latent_dim) → channel-major buffer
     *out = x;
     return true;
 }
@@ -287,8 +287,8 @@ static enum codec_status codec_bluemagpie_audiovae_decode_latent(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    lm_ggml_tensor * t_lat = codec_graph_get_tensor(ctx, entry, codec_bm_name_lat());
-    lm_ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, codec_bm_name_audio());
+    ggml_tensor * t_lat = codec_graph_get_tensor(ctx, entry, codec_bm_name_lat());
+    ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, codec_bm_name_audio());
     if (t_lat == nullptr || t_out == nullptr) {
         codec_context_set_error(ctx, "cached BlueMagpie AudioVAE graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -309,7 +309,7 @@ static enum codec_status codec_bluemagpie_audiovae_decode_latent(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    if (t_out->type != LM_GGML_TYPE_F32 || t_out->ne[1] != 1) {
+    if (t_out->type != GGML_TYPE_F32 || t_out->ne[1] != 1) {
         codec_context_set_error(ctx, "unexpected BlueMagpie AudioVAE output shape/type");
         return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -382,8 +382,8 @@ static enum codec_status codec_bluemagpie_audiovae_encode(
         codec_context_set_error(ctx, err);
         return CODEC_STATUS_INTERNAL_ERROR;
     }
-    lm_ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, "bluemagpie.audiovae.pcm");
-    lm_ggml_tensor * t_mu = codec_graph_get_tensor(ctx, entry, "bluemagpie.audiovae.mu");
+    ggml_tensor * t_pcm = codec_graph_get_tensor(ctx, entry, "bluemagpie.audiovae.pcm");
+    ggml_tensor * t_mu = codec_graph_get_tensor(ctx, entry, "bluemagpie.audiovae.mu");
     if (t_pcm == nullptr || t_mu == nullptr) {
         codec_context_set_error(ctx, "cached BlueMagpie encode graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;

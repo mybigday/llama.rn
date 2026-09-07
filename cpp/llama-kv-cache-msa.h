@@ -15,8 +15,8 @@ class llama_kv_cache_msa : public llama_memory_i {
 public:
     llama_kv_cache_msa(
             const llama_model & model,
-                    lm_ggml_type   type_k,
-                    lm_ggml_type   type_v,
+                    ggml_type   type_k,
+                    ggml_type   type_v,
                          bool   v_trans,
                          bool   offload,
                          bool   unified,
@@ -55,7 +55,7 @@ public:
     llama_pos seq_pos_min(llama_seq_id seq_id) const override;
     llama_pos seq_pos_max(llama_seq_id seq_id) const override;
 
-    std::map<lm_ggml_backend_buffer_type_t, size_t> memory_breakdown() const override;
+    std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const override;
 
     // state write/load
 
@@ -133,10 +133,10 @@ public:
     // position <-> cell translation maps, populated from the base cache cells
     // the model graph relates cache contents to token positions only through these per ubatch inputs
     // value for empty or other-sequence cells is 0 so consumers must mask them
-    void set_input_cell_pos(lm_ggml_tensor * dst, const llama_ubatch * ubatch, int32_t div) const;
+    void set_input_cell_pos(ggml_tensor * dst, const llama_ubatch * ubatch, int32_t div) const;
     // positions without a cell map to cell 0, consumers must mask them assumes one sequence per stream
-    void set_input_pos_slot(lm_ggml_tensor * dst, const llama_ubatch * ubatch) const;
-    void set_input_pos_mask(lm_ggml_tensor * dst, const llama_ubatch * ubatch) const;
+    void set_input_pos_slot(ggml_tensor * dst, const llama_ubatch * ubatch) const;
+    void set_input_pos_mask(ggml_tensor * dst, const llama_ubatch * ubatch) const;
 
 private:
     llama_kv_cache_msa * kv;

@@ -1,11 +1,11 @@
 // Match the version setup ggml-opencl.cpp uses, so any cl.h declarations we
 // touch are consistent across this backend's translation units.
-#define CL_TARGET_OPENCL_VERSION LM_GGML_OPENCL_TARGET_VERSION
+#define CL_TARGET_OPENCL_VERSION GGML_OPENCL_TARGET_VERSION
 #define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 
 #include "cl-program-cache.h"
 
-#include "ggml-impl.h"  // LM_GGML_LOG_INFO / WARN
+#include "ggml-impl.h"  // GGML_LOG_INFO / WARN
 
 #include <cstdint>
 #include <cstdio>
@@ -25,10 +25,10 @@
 #  endif
 #  include <windows.h>
 #  include <process.h>
-#  define lm_ggml_getpid()    ((int) GetCurrentProcessId())
+#  define ggml_getpid()    ((int) GetCurrentProcessId())
 #else
 #  include <unistd.h>
-#  define lm_ggml_getpid()    ((int) getpid())
+#  define ggml_getpid()    ((int) getpid())
 #endif
 
 namespace fs = std::filesystem;
@@ -252,7 +252,7 @@ bool read_all(const std::string & path, std::vector<uint8_t> & out) {
 
 bool write_atomic(const std::string & path, const uint8_t * data, size_t len) {
     const fs::path dst = fs::u8path(path);
-    const fs::path tmp = fs::u8path(path + ".tmp." + std::to_string(lm_ggml_getpid()));
+    const fs::path tmp = fs::u8path(path + ".tmp." + std::to_string(ggml_getpid()));
     {
         std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
         if (!f) { return false; }
@@ -279,7 +279,7 @@ bool write_atomic(const std::string & path, const uint8_t * data, size_t len) {
 static bool cache_debug_enabled() {
     static int cached = -1;
     if (cached < 0) {
-        const char * e = std::getenv("LM_GGML_OPENCL_KERNEL_CACHE_DEBUG");
+        const char * e = std::getenv("GGML_OPENCL_KERNEL_CACHE_DEBUG");
         cached = (e && *e) ? 1 : 0;
     }
     return cached != 0;
@@ -298,7 +298,7 @@ static int g_cache_hits = 0, g_cache_misses = 0, g_cache_saves = 0;
 static void cache_debug_line(const char * kind, const std::string & key,
                              const char * source, const std::string & opts) {
     if (!cache_debug_enabled()) { return; }
-    fprintf(stderr, "lm_ggml_opencl: cache %-4s [h=%d m=%d s=%d] key=%s src=%zuB opts='%s'\n",
+    fprintf(stderr, "ggml_opencl: cache %-4s [h=%d m=%d s=%d] key=%s src=%zuB opts='%s'\n",
             kind, g_cache_hits, g_cache_misses, g_cache_saves,
             key.substr(0, 16).c_str(), strlen(source), opts_preview(opts).c_str());
     fflush(stderr);
@@ -307,12 +307,12 @@ static void cache_debug_line(const char * kind, const std::string & key,
 cl_program_cache_state cl_program_cache_init(cl_device_id device) {
     cl_program_cache_state st;
 
-    const char * env = std::getenv("LM_GGML_OPENCL_KERNEL_CACHE_DIR");
+    const char * env = std::getenv("GGML_OPENCL_KERNEL_CACHE_DIR");
     if (env && (!std::strcmp(env, "0")    || !std::strcmp(env, "off")  ||
                 !std::strcmp(env, "none") || !std::strcmp(env, "disable") ||
                 !std::strcmp(env, "disabled"))) {
         if (cache_debug_enabled()) {
-            fprintf(stderr, "lm_ggml_opencl: kernel cache disabled by LM_GGML_OPENCL_KERNEL_CACHE_DIR=%s\n", env);
+            fprintf(stderr, "ggml_opencl: kernel cache disabled by GGML_OPENCL_KERNEL_CACHE_DIR=%s\n", env);
             fflush(stderr);
         }
         return st;
@@ -322,7 +322,7 @@ cl_program_cache_state cl_program_cache_init(cl_device_id device) {
     if (!env || !*env || !std::strcmp(env, "1") || !std::strcmp(env, "default")) {
         dir = default_cache_dir();
         if (dir.empty()) {
-            LM_GGML_LOG_INFO("lm_ggml_opencl: kernel cache disabled (no usable default cache directory)\n");
+            GGML_LOG_INFO("ggml_opencl: kernel cache disabled (no usable default cache directory)\n");
             return st;
         }
     } else {
@@ -330,16 +330,16 @@ cl_program_cache_state cl_program_cache_init(cl_device_id device) {
     }
 
     if (!make_dir_recursive(dir)) {
-        LM_GGML_LOG_INFO("lm_ggml_opencl: kernel cache disabled (cannot create directory '%s')\n", dir.c_str());
+        GGML_LOG_INFO("ggml_opencl: kernel cache disabled (cannot create directory '%s')\n", dir.c_str());
         return st;
     }
 
     st.dir        = dir;
     st.key_suffix = compute_key_suffix(device);
-    LM_GGML_LOG_INFO("lm_ggml_opencl: kernel cache enabled at '%s'\n", st.dir.c_str());
+    GGML_LOG_INFO("ggml_opencl: kernel cache enabled at '%s'\n", st.dir.c_str());
     if (cache_debug_enabled()) {
-        fprintf(stderr, "lm_ggml_opencl: kernel cache enabled at '%s' "
-                        "(LM_GGML_OPENCL_KERNEL_CACHE_DIR=off to disable)\n", st.dir.c_str());
+        fprintf(stderr, "ggml_opencl: kernel cache enabled at '%s' "
+                        "(GGML_OPENCL_KERNEL_CACHE_DIR=off to disable)\n", st.dir.c_str());
         fflush(stderr);
     }
     return st;
@@ -445,7 +445,7 @@ void cl_program_cache_try_save(
     const std::string key  = compute_key(state.key_suffix, source, compile_opts);
     const std::string path = state.dir + "/" + key + ".clbin";
     if (!write_atomic(path, file.data(), file.size())) {
-        LM_GGML_LOG_INFO("lm_ggml_opencl: kernel cache: failed to write '%s'\n", path.c_str());
+        GGML_LOG_INFO("ggml_opencl: kernel cache: failed to write '%s'\n", path.c_str());
     } else {
         ++g_cache_saves;
         cache_debug_line("SAVE", key, source, compile_opts);

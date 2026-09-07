@@ -21,141 +21,141 @@
 // AMX type_trais
 namespace ggml::cpu::amx {
 class tensor_traits : public ggml::cpu::tensor_traits {
-    bool work_size(int /* n_threads */, const struct lm_ggml_tensor * op, size_t & size) override {
-        size = lm_ggml_backend_amx_desired_wsize(op);
+    bool work_size(int /* n_threads */, const struct ggml_tensor * op, size_t & size) override {
+        size = ggml_backend_amx_desired_wsize(op);
         return true;
     }
 
-    bool compute_forward(struct lm_ggml_compute_params * params, struct lm_ggml_tensor * op) override {
-        if (op->op == LM_GGML_OP_MUL_MAT) {
-            lm_ggml_backend_amx_mul_mat(params, op);
+    bool compute_forward(struct ggml_compute_params * params, struct ggml_tensor * op) override {
+        if (op->op == GGML_OP_MUL_MAT) {
+            ggml_backend_amx_mul_mat(params, op);
             return true;
         }
         return false;
     }
 };
 
-static ggml::cpu::tensor_traits * get_tensor_traits(lm_ggml_backend_buffer_t, struct lm_ggml_tensor *) {
+static ggml::cpu::tensor_traits * get_tensor_traits(ggml_backend_buffer_t, struct ggml_tensor *) {
     static tensor_traits traits;
     return &traits;
 }
 }  // namespace ggml::cpu::amx
 
 // AMX buffer interface
-static void lm_ggml_backend_amx_buffer_free_buffer(lm_ggml_backend_buffer_t buffer) {
+static void ggml_backend_amx_buffer_free_buffer(ggml_backend_buffer_t buffer) {
     free(buffer->context);
 }
 
-static void * lm_ggml_backend_amx_buffer_get_base(lm_ggml_backend_buffer_t buffer) {
+static void * ggml_backend_amx_buffer_get_base(ggml_backend_buffer_t buffer) {
     return (void *) (buffer->context);
 }
 
-static enum lm_ggml_status lm_ggml_backend_amx_buffer_init_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor) {
+static enum ggml_status ggml_backend_amx_buffer_init_tensor(ggml_backend_buffer_t buffer, struct ggml_tensor * tensor) {
     tensor->extra = (void *) ggml::cpu::amx::get_tensor_traits(buffer, tensor);
 
-    LM_GGML_UNUSED(buffer);
-    return LM_GGML_STATUS_SUCCESS;
+    GGML_UNUSED(buffer);
+    return GGML_STATUS_SUCCESS;
 }
 
-static void lm_ggml_backend_amx_buffer_memset_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor,
+static void ggml_backend_amx_buffer_memset_tensor(ggml_backend_buffer_t buffer, struct ggml_tensor * tensor,
                                                   uint8_t value, size_t offset, size_t size) {
     memset((char *) tensor->data + offset, value, size);
 
-    LM_GGML_UNUSED(buffer);
+    GGML_UNUSED(buffer);
 }
 
-static void lm_ggml_backend_amx_buffer_set_tensor(lm_ggml_backend_buffer_t buffer, struct lm_ggml_tensor * tensor,
+static void ggml_backend_amx_buffer_set_tensor(ggml_backend_buffer_t buffer, struct ggml_tensor * tensor,
                                                const void * data, size_t offset, size_t size) {
     if (qtype_has_amx_kernels(tensor->type)) {
-        LM_GGML_LOG_DEBUG("%s: amx repack tensor %s of type %s\n", __func__, tensor->name, lm_ggml_type_name(tensor->type));
-        lm_ggml_backend_amx_convert_weight(tensor, data, offset, size);
+        GGML_LOG_DEBUG("%s: amx repack tensor %s of type %s\n", __func__, tensor->name, ggml_type_name(tensor->type));
+        ggml_backend_amx_convert_weight(tensor, data, offset, size);
     } else {
         memcpy((char *) tensor->data + offset, data, size);
     }
 
-    LM_GGML_UNUSED(buffer);
+    GGML_UNUSED(buffer);
 }
 
 /*
 // need to figure what we need to do with buffer->extra.
-static void lm_ggml_backend_amx_buffer_get_tensor(lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * tensor, void * data, size_t offset, size_t size) {
-    LM_GGML_ASSERT(!qtype_has_amx_kernels(tensor->type));
+static void ggml_backend_amx_buffer_get_tensor(ggml_backend_buffer_t buffer, const struct ggml_tensor * tensor, void * data, size_t offset, size_t size) {
+    GGML_ASSERT(!qtype_has_amx_kernels(tensor->type));
     memcpy(data, (const char *)tensor->data + offset, size);
 
-    LM_GGML_UNUSED(buffer);
+    GGML_UNUSED(buffer);
 }
 
-static bool lm_ggml_backend_amx_buffer_cpy_tensor(lm_ggml_backend_buffer_t buffer, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst) {
-    if (lm_ggml_backend_buffer_is_host(src->buffer)) {
+static bool ggml_backend_amx_buffer_cpy_tensor(ggml_backend_buffer_t buffer, const struct ggml_tensor * src, struct ggml_tensor * dst) {
+    if (ggml_backend_buffer_is_host(src->buffer)) {
         if (qtype_has_amx_kernels(src->type)) {
-            lm_ggml_backend_amx_convert_weight(dst, src->data, 0, lm_ggml_nbytes(dst));
+            ggml_backend_amx_convert_weight(dst, src->data, 0, ggml_nbytes(dst));
         } else {
-            memcpy(dst->data, src->data, lm_ggml_nbytes(src));
+            memcpy(dst->data, src->data, ggml_nbytes(src));
         }
         return true;
     }
     return false;
 
-    LM_GGML_UNUSED(buffer);
+    GGML_UNUSED(buffer);
 }
 */
 
-static void lm_ggml_backend_amx_buffer_clear(lm_ggml_backend_buffer_t buffer, uint8_t value) {
+static void ggml_backend_amx_buffer_clear(ggml_backend_buffer_t buffer, uint8_t value) {
     memset(buffer->context, value, buffer->size);
 }
 
-static lm_ggml_backend_buffer_i lm_ggml_backend_amx_buffer_interface = {
-    /* .free_buffer     = */ lm_ggml_backend_amx_buffer_free_buffer,
-    /* .get_base        = */ lm_ggml_backend_amx_buffer_get_base,
-    /* .init_tensor     = */ lm_ggml_backend_amx_buffer_init_tensor,
-    /* .memset_tensor   = */ lm_ggml_backend_amx_buffer_memset_tensor,
-    /* .set_tensor      = */ lm_ggml_backend_amx_buffer_set_tensor,
+static ggml_backend_buffer_i ggml_backend_amx_buffer_interface = {
+    /* .free_buffer     = */ ggml_backend_amx_buffer_free_buffer,
+    /* .get_base        = */ ggml_backend_amx_buffer_get_base,
+    /* .init_tensor     = */ ggml_backend_amx_buffer_init_tensor,
+    /* .memset_tensor   = */ ggml_backend_amx_buffer_memset_tensor,
+    /* .set_tensor      = */ ggml_backend_amx_buffer_set_tensor,
     /* .get_tensor      = */ nullptr,
     /* .set_tensor_2d   = */ nullptr,
     /* .get_tensor_2d   = */ nullptr,
     /* .cpy_tensor      = */ nullptr,
-    /* .clear           = */ lm_ggml_backend_amx_buffer_clear,
+    /* .clear           = */ ggml_backend_amx_buffer_clear,
     /* .reset           = */ nullptr,
 };
 
-static const char * lm_ggml_backend_amx_buffer_type_get_name(lm_ggml_backend_buffer_type_t buft) {
+static const char * ggml_backend_amx_buffer_type_get_name(ggml_backend_buffer_type_t buft) {
     return "AMX";
 
-    LM_GGML_UNUSED(buft);
+    GGML_UNUSED(buft);
 }
 
-static lm_ggml_backend_buffer_t lm_ggml_backend_amx_buffer_type_alloc_buffer(lm_ggml_backend_buffer_type_t buft, size_t size) {
-    void * data = lm_ggml_aligned_malloc(size);
+static ggml_backend_buffer_t ggml_backend_amx_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft, size_t size) {
+    void * data = ggml_aligned_malloc(size);
     if (data == NULL) {
         fprintf(stderr, "%s: failed to allocate buffer of size %zu\n", __func__, size);
         return NULL;
     }
 
-    return lm_ggml_backend_buffer_init(buft, lm_ggml_backend_amx_buffer_interface, data, size);
+    return ggml_backend_buffer_init(buft, ggml_backend_amx_buffer_interface, data, size);
 }
 
-static size_t lm_ggml_backend_amx_buffer_type_get_alignment(lm_ggml_backend_buffer_type_t buft) {
+static size_t ggml_backend_amx_buffer_type_get_alignment(ggml_backend_buffer_type_t buft) {
     return TENSOR_ALIGNMENT;
 
-    LM_GGML_UNUSED(buft);
+    GGML_UNUSED(buft);
 }
 
 namespace ggml::cpu::amx {
 class extra_buffer_type : ggml::cpu::extra_buffer_type {
-    bool supports_op(lm_ggml_backend_dev_t, const struct lm_ggml_tensor * op) override {
-        if (op->op != LM_GGML_OP_MUL_MAT) {
+    bool supports_op(ggml_backend_dev_t, const struct ggml_tensor * op) override {
+        if (op->op != GGML_OP_MUL_MAT) {
             return false;
         }
         auto * src0 = op->src[0];
         auto * src1 = op->src[1];
 
-        if (!lm_ggml_is_contiguous(src0) || !lm_ggml_is_contiguous(src1)) {
+        if (!ggml_is_contiguous(src0) || !ggml_is_contiguous(src1)) {
             return false;
         }
-        if (!src0->buffer || src0->buffer->buft != lm_ggml_backend_amx_buffer_type()) {
+        if (!src0->buffer || src0->buffer->buft != ggml_backend_amx_buffer_type()) {
             return false;
         }
-        if (src1->buffer && !lm_ggml_backend_buft_is_host(src1->buffer->buft)) {
+        if (src1->buffer && !ggml_backend_buft_is_host(src1->buffer->buft)) {
             return false;
         }
         if (op->ne[0] % (TILE_N * 2)) {
@@ -163,18 +163,18 @@ class extra_buffer_type : ggml::cpu::extra_buffer_type {
         }
         int alignment;
         switch (src0->type) {
-            case LM_GGML_TYPE_Q4_0:
-            case LM_GGML_TYPE_Q4_1:
-            case LM_GGML_TYPE_Q8_0:
+            case GGML_TYPE_Q4_0:
+            case GGML_TYPE_Q4_1:
+            case GGML_TYPE_Q8_0:
                 alignment = TILE_K;
                 break;
-            case LM_GGML_TYPE_Q4_K:
-            case LM_GGML_TYPE_Q5_K:
-            case LM_GGML_TYPE_Q6_K:
-            case LM_GGML_TYPE_IQ4_XS:
+            case GGML_TYPE_Q4_K:
+            case GGML_TYPE_Q5_K:
+            case GGML_TYPE_Q6_K:
+            case GGML_TYPE_IQ4_XS:
                 alignment = 256; // QK_K
                 break;
-            case LM_GGML_TYPE_F16:
+            case GGML_TYPE_F16:
                 alignment = 16;
                 break;
             default:
@@ -183,15 +183,15 @@ class extra_buffer_type : ggml::cpu::extra_buffer_type {
         if (src0->ne[0] % alignment) {
             return false;
         }
-        if (src1->type != LM_GGML_TYPE_F32) {
+        if (src1->type != GGML_TYPE_F32) {
             return false;
         }
         return true;
     }
 
-    ggml::cpu::tensor_traits * get_tensor_traits(const struct lm_ggml_tensor * op) override {
-        if (op->op == LM_GGML_OP_MUL_MAT && op->src[0]->buffer &&
-            op->src[0]->buffer->buft == lm_ggml_backend_amx_buffer_type()) {
+    ggml::cpu::tensor_traits * get_tensor_traits(const struct ggml_tensor * op) override {
+        if (op->op == GGML_OP_MUL_MAT && op->src[0]->buffer &&
+            op->src[0]->buffer->buft == ggml_backend_amx_buffer_type()) {
             return (ggml::cpu::tensor_traits *) op->src[0]->extra;
         }
 
@@ -200,10 +200,10 @@ class extra_buffer_type : ggml::cpu::extra_buffer_type {
 };
 }  // namespace ggml::cpu::amx
 
-static size_t lm_ggml_backend_amx_buffer_type_get_alloc_size(lm_ggml_backend_buffer_type_t buft, const lm_ggml_tensor * tensor) {
-    return lm_ggml_backend_amx_get_alloc_size(tensor);
+static size_t ggml_backend_amx_buffer_type_get_alloc_size(ggml_backend_buffer_type_t buft, const ggml_tensor * tensor) {
+    return ggml_backend_amx_get_alloc_size(tensor);
 
-    LM_GGML_UNUSED(buft);
+    GGML_UNUSED(buft);
 }
 
 #define ARCH_GET_XCOMP_PERM     0x1022
@@ -211,7 +211,7 @@ static size_t lm_ggml_backend_amx_buffer_type_get_alloc_size(lm_ggml_backend_buf
 #define XFEATURE_XTILECFG       17
 #define XFEATURE_XTILEDATA      18
 
-static bool lm_ggml_amx_init() {
+static bool ggml_amx_init() {
 #if defined(__linux__)
     if (syscall(SYS_arch_prctl, ARCH_REQ_XCOMP_PERM, XFEATURE_XTILEDATA)) {
         fprintf(stderr, "AMX is not ready to be used!\n");
@@ -225,25 +225,25 @@ static bool lm_ggml_amx_init() {
 #endif
 }
 
-lm_ggml_backend_buffer_type_t lm_ggml_backend_amx_buffer_type() {
-    static struct lm_ggml_backend_buffer_type lm_ggml_backend_buffer_type_amx = {
+ggml_backend_buffer_type_t ggml_backend_amx_buffer_type() {
+    static struct ggml_backend_buffer_type ggml_backend_buffer_type_amx = {
         /* .iface = */ {
-                        /* .get_name         = */ lm_ggml_backend_amx_buffer_type_get_name,
-                        /* .alloc_buffer     = */ lm_ggml_backend_amx_buffer_type_alloc_buffer,
-                        /* .get_alignment    = */ lm_ggml_backend_amx_buffer_type_get_alignment,
+                        /* .get_name         = */ ggml_backend_amx_buffer_type_get_name,
+                        /* .alloc_buffer     = */ ggml_backend_amx_buffer_type_alloc_buffer,
+                        /* .get_alignment    = */ ggml_backend_amx_buffer_type_get_alignment,
                         /* .get_max_size     = */ nullptr,  // defaults to SIZE_MAX
-                        /* .get_alloc_size   = */ lm_ggml_backend_amx_buffer_type_get_alloc_size,
+                        /* .get_alloc_size   = */ ggml_backend_amx_buffer_type_get_alloc_size,
                         /* .is_host          = */ nullptr,
                         },
-        /* .device  = */ lm_ggml_backend_reg_dev_get(lm_ggml_backend_cpu_reg(), 0),
+        /* .device  = */ ggml_backend_reg_dev_get(ggml_backend_cpu_reg(), 0),
         /* .context = */ new ggml::cpu::amx::extra_buffer_type(),
     };
 
-    if (!lm_ggml_amx_init()) {
+    if (!ggml_amx_init()) {
         return nullptr;
     }
 
-    return &lm_ggml_backend_buffer_type_amx;
+    return &ggml_backend_buffer_type_amx;
 }
 
 #endif  // defined(__AMX_INT8__) && defined(__AVX512VNNI__)

@@ -67,11 +67,11 @@ llama_model_qwen3vlmoe::graph::graph(const llama_model & model, const llm_graph_
     const int64_t n_embd      = hparams.n_embd;
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
-    LM_GGML_ASSERT(n_embd_head == n_rot);
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == n_rot);
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
@@ -79,14 +79,14 @@ llama_model_qwen3vlmoe::graph::graph(const llama_model & model, const llm_graph_
     std::copy(std::begin(hparams.rope_sections), std::begin(hparams.rope_sections) + 4, sections);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
 
         // norm
         cur = build_norm(inpL,
@@ -103,7 +103,7 @@ llama_model_qwen3vlmoe::graph::graph(const llama_model & model, const llm_graph_
             Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
             cb(Qcur, "Qcur_normed", il);
 
-            Qcur = lm_ggml_rope_multi(
+            Qcur = ggml_rope_multi(
                     ctx0, Qcur, inp_pos, nullptr,
                     n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
@@ -112,7 +112,7 @@ llama_model_qwen3vlmoe::graph::graph(const llama_model & model, const llm_graph_
             Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
             cb(Kcur, "Kcur_normed", il);
 
-            Kcur = lm_ggml_rope_multi(
+            Kcur = ggml_rope_multi(
                     ctx0, Kcur, inp_pos, nullptr,
                     n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
@@ -128,11 +128,11 @@ llama_model_qwen3vlmoe::graph::graph(const llama_model & model, const llm_graph_
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur   = lm_ggml_get_rows(ctx0,   cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
 
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         // MoE branch
@@ -141,7 +141,7 @@ llama_model_qwen3vlmoe::graph::graph(const llama_model & model, const llm_graph_
                 LLM_NORM_RMS, il);
         cb(cur, "ffn_norm", il);
 
-        lm_ggml_tensor * moe_out =
+        ggml_tensor * moe_out =
             build_moe_ffn(cur,
                     model.layers[il].ffn_gate_inp,
                     model.layers[il].ffn_up_exps,
@@ -156,14 +156,14 @@ llama_model_qwen3vlmoe::graph::graph(const llama_model & model, const llm_graph_
         cb(moe_out, "ffn_moe_out", il);
         cur = moe_out;
 
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
 
         if (il < (int) n_deepstack_layers) {
-            lm_ggml_tensor * ds = lm_ggml_view_2d(ctx0, res->t_inp_embd, n_embd, n_tokens, res->t_inp_embd->nb[1], (il + 1) * n_embd * sizeof(float));
-            cur = lm_ggml_add(ctx0, cur, ds);
+            ggml_tensor * ds = ggml_view_2d(ctx0, res->t_inp_embd, n_embd, n_tokens, res->t_inp_embd->nb[1], (il + 1) * n_embd * sizeof(float));
+            cur = ggml_add(ctx0, cur, ds);
             cb(cur, "deepstack_out", il);
         }
 
@@ -186,5 +186,5 @@ llama_model_qwen3vlmoe::graph::graph(const llama_model & model, const llm_graph_
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

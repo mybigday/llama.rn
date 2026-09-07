@@ -1,16 +1,16 @@
 #include "models.h"
 
-lm_ggml_cgraph * clip_graph_internvl::build() {
-    LM_GGML_ASSERT(model.class_embedding != nullptr);
-    LM_GGML_ASSERT(model.position_embeddings != nullptr);
+ggml_cgraph * clip_graph_internvl::build() {
+    GGML_ASSERT(model.class_embedding != nullptr);
+    GGML_ASSERT(model.position_embeddings != nullptr);
 
     const int n_pos = n_patches + 1;
-    lm_ggml_tensor * inp = build_inp();
+    ggml_tensor * inp = build_inp();
 
     // add CLS token
-    lm_ggml_tensor * cls_repeated = lm_ggml_repeat_4d(ctx0, model.class_embedding,
+    ggml_tensor * cls_repeated = ggml_repeat_4d(ctx0, model.class_embedding,
             model.class_embedding->ne[0], 1, n_batch, 1);
-    inp = lm_ggml_concat(ctx0, inp, cls_repeated, 1);
+    inp = ggml_concat(ctx0, inp, cls_repeated, 1);
 
     // The larger models use a different ViT, which uses RMS norm instead of layer norm
     // ref: https://github.com/ggml-org/llama.cpp/pull/13443#issuecomment-2869786188
@@ -18,7 +18,7 @@ lm_ggml_cgraph * clip_graph_internvl::build() {
         ? NORM_TYPE_RMS // 6B ViT (Used by InternVL 2.5/3 - 26B, 38B, 78B)
         : NORM_TYPE_NORMAL; // 300M ViT (Used by all smaller InternVL models)
 
-    lm_ggml_tensor * cur = build_vit(
+    ggml_tensor * cur = build_vit(
                             inp, n_pos,
                             norm_t,
                             hparams.ffn_op,
@@ -26,10 +26,10 @@ lm_ggml_cgraph * clip_graph_internvl::build() {
                             nullptr);
 
     // remove CLS token
-    cur = lm_ggml_view_3d(ctx0, cur,
+    cur = ggml_view_3d(ctx0, cur,
         n_embd, n_patches, n_batch,
         cur->nb[1], cur->nb[2], 0);
-    cur = lm_ggml_cont(ctx0, cur);
+    cur = ggml_cont(ctx0, cur);
 
     // pixel shuffle
     {
@@ -37,17 +37,17 @@ lm_ggml_cgraph * clip_graph_internvl::build() {
         const int bsz    = n_batch;
         const int height = n_patches_y;
         const int width  = n_patches_x;
-        LM_GGML_ASSERT(scale_factor > 0);
-        cur = lm_ggml_reshape_4d(ctx0, cur, n_embd * scale_factor, height / scale_factor, width, bsz);
-        cur = lm_ggml_permute(ctx0, cur, 0, 2, 1, 3);
-        cur = lm_ggml_cont_4d(ctx0, cur,
+        GGML_ASSERT(scale_factor > 0);
+        cur = ggml_reshape_4d(ctx0, cur, n_embd * scale_factor, height / scale_factor, width, bsz);
+        cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+        cur = ggml_cont_4d(ctx0, cur,
             n_embd * scale_factor * scale_factor,
             height / scale_factor,
             width / scale_factor,
             bsz);
-        cur = lm_ggml_permute(ctx0, cur, 0, 2, 1, 3);
+        cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
         // flatten to 2D
-        cur = lm_ggml_cont_3d(ctx0, cur,
+        cur = ggml_cont_3d(ctx0, cur,
             n_embd * scale_factor * scale_factor,
             cur->ne[1] * cur->ne[2],
             cur->ne[3]);
@@ -67,7 +67,7 @@ lm_ggml_cgraph * clip_graph_internvl::build() {
     }
 
     // build the graph
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 
     return gf;
 }

@@ -24,7 +24,7 @@
 #include "hex-dma.h"
 #include "hmx-queue.h"
 
-#define LM_GGML_COMMON_DECL_C
+#define GGML_COMMON_DECL_C
 #include "ggml-common.h"
 #include "hex-bitmap.h"
 #include "htp-ctx.h"

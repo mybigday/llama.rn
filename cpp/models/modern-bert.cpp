@@ -74,11 +74,11 @@ std::unique_ptr<llm_graph_context> llama_model_modern_bert::build_arch_graph(con
 llama_model_modern_bert::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
+    ggml_tensor * inp_pos = build_inp_pos();
 
     // construct input embeddings (token, type, position)
     inpL = build_inp_embd(model.tok_embd);
@@ -88,7 +88,7 @@ llama_model_modern_bert::graph::graph(const llama_model & model, const llm_graph
     inpL = build_norm(inpL, model.tok_norm, nullptr, LLM_NORM, 0);
     cb(inpL, "inp_norm", 0);
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     auto * inp_attn = build_attn_inp_no_cache();
 
@@ -111,13 +111,13 @@ llama_model_modern_bert::graph::graph(const llama_model & model, const llm_graph
                 n_embd_head, n_head, n_head_kv, il);
 
         // RoPE
-        Qcur = lm_ggml_rope_ext(
+        Qcur = ggml_rope_ext(
                 ctx0, Qcur, inp_pos, nullptr,
                 n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                 ext_factor, attn_factor, beta_fast, beta_slow
                 );
 
-        Kcur = lm_ggml_rope_ext(
+        Kcur = ggml_rope_ext(
                 ctx0, Kcur, inp_pos, nullptr,
                 n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                 ext_factor, attn_factor, beta_fast, beta_slow
@@ -133,12 +133,12 @@ llama_model_modern_bert::graph::graph(const llama_model & model, const llm_graph
         cb(cur, "kqv_out", il);
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur  = lm_ggml_get_rows(ctx0,  cur, inp_out_ids);
-            inpL = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
+            cur  = ggml_get_rows(ctx0,  cur, inp_out_ids);
+            inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }
 
         // re-add the layer input
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpL);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpL);
         cb(ffn_inp, "ffn_inp", il);
 
         // attention layer norm
@@ -156,7 +156,7 @@ llama_model_modern_bert::graph::graph(const llama_model & model, const llm_graph
                 LLM_FFN_SEQ, il);
 
         // attentions bypass the intermediate layer
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         // input for next layer
         inpL = cur;
@@ -170,5 +170,5 @@ llama_model_modern_bert::graph::graph(const llama_model & model, const llm_graph
     cb(cur, "final_norm_out", -1);
 
     res->t_embd = cur;
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

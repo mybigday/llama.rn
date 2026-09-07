@@ -183,7 +183,7 @@ struct codec_lm_info {
 // Return CODEC_STATUS_NOT_SUPPORTED via NULL when the codec_model has
 // no LM adaptor section (the `codec.lm.has_adaptor` GGUF metadata key
 // is absent or false).  Borrows everything from `codec`: backend, mmap,
-// weights lm_ggml_context, eval scheduler.  Does not duplicate weights.
+// weights ggml_context, eval scheduler.  Does not duplicate weights.
 struct codec_lm * codec_lm_create(struct codec_model * codec);
 void              codec_lm_free  (struct codec_lm * lm);
 

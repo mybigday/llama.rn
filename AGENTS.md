@@ -25,7 +25,7 @@
    - Android install path: `android/src/main/java/com/rnllama/RNLlama.java` (native lib loader + HTP extraction), `android/src/main/java/com/rnllama/RNLlamaModuleShared.java`, and `android/src/main/RNLlamaJSI.cpp`
 
 3. **C++ Core (`cpp/`)**
-   - llama.cpp sources are copied from `third_party/llama.cpp` with `LM_`/`lm_` prefixes
+   - llama.cpp sources are copied verbatim from `third_party/llama.cpp` (no symbol renaming)
    - Custom wrappers: `rn-llama.cpp`, `rn-completion.cpp`, `rn-slot.cpp`, `rn-slot-manager.cpp`, `rn-mtmd.hpp`, `rn-tts.cpp`
    - Parallel decoding relies on the slot manager and request queues
 
@@ -47,10 +47,9 @@
 
 1. Updates llama.cpp submodule (`third_party/llama.cpp`)
 2. Copies source files to `cpp/` directory
-3. Renames symbols with `LM_` prefix to prevent conflicts
-4. Applies patches from `scripts/patches/`
-5. Flattens each split Metal kernel with `ggml-common.h` / `ggml-metal-impl.h` and emits per-kernel `ggml-metal-embed-*.s` files so the sources are embedded into the framework binary (avoids `.metallib` distribution and runtime `.metal` file loading; see #348)
-6. Generates version info from llama.cpp git history
+3. Applies patches from `scripts/patches/`
+4. Flattens each split Metal kernel with `ggml-common.h` / `ggml-metal-impl.h` and emits per-kernel `ggml-metal-embed-*.s` files so the sources are embedded into the framework binary (avoids `.metallib` distribution and runtime `.metal` file loading; see #348)
+5. Generates version info from llama.cpp git history
 
 **Always run `npm run bootstrap` after updating the llama.cpp submodule.**
 
@@ -94,7 +93,7 @@ If llama.cpp sources need modifications:
 
 ## Important Conventions
 
-- All llama.cpp/ggml symbols are prefixed with `LM_`/`lm_` to avoid conflicts (e.g., `ggml_*` → `lm_ggml_*`).
+- llama.cpp/ggml symbols keep their upstream names (`ggml_*`, `llama_*`). Coexistence with other ggml-based libraries (e.g. whisper.rn) relies on each library being its own dynamic image: two-level namespace on Apple platforms, `RTLD_LOCAL` plus `-Bsymbolic` on Android. ggml-metal's Objective-C `GGMLMetalClass` (only compiled when the Metal library is not embedded) is renamed per library via a `-D` define, since Objective-C class names are process-global.
 - Follow conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`).
 
 ## Testing Strategy

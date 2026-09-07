@@ -11,7 +11,7 @@ void llama_model_bailingmoe2::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func);
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS,              hparams.n_layer_nextn, false);
 
-    LM_GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer_impl");
+    GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer_impl");
 
     switch (hparams.n_layer()) {
         case 20: type = LLM_TYPE_16B_A1B; break;
@@ -32,8 +32,8 @@ void llama_model_bailingmoe2::load_arch_tensors(llama_model_loader &) {
     output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
     output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, 0);
 
-    LM_GGML_ASSERT(n_expert > 0 && "n_expert must be > 0 for bailingmoe2");
-    LM_GGML_ASSERT(n_expert_used > 0 && "n_expert_used must be > 0 for bailingmoe2");
+    GGML_ASSERT(n_expert > 0 && "n_expert must be > 0 for bailingmoe2");
+    GGML_ASSERT(n_expert_used > 0 && "n_expert_used must be > 0 for bailingmoe2");
 
     for (int i = 0; i < n_layer_all; ++i) {
         int flags = 0;
@@ -94,22 +94,22 @@ llama_model_bailingmoe2::graph::graph(const llama_model & model, const llm_graph
     llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
 
         // norm
         cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
@@ -123,13 +123,13 @@ llama_model_bailingmoe2::graph::graph(const llama_model & model, const llm_graph
             Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
             cb(Qcur, "Qcur_normed", il);
 
-            Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+            Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                                  ext_factor, attn_factor, beta_fast, beta_slow);
 
             Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
             cb(Kcur, "Kcur_normed", il);
 
-            Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+            Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                                  ext_factor, attn_factor, beta_fast, beta_slow);
 
             cb(Qcur, "Qcur", il);
@@ -142,11 +142,11 @@ llama_model_bailingmoe2::graph::graph(const llama_model & model, const llm_graph
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur   = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
 
-        lm_ggml_tensor * sa_out = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * sa_out = ggml_add(ctx0, cur, inpSA);
         cb(sa_out, "sa_out", il);
 
         // MoE branch
@@ -161,7 +161,7 @@ llama_model_bailingmoe2::graph::graph(const llama_model & model, const llm_graph
                     NULL, LLM_FFN_SILU, LLM_FFN_PAR, il);
             cb(cur, "ffn_out", il);
         } else {
-            lm_ggml_tensor * moe_out = build_moe_ffn(cur,
+            ggml_tensor * moe_out = build_moe_ffn(cur,
                 model.layers[il].ffn_gate_inp,
                 model.layers[il].ffn_up_exps,
                 model.layers[il].ffn_gate_exps,
@@ -175,7 +175,7 @@ llama_model_bailingmoe2::graph::graph(const llama_model & model, const llm_graph
             cb(moe_out, "ffn_moe_out", il);
 
             {
-                lm_ggml_tensor * ffn_shexp =
+                ggml_tensor * ffn_shexp =
                     build_ffn(cur,
                         model.layers[il].ffn_up_shexp, NULL, NULL,
                         model.layers[il].ffn_gate_shexp, NULL, NULL,
@@ -183,12 +183,12 @@ llama_model_bailingmoe2::graph::graph(const llama_model & model, const llm_graph
                         NULL, LLM_FFN_SILU, LLM_FFN_PAR, il);
                 cb(ffn_shexp, "ffn_shexp", il);
 
-                cur = lm_ggml_add(ctx0, moe_out, ffn_shexp);
+                cur = ggml_add(ctx0, moe_out, ffn_shexp);
                 cb(cur, "ffn_out", il);
             }
         }
 
-        cur = lm_ggml_add(ctx0, cur, sa_out);
+        cur = ggml_add(ctx0, cur, sa_out);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -210,5 +210,5 @@ llama_model_bailingmoe2::graph::graph(const llama_model & model, const llm_graph
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

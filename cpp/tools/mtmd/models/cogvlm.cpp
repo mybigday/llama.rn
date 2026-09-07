@@ -1,33 +1,33 @@
 #include "models.h"
 
-lm_ggml_cgraph * clip_graph_cogvlm::build() {
-    LM_GGML_ASSERT(model.class_embedding != nullptr);
-    LM_GGML_ASSERT(model.position_embeddings != nullptr);
+ggml_cgraph * clip_graph_cogvlm::build() {
+    GGML_ASSERT(model.class_embedding != nullptr);
+    GGML_ASSERT(model.position_embeddings != nullptr);
 
     const int n_pos = n_patches + 1; // +1 for [CLS]
 
     // build input and concatenate class embedding
-    lm_ggml_tensor * inp = build_inp();
-    inp = lm_ggml_concat(ctx0, inp, model.class_embedding, 1);
+    ggml_tensor * inp = build_inp();
+    inp = ggml_concat(ctx0, inp, model.class_embedding, 1);
 
-    inp = lm_ggml_add(ctx0, inp, model.position_embeddings);
+    inp = ggml_add(ctx0, inp, model.position_embeddings);
     cb(inp, "inp_pos", -1);
 
-    lm_ggml_tensor * inpL = inp;
+    ggml_tensor * inpL = inp;
 
     for (int il = 0; il < n_layer; il++) {
         auto & layer = model.layers[il];
-        lm_ggml_tensor * cur = inpL;
+        ggml_tensor * cur = inpL;
 
         cur = build_mm(layer.qkv_w, cur);
 
-        cur = lm_ggml_add(ctx0, cur, layer.qkv_b);
+        cur = ggml_add(ctx0, cur, layer.qkv_b);
 
-        lm_ggml_tensor * Qcur = lm_ggml_view_3d(ctx0, cur, d_head, n_head, n_pos, d_head*sizeof(float),
+        ggml_tensor * Qcur = ggml_view_3d(ctx0, cur, d_head, n_head, n_pos, d_head*sizeof(float),
             cur->nb[1], 0);
-        lm_ggml_tensor * Kcur = lm_ggml_view_3d(ctx0, cur, d_head, n_head, n_pos, d_head*sizeof(float),
+        ggml_tensor * Kcur = ggml_view_3d(ctx0, cur, d_head, n_head, n_pos, d_head*sizeof(float),
             cur->nb[1], n_embd * sizeof(float));
-        lm_ggml_tensor * Vcur = lm_ggml_view_3d(ctx0, cur, d_head, n_head, n_pos, d_head*sizeof(float),
+        ggml_tensor * Vcur = ggml_view_3d(ctx0, cur, d_head, n_head, n_pos, d_head*sizeof(float),
             cur->nb[1], 2 * n_embd * sizeof(float));
 
         cb(Qcur, "Qcur", il);
@@ -41,7 +41,7 @@ lm_ggml_cgraph * clip_graph_cogvlm::build() {
         cur = build_norm(cur, layer.ln_1_w, layer.ln_1_b, NORM_TYPE_NORMAL, eps, il);
         cb(cur, "attn_post_norm", il);
 
-        cur = lm_ggml_add(ctx0, cur, inpL);
+        cur = ggml_add(ctx0, cur, inpL);
         inpL = cur;
 
         cur = build_ffn(cur,
@@ -55,16 +55,16 @@ lm_ggml_cgraph * clip_graph_cogvlm::build() {
         cur = build_norm(cur, layer.ln_2_w, layer.ln_2_b, NORM_TYPE_NORMAL, eps, il);
         cb(cur, "ffn_post_norm", il);
 
-        cur = lm_ggml_add(ctx0, cur, inpL);
+        cur = ggml_add(ctx0, cur, inpL);
         cb(cur, "layer_out", il);
         inpL = cur;
 
     }
 
     // remove CLS token (like build_llama4 does)
-    lm_ggml_tensor * cur = lm_ggml_view_2d(ctx0, inpL,
+    ggml_tensor * cur = ggml_view_2d(ctx0, inpL,
         n_embd, n_patches,
-        lm_ggml_row_size(inpL->type, n_embd), 0);
+        ggml_row_size(inpL->type, n_embd), 0);
 
     // Multiply with mm_model_proj
     cur = build_mm(model.mm_model_proj, cur);
@@ -73,26 +73,26 @@ lm_ggml_cgraph * clip_graph_cogvlm::build() {
     cur = build_norm(cur, model.mm_post_fc_norm_w, model.mm_post_fc_norm_b, NORM_TYPE_NORMAL, 1e-5, -1);
 
     // Apply GELU
-    cur = lm_ggml_gelu_inplace(ctx0, cur);
+    cur = ggml_gelu_inplace(ctx0, cur);
 
     // Branch 1: multiply with mm_h_to_4h_w
-    lm_ggml_tensor * h_to_4h = build_mm(model.mm_h_to_4h_w, cur);
+    ggml_tensor * h_to_4h = build_mm(model.mm_h_to_4h_w, cur);
 
     // Branch 2: multiply with mm_gate_w
-    lm_ggml_tensor * gate = build_mm(model.mm_gate_w, cur);
+    ggml_tensor * gate = build_mm(model.mm_gate_w, cur);
 
     // Apply silu
-    gate = lm_ggml_swiglu_split(ctx0, gate, h_to_4h);
+    gate = ggml_swiglu_split(ctx0, gate, h_to_4h);
 
     // Apply mm_4h_to_h_w
     cur = build_mm(model.mm_4h_to_h_w, gate);
 
     // Concatenate with boi and eoi
-    cur = lm_ggml_concat(ctx0, model.mm_boi, cur, 1);
-    cur = lm_ggml_concat(ctx0, cur, model.mm_eoi, 1);
+    cur = ggml_concat(ctx0, model.mm_boi, cur, 1);
+    cur = ggml_concat(ctx0, cur, model.mm_eoi, 1);
 
     // build the graph
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 
     return gf;
 }

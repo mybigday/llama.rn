@@ -72,26 +72,26 @@ llama_model_minicpm3::graph::graph(const llama_model & model, const llm_graph_pa
 
     const uint32_t kv_lora_rank = hparams.n_lora_kv;
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // scale the input embeddings
-    inpL = lm_ggml_scale(ctx0, inpL, scale_embd);
+    inpL = ggml_scale(ctx0, inpL, scale_embd);
     cb(inpL, "inp_scaled", -1);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
 
-        lm_ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+        ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
         // norm
         cur = build_norm(inpL,
@@ -101,9 +101,9 @@ llama_model_minicpm3::graph::graph(const llama_model & model, const llm_graph_pa
 
         // self_attention
         {
-            lm_ggml_tensor * q = NULL;
+            ggml_tensor * q = NULL;
             // {n_embd, q_lora_rank} * {n_embd, n_tokens} -> {q_lora_rank, n_tokens}
-            q = lm_ggml_mul_mat(ctx0, model.layers[il].wq_a, cur);
+            q = ggml_mul_mat(ctx0, model.layers[il].wq_a, cur);
             cb(q, "q", il);
 
             q = build_norm(q,
@@ -112,28 +112,28 @@ llama_model_minicpm3::graph::graph(const llama_model & model, const llm_graph_pa
             cb(q, "q", il);
 
             // {q_lora_rank, n_head * hparams.n_embd_head_k()} * {q_lora_rank, n_tokens} -> {n_head * hparams.n_embd_head_k(), n_tokens}
-            q = lm_ggml_mul_mat(ctx0, model.layers[il].wq_b, q);
+            q = ggml_mul_mat(ctx0, model.layers[il].wq_b, q);
             cb(q, "q", il);
 
             // {n_embd_head_k, n_head, n_tokens}, RoPE is applied to the trailing dims only
-            q = lm_ggml_reshape_3d(ctx0, q, hparams.n_embd_head_k(), n_head, n_tokens);
+            q = ggml_reshape_3d(ctx0, q, hparams.n_embd_head_k(), n_head, n_tokens);
             cb(q, "q", il);
 
             // {n_embd, kv_lora_rank + n_embd_head_qk_rope} * {n_embd, n_tokens} -> {kv_lora_rank + n_embd_head_qk_rope, n_tokens}
-            lm_ggml_tensor * kv_pe_compresseed = lm_ggml_mul_mat(ctx0, model.layers[il].wkv_a_mqa, cur);
+            ggml_tensor * kv_pe_compresseed = ggml_mul_mat(ctx0, model.layers[il].wkv_a_mqa, cur);
             cb(kv_pe_compresseed, "kv_pe_compresseed", il);
 
             // split into {kv_lora_rank, n_tokens}
-            lm_ggml_tensor * kv_compressed = lm_ggml_view_2d(ctx0, kv_pe_compresseed, kv_lora_rank, n_tokens,
+            ggml_tensor * kv_compressed = ggml_view_2d(ctx0, kv_pe_compresseed, kv_lora_rank, n_tokens,
                     kv_pe_compresseed->nb[1],
                     0);
             cb(kv_compressed, "kv_compressed", il);
 
             // and {n_embd_head_qk_rope, n_tokens}
-            lm_ggml_tensor * k_pe = lm_ggml_view_3d(ctx0, kv_pe_compresseed, n_embd_head_qk_rope, 1, n_tokens,
+            ggml_tensor * k_pe = ggml_view_3d(ctx0, kv_pe_compresseed, n_embd_head_qk_rope, 1, n_tokens,
                     kv_pe_compresseed->nb[1],
                     kv_pe_compresseed->nb[1],
-                    lm_ggml_row_size(kv_pe_compresseed->type, kv_lora_rank));
+                    ggml_row_size(kv_pe_compresseed->type, kv_lora_rank));
             cb(k_pe, "k_pe", il);
 
             kv_compressed = build_norm(kv_compressed,
@@ -142,47 +142,47 @@ llama_model_minicpm3::graph::graph(const llama_model & model, const llm_graph_pa
             cb(kv_compressed, "kv_compressed", il);
 
             // {kv_lora_rank, n_head * (n_embd_head_qk_nope + n_embd_head_v)} * {kv_lora_rank, n_tokens} -> {n_head * (n_embd_head_qk_nope + n_embd_head_v), n_tokens}
-            lm_ggml_tensor * kv = lm_ggml_mul_mat(ctx0, model.layers[il].wkv_b, kv_compressed);
+            ggml_tensor * kv = ggml_mul_mat(ctx0, model.layers[il].wkv_b, kv_compressed);
             cb(kv, "kv", il);
 
             // split into {n_head * n_embd_head_qk_nope, n_tokens}
-            lm_ggml_tensor * k_nope = lm_ggml_view_3d(ctx0, kv, n_embd_head_qk_nope, n_head, n_tokens,
-                    lm_ggml_row_size(kv->type, n_embd_head_qk_nope + hparams.n_embd_head_v()),
-                    lm_ggml_row_size(kv->type, n_head * (n_embd_head_qk_nope + hparams.n_embd_head_v())),
+            ggml_tensor * k_nope = ggml_view_3d(ctx0, kv, n_embd_head_qk_nope, n_head, n_tokens,
+                    ggml_row_size(kv->type, n_embd_head_qk_nope + hparams.n_embd_head_v()),
+                    ggml_row_size(kv->type, n_head * (n_embd_head_qk_nope + hparams.n_embd_head_v())),
                     0);
             cb(k_nope, "k_nope", il);
 
             // and {n_head * n_embd_head_v, n_tokens}
-            lm_ggml_tensor * v_states = lm_ggml_view_3d(ctx0, kv, hparams.n_embd_head_v(), n_head, n_tokens,
-                    lm_ggml_row_size(kv->type, (n_embd_head_qk_nope + hparams.n_embd_head_v())),
-                    lm_ggml_row_size(kv->type, (n_embd_head_qk_nope + hparams.n_embd_head_v())*n_head),
-                    lm_ggml_row_size(kv->type, (n_embd_head_qk_nope)));
+            ggml_tensor * v_states = ggml_view_3d(ctx0, kv, hparams.n_embd_head_v(), n_head, n_tokens,
+                    ggml_row_size(kv->type, (n_embd_head_qk_nope + hparams.n_embd_head_v())),
+                    ggml_row_size(kv->type, (n_embd_head_qk_nope + hparams.n_embd_head_v())*n_head),
+                    ggml_row_size(kv->type, (n_embd_head_qk_nope)));
             cb(v_states, "v_states", il);
 
-            v_states = lm_ggml_cont(ctx0, v_states);
+            v_states = ggml_cont(ctx0, v_states);
             cb(v_states, "v_states", il);
 
-            q = lm_ggml_rope_ext(
+            q = ggml_rope_ext(
                     ctx0, q, inp_pos, rope_factors,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
                     );
-            q = lm_ggml_rope_set_offset(q, n_embd_head_qk_nope);
+            q = ggml_rope_set_offset(q, n_embd_head_qk_nope);
             cb(q, "q_rope", il);
 
             // shared RoPE key
-            k_pe = lm_ggml_rope_ext(
+            k_pe = ggml_rope_ext(
                     ctx0, k_pe, inp_pos, rope_factors,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
                     );
             cb(k_pe, "k_pe", il);
 
-            lm_ggml_tensor * q_states = q;
+            ggml_tensor * q_states = q;
             cb(q_states, "q_states", il);
 
-            lm_ggml_tensor * k_states = lm_ggml_concat(ctx0, k_nope,
-                    lm_ggml_repeat_4d(ctx0, k_pe, n_embd_head_qk_rope, n_head, n_tokens, 1), 0);
+            ggml_tensor * k_states = ggml_concat(ctx0, k_nope,
+                    ggml_repeat_4d(ctx0, k_pe, n_embd_head_qk_rope, n_head, n_tokens, 1), 0);
             cb(k_states, "k_states", il);
 
             cur = build_attn(inp_attn,
@@ -190,15 +190,15 @@ llama_model_minicpm3::graph::graph(const llama_model & model, const llm_graph_pa
                     q_states, k_states, v_states, nullptr, nullptr, nullptr, kq_scale, il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
-            cur   = lm_ggml_get_rows(ctx0,   cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
         // scale_res - scale the hidden states for residual connection
         const float scale_res = scale_depth/sqrtf(float(n_layer)); // TODO: is this correct?
-        cur = lm_ggml_scale(ctx0, cur, scale_res);
+        cur = ggml_scale(ctx0, cur, scale_res);
         cb(cur, "hidden_scaled", il);
 
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         // feed-forward network
@@ -217,10 +217,10 @@ llama_model_minicpm3::graph::graph(const llama_model & model, const llm_graph_pa
             cb(cur, "ffn_out", il);
         }
         // scale the hidden states for residual connection
-        cur = lm_ggml_scale(ctx0, cur, scale_res);
+        cur = ggml_scale(ctx0, cur, scale_res);
         cb(cur, "hidden_scaled_ffn", il);
 
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -239,7 +239,7 @@ llama_model_minicpm3::graph::graph(const llama_model & model, const llm_graph_pa
 
     // lm_head scaling
     const float scale_lmhead = float(n_embd_base)/float(n_embd);
-    cur = lm_ggml_scale(ctx0, cur, scale_lmhead);
+    cur = ggml_scale(ctx0, cur, scale_lmhead);
     cb(cur, "lmhead_scaling", -1);
 
     // lm_head
@@ -248,5 +248,5 @@ llama_model_minicpm3::graph::graph(const llama_model & model, const llm_graph_pa
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

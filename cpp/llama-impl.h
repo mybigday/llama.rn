@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ggml.h" // for lm_ggml_log_level
+#include "ggml.h" // for ggml_log_level
 
 #include <string>
 #include <type_traits>
@@ -21,15 +21,15 @@
 //
 
 LLAMA_ATTRIBUTE_FORMAT(2, 3)
-void llama_log_internal        (lm_ggml_log_level level, const char * format, ...);
-void llama_log_callback_default(lm_ggml_log_level level, const char * text, void * user_data);
+void llama_log_internal        (ggml_log_level level, const char * format, ...);
+void llama_log_callback_default(ggml_log_level level, const char * text, void * user_data);
 
-#define LLAMA_LOG(...)       llama_log_internal(LM_GGML_LOG_LEVEL_NONE , __VA_ARGS__)
-#define LLAMA_LOG_INFO(...)  llama_log_internal(LM_GGML_LOG_LEVEL_INFO , __VA_ARGS__)
-#define LLAMA_LOG_WARN(...)  llama_log_internal(LM_GGML_LOG_LEVEL_WARN , __VA_ARGS__)
-#define LLAMA_LOG_ERROR(...) llama_log_internal(LM_GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
-#define LLAMA_LOG_DEBUG(...) llama_log_internal(LM_GGML_LOG_LEVEL_DEBUG, __VA_ARGS__)
-#define LLAMA_LOG_CONT(...)  llama_log_internal(LM_GGML_LOG_LEVEL_CONT , __VA_ARGS__)
+#define LLAMA_LOG(...)       llama_log_internal(GGML_LOG_LEVEL_NONE , __VA_ARGS__)
+#define LLAMA_LOG_INFO(...)  llama_log_internal(GGML_LOG_LEVEL_INFO , __VA_ARGS__)
+#define LLAMA_LOG_WARN(...)  llama_log_internal(GGML_LOG_LEVEL_WARN , __VA_ARGS__)
+#define LLAMA_LOG_ERROR(...) llama_log_internal(GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
+#define LLAMA_LOG_DEBUG(...) llama_log_internal(GGML_LOG_LEVEL_DEBUG, __VA_ARGS__)
+#define LLAMA_LOG_CONT(...)  llama_log_internal(GGML_LOG_LEVEL_CONT , __VA_ARGS__)
 
 //
 // helpers
@@ -45,31 +45,31 @@ template <typename dst_t, typename src_t>
 static inline dst_t llama_cast(src_t v) {
     if constexpr (std::is_same_v<src_t, dst_t>) {
         return v;
-    } else if constexpr (std::is_same_v<src_t, lm_ggml_fp16_t> && std::is_same_v<dst_t, float>) {
-        return lm_ggml_fp16_to_fp32(v);
-    } else if constexpr (std::is_same_v<src_t, float> && std::is_same_v<dst_t, lm_ggml_fp16_t>) {
-        return lm_ggml_fp32_to_fp16(v);
+    } else if constexpr (std::is_same_v<src_t, ggml_fp16_t> && std::is_same_v<dst_t, float>) {
+        return ggml_fp16_to_fp32(v);
+    } else if constexpr (std::is_same_v<src_t, float> && std::is_same_v<dst_t, ggml_fp16_t>) {
+        return ggml_fp32_to_fp16(v);
     } else {
         static_assert(std::is_same_v<dst_t, void>, "unsupported type combination");
     }
 }
 
-static inline lm_ggml_tensor * llama_mul_mat_hadamard(
-        lm_ggml_context * ctx,
-        lm_ggml_tensor * cur,
-        lm_ggml_tensor * rot) {
+static inline ggml_tensor * llama_mul_mat_hadamard(
+        ggml_context * ctx,
+        ggml_tensor * cur,
+        ggml_tensor * rot) {
     const auto n = rot->ne[0];
 
-    lm_ggml_tensor * res;
+    ggml_tensor * res;
 
-    if (!lm_ggml_is_contiguous(cur)) {
-        res = lm_ggml_cont_2d(ctx, cur, n, lm_ggml_nelements(cur)/n);
+    if (!ggml_is_contiguous(cur)) {
+        res = ggml_cont_2d(ctx, cur, n, ggml_nelements(cur)/n);
     } else {
-        res = lm_ggml_reshape_2d(ctx, cur, n, lm_ggml_nelements(cur)/n);
+        res = ggml_reshape_2d(ctx, cur, n, ggml_nelements(cur)/n);
     }
-    res = lm_ggml_mul_mat(ctx, rot, res);
-    lm_ggml_mul_mat_set_hint(res, LM_GGML_HINT_SRC0_IS_HADAMARD);
-    res = lm_ggml_reshape_4d(ctx, res, cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3]);
+    res = ggml_mul_mat(ctx, rot, res);
+    ggml_mul_mat_set_hint(res, GGML_HINT_SRC0_IS_HADAMARD);
+    res = ggml_reshape_4d(ctx, res, cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3]);
 
     return res;
 }
@@ -100,6 +100,6 @@ LLAMA_ATTRIBUTE_FORMAT(1, 2)
 std::string format(const char * fmt, ...);
 
 std::string llama_format_tensor_shape(const std::vector<int64_t> & ne);
-std::string llama_format_tensor_shape(const struct lm_ggml_tensor * t);
+std::string llama_format_tensor_shape(const struct ggml_tensor * t);
 
-std::string lm_gguf_kv_to_str(const struct lm_gguf_context * ctx_gguf, int i);
+std::string gguf_kv_to_str(const struct gguf_context * ctx_gguf, int i);

@@ -9,14 +9,14 @@ constant short FC_mul_mm_r2    [[function_constant(FC_MUL_MM + 4)]];
 constant short FC_mul_mm_r3    [[function_constant(FC_MUL_MM + 5)]];
 
 // each block_q contains 16*nl weights
-#ifdef LM_GGML_METAL_HAS_TENSOR
+#ifdef GGML_METAL_HAS_TENSOR
 template<
     typename SA, typename SA_4x4, typename SA_8x8,
     typename SB, typename SB_2x4, typename SB_8x8,
     typename block_q, short nl, void (*dequantize_func)(device const block_q *, short, thread SA_4x4 &),
     typename T0, typename T0_4x4, typename T1, typename T1_2x4>
 kernel void kernel_mul_mm(
-        constant lm_ggml_metal_kargs_mul_mm & args,
+        constant ggml_metal_kargs_mul_mm & args,
         device const char * srcA,
         device const char * srcB,
         device       char * dst,
@@ -148,7 +148,7 @@ template<
     typename block_q, short nl, void (*dequantize_func)(device const block_q *, short, thread S0_4x4 &),
     typename T0, typename T0_4x4, typename T1, typename T1_2x4>
 kernel void kernel_mul_mm(
-        constant lm_ggml_metal_kargs_mul_mm & args,
+        constant ggml_metal_kargs_mul_mm & args,
         device const char * src0,
         device const char * src1,
         device       char * dst,
@@ -357,11 +357,11 @@ kernel void kernel_mul_mm(
     }
 }
 
-#endif // LM_GGML_METAL_HAS_TENSOR
+#endif // GGML_METAL_HAS_TENSOR
 
 template<short ne20> // n_expert_used
 kernel void kernel_mul_mm_id_map0(
-        constant lm_ggml_metal_kargs_mul_mm_id_map0 & args,
+        constant ggml_metal_kargs_mul_mm_id_map0 & args,
         device  const char * src2,
         device        char * htpe,
         device        char * hids,
@@ -427,7 +427,7 @@ template [[host_name("kernel_mul_mm_id_map0_ne20_22")]] kernel kernel_mul_mm_id_
 
 template<typename S0, typename S0_4x4, typename S0_8x8, typename S1, typename S1_2x4, typename S1_8x8, typename block_q, short nl, void (*dequantize_func)(device const block_q *, short, thread S0_4x4 &), typename T0, typename T0_4x4, typename T1, typename T1_2x4>
 kernel void kernel_mul_mm_id(
-        constant lm_ggml_metal_kargs_mul_mm_id & args,
+        constant ggml_metal_kargs_mul_mm_id & args,
         device const char * src0,
         device const char * src1,
         device const char * htpe,
@@ -441,7 +441,7 @@ kernel void kernel_mul_mm_id(
     threadgroup S0 * sa = (threadgroup S0 *)(shmem);
     threadgroup S1 * sb = (threadgroup S1 *)(shmem + 4096);
 
-#ifdef LM_GGML_METAL_HAS_TENSOR
+#ifdef GGML_METAL_HAS_TENSOR
     threadgroup float * sc = (threadgroup float *)(shmem);
 #endif
 
@@ -496,7 +496,7 @@ kernel void kernel_mul_mm_id(
         + args.nb11*i11
         + args.nb10*iy);
 
-#ifndef LM_GGML_METAL_HAS_TENSOR
+#ifndef GGML_METAL_HAS_TENSOR
     S0_8x8 ma[4];
     S1_8x8 mb[2];
 
@@ -517,7 +517,7 @@ kernel void kernel_mul_mm_id(
 #endif
 
     for (int loop_k = 0; loop_k < args.ne00; loop_k += NK) {
-#ifndef LM_GGML_METAL_HAS_TENSOR
+#ifndef GGML_METAL_HAS_TENSOR
         // load data and store to threadgroup memory
         if (is_same<T0_4x4, block_q>::value && FC_mul_mm_bc_inp) {
             threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -655,7 +655,7 @@ kernel void kernel_mul_mm_id(
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifndef LM_GGML_METAL_HAS_TENSOR
+#ifndef GGML_METAL_HAS_TENSOR
         // load matrices from threadgroup memory and conduct outer products
         threadgroup const S0 * lsma = (sa + 4*64*(sgitg%2));
         threadgroup const S1 * lsmb = (sb + 2*64*(sgitg/2));
@@ -693,7 +693,7 @@ kernel void kernel_mul_mm_id(
     // block is smaller than 64x32, we should avoid writing data outside of the matrix
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-#ifdef LM_GGML_METAL_HAS_TENSOR
+#ifdef GGML_METAL_HAS_TENSOR
     auto tC = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(sc, dextents<int32_t, 2>(NR0, NR1));
     cT.store(tC);
 #else
@@ -738,7 +738,7 @@ typedef decltype(kernel_mul_mm<half, half4x4, simdgroup_half8x8, half, half2x4, 
 
 template [[host_name("kernel_mul_mm_f32_f32")]]     kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   float4x4,      1,     dequantize_f32,     float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_f16_f32")]]     kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   half4x4,       1,     dequantize_f16,     half,   half4x4,   float, float2x4>;
-#if defined(LM_GGML_METAL_HAS_BF16)
+#if defined(GGML_METAL_HAS_BF16)
 template [[host_name("kernel_mul_mm_bf16_f32")]]    kernel mul_mm_t kernel_mul_mm<bfloat, bfloat4x4, simdgroup_bfloat8x8, bfloat, bfloat2x4, simdgroup_bfloat8x8, bfloat4x4,     1,     dequantize_bf16,    bfloat, bfloat4x4, float, float2x4>;
 #endif
 template [[host_name("kernel_mul_mm_q1_0_f32")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q1_0,    8,     dequantize_q1_0,    float,  float4x4,  float, float2x4>;
@@ -799,7 +799,7 @@ typedef decltype(kernel_mul_mm_id<half, half4x4, simdgroup_half8x8, half, half2x
 
 template [[host_name("kernel_mul_mm_id_f32_f32")]]     kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   float4x4,      1,     dequantize_f32,     float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_id_f16_f32")]]     kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   half4x4,       1,     dequantize_f16,     half,   half4x4,   float, float2x4>;
-#if defined(LM_GGML_METAL_HAS_BF16)
+#if defined(GGML_METAL_HAS_BF16)
 template [[host_name("kernel_mul_mm_id_bf16_f32")]]    kernel mul_mm_id kernel_mul_mm_id<bfloat, bfloat4x4, simdgroup_bfloat8x8, bfloat, bfloat2x4, simdgroup_bfloat8x8, bfloat4x4,     1,     dequantize_bf16,    bfloat, bfloat4x4, float, float2x4>;
 #endif
 template [[host_name("kernel_mul_mm_id_q1_0_f32")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q1_0,    8,     dequantize_q1_0,    float,  float4x4,  float, float2x4>;

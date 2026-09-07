@@ -57,9 +57,9 @@ static void log(LogLevel level, const char* format, ...) {
 static std::once_flag backend_init_once;
 
 #if defined(__ANDROID__)
-static bool shouldExcludeHexagonDevice(lm_ggml_backend_dev_t dev) {
-#if defined(LM_GGML_USE_HEXAGON)
-    const char *dev_name = lm_ggml_backend_dev_name(dev);
+static bool shouldExcludeHexagonDevice(ggml_backend_dev_t dev) {
+#if defined(GGML_USE_HEXAGON)
+    const char *dev_name = rnllama::backend_dev_name(dev);
     if (dev_name != nullptr && strncmp(dev_name, "HTP", 3) == 0) {
         return true;
     }
@@ -69,36 +69,30 @@ static bool shouldExcludeHexagonDevice(lm_ggml_backend_dev_t dev) {
     return false;
 }
 
-static std::vector<lm_ggml_backend_dev_t> getFilteredDefaultDevices() {
-    std::vector<lm_ggml_backend_dev_t> rpc_servers;
-    std::vector<lm_ggml_backend_dev_t> gpus;
-    std::vector<lm_ggml_backend_dev_t> igpus;
+static std::vector<ggml_backend_dev_t> getFilteredDefaultDevices() {
+    std::vector<ggml_backend_dev_t> rpc_servers;
+    std::vector<ggml_backend_dev_t> gpus;
+    std::vector<ggml_backend_dev_t> igpus;
 
-    for (size_t i = 0; i < lm_ggml_backend_dev_count(); ++i) {
-        lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
+    for (size_t i = 0; i < rnllama::backend_dev_count(); ++i) {
+        ggml_backend_dev_t dev = rnllama::backend_dev_get(i);
         if (shouldExcludeHexagonDevice(dev)) {
             continue;
         }
 
-        switch (lm_ggml_backend_dev_type(dev)) {
-            case LM_GGML_BACKEND_DEVICE_TYPE_CPU:
-            case LM_GGML_BACKEND_DEVICE_TYPE_ACCEL:
-            case LM_GGML_BACKEND_DEVICE_TYPE_META:
+        switch (rnllama::backend_dev_type(dev)) {
+            case GGML_BACKEND_DEVICE_TYPE_CPU:
+            case GGML_BACKEND_DEVICE_TYPE_ACCEL:
+            case GGML_BACKEND_DEVICE_TYPE_META:
                 break;
-            case LM_GGML_BACKEND_DEVICE_TYPE_GPU: {
-                lm_ggml_backend_reg_t reg = lm_ggml_backend_dev_backend_reg(dev);
-                const char *reg_name = reg ? lm_ggml_backend_reg_name(reg) : nullptr;
+            case GGML_BACKEND_DEVICE_TYPE_GPU: {
+                const char *reg_name = rnllama::backend_dev_reg_name(dev);
                 if (reg_name != nullptr && strcmp(reg_name, "RPC") == 0) {
                     rpc_servers.push_back(dev);
                 } else {
-                    lm_ggml_backend_dev_props props;
-                    lm_ggml_backend_dev_get_props(dev, &props);
-                    auto it = std::find_if(gpus.begin(), gpus.end(), [&props](lm_ggml_backend_dev_t other) {
-                        lm_ggml_backend_dev_props other_props;
-                        lm_ggml_backend_dev_get_props(other, &other_props);
-                        return props.device_id != nullptr &&
-                               other_props.device_id != nullptr &&
-                               strcmp(props.device_id, other_props.device_id) == 0;
+                    const std::string device_id = rnllama::backend_dev_device_id(dev);
+                    auto it = std::find_if(gpus.begin(), gpus.end(), [&device_id](ggml_backend_dev_t other) {
+                        return !device_id.empty() && rnllama::backend_dev_device_id(other) == device_id;
                     });
 
                     if (it == gpus.end()) {
@@ -107,13 +101,13 @@ static std::vector<lm_ggml_backend_dev_t> getFilteredDefaultDevices() {
                 }
                 break;
             }
-            case LM_GGML_BACKEND_DEVICE_TYPE_IGPU:
+            case GGML_BACKEND_DEVICE_TYPE_IGPU:
                 igpus.push_back(dev);
                 break;
         }
     }
 
-    std::vector<lm_ggml_backend_dev_t> devices;
+    std::vector<ggml_backend_dev_t> devices;
     devices.insert(devices.end(), rpc_servers.begin(), rpc_servers.end());
     devices.insert(devices.end(), gpus.begin(), gpus.end());
 
@@ -198,7 +192,7 @@ namespace rnllama_jsi {
         });
     }
 
-    static void logToJsCallback(enum lm_ggml_log_level level, const char* text, void* /*data*/) {
+    static void logToJsCallback(enum ggml_log_level level, const char* text, void* /*data*/) {
         llama_log_callback_default(level, text, nullptr);
 
         std::shared_ptr<react::CallInvoker> invoker;
@@ -217,9 +211,9 @@ namespace rnllama_jsi {
 
         std::string levelStr = "info";
         switch (level) {
-            case LM_GGML_LOG_LEVEL_ERROR: levelStr = "error"; break;
-            case LM_GGML_LOG_LEVEL_WARN: levelStr = "warn"; break;
-            case LM_GGML_LOG_LEVEL_INFO: levelStr = "info"; break;
+            case GGML_LOG_LEVEL_ERROR: levelStr = "error"; break;
+            case GGML_LOG_LEVEL_WARN: levelStr = "warn"; break;
+            case GGML_LOG_LEVEL_INFO: levelStr = "info"; break;
             default: break;
         }
 
@@ -335,24 +329,24 @@ namespace rnllama_jsi {
         return model;
     }
 
-    static std::vector<lm_ggml_backend_dev_t> buildDeviceOverrides(
+    static std::vector<ggml_backend_dev_t> buildDeviceOverrides(
         const std::vector<std::string>& requestedDevices,
         bool skipGpuDevices,
         bool& anyGpuAvailable
     ) {
-        std::vector<lm_ggml_backend_dev_t> selected;
+        std::vector<ggml_backend_dev_t> selected;
         anyGpuAvailable = false;
 
-        const size_t devCount = lm_ggml_backend_dev_count();
+        const size_t devCount = rnllama::backend_dev_count();
         for (size_t i = 0; i < devCount; ++i) {
-            lm_ggml_backend_dev_t dev = lm_ggml_backend_dev_get(i);
-            const auto type = lm_ggml_backend_dev_type(dev);
+            ggml_backend_dev_t dev = rnllama::backend_dev_get(i);
+            const auto type = rnllama::backend_dev_type(dev);
 #if TARGET_OS_SIMULATOR
-            if (type == LM_GGML_BACKEND_DEVICE_TYPE_ACCEL) {
+            if (type == GGML_BACKEND_DEVICE_TYPE_ACCEL) {
                 continue;
             }
 #endif
-            const bool isGpuType = type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU;
+            const bool isGpuType = type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU;
             if (isGpuType) {
                 anyGpuAvailable = true;
             }
@@ -361,7 +355,7 @@ namespace rnllama_jsi {
             }
 
             if (!requestedDevices.empty()) {
-                const char* name = lm_ggml_backend_dev_name(dev);
+                const char* name = rnllama::backend_dev_name(dev);
                 std::string nameStr = name ? name : "";
                 auto it = std::find(requestedDevices.begin(), requestedDevices.end(), nameStr);
                 if (it == requestedDevices.end()) {
@@ -379,15 +373,15 @@ namespace rnllama_jsi {
         return selected;
     }
 
-    static bool isGpuDeviceType(enum lm_ggml_backend_dev_type type) {
-        return type == LM_GGML_BACKEND_DEVICE_TYPE_GPU || type == LM_GGML_BACKEND_DEVICE_TYPE_IGPU;
+    static bool isGpuDeviceType(enum ggml_backend_dev_type type) {
+        return type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU;
     }
 
     static bool hasGpuBackendDevice() {
-        const size_t devCount = lm_ggml_backend_dev_count();
+        const size_t devCount = rnllama::backend_dev_count();
         for (size_t i = 0; i < devCount; ++i) {
-            auto dev = lm_ggml_backend_dev_get(i);
-            if (isGpuDeviceType(lm_ggml_backend_dev_type(dev))) {
+            auto dev = rnllama::backend_dev_get(i);
+            if (isGpuDeviceType(rnllama::backend_dev_type(dev))) {
                 return true;
             }
         }
@@ -402,7 +396,7 @@ namespace rnllama_jsi {
         bool& anyGpuAvailable
     ) {
         anyGpuAvailable = false;
-        std::vector<lm_ggml_backend_dev_t> overrideDevices;
+        std::vector<ggml_backend_dev_t> overrideDevices;
 
         if (devicesProvided) {
             overrideDevices = buildDeviceOverrides(requestedDevices, skipGpuDevices, anyGpuAvailable);
@@ -418,7 +412,7 @@ namespace rnllama_jsi {
                 cparams.devices = defaultDevices;
                 for (auto dev : defaultDevices) {
                     if (dev == nullptr) continue;
-                    if (isGpuDeviceType(lm_ggml_backend_dev_type(dev))) {
+                    if (isGpuDeviceType(rnllama::backend_dev_type(dev))) {
                         anyGpuAvailable = true;
                         break;
                     }
@@ -608,11 +602,11 @@ namespace rnllama_jsi {
                              for (const auto & dev_info : ctx->llama_init->model()->devices) {
                                  auto dev = dev_info.dev;
                                  if (dev == nullptr) continue;
-                                 const char* used_name = lm_ggml_backend_dev_name(dev);
+                                 const char* used_name = rnllama::backend_dev_name(dev);
                                  if (used_name != nullptr) {
                                      usedDevices.push_back(used_name);
                                  }
-                                 if (isGpuDeviceType(lm_ggml_backend_dev_type(dev))) {
+                                 if (isGpuDeviceType(rnllama::backend_dev_type(dev))) {
                                      gpuEnabled = true;
                                  }
                              }

@@ -151,7 +151,7 @@ struct common_sampler {
             }
         } else {
             const auto * logits = llama_get_logits_ith(ctx, idx);
-            LM_GGML_ASSERT(logits != nullptr);
+            GGML_ASSERT(logits != nullptr);
             cur.resize(n_vocab);
             for (llama_token token_id = 0; token_id < n_vocab; token_id++) {
                 cur[token_id] = llama_token_data{token_id, logits[token_id], 0.0f};
@@ -214,7 +214,7 @@ struct common_sampler * common_sampler_init(
 #ifdef LLAMA_USE_LLGUIDANCE
         grmr = llama_sampler_init_llg(vocab, "lark", grammar_str.c_str());
 #else
-        LM_GGML_ABORT("llguidance (cmake -DLLAMA_LLGUIDANCE=ON) is not enabled");
+        GGML_ABORT("llguidance (cmake -DLLAMA_LLGUIDANCE=ON) is not enabled");
 #endif // LLAMA_USE_LLGUIDANCE
     } else {
         std::vector<std::string> trigger_patterns;
@@ -251,7 +251,7 @@ struct common_sampler * common_sampler_init(
                     break;
                 }
                 default:
-                    LM_GGML_ASSERT(false && "unknown trigger type");
+                    GGML_ASSERT(false && "unknown trigger type");
             }
         }
 
@@ -278,7 +278,7 @@ struct common_sampler * common_sampler_init(
     // Compute prefill tokens from the generation prompt
     std::vector<llama_token> prefill_tokens;
     if (!params.generation_prompt.empty()) {
-        LM_GGML_ASSERT(vocab != nullptr);
+        GGML_ASSERT(vocab != nullptr);
         auto tokens = common_tokenize(vocab, params.generation_prompt, false, true);
         for (size_t i = 0; i < tokens.size(); i++) {
             std::string piece = common_token_to_piece(vocab, tokens[i], true);
@@ -398,7 +398,7 @@ struct common_sampler * common_sampler_init(
                     use_adaptive_p = true;
                     break;
                 default:
-                    LM_GGML_ASSERT(false && "unknown sampler type");
+                    GGML_ASSERT(false && "unknown sampler type");
             }
         }
         if (use_adaptive_p) {
@@ -415,7 +415,7 @@ struct common_sampler * common_sampler_init(
         samplers.push_back(llama_sampler_init_temp(params.temp));
         samplers.push_back(llama_sampler_init_mirostat_v2(params.seed, params.mirostat_tau, params.mirostat_eta));
     } else {
-        LM_GGML_ASSERT(false && "unknown mirostat version");
+        GGML_ASSERT(false && "unknown mirostat version");
     }
 
     for (auto * smpl : samplers) {
@@ -533,8 +533,8 @@ void common_sampler_copy(const common_sampler * src, common_sampler * dst) {
         return;
     }
 
-    LM_GGML_ASSERT((src->grmr == nullptr) == (dst->grmr == nullptr));
-    LM_GGML_ASSERT((src->rbudget == nullptr) == (dst->rbudget == nullptr));
+    GGML_ASSERT((src->grmr == nullptr) == (dst->grmr == nullptr));
+    GGML_ASSERT((src->rbudget == nullptr) == (dst->rbudget == nullptr));
 
     llama_sampler_copy(src->grmr,    dst->grmr);
     llama_sampler_copy(src->rbudget, dst->rbudget);
@@ -574,7 +574,7 @@ void common_perf_print(const struct llama_context * ctx, const struct common_sam
 
         data = llama_perf_context(ctx);
 
-        const double t_end_ms = 1e-3 * lm_ggml_time_us();
+        const double t_end_ms = 1e-3 * ggml_time_us();
 
         const double t_total_ms = t_end_ms - data.t_start_ms;
         const double t_unacc_ms = t_total_ms - (t_sampling_ms + data.t_p_eval_ms + data.t_eval_ms);
@@ -624,8 +624,8 @@ llama_token common_sampler_sample(struct common_sampler * gsmpl, struct llama_co
         if (id != LLAMA_TOKEN_NULL) {
             LOG_DBG("%s: Backend sampler selected token: '%d'. Will not run any CPU samplers\n", __func__, id);
 
-            LM_GGML_ASSERT(!gsmpl->grmr    && "using grammar in combination with backend sampling is not supported");
-            LM_GGML_ASSERT(!gsmpl->rbudget && "using reasoning budget in combination with backend sampling is not supported");
+            GGML_ASSERT(!gsmpl->grmr    && "using grammar in combination with backend sampling is not supported");
+            GGML_ASSERT(!gsmpl->rbudget && "using reasoning budget in combination with backend sampling is not supported");
 
             for (size_t i = 0; i < cur_p.size; ++i) {
                 if (cur_p.data[i].id == id) {
@@ -678,7 +678,7 @@ llama_token common_sampler_sample(struct common_sampler * gsmpl, struct llama_co
 
     llama_sampler_apply(chain, &cur_p);
 
-    LM_GGML_ASSERT(cur_p.selected != -1 && "no selected token during sampling - check your sampling configuration");
+    GGML_ASSERT(cur_p.selected != -1 && "no selected token during sampling - check your sampling configuration");
 
     id = cur_p.data[cur_p.selected].id;
 
@@ -686,7 +686,7 @@ llama_token common_sampler_sample(struct common_sampler * gsmpl, struct llama_co
 }
 
 std::vector<llama_token> common_sampler_sample_and_accept_n(struct common_sampler * gsmpl, struct llama_context * ctx, const std::vector<int> & idxs, const llama_tokens & draft, bool grammar_first) {
-    LM_GGML_ASSERT(idxs.size() == draft.size() + 1 && "idxs.size() must be draft.size() + 1");
+    GGML_ASSERT(idxs.size() == draft.size() + 1 && "idxs.size() must be draft.size() + 1");
 
     std::vector<llama_token> result;
     result.reserve(idxs.size());
@@ -794,7 +794,7 @@ std::string common_sampler_prev_str(common_sampler * gsmpl, llama_context * ctx_
     for (int i = n - 1; i >= 0; i--) {
         const llama_token id = gsmpl->prev.rat(i);
 
-        LM_GGML_ASSERT(id != LLAMA_TOKEN_NULL && "null token in the sampling history - should not happen");
+        GGML_ASSERT(id != LLAMA_TOKEN_NULL && "null token in the sampling history - should not happen");
 
         result += common_token_to_piece(ctx_main, id);
     }

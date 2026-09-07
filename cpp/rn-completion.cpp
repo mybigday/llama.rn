@@ -426,7 +426,7 @@ void llama_rn_context_completion::loadPrompt(const std::vector<std::string> &med
             }
             truncatePrompt(text_tokens);
             num_prompt_tokens = text_tokens.size();
-            LM_GGML_ASSERT(num_prompt_tokens < (size_t)parent_ctx->n_ctx);
+            GGML_ASSERT(num_prompt_tokens < (size_t)parent_ctx->n_ctx);
         }
 
         // NOTE: Do NOT feed prompt tokens into the sampler.
@@ -627,13 +627,13 @@ void llama_rn_context_completion::resetGenerationTimings() {
 
 void llama_rn_context_completion::startGenerationTiming() {
     if (t_start_generation == 0) {
-        t_start_generation = lm_ggml_time_us();
+        t_start_generation = ggml_time_us();
     }
 }
 
 void llama_rn_context_completion::updateGenerationTiming() {
     if (t_start_generation != 0 && num_tokens_predicted > 0) {
-        t_token_generation = (lm_ggml_time_us() - t_start_generation) / 1e6;
+        t_token_generation = (ggml_time_us() - t_start_generation) / 1e6;
     }
 }
 
@@ -1982,14 +1982,14 @@ std::string llama_rn_context_completion::bench(int pp, int tg, int pl, int nr) {
 
         llama_memory_clear(mem, false);
 
-        const auto t_pp_start = lm_ggml_time_us();
+        const auto t_pp_start = ggml_time_us();
         if (!decode_helper(batch, n_batch, false)) {
             run_failed = true;
             break;
         }
 
         llama_synchronize(ctx);
-        const auto t_pp_end = lm_ggml_time_us();
+        const auto t_pp_end = ggml_time_us();
 
         if (is_pp_shared && pl > 1) {
             for (int32_t seq = 1; seq < pl; ++seq) {
@@ -2011,7 +2011,7 @@ std::string llama_rn_context_completion::bench(int pp, int tg, int pl, int nr) {
             break;
         }
 
-        const auto t_tg_start = lm_ggml_time_us();
+        const auto t_tg_start = ggml_time_us();
 
         for (int i = 0; i < tg; ++i) {
             llama_batch_clear(&batch);
@@ -2030,7 +2030,7 @@ std::string llama_rn_context_completion::bench(int pp, int tg, int pl, int nr) {
             break;
         }
 
-        const auto t_tg_end = lm_ggml_time_us();
+        const auto t_tg_end = ggml_time_us();
 
         const double t_pp = (t_pp_end - t_pp_start) / 1e6;
         const double t_tg = (t_tg_end - t_tg_start) / 1e6;

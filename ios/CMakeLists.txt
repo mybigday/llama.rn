@@ -12,16 +12,20 @@ set(CMAKE_XCODE_ATTRIBUTE_ENABLE_BITCODE NO)
 add_definitions(
     -DNDEBUG
     -DO3
-    -DLM_GGML_USE_CPU
-    -DLM_GGML_USE_ACCELERATE
-    -DLM_GGML_USE_BLAS
-    -DLM_GGML_BLAS_USE_ACCELERATE
-    -DLM_GGML_USE_METAL
-    -DLM_GGML_METAL_EMBED_LIBRARY=1
+    -DGGML_USE_CPU
+    -DGGML_USE_ACCELERATE
+    -DGGML_USE_BLAS
+    -DGGML_BLAS_USE_ACCELERATE
+    -DGGML_USE_METAL
+    -DGGML_METAL_EMBED_LIBRARY=1
+    # ggml-metal only defines its bundle-lookup Objective-C class when the
+    # Metal library is not embedded. Objective-C class names are process-global,
+    # so keep it unique per library in case that configuration is ever used.
+    -DGGMLMetalClass=RNLlamaGGMLMetalClass
 )
 
 if (CMAKE_OSX_ARCHITECTURES STREQUAL "arm64;x86_64")
-    add_definitions(-DLM_GGML_CPU_GENERIC)
+    add_definitions(-DGGML_CPU_GENERIC)
 endif ()
 
 set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
@@ -160,6 +164,14 @@ target_include_directories(rnllama
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../cpp/codec/common>
         $<INSTALL_INTERFACE:include>
 )
+
+# Keep ggml/gguf out of the framework's export table so a second ggml copy in
+# the app (e.g. whisper.rn) can never be resolved through this image. Hidden
+# inline visibility also stops dyld from coalescing header-inline functions
+# across the two frameworks.
+target_compile_options(rnllama PRIVATE $<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-fvisibility-inlines-hidden>)
+target_link_options(rnllama PRIVATE
+    "LINKER:-unexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/unexported-symbols.txt")
 
 # Link required frameworks
 target_link_libraries(rnllama PRIVATE

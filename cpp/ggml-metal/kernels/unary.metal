@@ -5,7 +5,7 @@ constant bool  FC_unary_cnt[[function_constant(FC_UNARY + 1)]];
 
 template <typename T0, typename T, typename TC>
 kernel void kernel_unary_impl(
-        constant lm_ggml_metal_kargs_unary & args,
+        constant ggml_metal_kargs_unary & args,
         device const char * src0,
         device       char * dst,
         uint3   tgpig[[threadgroup_position_in_grid]],
@@ -190,7 +190,7 @@ template [[host_name("kernel_unary_f16_f16")]]   kernel kernel_unary_t kernel_un
 template [[host_name("kernel_unary_f16_f16_4")]] kernel kernel_unary_t kernel_unary_impl<half4,  half4,  float4>;
 
 kernel void kernel_silu_back_f32(
-        constant lm_ggml_metal_kargs_silu_back & args,
+        constant ggml_metal_kargs_silu_back & args,
         device const float * dy,
         device const float * x,
         device       float * dx,
@@ -205,7 +205,7 @@ kernel void kernel_silu_back_f32(
 
 template<typename T>
 kernel void kernel_reglu(
-        constant lm_ggml_metal_kargs_glu & args,
+        constant ggml_metal_kargs_glu & args,
         device const char * src0,
         device const char * src1,
         device       char * dst,
@@ -231,7 +231,7 @@ template [[host_name("kernel_reglu_f16")]] kernel kernel_reglu_t kernel_reglu<ha
 
 template<typename T>
 kernel void kernel_geglu(
-        constant lm_ggml_metal_kargs_glu & args,
+        constant ggml_metal_kargs_glu & args,
         device const char * src0,
         device const char * src1,
         device       char * dst,
@@ -259,7 +259,7 @@ template [[host_name("kernel_geglu_f16")]] kernel kernel_geglu_t kernel_geglu<ha
 
 template<typename T>
 kernel void kernel_swiglu(
-        constant lm_ggml_metal_kargs_glu & args,
+        constant ggml_metal_kargs_glu & args,
         device const char * src0,
         device const char * src1,
         device       char * dst,
@@ -287,7 +287,7 @@ template [[host_name("kernel_swiglu_f16")]] kernel kernel_swiglu_t kernel_swiglu
 
 template<typename T>
 kernel void kernel_swiglu_oai(
-        constant lm_ggml_metal_kargs_glu & args,
+        constant ggml_metal_kargs_glu & args,
         device const char * src0,
         device const char * src1,
         device       char * dst,
@@ -319,7 +319,7 @@ template [[host_name("kernel_swiglu_oai_f16")]] kernel kernel_swiglu_oai_t kerne
 
 template<typename T>
 kernel void kernel_geglu_erf(
-        constant lm_ggml_metal_kargs_glu & args,
+        constant ggml_metal_kargs_glu & args,
         device const char * src0,
         device const char * src1,
         device       char * dst,
@@ -347,7 +347,7 @@ template [[host_name("kernel_geglu_erf_f16")]] kernel kernel_geglu_erf_t kernel_
 
 template<typename T>
 kernel void kernel_geglu_quick(
-        constant lm_ggml_metal_kargs_glu & args,
+        constant ggml_metal_kargs_glu & args,
         device const char * src0,
         device const char * src1,
         device       char * dst,

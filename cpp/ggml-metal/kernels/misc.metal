@@ -1,7 +1,7 @@
 #include "common.h"
 
 kernel void kernel_argmax_f32(
-        constant lm_ggml_metal_kargs_argmax & args,
+        constant ggml_metal_kargs_argmax & args,
         device   const char * src0,
         device         char * dst,
         threadgroup    char * shmem [[threadgroup(0)]],
@@ -61,7 +61,7 @@ kernel void kernel_argmax_f32(
 }
 
 kernel void kernel_diag_f32(
-        constant lm_ggml_metal_kargs_diag & args,
+        constant ggml_metal_kargs_diag & args,
         device   const char * src0,
         device         char * dst,
         uint3  tgpig[[threadgroup_position_in_grid]],
@@ -81,7 +81,7 @@ kernel void kernel_diag_f32(
 }
 
 kernel void kernel_roll_f32(
-    constant lm_ggml_metal_kargs_roll & args,
+    constant ggml_metal_kargs_roll & args,
     device  const char * src0,
     device        char * dst,
     uint3 tgpig[[threadgroup_position_in_grid]],
@@ -116,7 +116,7 @@ kernel void kernel_roll_f32(
 
 template <typename T>
 kernel void kernel_pad_impl(
-    constant lm_ggml_metal_kargs_pad & args,
+    constant ggml_metal_kargs_pad & args,
     device  const char * src0,
     device        char * dst,
     uint3 tgpig[[threadgroup_position_in_grid]],
@@ -155,7 +155,7 @@ template [[host_name("kernel_pad_f32_4")]] kernel kernel_pad_t kernel_pad_impl<f
 
 // TODO: this is slow - optimize
 kernel void kernel_pad_reflect_1d_f32(
-    constant   lm_ggml_metal_kargs_pad_reflect_1d & args,
+    constant   ggml_metal_kargs_pad_reflect_1d & args,
     device  const char * src0,
     device        char * dst,
     uint3 tgpig[[threadgroup_position_in_grid]],
@@ -188,7 +188,7 @@ kernel void kernel_pad_reflect_1d_f32(
 }
 
 kernel void kernel_arange_f32(
-    constant   lm_ggml_metal_kargs_arange & args,
+    constant   ggml_metal_kargs_arange & args,
     device        char * dst,
     uint3 tgpig[[threadgroup_position_in_grid]],
     uint3 tpitg[[thread_position_in_threadgroup]],
@@ -202,7 +202,7 @@ kernel void kernel_arange_f32(
 }
 
 kernel void kernel_timestep_embedding_f32(
-    constant  lm_ggml_metal_kargs_timestep_embedding & args,
+    constant  ggml_metal_kargs_timestep_embedding & args,
     device  const char * src0,
     device        char * dst,
     uint3 tgpig[[threadgroup_position_in_grid]],
@@ -227,7 +227,7 @@ kernel void kernel_timestep_embedding_f32(
 }
 
 kernel void kernel_opt_step_adamw_f32(
-        constant    lm_ggml_metal_kargs_opt_step_adamw & args,
+        constant    ggml_metal_kargs_opt_step_adamw & args,
         device       float * x,
         device const float * g,
         device       float * g_m,
@@ -261,7 +261,7 @@ kernel void kernel_opt_step_adamw_f32(
 }
 
 kernel void kernel_opt_step_sgd_f32(
-        constant    lm_ggml_metal_kargs_opt_step_sgd & args,
+        constant    ggml_metal_kargs_opt_step_sgd & args,
         device       float * x,
         device const float * g,
         device const float * pars,
@@ -276,7 +276,7 @@ kernel void kernel_opt_step_sgd_f32(
 
 template<typename T>
 kernel void kernel_memset(
-        constant lm_ggml_metal_kargs_memset & args,
+        constant ggml_metal_kargs_memset & args,
         device T * dst,
         uint tpig[[thread_position_in_grid]]) {
     dst[tpig] = args.val;
@@ -290,7 +290,7 @@ constant short FC_count_equal_nsg [[function_constant(FC_COUNT_EQUAL + 0)]];
 
 template<typename T>
 kernel void kernel_count_equal(
-        constant lm_ggml_metal_kargs_count_equal & args,
+        constant ggml_metal_kargs_count_equal & args,
         device   const char * src0,
         device   const char * src1,
         device   atomic_int * dst,
@@ -348,7 +348,7 @@ template [[host_name("kernel_count_equal_i32")]] kernel kernel_count_equal_t ker
 
 template <typename T>
 kernel void kernel_snake(
-        constant lm_ggml_metal_kargs_snake & args,
+        constant ggml_metal_kargs_snake & args,
         device const T     * x,
         device const float * a,
         device const float * inv_b,
@@ -368,15 +368,15 @@ kernel void kernel_snake(
     dst[idx] = T(xi + si * si * inv_b[c]);
 }
 
-template [[host_name("kernel_snake_f32")]]  kernel void kernel_snake<float>(constant lm_ggml_metal_kargs_snake &, device const float *, device const float *, device const float *, device float *, uint, uint, uint);
-template [[host_name("kernel_snake_f16")]]  kernel void kernel_snake<half>(constant lm_ggml_metal_kargs_snake &, device const half *, device const float *, device const float *, device half *, uint, uint, uint);
-#if defined(LM_GGML_METAL_HAS_BF16)
-template [[host_name("kernel_snake_bf16")]] kernel void kernel_snake<bfloat>(constant lm_ggml_metal_kargs_snake &, device const bfloat *, device const float *, device const float *, device bfloat *, uint, uint, uint);
+template [[host_name("kernel_snake_f32")]]  kernel void kernel_snake<float>(constant ggml_metal_kargs_snake &, device const float *, device const float *, device const float *, device float *, uint, uint, uint);
+template [[host_name("kernel_snake_f16")]]  kernel void kernel_snake<half>(constant ggml_metal_kargs_snake &, device const half *, device const float *, device const float *, device half *, uint, uint, uint);
+#if defined(GGML_METAL_HAS_BF16)
+template [[host_name("kernel_snake_bf16")]] kernel void kernel_snake<bfloat>(constant ggml_metal_kargs_snake &, device const bfloat *, device const float *, device const float *, device bfloat *, uint, uint, uint);
 #endif
 
 template<int N>
 kernel void kernel_fwht_f32(
-        constant lm_ggml_metal_kargs_fwht & args,
+        constant ggml_metal_kargs_fwht & args,
         device const float * src,
         device float * dst,
         uint3  tgpig[[threadgroup_position_in_grid]],
@@ -437,7 +437,7 @@ template [[host_name("kernel_fwht_f32_256")]] kernel kernel_fwht_t kernel_fwht_f
 template [[host_name("kernel_fwht_f32_512")]] kernel kernel_fwht_t kernel_fwht_f32<512>;
 
 kernel void kernel_dsv4_hc_comb_f32(
-        constant lm_ggml_metal_kargs_dsv4_hc_comb & args,
+        constant ggml_metal_kargs_dsv4_hc_comb & args,
         device const char * mixes,
         device const char * scale,
         device const char * base,
@@ -498,7 +498,7 @@ kernel void kernel_dsv4_hc_comb_f32(
 }
 
 kernel void kernel_dsv4_hc_pre_f32(
-        constant lm_ggml_metal_kargs_dsv4_hc_pre & args,
+        constant ggml_metal_kargs_dsv4_hc_pre & args,
         device const char * x,
         device const char * weights,
         device       char * dst,
@@ -535,7 +535,7 @@ kernel void kernel_dsv4_hc_pre_f32(
 }
 
 kernel void kernel_dsv4_hc_post_f32(
-        constant lm_ggml_metal_kargs_dsv4_hc_post & args,
+        constant ggml_metal_kargs_dsv4_hc_post & args,
         device const char * x,
         device const char * residual,
         device const char * post,

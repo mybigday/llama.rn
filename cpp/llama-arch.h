@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ggml.h" // lm_ggml_op
+#include "ggml.h" // ggml_op
 
 #include <string>
 #include <set>
@@ -728,7 +728,7 @@ struct LLM_TN {
 
 struct llm_tensor_info {
     llm_tensor_layer layer;
-    lm_ggml_op op;
+    ggml_op op;
 };
 
 std::vector<llm_arch> llm_arch_all();

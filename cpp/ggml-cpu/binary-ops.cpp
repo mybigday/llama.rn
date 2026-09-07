@@ -1,6 +1,6 @@
 #include "binary-ops.h"
 
-#if defined(LM_GGML_USE_ACCELERATE)
+#if defined(GGML_USE_ACCELERATE)
 #include <Accelerate/Accelerate.h>
 
 using vDSP_fn_t = void (*)(const float *, vDSP_Stride, const float *, vDSP_Stride, float *, vDSP_Stride, vDSP_Length);
@@ -47,24 +47,24 @@ static inline void vec_binary_op_non_contiguous(const int64_t n, const int64_t n
 }
 
 template <float (*op)(float, float), typename src0_t, typename src1_t, typename dst_t>
-static void apply_binary_op(const lm_ggml_compute_params * params, lm_ggml_tensor * dst) {
-    const lm_ggml_tensor * src0 = dst->src[0];
-    const lm_ggml_tensor * src1 = dst->src[1];
+static void apply_binary_op(const ggml_compute_params * params, ggml_tensor * dst) {
+    const ggml_tensor * src0 = dst->src[0];
+    const ggml_tensor * src1 = dst->src[1];
 
-    LM_GGML_ASSERT(lm_ggml_can_repeat(src1, src0) && lm_ggml_are_same_shape(src0, dst));
+    GGML_ASSERT(ggml_can_repeat(src1, src0) && ggml_are_same_shape(src0, dst));
 
-    LM_GGML_TENSOR_BINARY_OP_LOCALS
+    GGML_TENSOR_BINARY_OP_LOCALS
 
-    LM_GGML_ASSERT( nb0 == sizeof(dst_t));
-    LM_GGML_ASSERT(nb00 == sizeof(src0_t));
+    GGML_ASSERT( nb0 == sizeof(dst_t));
+    GGML_ASSERT(nb00 == sizeof(src0_t));
 
     const auto [ir0, ir1] = get_thread_range(params, src0);
-    const bool is_src1_contiguous_rows = lm_ggml_is_contiguous_rows(src1);
+    const bool is_src1_contiguous_rows = ggml_is_contiguous_rows(src1);
 
-#ifdef LM_GGML_USE_ACCELERATE
+#ifdef GGML_USE_ACCELERATE
     vDSP_fn_t vDSP_op = nullptr;
     // TODO - avoid the f32-only check using type 'trait' lookup tables and row-based src-to-float conversion functions
-    if (src0->type == LM_GGML_TYPE_F32 && src1->type == LM_GGML_TYPE_F32 && dst->type == LM_GGML_TYPE_F32) {
+    if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
         if (op == op_add) {
             vDSP_op = vDSP_vadd;
         } else if (op == op_sub) {
@@ -95,7 +95,7 @@ static void apply_binary_op(const lm_ggml_compute_params * params, lm_ggml_tenso
             const int64_t nr0 = ne00 / ne10;
 
             for (int64_t r = 0; r < nr0; ++r) {
-#ifdef LM_GGML_USE_ACCELERATE
+#ifdef GGML_USE_ACCELERATE
                 if constexpr (std::is_same_v<src0_t, float> && std::is_same_v<src1_t, float> && std::is_same_v<dst_t, float>) {
                     if (vDSP_op != nullptr) {
                         vDSP_op(src1_ptr, 1, src0_ptr + r*ne10, 1, dst_ptr + r*ne10, 1, ne10);
@@ -113,42 +113,42 @@ static void apply_binary_op(const lm_ggml_compute_params * params, lm_ggml_tenso
 
 // TODO: Use the 'traits' lookup table (for type conversion fns), instead of a mass of 'if' conditions with long templates
 template <float (*op)(float, float)>
-static void binary_op(const lm_ggml_compute_params * params, lm_ggml_tensor * dst) {
-    const lm_ggml_tensor * src0 = dst->src[0];
-    const lm_ggml_tensor * src1 = dst->src[1];
+static void binary_op(const ggml_compute_params * params, ggml_tensor * dst) {
+    const ggml_tensor * src0 = dst->src[0];
+    const ggml_tensor * src1 = dst->src[1];
 
-    /*  */ if (src0->type == LM_GGML_TYPE_F32  && src1->type == LM_GGML_TYPE_F32  && dst->type == LM_GGML_TYPE_F32) { // all f32
+    /*  */ if (src0->type == GGML_TYPE_F32  && src1->type == GGML_TYPE_F32  && dst->type == GGML_TYPE_F32) { // all f32
         apply_binary_op<op, float, float, float>(params, dst);
-    } else if (src0->type == LM_GGML_TYPE_F16  && src1->type == LM_GGML_TYPE_F16  && dst->type == LM_GGML_TYPE_F16) { // all f16
-        apply_binary_op<op, lm_ggml_fp16_t, lm_ggml_fp16_t, lm_ggml_fp16_t>(params, dst);
-    } else if (src0->type == LM_GGML_TYPE_BF16 && src1->type == LM_GGML_TYPE_BF16 && dst->type == LM_GGML_TYPE_BF16) { // all bf16
-        apply_binary_op<op, lm_ggml_bf16_t, lm_ggml_bf16_t, lm_ggml_bf16_t>(params, dst);
-    } else if (src0->type == LM_GGML_TYPE_BF16 && src1->type == LM_GGML_TYPE_F32  && dst->type == LM_GGML_TYPE_BF16) {
-        apply_binary_op<op, lm_ggml_bf16_t, float, lm_ggml_bf16_t>(params, dst);
-    } else if (src0->type == LM_GGML_TYPE_BF16 && src1->type == LM_GGML_TYPE_F32  && dst->type == LM_GGML_TYPE_F32) {
-        apply_binary_op<op, lm_ggml_bf16_t, float, float>(params, dst);
-    } else if (src0->type == LM_GGML_TYPE_F16  && src1->type == LM_GGML_TYPE_F32  && dst->type == LM_GGML_TYPE_F16) {
-        apply_binary_op<op, lm_ggml_fp16_t, float, lm_ggml_fp16_t>(params, dst);
-    } else if (src0->type == LM_GGML_TYPE_F16  && src1->type == LM_GGML_TYPE_F32  && dst->type == LM_GGML_TYPE_F32) {
-        apply_binary_op<op, lm_ggml_fp16_t, float, float>(params, dst);
+    } else if (src0->type == GGML_TYPE_F16  && src1->type == GGML_TYPE_F16  && dst->type == GGML_TYPE_F16) { // all f16
+        apply_binary_op<op, ggml_fp16_t, ggml_fp16_t, ggml_fp16_t>(params, dst);
+    } else if (src0->type == GGML_TYPE_BF16 && src1->type == GGML_TYPE_BF16 && dst->type == GGML_TYPE_BF16) { // all bf16
+        apply_binary_op<op, ggml_bf16_t, ggml_bf16_t, ggml_bf16_t>(params, dst);
+    } else if (src0->type == GGML_TYPE_BF16 && src1->type == GGML_TYPE_F32  && dst->type == GGML_TYPE_BF16) {
+        apply_binary_op<op, ggml_bf16_t, float, ggml_bf16_t>(params, dst);
+    } else if (src0->type == GGML_TYPE_BF16 && src1->type == GGML_TYPE_F32  && dst->type == GGML_TYPE_F32) {
+        apply_binary_op<op, ggml_bf16_t, float, float>(params, dst);
+    } else if (src0->type == GGML_TYPE_F16  && src1->type == GGML_TYPE_F32  && dst->type == GGML_TYPE_F16) {
+        apply_binary_op<op, ggml_fp16_t, float, ggml_fp16_t>(params, dst);
+    } else if (src0->type == GGML_TYPE_F16  && src1->type == GGML_TYPE_F32  && dst->type == GGML_TYPE_F32) {
+        apply_binary_op<op, ggml_fp16_t, float, float>(params, dst);
     } else {
-        LM_GGML_ABORT("%s: unsupported types: dst: %s, src0: %s, src1: %s\n", __func__,
-            lm_ggml_type_name(dst->type), lm_ggml_type_name(src0->type), lm_ggml_type_name(src1->type));
+        GGML_ABORT("%s: unsupported types: dst: %s, src0: %s, src1: %s\n", __func__,
+            ggml_type_name(dst->type), ggml_type_name(src0->type), ggml_type_name(src1->type));
     }
 }
 
-void lm_ggml_compute_forward_add_non_quantized(const lm_ggml_compute_params * params, lm_ggml_tensor * dst) {
+void ggml_compute_forward_add_non_quantized(const ggml_compute_params * params, ggml_tensor * dst) {
     binary_op<op_add>(params, dst);
 }
 
-void lm_ggml_compute_forward_sub(const lm_ggml_compute_params * params, lm_ggml_tensor * dst) {
+void ggml_compute_forward_sub(const ggml_compute_params * params, ggml_tensor * dst) {
     binary_op<op_sub>(params, dst);
 }
 
-void lm_ggml_compute_forward_mul(const lm_ggml_compute_params * params, lm_ggml_tensor * dst) {
+void ggml_compute_forward_mul(const ggml_compute_params * params, ggml_tensor * dst) {
     binary_op<op_mul>(params, dst);
 }
 
-void lm_ggml_compute_forward_div(const lm_ggml_compute_params * params, lm_ggml_tensor * dst) {
+void ggml_compute_forward_div(const ggml_compute_params * params, ggml_tensor * dst) {
     binary_op<op_div>(params, dst);
 }

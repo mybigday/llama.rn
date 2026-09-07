@@ -28,9 +28,9 @@
 extern "C" {
 #endif
 
-void lm_ggml_print_backtrace(void);
+void ggml_print_backtrace(void);
 
-uint64_t lm_ggml_graph_next_uid(void);
+uint64_t ggml_graph_next_uid(void);
 
 #ifndef MIN
 #    define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -57,26 +57,26 @@ uint64_t lm_ggml_graph_next_uid(void);
     #endif
 #endif
 
-static inline int lm_ggml_up32(int n) {
+static inline int ggml_up32(int n) {
     return (n + 31) & ~31;
 }
 
-//static inline int lm_ggml_up64(int n) {
+//static inline int ggml_up64(int n) {
 //    return (n + 63) & ~63;
 //}
 
-static inline int lm_ggml_up(int n, int m) {
+static inline int ggml_up(int n, int m) {
     // assert m is a power of 2
-    LM_GGML_ASSERT((m & (m - 1)) == 0);
+    GGML_ASSERT((m & (m - 1)) == 0);
     return (n + m - 1) & ~(m - 1);
 }
 
 // TODO: move to ggml.h? (won't be able to inline)
-static bool lm_ggml_are_same_layout(const struct lm_ggml_tensor * a, const struct lm_ggml_tensor * b) {
+static bool ggml_are_same_layout(const struct ggml_tensor * a, const struct ggml_tensor * b) {
     if (a->type != b->type) {
         return false;
     }
-    for (int i = 0; i < LM_GGML_MAX_DIMS; i++) {
+    for (int i = 0; i < GGML_MAX_DIMS; i++) {
         if (a->ne[i] != b->ne[i]) {
             return false;
         }
@@ -87,224 +87,224 @@ static bool lm_ggml_are_same_layout(const struct lm_ggml_tensor * a, const struc
     return true;
 }
 
-static bool lm_ggml_op_is_empty(enum lm_ggml_op op) {
+static bool ggml_op_is_empty(enum ggml_op op) {
     switch (op) {
-        case LM_GGML_OP_NONE:
-        case LM_GGML_OP_RESHAPE:
-        case LM_GGML_OP_TRANSPOSE:
-        case LM_GGML_OP_VIEW:
-        case LM_GGML_OP_PERMUTE:
+        case GGML_OP_NONE:
+        case GGML_OP_RESHAPE:
+        case GGML_OP_TRANSPOSE:
+        case GGML_OP_VIEW:
+        case GGML_OP_PERMUTE:
             return true;
         default:
             return false;
     }
 }
 
-static inline bool lm_ggml_impl_is_view(const struct lm_ggml_tensor * t) {
+static inline bool ggml_impl_is_view(const struct ggml_tensor * t) {
     return t->view_src != NULL;
 }
 
-static inline float lm_ggml_compute_softplus_f32(float input) {
+static inline float ggml_compute_softplus_f32(float input) {
     return (input > 20.0f) ? input : logf(1 + expf(input));
 }
 //
 // logging
 //
 
-LM_GGML_ATTRIBUTE_FORMAT(2, 3)
-LM_GGML_API void lm_ggml_log_internal        (enum lm_ggml_log_level level, const char * format, ...);
-LM_GGML_API void lm_ggml_log_callback_default(enum lm_ggml_log_level level, const char * text, void * user_data);
+GGML_ATTRIBUTE_FORMAT(2, 3)
+GGML_API void ggml_log_internal        (enum ggml_log_level level, const char * format, ...);
+GGML_API void ggml_log_callback_default(enum ggml_log_level level, const char * text, void * user_data);
 
-#define LM_GGML_LOG(...)       lm_ggml_log_internal(LM_GGML_LOG_LEVEL_NONE , __VA_ARGS__)
-#define LM_GGML_LOG_INFO(...)  lm_ggml_log_internal(LM_GGML_LOG_LEVEL_INFO , __VA_ARGS__)
-#define LM_GGML_LOG_WARN(...)  lm_ggml_log_internal(LM_GGML_LOG_LEVEL_WARN , __VA_ARGS__)
-#define LM_GGML_LOG_ERROR(...) lm_ggml_log_internal(LM_GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
-#define LM_GGML_LOG_DEBUG(...) lm_ggml_log_internal(LM_GGML_LOG_LEVEL_DEBUG, __VA_ARGS__)
-#define LM_GGML_LOG_CONT(...)  lm_ggml_log_internal(LM_GGML_LOG_LEVEL_CONT , __VA_ARGS__)
+#define GGML_LOG(...)       ggml_log_internal(GGML_LOG_LEVEL_NONE , __VA_ARGS__)
+#define GGML_LOG_INFO(...)  ggml_log_internal(GGML_LOG_LEVEL_INFO , __VA_ARGS__)
+#define GGML_LOG_WARN(...)  ggml_log_internal(GGML_LOG_LEVEL_WARN , __VA_ARGS__)
+#define GGML_LOG_ERROR(...) ggml_log_internal(GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
+#define GGML_LOG_DEBUG(...) ggml_log_internal(GGML_LOG_LEVEL_DEBUG, __VA_ARGS__)
+#define GGML_LOG_CONT(...)  ggml_log_internal(GGML_LOG_LEVEL_CONT , __VA_ARGS__)
 
-#define LM_GGML_DEBUG 0
+#define GGML_DEBUG 0
 
-#if (LM_GGML_DEBUG >= 1)
-#define LM_GGML_PRINT_DEBUG(...) LM_GGML_LOG_DEBUG(__VA_ARGS__)
+#if (GGML_DEBUG >= 1)
+#define GGML_PRINT_DEBUG(...) GGML_LOG_DEBUG(__VA_ARGS__)
 #else
-#define LM_GGML_PRINT_DEBUG(...)
+#define GGML_PRINT_DEBUG(...)
 #endif
 
-#if (LM_GGML_DEBUG >= 5)
-#define LM_GGML_PRINT_DEBUG_5(...) LM_GGML_LOG_DEBUG(__VA_ARGS__)
+#if (GGML_DEBUG >= 5)
+#define GGML_PRINT_DEBUG_5(...) GGML_LOG_DEBUG(__VA_ARGS__)
 #else
-#define LM_GGML_PRINT_DEBUG_5(...)
+#define GGML_PRINT_DEBUG_5(...)
 #endif
 
-#if (LM_GGML_DEBUG >= 10)
-#define LM_GGML_PRINT_DEBUG_10(...) LM_GGML_LOG_DEBUG(__VA_ARGS__)
+#if (GGML_DEBUG >= 10)
+#define GGML_PRINT_DEBUG_10(...) GGML_LOG_DEBUG(__VA_ARGS__)
 #else
-#define LM_GGML_PRINT_DEBUG_10(...)
+#define GGML_PRINT_DEBUG_10(...)
 #endif
 
 // tensor params
 
-static void lm_ggml_set_op_params(struct lm_ggml_tensor * tensor, const void * params, size_t params_size) {
-    LM_GGML_ASSERT(tensor != NULL); // silence -Warray-bounds warnings
-    assert(params_size <= LM_GGML_MAX_OP_PARAMS);
+static void ggml_set_op_params(struct ggml_tensor * tensor, const void * params, size_t params_size) {
+    GGML_ASSERT(tensor != NULL); // silence -Warray-bounds warnings
+    assert(params_size <= GGML_MAX_OP_PARAMS);
     memcpy(tensor->op_params, params, params_size);
 }
 
-static int32_t lm_ggml_get_op_params_i32(const struct lm_ggml_tensor * tensor, uint32_t i) {
-    assert(i < LM_GGML_MAX_OP_PARAMS / sizeof(int32_t));
+static int32_t ggml_get_op_params_i32(const struct ggml_tensor * tensor, uint32_t i) {
+    assert(i < GGML_MAX_OP_PARAMS / sizeof(int32_t));
     return ((const int32_t *)(tensor->op_params))[i];
 }
 
-static float lm_ggml_get_op_params_f32(const struct lm_ggml_tensor * tensor, uint32_t i) {
-    assert(i < LM_GGML_MAX_OP_PARAMS / sizeof(float));
+static float ggml_get_op_params_f32(const struct ggml_tensor * tensor, uint32_t i) {
+    assert(i < GGML_MAX_OP_PARAMS / sizeof(float));
     return ((const float *)(tensor->op_params))[i];
 }
 
-static void lm_ggml_set_op_params_i32(struct lm_ggml_tensor * tensor, uint32_t i, int32_t value) {
-    assert(i < LM_GGML_MAX_OP_PARAMS / sizeof(int32_t));
+static void ggml_set_op_params_i32(struct ggml_tensor * tensor, uint32_t i, int32_t value) {
+    assert(i < GGML_MAX_OP_PARAMS / sizeof(int32_t));
     ((int32_t *)(tensor->op_params))[i] = value;
 }
 
-static void lm_ggml_set_op_params_f32(struct lm_ggml_tensor * tensor, uint32_t i, float value) {
-    assert(i < LM_GGML_MAX_OP_PARAMS / sizeof(float));
+static void ggml_set_op_params_f32(struct ggml_tensor * tensor, uint32_t i, float value) {
+    assert(i < GGML_MAX_OP_PARAMS / sizeof(float));
     ((float *)(tensor->op_params))[i] = value;
 }
 
-struct lm_ggml_map_custom1_op_params {
-    lm_ggml_custom1_op_t  fun;
+struct ggml_map_custom1_op_params {
+    ggml_custom1_op_t  fun;
     int                n_tasks;
     void             * userdata;
 };
 
-struct lm_ggml_map_custom2_op_params {
-    lm_ggml_custom2_op_t   fun;
+struct ggml_map_custom2_op_params {
+    ggml_custom2_op_t   fun;
     int                 n_tasks;
     void              * userdata;
 };
 
-struct lm_ggml_map_custom3_op_params {
-    lm_ggml_custom3_op_t fun;
+struct ggml_map_custom3_op_params {
+    ggml_custom3_op_t fun;
     int               n_tasks;
     void            * userdata;
 };
 
-struct lm_ggml_custom_op_params {
-    lm_ggml_custom_op_t fun;
+struct ggml_custom_op_params {
+    ggml_custom_op_t fun;
     int              n_tasks;
     void           * userdata;
 };
 
 // bitset
 
-typedef uint32_t lm_ggml_bitset_t;
+typedef uint32_t ggml_bitset_t;
 
-static_assert(sizeof(lm_ggml_bitset_t) == 4, "bitset_t constants must be updated");
-#define BITSET_SHR 5 // log2(sizeof(lm_ggml_bitset_t)*8)
-#define BITSET_MASK (sizeof(lm_ggml_bitset_t)*8 - 1)
+static_assert(sizeof(ggml_bitset_t) == 4, "bitset_t constants must be updated");
+#define BITSET_SHR 5 // log2(sizeof(ggml_bitset_t)*8)
+#define BITSET_MASK (sizeof(ggml_bitset_t)*8 - 1)
 
-static size_t lm_ggml_bitset_size(size_t n) {
+static size_t ggml_bitset_size(size_t n) {
     return (n + BITSET_MASK) >> BITSET_SHR;
 }
 
-static inline bool lm_ggml_bitset_get(const lm_ggml_bitset_t * bitset, size_t i) {
+static inline bool ggml_bitset_get(const ggml_bitset_t * bitset, size_t i) {
     return !!(bitset[i >> BITSET_SHR] & (1u << (i & BITSET_MASK)));
 }
 
-static inline void lm_ggml_bitset_set(lm_ggml_bitset_t * bitset, size_t i) {
+static inline void ggml_bitset_set(ggml_bitset_t * bitset, size_t i) {
     bitset[i >> BITSET_SHR] |= (1u << (i & BITSET_MASK));
 }
 
-static inline void lm_ggml_bitset_clear(lm_ggml_bitset_t * bitset, size_t i) {
+static inline void ggml_bitset_clear(ggml_bitset_t * bitset, size_t i) {
     bitset[i >> BITSET_SHR] &= ~(1u << (i & BITSET_MASK));
 }
 
 // hash set
 
-#define LM_GGML_HASHSET_FULL ((size_t)-1)
-#define LM_GGML_HASHSET_ALREADY_EXISTS ((size_t)-2)
+#define GGML_HASHSET_FULL ((size_t)-1)
+#define GGML_HASHSET_ALREADY_EXISTS ((size_t)-2)
 
-struct lm_ggml_hash_set {
+struct ggml_hash_set {
     size_t size;
-    lm_ggml_bitset_t * used;       // whether or not the keys are in use i.e. set
-    struct lm_ggml_tensor ** keys; // actual tensors in the set, keys[i] is only defined if lm_ggml_bitset_get(used, i)
+    ggml_bitset_t * used;       // whether or not the keys are in use i.e. set
+    struct ggml_tensor ** keys; // actual tensors in the set, keys[i] is only defined if ggml_bitset_get(used, i)
 };
 
-struct lm_ggml_hash_set lm_ggml_hash_set_new(size_t size);
-void                 lm_ggml_hash_set_free(struct lm_ggml_hash_set * hash_set);
+struct ggml_hash_set ggml_hash_set_new(size_t size);
+void                 ggml_hash_set_free(struct ggml_hash_set * hash_set);
 
 // returns the minimum size for a hash set that can hold min_sz elements
-size_t lm_ggml_hash_size(size_t min_sz);
+size_t ggml_hash_size(size_t min_sz);
 
 // remove all elements from the hash set
-void lm_ggml_hash_set_reset(struct lm_ggml_hash_set * hash_set);
+void ggml_hash_set_reset(struct ggml_hash_set * hash_set);
 
 // returns true if key is in the hash set
-static bool lm_ggml_hash_contains(const struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key);
+static bool ggml_hash_contains(const struct ggml_hash_set * hash_set, struct ggml_tensor * key);
 
-// returns LM_GGML_HASHSET_FULL if table is full, otherwise the current index of the key or where it should be inserted
-static size_t lm_ggml_hash_find(const struct lm_ggml_hash_set * hash_set, const struct lm_ggml_tensor * key);
+// returns GGML_HASHSET_FULL if table is full, otherwise the current index of the key or where it should be inserted
+static size_t ggml_hash_find(const struct ggml_hash_set * hash_set, const struct ggml_tensor * key);
 
-// returns LM_GGML_HASHSET_ALREADY_EXISTS if key already exists, index otherwise, asserts if table is full
-static size_t lm_ggml_hash_insert(struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key);
+// returns GGML_HASHSET_ALREADY_EXISTS if key already exists, index otherwise, asserts if table is full
+static size_t ggml_hash_insert(struct ggml_hash_set * hash_set, struct ggml_tensor * key);
 
 // return index, asserts if table is full
-static size_t lm_ggml_hash_find_or_insert(struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key);
+static size_t ggml_hash_find_or_insert(struct ggml_hash_set * hash_set, struct ggml_tensor * key);
 
-// hash function for lm_ggml_tensor
-static inline size_t lm_ggml_hash(const struct lm_ggml_tensor * p) {
+// hash function for ggml_tensor
+static inline size_t ggml_hash(const struct ggml_tensor * p) {
     // the last 4 bits are always zero due to alignment
     return (size_t)(uintptr_t)p >> 4;
 }
 
-static size_t lm_ggml_hash_find(const struct lm_ggml_hash_set * hash_set, const struct lm_ggml_tensor * key) {
-    size_t h = lm_ggml_hash(key) % hash_set->size;
+static size_t ggml_hash_find(const struct ggml_hash_set * hash_set, const struct ggml_tensor * key) {
+    size_t h = ggml_hash(key) % hash_set->size;
 
     // linear probing
     size_t i = h;
-    while (lm_ggml_bitset_get(hash_set->used, i) && hash_set->keys[i] != key) {
+    while (ggml_bitset_get(hash_set->used, i) && hash_set->keys[i] != key) {
         i = (i + 1) % hash_set->size;
         if (i == h) {
             // visited all hash table entries -> not found
-            return LM_GGML_HASHSET_FULL;
+            return GGML_HASHSET_FULL;
         }
     }
     return i;
 }
 
-static bool lm_ggml_hash_contains(const struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key) {
-    size_t i = lm_ggml_hash_find(hash_set, key);
-    return i != LM_GGML_HASHSET_FULL && lm_ggml_bitset_get(hash_set->used, i);
+static bool ggml_hash_contains(const struct ggml_hash_set * hash_set, struct ggml_tensor * key) {
+    size_t i = ggml_hash_find(hash_set, key);
+    return i != GGML_HASHSET_FULL && ggml_bitset_get(hash_set->used, i);
 }
 
-static size_t lm_ggml_hash_insert(struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key) {
-    size_t h = lm_ggml_hash(key) % hash_set->size;
+static size_t ggml_hash_insert(struct ggml_hash_set * hash_set, struct ggml_tensor * key) {
+    size_t h = ggml_hash(key) % hash_set->size;
 
     // linear probing
     size_t i = h;
     do {
-        if (!lm_ggml_bitset_get(hash_set->used, i)) {
-            lm_ggml_bitset_set(hash_set->used, i);
+        if (!ggml_bitset_get(hash_set->used, i)) {
+            ggml_bitset_set(hash_set->used, i);
             hash_set->keys[i] = key;
             return i;
         }
         if (hash_set->keys[i] == key) {
-            return LM_GGML_HASHSET_ALREADY_EXISTS;
+            return GGML_HASHSET_ALREADY_EXISTS;
         }
         i = (i + 1) % hash_set->size;
     } while (i != h);
 
     // visited all hash table entries -> not found
-    LM_GGML_ABORT("fatal error");
+    GGML_ABORT("fatal error");
 }
 
-static size_t lm_ggml_hash_find_or_insert(struct lm_ggml_hash_set * hash_set, struct lm_ggml_tensor * key) {
-    size_t h = lm_ggml_hash(key) % hash_set->size;
+static size_t ggml_hash_find_or_insert(struct ggml_hash_set * hash_set, struct ggml_tensor * key) {
+    size_t h = ggml_hash(key) % hash_set->size;
 
     // linear probing
     size_t i = h;
     do {
-        if (!lm_ggml_bitset_get(hash_set->used, i)) {
-            lm_ggml_bitset_set(hash_set->used, i);
+        if (!ggml_bitset_get(hash_set->used, i)) {
+            ggml_bitset_set(hash_set->used, i);
             hash_set->keys[i] = key;
             return i;
         }
@@ -315,31 +315,31 @@ static size_t lm_ggml_hash_find_or_insert(struct lm_ggml_hash_set * hash_set, st
     } while (i != h);
 
     // visited all hash table entries -> not found
-    LM_GGML_ABORT("fatal error");
+    GGML_ABORT("fatal error");
 }
 
 // computation graph
 
-enum lm_ggml_cgraph_eval_order {
-    LM_GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT = 0,
-    LM_GGML_CGRAPH_EVAL_ORDER_RIGHT_TO_LEFT,
-    LM_GGML_CGRAPH_EVAL_ORDER_COUNT
+enum ggml_cgraph_eval_order {
+    GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT = 0,
+    GGML_CGRAPH_EVAL_ORDER_RIGHT_TO_LEFT,
+    GGML_CGRAPH_EVAL_ORDER_COUNT
 };
 
-struct lm_ggml_cgraph {
+struct ggml_cgraph {
     int size;    // maximum number of nodes/leafs/grads/grad_accs
     int n_nodes; // number of nodes currently in use
     int n_leafs; // number of leafs currently in use
 
-    struct lm_ggml_tensor ** nodes;     // tensors with data that can change if the graph is evaluated
-    struct lm_ggml_tensor ** grads;     // the outputs of these tensors are the gradients of the nodes
-    struct lm_ggml_tensor ** grad_accs; // accumulators for node gradients
-    struct lm_ggml_tensor ** leafs;     // tensors with constant data
+    struct ggml_tensor ** nodes;     // tensors with data that can change if the graph is evaluated
+    struct ggml_tensor ** grads;     // the outputs of these tensors are the gradients of the nodes
+    struct ggml_tensor ** grad_accs; // accumulators for node gradients
+    struct ggml_tensor ** leafs;     // tensors with constant data
     int32_t             * use_counts;// number of uses of each tensor, indexed by hash table slot
 
-    struct lm_ggml_hash_set visited_hash_set;
+    struct ggml_hash_set visited_hash_set;
 
-    enum lm_ggml_cgraph_eval_order order;
+    enum ggml_cgraph_eval_order order;
 
     // an optional identifier that can be utilized to recognize same graphs if two non-zero values match
     // a value of 0 means it is not set and should be ignored
@@ -349,16 +349,16 @@ struct lm_ggml_cgraph {
 // returns a slice of cgraph with nodes [i0, i1)
 // the slice does not have leafs or gradients
 // if you need the gradients, get them from the original graph
-struct lm_ggml_cgraph lm_ggml_graph_view(struct lm_ggml_cgraph * cgraph, int i0, int i1);
+struct ggml_cgraph ggml_graph_view(struct ggml_cgraph * cgraph, int i0, int i1);
 
 // ggml-alloc.c: true if the operation can reuse memory from its sources
-LM_GGML_API bool lm_ggml_op_can_inplace(enum lm_ggml_op op);
+GGML_API bool ggml_op_can_inplace(enum ggml_op op);
 
 
 // Memory allocation
 
-LM_GGML_API void * lm_ggml_aligned_malloc(size_t size);
-LM_GGML_API void lm_ggml_aligned_free(void * ptr, size_t size);
+GGML_API void * ggml_aligned_malloc(size_t size);
+GGML_API void ggml_aligned_free(void * ptr, size_t size);
 
 // FP16 <-> FP32
 // ref: https://github.com/Maratyszcza/FP16
@@ -381,7 +381,7 @@ static inline uint32_t fp32_to_bits(float f) {
     return fp32.as_bits;
 }
 
-static inline float lm_ggml_compute_fp16_to_fp32(lm_ggml_fp16_t h) {
+static inline float ggml_compute_fp16_to_fp32(ggml_fp16_t h) {
     const uint32_t w = (uint32_t) h << 16;
     const uint32_t sign = w & UINT32_C(0x80000000);
     const uint32_t two_w = w + w;
@@ -404,7 +404,7 @@ static inline float lm_ggml_compute_fp16_to_fp32(lm_ggml_fp16_t h) {
     return fp32_from_bits(result);
 }
 
-static inline lm_ggml_fp16_t lm_ggml_compute_fp32_to_fp16(float f) {
+static inline ggml_fp16_t ggml_compute_fp32_to_fp16(float f) {
 #if (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) || defined(__GNUC__) && !defined(__STRICT_ANSI__)) && (!defined(__cplusplus) || __cplusplus >= 201703L)
     const float scale_to_inf = 0x1.0p+112f;
     const float scale_to_zero = 0x1.0p-110f;
@@ -430,13 +430,13 @@ static inline lm_ggml_fp16_t lm_ggml_compute_fp32_to_fp16(float f) {
     return (sign >> 16) | (shl1_w > UINT32_C(0xFF000000) ? UINT16_C(0x7E00) : nonsign);
 }
 
-#define LM_GGML_COMPUTE_FP16_TO_FP32(x) lm_ggml_compute_fp16_to_fp32(x)
-#define LM_GGML_COMPUTE_FP32_TO_FP16(x) lm_ggml_compute_fp32_to_fp16(x)
+#define GGML_COMPUTE_FP16_TO_FP32(x) ggml_compute_fp16_to_fp32(x)
+#define GGML_COMPUTE_FP32_TO_FP16(x) ggml_compute_fp32_to_fp16(x)
 
-#define LM_GGML_FP16_TO_FP32(x) LM_GGML_COMPUTE_FP16_TO_FP32(x)
-#define LM_GGML_FP32_TO_FP16(x) LM_GGML_COMPUTE_FP32_TO_FP16(x)
+#define GGML_FP16_TO_FP32(x) GGML_COMPUTE_FP16_TO_FP32(x)
+#define GGML_FP32_TO_FP16(x) GGML_COMPUTE_FP32_TO_FP16(x)
 
-static inline float lm_ggml_e8m0_to_fp32(uint8_t x) {
+static inline float ggml_e8m0_to_fp32(uint8_t x) {
     uint32_t bits;  // Stores the raw bit representation of the float
 
     // Handle special case for minimum exponent (denormalized float)
@@ -472,9 +472,9 @@ static inline float lm_ggml_e8m0_to_fp32(uint8_t x) {
     return result;
 }
 
-// Equal to lm_ggml_e8m0_to_fp32/2
+// Equal to ggml_e8m0_to_fp32/2
 // Useful with MXFP4 quantization since the E0M2 values are doubled
-static inline float lm_ggml_e8m0_to_fp32_half(uint8_t x) {
+static inline float ggml_e8m0_to_fp32_half(uint8_t x) {
     uint32_t bits;
 
     // For x < 2: use precomputed denormal patterns
@@ -494,12 +494,12 @@ static inline float lm_ggml_e8m0_to_fp32_half(uint8_t x) {
     return result;
 }
 
-#define LM_GGML_E8M0_TO_FP32(x) lm_ggml_e8m0_to_fp32(x)
-#define LM_GGML_E8M0_TO_FP32_HALF(x) lm_ggml_e8m0_to_fp32_half(x)
+#define GGML_E8M0_TO_FP32(x) ggml_e8m0_to_fp32(x)
+#define GGML_E8M0_TO_FP32_HALF(x) ggml_e8m0_to_fp32_half(x)
 
 // UE4M3: unsigned, 4 exp bits (bias=7), 3 mantissa bits
 // Returns value * 0.5 to match kvalues_mxfp4 convention (kvalues = 2 * E2M1_float)
-static inline float lm_ggml_ue4m3_to_fp32(uint8_t x) {
+static inline float ggml_ue4m3_to_fp32(uint8_t x) {
     if (x == 0 || x == 0x7F) {
         return 0.0f;
     }
@@ -514,7 +514,7 @@ static inline float lm_ggml_ue4m3_to_fp32(uint8_t x) {
     return raw * 0.5f;
 }
 
-static inline uint8_t lm_ggml_fp32_to_ue4m3(float x) {
+static inline uint8_t ggml_fp32_to_ue4m3(float x) {
     if (!(x > 0.0f)) {
         return 0;
     }
@@ -591,7 +591,7 @@ static inline uint8_t lm_ggml_fp32_to_ue4m3(float x) {
  *
  * @see IEEE 754-2008
  */
-static inline float lm_ggml_compute_bf16_to_fp32(lm_ggml_bf16_t h) {
+static inline float ggml_compute_bf16_to_fp32(ggml_bf16_t h) {
     union {
         float f;
         uint32_t i;
@@ -608,8 +608,8 @@ static inline float lm_ggml_compute_bf16_to_fp32(lm_ggml_bf16_t h) {
  * Subnormals aren't flushed to zero, except perhaps when used.
  * This code should vectorize nicely if using modern compilers.
  */
-static inline lm_ggml_bf16_t lm_ggml_compute_fp32_to_bf16(float s) {
-    lm_ggml_bf16_t h;
+static inline ggml_bf16_t ggml_compute_fp32_to_bf16(float s) {
+    ggml_bf16_t h;
     union {
         float f;
         uint32_t i;
@@ -623,14 +623,14 @@ static inline lm_ggml_bf16_t lm_ggml_compute_fp32_to_bf16(float s) {
     return h;
 }
 
-#define LM_GGML_FP32_TO_BF16(x) lm_ggml_compute_fp32_to_bf16(x)
-#define LM_GGML_BF16_TO_FP32(x) lm_ggml_compute_bf16_to_fp32(x)
+#define GGML_FP32_TO_BF16(x) ggml_compute_fp32_to_bf16(x)
+#define GGML_BF16_TO_FP32(x) ggml_compute_bf16_to_fp32(x)
 
-static inline int32_t lm_ggml_node_get_use_count(const struct lm_ggml_cgraph * cgraph, int node_idx) {
-    const struct lm_ggml_tensor * node = cgraph->nodes[node_idx];
+static inline int32_t ggml_node_get_use_count(const struct ggml_cgraph * cgraph, int node_idx) {
+    const struct ggml_tensor * node = cgraph->nodes[node_idx];
 
-    size_t hash_pos = lm_ggml_hash_find(&cgraph->visited_hash_set, node);
-    if (!lm_ggml_bitset_get(cgraph->visited_hash_set.used, hash_pos)) {
+    size_t hash_pos = ggml_hash_find(&cgraph->visited_hash_set, node);
+    if (!ggml_bitset_get(cgraph->visited_hash_set.used, hash_pos)) {
         return 0;
     }
     return cgraph->use_counts[hash_pos];
@@ -638,11 +638,11 @@ static inline int32_t lm_ggml_node_get_use_count(const struct lm_ggml_cgraph * c
 
 // return true if the node's results are only used by N other nodes
 // and can be fused into their calculations.
-static inline bool lm_ggml_node_has_n_uses(const struct lm_ggml_cgraph * cgraph, int node_idx, int32_t n_uses) {
-    const struct lm_ggml_tensor * node = cgraph->nodes[node_idx];
+static inline bool ggml_node_has_n_uses(const struct ggml_cgraph * cgraph, int node_idx, int32_t n_uses) {
+    const struct ggml_tensor * node = cgraph->nodes[node_idx];
 
     // check the use count against how many we're replacing
-    if (lm_ggml_node_get_use_count(cgraph, node_idx) != n_uses) {
+    if (ggml_node_get_use_count(cgraph, node_idx) != n_uses) {
         return false;
     }
 
@@ -653,41 +653,41 @@ static inline bool lm_ggml_node_has_n_uses(const struct lm_ggml_cgraph * cgraph,
     }
 
     // If the user requested output for the node, can't fuse
-    if (node->flags & LM_GGML_TENSOR_FLAG_OUTPUT) {
+    if (node->flags & GGML_TENSOR_FLAG_OUTPUT) {
         return false;
     }
 
     return true;
 }
 
-// Returns true if nodes with indices { node_idxs } are the sequence of lm_ggml_ops in ops[]
+// Returns true if nodes with indices { node_idxs } are the sequence of ggml_ops in ops[]
 // and are fusable. Nodes are considered fusable according to this function if:
-// - all nodes except the last have only one use and are not views/outputs (see lm_ggml_node_has_N_uses).
+// - all nodes except the last have only one use and are not views/outputs (see ggml_node_has_N_uses).
 // - all nodes except the last are a src of the following node.
 // - all nodes are the same shape.
-// TODO: Consider allowing LM_GGML_OP_NONE nodes in between
-static inline bool lm_ggml_can_fuse_ext(const struct lm_ggml_cgraph * cgraph, const int * node_idxs, const enum lm_ggml_op * ops, int num_ops) {
+// TODO: Consider allowing GGML_OP_NONE nodes in between
+static inline bool ggml_can_fuse_ext(const struct ggml_cgraph * cgraph, const int * node_idxs, const enum ggml_op * ops, int num_ops) {
     for (int i = 0; i < num_ops; ++i) {
         if (node_idxs[i] >= cgraph->n_nodes) {
             return false;
         }
 
-        struct lm_ggml_tensor * node = cgraph->nodes[node_idxs[i]];
+        struct ggml_tensor * node = cgraph->nodes[node_idxs[i]];
         if (node->op != ops[i]) {
             return false;
         }
-        if ((node->flags & LM_GGML_TENSOR_FLAG_COMPUTE) == 0) {
+        if ((node->flags & GGML_TENSOR_FLAG_COMPUTE) == 0) {
             return false;
         }
-        if (i < num_ops - 1 && !lm_ggml_node_has_n_uses(cgraph, node_idxs[i], 1)) {
+        if (i < num_ops - 1 && !ggml_node_has_n_uses(cgraph, node_idxs[i], 1)) {
             return false;
         }
         if (i > 0) {
-            struct lm_ggml_tensor * prev = cgraph->nodes[node_idxs[i - 1]];
+            struct ggml_tensor * prev = cgraph->nodes[node_idxs[i - 1]];
             if (node->src[0] != prev && node->src[1] != prev) {
                 return false;
             }
-            if (!lm_ggml_are_same_shape(node, prev)) {
+            if (!ggml_are_same_shape(node, prev)) {
                 return false;
             }
         }
@@ -696,7 +696,7 @@ static inline bool lm_ggml_can_fuse_ext(const struct lm_ggml_cgraph * cgraph, co
 }
 
 // same as above, for sequential indices starting at node_idx
-static inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int node_idx, const enum lm_ggml_op * ops, int num_ops) {
+static inline bool ggml_can_fuse(const struct ggml_cgraph * cgraph, int node_idx, const enum ggml_op * ops, int num_ops) {
     assert(num_ops < 32);
 
     if (node_idx + num_ops > cgraph->n_nodes) {
@@ -708,26 +708,26 @@ static inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int no
         idxs[i] = node_idx + i;
     }
 
-    return lm_ggml_can_fuse_ext(cgraph, idxs, ops, num_ops);
+    return ggml_can_fuse_ext(cgraph, idxs, ops, num_ops);
 }
 
-LM_GGML_API bool lm_ggml_can_fuse_subgraph_ext(const struct lm_ggml_cgraph * cgraph,
+GGML_API bool ggml_can_fuse_subgraph_ext(const struct ggml_cgraph * cgraph,
                                          const int *                node_idxs,
                                          int                        count,
-                                         const enum lm_ggml_op *       ops,
+                                         const enum ggml_op *       ops,
                                          const int *                outputs,
                                          int                        num_outputs);
 
 // Returns true if the subgraph formed by {node_idxs} can be fused
 // checks whethers all nodes which are not part of outputs can be elided
 // by checking if their num_uses are confined to the subgraph
-static inline bool lm_ggml_can_fuse_subgraph(const struct lm_ggml_cgraph * cgraph,
+static inline bool ggml_can_fuse_subgraph(const struct ggml_cgraph * cgraph,
                                           int                        node_idx,
                                           int                        count,
-                                          const enum lm_ggml_op *       ops,
+                                          const enum ggml_op *       ops,
                                           const int *                outputs,
                                           int                        num_outputs) {
-    LM_GGML_ASSERT(count < 32);
+    GGML_ASSERT(count < 32);
     if (node_idx + count > cgraph->n_nodes) {
         return false;
     }
@@ -738,7 +738,7 @@ static inline bool lm_ggml_can_fuse_subgraph(const struct lm_ggml_cgraph * cgrap
         idxs[i] = node_idx + i;
     }
 
-    return lm_ggml_can_fuse_subgraph_ext(cgraph, idxs, count, ops, outputs, num_outputs);
+    return ggml_can_fuse_subgraph_ext(cgraph, idxs, count, ops, outputs, num_outputs);
 }
 
 #ifdef __cplusplus
@@ -750,20 +750,20 @@ static inline bool lm_ggml_can_fuse_subgraph(const struct lm_ggml_cgraph * cgrap
 #include <initializer_list>
 #include <vector>
 
-// nicer C++ syntax for lm_ggml_can_fuse
-inline bool lm_ggml_can_fuse(const struct lm_ggml_cgraph * cgraph, int node_idx, std::initializer_list<enum lm_ggml_op> ops) {
-    return lm_ggml_can_fuse(cgraph, node_idx, ops.begin(), (int)ops.size());
+// nicer C++ syntax for ggml_can_fuse
+inline bool ggml_can_fuse(const struct ggml_cgraph * cgraph, int node_idx, std::initializer_list<enum ggml_op> ops) {
+    return ggml_can_fuse(cgraph, node_idx, ops.begin(), (int)ops.size());
 }
 
-inline bool lm_ggml_can_fuse_subgraph(const struct lm_ggml_cgraph *          cgraph,
+inline bool ggml_can_fuse_subgraph(const struct ggml_cgraph *          cgraph,
                                    int                                 start_idx,
-                                   std::initializer_list<enum lm_ggml_op> ops,
+                                   std::initializer_list<enum ggml_op> ops,
                                    std::initializer_list<int>          outputs = {}) {
-    return lm_ggml_can_fuse_subgraph(cgraph, start_idx, ops.size(), ops.begin(), outputs.begin(), outputs.size());
+    return ggml_can_fuse_subgraph(cgraph, start_idx, ops.size(), ops.begin(), outputs.begin(), outputs.size());
 }
 
 // Return true if the edges in the graph match expectations.
-inline bool lm_ggml_check_edges(const struct lm_ggml_cgraph *                cgraph,
+inline bool ggml_check_edges(const struct ggml_cgraph *                cgraph,
                              int                                       start_idx,
                              std::initializer_list<std::array<int, 3>> edges) {
     for (const auto & edge : edges) {
@@ -778,6 +778,6 @@ inline bool lm_ggml_check_edges(const struct lm_ggml_cgraph *                cgr
 }
 
 // expose GGUF internals for test code
-LM_GGML_API size_t lm_gguf_type_size(enum lm_gguf_type type);
-LM_GGML_API void lm_gguf_write_to_buf(const struct lm_gguf_context * ctx, std::vector<int8_t> & buf, bool only_meta);
+GGML_API size_t gguf_type_size(enum gguf_type type);
+GGML_API void gguf_write_to_buf(const struct gguf_context * ctx, std::vector<int8_t> & buf, bool only_meta);
 #endif // __cplusplus

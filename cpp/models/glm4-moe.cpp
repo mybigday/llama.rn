@@ -19,7 +19,7 @@ void llama_model_glm4_moe::load_arch_hparams(llama_model_loader & ml) {
 
     // NextN/MTP parameters
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.n_layer_nextn, false);
-    LM_GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer_impl");
+    GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer_impl");
 
     switch (hparams.n_layer()) {
         case 46: type = LLM_TYPE_106B_A12B; break; // GLM-4.5-Air
@@ -43,8 +43,8 @@ void llama_model_glm4_moe::load_arch_tensors(llama_model_loader & ml) {
         mtp_flags |= TENSOR_SKIP;
     }
 
-    LM_GGML_ASSERT(hparams.n_expert > 0 && "n_expert must be > 0 for GLM4_MOE MoE layers");
-    LM_GGML_ASSERT(hparams.n_expert_used > 0 && "n_expert_used must be > 0 for GLM4_MOE MoE layers");
+    GGML_ASSERT(hparams.n_expert > 0 && "n_expert must be > 0 for GLM4_MOE MoE layers");
+    GGML_ASSERT(hparams.n_expert_used > 0 && "n_expert_used must be > 0 for GLM4_MOE MoE layers");
 
     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), { n_embd, n_vocab }, 0);
 
@@ -135,67 +135,67 @@ std::unique_ptr<llm_graph_context> llama_model_glm4_moe::build_arch_graph(const 
 
 llama_model_glm4_moe::graph_mtp::graph_mtp(const llama_model & model, const llm_graph_params & params)
     : llm_graph_context(params) {
-    LM_GGML_ASSERT(hparams.n_layer_nextn > 0 && "GLM4_MOE MTP requires n_layer_nextn > 0");
-    LM_GGML_ASSERT(hparams.n_layer_nextn == 1 && "GLM4_MOE MTP currently only supports a single MTP block");
+    GGML_ASSERT(hparams.n_layer_nextn > 0 && "GLM4_MOE MTP requires n_layer_nextn > 0");
+    GGML_ASSERT(hparams.n_layer_nextn == 1 && "GLM4_MOE MTP currently only supports a single MTP block");
 
     const int64_t n_embd_head = hparams.n_embd_head_v();
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
     const int il = hparams.n_layer() + cparams.nextn_layer_offset;
-    LM_GGML_ASSERT(cparams.nextn_layer_offset >= 0 &&
+    GGML_ASSERT(cparams.nextn_layer_offset >= 0 &&
                 cparams.nextn_layer_offset < (int) hparams.n_layer_nextn &&
                 "nextn_layer_offset out of range [0, n_layer_nextn)");
 
     const auto & layer = model.layers[il];
 
-    LM_GGML_ASSERT(layer.nextn.eh_proj && "MTP block missing nextn.eh_proj");
-    LM_GGML_ASSERT(layer.nextn.enorm   && "MTP block missing nextn.enorm");
-    LM_GGML_ASSERT(layer.nextn.hnorm   && "MTP block missing nextn.hnorm");
-    LM_GGML_ASSERT(layer.ffn_gate_inp  && "MTP block missing ffn_gate_inp");
+    GGML_ASSERT(layer.nextn.eh_proj && "MTP block missing nextn.eh_proj");
+    GGML_ASSERT(layer.nextn.enorm   && "MTP block missing nextn.enorm");
+    GGML_ASSERT(layer.nextn.hnorm   && "MTP block missing nextn.hnorm");
+    GGML_ASSERT(layer.ffn_gate_inp  && "MTP block missing ffn_gate_inp");
 
     auto inp = std::make_unique<llm_graph_input_embd_h>(hparams.n_embd);
 
-    inp->tokens = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, n_tokens);
-    lm_ggml_set_input(inp->tokens);
+    inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_tokens);
+    ggml_set_input(inp->tokens);
 
-    inp->embd = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_F32, hparams.n_embd_inp(), n_tokens);
-    lm_ggml_set_input(inp->embd);
+    inp->embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, hparams.n_embd_inp(), n_tokens);
+    ggml_set_input(inp->embd);
 
-    lm_ggml_tensor * tok_embd;
+    ggml_tensor * tok_embd;
     if (ubatch.token) {
-        lm_ggml_tensor * tok_embd_w = layer.nextn.embed_tokens ? layer.nextn.embed_tokens : model.tok_embd;
-        tok_embd = lm_ggml_get_rows(ctx0, tok_embd_w, inp->tokens);
+        ggml_tensor * tok_embd_w = layer.nextn.embed_tokens ? layer.nextn.embed_tokens : model.tok_embd;
+        tok_embd = ggml_get_rows(ctx0, tok_embd_w, inp->tokens);
     } else {
         tok_embd = inp->embd;
     }
     cb(tok_embd, "mtp_tok_embd", il);
 
-    inp->h = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_F32, hparams.n_embd, n_tokens);
-    lm_ggml_set_input(inp->h);
-    lm_ggml_set_name(inp->h, "mtp_h_input");
+    inp->h = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, hparams.n_embd, n_tokens);
+    ggml_set_input(inp->h);
+    ggml_set_name(inp->h, "mtp_h_input");
 
-    lm_ggml_tensor * h_embd = inp->h;
+    ggml_tensor * h_embd = inp->h;
 
     res->add_input(std::move(inp));
 
-    lm_ggml_tensor * inp_pos     = build_inp_pos();
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_pos     = build_inp_pos();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     auto * inp_attn = build_attn_inp_kv();
 
-    lm_ggml_tensor * h_norm = build_norm(h_embd, layer.nextn.hnorm, nullptr, LLM_NORM_RMS, il);
+    ggml_tensor * h_norm = build_norm(h_embd, layer.nextn.hnorm, nullptr, LLM_NORM_RMS, il);
     cb(h_norm, "mtp_hnorm", il);
 
-    lm_ggml_tensor * e_norm = build_norm(tok_embd, layer.nextn.enorm, nullptr, LLM_NORM_RMS, il);
+    ggml_tensor * e_norm = build_norm(tok_embd, layer.nextn.enorm, nullptr, LLM_NORM_RMS, il);
     cb(e_norm, "mtp_enorm", il);
 
-    lm_ggml_tensor * concat = lm_ggml_concat(ctx0, e_norm, h_norm, 0);
+    ggml_tensor * concat = ggml_concat(ctx0, e_norm, h_norm, 0);
     cb(concat, "mtp_concat", il);
 
-    lm_ggml_tensor * cur = build_lora_mm(layer.nextn.eh_proj, concat, layer.nextn.eh_proj_s);
+    ggml_tensor * cur = build_lora_mm(layer.nextn.eh_proj, concat, layer.nextn.eh_proj_s);
     cb(cur, "mtp_eh_proj", il);
 
-    lm_ggml_tensor * inpSA = cur;
+    ggml_tensor * inpSA = cur;
 
     cur = build_norm(cur, layer.attn_norm, nullptr, LLM_NORM_RMS, il);
     cb(cur, "mtp_attn_norm", il);
@@ -212,11 +212,11 @@ llama_model_glm4_moe::graph_mtp::graph_mtp(const llama_model & model, const llm_
         cb(Kcur, "mtp_Kcur_normed", il);
     }
 
-    Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot,
+    Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot,
             rope_type, n_ctx_orig, freq_base, freq_scale,
             ext_factor, attn_factor, beta_fast, beta_slow);
 
-    Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot,
+    Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot,
             rope_type, n_ctx_orig, freq_base, freq_scale,
             ext_factor, attn_factor, beta_fast, beta_slow);
 
@@ -230,13 +230,13 @@ llama_model_glm4_moe::graph_mtp::graph_mtp(const llama_model & model, const llm_
             1.0f / sqrtf(float(n_embd_head)), il);
     cb(cur, "mtp_attn_out", il);
 
-    lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+    ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
     cb(ffn_inp, "mtp_ffn_inp", il);
 
     cur = build_norm(ffn_inp, layer.attn_post_norm, nullptr, LLM_NORM_RMS, il);
     cb(cur, "mtp_post_attn_norm", il);
 
-    lm_ggml_tensor * routed_out = build_moe_ffn(cur,
+    ggml_tensor * routed_out = build_moe_ffn(cur,
             layer.ffn_gate_inp,
             layer.ffn_up_exps,
             layer.ffn_gate_exps,
@@ -249,7 +249,7 @@ llama_model_glm4_moe::graph_mtp::graph_mtp(const llama_model & model, const llm_
             il);
     cb(routed_out, "mtp_ffn_moe_out", il);
 
-    lm_ggml_tensor * shared_out = build_ffn(cur,
+    ggml_tensor * shared_out = build_ffn(cur,
             layer.ffn_up_shexp,   nullptr, nullptr,
             layer.ffn_gate_shexp, nullptr, nullptr,
             layer.ffn_down_shexp, nullptr, nullptr,
@@ -257,70 +257,70 @@ llama_model_glm4_moe::graph_mtp::graph_mtp(const llama_model & model, const llm_
             LLM_FFN_SILU, LLM_FFN_PAR, il);
     cb(shared_out, "mtp_ffn_shexp_out", il);
 
-    cur = lm_ggml_add(ctx0, routed_out, shared_out);
+    cur = ggml_add(ctx0, routed_out, shared_out);
     cb(cur, "mtp_ffn_out", il);
 
-    cur = lm_ggml_add(ctx0, cur, ffn_inp);
+    cur = ggml_add(ctx0, cur, ffn_inp);
     cb(cur, "mtp_post_ffn", il);
 
-    lm_ggml_tensor * head_norm_w = layer.nextn.shared_head_norm
+    ggml_tensor * head_norm_w = layer.nextn.shared_head_norm
             ? layer.nextn.shared_head_norm
             : model.output_norm;
-    LM_GGML_ASSERT(head_norm_w && "GLM4_MOE MTP: missing both nextn.shared_head_norm and output_norm");
+    GGML_ASSERT(head_norm_w && "GLM4_MOE MTP: missing both nextn.shared_head_norm and output_norm");
 
     cur = build_norm(cur, head_norm_w, nullptr, LLM_NORM_RMS, -1);
     cb(cur, "h_nextn", -1);
     res->t_h_nextn = cur;
 
     if (inp_out_ids) {
-        cur = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
+        cur = ggml_get_rows(ctx0, cur, inp_out_ids);
     }
     cb(cur, "mtp_shared_head_norm", -1);
 
-    lm_ggml_tensor * head_w = layer.nextn.shared_head_head
+    ggml_tensor * head_w = layer.nextn.shared_head_head
             ? layer.nextn.shared_head_head
             : model.output;
-    lm_ggml_tensor * head_s = layer.nextn.shared_head_head
+    ggml_tensor * head_s = layer.nextn.shared_head_head
             ? layer.nextn.shared_head_head_s
             : model.output_s;
-    LM_GGML_ASSERT(head_w && "GLM4_MOE MTP: missing LM head (nextn.shared_head_head or model.output)");
+    GGML_ASSERT(head_w && "GLM4_MOE MTP: missing LM head (nextn.shared_head_head or model.output)");
 
     cur = build_lora_mm(head_w, cur, head_s);
     cb(cur, "result_output", -1);
 
     res->t_logits = cur;
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
 llama_model_glm4_moe::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
     int sections[4];
     std::copy(std::begin(hparams.rope_sections), std::begin(hparams.rope_sections) + 4, sections);
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     bool use_mrope = hparams.use_mrope();
     if (ubatch.embd && !use_mrope) {
         // unfortunately, we need to forcefully stop here, to avoid users complaining about wrong results
-        LM_GGML_ABORT("This GGUF does not support multimodal. Please reconvert it.");
+        GGML_ABORT("This GGUF does not support multimodal. Please reconvert it.");
     }
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     // NextN layers are processed by graph_mtp.
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
 
         // Pre-attention norm
         cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
@@ -342,20 +342,20 @@ llama_model_glm4_moe::graph::graph(const llama_model & model, const llm_graph_pa
             }
 
             if (use_mrope) {
-                Qcur = lm_ggml_rope_multi(ctx0, Qcur, inp_pos, nullptr,
+                Qcur = ggml_rope_multi(ctx0, Qcur, inp_pos, nullptr,
                             n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
                             ext_factor, attn_factor, beta_fast, beta_slow);
 
-                Kcur = lm_ggml_rope_multi(ctx0, Kcur, inp_pos, nullptr,
+                Kcur = ggml_rope_multi(ctx0, Kcur, inp_pos, nullptr,
                             n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
                             ext_factor, attn_factor, beta_fast, beta_slow);
             } else {
                 // Normal RoPE
-                Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot,
+                Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot,
                                     rope_type, n_ctx_orig, freq_base, freq_scale,
                                     ext_factor, attn_factor, beta_fast, beta_slow);
 
-                Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot,
+                Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot,
                                     rope_type, n_ctx_orig, freq_base, freq_scale,
                                     ext_factor, attn_factor, beta_fast, beta_slow);
             }
@@ -369,10 +369,10 @@ llama_model_glm4_moe::graph::graph(const llama_model & model, const llm_graph_pa
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
         }
         if (il == n_layer - 1 && inp_out_ids && (!cparams.embeddings_nextn || cparams.embeddings_nextn_masked)) {
-            cur   = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         // Post-attention norm
@@ -391,7 +391,7 @@ llama_model_glm4_moe::graph::graph(const llama_model & model, const llm_graph_pa
             cb(cur, "ffn_out", il);
         } else {
             // Process routed experts using existing MoE infrastructure
-            lm_ggml_tensor * routed_out = build_moe_ffn(cur,
+            ggml_tensor * routed_out = build_moe_ffn(cur,
                     model.layers[il].ffn_gate_inp,
                     model.layers[il].ffn_up_exps,
                     model.layers[il].ffn_gate_exps,
@@ -405,7 +405,7 @@ llama_model_glm4_moe::graph::graph(const llama_model & model, const llm_graph_pa
             cb(routed_out, "ffn_moe_out", il);
 
             // Process shared expert on original input
-            lm_ggml_tensor * shared_out = build_ffn(cur,
+            ggml_tensor * shared_out = build_ffn(cur,
                     model.layers[il].ffn_up_shexp,   NULL, NULL,
                     model.layers[il].ffn_gate_shexp, NULL, NULL,
                     model.layers[il].ffn_down_shexp, NULL, NULL,
@@ -414,10 +414,10 @@ llama_model_glm4_moe::graph::graph(const llama_model & model, const llm_graph_pa
             cb(shared_out, "ffn_shexp_out", il);
 
             // Final output: routed_output + shared_output
-            cur = lm_ggml_add(ctx0, routed_out, shared_out);
+            cur = ggml_add(ctx0, routed_out, shared_out);
             cb(cur, "ffn_out", il);
         }
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -432,7 +432,7 @@ llama_model_glm4_moe::graph::graph(const llama_model & model, const llm_graph_pa
     res->t_h_nextn = cur;
 
     if (cparams.embeddings_nextn && !cparams.embeddings_nextn_masked && inp_out_ids) {
-        cur = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
+        cur = ggml_get_rows(ctx0, cur, inp_out_ids);
     }
 
     cb(cur, "result_norm", -1);
@@ -444,5 +444,5 @@ llama_model_glm4_moe::graph::graph(const llama_model & model, const llm_graph_pa
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

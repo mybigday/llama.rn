@@ -50,18 +50,18 @@ std::unique_ptr<llm_graph_context> llama_model_openelm::build_arch_graph(const l
 llama_model_openelm::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
     inpL = build_inp_embd(model.tok_embd);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         const int64_t n_head    = hparams.n_head(il);
@@ -69,7 +69,7 @@ llama_model_openelm::graph::graph(const llama_model & model, const llm_graph_par
         const int64_t n_head_qkv = 2*n_head_kv + n_head;
 
         cur = inpL;
-        lm_ggml_tensor * residual = cur;
+        ggml_tensor * residual = cur;
 
         // norm
         cur = build_norm(inpL,
@@ -82,15 +82,15 @@ llama_model_openelm::graph::graph(const llama_model & model, const llm_graph_par
             cur = build_lora_mm(model.layers[il].wqkv, cur);
             cb(cur, "wqkv", il);
 
-            cur = lm_ggml_reshape_3d(ctx0, cur, n_embd_head_k, n_head_qkv, n_tokens);
+            cur = ggml_reshape_3d(ctx0, cur, n_embd_head_k, n_head_qkv, n_tokens);
 
-            lm_ggml_tensor * Qcur = lm_ggml_view_3d(ctx0, cur, n_embd_head, n_head,    n_tokens, cur->nb[1], cur->nb[2], 0);
+            ggml_tensor * Qcur = ggml_view_3d(ctx0, cur, n_embd_head, n_head,    n_tokens, cur->nb[1], cur->nb[2], 0);
             cb(Qcur, "Qcur", il);
 
-            lm_ggml_tensor * Kcur = lm_ggml_view_3d(ctx0, cur, n_embd_head, n_head_kv, n_tokens, cur->nb[1], cur->nb[2], cur->nb[1]*n_head);
+            ggml_tensor * Kcur = ggml_view_3d(ctx0, cur, n_embd_head, n_head_kv, n_tokens, cur->nb[1], cur->nb[2], cur->nb[1]*n_head);
             cb(Kcur, "Kcur", il);
 
-            lm_ggml_tensor * Vcur = lm_ggml_view_3d(ctx0, cur, n_embd_head, n_head_kv, n_tokens, cur->nb[1], cur->nb[2], cur->nb[1]*(n_head+n_head_kv));
+            ggml_tensor * Vcur = ggml_view_3d(ctx0, cur, n_embd_head, n_head_kv, n_tokens, cur->nb[1], cur->nb[2], cur->nb[1]*(n_head+n_head_kv));
             cb(Vcur, "Vcur", il);
 
             Qcur = build_norm(Qcur,
@@ -103,13 +103,13 @@ llama_model_openelm::graph::graph(const llama_model & model, const llm_graph_par
                     LLM_NORM_RMS, il);
             cb(Kcur, "Kcur", il);
 
-            Qcur = lm_ggml_rope_ext(
+            Qcur = ggml_rope_ext(
                     ctx0, Qcur, inp_pos, NULL,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
                     );
 
-            Kcur = lm_ggml_rope_ext(
+            Kcur = ggml_rope_ext(
                     ctx0, Kcur, inp_pos, NULL,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
@@ -124,10 +124,10 @@ llama_model_openelm::graph::graph(const llama_model & model, const llm_graph_par
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
-            residual = lm_ggml_get_rows(ctx0, residual, inp_out_ids);
-            cur      = lm_ggml_get_rows(ctx0, cur,      inp_out_ids);
+            residual = ggml_get_rows(ctx0, residual, inp_out_ids);
+            cur      = ggml_get_rows(ctx0, cur,      inp_out_ids);
         }
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, residual, cur);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, residual, cur);
         cb(ffn_inp, "ffn_inp", il);
 
         // feed-forward network
@@ -145,7 +145,7 @@ llama_model_openelm::graph::graph(const llama_model & model, const llm_graph_par
                     LLM_FFN_SILU, LLM_FFN_PAR, il);
             cb(cur, "ffn_out", il);
         }
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -167,5 +167,5 @@ llama_model_openelm::graph::graph(const llama_model & model, const llm_graph_par
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

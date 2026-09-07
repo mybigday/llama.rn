@@ -4,7 +4,7 @@
 #include <HAP_perf.h>
 #include <string.h>
 
-#define LM_GGML_COMMON_DECL_C
+#define GGML_COMMON_DECL_C
 #include "ggml-common.h"
 #include "htp-ctx.h"
 #include "htp-ops.h"

@@ -68,15 +68,15 @@ template<bool iswa>
 llama_model_phi3::graph<iswa>::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     using inp_attn_type = std::conditional_t<iswa, llm_graph_input_attn_kv_iswa, llm_graph_input_attn_kv>;
     inp_attn_type * inp_attn = nullptr;
@@ -86,7 +86,7 @@ llama_model_phi3::graph<iswa>::graph(const llama_model & model, const llm_graph_
     } else {
         inp_attn = build_attn_inp_kv();
     }
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         auto * residual = inpL;
@@ -94,9 +94,9 @@ llama_model_phi3::graph<iswa>::graph(const llama_model & model, const llm_graph_
         // self-attention
         {
             // rope freq factors for 128k context
-            lm_ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+            ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
-            lm_ggml_tensor* attn_norm_output = build_norm(inpL,
+            ggml_tensor* attn_norm_output = build_norm(inpL,
                     model.layers[il].attn_norm,
                     model.layers[il].attn_norm_b,
                     LLM_NORM_RMS, il);
@@ -104,13 +104,13 @@ llama_model_phi3::graph<iswa>::graph(const llama_model & model, const llm_graph_
 
             auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], attn_norm_output,
                     n_embd_head, n_head, n_head_kv, il);
-            Qcur = lm_ggml_rope_ext(
+            Qcur = ggml_rope_ext(
                     ctx0, Qcur, inp_pos, rope_factors,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
                     );
 
-            Kcur = lm_ggml_rope_ext(
+            Kcur = ggml_rope_ext(
                     ctx0, Kcur, inp_pos, rope_factors,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow
@@ -120,7 +120,7 @@ llama_model_phi3::graph<iswa>::graph(const llama_model & model, const llm_graph_
             cb(Kcur, "Kcur", il);
             cb(Vcur, "Vcur", il);
 
-            Qcur = lm_ggml_scale(ctx0, Qcur, 1.0f / sqrtf(float(n_embd_head)));
+            Qcur = ggml_scale(ctx0, Qcur, 1.0f / sqrtf(float(n_embd_head)));
             cb(Qcur, "Qcur", il);
 
             cur = build_attn(inp_attn,
@@ -128,10 +128,10 @@ llama_model_phi3::graph<iswa>::graph(const llama_model & model, const llm_graph_
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f, il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
-            cur      = lm_ggml_get_rows(ctx0, cur,      inp_out_ids);
-            residual = lm_ggml_get_rows(ctx0, residual, inp_out_ids);
+            cur      = ggml_get_rows(ctx0, cur,      inp_out_ids);
+            residual = ggml_get_rows(ctx0, residual, inp_out_ids);
         }
-        cur = lm_ggml_add(ctx0, cur, residual);
+        cur = ggml_add(ctx0, cur, residual);
         residual = cur;
 
         cur = build_norm(cur,
@@ -163,7 +163,7 @@ llama_model_phi3::graph<iswa>::graph(const llama_model & model, const llm_graph_
                     il);
             cb(cur, "ffn_moe_out", il);
         }
-        cur = lm_ggml_add(ctx0, residual, cur);
+        cur = ggml_add(ctx0, residual, cur);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -183,12 +183,12 @@ llama_model_phi3::graph<iswa>::graph(const llama_model & model, const llm_graph_
 
     if (model.output_b != nullptr) {
         cb(cur, "result_output_no_bias", -1);
-        cur = lm_ggml_add(ctx0, cur, model.output_b);
+        cur = ggml_add(ctx0, cur, model.output_b);
     }
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
 // Explicit template instantiations

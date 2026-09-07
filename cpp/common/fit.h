@@ -35,7 +35,7 @@ common_params_fit_status common_fit_params(
                              size_t * margins,               // margins of memory to leave per device in bytes
                            uint32_t   n_ctx_min,             // minimum context size to set when trying to reduce memory use
       const common_fit_extra_model * extra,                  // model to fit alongside the main one, nullptr if there is none
-                     lm_ggml_log_level   log_level);            // minimum log level to print during fitting, lower levels go to debug log
+                     ggml_log_level   log_level);            // minimum log level to print during fitting, lower levels go to debug log
 
 // print estimated memory to stdout
 void common_fit_print(
@@ -60,8 +60,8 @@ common_device_memory_data_vec common_get_device_memory_data(
                          const char * path_model,
            const llama_model_params * mparams,
          const llama_context_params * cparams,
-    std::vector<lm_ggml_backend_dev_t> & devs,
+    std::vector<ggml_backend_dev_t> & devs,
                            uint32_t & hp_ngl,
                            uint32_t & hp_n_ctx_train,
                            uint32_t & hp_n_expert,
-                     lm_ggml_log_level   log_level);
+                     ggml_log_level   log_level);

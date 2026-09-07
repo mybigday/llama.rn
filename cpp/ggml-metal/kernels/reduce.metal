@@ -1,7 +1,7 @@
 #include "common.h"
 
 kernel void kernel_op_sum_f32(
-        constant lm_ggml_metal_kargs_sum & args,
+        constant ggml_metal_kargs_sum & args,
         device const float * src0,
         device       float * dst,
         threadgroup  float * shmem_f32 [[threadgroup(0)]],
@@ -53,7 +53,7 @@ constant short FC_sum_rows_op [[function_constant(FC_SUM_ROWS + 0)]];
 
 template <typename T0, typename T>
 kernel void kernel_sum_rows_impl(
-        constant lm_ggml_metal_kargs_sum_rows & args,
+        constant ggml_metal_kargs_sum_rows & args,
         device const char * src0,
         device       char * dst,
         threadgroup  char * shmem [[threadgroup(0)]],
@@ -118,7 +118,7 @@ template [[host_name("kernel_sum_rows_f32_f32_4")]] kernel kernel_sum_rows_t ker
 
 template<typename T>
 kernel void kernel_cumsum_blk(
-        constant lm_ggml_metal_kargs_cumsum_blk & args,
+        constant ggml_metal_kargs_cumsum_blk & args,
         device const char * src0,
         device       char * tmp,
         device       char * dst,
@@ -189,7 +189,7 @@ template [[host_name("kernel_cumsum_blk_f32")]] kernel kernel_cumsum_blk_t kerne
 
 template<typename T>
 kernel void kernel_cumsum_add(
-        constant lm_ggml_metal_kargs_cumsum_add & args,
+        constant ggml_metal_kargs_cumsum_add & args,
         device const char * tmp,
         device       char * dst,
         uint3   tgpig[[threadgroup_position_in_grid]],

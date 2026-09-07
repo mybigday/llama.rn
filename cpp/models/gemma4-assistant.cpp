@@ -12,7 +12,7 @@ void llama_model_gemma4_assistant::load_arch_hparams(llama_model_loader & ml) {
     hparams.f_attention_scale = 1.0f;
 
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.n_layer_nextn, false);
-    LM_GGML_ASSERT(hparams.n_layer_nextn == hparams.n_layer_all && "n_layer_nextn must be == n_layer_impl");
+    GGML_ASSERT(hparams.n_layer_nextn == hparams.n_layer_all && "n_layer_nextn must be == n_layer_impl");
 
     ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA,           hparams.rope_freq_base_train_swa, false);
     ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,     hparams.n_swa);
@@ -88,44 +88,44 @@ llama_model_gemma4_assistant::graph::graph(const llama_model & model, const llm_
         llm_graph_context(params) {
     const int64_t n_embd_backbone = hparams.n_embd_inp();
 
-    lm_ggml_tensor * inp_tokens;
-    lm_ggml_tensor * inp_h;
+    ggml_tensor * inp_tokens;
+    ggml_tensor * inp_h;
     {
         auto inp = std::make_unique<llm_graph_input_embd>(n_embd_backbone);
 
-        inp->tokens = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, ubatch.n_tokens);
+        inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, ubatch.n_tokens);
         cb(inp->tokens, "inp_tokens", -1);
-        lm_ggml_set_input(inp->tokens);
+        ggml_set_input(inp->tokens);
         inp_tokens = inp->tokens;
         res->t_inp_tokens = inp->tokens;
 
-        inp->embd = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_F32, n_embd_backbone, ubatch.n_tokens);
+        inp->embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_embd_backbone, ubatch.n_tokens);
         cb(inp->embd, "inp_h", -1);
-        lm_ggml_set_input(inp->embd);
+        ggml_set_input(inp->embd);
         inp_h = inp->embd;
         res->t_inp_embd = inp->embd;
 
         res->add_input(std::move(inp));
     }
 
-    LM_GGML_ASSERT(cparams.ctx_other != nullptr);
+    GGML_ASSERT(cparams.ctx_other != nullptr);
     const auto * model_other = llama_get_model(cparams.ctx_other);
 
-    lm_ggml_tensor * x = lm_ggml_get_rows(ctx0, model_other->tok_embd, inp_tokens);
-    x = lm_ggml_scale(ctx0, x, sqrtf((float) n_embd_backbone));
+    ggml_tensor * x = ggml_get_rows(ctx0, model_other->tok_embd, inp_tokens);
+    x = ggml_scale(ctx0, x, sqrtf((float) n_embd_backbone));
     cb(x, "inp_embd_target", -1);
 
-    lm_ggml_tensor * xh = lm_ggml_concat(ctx0, x, inp_h, 0);
+    ggml_tensor * xh = ggml_concat(ctx0, x, inp_h, 0);
     cb(xh, "inp_xh", -1);
 
-    lm_ggml_tensor * cur = lm_ggml_mul_mat(ctx0, model.nextn_proj_pre, xh);
+    ggml_tensor * cur = ggml_mul_mat(ctx0, model.nextn_proj_pre, xh);
     cb(cur, "pre_proj", -1);
 
     auto *        inp_attn    = build_attn_inp_kv_iswa();
-    lm_ggml_tensor * inp_pos     = build_inp_pos();
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_pos     = build_inp_pos();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    lm_ggml_tensor * inpL = cur;
+    ggml_tensor * inpL = cur;
 
     for (int il = 0; il < n_layer_nextn; ++il) {
         const bool is_swa = hparams.is_swa(il);
@@ -137,16 +137,16 @@ llama_model_gemma4_assistant::graph::graph(const llama_model & model, const llm_
         const float freq_scale_l = model.get_rope_freq_scale(cparams, il);
         const int   n_rot_l      = hparams.n_rot(il);
 
-        lm_ggml_tensor * cur_norm = build_norm(inpL, model.layers[il].attn_norm, nullptr, LLM_NORM_RMS, il);
+        ggml_tensor * cur_norm = build_norm(inpL, model.layers[il].attn_norm, nullptr, LLM_NORM_RMS, il);
         cb(cur_norm, "attn_norm", il);
 
-        lm_ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur_norm);
-        Qcur = lm_ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head, n_tokens);
+        ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur_norm);
+        Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head, n_tokens);
         Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, nullptr, LLM_NORM_RMS, il);
         cb(Qcur, "Qcur_normed", il);
 
-        lm_ggml_tensor * freq_factors = is_swa ? nullptr : model.layers[il].rope_freqs;
-        Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, freq_factors, n_rot_l, rope_type, n_ctx_orig,
+        ggml_tensor * freq_factors = is_swa ? nullptr : model.layers[il].rope_freqs;
+        Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, freq_factors, n_rot_l, rope_type, n_ctx_orig,
                              freq_base_l, freq_scale_l, ext_factor, attn_factor, beta_fast, beta_slow);
         cb(Qcur, "Qcur_pos", il);
 
@@ -154,14 +154,14 @@ llama_model_gemma4_assistant::graph::graph(const llama_model & model, const llm_
                 Qcur, nullptr, nullptr, nullptr, nullptr, nullptr, hparams.f_attention_scale, il);
 
         if (il == n_layer_nextn - 1 && inp_out_ids) {
-            cur  = lm_ggml_get_rows(ctx0, cur,  inp_out_ids);
-            inpL = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
+            cur  = ggml_get_rows(ctx0, cur,  inp_out_ids);
+            inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }
 
         cur = build_norm(cur, model.layers[il].attn_post_norm, nullptr, LLM_NORM_RMS, il);
         cb(cur, "attn_post_norm", il);
 
-        lm_ggml_tensor * attn_out = lm_ggml_add(ctx0, cur, inpL);
+        ggml_tensor * attn_out = ggml_add(ctx0, cur, inpL);
         cb(attn_out, "attn_out", il);
 
         cur = build_norm(attn_out, model.layers[il].ffn_norm, nullptr, LLM_NORM_RMS, il);
@@ -178,9 +178,9 @@ llama_model_gemma4_assistant::graph::graph(const llama_model & model, const llm_
         cur = build_norm(cur, model.layers[il].ffn_post_norm, nullptr, LLM_NORM_RMS, -1);
         cb(cur, "ffn_post_norm", il);
 
-        cur = lm_ggml_add(ctx0, cur, attn_out);
+        cur = ggml_add(ctx0, cur, attn_out);
 
-        cur = lm_ggml_mul(ctx0, cur, model.layers[il].out_scale);
+        cur = ggml_mul(ctx0, cur, model.layers[il].out_scale);
         cb(cur, "out_scaled", il);
 
         inpL = cur;
@@ -190,14 +190,14 @@ llama_model_gemma4_assistant::graph::graph(const llama_model & model, const llm_
     cur = build_norm(cur, model.output_norm, nullptr, LLM_NORM_RMS, -1);
     cb(cur, "result_norm", -1);
 
-    lm_ggml_tensor * logits = build_lora_mm(model.output, cur);
+    ggml_tensor * logits = build_lora_mm(model.output, cur);
     cb(logits, "result_output", -1);
     res->t_logits = logits;
 
-    lm_ggml_tensor * h_next = lm_ggml_mul_mat(ctx0, model.nextn_proj_post, cur);
+    ggml_tensor * h_next = ggml_mul_mat(ctx0, model.nextn_proj_post, cur);
     cb(h_next, "h_nextn", -1);
     res->t_h_nextn = h_next;
 
-    lm_ggml_build_forward_expand(gf, logits);
-    lm_ggml_build_forward_expand(gf, h_next);
+    ggml_build_forward_expand(gf, logits);
+    ggml_build_forward_expand(gf, h_next);
 }

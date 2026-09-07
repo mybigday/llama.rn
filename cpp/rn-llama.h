@@ -79,7 +79,7 @@ private:
     std::string pending;
 };
 
-lm_ggml_type kv_cache_type_from_str(const std::string & s);
+ggml_type kv_cache_type_from_str(const std::string & s);
 
 enum llama_flash_attn_type flash_attn_type_from_str(const std::string & s);
 
@@ -128,8 +128,8 @@ struct llama_rn_context {
     llama_rn_slot_manager *slot_manager = nullptr;
     bool parallel_mode_enabled = false;
 
-    lm_ggml_threadpool *threadpool = nullptr;
-    lm_ggml_threadpool *threadpool_batch = nullptr;
+    ggml_threadpool *threadpool = nullptr;
+    ggml_threadpool *threadpool_batch = nullptr;
 
     ~llama_rn_context();
 
@@ -213,6 +213,33 @@ inline void llama_batch_add(llama_batch *batch, llama_token id, llama_pos pos, s
 
 // Device info functions
 std::string get_backend_devices_info();
+
+// Backend device and GGUF accessors for the JSI glue.
+//
+// The glue is compiled into the host app and linked against this library as a
+// dynamic framework. When another ggml-based framework (e.g. whisper.rn) lives
+// in the same app, an app-level reference to a ggml symbol binds to whichever
+// framework the linker sees first. The glue therefore only calls these
+// rnllama-namespaced functions; using ggml *types* from the headers is fine,
+// referencing ggml *symbols* is not.
+size_t backend_dev_count();
+ggml_backend_dev_t backend_dev_get(size_t index);
+const char * backend_dev_name(ggml_backend_dev_t dev);
+enum ggml_backend_dev_type backend_dev_type(ggml_backend_dev_t dev);
+// Name of the backend registry owning the device ("Metal", "RPC", ...), or nullptr.
+const char * backend_dev_reg_name(ggml_backend_dev_t dev);
+// Vendor device id from the device props, or an empty string.
+std::string backend_dev_device_id(ggml_backend_dev_t dev);
+ggml_backend_buffer_type_t backend_cpu_buffer_type();
+
+struct gguf_file_info {
+    uint32_t version = 0;
+    size_t alignment = 0;
+    size_t data_offset = 0;
+    std::vector<std::pair<std::string, std::string>> kv;
+};
+// Reads GGUF header metadata (no tensor data). Returns false if the file cannot be parsed.
+bool read_gguf_file_info(const std::string & path, gguf_file_info & info);
 
 // Logging functions
 void log(const char *level, const char *function, int line, const char *format, ...);

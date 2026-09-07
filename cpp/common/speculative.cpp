@@ -43,14 +43,14 @@ const std::map<std::string, common_speculative_type> common_speculative_type_fro
     {"ngram-cache",   COMMON_SPECULATIVE_TYPE_NGRAM_CACHE}
 };
 
-static std::string common_speculative_get_devices_str(const std::vector<lm_ggml_backend_dev_t> & devices) {
+static std::string common_speculative_get_devices_str(const std::vector<ggml_backend_dev_t> & devices) {
     std::string result;
     for (size_t i = 0; i < devices.size(); i++) {
         if (devices[i] == nullptr) {
             continue;
         }
         if (!result.empty()) result += ", ";
-        result += lm_ggml_backend_dev_name(devices[i]);
+        result += ggml_backend_dev_name(devices[i]);
     }
     return result.empty() ? "default" : result;
 }
@@ -196,8 +196,8 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
         SPC_TRC("- n_max=%d, n_min=%d, p_min=%f\n", this->params.n_max, this->params.n_min, this->params.p_min);
         SPC_TRC("- gpu_layers=%d, cache_k=%s, cache_v=%s, ctx_tgt=%s, ctx_dft=%s, devices=[%s]\n",
                 this->params.n_gpu_layers,
-                lm_ggml_type_name(this->params.cache_type_k),
-                lm_ggml_type_name(this->params.cache_type_v),
+                ggml_type_name(this->params.cache_type_k),
+                ggml_type_name(this->params.cache_type_v),
                 ctx_tgt ? "yes" : "no",
                 ctx_dft ? "yes" : "no",
                 common_speculative_get_devices_str(this->params.devices).c_str());
@@ -460,7 +460,7 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
 
         auto * ctx_tgt = this->params.ctx_tgt;
         auto * ctx_dft = this->params.ctx_dft;
-        LM_GGML_ASSERT(ctx_tgt && ctx_dft && "EAGLE3 requires ctx_tgt and ctx_dft to be set");
+        GGML_ASSERT(ctx_tgt && ctx_dft && "EAGLE3 requires ctx_tgt and ctx_dft to be set");
 
         const llama_model * model_dft = llama_get_model(ctx_dft);
         const llama_model * model_tgt = llama_get_model(ctx_tgt);
@@ -515,7 +515,7 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
             } else if (target_layer_ids[k] == n_layer_tgt) {
                 llama_set_embeddings_nextn(ctx_tgt, true, /*masked*/ false);
             } else {
-                LM_GGML_ABORT("EAGLE3: target layer id %d exceeds target n_layer %d", target_layer_ids[k], n_layer_tgt);
+                GGML_ABORT("EAGLE3: target layer id %d exceeds target n_layer %d", target_layer_ids[k], n_layer_tgt);
             }
         }
 
@@ -584,7 +584,7 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
         std::vector<int32_t> i_batch_beg(n_seq, -1);
         std::vector<int32_t> i_batch_end(n_seq, -1);
         for (int k = 0; k < n_tokens; ++k) {
-            LM_GGML_ASSERT(batch_in.n_seq_id[k] == 1);
+            GGML_ASSERT(batch_in.n_seq_id[k] == 1);
             const llama_seq_id seq_id = batch_in.seq_id[k][0];
             if (seq_id < 0 || seq_id >= (llama_seq_id) n_seq) {
                 continue;
@@ -608,7 +608,7 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
                 ? llama_get_embeddings_layer_inp(ctx_tgt, (uint32_t) target_layer_ids[k])
                 : llama_get_embeddings_nextn(ctx_tgt);
             if (!layer) {
-                LM_GGML_ABORT("EAGLE3: target layer %d input not extracted.", target_layer_ids[k]);
+                GGML_ABORT("EAGLE3: target layer %d input not extracted.", target_layer_ids[k]);
             }
             for (int32_t i = 0; i < n_tokens; ++i) {
                 float * dst = features_buf.data() + (size_t) i * n_embd_enc + k * (size_t) n_embd_tgt;
@@ -643,7 +643,7 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
 
             // g_embd has shape [n_chunk, n_embd_dec] in ctx_dft's pre-norm embeddings buffer.
             const float * g_embd_chunk = llama_get_embeddings_nextn(ctx_dft);
-            LM_GGML_ASSERT(g_embd_chunk && "EAGLE3 encoder produced no output.");
+            GGML_ASSERT(g_embd_chunk && "EAGLE3 encoder produced no output.");
             std::memcpy(g_embd_buf.data() + (size_t) i * n_embd_dec,
                         g_embd_chunk,
                         (size_t) n_chunk * n_embd_dec * sizeof(float));
@@ -943,14 +943,14 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
     {
         auto * ctx_tgt = this->params.ctx_tgt;
         auto * ctx_dft = this->params.ctx_dft;
-        LM_GGML_ASSERT(ctx_tgt && ctx_dft && "DFlash requires ctx_tgt and ctx_dft to be set");
+        GGML_ASSERT(ctx_tgt && ctx_dft && "DFlash requires ctx_tgt and ctx_dft to be set");
 
         const llama_model * model_dft = llama_get_model(ctx_dft);
         const llama_model * model_tgt = llama_get_model(ctx_tgt);
 
         target_layer_ids   = llama_model_target_layer_ids  (model_dft);
         target_layer_ids_n = llama_model_target_layer_ids_n(model_dft);
-        LM_GGML_ASSERT(target_layer_ids_n > 0 && "DFlash model has no target_layer_ids");
+        GGML_ASSERT(target_layer_ids_n > 0 && "DFlash model has no target_layer_ids");
 
         n_embd_tgt    = llama_model_n_embd(model_tgt);
         n_embd_dec    = llama_model_n_embd(model_dft);
@@ -1078,7 +1078,7 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
         std::vector<int32_t> i_batch_beg(n_seq, -1);
         std::vector<int32_t> i_batch_end(n_seq, -1);
         for (int32_t k = 0; k < n_tokens; ++k) {
-            LM_GGML_ASSERT(batch_in.n_seq_id[k] == 1);
+            GGML_ASSERT(batch_in.n_seq_id[k] == 1);
             const llama_seq_id seq_id = batch_in.seq_id[k][0];
             if (seq_id < 0 || seq_id >= (llama_seq_id) n_seq) {
                 continue;
@@ -1108,7 +1108,7 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
                 for (uint32_t k = 0; k < target_layer_ids_n; ++k) {
                     const float * layer = llama_get_embeddings_layer_inp(ctx_tgt, (uint32_t) target_layer_ids[k]);
                     if (!layer) {
-                        LM_GGML_ABORT("DFlash: target layer %d input not extracted.", target_layer_ids[k]);
+                        GGML_ABORT("DFlash: target layer %d input not extracted.", target_layer_ids[k]);
                     }
                     for (int32_t i = 0; i < n_chunk; ++i) {
                         float       * dst = features_buf.data() + (size_t) i * n_embd_enc + k * (size_t) n_embd_tgt;
@@ -1136,7 +1136,7 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
                 }
 
                 const float * inp_g = llama_get_embeddings_nextn(ctx_dft);
-                LM_GGML_ASSERT(inp_g && "DFlash encoder produced no output.");
+                GGML_ASSERT(inp_g && "DFlash encoder produced no output.");
 
                 // inject the DFlash decoder K/V cache at the tokens' target positions
                 batch_inject.n_tokens = n_chunk;
@@ -1320,10 +1320,10 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
     {
         auto * ctx_tgt = this->params.ctx_tgt;
         auto * ctx_dft = this->params.ctx_dft;
-        LM_GGML_ASSERT(ctx_tgt && ctx_dft && "MTP requires ctx_tgt and ctx_dft to be set");
+        GGML_ASSERT(ctx_tgt && ctx_dft && "MTP requires ctx_tgt and ctx_dft to be set");
 
         n_embd = llama_model_n_embd_out(llama_get_model(ctx_dft));
-        LM_GGML_ASSERT(n_embd == llama_model_n_embd_out(llama_get_model(ctx_tgt)) &&
+        GGML_ASSERT(n_embd == llama_model_n_embd_out(llama_get_model(ctx_tgt)) &&
                 "MTP input row width must match the target h_nextn width");
         n_mtp_layers = std::max(1, (int) llama_model_n_layer_nextn(llama_get_model(ctx_dft)));
 
@@ -1331,8 +1331,8 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
         SPC_TRC("- n_max=%d, n_min=%d, p_min=%.2f, n_embd=%d, backend_sampling=%d\n", this->params.n_max, this->params.n_min, this->params.p_min, n_embd, (int) this->params.backend_sampling);
         SPC_TRC("- gpu_layers=%d, cache_k=%s, cache_v=%s, ctx_tgt=%s, ctx_dft=%s, devices=[%s]\n",
                 this->params.n_gpu_layers,
-                lm_ggml_type_name(this->params.cache_type_k),
-                lm_ggml_type_name(this->params.cache_type_v),
+                ggml_type_name(this->params.cache_type_k),
+                ggml_type_name(this->params.cache_type_v),
                 ctx_tgt ? "yes" : "no",
                 ctx_dft ? "yes" : "no",
                 common_speculative_get_devices_str(this->params.devices).c_str());
@@ -1449,7 +1449,7 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
 
         for (int k = 0; k < n_tokens; ++k) {
             for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
-                LM_GGML_ASSERT(batch_in.n_seq_id[k] == 1);
+                GGML_ASSERT(batch_in.n_seq_id[k] == 1);
 
                 if (batch_in.seq_id[k][0] == seq_id) {
                     i_batch_end[seq_id] = k;
@@ -1782,7 +1782,7 @@ struct common_speculative_impl_ngram_map_k : public common_speculative_impl {
     }
 
     void begin(llama_seq_id seq_id, const llama_tokens & prompt) override {
-        LM_GGML_ASSERT(seq_id < (llama_seq_id) n_seq);
+        GGML_ASSERT(seq_id < (llama_seq_id) n_seq);
 
         common_ngram_map_begin(config[seq_id], prompt);
     }
@@ -1806,7 +1806,7 @@ struct common_speculative_impl_ngram_map_k : public common_speculative_impl {
     }
 
     void accept(llama_seq_id seq_id, uint16_t n_accepted, bool is_other) override {
-        LM_GGML_ASSERT((seq_id < (llama_seq_id) config.size()));
+        GGML_ASSERT((seq_id < (llama_seq_id) config.size()));
 
         if (is_other) {
             return;
@@ -2040,7 +2040,7 @@ struct common_speculative_impl_ngram_cache : public common_speculative_impl {
                 }
             } catch (...) {
                 SPC_ERR("failed to open static lookup cache: %s", path_static.c_str());
-                LM_GGML_ABORT("Couldn't read static lookup cache");
+                GGML_ABORT("Couldn't read static lookup cache");
             }
         }
 
@@ -2053,7 +2053,7 @@ struct common_speculative_impl_ngram_cache : public common_speculative_impl {
                 }
             } catch (...) {
                 SPC_ERR("failed to open dynamic lookup cache: %s", path_dynamic.c_str());
-                LM_GGML_ABORT("Couldn't read dynamic lookup cache");
+                GGML_ABORT("Couldn't read dynamic lookup cache");
             }
         }
     }
@@ -2236,26 +2236,26 @@ common_speculative_type common_speculative_type_from_name(const std::string & na
 }
 
 std::vector<common_speculative_type> common_speculative_types_from_gguf(const std::string & path) {
-    struct lm_gguf_init_params lm_gguf_params = {
+    struct gguf_init_params gguf_params = {
         /* .no_alloc = */ true,
         /* .ctx      = */ nullptr,
     };
 
-    lm_gguf_context_ptr lm_gguf_ctx(lm_gguf_init_from_file(path.c_str(), lm_gguf_params));
-    if (!lm_gguf_ctx) {
+    gguf_context_ptr gguf_ctx(gguf_init_from_file(path.c_str(), gguf_params));
+    if (!gguf_ctx) {
         return {};
     }
 
-    const int64_t arch_id = lm_gguf_find_key(lm_gguf_ctx.get(), "general.architecture");
-    if (arch_id < 0 || lm_gguf_get_kv_type(lm_gguf_ctx.get(), arch_id) != LM_GGUF_TYPE_STRING) {
+    const int64_t arch_id = gguf_find_key(gguf_ctx.get(), "general.architecture");
+    if (arch_id < 0 || gguf_get_kv_type(gguf_ctx.get(), arch_id) != GGUF_TYPE_STRING) {
         return {};
     }
 
-    const std::string arch = lm_gguf_get_val_str(lm_gguf_ctx.get(), arch_id);
+    const std::string arch = gguf_get_val_str(gguf_ctx.get(), arch_id);
     if (arch != "dflash") {
-        const uint32_t block_count = lm_gguf_get_val_u32(lm_gguf_ctx.get(), lm_gguf_find_key(lm_gguf_ctx.get(), (arch + ".block_count").c_str()));
+        const uint32_t block_count = gguf_get_val_u32(gguf_ctx.get(), gguf_find_key(gguf_ctx.get(), (arch + ".block_count").c_str()));
 
-        if (lm_gguf_find_tensor(lm_gguf_ctx.get(), ("blk." + std::to_string(block_count - 1) + ".nextn.eh_proj.weight").c_str()) >= 0) {
+        if (gguf_find_tensor(gguf_ctx.get(), ("blk." + std::to_string(block_count - 1) + ".nextn.eh_proj.weight").c_str()) >= 0) {
             return { COMMON_SPECULATIVE_TYPE_DRAFT_MTP };
         }
 
@@ -2263,7 +2263,7 @@ std::vector<common_speculative_type> common_speculative_types_from_gguf(const st
     }
 
     // the Markov head distinguishes draft-dspark from draft-dflash
-    const auto type = lm_gguf_find_tensor(lm_gguf_ctx.get(), "markov_w1.weight") >= 0
+    const auto type = gguf_find_tensor(gguf_ctx.get(), "markov_w1.weight") >= 0
                     ? COMMON_SPECULATIVE_TYPE_DRAFT_DSPARK
                     : COMMON_SPECULATIVE_TYPE_DRAFT_DFLASH;
 
@@ -2588,8 +2588,8 @@ void common_speculative_free(common_speculative * spec) {
 common_speculative_draft_params & common_speculative_get_draft_params(
         common_speculative * spec,
         llama_seq_id seq_id) {
-    LM_GGML_ASSERT(spec);
-    LM_GGML_ASSERT(seq_id < (llama_seq_id) spec->dparams.size());
+    GGML_ASSERT(spec);
+    GGML_ASSERT(seq_id < (llama_seq_id) spec->dparams.size());
 
     return spec->dparams[seq_id];
 }
@@ -2631,7 +2631,7 @@ void common_speculative_draft(common_speculative * spec) {
         int n_drafting = 0;
 
         for (auto & dp : dparams) {
-            LM_GGML_ASSERT(!dp.drafting || dp.result->empty());
+            GGML_ASSERT(!dp.drafting || dp.result->empty());
 
             if (dp.drafting) {
                 n_drafting++;
@@ -2709,7 +2709,7 @@ void common_speculative_accept(common_speculative * spec, llama_seq_id seq_id, u
     common_speculative_impl * impl = spec->impl_last[seq_id];
 
     if (impl == nullptr) {
-        LM_GGML_ASSERT(n_accepted == 0);
+        GGML_ASSERT(n_accepted == 0);
         return;
     }
 

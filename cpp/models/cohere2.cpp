@@ -52,21 +52,21 @@ std::unique_ptr<llm_graph_context> llama_model_cohere2::build_arch_graph(const l
 llama_model_cohere2::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
     const float f_logit_scale = hparams.f_logit_scale;
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     // inp_pos - contains the positions
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv_iswa();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         const bool is_swa = hparams.is_swa(il);
@@ -77,25 +77,25 @@ llama_model_cohere2::graph::graph(const llama_model & model, const llm_graph_par
         // norm
         cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM, il);
         cb(cur, "attn_norm", il);
-        lm_ggml_tensor * ffn_inp = cur;
+        ggml_tensor * ffn_inp = cur;
 
         // self-attention
         {
             // rope freq factors for 128k context
-            lm_ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+            ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
             // compute Q and K and RoPE them
             auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
                     n_embd_head, n_head, n_head_kv, il);
 
             if (is_swa) {
-                Qcur = lm_ggml_rope_ext(
+                Qcur = ggml_rope_ext(
                         ctx0, Qcur, inp_pos, rope_factors,
                         n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                         ext_factor, attn_factor, beta_fast, beta_slow
                         );
 
-                Kcur = lm_ggml_rope_ext(
+                Kcur = ggml_rope_ext(
                         ctx0, Kcur, inp_pos, rope_factors,
                         n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                         ext_factor, attn_factor, beta_fast, beta_slow
@@ -112,12 +112,12 @@ llama_model_cohere2::graph::graph(const llama_model & model, const llm_graph_par
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur     = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            inpL    = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
-            ffn_inp = lm_ggml_get_rows(ctx0, ffn_inp, inp_out_ids);
+            cur     = ggml_get_rows(ctx0, cur, inp_out_ids);
+            inpL    = ggml_get_rows(ctx0, inpL, inp_out_ids);
+            ffn_inp = ggml_get_rows(ctx0, ffn_inp, inp_out_ids);
         }
 
-        lm_ggml_tensor * attn_out = cur;
+        ggml_tensor * attn_out = cur;
 
         // feed-forward network
         {
@@ -130,8 +130,8 @@ llama_model_cohere2::graph::graph(const llama_model & model, const llm_graph_par
         }
 
         // add together residual + FFN + self-attention
-        cur = lm_ggml_add(ctx0, cur, inpL);
-        cur = lm_ggml_add(ctx0, cur, attn_out);
+        cur = ggml_add(ctx0, cur, inpL);
+        cur = ggml_add(ctx0, cur, attn_out);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -151,11 +151,11 @@ llama_model_cohere2::graph::graph(const llama_model & model, const llm_graph_par
     cur = build_lora_mm(model.output, cur, model.output_s);
 
     if (f_logit_scale) {
-        cur = lm_ggml_scale(ctx0, cur, f_logit_scale);
+        cur = ggml_scale(ctx0, cur, f_logit_scale);
     }
 
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

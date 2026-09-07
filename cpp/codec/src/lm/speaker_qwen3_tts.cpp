@@ -1,6 +1,6 @@
 #include "speaker_qwen3_tts.h"
 
-#include "../runtime/lm_gguf_kv.h"
+#include "../runtime/gguf_kv.h"
 #include "../runtime/tensor_utils.h"
 #include "../runtime/audio_dsp.h"
 
@@ -59,8 +59,8 @@ struct conv1d_w {
 
 bool load_conv(codec_lm * lm, const std::string & prefix, conv1d_w & w,
                 int32_t dilation = 1) {
-    lm_ggml_tensor * Wt = lm_ggml_get_tensor(lm->codec->weights, (prefix + ".weight").c_str());
-    lm_ggml_tensor * bt = lm_ggml_get_tensor(lm->codec->weights, (prefix + ".bias").c_str());
+    ggml_tensor * Wt = ggml_get_tensor(lm->codec->weights, (prefix + ".weight").c_str());
+    ggml_tensor * bt = ggml_get_tensor(lm->codec->weights, (prefix + ".bias").c_str());
     if (Wt == nullptr || bt == nullptr) {
         lm->last_error = "speaker(qwen3_tts): missing " + prefix + ".{weight,bias}";
         return false;
@@ -292,7 +292,7 @@ bool qwen3_tts_speaker_init(codec_lm * lm) {
         if (lm) lm->last_error = "speaker(qwen3_tts): codec has no gguf/weights";
         return false;
     }
-    lm_gguf_context * gf = lm->codec->gguf;
+    gguf_context * gf = lm->codec->gguf;
 
     auto * impl = new (std::nothrow) qwen3_tts_speaker_impl();
     if (impl == nullptr) {
@@ -324,8 +324,8 @@ bool qwen3_tts_speaker_init(codec_lm * lm) {
     }
 
     // Mel basis + window (host buffers).
-    lm_ggml_tensor * mb_t = lm_ggml_get_tensor(lm->codec->weights, "speaker.qwen3_tts.mel_basis");
-    lm_ggml_tensor * wn_t = lm_ggml_get_tensor(lm->codec->weights, "speaker.qwen3_tts.window");
+    ggml_tensor * mb_t = ggml_get_tensor(lm->codec->weights, "speaker.qwen3_tts.mel_basis");
+    ggml_tensor * wn_t = ggml_get_tensor(lm->codec->weights, "speaker.qwen3_tts.window");
     if (!mb_t || !wn_t) {
         lm->last_error = "speaker(qwen3_tts): missing mel_basis / window";
         delete impl; return false;

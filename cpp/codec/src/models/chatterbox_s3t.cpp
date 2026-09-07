@@ -1,7 +1,7 @@
 #include "chatterbox_s3t.h"
 
 #include "../ops/conv1d.h"
-#include "../ops/lm_ggml_ops.h"
+#include "../ops/ggml_ops.h"
 #include "../ops/lm_attn.h"
 #include "../ops/rope.h"
 #include "../runtime/graph.h"
@@ -32,25 +32,25 @@ static std::string codec_chatterbox_s3t_block_prefix(int32_t li) {
     return "s3t.enc.blk." + std::to_string(li);
 }
 
-static lm_ggml_tensor * codec_chatterbox_s3t_block(
-    lm_ggml_context * ctx_eval,
-    lm_ggml_tensor * x_ct,
-    lm_ggml_tensor * attn_ln_w,
-    lm_ggml_tensor * attn_ln_b,
-    lm_ggml_tensor * q_w,
-    lm_ggml_tensor * q_b,
-    lm_ggml_tensor * k_w,
-    lm_ggml_tensor * v_w,
-    lm_ggml_tensor * v_b,
-    lm_ggml_tensor * o_w,
-    lm_ggml_tensor * o_b,
-    lm_ggml_tensor * fsmn_w,
-    lm_ggml_tensor * mlp_ln_w,
-    lm_ggml_tensor * mlp_ln_b,
-    lm_ggml_tensor * fc1_w,
-    lm_ggml_tensor * fc1_b,
-    lm_ggml_tensor * fc2_w,
-    lm_ggml_tensor * fc2_b,
+static ggml_tensor * codec_chatterbox_s3t_block(
+    ggml_context * ctx_eval,
+    ggml_tensor * x_ct,
+    ggml_tensor * attn_ln_w,
+    ggml_tensor * attn_ln_b,
+    ggml_tensor * q_w,
+    ggml_tensor * q_b,
+    ggml_tensor * k_w,
+    ggml_tensor * v_w,
+    ggml_tensor * v_b,
+    ggml_tensor * o_w,
+    ggml_tensor * o_b,
+    ggml_tensor * fsmn_w,
+    ggml_tensor * mlp_ln_w,
+    ggml_tensor * mlp_ln_b,
+    ggml_tensor * fc1_w,
+    ggml_tensor * fc1_b,
+    ggml_tensor * fc2_w,
+    ggml_tensor * fc2_b,
     int32_t n_heads,
     float rope_theta,
     int32_t fsmn_kernel) {
@@ -65,23 +65,23 @@ static lm_ggml_tensor * codec_chatterbox_s3t_block(
     }
     const int32_t head_dim = hidden / n_heads;
 
-    lm_ggml_tensor * h_ct = codec_op_layer_norm_ct(ctx_eval, x_ct, 1e-5f, attn_ln_w, attn_ln_b);
+    ggml_tensor * h_ct = codec_op_layer_norm_ct(ctx_eval, x_ct, 1e-5f, attn_ln_w, attn_ln_b);
     if (h_ct == nullptr) {
         return nullptr;
     }
 
-    lm_ggml_tensor * q_ct = codec_op_linear(ctx_eval, h_ct, q_w, q_b);
-    lm_ggml_tensor * k_ct = codec_op_linear(ctx_eval, h_ct, k_w, nullptr);
-    lm_ggml_tensor * v_ct = codec_op_linear(ctx_eval, h_ct, v_w, v_b);
+    ggml_tensor * q_ct = codec_op_linear(ctx_eval, h_ct, q_w, q_b);
+    ggml_tensor * k_ct = codec_op_linear(ctx_eval, h_ct, k_w, nullptr);
+    ggml_tensor * v_ct = codec_op_linear(ctx_eval, h_ct, v_w, v_b);
     if (q_ct == nullptr || k_ct == nullptr || v_ct == nullptr) {
         return nullptr;
     }
 
-    lm_ggml_tensor * q_dth = lm_ggml_permute(ctx_eval, lm_ggml_reshape_3d(ctx_eval, q_ct, head_dim, n_heads, t), 0, 2, 1, 3);
-    lm_ggml_tensor * k_dth = lm_ggml_permute(ctx_eval, lm_ggml_reshape_3d(ctx_eval, k_ct, head_dim, n_heads, t), 0, 2, 1, 3);
-    lm_ggml_tensor * v_dth = lm_ggml_permute(ctx_eval, lm_ggml_reshape_3d(ctx_eval, v_ct, head_dim, n_heads, t), 0, 2, 1, 3);
-    lm_ggml_tensor * q_rope = codec_op_rope(ctx_eval, q_dth, head_dim, rope_theta, 1.0f, CODEC_ROPE_MODE_NEOX);
-    lm_ggml_tensor * k_rope = codec_op_rope(ctx_eval, k_dth, head_dim, rope_theta, 1.0f, CODEC_ROPE_MODE_NEOX);
+    ggml_tensor * q_dth = ggml_permute(ctx_eval, ggml_reshape_3d(ctx_eval, q_ct, head_dim, n_heads, t), 0, 2, 1, 3);
+    ggml_tensor * k_dth = ggml_permute(ctx_eval, ggml_reshape_3d(ctx_eval, k_ct, head_dim, n_heads, t), 0, 2, 1, 3);
+    ggml_tensor * v_dth = ggml_permute(ctx_eval, ggml_reshape_3d(ctx_eval, v_ct, head_dim, n_heads, t), 0, 2, 1, 3);
+    ggml_tensor * q_rope = codec_op_rope(ctx_eval, q_dth, head_dim, rope_theta, 1.0f, CODEC_ROPE_MODE_NEOX);
+    ggml_tensor * k_rope = codec_op_rope(ctx_eval, k_dth, head_dim, rope_theta, 1.0f, CODEC_ROPE_MODE_NEOX);
     if (q_rope == nullptr || k_rope == nullptr || v_dth == nullptr) {
         return nullptr;
     }
@@ -89,51 +89,51 @@ static lm_ggml_tensor * codec_chatterbox_s3t_block(
     codec_lm_attn_params attn_p = {};
     attn_p.scale = 1.0f / std::sqrt((float) head_dim);
     attn_p.causal = false;
-    lm_ggml_tensor * attn_ctx = codec_op_lm_attn_ctx_dth(ctx_eval, q_rope, k_rope, v_dth, &attn_p);
+    ggml_tensor * attn_ctx = codec_op_lm_attn_ctx_dth(ctx_eval, q_rope, k_rope, v_dth, &attn_p);
     if (attn_ctx == nullptr) {
         return nullptr;
     }
 
-    lm_ggml_tensor * attn_ct = lm_ggml_reshape_2d(
+    ggml_tensor * attn_ct = ggml_reshape_2d(
         ctx_eval,
-        lm_ggml_cont(ctx_eval, lm_ggml_permute(ctx_eval, attn_ctx, 0, 2, 1, 3)),
+        ggml_cont(ctx_eval, ggml_permute(ctx_eval, attn_ctx, 0, 2, 1, 3)),
         hidden,
         t);
-    lm_ggml_tensor * attn_proj = codec_op_linear(ctx_eval, attn_ct, o_w, o_b);
+    ggml_tensor * attn_proj = codec_op_linear(ctx_eval, attn_ct, o_w, o_b);
     if (attn_proj == nullptr) {
         return nullptr;
     }
 
-    lm_ggml_tensor * v_tc = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, v_ct));
-    lm_ggml_tensor * fsmn_tc = codec_conv1d_depthwise(ctx_eval, v_tc, fsmn_w, nullptr, 1, 1, fsmn_kernel / 2);
+    ggml_tensor * v_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, v_ct));
+    ggml_tensor * fsmn_tc = codec_conv1d_depthwise(ctx_eval, v_tc, fsmn_w, nullptr, 1, 1, fsmn_kernel / 2);
     if (fsmn_tc == nullptr) {
         return nullptr;
     }
-    lm_ggml_tensor * fsmn_ct = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, fsmn_tc));
-    fsmn_ct = lm_ggml_add(ctx_eval, fsmn_ct, v_ct);
-    x_ct = lm_ggml_add(ctx_eval, x_ct, lm_ggml_add(ctx_eval, attn_proj, fsmn_ct));
+    ggml_tensor * fsmn_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, fsmn_tc));
+    fsmn_ct = ggml_add(ctx_eval, fsmn_ct, v_ct);
+    x_ct = ggml_add(ctx_eval, x_ct, ggml_add(ctx_eval, attn_proj, fsmn_ct));
 
-    lm_ggml_tensor * m_ct = codec_op_layer_norm_ct(ctx_eval, x_ct, 1e-5f, mlp_ln_w, mlp_ln_b);
+    ggml_tensor * m_ct = codec_op_layer_norm_ct(ctx_eval, x_ct, 1e-5f, mlp_ln_w, mlp_ln_b);
     if (m_ct == nullptr) {
         return nullptr;
     }
-    lm_ggml_tensor * ff = codec_op_linear(ctx_eval, m_ct, fc1_w, fc1_b);
+    ggml_tensor * ff = codec_op_linear(ctx_eval, m_ct, fc1_w, fc1_b);
     if (ff == nullptr) {
         return nullptr;
     }
-    ff = lm_ggml_gelu_erf(ctx_eval, ff);
+    ff = ggml_gelu_erf(ctx_eval, ff);
     ff = codec_op_linear(ctx_eval, ff, fc2_w, fc2_b);
     if (ff == nullptr) {
         return nullptr;
     }
 
-    return lm_ggml_add(ctx_eval, x_ct, ff);
+    return ggml_add(ctx_eval, x_ct, ff);
 }
 
 static bool codec_chatterbox_s3t_build_encode(
-    lm_ggml_context * ctx_eval,
+    ggml_context * ctx_eval,
     void * user_data,
-    lm_ggml_tensor ** out) {
+    ggml_tensor ** out) {
     if (ctx_eval == nullptr || user_data == nullptr || out == nullptr) {
         return false;
     }
@@ -144,52 +144,52 @@ static bool codec_chatterbox_s3t_build_encode(
         return false;
     }
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, p->model, name);
     };
 
-    lm_ggml_tensor * t_mel = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_F32, p->t_mel, p->n_mels);
-    lm_ggml_set_name(t_mel, "s3t.encode.mel");
+    ggml_tensor * t_mel = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->t_mel, p->n_mels);
+    ggml_set_name(t_mel, "s3t.encode.mel");
 
-    lm_ggml_tensor * t_conv1_w = W("s3t.enc.conv1.w");
-    lm_ggml_tensor * t_conv1_b = W("s3t.enc.conv1.b");
-    lm_ggml_tensor * t_conv2_w = W("s3t.enc.conv2.w");
-    lm_ggml_tensor * t_conv2_b = W("s3t.enc.conv2.b");
+    ggml_tensor * t_conv1_w = W("s3t.enc.conv1.w");
+    ggml_tensor * t_conv1_b = W("s3t.enc.conv1.b");
+    ggml_tensor * t_conv2_w = W("s3t.enc.conv2.w");
+    ggml_tensor * t_conv2_b = W("s3t.enc.conv2.b");
     if (t_conv1_w == nullptr || t_conv1_b == nullptr || t_conv2_w == nullptr || t_conv2_b == nullptr) {
         return false;
     }
 
-    lm_ggml_tensor * x_tc = codec_conv1d(ctx_eval, t_mel, t_conv1_w, t_conv1_b, 2, 1, 1);
+    ggml_tensor * x_tc = codec_conv1d(ctx_eval, t_mel, t_conv1_w, t_conv1_b, 2, 1, 1);
     if (x_tc == nullptr) {
         return false;
     }
-    x_tc = lm_ggml_gelu_erf(ctx_eval, x_tc);
+    x_tc = ggml_gelu_erf(ctx_eval, x_tc);
     x_tc = codec_conv1d(ctx_eval, x_tc, t_conv2_w, t_conv2_b, 2, 1, 1);
     if (x_tc == nullptr) {
         return false;
     }
-    x_tc = lm_ggml_gelu_erf(ctx_eval, x_tc);
+    x_tc = ggml_gelu_erf(ctx_eval, x_tc);
 
-    lm_ggml_tensor * x_ct = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, x_tc));
+    ggml_tensor * x_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, x_tc));
     for (int32_t li = 0; li < p->n_layers; ++li) {
         const std::string base = codec_chatterbox_s3t_block_prefix(li);
 
-        lm_ggml_tensor * t_attn_ln_w = W(base + ".attn_ln.w");
-        lm_ggml_tensor * t_attn_ln_b = W(base + ".attn_ln.b");
-        lm_ggml_tensor * t_q_w = W(base + ".attn.q.w");
-        lm_ggml_tensor * t_q_b = W(base + ".attn.q.b");
-        lm_ggml_tensor * t_k_w = W(base + ".attn.k.w");
-        lm_ggml_tensor * t_v_w = W(base + ".attn.v.w");
-        lm_ggml_tensor * t_v_b = W(base + ".attn.v.b");
-        lm_ggml_tensor * t_o_w = W(base + ".attn.o.w");
-        lm_ggml_tensor * t_o_b = W(base + ".attn.o.b");
-        lm_ggml_tensor * t_fsmn_w = W(base + ".attn.fsmn.w");
-        lm_ggml_tensor * t_mlp_ln_w = W(base + ".mlp_ln.w");
-        lm_ggml_tensor * t_mlp_ln_b = W(base + ".mlp_ln.b");
-        lm_ggml_tensor * t_fc1_w = W(base + ".mlp.fc1.w");
-        lm_ggml_tensor * t_fc1_b = W(base + ".mlp.fc1.b");
-        lm_ggml_tensor * t_fc2_w = W(base + ".mlp.fc2.w");
-        lm_ggml_tensor * t_fc2_b = W(base + ".mlp.fc2.b");
+        ggml_tensor * t_attn_ln_w = W(base + ".attn_ln.w");
+        ggml_tensor * t_attn_ln_b = W(base + ".attn_ln.b");
+        ggml_tensor * t_q_w = W(base + ".attn.q.w");
+        ggml_tensor * t_q_b = W(base + ".attn.q.b");
+        ggml_tensor * t_k_w = W(base + ".attn.k.w");
+        ggml_tensor * t_v_w = W(base + ".attn.v.w");
+        ggml_tensor * t_v_b = W(base + ".attn.v.b");
+        ggml_tensor * t_o_w = W(base + ".attn.o.w");
+        ggml_tensor * t_o_b = W(base + ".attn.o.b");
+        ggml_tensor * t_fsmn_w = W(base + ".attn.fsmn.w");
+        ggml_tensor * t_mlp_ln_w = W(base + ".mlp_ln.w");
+        ggml_tensor * t_mlp_ln_b = W(base + ".mlp_ln.b");
+        ggml_tensor * t_fc1_w = W(base + ".mlp.fc1.w");
+        ggml_tensor * t_fc1_b = W(base + ".mlp.fc1.b");
+        ggml_tensor * t_fc2_w = W(base + ".mlp.fc2.w");
+        ggml_tensor * t_fc2_b = W(base + ".mlp.fc2.b");
         if (t_attn_ln_w == nullptr || t_attn_ln_b == nullptr || t_q_w == nullptr || t_q_b == nullptr ||
             t_k_w == nullptr || t_v_w == nullptr || t_v_b == nullptr || t_o_w == nullptr ||
             t_o_b == nullptr || t_fsmn_w == nullptr || t_mlp_ln_w == nullptr || t_mlp_ln_b == nullptr ||
@@ -224,31 +224,31 @@ static bool codec_chatterbox_s3t_build_encode(
         }
     }
 
-    lm_ggml_tensor * t_q_proj_w = W("s3t.q.proj.w");
-    lm_ggml_tensor * t_q_proj_b = W("s3t.q.proj.b");
+    ggml_tensor * t_q_proj_w = W("s3t.q.proj.w");
+    ggml_tensor * t_q_proj_b = W("s3t.q.proj.b");
     if (t_q_proj_w == nullptr || t_q_proj_b == nullptr) {
         return false;
     }
     // Token-id powers {1,3,9,...} are baked here as a graph leaf written at
     // runtime; they're a constant base-3 expansion, not in the GGUF.
-    lm_ggml_tensor * t_q_powers = lm_ggml_new_tensor_1d(ctx_eval, LM_GGML_TYPE_F32, 8);
-    lm_ggml_set_name(t_q_powers, "s3t.encode.q.powers");
+    ggml_tensor * t_q_powers = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, 8);
+    ggml_set_name(t_q_powers, "s3t.encode.q.powers");
 
-    lm_ggml_tensor * q_ct = codec_op_linear(ctx_eval, x_ct, t_q_proj_w, t_q_proj_b);
+    ggml_tensor * q_ct = codec_op_linear(ctx_eval, x_ct, t_q_proj_w, t_q_proj_b);
     if (q_ct == nullptr) {
         return false;
     }
-    q_ct = lm_ggml_tanh(ctx_eval, q_ct);
-    q_ct = lm_ggml_scale(ctx_eval, q_ct, 0.9990000128746033f);
-    q_ct = lm_ggml_round(ctx_eval, q_ct);
-    q_ct = lm_ggml_scale_bias(ctx_eval, q_ct, 1.0f, 1.0f);
+    q_ct = ggml_tanh(ctx_eval, q_ct);
+    q_ct = ggml_scale(ctx_eval, q_ct, 0.9990000128746033f);
+    q_ct = ggml_round(ctx_eval, q_ct);
+    q_ct = ggml_scale_bias(ctx_eval, q_ct, 1.0f, 1.0f);
 
-    lm_ggml_tensor * powers_2d = lm_ggml_reshape_2d(ctx_eval, t_q_powers, 8, 1);
-    lm_ggml_tensor * idx_ct = lm_ggml_mul(ctx_eval, q_ct, lm_ggml_repeat(ctx_eval, powers_2d, q_ct));
-    lm_ggml_tensor * idx_sum = lm_ggml_sum_rows(ctx_eval, idx_ct);
-    lm_ggml_tensor * idx_i32 = lm_ggml_cast(ctx_eval, lm_ggml_reshape_1d(ctx_eval, idx_sum, p->t_tok), LM_GGML_TYPE_I32);
-    lm_ggml_tensor * t_out = lm_ggml_reshape_2d(ctx_eval, idx_i32, p->t_tok, 1);
-    lm_ggml_set_name(t_out, "s3t.encode.out");
+    ggml_tensor * powers_2d = ggml_reshape_2d(ctx_eval, t_q_powers, 8, 1);
+    ggml_tensor * idx_ct = ggml_mul(ctx_eval, q_ct, ggml_repeat(ctx_eval, powers_2d, q_ct));
+    ggml_tensor * idx_sum = ggml_sum_rows(ctx_eval, idx_ct);
+    ggml_tensor * idx_i32 = ggml_cast(ctx_eval, ggml_reshape_1d(ctx_eval, idx_sum, p->t_tok), GGML_TYPE_I32);
+    ggml_tensor * t_out = ggml_reshape_2d(ctx_eval, idx_i32, p->t_tok, 1);
+    ggml_set_name(t_out, "s3t.encode.out");
     *out = t_out;
     return true;
 }
@@ -257,7 +257,7 @@ static bool codec_chatterbox_s3t_write_encode_powers(
     codec_context * ctx,
     codec_graph_cache_entry * entry,
     std::string * err) {
-    lm_ggml_tensor * t_q_powers = codec_graph_get_tensor(ctx, entry, "s3t.encode.q.powers");
+    ggml_tensor * t_q_powers = codec_graph_get_tensor(ctx, entry, "s3t.encode.q.powers");
     if (t_q_powers == nullptr) {
         if (err != nullptr) {
             *err = "missing Chatterbox-S3T powers tensor";
@@ -295,7 +295,7 @@ static bool codec_chatterbox_s3t_prepare_log_mel(
         return false;
     }
 
-    lm_ggml_tensor * mel_tensor = codec_model_get_tensor(ctx->model, "s3t.mel_filters");
+    ggml_tensor * mel_tensor = codec_model_get_tensor(ctx->model, "s3t.mel_filters");
     if (mel_tensor == nullptr) {
         if (err != nullptr) {
             *err = "missing Chatterbox-S3T mel filter tensor";
@@ -320,7 +320,7 @@ static bool codec_chatterbox_s3t_prepare_log_mel(
         return false;
     }
 
-    lm_ggml_tensor * window_tensor = codec_model_get_tensor(ctx->model, "s3t.window");
+    ggml_tensor * window_tensor = codec_model_get_tensor(ctx->model, "s3t.window");
     std::vector<float> window;
     if (window_tensor != nullptr) {
         if (!codec_tensor_as_vec_f32(window_tensor, &window)) {
@@ -533,8 +533,8 @@ enum codec_status codec_chatterbox_s3t_encode(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    lm_ggml_tensor * t_mel_tensor = codec_graph_get_tensor(ctx, entry, "s3t.encode.mel");
-    lm_ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, "s3t.encode.out");
+    ggml_tensor * t_mel_tensor = codec_graph_get_tensor(ctx, entry, "s3t.encode.mel");
+    ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, "s3t.encode.out");
     if (t_mel_tensor == nullptr || t_out == nullptr) {
         codec_context_set_error(ctx, "cached Chatterbox-S3T encode graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;

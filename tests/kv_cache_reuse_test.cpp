@@ -2302,8 +2302,8 @@ std::vector<Check> run_slot_media_test(const std::string &key, const std::string
     }
 
     // Drive the slot manager to completion (update_slots does the work per call).
-    const int64_t t0 = lm_ggml_time_us();
-    while (!completed && (lm_ggml_time_us() - t0) < 180LL * 1000 * 1000) {
+    const int64_t t0 = ggml_time_us();
+    while (!completed && (ggml_time_us() - t0) < 180LL * 1000 * 1000) {
         ctx.slot_manager->update_slots();
     }
 
@@ -2351,8 +2351,8 @@ std::vector<Check> run_slot_state_file_test(const std::string &key, const std::s
     std::vector<llama_token> generated_ids;
 
     auto drive = [](llama_rn_context &ctx, bool &completed) {
-        const int64_t t0 = lm_ggml_time_us();
-        while (!completed && (lm_ggml_time_us() - t0) < 120LL * 1000 * 1000) {
+        const int64_t t0 = ggml_time_us();
+        while (!completed && (ggml_time_us() - t0) < 120LL * 1000 * 1000) {
             ctx.slot_manager->update_slots();
         }
     };
@@ -2485,9 +2485,9 @@ std::vector<Check> run_slot_media_concurrent_test(const std::string &key, const 
         [&](const completion_token_output &out) { media_reply += out.text; },
         [&](llama_rn_slot *s) { media_completed = true; media_incomplete = s->incomplete; });
 
-    const int64_t t0 = lm_ggml_time_us();
+    const int64_t t0 = ggml_time_us();
     while ((!media_completed || !text_completed) &&
-           (lm_ggml_time_us() - t0) < 180LL * 1000 * 1000) {
+           (ggml_time_us() - t0) < 180LL * 1000 * 1000) {
         ctx.slot_manager->update_slots();
     }
 
@@ -2530,8 +2530,8 @@ std::vector<Check> run_slot_prompt_state_regen_test(const std::string &key, cons
     params.sampling.top_k = 1;
 
     auto drive = [](llama_rn_context &ctx, bool &completed) {
-        const int64_t t0 = lm_ggml_time_us();
-        while (!completed && (lm_ggml_time_us() - t0) < 120LL * 1000 * 1000) {
+        const int64_t t0 = ggml_time_us();
+        while (!completed && (ggml_time_us() - t0) < 120LL * 1000 * 1000) {
             ctx.slot_manager->update_slots();
         }
     };
@@ -2660,8 +2660,8 @@ std::vector<Check> run_slot_media_state_file_test(const std::string &key, const 
                 incomplete = s->incomplete;
                 cache_n = s->n_prompt_tokens_cache;
             });
-        const int64_t t0 = lm_ggml_time_us();
-        while (!completed && (lm_ggml_time_us() - t0) < 180LL * 1000 * 1000) {
+        const int64_t t0 = ggml_time_us();
+        while (!completed && (ggml_time_us() - t0) < 180LL * 1000 * 1000) {
             ctx.slot_manager->update_slots();
         }
     };

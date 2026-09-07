@@ -15,7 +15,7 @@
 #include "hvx-utils.h"
 #include "unary-ops.h"
 
-#define LM_GGML_COMMON_DECL_C
+#define GGML_COMMON_DECL_C
 #include "ggml-common.h"
 #include "htp-ctx.h"
 #include "htp-ops.h"
@@ -400,7 +400,7 @@ static void softplus_f32(const float * restrict src,
                          const struct htp_unary_context * uctx) {
     htp_unary_op_preamble;
     // softplus(x) = log(1 + exp(x))
-    // Match CPU reference: lm_ggml_compute_softplus_f32() in ggml-impl.h
+    // Match CPU reference: ggml_compute_softplus_f32() in ggml-impl.h
     for (uint32_t ir = 0; ir < num_rows; ir++) {
         const float * restrict src_f = (const float *)((const uint8_t *)src + (ir * src0_row_size_aligned));
         float * restrict dst_f       = (float *)((uint8_t *)dst + (ir * dst_row_size_aligned));

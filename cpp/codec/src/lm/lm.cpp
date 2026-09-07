@@ -80,11 +80,11 @@ std::string codec_lm_read_string_kv(const codec_model * codec, const char * key)
     if (codec == nullptr || codec->gguf == nullptr || key == nullptr) {
         return std::string();
     }
-    const int kid = lm_gguf_find_key(codec->gguf, key);
+    const int kid = gguf_find_key(codec->gguf, key);
     if (kid < 0) {
         return std::string();
     }
-    return codec_lm_gguf_value_to_string(codec->gguf, kid);
+    return codec_gguf_value_to_string(codec->gguf, kid);
 }
 
 // ---------------------------------------------------------------------
@@ -115,7 +115,7 @@ bool codec_lm_check_unfused_audio_tables(
         }
 
         std::snprintf(buf, sizeof(buf), "lm.audio_embd_%zu.weight", i);
-        lm_ggml_tensor * t_e = lm_ggml_get_tensor(lm->codec->weights, buf);
+        ggml_tensor * t_e = ggml_get_tensor(lm->codec->weights, buf);
         if (t_e == nullptr) {
             lm->last_error = std::string("missing tensor: ") + buf;
             return false;
@@ -128,7 +128,7 @@ bool codec_lm_check_unfused_audio_tables(
 
         if (!tied_heads) {
             std::snprintf(buf, sizeof(buf), "lm.heads_%zu.weight", i);
-            lm_ggml_tensor * t_h = lm_ggml_get_tensor(lm->codec->weights, buf);
+            ggml_tensor * t_h = ggml_get_tensor(lm->codec->weights, buf);
             if (t_h == nullptr) {
                 lm->last_error = std::string("missing tensor: ") + buf;
                 return false;
@@ -148,7 +148,7 @@ bool codec_lm_check_unfused_audio_tables(
 // ---------------------------------------------------------------------
 
 static bool codec_lm_populate_info(codec_lm * lm) {
-    lm_gguf_context * gf = lm->codec->gguf;
+    gguf_context * gf = lm->codec->gguf;
     if (gf == nullptr) {
         lm->last_error = "codec_model has no GGUF context";
         return false;

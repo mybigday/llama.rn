@@ -10,31 +10,31 @@ extern "C" {
 // backend context
 //
 
-typedef struct lm_ggml_metal * lm_ggml_metal_t;
+typedef struct ggml_metal * ggml_metal_t;
 
-lm_ggml_metal_t lm_ggml_metal_init(lm_ggml_metal_device_t dev);
-void lm_ggml_metal_free(lm_ggml_metal_t ctx);
+ggml_metal_t ggml_metal_init(ggml_metal_device_t dev);
+void ggml_metal_free(ggml_metal_t ctx);
 
-const char * lm_ggml_metal_get_name(lm_ggml_metal_t ctx);
+const char * ggml_metal_get_name(ggml_metal_t ctx);
 
-void lm_ggml_metal_synchronize(lm_ggml_metal_t ctx);
+void ggml_metal_synchronize(ggml_metal_t ctx);
 
-void lm_ggml_metal_set_tensor_async(lm_ggml_metal_t ctx, struct lm_ggml_tensor * tensor, const void * data, size_t offset, size_t size);
-void lm_ggml_metal_get_tensor_async(lm_ggml_metal_t ctx, const struct lm_ggml_tensor * tensor, void * data, size_t offset, size_t size);
-bool lm_ggml_metal_cpy_tensor_async(lm_ggml_metal_t ctx_src, lm_ggml_metal_t ctx_dst, const struct lm_ggml_tensor * src, struct lm_ggml_tensor * dst);
+void ggml_metal_set_tensor_async(ggml_metal_t ctx, struct ggml_tensor * tensor, const void * data, size_t offset, size_t size);
+void ggml_metal_get_tensor_async(ggml_metal_t ctx, const struct ggml_tensor * tensor, void * data, size_t offset, size_t size);
+bool ggml_metal_cpy_tensor_async(ggml_metal_t ctx_src, ggml_metal_t ctx_dst, const struct ggml_tensor * src, struct ggml_tensor * dst);
 
-enum lm_ggml_status lm_ggml_metal_graph_compute (lm_ggml_metal_t ctx, struct lm_ggml_cgraph * gf);
-void             lm_ggml_metal_graph_optimize(lm_ggml_metal_t ctx, struct lm_ggml_cgraph * gf);
+enum ggml_status ggml_metal_graph_compute (ggml_metal_t ctx, struct ggml_cgraph * gf);
+void             ggml_metal_graph_optimize(ggml_metal_t ctx, struct ggml_cgraph * gf);
 
-void lm_ggml_metal_event_record(lm_ggml_metal_t ctx, lm_ggml_metal_event_t ev);
-void lm_ggml_metal_event_wait  (lm_ggml_metal_t ctx, lm_ggml_metal_event_t ev);
+void ggml_metal_event_record(ggml_metal_t ctx, ggml_metal_event_t ev);
+void ggml_metal_event_wait  (ggml_metal_t ctx, ggml_metal_event_t ev);
 
-lm_ggml_metal_event_t lm_ggml_metal_get_ev_cpy(lm_ggml_metal_t ctx);
+ggml_metal_event_t ggml_metal_get_ev_cpy(ggml_metal_t ctx);
 
-void lm_ggml_metal_set_n_cb            (lm_ggml_metal_t ctx, int n_cb);
-void lm_ggml_metal_set_abort_callback  (lm_ggml_metal_t ctx, lm_ggml_abort_callback abort_callback, void * user_data);
-bool lm_ggml_metal_supports_family     (lm_ggml_metal_t ctx, int family);
-void lm_ggml_metal_capture_next_compute(lm_ggml_metal_t ctx);
+void ggml_metal_set_n_cb            (ggml_metal_t ctx, int n_cb);
+void ggml_metal_set_abort_callback  (ggml_metal_t ctx, ggml_abort_callback abort_callback, void * user_data);
+bool ggml_metal_supports_family     (ggml_metal_t ctx, int family);
+void ggml_metal_capture_next_compute(ggml_metal_t ctx);
 
 #ifdef __cplusplus
 }

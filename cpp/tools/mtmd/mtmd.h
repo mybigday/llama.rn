@@ -89,7 +89,7 @@ typedef bool (*mtmd_progress_callback)(float progress, void * user_data);
 
 struct mtmd_context_params {
     bool use_gpu;
-    lm_ggml_backend_dev_t device;
+    ggml_backend_dev_t device;
     bool print_timings;
     int n_threads;
     const char * image_marker; // deprecated, use media_marker instead
@@ -102,7 +102,7 @@ struct mtmd_context_params {
     int image_max_tokens; // maximum number of tokens for image input (default: read from metadata)
 
     // callback function passed over to mtmd proper
-    lm_ggml_backend_sched_eval_callback cb_eval;
+    ggml_backend_sched_eval_callback cb_eval;
     void * cb_eval_user_data;
 
     // batching params
@@ -334,7 +334,7 @@ MTMD_API float * mtmd_batch_get_output_embd(mtmd_batch * batch, const mtmd_input
 
 // Set callback for all future logging events.
 // If this is not called, or NULL is supplied, everything is output on stderr.
-MTMD_API void mtmd_log_set(lm_ggml_log_callback log_callback, void * user_data);
+MTMD_API void mtmd_log_set(ggml_log_callback log_callback, void * user_data);
 
 // EXPERIMENTAL API to get mmproj's capabilities without initializing the full context
 // This is only intended to be used by llama-server, breaking changes is expected
@@ -430,7 +430,7 @@ MTMD_API mtmd_input_chunks * mtmd_test_create_input_chunks(void);
 // Get memory usage of the current model in bytes, per backend device
 // Note: this is an unstable API, used internally by fit_params; it WILL be removed or changed without deprecation
 #ifdef __cplusplus
-MTMD_API std::map<lm_ggml_backend_dev_t, size_t> mtmd_get_memory_usage(
+MTMD_API std::map<ggml_backend_dev_t, size_t> mtmd_get_memory_usage(
     const char * mmproj_fname,
     struct mtmd_context_params ctx_params);
 #endif

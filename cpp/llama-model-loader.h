@@ -15,15 +15,15 @@
 #include <stdexcept>
 #include <unordered_map>
 
-using llama_buf_map = std::unordered_map<uint32_t, lm_ggml_backend_buffer_t>;
+using llama_buf_map = std::unordered_map<uint32_t, ggml_backend_buffer_t>;
 
 // lists of buffer types used for each layer
-using buft_list_t = std::vector<std::pair<lm_ggml_backend_dev_t, lm_ggml_backend_buffer_type_t>>;
+using buft_list_t = std::vector<std::pair<ggml_backend_dev_t, ggml_backend_buffer_type_t>>;
 
 enum llama_fver {
-    LM_GGUF_FILE_VERSION_V1 = 1,
-    LM_GGUF_FILE_VERSION_V2 = 2,
-    LM_GGUF_FILE_VERSION_V3 = 3,
+    GGUF_FILE_VERSION_V1 = 1,
+    GGUF_FILE_VERSION_V2 = 2,
+    GGUF_FILE_VERSION_V3 = 3,
 };
 
 const char * llama_file_version_name(llama_fver version);
@@ -34,17 +34,17 @@ struct llama_model_loader {
         uint16_t  idx; // source file index
         size_t   offs; // tensor data offset in the original file
 
-        lm_ggml_tensor * tensor;
+        ggml_tensor * tensor;
 
-        llama_tensor_weight(const llama_file * file, uint16_t idx, const struct lm_gguf_context * lm_gguf_ctx, lm_ggml_tensor * tensor) : idx(idx), tensor(tensor) {
-            const int tensor_idx = lm_gguf_find_tensor(lm_gguf_ctx,  lm_ggml_get_name(tensor));
+        llama_tensor_weight(const llama_file * file, uint16_t idx, const struct gguf_context * gguf_ctx, ggml_tensor * tensor) : idx(idx), tensor(tensor) {
+            const int tensor_idx = gguf_find_tensor(gguf_ctx,  ggml_get_name(tensor));
             if (tensor_idx < 0) {
-                throw std::runtime_error(format("tensor '%s' not found in the model", lm_ggml_get_name(tensor)));
+                throw std::runtime_error(format("tensor '%s' not found in the model", ggml_get_name(tensor)));
             }
 
-            offs = lm_gguf_get_data_offset(lm_gguf_ctx) + lm_gguf_get_tensor_offset(lm_gguf_ctx, tensor_idx);
-            if (offs + lm_ggml_nbytes(tensor) < offs || offs + lm_ggml_nbytes(tensor) > file->size()) {
-                throw std::runtime_error(format("tensor '%s' data is not within the file bounds, model is corrupted or incomplete", lm_ggml_get_name(tensor)));
+            offs = gguf_get_data_offset(gguf_ctx) + gguf_get_tensor_offset(gguf_ctx, tensor_idx);
+            if (offs + ggml_nbytes(tensor) < offs || offs + ggml_nbytes(tensor) > file->size()) {
+                throw std::runtime_error(format("tensor '%s' data is not within the file bounds, model is corrupted or incomplete", ggml_get_name(tensor)));
             }
         }
     };
@@ -92,11 +92,11 @@ struct llama_model_loader {
     std::unordered_map<std::string, llama_model_kv_override> kv_overrides;
     const llama_model_tensor_buft_override * tensor_buft_overrides;
 
-    lm_gguf_context_ptr metadata_ptr;
-    struct lm_gguf_context * metadata; // either metadata_ptr.get() or externally set
+    gguf_context_ptr metadata_ptr;
+    struct gguf_context * metadata; // either metadata_ptr.get() or externally set
     llama_model_set_tensor_data_t set_tensor_data;
     void * set_tensor_data_ud;
-    std::vector<lm_ggml_context_ptr> contexts;
+    std::vector<ggml_context_ptr> contexts;
 
     std::string arch_name;
     LLM_KV      llm_kv    = LLM_KV(LLM_ARCH_UNKNOWN);
@@ -106,23 +106,23 @@ struct llama_model_loader {
     std::vector<std::pair<size_t, size_t>> mmaps_used;
 
     // define a comparator for the buft -> ctx map to ensure that the order is well-defined:
-    struct lm_ggml_backend_buft_comparator {
-        bool operator()(const lm_ggml_backend_buffer_type_t & lhs, const lm_ggml_backend_buffer_type_t & rhs) const {
-            return strcmp(lm_ggml_backend_buft_name(lhs), lm_ggml_backend_buft_name(rhs)) < 0;
+    struct ggml_backend_buft_comparator {
+        bool operator()(const ggml_backend_buffer_type_t & lhs, const ggml_backend_buffer_type_t & rhs) const {
+            return strcmp(ggml_backend_buft_name(lhs), ggml_backend_buft_name(rhs)) < 0;
         }
     };
 
-    std::map<lm_ggml_backend_buffer_type_t, lm_ggml_context_ptr, lm_ggml_backend_buft_comparator> ctx_map;
+    std::map<ggml_backend_buffer_type_t, ggml_context_ptr, ggml_backend_buft_comparator> ctx_map;
 
     // track tensors that had to be moved for debugging:
     size_t n_tensors_moved = 0;
     std::string first_tensor_moved_name;
     std::string first_tensor_moved_type_name;
-    lm_ggml_backend_buffer_type_t first_moved_from_buft = nullptr;
-    lm_ggml_backend_buffer_type_t first_moved_to_buft = nullptr;
+    ggml_backend_buffer_type_t first_moved_from_buft = nullptr;
+    ggml_backend_buffer_type_t first_moved_to_buft = nullptr;
 
     llama_model_loader(
-        struct lm_gguf_context * metadata,
+        struct gguf_context * metadata,
         llama_model_set_tensor_data_t set_tensor_data,
         void * set_tensor_data_ud,
         const std::string & fname,
@@ -174,17 +174,17 @@ struct llama_model_loader {
 
     const llama_tensor_weight & require_weight(const char * name) const;
 
-    struct lm_ggml_tensor * get_tensor_meta(const char * name) const;
+    struct ggml_tensor * get_tensor_meta(const char * name) const;
 
-    struct lm_ggml_tensor * require_tensor_meta(const std::string & name) const;
+    struct ggml_tensor * require_tensor_meta(const std::string & name) const;
 
-    const struct lm_ggml_tensor * check_tensor_dims(
+    const struct ggml_tensor * check_tensor_dims(
             const std::string & name,
             const std::vector<int64_t> & ne,
             bool required,
             bool allow_reshape) const;
 
-    struct lm_ggml_tensor * create_tensor(
+    struct ggml_tensor * create_tensor(
         const llama_hparams & hparams, const buft_list_t * buft_list_cpu, const buft_list_t * buft_list_input, const buft_list_t * buft_list_output,
         const buft_list_t * buft_list_layer, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
 
@@ -192,17 +192,17 @@ struct llama_model_loader {
 
     void init_mappings(bool prefetch = true, llama_mlocks * mlock_mmaps = nullptr);
 
-    void get_mapping_range(size_t * first, size_t * last, void ** addr, int idx, lm_ggml_context * ctx) const;
+    void get_mapping_range(size_t * first, size_t * last, void ** addr, int idx, ggml_context * ctx) const;
 
     // release a weight's mmap pages
     void unmap_weight(const llama_tensor_weight & w) const;
 
     // for backwards compatibility, does not support ggml-backend
-    void load_data_for(struct lm_ggml_tensor * cur) const;
+    void load_data_for(struct ggml_tensor * cur) const;
 
     // Returns false if cancelled by progress_callback
     bool load_all_data(
-            struct lm_ggml_context * ctx,
+            struct ggml_context * ctx,
             llama_buf_map & bufs,
             llama_mlocks * lmlocks,
             llama_progress_callback progress_callback,

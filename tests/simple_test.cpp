@@ -292,7 +292,7 @@ bool test_context_init_failure_is_graceful() {
 bool test_utilities() {
     try {
         // Test kv_cache_type_from_str function
-        lm_ggml_type cache_type = kv_cache_type_from_str("f16");
+        ggml_type cache_type = kv_cache_type_from_str("f16");
         // Just ensure it doesn't crash and returns some valid value
 
         // Test flash attention type parsing
@@ -314,7 +314,7 @@ bool test_completion_generation_timing() {
         llama_rn_context_completion completion(nullptr);
 
         completion.startGenerationTiming();
-        completion.t_start_generation = lm_ggml_time_us() - 1000;
+        completion.t_start_generation = ggml_time_us() - 1000;
         completion.num_tokens_predicted = 3;
         completion.updateGenerationTiming();
 

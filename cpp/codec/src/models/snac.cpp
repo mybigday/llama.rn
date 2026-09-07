@@ -2,10 +2,10 @@
 
 #include "../ops/conv1d.h"
 #include "../ops/convtr1d.h"
-#include "../ops/lm_ggml_ops.h"
+#include "../ops/ggml_ops.h"
 #include "../ops/pool1d.h"
 #include "../runtime/graph.h"
-#include "../runtime/lm_gguf_kv.h"
+#include "../runtime/gguf_kv.h"
 #include "../runtime/tensor_utils.h"
 
 #include <algorithm>
@@ -67,35 +67,35 @@ namespace {
 // snake) which would flip negative-alpha channels into a near-singular
 // `1/eps` factor and ruin parity.  This local helper sticks to the SNAC
 // formula exactly.
-lm_ggml_tensor * codec_snac_snake_tc(lm_ggml_context * ctx, lm_ggml_tensor * x_tc, lm_ggml_tensor * alpha) {
+ggml_tensor * codec_snac_snake_tc(ggml_context * ctx, ggml_tensor * x_tc, ggml_tensor * alpha) {
     if (ctx == nullptr || x_tc == nullptr || alpha == nullptr) return nullptr;
     alpha = codec_graph_cast_f32(ctx, alpha);
-    lm_ggml_tensor * a_2d = lm_ggml_reshape_2d(ctx, alpha, 1, x_tc->ne[1]);
-    lm_ggml_tensor * a_rep = lm_ggml_repeat(ctx, a_2d, x_tc);                         // [t, c]
-    lm_ggml_tensor * a_eps = lm_ggml_scale_bias(ctx, a_rep, 1.0f, 1e-9f);             // alpha + 1e-9
-    lm_ggml_tensor * ax = lm_ggml_mul(ctx, a_rep, x_tc);                              // alpha * x
-    lm_ggml_tensor * s = lm_ggml_sin(ctx, ax);
-    lm_ggml_tensor * s2 = lm_ggml_mul(ctx, s, s);
-    lm_ggml_tensor * frac = lm_ggml_div(ctx, s2, a_eps);                              // sin^2 / (alpha + eps)
-    return lm_ggml_add(ctx, x_tc, frac);
+    ggml_tensor * a_2d = ggml_reshape_2d(ctx, alpha, 1, x_tc->ne[1]);
+    ggml_tensor * a_rep = ggml_repeat(ctx, a_2d, x_tc);                         // [t, c]
+    ggml_tensor * a_eps = ggml_scale_bias(ctx, a_rep, 1.0f, 1e-9f);             // alpha + 1e-9
+    ggml_tensor * ax = ggml_mul(ctx, a_rep, x_tc);                              // alpha * x
+    ggml_tensor * s = ggml_sin(ctx, ax);
+    ggml_tensor * s2 = ggml_mul(ctx, s, s);
+    ggml_tensor * frac = ggml_div(ctx, s2, a_eps);                              // sin^2 / (alpha + eps)
+    return ggml_add(ctx, x_tc, frac);
 }
 
 // ResidualUnit (depthwise, kernel=7, dilation = d):
 //   y = x + Conv1×1(Snake(Conv7-dilated-depthwise(Snake(x))))
 // Time may shrink by `(k-1)*dilation` when dilation > 1 / padding < (k-1)*d/2;
 // the upstream `ResidualUnit.forward` then center-crops `x` to match `y`.
-lm_ggml_tensor * codec_snac_residual_unit_tc(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_tc,
-    lm_ggml_tensor * a1, lm_ggml_tensor * c1_w, lm_ggml_tensor * c1_b,
-    lm_ggml_tensor * a2, lm_ggml_tensor * c2_w, lm_ggml_tensor * c2_b,
+ggml_tensor * codec_snac_residual_unit_tc(
+    ggml_context * ctx,
+    ggml_tensor * x_tc,
+    ggml_tensor * a1, ggml_tensor * c1_w, ggml_tensor * c1_b,
+    ggml_tensor * a2, ggml_tensor * c2_w, ggml_tensor * c2_b,
     int32_t dilation,
     int32_t kernel = 7) {
 
     if (ctx == nullptr || x_tc == nullptr) return nullptr;
 
     const int32_t pad = ((kernel - 1) * dilation) / 2;
-    lm_ggml_tensor * h = codec_snac_snake_tc(ctx, x_tc, a1);
+    ggml_tensor * h = codec_snac_snake_tc(ctx, x_tc, a1);
     if (h == nullptr) return nullptr;
     h = codec_conv1d_depthwise(ctx, h, c1_w, c1_b, /*stride=*/1, dilation, pad);
     if (h == nullptr) return nullptr;
@@ -111,18 +111,18 @@ lm_ggml_tensor * codec_snac_residual_unit_tc(
         const int32_t crop = (int32_t) ((t_x - t_y) / 2);
         x_tc = codec_op_crop_1d(ctx, x_tc, crop, (int32_t) (t_x - t_y - crop));
     }
-    return lm_ggml_add(ctx, x_tc, h);
+    return ggml_add(ctx, x_tc, h);
 }
 
-// (Shared `codec_op_l2_normalize_tc` lives in src/ops/lm_ggml_ops.{cpp,h}.)
+// (Shared `codec_op_l2_normalize_tc` lives in src/ops/ggml_ops.{cpp,h}.)
 
 // Repeat-interleave along the time axis for a TC tensor.  Each input frame
 // is expanded to `factor` consecutive output frames.  Layout-wise this is
 // `reshape(t, 1, c) -> repeat(factor, 1, 1) -> reshape(t*factor, c)` once we
 // account for ggml's column-major-on-ne[0] convention.
-lm_ggml_tensor * codec_snac_repeat_interleave_tc(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_tc,
+ggml_tensor * codec_snac_repeat_interleave_tc(
+    ggml_context * ctx,
+    ggml_tensor * x_tc,
     int32_t factor) {
 
     if (ctx == nullptr || x_tc == nullptr || factor <= 0) return nullptr;
@@ -130,14 +130,14 @@ lm_ggml_tensor * codec_snac_repeat_interleave_tc(
 
     const int64_t t = x_tc->ne[0];
     const int64_t c = x_tc->ne[1];
-    // x_tc as 3D: ne=(1, t, c).  lm_ggml_repeat targets ne=(factor, t, c) so each
+    // x_tc as 3D: ne=(1, t, c).  ggml_repeat targets ne=(factor, t, c) so each
     // (t, c) entry is replicated `factor` times along the new ne[0] axis.
-    lm_ggml_tensor * x_3d = lm_ggml_reshape_3d(ctx, x_tc, 1, t, c);
-    lm_ggml_tensor * tmpl = lm_ggml_new_tensor_3d(ctx, LM_GGML_TYPE_F32, factor, t, c);
-    lm_ggml_tensor * x_rep = lm_ggml_repeat(ctx, x_3d, tmpl);                          // [factor, t, c]
+    ggml_tensor * x_3d = ggml_reshape_3d(ctx, x_tc, 1, t, c);
+    ggml_tensor * tmpl = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, factor, t, c);
+    ggml_tensor * x_rep = ggml_repeat(ctx, x_3d, tmpl);                          // [factor, t, c]
     // Contiguous flatten: per channel, the sequence is
     //   [x[0], x[0], …, x[0] (factor×), x[1], x[1], …]  → repeat-interleave.
-    return lm_ggml_reshape_2d(ctx, lm_ggml_cont(ctx, x_rep), factor * t, c);
+    return ggml_reshape_2d(ctx, ggml_cont(ctx, x_rep), factor * t, c);
 }
 
 }  // namespace
@@ -159,14 +159,14 @@ struct snac_encode_build {
     const codec_model * model = nullptr;
 };
 
-static lm_ggml_tensor * codec_snac_encoder_block(
-    lm_ggml_context * ctx_eval,
-    lm_ggml_tensor * x_tc,
+static ggml_tensor * codec_snac_encoder_block(
+    ggml_context * ctx_eval,
+    ggml_tensor * x_tc,
     int32_t bi,
     int32_t stride,
     const codec_model * model) {
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, model, name);
     };
     const int32_t dilations[3] = { 1, 3, 9 };
@@ -189,43 +189,43 @@ static lm_ggml_tensor * codec_snac_encoder_block(
                         /*stride=*/stride, /*dilation=*/1, padding);
 }
 
-static lm_ggml_tensor * codec_snac_quantize_level(
-    lm_ggml_context * ctx_eval,
-    lm_ggml_tensor * residual_tc,        // [t_lat, latent_dim] (current residual)
+static ggml_tensor * codec_snac_quantize_level(
+    ggml_context * ctx_eval,
+    ggml_tensor * residual_tc,        // [t_lat, latent_dim] (current residual)
     int32_t qi,
     int32_t stride,
     int32_t latent_dim,
     int32_t cb_dim,
     int32_t cb_size,
     const codec_model * model,
-    lm_ggml_tensor ** out_codes,         // [t_lat / stride] int32
-    lm_ggml_tensor ** out_z_q_tc) {       // reconstruction at full latent rate
+    ggml_tensor ** out_codes,         // [t_lat / stride] int32
+    ggml_tensor ** out_z_q_tc) {       // reconstruction at full latent rate
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, model, name);
     };
     const std::string base = "snac.q." + std::to_string(qi);
 
     // 1) Avg-pool along time by `stride` (matches torch.nn.functional.avg_pool1d).
-    //    In TC layout (ne[0]=t, ne[1]=c), lm_ggml_pool_1d reduces ne[0] which is
+    //    In TC layout (ne[0]=t, ne[1]=c), ggml_pool_1d reduces ne[0] which is
     //    exactly the time axis — no transpose needed.
-    lm_ggml_tensor * pooled_tc = residual_tc;
+    ggml_tensor * pooled_tc = residual_tc;
     if (stride > 1) {
-        pooled_tc = lm_ggml_pool_1d(ctx_eval, residual_tc,
-                                 LM_GGML_OP_POOL_AVG, stride, stride, 0);
+        pooled_tc = ggml_pool_1d(ctx_eval, residual_tc,
+                                 GGML_OP_POOL_AVG, stride, stride, 0);
         if (pooled_tc == nullptr) return nullptr;
-        pooled_tc = lm_ggml_cont(ctx_eval, pooled_tc);
+        pooled_tc = ggml_cont(ctx_eval, pooled_tc);
     }
 
     // 2) in_proj (latent_dim -> codebook_dim) via 1×1 conv.
-    lm_ggml_tensor * z_e = codec_conv1d(ctx_eval, pooled_tc,
+    ggml_tensor * z_e = codec_conv1d(ctx_eval, pooled_tc,
                                      W(base + ".in_proj.w"),
                                      W(base + ".in_proj.b"),
                                      /*stride=*/1, /*dilation=*/1, /*padding=*/0);
     if (z_e == nullptr) return nullptr;
 
     // 3) L2-normalize z_e per t-step.
-    lm_ggml_tensor * z_n = codec_op_l2_normalize_tc(ctx_eval, z_e, /*eps=*/1e-12f);
+    ggml_tensor * z_n = codec_op_l2_normalize_tc(ctx_eval, z_e, /*eps=*/1e-12f);
     if (z_n == nullptr) return nullptr;
 
     // 4) Cosine-NN against the pre-baked L2-normalized codebook.  Codebook
@@ -234,24 +234,24 @@ static lm_ggml_tensor * codec_snac_quantize_level(
     //    `z_n @ cb_norm.T` gives (t, cb_size).  In ggml, mul_mat contracts
     //    ne[0]: with z_n permuted to (cb_dim, t) and codebook ne=(cb_dim,
     //    cb_size), `mul_mat(codebook, z_n_ct)` returns (cb_size, t).
-    lm_ggml_tensor * cb_norm = W(base + ".codebook_norm");
+    ggml_tensor * cb_norm = W(base + ".codebook_norm");
     if (cb_norm == nullptr) return nullptr;
     cb_norm = codec_graph_cast_f32(ctx_eval, cb_norm);
 
-    lm_ggml_tensor * z_n_ct = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, z_n));   // [d, t_lat]
-    lm_ggml_tensor * sims = lm_ggml_mul_mat(ctx_eval, cb_norm, z_n_ct);                 // [cb_size, t_lat]
+    ggml_tensor * z_n_ct = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, z_n));   // [d, t_lat]
+    ggml_tensor * sims = ggml_mul_mat(ctx_eval, cb_norm, z_n_ct);                 // [cb_size, t_lat]
 
     // 5) argmax along ne[0] (= codebook axis) to get indices [t_lat].
-    lm_ggml_tensor * idx = lm_ggml_argmax(ctx_eval, sims);                              // ne=(t_lat,) i32
+    ggml_tensor * idx = ggml_argmax(ctx_eval, sims);                              // ne=(t_lat,) i32
     *out_codes = idx;
 
     // 6) Reconstruction: gather codebook[idx] (shape (t_lat, cb_dim)) → out_proj.
-    lm_ggml_tensor * cb = W(base + ".codebook");
+    ggml_tensor * cb = W(base + ".codebook");
     if (cb == nullptr) return nullptr;
     cb = codec_graph_cast_f32(ctx_eval, cb);
-    lm_ggml_tensor * z_q = lm_ggml_get_rows(ctx_eval, cb, idx);                         // [cb_dim, t_lat]
+    ggml_tensor * z_q = ggml_get_rows(ctx_eval, cb, idx);                         // [cb_dim, t_lat]
     // out_proj is a 1×1 conv mapping cb_dim -> latent_dim.  Switch back to TC.
-    lm_ggml_tensor * z_q_tc = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, z_q));    // [t_lat, cb_dim]
+    ggml_tensor * z_q_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, z_q));    // [t_lat, cb_dim]
     z_q_tc = codec_conv1d(ctx_eval, z_q_tc,
                           W(base + ".out_proj.w"),
                           W(base + ".out_proj.b"),
@@ -267,20 +267,20 @@ static lm_ggml_tensor * codec_snac_quantize_level(
     return z_q_tc;
 }
 
-static bool codec_snac_build_encode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out) {
+static bool codec_snac_build_encode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out) {
     snac_encode_build * p = static_cast<snac_encode_build *>(user_data);
     if (ctx_eval == nullptr || p == nullptr || out == nullptr || p->model == nullptr) return false;
     if (p->n_pcm <= 0 || p->n_levels != 3) return false;
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, p->model, name);
     };
 
-    lm_ggml_tensor * t_pcm = lm_ggml_new_tensor_2d(ctx_eval, LM_GGML_TYPE_F32, p->n_pcm, 1);
-    lm_ggml_set_name(t_pcm, codec_snac_name_pcm());
+    ggml_tensor * t_pcm = ggml_new_tensor_2d(ctx_eval, GGML_TYPE_F32, p->n_pcm, 1);
+    ggml_set_name(t_pcm, codec_snac_name_pcm());
 
     // Initial WNConv(1->encoder_dim, k=7, p=3).
-    lm_ggml_tensor * x_tc = codec_conv1d(ctx_eval, t_pcm,
+    ggml_tensor * x_tc = codec_conv1d(ctx_eval, t_pcm,
                                       W("snac.enc.conv0.w"),
                                       W("snac.enc.conv0.b"),
                                       /*stride=*/1, /*dilation=*/1, /*padding=*/3);
@@ -301,11 +301,11 @@ static bool codec_snac_build_encode(lm_ggml_context * ctx_eval, void * user_data
     // 3-level Residual VQ.  residual starts at z, each level emits codes_i +
     // updates residual.  We don't need the cumulative `z_q` here — only the
     // codes leave the graph.
-    lm_ggml_tensor * residual = x_tc;
-    lm_ggml_tensor * codes_out[3] = { nullptr, nullptr, nullptr };
+    ggml_tensor * residual = x_tc;
+    ggml_tensor * codes_out[3] = { nullptr, nullptr, nullptr };
     for (int32_t qi = 0; qi < 3; ++qi) {
-        lm_ggml_tensor * codes = nullptr;
-        lm_ggml_tensor * z_q = nullptr;
+        ggml_tensor * codes = nullptr;
+        ggml_tensor * z_q = nullptr;
         if (codec_snac_quantize_level(
                 ctx_eval, residual, qi, p->vq_strides[qi],
                 p->latent_dim, p->cb_dim, p->cb_size,
@@ -313,17 +313,17 @@ static bool codec_snac_build_encode(lm_ggml_context * ctx_eval, void * user_data
             return false;
         }
         codes_out[qi] = codes;
-        residual = lm_ggml_sub(ctx_eval, residual, z_q);
+        residual = ggml_sub(ctx_eval, residual, z_q);
     }
 
-    lm_ggml_set_name(codes_out[0], codec_snac_name_codes_0());
-    lm_ggml_set_name(codes_out[1], codec_snac_name_codes_1());
-    lm_ggml_set_name(codes_out[2], codec_snac_name_codes_2());
+    ggml_set_name(codes_out[0], codec_snac_name_codes_0());
+    ggml_set_name(codes_out[1], codec_snac_name_codes_1());
+    ggml_set_name(codes_out[2], codec_snac_name_codes_2());
     // codes_out[2] is the build_fn return value and is auto-flagged as an
     // output by the runtime; the first two have to be flagged here so galloc
     // doesn't reuse their buffers after the residual `sub` consumes them.
-    lm_ggml_set_output(codes_out[0]);
-    lm_ggml_set_output(codes_out[1]);
+    ggml_set_output(codes_out[0]);
+    ggml_set_output(codes_out[1]);
     *out = codes_out[2];
     return true;
 }
@@ -345,15 +345,15 @@ struct snac_decode_build {
     const codec_model * model = nullptr;
 };
 
-static lm_ggml_tensor * codec_snac_decoder_block(
-    lm_ggml_context * ctx_eval,
-    lm_ggml_tensor * x_tc,
+static ggml_tensor * codec_snac_decoder_block(
+    ggml_context * ctx_eval,
+    ggml_tensor * x_tc,
     int32_t bi,
     int32_t stride,
     bool apply_noise,
     const codec_model * model) {
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, model, name);
     };
     const std::string base = "snac.dec.b" + std::to_string(bi);
@@ -371,7 +371,7 @@ static lm_ggml_tensor * codec_snac_decoder_block(
     const int32_t output_padding = stride % 2;
     const int32_t total_crop = 2 * padding - output_padding;
 
-    lm_ggml_tensor * y = codec_convtr1d(ctx_eval, x_tc,
+    ggml_tensor * y = codec_convtr1d(ctx_eval, x_tc,
                                      W(base + ".convtr.w"),
                                      W(base + ".convtr.b"),
                                      /*stride=*/stride, /*padding=*/0, /*dilation=*/1);
@@ -408,19 +408,19 @@ static lm_ggml_tensor * codec_snac_decoder_block(
     return x_tc;
 }
 
-static bool codec_snac_build_decode(lm_ggml_context * ctx_eval, void * user_data, lm_ggml_tensor ** out) {
+static bool codec_snac_build_decode(ggml_context * ctx_eval, void * user_data, ggml_tensor ** out) {
     snac_decode_build * p = static_cast<snac_decode_build *>(user_data);
     if (ctx_eval == nullptr || p == nullptr || out == nullptr || p->model == nullptr) return false;
     if (p->n_super_frames <= 0) return false;
 
-    auto W = [&](const std::string & name) -> lm_ggml_tensor * {
+    auto W = [&](const std::string & name) -> ggml_tensor * {
         return codec_graph_weight(ctx_eval, p->model, name);
     };
 
     // Inputs: 3 compact 1D code tensors of lengths n_super, 2*n_super, 4*n_super.
     const int32_t n_super = p->n_super_frames;
     const int32_t lat_t = n_super * p->vq_strides[0];   // = n_super * 4
-    lm_ggml_tensor * codes[3] = { nullptr, nullptr, nullptr };
+    ggml_tensor * codes[3] = { nullptr, nullptr, nullptr };
     const char * names[3] = {
         codec_snac_name_dec_in_0(), codec_snac_name_dec_in_1(), codec_snac_name_dec_in_2(),
     };
@@ -430,21 +430,21 @@ static bool codec_snac_build_decode(lm_ggml_context * ctx_eval, void * user_data
         n_super * 4,
     };
     for (int32_t qi = 0; qi < 3; ++qi) {
-        codes[qi] = lm_ggml_new_tensor_1d(ctx_eval, LM_GGML_TYPE_I32, lens[qi]);
-        lm_ggml_set_name(codes[qi], names[qi]);
+        codes[qi] = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_I32, lens[qi]);
+        ggml_set_name(codes[qi], names[qi]);
     }
 
     // Sum z_q over the 3 levels.  Each level: gather codebook → out_proj →
     // repeat-interleave to length lat_t.
-    lm_ggml_tensor * z_q_total = nullptr;
+    ggml_tensor * z_q_total = nullptr;
     for (int32_t qi = 0; qi < 3; ++qi) {
         const std::string base = "snac.q." + std::to_string(qi);
-        lm_ggml_tensor * cb = W(base + ".codebook");
+        ggml_tensor * cb = W(base + ".codebook");
         if (cb == nullptr) return false;
         cb = codec_graph_cast_f32(ctx_eval, cb);
-        lm_ggml_tensor * z_p = lm_ggml_get_rows(ctx_eval, cb, codes[qi]);                 // [cb_dim, t_qi]
-        lm_ggml_tensor * z_p_tc = lm_ggml_cont(ctx_eval, lm_ggml_transpose(ctx_eval, z_p));  // [t_qi, cb_dim]
-        lm_ggml_tensor * z_qi = codec_conv1d(ctx_eval, z_p_tc,
+        ggml_tensor * z_p = ggml_get_rows(ctx_eval, cb, codes[qi]);                 // [cb_dim, t_qi]
+        ggml_tensor * z_p_tc = ggml_cont(ctx_eval, ggml_transpose(ctx_eval, z_p));  // [t_qi, cb_dim]
+        ggml_tensor * z_qi = codec_conv1d(ctx_eval, z_p_tc,
                                           W(base + ".out_proj.w"),
                                           W(base + ".out_proj.b"),
                                           /*stride=*/1, /*dilation=*/1, /*padding=*/0);
@@ -454,11 +454,11 @@ static bool codec_snac_build_decode(lm_ggml_context * ctx_eval, void * user_data
             z_qi = codec_snac_repeat_interleave_tc(ctx_eval, z_qi, stride);
             if (z_qi == nullptr) return false;
         }
-        z_q_total = (z_q_total == nullptr) ? z_qi : lm_ggml_add(ctx_eval, z_q_total, z_qi);
+        z_q_total = (z_q_total == nullptr) ? z_qi : ggml_add(ctx_eval, z_q_total, z_qi);
     }
 
     // Initial depthwise + pointwise: (latent, T) → (decoder_dim, T).
-    lm_ggml_tensor * x_tc = codec_conv1d_depthwise(ctx_eval, z_q_total,
+    ggml_tensor * x_tc = codec_conv1d_depthwise(ctx_eval, z_q_total,
                                                 W("snac.dec.conv_in_dw.w"),
                                                 W("snac.dec.conv_in_dw.b"),
                                                 /*stride=*/1, /*dilation=*/1, /*padding=*/3);
@@ -483,8 +483,8 @@ static bool codec_snac_build_decode(lm_ggml_context * ctx_eval, void * user_data
                         W("snac.dec.conv_final.b"),
                         /*stride=*/1, /*dilation=*/1, /*padding=*/3);
     if (x_tc == nullptr) return false;
-    x_tc = lm_ggml_tanh(ctx_eval, x_tc);
-    lm_ggml_set_name(x_tc, codec_snac_name_dec_out());
+    x_tc = ggml_tanh(ctx_eval, x_tc);
+    ggml_set_name(x_tc, codec_snac_name_dec_out());
     *out = x_tc;
     (void) lat_t;
     return true;
@@ -550,10 +550,10 @@ static enum codec_status codec_snac_run_encode(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    lm_ggml_tensor * t_pcm   = codec_graph_get_tensor(ctx, entry, codec_snac_name_pcm());
-    lm_ggml_tensor * t_c0    = codec_graph_get_tensor(ctx, entry, codec_snac_name_codes_0());
-    lm_ggml_tensor * t_c1    = codec_graph_get_tensor(ctx, entry, codec_snac_name_codes_1());
-    lm_ggml_tensor * t_c2    = codec_graph_get_tensor(ctx, entry, codec_snac_name_codes_2());
+    ggml_tensor * t_pcm   = codec_graph_get_tensor(ctx, entry, codec_snac_name_pcm());
+    ggml_tensor * t_c0    = codec_graph_get_tensor(ctx, entry, codec_snac_name_codes_0());
+    ggml_tensor * t_c1    = codec_graph_get_tensor(ctx, entry, codec_snac_name_codes_1());
+    ggml_tensor * t_c2    = codec_graph_get_tensor(ctx, entry, codec_snac_name_codes_2());
     if (t_pcm == nullptr || t_c0 == nullptr || t_c1 == nullptr || t_c2 == nullptr) {
         codec_context_set_error(ctx, "cached SNAC encode graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -576,7 +576,7 @@ static enum codec_status codec_snac_run_encode(
     // Pack codes as (n_q=3, n_super) int32.  Rows are level-0 / 1 / 2 codes
     // expanded by their respective stride so all three rows have the same
     // length.  This lets the decoder reverse the packing by sub-sampling.
-    auto read_i32 = [&](lm_ggml_tensor * t, std::vector<int32_t> & out) -> bool {
+    auto read_i32 = [&](ggml_tensor * t, std::vector<int32_t> & out) -> bool {
         const size_t n = (size_t) t->ne[0];
         out.assign(n, 0);
         return codec_runtime_read_tensor(t, out.data(), n * sizeof(int32_t), &err);
@@ -690,10 +690,10 @@ static enum codec_status codec_snac_run_decode(
         return CODEC_STATUS_INTERNAL_ERROR;
     }
 
-    lm_ggml_tensor * t_c0  = codec_graph_get_tensor(ctx, entry, codec_snac_name_dec_in_0());
-    lm_ggml_tensor * t_c1  = codec_graph_get_tensor(ctx, entry, codec_snac_name_dec_in_1());
-    lm_ggml_tensor * t_c2  = codec_graph_get_tensor(ctx, entry, codec_snac_name_dec_in_2());
-    lm_ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, codec_snac_name_dec_out());
+    ggml_tensor * t_c0  = codec_graph_get_tensor(ctx, entry, codec_snac_name_dec_in_0());
+    ggml_tensor * t_c1  = codec_graph_get_tensor(ctx, entry, codec_snac_name_dec_in_1());
+    ggml_tensor * t_c2  = codec_graph_get_tensor(ctx, entry, codec_snac_name_dec_in_2());
+    ggml_tensor * t_out = codec_graph_get_tensor(ctx, entry, codec_snac_name_dec_out());
     if (t_c0 == nullptr || t_c1 == nullptr || t_c2 == nullptr || t_out == nullptr) {
         codec_context_set_error(ctx, "cached SNAC decode graph is invalid");
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -716,7 +716,7 @@ static enum codec_status codec_snac_run_decode(
     }
 
 
-    if (t_out->type != LM_GGML_TYPE_F32 || t_out->ne[1] != 1) {
+    if (t_out->type != GGML_TYPE_F32 || t_out->ne[1] != 1) {
         codec_context_set_error(ctx, "unexpected SNAC decode output shape/type");
         return CODEC_STATUS_INTERNAL_ERROR;
     }

@@ -2,7 +2,7 @@
 
 template<typename T>
 kernel void kernel_soft_max(
-        constant lm_ggml_metal_kargs_soft_max & args,
+        constant ggml_metal_kargs_soft_max & args,
         device const  char * src0,
         device const  char * src1,
         device const  char * src2,
@@ -108,7 +108,7 @@ kernel void kernel_soft_max(
 
 template<typename T>
 kernel void kernel_soft_max_4(
-        constant lm_ggml_metal_kargs_soft_max & args,
+        constant ggml_metal_kargs_soft_max & args,
         device const  char * src0,
         device const  char * src1,
         device const  char * src2,

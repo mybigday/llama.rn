@@ -93,8 +93,8 @@ struct img_tool {
     }
 
     static void crop(const clip_image_u8 & image, clip_image_u8 & dst, int x, int y, int w, int h) {
-        LM_GGML_ASSERT(x >= 0 && y >= 0 && w > 0 && h > 0);
-        LM_GGML_ASSERT(x + w <= image.get_size().width && y + h <= image.get_size().height);
+        GGML_ASSERT(x >= 0 && y >= 0 && w > 0 && h > 0);
+        GGML_ASSERT(x + w <= image.get_size().width && y + h <= image.get_size().height);
         dst.set_size({w, h}, image.is_placeholder());
 
         if (image.is_placeholder()) {
@@ -120,7 +120,7 @@ struct img_tool {
     // calculate the size of the **resized** image, while preserving the aspect ratio and
     // aligning to the nearest multiple of align_size ("smart_resize" in transformers code)
     static clip_image_size calc_size_preserved_ratio(const clip_image_size & inp_size, const calc_size_opt & opts) {
-        LM_GGML_ASSERT(opts.align_size > 0);
+        GGML_ASSERT(opts.align_size > 0);
         const int width  = inp_size.width;
         const int height = inp_size.height;
         if (width <= 0 || height <= 0) {
@@ -277,7 +277,7 @@ private:
         // Returns: kernel size (ksize) - number of input pixels that contribute to each output pixel
         auto precompute_weights = [&](int inSize, int outSize,
                                      std::vector<int> & bounds, std::vector<int32_t> & weights) -> int {
-            LM_GGML_ASSERT(inSize > 0 && outSize > 0);
+            GGML_ASSERT(inSize > 0 && outSize > 0);
             double support, scale, filterscale;
             double center, ww, ss;
             int xx, x, ksize, xmin, xmax;
@@ -764,7 +764,7 @@ mtmd_image_preproc_out mtmd_image_preprocessor_fixed_size::preprocess(const clip
 //
 
 mtmd_image_preproc_out mtmd_image_preprocessor_dyn_size::preprocess(const clip_image_u8 & img) {
-    LM_GGML_ASSERT(hparams.image_min_pixels > 0 && hparams.image_max_pixels > 0);
+    GGML_ASSERT(hparams.image_min_pixels > 0 && hparams.image_max_pixels > 0);
     clip_image_u8 resized_image;
     const clip_image_size original_size = img.get_size();
     // the original pixtral model doesn't have n_merge
@@ -791,7 +791,7 @@ mtmd_image_preproc_out mtmd_image_preprocessor_dyn_size::preprocess(const clip_i
 //
 
 mtmd_image_preproc_out mtmd_image_preprocessor_longest_edge::preprocess(const clip_image_u8 & img) {
-    LM_GGML_ASSERT(hparams.image_longest_edge > 0);
+    GGML_ASSERT(hparams.image_longest_edge > 0);
     clip_image_u8 resized_image;
     const clip_image_size original_size = img.get_size();
     // the original pixtral model doesn't have n_merge
@@ -1022,7 +1022,7 @@ mtmd_image_preproc_out mtmd_image_preprocessor_idefics3::preprocess(const clip_i
 //
 
 mtmd_image_preproc_out mtmd_image_preprocessor_internvl::preprocess(const clip_image_u8 & img) {
-    LM_GGML_ASSERT(!hparams.image_res_candidates.empty());
+    GGML_ASSERT(!hparams.image_res_candidates.empty());
     const clip_image_size original_size = img.get_size();
     auto const inst = get_slice_instructions(original_size);
     auto sliced = slice_image(img, inst);
@@ -1471,11 +1471,11 @@ mtmd_image_preproc_out mtmd_image_preprocessor_youtuvl::preprocess(const clip_im
 }
 
 mtmd_image_preproc_out mtmd_image_preprocessor_granite::preprocess(const clip_image_u8 & img) {
-    LM_GGML_ASSERT(!hparams.image_res_candidates.empty());
+    GGML_ASSERT(!hparams.image_res_candidates.empty());
 
     const clip_image_size orig_size = img.get_size();
     const int             tile_size = hparams.image_size;
-    LM_GGML_ASSERT(tile_size > 0);
+    GGML_ASSERT(tile_size > 0);
 
     // llava-next always encodes an overview plus a grid of tiles, even for small images
     const clip_image_size refined_size = select_best_resolution(orig_size, hparams.image_res_candidates);
@@ -1483,7 +1483,7 @@ mtmd_image_preproc_out mtmd_image_preprocessor_granite::preprocess(const clip_im
     const int             grid_y       = refined_size.height / tile_size;
 
     // the tiles are stacked on the Y axis, a big grid overflows the stacked image height
-    LM_GGML_ASSERT(grid_x >= 0 && grid_x <= 1024 && grid_y >= 0 && grid_y <= 1024);
+    GGML_ASSERT(grid_x >= 0 && grid_x <= 1024 && grid_y >= 0 && grid_y <= 1024);
 
     clip_image_u8 overview;
     img_tool::resize(img, overview, {tile_size, tile_size}, hparams.image_resize_algo_ov,
@@ -1568,7 +1568,7 @@ static clip_image_size muse_glimmer_grid_size(int img_w, int img_h, int patch_hw
 mtmd_image_preproc_out mtmd_image_preprocessor_muse_glimmer::preprocess(const clip_image_u8 & img) {
     const int patch_hw   = hparams.patch_size * hparams.n_merge;
     const int patch_area = hparams.patch_size * hparams.patch_size * hparams.n_merge * hparams.n_merge;
-    LM_GGML_ASSERT(patch_area > 0 && hparams.image_max_pixels > 0);
+    GGML_ASSERT(patch_area > 0 && hparams.image_max_pixels > 0);
     const int max_tokens = hparams.image_max_pixels / patch_area;
 
     const clip_image_size original_size = img.get_size();

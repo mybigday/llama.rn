@@ -5,10 +5,10 @@
 #include "simd-mappings.h"
 
 // TODO: add support for sizeless vector types
-#if defined(LM_GGML_SIMD) && !defined(__ARM_FEATURE_SVE) && !defined(__riscv_v_intrinsic)
+#if defined(GGML_SIMD) && !defined(__ARM_FEATURE_SVE) && !defined(__riscv_v_intrinsic)
 
 // TODO: untested on avx512
-// These are in units of LM_GGML_F32_EPR
+// These are in units of GGML_F32_EPR
 #if defined(__AVX512F__) || defined (__ARM_NEON__)
     static constexpr int GEMM_RM = 4;
     static constexpr int GEMM_RN = 4; // 16+4+1 = 25/32
@@ -22,48 +22,48 @@
 
 template <int RM, int RN>
 static inline void simd_gemm_ukernel(
-    float       * LM_GGML_RESTRICT C,
-    const float * LM_GGML_RESTRICT A,
-    const float * LM_GGML_RESTRICT B,
+    float       * GGML_RESTRICT C,
+    const float * GGML_RESTRICT A,
+    const float * GGML_RESTRICT B,
     int K, int N)
 {
-    static constexpr int KN = LM_GGML_F32_EPR;
+    static constexpr int KN = GGML_F32_EPR;
 
-    LM_GGML_F32_VEC acc[RM][RN];
+    GGML_F32_VEC acc[RM][RN];
     for (int64_t i = 0; i < RM; i++) {
         for (int r = 0; r < RN; r++) {
-            acc[i][r] = LM_GGML_F32_VEC_LOAD(C + i * N + r * KN);
+            acc[i][r] = GGML_F32_VEC_LOAD(C + i * N + r * KN);
         }
     }
 
     for (int64_t kk = 0; kk < K; kk++) {
-        LM_GGML_F32_VEC Bv[RN];
+        GGML_F32_VEC Bv[RN];
         for (int r = 0; r < RN; r++) {
-            Bv[r] = LM_GGML_F32_VEC_LOAD(B + kk * N + r * KN);
+            Bv[r] = GGML_F32_VEC_LOAD(B + kk * N + r * KN);
         }
         for (int64_t i = 0; i < RM; i++) {
-            LM_GGML_F32_VEC p = LM_GGML_F32_VEC_SET1(A[i * K + kk]);
+            GGML_F32_VEC p = GGML_F32_VEC_SET1(A[i * K + kk]);
             for (int r = 0; r < RN; r++) {
-                acc[i][r] = LM_GGML_F32_VEC_FMA(acc[i][r], Bv[r], p);
+                acc[i][r] = GGML_F32_VEC_FMA(acc[i][r], Bv[r], p);
             }
         }
     }
 
     for (int64_t i = 0; i < RM; i++) {
         for (int r = 0; r < RN; r++) {
-            LM_GGML_F32_VEC_STORE(C + i * N + r * KN, acc[i][r]);
+            GGML_F32_VEC_STORE(C + i * N + r * KN, acc[i][r]);
         }
     }
 }
 
 // C[M x N] += A[M x K] * B[K x N]
 static void simd_gemm(
-    float       * LM_GGML_RESTRICT C,
-    const float * LM_GGML_RESTRICT A,
-    const float * LM_GGML_RESTRICT B,
+    float       * GGML_RESTRICT C,
+    const float * GGML_RESTRICT A,
+    const float * GGML_RESTRICT B,
     int M, int K, int N)
 {
-    static constexpr int KN = LM_GGML_F32_EPR;
+    static constexpr int KN = GGML_F32_EPR;
 
     int64_t ii = 0;
     for (; ii + GEMM_RM <= M; ii += GEMM_RM) {
@@ -109,14 +109,14 @@ static void simd_gemm(
         C += N;
     }
 }
-#elif defined(LM_GGML_SIMD) && defined(__riscv_v_intrinsic)
+#elif defined(GGML_SIMD) && defined(__riscv_v_intrinsic)
 // RM accumulators + 1 B vector = RM + 1 <= 8  =>  RM <= 7
 // Microkernel: C[RM x vl] += A[RM x K] * B[K x N]
 template <int RM>
 static inline void rvv_simd_gemm_ukernel(
-    float       * LM_GGML_RESTRICT C,
-    const float * LM_GGML_RESTRICT A,
-    const float * LM_GGML_RESTRICT B,
+    float       * GGML_RESTRICT C,
+    const float * GGML_RESTRICT A,
+    const float * GGML_RESTRICT B,
     int K, int N, size_t vl)
 {
     static_assert(RM >= 1 && RM <= 7, "RM must be 1..7 for LMUL=4");
@@ -153,9 +153,9 @@ static inline void rvv_simd_gemm_ukernel(
 
 template <int RM>
 static inline void rvv_simd_gemm_dispatch_tail(
-    float       * LM_GGML_RESTRICT C,
-    const float * LM_GGML_RESTRICT A,
-    const float * LM_GGML_RESTRICT B,
+    float       * GGML_RESTRICT C,
+    const float * GGML_RESTRICT A,
+    const float * GGML_RESTRICT B,
     int K, int N, int KN, int remaining_rows)
 {
     if constexpr (RM > 0) {
@@ -177,9 +177,9 @@ static constexpr int GEMM_RM = 7;
 
 // C[M x N] += A[M x K] * B[K x N]
 static void simd_gemm(
-    float       * LM_GGML_RESTRICT C,
-    const float * LM_GGML_RESTRICT A,
-    const float * LM_GGML_RESTRICT B,
+    float       * GGML_RESTRICT C,
+    const float * GGML_RESTRICT A,
+    const float * GGML_RESTRICT B,
     int M, int K, int N)
 {
     const int KN = (int)__riscv_vlenb();
@@ -207,9 +207,9 @@ static void simd_gemm(
 #else // scalar path
 
 static void simd_gemm(
-    float       * LM_GGML_RESTRICT C,
-    const float * LM_GGML_RESTRICT A,
-    const float * LM_GGML_RESTRICT B,
+    float       * GGML_RESTRICT C,
+    const float * GGML_RESTRICT A,
+    const float * GGML_RESTRICT B,
     int M, int K, int N)
 {
     for (int64_t i = 0; i < M; i++) {
@@ -223,4 +223,4 @@ static void simd_gemm(
     }
 }
 
-#endif // LM_GGML_SIMD
+#endif // GGML_SIMD

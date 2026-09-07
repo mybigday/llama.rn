@@ -29,7 +29,7 @@ void llama_model_jamba::load_arch_tensors(llama_model_loader &) {
     const int64_t dt_rank = hparams.ssm_dt_rank;
 
     // only an expansion factor of 2 is supported for now
-    LM_GGML_ASSERT(2 * n_embd == d_inner);
+    GGML_ASSERT(2 * n_embd == d_inner);
 
     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
 
@@ -108,15 +108,15 @@ std::unique_ptr<llm_graph_context> llama_model_jamba::build_arch_graph(const llm
 llama_model_jamba::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_build_mamba_base(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     // {n_embd, n_tokens}
     inpL = build_inp_embd(model.tok_embd);
 
     auto * inp_hybrid = build_inp_mem_hybrid();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         const int64_t n_head_kv = hparams.n_head_kv(il);
@@ -138,11 +138,11 @@ llama_model_jamba::graph::graph(const llama_model & model, const llm_graph_param
                     Qcur, Kcur, Vcur, NULL, NULL, NULL, 1.0f/sqrtf(float(n_embd_head)), il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
-            cur  = lm_ggml_get_rows(ctx0,  cur, inp_out_ids);
-            inpL = lm_ggml_get_rows(ctx0, inpL, inp_out_ids);
+            cur  = ggml_get_rows(ctx0,  cur, inp_out_ids);
+            inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }
         // residual
-        struct lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, inpL, cur);
+        struct ggml_tensor * ffn_inp = ggml_add(ctx0, inpL, cur);
         cb(cur, "ffn_inp", il);
 
         cur = build_norm(ffn_inp, model.layers[il].ffn_norm, NULL, LLM_NORM_RMS, il);
@@ -174,7 +174,7 @@ llama_model_jamba::graph::graph(const llama_model & model, const llm_graph_param
             cb(cur, "ffn_moe_out", il);
         }
         // residual
-        cur = lm_ggml_add(ctx0, ffn_inp, cur);
+        cur = ggml_add(ctx0, ffn_inp, cur);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -194,5 +194,5 @@ llama_model_jamba::graph::graph(const llama_model & model, const llm_graph_param
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

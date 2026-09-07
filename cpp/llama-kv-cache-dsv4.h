@@ -36,28 +36,28 @@ public:
     uint32_t get_n_rs_seq()   const;
     uint32_t get_n_rows()     const;
 
-    std::map<lm_ggml_backend_buffer_type_t, size_t> memory_breakdown() const;
+    std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const;
 
     void state_write(llama_io_write_i & io, llama_seq_id seq_id, llama_state_seq_flags flags, const std::vector<uint32_t> & rs_idx) const;
     void state_read (llama_io_read_i  & io, llama_seq_id seq_id, llama_state_seq_flags flags);
 
-    lm_ggml_tensor * get_kv       (lm_ggml_context * ctx, int32_t il) const;
-    lm_ggml_tensor * get_score    (lm_ggml_context * ctx, int32_t il) const;
-    lm_ggml_tensor * get_kv_all   (lm_ggml_context * ctx, int32_t il) const;
-    lm_ggml_tensor * get_score_all(lm_ggml_context * ctx, int32_t il) const;
+    ggml_tensor * get_kv       (ggml_context * ctx, int32_t il) const;
+    ggml_tensor * get_score    (ggml_context * ctx, int32_t il) const;
+    ggml_tensor * get_kv_all   (ggml_context * ctx, int32_t il) const;
+    ggml_tensor * get_score_all(ggml_context * ctx, int32_t il) const;
 
-    lm_ggml_tensor * cpy_kv   (lm_ggml_context * ctx, lm_ggml_tensor * cur, lm_ggml_tensor * idxs, int32_t il) const;
-    lm_ggml_tensor * cpy_score(lm_ggml_context * ctx, lm_ggml_tensor * cur, lm_ggml_tensor * idxs, int32_t il) const;
+    ggml_tensor * cpy_kv   (ggml_context * ctx, ggml_tensor * cur, ggml_tensor * idxs, int32_t il) const;
+    ggml_tensor * cpy_score(ggml_context * ctx, ggml_tensor * cur, ggml_tensor * idxs, int32_t il) const;
 
 private:
     struct layer {
         uint32_t il;
 
-        lm_ggml_tensor * kv;
-        lm_ggml_tensor * score;
+        ggml_tensor * kv;
+        ggml_tensor * score;
 
-        std::vector<lm_ggml_tensor *> kv_stream;
-        std::vector<lm_ggml_tensor *> score_stream;
+        std::vector<ggml_tensor *> kv_stream;
+        std::vector<ggml_tensor *> score_stream;
     };
 
     const uint32_t ratio;
@@ -66,7 +66,7 @@ private:
     const uint32_t n_stream;
     const uint32_t n_rs_seq;
 
-    std::vector<std::pair<lm_ggml_context_ptr, lm_ggml_backend_buffer_ptr>> ctxs_bufs;
+    std::vector<std::pair<ggml_context_ptr, ggml_backend_buffer_ptr>> ctxs_bufs;
 
     std::vector<layer> layers;
 
@@ -89,8 +89,8 @@ class llama_kv_cache_dsv4 : public llama_memory_i {
 public:
     llama_kv_cache_dsv4(
             const llama_model & model,
-                    lm_ggml_type   type_k,
-                    lm_ggml_type   type_v,
+                    ggml_type   type_k,
+                    ggml_type   type_v,
                          bool   v_trans,
                          bool   offload,
                          bool   swa_full,
@@ -131,7 +131,7 @@ public:
     llama_pos seq_pos_min(llama_seq_id seq_id) const override;
     llama_pos seq_pos_max(llama_seq_id seq_id) const override;
 
-    std::map<lm_ggml_backend_buffer_type_t, size_t> memory_breakdown() const override;
+    std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const override;
 
     void state_write(llama_io_write_i & io, llama_seq_id seq_id = -1, llama_state_seq_flags flags = 0) const override;
     void state_read (llama_io_read_i  & io, llama_seq_id seq_id = -1, llama_state_seq_flags flags = 0) override;
@@ -204,15 +204,15 @@ public:
     uint32_t get_n_kv() const;
     uint32_t get_n_write() const;
 
-    lm_ggml_tensor * get_k(lm_ggml_context * ctx, int32_t il) const;
-    lm_ggml_tensor * cpy_k(lm_ggml_context * ctx, lm_ggml_tensor * k_cur, lm_ggml_tensor * k_idxs, int32_t il) const;
+    ggml_tensor * get_k(ggml_context * ctx, int32_t il) const;
+    ggml_tensor * cpy_k(ggml_context * ctx, ggml_tensor * k_cur, ggml_tensor * k_idxs, int32_t il) const;
 
-    lm_ggml_tensor * build_input_k_idxs(lm_ggml_context * ctx, const llama_ubatch & ubatch) const;
-    lm_ggml_tensor * build_input_k_rot(lm_ggml_context * ctx) const;
+    ggml_tensor * build_input_k_idxs(ggml_context * ctx, const llama_ubatch & ubatch) const;
+    ggml_tensor * build_input_k_rot(ggml_context * ctx) const;
 
-    void set_input_k_idxs(lm_ggml_tensor * dst) const;
-    void set_input_kq_mask(lm_ggml_tensor * dst, const llama_ubatch * ubatch, bool causal_attn) const;
-    void set_input_k_rot(lm_ggml_tensor * dst) const;
+    void set_input_k_idxs(ggml_tensor * dst) const;
+    void set_input_kq_mask(ggml_tensor * dst, const llama_ubatch * ubatch, bool causal_attn) const;
+    void set_input_k_rot(ggml_tensor * dst) const;
 
 private:
     size_t i_next = 0;
@@ -249,11 +249,11 @@ public:
 
     uint32_t get_n_kv() const;
 
-    lm_ggml_tensor * get_k(lm_ggml_context * ctx, int32_t il) const;
-    lm_ggml_tensor * cpy_k(lm_ggml_context * ctx, lm_ggml_tensor * k_cur, lm_ggml_tensor * k_idxs, int32_t il) const;
+    ggml_tensor * get_k(ggml_context * ctx, int32_t il) const;
+    ggml_tensor * cpy_k(ggml_context * ctx, ggml_tensor * k_cur, ggml_tensor * k_idxs, int32_t il) const;
 
-    lm_ggml_tensor * build_input_k_rot(lm_ggml_context * ctx) const;
-    void set_input_k_rot(lm_ggml_tensor * dst) const;
+    ggml_tensor * build_input_k_rot(ggml_context * ctx) const;
+    void set_input_k_rot(ggml_tensor * dst) const;
 
 private:
     llama_kv_cache * kv;

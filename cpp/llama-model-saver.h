@@ -10,13 +10,13 @@
 bool llama_model_saver_supports_arch(llm_arch arch);
 
 struct llama_model_saver {
-    struct lm_gguf_context * lm_gguf_ctx = nullptr;
-    const bool lm_gguf_ctx_owned;
+    struct gguf_context * gguf_ctx = nullptr;
+    const bool gguf_ctx_owned;
     const struct llama_model * model;
     const struct LLM_KV llm_kv;
 
     llama_model_saver(const struct llama_model * model);
-    llama_model_saver(enum llm_arch arch, struct lm_gguf_context * lm_gguf_ctx);
+    llama_model_saver(enum llm_arch arch, struct gguf_context * gguf_ctx);
     ~llama_model_saver();
 
     void add_kv(enum llm_kv key, uint32_t     value);
@@ -33,7 +33,7 @@ struct llama_model_saver {
 
     void add_kv(enum llm_kv key, const std::vector<std::string> & value);
 
-    void add_tensor(const struct lm_ggml_tensor * tensor);
+    void add_tensor(const struct ggml_tensor * tensor);
 
     void add_kv_from_model();
 

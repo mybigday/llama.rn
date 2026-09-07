@@ -1,14 +1,14 @@
 #include "models.h"
 
-lm_ggml_cgraph * clip_graph_siglip::build() {
-    lm_ggml_tensor * inp = build_inp();
+ggml_cgraph * clip_graph_siglip::build() {
+    ggml_tensor * inp = build_inp();
 
-    lm_ggml_tensor * learned_pos_embd = model.position_embeddings;
+    ggml_tensor * learned_pos_embd = model.position_embeddings;
     if (proj_type == PROJECTOR_TYPE_LFM2 || proj_type == PROJECTOR_TYPE_PHI4) {
         learned_pos_embd = resize_position_embeddings();
     }
 
-    lm_ggml_tensor * cur = build_vit(
+    ggml_tensor * cur = build_vit(
                             inp, n_patches,
                             NORM_TYPE_NORMAL,
                             hparams.ffn_op,
@@ -17,25 +17,25 @@ lm_ggml_cgraph * clip_graph_siglip::build() {
 
     if (proj_type == PROJECTOR_TYPE_GEMMA3) {
         const int batch_size = 1;
-        LM_GGML_ASSERT(n_patches_x == n_patches_y);
+        GGML_ASSERT(n_patches_x == n_patches_y);
         const int patches_per_image = n_patches_x;
         const int kernel_size = hparams.n_merge;
 
-        cur = lm_ggml_transpose(ctx0, cur);
-        cur = lm_ggml_cont_4d(ctx0, cur, patches_per_image, patches_per_image, n_embd, batch_size);
+        cur = ggml_transpose(ctx0, cur);
+        cur = ggml_cont_4d(ctx0, cur, patches_per_image, patches_per_image, n_embd, batch_size);
 
         // doing a pool2d to reduce the number of output tokens
-        cur = lm_ggml_pool_2d(ctx0, cur, LM_GGML_OP_POOL_AVG, kernel_size, kernel_size, kernel_size, kernel_size, 0, 0);
-        cur = lm_ggml_reshape_3d(ctx0, cur, cur->ne[0] * cur->ne[0], n_embd, batch_size);
-        cur = lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, cur));
+        cur = ggml_pool_2d(ctx0, cur, GGML_OP_POOL_AVG, kernel_size, kernel_size, kernel_size, kernel_size, 0, 0);
+        cur = ggml_reshape_3d(ctx0, cur, cur->ne[0] * cur->ne[0], n_embd, batch_size);
+        cur = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
 
         // apply norm before projection
-        cur = lm_ggml_rms_norm(ctx0, cur, eps);
-        cur = lm_ggml_mul(ctx0, cur, model.mm_soft_emb_norm_w);
+        cur = ggml_rms_norm(ctx0, cur, eps);
+        cur = ggml_mul(ctx0, cur, model.mm_soft_emb_norm_w);
 
         // apply projection
-        cur = lm_ggml_mul_mat(ctx0,
-            lm_ggml_cont(ctx0, lm_ggml_transpose(ctx0, model.mm_input_proj_w)),
+        cur = ggml_mul_mat(ctx0,
+            ggml_cont(ctx0, ggml_transpose(ctx0, model.mm_input_proj_w)),
             cur);
 
     } else if (proj_type == PROJECTOR_TYPE_IDEFICS3) {
@@ -52,12 +52,12 @@ lm_ggml_cgraph * clip_graph_siglip::build() {
 
         // projection, in LFM2-VL input norm is optional
         if (model.mm_input_norm_w) {
-            cur = lm_ggml_norm(ctx0, cur, 1e-5); // default nn.LayerNorm
-            cur = lm_ggml_mul(ctx0, cur, model.mm_input_norm_w);
+            cur = ggml_norm(ctx0, cur, 1e-5); // default nn.LayerNorm
+            cur = ggml_mul(ctx0, cur, model.mm_input_norm_w);
         }
 
         if (model.mm_input_norm_b) {
-            cur = lm_ggml_add(ctx0, cur, model.mm_input_norm_b);
+            cur = ggml_add(ctx0, cur, model.mm_input_norm_b);
         }
 
         cur = build_ffn(cur,
@@ -84,11 +84,11 @@ lm_ggml_cgraph * clip_graph_siglip::build() {
             -1);
 
     } else {
-        LM_GGML_ABORT("SigLIP: Unsupported projector type");
+        GGML_ABORT("SigLIP: Unsupported projector type");
     }
 
     // build the graph
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 
     return gf;
 }

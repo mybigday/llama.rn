@@ -16,7 +16,7 @@
 +
 +    struct graph : public llm_build_mamba_base {
 +        graph(const llama_model & model, const llm_graph_params & params);
-+        lm_ggml_tensor * build_attention_layer(lm_ggml_tensor * cur, lm_ggml_tensor * inp_pos,
++        ggml_tensor * build_attention_layer(ggml_tensor * cur, ggml_tensor * inp_pos,
 +            llm_graph_input_attn_kv * inp_attn, const llama_model & model,
 +            int64_t n_embd_head, int il);
 +    };

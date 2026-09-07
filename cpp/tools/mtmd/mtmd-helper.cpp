@@ -53,7 +53,7 @@
 // internal logging functions
 //
 
-void mtmd_helper_log_set(lm_ggml_log_callback log_callback, void * user_data) {
+void mtmd_helper_log_set(ggml_log_callback log_callback, void * user_data) {
     if (log_callback == nullptr) {
         log_callback = g_logger.default_callback;
     }
@@ -128,7 +128,7 @@ static int32_t mtmd_helper_decode_image_chunk_impl(
         llama_pos * new_n_past,
         mtmd_helper_post_decode_callback callback,
         void * user_data) {
-    LM_GGML_ASSERT(n_batch > 0);
+    GGML_ASSERT(n_batch > 0);
     auto chunk_type = mtmd_input_chunk_get_type(chunk);
     const char * name = chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE ? "image" : "audio";
     if (chunk_type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
@@ -159,7 +159,7 @@ static int32_t mtmd_helper_decode_image_chunk_impl(
         } else if (chunk_type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
             batch_embd.set_position_mrope_1d(n_past, seq_id);
         } else {
-            LM_GGML_ABORT("invalid chunk type for M-RoPE");
+            GGML_ABORT("invalid chunk type for M-RoPE");
         }
     } else {
         batch_embd.set_position_normal(n_past, seq_id);
@@ -178,7 +178,7 @@ static int32_t mtmd_helper_decode_image_chunk_impl(
 
         LOG_INF("decoding %s batch %d/%d, n_tokens_batch = %d\n", name, i_batch+1, n_img_batches, n_tokens_batch);
 
-        int64_t t1 = lm_ggml_time_ms();
+        int64_t t1 = ggml_time_ms();
         int32_t ret = llama_decode(lctx, batch_embd_view);
         if (ret != 0) {
             LOG_ERR("failed to decode %s\n", name);
@@ -193,7 +193,7 @@ static int32_t mtmd_helper_decode_image_chunk_impl(
             }
         }
 
-        LOG_INF("%s decoded (batch %d/%d) in %" PRId64 " ms\n", name, i_batch+1, n_img_batches, lm_ggml_time_ms() - t1);
+        LOG_INF("%s decoded (batch %d/%d) in %" PRId64 " ms\n", name, i_batch+1, n_img_batches, ggml_time_ms() - t1);
 
         i_batch++;
     }
@@ -229,7 +229,7 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
         int32_t n_batch,
         bool logits_last,
         llama_pos * new_n_past) {
-    LM_GGML_ASSERT(n_batch > 0);
+    GGML_ASSERT(n_batch > 0);
     int32_t ret;
     llama_batch text_batch = llama_batch_init(n_batch, 0, 1);
     auto chunk_type = mtmd_input_chunk_get_type(chunk);
@@ -266,7 +266,7 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
 
     } else if (chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE || chunk_type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
         const char * name = chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE ? "image" : "audio";
-        int64_t t0 = lm_ggml_time_ms();
+        int64_t t0 = ggml_time_ms();
 
         LOG_INF("encoding %s slice...\n", name);
 
@@ -277,7 +277,7 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
             return ret;
         }
 
-        LOG_INF("%s slice encoded in %" PRId64 " ms\n", name, lm_ggml_time_ms() - t0);
+        LOG_INF("%s slice encoded in %" PRId64 " ms\n", name, ggml_time_ms() - t0);
 
         float * embd = mtmd_get_output_embd(ctx);
         ret = mtmd_helper_decode_image_chunk_impl(
@@ -289,7 +289,7 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
             return ret;
         }
     } else {
-        LM_GGML_ABORT("chunk type not supported");
+        GGML_ABORT("chunk type not supported");
     }
 
     llama_batch_free(text_batch);
@@ -528,7 +528,7 @@ bool mtmd_helper_support_video(mtmd_context * ctx) {
 #ifdef MTMD_VIDEO
     return mtmd_support_vision(ctx);
 #else
-    LM_GGML_UNUSED(ctx);
+    GGML_UNUSED(ctx);
     return false;
 #endif
 }
@@ -953,9 +953,9 @@ mtmd_helper_video * mtmd_helper_video_init(
 
     return ctx;
 #else
-    LM_GGML_UNUSED(mctx);
-    LM_GGML_UNUSED(path);
-    LM_GGML_UNUSED(params);
+    GGML_UNUSED(mctx);
+    GGML_UNUSED(path);
+    GGML_UNUSED(params);
     LOG_ERR("%s: video is not supported in this build (MTMD_VIDEO is set to OFF)\n", __func__);
     return nullptr;
 #endif
@@ -988,10 +988,10 @@ mtmd_helper_video * mtmd_helper_video_init_from_buf(
 
     return ctx;
 #else
-    LM_GGML_UNUSED(mctx);
-    LM_GGML_UNUSED(buf);
-    LM_GGML_UNUSED(len);
-    LM_GGML_UNUSED(params);
+    GGML_UNUSED(mctx);
+    GGML_UNUSED(buf);
+    GGML_UNUSED(len);
+    GGML_UNUSED(params);
     LOG_ERR("%s: video is not supported in this build (MTMD_VIDEO is set to OFF)\n", __func__);
     return nullptr;
 #endif
@@ -1003,7 +1003,7 @@ void mtmd_helper_video_free(mtmd_helper_video * ctx) {
     ctx->stop_ffmpeg();
     delete ctx;
 #else
-    LM_GGML_UNUSED(ctx);
+    GGML_UNUSED(ctx);
     LOG_ERR("%s: video is not supported in this build (MTMD_VIDEO is set to OFF)\n", __func__);
 #endif
 }
@@ -1012,8 +1012,8 @@ mtmd_helper_video_info mtmd_helper_video_get_info(const mtmd_helper_video * ctx)
 #ifdef MTMD_VIDEO
     return ctx->info;
 #else
-    LM_GGML_UNUSED(ctx);
-    LM_GGML_ASSERT(false && "video is not supported in this build (MTMD_VIDEO is set to OFF)");
+    GGML_UNUSED(ctx);
+    GGML_ASSERT(false && "video is not supported in this build (MTMD_VIDEO is set to OFF)");
 #endif
 }
 
@@ -1023,10 +1023,10 @@ int32_t mtmd_helper_video_read_next(mtmd_helper_video * ctx,
     if (!ctx) return -2;
     return ctx->read_next(out_bitmap, out_text);
 #else
-    LM_GGML_UNUSED(ctx);
-    LM_GGML_UNUSED(out_bitmap);
-    LM_GGML_UNUSED(out_text);
-    LM_GGML_ASSERT(false && "video is not supported in this build (MTMD_VIDEO is set to OFF)");
+    GGML_UNUSED(ctx);
+    GGML_UNUSED(out_bitmap);
+    GGML_UNUSED(out_text);
+    GGML_ASSERT(false && "video is not supported in this build (MTMD_VIDEO is set to OFF)");
 #endif
 }
 

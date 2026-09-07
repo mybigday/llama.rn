@@ -18,8 +18,8 @@ class llama_memory_recurrent : public llama_memory_i {
 public:
     llama_memory_recurrent(
             const llama_model & model,
-                    lm_ggml_type   type_r,
-                    lm_ggml_type   type_s,
+                    ggml_type   type_r,
+                    ggml_type   type_s,
                          bool   offload,
                      uint32_t   mem_size,
                      uint32_t   n_seq_max,
@@ -52,7 +52,7 @@ public:
     llama_pos seq_pos_min(llama_seq_id seq_id) const override;
     llama_pos seq_pos_max(llama_seq_id seq_id) const override;
 
-    std::map<lm_ggml_backend_buffer_type_t, size_t> memory_breakdown() const override;
+    std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const override;
 
     bool prepare(const std::vector<llama_ubatch> & ubatches);
 
@@ -109,8 +109,8 @@ public:
     std::vector<mem_cell> cells;
 
     // per layer
-    std::vector<lm_ggml_tensor *> r_l;
-    std::vector<lm_ggml_tensor *> s_l;
+    std::vector<ggml_tensor *> r_l;
+    std::vector<ggml_tensor *> s_l;
 
 private:
     //const llama_model & model;
@@ -119,7 +119,7 @@ private:
     const uint32_t n_seq_max = 1;
 
     // ggml contexts for the KV cache along with the allocated backend buffers:
-    std::vector<std::pair<lm_ggml_context_ptr, lm_ggml_backend_buffer_ptr>> ctxs_bufs;
+    std::vector<std::pair<ggml_context_ptr, ggml_backend_buffer_ptr>> ctxs_bufs;
 
     size_t total_size() const;
 
@@ -168,8 +168,8 @@ public:
     int32_t  get_rs_z() const;
     uint32_t get_size() const;
 
-    lm_ggml_tensor * get_r_l(int32_t il) const;
-    lm_ggml_tensor * get_s_l(int32_t il) const;
+    ggml_tensor * get_r_l(int32_t il) const;
+    ggml_tensor * get_s_l(int32_t il) const;
 
     int32_t s_copy(int i) const;
 

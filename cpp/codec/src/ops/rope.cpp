@@ -1,8 +1,8 @@
 #include "rope.h"
 
-lm_ggml_tensor * codec_op_rope(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_dth,
+ggml_tensor * codec_op_rope(
+    ggml_context * ctx,
+    ggml_tensor * x_dth,
     int32_t n_dims,
     float freq_base,
     float freq_scale,
@@ -20,13 +20,13 @@ lm_ggml_tensor * codec_op_rope(
         return nullptr;
     }
 
-    lm_ggml_tensor * t_pos = lm_ggml_cast(ctx, lm_ggml_arange(ctx, 0.0f, (float) t, 1.0f), LM_GGML_TYPE_I32);
+    ggml_tensor * t_pos = ggml_cast(ctx, ggml_arange(ctx, 0.0f, (float) t, 1.0f), GGML_TYPE_I32);
     if (t_pos == nullptr) {
         return nullptr;
     }
 
-    lm_ggml_tensor * x_dht = lm_ggml_permute(ctx, x_dth, 0, 2, 1, 3); // [d, h, t]
-    lm_ggml_tensor * y_dht = lm_ggml_rope_ext(
+    ggml_tensor * x_dht = ggml_permute(ctx, x_dth, 0, 2, 1, 3); // [d, h, t]
+    ggml_tensor * y_dht = ggml_rope_ext(
         ctx,
         x_dht,
         t_pos,
@@ -44,5 +44,5 @@ lm_ggml_tensor * codec_op_rope(
         return nullptr;
     }
 
-    return lm_ggml_cont(ctx, lm_ggml_permute(ctx, y_dht, 0, 2, 1, 3)); // [d, t, h]
+    return ggml_cont(ctx, ggml_permute(ctx, y_dht, 0, 2, 1, 3)); // [d, t, h]
 }

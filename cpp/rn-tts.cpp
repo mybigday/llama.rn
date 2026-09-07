@@ -37,23 +37,23 @@ namespace rnllama {
 // (handles bf16 / f16 / quantized transparently).  Uses the LM_-prefixed
 // gguf/ggml API since rn-tts links llama.rn's copy of ggml.
 struct rnllama_text_embd_table {
-    lm_gguf_context * gg   = nullptr;
-    lm_ggml_context * meta = nullptr;   // holds tensor metadata (no_alloc)
+    gguf_context * gg   = nullptr;
+    ggml_context * meta = nullptr;   // holds tensor metadata (no_alloc)
     const uint8_t * base = nullptr;     // pointer into `blob` at tensor-data region
     std::vector<uint8_t> blob;          // owns the file bytes
     int64_t hidden = 0;
     int64_t vocab  = 0;
-    lm_ggml_type type = LM_GGML_TYPE_F32;
+    ggml_type type = GGML_TYPE_F32;
     size_t row_bytes = 0;
-    lm_ggml_to_float_t to_float = nullptr;
+    ggml_to_float_t to_float = nullptr;
 
     bool load(const char * path, int32_t want_hidden, std::string & err) {
-        lm_gguf_init_params gp = { /*no_alloc*/ true, /*ctx*/ &meta };
-        gg = lm_gguf_init_from_file(path, gp);
-        if (!gg) { err = "lm_gguf_init_from_file failed"; return false; }
-        const int64_t tid = lm_gguf_find_tensor(gg, "token_embd.weight");
+        gguf_init_params gp = { /*no_alloc*/ true, /*ctx*/ &meta };
+        gg = gguf_init_from_file(path, gp);
+        if (!gg) { err = "gguf_init_from_file failed"; return false; }
+        const int64_t tid = gguf_find_tensor(gg, "token_embd.weight");
         if (tid < 0) { err = "token_embd.weight not found in backbone"; return false; }
-        lm_ggml_tensor * t = lm_ggml_get_tensor(meta, "token_embd.weight");
+        ggml_tensor * t = ggml_get_tensor(meta, "token_embd.weight");
         if (!t) { err = "token_embd metadata lookup failed"; return false; }
         hidden = t->ne[0];
         vocab  = t->ne[1];
@@ -61,12 +61,12 @@ struct rnllama_text_embd_table {
         if ((int32_t) hidden != want_hidden) {
             err = "token_embd hidden mismatch"; return false;
         }
-        const lm_ggml_type_traits * tr = lm_ggml_get_type_traits(type);
+        const ggml_type_traits * tr = ggml_get_type_traits(type);
         to_float = tr ? tr->to_float : nullptr;
         // For a quantized type to_float works on a whole row (k = hidden, which
         // must be a multiple of the block size for legal types).
         if (!to_float) { err = "no to_float for token_embd type"; return false; }
-        row_bytes = lm_ggml_row_size(type, hidden);
+        row_bytes = ggml_row_size(type, hidden);
 
         FILE * f = std::fopen(path, "rb");
         if (!f) { err = "fopen backbone failed"; return false; }
@@ -77,8 +77,8 @@ struct rnllama_text_embd_table {
         size_t rd = std::fread(blob.data(), 1, (size_t) sz, f);
         std::fclose(f);
         if (rd != (size_t) sz) { err = "backbone read short"; return false; }
-        const size_t data_off = lm_gguf_get_data_offset(gg);
-        const size_t t_off    = lm_gguf_get_tensor_offset(gg, tid);
+        const size_t data_off = gguf_get_data_offset(gg);
+        const size_t t_off    = gguf_get_tensor_offset(gg, tid);
         base = blob.data() + data_off + t_off;
         return true;
     }
@@ -92,8 +92,8 @@ struct rnllama_text_embd_table {
     }
 
     ~rnllama_text_embd_table() {
-        if (gg)   lm_gguf_free(gg);
-        if (meta) lm_ggml_free(meta);
+        if (gg)   gguf_free(gg);
+        if (meta) ggml_free(meta);
     }
 };
 
@@ -3097,7 +3097,7 @@ static int codec_decode_n_q_for_profile(const tts_model_profile &profile, ::code
 // std::atoi used by audio_lm's decode transform.
 static int32_t codec_meta_i32(::codec_model *codec_model, const char *key, int32_t fallback) {
     if (codec_model == nullptr || key == nullptr) return fallback;
-    const struct codec_lm_gguf_metadata *meta = codec_model_metadata(codec_model);
+    const struct codec_gguf_metadata *meta = codec_model_metadata(codec_model);
     if (meta == nullptr) return fallback;
     for (size_t i = 0; i < meta->n_items; ++i) {
         if (meta->items[i].key != nullptr && std::strcmp(meta->items[i].key, key) == 0 &&

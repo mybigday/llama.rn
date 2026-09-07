@@ -51,7 +51,7 @@ void llama_model_lfm2::load_arch_tensors(llama_model_loader &) {
         // ffn/moe is same for transformer and conv layers
         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
         if (is_moe_layer) {
-            LM_GGML_ASSERT(n_expert && n_expert_used);
+            GGML_ASSERT(n_expert && n_expert_used);
             layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i),  {n_embd, n_expert}, 0);
             layer.ffn_gate_exps   = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, hparams.n_ff_exp, n_expert}, 0);
             layer.ffn_down_exps   = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {hparams.n_ff_exp,   n_embd, n_expert}, 0);
@@ -69,7 +69,7 @@ void llama_model_lfm2::load_arch_tensors(llama_model_loader &) {
         if (!hparams.is_recr(i)) {
             layer.attn_q_norm = create_tensor(tn(LLM_TENSOR_ATTN_Q_NORM, "weight", i), {n_embd_head_k}, 0);
             layer.attn_k_norm = create_tensor(tn(LLM_TENSOR_ATTN_K_NORM, "weight", i), {n_embd_head_k}, 0);
-            LM_GGML_ASSERT(n_embd_v_gqa == n_embd_k_gqa);
+            GGML_ASSERT(n_embd_v_gqa == n_embd_k_gqa);
 
             create_tensor_qkv(layer, i, n_embd, n_embd, hparams.n_embd_k_gqa(i), hparams.n_embd_v_gqa(i), 0);
 
@@ -102,17 +102,17 @@ llama_model_lfm2::graph<iswa>::graph(const llama_model & model, const llm_graph_
     using mem_hybrid_ctx  = std::conditional_t<iswa, llama_memory_hybrid_iswa_context, llama_memory_hybrid_context>;
 
     // lambda helpers for readability
-    auto build_dense_feed_forward = [&model, this](lm_ggml_tensor * cur, int il) -> lm_ggml_tensor * {
-        LM_GGML_ASSERT(!model.layers[il].ffn_up_b);
-        LM_GGML_ASSERT(!model.layers[il].ffn_gate_b);
-        LM_GGML_ASSERT(!model.layers[il].ffn_down_b);
+    auto build_dense_feed_forward = [&model, this](ggml_tensor * cur, int il) -> ggml_tensor * {
+        GGML_ASSERT(!model.layers[il].ffn_up_b);
+        GGML_ASSERT(!model.layers[il].ffn_gate_b);
+        GGML_ASSERT(!model.layers[il].ffn_down_b);
         return build_ffn(cur,
             model.layers[il].ffn_up, NULL, NULL,
             model.layers[il].ffn_gate, NULL, NULL,
             model.layers[il].ffn_down, NULL, NULL,
             NULL, LLM_FFN_SILU, LLM_FFN_PAR, il);
     };
-    auto build_moe_feed_forward = [&model, this](lm_ggml_tensor * cur, int il) -> lm_ggml_tensor * {
+    auto build_moe_feed_forward = [&model, this](ggml_tensor * cur, int il) -> ggml_tensor * {
         return build_moe_ffn(cur,
                 model.layers[il].ffn_gate_inp,
                 model.layers[il].ffn_up_exps,
@@ -125,11 +125,11 @@ llama_model_lfm2::graph<iswa>::graph(const llama_model & model, const llm_graph_
                 static_cast<llama_expert_gating_func_type>(hparams.expert_gating_func),
                 il);
     };
-    auto build_attn_block = [&model, this](lm_ggml_tensor *   cur,
-                                           lm_ggml_tensor *   inp_pos,
+    auto build_attn_block = [&model, this](ggml_tensor *   cur,
+                                           ggml_tensor *   inp_pos,
                                            inp_attn_type * inp_attn,
-                                           int             il) -> lm_ggml_tensor * {
-        LM_GGML_ASSERT(hparams.n_embd_v_gqa(il) == hparams.n_embd_k_gqa(il));
+                                           int             il) -> ggml_tensor * {
+        GGML_ASSERT(hparams.n_embd_v_gqa(il) == hparams.n_embd_k_gqa(il));
         const auto n_embd_head = hparams.n_embd_head_v();
         const auto n_head_kv   = hparams.n_head_kv(il);
 
@@ -143,9 +143,9 @@ llama_model_lfm2::graph<iswa>::graph(const llama_model & model, const llm_graph_
         cb(k, "model.layers.{}.self_attn.k_layernorm", il);
 
         // RoPE
-        q = lm_ggml_rope_ext(ctx0, q, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale, ext_factor,
+        q = ggml_rope_ext(ctx0, q, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale, ext_factor,
                           attn_factor, beta_fast, beta_slow);
-        k = lm_ggml_rope_ext(ctx0, k, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale, ext_factor,
+        k = ggml_rope_ext(ctx0, k, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale, ext_factor,
                           attn_factor, beta_fast, beta_slow);
 
         cur = build_attn(inp_attn,
@@ -156,87 +156,87 @@ llama_model_lfm2::graph<iswa>::graph(const llama_model & model, const llm_graph_
 
         return cur;
     };
-    auto build_shortconv_block = [&model, this](lm_ggml_tensor *        cur,
+    auto build_shortconv_block = [&model, this](ggml_tensor *        cur,
                                                 llm_graph_input_rs * inp_recr,
-                                                int                  il) -> lm_ggml_tensor * {
+                                                int                  il) -> ggml_tensor * {
         const auto * mctx_cur = static_cast<const mem_hybrid_ctx *>(mctx)->get_recr();
         const uint32_t kv_head      = mctx_cur->get_head();
         const int64_t  n_seq_tokens = ubatch.n_seq_tokens;
         const int64_t  n_seqs       = ubatch.n_seqs;
-        LM_GGML_ASSERT(n_seqs != 0);
-        LM_GGML_ASSERT(ubatch.equal_seqs());
-        LM_GGML_ASSERT(ubatch.n_tokens == n_seq_tokens * n_seqs);
+        GGML_ASSERT(n_seqs != 0);
+        GGML_ASSERT(ubatch.equal_seqs());
+        GGML_ASSERT(ubatch.n_tokens == n_seq_tokens * n_seqs);
 
-        LM_GGML_ASSERT(hparams.n_shortconv_l_cache > 1);
+        GGML_ASSERT(hparams.n_shortconv_l_cache > 1);
         const uint32_t d_conv = hparams.n_shortconv_l_cache - 1;
 
         // {n_embd, n_tokens} => {n_embd, n_seq_tokens, n_seqs}
-        cur = lm_ggml_reshape_3d(ctx0, cur, cur->ne[0], n_seq_tokens, n_seqs);
+        cur = ggml_reshape_3d(ctx0, cur, cur->ne[0], n_seq_tokens, n_seqs);
 
         auto * bcx = build_lora_mm(model.layers[il].shortconv.in_proj, cur);
         cb(bcx, "model.layers.{}.conv.in_proj", il);
 
         constexpr auto n_chunks = 3;
-        LM_GGML_ASSERT(bcx->ne[0] % n_chunks == 0);
+        GGML_ASSERT(bcx->ne[0] % n_chunks == 0);
         const auto chunk_size = bcx->ne[0] / n_chunks;
-        auto *     b          = lm_ggml_view_3d(ctx0, bcx, chunk_size, bcx->ne[1], bcx->ne[2], bcx->nb[1], bcx->nb[2],
-                                             0 * chunk_size * lm_ggml_element_size(bcx));
-        auto *     c          = lm_ggml_view_3d(ctx0, bcx, chunk_size, bcx->ne[1], bcx->ne[2], bcx->nb[1], bcx->nb[2],
-                                             1 * chunk_size * lm_ggml_element_size(bcx));
-        auto *     x          = lm_ggml_view_3d(ctx0, bcx, chunk_size, bcx->ne[1], bcx->ne[2], bcx->nb[1], bcx->nb[2],
-                                             2 * chunk_size * lm_ggml_element_size(bcx));
+        auto *     b          = ggml_view_3d(ctx0, bcx, chunk_size, bcx->ne[1], bcx->ne[2], bcx->nb[1], bcx->nb[2],
+                                             0 * chunk_size * ggml_element_size(bcx));
+        auto *     c          = ggml_view_3d(ctx0, bcx, chunk_size, bcx->ne[1], bcx->ne[2], bcx->nb[1], bcx->nb[2],
+                                             1 * chunk_size * ggml_element_size(bcx));
+        auto *     x          = ggml_view_3d(ctx0, bcx, chunk_size, bcx->ne[1], bcx->ne[2], bcx->nb[1], bcx->nb[2],
+                                             2 * chunk_size * ggml_element_size(bcx));
 
-        auto * bx = lm_ggml_transpose(ctx0, lm_ggml_mul(ctx0, b, x));
+        auto * bx = ggml_transpose(ctx0, ggml_mul(ctx0, b, x));
 
         // read conv state
         auto * conv_state = mctx_cur->get_r_l(il);
         auto * conv_rs    = build_rs(inp_recr, conv_state, hparams.n_embd_r(), n_seqs);
-        auto * conv       = lm_ggml_reshape_3d(ctx0, conv_rs, d_conv, hparams.n_embd, n_seqs);
+        auto * conv       = ggml_reshape_3d(ctx0, conv_rs, d_conv, hparams.n_embd, n_seqs);
 
         // causal prepends the state, non-causal pads symmetrically for a centered window
         if (hparams.causal_attn) {
-            bx = lm_ggml_concat(ctx0, conv, bx, 0);
+            bx = ggml_concat(ctx0, conv, bx, 0);
         } else {
             const int64_t pad = (hparams.n_shortconv_l_cache - 1) / 2;
-            auto * left = lm_ggml_cont(ctx0,
-                lm_ggml_view_3d(ctx0, conv, pad, hparams.n_embd, n_seqs, conv->nb[1], conv->nb[2], (d_conv - pad) * conv->nb[0]));
-            bx = lm_ggml_pad_ext(ctx0, lm_ggml_concat(ctx0, left, bx, 0), 0, pad, 0, 0, 0, 0, 0, 0);
+            auto * left = ggml_cont(ctx0,
+                ggml_view_3d(ctx0, conv, pad, hparams.n_embd, n_seqs, conv->nb[1], conv->nb[2], (d_conv - pad) * conv->nb[0]));
+            bx = ggml_pad_ext(ctx0, ggml_concat(ctx0, left, bx, 0), 0, pad, 0, 0, 0, 0, 0, 0);
         }
-        LM_GGML_ASSERT(bx->ne[0] > conv->ne[0]);
+        GGML_ASSERT(bx->ne[0] > conv->ne[0]);
 
         // write conv states: slot 0 = the final state, slot s = the state s tokens back (partial rollback)
         const int64_t K         = hparams.causal_attn && cparams.n_rs_seq > 0 ? (int64_t) cparams.n_rs_seq + 1 : 1;
         const int64_t n_written = std::min<int64_t>(n_seq_tokens, K);
         const auto    mem_size  = mctx_cur->get_size();
-        const size_t  row_size  = lm_ggml_row_size(conv_state->type, (int64_t) d_conv * n_embd);
+        const size_t  row_size  = ggml_row_size(conv_state->type, (int64_t) d_conv * n_embd);
 
         for (int64_t slot = 0; slot < n_written; ++slot) {
-            auto * conv_snap = lm_ggml_view_3d(ctx0, bx, d_conv, bx->ne[1], bx->ne[2], bx->nb[1], bx->nb[2],
-                                            (bx->ne[0] - d_conv - slot) * lm_ggml_element_size(bx));
-            lm_ggml_build_forward_expand(gf, lm_ggml_cpy(ctx0, conv_snap,
-                                                   lm_ggml_view_2d(ctx0, conv_state, (int64_t) d_conv * n_embd, n_seqs,
+            auto * conv_snap = ggml_view_3d(ctx0, bx, d_conv, bx->ne[1], bx->ne[2], bx->nb[1], bx->nb[2],
+                                            (bx->ne[0] - d_conv - slot) * ggml_element_size(bx));
+            ggml_build_forward_expand(gf, ggml_cpy(ctx0, conv_snap,
+                                                   ggml_view_2d(ctx0, conv_state, (int64_t) d_conv * n_embd, n_seqs,
                                                                 conv_state->nb[1],
                                                                 ((size_t) slot * mem_size + kv_head) * row_size)));
         }
 
         auto * conv_kernel = model.layers[il].shortconv.conv;
-        auto * conv_out    = lm_ggml_ssm_conv(ctx0, bx, conv_kernel);
+        auto * conv_out    = ggml_ssm_conv(ctx0, bx, conv_kernel);
         cb(conv_out, "model.layers.{}.conv.conv", il);
 
-        auto * y = lm_ggml_mul(ctx0, c, conv_out);
+        auto * y = ggml_mul(ctx0, c, conv_out);
         y        = build_lora_mm(model.layers[il].shortconv.out_proj, y);
         cb(y, "model.layers.{}.conv.out_proj", il);
         // {n_embd, n_seq_tokens, n_seqs} => {n_embd, n_tokens}
-        y = lm_ggml_reshape_2d(ctx0, y, y->ne[0], n_seq_tokens * n_seqs);
+        y = ggml_reshape_2d(ctx0, y, y->ne[0], n_seq_tokens * n_seqs);
 
         return y;
     };
 
     // actual graph construction starts here
-    lm_ggml_tensor * cur = build_inp_embd(model.tok_embd);
+    ggml_tensor * cur = build_inp_embd(model.tok_embd);
     cb(cur, "model.embed_tokens", -1);
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 
     inp_hybrid_type * inp_hybrid = nullptr;
     if constexpr (iswa) {
@@ -245,8 +245,8 @@ llama_model_lfm2::graph<iswa>::graph(const llama_model & model, const llm_graph_
         inp_hybrid = build_inp_mem_hybrid();
     }
 
-    lm_ggml_tensor * inp_pos     = build_inp_pos();
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_pos     = build_inp_pos();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         res->t_layer_inp[il] = cur;
@@ -261,20 +261,20 @@ llama_model_lfm2::graph<iswa>::graph(const llama_model & model, const llm_graph_
                                     build_attn_block(cur, inp_pos, inp_hybrid->get_attn(), il);
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur      = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            prev_cur = lm_ggml_get_rows(ctx0, prev_cur, inp_out_ids);
+            cur      = ggml_get_rows(ctx0, cur, inp_out_ids);
+            prev_cur = ggml_get_rows(ctx0, prev_cur, inp_out_ids);
         }
 
-        cur = lm_ggml_add(ctx0, prev_cur, cur);
+        cur = ggml_add(ctx0, prev_cur, cur);
 
         auto * ffn_norm_out = build_norm(cur, model.layers[il].ffn_norm, NULL, LLM_NORM_RMS, il);
         cb(ffn_norm_out, "model.layers.{}.ffn_norm", il);
 
-        lm_ggml_tensor * ffn_out =
+        ggml_tensor * ffn_out =
             is_moe_layer ? build_moe_feed_forward(ffn_norm_out, il) : build_dense_feed_forward(ffn_norm_out, il);
         cb(ffn_norm_out, "model.layers.{}.ffn_out", il);
 
-        cur = lm_ggml_add(ctx0, cur, ffn_out);
+        cur = ggml_add(ctx0, cur, ffn_out);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -291,7 +291,7 @@ llama_model_lfm2::graph<iswa>::graph(const llama_model & model, const llm_graph_
         res->t_logits = cur;
     }
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
 // Explicit template instantiations

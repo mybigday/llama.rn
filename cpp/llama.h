@@ -82,10 +82,10 @@ extern "C" {
     enum llama_rope_type {
         LLAMA_ROPE_TYPE_NONE   = -1,
         LLAMA_ROPE_TYPE_NORM   = 0,
-        LLAMA_ROPE_TYPE_NEOX   = LM_GGML_ROPE_TYPE_NEOX,
-        LLAMA_ROPE_TYPE_MROPE  = LM_GGML_ROPE_TYPE_MROPE,
-        LLAMA_ROPE_TYPE_IMROPE = LM_GGML_ROPE_TYPE_IMROPE,
-        LLAMA_ROPE_TYPE_VISION = LM_GGML_ROPE_TYPE_VISION,
+        LLAMA_ROPE_TYPE_NEOX   = GGML_ROPE_TYPE_NEOX,
+        LLAMA_ROPE_TYPE_MROPE  = GGML_ROPE_TYPE_MROPE,
+        LLAMA_ROPE_TYPE_IMROPE = GGML_ROPE_TYPE_IMROPE,
+        LLAMA_ROPE_TYPE_VISION = GGML_ROPE_TYPE_VISION,
     };
 
     enum llama_token_type { //TODO: remove, required until per token attributes are available from GGUF file
@@ -301,12 +301,12 @@ extern "C" {
 
     struct llama_model_tensor_buft_override {
         const char * pattern;
-        lm_ggml_backend_buffer_type_t buft;
+        ggml_backend_buffer_type_t buft;
     };
 
     struct llama_model_params {
         // NULL-terminated list of devices to use for offloading (if NULL, all available devices are used)
-        lm_ggml_backend_dev_t * devices;
+        ggml_backend_dev_t * devices;
 
         // NULL-terminated list of buffer types to use for tensors that match a pattern
         const struct llama_model_tensor_buft_override * tensor_buft_overrides;
@@ -375,16 +375,16 @@ extern "C" {
         uint32_t yarn_orig_ctx;    // YaRN original context size
         float    defrag_thold;     // [DEPRECATED] defragment the KV cache if holes/size > thold, <= 0 disabled (default)
 
-        lm_ggml_backend_sched_eval_callback cb_eval;
+        ggml_backend_sched_eval_callback cb_eval;
         void * cb_eval_user_data;
 
-        enum lm_ggml_type type_k; // data type for K cache [EXPERIMENTAL]
-        enum lm_ggml_type type_v; // data type for V cache [EXPERIMENTAL]
+        enum ggml_type type_k; // data type for K cache [EXPERIMENTAL]
+        enum ggml_type type_v; // data type for V cache [EXPERIMENTAL]
 
         // Abort callback
         // if it returns true, execution of llama_decode() will be aborted
         // currently works only with CPU execution
-        lm_ggml_abort_callback abort_callback;
+        ggml_abort_callback abort_callback;
         void *              abort_callback_data;
 
         // Keep the booleans together and at the end of the struct to avoid misalignment during copy-by-value.
@@ -412,7 +412,7 @@ extern "C" {
 
     struct llama_model_tensor_override {
         const char * pattern;
-        enum lm_ggml_type type;
+        enum ggml_type type;
     };
 
     struct llama_model_imatrix_data {
@@ -425,8 +425,8 @@ extern "C" {
     typedef struct llama_model_quantize_params {
         int32_t nthread;                                            // number of threads to use for quantizing, if <=0 will use std::thread::hardware_concurrency()
         enum llama_ftype ftype;                                     // quantize to this llama_ftype
-        enum lm_ggml_type output_tensor_type;                          // output tensor type
-        enum lm_ggml_type token_embedding_type;                        // token embeddings tensor type
+        enum ggml_type output_tensor_type;                          // output tensor type
+        enum ggml_type token_embedding_type;                        // token embeddings tensor type
         bool allow_requantize;                                      // allow quantizing non-f32/f16 tensors
         bool quantize_output_tensor;                                // quantize output.weight
         bool only_copy;                                             // only copy tensors - ftype, allow_requantize and quantize_output_tensor are ignored
@@ -475,23 +475,23 @@ extern "C" {
     LLAMA_API void llama_backend_free(void);
 
     //optional:
-    LLAMA_API void llama_numa_init(enum lm_ggml_numa_strategy numa);
+    LLAMA_API void llama_numa_init(enum ggml_numa_strategy numa);
 
     // Optional: an auto threadpool gets created in ggml if not passed explicitly
     LLAMA_API void llama_attach_threadpool(
             struct llama_context * ctx,
-               lm_ggml_threadpool_t   threadpool,
-               lm_ggml_threadpool_t   threadpool_batch);
+               ggml_threadpool_t   threadpool,
+               ggml_threadpool_t   threadpool_batch);
 
     LLAMA_API void llama_detach_threadpool(struct llama_context * ctx);
 
-    typedef void (*llama_model_set_tensor_data_t)(struct lm_ggml_tensor * tensor, void * userdata);
+    typedef void (*llama_model_set_tensor_data_t)(struct ggml_tensor * tensor, void * userdata);
 
     // Create a new model from GGUF metadata as well as a function to set the tensor data
-    //   - tensors are created as LM_GGML_TYPE_F32 by default,
+    //   - tensors are created as GGML_TYPE_F32 by default,
     //     override by adding a tensor with the same name but a different name to the context
     LLAMA_API struct llama_model * llama_model_init_from_user(
-                    struct lm_gguf_context * metadata,
+                    struct gguf_context * metadata,
           llama_model_set_tensor_data_t   set_tensor_data,    // function to initialize tensor data with
                                    void * set_tensor_data_ud, // userdata for function
               struct llama_model_params   params);
@@ -1010,7 +1010,7 @@ extern "C" {
             "user code should do warmup runs manually [TAG_LLAMA_GRAPH_NO_WARMUP]");
 
     // Set abort callback
-    LLAMA_API void llama_set_abort_callback(struct llama_context * ctx, lm_ggml_abort_callback abort_callback, void * abort_callback_data);
+    LLAMA_API void llama_set_abort_callback(struct llama_context * ctx, ggml_abort_callback abort_callback, void * abort_callback_data);
 
     // Wait until all computations are finished
     // This is automatically done when using one of the functions below to obtain the computation results
@@ -1260,10 +1260,10 @@ extern "C" {
     typedef void * llama_sampler_context_t;
 
     struct llama_sampler_data {
-        struct lm_ggml_tensor * logits;
-        struct lm_ggml_tensor * probs;
-        struct lm_ggml_tensor * sampled;
-        struct lm_ggml_tensor * candidates;
+        struct ggml_tensor * logits;
+        struct ggml_tensor * probs;
+        struct ggml_tensor * sampled;
+        struct ggml_tensor * candidates;
     };
 
     // user code can implement the interface below in order to create custom llama_sampler
@@ -1282,21 +1282,21 @@ extern "C" {
         // note: call once per sampler
         bool (*backend_init)(
                 struct llama_sampler       * smpl,
-                lm_ggml_backend_buffer_type_t   buft,
+                ggml_backend_buffer_type_t   buft,
                 uint32_t                     n_outputs_max_per_seq);
 
         // call after .backend_apply()
         void (*backend_accept)(
                 struct llama_sampler * smpl,
-                struct lm_ggml_context  * ctx,
-                struct lm_ggml_cgraph   * gf,
-                struct lm_ggml_tensor   * selected_token);
+                struct ggml_context  * ctx,
+                struct ggml_cgraph   * gf,
+                struct ggml_tensor   * selected_token);
 
         // call after .backend_init()
         void (*backend_apply)(
                 struct llama_sampler      * smpl,
-                struct lm_ggml_context       * ctx,
-                struct lm_ggml_cgraph        * gf,
+                struct ggml_context       * ctx,
+                struct ggml_cgraph        * gf,
                 struct llama_sampler_data * data);
 
         // called before graph execution to set inputs for the current ubatch
@@ -1553,8 +1553,8 @@ extern "C" {
     // Set callback for all future logging events.
     // If this is not called, or NULL is supplied, everything is output on stderr.
     // The logger state is global so these functions are NOT thread safe.
-    LLAMA_API void llama_log_get(lm_ggml_log_callback * log_callback, void ** user_data);
-    LLAMA_API void llama_log_set(lm_ggml_log_callback   log_callback, void *  user_data);
+    LLAMA_API void llama_log_get(ggml_log_callback * log_callback, void ** user_data);
+    LLAMA_API void llama_log_set(ggml_log_callback   log_callback, void *  user_data);
 
     //
     // Performance utils
@@ -1594,10 +1594,10 @@ extern "C" {
     //
 
     // function that returns whether or not a given tensor contains trainable parameters
-    typedef bool (*llama_opt_param_filter)(const struct lm_ggml_tensor * tensor, void * userdata);
+    typedef bool (*llama_opt_param_filter)(const struct ggml_tensor * tensor, void * userdata);
 
     // always returns true
-    LLAMA_API bool llama_opt_param_filter_all(const struct lm_ggml_tensor * tensor, void * userdata);
+    LLAMA_API bool llama_opt_param_filter_all(const struct ggml_tensor * tensor, void * userdata);
 
     struct llama_opt_params {
         uint32_t n_ctx_train; // assumed context size post training, use context size specified in llama_context if 0
@@ -1605,22 +1605,22 @@ extern "C" {
         llama_opt_param_filter param_filter; // callback for determining which tensors contain trainable parameters
         void * param_filter_ud;              // userdata for determining which tensors contain trainable parameters
 
-        lm_ggml_opt_get_optimizer_params get_opt_pars; // callback for calculating optimizer parameters
+        ggml_opt_get_optimizer_params get_opt_pars; // callback for calculating optimizer parameters
         void * get_opt_pars_ud;                     // userdata for calculating optimizer parameters
 
-        enum lm_ggml_opt_optimizer_type optimizer_type;
+        enum ggml_opt_optimizer_type optimizer_type;
     };
 
     LLAMA_API void llama_opt_init(struct llama_context * lctx, struct llama_model * model, struct llama_opt_params lopt_params);
 
     LLAMA_API void llama_opt_epoch(
             struct llama_context    * lctx,
-            lm_ggml_opt_dataset_t        dataset,
-            lm_ggml_opt_result_t         result_train,
-            lm_ggml_opt_result_t         result_eval,
+            ggml_opt_dataset_t        dataset,
+            ggml_opt_result_t         result_train,
+            ggml_opt_result_t         result_eval,
             int64_t                   idata_split,
-            lm_ggml_opt_epoch_callback   callback_train,
-            lm_ggml_opt_epoch_callback   callback_eval);
+            ggml_opt_epoch_callback   callback_train,
+            ggml_opt_epoch_callback   callback_eval);
 
 #ifdef __cplusplus
 }

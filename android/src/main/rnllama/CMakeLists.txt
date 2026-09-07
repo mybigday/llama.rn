@@ -150,13 +150,13 @@ function(build_rnllama_library target_name arch cpu_flags)
     target_link_libraries(${target_name} PRIVATE ${LOG_LIB} android)
 
     if (${arch} STREQUAL "generic")
-        target_compile_options(${target_name} PRIVATE -DLM_GGML_CPU_GENERIC)
+        target_compile_options(${target_name} PRIVATE -DGGML_CPU_GENERIC)
     endif ()
 
     # ThinLTO rather than monolithic LTO: linking is parallel and incremental, and
     # peak memory stays low enough that several variants can link concurrently
     # (full LTO here OOM-killed 16 GB CI runners).
-    target_compile_options(${target_name} PRIVATE -DLM_GGML_USE_CPU -DLM_GGML_USE_CPU_REPACK -pthread ${cpu_flags} -fvectorize -ffp-model=fast -fno-finite-math-only -flto=thin -D_GNU_SOURCE)
+    target_compile_options(${target_name} PRIVATE -DGGML_USE_CPU -DGGML_USE_CPU_REPACK -pthread ${cpu_flags} -fvectorize -ffp-model=fast -fno-finite-math-only -flto=thin -D_GNU_SOURCE)
 
     if (CMAKE_BUILD_TYPE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
         target_compile_options(${target_name} PRIVATE -DRNLLAMA_ANDROID_ENABLE_LOGGING)
@@ -226,7 +226,7 @@ function(build_rnllama_library target_name arch cpu_flags)
             message(STATUS "Linking Hexagon cdsprpc library: ${CDSPRPC_LIB}")
 
             target_compile_options(${target_name} PRIVATE
-                -DLM_GGML_USE_HEXAGON
+                -DGGML_USE_HEXAGON
             )
 
             message(STATUS "Hexagon backend enabled for ${target_name}")
@@ -456,11 +456,11 @@ function(build_rnllama_library target_name arch cpu_flags)
             ${GGML_OPENCL_KERNEL_HEADERS}
         )
         target_compile_options(${target_name} PRIVATE
-            -DLM_GGML_USE_OPENCL
-            -DLM_GGML_OPENCL_USE_ADRENO_KERNELS
-            -DLM_GGML_OPENCL_EMBED_KERNELS
-            -DLM_GGML_OPENCL_SOA_Q
-            -DLM_GGML_OPENCL_TARGET_VERSION=300
+            -DGGML_USE_OPENCL
+            -DGGML_OPENCL_USE_ADRENO_KERNELS
+            -DGGML_OPENCL_EMBED_KERNELS
+            -DGGML_OPENCL_SOA_Q
+            -DGGML_OPENCL_TARGET_VERSION=300
         )
     endif ()
 
@@ -469,6 +469,10 @@ function(build_rnllama_library target_name arch cpu_flags)
     target_compile_options(${target_name} PRIVATE -ffunction-sections -fdata-sections)
 
     target_link_options(${target_name} PRIVATE -Wl,--gc-sections)
+    # ggml/llama symbols keep upstream names. Bind this library's own references
+    # at link time so a second ggml copy in the process (e.g. whisper.rn) can
+    # never be picked up via the dynamic linker's global lookup.
+    target_link_options(${target_name} PRIVATE -Wl,-Bsymbolic)
     target_link_options(${target_name} PRIVATE -flto=thin)
 endfunction()
 

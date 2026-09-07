@@ -39,51 +39,51 @@ bool llama_model_saver_supports_arch(llm_arch arch) {
 }
 
 llama_model_saver::llama_model_saver(const struct llama_model * model) :
-        lm_gguf_ctx(lm_gguf_init_empty()), lm_gguf_ctx_owned(true), model(model), llm_kv(model->arch) {
-    LM_GGML_ASSERT(llama_model_saver_supports_arch(model->arch));
+        gguf_ctx(gguf_init_empty()), gguf_ctx_owned(true), model(model), llm_kv(model->arch) {
+    GGML_ASSERT(llama_model_saver_supports_arch(model->arch));
 }
 
-llama_model_saver::llama_model_saver(enum llm_arch arch, struct lm_gguf_context * lm_gguf_ctx) :
-        lm_gguf_ctx(lm_gguf_ctx == nullptr ? lm_gguf_init_empty() : lm_gguf_ctx), lm_gguf_ctx_owned(lm_gguf_ctx == nullptr), model(nullptr), llm_kv(arch) {}
+llama_model_saver::llama_model_saver(enum llm_arch arch, struct gguf_context * gguf_ctx) :
+        gguf_ctx(gguf_ctx == nullptr ? gguf_init_empty() : gguf_ctx), gguf_ctx_owned(gguf_ctx == nullptr), model(nullptr), llm_kv(arch) {}
 
 llama_model_saver::~llama_model_saver() {
-    if (lm_gguf_ctx_owned) {
-        lm_gguf_free(lm_gguf_ctx);
+    if (gguf_ctx_owned) {
+        gguf_free(gguf_ctx);
     }
 }
 
 void llama_model_saver::add_kv(const enum llm_kv key, const uint32_t value) {
-    lm_gguf_set_val_u32(lm_gguf_ctx, llm_kv(key).c_str(), value);
+    gguf_set_val_u32(gguf_ctx, llm_kv(key).c_str(), value);
 }
 
 void llama_model_saver::add_kv(const enum llm_kv key, const int32_t value) {
-    lm_gguf_set_val_i32(lm_gguf_ctx, llm_kv(key).c_str(), value);
+    gguf_set_val_i32(gguf_ctx, llm_kv(key).c_str(), value);
 }
 
 void llama_model_saver::add_kv(const enum llm_kv key, const float value) {
-    lm_gguf_set_val_f32(lm_gguf_ctx, llm_kv(key).c_str(), value);
+    gguf_set_val_f32(gguf_ctx, llm_kv(key).c_str(), value);
 }
 
 void llama_model_saver::add_kv(const enum llm_kv key, const bool value) {
-    lm_gguf_set_val_bool(lm_gguf_ctx, llm_kv(key).c_str(), value);
+    gguf_set_val_bool(gguf_ctx, llm_kv(key).c_str(), value);
 }
 
 void llama_model_saver::add_kv(const enum llm_kv key, const char * value) {
-    lm_gguf_set_val_str(lm_gguf_ctx, llm_kv(key).c_str(), value);
+    gguf_set_val_str(gguf_ctx, llm_kv(key).c_str(), value);
 }
 
 [[noreturn]]
 void llama_model_saver::add_kv(const enum llm_kv key, const char value) {
-    LM_GGML_UNUSED(key);
-    LM_GGML_UNUSED(value);
-    LM_GGML_ABORT("fatal error"); // this should never be called, only needed to make the template below compile
+    GGML_UNUSED(key);
+    GGML_UNUSED(value);
+    GGML_ABORT("fatal error"); // this should never be called, only needed to make the template below compile
 }
 
 template <typename Container>
 void llama_model_saver::add_kv(const enum llm_kv key, const Container & value, const bool per_layer) {
-    LM_GGML_ASSERT(model != nullptr || !per_layer);
+    GGML_ASSERT(model != nullptr || !per_layer);
     const size_t n_values = per_layer ? size_t(model->hparams.n_layer()) : value.size();
-    LM_GGML_ASSERT(n_values <= value.size());
+    GGML_ASSERT(n_values <= value.size());
 
     if (n_values == 0) {
         return;
@@ -104,21 +104,21 @@ void llama_model_saver::add_kv(const enum llm_kv key, const Container & value, c
     }
 
     if (std::is_same<typename Container::value_type, uint8_t>::value) {
-        lm_gguf_set_arr_data(lm_gguf_ctx, llm_kv(key).c_str(), LM_GGUF_TYPE_UINT8, value.data(), n_values);
+        gguf_set_arr_data(gguf_ctx, llm_kv(key).c_str(), GGUF_TYPE_UINT8, value.data(), n_values);
     } else if (std::is_same<typename Container::value_type, int8_t>::value) {
-        lm_gguf_set_arr_data(lm_gguf_ctx, llm_kv(key).c_str(), LM_GGUF_TYPE_INT8, value.data(), n_values);
+        gguf_set_arr_data(gguf_ctx, llm_kv(key).c_str(), GGUF_TYPE_INT8, value.data(), n_values);
     } else if (std::is_same<typename Container::value_type, uint32_t>::value) {
-        lm_gguf_set_arr_data(lm_gguf_ctx, llm_kv(key).c_str(), LM_GGUF_TYPE_UINT32, value.data(), n_values);
+        gguf_set_arr_data(gguf_ctx, llm_kv(key).c_str(), GGUF_TYPE_UINT32, value.data(), n_values);
     } else if (std::is_same<typename Container::value_type, bool>::value) {
-        lm_gguf_set_arr_data(lm_gguf_ctx, llm_kv(key).c_str(), LM_GGUF_TYPE_BOOL, value.data(), n_values);
+        gguf_set_arr_data(gguf_ctx, llm_kv(key).c_str(), GGUF_TYPE_BOOL, value.data(), n_values);
     } else if (std::is_same<typename Container::value_type, int32_t>::value) {
-        lm_gguf_set_arr_data(lm_gguf_ctx, llm_kv(key).c_str(), LM_GGUF_TYPE_INT32, value.data(), n_values);
+        gguf_set_arr_data(gguf_ctx, llm_kv(key).c_str(), GGUF_TYPE_INT32, value.data(), n_values);
     } else if (std::is_same<typename Container::value_type, float>::value) {
-        lm_gguf_set_arr_data(lm_gguf_ctx, llm_kv(key).c_str(), LM_GGUF_TYPE_FLOAT32, value.data(), n_values);
+        gguf_set_arr_data(gguf_ctx, llm_kv(key).c_str(), GGUF_TYPE_FLOAT32, value.data(), n_values);
     } else if (std::is_same<Container, std::string>::value) {
-        lm_gguf_set_val_str(lm_gguf_ctx, llm_kv(key).c_str(), reinterpret_cast<const char *>(value.data()));
+        gguf_set_val_str(gguf_ctx, llm_kv(key).c_str(), reinterpret_cast<const char *>(value.data()));
     } else {
-        LM_GGML_ABORT("fatal error");
+        GGML_ABORT("fatal error");
     }
 }
 // instantiate for external usage:
@@ -130,21 +130,21 @@ void llama_model_saver::add_kv(const enum llm_kv key, const std::vector<std::str
     for (size_t i = 0; i < value.size(); ++i) {
         tmp[i] = value[i].c_str();
     }
-    lm_gguf_set_arr_str(lm_gguf_ctx, llm_kv(key).c_str(), tmp.data(), tmp.size());
+    gguf_set_arr_str(gguf_ctx, llm_kv(key).c_str(), tmp.data(), tmp.size());
 }
 
-void llama_model_saver::add_tensor(const struct lm_ggml_tensor * tensor) {
+void llama_model_saver::add_tensor(const struct ggml_tensor * tensor) {
     if (!tensor) {
         return;
     }
-    if (lm_gguf_find_tensor(lm_gguf_ctx, tensor->name) >= 0) {
+    if (gguf_find_tensor(gguf_ctx, tensor->name) >= 0) {
         const std::string tensor_name = tensor->name;
-        LM_GGML_ASSERT(
+        GGML_ASSERT(
             tensor_name == "rope_freqs.weight" || tensor_name == "rope_factors_long.weight" ||
             tensor_name == "rope_factors_short.weight"); // FIXME
         return;
     }
-    lm_gguf_add_tensor(lm_gguf_ctx, tensor);
+    gguf_add_tensor(gguf_ctx, tensor);
 }
 
 void llama_model_saver::add_kv_from_model() {
@@ -444,16 +444,16 @@ void llama_model_saver::add_tensors_from_model() {
     add_tensor(model->hc_head_scale);
 
     for (const struct llama_layer & layer : model->layers) {
-        for (size_t i = 0; i < sizeof(layer)/sizeof(struct lm_ggml_tensor *); ++i) {
-            add_tensor(reinterpret_cast<const struct lm_ggml_tensor * const *>(&layer)[i]);
+        for (size_t i = 0; i < sizeof(layer)/sizeof(struct ggml_tensor *); ++i) {
+            add_tensor(reinterpret_cast<const struct ggml_tensor * const *>(&layer)[i]);
         }
     }
 }
 
 void llama_model_saver::save(const std::string & path_model) {
-    lm_gguf_write_to_file(lm_gguf_ctx, path_model.c_str(), false);
+    gguf_write_to_file(gguf_ctx, path_model.c_str(), false);
 }
 
 void llama_model_saver::save(FILE * file) {
-    lm_gguf_write_to_file_ptr(lm_gguf_ctx, file, false);
+    gguf_write_to_file_ptr(gguf_ctx, file, false);
 }

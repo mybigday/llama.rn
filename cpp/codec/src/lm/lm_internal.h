@@ -20,7 +20,7 @@ void codec_lm_chatterbox_free_state(struct codec_lm * lm);
 
 struct codec_lm {
     // Borrowed; not freed by codec_lm_free.  All weights and the
-    // lm_ggml_backend live on this codec_model.
+    // ggml_backend live on this codec_model.
     codec_model * codec = nullptr;
 
     enum codec_lm_kind kind = CODEC_LM_KIND_UNKNOWN;

@@ -20,12 +20,12 @@ struct codec_local_attn_params {
 // softmax.  `score_bias_kqh` has shape `(t_k, t_q, n_heads)` — fill it via
 // `codec_local_attn_fill_mask` (CPU-side, before graph compute).  Backed
 // purely by ggml ops so the attention can offload to the active backend.
-lm_ggml_tensor * codec_op_local_attn(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * q_dth,
-    lm_ggml_tensor * k_dth,
-    lm_ggml_tensor * v_dth,
-    lm_ggml_tensor * score_bias_kqh,
+ggml_tensor * codec_op_local_attn(
+    ggml_context * ctx,
+    ggml_tensor * q_dth,
+    ggml_tensor * k_dth,
+    ggml_tensor * v_dth,
+    ggml_tensor * score_bias_kqh,
     int32_t head_dim,
     int32_t n_heads);
 

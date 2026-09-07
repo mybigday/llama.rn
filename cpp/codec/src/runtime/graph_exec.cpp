@@ -18,7 +18,7 @@
 // ---------------------------------------------------------------------------
 // Per-node profiler (zero-cost unless CODEC_OP_PROFILE=<path> is set).
 //
-// Registers a lm_ggml_backend_sched eval callback that timestamps successive node
+// Registers a ggml_backend_sched eval callback that timestamps successive node
 // observation callbacks and accumulates wall time + call count per
 // (op, shape-class).  The scheduler invokes the callback per resulting node
 // twice: ask=true (batching query — we always answer yes so every node is
@@ -44,7 +44,7 @@ struct op_profiler {
     bool                                  resolved  = false;
     bool                                  active    = false;   // inside one compute
     int64_t                               t_prev_us = 0;
-    lm_ggml_tensor *                         prev_node = nullptr;
+    ggml_tensor *                         prev_node = nullptr;
     std::map<std::string, op_profile_bucket> buckets;
 
     const char * resolve() {
@@ -64,19 +64,19 @@ op_profiler & profiler() {
 
 // Coarse shape-class key: op name + inner-two dims of the result, so distinct
 // matmul sizes (e.g. h_dit×T vs qkv) bucket separately without exploding.
-std::string profile_key(const lm_ggml_tensor * t) {
+std::string profile_key(const ggml_tensor * t) {
     char buf[96];
     std::snprintf(buf, sizeof(buf), "%-16s [%lld,%lld,%lld,%lld]",
-                  lm_ggml_op_name(t->op),
+                  ggml_op_name(t->op),
                   (long long) t->ne[0], (long long) t->ne[1],
                   (long long) t->ne[2], (long long) t->ne[3]);
     return std::string(buf);
 }
 
 // Attribute the elapsed interval to the *previous* observed node.
-void profile_observe(lm_ggml_tensor * node) {
+void profile_observe(ggml_tensor * node) {
     op_profiler & p = profiler();
-    const int64_t now = lm_ggml_time_us();
+    const int64_t now = ggml_time_us();
     if (p.prev_node != nullptr) {
         op_profile_bucket & b = p.buckets[profile_key(p.prev_node)];
         b.total_us += now - p.t_prev_us;
@@ -86,7 +86,7 @@ void profile_observe(lm_ggml_tensor * node) {
     p.t_prev_us = now;
 }
 
-bool profile_eval_callback(lm_ggml_tensor * t, bool ask, void * /*user_data*/) {
+bool profile_eval_callback(ggml_tensor * t, bool ask, void * /*user_data*/) {
     if (ask) {
         return true;  // observe every node
     }
@@ -99,7 +99,7 @@ void profile_begin() {
     if (p.resolve() == nullptr) { p.active = false; return; }
     p.active    = true;
     p.prev_node = nullptr;
-    p.t_prev_us = lm_ggml_time_us();
+    p.t_prev_us = ggml_time_us();
 }
 
 void profile_end(int graph_kind, int n_nodes) {
@@ -108,7 +108,7 @@ void profile_end(int graph_kind, int n_nodes) {
     // flush the last observed node using compute-end as its interval boundary.
     if (p.prev_node != nullptr) {
         op_profile_bucket & b = p.buckets[profile_key(p.prev_node)];
-        b.total_us += lm_ggml_time_us() - p.t_prev_us;
+        b.total_us += ggml_time_us() - p.t_prev_us;
         b.count    += 1;
     }
     p.prev_node = nullptr;
@@ -159,18 +159,18 @@ void profile_end(int graph_kind, int n_nodes) {
 
 }  // namespace
 
-static bool codec_backend_is_cpu(lm_ggml_backend_t backend) {
+static bool codec_backend_is_cpu(ggml_backend_t backend) {
     if (backend == nullptr) {
         return false;
     }
-    lm_ggml_backend_dev_t dev = lm_ggml_backend_get_device(backend);
+    ggml_backend_dev_t dev = ggml_backend_get_device(backend);
     if (dev == nullptr) {
         return false;
     }
-    return lm_ggml_backend_dev_type(dev) == LM_GGML_BACKEND_DEVICE_TYPE_CPU;
+    return ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_CPU;
 }
 
-static lm_ggml_backend_t codec_get_default_backend(codec_context * ctx) {
+static ggml_backend_t codec_get_default_backend(codec_context * ctx) {
     // If main backend is CPU, use it; otherwise use CPU backend if available
     if (ctx->backend != nullptr && codec_backend_is_cpu(ctx->backend)) {
         return ctx->backend;
@@ -178,20 +178,20 @@ static lm_ggml_backend_t codec_get_default_backend(codec_context * ctx) {
     return ctx->cpu_backend;
 }
 
-static void codec_backend_set_n_threads(lm_ggml_backend_t backend, int32_t n_threads) {
+static void codec_backend_set_n_threads(ggml_backend_t backend, int32_t n_threads) {
     if (backend == nullptr || n_threads <= 0) {
         return;
     }
-    lm_ggml_backend_dev_t dev = lm_ggml_backend_get_device(backend);
+    ggml_backend_dev_t dev = ggml_backend_get_device(backend);
     if (dev == nullptr) {
         return;
     }
-    lm_ggml_backend_reg_t reg = lm_ggml_backend_dev_backend_reg(dev);
+    ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
     if (reg == nullptr) {
         return;
     }
-    lm_ggml_backend_set_n_threads_t fn = reinterpret_cast<lm_ggml_backend_set_n_threads_t>(
-        lm_ggml_backend_reg_get_proc_address(reg, "lm_ggml_backend_set_n_threads"));
+    ggml_backend_set_n_threads_t fn = reinterpret_cast<ggml_backend_set_n_threads_t>(
+        ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_n_threads"));
     if (fn != nullptr) {
         fn(backend, n_threads);
     }
@@ -214,11 +214,11 @@ static bool codec_sched_ensure_capacity(codec_context * ctx, int32_t required, s
     }
 
     if (ctx->sched != nullptr) {
-        lm_ggml_backend_sched_free(ctx->sched);
+        ggml_backend_sched_free(ctx->sched);
         ctx->sched = nullptr;
     }
 
-    std::array<lm_ggml_backend_t, 2> backends = { ctx->backend, nullptr };
+    std::array<ggml_backend_t, 2> backends = { ctx->backend, nullptr };
     int n_backends = 1;
     if (!codec_backend_is_cpu(ctx->backend) && ctx->cpu_backend != nullptr) {
         backends[1] = ctx->cpu_backend;
@@ -226,7 +226,7 @@ static bool codec_sched_ensure_capacity(codec_context * ctx, int32_t required, s
     }
 
     const bool op_offload = std::getenv("CODEC_NO_OP_OFFLOAD") == nullptr;
-    ctx->sched = lm_ggml_backend_sched_new(backends.data(), nullptr, n_backends, target, false, op_offload);
+    ctx->sched = ggml_backend_sched_new(backends.data(), nullptr, n_backends, target, false, op_offload);
     if (ctx->sched == nullptr) {
         if (error != nullptr) {
             *error = "failed to recreate backend scheduler";
@@ -261,11 +261,11 @@ bool codec_runtime_init(codec_context * ctx, std::string * error) {
         return false;
     }
 
-    std::array<lm_ggml_backend_t, 2> backends = { ctx->backend, nullptr };
+    std::array<ggml_backend_t, 2> backends = { ctx->backend, nullptr };
     int n_backends = 1;
 
     if (!codec_backend_is_cpu(ctx->backend)) {
-        ctx->cpu_backend = lm_ggml_backend_init_by_name("CPU", nullptr);
+        ctx->cpu_backend = ggml_backend_init_by_name("CPU", nullptr);
         if (ctx->cpu_backend != nullptr) {
             backends[1] = ctx->cpu_backend;
             n_backends = 2;
@@ -293,7 +293,7 @@ bool codec_graph_prepare_io(
     // alloc here (after build, before write_tensor) and compute later.
     int32_t required = entry->last_sched_graph_size;
     if (required <= 0) {
-        required = std::max(1, lm_ggml_graph_n_nodes(ctx->eval_graph));
+        required = std::max(1, ggml_graph_n_nodes(ctx->eval_graph));
     }
     if (!codec_sched_ensure_capacity(ctx, required, error)) {
         return false;
@@ -303,8 +303,8 @@ bool codec_graph_prepare_io(
         return true;
     }
 
-    lm_ggml_backend_sched_reset(ctx->sched);
-    if (!lm_ggml_backend_sched_alloc_graph(ctx->sched, ctx->eval_graph)) {
+    ggml_backend_sched_reset(ctx->sched);
+    if (!ggml_backend_sched_alloc_graph(ctx->sched, ctx->eval_graph)) {
         if (error != nullptr) {
             *error = "failed to allocate graph in scheduler";
         }
@@ -314,7 +314,7 @@ bool codec_graph_prepare_io(
 
     {
         char det[80];
-        const size_t bytes = lm_ggml_backend_sched_get_buffer_size(ctx->sched, codec_get_default_backend(ctx));
+        const size_t bytes = ggml_backend_sched_get_buffer_size(ctx->sched, codec_get_default_backend(ctx));
         std::snprintf(det, sizeof(det), "kind=%d bytes=%zu", entry->key.kind, bytes);
         codec_perf_event("graph_alloc_buf", det);
     }
@@ -332,7 +332,7 @@ bool codec_graph_compute(
     std::snprintf(detail_buf, sizeof(detail_buf),
                   "kind=%d nodes=%d",
                   entry ? entry->key.kind : -1,
-                  ctx && ctx->eval_graph ? lm_ggml_graph_n_nodes(ctx->eval_graph) : 0);
+                  ctx && ctx->eval_graph ? ggml_graph_n_nodes(ctx->eval_graph) : 0);
     CODEC_PERF_SCOPE_D("graph_compute", detail_buf);
 
     if (ctx == nullptr || entry == nullptr || ctx->eval_entry != entry || ctx->eval_graph == nullptr || ctx->backend == nullptr) {
@@ -353,18 +353,18 @@ bool codec_graph_compute(
 
     const bool profile_on = profiler().resolve() != nullptr;
     if (profile_on) {
-        lm_ggml_backend_sched_set_eval_callback(ctx->sched, profile_eval_callback, nullptr);
+        ggml_backend_sched_set_eval_callback(ctx->sched, profile_eval_callback, nullptr);
         profile_begin();
     }
 
-    const lm_ggml_status st = lm_ggml_backend_sched_graph_compute(ctx->sched, ctx->eval_graph);
+    const ggml_status st = ggml_backend_sched_graph_compute(ctx->sched, ctx->eval_graph);
 
     if (profile_on) {
-        profile_end(entry ? entry->key.kind : -1, lm_ggml_graph_n_nodes(ctx->eval_graph));
-        lm_ggml_backend_sched_set_eval_callback(ctx->sched, nullptr, nullptr);
+        profile_end(entry ? entry->key.kind : -1, ggml_graph_n_nodes(ctx->eval_graph));
+        ggml_backend_sched_set_eval_callback(ctx->sched, nullptr, nullptr);
     }
 
-    if (st != LM_GGML_STATUS_SUCCESS) {
+    if (st != GGML_STATUS_SUCCESS) {
         if (error != nullptr) {
             *error = "graph scheduler compute failed";
         }
@@ -389,12 +389,12 @@ void codec_runtime_free(codec_context * ctx) {
     }
 
     if (ctx->sched != nullptr) {
-        lm_ggml_backend_sched_free(ctx->sched);
+        ggml_backend_sched_free(ctx->sched);
         ctx->sched = nullptr;
     }
 
     if (ctx->cpu_backend != nullptr) {
-        lm_ggml_backend_free(ctx->cpu_backend);
+        ggml_backend_free(ctx->cpu_backend);
         ctx->cpu_backend = nullptr;
     }
 }

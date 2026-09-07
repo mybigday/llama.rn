@@ -2,9 +2,9 @@
 
 #include "common.h"
 
-#define LM_GGML_COMMON_DECL_METAL
-#define LM_GGML_COMMON_IMPL_METAL
-#if defined(LM_GGML_METAL_EMBED_LIBRARY)
+#define GGML_COMMON_DECL_METAL
+#define GGML_COMMON_IMPL_METAL
+#if defined(GGML_METAL_EMBED_LIBRARY)
 __embed_ggml-common.h__
 #else
 #include "ggml-common.h"
@@ -33,7 +33,7 @@ void dequantize_f16_t4(device const half4 * src, short il, thread type4 & reg) {
     reg = (type4)(*(src));
 }
 
-#if defined(LM_GGML_METAL_HAS_BF16)
+#if defined(GGML_METAL_HAS_BF16)
 template <typename type4x4>
 void dequantize_bf16(device const bfloat4x4 * src, short il, thread type4x4 & reg) {
     reg = (type4x4)(*src);

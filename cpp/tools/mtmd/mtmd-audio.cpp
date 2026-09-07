@@ -41,7 +41,7 @@ void mtmd_audio_cache::fill_mel_filterbank_matrix(int64_t n_mel,
                                                   bool  slaney_area_norm,
                                                   float scale,
                                                   bool  use_htk) {
-    LM_GGML_ASSERT(n_mel > 0 && n_fft > 1);
+    GGML_ASSERT(n_mel > 0 && n_fft > 1);
     if (fmax <= 0.0f) {
         fmax = 0.5f * sample_rate;
     }
@@ -91,7 +91,7 @@ void mtmd_audio_cache::fill_mel_filterbank_matrix(int64_t n_mel,
 
     // Validate allocation size
     if ((size_t)n_mel * (size_t)n_fft_bins > SIZE_MAX) {
-        LM_GGML_ASSERT(false && "mel filterbank allocation too large");
+        GGML_ASSERT(false && "mel filterbank allocation too large");
     }
 
     // filterbank
@@ -182,7 +182,7 @@ static void dft_impl(const mtmd_audio_cache & cache, const float * in, int N, fl
 //              false = input is complex-valued (interleaved real/imag, stride 2)
 template <bool Inverse, bool RealInput>
 static void fft_impl(const mtmd_audio_cache & cache, float * in, int N, float * out) {
-    LM_GGML_ASSERT(N > 0);
+    GGML_ASSERT(N > 0);
     const int n_sin_cos_vals = cache.sin_vals.size();
 
     if (N == 1) {
@@ -305,8 +305,8 @@ static void log_mel_spectrogram_worker_thread(int                        ith,
     const auto & filters = cache.filters;
 
     // make sure n_fft == 1 + (WHISPER_N_FFT / 2), bin_0 to bin_nyquist
-    LM_GGML_ASSERT(n_fft_bins == 1 + (frame_size / 2));
-    LM_GGML_ASSERT(cache.sin_vals.size() == cache.cos_vals.size());
+    GGML_ASSERT(n_fft_bins == 1 + (frame_size / 2));
+    GGML_ASSERT(cache.sin_vals.size() == cache.cos_vals.size());
     // calculate FFT only when fft_in are not all zero
     for (; i < std::min((int64_t)(n_samples / frame_step + 1), out.n_len); i += n_threads) {
         const int64_t offset = i * frame_step;
@@ -373,7 +373,7 @@ static bool log_mel_spectrogram(
         const filter_params & params,
         const mtmd_audio_cache & cache,
         mtmd_audio_mel & out) {
-    //const int64_t t_start_us = lm_ggml_time_us();
+    //const int64_t t_start_us = ggml_time_us();
 
     out.n_len_org = n_samples_in;
     int n_samples = n_samples_in;
@@ -440,8 +440,8 @@ static bool log_mel_spectrogram(
     }
 
 
-    LM_GGML_ASSERT(params.n_fft_bins > 0);
-    LM_GGML_ASSERT(params.hop_length > 0);
+    GGML_ASSERT(params.n_fft_bins > 0);
+    GGML_ASSERT(params.hop_length > 0);
     out.n_mel = params.n_mel;
     out.n_len = (n_samples - frame_size) / frame_step + 1;
     // Validate dimensions before allocation to prevent integer overflow
@@ -478,7 +478,7 @@ static bool log_mel_spectrogram(
 
     const int64_t effective_n_len = n_samples_in / frame_step;
     if (params.norm_per_feature) {
-        LM_GGML_ASSERT(effective_n_len > 1);
+        GGML_ASSERT(effective_n_len > 1);
         for (int64_t i = 0; i < out.n_mel; i++) {
             double mean = 0;
             for (int64_t j = 0; j < effective_n_len; ++j) {
@@ -578,9 +578,9 @@ bool mtmd_audio_preprocessor_whisper::preprocess(const float *                 s
     params.norm_per_feature = false;
 
     // make sure the cache is initialized
-    LM_GGML_ASSERT(!cache.sin_vals.empty());
-    LM_GGML_ASSERT(!cache.cos_vals.empty());
-    LM_GGML_ASSERT(!cache.filters.data.empty());
+    GGML_ASSERT(!cache.sin_vals.empty());
+    GGML_ASSERT(!cache.cos_vals.empty());
+    GGML_ASSERT(!cache.filters.data.empty());
 
     mtmd_audio_mel out_full;
     bool           ok = log_mel_spectrogram(samples, n_samples,
@@ -596,7 +596,7 @@ bool mtmd_audio_preprocessor_whisper::preprocess(const float *                 s
         printf("output: n_mel = %d, n_len = %d\n", (int) out_full.n_mel, (int) out_full.n_len);
     }
     const size_t frames_per_chunk = 3000;
-    LM_GGML_ASSERT((size_t) out_full.n_len > frames_per_chunk);
+    GGML_ASSERT((size_t) out_full.n_len > frames_per_chunk);
     for (size_t off = 0; off < (size_t) out_full.n_len; off += frames_per_chunk) {
         int64_t n_len = std::min((int64_t)frames_per_chunk, out_full.n_len - (int64_t)off);
         if (n_len < (int64_t)frames_per_chunk) {
@@ -643,9 +643,9 @@ bool mtmd_audio_preprocessor_qwen3a::preprocess(const float *                 sa
         return false;
     }
 
-    LM_GGML_ASSERT(!cache.sin_vals.empty());
-    LM_GGML_ASSERT(!cache.cos_vals.empty());
-    LM_GGML_ASSERT(!cache.filters.data.empty());
+    GGML_ASSERT(!cache.sin_vals.empty());
+    GGML_ASSERT(!cache.cos_vals.empty());
+    GGML_ASSERT(!cache.filters.data.empty());
 
     // Reflection-pad n_fft/2 samples at each end, matching WhisperFeatureExtractor center=True
     const int pad = hparams.audio_n_fft / 2; // = 200
@@ -745,9 +745,9 @@ bool mtmd_audio_preprocessor_dots3note::preprocess(const float *                
         return false;
     }
 
-    LM_GGML_ASSERT(!cache.sin_vals.empty());
-    LM_GGML_ASSERT(!cache.cos_vals.empty());
-    LM_GGML_ASSERT(!cache.filters.data.empty());
+    GGML_ASSERT(!cache.sin_vals.empty());
+    GGML_ASSERT(!cache.cos_vals.empty());
+    GGML_ASSERT(!cache.filters.data.empty());
 
     const int    pad           = hparams.audio_n_fft / 2; // center=True padding
     const int    hop           = hparams.audio_hop_len;
@@ -790,7 +790,7 @@ bool mtmd_audio_preprocessor_dots3note::preprocess(const float *                
         if (!log_mel_spectrogram(padded.data(), (int) padded.size(), 4, params, cache, mel_full)) {
             return false;
         }
-        LM_GGML_ASSERT(mel_full.n_len >= n_valid);
+        GGML_ASSERT(mel_full.n_len >= n_valid);
 
         // per-chunk whisper-style normalization, then keep only the valid frames
         mtmd_audio_mel out;
@@ -845,9 +845,9 @@ bool mtmd_audio_preprocessor_mimo_audio::preprocess(const float *               
         return false;
     }
 
-    LM_GGML_ASSERT(!cache.sin_vals.empty());
-    LM_GGML_ASSERT(!cache.cos_vals.empty());
-    LM_GGML_ASSERT(!cache.filters.data.empty());
+    GGML_ASSERT(!cache.sin_vals.empty());
+    GGML_ASSERT(!cache.cos_vals.empty());
+    GGML_ASSERT(!cache.filters.data.empty());
 
     const int pad = hparams.audio_n_fft / 2;
 
@@ -904,9 +904,9 @@ bool mtmd_audio_preprocessor_qwen3tts_spk::preprocess(const float *             
         return false;
     }
 
-    LM_GGML_ASSERT(!cache.sin_vals.empty());
-    LM_GGML_ASSERT(!cache.cos_vals.empty());
-    LM_GGML_ASSERT(!cache.filters.data.empty());
+    GGML_ASSERT(!cache.sin_vals.empty());
+    GGML_ASSERT(!cache.cos_vals.empty());
+    GGML_ASSERT(!cache.filters.data.empty());
 
     // reflect pad by (n_fft - hop) / 2 = 384, matching center=False STFT framing
     const int pad = (hparams.audio_n_fft - hparams.audio_hop_len) / 2;
@@ -974,9 +974,9 @@ bool mtmd_audio_preprocessor_conformer::preprocess(const float *                
     params.norm_per_feature = true;
 
     // make sure the cache is initialized
-    LM_GGML_ASSERT(!cache.sin_vals.empty());
-    LM_GGML_ASSERT(!cache.cos_vals.empty());
-    LM_GGML_ASSERT(!cache.filters.data.empty());
+    GGML_ASSERT(!cache.sin_vals.empty());
+    GGML_ASSERT(!cache.cos_vals.empty());
+    GGML_ASSERT(!cache.filters.data.empty());
 
     mtmd_audio_mel out_full;
     bool           ok = log_mel_spectrogram(samples, n_samples,
@@ -1009,9 +1009,9 @@ bool mtmd_audio_preprocessor_granite_speech::preprocess(const float *           
         return false;
     }
 
-    LM_GGML_ASSERT(!cache.sin_vals.empty());
-    LM_GGML_ASSERT(!cache.cos_vals.empty());
-    LM_GGML_ASSERT(!cache.filters.data.empty());
+    GGML_ASSERT(!cache.sin_vals.empty());
+    GGML_ASSERT(!cache.cos_vals.empty());
+    GGML_ASSERT(!cache.filters.data.empty());
 
     const int n_fft = hparams.audio_n_fft;
     const int pad   = n_fft / 2;
@@ -1123,9 +1123,9 @@ bool mtmd_audio_preprocessor_gemma4a::preprocess(const float *                 s
         return false;
     }
 
-    LM_GGML_ASSERT(!cache.sin_vals.empty());
-    LM_GGML_ASSERT(!cache.cos_vals.empty());
-    LM_GGML_ASSERT(!cache.filters.data.empty());
+    GGML_ASSERT(!cache.sin_vals.empty());
+    GGML_ASSERT(!cache.cos_vals.empty());
+    GGML_ASSERT(!cache.filters.data.empty());
 
     filter_params params;
     params.n_mel            = hparams.n_mel_bins;
@@ -1196,7 +1196,7 @@ void mtmd_audio_preprocessor_parakeet::worker_thread(
     int n_fb = n_fft_bins;
     int i = ith;
 
-    LM_GGML_ASSERT(n_fb == 1 + (frame_size / 2));
+    GGML_ASSERT(n_fb == 1 + (frame_size / 2));
 
     const double eps = 5.960464477539063e-08;
 
@@ -1255,13 +1255,13 @@ void mtmd_audio_preprocessor_parakeet::initialize() {
     cache.fill_sin_cos_table(hparams.audio_n_fft);
 
     const size_t n_fft = hparams.audio_n_fft / 2 + 1;
-    LM_GGML_ASSERT(hparams.mel_filters.size() == (size_t)hparams.n_mel_bins * n_fft);
+    GGML_ASSERT(hparams.mel_filters.size() == (size_t)hparams.n_mel_bins * n_fft);
     cache.filters.n_mel = hparams.n_mel_bins;
     cache.filters.n_fft = n_fft;
     cache.filters.data  = hparams.mel_filters;
 
-    LM_GGML_ASSERT(hparams.window.size() == (size_t)hparams.audio_window_len);
-    LM_GGML_ASSERT(hparams.window.size() <= (size_t) hparams.audio_n_fft);
+    GGML_ASSERT(hparams.window.size() == (size_t)hparams.audio_window_len);
+    GGML_ASSERT(hparams.window.size() <= (size_t) hparams.audio_n_fft);
     cache.hann_window = hparams.window;
 }
 
@@ -1279,9 +1279,9 @@ bool mtmd_audio_preprocessor_parakeet::preprocess(const float * samples,
     params.hop_length       = hparams.audio_hop_len;
     params.sample_rate      = hparams.audio_sample_rate;
 
-    LM_GGML_ASSERT(!cache.sin_vals.empty());
-    LM_GGML_ASSERT(!cache.cos_vals.empty());
-    LM_GGML_ASSERT(!cache.filters.data.empty());
+    GGML_ASSERT(!cache.sin_vals.empty());
+    GGML_ASSERT(!cache.cos_vals.empty());
+    GGML_ASSERT(!cache.filters.data.empty());
 
     const float * window_func = cache.hann_window.data();
     const int     window_size = params.hann_window_size;
@@ -1428,7 +1428,7 @@ mtmd_audio_streaming_istft::mtmd_audio_streaming_istft(int n_fft, int hop_length
     padding_to_remove((n_fft - hop_length) / 2),
     ifft_in(n_fft * 2 * 4, 0.0f),  // extra space for recursive IFFT
     ifft_out(n_fft * 2 * 4, 0.0f) {
-    LM_GGML_ASSERT(n_fft > 0 && hop_length > 0 && hop_length <= n_fft);
+    GGML_ASSERT(n_fft > 0 && hop_length > 0 && hop_length <= n_fft);
     cache.fill_sin_cos_table(n_fft);
     cache.fill_hann_window(n_fft, true);
 }

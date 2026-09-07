@@ -2,9 +2,9 @@
 
 #include "../runtime/graph.h"
 #include "../runtime/graph_exec.h"
-#include "../runtime/lm_gguf_kv.h"
+#include "../runtime/gguf_kv.h"
 #include "../runtime/tensor_utils.h"
-#include "../ops/lm_ggml_ops.h"
+#include "../ops/ggml_ops.h"
 #include "../ops/lm_attn.h"
 
 #include <ggml.h>
@@ -45,23 +45,23 @@
 //
 // Llama3-style RoPE scaling is handled via the `lm.depth.rope_freq_factors`
 // tensor the converter precomputes — the runtime feeds it to
-// `lm_ggml_rope_ext` as `freq_factors`, no in-graph piecewise math.
+// `ggml_rope_ext` as `freq_factors`, no in-graph piecewise math.
 // =====================================================================
 
 namespace {
 
 struct rda_layer_w {
-    lm_ggml_tensor * attn_norm;
-    lm_ggml_tensor * q;
-    lm_ggml_tensor * k;
-    lm_ggml_tensor * v;
-    lm_ggml_tensor * o;
-    lm_ggml_tensor * ffn_norm;
-    lm_ggml_tensor * ffn_gate;
-    lm_ggml_tensor * ffn_up;
-    lm_ggml_tensor * ffn_down;
-    lm_ggml_tensor * q_norm;   // optional (Qwen3 family)
-    lm_ggml_tensor * k_norm;   // optional
+    ggml_tensor * attn_norm;
+    ggml_tensor * q;
+    ggml_tensor * k;
+    ggml_tensor * v;
+    ggml_tensor * o;
+    ggml_tensor * ffn_norm;
+    ggml_tensor * ffn_gate;
+    ggml_tensor * ffn_up;
+    ggml_tensor * ffn_down;
+    ggml_tensor * q_norm;   // optional (Qwen3 family)
+    ggml_tensor * k_norm;   // optional
 };
 
 struct rda_impl {
@@ -114,28 +114,28 @@ struct rda_impl {
     //   - `flex_heads`: alternative single 3D `(V, depth_hidden, N)`
     //     storage; if set, head at position p uses slice `[p]` and
     //     `depth_heads` should be empty.
-    std::vector<lm_ggml_tensor *> audio_embds;
+    std::vector<ggml_tensor *> audio_embds;
     // Qwen3-TTS talker text-prompt projection: text_embd (V_text, H_text)
     // → text_projection MLP (fc2 ∘ silu ∘ fc1) → (H_talker).  Used only to
     // assemble the talker prompt prefix host-side; null for other models.
-    lm_ggml_tensor * tp_text_embd      = nullptr; // (H_text, V_text)
-    lm_ggml_tensor * tp_fc1_w          = nullptr; // (H_text, H_mid)
-    lm_ggml_tensor * tp_fc1_b          = nullptr; // (H_mid,)
-    lm_ggml_tensor * tp_fc2_w          = nullptr; // (H_mid, H_out)
-    lm_ggml_tensor * tp_fc2_b          = nullptr; // (H_out,)
+    ggml_tensor * tp_text_embd      = nullptr; // (H_text, V_text)
+    ggml_tensor * tp_fc1_w          = nullptr; // (H_text, H_mid)
+    ggml_tensor * tp_fc1_b          = nullptr; // (H_mid,)
+    ggml_tensor * tp_fc2_w          = nullptr; // (H_mid, H_out)
+    ggml_tensor * tp_fc2_b          = nullptr; // (H_out,)
     int32_t       tp_text_dim       = 0;       // H_text (fc1 in)
     int32_t       tp_mid_dim        = 0;       // H_mid  (fc1 out / fc2 in)
     int32_t       tp_out_dim        = 0;       // H_out  (fc2 out = talker hidden)
-    lm_ggml_tensor * text_embd         = nullptr; // c0_is_text only (Moshi)
-    lm_ggml_tensor * c0_head           = nullptr; // when !depth_emits_c0
-    std::vector<lm_ggml_tensor *> depth_heads;    // per-cb 2D heads
-    std::vector<lm_ggml_tensor *> heads_pre_norm; // per-cb pre-head RMSNorm
+    ggml_tensor * text_embd         = nullptr; // c0_is_text only (Moshi)
+    ggml_tensor * c0_head           = nullptr; // when !depth_emits_c0
+    std::vector<ggml_tensor *> depth_heads;    // per-cb 2D heads
+    std::vector<ggml_tensor *> heads_pre_norm; // per-cb pre-head RMSNorm
                                                // (has_pre_head_norm only)
-    lm_ggml_tensor * flex_heads        = nullptr; // single 3D heads (Moshi)
-    lm_ggml_tensor * in_proj           = nullptr; // 2D (shared) or 3D (per-pos)
-    lm_ggml_tensor * in_proj_bias      = nullptr; // 1D (Qwen3-TTS) or 2D (LFM2)
-    lm_ggml_tensor * depth_output_norm = nullptr; // present except Moshi/LFM2
-    lm_ggml_tensor * rope_freq_factors = nullptr; // llama3 RoPE scaling
+    ggml_tensor * flex_heads        = nullptr; // single 3D heads (Moshi)
+    ggml_tensor * in_proj           = nullptr; // 2D (shared) or 3D (per-pos)
+    ggml_tensor * in_proj_bias      = nullptr; // 1D (Qwen3-TTS) or 2D (LFM2)
+    ggml_tensor * depth_output_norm = nullptr; // present except Moshi/LFM2
+    ggml_tensor * rope_freq_factors = nullptr; // llama3 RoPE scaling
     std::vector<rda_layer_w> layers;           // per-layer weights (2D or 3D)
 
     // Backbone-side compose embedding for the next AR step (LFM2).
@@ -143,7 +143,7 @@ struct rda_impl {
     // `sum_i compose_table[c_i + i * compose_codebook_stride]` and
     // returns a `compose_audio_embed_dim`-wide vector.  When null, the
     // legacy per-cb path (sum over `audio_embds[i][c_i]`) is used.
-    lm_ggml_tensor * compose_audio_embd_fused = nullptr;
+    ggml_tensor * compose_audio_embd_fused = nullptr;
     int32_t       compose_audio_embed_dim  = 0;
     int32_t       compose_codebook_stride  = 0;
 
@@ -172,10 +172,10 @@ struct rda_state {
     // incremental KV path (e.g. flex_heads / per-pos in_proj —
     // implemented in a follow-up).  The step machine then falls back
     // to the legacy prefix-recompute path transparently.
-    lm_ggml_context *               ctx_kv  = nullptr;
-    lm_ggml_backend_buffer_t        buf_kv  = nullptr;
-    std::vector<lm_ggml_tensor *>   k_cache;
-    std::vector<lm_ggml_tensor *>   v_cache;
+    ggml_context *               ctx_kv  = nullptr;
+    ggml_backend_buffer_t        buf_kv  = nullptr;
+    std::vector<ggml_tensor *>   k_cache;
+    std::vector<ggml_tensor *>   v_cache;
     int32_t                      max_kv_T = 0;
     int32_t                      kv_pos   = 0;
     bool                         kv_ok    = false;
@@ -188,22 +188,22 @@ struct rda_state {
 // Thin shim over the shared Llama-style depth block in src/ops/lm_attn.
 // Pulls the per-layer weights out of `rda_layer_w`, masks q/k-norm
 // to nullptr when `has_qk_norm=false`, and delegates everything else.
-lm_ggml_tensor * rda_depth_layer(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_ht,
+ggml_tensor * rda_depth_layer(
+    ggml_context * ctx,
+    ggml_tensor * x_ht,
     const rda_layer_w & w,
-    lm_ggml_tensor * t_pos,
-    lm_ggml_tensor * freq_factors,
+    ggml_tensor * t_pos,
+    ggml_tensor * freq_factors,
     int32_t head_dim,
     int32_t n_heads,
     int32_t n_kv_heads,
     float   rope_theta,
     float   rms_eps,
     bool    has_qk_norm,
-    int32_t rope_mode = LM_GGML_ROPE_TYPE_NEOX,
+    int32_t rope_mode = GGML_ROPE_TYPE_NEOX,
     bool    use_rope  = true) {
-    lm_ggml_tensor * q_norm = (has_qk_norm && w.q_norm) ? w.q_norm : nullptr;
-    lm_ggml_tensor * k_norm = (has_qk_norm && w.k_norm) ? w.k_norm : nullptr;
+    ggml_tensor * q_norm = (has_qk_norm && w.q_norm) ? w.q_norm : nullptr;
+    ggml_tensor * k_norm = (has_qk_norm && w.k_norm) ? w.k_norm : nullptr;
     return codec_op_lm_llama_depth_block(
         ctx, x_ht,
         w.attn_norm, w.q, w.k, w.v, w.o,
@@ -230,7 +230,7 @@ lm_ggml_tensor * rda_depth_layer(
 // Returns true on success.  On failure, `error_out` (if non-null) gets
 // a descriptive message including the caller-supplied `tag`.
 static bool rda_copy_embd_row(
-        const lm_ggml_tensor * tbl, int32_t row_id, int32_t row_dim,
+        const ggml_tensor * tbl, int32_t row_id, int32_t row_dim,
         float * dst, const char * tag, std::string * error_out) {
     if (tbl == nullptr) {
         if (error_out) *error_out = std::string("missing embed table for ") + tag;
@@ -242,49 +242,49 @@ static bool rda_copy_embd_row(
         return false;
     }
     const bool host_buffer =
-        tbl->buffer == nullptr || lm_ggml_backend_buffer_is_host(tbl->buffer);
+        tbl->buffer == nullptr || ggml_backend_buffer_is_host(tbl->buffer);
     const size_t row_offset_elems = (size_t) row_id * (size_t) row_dim;
 
-    if (tbl->type == LM_GGML_TYPE_F32 && host_buffer) {
-        const float * data = static_cast<const float *>(lm_ggml_get_data(tbl));
+    if (tbl->type == GGML_TYPE_F32 && host_buffer) {
+        const float * data = static_cast<const float *>(ggml_get_data(tbl));
         std::memcpy(dst, data + row_offset_elems, (size_t) row_dim * sizeof(float));
         return true;
     }
 
-    if (tbl->type == LM_GGML_TYPE_F16) {
-        const size_t row_bytes_src = (size_t) row_dim * sizeof(lm_ggml_fp16_t);
-        const lm_ggml_fp16_t * src;
-        std::vector<lm_ggml_fp16_t> tmp;
+    if (tbl->type == GGML_TYPE_F16) {
+        const size_t row_bytes_src = (size_t) row_dim * sizeof(ggml_fp16_t);
+        const ggml_fp16_t * src;
+        std::vector<ggml_fp16_t> tmp;
         if (host_buffer) {
-            src = static_cast<const lm_ggml_fp16_t *>(lm_ggml_get_data(tbl)) + row_offset_elems;
+            src = static_cast<const ggml_fp16_t *>(ggml_get_data(tbl)) + row_offset_elems;
         } else {
             tmp.resize((size_t) row_dim);
-            lm_ggml_backend_tensor_get(
-                const_cast<lm_ggml_tensor *>(tbl), tmp.data(),
-                row_offset_elems * sizeof(lm_ggml_fp16_t), row_bytes_src);
+            ggml_backend_tensor_get(
+                const_cast<ggml_tensor *>(tbl), tmp.data(),
+                row_offset_elems * sizeof(ggml_fp16_t), row_bytes_src);
             src = tmp.data();
         }
         for (int32_t i = 0; i < row_dim; ++i) {
-            dst[i] = lm_ggml_fp16_to_fp32(src[i]);
+            dst[i] = ggml_fp16_to_fp32(src[i]);
         }
         return true;
     }
 
-    if (tbl->type == LM_GGML_TYPE_BF16) {
-        const size_t row_bytes_src = (size_t) row_dim * sizeof(lm_ggml_bf16_t);
-        const lm_ggml_bf16_t * src;
-        std::vector<lm_ggml_bf16_t> tmp;
+    if (tbl->type == GGML_TYPE_BF16) {
+        const size_t row_bytes_src = (size_t) row_dim * sizeof(ggml_bf16_t);
+        const ggml_bf16_t * src;
+        std::vector<ggml_bf16_t> tmp;
         if (host_buffer) {
-            src = static_cast<const lm_ggml_bf16_t *>(lm_ggml_get_data(tbl)) + row_offset_elems;
+            src = static_cast<const ggml_bf16_t *>(ggml_get_data(tbl)) + row_offset_elems;
         } else {
             tmp.resize((size_t) row_dim);
-            lm_ggml_backend_tensor_get(
-                const_cast<lm_ggml_tensor *>(tbl), tmp.data(),
-                row_offset_elems * sizeof(lm_ggml_bf16_t), row_bytes_src);
+            ggml_backend_tensor_get(
+                const_cast<ggml_tensor *>(tbl), tmp.data(),
+                row_offset_elems * sizeof(ggml_bf16_t), row_bytes_src);
             src = tmp.data();
         }
         for (int32_t i = 0; i < row_dim; ++i) {
-            dst[i] = lm_ggml_bf16_to_fp32(src[i]);
+            dst[i] = ggml_bf16_to_fp32(src[i]);
         }
         return true;
     }
@@ -293,17 +293,17 @@ static bool rda_copy_embd_row(
     // bytes via the type traits, no full-table pass.  This relies on
     // `row_dim == tbl->ne[0]`, which holds for an embedding table laid
     // out (hidden, vocab).
-    const lm_ggml_type_traits * traits = lm_ggml_get_type_traits(tbl->type);
+    const ggml_type_traits * traits = ggml_get_type_traits(tbl->type);
     if (traits != nullptr && traits->to_float != nullptr && tbl->ne[0] == row_dim) {
-        const size_t row_size = lm_ggml_row_size(tbl->type, (int64_t) row_dim);
+        const size_t row_size = ggml_row_size(tbl->type, (int64_t) row_dim);
         std::vector<uint8_t> tmp;
         const uint8_t * src;
         if (host_buffer) {
-            src = static_cast<const uint8_t *>(lm_ggml_get_data(tbl)) + (size_t) row_id * row_size;
+            src = static_cast<const uint8_t *>(ggml_get_data(tbl)) + (size_t) row_id * row_size;
         } else {
             tmp.resize(row_size);
-            lm_ggml_backend_tensor_get(
-                const_cast<lm_ggml_tensor *>(tbl), tmp.data(),
+            ggml_backend_tensor_get(
+                const_cast<ggml_tensor *>(tbl), tmp.data(),
                 (size_t) row_id * row_size, row_size);
             src = tmp.data();
         }
@@ -334,16 +334,16 @@ struct rda_c0_build {
     rda_impl * impl;
 };
 
-bool rda_build_c0(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor ** out) {
+bool rda_build_c0(ggml_context * ctx_eval, void * ud, ggml_tensor ** out) {
     auto * b = static_cast<rda_c0_build *>(ud);
     if (!ctx_eval || !b || !b->impl || !out) return false;
 
-    lm_ggml_tensor * t_h = lm_ggml_new_tensor_1d(ctx_eval, LM_GGML_TYPE_F32, b->impl->hidden_dim);
-    lm_ggml_set_name(t_h, "lm.c0.h_in");
+    ggml_tensor * t_h = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_F32, b->impl->hidden_dim);
+    ggml_set_name(t_h, "lm.c0.h_in");
 
-    lm_ggml_tensor * head = codec_graph_mat_lhs(ctx_eval, b->impl->c0_head);
-    lm_ggml_tensor * logits = lm_ggml_mul_mat(ctx_eval, head, t_h);
-    lm_ggml_set_name(logits, "lm.c0.logits");
+    ggml_tensor * head = codec_graph_mat_lhs(ctx_eval, b->impl->c0_head);
+    ggml_tensor * logits = ggml_mul_mat(ctx_eval, head, t_h);
+    ggml_set_name(logits, "lm.c0.logits");
     *out = logits;
     return true;
 }
@@ -382,7 +382,7 @@ struct rda_depth_build {
     int32_t    head_idx;   // which head/pre-norm slot to apply at pos T-1
 };
 
-bool rda_build_depth_step(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor ** out) {
+bool rda_build_depth_step(ggml_context * ctx_eval, void * ud, ggml_tensor ** out) {
     auto * b = static_cast<rda_depth_build *>(ud);
     if (!ctx_eval || !b || !b->impl || !out) return false;
     rda_impl * impl = b->impl;
@@ -393,25 +393,25 @@ bool rda_build_depth_step(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor 
     // t_x is always declared (the embed-row prefix).
     // t_h_in only exists when in_proj is per-pos and reads h_in.
     // t_pos only exists when use_rope.
-    lm_ggml_tensor * t_x = lm_ggml_new_tensor_2d(
-        ctx_eval, LM_GGML_TYPE_F32, impl->audio_embed_dim, T);
-    lm_ggml_set_name(t_x, "lm.depth.x");
+    ggml_tensor * t_x = ggml_new_tensor_2d(
+        ctx_eval, GGML_TYPE_F32, impl->audio_embed_dim, T);
+    ggml_set_name(t_x, "lm.depth.x");
 
-    lm_ggml_tensor * t_h_in = nullptr;
+    ggml_tensor * t_h_in = nullptr;
     if (impl->in_proj_per_pos) {
-        t_h_in = lm_ggml_new_tensor_1d(
-            ctx_eval, LM_GGML_TYPE_F32, impl->hidden_dim);
-        lm_ggml_set_name(t_h_in, "lm.depth.h_in");
+        t_h_in = ggml_new_tensor_1d(
+            ctx_eval, GGML_TYPE_F32, impl->hidden_dim);
+        ggml_set_name(t_h_in, "lm.depth.h_in");
     }
 
-    lm_ggml_tensor * t_pos = nullptr;
+    ggml_tensor * t_pos = nullptr;
     if (impl->use_rope) {
-        t_pos = lm_ggml_new_tensor_1d(ctx_eval, LM_GGML_TYPE_I32, T);
-        lm_ggml_set_name(t_pos, "lm.depth.pos");
+        t_pos = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_I32, T);
+        ggml_set_name(t_pos, "lm.depth.pos");
     }
 
     // ---- Compose: get x into (depth_hidden, T) space -------------------
-    lm_ggml_tensor * x;
+    ggml_tensor * x;
     if (!impl->in_proj_per_pos) {
         // CSM / Qwen3-TTS: prefix is in hidden_dim space, apply shared
         // 2D in_proj (or skip when has_in_proj=false → Identity, in
@@ -421,8 +421,8 @@ bool rda_build_depth_step(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor 
                 ctx_eval, impl->in_proj, t_x, impl->depth_hidden, T);
             if (impl->in_proj_bias != nullptr) {
                 // 1D bias broadcast across all positions (Qwen3-TTS-1.7B).
-                lm_ggml_tensor * bias_f32 = codec_graph_cast_f32(ctx_eval, impl->in_proj_bias);
-                x = lm_ggml_add(ctx_eval, x, bias_f32);
+                ggml_tensor * bias_f32 = codec_graph_cast_f32(ctx_eval, impl->in_proj_bias);
+                x = ggml_add(ctx_eval, x, bias_f32);
             }
         } else {
             x = t_x;
@@ -432,46 +432,46 @@ bool rda_build_depth_step(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor 
         // per-pos `in_proj[p] @ h_in (+ bias[p])`.
         x = t_x;
         if (impl->in_proj != nullptr) {
-            lm_ggml_tensor * w_f32 = codec_graph_cast_f32(ctx_eval, impl->in_proj);
+            ggml_tensor * w_f32 = codec_graph_cast_f32(ctx_eval, impl->in_proj);
             // Slice first T positions of the 3D weight.  Inlined
             // (rather than via codec_op_lm_per_pos_linear) because the
             // input here is a single h_in vector broadcast across
             // batch, not a per-pos prefix; we want mul_mat with the
             // input as the LHS broadcaster.
-            lm_ggml_tensor * w_sl = lm_ggml_view_3d(
+            ggml_tensor * w_sl = ggml_view_3d(
                 ctx_eval, w_f32,
                 w_f32->ne[0], w_f32->ne[1], (int64_t) T,
                 w_f32->nb[1], w_f32->nb[2], 0);
-            lm_ggml_tensor * h_3d   = lm_ggml_reshape_3d(
+            ggml_tensor * h_3d   = ggml_reshape_3d(
                 ctx_eval, t_h_in, impl->hidden_dim, 1, 1);
-            lm_ggml_tensor * proj_3d = lm_ggml_mul_mat(ctx_eval, h_3d, w_sl);
-            lm_ggml_tensor * proj    = lm_ggml_reshape_2d(
+            ggml_tensor * proj_3d = ggml_mul_mat(ctx_eval, h_3d, w_sl);
+            ggml_tensor * proj    = ggml_reshape_2d(
                 ctx_eval, proj_3d, impl->depth_hidden, T);
 
             if (impl->in_proj_bias != nullptr) {
-                lm_ggml_tensor * bias_f32 = codec_graph_cast_f32(ctx_eval, impl->in_proj_bias);
+                ggml_tensor * bias_f32 = codec_graph_cast_f32(ctx_eval, impl->in_proj_bias);
                 if (bias_f32->ne[1] > 1) {
                     // 2D `(depth_hidden, N)` per-pos bias (LFM2).
-                    lm_ggml_tensor * bias_sl = lm_ggml_view_2d(
+                    ggml_tensor * bias_sl = ggml_view_2d(
                         ctx_eval, bias_f32,
                         bias_f32->ne[0], (int64_t) T,
                         bias_f32->nb[1], 0);
-                    proj = lm_ggml_add(ctx_eval, proj, bias_sl);
+                    proj = ggml_add(ctx_eval, proj, bias_sl);
                 } else {
                     // 1D bias broadcast across all positions.
-                    proj = lm_ggml_add(ctx_eval, proj, bias_f32);
+                    proj = ggml_add(ctx_eval, proj, bias_f32);
                 }
             }
-            x = lm_ggml_add(ctx_eval, x, proj);
+            x = ggml_add(ctx_eval, x, proj);
         }
     }
 
     // ---- Transformer layers --------------------------------------------
-    lm_ggml_tensor * freqs = (impl->use_rope && impl->rope_freq_factors)
+    ggml_tensor * freqs = (impl->use_rope && impl->rope_freq_factors)
         ? codec_graph_cast_f32(ctx_eval, impl->rope_freq_factors)
         : nullptr;
     const int32_t rope_mode = impl->rope_interleaved
-        ? LM_GGML_ROPE_TYPE_NORMAL : LM_GGML_ROPE_TYPE_NEOX;
+        ? GGML_ROPE_TYPE_NORMAL : GGML_ROPE_TYPE_NEOX;
     std::vector<rda_layer_w> & layers = impl->layers;
 
     for (int32_t l = 0; l < impl->depth_layers; ++l) {
@@ -484,34 +484,34 @@ bool rda_build_depth_step(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor 
 
     // ---- Optional output norm ------------------------------------------
     if (impl->has_output_norm && impl->depth_output_norm != nullptr) {
-        lm_ggml_tensor * onorm = codec_graph_cast_f32(ctx_eval, impl->depth_output_norm);
+        ggml_tensor * onorm = codec_graph_cast_f32(ctx_eval, impl->depth_output_norm);
         x = codec_op_rms_norm_ct(ctx_eval, x, impl->depth_rms_eps, onorm);
     }
 
     // ---- Per-cb head at the last position ------------------------------
     const int32_t head_idx = b->head_idx;
-    lm_ggml_tensor * x_last = lm_ggml_view_1d(
+    ggml_tensor * x_last = ggml_view_1d(
         ctx_eval, x, impl->depth_hidden,
         (size_t) (T - 1) * impl->depth_hidden * sizeof(float));
-    x_last = lm_ggml_cont(ctx_eval, x_last);
+    x_last = ggml_cont(ctx_eval, x_last);
 
     if (impl->has_pre_head_norm) {
         if ((size_t) head_idx >= impl->heads_pre_norm.size() ||
             impl->heads_pre_norm[(size_t) head_idx] == nullptr) {
             return false;
         }
-        lm_ggml_tensor * pn = codec_graph_cast_f32(
+        ggml_tensor * pn = codec_graph_cast_f32(
             ctx_eval, impl->heads_pre_norm[(size_t) head_idx]);
         x_last = codec_op_rms_norm_ct(ctx_eval, x_last, impl->depth_rms_eps, pn);
     }
 
-    lm_ggml_tensor * head_w;
+    ggml_tensor * head_w;
     if (impl->flex_heads != nullptr) {
         // Single 3D heads tensor (Moshi): slice [head_idx] as a 2D view.
         // Keep stored dtype (F16 typical) — mul_mat below handles it
         // natively as src[0] without an extra dequant pass.
-        lm_ggml_tensor * heads_lhs = codec_graph_mat_lhs(ctx_eval, impl->flex_heads);
-        head_w = lm_ggml_view_2d(
+        ggml_tensor * heads_lhs = codec_graph_mat_lhs(ctx_eval, impl->flex_heads);
+        head_w = ggml_view_2d(
             ctx_eval, heads_lhs,
             heads_lhs->ne[0], heads_lhs->ne[1],
             heads_lhs->nb[1],
@@ -524,8 +524,8 @@ bool rda_build_depth_step(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor 
         head_w = codec_graph_mat_lhs(ctx_eval, impl->depth_heads[(size_t) head_idx]);
     }
 
-    lm_ggml_tensor * logits = lm_ggml_mul_mat(ctx_eval, head_w, x_last);
-    lm_ggml_set_name(logits, "lm.depth.ck_logits");
+    ggml_tensor * logits = ggml_mul_mat(ctx_eval, head_w, x_last);
+    ggml_set_name(logits, "lm.depth.ck_logits");
     *out = logits;
     return true;
 }
@@ -534,11 +534,11 @@ bool rda_build_depth_step(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor 
 // Incremental KV-cache depth-step builder
 //
 // llama.cpp-style flow: the depth decoder keeps persistent per-layer
-// K/V buffers in a backend-resident `lm_ggml_backend_buffer` owned by
+// K/V buffers in a backend-resident `ggml_backend_buffer` owned by
 // `rda_state` (allocated at state_init).  Each call computes Q/K/V
 // only for the T_new new positions, attends over the union of the
 // already-cached K/V and the new K/V, and writes the new K/V back into
-// the persistent cache as a side-effect.  Combining via `lm_ggml_concat`
+// the persistent cache as a side-effect.  Combining via `ggml_concat`
 // instead of in-place writes avoids relying on graph topology to
 // serialise the cpy before the attention reads — the side-effect cpy
 // happens on a separate root that the runtime evaluates as part of
@@ -549,12 +549,12 @@ bool rda_build_depth_step(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor 
 // dominant term entirely.
 // ---------------------------------------------------------------------
 
-lm_ggml_tensor * rda_depth_layer_kv(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x_ht,
+ggml_tensor * rda_depth_layer_kv(
+    ggml_context * ctx,
+    ggml_tensor * x_ht,
     const rda_layer_w & w,
-    lm_ggml_tensor * t_pos,
-    lm_ggml_tensor * freq_factors,
+    ggml_tensor * t_pos,
+    ggml_tensor * freq_factors,
     int32_t head_dim,
     int32_t n_heads,
     int32_t n_kv_heads,
@@ -563,8 +563,8 @@ lm_ggml_tensor * rda_depth_layer_kv(
     bool    has_qk_norm,
     int32_t rope_mode,
     bool    use_rope,
-    lm_ggml_tensor * k_cache_l,
-    lm_ggml_tensor * v_cache_l,
+    ggml_tensor * k_cache_l,
+    ggml_tensor * v_cache_l,
     int32_t kv_pos_start,
     int32_t kv_total) {
 
@@ -573,15 +573,15 @@ lm_ggml_tensor * rda_depth_layer_kv(
     const int32_t kv_dim = n_kv_heads * head_dim;
 
     // ── Attention pre-norm + projections (T_new positions) ─────────
-    lm_ggml_tensor * h = codec_op_rms_norm_ct(ctx, x_ht, rms_eps, w.attn_norm);
+    ggml_tensor * h = codec_op_rms_norm_ct(ctx, x_ht, rms_eps, w.attn_norm);
 
-    lm_ggml_tensor * q     = codec_op_lm_per_pos_linear(ctx, w.q, h, q_dim,  (int32_t) T_new);
-    lm_ggml_tensor * k_new = codec_op_lm_per_pos_linear(ctx, w.k, h, kv_dim, (int32_t) T_new);
-    lm_ggml_tensor * v_new = codec_op_lm_per_pos_linear(ctx, w.v, h, kv_dim, (int32_t) T_new);
+    ggml_tensor * q     = codec_op_lm_per_pos_linear(ctx, w.q, h, q_dim,  (int32_t) T_new);
+    ggml_tensor * k_new = codec_op_lm_per_pos_linear(ctx, w.k, h, kv_dim, (int32_t) T_new);
+    ggml_tensor * v_new = codec_op_lm_per_pos_linear(ctx, w.v, h, kv_dim, (int32_t) T_new);
 
-    q     = lm_ggml_reshape_3d(ctx, q,     head_dim, n_heads,    T_new);
-    k_new = lm_ggml_reshape_3d(ctx, k_new, head_dim, n_kv_heads, T_new);
-    v_new = lm_ggml_reshape_3d(ctx, v_new, head_dim, n_kv_heads, T_new);
+    q     = ggml_reshape_3d(ctx, q,     head_dim, n_heads,    T_new);
+    k_new = ggml_reshape_3d(ctx, k_new, head_dim, n_kv_heads, T_new);
+    v_new = ggml_reshape_3d(ctx, v_new, head_dim, n_kv_heads, T_new);
 
     if (has_qk_norm && w.q_norm && w.k_norm) {
         q     = codec_op_rms_norm_ct(ctx, q,     rms_eps, w.q_norm);
@@ -592,81 +592,81 @@ lm_ggml_tensor * rda_depth_layer_kv(
         const int32_t n_ctx_orig = 2048;
         const float   freq_scale = 1.0f, ext_factor = 0.0f, attn_factor = 1.0f;
         const float   beta_fast  = 32.0f, beta_slow  = 1.0f;
-        q     = lm_ggml_rope_ext(ctx, q,     t_pos, freq_factors,
+        q     = ggml_rope_ext(ctx, q,     t_pos, freq_factors,
                               head_dim, rope_mode, n_ctx_orig, rope_theta,
                               freq_scale, ext_factor, attn_factor, beta_fast, beta_slow);
-        k_new = lm_ggml_rope_ext(ctx, k_new, t_pos, freq_factors,
+        k_new = ggml_rope_ext(ctx, k_new, t_pos, freq_factors,
                               head_dim, rope_mode, n_ctx_orig, rope_theta,
                               freq_scale, ext_factor, attn_factor, beta_fast, beta_slow);
     }
 
     // ── Build the full K/V for attention via concat with cache ─────
-    lm_ggml_tensor * k_all;
-    lm_ggml_tensor * v_all;
+    ggml_tensor * k_all;
+    ggml_tensor * v_all;
     if (kv_pos_start > 0) {
         // Cache view (positions 0 .. kv_pos_start) → concat with new.
-        lm_ggml_tensor * k_old = lm_ggml_view_3d(ctx, k_cache_l,
+        ggml_tensor * k_old = ggml_view_3d(ctx, k_cache_l,
             head_dim, n_kv_heads, (int64_t) kv_pos_start,
             k_cache_l->nb[1], k_cache_l->nb[2], 0);
-        lm_ggml_tensor * v_old = lm_ggml_view_3d(ctx, v_cache_l,
+        ggml_tensor * v_old = ggml_view_3d(ctx, v_cache_l,
             head_dim, n_kv_heads, (int64_t) kv_pos_start,
             v_cache_l->nb[1], v_cache_l->nb[2], 0);
-        k_all = lm_ggml_concat(ctx, k_old, k_new, 2);
-        v_all = lm_ggml_concat(ctx, v_old, v_new, 2);
+        k_all = ggml_concat(ctx, k_old, k_new, 2);
+        v_all = ggml_concat(ctx, v_old, v_new, 2);
     } else {
         k_all = k_new;
         v_all = v_new;
     }
 
     // ── GQA attention ───────────────────────────────────────────────
-    lm_ggml_tensor * q_p = lm_ggml_cont(ctx, lm_ggml_permute(ctx, q,     0, 2, 1, 3));
-    lm_ggml_tensor * k_p = lm_ggml_cont(ctx, lm_ggml_permute(ctx, k_all, 0, 2, 1, 3));
+    ggml_tensor * q_p = ggml_cont(ctx, ggml_permute(ctx, q,     0, 2, 1, 3));
+    ggml_tensor * k_p = ggml_cont(ctx, ggml_permute(ctx, k_all, 0, 2, 1, 3));
 
-    lm_ggml_tensor * scores = lm_ggml_mul_mat(ctx, k_p, q_p);
-    scores = lm_ggml_scale(ctx, scores, 1.0f / std::sqrt((float) head_dim));
+    ggml_tensor * scores = ggml_mul_mat(ctx, k_p, q_p);
+    scores = ggml_scale(ctx, scores, 1.0f / std::sqrt((float) head_dim));
     // Causal mask offset by the already-cached prefix: q at relative
     // position i (overall = kv_pos_start + i) can attend to k at
-    // overall positions 0..(kv_pos_start + i).  lm_ggml_diag_mask_inf
+    // overall positions 0..(kv_pos_start + i).  ggml_diag_mask_inf
     // masks scores[k_idx, q_idx, h] for k_idx > q_idx + n_past, exactly
     // matching when n_past = kv_pos_start.  For T_new=1 the mask is a
     // no-op (k_all length = kv_pos_start+1, all positions visible).
-    scores = lm_ggml_diag_mask_inf(ctx, scores, kv_pos_start);
-    scores = lm_ggml_soft_max(ctx, scores);
+    scores = ggml_diag_mask_inf(ctx, scores, kv_pos_start);
+    scores = ggml_soft_max(ctx, scores);
 
-    lm_ggml_tensor * v_p = lm_ggml_cont(ctx, lm_ggml_permute(ctx, v_all, 1, 2, 0, 3));
-    lm_ggml_tensor * attn = lm_ggml_mul_mat(ctx, v_p, scores);
-    attn = lm_ggml_cont(ctx, lm_ggml_permute(ctx, attn, 0, 2, 1, 3));
-    attn = lm_ggml_reshape_2d(ctx, attn, (int64_t) q_dim, T_new);
+    ggml_tensor * v_p = ggml_cont(ctx, ggml_permute(ctx, v_all, 1, 2, 0, 3));
+    ggml_tensor * attn = ggml_mul_mat(ctx, v_p, scores);
+    attn = ggml_cont(ctx, ggml_permute(ctx, attn, 0, 2, 1, 3));
+    attn = ggml_reshape_2d(ctx, attn, (int64_t) q_dim, T_new);
 
     const int32_t hidden = (int32_t) x_ht->ne[0];
-    lm_ggml_tensor * o = codec_op_lm_per_pos_linear(ctx, w.o, attn, hidden, (int32_t) T_new);
-    x_ht = lm_ggml_add(ctx, x_ht, o);
+    ggml_tensor * o = codec_op_lm_per_pos_linear(ctx, w.o, attn, hidden, (int32_t) T_new);
+    x_ht = ggml_add(ctx, x_ht, o);
 
     // ── Cache writes (side-effect roots) ────────────────────────────
-    // lm_ggml_cpy(src, dst) returns a view of dst; flag both with
-    // lm_ggml_set_output so the codec.cpp graph framework expands them as
+    // ggml_cpy(src, dst) returns a view of dst; flag both with
+    // ggml_set_output so the codec.cpp graph framework expands them as
     // separate roots, guaranteeing they're executed in this compute.
-    lm_ggml_tensor * k_dst = lm_ggml_view_3d(ctx, k_cache_l,
+    ggml_tensor * k_dst = ggml_view_3d(ctx, k_cache_l,
         head_dim, n_kv_heads, T_new,
         k_cache_l->nb[1], k_cache_l->nb[2],
         (size_t) kv_pos_start * k_cache_l->nb[2]);
-    lm_ggml_tensor * v_dst = lm_ggml_view_3d(ctx, v_cache_l,
+    ggml_tensor * v_dst = ggml_view_3d(ctx, v_cache_l,
         head_dim, n_kv_heads, T_new,
         v_cache_l->nb[1], v_cache_l->nb[2],
         (size_t) kv_pos_start * v_cache_l->nb[2]);
-    lm_ggml_tensor * k_cpy = lm_ggml_cpy(ctx, k_new, k_dst);
-    lm_ggml_tensor * v_cpy = lm_ggml_cpy(ctx, v_new, v_dst);
-    lm_ggml_set_output(k_cpy);
-    lm_ggml_set_output(v_cpy);
+    ggml_tensor * k_cpy = ggml_cpy(ctx, k_new, k_dst);
+    ggml_tensor * v_cpy = ggml_cpy(ctx, v_new, v_dst);
+    ggml_set_output(k_cpy);
+    ggml_set_output(v_cpy);
 
     // ── FFN (SwiGLU) ────────────────────────────────────────────────
     h = codec_op_rms_norm_ct(ctx, x_ht, rms_eps, w.ffn_norm);
     const int32_t inter = (int32_t) w.ffn_gate->ne[1];
-    lm_ggml_tensor * gate = codec_op_lm_per_pos_linear(ctx, w.ffn_gate, h, inter,  (int32_t) T_new);
-    lm_ggml_tensor * up   = codec_op_lm_per_pos_linear(ctx, w.ffn_up,   h, inter,  (int32_t) T_new);
-    lm_ggml_tensor * mlp  = lm_ggml_mul(ctx, lm_ggml_silu(ctx, gate), up);
-    lm_ggml_tensor * down = codec_op_lm_per_pos_linear(ctx, w.ffn_down, mlp, hidden, (int32_t) T_new);
-    x_ht = lm_ggml_add(ctx, x_ht, down);
+    ggml_tensor * gate = codec_op_lm_per_pos_linear(ctx, w.ffn_gate, h, inter,  (int32_t) T_new);
+    ggml_tensor * up   = codec_op_lm_per_pos_linear(ctx, w.ffn_up,   h, inter,  (int32_t) T_new);
+    ggml_tensor * mlp  = ggml_mul(ctx, ggml_silu(ctx, gate), up);
+    ggml_tensor * down = codec_op_lm_per_pos_linear(ctx, w.ffn_down, mlp, hidden, (int32_t) T_new);
+    x_ht = ggml_add(ctx, x_ht, down);
 
     return x_ht;
 }
@@ -676,11 +676,11 @@ struct rda_depth_kv_build {
     int32_t         T_new;
     int32_t         kv_pos_start;
     int32_t         head_idx;
-    lm_ggml_tensor **  k_cache;   // depth_layers entries
-    lm_ggml_tensor **  v_cache;
+    ggml_tensor **  k_cache;   // depth_layers entries
+    ggml_tensor **  v_cache;
 };
 
-bool rda_build_depth_step_kv(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor ** out) {
+bool rda_build_depth_step_kv(ggml_context * ctx_eval, void * ud, ggml_tensor ** out) {
     auto * b = static_cast<rda_depth_kv_build *>(ud);
     if (!ctx_eval || !b || !b->impl || !out || !b->k_cache || !b->v_cache) return false;
     rda_impl * impl = b->impl;
@@ -689,39 +689,39 @@ bool rda_build_depth_step_kv(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tens
     const int32_t kv_total     = kv_pos_start + T_new;
     if (T_new < 1 || kv_total > impl->n_codebook + 1) return false;
 
-    lm_ggml_tensor * t_x = lm_ggml_new_tensor_2d(
-        ctx_eval, LM_GGML_TYPE_F32, impl->audio_embed_dim, T_new);
-    lm_ggml_set_name(t_x, "lm.depth.kv.x");
+    ggml_tensor * t_x = ggml_new_tensor_2d(
+        ctx_eval, GGML_TYPE_F32, impl->audio_embed_dim, T_new);
+    ggml_set_name(t_x, "lm.depth.kv.x");
 
-    lm_ggml_tensor * t_pos = nullptr;
+    ggml_tensor * t_pos = nullptr;
     if (impl->use_rope) {
-        t_pos = lm_ggml_new_tensor_1d(ctx_eval, LM_GGML_TYPE_I32, T_new);
-        lm_ggml_set_name(t_pos, "lm.depth.kv.pos");
+        t_pos = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_I32, T_new);
+        ggml_set_name(t_pos, "lm.depth.kv.pos");
     }
 
     // Compose: shared 2D in_proj only (KV path doesn't cover per-pos in_proj yet).
-    lm_ggml_tensor * x;
+    ggml_tensor * x;
     if (impl->has_in_proj && impl->in_proj != nullptr) {
         x = codec_op_lm_per_pos_linear(
             ctx_eval, impl->in_proj, t_x, impl->depth_hidden, T_new);
         if (impl->in_proj_bias != nullptr) {
-            lm_ggml_tensor * bias_f32 = codec_graph_cast_f32(ctx_eval, impl->in_proj_bias);
-            x = lm_ggml_add(ctx_eval, x, bias_f32);
+            ggml_tensor * bias_f32 = codec_graph_cast_f32(ctx_eval, impl->in_proj_bias);
+            x = ggml_add(ctx_eval, x, bias_f32);
         }
     } else {
         x = t_x;
     }
 
-    lm_ggml_tensor * freqs = (impl->use_rope && impl->rope_freq_factors)
+    ggml_tensor * freqs = (impl->use_rope && impl->rope_freq_factors)
         ? codec_graph_cast_f32(ctx_eval, impl->rope_freq_factors)
         : nullptr;
     const int32_t rope_mode = impl->rope_interleaved
-        ? LM_GGML_ROPE_TYPE_NORMAL : LM_GGML_ROPE_TYPE_NEOX;
+        ? GGML_ROPE_TYPE_NORMAL : GGML_ROPE_TYPE_NEOX;
 
     for (int32_t l = 0; l < impl->depth_layers; ++l) {
         const rda_layer_w & w = impl->layers[(size_t) l];
-        lm_ggml_tensor * q_norm  = (impl->has_qk_norm && w.q_norm) ? w.q_norm : nullptr;
-        lm_ggml_tensor * k_norm  = (impl->has_qk_norm && w.k_norm) ? w.k_norm : nullptr;
+        ggml_tensor * q_norm  = (impl->has_qk_norm && w.q_norm) ? w.q_norm : nullptr;
+        ggml_tensor * k_norm  = (impl->has_qk_norm && w.k_norm) ? w.k_norm : nullptr;
         rda_layer_w  w2 = w;
         w2.q_norm = q_norm;
         w2.k_norm = k_norm;
@@ -739,10 +739,10 @@ bool rda_build_depth_step_kv(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tens
     }
 
     // Pick last position.
-    lm_ggml_tensor * x_last = lm_ggml_view_1d(
+    ggml_tensor * x_last = ggml_view_1d(
         ctx_eval, x, impl->depth_hidden,
         (size_t) (T_new - 1) * impl->depth_hidden * sizeof(float));
-    x_last = lm_ggml_cont(ctx_eval, x_last);
+    x_last = ggml_cont(ctx_eval, x_last);
 
     if (impl->has_pre_head_norm) {
         if ((size_t) b->head_idx >= impl->heads_pre_norm.size() ||
@@ -753,11 +753,11 @@ bool rda_build_depth_step_kv(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tens
     }
     if ((size_t) b->head_idx >= impl->depth_heads.size() ||
         impl->depth_heads[(size_t) b->head_idx] == nullptr) return false;
-    lm_ggml_tensor * head_w = codec_graph_mat_lhs(
+    ggml_tensor * head_w = codec_graph_mat_lhs(
         ctx_eval, impl->depth_heads[(size_t) b->head_idx]);
-    lm_ggml_tensor * logits = lm_ggml_mul_mat(ctx_eval, head_w, x_last);
-    lm_ggml_mul_mat_set_prec(logits, LM_GGML_PREC_F32);
-    lm_ggml_set_name(logits, "lm.depth.kv.ck_logits");
+    ggml_tensor * logits = ggml_mul_mat(ctx_eval, head_w, x_last);
+    ggml_mul_mat_set_prec(logits, GGML_PREC_F32);
+    ggml_set_name(logits, "lm.depth.kv.ck_logits");
     *out = logits;
     return true;
 }
@@ -768,25 +768,25 @@ struct rda_compose_build {
     rda_impl * impl;
 };
 
-bool rda_build_compose(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor ** out) {
+bool rda_build_compose(ggml_context * ctx_eval, void * ud, ggml_tensor ** out) {
     auto * b = static_cast<rda_compose_build *>(ud);
     if (!ctx_eval || !b || !b->impl || !out) return false;
     rda_impl * impl = b->impl;
 
-    lm_ggml_tensor * t_codes = lm_ggml_new_tensor_1d(ctx_eval, LM_GGML_TYPE_I32, impl->n_codebook);
-    lm_ggml_set_name(t_codes, "lm.compose.codes");
+    ggml_tensor * t_codes = ggml_new_tensor_1d(ctx_eval, GGML_TYPE_I32, impl->n_codebook);
+    ggml_set_name(t_codes, "lm.compose.codes");
 
-    lm_ggml_tensor * acc = nullptr;
+    ggml_tensor * acc = nullptr;
     for (int32_t i = 0; i < impl->n_codebook; ++i) {
-        lm_ggml_tensor * embd = impl->audio_embds[(size_t) i];
-        lm_ggml_tensor * idx_view = lm_ggml_view_1d(
+        ggml_tensor * embd = impl->audio_embds[(size_t) i];
+        ggml_tensor * idx_view = ggml_view_1d(
             ctx_eval, t_codes, /*ne0=*/1, (size_t) i * sizeof(int32_t));
-        lm_ggml_tensor * row = lm_ggml_get_rows(ctx_eval, embd, idx_view);
+        ggml_tensor * row = ggml_get_rows(ctx_eval, embd, idx_view);
         row = codec_graph_cast_f32(ctx_eval, row);
-        acc = (acc == nullptr) ? row : lm_ggml_add(ctx_eval, acc, row);
+        acc = (acc == nullptr) ? row : ggml_add(ctx_eval, acc, row);
     }
     if (acc == nullptr) return false;
-    lm_ggml_set_name(acc, "lm.compose.out");
+    ggml_set_name(acc, "lm.compose.out");
     *out = acc;
     return true;
 }
@@ -795,8 +795,8 @@ bool rda_build_compose(lm_ggml_context * ctx_eval, void * ud, lm_ggml_tensor ** 
 // init / free
 // ---------------------------------------------------------------------
 
-static lm_ggml_tensor * find_required(codec_lm * lm, const char * name) {
-    lm_ggml_tensor * t = lm_ggml_get_tensor(lm->codec->weights, name);
+static ggml_tensor * find_required(codec_lm * lm, const char * name) {
+    ggml_tensor * t = ggml_get_tensor(lm->codec->weights, name);
     if (t == nullptr) {
         lm->last_error = std::string("missing tensor: ") + name;
     }
@@ -805,7 +805,7 @@ static lm_ggml_tensor * find_required(codec_lm * lm, const char * name) {
 
 bool init(codec_lm * lm) {
     if (!lm || !lm->codec || !lm->codec->weights || !lm->codec->gguf) return false;
-    lm_gguf_context * gf = lm->codec->gguf;
+    gguf_context * gf = lm->codec->gguf;
 
     rda_impl * impl = new (std::nothrow) rda_impl();
     if (!impl) { lm->last_error = "out of memory"; return false; }
@@ -860,10 +860,10 @@ bool init(codec_lm * lm) {
     impl->audio_embds.reserve((size_t) impl->n_codebook);
     for (int32_t i = 0; i < impl->n_codebook; ++i) {
         std::snprintf(buf, sizeof(buf), "lm.depth.audio_embd_%d.weight", i);
-        lm_ggml_tensor * t = lm_ggml_get_tensor(lm->codec->weights, buf);
+        ggml_tensor * t = ggml_get_tensor(lm->codec->weights, buf);
         if (t == nullptr) {
             std::snprintf(buf, sizeof(buf), "lm.audio_embd_%d.weight", i);
-            t = lm_ggml_get_tensor(lm->codec->weights, buf);
+            t = ggml_get_tensor(lm->codec->weights, buf);
         }
         if (t == nullptr) break;  // first missing index ends the vector
         impl->audio_embds.push_back(t);
@@ -882,11 +882,11 @@ bool init(codec_lm * lm) {
     // Qwen3-TTS talker text-projection (optional; present only when the
     // converter baked lm.text_embd + lm.text_projection.*).  Used purely to
     // build the talker prompt prefix host-side.
-    impl->tp_text_embd = lm_ggml_get_tensor(lm->codec->weights, "lm.text_embd.weight");
-    impl->tp_fc1_w     = lm_ggml_get_tensor(lm->codec->weights, "lm.text_projection.fc1.weight");
-    impl->tp_fc1_b     = lm_ggml_get_tensor(lm->codec->weights, "lm.text_projection.fc1.bias");
-    impl->tp_fc2_w     = lm_ggml_get_tensor(lm->codec->weights, "lm.text_projection.fc2.weight");
-    impl->tp_fc2_b     = lm_ggml_get_tensor(lm->codec->weights, "lm.text_projection.fc2.bias");
+    impl->tp_text_embd = ggml_get_tensor(lm->codec->weights, "lm.text_embd.weight");
+    impl->tp_fc1_w     = ggml_get_tensor(lm->codec->weights, "lm.text_projection.fc1.weight");
+    impl->tp_fc1_b     = ggml_get_tensor(lm->codec->weights, "lm.text_projection.fc1.bias");
+    impl->tp_fc2_w     = ggml_get_tensor(lm->codec->weights, "lm.text_projection.fc2.weight");
+    impl->tp_fc2_b     = ggml_get_tensor(lm->codec->weights, "lm.text_projection.fc2.bias");
     if (impl->tp_text_embd && impl->tp_fc1_w && impl->tp_fc2_w) {
         // ggml layout: fc weights stored (in, out) as ne[0]=in, ne[1]=out.
         impl->tp_text_dim = (int32_t) impl->tp_text_embd->ne[0]; // H_text
@@ -895,18 +895,18 @@ bool init(codec_lm * lm) {
     }
 
     // c0 source: either a backbone-side c0_head OR depth-internal head[0].
-    impl->c0_head = lm_ggml_get_tensor(lm->codec->weights, "lm.c0_head.weight");
+    impl->c0_head = ggml_get_tensor(lm->codec->weights, "lm.c0_head.weight");
 
     // Depth heads: prefer per-cb 2D entries; fall back to the single 3D
     // `lm.depth.heads.weight` (Moshi).
     {
-        lm_ggml_tensor * single = lm_ggml_get_tensor(lm->codec->weights, "lm.depth.heads.weight");
+        ggml_tensor * single = ggml_get_tensor(lm->codec->weights, "lm.depth.heads.weight");
         if (single != nullptr && single->ne[2] > 1) {
             impl->flex_heads = single;
         } else {
             for (int32_t i = 0; i < impl->n_codebook; ++i) {
                 std::snprintf(buf, sizeof(buf), "lm.depth.heads_%d.weight", i);
-                lm_ggml_tensor * t = lm_ggml_get_tensor(lm->codec->weights, buf);
+                ggml_tensor * t = ggml_get_tensor(lm->codec->weights, buf);
                 if (t == nullptr) break;
                 impl->depth_heads.push_back(t);
             }
@@ -923,7 +923,7 @@ bool init(codec_lm * lm) {
         impl->heads_pre_norm.reserve(impl->depth_heads.size());
         for (size_t i = 0; i < impl->depth_heads.size(); ++i) {
             std::snprintf(buf, sizeof(buf), "lm.depth.heads_%zu_norm.weight", i);
-            lm_ggml_tensor * t = find_required(lm, buf);
+            ggml_tensor * t = find_required(lm, buf);
             if (t == nullptr) { delete impl; return false; }
             impl->heads_pre_norm.push_back(t);
         }
@@ -933,7 +933,7 @@ bool init(codec_lm * lm) {
         impl->in_proj = find_required(lm, "lm.depth.in_proj.weight");
         if (!impl->in_proj) { delete impl; return false; }
         // Bias is optional; CSM doesn't have one, Qwen3-TTS / LFM2 do.
-        impl->in_proj_bias = lm_ggml_get_tensor(lm->codec->weights, "lm.depth.in_proj.bias");
+        impl->in_proj_bias = ggml_get_tensor(lm->codec->weights, "lm.depth.in_proj.bias");
     } else {
         // Identity in_proj — only viable when prefix row dim already matches
         // depth_hidden AND the runtime won't try to add a per-pos h_in
@@ -956,13 +956,13 @@ bool init(codec_lm * lm) {
     }
 
     // Optional llama3 RoPE freq factors.
-    impl->rope_freq_factors = lm_ggml_get_tensor(lm->codec->weights, "lm.depth.rope_freq_factors");
+    impl->rope_freq_factors = ggml_get_tensor(lm->codec->weights, "lm.depth.rope_freq_factors");
 
     // Optional backbone-side compose table (LFM2-Audio's
     // `audio_embedding.embedding`).  When present, compose_audio_embd
     // uses a fused single-table sum with codebook offsets instead of
     // the per-cb depth-side audio_embds.
-    impl->compose_audio_embd_fused = lm_ggml_get_tensor(
+    impl->compose_audio_embd_fused = ggml_get_tensor(
         lm->codec->weights, "lm.compose.audio_embd.weight");
     if (impl->compose_audio_embd_fused != nullptr) {
         impl->compose_audio_embed_dim = codec_read_i32_kv(
@@ -1066,14 +1066,14 @@ static bool rda_alloc_kv_cache(rda_state * sst, const rda_impl * impl,
     const int32_t max_T = impl->n_codebook + 1;
 
     // Pre-size for: 2 tensors × n_layers headers + struct overhead.
-    const size_t hdr_bytes = (size_t) impl->depth_layers * 2 * lm_ggml_tensor_overhead()
-        + lm_ggml_tensor_overhead() * 8;
-    lm_ggml_init_params p = {
+    const size_t hdr_bytes = (size_t) impl->depth_layers * 2 * ggml_tensor_overhead()
+        + ggml_tensor_overhead() * 8;
+    ggml_init_params p = {
         /*.mem_size   =*/ hdr_bytes,
         /*.mem_buffer =*/ nullptr,
         /*.no_alloc   =*/ true,
     };
-    sst->ctx_kv = lm_ggml_init(p);
+    sst->ctx_kv = ggml_init(p);
     if (sst->ctx_kv == nullptr) return false;
 
     sst->k_cache.assign((size_t) impl->depth_layers, nullptr);
@@ -1081,24 +1081,24 @@ static bool rda_alloc_kv_cache(rda_state * sst, const rda_impl * impl,
 
     char name_buf[64];
     for (int32_t l = 0; l < impl->depth_layers; ++l) {
-        lm_ggml_tensor * k = lm_ggml_new_tensor_3d(
-            sst->ctx_kv, LM_GGML_TYPE_F32,
+        ggml_tensor * k = ggml_new_tensor_3d(
+            sst->ctx_kv, GGML_TYPE_F32,
             impl->depth_head_dim, impl->depth_n_kv_heads, max_T);
         if (!k) return false;
         std::snprintf(name_buf, sizeof(name_buf), "rda.k_cache_%d", l);
-        lm_ggml_set_name(k, name_buf);
+        ggml_set_name(k, name_buf);
         sst->k_cache[(size_t) l] = k;
 
-        lm_ggml_tensor * v = lm_ggml_new_tensor_3d(
-            sst->ctx_kv, LM_GGML_TYPE_F32,
+        ggml_tensor * v = ggml_new_tensor_3d(
+            sst->ctx_kv, GGML_TYPE_F32,
             impl->depth_head_dim, impl->depth_n_kv_heads, max_T);
         if (!v) return false;
         std::snprintf(name_buf, sizeof(name_buf), "rda.v_cache_%d", l);
-        lm_ggml_set_name(v, name_buf);
+        ggml_set_name(v, name_buf);
         sst->v_cache[(size_t) l] = v;
     }
 
-    sst->buf_kv = lm_ggml_backend_alloc_ctx_tensors(sst->ctx_kv, codec->backend);
+    sst->buf_kv = ggml_backend_alloc_ctx_tensors(sst->ctx_kv, codec->backend);
     if (sst->buf_kv == nullptr) return false;
 
     sst->max_kv_T = max_T;
@@ -1133,11 +1133,11 @@ void state_free(codec_lm_state * st) {
     if (!st || !st->impl) return;
     rda_state * sst = static_cast<rda_state *>(st->impl);
     if (sst->buf_kv != nullptr) {
-        lm_ggml_backend_buffer_free(sst->buf_kv);
+        ggml_backend_buffer_free(sst->buf_kv);
         sst->buf_kv = nullptr;
     }
     if (sst->ctx_kv != nullptr) {
-        lm_ggml_free(sst->ctx_kv);
+        ggml_free(sst->ctx_kv);
         sst->ctx_kv = nullptr;
     }
     delete sst;
@@ -1172,8 +1172,8 @@ enum codec_status run_c0_head(codec_lm_state * st, const float * h_in) {
             st->ctx, key, rda_build_c0, &build, sizeof(build), &entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
-    lm_ggml_tensor * t_h = codec_graph_get_tensor(st->ctx, entry, "lm.c0.h_in");
-    lm_ggml_tensor * t_lg = codec_graph_get_tensor(st->ctx, entry, "lm.c0.logits");
+    ggml_tensor * t_h = codec_graph_get_tensor(st->ctx, entry, "lm.c0.h_in");
+    ggml_tensor * t_lg = codec_graph_get_tensor(st->ctx, entry, "lm.c0.logits");
     if (!t_h || !t_lg) {
         st->last_error = "c0 graph missing tensors"; return CODEC_STATUS_INTERNAL_ERROR;
     }
@@ -1302,12 +1302,12 @@ enum codec_status run_depth_step(codec_lm_state * st, int32_t current_k) {
             st->ctx, key, rda_build_depth_step, &build, sizeof(build), &entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
-    lm_ggml_tensor * t_x    = codec_graph_get_tensor(st->ctx, entry, "lm.depth.x");
-    lm_ggml_tensor * t_h_in = impl->in_proj_per_pos
+    ggml_tensor * t_x    = codec_graph_get_tensor(st->ctx, entry, "lm.depth.x");
+    ggml_tensor * t_h_in = impl->in_proj_per_pos
         ? codec_graph_get_tensor(st->ctx, entry, "lm.depth.h_in") : nullptr;
-    lm_ggml_tensor * t_pos  = impl->use_rope
+    ggml_tensor * t_pos  = impl->use_rope
         ? codec_graph_get_tensor(st->ctx, entry, "lm.depth.pos") : nullptr;
-    lm_ggml_tensor * t_lg   = codec_graph_get_tensor(st->ctx, entry, "lm.depth.ck_logits");
+    ggml_tensor * t_lg   = codec_graph_get_tensor(st->ctx, entry, "lm.depth.ck_logits");
     if (!t_x || !t_lg ||
         (impl->in_proj_per_pos && !t_h_in) ||
         (impl->use_rope && !t_pos)) {
@@ -1431,10 +1431,10 @@ enum codec_status run_depth_step_kv(codec_lm_state * st, int32_t current_k) {
             st->ctx, key, rda_build_depth_step_kv, &build, sizeof(build), &entry, &err)) {
         st->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
-    lm_ggml_tensor * t_x   = codec_graph_get_tensor(st->ctx, entry, "lm.depth.kv.x");
-    lm_ggml_tensor * t_pos = impl->use_rope
+    ggml_tensor * t_x   = codec_graph_get_tensor(st->ctx, entry, "lm.depth.kv.x");
+    ggml_tensor * t_pos = impl->use_rope
         ? codec_graph_get_tensor(st->ctx, entry, "lm.depth.kv.pos") : nullptr;
-    lm_ggml_tensor * t_lg  = codec_graph_get_tensor(st->ctx, entry, "lm.depth.kv.ck_logits");
+    ggml_tensor * t_lg  = codec_graph_get_tensor(st->ctx, entry, "lm.depth.kv.ck_logits");
     if (!t_x || !t_lg || (impl->use_rope && !t_pos)) {
         st->last_error = "depth kv graph missing tensors";
         return CODEC_STATUS_INTERNAL_ERROR;
@@ -1541,7 +1541,7 @@ const float * audio_embd(codec_lm * lm, int32_t cb_idx, int32_t code) {
     // Vector size depends on mode: shared = N, flexible = N-1 (the
     // last codebook is never an input under Moshi's flexible layout).
     if (cb_idx < 0 || (size_t) cb_idx >= impl->audio_embds.size()) return nullptr;
-    lm_ggml_tensor * t = impl->audio_embds[(size_t) cb_idx];
+    ggml_tensor * t = impl->audio_embds[(size_t) cb_idx];
     if (t == nullptr) return nullptr;
     const float * data = codec_tensor_data_f32(t);
     if (!data) return nullptr;
@@ -1564,7 +1564,7 @@ enum codec_status compose_audio_embd(codec_lm * lm, const int32_t * codes, float
     if (impl->compose_audio_embd_fused != nullptr) {
         const int32_t out_dim = impl->compose_audio_embed_dim;
         const int32_t stride  = impl->compose_codebook_stride;
-        lm_ggml_tensor * tbl     = impl->compose_audio_embd_fused;
+        ggml_tensor * tbl     = impl->compose_audio_embd_fused;
         // Dequant the whole table to a thread-local F32 buffer once
         // per call.  For F32 / host buffers this is a fast pass-through
         // via codec_tensor_data_f32; for F16 / quantised it dequants
@@ -1630,8 +1630,8 @@ enum codec_status compose_audio_embd(codec_lm * lm, const int32_t * codes, float
             &entry, &err)) {
         lm->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }
-    lm_ggml_tensor * t_codes = codec_graph_get_tensor(impl->compose_ctx, entry, "lm.compose.codes");
-    lm_ggml_tensor * t_out   = codec_graph_get_tensor(impl->compose_ctx, entry, "lm.compose.out");
+    ggml_tensor * t_codes = codec_graph_get_tensor(impl->compose_ctx, entry, "lm.compose.codes");
+    ggml_tensor * t_out   = codec_graph_get_tensor(impl->compose_ctx, entry, "lm.compose.out");
     if (!codec_graph_prepare_io(impl->compose_ctx, entry, &err)) {
         lm->last_error = err; return CODEC_STATUS_INTERNAL_ERROR;
     }

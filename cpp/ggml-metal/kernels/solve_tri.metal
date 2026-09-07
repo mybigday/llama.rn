@@ -5,7 +5,7 @@ constant short FC_solve_tri_n   [[function_constant(FC_SOLVE_TRI + 1)]];
 constant short FC_solve_tri_k   [[function_constant(FC_SOLVE_TRI + 2)]];
 
 kernel void kernel_solve_tri_f32(
-        constant lm_ggml_metal_kargs_solve_tri & args,
+        constant ggml_metal_kargs_solve_tri & args,
         device   const char * src0,
         device   const char * src1,
         device         char * dst,

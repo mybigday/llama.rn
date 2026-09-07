@@ -55,7 +55,7 @@
          struct llama_context * lctx,
          const mtmd_input_chunk * chunk,
 @@ -394,7 +416,9 @@
-         LOG_INF("%s slice encoded in %" PRId64 " ms\n", name, lm_ggml_time_ms() - t0);
+         LOG_INF("%s slice encoded in %" PRId64 " ms\n", name, ggml_time_ms() - t0);
  
          float * embd = mtmd_get_output_embd(ctx);
 -        ret = mtmd_helper_decode_image_chunk(ctx, lctx, chunk, embd, n_past, seq_id, n_batch, new_n_past, nullptr, nullptr);

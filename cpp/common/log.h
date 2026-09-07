@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ggml.h" // for lm_ggml_log_level
+#include "ggml.h" // for ggml_log_level
 
 #define LOG_CLR_TO_EOL  "\033[K\r"
 #define LOG_COL_DEFAULT "\033[0m"
@@ -43,7 +43,7 @@ int  common_log_get_verbosity_thold(void);
 
 void common_log_set_verbosity_thold(int verbosity); // not thread-safe
 
-void common_log_default_callback(enum lm_ggml_log_level level, const char * text, void * user_data);
+void common_log_default_callback(enum ggml_log_level level, const char * text, void * user_data);
 
 // the common_log uses an internal worker thread to print/write log messages
 // when the worker thread is paused, incoming log messages are discarded
@@ -60,20 +60,20 @@ void                common_log_resume(struct common_log * log); // resume the wo
 void                common_log_free  (struct common_log * log);
 
 LOG_ATTRIBUTE_FORMAT(3, 4)
-void common_log_add(struct common_log * log, enum lm_ggml_log_level level, const char * fmt, ...);
+void common_log_add(struct common_log * log, enum ggml_log_level level, const char * fmt, ...);
 
 // defaults: file = NULL, colors = false, prefix = false, timestamps = false
 //
 // regular log output:
 //
-//   lm_ggml_backend_metal_log_allocated_size: allocated buffer, size =  6695.84 MiB, ( 6695.91 / 21845.34)
+//   ggml_backend_metal_log_allocated_size: allocated buffer, size =  6695.84 MiB, ( 6695.91 / 21845.34)
 //   llm_load_tensors: ggml ctx size =    0.27 MiB
 //   llm_load_tensors: offloading 32 repeating layers to GPU
 //   llm_load_tensors: offloading non-repeating layers to GPU
 //
 // with prefix = true, timestamps = true, the log output will look like this:
 //
-//   0.00.035.060 D lm_ggml_backend_metal_log_allocated_size: allocated buffer, size =  6695.84 MiB, ( 6695.91 / 21845.34)
+//   0.00.035.060 D ggml_backend_metal_log_allocated_size: allocated buffer, size =  6695.84 MiB, ( 6695.91 / 21845.34)
 //   0.00.035.064 I llm_load_tensors: ggml ctx size =    0.27 MiB
 //   0.00.090.578 I llm_load_tensors: offloading 32 repeating layers to GPU
 //   0.00.090.579 I llm_load_tensors: offloading non-repeating layers to GPU
@@ -108,19 +108,19 @@ void common_log_flush         (struct common_log * log);                    // f
         } \
     } while (0)
 
-#define LOG(...)             LOG_TMPL(LM_GGML_LOG_LEVEL_NONE, LOG_LEVEL_OUTPUT, __VA_ARGS__)
-#define LOGV(verbosity, ...) LOG_TMPL(LM_GGML_LOG_LEVEL_NONE, verbosity,        __VA_ARGS__)
+#define LOG(...)             LOG_TMPL(GGML_LOG_LEVEL_NONE, LOG_LEVEL_OUTPUT, __VA_ARGS__)
+#define LOGV(verbosity, ...) LOG_TMPL(GGML_LOG_LEVEL_NONE, verbosity,        __VA_ARGS__)
 
-#define LOG_DBG(...) LOG_TMPL(LM_GGML_LOG_LEVEL_DEBUG, LOG_LEVEL_DEBUG,  __VA_ARGS__)
-#define LOG_TRC(...) LOG_TMPL(LM_GGML_LOG_LEVEL_INFO,  LOG_LEVEL_TRACE,  __VA_ARGS__)
-#define LOG_INF(...) LOG_TMPL(LM_GGML_LOG_LEVEL_INFO,  LOG_LEVEL_INFO,   __VA_ARGS__)
-#define LOG_WRN(...) LOG_TMPL(LM_GGML_LOG_LEVEL_WARN,  LOG_LEVEL_WARN,   __VA_ARGS__)
-#define LOG_ERR(...) LOG_TMPL(LM_GGML_LOG_LEVEL_ERROR, LOG_LEVEL_ERROR,  __VA_ARGS__)
-#define LOG_CNT(...) LOG_TMPL(LM_GGML_LOG_LEVEL_CONT,  LOG_LEVEL_INFO,   __VA_ARGS__) // same as INFO
+#define LOG_DBG(...) LOG_TMPL(GGML_LOG_LEVEL_DEBUG, LOG_LEVEL_DEBUG,  __VA_ARGS__)
+#define LOG_TRC(...) LOG_TMPL(GGML_LOG_LEVEL_INFO,  LOG_LEVEL_TRACE,  __VA_ARGS__)
+#define LOG_INF(...) LOG_TMPL(GGML_LOG_LEVEL_INFO,  LOG_LEVEL_INFO,   __VA_ARGS__)
+#define LOG_WRN(...) LOG_TMPL(GGML_LOG_LEVEL_WARN,  LOG_LEVEL_WARN,   __VA_ARGS__)
+#define LOG_ERR(...) LOG_TMPL(GGML_LOG_LEVEL_ERROR, LOG_LEVEL_ERROR,  __VA_ARGS__)
+#define LOG_CNT(...) LOG_TMPL(GGML_LOG_LEVEL_CONT,  LOG_LEVEL_INFO,   __VA_ARGS__) // same as INFO
 
-#define LOG_DBGV(verbosity, ...) LOG_TMPL(LM_GGML_LOG_LEVEL_DEBUG, verbosity, __VA_ARGS__)
-#define LOG_TRCV(verbosity, ...) LOG_TMPL(LM_GGML_LOG_LEVEL_TRACE, verbosity, __VA_ARGS__)
-#define LOG_INFV(verbosity, ...) LOG_TMPL(LM_GGML_LOG_LEVEL_INFO,  verbosity, __VA_ARGS__)
-#define LOG_WRNV(verbosity, ...) LOG_TMPL(LM_GGML_LOG_LEVEL_WARN,  verbosity, __VA_ARGS__)
-#define LOG_ERRV(verbosity, ...) LOG_TMPL(LM_GGML_LOG_LEVEL_ERROR, verbosity, __VA_ARGS__)
-#define LOG_CNTV(verbosity, ...) LOG_TMPL(LM_GGML_LOG_LEVEL_CONT,  verbosity, __VA_ARGS__)
+#define LOG_DBGV(verbosity, ...) LOG_TMPL(GGML_LOG_LEVEL_DEBUG, verbosity, __VA_ARGS__)
+#define LOG_TRCV(verbosity, ...) LOG_TMPL(GGML_LOG_LEVEL_TRACE, verbosity, __VA_ARGS__)
+#define LOG_INFV(verbosity, ...) LOG_TMPL(GGML_LOG_LEVEL_INFO,  verbosity, __VA_ARGS__)
+#define LOG_WRNV(verbosity, ...) LOG_TMPL(GGML_LOG_LEVEL_WARN,  verbosity, __VA_ARGS__)
+#define LOG_ERRV(verbosity, ...) LOG_TMPL(GGML_LOG_LEVEL_ERROR, verbosity, __VA_ARGS__)
+#define LOG_CNTV(verbosity, ...) LOG_TMPL(GGML_LOG_LEVEL_CONT,  verbosity, __VA_ARGS__)

@@ -109,23 +109,23 @@ std::unique_ptr<llm_graph_context> llama_model_plamo2::build_arch_graph(const ll
 
 llama_model_plamo2::graph::graph(const llama_model & model, const llm_graph_params & params) :
     llm_build_mamba_base(params) {
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     // {n_embd, n_tokens}
     inpL = build_inp_embd(model.tok_embd);
     cb(inpL, "embedding_output", -1);
 
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_hybrid = build_inp_mem_hybrid();
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * residual = inpL;
+        ggml_tensor * residual = inpL;
 
-        // lm_ggml_graph_add_node(gf, model.layers[il].attn_norm);
+        // ggml_graph_add_node(gf, model.layers[il].attn_norm);
         // cb(model.layers[il].attn_norm, "attn_norm", il);
 
         // pre_mixer_norm
@@ -147,7 +147,7 @@ llama_model_plamo2::graph::graph(const llama_model & model, const llm_graph_para
         cb(cur, "attn_post_norm", il);
 
         // residual connection
-        cur = lm_ggml_add(ctx0, cur, residual);
+        cur = ggml_add(ctx0, cur, residual);
         cb(cur, "attn_residual", il);
         residual = cur;
 
@@ -168,12 +168,12 @@ llama_model_plamo2::graph::graph(const llama_model & model, const llm_graph_para
         cb(cur, "ffn_post_norm", il);
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur      = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
-            residual = lm_ggml_get_rows(ctx0, residual, inp_out_ids);
+            cur      = ggml_get_rows(ctx0, cur, inp_out_ids);
+            residual = ggml_get_rows(ctx0, residual, inp_out_ids);
         }
 
         // residual connection
-        cur = lm_ggml_add(ctx0, cur, residual);
+        cur = ggml_add(ctx0, cur, residual);
         cb(cur, "ffn_residual", il);
 
         // input for next layer
@@ -193,22 +193,22 @@ llama_model_plamo2::graph::graph(const llama_model & model, const llm_graph_para
     cb(cur, "result_output", -1);
 
     // Explicitly mark as output tensor to ensure proper backend assignment
-    lm_ggml_set_output(cur);
+    ggml_set_output(cur);
 
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
-lm_ggml_tensor * llama_model_plamo2::graph::build_plamo2_attn_layer(llm_graph_input_attn_kv * inp,
-                                                        lm_ggml_tensor *             inp_pos,
-                                                        lm_ggml_tensor *             cur,
+ggml_tensor * llama_model_plamo2::graph::build_plamo2_attn_layer(llm_graph_input_attn_kv * inp,
+                                                        ggml_tensor *             inp_pos,
+                                                        ggml_tensor *             cur,
                                                         const llama_model &       model,
                                                         int                       il) {
     // self-attention
     {
         // PLaMo-2 uses combined QKV tensor
-        lm_ggml_tensor * qkv = build_lora_mm(model.layers[il].wqkv, cur);
+        ggml_tensor * qkv = build_lora_mm(model.layers[il].wqkv, cur);
         cb(qkv, "wqkv", il);
 
         // split QKV tensor into Q, K, V
@@ -222,12 +222,12 @@ lm_ggml_tensor * llama_model_plamo2::graph::build_plamo2_attn_layer(llm_graph_in
         const int64_t k_offset = n_embd_head_q * n_head;
         const int64_t v_offset = k_offset + n_embd_head_k * n_head_kv;
 
-        lm_ggml_tensor * Qcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head_q, n_head, n_tokens, n_embd_head_q * sizeof(float),
-                                          qkv->nb[1], q_offset * lm_ggml_element_size(qkv));
-        lm_ggml_tensor * Kcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head_k, n_head_kv, n_tokens, n_embd_head_k * sizeof(float),
-                                          qkv->nb[1], k_offset * lm_ggml_element_size(qkv));
-        lm_ggml_tensor * Vcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head_v, n_head_kv, n_tokens, n_embd_head_v * sizeof(float),
-                                          qkv->nb[1], v_offset * lm_ggml_element_size(qkv));
+        ggml_tensor * Qcur = ggml_view_3d(ctx0, qkv, n_embd_head_q, n_head, n_tokens, n_embd_head_q * sizeof(float),
+                                          qkv->nb[1], q_offset * ggml_element_size(qkv));
+        ggml_tensor * Kcur = ggml_view_3d(ctx0, qkv, n_embd_head_k, n_head_kv, n_tokens, n_embd_head_k * sizeof(float),
+                                          qkv->nb[1], k_offset * ggml_element_size(qkv));
+        ggml_tensor * Vcur = ggml_view_3d(ctx0, qkv, n_embd_head_v, n_head_kv, n_tokens, n_embd_head_v * sizeof(float),
+                                          qkv->nb[1], v_offset * ggml_element_size(qkv));
 
         cb(Qcur, "Qcur", il);
         cb(Kcur, "Kcur", il);
@@ -236,13 +236,13 @@ lm_ggml_tensor * llama_model_plamo2::graph::build_plamo2_attn_layer(llm_graph_in
         Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
         cb(Qcur, "Qcur_normed", il);
 
-        Qcur = lm_ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+        Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                              ext_factor, attn_factor, beta_fast, beta_slow);
 
         Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
         cb(Kcur, "Kcur_normed", il);
 
-        Kcur = lm_ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+        Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                              ext_factor, attn_factor, beta_fast, beta_slow);
 
         cur = build_attn(inp,
@@ -255,8 +255,8 @@ lm_ggml_tensor * llama_model_plamo2::graph::build_plamo2_attn_layer(llm_graph_in
     return cur;
 }
 
-lm_ggml_tensor * llama_model_plamo2::graph::build_plamo2_mamba_layer(llm_graph_input_rs * inp,
-                                                         lm_ggml_tensor *        cur,
+ggml_tensor * llama_model_plamo2::graph::build_plamo2_mamba_layer(llm_graph_input_rs * inp,
+                                                         ggml_tensor *        cur,
                                                          const llama_model &  model,
                                                          const llama_ubatch & ubatch,
                                                          int                  il) {
@@ -274,79 +274,79 @@ lm_ggml_tensor * llama_model_plamo2::graph::build_plamo2_mamba_layer(llm_graph_i
 
     const int64_t n_seq_tokens = ubatch.n_seq_tokens;
 
-    LM_GGML_ASSERT(n_seqs != 0);
-    LM_GGML_ASSERT(ubatch.equal_seqs());
-    LM_GGML_ASSERT(ubatch.n_tokens == n_seq_tokens * n_seqs);
-    LM_GGML_ASSERT(d_inner % n_heads == 0);
-    LM_GGML_ASSERT(n_group == 0);
+    GGML_ASSERT(n_seqs != 0);
+    GGML_ASSERT(ubatch.equal_seqs());
+    GGML_ASSERT(ubatch.n_tokens == n_seq_tokens * n_seqs);
+    GGML_ASSERT(d_inner % n_heads == 0);
+    GGML_ASSERT(n_group == 0);
 
-    lm_ggml_tensor * conv_states_all = mctx_cur->get_r_l(il);
-    lm_ggml_tensor * ssm_states_all  = mctx_cur->get_s_l(il);
+    ggml_tensor * conv_states_all = mctx_cur->get_r_l(il);
+    ggml_tensor * ssm_states_all  = mctx_cur->get_s_l(il);
 
-    lm_ggml_tensor * conv = build_rs(inp, conv_states_all, hparams.n_embd_r(), n_seqs);
-    conv               = lm_ggml_reshape_3d(ctx0, conv, d_conv - 1, d_inner + 2 * n_group * d_state, n_seqs);
+    ggml_tensor * conv = build_rs(inp, conv_states_all, hparams.n_embd_r(), n_seqs);
+    conv               = ggml_reshape_3d(ctx0, conv, d_conv - 1, d_inner + 2 * n_group * d_state, n_seqs);
 
     // {n_embd, n_tokens} => {n_embd, n_seq_tokens, n_seqs}
-    cur = lm_ggml_reshape_3d(ctx0, cur, cur->ne[0], n_seq_tokens, n_seqs);
+    cur = ggml_reshape_3d(ctx0, cur, cur->ne[0], n_seq_tokens, n_seqs);
 
     // in_proj: {n_embd, 2*d_inner} @ {n_embd, n_seq_tokens, n_seqs} => {2*d_inner, n_seq_tokens, n_seqs}
-    lm_ggml_tensor * zx = build_lora_mm(model.layers[il].ssm_in, cur);
+    ggml_tensor * zx = build_lora_mm(model.layers[il].ssm_in, cur);
     cb(zx, "mamba_in_proj", il);
     // {8192, 5, 1, 1} -> {8192, 1, 5, 1}
-    zx = lm_ggml_permute(ctx0, zx, 0, 2, 1, 3);
-    zx = lm_ggml_cont_4d(ctx0, zx, head_dim * 2, n_heads, n_seq_tokens, n_seqs);
+    zx = ggml_permute(ctx0, zx, 0, 2, 1, 3);
+    zx = ggml_cont_4d(ctx0, zx, head_dim * 2, n_heads, n_seq_tokens, n_seqs);
     cb(zx, "mamba_in_proj_out", il);
 
     // split into z and x
     // => {head_dim * n_heads, n_seq_tokens, n_seqs}
-    lm_ggml_tensor * x = lm_ggml_view_4d(ctx0, zx, head_dim, n_heads, n_seq_tokens, n_seqs, zx->nb[1], zx->nb[2], zx->nb[3],
-                                   head_dim * lm_ggml_element_size(zx));
-    x               = lm_ggml_cont_3d(ctx0, x, head_dim * n_heads, n_seq_tokens, n_seqs);
-    // x = lm_ggml_permute(ctx0, x, 0, 2, 1, 3);
+    ggml_tensor * x = ggml_view_4d(ctx0, zx, head_dim, n_heads, n_seq_tokens, n_seqs, zx->nb[1], zx->nb[2], zx->nb[3],
+                                   head_dim * ggml_element_size(zx));
+    x               = ggml_cont_3d(ctx0, x, head_dim * n_heads, n_seq_tokens, n_seqs);
+    // x = ggml_permute(ctx0, x, 0, 2, 1, 3);
     cb(x, "mamba_x_split", il);
 
-    lm_ggml_tensor * z =
-        lm_ggml_view_4d(ctx0, zx, head_dim, n_heads, n_seq_tokens, n_seqs, zx->nb[1], zx->nb[2], zx->nb[3], 0);
+    ggml_tensor * z =
+        ggml_view_4d(ctx0, zx, head_dim, n_heads, n_seq_tokens, n_seqs, zx->nb[1], zx->nb[2], zx->nb[3], 0);
     cb(z, "mamba_z_split", il);
 
     // conv1d
     {
         // => {d_conv - 1 + n_seq_tokens, d_inner, n_seqs}
-        lm_ggml_tensor * conv_x = lm_ggml_concat(ctx0, conv, lm_ggml_transpose(ctx0, x), 0);
+        ggml_tensor * conv_x = ggml_concat(ctx0, conv, ggml_transpose(ctx0, x), 0);
         cb(conv_x, "mamba_conv1d_input", il);
 
         // copy last (d_conv - 1) columns back into the state cache
-        lm_ggml_tensor * last_conv = lm_ggml_view_3d(ctx0, conv_x, d_conv - 1, d_inner, n_seqs, conv_x->nb[1], conv_x->nb[2],
+        ggml_tensor * last_conv = ggml_view_3d(ctx0, conv_x, d_conv - 1, d_inner, n_seqs, conv_x->nb[1], conv_x->nb[2],
                                                n_seq_tokens * (conv_x->nb[0]));
 
-        lm_ggml_build_forward_expand(gf, lm_ggml_cpy(ctx0, last_conv,
-                                               lm_ggml_view_1d(ctx0, conv_states_all,
+        ggml_build_forward_expand(gf, ggml_cpy(ctx0, last_conv,
+                                               ggml_view_1d(ctx0, conv_states_all,
                                                             (d_conv - 1) * (d_inner + 2 * n_group * d_state) * (n_seqs),
                                                             kv_head * (d_conv - 1) * (d_inner + 2 * n_group * d_state) *
-                                                                lm_ggml_element_size(conv_states_all))));
+                                                                ggml_element_size(conv_states_all))));
         cb(conv_states_all, "mamba_conv1d_state", il);
 
         // 1D convolution
-        x = lm_ggml_ssm_conv(ctx0, conv_x, model.layers[il].ssm_conv1d);
+        x = ggml_ssm_conv(ctx0, conv_x, model.layers[il].ssm_conv1d);
         cb(x, "mamba_conv1d", il);
 
-        x = lm_ggml_silu(ctx0, x);
+        x = ggml_silu(ctx0, x);
         cb(x, "mamba_conv1d_silu", il);
     }
 
     // SSM
     {
         // bcdt_proj: {d_inner, dt_rank + 2*d_state} @ {d_inner, n_seq_tokens, n_seqs} => {dt_rank + 2*d_state, n_seq_tokens, n_seqs}
-        lm_ggml_tensor * x_bcdt = build_lora_mm(model.layers[il].ssm_x, x);
+        ggml_tensor * x_bcdt = build_lora_mm(model.layers[il].ssm_x, x);
         cb(x_bcdt, "mamba_bcdt_proj", il);
 
         // split into dt, B, C
         const int64_t dt_dim = std::max(64, int(hparams.n_embd / 16));
-        lm_ggml_tensor * B  = lm_ggml_view_3d(ctx0, x_bcdt, d_state, n_seq_tokens, n_seqs, x_bcdt->nb[1], x_bcdt->nb[2], 0);
-        lm_ggml_tensor * C  = lm_ggml_view_3d(ctx0, x_bcdt, d_state, n_seq_tokens, n_seqs, x_bcdt->nb[1], x_bcdt->nb[2],
-                                        lm_ggml_element_size(x_bcdt) * d_state);
-        lm_ggml_tensor * dt = lm_ggml_view_3d(ctx0, x_bcdt, dt_dim, n_seq_tokens, n_seqs, x_bcdt->nb[1], x_bcdt->nb[2],
-                                        lm_ggml_element_size(x_bcdt) * (2 * d_state));
+        ggml_tensor * B  = ggml_view_3d(ctx0, x_bcdt, d_state, n_seq_tokens, n_seqs, x_bcdt->nb[1], x_bcdt->nb[2], 0);
+        ggml_tensor * C  = ggml_view_3d(ctx0, x_bcdt, d_state, n_seq_tokens, n_seqs, x_bcdt->nb[1], x_bcdt->nb[2],
+                                        ggml_element_size(x_bcdt) * d_state);
+        ggml_tensor * dt = ggml_view_3d(ctx0, x_bcdt, dt_dim, n_seq_tokens, n_seqs, x_bcdt->nb[1], x_bcdt->nb[2],
+                                        ggml_element_size(x_bcdt) * (2 * d_state));
         cb(B, "mamba_B_raw", il);
         cb(C, "mamba_C_raw", il);
         cb(dt, "mamba_dt_raw", il);
@@ -361,65 +361,65 @@ lm_ggml_tensor * llama_model_plamo2::graph::build_plamo2_mamba_layer(llm_graph_i
 
         // dt_proj: {dt_rank, d_inner} @ {dt_rank, n_seq_tokens, n_seqs} => {d_inner, n_seq_tokens, n_seqs}
         dt = build_lora_mm(model.layers[il].ssm_dt, dt);
-        dt = lm_ggml_add(ctx0, dt, model.layers[il].ssm_dt_b);
+        dt = ggml_add(ctx0, dt, model.layers[il].ssm_dt_b);
         cb(dt, "mamba_dt_proj", il);
 
-        lm_ggml_tensor * A = lm_ggml_reshape_2d(ctx0, model.layers[il].ssm_a, 1, n_heads);
+        ggml_tensor * A = ggml_reshape_2d(ctx0, model.layers[il].ssm_a, 1, n_heads);
         cb(A, "mamba_A", il);
 
-        x = lm_ggml_view_4d(ctx0, x, head_dim, n_heads, n_seq_tokens, n_seqs, head_dim * lm_ggml_element_size(x),
-                         head_dim * n_heads * lm_ggml_element_size(x),
-                         head_dim * n_heads * n_seq_tokens * lm_ggml_element_size(x), 0);
-        B = lm_ggml_view_4d(ctx0, B, d_state, 1, n_seq_tokens, n_seqs, d_state * B->nb[0], B->nb[1], B->nb[2], 0);
-        C = lm_ggml_view_4d(ctx0, C, d_state, 1, n_seq_tokens, n_seqs, d_state * C->nb[0], C->nb[1], C->nb[2], 0);
+        x = ggml_view_4d(ctx0, x, head_dim, n_heads, n_seq_tokens, n_seqs, head_dim * ggml_element_size(x),
+                         head_dim * n_heads * ggml_element_size(x),
+                         head_dim * n_heads * n_seq_tokens * ggml_element_size(x), 0);
+        B = ggml_view_4d(ctx0, B, d_state, 1, n_seq_tokens, n_seqs, d_state * B->nb[0], B->nb[1], B->nb[2], 0);
+        C = ggml_view_4d(ctx0, C, d_state, 1, n_seq_tokens, n_seqs, d_state * C->nb[0], C->nb[1], C->nb[2], 0);
 
         // use the states and the indices provided by build_recurrent_state
         // (this is necessary in order to properly use the states before they are overwritten,
         //  while avoiding to make unnecessary copies of the states)
-        auto get_ssm_rows = [&](lm_ggml_context * ctx, lm_ggml_tensor * states, lm_ggml_tensor * ids) {
-            lm_ggml_tensor * ssm = lm_ggml_reshape_4d(ctx, states, d_state, head_dim, n_heads, mctx_cur->get_size());
+        auto get_ssm_rows = [&](ggml_context * ctx, ggml_tensor * states, ggml_tensor * ids) {
+            ggml_tensor * ssm = ggml_reshape_4d(ctx, states, d_state, head_dim, n_heads, mctx_cur->get_size());
 
             // Custom operator to optimize the parallel associative scan
             // as described in the Annex D of the Mamba paper.
             // => {d_inner, n_seq_tokens, n_seqs} and {d_state, d_inner, n_seqs}
-            return lm_ggml_ssm_scan(ctx, ssm, x, dt, A, B, C, ids, /*K=*/1);
+            return ggml_ssm_scan(ctx, ssm, x, dt, A, B, C, ids, /*K=*/1);
         };
 
-        lm_ggml_tensor * y_ssm = build_rs(inp, ssm_states_all, hparams.n_embd_s(), ubatch.n_seqs, get_ssm_rows);
+        ggml_tensor * y_ssm = build_rs(inp, ssm_states_all, hparams.n_embd_s(), ubatch.n_seqs, get_ssm_rows);
         cb(y_ssm, "mamba_ssm_scan", il);
 
         // store last states
-        lm_ggml_build_forward_expand(
-            gf, lm_ggml_cpy(
+        ggml_build_forward_expand(
+            gf, ggml_cpy(
                     ctx0,
-                    lm_ggml_view_1d(ctx0, y_ssm, n_heads * head_dim * d_state * n_seqs,
-                                 n_heads * head_dim * n_seq_tokens * n_seqs * lm_ggml_element_size(y_ssm)),
-                    lm_ggml_view_1d(ctx0, ssm_states_all, n_heads * head_dim * d_state * n_seqs,
-                                 kv_head * n_seqs * n_heads * head_dim * d_state * lm_ggml_element_size(ssm_states_all))));
+                    ggml_view_1d(ctx0, y_ssm, n_heads * head_dim * d_state * n_seqs,
+                                 n_heads * head_dim * n_seq_tokens * n_seqs * ggml_element_size(y_ssm)),
+                    ggml_view_1d(ctx0, ssm_states_all, n_heads * head_dim * d_state * n_seqs,
+                                 kv_head * n_seqs * n_heads * head_dim * d_state * ggml_element_size(ssm_states_all))));
         cb(ssm_states_all, "mamba_ssm_states", il);
 
-        lm_ggml_tensor * y = lm_ggml_view_4d(ctx0, y_ssm, head_dim, n_heads, n_seq_tokens, n_seqs,
-                                       head_dim * lm_ggml_element_size(x), head_dim * n_heads * lm_ggml_element_size(x),
-                                       head_dim * n_heads * n_seq_tokens * lm_ggml_element_size(x), 0);
+        ggml_tensor * y = ggml_view_4d(ctx0, y_ssm, head_dim, n_heads, n_seq_tokens, n_seqs,
+                                       head_dim * ggml_element_size(x), head_dim * n_heads * ggml_element_size(x),
+                                       head_dim * n_heads * n_seq_tokens * ggml_element_size(x), 0);
         cb(y, "mamba_y_view", il);
 
         // Add D parameter and apply gating with z
         // {d_inner, n_seq_tokens, n_seqs} * {d_inner} => {d_inner, n_seq_tokens, n_seqs}
-        lm_ggml_tensor * D = lm_ggml_reshape_2d(ctx0, model.layers[il].ssm_d, 1, n_heads);
-        y               = lm_ggml_add(ctx0, y, lm_ggml_mul(ctx0, x, D));
+        ggml_tensor * D = ggml_reshape_2d(ctx0, model.layers[il].ssm_d, 1, n_heads);
+        y               = ggml_add(ctx0, y, ggml_mul(ctx0, x, D));
         cb(y, "mamba_y_add_d", il);
 
-        y = lm_ggml_swiglu_split(ctx0, lm_ggml_cont(ctx0, z), y);
+        y = ggml_swiglu_split(ctx0, ggml_cont(ctx0, z), y);
         cb(y, "mamba_y_swiglu_z", il);
 
         // out_proj: {d_inner, n_embd} @ {d_inner, n_seq_tokens, n_seqs} => {n_embd, n_seq_tokens, n_seqs}
-        y   = lm_ggml_view_3d(ctx0, y, head_dim * n_heads, n_seq_tokens, n_seqs, y->nb[2], y->nb[3], 0);
+        y   = ggml_view_3d(ctx0, y, head_dim * n_heads, n_seq_tokens, n_seqs, y->nb[2], y->nb[3], 0);
         cur = build_lora_mm(model.layers[il].ssm_out, y);
         cb(cur, "mamba_out_proj", il);
     }
 
     // {n_embd, n_seq_tokens, n_seqs} => {n_embd, n_tokens}
-    cur = lm_ggml_reshape_2d(ctx0, cur, cur->ne[0], n_seq_tokens * n_seqs);
+    cur = ggml_reshape_2d(ctx0, cur, cur->ne[0], n_seq_tokens * n_seqs);
     cb(cur, "mamba_out", il);
 
     return cur;

@@ -11,8 +11,8 @@
 #include "hvx-repl.h"
 #include "hvx-utils.h"
 
-#ifndef LM_GGML_COMMON_DECL_C
-#define LM_GGML_COMMON_DECL_C
+#ifndef GGML_COMMON_DECL_C
+#define GGML_COMMON_DECL_C
 #endif
 #include "ggml-common.h"
 #include "ggml-impl.h"
@@ -83,7 +83,7 @@ static inline void hvx_quantize_row_q8_0_f32(void * restrict dst_ptr, const floa
 
         const float d = amax / 127.0f;
         const float id = d ? (1.0f / d) : 0.0f;
-        dst[i].d = LM_GGML_FP32_TO_FP16(d);
+        dst[i].d = GGML_FP32_TO_FP16(d);
 
         HVX_Vector vid = hvx_vec_splat_f32(id);
         HVX_Vector v_scaled = hvx_vec_mul_f32_f32(vx, vid);

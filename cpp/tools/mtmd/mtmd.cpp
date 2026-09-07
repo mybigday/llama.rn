@@ -623,7 +623,7 @@ struct mtmd_context {
     }
 
     void init_vision() {
-        LM_GGML_ASSERT(ctx_v != nullptr);
+        GGML_ASSERT(ctx_v != nullptr);
         image_preproc.reset();
 
         projector_type proj = clip_get_projector_type(ctx_v);
@@ -907,11 +907,11 @@ struct mtmd_context {
                 throw std::runtime_error(string_format("%s: unexpected vision projector type %d\n", __func__, proj));
         }
 
-        LM_GGML_ASSERT(image_preproc != nullptr);
+        GGML_ASSERT(image_preproc != nullptr);
     }
 
     void init_audio() {
-        LM_GGML_ASSERT(ctx_a != nullptr);
+        GGML_ASSERT(ctx_a != nullptr);
         audio_preproc.reset();
 
         projector_type proj = clip_get_projector_type(ctx_a);
@@ -1003,7 +1003,7 @@ struct mtmd_context {
         }
 
         // initialize audio preprocessor
-        LM_GGML_ASSERT(audio_preproc != nullptr);
+        GGML_ASSERT(audio_preproc != nullptr);
         audio_preproc->initialize();
     }
 
@@ -1014,7 +1014,7 @@ struct mtmd_context {
         } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
             return ctx_a;
         }
-        LM_GGML_ABORT("unknown chunk type");
+        GGML_ABORT("unknown chunk type");
     }
 
     projector_type proj_type_v() const {
@@ -1067,7 +1067,7 @@ private:
         if (n_chars < 0) {
             piece.resize(-n_chars);
             int check = llama_token_to_piece(vocab, token, &piece[0], piece.size(), 0, special);
-            LM_GGML_ASSERT(check == -n_chars);
+            GGML_ASSERT(check == -n_chars);
         } else {
             piece.resize(n_chars);
         }
@@ -1219,7 +1219,7 @@ struct mtmd_tokenizer {
         int n_merge_frames = 1;
         if (ctx->ctx_v) {
             n_merge_frames = clip_model_n_temporal_merge(ctx->ctx_v);
-            LM_GGML_ASSERT(n_merge_frames <= 2 && "we only support merging maximum 2 images for now; open an issue if this model supports merging more");
+            GGML_ASSERT(n_merge_frames <= 2 && "we only support merging maximum 2 images for now; open an issue if this model supports merging more");
         }
 
         auto merged_bitmaps = mtmd_group_mergeable_bitmaps(parts, n_merge_frames);
@@ -1309,7 +1309,7 @@ struct mtmd_tokenizer {
     }
 
     int32_t add_media(std::vector<const mtmd_bitmap *> & bitmaps) {
-        LM_GGML_ASSERT(!bitmaps.empty());
+        GGML_ASSERT(!bitmaps.empty());
 
         // note: only one type of media is supported per call, caller should enforce this
         const bool is_vision = !bitmaps[0]->is_audio;
@@ -1332,8 +1332,8 @@ struct mtmd_tokenizer {
 
             for (const auto * bmp : bitmaps) {
                 // sanity check
-                LM_GGML_ASSERT(!bmp->is_audio);
-                LM_GGML_ASSERT(ctx->image_preproc != nullptr);
+                GGML_ASSERT(!bmp->is_audio);
+                GGML_ASSERT(ctx->image_preproc != nullptr);
                 if (bmp->nx <= 0 || bmp->ny <= 0) {
                     LOG_ERR("%s: error: invalid bitmap dimensions: nx = %d, ny = %d\n",
                             __func__, bmp->nx, bmp->ny);
@@ -1359,7 +1359,7 @@ struct mtmd_tokenizer {
                 // we don't care about overwriting these values for now because the case where bitmaps.size() > 1 is only for frame merging (qwen-vl), not supported by llava-uhd
                 if ((tmp_preproc_out.grid_x > 0 && tmp_preproc_out.grid_y > 0)
                         || tmp_preproc_out.has_overview()) {
-                    LM_GGML_ASSERT(bitmaps.size() == 1);
+                    GGML_ASSERT(bitmaps.size() == 1);
                     preproc_out.grid_x = tmp_preproc_out.grid_x;
                     preproc_out.grid_y = tmp_preproc_out.grid_y;
                     preproc_out.overview = std::move(tmp_preproc_out.overview);
@@ -1377,14 +1377,14 @@ struct mtmd_tokenizer {
 
             if (has_tiling_grid) {
                 // [QWEN_VIDEO] we do not support "frame merging" for llama-uhd style, so no batching for now
-                LM_GGML_ASSERT(bitmaps.size() == 1);
+                GGML_ASSERT(bitmaps.size() == 1);
 
                 const int n_col = preproc_out.grid_x;
                 const int n_row = preproc_out.grid_y;
 
                 // split batch into chunks of single images
                 auto chunks = split_batch_to_chunk(std::move(preproc_out), bitmaps[0]->id);
-                LM_GGML_ASSERT(chunks.size() > 0);
+                GGML_ASSERT(chunks.size() > 0);
 
                 // NOTE: preproc_out is invalidated after this point, do not use it anymore
 
@@ -1402,7 +1402,7 @@ struct mtmd_tokenizer {
                 // add slices (or tiles)
                 if (!chunks.empty()) {
                     LOG_DBG("%s: adding %d slices (%d rows x %d cols)\n", __func__, (int)chunks.size(), n_row, n_col);
-                    LM_GGML_ASSERT((int)chunks.size() == n_row * n_col);
+                    GGML_ASSERT((int)chunks.size() == n_row * n_col);
                     add_text(ctx->tok_slices_start);
                     for (int y = 0; y < n_row; y++) {
                         for (int x = 0; x < n_col; x++) {
@@ -1481,7 +1481,7 @@ struct mtmd_tokenizer {
                 if (ctx->proj_type_v() == PROJECTOR_TYPE_HUNYUANVL) {
                     image_tokens->pos       = MTMD_POS_TYPE_HUNYUANVL;
                     image_tokens->image_idx = n_images_added;
-                    LM_GGML_ASSERT(n_tokens == (size_t)image_tokens->n_tokens());
+                    GGML_ASSERT(n_tokens == (size_t)image_tokens->n_tokens());
                 }
 
                 clip_image_f32_batch batch_f32;
@@ -1515,7 +1515,7 @@ struct mtmd_tokenizer {
         } else {
             // handle audio
 
-            LM_GGML_ASSERT(bitmaps.size() == 1); // no batching support for now
+            GGML_ASSERT(bitmaps.size() == 1); // no batching support for now
             auto & bitmap = bitmaps[0];
 
             if (!ctx->ctx_a) {
@@ -1533,7 +1533,7 @@ struct mtmd_tokenizer {
             }
 
             // sanity check
-            LM_GGML_ASSERT(ctx->audio_preproc != nullptr);
+            GGML_ASSERT(ctx->audio_preproc != nullptr);
 
             // preprocess audio
             std::vector<mtmd_audio_mel> mel_spec_chunks;
@@ -1543,15 +1543,15 @@ struct mtmd_tokenizer {
                 size_t n_samples = 0;
                 if (bitmap->is_placeholder()) {
                     // TODO @ngxson : skip underlay processing if bitmap is placeholder
-                    LM_GGML_ASSERT(bitmap->ny == 1);
+                    GGML_ASSERT(bitmap->ny == 1);
 
                     dummy.resize(bitmap->nx);
                     samples = dummy.data();
                     n_samples = dummy.size();
                 } else {
                     const auto & buf = bitmap->get_ro_buf();
-                    LM_GGML_ASSERT(buf.size() > sizeof(float));
-                    LM_GGML_ASSERT(buf.size() % sizeof(float) == 0);
+                    GGML_ASSERT(buf.size() > sizeof(float));
+                    GGML_ASSERT(buf.size() % sizeof(float) == 0);
 
                     samples = (const float *)buf.data();
                     n_samples = buf.size() / sizeof(float);
@@ -1569,8 +1569,8 @@ struct mtmd_tokenizer {
                 const bool is_placeholder = mel_spec.data.empty();
 
                 // Validate dimensions fit in clip_image_size (int)
-                LM_GGML_ASSERT(mel_spec.n_len <= INT32_MAX && mel_spec.n_len >= 0);
-                LM_GGML_ASSERT(mel_spec.n_mel <= INT32_MAX && mel_spec.n_mel >= 0);
+                GGML_ASSERT(mel_spec.n_len <= INT32_MAX && mel_spec.n_len >= 0);
+                GGML_ASSERT(mel_spec.n_mel <= INT32_MAX && mel_spec.n_mel >= 0);
                 clip_image_f32 mel_f32;
                 mel_f32.set_size(
                     {(int)mel_spec.n_len, (int)mel_spec.n_mel},
@@ -1617,7 +1617,7 @@ struct mtmd_tokenizer {
             image_tokens->batch_f32.entries.push_back(std::move(img));
             image_tokens->id = id;
 
-            LM_GGML_ASSERT(image_tokens->nx > 0);
+            GGML_ASSERT(image_tokens->nx > 0);
 
             mtmd_input_chunk chunk{
                 MTMD_INPUT_CHUNK_TYPE_IMAGE,
@@ -1686,7 +1686,7 @@ struct mtmd_tokenizer {
         if (n_tokens < 0) {
             result.resize(-n_tokens);
             int check = llama_tokenize(vocab, text.data(), text.length(), result.data(), result.size(), add_special, parse_special);
-            LM_GGML_ASSERT(check == -n_tokens);
+            GGML_ASSERT(check == -n_tokens);
         } else {
             result.resize(n_tokens);
         }
@@ -2043,7 +2043,7 @@ static int32_t mtmd_batch_encode_impl(mtmd_batch * batch) {
         // note: skip first entry because it's already in batch_chunk
         for (size_t ic = 1; ic < batch->entries.size(); ic++) {
             auto & chunk = batch->entries[ic];
-            LM_GGML_ASSERT(chunk->tokens_image);
+            GGML_ASSERT(chunk->tokens_image);
             auto b1_f32 = chunk->tokens_image->batch_f32.clone();
             for (size_t i = 0; i < b1_f32.entries.size(); i++) {
                 b0_f32.entries.push_back(std::move(b1_f32.entries[i]));
@@ -2055,7 +2055,7 @@ static int32_t mtmd_batch_encode_impl(mtmd_batch * batch) {
         // note: skip first entry because it's already in batch_chunk
         for (size_t ic = 1; ic < batch->entries.size(); ic++) {
             auto & chunk = batch->entries[ic];
-            LM_GGML_ASSERT(chunk->tokens_audio);
+            GGML_ASSERT(chunk->tokens_audio);
             auto b1_f32 = chunk->tokens_audio->batch_f32.clone();
             for (size_t i = 0; i < b1_f32.entries.size(); i++) {
                 b0_f32.entries.push_back(std::move(b1_f32.entries[i]));
@@ -2095,8 +2095,8 @@ float * mtmd_batch_get_output_embd(mtmd_batch * batch, const mtmd_input_chunk * 
         size_t offset_prev = offset;
         size_t n_tokens = mtmd_input_chunk_get_n_tokens(c);
         offset += n_tokens * n_embd;
-        LM_GGML_ASSERT(offset_prev <  batch->output_embd.size());
-        LM_GGML_ASSERT(offset      <= batch->output_embd.size());
+        GGML_ASSERT(offset_prev <  batch->output_embd.size());
+        GGML_ASSERT(offset      <= batch->output_embd.size());
         if (c == chunk) {
             return &batch->output_embd.data()[offset_prev];
         }
@@ -2158,9 +2158,9 @@ mtmd_bitmap * mtmd_bitmap_init(uint32_t nx,
 mtmd_bitmap * mtmd_bitmap_init_from_audio(size_t n_samples,
                                           const float * data) {
     mtmd_bitmap * bitmap = new mtmd_bitmap((const unsigned char *)data, n_samples);
-    LM_GGML_ASSERT(bitmap->is_audio);
+    GGML_ASSERT(bitmap->is_audio);
     if (!bitmap->is_placeholder()) {
-        LM_GGML_ASSERT(bitmap->get_ro_buf().size() == n_samples * sizeof(float));
+        GGML_ASSERT(bitmap->get_ro_buf().size() == n_samples * sizeof(float));
     }
     return bitmap;
 }
@@ -2211,7 +2211,7 @@ mtmd_bitmap * mtmd_bitmap_init_lazy(mtmd_context * ctx,
                                     const char * id,
                                     void * user_data,
                                     mtmd_bitmap_lazy_callback callback) {
-    LM_GGML_UNUSED(ctx); // reserved for future use
+    GGML_UNUSED(ctx); // reserved for future use
     mtmd_bitmap * bitmap = new mtmd_bitmap(nullptr, 0, 0);
     bitmap->lazy_callback = callback;
     bitmap->lazy_user_data = user_data;
@@ -2278,7 +2278,7 @@ size_t mtmd_input_chunk_get_n_tokens(const mtmd_input_chunk * chunk) {
     } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
         return chunk->tokens_audio->n_tokens;
     } else {
-        LM_GGML_ABORT("invalid chunk type");
+        GGML_ABORT("invalid chunk type");
     }
 }
 
@@ -2290,7 +2290,7 @@ llama_pos mtmd_input_chunk_get_n_pos(const mtmd_input_chunk * chunk) {
     } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
         return chunk->tokens_audio->n_tokens;
     } else {
-        LM_GGML_ABORT("invalid chunk type");
+        GGML_ABORT("invalid chunk type");
     }
 }
 
@@ -2447,7 +2447,7 @@ mtmd_decoder_pos mtmd_image_tokens_get_decoder_pos(const mtmd_image_tokens * ima
                 }
             } break;
         default:
-            LM_GGML_ABORT("invalid position type");
+            GGML_ABORT("invalid position type");
     }
     return pos;
 }
@@ -2467,7 +2467,7 @@ llama_pos mtmd_image_tokens_get_n_pos(const mtmd_image_tokens * image_tokens) {
             // (includes BOI/EOI and row newline tokens), not by max(nx, ny)
             return image_tokens->n_tokens();
         default:
-            LM_GGML_ABORT("invalid position type");
+            GGML_ABORT("invalid position type");
     }
 }
 
@@ -2506,7 +2506,7 @@ mtmd_input_chunks * mtmd_test_create_input_chunks() {
     return chunks;
 }
 
-void mtmd_log_set(lm_ggml_log_callback log_callback, void * user_data) {
+void mtmd_log_set(ggml_log_callback log_callback, void * user_data) {
     g_logger_state.log_callback = log_callback ? log_callback : clip_log_callback_default;
     g_logger_state.log_callback_user_data = user_data;
 }
@@ -2589,7 +2589,7 @@ void mtmd_debug_preprocess_image(mtmd_context * ctx, const std::vector<uint8_t> 
     clip_image_u8 img_u8;
     img_u8.set_size({nx, ny}, false);
     img_u8.cpy_buf(rgb_values);
-    LM_GGML_ASSERT(ctx->image_preproc != nullptr);
+    GGML_ASSERT(ctx->image_preproc != nullptr);
     mtmd_image_preproc_out preproc_out = ctx->image_preproc->preprocess(img_u8);
 
     clip_image_f32_batch batch_f32;
@@ -2630,11 +2630,11 @@ void mtmd_debug_preprocess_audio(mtmd_context * ctx, const std::vector<float> & 
     }
 }
 
-static void stub_log_callback(enum lm_ggml_log_level, const char *, void *) {
+static void stub_log_callback(enum ggml_log_level, const char *, void *) {
     // do nothing
 }
 
-std::map<lm_ggml_backend_dev_t, size_t> mtmd_get_memory_usage(const char * mmproj_fname,
+std::map<ggml_backend_dev_t, size_t> mtmd_get_memory_usage(const char * mmproj_fname,
                                                             struct mtmd_context_params ctx_params) {
     mtmd::context_ptr ctx;
     auto saved_log_callback = g_logger_state.log_callback;
@@ -2646,7 +2646,7 @@ std::map<lm_ggml_backend_dev_t, size_t> mtmd_get_memory_usage(const char * mmpro
         mtmd_log_set(stub_log_callback, nullptr); // suppress logging
         ctx.reset(new mtmd_context(mmproj_fname, nullptr, ctx_params, true));
         mtmd_log_set(saved_log_callback, saved_log_user_data); // restore log callback
-        std::map<lm_ggml_backend_dev_t, size_t> total_mem;
+        std::map<ggml_backend_dev_t, size_t> total_mem;
         auto merge = [&](const struct clip_ctx * c) {
             for (auto & [dev, size] : clip_get_mem_usage(c)) {
                 total_mem[dev] += size;

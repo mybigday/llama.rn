@@ -2,25 +2,25 @@
 
 // Helpers for MobileNetV5 Blocks
 // RMS Norm 2D - normalizes over channels for each spatial position
-lm_ggml_tensor * clip_graph_mobilenetv5::rms_norm_2d(lm_ggml_tensor * inp, lm_ggml_tensor * weight, float eps) {
+ggml_tensor * clip_graph_mobilenetv5::rms_norm_2d(ggml_tensor * inp, ggml_tensor * weight, float eps) {
     // inp: [W, H, C, B]
 
-    lm_ggml_tensor * cur = lm_ggml_permute(ctx0, inp, 2, 1, 0, 3);
-    cur = lm_ggml_cont(ctx0, cur);
-    cur = lm_ggml_rms_norm(ctx0, cur, eps);
+    ggml_tensor * cur = ggml_permute(ctx0, inp, 2, 1, 0, 3);
+    cur = ggml_cont(ctx0, cur);
+    cur = ggml_rms_norm(ctx0, cur, eps);
 
     if (weight) {
-        cur = lm_ggml_mul(ctx0, cur, weight);
+        cur = ggml_mul(ctx0, cur, weight);
     }
 
-    cur = lm_ggml_permute(ctx0, cur, 2, 1, 0, 3);
-    cur = lm_ggml_cont(ctx0, cur);
+    cur = ggml_permute(ctx0, cur, 2, 1, 0, 3);
+    cur = ggml_cont(ctx0, cur);
 
     return cur;
 }
 
 // Conv2dSame padding - asymmetric SAME padding like PyTorch/TF
-lm_ggml_tensor* clip_graph_mobilenetv5::pad_same_2d(lm_ggml_tensor* inp, int kernel_h, int kernel_w, int stride_h, int stride_w, int dilation_h, int dilation_w) {
+ggml_tensor* clip_graph_mobilenetv5::pad_same_2d(ggml_tensor* inp, int kernel_h, int kernel_w, int stride_h, int stride_w, int dilation_h, int dilation_w) {
     const int64_t ih = inp->ne[1];  // height
     const int64_t iw = inp->ne[0];  // width
 
@@ -39,10 +39,10 @@ lm_ggml_tensor* clip_graph_mobilenetv5::pad_same_2d(lm_ggml_tensor* inp, int ker
     const int pad_w_right = pad_w - pad_w_left;
 
     // Apply padding if needed
-    // lm_ggml_pad_ext: (ctx, tensor, lp0, rp0, lp1, rp1, lp2, rp2, lp3, rp3)
+    // ggml_pad_ext: (ctx, tensor, lp0, rp0, lp1, rp1, lp2, rp2, lp3, rp3)
     // For [W, H, C, B]: p0=width, p1=height, p2=channels, p3=batch
     if (pad_h > 0 || pad_w > 0) {
-        inp = lm_ggml_pad_ext(ctx0, inp,
+        inp = ggml_pad_ext(ctx0, inp,
             pad_w_left, pad_w_right,     // width padding (dim 0)
             pad_h_top, pad_h_bottom,      // height padding (dim 1)
             0, 0,                         // no channel padding (dim 2)
@@ -54,58 +54,58 @@ lm_ggml_tensor* clip_graph_mobilenetv5::pad_same_2d(lm_ggml_tensor* inp, int ker
 
 
 // Edge Residual Block (Stage 0)
-lm_ggml_tensor * clip_graph_mobilenetv5::build_edge_residual(lm_ggml_tensor * inp, const mobilenetv5_block & block, int stride) {
-    lm_ggml_tensor * cur = inp;
+ggml_tensor * clip_graph_mobilenetv5::build_edge_residual(ggml_tensor * inp, const mobilenetv5_block & block, int stride) {
+    ggml_tensor * cur = inp;
 
     // 1. Expansion Conv (3x3)
     if (stride == 2) {
         // Case: Downsampling (Block 0)
         // Replicates Conv2dSame(kernel=3, stride=2)
         cur = pad_same_2d(cur, 3, 3, stride, stride);
-        cur = lm_ggml_conv_2d_direct(ctx0, block.s0_conv_exp_w, cur, stride, stride, 0, 0, 1, 1);
+        cur = ggml_conv_2d_direct(ctx0, block.s0_conv_exp_w, cur, stride, stride, 0, 0, 1, 1);
     } else {
         // Case: Normal 3x3 Block (Block 1, 2)
         // Replicates Conv2d(kernel=3, stride=1, padding=1)
-        cur = lm_ggml_conv_2d_direct(ctx0, block.s0_conv_exp_w, cur, stride, stride, 1, 1, 1, 1);
+        cur = ggml_conv_2d_direct(ctx0, block.s0_conv_exp_w, cur, stride, stride, 1, 1, 1, 1);
     }
 
     // BN + Activation
     if (block.s0_bn1_w) cur = rms_norm_2d(cur, block.s0_bn1_w);
-    cur = lm_ggml_gelu(ctx0, cur);
+    cur = ggml_gelu(ctx0, cur);
 
     // 2. Pointwise Linear Conv (1x1)
     // 1x1 Convs usually have padding=0 and stride=1
-    cur = lm_ggml_conv_2d_direct(ctx0, block.s0_conv_pwl_w, cur, 1, 1, 0, 0, 1, 1);
+    cur = ggml_conv_2d_direct(ctx0, block.s0_conv_pwl_w, cur, 1, 1, 0, 0, 1, 1);
     if (block.s0_bn2_w) cur = rms_norm_2d(cur, block.s0_bn2_w);
 
     // 3. Residual Connection
     // Only apply residual if spatial dimensions and channels match (stride 1)
     if (stride == 1 && inp->ne[2] == cur->ne[2] && inp->ne[0] == cur->ne[0]) {
-        cur = lm_ggml_add(ctx0, cur, inp);
+        cur = ggml_add(ctx0, cur, inp);
     }
 
     return cur;
 }
 
 // Universal Inverted Residual Block (Stage 1+)
-lm_ggml_tensor * clip_graph_mobilenetv5::build_inverted_residual(lm_ggml_tensor * inp, const mobilenetv5_block & block, int stride) {
-    lm_ggml_tensor * cur = inp;
+ggml_tensor * clip_graph_mobilenetv5::build_inverted_residual(ggml_tensor * inp, const mobilenetv5_block & block, int stride) {
+    ggml_tensor * cur = inp;
 
     // 1. Depthwise Start (Optional)
     // NOTE: dw_start always has stride=1 (no downsampling here)
     if (block.dw_start_w) {
         int k = block.dw_start_w->ne[0]; // 3 or 5
         int p = k / 2;
-        cur = lm_ggml_conv_2d_dw(ctx0, block.dw_start_w, cur, 1, 1, p, p, 1, 1);
+        cur = ggml_conv_2d_dw(ctx0, block.dw_start_w, cur, 1, 1, p, p, 1, 1);
         if (block.dw_start_bn_w) cur = rms_norm_2d(cur, block.dw_start_bn_w);
     }
 
     // 2. Pointwise Expansion (1x1)
     if (block.pw_exp_w) {
         // Standard 1x1 conv, pad=0, stride=1
-        cur = lm_ggml_conv_2d_direct(ctx0, block.pw_exp_w, cur, 1, 1, 0, 0, 1, 1);
+        cur = ggml_conv_2d_direct(ctx0, block.pw_exp_w, cur, 1, 1, 0, 0, 1, 1);
         if (block.pw_exp_bn_w) cur = rms_norm_2d(cur, block.pw_exp_bn_w);
-        cur = lm_ggml_gelu(ctx0, cur);
+        cur = ggml_gelu(ctx0, cur);
     }
 
     // 3. Depthwise Mid (Optional)
@@ -116,41 +116,41 @@ lm_ggml_tensor * clip_graph_mobilenetv5::build_inverted_residual(lm_ggml_tensor 
         if (stride > 1) {
             // Case: Stride 2 (Downsample) -> Use Asymmetric "Same" Padding
             cur = pad_same_2d(cur, k, k, stride, stride);
-            cur = lm_ggml_conv_2d_dw(ctx0, block.dw_mid_w, cur, stride, stride, 0, 0, 1, 1); // pad=0
+            cur = ggml_conv_2d_dw(ctx0, block.dw_mid_w, cur, stride, stride, 0, 0, 1, 1); // pad=0
         } else {
             // Case: Stride 1 -> Use Standard Symmetric Padding
             int p = k / 2;
-            cur = lm_ggml_conv_2d_dw(ctx0, block.dw_mid_w, cur, stride, stride, p, p, 1, 1);
+            cur = ggml_conv_2d_dw(ctx0, block.dw_mid_w, cur, stride, stride, p, p, 1, 1);
         }
 
         if (block.dw_mid_bn_w) cur = rms_norm_2d(cur, block.dw_mid_bn_w);
-        cur = lm_ggml_gelu(ctx0, cur);
+        cur = ggml_gelu(ctx0, cur);
     }
 
     // 4. Pointwise Projection (1x1)
     if (block.pw_proj_w) {
-        cur = lm_ggml_conv_2d_direct(ctx0, block.pw_proj_w, cur, 1, 1, 0, 0, 1, 1);
+        cur = ggml_conv_2d_direct(ctx0, block.pw_proj_w, cur, 1, 1, 0, 0, 1, 1);
         if (block.pw_proj_bn_w) cur = rms_norm_2d(cur, block.pw_proj_bn_w);
     }
 
     // Apply Layer Scaling if present
     if (block.layer_scale_w) {
-        cur = lm_ggml_mul(ctx0, cur, block.layer_scale_w);
+        cur = ggml_mul(ctx0, cur, block.layer_scale_w);
     }
 
     // 5. Residual Connection
     bool same_spatial = (inp->ne[0] == cur->ne[0]) && (inp->ne[1] == cur->ne[1]);
     bool same_channel = (inp->ne[2] == cur->ne[2]);
     if (same_spatial && same_channel) {
-        cur = lm_ggml_add(ctx0, cur, inp);
+        cur = ggml_add(ctx0, cur, inp);
     }
 
     return cur;
 }
 
 // Attention Block (MQA)
-lm_ggml_tensor * clip_graph_mobilenetv5::build_mobilenet_attn(lm_ggml_tensor * inp, const mobilenetv5_block & block) {
-    lm_ggml_tensor * cur = inp;
+ggml_tensor * clip_graph_mobilenetv5::build_mobilenet_attn(ggml_tensor * inp, const mobilenetv5_block & block) {
+    ggml_tensor * cur = inp;
 
     // Norm
     if (block.attn_norm_w) {
@@ -158,33 +158,33 @@ lm_ggml_tensor * clip_graph_mobilenetv5::build_mobilenet_attn(lm_ggml_tensor * i
     }
 
     // 1. Q Calculation
-    lm_ggml_tensor * q = lm_ggml_conv_2d_direct(ctx0, block.attn_q_w, cur, 1, 1, 0, 0, 1, 1);
+    ggml_tensor * q = ggml_conv_2d_direct(ctx0, block.attn_q_w, cur, 1, 1, 0, 0, 1, 1);
 
     // 2. K Calculation (Downsampled)
     // Uses Conv2dSame(640, 640, kernel_size=(3, 3), stride=(2, 2), groups=640)
-    lm_ggml_tensor * k_inp = cur;
+    ggml_tensor * k_inp = cur;
     if (block.attn_k_dw_w) {
         int k_size = block.attn_k_dw_w->ne[0];  // Usually 3
         k_inp = pad_same_2d(cur, k_size, k_size, 2, 2);  // Apply SAME padding
-        k_inp = lm_ggml_conv_2d_dw(ctx0, block.attn_k_dw_w, k_inp, 2, 2, 0, 0, 1, 1);  // padding=0
+        k_inp = ggml_conv_2d_dw(ctx0, block.attn_k_dw_w, k_inp, 2, 2, 0, 0, 1, 1);  // padding=0
         if (block.attn_k_norm_w) {
             k_inp = rms_norm_2d(k_inp, block.attn_k_norm_w, 1e-6f);
         }
     }
-    lm_ggml_tensor * k = lm_ggml_conv_2d_direct(ctx0, block.attn_k_w, k_inp, 1, 1, 0, 0, 1, 1);
+    ggml_tensor * k = ggml_conv_2d_direct(ctx0, block.attn_k_w, k_inp, 1, 1, 0, 0, 1, 1);
 
     // 3. V Calculation (Downsampled)
     // Uses Conv2dSame(640, 640, kernel_size=(3, 3), stride=(2, 2), groups=640)
-    lm_ggml_tensor * v_inp = cur;
+    ggml_tensor * v_inp = cur;
     if (block.attn_v_dw_w) {
         int v_size = block.attn_v_dw_w->ne[0];  // Usually 3
         v_inp = pad_same_2d(cur, v_size, v_size, 2, 2);  // Apply SAME padding
-        v_inp = lm_ggml_conv_2d_dw(ctx0, block.attn_v_dw_w, v_inp, 2, 2, 0, 0, 1, 1);  // padding=0
+        v_inp = ggml_conv_2d_dw(ctx0, block.attn_v_dw_w, v_inp, 2, 2, 0, 0, 1, 1);  // padding=0
         if (block.attn_v_norm_w) {
             v_inp = rms_norm_2d(v_inp, block.attn_v_norm_w, 1e-6f);
         }
     }
-    lm_ggml_tensor * v = lm_ggml_conv_2d_direct(ctx0, block.attn_v_w, v_inp, 1, 1, 0, 0, 1, 1);
+    ggml_tensor * v = ggml_conv_2d_direct(ctx0, block.attn_v_w, v_inp, 1, 1, 0, 0, 1, 1);
 
     const int W = cur->ne[0]; const int H = cur->ne[1]; const int B = cur->ne[3];
     const int D = k->ne[2]; // Head dimension
@@ -192,75 +192,75 @@ lm_ggml_tensor * clip_graph_mobilenetv5::build_mobilenet_attn(lm_ggml_tensor * i
     const int N = W * H;
 
     // Process Q: [W, H, D*n_head, B] -> [D, N, n_head, B]
-    q = lm_ggml_reshape_3d(ctx0, q, N, D*n_head, B);
-    q = lm_ggml_reshape_4d(ctx0, q, N, D, n_head, B);
-    q = lm_ggml_permute(ctx0, q, 1, 0, 2, 3); // [D, N, n_head, B]
-    q = lm_ggml_cont(ctx0, q);
+    q = ggml_reshape_3d(ctx0, q, N, D*n_head, B);
+    q = ggml_reshape_4d(ctx0, q, N, D, n_head, B);
+    q = ggml_permute(ctx0, q, 1, 0, 2, 3); // [D, N, n_head, B]
+    q = ggml_cont(ctx0, q);
 
     const int Wk = k->ne[0]; const int Hk = k->ne[1];
     const int M = Wk * Hk;
 
     // Process K: [Wk, Hk, D, B] -> [D, M, 1, B]
-    k = lm_ggml_reshape_3d(ctx0, k, M, D, B);
-    k = lm_ggml_reshape_4d(ctx0, k, M, D, 1, B);
-    k = lm_ggml_permute(ctx0, k, 1, 0, 2, 3); // [D, M, 1, B]
-    k = lm_ggml_cont(ctx0, k);
+    k = ggml_reshape_3d(ctx0, k, M, D, B);
+    k = ggml_reshape_4d(ctx0, k, M, D, 1, B);
+    k = ggml_permute(ctx0, k, 1, 0, 2, 3); // [D, M, 1, B]
+    k = ggml_cont(ctx0, k);
 
     // Process V: [Wk, Hk, D, B] -> [M, D, 1, B]
-    v = lm_ggml_reshape_3d(ctx0, v, M, D, B);
-    v = lm_ggml_reshape_4d(ctx0, v, M, D, 1, B);
-    v = lm_ggml_cont(ctx0, v); // [M, D, 1, B]
+    v = ggml_reshape_3d(ctx0, v, M, D, B);
+    v = ggml_reshape_4d(ctx0, v, M, D, 1, B);
+    v = ggml_cont(ctx0, v); // [M, D, 1, B]
 
     // Multi-Query Attention
     float scale = 1.0f / sqrtf((float)D);
 
     // Step 1: Compute Q @ K.T
-    lm_ggml_tensor * scores = lm_ggml_mul_mat(ctx0, k, q);
+    ggml_tensor * scores = ggml_mul_mat(ctx0, k, q);
 
-    scores = lm_ggml_scale(ctx0, scores, scale);
+    scores = ggml_scale(ctx0, scores, scale);
 
-    scores = lm_ggml_soft_max(ctx0, scores);
+    scores = ggml_soft_max(ctx0, scores);
 
-    lm_ggml_tensor * kqv = lm_ggml_mul_mat(ctx0, v, scores);
+    ggml_tensor * kqv = ggml_mul_mat(ctx0, v, scores);
 
-    kqv = lm_ggml_permute(ctx0, kqv, 1, 0, 2, 3);
-    kqv = lm_ggml_cont(ctx0, kqv);
+    kqv = ggml_permute(ctx0, kqv, 1, 0, 2, 3);
+    kqv = ggml_cont(ctx0, kqv);
 
 
-    kqv = lm_ggml_reshape_3d(ctx0, kqv, N, D * n_head, B);
-    kqv = lm_ggml_reshape_4d(ctx0, kqv, W, H, D * n_head, B);
-    kqv = lm_ggml_cont(ctx0, kqv);
+    kqv = ggml_reshape_3d(ctx0, kqv, N, D * n_head, B);
+    kqv = ggml_reshape_4d(ctx0, kqv, W, H, D * n_head, B);
+    kqv = ggml_cont(ctx0, kqv);
 
     // Output projection
-    cur = lm_ggml_conv_2d_direct(ctx0, block.attn_o_w, kqv, 1, 1, 0, 0, 1, 1);
+    cur = ggml_conv_2d_direct(ctx0, block.attn_o_w, kqv, 1, 1, 0, 0, 1, 1);
 
     // Residual & Layer Scale
     if (inp->ne[0] == cur->ne[0] && inp->ne[2] == cur->ne[2]) {
         if (block.layer_scale_w) {
-            cur = lm_ggml_mul(ctx0, cur, block.layer_scale_w);
+            cur = ggml_mul(ctx0, cur, block.layer_scale_w);
         }
-        cur = lm_ggml_add(ctx0, cur, inp);
+        cur = ggml_add(ctx0, cur, inp);
     }
 
     return cur;
 }
 
-lm_ggml_cgraph * clip_graph_mobilenetv5::build() {
-    lm_ggml_tensor * inp = build_inp_raw();
+ggml_cgraph * clip_graph_mobilenetv5::build() {
+    ggml_tensor * inp = build_inp_raw();
 
     // 1. Stem - Conv2dSame(3, 64, kernel_size=(3, 3), stride=(2, 2))
-    lm_ggml_tensor * cur = pad_same_2d(inp, 3, 3, 2, 2);  // Apply SAME padding
+    ggml_tensor * cur = pad_same_2d(inp, 3, 3, 2, 2);  // Apply SAME padding
 
-    cur = lm_ggml_conv_2d_direct(ctx0, model.mobilenet_stem_conv_w, cur, 2, 2, 0, 0, 1, 1);  // padding=0
+    cur = ggml_conv_2d_direct(ctx0, model.mobilenet_stem_conv_w, cur, 2, 2, 0, 0, 1, 1);  // padding=0
     if (model.mobilenet_stem_conv_b) {
-        cur = lm_ggml_add(ctx0, cur, model.mobilenet_stem_conv_b);
+        cur = ggml_add(ctx0, cur, model.mobilenet_stem_conv_b);
     }
     if (model.mobilenet_stem_norm_w) cur = rms_norm_2d(cur, model.mobilenet_stem_norm_w);
-    cur = lm_ggml_gelu(ctx0, cur);
+    cur = ggml_gelu(ctx0, cur);
 
 
     // 2. Blocks
-    std::vector<lm_ggml_tensor*> intermediate_features;
+    std::vector<ggml_tensor*> intermediate_features;
     const int total_blocks = model.mobilenet_blocks.size();
 
     auto is_stage_start = [&](int i) {
@@ -301,11 +301,11 @@ lm_ggml_cgraph * clip_graph_mobilenetv5::build() {
         // A. Reference Resolution: PyTorch implementation uses inputs[0]
         // We assume intermediate_features[0] is the "High Resolution" target.
         // In MobileNet designs, this is typically the feature map with the smallest stride (e.g. 32x32).
-        lm_ggml_tensor* target_feat = intermediate_features[0];
+        ggml_tensor* target_feat = intermediate_features[0];
         int high_res_w = target_feat->ne[0];
         int high_res_h = target_feat->ne[1];
 
-        std::vector<lm_ggml_tensor*> resized_feats;
+        std::vector<ggml_tensor*> resized_feats;
 
         // B. Resize inputs to match inputs[0] (High Resolution)
         for (auto feat : intermediate_features) {
@@ -316,17 +316,17 @@ lm_ggml_cgraph * clip_graph_mobilenetv5::build() {
             if (feat_w < high_res_w || feat_h < high_res_h) {
                 // Calculate scale factor.
                 // Note: PyTorch 'nearest' works on arbitrary float scales.
-                // lm_ggml_upscale generally takes integer factors or target sizes depending on helper.
+                // ggml_upscale generally takes integer factors or target sizes depending on helper.
                 // Assuming standard power-of-2 scaling (e.g. 16 -> 32 means scale=2).
                 int scale_w = high_res_w / feat_w;
                 // int scale_h = high_res_h / feat_h;
 
                 // Safety check for non-integer scaling if strictly replicating
-                LM_GGML_ASSERT(high_res_w % feat_w == 0);
+                GGML_ASSERT(high_res_w % feat_w == 0);
 
                 // Upsample (Nearest Neighbor)
                 // 2 is the scale factor
-                feat = lm_ggml_upscale(ctx0, feat, scale_w, lm_ggml_scale_mode::LM_GGML_SCALE_MODE_NEAREST);
+                feat = ggml_upscale(ctx0, feat, scale_w, ggml_scale_mode::GGML_SCALE_MODE_NEAREST);
             }
             resized_feats.push_back(feat);
         }
@@ -334,7 +334,7 @@ lm_ggml_cgraph * clip_graph_mobilenetv5::build() {
         // C. Concatenate at High Resolution (Channel Dim = 2 in ggml)
         cur = resized_feats[0];
         for (size_t k = 1; k < resized_feats.size(); ++k) {
-            cur = lm_ggml_concat(ctx0, cur, resized_feats[k], 2);
+            cur = ggml_concat(ctx0, cur, resized_feats[k], 2);
         }
 
         // D. FFN (UniversalInvertedResidual)
@@ -343,20 +343,20 @@ lm_ggml_cgraph * clip_graph_mobilenetv5::build() {
         // 1. Expansion
         if (model.msfa_ffn_expand_w) {
             // 1x1 Conv
-            cur = lm_ggml_conv_2d_direct(ctx0, model.msfa_ffn_expand_w, cur, 1, 1, 0, 0, 1, 1);
+            cur = ggml_conv_2d_direct(ctx0, model.msfa_ffn_expand_w, cur, 1, 1, 0, 0, 1, 1);
 
             if (model.msfa_ffn_expand_bn) {
                 cur = rms_norm_2d(cur, model.msfa_ffn_expand_bn);
             }
 
-            cur = lm_ggml_gelu(ctx0, cur);
+            cur = ggml_gelu(ctx0, cur);
 
         }
 
         // 2. Projection (No DW because kernel_size=0)
         if (model.msfa_ffn_project_w) {
             // 1x1 Conv
-            cur = lm_ggml_conv_2d_direct(ctx0, model.msfa_ffn_project_w, cur, 1, 1, 0, 0, 1, 1);
+            cur = ggml_conv_2d_direct(ctx0, model.msfa_ffn_project_w, cur, 1, 1, 0, 0, 1, 1);
 
             // UniversalInvertedResidual typically has a norm after projection
             if (model.msfa_ffn_project_bn) {
@@ -373,10 +373,10 @@ lm_ggml_cgraph * clip_graph_mobilenetv5::build() {
         if (current_w > target_out_res) {
             int s = current_w / target_out_res;
 
-            LM_GGML_ASSERT(current_w % target_out_res == 0);
+            GGML_ASSERT(current_w % target_out_res == 0);
 
             // Avg Pool: Kernel=s, Stride=s
-            cur = lm_ggml_pool_2d(ctx0, cur, LM_GGML_OP_POOL_AVG, s, s, s, s, 0, 0);
+            cur = ggml_pool_2d(ctx0, cur, GGML_OP_POOL_AVG, s, s, s, s, 0, 0);
 
         }
 
@@ -394,21 +394,21 @@ lm_ggml_cgraph * clip_graph_mobilenetv5::build() {
     int C = cur->ne[2];
     int B = cur->ne[3];
 
-    LM_GGML_ASSERT(C == hparams.n_embd);
+    GGML_ASSERT(C == hparams.n_embd);
 
     // 1. Permute and Flatten to [Channels, Tokens, Batch]
     // PyTorch expects (Batch, Seq, Hidden), GGML usually processes (Hidden, Seq, Batch)
-    cur = lm_ggml_permute(ctx0, cur, 2, 1, 0, 3); // -> [C, H, W, B]
-    cur = lm_ggml_permute(ctx0, cur, 0, 2, 1, 3); // -> [C, W, H, B]
-    cur = lm_ggml_cont(ctx0, cur);
-    cur = lm_ggml_reshape_3d(ctx0, cur, C, W*H, B);
-    cur = lm_ggml_cont(ctx0, cur);
+    cur = ggml_permute(ctx0, cur, 2, 1, 0, 3); // -> [C, H, W, B]
+    cur = ggml_permute(ctx0, cur, 0, 2, 1, 3); // -> [C, W, H, B]
+    cur = ggml_cont(ctx0, cur);
+    cur = ggml_reshape_3d(ctx0, cur, C, W*H, B);
+    cur = ggml_cont(ctx0, cur);
 
 
     // 2. FEATURE SCALING
     // PyTorch: vision_outputs *= self.config.vision_config.hidden_size**0.5
     const float scale_factor = sqrtf((float)C);
-    cur = lm_ggml_scale(ctx0, cur, scale_factor);
+    cur = ggml_scale(ctx0, cur, scale_factor);
 
 
     // 3. SOFT EMBEDDING NORM
@@ -416,11 +416,11 @@ lm_ggml_cgraph * clip_graph_mobilenetv5::build() {
     // We must normalize regardless, then multiply if weight exists.
     {
         const float eps = 1e-6f; // Gemma3n uses 1e-6
-        cur = lm_ggml_rms_norm(ctx0, cur, eps);
+        cur = ggml_rms_norm(ctx0, cur, eps);
 
         if (model.mm_soft_emb_norm_w) {
             // Weight shape is (2048,) -> Element-wise broadcast multiply
-            cur = lm_ggml_mul(ctx0, cur, model.mm_soft_emb_norm_w);
+            cur = ggml_mul(ctx0, cur, model.mm_soft_emb_norm_w);
         }
 
     }
@@ -438,14 +438,14 @@ lm_ggml_cgraph * clip_graph_mobilenetv5::build() {
     // So output = rms_norm(x) * 1.0 = rms_norm(x), magnitude ~1
     {
         const float eps = 1e-6f;
-        cur = lm_ggml_rms_norm(ctx0, cur, eps);
+        cur = ggml_rms_norm(ctx0, cur, eps);
 
         if (model.mm_post_proj_norm_w) {
             // If weight is loaded, multiply (should be ~1.0 anyway)
-            cur = lm_ggml_mul(ctx0, cur, model.mm_post_proj_norm_w);
+            cur = ggml_mul(ctx0, cur, model.mm_post_proj_norm_w);
         }
     }
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
     return gf;
 }

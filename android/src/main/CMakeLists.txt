@@ -131,11 +131,11 @@ function(build_rnllama_jni jni_name rnllama_name arch cpu_flags)
         endif()
     endif()
     if (ENABLE_OPENCL)
-        target_compile_options(${jni_name} PRIVATE -DLM_GGML_USE_OPENCL)
+        target_compile_options(${jni_name} PRIVATE -DGGML_USE_OPENCL)
     endif()
 
     if (ENABLE_HEXAGON AND HEXAGON_SDK_ROOT)
-        target_compile_options(${jni_name} PRIVATE -DLM_GGML_USE_HEXAGON)
+        target_compile_options(${jni_name} PRIVATE -DGGML_USE_HEXAGON)
     endif()
 
 

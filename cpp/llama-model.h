@@ -160,403 +160,403 @@ llm_ffn_op_type llm_ffn_op_type_from_string(const std::string & name, llm_ffn_op
 
 struct llama_layer_posnet {
     // resnet
-    struct lm_ggml_tensor * norm1   = nullptr;
-    struct lm_ggml_tensor * norm1_b = nullptr;
+    struct ggml_tensor * norm1   = nullptr;
+    struct ggml_tensor * norm1_b = nullptr;
 
-    struct lm_ggml_tensor * conv1   = nullptr;
-    struct lm_ggml_tensor * conv1_b = nullptr;
+    struct ggml_tensor * conv1   = nullptr;
+    struct ggml_tensor * conv1_b = nullptr;
 
-    struct lm_ggml_tensor * norm2   = nullptr;
-    struct lm_ggml_tensor * norm2_b = nullptr;
+    struct ggml_tensor * norm2   = nullptr;
+    struct ggml_tensor * norm2_b = nullptr;
 
-    struct lm_ggml_tensor * conv2   = nullptr;
-    struct lm_ggml_tensor * conv2_b = nullptr;
+    struct ggml_tensor * conv2   = nullptr;
+    struct ggml_tensor * conv2_b = nullptr;
 
     // attention
-    struct lm_ggml_tensor * attn_norm   = nullptr;
-    struct lm_ggml_tensor * attn_norm_b = nullptr;
+    struct ggml_tensor * attn_norm   = nullptr;
+    struct ggml_tensor * attn_norm_b = nullptr;
 
-    struct lm_ggml_tensor * attn_q   = nullptr;
-    struct lm_ggml_tensor * attn_q_b = nullptr;
+    struct ggml_tensor * attn_q   = nullptr;
+    struct ggml_tensor * attn_q_b = nullptr;
 
-    struct lm_ggml_tensor * attn_k   = nullptr;
-    struct lm_ggml_tensor * attn_k_b = nullptr;
+    struct ggml_tensor * attn_k   = nullptr;
+    struct ggml_tensor * attn_k_b = nullptr;
 
-    struct lm_ggml_tensor * attn_v   = nullptr;
-    struct lm_ggml_tensor * attn_v_b = nullptr;
+    struct ggml_tensor * attn_v   = nullptr;
+    struct ggml_tensor * attn_v_b = nullptr;
 
-    struct lm_ggml_tensor * attn_o   = nullptr;
-    struct lm_ggml_tensor * attn_o_b = nullptr;
+    struct ggml_tensor * attn_o   = nullptr;
+    struct ggml_tensor * attn_o_b = nullptr;
 
     // normalize
-    struct lm_ggml_tensor * norm   = nullptr;
-    struct lm_ggml_tensor * norm_b = nullptr;
+    struct ggml_tensor * norm   = nullptr;
+    struct ggml_tensor * norm_b = nullptr;
 };
 
 struct llama_layer_convnext {
-    struct lm_ggml_tensor * dw   = nullptr;
-    struct lm_ggml_tensor * dw_b = nullptr;
+    struct ggml_tensor * dw   = nullptr;
+    struct ggml_tensor * dw_b = nullptr;
 
-    struct lm_ggml_tensor * norm   = nullptr;
-    struct lm_ggml_tensor * norm_b = nullptr;
+    struct ggml_tensor * norm   = nullptr;
+    struct ggml_tensor * norm_b = nullptr;
 
-    struct lm_ggml_tensor * pw1   = nullptr;
-    struct lm_ggml_tensor * pw1_b = nullptr;
+    struct ggml_tensor * pw1   = nullptr;
+    struct ggml_tensor * pw1_b = nullptr;
 
-    struct lm_ggml_tensor * pw2   = nullptr;
-    struct lm_ggml_tensor * pw2_b = nullptr;
+    struct ggml_tensor * pw2   = nullptr;
+    struct ggml_tensor * pw2_b = nullptr;
 
-    struct lm_ggml_tensor * gamma = nullptr;
+    struct ggml_tensor * gamma = nullptr;
 };
 
 struct llama_layer_shortconv {
-    struct lm_ggml_tensor * in_proj  = nullptr;
-    struct lm_ggml_tensor * conv     = nullptr;
-    struct lm_ggml_tensor * out_proj = nullptr;
+    struct ggml_tensor * in_proj  = nullptr;
+    struct ggml_tensor * conv     = nullptr;
+    struct ggml_tensor * out_proj = nullptr;
 };
 
 struct llama_layer_nextn {
-    struct lm_ggml_tensor * eh_proj               = nullptr;
-    struct lm_ggml_tensor * eh_proj_s             = nullptr;
-    struct lm_ggml_tensor * eh_proj_in_s          = nullptr;
-    struct lm_ggml_tensor * embed_tokens          = nullptr;
-    struct lm_ggml_tensor * enorm                 = nullptr;
-    struct lm_ggml_tensor * hnorm                 = nullptr;
-    struct lm_ggml_tensor * shared_head_head      = nullptr;
-    struct lm_ggml_tensor * shared_head_head_s    = nullptr;
-    struct lm_ggml_tensor * shared_head_head_in_s = nullptr;
-    struct lm_ggml_tensor * shared_head_norm      = nullptr;
+    struct ggml_tensor * eh_proj               = nullptr;
+    struct ggml_tensor * eh_proj_s             = nullptr;
+    struct ggml_tensor * eh_proj_in_s          = nullptr;
+    struct ggml_tensor * embed_tokens          = nullptr;
+    struct ggml_tensor * enorm                 = nullptr;
+    struct ggml_tensor * hnorm                 = nullptr;
+    struct ggml_tensor * shared_head_head      = nullptr;
+    struct ggml_tensor * shared_head_head_s    = nullptr;
+    struct ggml_tensor * shared_head_head_in_s = nullptr;
+    struct ggml_tensor * shared_head_norm      = nullptr;
 };
 
 struct llama_layer_switch_lora {
-    struct lm_ggml_tensor * a_q    = nullptr;
-    struct lm_ggml_tensor * b_q    = nullptr;
-    struct lm_ggml_tensor * a_k    = nullptr;
-    struct lm_ggml_tensor * b_k    = nullptr;
-    struct lm_ggml_tensor * a_v    = nullptr;
-    struct lm_ggml_tensor * b_v    = nullptr;
-    struct lm_ggml_tensor * a_o    = nullptr;
-    struct lm_ggml_tensor * b_o    = nullptr;
+    struct ggml_tensor * a_q    = nullptr;
+    struct ggml_tensor * b_q    = nullptr;
+    struct ggml_tensor * a_k    = nullptr;
+    struct ggml_tensor * b_k    = nullptr;
+    struct ggml_tensor * a_v    = nullptr;
+    struct ggml_tensor * b_v    = nullptr;
+    struct ggml_tensor * a_o    = nullptr;
+    struct ggml_tensor * b_o    = nullptr;
 
-    struct lm_ggml_tensor * a_gate = nullptr;
-    struct lm_ggml_tensor * b_gate = nullptr;
-    struct lm_ggml_tensor * a_up   = nullptr;
-    struct lm_ggml_tensor * b_up   = nullptr;
-    struct lm_ggml_tensor * a_down = nullptr;
-    struct lm_ggml_tensor * b_down = nullptr;
+    struct ggml_tensor * a_gate = nullptr;
+    struct ggml_tensor * b_gate = nullptr;
+    struct ggml_tensor * a_up   = nullptr;
+    struct ggml_tensor * b_up   = nullptr;
+    struct ggml_tensor * a_down = nullptr;
+    struct ggml_tensor * b_down = nullptr;
 };
 
 struct llama_layer {
     // normalization
-    struct lm_ggml_tensor * attn_norm       = nullptr;
-    struct lm_ggml_tensor * attn_norm_b     = nullptr;
-    struct lm_ggml_tensor * attn_norm_2     = nullptr;
-    struct lm_ggml_tensor * attn_norm_2_b   = nullptr;
-    struct lm_ggml_tensor * attn_q_norm     = nullptr;
-    struct lm_ggml_tensor * attn_q_norm_b   = nullptr;
-    struct lm_ggml_tensor * attn_k_norm     = nullptr;
-    struct lm_ggml_tensor * attn_k_norm_b   = nullptr;
-    struct lm_ggml_tensor * attn_out_norm   = nullptr;
-    struct lm_ggml_tensor * attn_out_norm_b = nullptr;
-    struct lm_ggml_tensor * attn_q_a_norm   = nullptr;
-    struct lm_ggml_tensor * attn_kv_a_norm  = nullptr;
-    struct lm_ggml_tensor * attn_sub_norm   = nullptr;
-    struct lm_ggml_tensor * attn_post_norm  = nullptr;
-    struct lm_ggml_tensor * ffn_sub_norm    = nullptr;
-    struct lm_ggml_tensor * attn_norm_cross = nullptr;
-    struct lm_ggml_tensor * attn_norm_enc   = nullptr;
-    struct lm_ggml_tensor * ssm_norm        = nullptr;
-    struct lm_ggml_tensor * ssm_dt_norm     = nullptr;
-    struct lm_ggml_tensor * ssm_b_norm      = nullptr;
-    struct lm_ggml_tensor * ssm_c_norm      = nullptr;
+    struct ggml_tensor * attn_norm       = nullptr;
+    struct ggml_tensor * attn_norm_b     = nullptr;
+    struct ggml_tensor * attn_norm_2     = nullptr;
+    struct ggml_tensor * attn_norm_2_b   = nullptr;
+    struct ggml_tensor * attn_q_norm     = nullptr;
+    struct ggml_tensor * attn_q_norm_b   = nullptr;
+    struct ggml_tensor * attn_k_norm     = nullptr;
+    struct ggml_tensor * attn_k_norm_b   = nullptr;
+    struct ggml_tensor * attn_out_norm   = nullptr;
+    struct ggml_tensor * attn_out_norm_b = nullptr;
+    struct ggml_tensor * attn_q_a_norm   = nullptr;
+    struct ggml_tensor * attn_kv_a_norm  = nullptr;
+    struct ggml_tensor * attn_sub_norm   = nullptr;
+    struct ggml_tensor * attn_post_norm  = nullptr;
+    struct ggml_tensor * ffn_sub_norm    = nullptr;
+    struct ggml_tensor * attn_norm_cross = nullptr;
+    struct ggml_tensor * attn_norm_enc   = nullptr;
+    struct ggml_tensor * ssm_norm        = nullptr;
+    struct ggml_tensor * ssm_dt_norm     = nullptr;
+    struct ggml_tensor * ssm_b_norm      = nullptr;
+    struct ggml_tensor * ssm_c_norm      = nullptr;
 
     // attention
-    struct lm_ggml_tensor * wq        = nullptr;
-    struct lm_ggml_tensor * wk        = nullptr;
-    struct lm_ggml_tensor * wv        = nullptr;
-    struct lm_ggml_tensor * wo        = nullptr;
-    struct lm_ggml_tensor * wqkv      = nullptr;
-    struct lm_ggml_tensor * wg        = nullptr;
-    struct lm_ggml_tensor * wq_a      = nullptr;
-    struct lm_ggml_tensor * wq_b      = nullptr;
-    struct lm_ggml_tensor * wkv_a_mqa = nullptr;
-    struct lm_ggml_tensor * wkv_b     = nullptr;
-    struct lm_ggml_tensor * wkv       = nullptr;
-    struct lm_ggml_tensor * wk_b      = nullptr;
-    struct lm_ggml_tensor * wv_b      = nullptr;
-    struct lm_ggml_tensor * wqkv_b    = nullptr;
-    struct lm_ggml_tensor * wo_a      = nullptr;
-    struct lm_ggml_tensor * wo_b      = nullptr;
-    struct lm_ggml_tensor * wq_cross  = nullptr;
-    struct lm_ggml_tensor * wk_cross  = nullptr;
-    struct lm_ggml_tensor * wv_cross  = nullptr;
-    struct lm_ggml_tensor * wo_cross  = nullptr;
-    struct lm_ggml_tensor * wq_enc    = nullptr;
-    struct lm_ggml_tensor * wk_enc    = nullptr;
-    struct lm_ggml_tensor * wv_enc    = nullptr;
-    struct lm_ggml_tensor * wo_enc    = nullptr;
-    struct lm_ggml_tensor * wqkv_gate = nullptr;
+    struct ggml_tensor * wq        = nullptr;
+    struct ggml_tensor * wk        = nullptr;
+    struct ggml_tensor * wv        = nullptr;
+    struct ggml_tensor * wo        = nullptr;
+    struct ggml_tensor * wqkv      = nullptr;
+    struct ggml_tensor * wg        = nullptr;
+    struct ggml_tensor * wq_a      = nullptr;
+    struct ggml_tensor * wq_b      = nullptr;
+    struct ggml_tensor * wkv_a_mqa = nullptr;
+    struct ggml_tensor * wkv_b     = nullptr;
+    struct ggml_tensor * wkv       = nullptr;
+    struct ggml_tensor * wk_b      = nullptr;
+    struct ggml_tensor * wv_b      = nullptr;
+    struct ggml_tensor * wqkv_b    = nullptr;
+    struct ggml_tensor * wo_a      = nullptr;
+    struct ggml_tensor * wo_b      = nullptr;
+    struct ggml_tensor * wq_cross  = nullptr;
+    struct ggml_tensor * wk_cross  = nullptr;
+    struct ggml_tensor * wv_cross  = nullptr;
+    struct ggml_tensor * wo_cross  = nullptr;
+    struct ggml_tensor * wq_enc    = nullptr;
+    struct ggml_tensor * wk_enc    = nullptr;
+    struct ggml_tensor * wv_enc    = nullptr;
+    struct ggml_tensor * wo_enc    = nullptr;
+    struct ggml_tensor * wqkv_gate = nullptr;
 
     // relative position bias
-    struct lm_ggml_tensor * attn_rel_b       = nullptr;
-    struct lm_ggml_tensor * attn_rel_b_enc   = nullptr;
-    struct lm_ggml_tensor * attn_rel_b_cross = nullptr;
+    struct ggml_tensor * attn_rel_b       = nullptr;
+    struct ggml_tensor * attn_rel_b_enc   = nullptr;
+    struct ggml_tensor * attn_rel_b_cross = nullptr;
 
     // normalization
-    struct lm_ggml_tensor * ffn_norm         = nullptr;
-    struct lm_ggml_tensor * ffn_norm_b       = nullptr;
-    struct lm_ggml_tensor * ffn_post_norm    = nullptr;
-    struct lm_ggml_tensor * ffn_post_norm_1  = nullptr; // gemma4
-    struct lm_ggml_tensor * ffn_post_norm_2  = nullptr; // gemma4
-    struct lm_ggml_tensor * ffn_pre_norm_2   = nullptr; // gemma4
-    struct lm_ggml_tensor * layer_out_norm   = nullptr;
-    struct lm_ggml_tensor * layer_out_norm_b = nullptr;
-    struct lm_ggml_tensor * ffn_norm_exps    = nullptr;
-    struct lm_ggml_tensor * ffn_norm_enc     = nullptr;
+    struct ggml_tensor * ffn_norm         = nullptr;
+    struct ggml_tensor * ffn_norm_b       = nullptr;
+    struct ggml_tensor * ffn_post_norm    = nullptr;
+    struct ggml_tensor * ffn_post_norm_1  = nullptr; // gemma4
+    struct ggml_tensor * ffn_post_norm_2  = nullptr; // gemma4
+    struct ggml_tensor * ffn_pre_norm_2   = nullptr; // gemma4
+    struct ggml_tensor * layer_out_norm   = nullptr;
+    struct ggml_tensor * layer_out_norm_b = nullptr;
+    struct ggml_tensor * ffn_norm_exps    = nullptr;
+    struct ggml_tensor * ffn_norm_enc     = nullptr;
 
     // ff
-    struct lm_ggml_tensor * ffn_gate     = nullptr; // w1
-    struct lm_ggml_tensor * ffn_down     = nullptr; // w2
-    struct lm_ggml_tensor * ffn_up       = nullptr; // w3
-    struct lm_ggml_tensor * ffn_gate_enc = nullptr;
-    struct lm_ggml_tensor * ffn_down_enc = nullptr;
-    struct lm_ggml_tensor * ffn_up_enc   = nullptr;
+    struct ggml_tensor * ffn_gate     = nullptr; // w1
+    struct ggml_tensor * ffn_down     = nullptr; // w2
+    struct ggml_tensor * ffn_up       = nullptr; // w3
+    struct ggml_tensor * ffn_gate_enc = nullptr;
+    struct ggml_tensor * ffn_down_enc = nullptr;
+    struct ggml_tensor * ffn_up_enc   = nullptr;
 
     // ff MoE
-    struct lm_ggml_tensor * ffn_gate_inp      = nullptr;
-    struct lm_ggml_tensor * ffn_gate_inp_s    = nullptr; // gemma4
-    struct lm_ggml_tensor * ffn_gate_exps     = nullptr;
-    struct lm_ggml_tensor * ffn_down_exps     = nullptr;
-    struct lm_ggml_tensor * ffn_up_exps       = nullptr;
-    struct lm_ggml_tensor * ffn_gate_up_exps  = nullptr;
-    struct lm_ggml_tensor * ffn_gate_inp_b    = nullptr;
-    struct lm_ggml_tensor * ffn_gate_exps_b   = nullptr;
-    struct lm_ggml_tensor * ffn_down_exps_b   = nullptr;
-    struct lm_ggml_tensor * ffn_up_exps_b     = nullptr;
-    struct lm_ggml_tensor * ffn_gate_up_exps_b = nullptr;
+    struct ggml_tensor * ffn_gate_inp      = nullptr;
+    struct ggml_tensor * ffn_gate_inp_s    = nullptr; // gemma4
+    struct ggml_tensor * ffn_gate_exps     = nullptr;
+    struct ggml_tensor * ffn_down_exps     = nullptr;
+    struct ggml_tensor * ffn_up_exps       = nullptr;
+    struct ggml_tensor * ffn_gate_up_exps  = nullptr;
+    struct ggml_tensor * ffn_gate_inp_b    = nullptr;
+    struct ggml_tensor * ffn_gate_exps_b   = nullptr;
+    struct ggml_tensor * ffn_down_exps_b   = nullptr;
+    struct ggml_tensor * ffn_up_exps_b     = nullptr;
+    struct ggml_tensor * ffn_gate_up_exps_b = nullptr;
 
     // ff MoE per-expert scales (NVFP4 per-tensor scale2)
-    struct lm_ggml_tensor * ffn_gate_exps_s   = nullptr;
-    struct lm_ggml_tensor * ffn_down_exps_s   = nullptr;
-    struct lm_ggml_tensor * ffn_up_exps_s     = nullptr;
+    struct ggml_tensor * ffn_gate_exps_s   = nullptr;
+    struct ggml_tensor * ffn_down_exps_s   = nullptr;
+    struct ggml_tensor * ffn_up_exps_s     = nullptr;
 
     // ff MoE latent proj
-    struct lm_ggml_tensor * ffn_latent_down = nullptr;
-    struct lm_ggml_tensor * ffn_latent_up   = nullptr;
+    struct ggml_tensor * ffn_latent_down = nullptr;
+    struct ggml_tensor * ffn_latent_up   = nullptr;
 
     // ff shared expert (shexp)
-    struct lm_ggml_tensor * ffn_gate_inp_shexp = nullptr;
-    struct lm_ggml_tensor * ffn_gate_shexp     = nullptr;
-    struct lm_ggml_tensor * ffn_down_shexp     = nullptr;
-    struct lm_ggml_tensor * ffn_up_shexp       = nullptr;
+    struct ggml_tensor * ffn_gate_inp_shexp = nullptr;
+    struct ggml_tensor * ffn_gate_shexp     = nullptr;
+    struct ggml_tensor * ffn_down_shexp     = nullptr;
+    struct ggml_tensor * ffn_up_shexp       = nullptr;
 
     // ff adjugate experts (chexps)
-    struct lm_ggml_tensor * ffn_gate_chexps     = nullptr;
-    struct lm_ggml_tensor * ffn_down_chexps     = nullptr;
-    struct lm_ggml_tensor * ffn_up_chexps       = nullptr;
+    struct ggml_tensor * ffn_gate_chexps     = nullptr;
+    struct ggml_tensor * ffn_down_chexps     = nullptr;
+    struct ggml_tensor * ffn_up_chexps       = nullptr;
 
     // ff bias
-    struct lm_ggml_tensor * ffn_gate_b = nullptr;
-    struct lm_ggml_tensor * ffn_down_b = nullptr; // b2
-    struct lm_ggml_tensor * ffn_up_b   = nullptr; // b3
-    struct lm_ggml_tensor * ffn_act    = nullptr;
-    struct lm_ggml_tensor * ffn_exp_probs_b = nullptr;
-    struct lm_ggml_tensor * ffn_gate_tid2eid = nullptr;
+    struct ggml_tensor * ffn_gate_b = nullptr;
+    struct ggml_tensor * ffn_down_b = nullptr; // b2
+    struct ggml_tensor * ffn_up_b   = nullptr; // b3
+    struct ggml_tensor * ffn_act    = nullptr;
+    struct ggml_tensor * ffn_exp_probs_b = nullptr;
+    struct ggml_tensor * ffn_gate_tid2eid = nullptr;
 
     // mamba proj
-    struct lm_ggml_tensor * ssm_in  = nullptr;
-    struct lm_ggml_tensor * ssm_x   = nullptr;
-    struct lm_ggml_tensor * ssm_dt  = nullptr;
-    struct lm_ggml_tensor * ssm_out = nullptr;
+    struct ggml_tensor * ssm_in  = nullptr;
+    struct ggml_tensor * ssm_x   = nullptr;
+    struct ggml_tensor * ssm_dt  = nullptr;
+    struct ggml_tensor * ssm_out = nullptr;
 
     // mamba
-    struct lm_ggml_tensor * ssm_conv1d = nullptr;
-    struct lm_ggml_tensor * ssm_a      = nullptr;
-    struct lm_ggml_tensor * ssm_d      = nullptr;
+    struct ggml_tensor * ssm_conv1d = nullptr;
+    struct ggml_tensor * ssm_a      = nullptr;
+    struct ggml_tensor * ssm_d      = nullptr;
 
     // mamba bias
-    struct lm_ggml_tensor * ssm_conv1d_b = nullptr;
-    struct lm_ggml_tensor * ssm_dt_b     = nullptr;
+    struct ggml_tensor * ssm_conv1d_b = nullptr;
+    struct ggml_tensor * ssm_dt_b     = nullptr;
 
     // qwen3next
-    struct lm_ggml_tensor * ssm_beta_alpha = nullptr;
+    struct ggml_tensor * ssm_beta_alpha = nullptr;
 
     // qwen3.5
-    struct lm_ggml_tensor * ssm_alpha = nullptr;
+    struct ggml_tensor * ssm_alpha = nullptr;
 
     // rwkv
-    struct lm_ggml_tensor * time_mix_w1         = nullptr;
-    struct lm_ggml_tensor * time_mix_w2         = nullptr;
-    struct lm_ggml_tensor * time_mix_lerp_x     = nullptr;
-    struct lm_ggml_tensor * time_mix_lerp_w     = nullptr;
-    struct lm_ggml_tensor * time_mix_lerp_k     = nullptr;
-    struct lm_ggml_tensor * time_mix_lerp_v     = nullptr;
-    struct lm_ggml_tensor * time_mix_lerp_r     = nullptr;
-    struct lm_ggml_tensor * time_mix_lerp_g     = nullptr;
-    struct lm_ggml_tensor * time_mix_lerp_fused = nullptr;
+    struct ggml_tensor * time_mix_w1         = nullptr;
+    struct ggml_tensor * time_mix_w2         = nullptr;
+    struct ggml_tensor * time_mix_lerp_x     = nullptr;
+    struct ggml_tensor * time_mix_lerp_w     = nullptr;
+    struct ggml_tensor * time_mix_lerp_k     = nullptr;
+    struct ggml_tensor * time_mix_lerp_v     = nullptr;
+    struct ggml_tensor * time_mix_lerp_r     = nullptr;
+    struct ggml_tensor * time_mix_lerp_g     = nullptr;
+    struct ggml_tensor * time_mix_lerp_fused = nullptr;
 
-    struct lm_ggml_tensor * time_mix_first        = nullptr;
-    struct lm_ggml_tensor * time_mix_decay        = nullptr;
-    struct lm_ggml_tensor * time_mix_decay_w1     = nullptr;
-    struct lm_ggml_tensor * time_mix_decay_w2     = nullptr;
-    struct lm_ggml_tensor * time_mix_key          = nullptr;
-    struct lm_ggml_tensor * time_mix_key_b        = nullptr;
-    struct lm_ggml_tensor * time_mix_value        = nullptr;
-    struct lm_ggml_tensor * time_mix_value_b      = nullptr;
-    struct lm_ggml_tensor * time_mix_receptance   = nullptr;
-    struct lm_ggml_tensor * time_mix_receptance_b = nullptr;
-    struct lm_ggml_tensor * time_mix_gate         = nullptr;
+    struct ggml_tensor * time_mix_first        = nullptr;
+    struct ggml_tensor * time_mix_decay        = nullptr;
+    struct ggml_tensor * time_mix_decay_w1     = nullptr;
+    struct ggml_tensor * time_mix_decay_w2     = nullptr;
+    struct ggml_tensor * time_mix_key          = nullptr;
+    struct ggml_tensor * time_mix_key_b        = nullptr;
+    struct ggml_tensor * time_mix_value        = nullptr;
+    struct ggml_tensor * time_mix_value_b      = nullptr;
+    struct ggml_tensor * time_mix_receptance   = nullptr;
+    struct ggml_tensor * time_mix_receptance_b = nullptr;
+    struct ggml_tensor * time_mix_gate         = nullptr;
 
     // rwkv7
-    struct lm_ggml_tensor * time_mix_w0         = nullptr;
-    struct lm_ggml_tensor * time_mix_a0         = nullptr;
-    struct lm_ggml_tensor * time_mix_a1         = nullptr;
-    struct lm_ggml_tensor * time_mix_a2         = nullptr;
-    struct lm_ggml_tensor * time_mix_v0         = nullptr;
-    struct lm_ggml_tensor * time_mix_v1         = nullptr;
-    struct lm_ggml_tensor * time_mix_v2         = nullptr;
-    struct lm_ggml_tensor * time_mix_g1         = nullptr;
-    struct lm_ggml_tensor * time_mix_g2         = nullptr;
-    struct lm_ggml_tensor * time_mix_k_k        = nullptr;
-    struct lm_ggml_tensor * time_mix_k_a        = nullptr;
-    struct lm_ggml_tensor * time_mix_r_k        = nullptr;
+    struct ggml_tensor * time_mix_w0         = nullptr;
+    struct ggml_tensor * time_mix_a0         = nullptr;
+    struct ggml_tensor * time_mix_a1         = nullptr;
+    struct ggml_tensor * time_mix_a2         = nullptr;
+    struct ggml_tensor * time_mix_v0         = nullptr;
+    struct ggml_tensor * time_mix_v1         = nullptr;
+    struct ggml_tensor * time_mix_v2         = nullptr;
+    struct ggml_tensor * time_mix_g1         = nullptr;
+    struct ggml_tensor * time_mix_g2         = nullptr;
+    struct ggml_tensor * time_mix_k_k        = nullptr;
+    struct ggml_tensor * time_mix_k_a        = nullptr;
+    struct ggml_tensor * time_mix_r_k        = nullptr;
 
-    struct lm_ggml_tensor * time_mix_ln     = nullptr;
-    struct lm_ggml_tensor * time_mix_ln_b   = nullptr;
-    struct lm_ggml_tensor * time_mix_output = nullptr;
+    struct ggml_tensor * time_mix_ln     = nullptr;
+    struct ggml_tensor * time_mix_ln_b   = nullptr;
+    struct ggml_tensor * time_mix_output = nullptr;
 
-    struct lm_ggml_tensor * channel_mix_lerp_k = nullptr;
-    struct lm_ggml_tensor * channel_mix_lerp_r = nullptr;
+    struct ggml_tensor * channel_mix_lerp_k = nullptr;
+    struct ggml_tensor * channel_mix_lerp_r = nullptr;
 
-    struct lm_ggml_tensor * channel_mix_key        = nullptr;
-    struct lm_ggml_tensor * channel_mix_receptance = nullptr;
-    struct lm_ggml_tensor * channel_mix_value      = nullptr;
+    struct ggml_tensor * channel_mix_key        = nullptr;
+    struct ggml_tensor * channel_mix_receptance = nullptr;
+    struct ggml_tensor * channel_mix_value      = nullptr;
 
     // long rope factors
-    struct lm_ggml_tensor * rope_long  = nullptr;
-    struct lm_ggml_tensor * rope_short = nullptr;
-    struct lm_ggml_tensor * rope_freqs = nullptr;
+    struct ggml_tensor * rope_long  = nullptr;
+    struct ggml_tensor * rope_short = nullptr;
+    struct ggml_tensor * rope_freqs = nullptr;
 
     // bitnet scale
-    struct lm_ggml_tensor * wq_s       = nullptr;
-    struct lm_ggml_tensor * wk_s       = nullptr;
-    struct lm_ggml_tensor * wv_s       = nullptr;
-    struct lm_ggml_tensor * wo_s       = nullptr;
-    struct lm_ggml_tensor * wqkv_s     = nullptr;
-    struct lm_ggml_tensor * wqkv_gate_s = nullptr;
-    struct lm_ggml_tensor * ffn_gate_s = nullptr;
-    struct lm_ggml_tensor * ffn_up_s   = nullptr;
-    struct lm_ggml_tensor * ffn_down_s = nullptr;
-    struct lm_ggml_tensor * ffn_gate_shexp_s = nullptr;
-    struct lm_ggml_tensor * ffn_up_shexp_s   = nullptr;
-    struct lm_ggml_tensor * ffn_down_shexp_s = nullptr;
-    struct lm_ggml_tensor * ssm_in_s    = nullptr;
-    struct lm_ggml_tensor * ssm_out_s   = nullptr;
-    struct lm_ggml_tensor * ssm_alpha_s = nullptr;
-    struct lm_ggml_tensor * ssm_beta_s  = nullptr;
+    struct ggml_tensor * wq_s       = nullptr;
+    struct ggml_tensor * wk_s       = nullptr;
+    struct ggml_tensor * wv_s       = nullptr;
+    struct ggml_tensor * wo_s       = nullptr;
+    struct ggml_tensor * wqkv_s     = nullptr;
+    struct ggml_tensor * wqkv_gate_s = nullptr;
+    struct ggml_tensor * ffn_gate_s = nullptr;
+    struct ggml_tensor * ffn_up_s   = nullptr;
+    struct ggml_tensor * ffn_down_s = nullptr;
+    struct ggml_tensor * ffn_gate_shexp_s = nullptr;
+    struct ggml_tensor * ffn_up_shexp_s   = nullptr;
+    struct ggml_tensor * ffn_down_shexp_s = nullptr;
+    struct ggml_tensor * ssm_in_s    = nullptr;
+    struct ggml_tensor * ssm_out_s   = nullptr;
+    struct ggml_tensor * ssm_alpha_s = nullptr;
+    struct ggml_tensor * ssm_beta_s  = nullptr;
 
     // input scales
-    struct lm_ggml_tensor * wq_in_s            = nullptr;
-    struct lm_ggml_tensor * wk_in_s            = nullptr;
-    struct lm_ggml_tensor * wv_in_s            = nullptr;
-    struct lm_ggml_tensor * wo_in_s            = nullptr;
-    struct lm_ggml_tensor * wqkv_in_s          = nullptr;
-    struct lm_ggml_tensor * wqkv_gate_in_s     = nullptr;
-    struct lm_ggml_tensor * ffn_gate_in_s      = nullptr;
-    struct lm_ggml_tensor * ffn_up_in_s        = nullptr;
-    struct lm_ggml_tensor * ffn_down_in_s      = nullptr;
-    struct lm_ggml_tensor * ffn_gate_exps_in_s = nullptr;
-    struct lm_ggml_tensor * ffn_down_exps_in_s = nullptr;
-    struct lm_ggml_tensor * ffn_up_exps_in_s   = nullptr;
-    struct lm_ggml_tensor * ffn_gate_shexp_in_s= nullptr;
-    struct lm_ggml_tensor * ffn_up_shexp_in_s  = nullptr;
-    struct lm_ggml_tensor * ffn_down_shexp_in_s= nullptr;
-    struct lm_ggml_tensor * ssm_in_in_s        = nullptr;
-    struct lm_ggml_tensor * ssm_out_in_s       = nullptr;
-    struct lm_ggml_tensor * ssm_alpha_in_s     = nullptr;
-    struct lm_ggml_tensor * ssm_beta_in_s      = nullptr;
+    struct ggml_tensor * wq_in_s            = nullptr;
+    struct ggml_tensor * wk_in_s            = nullptr;
+    struct ggml_tensor * wv_in_s            = nullptr;
+    struct ggml_tensor * wo_in_s            = nullptr;
+    struct ggml_tensor * wqkv_in_s          = nullptr;
+    struct ggml_tensor * wqkv_gate_in_s     = nullptr;
+    struct ggml_tensor * ffn_gate_in_s      = nullptr;
+    struct ggml_tensor * ffn_up_in_s        = nullptr;
+    struct ggml_tensor * ffn_down_in_s      = nullptr;
+    struct ggml_tensor * ffn_gate_exps_in_s = nullptr;
+    struct ggml_tensor * ffn_down_exps_in_s = nullptr;
+    struct ggml_tensor * ffn_up_exps_in_s   = nullptr;
+    struct ggml_tensor * ffn_gate_shexp_in_s= nullptr;
+    struct ggml_tensor * ffn_up_shexp_in_s  = nullptr;
+    struct ggml_tensor * ffn_down_shexp_in_s= nullptr;
+    struct ggml_tensor * ssm_in_in_s        = nullptr;
+    struct ggml_tensor * ssm_out_in_s       = nullptr;
+    struct ggml_tensor * ssm_alpha_in_s     = nullptr;
+    struct ggml_tensor * ssm_beta_in_s      = nullptr;
 
     // altup & laurel
-    struct lm_ggml_tensor * per_layer_inp_gate   = nullptr;
-    struct lm_ggml_tensor * per_layer_proj       = nullptr;
-    struct lm_ggml_tensor * per_layer_post_norm  = nullptr;
-    struct lm_ggml_tensor * altup_correct_coef   = nullptr;
-    struct lm_ggml_tensor * altup_correct_scale  = nullptr;
-    struct lm_ggml_tensor * altup_predict_coef   = nullptr;
-    struct lm_ggml_tensor * altup_router         = nullptr;
-    struct lm_ggml_tensor * altup_router_norm    = nullptr;
-    struct lm_ggml_tensor * laurel_l             = nullptr;
-    struct lm_ggml_tensor * laurel_r             = nullptr;
-    struct lm_ggml_tensor * laurel_post_norm     = nullptr;
+    struct ggml_tensor * per_layer_inp_gate   = nullptr;
+    struct ggml_tensor * per_layer_proj       = nullptr;
+    struct ggml_tensor * per_layer_post_norm  = nullptr;
+    struct ggml_tensor * altup_correct_coef   = nullptr;
+    struct ggml_tensor * altup_correct_scale  = nullptr;
+    struct ggml_tensor * altup_predict_coef   = nullptr;
+    struct ggml_tensor * altup_router         = nullptr;
+    struct ggml_tensor * altup_router_norm    = nullptr;
+    struct ggml_tensor * laurel_l             = nullptr;
+    struct ggml_tensor * laurel_r             = nullptr;
+    struct ggml_tensor * laurel_post_norm     = nullptr;
 
     // openai-moe
-    struct lm_ggml_tensor * attn_sinks = nullptr;
+    struct ggml_tensor * attn_sinks = nullptr;
 
     // DeepSeek-V4
-    struct lm_ggml_tensor * attn_kv_norm = nullptr;
-    struct lm_ggml_tensor * hc_attn_fn   = nullptr;
-    struct lm_ggml_tensor * hc_attn_base = nullptr;
-    struct lm_ggml_tensor * hc_attn_scale = nullptr;
-    struct lm_ggml_tensor * hc_ffn_fn    = nullptr;
-    struct lm_ggml_tensor * hc_ffn_base  = nullptr;
-    struct lm_ggml_tensor * hc_ffn_scale = nullptr;
-    struct lm_ggml_tensor * attn_comp_wkv   = nullptr;
-    struct lm_ggml_tensor * attn_comp_wgate = nullptr;
-    struct lm_ggml_tensor * attn_comp_ape   = nullptr;
-    struct lm_ggml_tensor * attn_comp_norm  = nullptr;
-    struct lm_ggml_tensor * indexer_comp_wkv   = nullptr;
-    struct lm_ggml_tensor * indexer_comp_wgate = nullptr;
-    struct lm_ggml_tensor * indexer_comp_ape   = nullptr;
-    struct lm_ggml_tensor * indexer_comp_norm  = nullptr;
+    struct ggml_tensor * attn_kv_norm = nullptr;
+    struct ggml_tensor * hc_attn_fn   = nullptr;
+    struct ggml_tensor * hc_attn_base = nullptr;
+    struct ggml_tensor * hc_attn_scale = nullptr;
+    struct ggml_tensor * hc_ffn_fn    = nullptr;
+    struct ggml_tensor * hc_ffn_base  = nullptr;
+    struct ggml_tensor * hc_ffn_scale = nullptr;
+    struct ggml_tensor * attn_comp_wkv   = nullptr;
+    struct ggml_tensor * attn_comp_wgate = nullptr;
+    struct ggml_tensor * attn_comp_ape   = nullptr;
+    struct ggml_tensor * attn_comp_norm  = nullptr;
+    struct ggml_tensor * indexer_comp_wkv   = nullptr;
+    struct ggml_tensor * indexer_comp_wgate = nullptr;
+    struct ggml_tensor * indexer_comp_ape   = nullptr;
+    struct ggml_tensor * indexer_comp_norm  = nullptr;
 
     // cogvlm
-    struct lm_ggml_tensor * visexp_attn_wqkv = nullptr;
-    struct lm_ggml_tensor * visexp_attn_wo   = nullptr;
-    struct lm_ggml_tensor * visexp_ffn_gate  = nullptr;
-    struct lm_ggml_tensor * visexp_ffn_down  = nullptr;
-    struct lm_ggml_tensor * visexp_ffn_up    = nullptr;
+    struct ggml_tensor * visexp_attn_wqkv = nullptr;
+    struct ggml_tensor * visexp_attn_wo   = nullptr;
+    struct ggml_tensor * visexp_ffn_gate  = nullptr;
+    struct ggml_tensor * visexp_ffn_down  = nullptr;
+    struct ggml_tensor * visexp_ffn_up    = nullptr;
 
     // xIELU activation parameters for Apertus
-    struct lm_ggml_tensor * ffn_act_alpha_n = nullptr;
-    struct lm_ggml_tensor * ffn_act_alpha_p = nullptr;
-    struct lm_ggml_tensor * ffn_act_beta    = nullptr;
-    struct lm_ggml_tensor * ffn_act_eps     = nullptr;
+    struct ggml_tensor * ffn_act_alpha_n = nullptr;
+    struct ggml_tensor * ffn_act_alpha_p = nullptr;
+    struct ggml_tensor * ffn_act_beta    = nullptr;
+    struct ggml_tensor * ffn_act_eps     = nullptr;
 
     // Kimi Linear KDA (using ssm_ prefix for consistency)
     // Note: ssm_dt_b already exists above (mamba bias), reused for Kimi dt_bias
-    struct lm_ggml_tensor * ssm_q_conv = nullptr;
-    struct lm_ggml_tensor * ssm_k_conv = nullptr;
-    struct lm_ggml_tensor * ssm_v_conv = nullptr;
-    struct lm_ggml_tensor * ssm_f_a    = nullptr;
-    struct lm_ggml_tensor * ssm_f_b    = nullptr;
-    struct lm_ggml_tensor * ssm_beta   = nullptr;
-    struct lm_ggml_tensor * ssm_g_a    = nullptr;
-    struct lm_ggml_tensor * ssm_g_b    = nullptr;
-    struct lm_ggml_tensor * ssm_o_norm = nullptr;
+    struct ggml_tensor * ssm_q_conv = nullptr;
+    struct ggml_tensor * ssm_k_conv = nullptr;
+    struct ggml_tensor * ssm_v_conv = nullptr;
+    struct ggml_tensor * ssm_f_a    = nullptr;
+    struct ggml_tensor * ssm_f_b    = nullptr;
+    struct ggml_tensor * ssm_beta   = nullptr;
+    struct ggml_tensor * ssm_g_a    = nullptr;
+    struct ggml_tensor * ssm_g_b    = nullptr;
+    struct ggml_tensor * ssm_o_norm = nullptr;
 
     // kimi-k3
-    struct lm_ggml_tensor * ssm_g           = nullptr; // full-rank KDA gate (replaces ssm_g_a/ssm_g_b)
-    struct lm_ggml_tensor * attn_res_score  = nullptr; // fused res_norm*res_proj, pre-attention
-    struct lm_ggml_tensor * ffn_res_score   = nullptr; // fused res_norm*res_proj, pre-FFN
-    struct lm_ggml_tensor * ffn_routed_down = nullptr; // latent MoE: n_embd -> n_expert_latent
-    struct lm_ggml_tensor * ffn_routed_up   = nullptr; // latent MoE: n_expert_latent -> n_embd
-    struct lm_ggml_tensor * ffn_routed_norm = nullptr;
+    struct ggml_tensor * ssm_g           = nullptr; // full-rank KDA gate (replaces ssm_g_a/ssm_g_b)
+    struct ggml_tensor * attn_res_score  = nullptr; // fused res_norm*res_proj, pre-attention
+    struct ggml_tensor * ffn_res_score   = nullptr; // fused res_norm*res_proj, pre-FFN
+    struct ggml_tensor * ffn_routed_down = nullptr; // latent MoE: n_embd -> n_expert_latent
+    struct ggml_tensor * ffn_routed_up   = nullptr; // latent MoE: n_expert_latent -> n_embd
+    struct ggml_tensor * ffn_routed_norm = nullptr;
 
     // DSA (deepseek sparse attention)
-    struct lm_ggml_tensor * indexer_k_norm   = nullptr;
-    struct lm_ggml_tensor * indexer_k_norm_b = nullptr;
-    struct lm_ggml_tensor * indexer_proj     = nullptr;
-    struct lm_ggml_tensor * indexer_attn_k   = nullptr;
-    struct lm_ggml_tensor * indexer_attn_q_b = nullptr; // note: for lora a/b, not bias
+    struct ggml_tensor * indexer_k_norm   = nullptr;
+    struct ggml_tensor * indexer_k_norm_b = nullptr;
+    struct ggml_tensor * indexer_proj     = nullptr;
+    struct ggml_tensor * indexer_attn_k   = nullptr;
+    struct ggml_tensor * indexer_attn_q_b = nullptr; // note: for lora a/b, not bias
 
     // MSA
-    struct lm_ggml_tensor * index_q_proj = nullptr;
-    struct lm_ggml_tensor * index_k_proj = nullptr;
-    struct lm_ggml_tensor * index_q_norm = nullptr;
-    struct lm_ggml_tensor * index_k_norm = nullptr;
+    struct ggml_tensor * index_q_proj = nullptr;
+    struct ggml_tensor * index_k_proj = nullptr;
+    struct ggml_tensor * index_q_norm = nullptr;
+    struct ggml_tensor * index_k_norm = nullptr;
 
     // gemma4 layer output scale, reused for talkie embedding skip scale
-    struct lm_ggml_tensor * out_scale = nullptr;
+    struct ggml_tensor * out_scale = nullptr;
 
     struct llama_layer_posnet posnet;
 
@@ -572,7 +572,7 @@ struct llama_layer {
 struct llama_device {
     bool is_meta;
 
-    lm_ggml_backend_dev_t dev;
+    ggml_backend_dev_t dev;
 };
 
 struct llama_meta_device_get_split_state_userdata {
@@ -580,7 +580,7 @@ struct llama_meta_device_get_split_state_userdata {
     const struct llama_model * model;
 };
 
-struct lm_ggml_backend_meta_split_state llama_meta_device_get_split_state(const struct lm_ggml_tensor * tensor, void * userdata);
+struct ggml_backend_meta_split_state llama_meta_device_get_split_state(const struct ggml_tensor * tensor, void * userdata);
 
 struct llama_model {
     llm_type type = LLM_TYPE_UNKNOWN;
@@ -594,60 +594,60 @@ struct llama_model {
     // for classifier models
     std::vector<std::string> classifier_labels;
 
-    struct lm_ggml_tensor * tok_embd   = nullptr;
-    struct lm_ggml_tensor * type_embd  = nullptr;
-    struct lm_ggml_tensor * pos_embd   = nullptr;
-    struct lm_ggml_tensor * tok_norm   = nullptr;
-    struct lm_ggml_tensor * tok_norm_b = nullptr;
+    struct ggml_tensor * tok_embd   = nullptr;
+    struct ggml_tensor * type_embd  = nullptr;
+    struct ggml_tensor * pos_embd   = nullptr;
+    struct ggml_tensor * tok_norm   = nullptr;
+    struct ggml_tensor * tok_norm_b = nullptr;
 
-    struct lm_ggml_tensor * output_norm     = nullptr;
-    struct lm_ggml_tensor * output_res_score = nullptr; // kimi-k3: final cross-layer residual mix
-    struct lm_ggml_tensor * output_norm_b   = nullptr;
-    struct lm_ggml_tensor * output          = nullptr;
-    struct lm_ggml_tensor * output_b        = nullptr;
-    struct lm_ggml_tensor * output_norm_enc = nullptr;
+    struct ggml_tensor * output_norm     = nullptr;
+    struct ggml_tensor * output_res_score = nullptr; // kimi-k3: final cross-layer residual mix
+    struct ggml_tensor * output_norm_b   = nullptr;
+    struct ggml_tensor * output          = nullptr;
+    struct ggml_tensor * output_b        = nullptr;
+    struct ggml_tensor * output_norm_enc = nullptr;
 
 
     // NVFP4 per-tensor scale2, input_scale for LM head
-    struct lm_ggml_tensor * output_s    = nullptr;
-    struct lm_ggml_tensor * output_in_s = nullptr;
+    struct ggml_tensor * output_s    = nullptr;
+    struct ggml_tensor * output_in_s = nullptr;
 
     // NextN/MTP model-level projections
-    struct lm_ggml_tensor * nextn_proj_pre  = nullptr;
-    struct lm_ggml_tensor * nextn_proj_post = nullptr;
+    struct ggml_tensor * nextn_proj_pre  = nullptr;
+    struct ggml_tensor * nextn_proj_post = nullptr;
 
     // DeepSeek-V4
-    struct lm_ggml_tensor * hc_head_fn    = nullptr;
-    struct lm_ggml_tensor * hc_head_base  = nullptr;
-    struct lm_ggml_tensor * hc_head_scale = nullptr;
+    struct ggml_tensor * hc_head_fn    = nullptr;
+    struct ggml_tensor * hc_head_base  = nullptr;
+    struct ggml_tensor * hc_head_scale = nullptr;
 
     // classifier
-    struct lm_ggml_tensor * cls       = nullptr;
-    struct lm_ggml_tensor * cls_b     = nullptr;
-    struct lm_ggml_tensor * cls_out   = nullptr;
-    struct lm_ggml_tensor * cls_out_b = nullptr;
-    struct lm_ggml_tensor * cls_norm  = nullptr;
+    struct ggml_tensor * cls       = nullptr;
+    struct ggml_tensor * cls_b     = nullptr;
+    struct ggml_tensor * cls_out   = nullptr;
+    struct ggml_tensor * cls_out_b = nullptr;
+    struct ggml_tensor * cls_norm  = nullptr;
 
-    struct lm_ggml_tensor * conv1d   = nullptr;
-    struct lm_ggml_tensor * conv1d_b = nullptr;
+    struct ggml_tensor * conv1d   = nullptr;
+    struct ggml_tensor * conv1d_b = nullptr;
 
     // gemma3n altup
-    struct lm_ggml_tensor * altup_proj           = nullptr;
-    struct lm_ggml_tensor * altup_unembd_proj    = nullptr;
-    struct lm_ggml_tensor * per_layer_tok_embd   = nullptr;
-    struct lm_ggml_tensor * per_layer_model_proj = nullptr;
-    struct lm_ggml_tensor * per_layer_proj_norm  = nullptr;
+    struct ggml_tensor * altup_proj           = nullptr;
+    struct ggml_tensor * altup_unembd_proj    = nullptr;
+    struct ggml_tensor * per_layer_tok_embd   = nullptr;
+    struct ggml_tensor * per_layer_model_proj = nullptr;
+    struct ggml_tensor * per_layer_proj_norm  = nullptr;
 
     // eagle3 / dflash feature fusion layer
-    struct lm_ggml_tensor * fc   = nullptr;
-    struct lm_ggml_tensor * fc_s = nullptr;
-    struct lm_ggml_tensor * d2t = nullptr;  // draft to target vocabulary mapping
+    struct ggml_tensor * fc   = nullptr;
+    struct ggml_tensor * fc_s = nullptr;
+    struct ggml_tensor * d2t = nullptr;  // draft to target vocabulary mapping
 
     // dspark
-    struct lm_ggml_tensor * dspark_markov_w1   = nullptr;
-    struct lm_ggml_tensor * dspark_markov_w2   = nullptr;
-    struct lm_ggml_tensor * dspark_conf_proj   = nullptr;
-    struct lm_ggml_tensor * dspark_conf_proj_b = nullptr;
+    struct ggml_tensor * dspark_markov_w1   = nullptr;
+    struct ggml_tensor * dspark_markov_w2   = nullptr;
+    struct ggml_tensor * dspark_conf_proj   = nullptr;
+    struct ggml_tensor * dspark_conf_proj_b = nullptr;
 
     // unified vector to store target-model extracted layer ids in eagle3, dflash, etc.
     std::vector<int32_t> target_layer_ids;
@@ -657,18 +657,18 @@ struct llama_model {
     //Dense linear projections for SentenceTransformers models like embeddinggemma
     // For Sentence Transformers models structure see
     // https://sbert.net/docs/sentence_transformer/usage/custom_models.html#structure-of-sentence-transformer-models
-    struct lm_ggml_tensor * dense_2_out_layers   = nullptr;
-    struct lm_ggml_tensor * dense_2_out_layers_b = nullptr;
-    struct lm_ggml_tensor * dense_3_out_layers   = nullptr;
+    struct ggml_tensor * dense_2_out_layers   = nullptr;
+    struct ggml_tensor * dense_2_out_layers_b = nullptr;
+    struct ggml_tensor * dense_3_out_layers   = nullptr;
 
     // gguf metadata
-    std::unordered_map<std::string, std::string> lm_gguf_kv;
+    std::unordered_map<std::string, std::string> gguf_kv;
 
     // list of devices used in this model
     std::vector<llama_device> devices;
 
     // for quantize-stats only
-    std::vector<std::pair<std::string, struct lm_ggml_tensor *>> tensors_by_name;
+    std::vector<std::pair<std::string, struct ggml_tensor *>> tensors_by_name;
 
     // for keeping track of associated LoRA adapters
     std::unordered_set<llama_adapter_lora *> loras;
@@ -697,30 +697,30 @@ struct llama_model {
     uint32_t n_gpu_layers() const;
     llama_split_mode split_mode() const;
 
-    std::map<lm_ggml_backend_buffer_type_t, size_t> memory_breakdown() const;
+    std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const;
 
     // total number of parameters in the model
     uint64_t n_elements() const;
 
     void print_info() const;
 
-    lm_ggml_backend_dev_t dev_layer(int il) const;
-    lm_ggml_backend_dev_t dev_output() const;
+    ggml_backend_dev_t dev_layer(int il) const;
+    ggml_backend_dev_t dev_output() const;
 
-    lm_ggml_backend_buffer_type_t select_buft(int il) const;
+    ggml_backend_buffer_type_t select_buft(int il) const;
 
     bool has_tensor_overrides() const;
 
-    const struct lm_ggml_tensor * get_tensor(const char * name) const;
+    const struct ggml_tensor * get_tensor(const char * name) const;
 
     float get_rope_freq_base (const llama_cparams & cparams, int il) const;
     float get_rope_freq_scale(const llama_cparams & cparams, int il) const;
 
-    lm_ggml_tensor * get_rope_factors(const llama_cparams & cparams, int il) const;
+    ggml_tensor * get_rope_factors(const llama_cparams & cparams, int il) const;
 
     llama_memory_i * create_memory(const llama_memory_params & params, const llama_cparams & cparams) const;
 
-    lm_ggml_cgraph * build_graph(const llm_graph_params & params) const;
+    ggml_cgraph * build_graph(const llm_graph_params & params) const;
 
     virtual void load_stats  (llama_model_loader & ml) = 0;
     virtual void load_hparams(llama_model_loader & ml) = 0;
@@ -760,10 +760,10 @@ struct llama_model_base : public llama_model {
     explicit llama_model_base(const llama_model_params & params);
     virtual ~llama_model_base() = default;
 
-    lm_ggml_tensor * create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
+    ggml_tensor * create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
 
     // convenience overload of create_tensor that doesn't require llama_model_loader
-    lm_ggml_tensor * create_tensor(const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
+    ggml_tensor * create_tensor(const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
 
     // helper: try merged gate_up_exps first, fall back to separate gate and up
     void create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_,
@@ -790,25 +790,25 @@ const char * llm_type_name(llm_type type);
 // convenience macro for loading local variables for load_tensors() in llama_model_base
 // note: cast to int64_t since we will use these for the tensor dimensions
 #define LLAMA_LOAD_LOCALS \
-    const int     n_layer        = hparams.n_layer();        LM_GGML_UNUSED(n_layer); \
-    const int     n_layer_all    = hparams.n_layer_all;      LM_GGML_UNUSED(n_layer_all); \
-    const int     n_layer_nextn  = hparams.n_layer_nextn;    LM_GGML_UNUSED(n_layer_nextn); \
-    const int64_t n_head         = hparams.n_head();         LM_GGML_UNUSED(n_head); \
-    const int64_t n_head_kv      = hparams.n_head_kv();      LM_GGML_UNUSED(n_head_kv); \
-    const int64_t n_embd         = hparams.n_embd;           LM_GGML_UNUSED(n_embd); \
-    const int64_t n_embd_k_gqa   = hparams.n_embd_k_gqa();   LM_GGML_UNUSED(n_embd_k_gqa); \
-    const int64_t n_embd_v_gqa   = hparams.n_embd_v_gqa();   LM_GGML_UNUSED(n_embd_v_gqa); \
-    const int64_t n_embd_head_k  = hparams.n_embd_head_k();  LM_GGML_UNUSED(n_embd_head_k); \
-    const int64_t n_embd_head_v  = hparams.n_embd_head_v();  LM_GGML_UNUSED(n_embd_head_v); \
-    const int64_t n_ff           = hparams.n_ff();           LM_GGML_UNUSED(n_ff); \
-    const int64_t n_embd_gqa     = n_embd_v_gqa;             LM_GGML_UNUSED(n_embd_gqa); \
-    const int64_t n_vocab        = vocab.n_tokens();         LM_GGML_UNUSED(n_vocab); \
-    const int64_t n_token_types  = vocab.n_token_types();    LM_GGML_UNUSED(n_token_types); \
-    const int64_t n_rot          = hparams.n_rot();          LM_GGML_UNUSED(n_rot); \
-    const int64_t n_expert       = hparams.n_expert;         LM_GGML_UNUSED(n_expert); \
-    const int64_t n_expert_used  = hparams.n_expert_used;    LM_GGML_UNUSED(n_expert_used); \
-    const int64_t n_ctx_train    = hparams.n_ctx_train;      LM_GGML_UNUSED(n_ctx_train);
+    const int     n_layer        = hparams.n_layer();        GGML_UNUSED(n_layer); \
+    const int     n_layer_all    = hparams.n_layer_all;      GGML_UNUSED(n_layer_all); \
+    const int     n_layer_nextn  = hparams.n_layer_nextn;    GGML_UNUSED(n_layer_nextn); \
+    const int64_t n_head         = hparams.n_head();         GGML_UNUSED(n_head); \
+    const int64_t n_head_kv      = hparams.n_head_kv();      GGML_UNUSED(n_head_kv); \
+    const int64_t n_embd         = hparams.n_embd;           GGML_UNUSED(n_embd); \
+    const int64_t n_embd_k_gqa   = hparams.n_embd_k_gqa();   GGML_UNUSED(n_embd_k_gqa); \
+    const int64_t n_embd_v_gqa   = hparams.n_embd_v_gqa();   GGML_UNUSED(n_embd_v_gqa); \
+    const int64_t n_embd_head_k  = hparams.n_embd_head_k();  GGML_UNUSED(n_embd_head_k); \
+    const int64_t n_embd_head_v  = hparams.n_embd_head_v();  GGML_UNUSED(n_embd_head_v); \
+    const int64_t n_ff           = hparams.n_ff();           GGML_UNUSED(n_ff); \
+    const int64_t n_embd_gqa     = n_embd_v_gqa;             GGML_UNUSED(n_embd_gqa); \
+    const int64_t n_vocab        = vocab.n_tokens();         GGML_UNUSED(n_vocab); \
+    const int64_t n_token_types  = vocab.n_token_types();    GGML_UNUSED(n_token_types); \
+    const int64_t n_rot          = hparams.n_rot();          GGML_UNUSED(n_rot); \
+    const int64_t n_expert       = hparams.n_expert;         GGML_UNUSED(n_expert); \
+    const int64_t n_expert_used  = hparams.n_expert_used;    GGML_UNUSED(n_expert_used); \
+    const int64_t n_ctx_train    = hparams.n_ctx_train;      GGML_UNUSED(n_ctx_train);
 
 // For internal test use
 // TODO: remove
-const std::vector<std::pair<std::string, lm_ggml_tensor *>> & llama_internal_get_tensor_map(const llama_model * model);
+const std::vector<std::pair<std::string, ggml_tensor *>> & llama_internal_get_tensor_map(const llama_model * model);

@@ -81,7 +81,7 @@ CbxState * get_state(codec_lm * lm) {
 
 bool is_chatterbox(codec_lm * lm) {
     if (lm == nullptr || lm->codec == nullptr || lm->codec->gguf == nullptr) return false;
-    return lm_gguf_find_key(lm->codec->gguf, "codec.lm.chatterbox.start_speech_token") >= 0;
+    return gguf_find_key(lm->codec->gguf, "codec.lm.chatterbox.start_speech_token") >= 0;
 }
 
 // ─── tokenizer helpers ───────────────────────────────────────────────
@@ -156,8 +156,8 @@ void split_lines(const std::string & s, std::vector<std::string> * out) {
 }
 
 void load_tokenizer(codec_lm * lm, BpeTokenizer * tk) {
-    lm_gguf_context * gf = lm->codec->gguf;
-    if (lm_gguf_find_key(gf, "codec.lm.chatterbox.tokenizer.tokens") < 0) return;
+    gguf_context * gf = lm->codec->gguf;
+    if (gguf_find_key(gf, "codec.lm.chatterbox.tokenizer.tokens") < 0) return;
 
     std::string tokens_blob = codec_read_str_kv(gf, "codec.lm.chatterbox.tokenizer.tokens", "");
     std::string merges_blob = codec_read_str_kv(gf, "codec.lm.chatterbox.tokenizer.merges", "");
@@ -304,7 +304,7 @@ void tokenize_bpe(const BpeTokenizer & tk, const std::string & text_in,
 
 bool dequant_table(codec_lm * lm, const char * name, std::vector<float> * out,
                    int32_t * out_rows, int32_t hidden) {
-    lm_ggml_tensor * t = lm_ggml_get_tensor(lm->codec->weights, name);
+    ggml_tensor * t = ggml_get_tensor(lm->codec->weights, name);
     if (t == nullptr) return false;
     if (!codec_tensor_as_vec_f32(t, out)) return false;
     if (hidden > 0 && (out->size() % (size_t) hidden) != 0) return false;
@@ -322,7 +322,7 @@ CbxState * ensure_state(codec_lm * lm) {
     st = new (std::nothrow) CbxState();
     if (st == nullptr) return nullptr;
 
-    lm_gguf_context * gf = lm->codec->gguf;
+    gguf_context * gf = lm->codec->gguf;
     codec_lm_chatterbox_info & ci = st->info;
     ci.hidden_dim         = codec_read_i32_kv(gf, "codec.lm.hidden_dim", 1024);
     ci.text_vocab_size    = codec_read_i32_kv(gf, "codec.lm.chatterbox.text_vocab_size", 704);
@@ -336,7 +336,7 @@ CbxState * ensure_state(codec_lm * lm) {
     ci.start_speech_token = codec_read_i32_kv(gf, "codec.lm.chatterbox.start_speech_token", 6561);
     ci.stop_speech_token  = codec_read_i32_kv(gf, "codec.lm.chatterbox.stop_speech_token", 6562);
     ci.cond_rows          = lm->has_speaker_encoder ? lm->speaker_info.n_rows : 34;
-    ci.has_tokenizer      = lm_gguf_find_key(gf, "codec.lm.chatterbox.tokenizer.tokens") >= 0 ? 1 : 0;
+    ci.has_tokenizer      = gguf_find_key(gf, "codec.lm.chatterbox.tokenizer.tokens") >= 0 ? 1 : 0;
     ci.has_builtin_conds  = codec_read_bool_kv(gf, "codec.lm.chatterbox.has_builtin_conds", false) ? 1 : 0;
     ci.is_multilingual    = codec_read_bool_kv(gf, "codec.lm.chatterbox.is_multilingual", false) ? 1 : 0;
     st->have_info = true;
@@ -344,9 +344,9 @@ CbxState * ensure_state(codec_lm * lm) {
     if (ci.has_tokenizer) load_tokenizer(lm, &st->tok);
 
     if (ci.has_builtin_conds) {
-        int key = lm_gguf_find_key(gf, "codec.lm.chatterbox.builtin.speaker_emb");
+        int key = gguf_find_key(gf, "codec.lm.chatterbox.builtin.speaker_emb");
         if (key >= 0) {
-            size_t n = lm_gguf_get_arr_n(gf, key);
+            size_t n = gguf_get_arr_n(gf, key);
             st->builtin_speaker_emb.assign(n, 0.0f);
             codec_read_f32_array_kv(gf, "codec.lm.chatterbox.builtin.speaker_emb",
                                     st->builtin_speaker_emb.data(), (int32_t) n);

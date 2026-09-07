@@ -84,7 +84,7 @@ struct llama_file::impl {
     }
 
     impl(const char * fname, const char * mode, [[maybe_unused]] const bool use_direct_io = false) {
-        fp = lm_ggml_fopen(fname, mode);
+        fp = ggml_fopen(fname, mode);
         if (fp == NULL) {
             throw std::runtime_error(format("failed to open %s: %s", fname, strerror(errno)));
         }
@@ -216,7 +216,7 @@ struct llama_file::impl {
 #endif
 
     void init_fp(const char * mode) {
-        fp = lm_ggml_fopen(fname.c_str(), mode);
+        fp = ggml_fopen(fname.c_str(), mode);
         if (fp == NULL) {
             throw std::runtime_error(format("failed to open %s: %s", fname.c_str(), strerror(errno)));
         }
@@ -496,9 +496,9 @@ struct llama_mmap::impl {
             return;
         }
 
-        LM_GGML_ASSERT(first % page_size == 0);
-        LM_GGML_ASSERT(last % page_size == 0);
-        LM_GGML_ASSERT(last > first);
+        GGML_ASSERT(first % page_size == 0);
+        GGML_ASSERT(last % page_size == 0);
+        GGML_ASSERT(last > first);
 
         void * next_page_start = (uint8_t *) addr + first;
 
@@ -534,7 +534,7 @@ struct llama_mmap::impl {
     HANDLE hMapping = nullptr;
 
     impl(struct llama_file * file, size_t prefetch, bool numa) {
-        LM_GGML_UNUSED(numa);
+        GGML_UNUSED(numa);
 
         size = file->size();
 
@@ -578,8 +578,8 @@ struct llama_mmap::impl {
     }
 
     void unmap_fragment(size_t first, size_t last) {
-        LM_GGML_UNUSED(first);
-        LM_GGML_UNUSED(last);
+        GGML_UNUSED(first);
+        GGML_UNUSED(last);
     }
 
     ~impl() {
@@ -598,16 +598,16 @@ struct llama_mmap::impl {
     }
 #else
     impl(struct llama_file * file, size_t prefetch, bool numa) {
-        LM_GGML_UNUSED(file);
-        LM_GGML_UNUSED(prefetch);
-        LM_GGML_UNUSED(numa);
+        GGML_UNUSED(file);
+        GGML_UNUSED(prefetch);
+        GGML_UNUSED(numa);
 
         throw std::runtime_error("mmap not supported");
     }
 
     void unmap_fragment(size_t first, size_t last) {
-        LM_GGML_UNUSED(first);
-        LM_GGML_UNUSED(last);
+        GGML_UNUSED(first);
+        GGML_UNUSED(last);
 
         throw std::runtime_error("mmap not supported");
     }
@@ -736,12 +736,12 @@ struct llama_mlock::impl {
     impl() : addr(NULL), size(0), failed_already(false) {}
 
     void init(void * ptr) {
-        LM_GGML_ASSERT(addr == NULL && size == 0);
+        GGML_ASSERT(addr == NULL && size == 0);
         addr = ptr;
     }
 
     void grow_to(size_t target_size) {
-        LM_GGML_ASSERT(addr);
+        GGML_ASSERT(addr);
         if (failed_already) {
             return;
         }

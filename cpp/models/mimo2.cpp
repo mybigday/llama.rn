@@ -17,7 +17,7 @@ void llama_model_mimo2::load_arch_hparams(llama_model_loader & ml) {
     }
 
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.n_layer_nextn, false);
-    LM_GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer_impl");
+    GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer_impl");
 
     switch (hparams.n_layer()) {
         case 48: type = LLM_TYPE_310B_A15B; break;
@@ -92,21 +92,21 @@ std::unique_ptr<llm_graph_context> llama_model_mimo2::build_arch_graph(const llm
 }
 
 llama_model_mimo2::graph::graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
     auto * inp_attn = build_attn_inp_kv_iswa();
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     const float v_scale = hparams.f_attn_value_scale;
     const bool emit_h_nextn = cparams.embeddings_nextn;
     const bool crop_last_layer = inp_out_ids && (!emit_h_nextn || cparams.embeddings_nextn_masked);
 
     for (int il = 0; il < n_layer; ++il) {
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
 
         uint32_t n_head_l    = hparams.n_head(il);
         uint32_t n_head_kv_l = hparams.n_head_kv(il);
@@ -120,24 +120,24 @@ llama_model_mimo2::graph::graph(const llama_model & model, const llm_graph_param
             cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
             cb(cur, "attn_norm", il);
 
-            lm_ggml_tensor * Qcur;
-            lm_ggml_tensor * Kcur;
-            lm_ggml_tensor * Vcur;
+            ggml_tensor * Qcur;
+            ggml_tensor * Kcur;
+            ggml_tensor * Vcur;
 
             if (model.layers[il].wqkv) {
                 // Fused qkv_proj - Q/K share head_dim_k, V uses head_dim_v
-                lm_ggml_tensor * qkv = build_lora_mm(model.layers[il].wqkv, cur);
+                ggml_tensor * qkv = build_lora_mm(model.layers[il].wqkv, cur);
                 cb(qkv, "wqkv", il);
 
-                const size_t row_k    = lm_ggml_row_size(qkv->type, n_embd_head_k);
-                const size_t row_v    = lm_ggml_row_size(qkv->type, n_embd_head_v);
+                const size_t row_k    = ggml_row_size(qkv->type, n_embd_head_k);
+                const size_t row_v    = ggml_row_size(qkv->type, n_embd_head_v);
                 const size_t row_full = qkv->nb[1];
                 const size_t k_off    = row_k * n_head_l;
                 const size_t v_off    = k_off + row_k * n_head_kv_l;
 
-                Qcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head_k, n_head_l,    n_tokens, row_k, row_full, 0);
-                Kcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head_k, n_head_kv_l, n_tokens, row_k, row_full, k_off);
-                Vcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head_v, n_head_kv_l, n_tokens, row_v, row_full, v_off);
+                Qcur = ggml_view_3d(ctx0, qkv, n_embd_head_k, n_head_l,    n_tokens, row_k, row_full, 0);
+                Kcur = ggml_view_3d(ctx0, qkv, n_embd_head_k, n_head_kv_l, n_tokens, row_k, row_full, k_off);
+                Vcur = ggml_view_3d(ctx0, qkv, n_embd_head_v, n_head_kv_l, n_tokens, row_v, row_full, v_off);
             } else {
                 // Split path
                 Qcur = build_lora_mm(model.layers[il].wq, cur);
@@ -149,18 +149,18 @@ llama_model_mimo2::graph::graph(const llama_model & model, const llm_graph_param
                 Vcur = build_lora_mm(model.layers[il].wv, cur);
                 cb(Vcur, "Vcur", il);
 
-                Qcur = lm_ggml_reshape_3d(ctx0, Qcur, n_embd_head_k, n_head_l,    n_tokens);
-                Kcur = lm_ggml_reshape_3d(ctx0, Kcur, n_embd_head_k, n_head_kv_l, n_tokens);
-                Vcur = lm_ggml_reshape_3d(ctx0, Vcur, n_embd_head_v, n_head_kv_l, n_tokens);
+                Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head_k, n_head_l,    n_tokens);
+                Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head_k, n_head_kv_l, n_tokens);
+                Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head_v, n_head_kv_l, n_tokens);
             }
 
-            Qcur = lm_ggml_rope_ext(
+            Qcur = ggml_rope_ext(
                 ctx0, Qcur, inp_pos, nullptr,
                 n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                 ext_factor, attn_factor, beta_fast, beta_slow
                 );
 
-            Kcur = lm_ggml_rope_ext(
+            Kcur = ggml_rope_ext(
                 ctx0, Kcur, inp_pos, nullptr,
                 n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                 ext_factor, attn_factor, beta_fast, beta_slow
@@ -170,7 +170,7 @@ llama_model_mimo2::graph::graph(const llama_model & model, const llm_graph_param
             cb(Kcur, "Kcur", il);
             cb(Vcur, "Vcur", il);
 
-            lm_ggml_tensor * sinks = model.layers[il].attn_sinks;
+            ggml_tensor * sinks = model.layers[il].attn_sinks;
 
             cur = build_attn(inp_attn,
                     model.layers[il].wo, NULL, model.layers[il].wo_s,
@@ -178,17 +178,17 @@ llama_model_mimo2::graph::graph(const llama_model & model, const llm_graph_param
             cb(cur, "attn_out", il);
 
             if (v_scale) {
-                cur = lm_ggml_scale(ctx0, cur, v_scale);
+                cur = ggml_scale(ctx0, cur, v_scale);
                 cb(cur, "attn_out_scaled", il);
             }
         }
 
         if (il == n_layer - 1 && crop_last_layer) {
-            cur   = lm_ggml_get_rows(ctx0,   cur, inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
 
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         cur = build_norm(ffn_inp,
@@ -222,7 +222,7 @@ llama_model_mimo2::graph::graph(const llama_model & model, const llm_graph_param
             cb(cur, "ffn_moe_out", il);
         }
 
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
@@ -238,7 +238,7 @@ llama_model_mimo2::graph::graph(const llama_model & model, const llm_graph_param
         res->t_h_nextn = cur;
 
         if (!cparams.embeddings_nextn_masked && inp_out_ids) {
-            cur = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
+            cur = ggml_get_rows(ctx0, cur, inp_out_ids);
         }
     }
 
@@ -255,7 +255,7 @@ llama_model_mimo2::graph::graph(const llama_model & model, const llm_graph_param
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }
 
 // Mirrors MiMo's appended NextN block: normalize and fuse token and hidden inputs, run the decoder block,
@@ -263,18 +263,18 @@ llama_model_mimo2::graph::graph(const llama_model & model, const llm_graph_param
 // Converted checkpoints may store that shared norm as layer_out_norm, so it remains in the fallback chain.
 llama_model_mimo2::graph_mtp::graph_mtp(const llama_model & model, const llm_graph_params & params)
     : llm_graph_context(params) {
-    LM_GGML_ASSERT(hparams.n_layer_nextn > 0 && "MIMO2 MTP requires n_layer_nextn > 0");
+    GGML_ASSERT(hparams.n_layer_nextn > 0 && "MIMO2 MTP requires n_layer_nextn > 0");
 
     const int il = hparams.n_layer() + cparams.nextn_layer_offset;
-    LM_GGML_ASSERT(cparams.nextn_layer_offset >= 0 &&
+    GGML_ASSERT(cparams.nextn_layer_offset >= 0 &&
                 cparams.nextn_layer_offset < (int) hparams.n_layer_nextn &&
                 "nextn_layer_offset out of range [0, n_layer_nextn)");
 
     const auto & layer = model.layers[il];
-    LM_GGML_ASSERT(layer.nextn.eh_proj && "MIMO2 MTP block missing nextn.eh_proj");
-    LM_GGML_ASSERT(layer.nextn.enorm   && "MIMO2 MTP block missing nextn.enorm");
-    LM_GGML_ASSERT(layer.nextn.hnorm   && "MIMO2 MTP block missing nextn.hnorm");
-    LM_GGML_ASSERT(layer.wqkv          && "MIMO2 MTP requires fused attn_qkv");
+    GGML_ASSERT(layer.nextn.eh_proj && "MIMO2 MTP block missing nextn.eh_proj");
+    GGML_ASSERT(layer.nextn.enorm   && "MIMO2 MTP block missing nextn.enorm");
+    GGML_ASSERT(layer.nextn.hnorm   && "MIMO2 MTP block missing nextn.hnorm");
+    GGML_ASSERT(layer.wqkv          && "MIMO2 MTP requires fused attn_qkv");
 
     const uint32_t n_head_l    = hparams.n_head(il);
     const uint32_t n_head_kv_l = hparams.n_head_kv(il);
@@ -285,60 +285,60 @@ llama_model_mimo2::graph_mtp::graph_mtp(const llama_model & model, const llm_gra
 
     auto inp = std::make_unique<llm_graph_input_embd>(hparams.n_embd);
 
-    inp->tokens = lm_ggml_new_tensor_1d(ctx0, LM_GGML_TYPE_I32, n_tokens);
-    lm_ggml_set_input(inp->tokens);
+    inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_tokens);
+    ggml_set_input(inp->tokens);
 
-    inp->embd = lm_ggml_new_tensor_2d(ctx0, LM_GGML_TYPE_F32, hparams.n_embd, n_tokens);
-    lm_ggml_set_input(inp->embd);
-    lm_ggml_set_name(inp->embd, "mtp_h_input");
+    inp->embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, hparams.n_embd, n_tokens);
+    ggml_set_input(inp->embd);
+    ggml_set_name(inp->embd, "mtp_h_input");
 
-    lm_ggml_tensor * tok_embd_w = layer.nextn.embed_tokens ? layer.nextn.embed_tokens : model.tok_embd;
-    lm_ggml_tensor * h_input    = inp->embd;
-    lm_ggml_tensor * tok_embd   = lm_ggml_get_rows(ctx0, tok_embd_w, inp->tokens);
+    ggml_tensor * tok_embd_w = layer.nextn.embed_tokens ? layer.nextn.embed_tokens : model.tok_embd;
+    ggml_tensor * h_input    = inp->embd;
+    ggml_tensor * tok_embd   = ggml_get_rows(ctx0, tok_embd_w, inp->tokens);
     cb(tok_embd, "mtp_tok_embd", il);
 
     res->add_input(std::move(inp));
 
-    lm_ggml_tensor * inp_pos     = build_inp_pos();
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_pos     = build_inp_pos();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
     auto        * inp_attn    = build_attn_inp_kv_iswa();
 
-    lm_ggml_tensor * h_norm = build_norm(h_input, layer.nextn.hnorm, nullptr, LLM_NORM_RMS, il);
+    ggml_tensor * h_norm = build_norm(h_input, layer.nextn.hnorm, nullptr, LLM_NORM_RMS, il);
     cb(h_norm, "mtp_hnorm", il);
 
-    lm_ggml_tensor * e_norm = build_norm(tok_embd, layer.nextn.enorm, nullptr, LLM_NORM_RMS, il);
+    ggml_tensor * e_norm = build_norm(tok_embd, layer.nextn.enorm, nullptr, LLM_NORM_RMS, il);
     cb(e_norm, "mtp_enorm", il);
 
-    lm_ggml_tensor * concat = lm_ggml_concat(ctx0, e_norm, h_norm, /*dim=*/ 0);
+    ggml_tensor * concat = ggml_concat(ctx0, e_norm, h_norm, /*dim=*/ 0);
     cb(concat, "mtp_concat", il);
 
-    lm_ggml_tensor * cur = build_lora_mm(layer.nextn.eh_proj, concat, layer.nextn.eh_proj_s);
+    ggml_tensor * cur = build_lora_mm(layer.nextn.eh_proj, concat, layer.nextn.eh_proj_s);
     cb(cur, "mtp_eh_proj", il);
 
-    lm_ggml_tensor * inpSA = cur;
+    ggml_tensor * inpSA = cur;
 
     cur = build_norm(cur, layer.attn_norm, nullptr, LLM_NORM_RMS, il);
     cb(cur, "mtp_attn_norm", il);
 
-    lm_ggml_tensor * qkv = build_lora_mm(layer.wqkv, cur, layer.wqkv_s);
+    ggml_tensor * qkv = build_lora_mm(layer.wqkv, cur, layer.wqkv_s);
     cb(qkv, "mtp_wqkv", il);
 
-    const size_t row_k    = lm_ggml_row_size(qkv->type, n_embd_head_k);
-    const size_t row_v    = lm_ggml_row_size(qkv->type, n_embd_head_v);
+    const size_t row_k    = ggml_row_size(qkv->type, n_embd_head_k);
+    const size_t row_v    = ggml_row_size(qkv->type, n_embd_head_v);
     const size_t row_full = qkv->nb[1];
     const size_t k_off    = row_k * n_head_l;
     const size_t v_off    = k_off + row_k * n_head_kv_l;
 
-    lm_ggml_tensor * Qcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head_k, n_head_l,    n_tokens, row_k, row_full, 0);
-    lm_ggml_tensor * Kcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head_k, n_head_kv_l, n_tokens, row_k, row_full, k_off);
-    lm_ggml_tensor * Vcur = lm_ggml_view_3d(ctx0, qkv, n_embd_head_v, n_head_kv_l, n_tokens, row_v, row_full, v_off);
+    ggml_tensor * Qcur = ggml_view_3d(ctx0, qkv, n_embd_head_k, n_head_l,    n_tokens, row_k, row_full, 0);
+    ggml_tensor * Kcur = ggml_view_3d(ctx0, qkv, n_embd_head_k, n_head_kv_l, n_tokens, row_k, row_full, k_off);
+    ggml_tensor * Vcur = ggml_view_3d(ctx0, qkv, n_embd_head_v, n_head_kv_l, n_tokens, row_v, row_full, v_off);
 
-    Qcur = lm_ggml_rope_ext(
+    Qcur = ggml_rope_ext(
         ctx0, Qcur, inp_pos, nullptr,
         n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
         ext_factor, attn_factor, beta_fast, beta_slow);
 
-    Kcur = lm_ggml_rope_ext(
+    Kcur = ggml_rope_ext(
         ctx0, Kcur, inp_pos, nullptr,
         n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
         ext_factor, attn_factor, beta_fast, beta_slow);
@@ -354,17 +354,17 @@ llama_model_mimo2::graph_mtp::graph_mtp(const llama_model & model, const llm_gra
     cb(cur, "mtp_attn_out", il);
 
     if (v_scale) {
-        cur = lm_ggml_scale(ctx0, cur, v_scale);
+        cur = ggml_scale(ctx0, cur, v_scale);
         cb(cur, "mtp_attn_out_scaled", il);
     }
 
-    lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+    ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
     cb(ffn_inp, "mtp_ffn_inp", il);
 
     cur = build_norm(ffn_inp, layer.ffn_norm, nullptr, LLM_NORM_RMS, il);
     cb(cur, "mtp_ffn_norm", il);
 
-    LM_GGML_ASSERT(layer.ffn_gate && layer.ffn_down && layer.ffn_up && "MIMO2 MTP requires dense FFN tensors");
+    GGML_ASSERT(layer.ffn_gate && layer.ffn_down && layer.ffn_up && "MIMO2 MTP requires dense FFN tensors");
     cur = build_ffn(cur,
             layer.ffn_up,   layer.ffn_up_b,   nullptr,
             layer.ffn_gate, layer.ffn_gate_b, nullptr,
@@ -373,27 +373,27 @@ llama_model_mimo2::graph_mtp::graph_mtp(const llama_model & model, const llm_gra
             LLM_FFN_SILU, LLM_FFN_PAR, il);
     cb(cur, "mtp_ffn_out", il);
 
-    cur = lm_ggml_add(ctx0, cur, ffn_inp);
+    cur = ggml_add(ctx0, cur, ffn_inp);
     cb(cur, "mtp_post_ffn", il);
 
-    cur = lm_ggml_get_rows(ctx0, cur, inp_out_ids);
+    cur = ggml_get_rows(ctx0, cur, inp_out_ids);
 
     cb(cur, "h_nextn", -1);
     res->t_h_nextn = cur;
 
-    lm_ggml_tensor * head_norm_w = layer.nextn.shared_head_norm
+    ggml_tensor * head_norm_w = layer.nextn.shared_head_norm
             ? layer.nextn.shared_head_norm
             : (layer.layer_out_norm ? layer.layer_out_norm : model.output_norm);
-    LM_GGML_ASSERT(head_norm_w && "MIMO2 MTP missing head norm fallback");
+    GGML_ASSERT(head_norm_w && "MIMO2 MTP missing head norm fallback");
     cur = build_norm(cur, head_norm_w, nullptr, LLM_NORM_RMS, -1);
     cb(cur, "mtp_shared_head_norm", -1);
 
-    lm_ggml_tensor * head_w = layer.nextn.shared_head_head ? layer.nextn.shared_head_head : model.output;
-    lm_ggml_tensor * head_s = layer.nextn.shared_head_head ? layer.nextn.shared_head_head_s : model.output_s;
-    LM_GGML_ASSERT(head_w && "MIMO2 MTP missing LM head fallback");
+    ggml_tensor * head_w = layer.nextn.shared_head_head ? layer.nextn.shared_head_head : model.output;
+    ggml_tensor * head_s = layer.nextn.shared_head_head ? layer.nextn.shared_head_head_s : model.output_s;
+    GGML_ASSERT(head_w && "MIMO2 MTP missing LM head fallback");
     cur = build_lora_mm(head_w, cur, head_s);
     cb(cur, "result_output", -1);
 
     res->t_logits = cur;
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

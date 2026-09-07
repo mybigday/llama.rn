@@ -1,15 +1,15 @@
 #include "convtr1d.h"
 
-#include "lm_ggml_ops.h"
+#include "ggml_ops.h"
 #include "../runtime/tensor_utils.h"
 
 #include <algorithm>
 
-lm_ggml_tensor * codec_convtr1d(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x,
-    lm_ggml_tensor * w,
-    lm_ggml_tensor * b,
+ggml_tensor * codec_convtr1d(
+    ggml_context * ctx,
+    ggml_tensor * x,
+    ggml_tensor * w,
+    ggml_tensor * b,
     int32_t stride,
     int32_t padding,
     int32_t dilation) {
@@ -18,30 +18,30 @@ lm_ggml_tensor * codec_convtr1d(
         return nullptr;
     }
 
-    // lm_ggml_conv_transpose_1d expects F32/F16 weights; quantized weights would
+    // ggml_conv_transpose_1d expects F32/F16 weights; quantized weights would
     // need an explicit dequant. Conv kernels are typically too small to be
     // eligible for Q8_0/K-quants, but cast defensively.
-    if (w->type != LM_GGML_TYPE_F32 && w->type != LM_GGML_TYPE_F16) {
-        w = lm_ggml_cast(ctx, w, LM_GGML_TYPE_F32);
+    if (w->type != GGML_TYPE_F32 && w->type != GGML_TYPE_F16) {
+        w = ggml_cast(ctx, w, GGML_TYPE_F32);
     }
     b = codec_graph_cast_f32(ctx, b);
 
-    lm_ggml_tensor * y = lm_ggml_conv_transpose_1d(ctx, w, x, stride, 0, dilation);
+    ggml_tensor * y = ggml_conv_transpose_1d(ctx, w, x, stride, 0, dilation);
     if (b != nullptr) {
-        lm_ggml_tensor * b2 = lm_ggml_reshape_2d(ctx, b, 1, y->ne[1]);
-        y = lm_ggml_add(ctx, y, lm_ggml_repeat(ctx, b2, y));
+        ggml_tensor * b2 = ggml_reshape_2d(ctx, b, 1, y->ne[1]);
+        y = ggml_add(ctx, y, ggml_repeat(ctx, b2, y));
     }
     if (padding > 0) {
         y = codec_op_crop_1d(ctx, y, padding, padding);
     }
-    return lm_ggml_cont(ctx, y);
+    return ggml_cont(ctx, y);
 }
 
-lm_ggml_tensor * codec_convtr1d_causal(
-    lm_ggml_context * ctx,
-    lm_ggml_tensor * x,
-    lm_ggml_tensor * w,
-    lm_ggml_tensor * b,
+ggml_tensor * codec_convtr1d_causal(
+    ggml_context * ctx,
+    ggml_tensor * x,
+    ggml_tensor * w,
+    ggml_tensor * b,
     int32_t stride,
     int32_t dilation) {
 
@@ -49,7 +49,7 @@ lm_ggml_tensor * codec_convtr1d_causal(
         return nullptr;
     }
 
-    lm_ggml_tensor * y = codec_convtr1d(ctx, x, w, b, stride, 0, dilation);
+    ggml_tensor * y = codec_convtr1d(ctx, x, w, b, stride, 0, dilation);
     if (y == nullptr) {
         return nullptr;
     }

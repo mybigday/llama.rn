@@ -5,7 +5,7 @@ void llama_model_nanbeige::load_arch_hparams(llama_model_loader & ml) {
 
     uint32_t n_loops_u = 1;
     ml.get_key(LLM_KV_NUM_LOOPS, n_loops_u, false);
-    LM_GGML_ASSERT(n_loops_u >= 1);
+    GGML_ASSERT(n_loops_u >= 1);
 
     skip_loop_final_norm = false;
     ml.get_key(LLM_KV_SKIP_LOOP_FINAL_NORM, skip_loop_final_norm, false);
@@ -13,7 +13,7 @@ void llama_model_nanbeige::load_arch_hparams(llama_model_loader & ml) {
     n_layer_phys = (int) hparams.n_layer();
 
     // Bound-check before casting: signed int mul can overflow and bypass the guard.
-    LM_GGML_ASSERT((size_t) n_layer_phys * (size_t) n_loops_u <= (size_t) LLAMA_MAX_LAYERS);
+    GGML_ASSERT((size_t) n_layer_phys * (size_t) n_loops_u <= (size_t) LLAMA_MAX_LAYERS);
     n_loops = (int) n_loops_u;
 
     // Expand logical layer count before load_tensors() allocates layers / KV.
@@ -82,17 +82,17 @@ llama_model_nanbeige::graph::graph(const llama_model & model, const llm_graph_pa
     const auto & nb = static_cast<const llama_model_nanbeige &>(model);
 
     const int64_t n_embd_head = hparams.n_embd_head_v();
-    LM_GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
     const int n_phys  = nb.n_layer_phys > 0 ? nb.n_layer_phys : (int) n_layer;
     const int n_loops = nb.n_loops > 0 ? nb.n_loops : 1;
 
-    lm_ggml_tensor * cur;
-    lm_ggml_tensor * inpL;
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
-    lm_ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn = build_attn_inp_kv();
 
@@ -100,27 +100,27 @@ llama_model_nanbeige::graph::graph(const llama_model & model, const llm_graph_pa
         ? 1.0f / sqrtf(float(n_embd_head))
         : hparams.f_attention_scale;
 
-    lm_ggml_tensor * inp_out_ids = build_inp_out_ids();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         res->t_layer_inp[il] = inpL;
-        lm_ggml_tensor * inpSA = inpL;
+        ggml_tensor * inpSA = inpL;
 
         cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
         cb(cur, "attn_norm", il);
 
         {
-            lm_ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+            ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
             auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
                     n_embd_head, n_head, n_head_kv, il);
 
-            Qcur = lm_ggml_rope_ext(
+            Qcur = ggml_rope_ext(
                     ctx0, Qcur, inp_pos, rope_factors,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow);
 
-            Kcur = lm_ggml_rope_ext(
+            Kcur = ggml_rope_ext(
                     ctx0, Kcur, inp_pos, rope_factors,
                     n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                     ext_factor, attn_factor, beta_fast, beta_slow);
@@ -136,11 +136,11 @@ llama_model_nanbeige::graph::graph(const llama_model & model, const llm_graph_pa
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur   = lm_ggml_get_rows(ctx0, cur,   inp_out_ids);
-            inpSA = lm_ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            cur   = ggml_get_rows(ctx0, cur,   inp_out_ids);
+            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
 
-        lm_ggml_tensor * ffn_inp = lm_ggml_add(ctx0, cur, inpSA);
+        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
         cur = build_norm(ffn_inp, model.layers[il].ffn_norm, NULL, LLM_NORM_RMS, il);
@@ -153,7 +153,7 @@ llama_model_nanbeige::graph::graph(const llama_model & model, const llm_graph_pa
                 NULL, LLM_FFN_SILU, LLM_FFN_PAR, il);
         cb(cur, "ffn_out", il);
 
-        cur = lm_ggml_add(ctx0, cur, ffn_inp);
+        cur = ggml_add(ctx0, cur, ffn_inp);
         cb(cur, "ffn_out", il);
 
         cur = build_cvec(cur, il);
@@ -181,5 +181,5 @@ llama_model_nanbeige::graph::graph(const llama_model & model, const llm_graph_pa
     cb(cur, "result_output", -1);
     res->t_logits = cur;
 
-    lm_ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, cur);
 }

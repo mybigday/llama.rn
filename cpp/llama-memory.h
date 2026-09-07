@@ -16,8 +16,8 @@ class llama_io_read_i;
 
 struct llama_memory_params {
     // kv cache
-    lm_ggml_type type_k;
-    lm_ggml_type type_v;
+    ggml_type type_k;
+    ggml_type type_v;
 
     // use full-size SWA cache
     bool swa_full;
@@ -116,7 +116,7 @@ struct llama_memory_i {
     virtual llama_pos seq_pos_min(llama_seq_id seq_id) const = 0;
     virtual llama_pos seq_pos_max(llama_seq_id seq_id) const = 0;
 
-    virtual std::map<lm_ggml_backend_buffer_type_t, size_t> memory_breakdown() const = 0;
+    virtual std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const = 0;
 
     //
     // state write/read
