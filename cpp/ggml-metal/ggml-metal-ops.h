@@ -43,6 +43,7 @@ size_t lm_ggml_metal_op_flash_attn_ext_extra_pad(const struct lm_ggml_tensor * o
 size_t lm_ggml_metal_op_flash_attn_ext_extra_blk(const struct lm_ggml_tensor * op);
 size_t lm_ggml_metal_op_flash_attn_ext_extra_tmp(const struct lm_ggml_tensor * op);
 size_t lm_ggml_metal_op_flash_attn_ext_extra_kv_f16(const struct lm_ggml_tensor * op);
+size_t lm_ggml_metal_op_flash_attn_ext_extra_idx(const struct lm_ggml_tensor * op);
 
 int lm_ggml_metal_op_concat            (lm_ggml_metal_op_t ctx, int idx);
 int lm_ggml_metal_op_repeat            (lm_ggml_metal_op_t ctx, int idx);

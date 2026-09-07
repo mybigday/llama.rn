@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <algorithm>
+#include <unordered_map>
 #include <vector>
 
 #ifdef __APPLE__
@@ -64,6 +65,14 @@ size_t lm_ggml_backend_buft_get_alloc_size(lm_ggml_backend_buffer_type_t buft, c
     if (buft->iface.get_alloc_size) {
         size_t size = buft->iface.get_alloc_size(buft, tensor);
         assert(size >= lm_ggml_nbytes(tensor));
+
+        // [TAG_ALLOC_SIZE_EXPAND]
+        // if you hit this assert, update lm_ggml_backend_op_alloc_size_may_expand() accordingly
+        LM_GGML_ASSERT(size <= lm_ggml_nbytes(tensor) ||
+                    lm_ggml_op_is_empty(tensor->op) ||
+                    lm_ggml_is_quantized(tensor->type) || // [TAG_ALLOC_SIZE_EXPAND]
+                    lm_ggml_op_alloc_size_may_expand(tensor->op));
+
         return size;
     }
     return lm_ggml_nbytes(tensor);
@@ -558,10 +567,10 @@ void lm_ggml_backend_event_wait(lm_ggml_backend_t backend, lm_ggml_backend_event
     backend->iface.event_wait(backend, event);
 }
 
-static void lm_ggml_backend_graph_optimize(lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph) {
+static void lm_ggml_backend_graph_optimize(lm_ggml_backend_t backend, struct lm_ggml_cgraph * cgraph, struct lm_ggml_backend_graph_optimize_params * params) {
     LM_GGML_ASSERT(backend);
     if (backend->iface.graph_optimize != NULL) {
-        backend->iface.graph_optimize(backend, cgraph);
+        backend->iface.graph_optimize(backend, cgraph, params);
     }
 }
 
@@ -1441,11 +1450,40 @@ void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_
         sched->prev_leaf_backend_ids = tmp;
     }
 
+    // optimize the split graphs and collect the allocation dependencies added by the backends
+    // this needs to happen before we make graph_copy, so they are in sync
+    // TODO: this may create many small allocations in the scheduler, restructure to use a flat array
+    std::unordered_map<lm_ggml_tensor *, std::vector<lm_ggml_tensor *>> alloc_deps;
+
+    struct lm_ggml_backend_graph_optimize_params opt_params = {
+        /* .add_alloc_dep = */ [](void * user_data, lm_ggml_tensor * tensor, lm_ggml_tensor * until) {
+            auto & deps = *(std::unordered_map<lm_ggml_tensor *, std::vector<lm_ggml_tensor *>> *) user_data;
+            std::vector<lm_ggml_tensor *> & keep = deps[until];
+            if (std::find(keep.begin(), keep.end(), tensor) == keep.end()) {
+                keep.push_back(tensor);
+            }
+        },
+        /* .user_data     = */ &alloc_deps,
+    };
+
+    for (int i = 0; i < sched->n_splits; i++) {
+        struct lm_ggml_backend_sched_split * split = &sched->splits[i];
+        split->graph = lm_ggml_graph_view(graph, split->i_start, split->i_end);
+
+        lm_ggml_backend_graph_optimize(sched->backends[split->backend_id], &split->graph, &opt_params);
+    }
+
+    // each dep is added to graph_copy as a LM_GGML_OP_NONE node with the kept tensors as srcs
+    int n_dep_nodes = 0;
+    for (const auto & it : alloc_deps) {
+        n_dep_nodes += (it.second.size() + LM_GGML_MAX_SRC - 1) / LM_GGML_MAX_SRC;
+    }
+
     int total_inputs = sched->n_graph_inputs;
     for (int i = 0; i < sched->n_splits; i++) {
         total_inputs += sched->splits[i].n_inputs;
     }
-    int graph_size = std::max(graph->n_nodes, graph->n_leafs) + total_inputs * 2 * sched->n_copies;
+    int graph_size = std::max(graph->n_nodes, graph->n_leafs) + total_inputs * 2 * sched->n_copies + n_dep_nodes;
 
     // remember the actual graph_size for performing reallocation checks later [LM_GGML_SCHED_DEBUG_REALLOC]
     sched->debug_prev_graph_size = sched->debug_graph_size;
@@ -1463,13 +1501,10 @@ void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_
 
     struct lm_ggml_cgraph * graph_copy = &sched->graph;
 
+    int n_dep_nodes_added = 0;
+
     for (int i = 0; i < sched->n_splits; i++) {
         struct lm_ggml_backend_sched_split * split = &sched->splits[i];
-        split->graph = lm_ggml_graph_view(graph, split->i_start, split->i_end);
-
-        // Optimize this split of the graph. This needs to happen before we make graph_copy,
-        // so they are in sync.
-        lm_ggml_backend_graph_optimize(sched->backends[split->backend_id], &split->graph);
 
         // add inputs to the graph copy so that they are allocated by ggml-alloc at the start of the split
         for (int j = 0; j < split->n_inputs; j++) {
@@ -1494,8 +1529,31 @@ void lm_ggml_backend_sched_split_graph(lm_ggml_backend_sched_t sched, struct lm_
             assert(graph_copy->size > graph_copy->n_nodes);
             sched->node_backend_ids[graph_copy->n_nodes] = tensor_backend_id(graph->nodes[j]);
             graph_copy->nodes[graph_copy->n_nodes++] = graph->nodes[j];
+
+            if (alloc_deps.empty()) {
+                continue;
+            }
+
+            // add a dependency node so that the kept tensors are not freed before this node is computed
+            auto it = alloc_deps.find(graph->nodes[j]);
+            if (it != alloc_deps.end()) {
+                const std::vector<lm_ggml_tensor *> & keep = it->second;
+                for (size_t k = 0; k < keep.size(); k += LM_GGML_MAX_SRC) {
+                    struct lm_ggml_tensor * dep = lm_ggml_view_tensor(sched->ctx, keep[k]);
+                    for (size_t s = 0; s < LM_GGML_MAX_SRC && k + s < keep.size(); s++) {
+                        dep->src[s] = keep[k + s];
+                    }
+                    assert(graph_copy->size > graph_copy->n_nodes);
+                    sched->node_backend_ids[graph_copy->n_nodes] = split->backend_id;
+                    graph_copy->nodes[graph_copy->n_nodes++] = dep;
+                    n_dep_nodes_added++;
+                }
+            }
         }
     }
+
+    // a mismatch means a backend added a dep with an `until` tensor that is not a node of the optimized graph
+    LM_GGML_ASSERT(n_dep_nodes_added == n_dep_nodes);
 
     if (sched->n_copies > 1) {
         // add input copies as leafs so that they are allocated first
@@ -2050,6 +2108,20 @@ lm_ggml_backend_t lm_ggml_backend_sched_get_tensor_backend(lm_ggml_backend_sched
 }
 
 // utils
+
+bool lm_ggml_op_alloc_size_may_expand(enum lm_ggml_op op) {
+    switch (op) {
+        case LM_GGML_OP_FLASH_ATTN_EXT:
+        case LM_GGML_OP_MUL_MAT:
+        case LM_GGML_OP_MUL_MAT_ID:
+        case LM_GGML_OP_CUMSUM:
+        case LM_GGML_OP_ARGSORT:
+        case LM_GGML_OP_TOP_K:
+            return true;
+        default:
+            return false;
+    }
+}
 
 enum lm_ggml_status lm_ggml_backend_view_init(struct lm_ggml_tensor * tensor) {
     LM_GGML_ASSERT(tensor);

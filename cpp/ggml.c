@@ -1,14 +1,7 @@
 #define _CRT_SECURE_NO_DEPRECATE // Disables "unsafe" warnings on Windows
 #define _USE_MATH_DEFINES // For M_PI on MSVC
 
-// GGML build info
-#ifndef LM_GGML_VERSION
-#define LM_GGML_VERSION "unknown"
-#endif
-#ifndef LM_GGML_COMMIT
-#define LM_GGML_COMMIT "unknown"
-#endif
-
+#include "ggml-version.h"
 #include "ggml-backend.h"
 #include "ggml-impl.h"
 #include "ggml-threading.h"
@@ -152,9 +145,9 @@ static void lm_ggml_print_backtrace_symbols(void) {
 #elif defined(__APPLE__)
 #include <execinfo.h>
 static void lm_ggml_print_backtrace_symbols(void) {
-    // void * trace[100];
-    // int nptrs = backtrace(trace, sizeof(trace)/sizeof(trace[0]));
-    // backtrace_symbols_fd(trace, nptrs, STDERR_FILENO);
+    void * trace[100];
+    int nptrs = backtrace(trace, sizeof(trace)/sizeof(trace[0]));
+    backtrace_symbols_fd(trace, nptrs, STDERR_FILENO);
 }
 #else
 static void lm_ggml_print_backtrace_symbols(void) {
@@ -1261,10 +1254,10 @@ static const char * LM_GGML_GLU_OP_NAME[LM_GGML_GLU_OP_COUNT] = {
     "SWIGLU_OAI",
     "GEGLU_ERF",
     "GEGLU_QUICK",
+    "SWIGLU_CLAMP",
 };
 
-static_assert(LM_GGML_GLU_OP_COUNT == 6, "LM_GGML_GLU_OP_COUNT != 6");
-
+static_assert(LM_GGML_GLU_OP_COUNT == 7, "LM_GGML_GLU_OP_COUNT != 7");
 
 static_assert(sizeof(struct lm_ggml_object)%LM_GGML_MEM_ALIGN == 0, "lm_ggml_object size must be a multiple of LM_GGML_MEM_ALIGN");
 static_assert(sizeof(struct lm_ggml_tensor)%LM_GGML_MEM_ALIGN == 0, "lm_ggml_tensor size must be a multiple of LM_GGML_MEM_ALIGN");
@@ -3122,6 +3115,17 @@ struct lm_ggml_tensor * lm_ggml_swiglu_oai(
         float                 limit) {
     struct lm_ggml_tensor * result = lm_ggml_glu_impl(ctx, a, b, LM_GGML_GLU_OP_SWIGLU_OAI, false);
     lm_ggml_set_op_params_f32(result, 2, alpha);
+    lm_ggml_set_op_params_f32(result, 3, limit);
+
+    return result;
+}
+
+struct lm_ggml_tensor * lm_ggml_swiglu_clamp(
+        struct lm_ggml_context * ctx,
+        struct lm_ggml_tensor  * a,
+        struct lm_ggml_tensor  * b,
+        float                 limit) {
+    struct lm_ggml_tensor * result = lm_ggml_glu_impl(ctx, a, b, LM_GGML_GLU_OP_SWIGLU_CLAMP, false);
     lm_ggml_set_op_params_f32(result, 3, limit);
 
     return result;
@@ -5503,6 +5507,15 @@ enum lm_ggml_prec lm_ggml_flash_attn_ext_get_prec(
     return (enum lm_ggml_prec) prec_i32;
 }
 
+void lm_ggml_flash_attn_ext_set_n_kv_max(
+        struct lm_ggml_tensor * a,
+        int32_t              n_kv_max) {
+    LM_GGML_ASSERT(a->op == LM_GGML_OP_FLASH_ATTN_EXT);
+    LM_GGML_ASSERT(n_kv_max >= 0);
+
+    lm_ggml_set_op_params_i32(a, 4, n_kv_max);
+}
+
 void lm_ggml_flash_attn_ext_add_sinks(
         struct lm_ggml_tensor * a,
         struct lm_ggml_tensor * sinks) {
@@ -7323,7 +7336,7 @@ void lm_ggml_build_backward_expand(
         }
 
         // inplace operations are currently not supported
-        LM_GGML_ASSERT(!node->view_src || node->op == LM_GGML_OP_CPY || node->op == LM_GGML_OP_VIEW ||
+        LM_GGML_ASSERT(!node->view_src || node->op == LM_GGML_OP_CPY || node->op == LM_GGML_OP_SET_ROWS || node->op == LM_GGML_OP_VIEW ||
             node->op == LM_GGML_OP_RESHAPE || node->op == LM_GGML_OP_PERMUTE || node->op == LM_GGML_OP_TRANSPOSE);
 
         const size_t ihash = lm_ggml_hash_find(&cgraph->visited_hash_set, node);

@@ -12,10 +12,6 @@ void llama_model_qwen35::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_SSM_TIME_STEP_RANK, hparams.ssm_dt_rank);
     ml.get_key(LLM_KV_SSM_GROUP_COUNT,    hparams.ssm_n_group);
 
-    // NextN/MTP (Qwen3.5/3.6): extra decoder block appended beyond the main stack
-    ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.n_layer_nextn, false);
-    LM_GGML_ASSERT(hparams.n_layer_nextn < hparams.n_layer_all && "n_layer_nextn must be < n_layer_impl");
-
     // Mark recurrent layers (linear attention layers). MTP layers are dense
     // attention-only and must be flagged non-recurrent.
     if (!ml.get_key_or_arr(LLM_KV_ATTENTION_RECURRENT_LAYERS, hparams.is_recr_impl, hparams.n_layer_all, false)) {
@@ -427,10 +423,11 @@ lm_ggml_tensor * llama_model_qwen35::graph::build_layer_attn_linear(
     cb(k_conv, "k_conv", il);
     cb(v_conv, "v_conv", il);
 
+
     const float eps_norm = hparams.f_norm_rms_eps;
 
-    q_conv = lm_ggml_l2_norm(ctx0, q_conv, eps_norm);
-    k_conv = lm_ggml_l2_norm(ctx0, k_conv, eps_norm);
+    q_conv = build_gdn_l2_norm(ctx0, q_conv, eps_norm);
+    k_conv = build_gdn_l2_norm(ctx0, k_conv, eps_norm);
 
     //q_conv = lm_ggml_cont_4d(ctx0, q_conv, head_k_dim, num_k_heads, n_seq_tokens, n_seqs);
     //k_conv = lm_ggml_cont_4d(ctx0, k_conv, head_k_dim, num_k_heads, n_seq_tokens, n_seqs);

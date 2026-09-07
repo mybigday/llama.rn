@@ -52,6 +52,7 @@ enum htp_op_code {
     HTP_OP_MUL_MAT,
     HTP_OP_MUL_MAT_ID,
     HTP_OP_MUL_MAT_NX,
+    HTP_OP_MUL_MAT_ID_NX,
     HTP_OP_MUL_MAT_ADD,
     HTP_OP_RMS_NORM,
     HTP_OP_RMS_NORM_MUL,
@@ -62,6 +63,8 @@ enum htp_op_code {
     HTP_OP_UNARY_NEG,
     HTP_OP_UNARY_SOFTPLUS,
     HTP_OP_UNARY_TANH,
+    HTP_OP_UNARY_ABS,
+    HTP_OP_UNARY_LOG,
     HTP_OP_GLU_SWIGLU,
     HTP_OP_GLU_SWIGLU_OAI,
     HTP_OP_GLU_GEGLU,
@@ -94,6 +97,7 @@ enum htp_op_code {
     HTP_OP_FENCE,
     HTP_OP_ALLREDUCE,
     HTP_OP_ALLREDUCE_ADD,
+    HTP_OP_GLU_SWIGLU_CLAMP,
 
     HTP_OP_INVALID
 };

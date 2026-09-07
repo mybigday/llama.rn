@@ -19,7 +19,7 @@ void llama_model_kimi_linear::load_arch_hparams(llama_model_loader & ml) {
     }
 
     // MoE parameters - Kimi uses moe_intermediate_size = 1024
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp);
+    ml.get_key_or_arr(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp_arr, hparams.n_layer_all);
     ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,               hparams.n_expert_shared);
     ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT,         hparams.n_layer_dense_lead, false);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,              hparams.expert_weights_scale, false);
@@ -84,9 +84,9 @@ void llama_model_kimi_linear::load_arch_tensors(llama_model_loader &) {
              layer.ssm_beta = create_tensor(tn(LLM_TENSOR_SSM_BETA, "weight", i), {n_embd, n_head}, 0);
 
              // A_log - Shape in GGUF: [1, num_heads, 1, 1] (4D) or [1, num_heads] (2D after quantization) Note: -exp(A_log) is applied in convert_hf_to_gguf.py
-             layer.ssm_a = create_tensor(tn(LLM_TENSOR_SSM_A, i), {1, n_head, 1, 1}, TENSOR_NOT_REQUIRED);
+             layer.ssm_a = create_tensor(tn(LLM_TENSOR_SSM_A_NOSCAN, i), {1, n_head, 1, 1}, TENSOR_NOT_REQUIRED);
              if (!layer.ssm_a) {
-                 layer.ssm_a = create_tensor(tn(LLM_TENSOR_SSM_A, i), {1, n_head}, 0);
+                 layer.ssm_a = create_tensor(tn(LLM_TENSOR_SSM_A_NOSCAN, i), {1, n_head}, 0);
              }
 
              // dt_bias - shape [n_embd_head_k_kda * n_head] = [4096]
@@ -137,7 +137,7 @@ void llama_model_kimi_linear::load_arch_tensors(llama_model_loader &) {
         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
 
         // MoE intermediate size (different from dense FFN)
-        const int64_t n_ff_exp = hparams.n_ff_exp;
+        const int64_t n_ff_exp = hparams.n_ff_exp();
 
         // Kimi uses n_layer_dense_lead to determine which layers use dense FFN vs MoE
         // first_k_dense_replace = 1 means layer 0 uses dense FFN, layers 1+ use MoE
@@ -331,10 +331,11 @@ llama_model_kimi_linear::graph::graph(const llama_model & model, const llm_graph
             lm_ggml_tensor * state = build_rs(inp_rs, ssm_states_all, hparams.n_embd_s(), n_seqs);
             state = lm_ggml_reshape_4d(ctx0, state, head_dim, head_dim, n_head, n_seqs);
 
+
             const float eps_norm = hparams.f_norm_rms_eps;
 
-            Qcur = lm_ggml_l2_norm(ctx0, Qcur, eps_norm);
-            Kcur = lm_ggml_l2_norm(ctx0, Kcur, eps_norm);
+            Qcur = build_gdn_l2_norm(ctx0, Qcur, eps_norm);
+            Kcur = build_gdn_l2_norm(ctx0, Kcur, eps_norm);
 
             // Choose between build_delta_net_chunking and build_delta_net_recurrent based on n_tokens
             auto attn_out = build_delta_net(Qcur, Kcur, Vcur, g1, beta, state, il);
@@ -504,7 +505,7 @@ llama_model_kimi_linear::graph::graph(const llama_model & model, const llm_graph
                 layer.ffn_down_exps,
                 layer.ffn_exp_probs_b,
                 hparams.n_expert,
-                hparams.n_expert_used,
+                hparams.n_expert_used(),
                 LLM_FFN_SILU, true,
                 hparams.expert_weights_scale,
                 (llama_expert_gating_func_type) hparams.expert_gating_func,

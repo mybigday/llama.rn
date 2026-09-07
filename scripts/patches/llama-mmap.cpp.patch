@@ -1,15 +1,28 @@
 --- llama-mmap.cpp.orig	2025-01-20 20:12:46
 +++ llama-mmap.cpp	2025-01-20 20:12:48
-@@ -291,14 +291,14 @@ struct llama_mmap::impl {
-         }
- 
-         if (prefetch > 0) {
--            if (posix_madvise(addr, std::min(file->size(), prefetch), POSIX_MADV_WILLNEED)) {
--                LLAMA_LOG_WARN("warning: posix_madvise(.., POSIX_MADV_WILLNEED) failed: %s\n",
-+            if (madvise(addr, std::min(file->size(), prefetch), MADV_WILLNEED)) {
-+                fprintf(stderr, "warning: madvise(.., MADV_WILLNEED) failed: %s\n",
-                         strerror(errno));
+@@ -486,17 +486,17 @@
+         // page-aligned madvise over [beg, end), clamped to the file
+         auto advise = [&](size_t beg, size_t end, int advice, const char * name) {
+             const size_t page_size = sysconf(_SC_PAGESIZE);
+             beg = beg & ~(page_size - 1);
+             end = std::min((end + page_size - 1) & ~(page_size - 1), file->size());
+             if (beg >= end) {
+                 return;
              }
+-            if (posix_madvise((char *) addr + beg, end - beg, advice)) {
+-                LLAMA_LOG_WARN("warning: posix_madvise(.., %s) failed: %s\n", name, strerror(errno));
++            if (madvise((char *) addr + beg, end - beg, advice)) {
++                fprintf(stderr, "warning: madvise(.., %s) failed: %s\n", name, strerror(errno));
+             }
+         };
+
+         if (prefetch > 0) {
+             for (const auto & range : ranges_complement(lazy_ranges, std::min(file->size(), prefetch))) {
+                 advise(range.first, range.second, POSIX_MADV_WILLNEED, "POSIX_MADV_WILLNEED");
+             }
+         }
+         for (const auto & range : lazy_ranges) {
+             advise(range.first, range.second, POSIX_MADV_RANDOM, "POSIX_MADV_RANDOM");
          }
          if (numa) {
 -            if (posix_madvise(addr, file->size(), POSIX_MADV_RANDOM)) {
