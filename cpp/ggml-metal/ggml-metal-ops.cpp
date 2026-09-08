@@ -3405,6 +3405,10 @@ int lm_ggml_metal_op_flash_attn_ext(lm_ggml_metal_op_t ctx, int idx) {
         //nsg = ne01 <= nqptg ? MAX(4, MIN(nsgmax, MIN(ne11/ncpsg, (int64_t) pipeline.maxTotalThreadsPerThreadgroup/32))) : 4;
         int32_t nsg = ne00 >= 512 ? 8 : 4;
 
+        while (nsg > 1 && FATTN_SMEM(nsg) > props_dev->max_theadgroup_memory_size) {
+            nsg /= 2;
+        }
+
         const size_t smem = FATTN_SMEM(nsg);
 
         const int32_t ns10 = nb11_attn/nb10_attn;
