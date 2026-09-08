@@ -342,6 +342,7 @@ namespace rnllama_jsi {
     ) {
         std::vector<lm_ggml_backend_dev_t> selected;
         anyGpuAvailable = false;
+        bool cpuRequested = false;
 
         const size_t devCount = lm_ggml_backend_dev_count();
         for (size_t i = 0; i < devCount; ++i) {
@@ -369,10 +370,21 @@ namespace rnllama_jsi {
                 }
             }
 
+            // The CPU device is always used as the fallback and must not be passed as an
+            // offload target: llama.cpp would place layers in the plain CPU buffer and skip
+            // the repacked (i8mm/dotprod) buffer types, which is several times slower.
+            if (type == LM_GGML_BACKEND_DEVICE_TYPE_CPU) {
+                cpuRequested = true;
+                continue;
+            }
+
             selected.push_back(dev);
         }
 
-        if (!selected.empty()) {
+        // A null-terminated empty list tells llama.cpp to use no offload devices, i.e. CPU
+        // only with its extra buffer types. Only do this when the caller asked for the CPU
+        // explicitly, so an unknown device name still falls back to the default selection.
+        if (!selected.empty() || cpuRequested) {
             selected.push_back(nullptr);
         }
 
