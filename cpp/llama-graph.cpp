@@ -566,7 +566,10 @@ void llm_graph_input_attn_k_dsa::set_input(const llama_ubatch * ubatch) {
 
     mctx->get_lid()->set_input_kq_mask(self_kq_mask_lid, ubatch, cparams.causal_attn);
 
-    mctx->get_lid()->set_input_k_rot(self_k_rot_lid);
+    // left unallocated when the indexer does not use the rotation
+    if (self_k_rot_lid && self_k_rot_lid->buffer) {
+        mctx->get_lid()->set_input_k_rot(self_k_rot_lid);
+    }
 }
 
 bool llm_graph_input_attn_k_dsa::can_reuse(const llm_graph_params & params) {
@@ -1466,7 +1469,7 @@ llm_graph_context::llm_graph_context(const llm_graph_params & params) :
     n_embd_head_v    (hparams.n_embd_head_v()),
     n_embd_v_gqa     (hparams.n_embd_v_gqa()),
     n_expert         (hparams.n_expert),
-    n_expert_used    (cparams.warmup ? hparams.n_expert : hparams.n_expert_used),
+    n_expert_used    (cparams.warmup ? hparams.n_expert : hparams.n_expert_used()),
     freq_base        (cparams.rope_freq_base),
     freq_scale       (cparams.rope_freq_scale),
     ext_factor       (cparams.yarn_ext_factor),
@@ -1776,14 +1779,11 @@ lm_ggml_tensor * llm_graph_context::build_ffn(
                     const float limit = hparams.swiglu_clamp_shexp[il];
                     constexpr float eps = 1e-6f;
                     if (limit > eps) {
-                        tmp = lm_ggml_clamp(ctx0, tmp, -limit, limit);
-                        cb(tmp, "ffn_up_clamped", il);
-
                         if (arch == LLM_ARCH_DEEPSEEK4 || (arch == LLM_ARCH_DFLASH && hparams.dsv4_hc_mult > 0)) {
-                            cur = lm_ggml_clamp(ctx0, cur, -INFINITY, limit);
-                            cb(cur, "ffn_gate_clamped", il);
-                            cur = lm_ggml_swiglu_split(ctx0, cur, tmp);
+                            cur = lm_ggml_swiglu_clamp(ctx0, cur, tmp, limit);
                         } else {
+                            tmp = lm_ggml_clamp(ctx0, tmp, -limit, limit);
+                            cb(tmp, "ffn_up_clamped", il);
                             lm_ggml_tensor * gate_act = lm_ggml_silu(ctx0, cur);
                             cb(gate_act, "ffn_silu", il);
                             gate_act = lm_ggml_clamp(ctx0, gate_act, -INFINITY, limit);
@@ -2173,14 +2173,11 @@ lm_ggml_tensor * llm_graph_context::build_moe_ffn(
                     const float limit = hparams.swiglu_clamp_exp[il];
                     constexpr float eps = 1e-6f;
                     if (limit > eps) {
-                        up = lm_ggml_clamp(ctx0, up, -limit, limit);
-                        cb(up, "ffn_moe_up_clamped", il);
-
-                        if (arch == LLM_ARCH_DEEPSEEK4 || (arch == LLM_ARCH_DFLASH && hparams.dsv4_hc_mult > 0)) {
-                            cur = lm_ggml_clamp(ctx0, cur, -INFINITY, limit);
-                            cb(cur, "ffn_moe_gate_clamped", il);
-                            cur = lm_ggml_swiglu_split(ctx0, cur, up);
+                        if (arch == LLM_ARCH_DEEPSEEK4 || (arch == LLM_ARCH_DFLASH && hparams.dsv4_hc_mult > 0) || arch == LLM_ARCH_HY_V4) {
+                            cur = lm_ggml_swiglu_clamp(ctx0, cur, up, limit);
                         } else {
+                            up = lm_ggml_clamp(ctx0, up, -limit, limit);
+                            cb(up, "ffn_moe_up_clamped", il);
                             lm_ggml_tensor * gate_act = lm_ggml_silu(ctx0, cur);
                             cb(gate_act, "ffn_moe_silu", il);
                             gate_act = lm_ggml_clamp(ctx0, gate_act, -INFINITY, limit);
@@ -2276,25 +2273,26 @@ lm_ggml_tensor * llm_graph_context::build_moe_ffn(
     assert(n_expert_used > 0);
 
     // order the views before the adds
-    for (uint32_t i = 0; i < hparams.n_expert_used; ++i) {
+    // Use per-layer n_expert_used to bound the graph even during warmup (avoids
+    // the large-add-nodes issue for uniform arches; for Puzzle the per-layer
+    // value is correct). ref: https://github.com/ggml-org/llama.cpp/pull/14753
+    const uint32_t n_expert_used_il = hparams.n_expert_used(il);
+    for (uint32_t i = 0; i < n_expert_used_il; ++i) {
         cur_experts[i] = lm_ggml_view_2d(ctx0, experts, n_embd, n_tokens, experts->nb[2], i*experts->nb[1]);
 
         lm_ggml_build_forward_expand(gf, cur_experts[i]);
     }
 
     // aggregate experts
-    // note: here we explicitly use hparams.n_expert_used instead of n_expert_used
-    //       to avoid potentially a large number of add nodes during warmup
-    //       ref: https://github.com/ggml-org/llama.cpp/pull/14753
     lm_ggml_tensor * moe_out = cur_experts[0];
 
-    for (uint32_t i = 1; i < hparams.n_expert_used; ++i) {
+    for (uint32_t i = 1; i < n_expert_used_il; ++i) {
         moe_out = lm_ggml_add(ctx0, moe_out, cur_experts[i]);
 
         lm_ggml_build_forward_expand(gf, moe_out);
     }
 
-    if (hparams.n_expert_used == 1) {
+    if (n_expert_used_il == 1) {
         // avoid returning a non-contiguous tensor
         moe_out = lm_ggml_cont(ctx0, moe_out);
     }
@@ -2546,6 +2544,7 @@ lm_ggml_tensor * llm_graph_context::build_attn_mha(
          lm_ggml_tensor * kq_mask,
          lm_ggml_tensor * sinks,
          lm_ggml_tensor * v_mla,
+             int64_t   n_kv_max,
                float   kq_scale,
                  int   il) const {
     const bool v_trans = v->nb[1] > v->nb[2];
@@ -2583,6 +2582,8 @@ lm_ggml_tensor * llm_graph_context::build_attn_mha(
         res->add_fused_node({LLM_FUSED_OP_FLASH_ATTN, cur, il});
 
         lm_ggml_flash_attn_ext_add_sinks(cur, sinks);
+        LM_GGML_ASSERT(n_kv_max >= 0 && n_kv_max <= INT32_MAX);
+        lm_ggml_flash_attn_ext_set_n_kv_max(cur, static_cast<int32_t>(n_kv_max));
         lm_ggml_flash_attn_ext_set_prec (cur, LM_GGML_PREC_F32);
 
         if (v_mla) {
@@ -2732,7 +2733,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     lm_ggml_tensor * k = k_cur;
     lm_ggml_tensor * v = v_cur;
 
-    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
+    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, 0, kq_scale, il);
     cb(cur, "kqv_out", il);
 
     if (wo) {
@@ -2831,7 +2832,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     lm_ggml_tensor * k = mctx_cur->get_k(ctx0, il);
     lm_ggml_tensor * v = mctx_cur->get_v(ctx0, il);
 
-    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
+    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, 0, kq_scale, il);
     cb(cur, "kqv_out", il);
 
     if (inp->self_v_rot) {
@@ -2922,7 +2923,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     lm_ggml_tensor * k = mctx_cur->get_k(ctx0, il);
     lm_ggml_tensor * v = lm_ggml_view_4d(ctx0, k, v_cur->ne[0], k->ne[1], k->ne[2], k->ne[3], k->nb[1], k->nb[2], k->nb[3], 0);
 
-    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
+    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, 0, kq_scale, il);
     cb(cur, "kqv_out", il);
 
     if (wo) {
@@ -3007,7 +3008,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     lm_ggml_tensor * k = mctx_cur->get_k(ctx0, il);
     lm_ggml_tensor * v = lm_ggml_view_4d(ctx0, k, v_cur->ne[0], k->ne[1], k->ne[2], k->ne[3], k->nb[1], k->nb[2], k->nb[3], 0);
 
-    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask_top_k, sinks, v_mla, kq_scale, il);
+    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask_top_k, sinks, v_mla, top_k->ne[0], kq_scale, il);
     cb(cur, "kqv_out", il);
 
     if (wo) {
@@ -3086,7 +3087,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     lm_ggml_tensor * k = mctx_cur->get_k(ctx0, il);
     lm_ggml_tensor * v = mctx_cur->get_v(ctx0, il);
 
-    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
+    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, 0, kq_scale, il);
     cb(cur, "kqv_out", il);
 
     if (v_rot) {
@@ -3157,7 +3158,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     lm_ggml_tensor * k = mctx_cur->get_k(ctx0, il);
     lm_ggml_tensor * v = lm_ggml_view_4d(ctx0, k, v_cur->ne[0], k->ne[1], k->ne[2], k->ne[3], k->nb[1], k->nb[2], k->nb[3], 0);
 
-    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
+    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, 0, kq_scale, il);
     cb(cur, "kqv_out", il);
 
     if (k_rot) {
@@ -3216,7 +3217,7 @@ lm_ggml_tensor * llm_graph_context::build_attn(
     lm_ggml_tensor * k = k_cur;
     lm_ggml_tensor * v = v_cur;
 
-    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
+    lm_ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, 0, kq_scale, il);
     cb(cur, "kqv_out", il);
 
     if (wo) {

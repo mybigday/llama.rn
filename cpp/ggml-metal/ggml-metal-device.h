@@ -145,6 +145,7 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_arg
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_argsort_merge     (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_fwht              (lm_ggml_metal_library_t lib, int n);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_top_k             (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_top_k_radix       (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_top_k_merge       (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op);
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_bin               (lm_ggml_metal_library_t lib, const struct lm_ggml_tensor * op, int32_t n_fuse );
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_bin_one           (lm_ggml_metal_library_t lib, enum lm_ggml_op op);
@@ -200,6 +201,10 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_fla
         int32_t ns10,
         int32_t ns20);
 
+struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn_ext_vec_idx(
+        lm_ggml_metal_library_t lib,
+        const struct lm_ggml_tensor * op);
+
 struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_flash_attn_ext_vec(
         lm_ggml_metal_library_t lib,
         const struct lm_ggml_tensor * op,
@@ -208,6 +213,7 @@ struct lm_ggml_metal_pipeline_with_params lm_ggml_metal_library_get_pipeline_fla
         bool    has_bias,
         bool    has_scap,
         bool    has_kvpad,
+        bool    has_sparse,
         int32_t nqpsg,
         int32_t ne,
         int32_t nsg,
@@ -258,6 +264,7 @@ enum lm_ggml_metal_device_id {
     LM_GGML_METAL_DEVICE_M5_PRO,
     LM_GGML_METAL_DEVICE_M5_MAX,
     LM_GGML_METAL_DEVICE_M5_ULTRA,
+    LM_GGML_METAL_DEVICE_A18_PRO,
 };
 
 const char * lm_ggml_metal_device_id_token(enum lm_ggml_metal_device_id id);

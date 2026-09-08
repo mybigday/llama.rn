@@ -627,6 +627,7 @@ extern "C" {
         LM_GGML_GLU_OP_SWIGLU_OAI,
         LM_GGML_GLU_OP_GEGLU_ERF,
         LM_GGML_GLU_OP_GEGLU_QUICK,
+        LM_GGML_GLU_OP_SWIGLU_CLAMP,
 
         LM_GGML_GLU_OP_COUNT,
     };
@@ -1365,6 +1366,12 @@ extern "C" {
             struct lm_ggml_tensor  * a,
             struct lm_ggml_tensor  * b,
             float                 alpha,
+            float                 limit);
+
+    LM_GGML_API struct lm_ggml_tensor * lm_ggml_swiglu_clamp(
+            struct lm_ggml_context * ctx,
+            struct lm_ggml_tensor  * a,
+            struct lm_ggml_tensor  * b,
             float                 limit);
 
     // normalize along rows
@@ -2445,6 +2452,12 @@ extern "C" {
 
     LM_GGML_API enum lm_ggml_prec lm_ggml_flash_attn_ext_get_prec(
             const struct lm_ggml_tensor * a);
+
+    // Use finite mask entries as a sparse K/V set. Set 0 to disable.
+    // n_kv_max must bound the number of finite entries in every mask row.
+    LM_GGML_API void lm_ggml_flash_attn_ext_set_n_kv_max(
+            struct lm_ggml_tensor * a,
+            int32_t              n_kv_max);
 
     LM_GGML_API void lm_ggml_flash_attn_ext_add_sinks(
             struct lm_ggml_tensor * a,

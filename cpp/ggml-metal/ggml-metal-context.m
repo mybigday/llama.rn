@@ -69,6 +69,10 @@ struct lm_ggml_metal {
     // extra command buffers for things like getting, setting and copying tensors
     NSMutableArray * cmd_bufs_ext;
 
+    // buffers to release after async Metal operations complete
+    // if Metal released them, it would do so on a Metal-internal thread without an autorelease pool, which could cause leaks
+    NSMutableArray * buf_refs;
+
     // the last command buffer queued into the Metal queue with operations relevant to the current Metal backend
     id<MTLCommandBuffer> cmd_buf_last;
 
@@ -84,106 +88,110 @@ struct lm_ggml_metal {
 lm_ggml_metal_t lm_ggml_metal_init(lm_ggml_metal_device_t dev) {
     LM_GGML_LOG_INFO("%s: allocating\n", __func__);
 
+    @autoreleasepool {
 #if TARGET_OS_OSX && !LM_GGML_METAL_NDEBUG
-    // Show all the Metal device instances in the system
-    NSArray * devices = MTLCopyAllDevices();
-    for (id<MTLDevice> device in devices) {
-        LM_GGML_LOG_INFO("%s: found device: %s\n", __func__, [[device name] UTF8String]);
-    }
-    [devices release]; // since it was created by a *Copy* C method
+        // Show all the Metal device instances in the system
+        NSArray * devices = MTLCopyAllDevices();
+        for (id<MTLDevice> device in devices) {
+            LM_GGML_LOG_INFO("%s: found device: %s\n", __func__, [[device name] UTF8String]);
+        }
+        [devices release]; // since it was created by a *Copy* C method
 #endif
 
-    // init context
-    lm_ggml_metal_t res = calloc(1, sizeof(struct lm_ggml_metal));
+        // init context
+        lm_ggml_metal_t res = calloc(1, sizeof(struct lm_ggml_metal));
 
-    id<MTLDevice> device = lm_ggml_metal_device_get_obj(dev);
+        id<MTLDevice> device = lm_ggml_metal_device_get_obj(dev);
 
-    LM_GGML_LOG_INFO("%s: picking default device: %s\n", __func__, [[device name] UTF8String]);
+        LM_GGML_LOG_INFO("%s: picking default device: %s\n", __func__, [[device name] UTF8String]);
 
-    // TODO: would it be better to have one queue for the backend and one queue for the device?
-    //       the graph encoders and async ops would use the backend queue while the sync ops would use the device queue?
-    //res->queue = [device newCommandQueue]; [TAG_QUEUE_PER_BACKEND]
-    id<MTLCommandQueue> queue = lm_ggml_metal_device_get_queue(dev);
-    if (queue == nil) {
-        LM_GGML_LOG_ERROR("%s: error: failed to create command queue\n", __func__);
-        return NULL;
-    }
-
-    res->dev = dev;
-    res->lib = lm_ggml_metal_device_get_library(dev);
-    if (res->lib == NULL) {
-        LM_GGML_LOG_WARN("%s: the device does not have a precompiled Metal library - this is unexpected\n", __func__);
-        LM_GGML_LOG_WARN("%s: will try to compile it on the fly\n", __func__);
-
-        res->lib = lm_ggml_metal_library_init(dev);
-        if (res->lib == NULL) {
-            LM_GGML_LOG_ERROR("%s: error: failed to initialize the Metal library\n", __func__);
-
+        // TODO: would it be better to have one queue for the backend and one queue for the device?
+        //       the graph encoders and async ops would use the backend queue while the sync ops would use the device queue?
+        //res->queue = [device newCommandQueue]; [TAG_QUEUE_PER_BACKEND]
+        id<MTLCommandQueue> queue = lm_ggml_metal_device_get_queue(dev);
+        if (queue == nil) {
+            LM_GGML_LOG_ERROR("%s: error: failed to create command queue\n", __func__);
             free(res);
-
             return NULL;
         }
-    }
 
-    res->ev_cpy = lm_ggml_metal_device_event_init(dev);
+        res->dev = dev;
+        res->lib = lm_ggml_metal_device_get_library(dev);
+        if (res->lib == NULL) {
+            LM_GGML_LOG_WARN("%s: the device does not have a precompiled Metal library - this is unexpected\n", __func__);
+            LM_GGML_LOG_WARN("%s: will try to compile it on the fly\n", __func__);
 
-    const struct lm_ggml_metal_device_props * props_dev = lm_ggml_metal_device_get_props(dev);
+            res->lib = lm_ggml_metal_library_init(dev);
+            if (res->lib == NULL) {
+                LM_GGML_LOG_ERROR("%s: error: failed to initialize the Metal library\n", __func__);
 
-    snprintf(res->name, sizeof(res->name), "%s", props_dev->name);
+                free(res);
 
-    res->d_queue = dispatch_queue_create("ggml-metal", DISPATCH_QUEUE_CONCURRENT);
-
-    res->use_fusion      = getenv("LM_GGML_METAL_FUSION_DISABLE") == nil;
-    res->use_concurrency = getenv("LM_GGML_METAL_CONCURRENCY_DISABLE") == nil;
-
-    {
-        const char * val = getenv("LM_GGML_METAL_GRAPH_DEBUG");
-        res->debug_graph = val ? atoi(val) : 0;
-    }
-
-    {
-        const char * val = getenv("LM_GGML_METAL_FUSION_DEBUG");
-        res->debug_fusion = val ? atoi(val) : 0;
-    }
-
-    res->use_graph_optimize = true;
-
-    if (getenv("LM_GGML_METAL_GRAPH_OPTIMIZE_DISABLE") != NULL) {
-        res->use_graph_optimize = false;
-    }
-
-    memset(res->fuse_cnt, 0, sizeof(res->fuse_cnt));
-
-    LM_GGML_LOG_INFO("%s: use fusion         = %s\n", __func__, res->use_fusion         ? "true" : "false");
-    LM_GGML_LOG_INFO("%s: use concurrency    = %s\n", __func__, res->use_concurrency    ? "true" : "false");
-    LM_GGML_LOG_INFO("%s: use graph optimize = %s\n", __func__, res->use_graph_optimize ? "true" : "false");
-
-    res->capture_compute = 0;
-    res->capture_started = false;
-    res->capture_scope = nil;
-
-    {
-        const char * val = getenv("LM_GGML_METAL_CAPTURE_COMPUTE");
-        if (val) {
-            res->capture_compute = atoi(val);
+                return NULL;
+            }
         }
+
+        res->ev_cpy = lm_ggml_metal_device_event_init(dev);
+
+        const struct lm_ggml_metal_device_props * props_dev = lm_ggml_metal_device_get_props(dev);
+
+        snprintf(res->name, sizeof(res->name), "%s", props_dev->name);
+
+        res->d_queue = dispatch_queue_create("ggml-metal", DISPATCH_QUEUE_CONCURRENT);
+
+        res->use_fusion      = getenv("LM_GGML_METAL_FUSION_DISABLE") == nil;
+        res->use_concurrency = getenv("LM_GGML_METAL_CONCURRENCY_DISABLE") == nil;
+
+        {
+            const char * val = getenv("LM_GGML_METAL_GRAPH_DEBUG");
+            res->debug_graph = val ? atoi(val) : 0;
+        }
+
+        {
+            const char * val = getenv("LM_GGML_METAL_FUSION_DEBUG");
+            res->debug_fusion = val ? atoi(val) : 0;
+        }
+
+        res->use_graph_optimize = true;
+
+        if (getenv("LM_GGML_METAL_GRAPH_OPTIMIZE_DISABLE") != NULL) {
+            res->use_graph_optimize = false;
+        }
+
+        memset(res->fuse_cnt, 0, sizeof(res->fuse_cnt));
+
+        LM_GGML_LOG_INFO("%s: use fusion         = %s\n", __func__, res->use_fusion         ? "true" : "false");
+        LM_GGML_LOG_INFO("%s: use concurrency    = %s\n", __func__, res->use_concurrency    ? "true" : "false");
+        LM_GGML_LOG_INFO("%s: use graph optimize = %s\n", __func__, res->use_graph_optimize ? "true" : "false");
+
+        res->capture_compute = 0;
+        res->capture_started = false;
+        res->capture_scope = nil;
+
+        {
+            const char * val = getenv("LM_GGML_METAL_CAPTURE_COMPUTE");
+            if (val) {
+                res->capture_compute = atoi(val);
+            }
+        }
+
+        res->has_error = false;
+
+        res->gf = nil;
+        res->encode_async = nil;
+        for (int i = 0; i < LM_GGML_METAL_MAX_COMMAND_BUFFERS; ++i) {
+            res->cmd_bufs[i].obj = nil;
+        }
+
+        res->cmd_bufs_ext = [[NSMutableArray alloc] init];
+        res->buf_refs     = [[NSMutableArray alloc] init];
+
+        res->cmd_buf_last = nil;
+
+        res->pipelines_ext = lm_ggml_metal_pipelines_init();
+
+        return res;
     }
-
-    res->has_error = false;
-
-    res->gf = nil;
-    res->encode_async = nil;
-    for (int i = 0; i < LM_GGML_METAL_MAX_COMMAND_BUFFERS; ++i) {
-        res->cmd_bufs[i].obj = nil;
-    }
-
-    res->cmd_bufs_ext = [[NSMutableArray alloc] init];
-
-    res->cmd_buf_last = nil;
-
-    res->pipelines_ext = lm_ggml_metal_pipelines_init();
-
-    return res;
 }
 
 void lm_ggml_metal_free(lm_ggml_metal_t ctx) {
@@ -203,6 +211,11 @@ void lm_ggml_metal_free(lm_ggml_metal_t ctx) {
 
     [ctx->cmd_bufs_ext removeAllObjects];
     [ctx->cmd_bufs_ext release];
+
+    @autoreleasepool {
+        [ctx->buf_refs removeAllObjects];
+        [ctx->buf_refs release];
+    }
 
     if (ctx->pipelines_ext) {
         lm_ggml_metal_pipelines_free(ctx->pipelines_ext);
@@ -292,6 +305,10 @@ void lm_ggml_metal_synchronize(lm_ggml_metal_t ctx) {
 
         [ctx->cmd_bufs_ext removeAllObjects];
     }
+
+    @autoreleasepool {
+        [ctx->buf_refs removeAllObjects];
+    }
 }
 
 static struct lm_ggml_metal_buffer_id lm_ggml_metal_get_buffer_id(const struct lm_ggml_tensor * t) {
@@ -335,6 +352,8 @@ void lm_ggml_metal_set_tensor_async(lm_ggml_metal_t ctx, struct lm_ggml_tensor *
 
         [encoder endEncoding];
         [cmd_buf commit];
+
+        [ctx->buf_refs addObject:buf_src];
         [buf_src release];
 
         // do not wait here for completion
@@ -379,6 +398,8 @@ void lm_ggml_metal_get_tensor_async(lm_ggml_metal_t ctx, const struct lm_ggml_te
 
         [encoder endEncoding];
         [cmd_buf commit];
+
+        [ctx->buf_refs addObject:buf_dst];
         [buf_dst release];
 
         // do not wait here for completion

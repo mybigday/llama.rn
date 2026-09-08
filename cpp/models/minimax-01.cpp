@@ -174,16 +174,14 @@ public:
     bool can_reuse(const llm_graph_params & params) override {
         bool res = true;
 
-        if (params.ubatch.n_seq_tokens > 1) {
-            res &= (   inp_q_decay &&    inp_q_decay->ne[2] == params.ubatch.n_seq_tokens);
-            res &= (   inp_k_decay &&    inp_k_decay->ne[2] == params.ubatch.n_seq_tokens);
-            res &= (inp_diag_decay && inp_diag_decay->ne[1] == params.ubatch.n_seq_tokens);
-        }
+        res &= (   inp_q_decay &&    inp_q_decay->ne[2] == params.ubatch.n_seq_tokens);
+        res &= (   inp_k_decay &&    inp_k_decay->ne[2] == params.ubatch.n_seq_tokens);
+        res &= (inp_diag_decay && inp_diag_decay->ne[1] == params.ubatch.n_seq_tokens);
 
         return res;
     }
 
-    const llama_hparams & hparams;
+    const llama_hparams hparams;
 
     lm_ggml_tensor * inp_slopes     = nullptr; // F32 [n_head]
     lm_ggml_tensor * inp_q_decay    = nullptr; // F32 [1, n_head, n_batch]
@@ -223,19 +221,17 @@ llama_model_minimax_01::graph::graph(const llama_model & model, const llm_graph_
     lm_ggml_set_input(inp->inp_slopes);
     cb(inp->inp_slopes, "slopes", -1);
 
-    if (n_seq_tokens != 1) {
-        inp->inp_q_decay = lm_ggml_new_tensor_4d(ctx0, LM_GGML_TYPE_F32, 1, n_head, n_seq_tokens, n_seqs);
-        lm_ggml_set_input(inp->inp_q_decay);
-        cb(inp->inp_q_decay, "q_decay_exp", -1);
+    inp->inp_q_decay = lm_ggml_new_tensor_4d(ctx0, LM_GGML_TYPE_F32, 1, n_head, n_seq_tokens, n_seqs);
+    lm_ggml_set_input(inp->inp_q_decay);
+    cb(inp->inp_q_decay, "q_decay_exp", -1);
 
-        inp->inp_k_decay = lm_ggml_new_tensor_4d(ctx0, LM_GGML_TYPE_F32, 1, n_head, n_seq_tokens, n_seqs);
-        lm_ggml_set_input(inp->inp_k_decay);
-        cb(inp->inp_k_decay, "k_decay_exp", -1);
+    inp->inp_k_decay = lm_ggml_new_tensor_4d(ctx0, LM_GGML_TYPE_F32, 1, n_head, n_seq_tokens, n_seqs);
+    lm_ggml_set_input(inp->inp_k_decay);
+    cb(inp->inp_k_decay, "k_decay_exp", -1);
 
-        inp->inp_diag_decay = lm_ggml_new_tensor_4d(ctx0, LM_GGML_TYPE_F32, n_seq_tokens, n_seq_tokens, n_head, n_seqs);
-        lm_ggml_set_input(inp->inp_diag_decay);
-        cb(inp->inp_diag_decay, "diag_decay_exp", -1);
-    }
+    inp->inp_diag_decay = lm_ggml_new_tensor_4d(ctx0, LM_GGML_TYPE_F32, n_seq_tokens, n_seq_tokens, n_head, n_seqs);
+    lm_ggml_set_input(inp->inp_diag_decay);
+    cb(inp->inp_diag_decay, "diag_decay_exp", -1);
 
     la = (llm_graph_input_la *) res->add_input(std::move(inp));
 
@@ -319,41 +315,8 @@ llama_model_minimax_01::graph::graph(const llama_model & model, const llm_graph_
 
             lm_ggml_tensor * qkv = nullptr;
             lm_ggml_tensor * kv_new = nullptr;
-
-            if (n_seq_tokens == 1) {
-                // lightning attention - optimized single token case for TG
-
-                lm_ggml_tensor * slopes_neg = lm_ggml_scale(ctx0, slope_rate, -1.0);
-                cb(slopes_neg, "slopes_neg", il);
-
-                lm_ggml_tensor * ratio = lm_ggml_exp(ctx0, slopes_neg);
-                cb(ratio, "ratio", il);
-
-                lm_ggml_tensor * ratio_3d = lm_ggml_reshape_3d(ctx0, ratio, 1, 1, n_head);
-                cb(ratio_3d, "ratio3d", il);
-
-                lm_ggml_tensor * v_trans = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, Vcur, 1, 2, 0, 3));
-                cb(v_trans, "v_trans", il);
-
-                lm_ggml_tensor * k_trans = lm_ggml_cont(ctx0, lm_ggml_permute(ctx0, Kcur, 1, 2, 0, 3));
-                cb(k_trans, "k_trans", il);
-
-                lm_ggml_tensor * kv_cur = lm_ggml_mul_mat(ctx0, k_trans, v_trans);
-                cb(kv_cur, "kv_cur", il);
-
-                lm_ggml_tensor * kv_old_s = lm_ggml_mul(ctx0, kv_old, ratio_3d);
-                cb(kv_old_s, "kv_old_s", il);
-
-                kv_new = lm_ggml_add(ctx0, kv_old_s, kv_cur);
-                cb(kv_new, "kv_new", il);
-
-                lm_ggml_tensor * q_trans = lm_ggml_permute(ctx0, Qcur, 0, 2, 1, 3);
-                cb(q_trans, "q_trans", il);
-
-                qkv = lm_ggml_mul_mat(ctx0, kv_new, q_trans);
-                cb(qkv, "qkv", il);
-            } else if(n_seq_tokens > 1) {
-                // lightning attention - general multi token case for PP
+            {
+                // lightning attention
 
                 lm_ggml_tensor *    q_decay_exp = la->inp_q_decay;
                 lm_ggml_tensor *    k_decay_exp = la->inp_k_decay;

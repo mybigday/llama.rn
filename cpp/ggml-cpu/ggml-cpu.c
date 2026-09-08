@@ -4,6 +4,7 @@
 #include "ggml-backend-impl.h"
 #include "ggml-backend.h"
 #include "traits.h"
+#include "iqp.h"
 #include "ggml-cpu-impl.h"
 #include "ggml-impl.h"
 #include "quants.h"
@@ -1363,6 +1364,13 @@ UseGgmlGemm1:;
 
     lm_ggml_barrier(params->threadpool);
 
+    // IQ panel gemm (see iqp.h) - must come after the barrier above, it consumes the q8_K rows
+    // of src1 from the work buffer
+    if (lm_ggml_cpu_iqp_supports_mul_mat(dst) && !params->use_ref) {
+        lm_ggml_compute_forward_mul_mat_iqp(params, dst);
+        return;
+    }
+
 #if LM_GGML_USE_LLAMAFILE
     if (src1->type != vec_dot_type) {
         const void* wdata = (src1->type == vec_dot_type) ? src1->data : params->wdata;
@@ -1580,6 +1588,16 @@ static void lm_ggml_compute_forward_mul_mat_id(
     char (*atomic_current_chunk)[CACHE_LINE_SIZE] = // [n_as]
         incr_ptr_aligned(&wdata_cur, CACHE_LINE_SIZE * n_as, CACHE_LINE_SIZE);
 
+    // IQ panel gemm (see iqp.h); per expert eligibility is decided below, but the work buffer is
+    // reserved for the whole node (lm_ggml_graph_plan sizes it without params, use_ref only skips the dispatch)
+    const bool iqp = lm_ggml_cpu_iqp_supports_mul_mat_id(dst) && !params->use_ref;
+
+    char * iqp_panels = NULL;
+
+    if (iqp) {
+        iqp_panels = incr_ptr_aligned(&wdata_cur, nth * lm_ggml_cpu_iqp_scratch_size(dst), 64);
+    }
+
     LM_GGML_ASSERT(params->wsize >= (size_t)((char *) wdata_cur - (char *) params->wdata));
 
     if (src1->type != vec_dot_type) {
@@ -1648,6 +1666,13 @@ static void lm_ggml_compute_forward_mul_mat_id(
         const int64_t cne1 = matrix_row_counts[cur_a];
 
         if (cne1 == 0) {
+            continue;
+        }
+
+        if (iqp && lm_ggml_cpu_iqp_mul_mat_id_min_batch(cne1)) {
+            lm_ggml_compute_forward_mul_mat_id_iqp(params, dst, cur_a, cne1, (const int32_t *) &MMID_MATRIX_ROW(cur_a, 0),
+                                                iqp_panels);
+
             continue;
         }
 
@@ -2311,6 +2336,7 @@ static int lm_ggml_get_n_tasks(struct lm_ggml_tensor * node, int n_threads) {
                 case LM_GGML_GLU_OP_SWIGLU_OAI:
                 case LM_GGML_GLU_OP_GEGLU_ERF:
                 case LM_GGML_GLU_OP_GEGLU_QUICK:
+                case LM_GGML_GLU_OP_SWIGLU_CLAMP:
                     {
                         n_tasks = n_threads;
                     } break;
@@ -2857,6 +2883,11 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
                         if (node->src[1]->type != vec_dot_type) {
                             cur = lm_ggml_row_size(vec_dot_type, lm_ggml_nelements(node->src[1]));
                         }
+
+                        // the IQ panel path needs one scratch panel per thread past the q8_K rows
+                        if (lm_ggml_cpu_iqp_supports_mul_mat(node)) {
+                            cur = LM_GGML_PAD(cur, 64) + n_tasks * lm_ggml_cpu_iqp_scratch_size(node);
+                        }
                     } break;
                 case LM_GGML_OP_MUL_MAT_ID:
                     {
@@ -2876,6 +2907,10 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
                         cur += n_as*ids->ne[0]*ids->ne[1]*sizeof(struct mmid_row_mapping) + sizeof(int64_t);
                         // atomic_current_chunk
                         cur += CACHE_LINE_SIZE*n_as + CACHE_LINE_SIZE;
+                        // the IQ panel path needs one scratch panel per thread on top of that
+                        if (lm_ggml_cpu_iqp_supports_mul_mat_id(node)) {
+                            cur += n_tasks * lm_ggml_cpu_iqp_scratch_size(node) + 64;
+                        }
                     } break;
                 case LM_GGML_OP_OUT_PROD:
                     {
@@ -2936,12 +2971,13 @@ struct lm_ggml_cplan lm_ggml_graph_plan(
                         const int64_t ne10 = node->src[1]->ne[0]; // W
                         const int64_t ne11 = node->src[1]->ne[1]; // H
                         const int64_t ne12 = node->src[1]->ne[2]; // Channels In
+                        const int64_t ne13 = node->src[1]->ne[3]; // Batch
 
                         LM_GGML_ASSERT(node->src[0]->type == LM_GGML_TYPE_F16 || node->src[0]->type == LM_GGML_TYPE_F32);
                         LM_GGML_ASSERT(node->src[1]->type == LM_GGML_TYPE_F32);
 
                         cur += lm_ggml_type_size(node->src[0]->type) * ne00 * ne01 * ne02 * ne03;
-                        cur += lm_ggml_type_size(node->src[0]->type) * ne10 * ne11 * ne12;
+                        cur += lm_ggml_type_size(node->src[0]->type) * ne10 * ne11 * ne12 * ne13;
 
                     } break;
                 case LM_GGML_OP_TOP_K:

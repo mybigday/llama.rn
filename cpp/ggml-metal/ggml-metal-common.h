@@ -47,6 +47,10 @@ bool lm_ggml_mem_ranges_check(lm_ggml_mem_ranges_t mrs, const struct lm_ggml_ten
 //       if it proves to work well, we can start using it for other backends in the future
 void lm_ggml_graph_optimize(struct lm_ggml_cgraph * gf);
 
+// mat-mat vs mat-vec dispatch; used by both supports_op and lm_ggml_metal_op_mul_mat*
+bool lm_ggml_metal_op_mul_mat_use_mm   (const struct lm_ggml_tensor * op, bool has_simdgroup_mm);
+bool lm_ggml_metal_op_mul_mat_id_use_mm(const struct lm_ggml_tensor * op, bool has_simdgroup_mm);
+
 #ifdef __cplusplus
 }
 #endif
