@@ -417,6 +417,14 @@ function(build_rnllama_library target_name arch cpu_flags)
             flash_attn_f32_q8_0
             flash_attn_f32_q4_0
             gemm_xmem_f16_f32_os8
+            gemm_noshuffle_q6_k_f32_tiled
+            gemv_noshuffle_q4_k_f32_o4
+            gemv_noshuffle_q4_k_f32_tiled
+            gemv_noshuffle_q6_k_f32_o4
+            gemv_noshuffle_q6_k_f32_tiled
+            mul_mv_f16_f32_mrow
+            sdpa_xmem_f32_f16_os8
+            unary_ext
         )
         set(GGML_OPENCL_KERNEL_DIR ${RNLLAMA_LIB_DIR}/ggml-opencl/kernels)
         set(GGML_OPENCL_KERNEL_HEADERS "")

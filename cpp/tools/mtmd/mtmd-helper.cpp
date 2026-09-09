@@ -393,13 +393,17 @@ static bool is_webp_file(const unsigned char * buf, size_t len) {
 }
 
 #ifdef MTMD_VIDEO
-static mtmd_bitmap * decode_webp_with_ffmpeg(mtmd_context * mctx, const unsigned char * buf, size_t len, bool placeholder);
+static mtmd_bitmap * decode_webp_with_ffmpeg(const mtmd_context * mctx, const unsigned char * buf, size_t len, bool placeholder,
+                                             const mtmd_helper_video_init_params & params);
 #endif
 
-mtmd_helper_bitmap_wrapper mtmd_helper_bitmap_init_from_buf(mtmd_context * ctx, const unsigned char * buf, size_t len, bool placeholder) {
+mtmd_helper_bitmap_wrapper mtmd_helper_bitmap_init_from_buf(const mtmd_context * ctx, const unsigned char * buf, size_t len, bool placeholder,
+                                                            mtmd_helper_init_opt opt) {
     // calculate the hash if needed
     std::string id;
     mtmd_bitmap * result = nullptr;
+
+    GGML_UNUSED(opt); // only used by video code paths
 
     if (!placeholder) {
         // use sha256 to prevent cache poisoning
@@ -438,7 +442,7 @@ mtmd_helper_bitmap_wrapper mtmd_helper_bitmap_init_from_buf(mtmd_context * ctx, 
 #ifdef MTMD_VIDEO
     // stb_image does not support webp; decode it with ffmpeg as a single frame
     if (!result && is_webp_file(buf, len)) {
-        result = decode_webp_with_ffmpeg(ctx, buf, len, placeholder);
+        result = decode_webp_with_ffmpeg(ctx, buf, len, placeholder, opt.video_params);
         if (!result) {
             LOG_ERR("%s: failed to decode webp buffer\n", __func__);
             return {nullptr, nullptr};
@@ -451,8 +455,7 @@ mtmd_helper_bitmap_wrapper mtmd_helper_bitmap_init_from_buf(mtmd_context * ctx, 
     // last try: load as video
 #ifdef MTMD_VIDEO
     if (!result) {
-        auto params = mtmd_helper_video_init_params_default();
-        auto video_ctx = mtmd_helper_video_init_from_buf(ctx, buf, len, params);
+        auto video_ctx = mtmd_helper_video_init_from_buf(ctx, buf, len, opt.video_params);
         if (!video_ctx) {
             LOG_ERR("%s: failed to decode buffer as either image/audio/video\n", __func__);
             return {nullptr, nullptr};
@@ -480,7 +483,8 @@ mtmd_helper_bitmap_wrapper mtmd_helper_bitmap_init_from_buf(mtmd_context * ctx, 
     return {nullptr, nullptr};
 }
 
-mtmd_helper_bitmap_wrapper mtmd_helper_bitmap_init_from_file(mtmd_context * ctx, const char * fname, bool placeholder) {
+mtmd_helper_bitmap_wrapper mtmd_helper_bitmap_init_from_file(const mtmd_context * ctx, const char * fname, bool placeholder,
+                                                             mtmd_helper_init_opt opt) {
 #ifdef _WIN32
     int wlen = MultiByteToWideChar(CP_UTF8, 0, fname, -1, NULL, 0);
     if (!wlen) {
@@ -521,10 +525,10 @@ mtmd_helper_bitmap_wrapper mtmd_helper_bitmap_init_from_file(mtmd_context * ctx,
         return {nullptr, nullptr};
     }
 
-    return mtmd_helper_bitmap_init_from_buf(ctx, buf.data(), buf.size(), placeholder);
+    return mtmd_helper_bitmap_init_from_buf(ctx, buf.data(), buf.size(), placeholder, opt);
 }
 
-bool mtmd_helper_support_video(mtmd_context * ctx) {
+bool mtmd_helper_support_video(const mtmd_context * ctx) {
 #ifdef MTMD_VIDEO
     return mtmd_support_vision(ctx);
 #else
@@ -540,7 +544,7 @@ bool mtmd_helper_support_video(mtmd_context * ctx) {
 #ifdef MTMD_VIDEO
 
 struct mtmd_helper_video {
-    mtmd_context * mctx;
+    const mtmd_context * mctx;
     std::string path;
     std::vector<uint8_t> input_buf; // non-empty when initialized from buffer
     std::string ffmpeg_bin;
@@ -879,6 +883,12 @@ mtmd_helper_video_init_params mtmd_helper_video_init_params_default() {
     };
 }
 
+mtmd_helper_init_opt mtmd_helper_init_opt_default() {
+    return {
+        /* video_params */ mtmd_helper_video_init_params_default(),
+    };
+}
+
 static std::string video_resolve_bin(const char * bin_dir, const char * name) {
     if (!bin_dir || bin_dir[0] == '\0') {
         return name; // rely on PATH
@@ -900,8 +910,8 @@ static std::string video_resolve_bin(const char * bin_dir, const char * name) {
 }
 
 #ifdef MTMD_VIDEO
-static mtmd_bitmap * decode_webp_with_ffmpeg(mtmd_context * mctx, const unsigned char * buf, size_t len, bool placeholder) {
-    auto params = mtmd_helper_video_init_params_default();
+static mtmd_bitmap * decode_webp_with_ffmpeg(const mtmd_context * mctx, const unsigned char * buf, size_t len, bool placeholder,
+                                             const mtmd_helper_video_init_params & params) {
     mtmd_helper_video vctx;
     vctx.mctx        = mctx;
     vctx.input_buf.assign(buf, buf + len);
@@ -927,7 +937,7 @@ static mtmd_bitmap * decode_webp_with_ffmpeg(mtmd_context * mctx, const unsigned
 #endif
 
 mtmd_helper_video * mtmd_helper_video_init(
-        mtmd_context * mctx,
+        const mtmd_context * mctx,
         const char * path,
         mtmd_helper_video_init_params params) {
 #ifdef MTMD_VIDEO
@@ -962,7 +972,7 @@ mtmd_helper_video * mtmd_helper_video_init(
 }
 
 mtmd_helper_video * mtmd_helper_video_init_from_buf(
-        mtmd_context * mctx,
+        const mtmd_context * mctx,
         const unsigned char * buf, size_t len,
         mtmd_helper_video_init_params params) {
 #ifdef MTMD_VIDEO
@@ -1030,7 +1040,7 @@ int32_t mtmd_helper_video_read_next(mtmd_helper_video * ctx,
 #endif
 }
 
-bool mtmd_helper_model_can_chat(llama_context * lctx, mtmd_context * mctx) {
+bool mtmd_helper_model_can_chat(const llama_context * lctx, const mtmd_context * mctx) {
     if (!mctx) {
         return true;
     }

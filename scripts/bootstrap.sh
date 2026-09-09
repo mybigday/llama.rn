@@ -142,6 +142,8 @@ cp ./$LLAMA_DIR/ggml/src/ggml-cpu/repack.h ./cpp/ggml-cpu/repack.h
 cp ./$LLAMA_DIR/ggml/src/ggml-cpu/traits.h ./cpp/ggml-cpu/traits.h
 cp ./$LLAMA_DIR/ggml/src/ggml-cpu/traits.cpp ./cpp/ggml-cpu/traits.cpp
 cp ./$LLAMA_DIR/ggml/src/ggml-cpu/common.h ./cpp/ggml-cpu/common.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/iqp.h ./cpp/ggml-cpu/iqp.h
+cp ./$LLAMA_DIR/ggml/src/ggml-cpu/iqp.cpp ./cpp/ggml-cpu/iqp.cpp
 
 cp ./$LLAMA_DIR/ggml/src/ggml-cpu/unary-ops.h ./cpp/ggml-cpu/unary-ops.h
 cp ./$LLAMA_DIR/ggml/src/ggml-cpu/unary-ops.cpp ./cpp/ggml-cpu/unary-ops.cpp
@@ -216,6 +218,8 @@ cp ./$LLAMA_DIR/src/llama-kv-cache-iswa.h ./cpp/llama-kv-cache-iswa.h
 cp ./$LLAMA_DIR/src/llama-kv-cache-iswa.cpp ./cpp/llama-kv-cache-iswa.cpp
 cp ./$LLAMA_DIR/src/llama-memory-hybrid.h ./cpp/llama-memory-hybrid.h
 cp ./$LLAMA_DIR/src/llama-memory-hybrid.cpp ./cpp/llama-memory-hybrid.cpp
+cp ./$LLAMA_DIR/src/llama-memory-hybrid-idx.h ./cpp/llama-memory-hybrid-idx.h
+cp ./$LLAMA_DIR/src/llama-memory-hybrid-idx.cpp ./cpp/llama-memory-hybrid-idx.cpp
 cp ./$LLAMA_DIR/src/llama-memory-hybrid-iswa.h ./cpp/llama-memory-hybrid-iswa.h
 cp ./$LLAMA_DIR/src/llama-memory-hybrid-iswa.cpp ./cpp/llama-memory-hybrid-iswa.cpp
 cp ./$LLAMA_DIR/src/llama-memory-recurrent.h ./cpp/llama-memory-recurrent.h
@@ -416,6 +420,15 @@ cat > ./cpp/rn-llama-version.h <<EOF
 #define LLAMA_VERSION "$LLAMA_VERSION_MAJOR.$LLAMA_VERSION_MINOR.$LLAMA_VERSION_PATCH-dev"
 EOF
 
+# Generate ggml-version.h from upstream template (used by ggml.c)
+# This will be updated with actual build info after we get the commit count
+cat > ./cpp/ggml-version.h <<EOF
+#pragma once
+
+#define GGML_VERSION "unknown"
+#define GGML_COMMIT  "unknown"
+EOF
+
 # Apply patch
 # List ./scripts/patches/ and patch it
 for patch_file in ./scripts/patches/*.patch; do
@@ -522,3 +535,19 @@ sed -e "s|@LLAMA_BUILD_NUMBER@|$BUILD_NUMBER|g" \
     -e "s|@BUILD_COMPILER@|unknown|g" \
     -e "s|@BUILD_TARGET@|unknown|g" \
     "$LLAMA_DIR/common/build-info.cpp.in" > "$CPP_DIR/common/build-info.cpp"
+
+# Update ggml-version.h with actual build info
+cat > "$CPP_DIR/ggml-version.h" <<EOF
+#pragma once
+
+#define GGML_VERSION "$BUILD_NUMBER"
+#define GGML_COMMIT  "$BUILD_COMMIT"
+EOF
+
+# Generate llama-version.h from upstream template (used by llama.cpp)
+cat > "$CPP_DIR/llama-version.h" <<EOF
+#pragma once
+
+#define LLAMA_VERSION "$LLAMA_VERSION_MAJOR.$LLAMA_VERSION_MINOR.$LLAMA_VERSION_PATCH-dev"
+#define LLAMA_COMMIT  "$BUILD_COMMIT"
+EOF

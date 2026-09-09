@@ -204,7 +204,7 @@ inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrappe
             LOG_INFO("[DEBUG] Base64 decoded, size: %zu bytes", media_data.size());
 
             // Load bitmap from memory buffer using direct initialization
-            auto loaded = mtmd_helper_bitmap_init_from_buf(mtmd_wrapper->mtmd_ctx, media_data.data(), media_data.size(), false);
+            auto loaded = mtmd_helper_bitmap_init_from_buf(mtmd_wrapper->mtmd_ctx, media_data.data(), media_data.size(), false, mtmd_helper_init_opt_default());
             if (loaded.video_ctx) {
                 videos.emplace_back(loaded.video_ctx);
             }
@@ -247,7 +247,7 @@ inline mtmd_tokenize_result tokenizeWithMedia(llama_rn_context_mtmd *mtmd_wrappe
             fclose(file);
 
             // Create bitmap directly
-            auto loaded = mtmd_helper_bitmap_init_from_file(mtmd_wrapper->mtmd_ctx, media_path.c_str(), false);
+            auto loaded = mtmd_helper_bitmap_init_from_file(mtmd_wrapper->mtmd_ctx, media_path.c_str(), false, mtmd_helper_init_opt_default());
             if (loaded.video_ctx) {
                 videos.emplace_back(loaded.video_ctx);
             }
