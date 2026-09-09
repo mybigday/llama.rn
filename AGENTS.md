@@ -15,14 +15,14 @@
 1. **TypeScript API (`src/`)**
    - `src/index.ts` provides the public API and binds to JSI globals installed by `installJsi()`
    - `src/jsi.ts` handles global function exports/imports and type safety
-   - `src/types.ts` and `src/grammar.ts` house shared types and grammar helpers
+   - `src/types.ts` houses shared types
    - `src/NativeRNLlama.ts` is a minimal TurboModule exposing only `install()` to trigger JSI setup
    - Streaming callbacks flow directly over JSI (no React Native event emitters)
 
 2. **JSI Bridge (`cpp/jsi/` + platform glue)**
    - Core bindings in `cpp/jsi/RNLlamaJSI.cpp` with helpers (`JSIParams`, `JSICompletion`, `JSISession`, `JSIRequestManager`, `ThreadPool`, etc.)
-   - iOS install path: `ios/RNLlama.mm` + `ios/RNLlamaJSI.mm` register bindings on the JS runtime
-   - Android install path: `android/src/main/java/com/rnllama/RNLlama.java` (native lib loader + HTP extraction), `android/src/main/java/com/rnllama/RNLlamaModuleShared.java`, and `android/src/main/RNLlamaJSI.cpp`
+   - iOS install path: `ios/RNLlama.mm` registers bindings on the JS runtime via `rnllama_jsi::installJSIBindings`
+   - Android install path: `android/src/main/java/com/rnllama/RNLlama.java` (native lib loader + HTP extraction), `android/src/main/java/com/rnllama/RNLlamaModule.java` (TurboModule entry point), and `android/src/main/RNLlamaJSI.cpp`
 
 3. **C++ Core (`cpp/`)**
    - llama.cpp sources are copied from `third_party/llama.cpp` with `LM_`/`lm_` prefixes
@@ -81,9 +81,9 @@ npm run build:android          # Build Android example app
 
 ## Development Workflow
 
-- **TypeScript layer:** Edit `src/index.ts`, `src/types.ts`, `src/jsi.ts`, and `src/grammar.ts`. `NativeRNLlama.install()` only installs JSI; all APIs are invoked via JSI bindings. Run `npm run typecheck` and `npm run lint` before committing.
+- **TypeScript layer:** Edit `src/index.ts`, `src/types.ts`, and `src/jsi.ts`. `NativeRNLlama.install()` only installs JSI; all APIs are invoked via JSI bindings. Run `npm run typecheck` and `npm run lint` before committing.
 - **C++ core:** Edit files in `cpp/`. The example app builds from source, so `npm run build:ios` / `npm run build:android` will compile your C++ changes directly. If you update llama.cpp itself, change `third_party/llama.cpp` and rerun `npm run bootstrap`. For releasing pre-built frameworks/libs, run `npm run build:ios-frameworks` / `npm run build:android-libs`.
-- **JSI bridge/platform glue:** Implement binding logic in `cpp/jsi/*`. iOS installs live in `ios/RNLlama.mm` + `ios/RNLlamaJSI.mm`; Android uses `android/src/main/java/com/rnllama/RNLlama.java` (native loader), `android/src/main/java/com/rnllama/RNLlamaModuleShared.java`, and `android/src/main/RNLlamaJSI.cpp`.
+- **JSI bridge/platform glue:** Implement binding logic in `cpp/jsi/*`. iOS installs live in `ios/RNLlama.mm`; Android uses `android/src/main/java/com/rnllama/RNLlama.java` (native loader), `android/src/main/java/com/rnllama/RNLlamaModule.java`, and `android/src/main/RNLlamaJSI.cpp`.
 
 ### Adding Patches
 
@@ -105,11 +105,11 @@ If llama.cpp sources need modifications:
 
 ## Key Files Reference
 
-- `src/index.ts`, `src/jsi.ts`, `src/types.ts`, `src/grammar.ts`, `src/NativeRNLlama.ts`
+- `src/index.ts`, `src/jsi.ts`, `src/types.ts`, `src/NativeRNLlama.ts`
 - `cpp/jsi/RNLlamaJSI.cpp` (+ helpers: `JSIParams.h/.cpp`, `JSICompletion.h`, `JSISession.h`, `JSIRequestManager.h`, `ThreadPool.*`)
 - `cpp/rn-llama.cpp`, `cpp/rn-completion.cpp`, `cpp/rn-slot.cpp`, `cpp/rn-slot-manager.cpp`, `cpp/rn-mtmd.hpp`, `cpp/rn-tts.cpp`
-- `ios/RNLlama.mm`, `ios/RNLlamaJSI.mm`
+- `ios/RNLlama.mm`
 - `android/src/main/java/com/rnllama/RNLlama.java`
-- `android/src/main/java/com/rnllama/RNLlamaModuleShared.java`
+- `android/src/main/java/com/rnllama/RNLlamaModule.java`
 - `android/src/main/RNLlamaJSI.cpp`
 - `llama-rn.podspec`, `android/build.gradle`, `tests/`
