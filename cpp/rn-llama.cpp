@@ -16,6 +16,10 @@
 #include <cstdio>
 #include <fstream>
 
+#if defined(__ANDROID__)
+#include <android/set_abort_message.h>
+#endif
+
 namespace rnllama {
 
 namespace {
@@ -50,6 +54,22 @@ bool has_speculative_type(const common_params_speculative &speculative, common_s
 
 std::string get_backend_devices_info() {
     return backend_devices_info();
+}
+
+// ggml only prints its fatal assertion message to stderr, which logcat does not capture, so an
+// Android crash report would carry just a SIGABRT backtrace. Forward the message to the platform
+// log (and to the tombstone) before the process aborts.
+static void ggml_abort_log_callback(const char *message) {
+    log("ERROR", "ggml_abort", 0, "%s", message);
+#if defined(__ANDROID__)
+    android_set_abort_message(message);
+#else
+    fprintf(stderr, "%s\n", message);
+#endif
+}
+
+void install_ggml_abort_handler() {
+    lm_ggml_set_abort_callback(ggml_abort_log_callback);
 }
 
 static const std::vector<lm_ggml_type> kv_cache_types = {

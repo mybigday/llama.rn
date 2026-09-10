@@ -465,6 +465,7 @@ namespace rnllama_jsi {
         jsi::Runtime& runtime,
         std::shared_ptr<react::CallInvoker> callInvoker
     ) {
+        rnllama::install_ggml_abort_handler();
         TaskManager::getInstance().reset();
         auto initContext = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaInitContext"),
