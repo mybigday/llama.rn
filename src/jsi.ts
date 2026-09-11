@@ -101,7 +101,7 @@ declare global {
   var llamaIsVocoderEnabled: (contextId: number) => Promise<boolean>
   var llamaGetFormattedAudioCompletion: (
     contextId: number,
-    speaker: string,
+    speaker: Record<string, any> | null,
     text: string,
     speakerId?: number,
   ) => Promise<{
@@ -157,7 +157,14 @@ declare global {
   ) => Promise<number[]>
   var llamaGenerateAudioCodes: (
     contextId: number,
-    optsJson: string,
+    opts: {
+      prompt: string
+      maxFrames?: number
+      temperature?: number
+      topP?: number
+      topK?: number
+      seed?: number
+    },
     onFrame?: (step: number, codes: number[]) => void,
   ) => Promise<{
     codes: number[]
@@ -168,7 +175,13 @@ declare global {
   }>
   var llamaCreateSpeaker: (
     contextId: number,
-    optsJson: string,
+    pcm: Float32Array | number[],
+    opts: {
+      inputSampleRate: number
+      refText: string
+      bake: boolean
+      emotion?: number
+    },
   ) => Promise<{ id: number; family: string; rows: number; baked: boolean }>
   var llamaBakeSpeaker: (
     contextId: number,

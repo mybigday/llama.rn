@@ -51,10 +51,10 @@ it('getFormattedAudioCompletion forwards speaker.id when passed a LlamaSpeaker a
     speaker: spk,
   })
 
-  // Native call must receive empty speakerStr and the speaker id as 4th arg
+  // Native call must receive a null speaker payload and the speaker id as 4th arg
   expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
     ctx.id,
-    '',
+    null,
     'hello',
     spk.id,
   )
@@ -67,7 +67,7 @@ it('getFormattedAudioCompletion forwards speaker.id when passed a LlamaSpeaker a
   expect(result).toHaveProperty('flow')
 })
 
-it('getFormattedAudioCompletion forwards a structured speaker payload as JSON (not the default voice)', async () => {
+it('getFormattedAudioCompletion forwards a structured speaker payload as-is (not the default voice)', async () => {
   mockGetFormattedAudioCompletion.mockClear()
 
   // NeuTTSSpeaker-shaped payload (already phonemized) with custom reference codes.
@@ -75,11 +75,11 @@ it('getFormattedAudioCompletion forwards a structured speaker payload as JSON (n
 
   await ctx.getFormattedAudioCompletion({ prompt: 'hello', speaker: payload })
 
-  // The supplied payload must be serialized and passed as the speakerStr arg —
+  // The supplied payload must be passed through as the speaker arg —
   // NOT silently replaced by the built-in default voice.
   expect(mockGetFormattedAudioCompletion).toHaveBeenCalledWith(
     ctx.id,
-    JSON.stringify(payload),
+    payload,
     'hello',
   )
 })

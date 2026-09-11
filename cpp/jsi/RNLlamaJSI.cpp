@@ -9,6 +9,7 @@
 #include "JSIRequestManager.h"
 #include "JSITaskManager.h"
 #include "JSINativeHeaders.h"
+#include "JSIJson.h"
 
 #include <algorithm>
 #include <atomic>
@@ -2017,7 +2018,14 @@ namespace rnllama_jsi {
             4,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                std::string speakerJsonStr = arguments[1].asString(runtime).utf8(runtime);
+                // Speaker payload arrives as a JS object (or null when the
+                // caller relies on a registered speaker id). rn-tts still
+                // consumes it as a JSON string, so serialize here on the JS
+                // thread instead of asking JS to JSON.stringify.
+                std::string speakerJsonStr;
+                if (arguments[1].isObject()) {
+                    speakerJsonStr = toJson(runtime, arguments[1]).dump();
+                }
                 std::string textToSpeak = arguments[2].asString(runtime).utf8(runtime);
                 // Optional 4th arg: speakerId (registry id >= 0, or -1 for none).
                 int speakerId = (count >= 4 && arguments[3].isNumber())
@@ -2105,8 +2113,8 @@ namespace rnllama_jsi {
 
         // generateAudioCodes — drives the backbone + codec_lm AR loop for
         // codec_lm-flow models (CSM, etc.).  Args:
-        //   (contextId, optsJson, onFrame?)
-        // optsJson: { prompt, maxFrames?, temperature?, topP?, topK?, seed? }
+        //   (contextId, opts, onFrame?)
+        // opts: { prompt, maxFrames?, temperature?, topP?, topK?, seed? }
         // onFrame:  optional (step:number, codes:number[]) => void — fired
         //           per-frame as audio codes are produced.
         // Returns { codes:number[], nCodebook, nFrames, stoppedOnEos, aborted }.
@@ -2115,7 +2123,10 @@ namespace rnllama_jsi {
             3,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                std::string optsJson = arguments[1].asString(runtime).utf8(runtime);
+                json optsObj = toJson(runtime, arguments[1]);
+                if (!optsObj.is_object()) {
+                    throw jsi::JSError(runtime, "generateAudioCodes: options must be an object");
+                }
 
                 std::shared_ptr<jsi::Function> onFrame;
                 if (count >= 3 && arguments[2].isObject() &&
@@ -2125,22 +2136,21 @@ namespace rnllama_jsi {
                 }
                 jsi::Runtime * runtimePtr = &runtime;
 
-                return createPromiseTask(runtime, callInvoker, [contextId, optsJson, onFrame, runtimePtr, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, optsObj, onFrame, runtimePtr, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
 
                     rnllama::llama_rn_audio_codes_options opts;
                     try {
-                        auto j = nlohmann::ordered_json::parse(optsJson);
+                        const json & j = optsObj;
                         opts.prompt      = j.value("prompt", std::string());
                         opts.max_frames  = j.value("maxFrames",   500);
                         opts.temperature = j.value("temperature", 0.9f);
                         opts.top_p       = j.value("topP",        0.95f);
                         opts.top_k       = j.value("topK",        50);
                         opts.seed        = j.value("seed",        0u);
-
                     } catch (const std::exception &e) {
-                        throw std::runtime_error(std::string("invalid options JSON: ") + e.what());
+                        throw std::runtime_error(std::string("generateAudioCodes: invalid options: ") + e.what());
                     }
                     if (opts.prompt.empty()) {
                         throw std::runtime_error("generateAudioCodes: prompt is empty");
@@ -2189,18 +2199,22 @@ namespace rnllama_jsi {
         );
         runtime.global().setProperty(runtime, "llamaGenerateAudioCodes", generateAudioCodes);
 
-        // llamaCreateSpeaker(ctxId, optsJson)
-        //   optsJson: { pcm: number[], inputSampleRate: number, refText: string,
-        //               bake: boolean, emotion?: number }
+        // llamaCreateSpeaker(ctxId, pcm, opts)
+        //   pcm:  Float32Array | number[] (reference audio samples)
+        //   opts: { inputSampleRate: number, refText?: string,
+        //           bake?: boolean, emotion?: number }
         // Resolves: { id: number, family: string, rows: number, baked: boolean }
         auto createSpeaker = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaCreateSpeaker"),
-            2,
+            3,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                std::string optsJson = arguments[1].asString(runtime).utf8(runtime);
+                std::vector<float> pcm = toFloatVector(runtime, arguments[1]);
+                json opts = count > 2 ? toJson(runtime, arguments[2]) : json::object();
+                if (!opts.is_object()) {
+                    throw jsi::JSError(runtime, "createSpeaker: options must be an object");
+                }
 
-                std::vector<float> pcm;
                 int inputSampleRate = 0;
                 std::string refText;
                 float emotion = 0.5f;
@@ -2208,22 +2222,15 @@ namespace rnllama_jsi {
                 bool bake = false;
 
                 try {
-                    auto j = nlohmann::ordered_json::parse(optsJson);
-                    if (j.contains("pcm") && j["pcm"].is_array()) {
-                        pcm.reserve(j["pcm"].size());
-                        for (const auto & v : j["pcm"]) {
-                            pcm.push_back((float) v.get<double>());
-                        }
-                    }
-                    inputSampleRate = j.value("inputSampleRate", 0);
-                    refText         = j.value("refText", std::string());
-                    bake            = j.value("bake", false);
-                    if (j.contains("emotion") && j["emotion"].is_number()) {
+                    inputSampleRate = opts.value("inputSampleRate", 0);
+                    refText         = opts.value("refText", std::string());
+                    bake            = opts.value("bake", false);
+                    if (opts.contains("emotion") && opts["emotion"].is_number()) {
                         has_emotion = true;
-                        emotion = (float) j["emotion"].get<double>();
+                        emotion = (float) opts["emotion"].get<double>();
                     }
                 } catch (const std::exception & e) {
-                    throw std::runtime_error(std::string("createSpeaker: invalid options JSON: ") + e.what());
+                    throw jsi::JSError(runtime, std::string("createSpeaker: invalid options: ") + e.what());
                 }
 
                 return createPromiseTask(runtime, callInvoker, [contextId, pcm, inputSampleRate, refText, emotion, has_emotion, bake]() -> PromiseResultGenerator {

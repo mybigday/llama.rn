@@ -1159,20 +1159,20 @@ export class LlamaContext {
 
     const { llamaGetFormattedAudioCompletion } = getJsi()
 
-    // 2. LlamaSpeaker handle path: pass empty speakerStr + the speaker id so
-    //    native arms pending_speaker_id from the registry. Downstream
+    // 2. LlamaSpeaker handle path: pass a null speaker payload + the speaker
+    //    id so native arms pending_speaker_id from the registry. Downstream
     //    completion / generateAudioCodes calls inject the speaker automatically.
     if (options.speaker instanceof LlamaSpeaker) {
       return llamaGetFormattedAudioCompletion(
         this.id,
-        '',
+        null,
         inputText,
         options.speaker.id,
       )
     }
 
     // 3. Otherwise resolve to a pre-baked speaker payload (an OuteTTSSpeaker /
-    //    NeuTTSSpeaker config) and forward it to native as speaker JSON. A
+    //    NeuTTSSpeaker config) and forward it to native as an object. A
     //    structured object is used directly; a string name — or `undefined`,
     //    which means 'default' — resolves against the built-in voice table,
     //    whose entries are themselves pre-baked payloads. Native never sees a
@@ -1216,8 +1216,7 @@ export class LlamaContext {
       )
     }
 
-    const speakerStr = payload ? JSON.stringify(payload) : ''
-    return llamaGetFormattedAudioCompletion(this.id, speakerStr, inputText)
+    return llamaGetFormattedAudioCompletion(this.id, payload, inputText)
   }
 
   async decodeAudioTokens(tokens: number[]): Promise<Array<number>> {
@@ -1262,8 +1261,7 @@ export class LlamaContext {
   }> {
     const { llamaGenerateAudioCodes } = getJsi()
     const { onFrame, ...rest } = options
-    const optsJson = JSON.stringify(rest)
-    return await llamaGenerateAudioCodes(this.id, optsJson, onFrame)
+    return await llamaGenerateAudioCodes(this.id, rest, onFrame)
   }
 
   async createSpeaker(config: {
@@ -1274,18 +1272,13 @@ export class LlamaContext {
     bake?: boolean
   }): Promise<LlamaSpeaker> {
     const { llamaCreateSpeaker } = getJsi()
-    const pcm =
-      config.refAudio instanceof Float32Array
-        ? Array.from(config.refAudio)
-        : config.refAudio
-    const optsJson = JSON.stringify({
-      pcm,
+    // Float32Array is read straight from its ArrayBuffer on the native side.
+    const h = await llamaCreateSpeaker(this.id, config.refAudio, {
       inputSampleRate: config.refAudioSampleRate,
       refText: config.refText ?? '',
       bake: config.bake ?? false,
       ...(config.emotion !== undefined ? { emotion: config.emotion } : {}),
     })
-    const h = await llamaCreateSpeaker(this.id, optsJson)
     return new LlamaSpeaker(this.id, h)
   }
 
