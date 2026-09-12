@@ -951,12 +951,13 @@ namespace rnllama_jsi {
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
                 std::string text = arguments[1].asString(runtime).utf8(runtime);
-                jsi::Object params = arguments[2].asObject(runtime);
+                json params = toJson(runtime, arguments[2]);
 
+                // Absent -> keep the context's embd_normalize
                 int embd_normalize = 0;
                 bool has_embd_normalize = false;
-                if (params.hasProperty(runtime, "embd_normalize")) {
-                    embd_normalize = getPropertyAsInt(runtime, params, "embd_normalize", 2);
+                if (auto it = params.find("embd_normalize"); it != params.end() && it->is_number()) {
+                    embd_normalize = it->get<int>();
                     has_embd_normalize = true;
                 }
 
@@ -1275,16 +1276,12 @@ namespace rnllama_jsi {
             2,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                jsi::Object params = arguments[1].asObject(runtime);
+                auto opts = optionsFromJson<ParallelModeOptions>(runtime, toJson(runtime, arguments[1]), "enableParallelMode");
 
-                bool enabled = getPropertyAsBool(runtime, params, "enabled", true);
-                int nParallel = getPropertyAsInt(runtime, params, "n_parallel", 2);
-                int nBatch = getPropertyAsInt(runtime, params, "n_batch", 512);
-
-                return createPromiseTask(runtime, callInvoker, [contextId, enabled, nParallel, nBatch]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, opts]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
-                    if (enabled) {
-                        ctx->enableParallelMode(nParallel, nBatch);
+                    if (opts.enabled) {
+                        ctx->enableParallelMode(opts.n_parallel, opts.n_batch);
                         if (ctx->slot_manager) {
                             ctx->slot_manager->start_processing_loop();
                         }
@@ -1479,13 +1476,14 @@ namespace rnllama_jsi {
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
                 std::string text = arguments[1].asString(runtime).utf8(runtime);
-                jsi::Object params = arguments[2].asObject(runtime);
+                json params = toJson(runtime, arguments[2]);
                 auto onResult = makeJsiFunction(runtime, arguments[3], callInvoker);
 
+                // Absent -> keep the context's embd_normalize
                 int embd_normalize = 0;
                 bool has_embd_normalize = false;
-                if (params.hasProperty(runtime, "embd_normalize")) {
-                    embd_normalize = getPropertyAsInt(runtime, params, "embd_normalize", 2);
+                if (auto it = params.find("embd_normalize"); it != params.end() && it->is_number()) {
+                    embd_normalize = it->get<int>();
                     has_embd_normalize = true;
                 }
 
@@ -1557,10 +1555,10 @@ namespace rnllama_jsi {
                 for (size_t i = 0; i < documentsArr.size(runtime); i++) {
                     documents.push_back(documentsArr.getValueAtIndex(runtime, i).asString(runtime).utf8(runtime));
                 }
-                jsi::Object params = arguments[3].asObject(runtime);
+                json params = toJson(runtime, arguments[3]);
                 auto onResult = makeJsiFunction(runtime, arguments[4], callInvoker);
 
-                int normalize = getPropertyAsInt(runtime, params, "normalize", 0);
+                int normalize = getPropertyAsInt(params, "normalize", 0);
 
                 return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, query, documents, normalize, onResult, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
@@ -1871,17 +1869,7 @@ namespace rnllama_jsi {
             2,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                jsi::Array loraList = arguments[1].asObject(runtime).asArray(runtime);
-                std::vector<common_adapter_lora_info> lora_adapters;
-                for (size_t i = 0; i < loraList.size(runtime); i++) {
-                    jsi::Object item = loraList.getValueAtIndex(runtime, i).asObject(runtime);
-                    common_adapter_lora_info la;
-                    la.path = getPropertyAsString(runtime, item, "path");
-                    la.scale = getPropertyAsFloat(runtime, item, "scaled", 1.0f);
-                    if (!la.path.empty()) {
-                        lora_adapters.push_back(la);
-                    }
-                }
+                std::vector<common_adapter_lora_info> lora_adapters = parseLoraAdapters(toJson(runtime, arguments[1]));
 
                 return createPromiseTask(runtime, callInvoker, [contextId, lora_adapters]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
@@ -1937,16 +1925,12 @@ namespace rnllama_jsi {
             2,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                jsi::Object params = arguments[1].asObject(runtime);
-                std::string path = getPropertyAsString(runtime, params, "path");
-                bool use_gpu = getPropertyAsBool(runtime, params, "use_gpu", true);
-                int image_min_tokens = getPropertyAsInt(runtime, params, "image_min_tokens", -1);
-                int image_max_tokens = getPropertyAsInt(runtime, params, "image_max_tokens", -1);
+                auto opts = optionsFromJson<MultimodalInitOptions>(runtime, toJson(runtime, arguments[1]), "initMultimodal");
 
-                return createPromiseTask(runtime, callInvoker, [contextId, path, use_gpu, image_min_tokens, image_max_tokens]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, opts]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     throwIfContextBusy(ctx);
-                    bool result = ctx->initMultimodal(path, use_gpu, image_min_tokens, image_max_tokens);
+                    bool result = ctx->initMultimodal(opts.path, opts.use_gpu, opts.image_min_tokens, opts.image_max_tokens);
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
                 }, contextId);
             }
@@ -2009,23 +1993,19 @@ namespace rnllama_jsi {
             2,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                jsi::Object params = arguments[1].asObject(runtime);
-                std::string path = getPropertyAsString(runtime, params, "path");
-                int n_batch = getPropertyAsInt(runtime, params, "n_batch", 512);
+                json params = toJson(runtime, arguments[1]);
+                auto opts = optionsFromJson<VocoderInitOptions>(runtime, params, "initVocoder");
                 // use_gpu defaults to follow the main context's n_gpu_layers
                 // (any > 0 means the backbone is GPU-offloaded — pair the
                 // codec / codec_lm there too unless the caller overrides).
-                bool use_gpu_default = false;
-                {
-                    auto ctx_for_default = getContextOrThrow(contextId);
-                    use_gpu_default = ctx_for_default->params.n_gpu_layers > 0;
+                if (!params.contains("use_gpu")) {
+                    opts.use_gpu = getContextOrThrow(contextId)->params.n_gpu_layers > 0;
                 }
-                bool use_gpu = getPropertyAsBool(runtime, params, "use_gpu", use_gpu_default);
 
-                return createPromiseTask(runtime, callInvoker, [contextId, path, n_batch, use_gpu]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, opts]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     throwIfContextBusy(ctx);
-                    bool result = ctx->initVocoder(path, n_batch, use_gpu);
+                    bool result = ctx->initVocoder(opts.path, opts.n_batch, opts.use_gpu);
                     return [result](jsi::Runtime& rt) { return jsi::Value(result); };
                 }, contextId);
             }
@@ -2151,10 +2131,8 @@ namespace rnllama_jsi {
             3,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                json optsObj = toJson(runtime, arguments[1]);
-                if (!optsObj.is_object()) {
-                    throw jsi::JSError(runtime, "generateAudioCodes: options must be an object");
-                }
+                auto opts = optionsFromJson<rnllama::llama_rn_audio_codes_options>(
+                    runtime, toJson(runtime, arguments[1]), "generateAudioCodes");
 
                 std::shared_ptr<jsi::Function> onFrame;
                 if (count >= 3 && arguments[2].isObject() &&
@@ -2164,22 +2142,9 @@ namespace rnllama_jsi {
                 }
                 jsi::Runtime * runtimePtr = &runtime;
 
-                return createPromiseTask(runtime, callInvoker, [contextId, optsObj, onFrame, runtimePtr, callInvoker]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, opts, onFrame, runtimePtr, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
-
-                    rnllama::llama_rn_audio_codes_options opts;
-                    try {
-                        const json & j = optsObj;
-                        opts.prompt      = j.value("prompt", std::string());
-                        opts.max_frames  = j.value("maxFrames",   500);
-                        opts.temperature = j.value("temperature", 0.9f);
-                        opts.top_p       = j.value("topP",        0.95f);
-                        opts.top_k       = j.value("topK",        50);
-                        opts.seed        = j.value("seed",        0u);
-                    } catch (const std::exception &e) {
-                        throw std::runtime_error(std::string("generateAudioCodes: invalid options: ") + e.what());
-                    }
                     if (opts.prompt.empty()) {
                         throw std::runtime_error("generateAudioCodes: prompt is empty");
                     }
@@ -2238,38 +2203,22 @@ namespace rnllama_jsi {
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
                 std::vector<float> pcm = toFloatVector(runtime, arguments[1]);
-                json opts = count > 2 ? toJson(runtime, arguments[2]) : json::object();
-                if (!opts.is_object()) {
-                    throw jsi::JSError(runtime, "createSpeaker: options must be an object");
-                }
+                auto opts = optionsFromJson<SpeakerOptions>(
+                    runtime, count > 2 ? toJson(runtime, arguments[2]) : json::object(), "createSpeaker");
 
-                int inputSampleRate = 0;
-                std::string refText;
-                float emotion = 0.5f;
-                bool has_emotion = false;
-                bool bake = false;
-
-                try {
-                    inputSampleRate = opts.value("inputSampleRate", 0);
-                    refText         = opts.value("refText", std::string());
-                    bake            = opts.value("bake", false);
-                    if (opts.contains("emotion") && opts["emotion"].is_number()) {
-                        has_emotion = true;
-                        emotion = (float) opts["emotion"].get<double>();
-                    }
-                } catch (const std::exception & e) {
-                    throw jsi::JSError(runtime, std::string("createSpeaker: invalid options: ") + e.what());
-                }
-
-                return createPromiseTask(runtime, callInvoker, [contextId, pcm, inputSampleRate, refText, emotion, has_emotion, bake]() -> PromiseResultGenerator {
+                return createPromiseTask(runtime, callInvoker, [contextId, pcm, opts]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
                     if (!ctx->isVocoderEnabled()) throw std::runtime_error("Vocoder is not enabled");
 
                     auto cap = ctx->tts_wrapper->getTTSCapabilities(ctx);
                     std::string family = cap.family;
 
+                    // Without an explicit emotion the speaker keeps rn_speaker's
+                    // default; the encoder only reads it when has_emotion is set.
+                    const bool has_emotion = opts.hasEmotion();
                     const int speakerId = ctx->tts_wrapper->createSpeaker(
-                        ctx, pcm, inputSampleRate, refText, emotion, has_emotion, bake);
+                        ctx, pcm, opts.inputSampleRate, opts.refText,
+                        has_emotion ? opts.emotion : 0.5f, has_emotion, opts.bake);
 
                     const rnllama::rn_speaker * spk = ctx->tts_wrapper->getSpeaker(speakerId);
                     int rows  = spk ? spk->rows  : 0;

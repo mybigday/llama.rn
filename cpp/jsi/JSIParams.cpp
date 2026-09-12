@@ -66,57 +66,7 @@ namespace rnllama_jsi {
     }
 #endif
 
-    std::string getPropertyAsString(jsi::Runtime& runtime, const jsi::Object& obj, const char* name, const std::string& defaultValue) {
-        if (obj.hasProperty(runtime, name)) {
-            auto val = obj.getProperty(runtime, name);
-            if (val.isString()) {
-                return val.getString(runtime).utf8(runtime);
-            }
-        }
-        return defaultValue;
-    }
-
-    int getPropertyAsInt(jsi::Runtime& runtime, const jsi::Object& obj, const char* name, int defaultValue) {
-        if (obj.hasProperty(runtime, name)) {
-            auto val = obj.getProperty(runtime, name);
-            if (val.isNumber()) {
-                return (int)val.getNumber();
-            }
-        }
-        return defaultValue;
-    }
-
-    double getPropertyAsDouble(jsi::Runtime& runtime, const jsi::Object& obj, const char* name, double defaultValue) {
-        if (obj.hasProperty(runtime, name)) {
-            auto val = obj.getProperty(runtime, name);
-            if (val.isNumber()) {
-                return val.getNumber();
-            }
-        }
-        return defaultValue;
-    }
-
-    bool getPropertyAsBool(jsi::Runtime& runtime, const jsi::Object& obj, const char* name, bool defaultValue) {
-        if (obj.hasProperty(runtime, name)) {
-            auto val = obj.getProperty(runtime, name);
-            if (val.isBool()) {
-                return val.getBool();
-            }
-        }
-        return defaultValue;
-    }
-
-    float getPropertyAsFloat(jsi::Runtime& runtime, const jsi::Object& obj, const char* name, float defaultValue) {
-        if (obj.hasProperty(runtime, name)) {
-            auto val = obj.getProperty(runtime, name);
-            if (val.isNumber()) {
-                return (float)val.getNumber();
-            }
-        }
-        return defaultValue;
-    }
-
-    // ---- json overloads --------------------------------------------------
+    // ---- json lookups -----------------------------------------------------
 
     static const json* findProperty(const json& obj, const char* name) {
         if (!obj.is_object()) return nullptr;
@@ -151,6 +101,21 @@ namespace rnllama_jsi {
 
     static bool hasProperty(const json& obj, const char* name) {
         return findProperty(obj, name) != nullptr;
+    }
+
+    std::vector<common_adapter_lora_info> parseLoraAdapters(const json& list) {
+        std::vector<common_adapter_lora_info> adapters;
+        if (!list.is_array()) return adapters;
+        for (const auto& item : list) {
+            if (!item.is_object()) continue;
+            std::string path = getPropertyAsString(item, "path");
+            if (path.empty()) continue;
+            common_adapter_lora_info la;
+            la.path = path;
+            la.scale = getPropertyAsFloat(item, "scaled", 1.0f);
+            adapters.push_back(la);
+        }
+        return adapters;
     }
 
     // ---- speculative decoding options -----------------------------------
@@ -432,18 +397,9 @@ namespace rnllama_jsi {
             cparams.lora_adapters.push_back(la);
         }
 
-        if (const json* loraList = findProperty(params, "lora_list"); loraList && loraList->is_array()) {
-            for (const auto& item : *loraList) {
-                if (!item.is_object()) {
-                    continue;
-                }
-                std::string path = getPropertyAsString(item, "path");
-                if (!path.empty()) {
-                    common_adapter_lora_info la;
-                    la.path = path;
-                    la.scale = getPropertyAsFloat(item, "scaled", 1.0f);
-                    cparams.lora_adapters.push_back(la);
-                }
+        if (const json* loraList = findProperty(params, "lora_list")) {
+            for (auto& la : parseLoraAdapters(*loraList)) {
+                cparams.lora_adapters.push_back(la);
             }
         }
 

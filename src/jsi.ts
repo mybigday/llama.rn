@@ -5,8 +5,10 @@ import type {
   NativeParallelCompletionParams,
   NativeCompletionResult,
   NativeTokenizeResult,
+  NativeEmbeddingParams,
   NativeEmbeddingResult,
   NativeSessionLoadResult,
+  NativeRerankParams,
   NativeRerankResult,
   JinjaFormattedChatResult,
   ParallelStatus,
@@ -58,13 +60,13 @@ declare global {
   var llamaEmbedding: (
     contextId: number,
     text: string,
-    params: object,
+    params: NativeEmbeddingParams,
   ) => Promise<NativeEmbeddingResult>
   var llamaRerank: (
     contextId: number,
     query: string,
     documents: string[],
-    params: object,
+    params: NativeRerankParams,
   ) => Promise<NativeRerankResult[]>
   var llamaBench: (
     contextId: number,
@@ -227,14 +229,14 @@ declare global {
   var llamaQueueEmbedding: (
     contextId: number,
     text: string,
-    params: object,
+    params: NativeEmbeddingParams,
     onResult: (result: number[]) => void,
   ) => Promise<{ requestId: number }>
   var llamaQueueRerank: (
     contextId: number,
     query: string,
     documents: string[],
-    params: object,
+    params: NativeRerankParams,
     onResult: (result: NativeRerankResult[]) => void,
   ) => Promise<{ requestId: number }>
   var llamaGetParallelStatus: (contextId: number) => Promise<ParallelStatus>
