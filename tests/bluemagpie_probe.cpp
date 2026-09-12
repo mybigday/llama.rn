@@ -119,7 +119,7 @@ int main(int argc, char ** argv) {
     // Build the prompt exactly like the JS path does — through
     // getFormattedAudioCompletion so BlueMagpie's builder fires.
     const auto formatted = ctx.tts_wrapper->getFormattedAudioCompletion(
-        &ctx, /*speaker_json=*/"", text);
+        &ctx, /*speaker=*/nullptr, text);
     std::printf("[probe] flow=%s embedding=%d prompt=%.60s...\n",
                 formatted.flow.c_str(),
                 (int) formatted.embedding,

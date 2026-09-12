@@ -40,7 +40,7 @@
 
 #### Defined in
 
-[index.ts:375](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L375)
+[index.ts:375](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L375)
 
 ## Properties
 
@@ -50,7 +50,7 @@
 
 #### Defined in
 
-[index.ts:371](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L371)
+[index.ts:371](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L371)
 
 ___
 
@@ -60,7 +60,7 @@ ___
 
 #### Defined in
 
-[index.ts:373](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L373)
+[index.ts:373](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L373)
 
 ___
 
@@ -70,7 +70,7 @@ ___
 
 #### Defined in
 
-[index.ts:367](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L367)
+[index.ts:367](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L367)
 
 ___
 
@@ -80,7 +80,7 @@ ___
 
 #### Defined in
 
-[index.ts:365](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L365)
+[index.ts:365](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L365)
 
 ___
 
@@ -90,7 +90,7 @@ ___
 
 #### Defined in
 
-[index.ts:369](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L369)
+[index.ts:369](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L369)
 
 ## Methods
 
@@ -104,7 +104,7 @@ ___
 
 #### Defined in
 
-[index.ts:383](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L383)
+[index.ts:383](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L383)
 
 ___
 
@@ -118,4 +118,4 @@ ___
 
 #### Defined in
 
-[index.ts:390](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L390)
+[index.ts:390](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L390)

@@ -67,7 +67,7 @@
 
 #### Defined in
 
-[index.ts:678](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L678)
+[index.ts:678](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L678)
 
 ## Properties
 
@@ -77,7 +77,7 @@
 
 #### Defined in
 
-[index.ts:407](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L407)
+[index.ts:407](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L407)
 
 ___
 
@@ -87,7 +87,7 @@ ___
 
 #### Defined in
 
-[index.ts:403](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L403)
+[index.ts:403](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L403)
 
 ___
 
@@ -97,7 +97,7 @@ ___
 
 #### Defined in
 
-[index.ts:399](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L399)
+[index.ts:399](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L399)
 
 ___
 
@@ -107,7 +107,7 @@ ___
 
 #### Defined in
 
-[index.ts:397](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L397)
+[index.ts:397](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L397)
 
 ___
 
@@ -145,7 +145,7 @@ ___
 
 #### Defined in
 
-[index.ts:405](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L405)
+[index.ts:405](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L405)
 
 ___
 
@@ -170,7 +170,7 @@ Parallel processing namespace for non-blocking queue operations
 
 #### Defined in
 
-[index.ts:414](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L414)
+[index.ts:414](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L414)
 
 ___
 
@@ -180,7 +180,7 @@ ___
 
 #### Defined in
 
-[index.ts:401](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L401)
+[index.ts:401](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L401)
 
 ___
 
@@ -190,7 +190,7 @@ ___
 
 #### Defined in
 
-[index.ts:409](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L409)
+[index.ts:409](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L409)
 
 ## Methods
 
@@ -210,7 +210,7 @@ ___
 
 #### Defined in
 
-[index.ts:1011](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1011)
+[index.ts:1003](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1003)
 
 ___
 
@@ -233,7 +233,7 @@ ___
 
 #### Defined in
 
-[index.ts:980](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L980)
+[index.ts:973](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L973)
 
 ___
 
@@ -264,7 +264,7 @@ use recurrent state that cannot be partially removed - only fully cleared.
 
 #### Defined in
 
-[index.ts:1315](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1315)
+[index.ts:1322](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1322)
 
 ___
 
@@ -285,7 +285,7 @@ ___
 
 #### Defined in
 
-[index.ts:839](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L839)
+[index.ts:829](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L829)
 
 ___
 
@@ -310,7 +310,7 @@ ___
 
 #### Defined in
 
-[index.ts:1262](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1262)
+[index.ts:1267](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1267)
 
 ___
 
@@ -322,7 +322,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `embeddings` | `number`[] |
+| `embeddings` | `number`[] \| `Float32Array` |
 | `embeddingDim` | `number` |
 
 #### Returns
@@ -331,7 +331,7 @@ ___
 
 #### Defined in
 
-[index.ts:1285](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1285)
+[index.ts:1285](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1285)
 
 ___
 
@@ -343,7 +343,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `tokens` | `number`[] |
+| `tokens` | `number`[] \| `Int32Array` |
 
 #### Returns
 
@@ -351,7 +351,7 @@ ___
 
 #### Defined in
 
-[index.ts:1216](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1216)
+[index.ts:1214](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1214)
 
 ___
 
@@ -371,7 +371,7 @@ ___
 
 #### Defined in
 
-[index.ts:951](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L951)
+[index.ts:941](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L941)
 
 ___
 
@@ -392,7 +392,7 @@ ___
 
 #### Defined in
 
-[index.ts:956](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L956)
+[index.ts:946](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L946)
 
 ___
 
@@ -438,7 +438,7 @@ isn't read.
 
 #### Defined in
 
-[index.ts:1241](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1241)
+[index.ts:1247](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1247)
 
 ___
 
@@ -452,7 +452,7 @@ ___
 
 #### Defined in
 
-[index.ts:1293](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1293)
+[index.ts:1300](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1300)
 
 ___
 
@@ -491,7 +491,7 @@ positional signature has been removed.
 
 #### Defined in
 
-[index.ts:1134](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1134)
+[index.ts:1126](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1126)
 
 ___
 
@@ -512,7 +512,7 @@ ___
 | `params.force_pure_content?` | `boolean` |
 | `params.jinja?` | `boolean` |
 | `params.now?` | `string` \| `number` |
-| `params.parallel_tool_calls?` | `object` |
+| `params.parallel_tool_calls?` | `boolean` |
 | `params.reasoning_format?` | ``"none"`` \| ``"auto"`` \| ``"deepseek"`` |
 | `params.response_format?` | [`CompletionResponseFormat`](../README.md#completionresponseformat) |
 | `params.tool_choice?` | `string` |
@@ -524,7 +524,7 @@ ___
 
 #### Defined in
 
-[index.ts:720](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L720)
+[index.ts:720](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L720)
 
 ___
 
@@ -538,7 +538,7 @@ ___
 
 #### Defined in
 
-[index.ts:1024](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1024)
+[index.ts:1016](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1016)
 
 ___
 
@@ -552,7 +552,7 @@ ___
 
 #### Defined in
 
-[index.ts:1066](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1066)
+[index.ts:1058](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1058)
 
 ___
 
@@ -566,7 +566,7 @@ ___
 
 #### Defined in
 
-[index.ts:1113](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1113)
+[index.ts:1105](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1105)
 
 ___
 
@@ -592,7 +592,7 @@ Initialize multimodal support (vision/audio) with a projector model.
 
 #### Defined in
 
-[index.ts:1040](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1040)
+[index.ts:1032](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1032)
 
 ___
 
@@ -621,7 +621,7 @@ table in the README.
 
 #### Defined in
 
-[index.ts:1086](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1086)
+[index.ts:1078](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1078)
 
 ___
 
@@ -635,7 +635,7 @@ ___
 
 #### Defined in
 
-[index.ts:715](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L715)
+[index.ts:715](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L715)
 
 ___
 
@@ -649,7 +649,7 @@ ___
 
 #### Defined in
 
-[index.ts:711](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L711)
+[index.ts:711](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L711)
 
 ___
 
@@ -663,7 +663,7 @@ ___
 
 #### Defined in
 
-[index.ts:1061](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1061)
+[index.ts:1053](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1053)
 
 ___
 
@@ -677,7 +677,7 @@ ___
 
 #### Defined in
 
-[index.ts:1108](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1108)
+[index.ts:1100](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1100)
 
 ___
 
@@ -697,7 +697,7 @@ ___
 
 #### Defined in
 
-[index.ts:696](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L696)
+[index.ts:696](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L696)
 
 ___
 
@@ -711,7 +711,7 @@ ___
 
 #### Defined in
 
-[index.ts:1320](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1320)
+[index.ts:1327](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1327)
 
 ___
 
@@ -725,7 +725,7 @@ ___
 
 #### Defined in
 
-[index.ts:1074](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1074)
+[index.ts:1066](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1066)
 
 ___
 
@@ -739,7 +739,7 @@ ___
 
 #### Defined in
 
-[index.ts:1298](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1298)
+[index.ts:1305](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1305)
 
 ___
 
@@ -753,7 +753,7 @@ ___
 
 #### Defined in
 
-[index.ts:1019](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1019)
+[index.ts:1011](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1011)
 
 ___
 
@@ -775,7 +775,7 @@ ___
 
 #### Defined in
 
-[index.ts:964](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L964)
+[index.ts:957](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L957)
 
 ___
 
@@ -797,7 +797,7 @@ ___
 
 #### Defined in
 
-[index.ts:703](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L703)
+[index.ts:703](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L703)
 
 ___
 
@@ -811,7 +811,7 @@ ___
 
 #### Defined in
 
-[index.ts:934](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L934)
+[index.ts:924](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L924)
 
 ___
 
@@ -833,4 +833,4 @@ ___
 
 #### Defined in
 
-[index.ts:939](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L939)
+[index.ts:929](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L929)

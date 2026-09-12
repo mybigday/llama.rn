@@ -187,8 +187,8 @@ step's evidence (a quoted log line or a screenshot), not just "works".
      otool -L "$APP/RNLlamaExample.debug.dylib" | grep Metal.framework
      nm -gU "$APP/RNLlamaExample.debug.dylib" | grep -c ggml_backend_metal   # > 0
      ```
-3. **Completion smoke.** In SimpleChat send `Reply in one short sentence:
-   what is 2+3?`. Expect a coherent reply that stops on its own (verified
+3. **Completion smoke.** In SimpleChat send `What is 2+3? One line only.`
+   (r-free on Android, see the double-R trap below). Expect a coherent reply that stops on its own (verified
    good runs: Android/HTP `2 + 3 = 5.` at ~11 tok/s on a 4B; Mac/Metal
    `The answer is 5.` at ~50 tok/s on a 1B - the speed itself is GPU
    evidence). Garbage tokens, an empty reply, or a never-ending stream are
@@ -218,7 +218,7 @@ ui_tap  "Simple Chat"                       # navigate by button label
 ui_tap  "Initialize"                        # load the (already-downloaded) model
 ui_wait "Type your message" 90              # block until the chat screen appears
 ui_tap  "Type your message"                 # focus the input
-ui_type "Reply in one short sentence: what is 2+3?"
+ui_type "What is 2+3? One line only."   # no r/R: two R keys = RN dev reload
 ```
 
 Only genuinely unlabeled controls (the send paper-plane icon) need a
@@ -233,6 +233,33 @@ Verify results the same way: `adb exec-out screencap -p` for the reply bubble
 (shows the answer and a `tok/s` chip), `adb logcat -d | grep RNLlama` for the
 `Timings`/`loadPrompt` lines. `ui_dump` prints all on-screen text when you need
 to discover an anchor.
+
+Two traps when driving a params modal (TTS / completion / context params):
+
+- Do NOT press Back (`keyevent 4`) to dismiss the keyboard inside a modal.
+  RN `Modal` treats it as `onRequestClose` and closes the whole modal, so
+  nothing gets saved. Tap the modal's header "Save" directly - the keyboard
+  does not cover it. `keyevent 82` (menu) does not open the RN dev menu on
+  Samsung either; it backgrounds the app to the launcher.
+- `ui_tap` matches the FIRST element whose text *contains* the query, in
+  dump order. After the modal has closed, `ui_tap "Save"` silently hits
+  "Save as WAV" on the TTS screen. Confirm with `ui_dump` that the modal
+  header (`Cancel` / `TTS Parameters` / `Save`) is still listed first, and
+  prove a save landed by reading it back from AsyncStorage:
+  `adb shell "run-as com.rnllamaexample cat databases/RKStorage" | strings | grep speakerConfig`.
+
+`ui_type` sends the whole string as fast key events. In a Debug build RN's
+dev support treats two `R` key presses within ~200 ms as "reload JS", so any
+prompt containing two r/R characters (e.g. "Reply in one short sentence")
+reloads the bundle mid-flow, drops the loaded model, and lands on Home. Use
+r-free prompts (`What is 2+3? One line only.`,
+`Use the calculate tool to compute 12 times 7.`) or paste via clipboard.
+
+Also, Metro Fast Refresh does not reliably reach the device after editing
+example JS - `curl -s "http://localhost:8081/index.bundle?platform=android&dev=true" | grep -c <marker>`
+proves Metro rebuilt, but the app may still run the old bundle. Force it with
+`adb shell am force-stop com.rnllamaexample` + `am start` (the model must be
+re-initialized afterwards).
 
 ### iOS on Mac (scriptable via System Events coordinate clicks)
 

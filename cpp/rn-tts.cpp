@@ -1253,7 +1253,7 @@ llama_rn_tts_capabilities llama_rn_context_tts::getTTSCapabilities(llama_rn_cont
     return cap;
 }
 
-static std::string build_outetts_legacy_prompt(const tts_model_profile &profile, json speaker, const std::string &speaker_json_str, const std::string &text_to_speak) {
+static std::string build_outetts_legacy_prompt(const tts_model_profile &profile, const json &speaker, bool has_speaker, const std::string &text_to_speak) {
     // OuteTTS legacy / V0_3: speaker JSON must carry a structured `words`
     // array — JS wrappers resolve the built-in default voice into this
     // shape before reaching us. With no speaker we still emit a prompt
@@ -1261,7 +1261,7 @@ static std::string build_outetts_legacy_prompt(const tts_model_profile &profile,
     // voice conditioning, but quality drops.
     std::string audio_text = "<|text_start|>";
     std::string audio_data = "<|audio_start|>\n";
-    if (!speaker_json_str.empty()) {
+    if (has_speaker) {
         audio_text = audio_text_from_speaker(speaker, profile.type);
         audio_data = audio_data_from_speaker(speaker, profile.type);
     }
@@ -1269,10 +1269,10 @@ static std::string build_outetts_legacy_prompt(const tts_model_profile &profile,
     return "<|im_start|>\n" + audio_text + process_text(text_to_speak, profile.type) + "<|text_end|>\n" + audio_data + "\n";
 }
 
-static std::string build_outetts_v1_prompt(json speaker, const std::string &speaker_json_str, const std::string &text_to_speak) {
+static std::string build_outetts_v1_prompt(const json &speaker, bool has_speaker, const std::string &text_to_speak) {
     std::string text = process_text(text_to_speak, OUTETTS_V1_0);
     std::string audio_prefix;
-    if (!speaker_json_str.empty()) {
+    if (has_speaker) {
         const std::string speaker_text = speaker.value("text", std::string());
         if (!speaker_text.empty()) {
             std::string separator = ". ";
@@ -1392,7 +1392,7 @@ static std::string build_bluemagpie_prompt(json speaker, const std::string &text
     return "<|bm_spk|>" + text_to_speak + "<|bm_audio_start|>";
 }
 
-llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(llama_rn_context* main_ctx, const std::string &speaker_json_str, const std::string &text_to_speak, int speakerId) {
+llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompletion(llama_rn_context* main_ctx, const json &speaker_in, const std::string &text_to_speak, int speakerId) {
     // Always clear per-generation state that survives reset() here so that
     // stale data from a previous generation doesn't pollute a new one.
     // (reset() intentionally skips these fields so they survive the rewind()
@@ -1424,7 +1424,8 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     realtime_cb_samplers.clear();
     audio_lm_payload_text        = text_to_speak;   // grammar needs the text
 
-    json speaker = speaker_json_str.empty() ? json::object() : json::parse(speaker_json_str);
+    const bool has_speaker = !speaker_in.is_null();
+    const json speaker = has_speaker ? speaker_in : json::object();
     const tts_type tts_type = getTTSType(main_ctx, speaker);
     if (tts_type == UNKNOWN) {
         LOG_ERROR("Unknown TTS version");
@@ -1680,9 +1681,9 @@ llama_rn_audio_completion_result llama_rn_context_tts::getFormattedAudioCompleti
     switch (profile.prompt_kind) {
         case tts_prompt_kind::OUTETTS_LEGACY:
         case tts_prompt_kind::OUTETTS_V0_3:
-            return {build_outetts_legacy_prompt(profile, speaker, speaker_json_str, text_to_speak), grammar, embedding, flow};
+            return {build_outetts_legacy_prompt(profile, speaker, has_speaker, text_to_speak), grammar, embedding, flow};
         case tts_prompt_kind::OUTETTS_V1_0:
-            return {build_outetts_v1_prompt(speaker, speaker_json_str, text_to_speak), grammar, embedding, flow};
+            return {build_outetts_v1_prompt(speaker, has_speaker, text_to_speak), grammar, embedding, flow};
         case tts_prompt_kind::SOPRANO:
             return {build_soprano_prompt(text_to_speak), grammar, embedding, flow};
         case tts_prompt_kind::NEUTTS:

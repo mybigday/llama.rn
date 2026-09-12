@@ -212,7 +212,7 @@ inline void llama_batch_add(llama_batch *batch, llama_token id, llama_pos pos, s
 }
 
 // Device info functions
-std::string get_backend_devices_info();
+json get_backend_devices_info();
 
 // Forward ggml abort messages to the platform log (process-wide, safe to call repeatedly)
 void install_ggml_abort_handler();

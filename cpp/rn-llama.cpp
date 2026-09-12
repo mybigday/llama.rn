@@ -52,7 +52,7 @@ bool has_speculative_type(const common_params_speculative &speculative, common_s
 
 } // namespace
 
-std::string get_backend_devices_info() {
+json get_backend_devices_info() {
     return backend_devices_info();
 }
 

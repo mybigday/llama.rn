@@ -25,7 +25,7 @@
 
 namespace rnllama {
 
-inline static std::string backend_devices_info() {
+inline static json backend_devices_info() {
     json devices_array = json::array();
 
     const size_t dev_count = lm_ggml_backend_dev_count();
@@ -130,7 +130,7 @@ inline static std::string backend_devices_info() {
         devices_array.push_back(device_info);
     }
 
-    return devices_array.dump();
+    return devices_array;
 }
 
 // Helper function to check if string ends with suffix

@@ -650,6 +650,29 @@ export type NativeRerankResult = {
   index: number
 }
 
+// Raw bench result as produced by the native side (snake_case); the
+// LlamaContext.bench wrapper maps it to BenchResult.
+export type NativeBenchResult = {
+  n_kv_max: number
+  n_batch: number
+  n_ubatch: number
+  flash_attn: number
+  is_pp_shared: number
+  n_gpu_layers: number
+  n_threads: number
+  n_threads_batch: number
+  pp: number
+  tg: number
+  pl: number
+  n_kv: number
+  t_pp: number
+  speed_pp: number
+  t_tg: number
+  speed_tg: number
+  t: number
+  speed: number
+}
+
 export type NativeBackendDeviceInfo = {
   backend: string
   type: string
