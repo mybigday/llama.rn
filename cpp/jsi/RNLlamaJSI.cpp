@@ -473,12 +473,17 @@ namespace rnllama_jsi {
             3,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                jsi::Object params = arguments[1].asObject(runtime);
-                bool isModelAsset = getPropertyAsBool(runtime, params, "is_model_asset", false);
-                bool isModelDraftAsset = getPropertyAsBool(runtime, params, "is_model_draft_asset", false);
+                // Convert the params object once; every lookup below and the parser
+                // work on plain json (see JSIJson.h for the conversion rules).
+                json params = toJson(runtime, arguments[1]);
+                if (!params.is_object()) {
+                    throw jsi::JSError(runtime, "llamaInitContext: params must be an object");
+                }
+                bool isModelAsset = getPropertyAsBool(params, "is_model_asset", false);
+                bool isModelDraftAsset = getPropertyAsBool(params, "is_model_draft_asset", false);
 
-                bool useProgressCallback = getPropertyAsBool(runtime, params, "use_progress_callback", false);
-                int progressCallbackEvery = getPropertyAsInt(runtime, params, "progress_callback_every", 1);
+                bool useProgressCallback = getPropertyAsBool(params, "use_progress_callback", false);
+                int progressCallbackEvery = getPropertyAsInt(params, "progress_callback_every", 1);
                 std::shared_ptr<ProgressCallbackData> progressData;
                 if (count > 2 && arguments[2].isObject() && arguments[2].asObject(runtime).isFunction(runtime)) {
                     useProgressCallback = true;
@@ -495,7 +500,7 @@ namespace rnllama_jsi {
                 }
 
                 common_params cparams;
-                parseCommonParams(runtime, params, cparams);
+                parseCommonParams(params, cparams);
 
 #if defined(__APPLE__)
                 if (isModelAsset) {
@@ -507,30 +512,26 @@ namespace rnllama_jsi {
                 }
 #endif
 
-                bool skipGpuDevices = getPropertyAsBool(runtime, params, "no_gpu_devices", false);
+                bool skipGpuDevices = getPropertyAsBool(params, "no_gpu_devices", false);
                 if (skipGpuDevices) {
                     cparams.n_gpu_layers = 0;
                 }
 
                 std::vector<std::string> requestedDevices;
                 bool devicesProvided = false;
-                if (params.hasProperty(runtime, "devices") && params.getProperty(runtime, "devices").isObject()) {
-                    jsi::Array devicesArr = params.getProperty(runtime, "devices").asObject(runtime).asArray(runtime);
-                    if (devicesArr.size(runtime) > 0) {
-                        devicesProvided = true;
-                        for (size_t i = 0; i < devicesArr.size(runtime); ++i) {
-                            auto val = devicesArr.getValueAtIndex(runtime, i);
-                            if (val.isString()) {
-                                requestedDevices.push_back(val.asString(runtime).utf8(runtime));
-                            }
+                if (auto it = params.find("devices"); it != params.end() && it->is_array() && !it->empty()) {
+                    devicesProvided = true;
+                    for (const auto& val : *it) {
+                        if (val.is_string()) {
+                            requestedDevices.push_back(val.get<std::string>());
                         }
                     }
                 }
 
                 int stateCacheBudgetMb =
-                    getPropertyAsInt(runtime, params, "state_cache_budget_mb", 160);
+                    getPropertyAsInt(params, "state_cache_budget_mb", 160);
                 int stateCacheMaxCheckpoints =
-                    getPropertyAsInt(runtime, params, "state_cache_max_checkpoints", 8);
+                    getPropertyAsInt(params, "state_cache_max_checkpoints", 8);
 
                 return createPromiseTask(runtime, callInvoker, [
                     contextId,
@@ -1055,35 +1056,46 @@ namespace rnllama_jsi {
             3,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                jsi::Object params = arguments[1].asObject(runtime);
+                // Convert the params object once; every lookup below and the parser
+                // work on plain json (see JSIJson.h for the conversion rules).
+                json params = toJson(runtime, arguments[1]);
+                if (!params.is_object()) {
+                    throw jsi::JSError(runtime, "llamaCompletion: params must be an object");
+                }
                 std::shared_ptr<jsi::Function> onToken;
 
                 if (count > 2 && arguments[2].isObject() && arguments[2].asObject(runtime).isFunction(runtime)) {
                     onToken = makeJsiFunction(runtime, arguments[2], callInvoker);
                 }
 
-                bool emitPartial = getPropertyAsBool(runtime, params, "emit_partial_completion", false);
+                bool emitPartial = getPropertyAsBool(params, "emit_partial_completion", false);
 
                 auto ctx = getContextOrThrow(contextId);
                 throwIfContextBusy(ctx);
                 ctx->completion->rewind();
 
-                parseCompletionParams(runtime, params, ctx);
+                parseCompletionParams(params, ctx);
 
                 std::vector<std::string> mediaPaths;
-                if (params.hasProperty(runtime, "media_paths")) {
-                    jsi::Array paths = params.getProperty(runtime, "media_paths").asObject(runtime).asArray(runtime);
-                    for (size_t i = 0; i < paths.size(runtime); i++) {
-                        mediaPaths.push_back(paths.getValueAtIndex(runtime, i).asString(runtime).utf8(runtime));
+                // media_paths: string | string[]
+                if (auto it = params.find("media_paths"); it != params.end()) {
+                    if (it->is_string()) {
+                        mediaPaths.push_back(it->get<std::string>());
+                    } else if (it->is_array()) {
+                        for (const auto& path : *it) {
+                            if (path.is_string()) {
+                                mediaPaths.push_back(path.get<std::string>());
+                            }
+                        }
                     }
                 }
 
-                int chat_format = getPropertyAsInt(runtime, params, "chat_format", 0);
-                std::string reasoningFormatStr = getPropertyAsString(runtime, params, "reasoning_format", "none");
+                int chat_format = getPropertyAsInt(params, "chat_format", 0);
+                std::string reasoningFormatStr = getPropertyAsString(params, "reasoning_format", "none");
                 common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
-                std::string generation_prompt = getPropertyAsString(runtime, params, "generation_prompt");
-                std::string chat_parser = getPropertyAsString(runtime, params, "chat_parser");
-                std::string prefill_text = getPropertyAsString(runtime, params, "prefill_text");
+                std::string generation_prompt = getPropertyAsString(params, "generation_prompt");
+                std::string chat_parser = getPropertyAsString(params, "chat_parser");
+                std::string prefill_text = getPropertyAsString(params, "prefill_text");
 
                 return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, onToken, emitPartial, mediaPaths, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
@@ -1293,36 +1305,47 @@ namespace rnllama_jsi {
             4,
             [callInvoker](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count) -> jsi::Value {
                 int contextId = (int)arguments[0].asNumber();
-                jsi::Object params = arguments[1].asObject(runtime);
+                // Convert the params object once; every lookup below and the parser
+                // work on plain json (see JSIJson.h for the conversion rules).
+                json params = toJson(runtime, arguments[1]);
+                if (!params.is_object()) {
+                    throw jsi::JSError(runtime, "llamaQueueCompletion: params must be an object");
+                }
 
                 auto onToken = makeJsiFunction(runtime, arguments[2], callInvoker);
                 auto onComplete = makeJsiFunction(runtime, arguments[3], callInvoker);
 
                 auto ctxPtr = getContextOrThrow(contextId);
                 auto originalParams = ctxPtr->params;
-                parseCompletionParams(runtime, params, ctxPtr);
+                parseCompletionParams(params, ctxPtr);
                 common_params cparams = ctxPtr->params;
                 ctxPtr->params = originalParams;
 
                 std::vector<std::string> mediaPaths;
-                if (params.hasProperty(runtime, "media_paths")) {
-                    jsi::Array paths = params.getProperty(runtime, "media_paths").asObject(runtime).asArray(runtime);
-                    for (size_t i = 0; i < paths.size(runtime); i++) {
-                        mediaPaths.push_back(paths.getValueAtIndex(runtime, i).asString(runtime).utf8(runtime));
+                // media_paths: string | string[]
+                if (auto it = params.find("media_paths"); it != params.end()) {
+                    if (it->is_string()) {
+                        mediaPaths.push_back(it->get<std::string>());
+                    } else if (it->is_array()) {
+                        for (const auto& path : *it) {
+                            if (path.is_string()) {
+                                mediaPaths.push_back(path.get<std::string>());
+                            }
+                        }
                     }
                 }
 
-                int chat_format = getPropertyAsInt(runtime, params, "chat_format", 0);
-                std::string reasoningFormatStr = getPropertyAsString(runtime, params, "reasoning_format", "none");
+                int chat_format = getPropertyAsInt(params, "chat_format", 0);
+                std::string reasoningFormatStr = getPropertyAsString(params, "reasoning_format", "none");
                 common_reasoning_format reasoning_format = common_reasoning_format_from_name(reasoningFormatStr);
-                std::string generation_prompt = getPropertyAsString(runtime, params, "generation_prompt");
-                std::string chat_parser = getPropertyAsString(runtime, params, "chat_parser");
-                std::string prefill_text = getPropertyAsString(runtime, params, "prefill_text");
-                std::string load_state_path = stripFileScheme(getPropertyAsString(runtime, params, "load_state_path"));
-                std::string save_state_path = stripFileScheme(getPropertyAsString(runtime, params, "save_state_path"));
-                std::string save_prompt_state_path = stripFileScheme(getPropertyAsString(runtime, params, "save_prompt_state_path"));
-                int load_state_size = getPropertyAsInt(runtime, params, "load_state_size", -1);
-                int save_state_size = getPropertyAsInt(runtime, params, "save_state_size", -1);
+                std::string generation_prompt = getPropertyAsString(params, "generation_prompt");
+                std::string chat_parser = getPropertyAsString(params, "chat_parser");
+                std::string prefill_text = getPropertyAsString(params, "prefill_text");
+                std::string load_state_path = stripFileScheme(getPropertyAsString(params, "load_state_path"));
+                std::string save_state_path = stripFileScheme(getPropertyAsString(params, "save_state_path"));
+                std::string save_prompt_state_path = stripFileScheme(getPropertyAsString(params, "save_prompt_state_path"));
+                int load_state_size = getPropertyAsInt(params, "load_state_size", -1);
+                int save_state_size = getPropertyAsInt(params, "save_state_size", -1);
 
                 return createPromiseTask(runtime, callInvoker, [runtimePtr = std::shared_ptr<jsi::Runtime>(&runtime, [](jsi::Runtime*){}), contextId, cparams, mediaPaths, chat_format, reasoning_format, generation_prompt, chat_parser, prefill_text, load_state_path, save_state_path, save_prompt_state_path, load_state_size, save_state_size, onToken, onComplete, callInvoker]() -> PromiseResultGenerator {
                     auto ctx = getContextOrThrow(contextId);
