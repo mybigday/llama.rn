@@ -816,6 +816,15 @@ namespace rnllama_jsi {
         );
         runtime.global().setProperty(runtime, "llamaDetokenize", detokenize);
 
+        // llamaGetFormattedChat(ctxId, messages, chatTemplate?, opts?)
+        //   messages: OpenAI-compatible messages as a JSON string. Kept as a
+        //             string on purpose: llama.cpp's common_json can only be
+        //             built via parse(), so an object here would just be
+        //             re-serialized before reaching common_chat_msgs_parse_oaicompat.
+        //   opts: { jinja, json_schema (JSON string), tools (JSON string),
+        //           parallel_tool_calls, tool_choice, enable_thinking,
+        //           reasoning_format, add_generation_prompt, now (string|number),
+        //           chat_template_kwargs (object), force_pure_content }
         auto getFormattedChat = jsi::Function::createFromHostFunction(runtime,
             jsi::PropNameID::forAscii(runtime, "llamaGetFormattedChat"),
             4,
@@ -826,54 +835,55 @@ namespace rnllama_jsi {
                  if (count > 2 && arguments[2].isString()) {
                      chatTemplate = arguments[2].asString(runtime).utf8(runtime);
                  }
+                 // Convert the options object once on the JS thread; the json
+                 // value is plain data and safe to hand to the worker.
+                 json opts = (count > 3 && arguments[3].isObject())
+                     ? toJson(runtime, arguments[3])
+                     : json::object();
 
-                 std::string jsonSchema = "";
-                 std::string tools = "";
-                 bool parallelToolCalls = false;
-                 std::string toolChoice = "";
-                 bool enableThinking = false;
-                 std::string reasoningFormat = "none";
-                 bool addGenerationPrompt = true;
-                 std::string nowStr = "";
-                 std::map<std::string, std::string> chatTemplateKwargs;
-                 bool useJinja = false;
-                 bool forcePureContent = false;
-
-                 if (count > 3 && arguments[3].isObject()) {
-                     jsi::Object params = arguments[3].asObject(runtime);
-                     useJinja = getPropertyAsBool(runtime, params, "jinja", false);
-
-                     if (useJinja) {
-                         jsonSchema = getPropertyAsString(runtime, params, "json_schema");
-                         tools = getPropertyAsString(runtime, params, "tools");
-                         parallelToolCalls = getPropertyAsBool(runtime, params, "parallel_tool_calls", false);
-                         toolChoice = getPropertyAsString(runtime, params, "tool_choice");
-                         enableThinking = getPropertyAsBool(runtime, params, "enable_thinking", false);
-                         reasoningFormat = getPropertyAsString(runtime, params, "reasoning_format", "none");
-                         addGenerationPrompt = getPropertyAsBool(runtime, params, "add_generation_prompt", true);
-                         nowStr = getPropertyAsString(runtime, params, "now");
-                         forcePureContent = getPropertyAsBool(runtime, params, "force_pure_content", false);
-
-                         std::string kwargsStr = getPropertyAsString(runtime, params, "chat_template_kwargs");
-                          if (!kwargsStr.empty()) {
-                              try {
-                                  auto kwargs_json = json::parse(kwargsStr);
-                                  for (auto& [key, value] : kwargs_json.items()) {
-                                      if (value.is_string()) {
-                                          chatTemplateKwargs[key] = value.get<std::string>();
-                                      }
-                                  }
-                              } catch (...) { }
-                          }
-                     }
-                 }
-
-                 return createPromiseTask(runtime, callInvoker, [contextId, messages, chatTemplate, jsonSchema, tools, parallelToolCalls, toolChoice, enableThinking, reasoningFormat, addGenerationPrompt, nowStr, chatTemplateKwargs, useJinja, forcePureContent]() -> PromiseResultGenerator {
+                 return createPromiseTask(runtime, callInvoker, [contextId, messages, chatTemplate, opts]() -> PromiseResultGenerator {
                       auto ctx = getContextOrThrow(contextId);
+
+                      // Type-checked lookups that fall back to the default on a
+                      // missing or mismatched value, matching the old
+                      // getPropertyAs* behaviour (nlohmann's value() would throw).
+                      auto getStr = [&opts](const char* key, const std::string& def = "") {
+                          auto it = opts.find(key);
+                          return (it != opts.end() && it->is_string()) ? it->get<std::string>() : def;
+                      };
+                      auto getBool = [&opts](const char* key, bool def) {
+                          auto it = opts.find(key);
+                          return (it != opts.end() && it->is_boolean()) ? it->get<bool>() : def;
+                      };
+
+                      const bool useJinja = getBool("jinja", false);
                       if (useJinja) {
+                          // `now` is seconds since epoch, accepted as string or number.
+                          std::string nowStr = getStr("now");
+                          if (auto it = opts.find("now"); it != opts.end() && it->is_number()) {
+                              nowStr = std::to_string(it->get<long long>());
+                          }
+
+                          // Template kwargs are passed to the jinja engine as JSON
+                          // text per value (same as llama.cpp's server), so dump()
+                          // each raw value instead of asking JS to pre-stringify.
+                          std::map<std::string, std::string> chatTemplateKwargs;
+                          if (auto it = opts.find("chat_template_kwargs"); it != opts.end() && it->is_object()) {
+                              for (auto& [key, value] : it->items()) {
+                                  chatTemplateKwargs[key] = value.dump();
+                              }
+                          }
+
                           auto chatParams = ctx->getFormattedChatWithJinja(
-                               messages, chatTemplate, jsonSchema, tools, parallelToolCalls,
-                               toolChoice, enableThinking, reasoningFormat, addGenerationPrompt, nowStr, chatTemplateKwargs, forcePureContent
+                               messages, chatTemplate,
+                               getStr("json_schema"), getStr("tools"),
+                               getBool("parallel_tool_calls", false),
+                               getStr("tool_choice"),
+                               getBool("enable_thinking", false),
+                               getStr("reasoning_format", "none"),
+                               getBool("add_generation_prompt", true),
+                               nowStr, chatTemplateKwargs,
+                               getBool("force_pure_content", false)
                           );
 
                           return [chatParams](jsi::Runtime& rt) {

@@ -279,7 +279,7 @@ export type CompletionBaseParams = {
   chat_template?: string
   jinja?: boolean
   tools?: object
-  parallel_tool_calls?: object
+  parallel_tool_calls?: boolean
   tool_choice?: string
   response_format?: CompletionResponseFormat
   media_paths?: string | string[]
@@ -724,7 +724,7 @@ export class LlamaContext {
       jinja?: boolean
       response_format?: CompletionResponseFormat
       tools?: object
-      parallel_tool_calls?: object
+      parallel_tool_calls?: boolean
       tool_choice?: string
       enable_thinking?: boolean
       reasoning_format?: 'none' | 'auto' | 'deepseek'
@@ -790,6 +790,9 @@ export class LlamaContext {
     const jsonSchema = getJsonSchema(params?.response_format)
 
     const { llamaGetFormattedChat } = getJsi()
+    // messages / tools / json_schema stay JSON strings: llama.cpp's
+    // common_json is only constructible via parse(), so native would have
+    // to re-serialize an object anyway. Everything else crosses as-is.
     const result = await llamaGetFormattedChat(
       this.id,
       JSON.stringify(chat),
@@ -798,26 +801,13 @@ export class LlamaContext {
         jinja: useJinja,
         json_schema: jsonSchema ? JSON.stringify(jsonSchema) : undefined,
         tools: params?.tools ? JSON.stringify(params.tools) : undefined,
-        parallel_tool_calls: params?.parallel_tool_calls
-          ? JSON.stringify(params.parallel_tool_calls)
-          : undefined,
+        parallel_tool_calls: params?.parallel_tool_calls === true,
         tool_choice: params?.tool_choice,
         enable_thinking: params?.enable_thinking ?? true,
         reasoning_format: params?.reasoning_format ?? 'none',
         add_generation_prompt: params?.add_generation_prompt,
-        now:
-          typeof params?.now === 'number' ? params.now.toString() : params?.now,
-        chat_template_kwargs: params?.chat_template_kwargs
-          ? JSON.stringify(
-              Object.entries(params.chat_template_kwargs).reduce(
-                (acc, [key, value]) => {
-                  acc[key] = JSON.stringify(value)
-                  return acc
-                },
-                {} as Record<string, any>,
-              ),
-            )
-          : undefined,
+        now: params?.now,
+        chat_template_kwargs: params?.chat_template_kwargs,
         force_pure_content: forcePureContent,
       },
     )

@@ -41,7 +41,19 @@ declare global {
     contextId: number,
     messages: string,
     chatTemplate?: string,
-    params?: object,
+    params?: {
+      jinja: boolean
+      json_schema?: string
+      tools?: string
+      parallel_tool_calls?: boolean
+      tool_choice?: string
+      enable_thinking?: boolean
+      reasoning_format?: string
+      add_generation_prompt?: boolean
+      now?: string | number
+      chat_template_kwargs?: Record<string, string | number | boolean>
+      force_pure_content?: boolean
+    },
   ) => Promise<string | JinjaFormattedChatResult>
   var llamaEmbedding: (
     contextId: number,
