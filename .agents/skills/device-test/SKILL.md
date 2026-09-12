@@ -234,6 +234,26 @@ Verify results the same way: `adb exec-out screencap -p` for the reply bubble
 `Timings`/`loadPrompt` lines. `ui_dump` prints all on-screen text when you need
 to discover an anchor.
 
+Two traps when driving a params modal (TTS / completion / context params):
+
+- Do NOT press Back (`keyevent 4`) to dismiss the keyboard inside a modal.
+  RN `Modal` treats it as `onRequestClose` and closes the whole modal, so
+  nothing gets saved. Tap the modal's header "Save" directly - the keyboard
+  does not cover it. `keyevent 82` (menu) does not open the RN dev menu on
+  Samsung either; it backgrounds the app to the launcher.
+- `ui_tap` matches the FIRST element whose text *contains* the query, in
+  dump order. After the modal has closed, `ui_tap "Save"` silently hits
+  "Save as WAV" on the TTS screen. Confirm with `ui_dump` that the modal
+  header (`Cancel` / `TTS Parameters` / `Save`) is still listed first, and
+  prove a save landed by reading it back from AsyncStorage:
+  `adb shell "run-as com.rnllamaexample cat databases/RKStorage" | strings | grep speakerConfig`.
+
+Also, Metro Fast Refresh does not reliably reach the device after editing
+example JS - `curl -s "http://localhost:8081/index.bundle?platform=android&dev=true" | grep -c <marker>`
+proves Metro rebuilt, but the app may still run the old bundle. Force it with
+`adb shell am force-stop com.rnllamaexample` + `am start` (the model must be
+re-initialized afterwards).
+
 ### iOS on Mac (scriptable via System Events coordinate clicks)
 
 The RN UI renders as one Metal surface, so its AX tree is unlabeled nested
