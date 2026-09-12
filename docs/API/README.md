@@ -107,7 +107,7 @@ llama.rn
 
 #### Defined in
 
-[index.ts:333](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L333)
+[index.ts:333](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L333)
 
 ___
 
@@ -117,7 +117,7 @@ ___
 
 #### Defined in
 
-[index.ts:273](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L273)
+[index.ts:273](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L273)
 
 ___
 
@@ -138,7 +138,7 @@ ___
 | `media_paths?` | `string` \| `string`[] | - |
 | `messages?` | [`RNLlamaOAICompatibleMessage`](README.md#rnllamaoaicompatiblemessage)[] | - |
 | `now?` | `string` \| `number` | - |
-| `parallel_tool_calls?` | `object` | - |
+| `parallel_tool_calls?` | `boolean` | - |
 | `prefill_text?` | `string` | Prefill text to be used for chat parsing (Generation Prompt + Content) Used for if last assistant message is for prefill purpose |
 | `prompt?` | `string` | - |
 | `response_format?` | [`CompletionResponseFormat`](README.md#completionresponseformat) | - |
@@ -147,7 +147,7 @@ ___
 
 #### Defined in
 
-[index.ts:275](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L275)
+[index.ts:275](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L275)
 
 ___
 
@@ -157,7 +157,7 @@ ___
 
 #### Defined in
 
-[index.ts:306](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L306)
+[index.ts:306](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L306)
 
 ___
 
@@ -177,7 +177,7 @@ ___
 
 #### Defined in
 
-[index.ts:264](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L264)
+[index.ts:264](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L264)
 
 ___
 
@@ -187,7 +187,7 @@ ___
 
 #### Defined in
 
-[index.ts:214](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L214)
+[index.ts:214](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L214)
 
 ___
 
@@ -197,7 +197,7 @@ ___
 
 #### Defined in
 
-[index.ts:252](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L252)
+[index.ts:252](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L252)
 
 ___
 
@@ -216,7 +216,7 @@ ___
 
 #### Defined in
 
-[types.ts:607](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L607)
+[types.ts:609](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L609)
 
 ___
 
@@ -226,7 +226,7 @@ ___
 
 #### Defined in
 
-[types.ts:614](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L614)
+[types.ts:616](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L616)
 
 ___
 
@@ -246,7 +246,7 @@ ___
 
 #### Defined in
 
-[types.ts:651](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L651)
+[types.ts:676](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L676)
 
 ___
 
@@ -312,7 +312,7 @@ ___
 
 #### Defined in
 
-[types.ts:207](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L207)
+[types.ts:209](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L209)
 
 ___
 
@@ -349,7 +349,7 @@ ___
 
 #### Defined in
 
-[types.ts:476](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L476)
+[types.ts:478](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L478)
 
 ___
 
@@ -373,7 +373,7 @@ ___
 
 #### Defined in
 
-[types.ts:464](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L464)
+[types.ts:466](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L466)
 
 ___
 
@@ -390,7 +390,7 @@ ___
 
 #### Defined in
 
-[types.ts:459](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L459)
+[types.ts:461](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L461)
 
 ___
 
@@ -407,7 +407,7 @@ ___
 
 #### Defined in
 
-[types.ts:454](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L454)
+[types.ts:456](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L456)
 
 ___
 
@@ -425,7 +425,7 @@ ___
 | `cpu_mask?` | `string` | CPU affinity mask string (e.g., "0-3" or "0,2,4,6"). Specifies which CPU cores to use for inference. |
 | `cpu_strict?` | `boolean` | Use strict CPU placement. When true, enforces strict CPU core affinity. Default: false |
 | `ctx_shift?` | `boolean` | Enable context shifting to handle prompts larger than context size |
-| `devices?` | `string`[] | Backend devices choice to use. Default equals to result of `getBackendDevicesInfo. |
+| `devices?` | `string`[] | Backend devices to use. If omitted, llama.rn uses the platform default selection. On Android, Hexagon is opt-in: use `['HTP0']` for one session, select multiple HTP devices explicitly, or use `['HTP*']` for every available HTP session. |
 | `draft_model?` | `string` | Alias for model_draft. |
 | `embd_normalize?` | `number` | - |
 | `embedding?` | `boolean` | - |
@@ -470,7 +470,7 @@ ___
 
 #### Defined in
 
-[types.ts:45](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L45)
+[types.ts:45](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L45)
 
 ___
 
@@ -486,7 +486,7 @@ ___
 
 #### Defined in
 
-[types.ts:1](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L1)
+[types.ts:1](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L1)
 
 ___
 
@@ -502,7 +502,7 @@ ___
 
 #### Defined in
 
-[types.ts:543](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L543)
+[types.ts:545](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L545)
 
 ___
 
@@ -520,7 +520,7 @@ ___
 
 #### Defined in
 
-[types.ts:636](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L636)
+[types.ts:638](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L638)
 
 ___
 
@@ -565,7 +565,7 @@ ___
 
 #### Defined in
 
-[types.ts:547](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L547)
+[types.ts:549](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L549)
 
 ___
 
@@ -578,7 +578,7 @@ Extends NativeCompletionParams with parallel-mode specific options.
 
 #### Defined in
 
-[types.ts:411](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L411)
+[types.ts:413](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L413)
 
 ___
 
@@ -594,7 +594,7 @@ ___
 
 #### Defined in
 
-[types.ts:642](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L642)
+[types.ts:644](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L644)
 
 ___
 
@@ -611,7 +611,7 @@ ___
 
 #### Defined in
 
-[types.ts:646](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L646)
+[types.ts:648](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L648)
 
 ___
 
@@ -628,7 +628,7 @@ ___
 
 #### Defined in
 
-[types.ts:592](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L592)
+[types.ts:594](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L594)
 
 ___
 
@@ -638,7 +638,7 @@ ___
 
 #### Defined in
 
-[types.ts:40](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L40)
+[types.ts:40](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L40)
 
 ___
 
@@ -672,7 +672,7 @@ ___
 
 #### Defined in
 
-[types.ts:13](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L13)
+[types.ts:13](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L13)
 
 ___
 
@@ -682,7 +682,7 @@ ___
 
 #### Defined in
 
-[types.ts:5](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L5)
+[types.ts:5](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L5)
 
 ___
 
@@ -702,7 +702,7 @@ ___
 
 #### Defined in
 
-[types.ts:523](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L523)
+[types.ts:525](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L525)
 
 ___
 
@@ -715,7 +715,7 @@ Extends CompletionParams with parallel-mode specific options like state manageme
 
 #### Defined in
 
-[index.ts:316](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L316)
+[index.ts:316](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L316)
 
 ___
 
@@ -738,7 +738,7 @@ ___
 
 #### Defined in
 
-[types.ts:659](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L659)
+[types.ts:684](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L684)
 
 ___
 
@@ -757,7 +757,7 @@ ___
 
 #### Defined in
 
-[types.ts:670](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/types.ts#L670)
+[types.ts:695](https://github.com/mybigday/llama.rn/blob/2f744423/src/types.ts#L695)
 
 ___
 
@@ -780,7 +780,7 @@ ___
 
 #### Defined in
 
-[index.ts:33](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L33)
+[index.ts:33](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L33)
 
 ___
 
@@ -798,7 +798,7 @@ ___
 
 #### Defined in
 
-[index.ts:46](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L46)
+[index.ts:46](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L46)
 
 ___
 
@@ -814,7 +814,7 @@ ___
 
 #### Defined in
 
-[index.ts:254](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L254)
+[index.ts:254](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L254)
 
 ___
 
@@ -832,7 +832,7 @@ ___
 
 #### Defined in
 
-[index.ts:258](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L258)
+[index.ts:258](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L258)
 
 ___
 
@@ -842,7 +842,7 @@ ___
 
 #### Defined in
 
-[tts-voices.ts:25](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/tts-voices.ts#L25)
+[tts-voices.ts:25](https://github.com/mybigday/llama.rn/blob/2f744423/src/tts-voices.ts#L25)
 
 ___
 
@@ -864,7 +864,7 @@ ___
 
 #### Defined in
 
-[index.ts:203](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L203)
+[index.ts:203](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L203)
 
 ___
 
@@ -884,7 +884,7 @@ ___
 
 #### Defined in
 
-[index.ts:194](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L194)
+[index.ts:194](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L194)
 
 ## Variables
 
@@ -901,7 +901,7 @@ ___
 
 #### Defined in
 
-[index.ts:1595](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1595)
+[index.ts:1601](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1601)
 
 ___
 
@@ -911,7 +911,7 @@ ___
 
 #### Defined in
 
-[index.ts:78](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L78)
+[index.ts:78](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L78)
 
 ## Functions
 
@@ -935,7 +935,7 @@ ___
 
 #### Defined in
 
-[index.ts:1332](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1332)
+[index.ts:1339](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1339)
 
 ___
 
@@ -949,7 +949,7 @@ ___
 
 #### Defined in
 
-[index.ts:1449](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1449)
+[index.ts:1456](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1456)
 
 ___
 
@@ -971,7 +971,7 @@ ___
 
 #### Defined in
 
-[tts-voices.ts:122](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/tts-voices.ts#L122)
+[tts-voices.ts:122](https://github.com/mybigday/llama.rn/blob/2f744423/src/tts-voices.ts#L122)
 
 ___
 
@@ -992,7 +992,7 @@ ___
 
 #### Defined in
 
-[index.ts:1466](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1466)
+[index.ts:1472](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1472)
 
 ___
 
@@ -1006,7 +1006,7 @@ ___
 
 #### Defined in
 
-[index.ts:182](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L182)
+[index.ts:182](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L182)
 
 ___
 
@@ -1026,7 +1026,7 @@ ___
 
 #### Defined in
 
-[tts-voices.ts:137](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/tts-voices.ts#L137)
+[tts-voices.ts:137](https://github.com/mybigday/llama.rn/blob/2f744423/src/tts-voices.ts#L137)
 
 ___
 
@@ -1047,7 +1047,7 @@ ___
 
 #### Defined in
 
-[tts-voices.ts:130](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/tts-voices.ts#L130)
+[tts-voices.ts:130](https://github.com/mybigday/llama.rn/blob/2f744423/src/tts-voices.ts#L130)
 
 ___
 
@@ -1067,7 +1067,7 @@ ___
 
 #### Defined in
 
-[index.ts:1360](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1360)
+[index.ts:1367](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1367)
 
 ___
 
@@ -1081,7 +1081,7 @@ ___
 
 #### Defined in
 
-[index.ts:1589](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1589)
+[index.ts:1595](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1595)
 
 ___
 
@@ -1101,7 +1101,7 @@ ___
 
 #### Defined in
 
-[index.ts:1343](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1343)
+[index.ts:1350](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1350)
 
 ___
 
@@ -1121,4 +1121,4 @@ ___
 
 #### Defined in
 
-[index.ts:1326](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/index.ts#L1326)
+[index.ts:1333](https://github.com/mybigday/llama.rn/blob/2f744423/src/index.ts#L1333)

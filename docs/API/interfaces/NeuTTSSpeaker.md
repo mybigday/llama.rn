@@ -17,7 +17,7 @@
 
 #### Defined in
 
-[tts-voices.ts:22](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/tts-voices.ts#L22)
+[tts-voices.ts:22](https://github.com/mybigday/llama.rn/blob/2f744423/src/tts-voices.ts#L22)
 
 ___
 
@@ -27,4 +27,4 @@ ___
 
 #### Defined in
 
-[tts-voices.ts:21](https://github.com/mybigday/llama.rn/blob/b3bb9620/src/tts-voices.ts#L21)
+[tts-voices.ts:21](https://github.com/mybigday/llama.rn/blob/2f744423/src/tts-voices.ts#L21)
